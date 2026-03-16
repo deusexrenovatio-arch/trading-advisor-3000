@@ -20,7 +20,7 @@ def phase2b_asset_specs() -> list[AssetSpec]:
         AssetSpec(
             key="research_signal_candidates",
             description="Persist contract-safe signal candidates from backtests.",
-            inputs=("research_backtest_runs_delta",),
+            inputs=("feature_snapshots_delta", "research_backtest_runs_delta"),
             outputs=("research_signal_candidates_delta",),
         ),
     ]
