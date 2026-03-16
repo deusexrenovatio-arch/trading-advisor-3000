@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/canonical_bar.v1.json",
+  "title": "CanonicalBarV1",
+  "type": "object",
+  "required": [
+    "contract_id",
+    "timeframe",
+    "ts_open",
+    "ts_close",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume"
+  ],
+  "properties": {
+    "contract_id": {"type": "string", "minLength": 1},
+    "timeframe": {"type": "string", "enum": ["5m", "15m", "1h"]},
+    "ts_open": {"type": "string", "minLength": 1},
+    "ts_close": {"type": "string", "minLength": 1},
+    "open": {"type": "number"},
+    "high": {"type": "number"},
+    "low": {"type": "number"},
+    "close": {"type": "number"},
+    "volume": {"type": "integer", "minimum": 0}
+  },
+  "additionalProperties": false
+}

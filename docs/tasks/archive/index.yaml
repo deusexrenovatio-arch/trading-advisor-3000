@@ -37,3 +37,9 @@ items:
   status: completed
   started_at: '2026-03-16'
   completed_at: '2026-03-16'
+- id: TASK-2026-03-16-PHASE-1-CONTRACTS-AND-SCAFFOLDING
+  path: docs/tasks/archive/TASK-2026-03-16-phase-1-contracts-and-scaffolding.md
+  mode: full
+  status: completed
+  started_at: '2026-03-16'
+  completed_at: '2026-03-16'

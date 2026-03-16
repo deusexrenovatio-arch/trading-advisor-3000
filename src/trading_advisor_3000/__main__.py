@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from .app import build_app_metadata
+from .app_metadata import build_app_metadata
 
 
 def main() -> int:

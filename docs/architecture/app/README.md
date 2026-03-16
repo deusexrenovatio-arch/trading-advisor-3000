@@ -16,3 +16,6 @@
 Product-plane изменения не должны ломать shell contracts и не должны переносить торговую логику в shell paths.
 
 
+
+- docs/architecture/app/phase1-contracts-and-scaffolding.md — артефакты и приёмка Phase 1 contracts/scaffolding.
+
