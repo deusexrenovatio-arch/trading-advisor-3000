@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from trading_advisor_3000.app.contracts import Mode, OrderIntent
 from trading_advisor_3000.app.execution.adapters import StockSharpSidecarStub
 from trading_advisor_3000.app.execution.intents import PaperBrokerEngine
@@ -44,3 +46,10 @@ def test_phase2d_paper_mode_runs_from_intent_to_position_snapshot() -> None:
     ack = sidecar.submit_order_intent(intent)
     assert ack["accepted"] is True
     assert ack["intent_id"] == intent.intent_id
+
+
+def test_phase2d_rejects_flat_order_intent() -> None:
+    payload = _load_json(FIXTURES / "order_intent.v1.json")
+    payload["side"] = "flat"
+    with pytest.raises(ValueError):
+        OrderIntent.from_dict(payload)

@@ -68,6 +68,8 @@ class OrderIntent:
             raise ValueError("quantity must be positive")
         if self.limit_price is not None and self.limit_price <= 0:
             raise ValueError("limit_price must be positive when set")
+        if self.side == TradeSide.FLAT:
+            raise ValueError("side must be long or short for order intent")
 
     def to_dict(self) -> dict[str, object]:
         return {

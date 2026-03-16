@@ -109,6 +109,8 @@ class PaperBrokerEngine:
     ) -> PaperExecutionResult:
         if intent.mode != Mode.PAPER:
             raise ValueError("paper broker supports only paper mode intents")
+        if intent.side == TradeSide.FLAT:
+            raise ValueError("paper broker does not accept flat order intents")
         existing = self._results_by_intent.get(intent.intent_id)
         if existing is not None:
             return existing

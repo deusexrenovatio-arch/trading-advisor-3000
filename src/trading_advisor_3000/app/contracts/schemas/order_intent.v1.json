@@ -17,7 +17,7 @@
     "signal_id": {"type": "string", "minLength": 1},
     "contract_id": {"type": "string", "minLength": 1},
     "mode": {"type": "string", "enum": ["shadow", "paper", "live"]},
-    "side": {"type": "string", "enum": ["long", "short", "flat"]},
+    "side": {"type": "string", "enum": ["long", "short"]},
     "quantity": {"type": "integer", "minimum": 1},
     "limit_price": {"type": ["number", "null"], "exclusiveMinimum": 0},
     "created_at": {"type": "string", "minLength": 1}
