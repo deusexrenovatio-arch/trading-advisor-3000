@@ -11,6 +11,9 @@
 4. Keep one source of truth:
    - runtime files: `.cursor/skills/*/SKILL.md`
    - catalog metadata: `docs/agent/skills-catalog.md`
+5. Keep skills corpus cold in hot context:
+   - `.cursorignore` must include `.cursor/skills/**`
+   - load only targeted skills by routing signal
 
 ## Validation
 - `python scripts/validate_skills.py`

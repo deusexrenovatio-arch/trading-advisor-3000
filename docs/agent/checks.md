@@ -18,6 +18,10 @@
 | Nightly gate | `python scripts/run_nightly_gate.py --from-git --git-ref HEAD` | deep hygiene and reporting |
 | Dashboard refresh | `python scripts/build_governance_dashboard.py --output-json artifacts/governance-dashboard.json --output-md artifacts/governance-dashboard.md` | dashboard/report regeneration lane |
 
+Hosted CI note:
+- GitHub-hosted lane execution is enabled only when `AI_SHELL_ENABLE_HOSTED_CI=1`.
+- Default-off mode prevents infrastructure-side billing errors from producing false-red checks.
+
 ## Durable-state checks
 - `python scripts/validate_plans.py`
 - `python scripts/validate_agent_memory.py`

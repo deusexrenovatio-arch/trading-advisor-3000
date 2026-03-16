@@ -20,9 +20,12 @@ on:
         required: false
         default: "false"
 
+# Hosted CI is opt-in to avoid false-red checks in repos where GitHub-hosted
+# runners are not available (for example billing/spending disabled).
+# Set repository variable AI_SHELL_ENABLE_HOSTED_CI=1 to enable lane execution.
 jobs:
   loop-lane:
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ vars.AI_SHELL_ENABLE_HOSTED_CI == '1' && (github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -55,7 +58,7 @@ jobs:
           python -m pytest tests/process/test_validate_task_request_contract.py -q
 
   pr-lane:
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ vars.AI_SHELL_ENABLE_HOSTED_CI == '1' && (github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     needs: loop-lane
     steps:
@@ -81,7 +84,7 @@ jobs:
         run: python -m pytest tests/process tests/architecture tests/app -q
 
   nightly-lane:
-    if: ${{ (github.event_name == 'schedule' && github.event.schedule == '15 0 * * *') || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_nightly == 'true') }}
+    if: ${{ vars.AI_SHELL_ENABLE_HOSTED_CI == '1' && ((github.event_name == 'schedule' && github.event.schedule == '15 0 * * *') || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_nightly == 'true')) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -123,7 +126,7 @@ jobs:
           if-no-files-found: warn
 
   dashboard-refresh:
-    if: ${{ (github.event_name == 'schedule' && github.event.schedule == '45 0 * * *') || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_dashboard_refresh == 'true') || github.event_name == 'push' }}
+    if: ${{ vars.AI_SHELL_ENABLE_HOSTED_CI == '1' && ((github.event_name == 'schedule' && github.event.schedule == '45 0 * * *') || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_dashboard_refresh == 'true') || github.event_name == 'push') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

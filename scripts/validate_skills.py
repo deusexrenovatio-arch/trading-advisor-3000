@@ -12,6 +12,8 @@ import yaml
 SKILLS_ROOT = Path(".cursor/skills")
 CATALOG_FILE = Path("docs/agent/skills-catalog.md")
 GOVERNANCE_DOC = Path("docs/workflows/skill-governance-sync.md")
+COLD_CONTEXT_FILE = Path(".cursorignore")
+COLD_SKILLS_PATTERN = ".cursor/skills/**"
 DOMAIN_TOKEN_RE = re.compile(r"\b(trading|moex|signal|news|futures|arbitrage)\b", re.IGNORECASE)
 
 
@@ -34,6 +36,14 @@ def run(skills_root: Path, catalog_file: Path, governance_doc: Path) -> int:
         errors.append(f"missing skills catalog: {catalog_file.as_posix()}")
     if not governance_doc.exists():
         errors.append(f"missing workflow: {governance_doc.as_posix()}")
+    if not COLD_CONTEXT_FILE.exists():
+        errors.append(f"missing cold-context policy file: {COLD_CONTEXT_FILE.as_posix()}")
+    else:
+        cold_text = COLD_CONTEXT_FILE.read_text(encoding="utf-8")
+        if COLD_SKILLS_PATTERN not in cold_text:
+            errors.append(
+                f"cold-context policy missing `{COLD_SKILLS_PATTERN}` in {COLD_CONTEXT_FILE.as_posix()}"
+            )
     if not skills_root.exists():
         errors.append(f"missing skills root: {skills_root.as_posix()}")
         skills_dirs: list[Path] = []

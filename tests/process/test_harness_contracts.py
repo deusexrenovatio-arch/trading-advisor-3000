@@ -32,6 +32,12 @@ def test_phase8_dashboard_lane_scripts_are_registered_in_mapping() -> None:
     assert "measure_dev_loop.py" in mapping_text
 
 
+def test_ci_workflow_has_hosted_ci_opt_in_guard() -> None:
+    workflow_text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    assert "AI_SHELL_ENABLE_HOSTED_CI" in workflow_text
+    assert "vars.AI_SHELL_ENABLE_HOSTED_CI == '1'" in workflow_text
+
+
 def test_skill_update_decision_contract() -> None:
     result = subprocess.run(
         [

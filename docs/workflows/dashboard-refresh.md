@@ -3,6 +3,9 @@
 ## Purpose
 Regenerate process reports and governance dashboard outside the hot loop.
 
+Hosted CI execution of this lane is gated by `AI_SHELL_ENABLE_HOSTED_CI=1`.
+When hosted runners are unavailable, run this workflow locally.
+
 ## Inputs
 - `plans/PLANS.yaml`
 - `memory/agent_memory.yaml`
@@ -22,4 +25,3 @@ Regenerate process reports and governance dashboard outside the hot loop.
 - `artifacts/autonomy-kpi-report.md`
 - `artifacts/governance-dashboard.json`
 - `artifacts/governance-dashboard.md`
-

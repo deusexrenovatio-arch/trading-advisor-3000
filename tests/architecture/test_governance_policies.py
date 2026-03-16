@@ -52,6 +52,17 @@ def test_validate_skills_passes() -> None:
     _assert_ok([sys.executable, "scripts/validate_skills.py"])
 
 
+def test_skills_corpus_is_cold_by_default() -> None:
+    text = (ROOT / ".cursorignore").read_text(encoding="utf-8")
+    assert ".cursor/skills/**" in text
+
+
+def test_skills_routing_declares_targeted_loading() -> None:
+    text = (ROOT / "docs/agent/skills-routing.md").read_text(encoding="utf-8").lower()
+    assert "cold-by-default" in text
+    assert "specific skill" in text
+
+
 def test_autonomy_kpi_report_runs() -> None:
     output = ROOT / ".tmp" / "autonomy-kpi-architecture-smoke.md"
     _assert_ok([sys.executable, "scripts/autonomy_kpi_report.py", "--output", str(output)])
