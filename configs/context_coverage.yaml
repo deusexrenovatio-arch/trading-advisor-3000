@@ -1,0 +1,46 @@
+version: 1
+
+required_context_cards:
+  - CTX-OPS
+  - CTX-CONTRACTS
+  - CTX-ARCHITECTURE
+  - CTX-DOMAIN
+  - CTX-EXTERNAL-SOURCES
+  - CTX-SKILLS
+
+significant_paths:
+  - AGENTS.md
+  - CODEOWNERS
+  - docs/agent/
+  - docs/agent-contexts/
+  - docs/checklists/
+  - docs/workflows/
+  - docs/runbooks/
+  - docs/architecture/
+  - docs/tasks/active/
+  - scripts/
+  - configs/
+  - plans/items/
+  - memory/decisions/
+  - memory/incidents/
+  - memory/patterns/
+  - tests/process/
+  - tests/architecture/
+  - src/trading_advisor_3000/
+  - .github/workflows/
+
+high_risk_paths:
+  - configs/
+  - plans/
+  - memory/
+  - docs/checklists/
+  - scripts/validate_task_request_contract.py
+  - scripts/validate_plans.py
+  - scripts/validate_agent_memory.py
+  - scripts/validate_task_outcomes.py
+
+required_high_risk_context: CTX-CONTRACTS
+
+exclude_globs:
+  - "**/__pycache__/**"
+  - "**/*.pyc"

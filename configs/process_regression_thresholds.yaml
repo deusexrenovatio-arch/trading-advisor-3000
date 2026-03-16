@@ -1,0 +1,8 @@
+version: 1
+window_size: 20
+thresholds:
+  correct_first_time_pct: 0.70
+  start_match_pct: 0.75
+  context_expansion_rate: 0.25
+  repeat_error_rate: 0.15
+  environment_blocker_rate: 0.20

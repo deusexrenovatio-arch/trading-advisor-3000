@@ -1,0 +1,12 @@
+version: 1
+status_by_decision_quality:
+  pending: in_progress
+  correct_first_time: completed
+  correct_after_replan: completed
+  wrong_path: partial
+  partial_outcome: partial
+  environment_blocked: blocked
+blocked_requires_blockers: true
+no_blocker_markers:
+  - no blocker
+  - no blocker.

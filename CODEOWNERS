@@ -1,0 +1,35 @@
+# Default ownership
+* @trading-advisor-3000/core
+
+# Governance and policy
+/AGENTS.md @trading-advisor-3000/ai-governance
+/agent-runbook.md @trading-advisor-3000/ai-governance
+/harness-guideline.md @trading-advisor-3000/ai-governance
+/.githooks/ @trading-advisor-3000/platform
+/.cursorignore @trading-advisor-3000/platform
+
+# Documentation surfaces
+/docs/agent/ @trading-advisor-3000/ai-governance
+/docs/agent-contexts/ @trading-advisor-3000/ai-governance
+/docs/DEV_WORKFLOW.md @trading-advisor-3000/ai-governance
+/docs/README.md @trading-advisor-3000/ai-governance
+/docs/planning/ @trading-advisor-3000/ai-governance
+/docs/checklists/ @trading-advisor-3000/ai-governance
+/docs/workflows/ @trading-advisor-3000/ai-governance
+/docs/runbooks/ @trading-advisor-3000/ai-governance
+/docs/architecture/ @trading-advisor-3000/architecture
+/docs/tasks/ @trading-advisor-3000/process
+
+# Process state
+/plans/ @trading-advisor-3000/process
+/memory/ @trading-advisor-3000/process
+/configs/ @trading-advisor-3000/process
+
+# Automation and checks
+/scripts/ @trading-advisor-3000/platform
+/tests/ @trading-advisor-3000/qa
+/.github/workflows/ @trading-advisor-3000/platform
+/.cursor/skills/ @trading-advisor-3000/ai-governance
+
+# Application placeholder
+/src/trading_advisor_3000/ @trading-advisor-3000/app-core

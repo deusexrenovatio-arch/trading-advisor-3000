@@ -1,0 +1,17 @@
+id: P1-PILOT-TASK-002
+title: Pilot task closeout for shell lifecycle validation
+lane: governance-shell
+status: completed
+execution_mode: assisted
+owner: platform-governance
+started_at: '2026-03-16'
+completed_at: '2026-03-16'
+acceptance:
+- Archive task note exists with terminal outcome.
+- Task outcome ledger includes pilot record.
+- Gate stack validates with pilot artifacts in place.
+checks:
+- python scripts/validate_task_outcomes.py
+- python scripts/validate_plans.py
+dependencies:
+- P1-SHELL-BOOTSTRAP-001

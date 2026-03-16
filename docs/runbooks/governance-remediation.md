@@ -1,0 +1,73 @@
+# Governance Remediation Guide
+
+Use this runbook when a governance gate fails.
+
+## `python scripts/task_session.py begin --request "<request>"`
+- Start session in the real worktree/branch you are using.
+- If session is already active, inspect with `python scripts/task_session.py status`.
+
+## `python scripts/run_loop_gate.py`
+- Read reported `primary_surface` and failing command.
+- Re-run `python scripts/compute_change_surface.py --from-git --git-ref HEAD --format text`.
+- Fix scoped validator/test and rerun loop gate.
+
+## `python scripts/run_pr_gate.py`
+- Ensure loop gate passes first.
+- Fix PR-only command failures and rerun.
+
+## `python scripts/run_nightly_gate.py`
+- Ensure PR gate passes first.
+- Fix nightly-only drift/hygiene failures and rerun.
+
+## `python scripts/nightly_root_hygiene.py`
+- Validate root layout, required files, and no legacy gate aliases.
+- Fix repository hygiene before retrying nightly lane.
+
+## `python scripts/measure_dev_loop.py`
+- Regenerate dev-loop baseline when outcome ledger changed.
+- Use markdown output for human review and JSON output for dashboards.
+
+## `python scripts/harness_baseline_metrics.py`
+- Rebuild baseline inventory for plans/memory/process rollups.
+- Keep artifact path stable for dashboard refresh lane.
+
+## `python scripts/build_governance_dashboard.py`
+- Regenerate dashboard JSON and markdown.
+- Use after nightly lane or when governance ledgers changed.
+
+## `python scripts/validate_task_request_contract.py`
+- Ensure task note includes:
+  - `## Task Request Contract`
+  - `## First-Time-Right Report`
+  - `## Repetition Control`
+- Keep max same-path attempts within `configs/agent_incident_policy.yaml`.
+
+## `python scripts/validate_session_handoff.py`
+- Keep `docs/session_handoff.md` as pointer shim.
+- Keep `## Current Delta` concise (max 8 bullets) in active task note.
+
+## `python scripts/validate_pr_only_policy.py`
+- Keep direct push to `main` blocked by default.
+- Keep emergency override variables neutral:
+  - `AI_SHELL_EMERGENCY_MAIN_PUSH`
+  - `AI_SHELL_EMERGENCY_MAIN_PUSH_REASON`
+
+## `python scripts/validate_plans.py`
+- Keep `plans/items/` canonical and structurally valid.
+- Regenerate compatibility output: `plans/PLANS.yaml`.
+
+## `python scripts/validate_agent_memory.py`
+- Keep memory entries typed by section and unique by id.
+- Ensure dates are valid ISO format.
+
+## `python scripts/validate_task_outcomes.py`
+- Keep task outcomes ledger valid and status values allowed.
+- Use `python scripts/sync_task_outcomes.py` to refresh current task record.
+
+## `python scripts/validate_architecture_policy.py`
+- Ensure required architecture package files exist.
+- Keep architecture map in mermaid format and ADR baseline present.
+
+## `python scripts/skill_precommit_gate.py`
+- Use when changing `.cursor/skills/*`.
+- Update skill catalog/routing docs if gate reports `update_required`.

@@ -1,0 +1,33 @@
+version: 1
+updated_at: '2026-03-16'
+items:
+- id: TASK-2026-03-16-SHELL-BOOTSTRAP
+  path: docs/tasks/archive/TASK-2026-03-16-shell-bootstrap.md
+  mode: full
+  status: completed
+  started_at: '2026-03-16'
+  completed_at: '2026-03-16'
+- id: TASK-2026-03-16-PILOT-SHELL-VALIDATION
+  path: docs/tasks/archive/TASK-2026-03-16-pilot-shell-validation.md
+  mode: full
+  status: completed
+  started_at: '2026-03-16'
+  completed_at: '2026-03-16'
+- id: TASK-2026-03-16-DOD-QA-CODEX-AI-DELIVERY-SHELL-PACKAGE-TRADING-A
+  path: docs/tasks/archive/TASK-2026-03-16-dod-qa-codex-ai-delivery-shell-package-trading-a.md
+  mode: full
+  status: completed
+  started_at: '2026-03-16'
+  completed_at: '2026-03-16'
+- id: TASK-2026-03-16-CLOSE-ALL-ACCEPTANCE-REMARKS-FROM-ACCEPTANCE-ACT
+  path: docs/tasks/archive/TASK-2026-03-16-close-all-acceptance-remarks-from-acceptance-act.md
+  mode: full
+  status: completed
+  started_at: '2026-03-16'
+  completed_at: '2026-03-16'
+- id: TASK-2026-03-16-TASK
+  path: docs/tasks/archive/TASK-2026-03-16-task.md
+  mode: full
+  status: completed
+  started_at: '2026-03-16'
+  completed_at: '2026-03-16'

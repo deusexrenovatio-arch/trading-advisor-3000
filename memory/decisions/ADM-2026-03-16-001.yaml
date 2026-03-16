@@ -1,0 +1,6 @@
+id: ADM-2026-03-16-001
+date: '2026-03-16'
+title: Keep run_loop_gate as canonical hot-path gate
+context: governance-shell
+decision: run_loop_gate remains the only canonical fast gate name
+impact: prevents legacy gate alias reintroduction

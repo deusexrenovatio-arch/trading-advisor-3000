@@ -1,0 +1,111 @@
+version: 1
+
+surface_priority:
+  - contracts
+  - architecture
+  - app
+  - skills
+  - governance
+  - docs-only
+
+surfaces:
+  contracts:
+    prefixes:
+      - configs/
+      - plans/
+      - memory/
+      - docs/checklists/
+      - scripts/validate_task_request_contract.py
+      - scripts/validate_plans.py
+      - scripts/validate_agent_memory.py
+      - scripts/validate_task_outcomes.py
+      - scripts/sync_task_outcomes.py
+      - scripts/sync_state_layout.py
+  architecture:
+    prefixes:
+      - docs/architecture/
+      - tests/architecture/
+  app:
+    prefixes:
+      - src/trading_advisor_3000/
+      - tests/app/
+  skills:
+    prefixes:
+      - .cursor/skills/
+      - docs/agent/skills-
+      - docs/workflows/skill-governance-sync.md
+      - scripts/validate_skills.py
+  governance:
+    prefixes:
+      - AGENTS.md
+      - README.md
+      - CODEOWNERS
+      - docs/agent/
+      - docs/workflows/
+      - docs/runbooks/
+      - docs/tasks/
+      - docs/session_handoff.md
+      - scripts/
+      - tests/process/
+      - .githooks/
+      - .github/workflows/
+
+docs_only:
+  prefixes:
+    - docs/
+  suffixes:
+    - .md
+    - .txt
+    - .rst
+
+command_profiles:
+  loop:
+    default:
+      - "{python} scripts/validate_docs_links.py --roots AGENTS.md docs"
+    contracts:
+      - "{python} scripts/validate_task_request_contract.py"
+      - "{python} scripts/validate_plans.py"
+      - "{python} scripts/validate_agent_memory.py"
+      - "{python} scripts/validate_task_outcomes.py"
+    architecture:
+      - "{python} scripts/validate_architecture_policy.py"
+    governance:
+      - "{python} scripts/validate_plans.py"
+      - "{python} scripts/validate_agent_memory.py"
+      - "{python} scripts/validate_task_outcomes.py"
+      - "{python} scripts/validate_session_handoff.py"
+      - "{python} scripts/validate_task_request_contract.py"
+      - "{python} scripts/validate_pr_only_policy.py"
+      - "{python} scripts/validate_agent_contexts.py"
+    skills:
+      - "{python} scripts/skill_precommit_gate.py"
+      - "{python} scripts/validate_skills.py"
+
+  pr:
+    default:
+      - "{python} scripts/run_loop_gate.py --skip-session-check"
+      - "{python} scripts/validate_task_outcomes.py --require-terminal-outcome"
+      - "{python} -m pytest tests/process/test_phase1_governance_shell.py"
+    contracts:
+      - "{python} -m pytest tests/process/test_validate_plans_contract.py -q"
+      - "{python} -m pytest tests/process/test_validate_task_request_contract.py -q"
+      - "{python} -m pytest tests/architecture/test_context_coverage.py -q"
+    architecture:
+      - "{python} -m pytest tests/architecture -q"
+    app:
+      - "{python} -m pytest tests/app -q"
+
+  nightly:
+    default:
+      - "{python} scripts/run_pr_gate.py --skip-session-check"
+      - "{python} scripts/validate_process_regressions.py"
+      - "{python} scripts/nightly_root_hygiene.py"
+      - "{python} scripts/sync_state_layout.py"
+      - "{python} scripts/measure_dev_loop.py --format markdown --output artifacts/dev-loop-baseline.md"
+      - "{python} scripts/validate_architecture_policy.py"
+      - "{python} scripts/validate_docs_links.py --roots AGENTS.md docs"
+      - "{python} scripts/validate_governance_remediation.py"
+      - "{python} scripts/harness_baseline_metrics.py --output artifacts/harness-baseline-metrics.json"
+      - "{python} scripts/process_improvement_report.py --output artifacts/process-improvement-report.md"
+      - "{python} scripts/autonomy_kpi_report.py --output artifacts/autonomy-kpi-report.md"
+      - "{python} scripts/build_governance_dashboard.py --output-json artifacts/governance-dashboard.json --output-md artifacts/governance-dashboard.md"

@@ -1,0 +1,23 @@
+# Keep hot context intentionally narrow.
+
+# Package and archives
+codex_ai_delivery_shell_package_trading_advisor_3000.zip
+codex_ai_delivery_shell_package/**
+
+# Cold and generated state
+memory/**
+plans/**
+docs/tasks/**
+.github/workflows/**
+tests/**
+
+# Docs default-closed policy
+docs/**
+!docs/
+!docs/README.md
+!docs/DEV_WORKFLOW.md
+!docs/agent/
+!docs/agent/**
+
+# Keep root policy visible
+!AGENTS.md

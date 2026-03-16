@@ -1,0 +1,9 @@
+version: 1
+incident:
+  max_same_path_attempts: 2
+  allowed_remediation_types:
+    - capability
+    - guardrail
+    - docs
+    - test
+    - workflow

@@ -1,0 +1,502 @@
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+from collections import defaultdict
+from dataclasses import dataclass
+from pathlib import Path
+
+from handoff_resolver import read_task_note_lines
+
+
+TOKEN_RE = re.compile(r"[0-9]+|[^\W\d_]+", re.UNICODE)
+STOP_WORDS = {
+    "and",
+    "artifact",
+    "artifacts",
+    "check",
+    "checks",
+    "code",
+    "context",
+    "contexts",
+    "docs",
+    "file",
+    "files",
+    "for",
+    "from",
+    "goal",
+    "input",
+    "inputs",
+    "module",
+    "modules",
+    "output",
+    "outputs",
+    "path",
+    "paths",
+    "task",
+    "tasks",
+    "the",
+    "use",
+    "with",
+}
+DEFAULT_SESSION_HANDOFF_PATH = "docs/session_handoff.md"
+COLD_CONTEXT_PREFIXES: tuple[str, ...] = (
+    "plans/",
+    "memory/",
+    "codex_ai_delivery_shell_package/",
+    "docs/tasks/archive/",
+)
+
+
+@dataclass(frozen=True)
+class ContextSpec:
+    context_id: str
+    summary: str
+    owned_paths: tuple[str, ...]
+    guarded_paths: tuple[str, ...]
+    source_of_truth: tuple[str, ...]
+    minimal_checks: tuple[str, ...]
+    intent_keywords: tuple[str, ...]
+    risk: str = "normal"
+
+
+CONTEXTS: tuple[ContextSpec, ...] = (
+    ContextSpec(
+        context_id="CTX-OPS",
+        summary="Governance scripts, process contracts, and lifecycle automation.",
+        owned_paths=(
+            "agents.md",
+            "codeowners",
+            "docs/agent/",
+            "docs/agent-contexts/",
+            "docs/workflows/",
+            "docs/runbooks/",
+            "docs/tasks/",
+            "docs/session_handoff.md",
+            "scripts/",
+            "tests/process/",
+            ".githooks/",
+            ".github/workflows/",
+        ),
+        guarded_paths=("src/trading_advisor_3000/",),
+        source_of_truth=(
+            "AGENTS.md",
+            "docs/agent/entrypoint.md",
+            "docs/DEV_WORKFLOW.md",
+        ),
+        minimal_checks=(
+            "python scripts/run_loop_gate.py --from-git --git-ref HEAD",
+            "python scripts/validate_task_request_contract.py",
+        ),
+        intent_keywords=("governance", "policy", "gate", "workflow", "handoff", "session", "plan", "memory"),
+    ),
+    ContextSpec(
+        context_id="CTX-CONTRACTS",
+        summary="High-risk contract and state surfaces: plans, memory, and policy validators.",
+        owned_paths=(
+            "configs/",
+            "plans/",
+            "memory/",
+            "docs/checklists/",
+            "scripts/validate_task_request_contract.py",
+            "scripts/validate_plans.py",
+            "scripts/validate_agent_memory.py",
+            "scripts/validate_task_outcomes.py",
+            "scripts/sync_task_outcomes.py",
+            "scripts/sync_state_layout.py",
+        ),
+        guarded_paths=("src/trading_advisor_3000/", "docs/architecture/"),
+        source_of_truth=(
+            "docs/checklists/task-request-contract.md",
+            "docs/checklists/first-time-right-gate.md",
+            "plans/items/index.yaml",
+            "memory/task_outcomes.yaml",
+        ),
+        minimal_checks=(
+            "python scripts/validate_task_request_contract.py",
+            "python scripts/validate_plans.py",
+            "python scripts/validate_agent_memory.py",
+            "python scripts/validate_task_outcomes.py",
+        ),
+        intent_keywords=("contract", "state", "ledger", "plan", "memory", "schema", "high-risk"),
+        risk="high",
+    ),
+    ContextSpec(
+        context_id="CTX-ARCHITECTURE",
+        summary="Architecture-as-docs package, ADRs, and boundary tests.",
+        owned_paths=(
+            "docs/architecture/",
+            "tests/architecture/",
+        ),
+        guarded_paths=("src/trading_advisor_3000/",),
+        source_of_truth=(
+            "docs/architecture/README.md",
+            "docs/agent/domains.md",
+        ),
+        minimal_checks=(
+            "python scripts/run_loop_gate.py --from-git --git-ref HEAD",
+            "python -m pytest tests/architecture -q",
+        ),
+        intent_keywords=("architecture", "adr", "boundary", "module", "layer"),
+        risk="high",
+    ),
+    ContextSpec(
+        context_id="CTX-DOMAIN",
+        summary="Application placeholder package and neutral app contracts.",
+        owned_paths=(
+            "src/trading_advisor_3000/",
+            "tests/app/",
+        ),
+        guarded_paths=("docs/architecture/", "scripts/"),
+        source_of_truth=(
+            "docs/agent-contexts/CTX-DOMAIN.md",
+            "docs/architecture/modules.md",
+        ),
+        minimal_checks=(
+            "python scripts/run_loop_gate.py --from-git --git-ref HEAD",
+            "python -m pytest tests/app -q",
+        ),
+        intent_keywords=("app", "placeholder", "module", "package"),
+    ),
+    ContextSpec(
+        context_id="CTX-EXTERNAL-SOURCES",
+        summary="External source contracts, ingestion interfaces, and lineage policy stubs.",
+        owned_paths=(
+            "docs/agent-contexts/CTX-EXTERNAL-SOURCES.md",
+        ),
+        guarded_paths=("src/trading_advisor_3000/",),
+        source_of_truth=(
+            "docs/agent-contexts/CTX-EXTERNAL-SOURCES.md",
+            "docs/workflows/context-budget.md",
+        ),
+        minimal_checks=(
+            "python scripts/run_loop_gate.py --from-git --git-ref HEAD",
+            "python scripts/validate_docs_links.py --roots AGENTS.md docs",
+        ),
+        intent_keywords=("external", "source", "integration", "lineage", "ingestion"),
+    ),
+    ContextSpec(
+        context_id="CTX-SKILLS",
+        summary="Local skills catalog and generic-skill governance.",
+        owned_paths=(
+            ".cursor/skills/",
+            "docs/agent/skills-catalog.md",
+            "docs/agent/skills-routing.md",
+        ),
+        guarded_paths=("src/trading_advisor_3000/",),
+        source_of_truth=(
+            "docs/agent/skills-routing.md",
+            "docs/workflows/skill-governance-sync.md",
+        ),
+        minimal_checks=(
+            "python scripts/validate_skills.py",
+            "python scripts/run_loop_gate.py --from-git --git-ref HEAD",
+        ),
+        intent_keywords=("skill", "skills", "catalog", "routing", "governance"),
+    ),
+)
+CONTEXT_PRIORITY: tuple[str, ...] = tuple(spec.context_id for spec in CONTEXTS)
+
+
+def _normalize_path(raw: str) -> str:
+    return raw.replace("\\", "/").strip().lower()
+
+
+def _deduplicate(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in items:
+        marker = _normalize_path(item)
+        if not marker or marker in seen:
+            continue
+        seen.add(marker)
+        out.append(item)
+    return out
+
+
+def _tokenize(text: str) -> set[str]:
+    return {
+        token.lower()
+        for token in TOKEN_RE.findall(text.lower())
+        if token.lower() not in STOP_WORDS and len(token) > 2
+    }
+
+
+def _prefix_match(path: str, owned: str) -> bool:
+    normalized_owned = _normalize_path(owned).rstrip("/")
+    return path == normalized_owned or path.startswith(f"{normalized_owned}/")
+
+
+def _collect_changed_from_git(git_ref: str) -> list[str]:
+    changed_cmd = ["git", "diff", "--name-only", git_ref]
+    changed = subprocess.run(changed_cmd, check=False, capture_output=True, text=True)
+    if changed.returncode != 0:
+        return []
+
+    untracked_cmd = ["git", "ls-files", "--others", "--exclude-standard"]
+    untracked = subprocess.run(untracked_cmd, check=False, capture_output=True, text=True)
+    untracked_lines: list[str] = []
+    if untracked.returncode == 0:
+        untracked_lines = [line.strip() for line in untracked.stdout.splitlines() if line.strip()]
+
+    changed_lines = [line.strip() for line in changed.stdout.splitlines() if line.strip()]
+    return _deduplicate(changed_lines + untracked_lines)
+
+
+def _collect_changed_from_stdin() -> list[str]:
+    return [line.strip() for line in sys.stdin.read().splitlines() if line.strip()]
+
+
+def _context_token_pool(spec: ContextSpec) -> set[str]:
+    fields = [spec.context_id.replace("CTX-", " "), spec.summary, *spec.intent_keywords]
+    return _tokenize(" ".join(fields))
+
+
+def _score_intent_contexts(
+    *,
+    request_text: str,
+    session_handoff_text: str,
+    target_modules: list[str],
+) -> tuple[dict[str, int], list[str]]:
+    intent_sources: list[str] = []
+    intent_parts: list[str] = []
+    if request_text.strip():
+        intent_parts.append(request_text)
+        intent_sources.append("request")
+    if session_handoff_text.strip():
+        intent_parts.append(session_handoff_text)
+        intent_sources.append("session_handoff")
+    if target_modules:
+        intent_parts.extend(target_modules)
+        intent_sources.append("target_module")
+    intent_tokens = _tokenize(" ".join(intent_parts))
+    if not intent_tokens and not target_modules:
+        return {}, intent_sources
+    scores: dict[str, int] = {}
+    for spec in CONTEXTS:
+        overlap = len(intent_tokens & _context_token_pool(spec))
+        if overlap > 0:
+            scores[spec.context_id] = overlap
+    return scores, intent_sources
+
+
+def _select_primary(counts: dict[str, int]) -> str | None:
+    if not counts:
+        return None
+    ranked = sorted(
+        counts.items(),
+        key=lambda item: (-item[1], CONTEXT_PRIORITY.index(item[0])),
+    )
+    return ranked[0][0]
+
+
+def _load_session_handoff_text(path_value: str | None) -> str:
+    if not path_value:
+        return ""
+    path = Path(path_value)
+    if not path.exists():
+        return ""
+    _resolved_path, lines, _is_pointer = read_task_note_lines(path)
+    return "\n".join(lines)
+
+
+def route_files(
+    changed_files: list[str],
+    *,
+    request_text: str = "",
+    target_modules: list[str] | None = None,
+    session_handoff_text: str = "",
+    include_cold_paths: bool = False,
+) -> dict[str, object]:
+    target_modules = target_modules or []
+    normalized = [(_normalize_path(path), path) for path in _deduplicate(changed_files)]
+    matched: dict[str, list[str]] = defaultdict(list)
+    cold_context_files: list[str] = []
+    unmapped: list[str] = []
+
+    for normalized_path, original_path in normalized:
+        if (not include_cold_paths) and any(
+            _prefix_match(normalized_path, prefix) for prefix in COLD_CONTEXT_PREFIXES
+        ):
+            cold_context_files.append(original_path)
+            continue
+        owners = [
+            spec.context_id
+            for spec in CONTEXTS
+            if any(_prefix_match(normalized_path, owned) for owned in spec.owned_paths)
+        ]
+        if not owners:
+            unmapped.append(original_path)
+            continue
+        for context_id in owners:
+            matched[context_id].append(original_path)
+
+    intent_scores, intent_sources = _score_intent_contexts(
+        request_text=request_text,
+        session_handoff_text=session_handoff_text,
+        target_modules=target_modules,
+    )
+    counts = {context_id: len(paths) for context_id, paths in matched.items()}
+    primary = _select_primary(counts) or _select_primary(intent_scores)
+
+    if not normalized and not intent_scores:
+        return {
+            "primary_context": None,
+            "contexts": [],
+            "intent_sources": intent_sources,
+            "cold_context_files": [],
+            "unmapped_files": [],
+            "recommendations": ["No files provided. Use --from-git, --stdin, or --changed-files."],
+        }
+
+    if matched:
+        visible_contexts = sorted(matched, key=lambda cid: CONTEXT_PRIORITY.index(cid))
+    else:
+        max_score = max(intent_scores.values()) if intent_scores else 0
+        visible_contexts = [
+            context_id
+            for context_id, score in sorted(
+                intent_scores.items(),
+                key=lambda item: (-item[1], CONTEXT_PRIORITY.index(item[0])),
+            )
+            if score >= max(max_score - 1, 1)
+        ]
+
+    context_entries: list[dict[str, object]] = []
+    for context_id in visible_contexts:
+        spec = next(spec for spec in CONTEXTS if spec.context_id == context_id)
+        matched_files = sorted(matched.get(context_id, []))
+        context_entries.append(
+            {
+                "id": context_id,
+                "summary": spec.summary,
+                "risk": spec.risk,
+                "matched_files_count": len(matched_files),
+                "matched_files": matched_files,
+                "guarded_paths": list(spec.guarded_paths),
+                "source_of_truth": list(spec.source_of_truth),
+                "minimal_checks": list(spec.minimal_checks),
+                "intent_score": int(intent_scores.get(context_id, 0)),
+            }
+        )
+
+    recommendations: list[str] = []
+    if not normalized and intent_scores:
+        recommendations.append("No diff yet. Using request/session intent fallback.")
+    if len(context_entries) > 1:
+        recommendations.append(
+            "Patch touches multiple contexts. Split by ownership to keep review and retrieval small."
+        )
+    if unmapped:
+        recommendations.append("Some files are unmapped. Classify manually before implementation.")
+    if cold_context_files:
+        recommendations.append(
+            "Cold-context files are present. Keep them out of hot retrieval unless explicitly required."
+        )
+    if not recommendations:
+        recommendations.append("Patch is scoped to one context.")
+
+    return {
+        "primary_context": primary,
+        "contexts": context_entries,
+        "intent_sources": intent_sources,
+        "cold_context_files": sorted(cold_context_files),
+        "unmapped_files": sorted(unmapped),
+        "recommendations": recommendations,
+    }
+
+
+def _render_text(result: dict[str, object]) -> str:
+    lines: list[str] = [f"primary_context: {result.get('primary_context')}"]
+    intent_sources = result.get("intent_sources", [])
+    if isinstance(intent_sources, list) and intent_sources:
+        lines.append(f"intent_sources: {', '.join(intent_sources)}")
+    contexts = result.get("contexts", [])
+    if isinstance(contexts, list):
+        for item in contexts:
+            if not isinstance(item, dict):
+                continue
+            lines.append(f"- {item.get('id')} files={item.get('matched_files_count')} risk={item.get('risk')}")
+            matched_files = item.get("matched_files", [])
+            if isinstance(matched_files, list):
+                for path in matched_files:
+                    lines.append(f"  * {path}")
+    unmapped = result.get("unmapped_files", [])
+    if isinstance(unmapped, list) and unmapped:
+        lines.append("unmapped_files:")
+        for path in unmapped:
+            lines.append(f"- {path}")
+    cold_files = result.get("cold_context_files", [])
+    if isinstance(cold_files, list) and cold_files:
+        lines.append("cold_context_files:")
+        for path in cold_files:
+            lines.append(f"- {path}")
+    recommendations = result.get("recommendations", [])
+    if isinstance(recommendations, list):
+        lines.append("recommendations:")
+        for note in recommendations:
+            lines.append(f"- {note}")
+    return "\n".join(lines)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Route changed files to shell ownership contexts.")
+    parser.add_argument("--from-git", action="store_true", help="Load changed files from git diff.")
+    parser.add_argument("--git-ref", type=str, default="HEAD", help="Git ref used with --from-git.")
+    parser.add_argument("--stdin", action="store_true", help="Load newline-separated file paths from stdin.")
+    parser.add_argument("--changed-files", nargs="*", default=[], help="Explicit changed file list.")
+    parser.add_argument("--request", type=str, default="", help="Optional request text for intent fallback.")
+    parser.add_argument(
+        "--target-module",
+        action="append",
+        default=[],
+        help="Optional module/path hint. Repeat for multiple targets.",
+    )
+    parser.add_argument(
+        "--session-handoff-path",
+        type=str,
+        default=DEFAULT_SESSION_HANDOFF_PATH,
+        help=f"Optional session handoff path (default: {DEFAULT_SESSION_HANDOFF_PATH}).",
+    )
+    parser.add_argument(
+        "--include-cold-paths",
+        action="store_true",
+        help="Include cold-context paths in ownership routing (used by coverage validators).",
+    )
+    parser.add_argument("--format", choices=("json", "text"), default="json", help="Output format.")
+    parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON output.")
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
+    args = parser.parse_args()
+
+    changed_files: list[str] = list(args.changed_files)
+    if args.from_git:
+        changed_files.extend(_collect_changed_from_git(args.git_ref))
+    if args.stdin:
+        changed_files.extend(_collect_changed_from_stdin())
+
+    result = route_files(
+        changed_files,
+        request_text=args.request,
+        target_modules=list(args.target_module),
+        session_handoff_text=_load_session_handoff_text(args.session_handoff_path),
+        include_cold_paths=bool(args.include_cold_paths),
+    )
+    if args.format == "text":
+        print(_render_text(result))
+        return 0
+    if args.pretty:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    else:
+        print(json.dumps(result, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

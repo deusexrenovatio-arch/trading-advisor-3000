@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""Pre-push policy hook for AI delivery shell."""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+
+def parse_push_targets(stdin_data: str) -> bool:
+    """Return True when push includes refs/heads/main."""
+    for raw_line in stdin_data.splitlines():
+        parts = raw_line.strip().split()
+        if len(parts) != 4:
+            continue
+        _local_ref, _local_sha, remote_ref, _remote_sha = parts
+        if remote_ref == "refs/heads/main":
+            return True
+    return False
+
+
+def validate_main_policy(targets_main: bool) -> int:
+    if not targets_main:
+        return 0
+
+    emergency_main_push = os.getenv("AI_SHELL_EMERGENCY_MAIN_PUSH", "0")
+    reason = os.getenv("AI_SHELL_EMERGENCY_MAIN_PUSH_REASON", "")
+
+    if emergency_main_push != "1":
+        print("[pre-push] Direct push to main is blocked.")
+        print("[pre-push] Use PR flow. Emergency override requires:")
+        print("  AI_SHELL_EMERGENCY_MAIN_PUSH=1")
+        print("  AI_SHELL_EMERGENCY_MAIN_PUSH_REASON=<non-empty>")
+        return 1
+
+    if not reason.strip():
+        print("[pre-push] Emergency main push requires a non-empty reason.")
+        return 1
+
+    print("[pre-push] Emergency main push override accepted with reason.")
+    return 0
+
+
+def run_scoped_loop_gate(repo_root: Path) -> int:
+    gate_script = repo_root / "scripts" / "run_loop_gate.py"
+    if not gate_script.exists():
+        print("[pre-push] scripts/run_loop_gate.py is missing.")
+        return 1
+
+    cmd = [sys.executable, str(gate_script), "--base", "origin/main", "--head", "HEAD"]
+    print("[pre-push] Running scoped loop gate...")
+    result = subprocess.run(cmd, cwd=str(repo_root), check=False)
+    return result.returncode
+
+
+def main() -> int:
+    repo_root = Path(__file__).resolve().parents[1]
+    stdin_data = sys.stdin.read()
+    targets_main = parse_push_targets(stdin_data)
+
+    policy_result = validate_main_policy(targets_main)
+    if policy_result != 0:
+        return policy_result
+
+    return run_scoped_loop_gate(repo_root)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,149 @@
+version: 1
+updated_at: '2026-03-16'
+items:
+- task_id: TASK-2026-03-16-BASELINE-SEED
+  closed_at: '2026-03-16T10:00:00Z'
+  branch: main
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  route_match: matched
+  time_to_first_patch_sec: 120
+  same_path_attempts: 1
+  decision_quality: correct_first_time
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: none
+  improvement_artifact: none
+  linked_plan_id: P1-SHELL-BOOTSTRAP-001
+  linked_memory_id: ADM-2026-03-16-001
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-03-16-PILOT-SHELL-VALIDATION
+  closed_at: '2026-03-16T13:30:00Z'
+  branch: main
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  route_match: matched
+  time_to_first_patch_sec: 90
+  same_path_attempts: 1
+  decision_quality: correct_first_time
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: docs
+  improvement_artifact: docs/tasks/archive/TASK-2026-03-16-pilot-shell-validation.md
+  linked_plan_id: P1-PILOT-TASK-002
+  linked_memory_id: ADM-2026-03-16-001
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-03-16-DOD-QA-CODEX-AI-DELIVERY-SHELL-PACKAGE-TRADING-A
+  closed_at: '2026-03-16T10:10:20Z'
+  branch: master
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_first_time
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: docs
+  improvement_artifact: artifacts/requirements-acceptance-2026-03-16.md
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-03-16-TASK
+  closed_at: '2026-03-16T11:22:21Z'
+  branch: master
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_first_time
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: docs
+  improvement_artifact: artifacts/acceptance-revalidation-2026-03-16.md
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-03-16-SHELL-BOOTSTRAP
+  closed_at: '2026-03-16T10:43:06Z'
+  branch: master
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: partial_outcome
+  primary_rework_cause: requirements_gap
+  incident_signature: none
+  improvement_action: workflow
+  improvement_artifact: artifacts/acceptance-act-2026-03-16.md
+  linked_plan_id: P1-SHELL-BOOTSTRAP-001
+  linked_memory_id: ADM-2026-03-16-001
+  outcome_status: partial
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-03-16-CLOSE-ALL-ACCEPTANCE-REMARKS-FROM-ACCEPTANCE-ACT
+  closed_at: '2026-03-16T11:10:39Z'
+  branch: master
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  - CTX-CONTRACTS
+  - CTX-ARCHITECTURE
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: workflow_gap
+  incident_signature: none
+  improvement_action: workflow
+  improvement_artifact: artifacts/acceptance-remarks-closure-2026-03-16.md
+  linked_plan_id: P1-SHELL-BOOTSTRAP-001
+  linked_memory_id: ADM-2026-03-16-001
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
