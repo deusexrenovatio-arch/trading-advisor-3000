@@ -55,3 +55,15 @@ items:
   status: completed
   started_at: '2026-03-16'
   completed_at: '2026-03-16'
+- id: TASK-2026-03-16-PHASE-1-CONTRACTS-FREEZE
+  path: docs/tasks/archive/TASK-2026-03-16-phase-1-contracts-freeze.md
+  mode: full
+  status: completed
+  started_at: '2026-03-16'
+  completed_at: '2026-03-16'
+- id: TASK-2026-03-16-PHASE-2A-DATA-PLANE-MVP
+  path: docs/tasks/archive/TASK-2026-03-16-phase-2a-data-plane-mvp.md
+  mode: full
+  status: completed
+  started_at: '2026-03-16'
+  completed_at: '2026-03-16'
