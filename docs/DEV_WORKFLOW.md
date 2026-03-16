@@ -20,6 +20,16 @@ Provide a predictable and enforceable workflow for AI-first governance delivery.
 2. `pr-lane` for closeout confidence and full QA matrix.
 3. `nightly-lane` for hygiene, telemetry, and report generation.
 4. `dashboard-refresh` for deterministic report/dashboard rebuild.
+5. Hosted lane execution is opt-in via repository variable:
+   - `AI_SHELL_ENABLE_HOSTED_CI=1`
+   - default is disabled to avoid false-red checks when hosted runners are unavailable.
+
+## Hosted CI fallback
+If hosted runners are unavailable, replay lanes locally for acceptance evidence:
+1. `python scripts/run_loop_gate.py --skip-session-check --from-git --git-ref HEAD`
+2. `python scripts/run_pr_gate.py --skip-session-check --from-git --git-ref HEAD`
+3. `python scripts/run_nightly_gate.py --from-git --git-ref HEAD`
+4. `python scripts/build_governance_dashboard.py --output-json artifacts/governance-dashboard.json --output-md artifacts/governance-dashboard.md`
 
 ## Guardrails
 1. No direct main pushes by default.

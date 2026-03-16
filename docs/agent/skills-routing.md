@@ -9,7 +9,9 @@ Use skills as a managed capability layer, not as an uncontrolled markdown archiv
 3. Exclude domain-specialized skills from baseline shell.
 
 ## Baseline decision
-- Active source: local `.cursor/skills/*`.
+- Runtime source: local `.cursor/skills/*`.
+- Loading policy: `.cursor/skills/**` stays cold-by-default and is opened only for the
+  specific skill selected by routing trigger.
 - Catalog source: `docs/agent/skills-catalog.md`.
 
 ## Wave policy

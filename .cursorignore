@@ -10,6 +10,7 @@ plans/**
 docs/tasks/**
 .github/workflows/**
 tests/**
+.cursor/skills/**
 
 # Docs default-closed policy
 docs/**

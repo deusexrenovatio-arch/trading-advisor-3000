@@ -71,3 +71,13 @@ Use this runbook when a governance gate fails.
 ## `python scripts/skill_precommit_gate.py`
 - Use when changing `.cursor/skills/*`.
 - Update skill catalog/routing docs if gate reports `update_required`.
+
+## Hosted CI not starting (billing/spending disabled)
+- Keep CI lane model defined in `.github/workflows/ci.yml`.
+- Enable hosted execution only with repository variable:
+  - `AI_SHELL_ENABLE_HOSTED_CI=1`
+- If hosted runners are unavailable, collect lane evidence locally:
+  - `python scripts/run_loop_gate.py --skip-session-check --from-git --git-ref HEAD`
+  - `python scripts/run_pr_gate.py --skip-session-check --from-git --git-ref HEAD`
+  - `python scripts/run_nightly_gate.py --from-git --git-ref HEAD`
+  - `python scripts/build_governance_dashboard.py --output-json artifacts/governance-dashboard.json --output-md artifacts/governance-dashboard.md`

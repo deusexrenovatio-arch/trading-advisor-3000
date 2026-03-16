@@ -18,6 +18,7 @@
 - Mainline is PR-only by default.
 - `run_loop_gate.py` is canonical hot-path gate.
 - `docs/session_handoff.md` stays a pointer-shim.
+- Skills corpus is cold-by-default; open only targeted skill files by signal.
 - Emergency main push requires explicit neutral variables.
 
 ## Escalate when
