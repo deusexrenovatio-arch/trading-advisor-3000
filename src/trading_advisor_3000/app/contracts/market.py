@@ -5,18 +5,31 @@ from dataclasses import dataclass
 from .enums import Timeframe
 
 
-
 def _require_non_empty(name: str, value: object) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{name} must be non-empty string")
     return value.strip()
 
 
-
 def _require_number(name: str, value: object) -> float:
-    if not isinstance(value, (int, float)):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{name} must be a number")
     return float(value)
+
+
+def _require_int(name: str, value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{name} must be an integer")
+    return value
+
+
+def _require_keys(payload: dict[str, object], *, required: set[str]) -> None:
+    extra = sorted(set(payload) - required)
+    if extra:
+        raise ValueError(f"unsupported fields: {', '.join(extra)}")
+    missing = sorted(required - set(payload))
+    if missing:
+        raise ValueError(f"missing required fields: {', '.join(missing)}")
 
 
 @dataclass(frozen=True)
@@ -54,6 +67,20 @@ class CanonicalBar:
 
     @classmethod
     def from_dict(cls, payload: dict[str, object]) -> "CanonicalBar":
+        _require_keys(
+            payload,
+            required={
+                "contract_id",
+                "timeframe",
+                "ts_open",
+                "ts_close",
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+            },
+        )
         return cls(
             contract_id=_require_non_empty("contract_id", payload.get("contract_id")),
             timeframe=Timeframe(_require_non_empty("timeframe", payload.get("timeframe"))),
@@ -63,5 +90,5 @@ class CanonicalBar:
             high=_require_number("high", payload.get("high")),
             low=_require_number("low", payload.get("low")),
             close=_require_number("close", payload.get("close")),
-            volume=int(payload.get("volume", -1)),
+            volume=_require_int("volume", payload.get("volume")),
         )

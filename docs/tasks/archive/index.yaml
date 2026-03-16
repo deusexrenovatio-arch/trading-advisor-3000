@@ -43,3 +43,15 @@ items:
   status: completed
   started_at: '2026-03-16'
   completed_at: '2026-03-16'
+- id: TASK-2026-03-16-PHASE-0-1-BASELINE
+  path: docs/tasks/archive/TASK-2026-03-16-phase-0-1-baseline.md
+  mode: full
+  status: completed
+  started_at: '2026-03-16'
+  completed_at: '2026-03-16'
+- id: TASK-2026-03-16-PHASE-1-CONTRACTS-FREEZE-STRATEGY-VERSION-ID-STR
+  path: docs/tasks/archive/TASK-2026-03-16-phase-1-contracts-freeze-strategy-version-id-str.md
+  mode: full
+  status: completed
+  started_at: '2026-03-16'
+  completed_at: '2026-03-16'

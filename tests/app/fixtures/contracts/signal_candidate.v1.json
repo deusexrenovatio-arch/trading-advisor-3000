@@ -2,7 +2,7 @@
   "signal_id": "SIG-20260316-0001",
   "contract_id": "BR-6.26",
   "timeframe": "15m",
-  "model_id": "trend-breakout-v1",
+  "strategy_version_id": "trend-breakout-v1",
   "mode": "paper",
   "side": "long",
   "confidence": 0.76,
@@ -12,4 +12,3 @@
     "snapshot_id": "FS-20260316-0001"
   }
 }
-

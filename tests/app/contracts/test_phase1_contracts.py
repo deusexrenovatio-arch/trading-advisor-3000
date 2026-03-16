@@ -5,7 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from trading_advisor_3000.app.contracts import CanonicalBar, DecisionCandidate, OrderIntent
+from trading_advisor_3000.app.contracts import (
+    CanonicalBar,
+    DecisionCandidate,
+    DecisionPublication,
+    OrderIntent,
+    PositionSnapshot,
+)
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -35,6 +41,18 @@ def test_order_intent_fixture_round_trip() -> None:
     assert contract.to_dict() == payload
 
 
+def test_decision_publication_fixture_round_trip() -> None:
+    payload = _load_json(FIXTURES / "decision_publication.v1.json")
+    contract = DecisionPublication.from_dict(payload)
+    assert contract.to_dict() == payload
+
+
+def test_position_snapshot_fixture_round_trip() -> None:
+    payload = _load_json(FIXTURES / "position_snapshot.v1.json")
+    contract = PositionSnapshot.from_dict(payload)
+    assert contract.to_dict() == payload
+
+
 def test_signal_candidate_rejects_unsupported_mode() -> None:
     payload = _load_json(FIXTURES / "signal_candidate.v1.json")
     payload["mode"] = "advisory"
@@ -49,11 +67,48 @@ def test_order_intent_rejects_non_positive_quantity() -> None:
         OrderIntent.from_dict(payload)
 
 
+def test_order_intent_rejects_quantity_string() -> None:
+    payload = _load_json(FIXTURES / "order_intent.v1.json")
+    payload["quantity"] = "1"
+    with pytest.raises(ValueError):
+        OrderIntent.from_dict(payload)
+
+
+def test_signal_candidate_rejects_extra_field() -> None:
+    payload = _load_json(FIXTURES / "signal_candidate.v1.json")
+    payload["unexpected"] = "value"
+    with pytest.raises(ValueError):
+        DecisionCandidate.from_dict(payload)
+
+
+def test_canonical_bar_rejects_extra_field() -> None:
+    payload = _load_json(FIXTURES / "canonical_bar.v1.json")
+    payload["unexpected"] = "value"
+    with pytest.raises(ValueError):
+        CanonicalBar.from_dict(payload)
+
+
+def test_canonical_bar_rejects_string_volume() -> None:
+    payload = _load_json(FIXTURES / "canonical_bar.v1.json")
+    payload["volume"] = "1500"
+    with pytest.raises(ValueError):
+        CanonicalBar.from_dict(payload)
+
+
+def test_position_snapshot_rejects_extra_field() -> None:
+    payload = _load_json(FIXTURES / "position_snapshot.v1.json")
+    payload["unexpected"] = "value"
+    with pytest.raises(ValueError):
+        PositionSnapshot.from_dict(payload)
+
+
 def test_contract_schema_snapshots_exist() -> None:
     expected = {
         "canonical_bar.v1.json": "contracts/canonical_bar.v1.json",
         "signal_candidate.v1.json": "contracts/signal_candidate.v1.json",
         "order_intent.v1.json": "contracts/order_intent.v1.json",
+        "decision_publication.v1.json": "contracts/decision_publication.v1.json",
+        "position_snapshot.v1.json": "contracts/position_snapshot.v1.json",
     }
     for file_name, schema_id in expected.items():
         payload = _load_json(SCHEMAS / file_name)
