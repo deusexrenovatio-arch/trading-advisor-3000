@@ -35,18 +35,21 @@ def _require_keys(payload: dict[str, object], *, required: set[str]) -> None:
 @dataclass(frozen=True)
 class CanonicalBar:
     contract_id: str
+    instrument_id: str
     timeframe: Timeframe
-    ts_open: str
-    ts_close: str
+    ts: str
     open: float
     high: float
     low: float
     close: float
     volume: int
+    open_interest: int
 
     def __post_init__(self) -> None:
         if self.volume < 0:
             raise ValueError("volume must be non-negative")
+        if self.open_interest < 0:
+            raise ValueError("open_interest must be non-negative")
         if self.high < max(self.open, self.close):
             raise ValueError("high must be >= max(open, close)")
         if self.low > min(self.open, self.close):
@@ -55,14 +58,15 @@ class CanonicalBar:
     def to_dict(self) -> dict[str, object]:
         return {
             "contract_id": self.contract_id,
+            "instrument_id": self.instrument_id,
             "timeframe": self.timeframe.value,
-            "ts_open": self.ts_open,
-            "ts_close": self.ts_close,
+            "ts": self.ts,
             "open": self.open,
             "high": self.high,
             "low": self.low,
             "close": self.close,
             "volume": self.volume,
+            "open_interest": self.open_interest,
         }
 
     @classmethod
@@ -71,24 +75,26 @@ class CanonicalBar:
             payload,
             required={
                 "contract_id",
+                "instrument_id",
                 "timeframe",
-                "ts_open",
-                "ts_close",
+                "ts",
                 "open",
                 "high",
                 "low",
                 "close",
                 "volume",
+                "open_interest",
             },
         )
         return cls(
             contract_id=_require_non_empty("contract_id", payload.get("contract_id")),
+            instrument_id=_require_non_empty("instrument_id", payload.get("instrument_id")),
             timeframe=Timeframe(_require_non_empty("timeframe", payload.get("timeframe"))),
-            ts_open=_require_non_empty("ts_open", payload.get("ts_open")),
-            ts_close=_require_non_empty("ts_close", payload.get("ts_close")),
+            ts=_require_non_empty("ts", payload.get("ts")),
             open=_require_number("open", payload.get("open")),
             high=_require_number("high", payload.get("high")),
             low=_require_number("low", payload.get("low")),
             close=_require_number("close", payload.get("close")),
             volume=_require_int("volume", payload.get("volume")),
+            open_interest=_require_int("open_interest", payload.get("open_interest")),
         )

@@ -5,25 +5,27 @@
   "type": "object",
   "required": [
     "contract_id",
+    "instrument_id",
     "timeframe",
-    "ts_open",
-    "ts_close",
+    "ts",
     "open",
     "high",
     "low",
     "close",
-    "volume"
+    "volume",
+    "open_interest"
   ],
   "properties": {
     "contract_id": {"type": "string", "minLength": 1},
+    "instrument_id": {"type": "string", "minLength": 1},
     "timeframe": {"type": "string", "enum": ["5m", "15m", "1h"]},
-    "ts_open": {"type": "string", "minLength": 1},
-    "ts_close": {"type": "string", "minLength": 1},
+    "ts": {"type": "string", "minLength": 1},
     "open": {"type": "number"},
     "high": {"type": "number"},
     "low": {"type": "number"},
     "close": {"type": "number"},
-    "volume": {"type": "integer", "minimum": 0}
+    "volume": {"type": "integer", "minimum": 0},
+    "open_interest": {"type": "integer", "minimum": 0}
   },
   "additionalProperties": false
 }

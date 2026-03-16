@@ -22,7 +22,7 @@ def build_sql_plan(spec: SparkJobSpec | None = None) -> str:
     spec = spec or default_spec()
     return f"""
 INSERT OVERWRITE TABLE {spec.target_table}
-SELECT contract_id, timeframe, ts_open, ts_close, open, high, low, close, volume
+SELECT contract_id, instrument_id, timeframe, ts_open AS ts, open, high, low, close, volume, open_interest
 FROM (
     SELECT *,
            ROW_NUMBER() OVER (

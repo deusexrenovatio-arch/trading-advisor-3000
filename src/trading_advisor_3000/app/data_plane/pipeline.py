@@ -21,8 +21,8 @@ def run_sample_backfill(
 ) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    raw_rows = ingest_raw_backfill(source_path, whitelist_contracts=whitelist_contracts)
-    canonical = build_canonical_bars(raw_rows)
+    ingestion_batch = ingest_raw_backfill(source_path, whitelist_contracts=whitelist_contracts)
+    canonical = build_canonical_bars(ingestion_batch.rows)
     quality_errors = run_data_quality_checks(canonical, whitelist_contracts=whitelist_contracts)
     if quality_errors:
         raise ValueError("data quality failed: " + "; ".join(quality_errors))
@@ -31,7 +31,8 @@ def run_sample_backfill(
     _write_jsonl(output_path, [item.to_dict() for item in canonical])
 
     return {
-        "raw_rows": len(raw_rows),
+        "source_rows": ingestion_batch.source_rows,
+        "whitelisted_rows": ingestion_batch.whitelisted_rows,
         "canonical_rows": len(canonical),
         "output_path": output_path.as_posix(),
         "delta_schema_manifest": phase2a_delta_schema_manifest(),

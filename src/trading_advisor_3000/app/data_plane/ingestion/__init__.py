@@ -1,5 +1,5 @@
 from __future__ import annotations
 
-from .backfill import ingest_raw_backfill
+from .backfill import IngestionBatch, ingest_raw_backfill
 
-__all__ = ["ingest_raw_backfill"]
+__all__ = ["IngestionBatch", "ingest_raw_backfill"]

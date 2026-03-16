@@ -10,21 +10,21 @@ def run_data_quality_checks(
 ) -> list[str]:
     errors: list[str] = []
     seen: set[tuple[str, str, str]] = set()
-    last_close: dict[tuple[str, str], str] = {}
+    last_ts: dict[tuple[str, str], str] = {}
 
     for index, bar in enumerate(bars):
         if bar.contract_id not in whitelist_contracts:
             errors.append(f"row[{index}] contract outside whitelist: {bar.contract_id}")
 
-        key = (bar.contract_id, bar.timeframe.value, bar.ts_open)
+        key = (bar.contract_id, bar.timeframe.value, bar.ts)
         if key in seen:
-            errors.append(f"duplicate key: {bar.contract_id}/{bar.timeframe.value}/{bar.ts_open}")
+            errors.append(f"duplicate key: {bar.contract_id}/{bar.timeframe.value}/{bar.ts}")
         seen.add(key)
 
         sequence_key = (bar.contract_id, bar.timeframe.value)
-        previous_close = last_close.get(sequence_key)
-        if previous_close is not None and bar.ts_open < previous_close:
+        previous_ts = last_ts.get(sequence_key)
+        if previous_ts is not None and bar.ts < previous_ts:
             errors.append(f"non-monotonic timeline: {bar.contract_id}/{bar.timeframe.value}")
-        last_close[sequence_key] = bar.ts_close
+        last_ts[sequence_key] = bar.ts
 
     return errors
