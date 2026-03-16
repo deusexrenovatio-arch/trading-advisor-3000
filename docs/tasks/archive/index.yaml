@@ -31,3 +31,9 @@ items:
   status: completed
   started_at: '2026-03-16'
   completed_at: '2026-03-16'
+- id: TASK-2026-03-16-0-PRODUCT-PLANE-PACKAGE
+  path: docs/tasks/archive/TASK-2026-03-16-0-product-plane-package.md
+  mode: full
+  status: completed
+  started_at: '2026-03-16'
+  completed_at: '2026-03-16'
