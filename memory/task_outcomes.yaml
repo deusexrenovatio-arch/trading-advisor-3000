@@ -277,7 +277,7 @@ items:
   - request
   - session_handoff
 - task_id: TASK-2026-03-16-PHASE-2A-DATA-PLANE-MVP
-  closed_at: '2026-03-16T19:19:48Z'
+  closed_at: '2026-03-16T20:18:06Z'
   branch: codex/phase0-full-acceptance
   goal_class: process
   start_primary_context: CTX-OPS
@@ -286,14 +286,15 @@ items:
   final_contexts:
   - CTX-OPS
   - APP-PLACEHOLDER
+  - CTX-CONTRACTS
   route_match: matched
   time_to_first_patch_sec: null
   same_path_attempts: 1
   decision_quality: correct_after_replan
-  primary_rework_cause: workflow_gap
+  primary_rework_cause: requirements_gap
   incident_signature: none
   improvement_action: test
-  improvement_artifact: tests/app/integration/test_phase2a_data_plane.py
+  improvement_artifact: tests/app/unit/test_phase2a_builder.py
   linked_plan_id: null
   linked_memory_id: null
   outcome_status: completed

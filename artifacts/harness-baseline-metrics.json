@@ -11,12 +11,12 @@
     "patterns": 1
   },
   "process_rollup": {
-    "completed_tasks_count": 6,
+    "completed_tasks_count": 12,
     "window_size": 20,
-    "window_tasks_count": 6,
+    "window_tasks_count": 12,
     "burn_in_complete": false,
     "current_metrics": {
-      "correct_first_time_pct": 0.6666666666666666,
+      "correct_first_time_pct": 0.3333333333333333,
       "start_match_pct": 1.0,
       "context_expansion_rate": 0.0,
       "repeat_error_rate": 0.0,
@@ -25,14 +25,14 @@
   },
   "dev_loop_baseline": {
     "generated_at": "2026-03-16",
-    "task_outcomes_total": 6,
-    "terminal_outcomes_total": 6,
+    "task_outcomes_total": 12,
+    "terminal_outcomes_total": 12,
     "outcomes_with_patch_timing": 2,
-    "outcomes_without_patch_timing": 4,
+    "outcomes_without_patch_timing": 10,
     "median_time_to_first_patch_sec": 105.0,
     "p90_time_to_first_patch_sec": 120,
     "median_same_path_attempts": 1.0,
-    "correct_first_time_rate": 0.6666666666666666,
+    "correct_first_time_rate": 0.3333333333333333,
     "start_route_match_rate": 1.0
   }
 }
