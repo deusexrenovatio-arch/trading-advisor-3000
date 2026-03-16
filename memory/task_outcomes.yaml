@@ -302,3 +302,29 @@ items:
   intent_sources:
   - request
   - session_handoff
+- task_id: TASK-2026-03-16-2B-C-D
+  closed_at: '2026-03-16T20:46:06Z'
+  branch: codex/phase0-full-acceptance
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  - APP-PLACEHOLDER
+  - CTX-CONTRACTS
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: architecture_gap
+  incident_signature: none
+  improvement_action: test
+  improvement_artifact: tests/app/integration/test_phase2c_runtime.py
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff

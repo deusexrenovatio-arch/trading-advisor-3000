@@ -67,3 +67,9 @@ items:
   status: completed
   started_at: '2026-03-16'
   completed_at: '2026-03-16'
+- id: TASK-2026-03-16-2B-C-D
+  path: docs/tasks/archive/TASK-2026-03-16-2b-c-d.md
+  mode: full
+  status: completed
+  started_at: '2026-03-16'
+  completed_at: '2026-03-16'
