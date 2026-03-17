@@ -37,4 +37,46 @@ def phase2a_delta_schema_manifest() -> dict[str, dict[str, object]]:
                 "open_interest": "bigint",
             },
         },
+        "canonical_instruments": {
+            "format": "delta",
+            "partition_by": [],
+            "constraints": ["unique(instrument_id)"],
+            "columns": {
+                "instrument_id": "string",
+            },
+        },
+        "canonical_contracts": {
+            "format": "delta",
+            "partition_by": ["instrument_id"],
+            "constraints": ["unique(contract_id)"],
+            "columns": {
+                "contract_id": "string",
+                "instrument_id": "string",
+                "first_seen_ts": "timestamp",
+                "last_seen_ts": "timestamp",
+            },
+        },
+        "canonical_session_calendar": {
+            "format": "delta",
+            "partition_by": ["instrument_id", "session_date"],
+            "constraints": ["unique(instrument_id, timeframe, session_date)"],
+            "columns": {
+                "instrument_id": "string",
+                "timeframe": "string",
+                "session_date": "date",
+                "session_open_ts": "timestamp",
+                "session_close_ts": "timestamp",
+            },
+        },
+        "canonical_roll_map": {
+            "format": "delta",
+            "partition_by": ["instrument_id", "session_date"],
+            "constraints": ["unique(instrument_id, session_date)"],
+            "columns": {
+                "instrument_id": "string",
+                "session_date": "date",
+                "active_contract_id": "string",
+                "reason": "string",
+            },
+        },
     }

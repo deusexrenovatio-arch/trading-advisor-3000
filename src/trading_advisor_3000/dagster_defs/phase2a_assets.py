@@ -25,4 +25,28 @@ def phase2a_asset_specs() -> list[AssetSpec]:
             inputs=("raw_market_backfill_delta",),
             outputs=("canonical_bars_delta",),
         ),
+        AssetSpec(
+            key="canonical_instruments",
+            description="Build canonical instruments table from raw backfill.",
+            inputs=("raw_market_backfill_delta",),
+            outputs=("canonical_instruments_delta",),
+        ),
+        AssetSpec(
+            key="canonical_contracts",
+            description="Build canonical contracts table from raw backfill.",
+            inputs=("raw_market_backfill_delta",),
+            outputs=("canonical_contracts_delta",),
+        ),
+        AssetSpec(
+            key="canonical_session_calendar",
+            description="Build canonical session calendar from raw backfill.",
+            inputs=("raw_market_backfill_delta",),
+            outputs=("canonical_session_calendar_delta",),
+        ),
+        AssetSpec(
+            key="canonical_roll_map",
+            description="Build canonical roll map by instrument/session.",
+            inputs=("raw_market_backfill_delta",),
+            outputs=("canonical_roll_map_delta",),
+        ),
     ]

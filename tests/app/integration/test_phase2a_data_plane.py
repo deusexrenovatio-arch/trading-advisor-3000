@@ -20,6 +20,8 @@ def test_sample_backfill_builds_canonical_rows_for_whitelist(tmp_path: Path) -> 
     assert report["source_rows"] == 4
     assert report["whitelisted_rows"] == 3
     assert report["canonical_rows"] == 2
+    assert report["incremental_rows"] == 2
+    assert report["stale_rows"] == 1
     output_path = Path(str(report["output_path"]))
     assert output_path.exists()
 
@@ -31,7 +33,15 @@ def test_sample_backfill_builds_canonical_rows_for_whitelist(tmp_path: Path) -> 
     assert br_row["ts"] == "2026-03-16T10:00:00Z"
     assert br_row["close"] == 82.6
     assert br_row["open_interest"] == 21000
+    assert Path(str(report["output_paths"]["canonical_instruments"])).exists()
+    assert Path(str(report["output_paths"]["canonical_contracts"])).exists()
+    assert Path(str(report["output_paths"]["canonical_session_calendar"])).exists()
+    assert Path(str(report["output_paths"]["canonical_roll_map"])).exists()
     assert "canonical_bars" in report["delta_schema_manifest"]
+    assert "canonical_instruments" in report["delta_schema_manifest"]
+    assert "canonical_contracts" in report["delta_schema_manifest"]
+    assert "canonical_session_calendar" in report["delta_schema_manifest"]
+    assert "canonical_roll_map" in report["delta_schema_manifest"]
 
 
 def test_sample_backfill_rejects_invalid_payload(tmp_path: Path) -> None:
@@ -51,3 +61,23 @@ def test_sample_backfill_rejects_invalid_payload(tmp_path: Path) -> None:
         assert "volume must be integer" in str(exc)
     else:
         raise AssertionError("expected ValueError")
+
+
+def test_sample_backfill_is_incremental_append_only_and_idempotent(tmp_path: Path) -> None:
+    first = run_sample_backfill(
+        source_path=SOURCE_FIXTURE,
+        output_dir=tmp_path,
+        whitelist_contracts={"BR-6.26", "Si-6.26"},
+    )
+    second = run_sample_backfill(
+        source_path=SOURCE_FIXTURE,
+        output_dir=tmp_path,
+        whitelist_contracts={"BR-6.26", "Si-6.26"},
+    )
+
+    raw_path = Path(str(second["output_paths"]["raw_market_backfill"]))
+    raw_rows = [json.loads(line) for line in raw_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert first["incremental_rows"] == 2
+    assert second["incremental_rows"] == 0
+    assert second["deduplicated_rows"] >= 2
+    assert len(raw_rows) == 2
