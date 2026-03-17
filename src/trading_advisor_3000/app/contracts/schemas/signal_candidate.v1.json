@@ -23,7 +23,7 @@
     "timeframe": {"type": "string", "enum": ["5m", "15m", "1h"]},
     "strategy_version_id": {"type": "string", "minLength": 1},
     "mode": {"type": "string", "enum": ["shadow", "paper", "live"]},
-    "side": {"type": "string", "enum": ["long", "short", "flat"]},
+    "side": {"type": "string", "enum": ["long", "short"]},
     "entry_ref": {"type": "number"},
     "stop_ref": {"type": "number"},
     "target_ref": {"type": "number"},

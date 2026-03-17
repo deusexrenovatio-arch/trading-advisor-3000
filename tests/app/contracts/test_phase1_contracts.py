@@ -60,6 +60,13 @@ def test_signal_candidate_rejects_unsupported_mode() -> None:
         DecisionCandidate.from_dict(payload)
 
 
+def test_signal_candidate_rejects_flat_side() -> None:
+    payload = _load_json(FIXTURES / "signal_candidate.v1.json")
+    payload["side"] = "flat"
+    with pytest.raises(ValueError):
+        DecisionCandidate.from_dict(payload)
+
+
 def test_order_intent_rejects_non_positive_quantity() -> None:
     payload = _load_json(FIXTURES / "order_intent.v1.json")
     payload["qty"] = 0
@@ -125,3 +132,9 @@ def test_contract_schema_snapshots_exist() -> None:
 def test_order_intent_schema_action_enum_snapshot() -> None:
     schema = _load_json(SCHEMAS / "order_intent.v1.json")
     assert schema["properties"]["action"]["enum"] == ["buy", "sell"]
+
+
+def test_publication_schema_contains_traceability_fields() -> None:
+    schema = _load_json(SCHEMAS / "decision_publication.v1.json")
+    required = set(schema["required"])
+    assert {"publication_id", "publication_type", "signal_id"} <= required

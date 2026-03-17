@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .enums import Mode, PublicationState, Timeframe, TradeSide
+from .enums import Mode, PublicationState, PublicationType, Timeframe, TradeSide
 
 
 def _required_text(name: str, value: object) -> str:
@@ -76,6 +76,8 @@ class DecisionCandidate:
     feature_snapshot: FeatureSnapshotRef
 
     def __post_init__(self) -> None:
+        if self.side == TradeSide.FLAT:
+            raise ValueError("decision candidate side cannot be flat")
         if self.side == TradeSide.LONG and not (self.stop_ref < self.entry_ref < self.target_ref):
             raise ValueError("long candidate requires stop_ref < entry_ref < target_ref")
         if self.side == TradeSide.SHORT and not (self.target_ref < self.entry_ref < self.stop_ref):
@@ -140,17 +142,21 @@ class DecisionCandidate:
 
 @dataclass(frozen=True)
 class DecisionPublication:
+    publication_id: str
     signal_id: str
     channel: str
     message_id: str
+    publication_type: PublicationType
     status: PublicationState
     published_at: str
 
     def to_dict(self) -> dict[str, str]:
         return {
+            "publication_id": self.publication_id,
             "signal_id": self.signal_id,
             "channel": self.channel,
             "message_id": self.message_id,
+            "publication_type": self.publication_type.value,
             "status": self.status.value,
             "published_at": self.published_at,
         }
@@ -159,12 +165,22 @@ class DecisionPublication:
     def from_dict(cls, payload: dict[str, object]) -> "DecisionPublication":
         _require_keys(
             payload,
-            required={"signal_id", "channel", "message_id", "status", "published_at"},
+            required={
+                "publication_id",
+                "signal_id",
+                "channel",
+                "message_id",
+                "publication_type",
+                "status",
+                "published_at",
+            },
         )
         return cls(
+            publication_id=_required_text("publication_id", payload.get("publication_id")),
             signal_id=_required_text("signal_id", payload.get("signal_id")),
             channel=_required_text("channel", payload.get("channel")),
             message_id=_required_text("message_id", payload.get("message_id")),
+            publication_type=PublicationType(_required_text("publication_type", payload.get("publication_type"))),
             status=PublicationState(_required_text("status", payload.get("status"))),
             published_at=_required_text("published_at", payload.get("published_at")),
         )

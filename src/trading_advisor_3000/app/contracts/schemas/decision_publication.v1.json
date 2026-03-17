@@ -4,16 +4,20 @@
   "title": "DecisionPublicationV1",
   "type": "object",
   "required": [
+    "publication_id",
     "signal_id",
     "channel",
     "message_id",
+    "publication_type",
     "status",
     "published_at"
   ],
   "properties": {
+    "publication_id": {"type": "string", "minLength": 1},
     "signal_id": {"type": "string", "minLength": 1},
     "channel": {"type": "string", "minLength": 1},
     "message_id": {"type": "string", "minLength": 1},
+    "publication_type": {"type": "string", "enum": ["create", "edit", "close", "cancel"]},
     "status": {"type": "string", "enum": ["candidate", "published", "closed", "canceled"]},
     "published_at": {"type": "string", "minLength": 1}
   },

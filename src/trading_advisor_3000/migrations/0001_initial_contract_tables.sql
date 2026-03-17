@@ -28,9 +28,11 @@ CREATE TABLE IF NOT EXISTS app_order_intents (
 );
 
 CREATE TABLE IF NOT EXISTS app_decision_publications (
-    signal_id TEXT PRIMARY KEY,
+    publication_id TEXT PRIMARY KEY,
+    signal_id TEXT NOT NULL,
     channel TEXT NOT NULL,
     message_id TEXT NOT NULL,
+    publication_type TEXT NOT NULL,
     status TEXT NOT NULL,
     published_at TIMESTAMPTZ NOT NULL
 );

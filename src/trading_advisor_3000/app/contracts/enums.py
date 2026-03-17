@@ -22,6 +22,13 @@ class PublicationState(StrEnum):
     CANCELED = "canceled"
 
 
+class PublicationType(StrEnum):
+    CREATE = "create"
+    EDIT = "edit"
+    CLOSE = "close"
+    CANCEL = "cancel"
+
+
 class Timeframe(StrEnum):
     M5 = "5m"
     M15 = "15m"
