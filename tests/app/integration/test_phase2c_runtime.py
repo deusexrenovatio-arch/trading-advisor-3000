@@ -55,6 +55,8 @@ def test_phase2c_runtime_replay_lifecycle_and_idempotent_publication() -> None:
     assert active["entry_price"] == 82.45
     assert active["stop_price"] == 81.70
     assert active["target_price"] == 83.95
+    assert active["expires_at"] is not None
+    assert active["state"] == "active"
 
     second = api.replay_candidates([_candidate()])
     assert second["replay_report"]["accepted"] == 1
@@ -70,4 +72,27 @@ def test_phase2c_runtime_replay_lifecycle_and_idempotent_publication() -> None:
     assert close_result["active_signals"] == []
 
     event_types = {row["event_type"] for row in api.list_signal_events()}
-    assert {"signal_opened", "signal_published", "signal_closed"} <= event_types
+    assert {"signal_opened", "signal_activated", "signal_closed"} <= event_types
+
+
+def test_phase2c_runtime_supports_cancel_and_removes_active_signal() -> None:
+    stack = build_runtime_stack(telegram_channel="@ta3000_signals")
+    stack.strategy_registry.register(
+        StrategyVersion(
+            strategy_version_id="trend-follow-v1",
+            status="active",
+            allowed_contracts=frozenset({"BR-6.26"}),
+            allowed_timeframes=frozenset({Timeframe.M15}),
+            allowed_modes=frozenset({Mode.SHADOW}),
+            activated_from="2026-03-16T09:00:00Z",
+        )
+    )
+    api = RuntimeAPI(runtime_stack=stack)
+    api.replay_candidates([_candidate()])
+    canceled = api.cancel_signal(
+        signal_id="SIG-20260316-0001",
+        canceled_at="2026-03-16T10:20:00Z",
+        reason_code="manual_cancel",
+    )
+    assert canceled["cancel_result"]["publication"]["status"] == "canceled"
+    assert canceled["active_signals"] == []

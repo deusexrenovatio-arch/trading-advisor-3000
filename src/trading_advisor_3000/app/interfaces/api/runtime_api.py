@@ -32,6 +32,20 @@ class RuntimeAPI:
             ],
         }
 
+    def cancel_signal(self, *, signal_id: str, canceled_at: str, reason_code: str) -> dict[str, object]:
+        result = self._runtime_stack.runtime_engine.cancel_signal(
+            signal_id=signal_id,
+            canceled_at=canceled_at,
+            reason_code=reason_code,
+        )
+        return {
+            "cancel_result": result,
+            "active_signals": [signal.to_dict() for signal in self._runtime_stack.signal_store.list_active_signals()],
+            "publications": [
+                publication.to_dict() for publication in self._runtime_stack.publisher.list_publications()
+            ],
+        }
+
     def list_signal_events(self) -> list[dict[str, object]]:
         return [event.to_dict() for event in self._runtime_stack.signal_store.list_signal_events()]
 

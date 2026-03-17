@@ -17,6 +17,16 @@ class RuntimeStack:
 
 
 def build_runtime_stack(*, telegram_channel: str) -> RuntimeStack:
+    return build_runtime_stack_with_policies(telegram_channel=telegram_channel)
+
+
+def build_runtime_stack_with_policies(
+    *,
+    telegram_channel: str,
+    validity_minutes_by_timeframe: dict[str, int] | None = None,
+    cooldown_seconds: int = 0,
+    blackout_windows_by_contract: dict[str, list[tuple[str, str]]] | None = None,
+) -> RuntimeStack:
     registry = StrategyRegistry()
     store = InMemorySignalStore()
     publisher = TelegramPublicationEngine(channel=telegram_channel)
@@ -24,6 +34,9 @@ def build_runtime_stack(*, telegram_channel: str) -> RuntimeStack:
         strategy_registry=registry,
         signal_store=store,
         publisher=publisher,
+        validity_minutes_by_timeframe=validity_minutes_by_timeframe,
+        cooldown_seconds=cooldown_seconds,
+        blackout_windows_by_contract=blackout_windows_by_contract,
     )
     return RuntimeStack(
         strategy_registry=registry,

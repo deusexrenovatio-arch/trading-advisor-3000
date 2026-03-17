@@ -4,6 +4,7 @@ import hashlib
 from dataclasses import dataclass
 
 from trading_advisor_3000.app.contracts import DecisionCandidate, Mode, TradeSide
+from trading_advisor_3000.app.research.ids import candidate_id_from_candidate
 
 
 def _event_id(seed: str) -> str:
@@ -96,8 +97,12 @@ class InMemorySignalStore:
             )
         )
 
-    def upsert_candidate(self, candidate: DecisionCandidate) -> tuple[RuntimeSignal, bool]:
+    def upsert_candidate(self, candidate: DecisionCandidate, *, expires_at: str | None) -> tuple[RuntimeSignal, bool]:
         existing = self._signals.get(candidate.signal_id)
+        candidate_payload = {
+            **candidate.to_dict(),
+            "candidate_id": candidate_id_from_candidate(candidate),
+        }
         if existing is None:
             signal = RuntimeSignal(
                 signal_id=candidate.signal_id,
@@ -112,7 +117,7 @@ class InMemorySignalStore:
                 state="candidate",
                 opened_at=candidate.ts_decision,
                 updated_at=candidate.ts_decision,
-                expires_at=None,
+                expires_at=expires_at,
                 publication_message_id=None,
             )
             self._signals[candidate.signal_id] = signal
@@ -121,7 +126,7 @@ class InMemorySignalStore:
                 event_ts=candidate.ts_decision,
                 event_type="signal_opened",
                 reason_code="candidate_created",
-                payload_json=candidate.to_dict(),
+                payload_json=candidate_payload,
                 dedup_key=f"{candidate.signal_id}|opened|{candidate.ts_decision}",
             )
             return signal, True
@@ -149,7 +154,7 @@ class InMemorySignalStore:
             state=existing.state,
             opened_at=existing.opened_at,
             updated_at=candidate.ts_decision,
-            expires_at=existing.expires_at,
+            expires_at=expires_at if expires_at is not None else existing.expires_at,
             publication_message_id=existing.publication_message_id,
         )
         self._signals[candidate.signal_id] = updated
@@ -158,7 +163,7 @@ class InMemorySignalStore:
             event_ts=candidate.ts_decision,
             event_type="signal_updated",
             reason_code="candidate_upsert",
-            payload_json=candidate.to_dict(),
+            payload_json=candidate_payload,
             dedup_key=f"{candidate.signal_id}|updated|{candidate.ts_decision}|{candidate.side.value}|{candidate.confidence:.8f}",
         )
         return updated, True
@@ -177,7 +182,7 @@ class InMemorySignalStore:
             stop_price=existing.stop_price,
             target_price=existing.target_price,
             confidence=existing.confidence,
-            state=status,
+            state="active" if existing.state in {"candidate", "active"} else existing.state,
             opened_at=existing.opened_at,
             updated_at=published_at,
             expires_at=existing.expires_at,
@@ -187,7 +192,7 @@ class InMemorySignalStore:
         self._append_event(
             signal_id=signal_id,
             event_ts=published_at,
-            event_type="signal_published",
+            event_type="signal_activated",
             reason_code=status,
             payload_json={"message_id": message_id, "status": status},
             dedup_key=f"{signal_id}|published|{message_id}|{status}",
@@ -227,8 +232,100 @@ class InMemorySignalStore:
         )
         return closed
 
+    def cancel_signal(self, *, signal_id: str, canceled_at: str, reason_code: str) -> RuntimeSignal:
+        existing = self._signals.get(signal_id)
+        if existing is None:
+            raise ValueError(f"signal not found: {signal_id}")
+        if existing.state == "canceled":
+            return existing
+        canceled = RuntimeSignal(
+            signal_id=existing.signal_id,
+            strategy_version_id=existing.strategy_version_id,
+            contract_id=existing.contract_id,
+            mode=existing.mode,
+            side=existing.side,
+            entry_price=existing.entry_price,
+            stop_price=existing.stop_price,
+            target_price=existing.target_price,
+            confidence=existing.confidence,
+            state="canceled",
+            opened_at=existing.opened_at,
+            updated_at=canceled_at,
+            expires_at=canceled_at,
+            publication_message_id=existing.publication_message_id,
+        )
+        self._signals[signal_id] = canceled
+        self._append_event(
+            signal_id=signal_id,
+            event_ts=canceled_at,
+            event_type="signal_canceled",
+            reason_code=reason_code,
+            payload_json={"state": "canceled"},
+            dedup_key=f"{signal_id}|canceled|{canceled_at}|{reason_code}",
+        )
+        return canceled
+
+    def expire_signal(self, *, signal_id: str, expired_at: str) -> RuntimeSignal:
+        existing = self._signals.get(signal_id)
+        if existing is None:
+            raise ValueError(f"signal not found: {signal_id}")
+        if existing.state == "expired":
+            return existing
+        expired = RuntimeSignal(
+            signal_id=existing.signal_id,
+            strategy_version_id=existing.strategy_version_id,
+            contract_id=existing.contract_id,
+            mode=existing.mode,
+            side=existing.side,
+            entry_price=existing.entry_price,
+            stop_price=existing.stop_price,
+            target_price=existing.target_price,
+            confidence=existing.confidence,
+            state="expired",
+            opened_at=existing.opened_at,
+            updated_at=expired_at,
+            expires_at=expired_at,
+            publication_message_id=existing.publication_message_id,
+        )
+        self._signals[signal_id] = expired
+        self._append_event(
+            signal_id=signal_id,
+            event_ts=expired_at,
+            event_type="signal_expired",
+            reason_code="validity_window_elapsed",
+            payload_json={"state": "expired"},
+            dedup_key=f"{signal_id}|expired|{expired_at}",
+        )
+        return expired
+
+    def record_execution_fill(
+        self,
+        *,
+        signal_id: str,
+        event_ts: str,
+        fill_id: str,
+        role: str,
+        contract_id: str,
+        qty: int,
+        price: float,
+    ) -> None:
+        self._append_event(
+            signal_id=signal_id,
+            event_ts=event_ts,
+            event_type="execution_fill",
+            reason_code=role,
+            payload_json={
+                "fill_id": fill_id,
+                "role": role,
+                "contract_id": contract_id,
+                "qty": qty,
+                "price": price,
+            },
+            dedup_key=f"{signal_id}|execution_fill|{fill_id}|{role}",
+        )
+
     def list_active_signals(self) -> list[RuntimeSignal]:
-        active_states = {"candidate", "published"}
+        active_states = {"candidate", "active"}
         items = [signal for signal in self._signals.values() if signal.state in active_states]
         return sorted(items, key=lambda signal: (signal.contract_id, signal.updated_at, signal.signal_id))
 
