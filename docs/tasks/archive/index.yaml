@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-03-16'
+updated_at: '2026-03-17'
 items:
 - id: TASK-2026-03-16-SHELL-BOOTSTRAP
   path: docs/tasks/archive/TASK-2026-03-16-shell-bootstrap.md
@@ -73,3 +73,15 @@ items:
   status: completed
   started_at: '2026-03-16'
   completed_at: '2026-03-16'
+- id: TASK-2026-03-16-2B-2C-2D
+  path: docs/tasks/archive/TASK-2026-03-16-2b-2c-2d.md
+  mode: full
+  status: completed
+  started_at: '2026-03-16'
+  completed_at: '2026-03-16'
+- id: TASK-2026-03-17-PHASE-3-SHADOW-FORWARD-ENGINE-INTEGRATED-REPLAY-
+  path: docs/tasks/archive/TASK-2026-03-17-phase-3-shadow-forward-engine-integrated-replay-.md
+  mode: full
+  status: completed
+  started_at: '2026-03-17'
+  completed_at: '2026-03-17'
