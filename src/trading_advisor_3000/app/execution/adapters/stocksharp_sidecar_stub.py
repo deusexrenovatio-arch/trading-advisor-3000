@@ -11,12 +11,23 @@ class StockSharpSidecarStub:
         self._acks_by_intent_id: dict[str, dict[str, object]] = {}
         self._broker_updates: list[dict[str, object]] = []
         self._broker_fills: list[dict[str, object]] = []
+        self._transport_path = "stocksharp->quik->finam"
 
     def health(self) -> dict[str, object]:
         return {
             "adapter": "stocksharp-sidecar-stub",
             "status": "ok",
+            "transport_path": self._transport_path,
             "queued_intents": len(self._queued_intents),
+            "acked_intents": len(self._acks_by_intent_id),
+        }
+
+    def readiness(self) -> dict[str, object]:
+        return {
+            "adapter": "stocksharp-sidecar-stub",
+            "ready": True,
+            "reason": "stub_ready",
+            "transport_path": self._transport_path,
         }
 
     def submit_order_intent(self, intent: OrderIntent) -> dict[str, object]:

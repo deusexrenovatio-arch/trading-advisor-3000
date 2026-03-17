@@ -1,0 +1,104 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from trading_advisor_3000.app.contracts import OrderIntent, PositionSnapshot
+from trading_advisor_3000.app.execution.adapters import LiveExecutionBridge
+from trading_advisor_3000.app.execution.reconciliation import (
+    LiveExecutionReconciliationReport,
+    reconcile_live_execution,
+)
+
+from .live_sync import BrokerSyncEngine
+
+
+@dataclass(frozen=True)
+class ControlledLiveCycleReport:
+    submitted_intents: int
+    synced_updates: int
+    synced_fills: int
+    reconciliation: LiveExecutionReconciliationReport
+
+    @property
+    def incidents(self) -> int:
+        return len(self.reconciliation.incidents)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "submitted_intents": self.submitted_intents,
+            "synced_updates": self.synced_updates,
+            "synced_fills": self.synced_fills,
+            "incidents": self.incidents,
+            "reconciliation": self.reconciliation.to_dict(),
+        }
+
+
+class ControlledLiveExecutionEngine:
+    def __init__(self, *, bridge: LiveExecutionBridge, sync_engine: BrokerSyncEngine) -> None:
+        self._bridge = bridge
+        self._sync_engine = sync_engine
+
+    def submit_intents(self, intents: list[OrderIntent], *, submitted_at: str) -> list[dict[str, object]]:
+        acks: list[dict[str, object]] = []
+        for intent in intents:
+            ack = self._bridge.submit_order_intent(intent, accepted_at=submitted_at)
+            self._sync_engine.register_intent(intent)
+            self._sync_engine.record_submission_ack(
+                intent_id=intent.intent_id,
+                ack=ack,
+                acknowledged_at=submitted_at,
+            )
+            acks.append(ack)
+        return acks
+
+    def replace_intent(
+        self,
+        *,
+        intent_id: str,
+        new_qty: int,
+        new_price: float,
+        replaced_at: str,
+    ) -> dict[str, object]:
+        return self._bridge.replace_order_intent(
+            intent_id=intent_id,
+            new_qty=new_qty,
+            new_price=new_price,
+            replaced_at=replaced_at,
+        )
+
+    def cancel_intent(self, *, intent_id: str, canceled_at: str) -> dict[str, object]:
+        return self._bridge.cancel_order_intent(intent_id=intent_id, canceled_at=canceled_at)
+
+    def poll_broker_sync(self) -> dict[str, int]:
+        streams = self._bridge.drain_broker_streams()
+        updates = streams["updates"]
+        fills = streams["fills"]
+        self._sync_engine.ingest_broker_updates(updates)
+        self._sync_engine.ingest_broker_fills(fills)
+        return {"updates": len(updates), "fills": len(fills)}
+
+    def reconcile(self, *, expected_positions: list[PositionSnapshot]) -> LiveExecutionReconciliationReport:
+        return reconcile_live_execution(
+            expected_intents=self._sync_engine.list_registered_intents(),
+            observed_orders=self._sync_engine.list_broker_orders(),
+            observed_fills=self._sync_engine.list_broker_fills(),
+            expected_positions=expected_positions,
+            observed_positions=self._sync_engine.list_positions(),
+        )
+
+    def run_controlled_cycle(
+        self,
+        *,
+        intents: list[OrderIntent],
+        submitted_at: str,
+        expected_positions: list[PositionSnapshot],
+    ) -> ControlledLiveCycleReport:
+        self.submit_intents(intents, submitted_at=submitted_at)
+        sync_stats = self.poll_broker_sync()
+        reconciliation = self.reconcile(expected_positions=expected_positions)
+        return ControlledLiveCycleReport(
+            submitted_intents=len(intents),
+            synced_updates=sync_stats["updates"],
+            synced_fills=sync_stats["fills"],
+            reconciliation=reconciliation,
+        )

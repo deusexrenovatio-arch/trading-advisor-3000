@@ -85,3 +85,15 @@ items:
   status: completed
   started_at: '2026-03-17'
   completed_at: '2026-03-17'
+- id: TASK-2026-03-17-3-SHADOW-FORWARD-SYSTEM-INTEGRATION
+  path: docs/tasks/archive/TASK-2026-03-17-3-shadow-forward-system-integration.md
+  mode: full
+  status: completed
+  started_at: '2026-03-17'
+  completed_at: '2026-03-17'
+- id: TASK-2026-03-17-2-3
+  path: docs/tasks/archive/TASK-2026-03-17-2-3.md
+  mode: full
+  status: completed
+  started_at: '2026-03-17'
+  completed_at: '2026-03-17'

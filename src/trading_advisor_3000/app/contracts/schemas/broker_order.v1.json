@@ -18,7 +18,7 @@
     "broker": {"type": "string", "minLength": 1},
     "state": {
       "type": "string",
-      "enum": ["new", "submitted", "partially_filled", "filled", "canceled", "rejected"]
+      "enum": ["new", "submitted", "replaced", "partially_filled", "filled", "canceled", "rejected"]
     },
     "submitted_at": {"type": "string", "minLength": 1},
     "updated_at": {"type": "string", "minLength": 1}

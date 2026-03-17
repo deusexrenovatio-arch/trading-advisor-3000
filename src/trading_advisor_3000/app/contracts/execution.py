@@ -170,6 +170,7 @@ class PositionSnapshot:
 BROKER_ORDER_STATES = {
     "new",
     "submitted",
+    "replaced",
     "partially_filled",
     "filled",
     "canceled",

@@ -21,6 +21,13 @@ def test_broker_order_round_trip() -> None:
     assert contract.to_dict() == payload
 
 
+def test_broker_order_supports_replaced_state() -> None:
+    payload = _load_json(FIXTURES / "broker_order.v1.json")
+    payload["state"] = "replaced"
+    contract = BrokerOrder.from_dict(payload)
+    assert contract.state == "replaced"
+
+
 def test_broker_fill_round_trip() -> None:
     payload = _load_json(FIXTURES / "broker_fill.v1.json")
     contract = BrokerFill.from_dict(payload)
