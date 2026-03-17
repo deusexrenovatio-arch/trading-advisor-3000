@@ -10,3 +10,4 @@ Product phase acceptance checklists.
 - `docs/checklists/app/phase2d-acceptance-checklist.md`
 - `docs/checklists/app/phase3-acceptance-checklist.md`
 - `docs/checklists/app/phase4-acceptance-checklist.md`
+- `docs/checklists/app/phase5-acceptance-checklist.md`

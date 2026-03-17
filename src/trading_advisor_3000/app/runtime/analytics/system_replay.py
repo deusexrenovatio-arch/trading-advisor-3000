@@ -14,6 +14,12 @@ from trading_advisor_3000.app.runtime.analytics.outcomes import (
     build_signal_outcomes,
     phase3_outcome_store_contract,
 )
+from trading_advisor_3000.app.runtime.analytics.review import (
+    build_loki_event_lines,
+    build_phase5_review_report,
+    export_prometheus_metrics,
+    phase5_review_store_contract,
+)
 from trading_advisor_3000.app.runtime.config import StrategyVersion
 from trading_advisor_3000.app.runtime.pipeline import build_runtime_stack
 
@@ -21,6 +27,10 @@ from trading_advisor_3000.app.runtime.pipeline import build_runtime_stack
 def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
     lines = [json.dumps(row, ensure_ascii=False, sort_keys=True) for row in rows]
     path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+
+
+def _write_lines(path: Path, rows: list[str]) -> None:
+    path.write_text("\n".join(rows) + ("\n" if rows else ""), encoding="utf-8")
 
 
 def _bar_close_index(bars: list[CanonicalBar]) -> dict[tuple[str, str, str], float]:
@@ -164,13 +174,32 @@ def run_system_shadow_replay(
         broker_fills=[item.to_dict() for item in paper_broker.list_broker_fills()],
         positions=[item.to_dict() for item in paper_broker.list_position_snapshots()],
     )
+    phase5_report = build_phase5_review_report(
+        outcomes=[item.to_dict() for item in outcomes],
+        signal_events=runtime_api.list_signal_events(),
+    )
+    prometheus_metrics = export_prometheus_metrics(phase5_report)
+    loki_lines = build_loki_event_lines(phase5_report)
 
     forward_rows = [item.to_dict() for item in forward_observations]
     outcome_rows = [item.to_dict() for item in outcomes]
+    strategy_rows = [item.to_dict() for item in phase5_report.strategy_dashboard]
+    instrument_rows = [item.to_dict() for item in phase5_report.instrument_dashboard]
+    latency_rows = [item.to_dict() for item in phase5_report.latency_metrics]
     forward_path = output_dir / "research.forward_observations.sample.jsonl"
     outcomes_path = output_dir / "analytics.signal_outcomes.sample.jsonl"
+    strategy_metrics_path = output_dir / "analytics.strategy_metrics_daily.sample.jsonl"
+    instrument_metrics_path = output_dir / "analytics.instrument_metrics_daily.sample.jsonl"
+    latency_metrics_path = output_dir / "observability.latency_metrics.sample.jsonl"
+    prometheus_path = output_dir / "observability.prometheus.metrics.txt"
+    loki_path = output_dir / "observability.loki.events.jsonl"
     _write_jsonl(forward_path, forward_rows)
     _write_jsonl(outcomes_path, outcome_rows)
+    _write_jsonl(strategy_metrics_path, strategy_rows)
+    _write_jsonl(instrument_metrics_path, instrument_rows)
+    _write_jsonl(latency_metrics_path, latency_rows)
+    prometheus_path.write_text(prometheus_metrics, encoding="utf-8")
+    _write_lines(loki_path, loki_lines)
 
     return {
         "bars_processed": len(bars),
@@ -182,18 +211,30 @@ def run_system_shadow_replay(
         "analytics_outcomes": len(outcomes),
         "runtime_signal_ids": runtime_signal_ids,
         "runtime_payload": runtime_payload,
+        "phase5_report": phase5_report.to_dict(),
         "signal_events": runtime_api.list_signal_events(),
         "broker_fills": [item.to_dict() for item in paper_broker.list_broker_fills()],
         "positions": [item.to_dict() for item in paper_broker.list_position_snapshots()],
         "forward_rows": forward_rows,
         "analytics_rows": outcome_rows,
+        "strategy_rows": strategy_rows,
+        "instrument_rows": instrument_rows,
+        "latency_rows": latency_rows,
+        "prometheus_metrics": prometheus_metrics,
+        "loki_lines": loki_lines,
         "output_paths": {
             **research_report["output_paths"],
             "research_forward_observations": forward_path.as_posix(),
             "analytics_signal_outcomes": outcomes_path.as_posix(),
+            "analytics_strategy_metrics_daily": strategy_metrics_path.as_posix(),
+            "analytics_instrument_metrics_daily": instrument_metrics_path.as_posix(),
+            "observability_latency_metrics": latency_metrics_path.as_posix(),
+            "observability_prometheus_metrics": prometheus_path.as_posix(),
+            "observability_loki_events": loki_path.as_posix(),
         },
         "delta_manifest": {
             **research_report["delta_manifest"],
             **phase3_outcome_store_contract(),
+            **phase5_review_store_contract(),
         },
     }
