@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from trading_advisor_3000.app.contracts import CanonicalBar, DecisionCandidate
+from trading_advisor_3000.app.contracts import CanonicalBar, DecisionCandidate, Mode, OrderIntent
+from trading_advisor_3000.app.execution.intents import PaperBrokerEngine
 from trading_advisor_3000.app.interfaces.api import RuntimeAPI
 from trading_advisor_3000.app.research import (
     build_forward_observations,
-    candidate_id_from_signal,
     run_research_from_bars,
 )
 from trading_advisor_3000.app.runtime.analytics.outcomes import (
@@ -21,6 +21,13 @@ from trading_advisor_3000.app.runtime.pipeline import build_runtime_stack
 def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
     lines = [json.dumps(row, ensure_ascii=False, sort_keys=True) for row in rows]
     path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+
+
+def _bar_close_index(bars: list[CanonicalBar]) -> dict[tuple[str, str, str], float]:
+    index: dict[tuple[str, str, str], float] = {}
+    for bar in bars:
+        index[(bar.contract_id, bar.timeframe.value, bar.ts)] = bar.close
+    return index
 
 
 def run_system_shadow_replay(
@@ -59,20 +66,103 @@ def run_system_shadow_replay(
     )
     runtime_api = RuntimeAPI(runtime_stack=runtime_stack)
     runtime_payload = runtime_api.replay_candidates(candidates)
+    accepted_candidates = {
+        str(item["signal_id"]): str(item["candidate_id"])
+        for item in runtime_payload["replay_report"].get("accepted_candidates", [])
+    }
     accepted_signal_ids = set(str(item) for item in runtime_payload["replay_report"]["accepted_signal_ids"])
     publication_signal_ids = {str(item["signal_id"]) for item in runtime_payload["publications"]}
     runtime_signal_ids = sorted(accepted_signal_ids & publication_signal_ids)
     runtime_candidates = [item for item in candidates if item.signal_id in runtime_signal_ids]
-    runtime_candidate_ids = sorted({candidate_id_from_signal(item) for item in runtime_candidates})
+    runtime_candidate_ids = sorted({accepted_candidates[item.signal_id] for item in runtime_candidates})
 
     forward_observations = build_forward_observations(
         candidates=runtime_candidates,
         bars=bars,
         horizon_bars=horizon_bars,
+        candidate_ids_by_signal=accepted_candidates,
     )
+    observation_by_candidate_id = {row.candidate_id: row for row in forward_observations}
+    close_index = _bar_close_index(bars)
+
+    paper_broker = PaperBrokerEngine(account_id="PAPER-REPLAY")
+    for candidate in runtime_candidates:
+        candidate_id = accepted_candidates[candidate.signal_id]
+        observation = observation_by_candidate_id.get(candidate_id)
+        if observation is None:
+            continue
+
+        open_action = "buy" if candidate.side.value == "long" else "sell"
+        close_action = "sell" if open_action == "buy" else "buy"
+        open_intent = OrderIntent(
+            intent_id=f"{candidate.signal_id}:OPEN",
+            signal_id=candidate.signal_id,
+            mode=Mode.PAPER,
+            broker_adapter="stocksharp-sidecar-stub",
+            action=open_action,
+            contract_id=candidate.contract_id,
+            qty=1,
+            price=candidate.entry_ref,
+            stop_price=candidate.stop_ref,
+            created_at=candidate.ts_decision,
+        )
+        open_result = paper_broker.execute_intent(
+            open_intent,
+            fill_price=candidate.entry_ref,
+            fill_ts=candidate.ts_decision,
+            fee=0.0,
+        )
+        runtime_stack.signal_store.record_execution_fill(
+            signal_id=candidate.signal_id,
+            event_ts=candidate.ts_decision,
+            fill_id=open_result.broker_fill.fill_id,
+            role="open",
+            contract_id=candidate.contract_id,
+            qty=open_result.broker_fill.qty,
+            price=open_result.broker_fill.price,
+        )
+
+        close_price = close_index.get(
+            (candidate.contract_id, candidate.timeframe.value, observation.closed_at),
+            candidate.entry_ref,
+        )
+        close_intent = OrderIntent(
+            intent_id=f"{candidate.signal_id}:CLOSE",
+            signal_id=candidate.signal_id,
+            mode=Mode.PAPER,
+            broker_adapter="stocksharp-sidecar-stub",
+            action=close_action,
+            contract_id=candidate.contract_id,
+            qty=1,
+            price=close_price,
+            stop_price=candidate.stop_ref,
+            created_at=observation.closed_at,
+        )
+        close_result = paper_broker.execute_intent(
+            close_intent,
+            fill_price=close_price,
+            fill_ts=observation.closed_at,
+            fee=0.0,
+        )
+        runtime_stack.signal_store.record_execution_fill(
+            signal_id=candidate.signal_id,
+            event_ts=observation.closed_at,
+            fill_id=close_result.broker_fill.fill_id,
+            role="close",
+            contract_id=candidate.contract_id,
+            qty=close_result.broker_fill.qty,
+            price=close_result.broker_fill.price,
+        )
+        runtime_api.close_signal(
+            signal_id=candidate.signal_id,
+            closed_at=observation.closed_at,
+            reason_code=observation.result_state,
+        )
+
     outcomes = build_signal_outcomes(
-        candidates=runtime_candidates,
-        forward_observations=forward_observations,
+        signal_events=runtime_api.list_signal_events(),
+        broker_fills=[item.to_dict() for item in paper_broker.list_broker_fills()],
+        positions=[item.to_dict() for item in paper_broker.list_position_snapshots()],
     )
 
     forward_rows = [item.to_dict() for item in forward_observations]
@@ -92,6 +182,9 @@ def run_system_shadow_replay(
         "analytics_outcomes": len(outcomes),
         "runtime_signal_ids": runtime_signal_ids,
         "runtime_payload": runtime_payload,
+        "signal_events": runtime_api.list_signal_events(),
+        "broker_fills": [item.to_dict() for item in paper_broker.list_broker_fills()],
+        "positions": [item.to_dict() for item in paper_broker.list_position_snapshots()],
         "forward_rows": forward_rows,
         "analytics_rows": outcome_rows,
         "output_paths": {

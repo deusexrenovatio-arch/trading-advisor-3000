@@ -2,17 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from trading_advisor_3000.app.contracts import DecisionCandidate
-from trading_advisor_3000.app.research.forward import ForwardObservation, candidate_id_from_signal
-
-
-_CLOSE_REASON_BY_RESULT = {
-    "closed_profit": "forward_window_profit",
-    "closed_loss": "forward_window_loss",
-    "closed_flat": "forward_window_flat",
-    "no_market_data": "no_market_data",
-    "no_forward_window": "no_forward_window",
-}
+from trading_advisor_3000.app.contracts import BrokerFill, PositionSnapshot
 
 
 @dataclass(frozen=True)
@@ -65,6 +55,7 @@ def phase3_outcome_store_contract() -> dict[str, dict[str, object]]:
             "format": "delta",
             "partition_by": ["strategy_version_id", "contract_id", "mode"],
             "constraints": ["unique(signal_id, mode)"],
+            "inputs": ["signal.signal_events", "execution.broker_fills", "execution.positions"],
             "columns": {
                 "signal_id": "string",
                 "strategy_version_id": "string",
@@ -81,29 +72,126 @@ def phase3_outcome_store_contract() -> dict[str, dict[str, object]]:
     }
 
 
+def _as_fill_map(broker_fills: list[BrokerFill | dict[str, object]]) -> dict[str, BrokerFill]:
+    parsed: dict[str, BrokerFill] = {}
+    for row in broker_fills:
+        fill = row if isinstance(row, BrokerFill) else BrokerFill.from_dict(row)
+        parsed[fill.fill_id] = fill
+    return parsed
+
+
+def _as_positions(positions: list[PositionSnapshot | dict[str, object]]) -> list[PositionSnapshot]:
+    return [row if isinstance(row, PositionSnapshot) else PositionSnapshot.from_dict(row) for row in positions]
+
+
+def _risk_unit(entry_ref: float, stop_ref: float) -> float:
+    value = abs(entry_ref - stop_ref)
+    return value if value > 1e-9 else 1e-9
+
+
+def _close_reason(events: list[dict[str, object]]) -> tuple[str, str]:
+    closing_events = [item for item in events if str(item.get("event_type")) in {"signal_closed", "signal_canceled", "signal_expired"}]
+    if not closing_events:
+        return "", ""
+    last = sorted(closing_events, key=lambda item: str(item.get("event_ts")))[-1]
+    return str(last.get("event_ts")), str(last.get("reason_code", "closed"))
+
+
+def _fill_ids_by_role(events: list[dict[str, object]]) -> dict[str, str]:
+    roles: dict[str, str] = {}
+    for event in events:
+        if str(event.get("event_type")) != "execution_fill":
+            continue
+        payload = event.get("payload_json")
+        if not isinstance(payload, dict):
+            continue
+        role = str(payload.get("role", ""))
+        fill_id = str(payload.get("fill_id", ""))
+        if role and fill_id:
+            roles[role] = fill_id
+    return roles
+
+
+def _has_flat_position(
+    *,
+    positions: list[PositionSnapshot],
+    contract_id: str,
+    closed_at: str,
+) -> bool:
+    relevant = [
+        item
+        for item in positions
+        if item.contract_id == contract_id and item.as_of_ts >= closed_at
+    ]
+    if not relevant:
+        return False
+    latest = sorted(relevant, key=lambda item: item.as_of_ts)[-1]
+    return latest.qty == 0
+
+
 def build_signal_outcomes(
     *,
-    candidates: list[DecisionCandidate],
-    forward_observations: list[ForwardObservation],
+    signal_events: list[dict[str, object]],
+    broker_fills: list[BrokerFill | dict[str, object]],
+    positions: list[PositionSnapshot | dict[str, object]],
 ) -> list[SignalOutcome]:
-    by_candidate_id = {candidate_id_from_signal(item): item for item in candidates}
+    events_by_signal: dict[str, list[dict[str, object]]] = {}
+    for row in signal_events:
+        signal_id = str(row.get("signal_id", ""))
+        if not signal_id:
+            continue
+        events_by_signal.setdefault(signal_id, []).append(row)
+
+    fills = _as_fill_map(broker_fills)
+    position_rows = _as_positions(positions)
     outcomes: list[SignalOutcome] = []
-    for observation in forward_observations:
-        candidate = by_candidate_id.get(observation.candidate_id)
-        if candidate is None:
-            raise ValueError(f"unknown candidate_id in forward observation: {observation.candidate_id}")
+    for signal_id, events in sorted(events_by_signal.items()):
+        opened_events = [item for item in events if str(item.get("event_type")) == "signal_opened"]
+        if not opened_events:
+            continue
+        opened = sorted(opened_events, key=lambda item: str(item.get("event_ts")))[0]
+        opened_payload = opened.get("payload_json")
+        if not isinstance(opened_payload, dict):
+            continue
+
+        closed_at, close_reason = _close_reason(events)
+        if not closed_at:
+            continue
+
+        fill_ids = _fill_ids_by_role(events)
+        open_fill = fills.get(fill_ids.get("open", ""))
+        close_fill = fills.get(fill_ids.get("close", ""))
+        if open_fill is None or close_fill is None:
+            continue
+
+        side = str(opened_payload.get("side", ""))
+        contract_id = str(opened_payload.get("contract_id", ""))
+        mode = str(opened_payload.get("mode", ""))
+        if not _has_flat_position(positions=position_rows, contract_id=contract_id, closed_at=closed_at):
+            continue
+
+        if side == "long":
+            pnl_raw = close_fill.price - open_fill.price
+        elif side == "short":
+            pnl_raw = open_fill.price - close_fill.price
+        else:
+            continue
+
+        entry_ref = float(opened_payload.get("entry_ref", open_fill.price))
+        stop_ref = float(opened_payload.get("stop_ref", entry_ref))
+        pnl_r = pnl_raw / _risk_unit(entry_ref, stop_ref)
         outcomes.append(
             SignalOutcome(
-                signal_id=candidate.signal_id,
-                strategy_version_id=candidate.strategy_version_id,
-                contract_id=candidate.contract_id,
-                mode=observation.mode,
-                opened_at=observation.opened_at,
-                closed_at=observation.closed_at,
-                pnl_r=observation.pnl_r,
-                mfe_r=observation.mfe_r,
-                mae_r=observation.mae_r,
-                close_reason=_CLOSE_REASON_BY_RESULT.get(observation.result_state, "forward_window_unknown"),
+                signal_id=signal_id,
+                strategy_version_id=str(opened_payload.get("strategy_version_id", "")),
+                contract_id=contract_id,
+                mode=mode,
+                opened_at=str(opened.get("event_ts", "")),
+                closed_at=closed_at,
+                pnl_r=pnl_r,
+                mfe_r=max(0.0, pnl_r),
+                mae_r=min(0.0, pnl_r),
+                close_reason=close_reason,
             )
         )
     return sorted(outcomes, key=lambda row: (row.opened_at, row.signal_id))

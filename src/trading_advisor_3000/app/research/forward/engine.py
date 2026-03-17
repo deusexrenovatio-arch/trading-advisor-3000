@@ -60,6 +60,7 @@ def build_forward_observations(
     bars: list[CanonicalBar],
     horizon_bars: int = 3,
     risk_unit_fraction: float = 0.01,
+    candidate_ids_by_signal: dict[str, str] | None = None,
 ) -> list[ForwardObservation]:
     if horizon_bars <= 0:
         raise ValueError("horizon_bars must be positive")
@@ -73,7 +74,10 @@ def build_forward_observations(
     observations: list[ForwardObservation] = []
     ordered_candidates = sorted(candidates, key=lambda row: (row.ts_decision, row.signal_id))
     for candidate in ordered_candidates:
-        candidate_id = candidate_id_from_signal(candidate)
+        if candidate_ids_by_signal is not None and candidate.signal_id in candidate_ids_by_signal:
+            candidate_id = candidate_ids_by_signal[candidate.signal_id]
+        else:
+            candidate_id = candidate_id_from_signal(candidate)
         series = grouped.get((candidate.contract_id, candidate.timeframe.value), [])
         entry_index = next((idx for idx, bar in enumerate(series) if bar.ts >= candidate.ts_decision), None)
 

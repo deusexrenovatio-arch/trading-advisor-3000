@@ -1,35 +1,10 @@
 from __future__ import annotations
 
+from trading_advisor_3000.app.contracts import Mode, PositionSnapshot
 from trading_advisor_3000.app.contracts import (
-    DecisionCandidate,
-    FeatureSnapshotRef,
-    Mode,
-    Timeframe,
-    TradeSide,
+    BrokerFill,
 )
-from trading_advisor_3000.app.research.ids import candidate_id
-from trading_advisor_3000.app.research.forward import ForwardObservation, candidate_id_from_signal
 from trading_advisor_3000.app.runtime.analytics import build_signal_outcomes, phase3_outcome_store_contract
-
-
-def _candidate() -> DecisionCandidate:
-    return DecisionCandidate(
-        signal_id="SIG-20260317-0001",
-        contract_id="BR-6.26",
-        timeframe=Timeframe.M15,
-        strategy_version_id="trend-follow-v1",
-        mode=Mode.SHADOW,
-        side=TradeSide.LONG,
-        entry_ref=82.45,
-        stop_ref=81.70,
-        target_ref=83.95,
-        confidence=0.81,
-        ts_decision="2026-03-17T09:30:00Z",
-        feature_snapshot=FeatureSnapshotRef(
-            dataset_version="bars-whitelist-v1",
-            snapshot_id="FS-20260317-0001",
-        ),
-    )
 
 
 def test_phase3_outcomes_contract_has_required_tables_and_columns() -> None:
@@ -39,31 +14,95 @@ def test_phase3_outcomes_contract_has_required_tables_and_columns() -> None:
     analytics_columns = set(manifest["analytics_signal_outcomes"]["columns"])
     assert {"forward_obs_id", "candidate_id", "result_state", "pnl_r", "mfe_r", "mae_r"} <= forward_columns
     assert {"signal_id", "strategy_version_id", "contract_id", "mode", "pnl_r", "close_reason"} <= analytics_columns
+    assert manifest["analytics_signal_outcomes"]["inputs"] == [
+        "signal.signal_events",
+        "execution.broker_fills",
+        "execution.positions",
+    ]
 
 
-def test_build_signal_outcomes_maps_forward_state_to_close_reason() -> None:
-    candidate = _candidate()
-    assert candidate_id_from_signal(candidate) == candidate_id(
-        strategy_version_id=candidate.strategy_version_id,
-        contract_id=candidate.contract_id,
-        timeframe=candidate.timeframe.value,
-        ts_signal=candidate.ts_decision,
+def test_build_signal_outcomes_uses_events_fills_positions() -> None:
+    signal_events = [
+        {
+            "event_id": "SEVT-1",
+            "signal_id": "SIG-20260317-0001",
+            "event_ts": "2026-03-17T09:30:00Z",
+            "event_type": "signal_opened",
+            "reason_code": "candidate_created",
+            "payload_json": {
+                "strategy_version_id": "trend-follow-v1",
+                "contract_id": "BR-6.26",
+                "mode": "shadow",
+                "side": "long",
+                "entry_ref": 100.0,
+                "stop_ref": 99.0,
+            },
+        },
+        {
+            "event_id": "SEVT-2",
+            "signal_id": "SIG-20260317-0001",
+            "event_ts": "2026-03-17T09:30:00Z",
+            "event_type": "execution_fill",
+            "reason_code": "open",
+            "payload_json": {"fill_id": "FILL-OPEN", "role": "open"},
+        },
+        {
+            "event_id": "SEVT-3",
+            "signal_id": "SIG-20260317-0001",
+            "event_ts": "2026-03-17T10:15:00Z",
+            "event_type": "execution_fill",
+            "reason_code": "close",
+            "payload_json": {"fill_id": "FILL-CLOSE", "role": "close"},
+        },
+        {
+            "event_id": "SEVT-4",
+            "signal_id": "SIG-20260317-0001",
+            "event_ts": "2026-03-17T10:15:00Z",
+            "event_type": "signal_closed",
+            "reason_code": "closed_profit",
+            "payload_json": {"state": "closed"},
+        },
+    ]
+    broker_fills = [
+        BrokerFill(
+            fill_id="FILL-OPEN",
+            broker_order_id="BORD-1",
+            fill_ts="2026-03-17T09:30:00Z",
+            qty=1,
+            price=100.0,
+            fee=0.0,
+            external_trade_id="TRD-OPEN",
+        ),
+        BrokerFill(
+            fill_id="FILL-CLOSE",
+            broker_order_id="BORD-2",
+            fill_ts="2026-03-17T10:15:00Z",
+            qty=1,
+            price=102.0,
+            fee=0.0,
+            external_trade_id="TRD-CLOSE",
+        ),
+    ]
+    positions = [
+        PositionSnapshot(
+            position_key="PAPER-REPLAY:BR-6.26:shadow",
+            account_id="PAPER-REPLAY",
+            contract_id="BR-6.26",
+            mode=Mode.SHADOW,
+            qty=0,
+            avg_price=0.0,
+            as_of_ts="2026-03-17T10:15:00Z",
+        )
+    ]
+    outcomes = build_signal_outcomes(
+        signal_events=signal_events,
+        broker_fills=[item.to_dict() for item in broker_fills],
+        positions=[item.to_dict() for item in positions],
     )
-    observation = ForwardObservation(
-        forward_obs_id="FWD-TEST-0001",
-        candidate_id=candidate_id_from_signal(candidate),
-        mode="shadow",
-        opened_at="2026-03-17T09:30:00Z",
-        closed_at="2026-03-17T10:15:00Z",
-        result_state="closed_profit",
-        pnl_r=1.25,
-        mfe_r=1.7,
-        mae_r=-0.4,
-    )
-    outcomes = build_signal_outcomes(candidates=[candidate], forward_observations=[observation])
 
     assert len(outcomes) == 1
     payload = outcomes[0].to_dict()
-    assert payload["signal_id"] == candidate.signal_id
-    assert payload["close_reason"] == "forward_window_profit"
+    assert payload["signal_id"] == "SIG-20260317-0001"
+    assert payload["close_reason"] == "closed_profit"
     assert payload["mode"] == "shadow"
+    assert payload["pnl_r"] == 2.0
