@@ -27,17 +27,20 @@ class SignalRuntimeEngine:
         self._signal_store = signal_store
         self._publisher = publisher
 
-    def replay_candidates(self, candidates: list[DecisionCandidate]) -> dict[str, int]:
+    def replay_candidates(self, candidates: list[DecisionCandidate]) -> dict[str, object]:
         accepted = 0
         rejected = 0
         published = 0
         edited = 0
+        accepted_signal_ids: list[str] = []
+        rejected_signal_ids: list[str] = []
 
         ordered = sorted(candidates, key=lambda item: (item.ts_decision, item.signal_id))
         for candidate in ordered:
             is_allowed, _ = self._strategy_registry.allows(candidate)
             if not is_allowed:
                 rejected += 1
+                rejected_signal_ids.append(candidate.signal_id)
                 continue
 
             signal, changed = self._signal_store.upsert_candidate(candidate)
@@ -66,6 +69,7 @@ class SignalRuntimeEngine:
                     edited += 1
 
             accepted += 1
+            accepted_signal_ids.append(candidate.signal_id)
 
         return {
             "accepted": accepted,
@@ -73,6 +77,9 @@ class SignalRuntimeEngine:
             "published": published,
             "edited": edited,
             "active_signals": len(self._signal_store.list_active_signals()),
+            "accepted_signal_ids": accepted_signal_ids,
+            "accepted_unique_signals": len(set(accepted_signal_ids)),
+            "rejected_signal_ids": rejected_signal_ids,
         }
 
     def close_signal(self, *, signal_id: str, closed_at: str, reason_code: str) -> dict[str, object]:

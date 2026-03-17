@@ -7,6 +7,7 @@ from trading_advisor_3000.app.contracts import (
     Timeframe,
     TradeSide,
 )
+from trading_advisor_3000.app.research.ids import candidate_id
 from trading_advisor_3000.app.research.forward import ForwardObservation, candidate_id_from_signal
 from trading_advisor_3000.app.runtime.analytics import build_signal_outcomes, phase3_outcome_store_contract
 
@@ -39,6 +40,12 @@ def test_phase3_outcomes_contract_has_required_tables_and_columns() -> None:
 
 def test_build_signal_outcomes_maps_forward_state_to_close_reason() -> None:
     candidate = _candidate()
+    assert candidate_id_from_signal(candidate) == candidate_id(
+        strategy_version_id=candidate.strategy_version_id,
+        contract_id=candidate.contract_id,
+        timeframe=candidate.timeframe.value,
+        ts_signal=candidate.ts_decision,
+    )
     observation = ForwardObservation(
         forward_obs_id="FWD-TEST-0001",
         candidate_id=candidate_id_from_signal(candidate),

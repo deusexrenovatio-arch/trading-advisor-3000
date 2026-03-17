@@ -4,6 +4,7 @@ import hashlib
 from dataclasses import dataclass
 
 from trading_advisor_3000.app.contracts import CanonicalBar, DecisionCandidate
+from trading_advisor_3000.app.research.ids import candidate_id_from_candidate
 
 
 def _stable_id(prefix: str, seed: str) -> str:
@@ -12,10 +13,7 @@ def _stable_id(prefix: str, seed: str) -> str:
 
 
 def candidate_id_from_signal(candidate: DecisionCandidate) -> str:
-    return _stable_id(
-        "CAND",
-        f"{candidate.signal_id}|{candidate.contract_id}|{candidate.timeframe.value}|{candidate.ts_decision}",
-    )
+    return candidate_id_from_candidate(candidate)
 
 
 @dataclass(frozen=True)

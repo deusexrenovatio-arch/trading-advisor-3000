@@ -6,6 +6,7 @@ from pathlib import Path
 
 from trading_advisor_3000.app.contracts import DecisionCandidate, FeatureSnapshotRef, Mode, TradeSide
 from trading_advisor_3000.app.research.features import FeatureSnapshot, phase2b_feature_store_contract
+from trading_advisor_3000.app.research.ids import candidate_id
 from trading_advisor_3000.app.research.strategies import evaluate_strategy
 
 
@@ -17,12 +18,6 @@ def _score(snapshot: FeatureSnapshot) -> float:
     spread = abs(snapshot.ema_fast - snapshot.ema_slow)
     denominator = snapshot.atr if snapshot.atr > 0 else 1.0
     return min(1.0, max(0.0, spread / denominator))
-
-
-def _candidate_id(*, strategy_version_id: str, snapshot: FeatureSnapshot) -> str:
-    return "CAND-" + _stable_hash(
-        f"{strategy_version_id}|{snapshot.contract_id}|{snapshot.timeframe.value}|{snapshot.ts}"
-    )
 
 
 def _signal_id(*, strategy_version_id: str, snapshot: FeatureSnapshot) -> str:
@@ -87,7 +82,12 @@ def run_backtest(
         signal_contracts.append(signal_contract)
         research_rows.append(
             {
-                "candidate_id": _candidate_id(strategy_version_id=strategy_version_id, snapshot=snapshot),
+                "candidate_id": candidate_id(
+                    strategy_version_id=strategy_version_id,
+                    contract_id=snapshot.contract_id,
+                    timeframe=snapshot.timeframe.value,
+                    ts_signal=snapshot.ts,
+                ),
                 "backtest_run_id": backtest_run_id,
                 "strategy_version_id": strategy_version_id,
                 "contract_id": snapshot.contract_id,

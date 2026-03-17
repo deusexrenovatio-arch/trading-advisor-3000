@@ -19,8 +19,8 @@ Deliver a full replayable system slice:
 ## Design Decisions
 1. Forward observations are computed from the same `DecisionCandidate` contracts used by runtime.
 2. Forward metrics are normalized in R-units (`pnl_r`, `mfe_r`, `mae_r`) with deterministic risk scaling.
-3. Analytics outcomes are generated from forward observations through `candidate_id` traceability.
-4. Integrated replay reuses existing Phase 2B/2C modules instead of introducing a parallel runtime path.
+3. Analytics outcomes are generated from forward observations through the same `candidate_id` formula as Phase 2B research candidates.
+4. Integrated replay builds forward/outcomes only from runtime-accepted and published signal IDs.
 5. Evidence artifacts are written as deterministic JSONL outputs for repeatable acceptance runs.
 
 ## Acceptance Commands

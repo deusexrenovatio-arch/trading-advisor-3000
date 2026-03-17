@@ -28,6 +28,7 @@ def run_system_shadow_replay(
     output_dir: Path,
     telegram_channel: str,
     horizon_bars: int = 3,
+    runtime_allowed_contracts: set[str] | None = None,
 ) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
     research_report = run_research_from_bars(
@@ -41,11 +42,12 @@ def run_system_shadow_replay(
 
     runtime_stack = build_runtime_stack(telegram_channel=telegram_channel)
     activated_from = min((item.ts_decision for item in candidates), default="1970-01-01T00:00:00Z")
+    allowed_contracts = runtime_allowed_contracts or {item.contract_id for item in candidates}
     runtime_stack.strategy_registry.register(
         StrategyVersion(
             strategy_version_id=strategy_version_id,
             status="active",
-            allowed_contracts=frozenset(item.contract_id for item in candidates),
+            allowed_contracts=frozenset(allowed_contracts),
             allowed_timeframes=frozenset(item.timeframe for item in candidates),
             allowed_modes=frozenset(item.mode for item in candidates),
             activated_from=activated_from,
@@ -53,14 +55,18 @@ def run_system_shadow_replay(
     )
     runtime_api = RuntimeAPI(runtime_stack=runtime_stack)
     runtime_payload = runtime_api.replay_candidates(candidates)
+    accepted_signal_ids = set(str(item) for item in runtime_payload["replay_report"]["accepted_signal_ids"])
+    publication_signal_ids = {str(item["signal_id"]) for item in runtime_payload["publications"]}
+    runtime_signal_ids = sorted(accepted_signal_ids & publication_signal_ids)
+    runtime_candidates = [item for item in candidates if item.signal_id in runtime_signal_ids]
 
     forward_observations = build_forward_observations(
-        candidates=candidates,
+        candidates=runtime_candidates,
         bars=bars,
         horizon_bars=horizon_bars,
     )
     outcomes = build_signal_outcomes(
-        candidates=candidates,
+        candidates=runtime_candidates,
         forward_observations=forward_observations,
     )
 
@@ -74,9 +80,11 @@ def run_system_shadow_replay(
     return {
         "bars_processed": len(bars),
         "signal_candidates": len(candidates),
+        "runtime_signal_candidates": len(runtime_candidates),
         "runtime_report": runtime_payload["replay_report"],
         "forward_observations": len(forward_observations),
         "analytics_outcomes": len(outcomes),
+        "runtime_signal_ids": runtime_signal_ids,
         "runtime_payload": runtime_payload,
         "forward_rows": forward_rows,
         "analytics_rows": outcome_rows,

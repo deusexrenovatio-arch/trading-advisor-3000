@@ -20,6 +20,8 @@ Run and validate the integrated shadow-forward replay path:
 
 ## Expected Evidence
 - Runtime replay report contains accepted/published signals (`runtime_report`).
+- Forward and analytics rows are produced only for runtime-accepted/published signal IDs.
+- `candidate_id` in `research.forward_observations` matches `research.signal_candidates` for the same signal.
 - Output artifacts include:
   - `research.forward_observations.sample.jsonl`
   - `analytics.signal_outcomes.sample.jsonl`
