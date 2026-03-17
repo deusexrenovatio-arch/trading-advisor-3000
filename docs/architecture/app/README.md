@@ -15,6 +15,7 @@ This section stores product-plane architecture artifacts on top of the existing 
 - `docs/architecture/app/phase2b-research-plane-mvp.md` - research plane MVP implementation and acceptance.
 - `docs/architecture/app/phase2c-runtime-mvp.md` - runtime MVP implementation and acceptance.
 - `docs/architecture/app/phase2d-execution-mvp.md` - execution MVP implementation and acceptance.
+- `docs/architecture/app/phase3-shadow-forward-system-integration.md` - shadow-forward and integrated system replay.
 
 ## Related Checklists
 - `docs/checklists/app/phase0-acceptance-checklist.md`
@@ -23,6 +24,7 @@ This section stores product-plane architecture artifacts on top of the existing 
 - `docs/checklists/app/phase2b-acceptance-checklist.md`
 - `docs/checklists/app/phase2c-acceptance-checklist.md`
 - `docs/checklists/app/phase2d-acceptance-checklist.md`
+- `docs/checklists/app/phase3-acceptance-checklist.md`
 
 ## Boundary Rule
 Product-plane changes must not break shell contracts and must not move trading business logic into shell-sensitive paths.
