@@ -17,6 +17,9 @@ class RuntimeSignal:
     contract_id: str
     mode: Mode
     side: TradeSide
+    entry_price: float
+    stop_price: float
+    target_price: float
     confidence: float
     state: str
     opened_at: str
@@ -31,6 +34,9 @@ class RuntimeSignal:
             "contract_id": self.contract_id,
             "mode": self.mode.value,
             "side": self.side.value,
+            "entry_price": self.entry_price,
+            "stop_price": self.stop_price,
+            "target_price": self.target_price,
             "confidence": self.confidence,
             "state": self.state,
             "opened_at": self.opened_at,
@@ -99,6 +105,9 @@ class InMemorySignalStore:
                 contract_id=candidate.contract_id,
                 mode=candidate.mode,
                 side=candidate.side,
+                entry_price=candidate.entry_ref,
+                stop_price=candidate.stop_ref,
+                target_price=candidate.target_ref,
                 confidence=candidate.confidence,
                 state="candidate",
                 opened_at=candidate.ts_decision,
@@ -119,6 +128,9 @@ class InMemorySignalStore:
 
         if (
             existing.side == candidate.side
+            and abs(existing.entry_price - candidate.entry_ref) < 1e-9
+            and abs(existing.stop_price - candidate.stop_ref) < 1e-9
+            and abs(existing.target_price - candidate.target_ref) < 1e-9
             and abs(existing.confidence - candidate.confidence) < 1e-9
             and existing.updated_at == candidate.ts_decision
         ):
@@ -130,6 +142,9 @@ class InMemorySignalStore:
             contract_id=existing.contract_id,
             mode=existing.mode,
             side=candidate.side,
+            entry_price=candidate.entry_ref,
+            stop_price=candidate.stop_ref,
+            target_price=candidate.target_ref,
             confidence=candidate.confidence,
             state=existing.state,
             opened_at=existing.opened_at,
@@ -158,6 +173,9 @@ class InMemorySignalStore:
             contract_id=existing.contract_id,
             mode=existing.mode,
             side=existing.side,
+            entry_price=existing.entry_price,
+            stop_price=existing.stop_price,
+            target_price=existing.target_price,
             confidence=existing.confidence,
             state=status,
             opened_at=existing.opened_at,
@@ -188,6 +206,9 @@ class InMemorySignalStore:
             contract_id=existing.contract_id,
             mode=existing.mode,
             side=existing.side,
+            entry_price=existing.entry_price,
+            stop_price=existing.stop_price,
+            target_price=existing.target_price,
             confidence=existing.confidence,
             state="closed",
             opened_at=existing.opened_at,

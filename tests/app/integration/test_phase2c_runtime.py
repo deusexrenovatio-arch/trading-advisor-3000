@@ -51,6 +51,10 @@ def test_phase2c_runtime_replay_lifecycle_and_idempotent_publication() -> None:
     assert first["replay_report"]["published"] == 1
     assert len(first["active_signals"]) == 1
     assert len(first["publications"]) == 1
+    active = first["active_signals"][0]
+    assert active["entry_price"] == 82.45
+    assert active["stop_price"] == 81.70
+    assert active["target_price"] == 83.95
 
     second = api.replay_candidates([_candidate()])
     assert second["replay_report"]["accepted"] == 1
