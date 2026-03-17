@@ -30,7 +30,7 @@ def test_phase2d_paper_mode_runs_from_intent_to_position_snapshot() -> None:
     )
     assert result.position_snapshot.contract_id == intent.contract_id
     assert result.position_snapshot.mode == Mode.PAPER
-    assert result.position_snapshot.quantity == 1
+    assert result.position_snapshot.qty == 1
     assert result.position_snapshot.avg_price == 82.50
 
     events_before = len(broker.list_broker_events())
@@ -48,8 +48,8 @@ def test_phase2d_paper_mode_runs_from_intent_to_position_snapshot() -> None:
     assert ack["intent_id"] == intent.intent_id
 
 
-def test_phase2d_rejects_flat_order_intent() -> None:
+def test_phase2d_rejects_unsupported_order_action() -> None:
     payload = _load_json(FIXTURES / "order_intent.v1.json")
-    payload["side"] = "flat"
+    payload["action"] = "hold"
     with pytest.raises(ValueError):
         OrderIntent.from_dict(payload)

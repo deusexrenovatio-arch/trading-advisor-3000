@@ -47,7 +47,7 @@ class ReconciliationReport:
 
 
 def _position_key(position: PositionSnapshot) -> str:
-    return f"{position.account_id}:{position.contract_id}:{position.mode.value}"
+    return position.position_key
 
 
 def reconcile_position_snapshots(
@@ -73,7 +73,7 @@ def reconcile_position_snapshots(
                 PositionDrift(
                     position_key=key,
                     expected_qty=None,
-                    observed_qty=observed_row.quantity,
+                    observed_qty=observed_row.qty,
                     expected_avg_price=None,
                     observed_avg_price=observed_row.avg_price,
                     reason="unexpected_position",
@@ -84,7 +84,7 @@ def reconcile_position_snapshots(
             missing.append(
                 PositionDrift(
                     position_key=key,
-                    expected_qty=expected_row.quantity,
+                    expected_qty=expected_row.qty,
                     observed_qty=None,
                     expected_avg_price=expected_row.avg_price,
                     observed_avg_price=None,
@@ -94,12 +94,12 @@ def reconcile_position_snapshots(
             continue
         assert expected_row is not None
         assert observed_row is not None
-        if expected_row.quantity != observed_row.quantity:
+        if expected_row.qty != observed_row.qty:
             mismatched.append(
                 PositionDrift(
                     position_key=key,
-                    expected_qty=expected_row.quantity,
-                    observed_qty=observed_row.quantity,
+                    expected_qty=expected_row.qty,
+                    observed_qty=observed_row.qty,
                     expected_avg_price=expected_row.avg_price,
                     observed_avg_price=observed_row.avg_price,
                     reason="quantity_mismatch",
@@ -110,8 +110,8 @@ def reconcile_position_snapshots(
             mismatched.append(
                 PositionDrift(
                     position_key=key,
-                    expected_qty=expected_row.quantity,
-                    observed_qty=observed_row.quantity,
+                    expected_qty=expected_row.qty,
+                    observed_qty=observed_row.qty,
                     expected_avg_price=expected_row.avg_price,
                     observed_avg_price=observed_row.avg_price,
                     reason="avg_price_mismatch",

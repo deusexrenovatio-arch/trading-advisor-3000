@@ -10,7 +10,6 @@ from trading_advisor_3000.app.contracts import (
     Mode,
     OrderIntent,
     PositionSnapshot,
-    TradeSide,
 )
 
 
@@ -36,7 +35,7 @@ class PaperBrokerEngine:
     def __init__(self, *, account_id: str, broker_adapter: str = "stocksharp-sidecar-stub") -> None:
         self._account_id = account_id
         self._broker_adapter = broker_adapter
-        self._positions: dict[tuple[str, Mode], PositionSnapshot] = {}
+        self._positions: dict[str, PositionSnapshot] = {}
         self._results_by_intent: dict[str, PaperExecutionResult] = {}
         self._broker_events: list[BrokerEvent] = []
 
@@ -62,12 +61,16 @@ class PaperBrokerEngine:
         self._broker_events.append(event)
 
     @staticmethod
-    def _signed_quantity(*, side: TradeSide, quantity: int) -> int:
-        if side == TradeSide.LONG:
+    def _position_key(*, account_id: str, contract_id: str, mode: Mode) -> str:
+        return f"{account_id}:{contract_id}:{mode.value}"
+
+    @staticmethod
+    def _signed_quantity(*, action: str, quantity: int) -> int:
+        if action == "buy":
             return quantity
-        if side == TradeSide.SHORT:
+        if action == "sell":
             return -quantity
-        return 0
+        raise ValueError(f"unsupported order action: {action}")
 
     @staticmethod
     def _merge_position(
@@ -109,14 +112,14 @@ class PaperBrokerEngine:
     ) -> PaperExecutionResult:
         if intent.mode != Mode.PAPER:
             raise ValueError("paper broker supports only paper mode intents")
-        if intent.side == TradeSide.FLAT:
-            raise ValueError("paper broker does not accept flat order intents")
+        if intent.broker_adapter != self._broker_adapter:
+            raise ValueError("intent broker_adapter does not match paper broker adapter")
         existing = self._results_by_intent.get(intent.intent_id)
         if existing is not None:
             return existing
 
         resolved_fill_ts = fill_ts or intent.created_at
-        resolved_price = float(fill_price if fill_price is not None else (intent.limit_price or 1.0))
+        resolved_price = float(fill_price if fill_price is not None else intent.price)
         if resolved_price <= 0:
             raise ValueError("fill_price must be positive")
 
@@ -125,7 +128,7 @@ class PaperBrokerEngine:
             broker_order_id=broker_order_id,
             intent_id=intent.intent_id,
             external_order_id=_stable_id("EXT", intent.intent_id),
-            broker=self._broker_adapter,
+            broker=intent.broker_adapter,
             state="filled",
             submitted_at=intent.created_at,
             updated_at=resolved_fill_ts,
@@ -134,17 +137,21 @@ class PaperBrokerEngine:
             fill_id=_stable_id("BFILL", f"{intent.intent_id}|{resolved_fill_ts}"),
             broker_order_id=broker_order_id,
             fill_ts=resolved_fill_ts,
-            qty=intent.quantity,
+            qty=intent.qty,
             price=resolved_price,
             fee=fee,
             external_trade_id=_stable_id("TRD", f"{intent.intent_id}|{resolved_fill_ts}"),
         )
 
-        key = (intent.contract_id, intent.mode)
+        key = self._position_key(
+            account_id=self._account_id,
+            contract_id=intent.contract_id,
+            mode=intent.mode,
+        )
         previous = self._positions.get(key)
-        previous_qty = previous.quantity if previous is not None else 0
+        previous_qty = previous.qty if previous is not None else 0
         previous_avg = previous.avg_price if previous is not None else 0.0
-        signed_fill_qty = self._signed_quantity(side=intent.side, quantity=intent.quantity)
+        signed_fill_qty = self._signed_quantity(action=intent.action, quantity=intent.qty)
         merged_qty, merged_avg = self._merge_position(
             existing_qty=previous_qty,
             existing_avg=previous_avg,
@@ -152,12 +159,13 @@ class PaperBrokerEngine:
             fill_price=resolved_price,
         )
         position = PositionSnapshot(
+            position_key=key,
             account_id=self._account_id,
             contract_id=intent.contract_id,
             mode=intent.mode,
-            quantity=merged_qty,
+            qty=merged_qty,
             avg_price=merged_avg,
-            broker_ts=resolved_fill_ts,
+            as_of_ts=resolved_fill_ts,
         )
         self._positions[key] = position
 
@@ -180,7 +188,7 @@ class PaperBrokerEngine:
             payload_json=broker_fill.to_dict(),
         )
         self._append_event(
-            external_object_id=f"{self._account_id}:{intent.contract_id}",
+            external_object_id=position.position_key,
             event_type="position_updated",
             event_ts=resolved_fill_ts,
             payload_json=position.to_dict(),
@@ -195,7 +203,8 @@ class PaperBrokerEngine:
         return result
 
     def get_position_snapshot(self, *, contract_id: str, mode: Mode = Mode.PAPER) -> PositionSnapshot | None:
-        return self._positions.get((contract_id, mode))
+        key = self._position_key(account_id=self._account_id, contract_id=contract_id, mode=mode)
+        return self._positions.get(key)
 
     def list_broker_events(self) -> list[BrokerEvent]:
         return list(self._broker_events)

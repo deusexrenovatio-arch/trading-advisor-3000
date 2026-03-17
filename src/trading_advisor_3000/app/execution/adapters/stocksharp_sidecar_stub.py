@@ -22,7 +22,7 @@ class StockSharpSidecarStub:
             "intent_id": intent.intent_id,
             "external_order_id": external_order_id,
             "accepted": True,
-            "broker_adapter": "stocksharp-sidecar-stub",
+            "broker_adapter": intent.broker_adapter,
         }
         self._queued_intents.append({"intent": intent.to_dict(), "ack": envelope})
         return envelope

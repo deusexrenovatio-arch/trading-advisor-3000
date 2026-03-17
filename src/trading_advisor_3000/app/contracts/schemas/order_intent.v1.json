@@ -6,20 +6,25 @@
   "required": [
     "intent_id",
     "signal_id",
-    "contract_id",
     "mode",
-    "side",
-    "quantity",
+    "broker_adapter",
+    "action",
+    "contract_id",
+    "qty",
+    "price",
+    "stop_price",
     "created_at"
   ],
   "properties": {
     "intent_id": {"type": "string", "minLength": 1},
     "signal_id": {"type": "string", "minLength": 1},
-    "contract_id": {"type": "string", "minLength": 1},
     "mode": {"type": "string", "enum": ["shadow", "paper", "live"]},
-    "side": {"type": "string", "enum": ["long", "short"]},
-    "quantity": {"type": "integer", "minimum": 1},
-    "limit_price": {"type": ["number", "null"], "exclusiveMinimum": 0},
+    "broker_adapter": {"type": "string", "minLength": 1},
+    "action": {"type": "string", "enum": ["buy", "sell"]},
+    "contract_id": {"type": "string", "minLength": 1},
+    "qty": {"type": "integer", "minimum": 1},
+    "price": {"type": "number", "exclusiveMinimum": 0},
+    "stop_price": {"type": "number", "exclusiveMinimum": 0},
     "created_at": {"type": "string", "minLength": 1}
   },
   "additionalProperties": false

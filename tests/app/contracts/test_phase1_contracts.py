@@ -62,21 +62,21 @@ def test_signal_candidate_rejects_unsupported_mode() -> None:
 
 def test_order_intent_rejects_non_positive_quantity() -> None:
     payload = _load_json(FIXTURES / "order_intent.v1.json")
-    payload["quantity"] = 0
+    payload["qty"] = 0
     with pytest.raises(ValueError):
         OrderIntent.from_dict(payload)
 
 
-def test_order_intent_rejects_flat_side() -> None:
+def test_order_intent_rejects_unsupported_action() -> None:
     payload = _load_json(FIXTURES / "order_intent.v1.json")
-    payload["side"] = "flat"
+    payload["action"] = "hold"
     with pytest.raises(ValueError):
         OrderIntent.from_dict(payload)
 
 
 def test_order_intent_rejects_quantity_string() -> None:
     payload = _load_json(FIXTURES / "order_intent.v1.json")
-    payload["quantity"] = "1"
+    payload["qty"] = "1"
     with pytest.raises(ValueError):
         OrderIntent.from_dict(payload)
 
@@ -122,6 +122,6 @@ def test_contract_schema_snapshots_exist() -> None:
         assert payload["$id"] == schema_id
 
 
-def test_order_intent_schema_side_enum_excludes_flat() -> None:
+def test_order_intent_schema_action_enum_snapshot() -> None:
     schema = _load_json(SCHEMAS / "order_intent.v1.json")
-    assert schema["properties"]["side"]["enum"] == ["long", "short"]
+    assert schema["properties"]["action"]["enum"] == ["buy", "sell"]

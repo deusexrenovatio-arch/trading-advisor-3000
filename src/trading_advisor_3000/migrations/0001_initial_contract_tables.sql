@@ -17,11 +17,13 @@ CREATE TABLE IF NOT EXISTS app_signal_candidates (
 CREATE TABLE IF NOT EXISTS app_order_intents (
     intent_id TEXT PRIMARY KEY,
     signal_id TEXT NOT NULL,
-    contract_id TEXT NOT NULL,
     mode TEXT NOT NULL,
-    side TEXT NOT NULL,
-    quantity INTEGER NOT NULL,
-    limit_price DOUBLE PRECISION,
+    broker_adapter TEXT NOT NULL,
+    action TEXT NOT NULL,
+    contract_id TEXT NOT NULL,
+    qty INTEGER NOT NULL,
+    price DOUBLE PRECISION NOT NULL,
+    stop_price DOUBLE PRECISION NOT NULL,
     created_at TIMESTAMPTZ NOT NULL
 );
 
@@ -34,11 +36,12 @@ CREATE TABLE IF NOT EXISTS app_decision_publications (
 );
 
 CREATE TABLE IF NOT EXISTS app_position_snapshots (
+    position_key TEXT NOT NULL,
     account_id TEXT NOT NULL,
     contract_id TEXT NOT NULL,
     mode TEXT NOT NULL,
-    quantity INTEGER NOT NULL,
+    qty INTEGER NOT NULL,
     avg_price DOUBLE PRECISION NOT NULL,
-    broker_ts TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (account_id, contract_id, mode, broker_ts)
+    as_of_ts TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (position_key, as_of_ts)
 );

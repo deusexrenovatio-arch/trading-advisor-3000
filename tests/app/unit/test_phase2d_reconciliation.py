@@ -5,13 +5,15 @@ from trading_advisor_3000.app.execution.reconciliation import reconcile_position
 
 
 def _position(*, account_id: str, contract_id: str, qty: int, avg_price: float) -> PositionSnapshot:
+    mode = Mode.PAPER
     return PositionSnapshot(
+        position_key=f"{account_id}:{contract_id}:{mode.value}",
         account_id=account_id,
         contract_id=contract_id,
-        mode=Mode.PAPER,
-        quantity=qty,
+        mode=mode,
+        qty=qty,
         avg_price=avg_price,
-        broker_ts="2026-03-16T10:20:00Z",
+        as_of_ts="2026-03-16T10:20:00Z",
     )
 
 

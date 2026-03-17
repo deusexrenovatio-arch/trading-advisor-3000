@@ -1,10 +1,12 @@
 {
   "intent_id": "OI-20260316-0001",
   "signal_id": "SIG-20260316-0001",
-  "contract_id": "BR-6.26",
   "mode": "paper",
-  "side": "long",
-  "quantity": 1,
-  "limit_price": 82.45,
+  "broker_adapter": "stocksharp-sidecar-stub",
+  "action": "buy",
+  "contract_id": "BR-6.26",
+  "qty": 1,
+  "price": 82.45,
+  "stop_price": 81.70,
   "created_at": "2026-03-16T10:17:00Z"
 }

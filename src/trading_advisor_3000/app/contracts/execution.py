@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .enums import Mode, TradeSide
+from .enums import Mode
 
 
 def _required_text(name: str, value: object) -> str:
@@ -56,30 +56,38 @@ def _require_keys(payload: dict[str, object], *, required: set[str], optional: s
 class OrderIntent:
     intent_id: str
     signal_id: str
-    contract_id: str
     mode: Mode
-    side: TradeSide
-    quantity: int
-    limit_price: float | None
+    broker_adapter: str
+    action: str
+    contract_id: str
+    qty: int
+    price: float
+    stop_price: float
     created_at: str
 
     def __post_init__(self) -> None:
-        if self.quantity <= 0:
-            raise ValueError("quantity must be positive")
-        if self.limit_price is not None and self.limit_price <= 0:
-            raise ValueError("limit_price must be positive when set")
-        if self.side == TradeSide.FLAT:
-            raise ValueError("side must be long or short for order intent")
+        if not isinstance(self.broker_adapter, str) or not self.broker_adapter.strip():
+            raise ValueError("broker_adapter must be non-empty string")
+        if self.action not in {"buy", "sell"}:
+            raise ValueError("action must be buy or sell")
+        if self.qty <= 0:
+            raise ValueError("qty must be positive")
+        if self.price <= 0:
+            raise ValueError("price must be positive")
+        if self.stop_price <= 0:
+            raise ValueError("stop_price must be positive")
 
     def to_dict(self) -> dict[str, object]:
         return {
             "intent_id": self.intent_id,
             "signal_id": self.signal_id,
-            "contract_id": self.contract_id,
             "mode": self.mode.value,
-            "side": self.side.value,
-            "quantity": self.quantity,
-            "limit_price": self.limit_price,
+            "broker_adapter": self.broker_adapter,
+            "action": self.action,
+            "contract_id": self.contract_id,
+            "qty": self.qty,
+            "price": self.price,
+            "stop_price": self.stop_price,
             "created_at": self.created_at,
         }
 
@@ -90,73 +98,72 @@ class OrderIntent:
             required={
                 "intent_id",
                 "signal_id",
-                "contract_id",
                 "mode",
-                "side",
-                "quantity",
+                "broker_adapter",
+                "action",
+                "contract_id",
+                "qty",
+                "price",
+                "stop_price",
                 "created_at",
             },
-            optional={"limit_price"},
         )
-        limit_price_raw = payload.get("limit_price")
-        if limit_price_raw is None:
-            limit_price = None
-        elif isinstance(limit_price_raw, bool):
-            raise ValueError("limit_price must be a number or null")
-        elif isinstance(limit_price_raw, (int, float)):
-            limit_price = float(limit_price_raw)
-        else:
-            raise ValueError("limit_price must be a number or null")
-
         return cls(
             intent_id=_required_text("intent_id", payload.get("intent_id")),
             signal_id=_required_text("signal_id", payload.get("signal_id")),
-            contract_id=_required_text("contract_id", payload.get("contract_id")),
             mode=Mode(_required_text("mode", payload.get("mode"))),
-            side=TradeSide(_required_text("side", payload.get("side"))),
-            quantity=_required_int("quantity", payload.get("quantity")),
-            limit_price=limit_price,
+            broker_adapter=_required_text("broker_adapter", payload.get("broker_adapter")),
+            action=_required_text("action", payload.get("action")).lower(),
+            contract_id=_required_text("contract_id", payload.get("contract_id")),
+            qty=_required_int("qty", payload.get("qty")),
+            price=_required_number("price", payload.get("price")),
+            stop_price=_required_number("stop_price", payload.get("stop_price")),
             created_at=_required_text("created_at", payload.get("created_at")),
         )
 
 
 @dataclass(frozen=True)
 class PositionSnapshot:
+    position_key: str
     account_id: str
     contract_id: str
     mode: Mode
-    quantity: int
+    qty: int
     avg_price: float
-    broker_ts: str
+    as_of_ts: str
 
     def __post_init__(self) -> None:
+        if not isinstance(self.position_key, str) or not self.position_key.strip():
+            raise ValueError("position_key must be non-empty string")
         if self.avg_price < 0:
             raise ValueError("avg_price must be non-negative")
 
     def to_dict(self) -> dict[str, object]:
         return {
+            "position_key": self.position_key,
             "account_id": self.account_id,
             "contract_id": self.contract_id,
             "mode": self.mode.value,
-            "quantity": self.quantity,
+            "qty": self.qty,
             "avg_price": self.avg_price,
-            "broker_ts": self.broker_ts,
+            "as_of_ts": self.as_of_ts,
         }
 
     @classmethod
     def from_dict(cls, payload: dict[str, object]) -> "PositionSnapshot":
         _require_keys(
             payload,
-            required={"account_id", "contract_id", "mode", "quantity", "avg_price", "broker_ts"},
+            required={"position_key", "account_id", "contract_id", "mode", "qty", "avg_price", "as_of_ts"},
         )
 
         return cls(
+            position_key=_required_text("position_key", payload.get("position_key")),
             account_id=_required_text("account_id", payload.get("account_id")),
             contract_id=_required_text("contract_id", payload.get("contract_id")),
             mode=Mode(_required_text("mode", payload.get("mode"))),
-            quantity=_required_int("quantity", payload.get("quantity")),
+            qty=_required_int("qty", payload.get("qty")),
             avg_price=_required_number("avg_price", payload.get("avg_price")),
-            broker_ts=_required_text("broker_ts", payload.get("broker_ts")),
+            as_of_ts=_required_text("as_of_ts", payload.get("as_of_ts")),
         )
 
 
