@@ -46,3 +46,37 @@ def test_phase2b_backtest_is_reproducible_and_writes_outputs(tmp_path: Path) -> 
     for row in run_a["signal_contract_rows"]:
         contract = DecisionCandidate.from_dict(row)
         assert contract.to_dict() == row
+
+
+def test_phase2b_backtest_supports_walk_forward_costs_and_strategy_metrics(tmp_path: Path) -> None:
+    bars = _load_bars(SOURCE_FIXTURE)
+    report = run_research_from_bars(
+        bars=bars,
+        instrument_by_contract={"BR-6.26": "BR", "Si-6.26": "Si"},
+        strategy_version_id="trend-follow-v1",
+        dataset_version="bars-whitelist-v1",
+        output_dir=tmp_path / "run-wf",
+        backtest_config={
+            "walk_forward_windows": 2,
+            "commission_per_trade": 0.25,
+            "slippage_bps": 5.0,
+            "session_hours_utc": (9, 23),
+        },
+    )
+
+    metrics = report["strategy_metrics"]
+    assert metrics["walk_forward_windows"] == 2
+    assert metrics["commission_total"] >= 0.0
+    assert metrics["slippage_total"] >= 0.0
+    assert "avg_score" in metrics
+    assert "avg_risk_reward" in metrics
+
+    candidate_rows = [
+        json.loads(line)
+        for line in Path(str(report["output_paths"]["signal_candidates"])).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert candidate_rows
+    assert all("window_id" in row for row in candidate_rows)
+    assert all("estimated_commission" in row for row in candidate_rows)
+    assert all("estimated_slippage" in row for row in candidate_rows)

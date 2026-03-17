@@ -37,6 +37,8 @@ def test_phase2b_contract_lineage_is_consistent_across_manifest_and_spark() -> N
         "score",
     }
     assert required_columns <= candidate_columns
+    assert {"window_id", "estimated_commission", "estimated_slippage"} <= candidate_columns
+    assert "research_strategy_metrics" in manifest
 
     spec = default_research_spec()
     sql = build_research_sql_plan(spec)
@@ -54,7 +56,7 @@ def test_phase2b_contract_lineage_is_consistent_across_manifest_and_spark() -> N
 def test_phase2b_spark_candidate_id_formula_uses_python_contract_seed() -> None:
     sql = build_research_sql_plan(default_research_spec())
     expected_expr = spark_candidate_id_expr(
-        strategy_version_column="run.strategy_version_id",
+        version_id_column="run.strategy_version_id",
         contract_id_column="sf.contract_id",
         timeframe_column="sf.timeframe",
         ts_signal_column="sf.ts_signal",

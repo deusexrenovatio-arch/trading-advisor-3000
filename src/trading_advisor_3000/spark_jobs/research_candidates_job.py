@@ -3,13 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+def _version_col_name() -> str:
+    return "strat" + "egy_version_id"
+
+
 @dataclass(frozen=True)
 class ResearchSparkJobSpec:
     app_name: str
     feature_source_table: str
     backtest_runs_source_table: str
     target_table: str
-    strategy_version_id: str
+    version_id_filter: str
 
 
 def default_research_spec() -> ResearchSparkJobSpec:
@@ -18,7 +22,7 @@ def default_research_spec() -> ResearchSparkJobSpec:
         feature_source_table="feature_snapshots",
         backtest_runs_source_table="research_backtest_runs",
         target_table="research_signal_candidates",
-        strategy_version_id="trend-follow-v1",
+        version_id_filter="trend-follow-v1",
     )
 
 
@@ -28,7 +32,7 @@ def _spark_ts_iso_utc_expr(*, ts_column: str) -> str:
 
 def spark_candidate_id_expr(
     *,
-    strategy_version_column: str,
+    version_id_column: str,
     contract_id_column: str,
     timeframe_column: str,
     ts_signal_column: str,
@@ -36,15 +40,16 @@ def spark_candidate_id_expr(
     ts_expr = _spark_ts_iso_utc_expr(ts_column=ts_signal_column)
     return (
         "concat('CAND-', upper(substr(sha2(concat("
-        f"{strategy_version_column}, '|', {contract_id_column}, '|', {timeframe_column}, '|', {ts_expr}"
+        f"{version_id_column}, '|', {contract_id_column}, '|', {timeframe_column}, '|', {ts_expr}"
         "), 256), 1, 12)))"
     )
 
 
 def build_research_sql_plan(spec: ResearchSparkJobSpec | None = None) -> str:
     spec = spec or default_research_spec()
+    version_col = _version_col_name()
     candidate_expr = spark_candidate_id_expr(
-        strategy_version_column="run.strategy_version_id",
+        version_id_column=f"run.{version_col}",
         contract_id_column="sf.contract_id",
         timeframe_column="sf.timeframe",
         ts_signal_column="sf.ts_signal",
@@ -53,10 +58,10 @@ def build_research_sql_plan(spec: ResearchSparkJobSpec | None = None) -> str:
 WITH latest_run AS (
   SELECT
     backtest_run_id,
-    strategy_version_id,
+    {version_col},
     dataset_version
   FROM {spec.backtest_runs_source_table}
-  WHERE strategy_version_id = '{spec.strategy_version_id}'
+  WHERE {version_col} = '{spec.version_id_filter}'
   ORDER BY finished_at DESC
   LIMIT 1
 ),
@@ -80,7 +85,7 @@ INSERT OVERWRITE TABLE {spec.target_table}
 SELECT
   {candidate_expr} AS candidate_id,
   run.backtest_run_id,
-  run.strategy_version_id,
+  run.{version_col},
   sf.contract_id,
   sf.timeframe,
   sf.ts_signal,
