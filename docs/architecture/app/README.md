@@ -16,6 +16,7 @@ This section stores product-plane architecture artifacts on top of the existing 
 - `docs/architecture/app/phase2c-runtime-mvp.md` - runtime MVP implementation and acceptance.
 - `docs/architecture/app/phase2d-execution-mvp.md` - execution MVP implementation and acceptance.
 - `docs/architecture/app/phase3-shadow-forward-system-integration.md` - shadow-forward and integrated system replay.
+- `docs/architecture/app/phase0-3-acceptance-verdict-2026-03-17.md` - architecture acceptance disposition (MVP vs full target closure).
 
 ## Related Checklists
 - `docs/checklists/app/phase0-acceptance-checklist.md`

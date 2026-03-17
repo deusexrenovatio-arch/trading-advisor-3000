@@ -2,6 +2,15 @@
 
 Date: 2026-03-16
 
+## Acceptance Disposition (updated 2026-03-17)
+- [x] Phase 2A accepted as MVP
+- [x] Phase 2A accepted as full module DoD
+
+## Full DoD Resolution (closed 2026-03-17)
+- Ingestion now implements explicit incremental + append-only + idempotent raw flow with watermark and dedup evidence.
+- Canonical builder now emits `bars`, `instruments`, `contracts`, `session_calendar`, and `roll_map`.
+- Data-plane manifest, Dagster assets, Spark skeleton plans, and tests were expanded accordingly.
+
 ## Deliverables
 - [x] Ingestion module added
 - [x] Canonical builder added

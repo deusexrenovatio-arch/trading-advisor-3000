@@ -2,6 +2,16 @@
 
 Date: 2026-03-16
 
+## Acceptance Disposition (updated 2026-03-17)
+- [x] Phase 2C accepted as MVP
+- [x] Phase 2C accepted as full module DoD
+
+## Full DoD Resolution (closed 2026-03-17)
+- Runtime now sets and enforces validity/expiry windows.
+- Cooldown and blackout gates are implemented in replay acceptance path.
+- Publishing lifecycle supports create/edit/close/cancel.
+- Signal lifecycle is no longer overwritten by publication status; state machines are separated.
+
 ## Deliverables
 - [x] Strategy registry added
 - [x] Signal runtime replay engine added

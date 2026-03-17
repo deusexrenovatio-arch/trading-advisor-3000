@@ -2,6 +2,19 @@
 
 Date: 2026-03-17
 
+## Acceptance Disposition (updated 2026-03-17)
+- [x] Phase 3 accepted as MVP shadow-forward slice
+- [x] Phase 3 accepted as final target-architecture closure
+
+## MVP-Positive Corrections Confirmed
+- `candidate_id` is deterministic and consistent between research and forward flows.
+- Integrated replay builds forward/outcomes only for runtime-accepted and published signals.
+- These are validated in code and integration tests.
+
+## Full DoD Resolution (closed 2026-03-17)
+- `analytics.signal_outcomes` is now built from `signal.signal_events` + `execution.broker_fills` + `execution.positions`.
+- Runtime -> forward hand-off uses explicit `candidate_id` transfer from runtime replay report, not only implicit recomputation.
+
 ## Deliverables
 - [x] Shadow-forward engine added
 - [x] Integrated replay scenario added (`market -> signal -> publication -> forward outcome`)
