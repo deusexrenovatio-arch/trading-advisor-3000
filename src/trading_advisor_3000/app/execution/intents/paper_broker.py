@@ -38,6 +38,9 @@ class PaperBrokerEngine:
         self._positions: dict[str, PositionSnapshot] = {}
         self._results_by_intent: dict[str, PaperExecutionResult] = {}
         self._broker_events: list[BrokerEvent] = []
+        self._broker_orders: list[BrokerOrder] = []
+        self._broker_fills: list[BrokerFill] = []
+        self._position_history: list[PositionSnapshot] = []
 
     def _append_event(
         self,
@@ -168,6 +171,9 @@ class PaperBrokerEngine:
             as_of_ts=resolved_fill_ts,
         )
         self._positions[key] = position
+        self._broker_orders.append(broker_order)
+        self._broker_fills.append(broker_fill)
+        self._position_history.append(position)
 
         self._append_event(
             external_object_id=intent.intent_id,
@@ -208,3 +214,12 @@ class PaperBrokerEngine:
 
     def list_broker_events(self) -> list[BrokerEvent]:
         return list(self._broker_events)
+
+    def list_broker_orders(self) -> list[BrokerOrder]:
+        return list(self._broker_orders)
+
+    def list_broker_fills(self) -> list[BrokerFill]:
+        return list(self._broker_fills)
+
+    def list_position_snapshots(self) -> list[PositionSnapshot]:
+        return list(self._position_history)

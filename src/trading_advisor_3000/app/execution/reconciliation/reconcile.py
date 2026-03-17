@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 
 from trading_advisor_3000.app.contracts import PositionSnapshot
@@ -31,10 +32,11 @@ class ReconciliationReport:
     missing: list[PositionDrift]
     unexpected: list[PositionDrift]
     mismatched: list[PositionDrift]
+    incidents: list["ReconciliationIncident"]
 
     @property
     def is_clean(self) -> bool:
-        return not self.missing and not self.unexpected and not self.mismatched
+        return not self.missing and not self.unexpected and not self.mismatched and not self.incidents
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -42,8 +44,53 @@ class ReconciliationReport:
             "missing": [item.to_dict() for item in self.missing],
             "unexpected": [item.to_dict() for item in self.unexpected],
             "mismatched": [item.to_dict() for item in self.mismatched],
+            "incidents": [item.to_dict() for item in self.incidents],
             "is_clean": self.is_clean,
         }
+
+
+@dataclass(frozen=True)
+class ReconciliationIncident:
+    incident_id: str
+    position_key: str
+    severity: str
+    reason: str
+    recovery_action: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "incident_id": self.incident_id,
+            "position_key": self.position_key,
+            "severity": self.severity,
+            "reason": self.reason,
+            "recovery_action": self.recovery_action,
+        }
+
+
+def _incident_id(*, position_key: str, reason: str) -> str:
+    return "INC-" + hashlib.sha256(f"{position_key}|{reason}".encode("utf-8")).hexdigest()[:12].upper()
+
+
+def _incident_from_drift(drift: PositionDrift) -> ReconciliationIncident:
+    if drift.reason == "missing_position":
+        severity = "high"
+        recovery_action = "rebuild_expected_from_broker_and_resync_position"
+    elif drift.reason == "unexpected_position":
+        severity = "high"
+        recovery_action = "freeze_auto_trading_and_open_manual_investigation"
+    elif drift.reason == "quantity_mismatch":
+        severity = "high"
+        recovery_action = "replay_fills_and_recompute_quantity"
+    else:
+        severity = "medium"
+        recovery_action = "reprice_position_from_fill_log"
+    return ReconciliationIncident(
+        incident_id=_incident_id(position_key=drift.position_key, reason=drift.reason),
+        position_key=drift.position_key,
+        severity=severity,
+        reason=drift.reason,
+        recovery_action=recovery_action,
+    )
 
 
 def _position_key(position: PositionSnapshot) -> str:
@@ -120,9 +167,14 @@ def reconcile_position_snapshots(
             continue
         matched += 1
 
+    incidents = [
+        _incident_from_drift(item)
+        for item in [*missing, *unexpected, *mismatched]
+    ]
     return ReconciliationReport(
         matched=matched,
         missing=missing,
         unexpected=unexpected,
         mismatched=mismatched,
+        incidents=incidents,
     )

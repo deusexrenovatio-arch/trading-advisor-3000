@@ -46,6 +46,36 @@ def test_phase2d_paper_mode_runs_from_intent_to_position_snapshot() -> None:
     ack = sidecar.submit_order_intent(intent)
     assert ack["accepted"] is True
     assert ack["intent_id"] == intent.intent_id
+    assert ack["state"] == "submitted"
+
+    replaced = sidecar.replace_order_intent(
+        intent_id=intent.intent_id,
+        new_qty=2,
+        new_price=82.60,
+        replaced_at="2026-03-16T10:17:05Z",
+    )
+    assert replaced["state"] == "replaced"
+    canceled = sidecar.cancel_order_intent(
+        intent_id=intent.intent_id,
+        canceled_at="2026-03-16T10:17:10Z",
+    )
+    assert canceled["state"] == "canceled"
+
+    sidecar.push_broker_update(
+        external_order_id=str(ack["external_order_id"]),
+        state="partially_filled",
+        event_ts="2026-03-16T10:17:06Z",
+    )
+    sidecar.push_broker_fill(
+        external_order_id=str(ack["external_order_id"]),
+        fill_id="FILL-1001",
+        qty=1,
+        price=82.55,
+        fill_ts="2026-03-16T10:17:07Z",
+        fee=0.01,
+    )
+    assert len(sidecar.list_broker_updates()) >= 2
+    assert len(sidecar.list_broker_fills()) == 1
 
 
 def test_phase2d_rejects_unsupported_order_action() -> None:

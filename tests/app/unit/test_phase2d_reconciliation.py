@@ -31,3 +31,6 @@ def test_reconciliation_detects_drift_and_missing_positions() -> None:
     assert len(report.missing) == 1
     assert len(report.mismatched) == 1
     assert report.is_clean is False
+    assert len(report.incidents) == 2
+    assert {item.reason for item in report.incidents} == {"missing_position", "quantity_mismatch"}
+    assert all(item.recovery_action for item in report.incidents)
