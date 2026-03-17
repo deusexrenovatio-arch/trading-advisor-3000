@@ -5,6 +5,7 @@ from .research_candidates_job import (
     ResearchSparkJobSpec,
     build_research_sql_plan,
     default_research_spec,
+    spark_candidate_id_expr,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "ResearchSparkJobSpec",
     "build_research_sql_plan",
     "default_research_spec",
+    "spark_candidate_id_expr",
 ]

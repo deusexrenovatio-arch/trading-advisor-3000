@@ -5,7 +5,11 @@ from pathlib import Path
 
 from trading_advisor_3000.app.contracts import CanonicalBar, DecisionCandidate
 from trading_advisor_3000.app.interfaces.api import RuntimeAPI
-from trading_advisor_3000.app.research import build_forward_observations, run_research_from_bars
+from trading_advisor_3000.app.research import (
+    build_forward_observations,
+    candidate_id_from_signal,
+    run_research_from_bars,
+)
 from trading_advisor_3000.app.runtime.analytics.outcomes import (
     build_signal_outcomes,
     phase3_outcome_store_contract,
@@ -59,6 +63,7 @@ def run_system_shadow_replay(
     publication_signal_ids = {str(item["signal_id"]) for item in runtime_payload["publications"]}
     runtime_signal_ids = sorted(accepted_signal_ids & publication_signal_ids)
     runtime_candidates = [item for item in candidates if item.signal_id in runtime_signal_ids]
+    runtime_candidate_ids = sorted({candidate_id_from_signal(item) for item in runtime_candidates})
 
     forward_observations = build_forward_observations(
         candidates=runtime_candidates,
@@ -81,6 +86,7 @@ def run_system_shadow_replay(
         "bars_processed": len(bars),
         "signal_candidates": len(candidates),
         "runtime_signal_candidates": len(runtime_candidates),
+        "runtime_candidate_ids": runtime_candidate_ids,
         "runtime_report": runtime_payload["replay_report"],
         "forward_observations": len(forward_observations),
         "analytics_outcomes": len(outcomes),

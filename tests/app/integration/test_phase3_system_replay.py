@@ -48,12 +48,10 @@ def test_phase3_integrated_replay_produces_traceable_runtime_bound_outcomes(tmp_
 
     research_rows = _load_jsonl(Path(str(report["output_paths"]["signal_candidates"])))
     forward_rows = _load_jsonl(Path(str(report["output_paths"]["research_forward_observations"])))
-    research_candidate_ids_by_signal = {
-        str(row["signal_contract_json"]["signal_id"]): str(row["candidate_id"]) for row in research_rows
-    }
-    expected_candidate_ids = {research_candidate_ids_by_signal[signal_id] for signal_id in report["runtime_signal_ids"]}
+    expected_candidate_ids = set(report["runtime_candidate_ids"])
     actual_forward_candidate_ids = {str(row["candidate_id"]) for row in forward_rows}
     assert actual_forward_candidate_ids == expected_candidate_ids
+    assert expected_candidate_ids <= {str(row["candidate_id"]) for row in research_rows}
 
     for path_text in report["output_paths"].values():
         assert Path(path_text).exists()

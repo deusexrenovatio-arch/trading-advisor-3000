@@ -49,8 +49,10 @@ def phase2b_feature_store_contract() -> dict[str, dict[str, object]]:
                 "timeframe": "string",
                 "ts_signal": "timestamp",
                 "side": "string",
+                "entry_ref": "double",
+                "stop_ref": "double",
+                "target_ref": "double",
                 "score": "double",
-                "signal_contract_json": "json",
             },
         },
     }

@@ -34,6 +34,9 @@ def _candidate(*, signal_id: str, side: TradeSide, ts_decision: str) -> Decision
         strategy_version_id="trend-follow-v1",
         mode=Mode.SHADOW,
         side=side,
+        entry_ref=100.0,
+        stop_ref=99.0 if side == TradeSide.LONG else 101.0,
+        target_ref=102.0 if side == TradeSide.LONG else 98.0,
         confidence=0.7,
         ts_decision=ts_decision,
         feature_snapshot=FeatureSnapshotRef(

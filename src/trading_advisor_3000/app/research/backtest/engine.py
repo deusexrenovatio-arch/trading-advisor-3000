@@ -20,6 +20,16 @@ def _score(snapshot: FeatureSnapshot) -> float:
     return min(1.0, max(0.0, spread / denominator))
 
 
+def _refs(*, snapshot: FeatureSnapshot, side: TradeSide) -> tuple[float, float, float]:
+    entry_ref = snapshot.ema_fast
+    stop_distance = snapshot.atr if snapshot.atr > 0 else 1.0
+    if side == TradeSide.LONG:
+        return entry_ref, entry_ref - stop_distance, entry_ref + (2.0 * stop_distance)
+    if side == TradeSide.SHORT:
+        return entry_ref, entry_ref + stop_distance, entry_ref - (2.0 * stop_distance)
+    return entry_ref, entry_ref, entry_ref
+
+
 def _signal_id(*, strategy_version_id: str, snapshot: FeatureSnapshot) -> str:
     return "SIG-" + _stable_hash(
         f"{strategy_version_id}|{snapshot.snapshot_id}|{snapshot.contract_id}|{snapshot.ts}"
@@ -65,6 +75,7 @@ def run_backtest(
         if side == TradeSide.FLAT:
             continue
         confidence = _score(snapshot)
+        entry_ref, stop_ref, target_ref = _refs(snapshot=snapshot, side=side)
         signal_contract = DecisionCandidate(
             signal_id=_signal_id(strategy_version_id=strategy_version_id, snapshot=snapshot),
             contract_id=snapshot.contract_id,
@@ -72,6 +83,9 @@ def run_backtest(
             strategy_version_id=strategy_version_id,
             mode=Mode.SHADOW,
             side=side,
+            entry_ref=entry_ref,
+            stop_ref=stop_ref,
+            target_ref=target_ref,
             confidence=confidence,
             ts_decision=snapshot.ts,
             feature_snapshot=FeatureSnapshotRef(
@@ -94,8 +108,10 @@ def run_backtest(
                 "timeframe": snapshot.timeframe.value,
                 "ts_signal": snapshot.ts,
                 "side": side.value,
+                "entry_ref": entry_ref,
+                "stop_ref": stop_ref,
+                "target_ref": target_ref,
                 "score": confidence,
-                "signal_contract_json": signal_contract.to_dict(),
             }
         )
 

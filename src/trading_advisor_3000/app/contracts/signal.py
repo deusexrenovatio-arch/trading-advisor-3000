@@ -20,6 +20,12 @@ def _required_unit_float(name: str, value: object) -> float:
     return normalized
 
 
+def _required_number(name: str, value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be a number")
+    return float(value)
+
+
 def _require_keys(payload: dict[str, object], *, required: set[str], optional: set[str] | None = None) -> None:
     optional = optional or set()
     allowed = required | optional
@@ -62,9 +68,18 @@ class DecisionCandidate:
     strategy_version_id: str
     mode: Mode
     side: TradeSide
+    entry_ref: float
+    stop_ref: float
+    target_ref: float
     confidence: float
     ts_decision: str
     feature_snapshot: FeatureSnapshotRef
+
+    def __post_init__(self) -> None:
+        if self.side == TradeSide.LONG and not (self.stop_ref < self.entry_ref < self.target_ref):
+            raise ValueError("long candidate requires stop_ref < entry_ref < target_ref")
+        if self.side == TradeSide.SHORT and not (self.target_ref < self.entry_ref < self.stop_ref):
+            raise ValueError("short candidate requires target_ref < entry_ref < stop_ref")
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -74,6 +89,9 @@ class DecisionCandidate:
             "strategy_version_id": self.strategy_version_id,
             "mode": self.mode.value,
             "side": self.side.value,
+            "entry_ref": self.entry_ref,
+            "stop_ref": self.stop_ref,
+            "target_ref": self.target_ref,
             "confidence": self.confidence,
             "ts_decision": self.ts_decision,
             "feature_snapshot": self.feature_snapshot.to_dict(),
@@ -90,6 +108,9 @@ class DecisionCandidate:
                 "strategy_version_id",
                 "mode",
                 "side",
+                "entry_ref",
+                "stop_ref",
+                "target_ref",
                 "confidence",
                 "ts_decision",
                 "feature_snapshot",
@@ -108,6 +129,9 @@ class DecisionCandidate:
             ),
             mode=Mode(_required_text("mode", payload.get("mode"))),
             side=TradeSide(_required_text("side", payload.get("side"))),
+            entry_ref=_required_number("entry_ref", payload.get("entry_ref")),
+            stop_ref=_required_number("stop_ref", payload.get("stop_ref")),
+            target_ref=_required_number("target_ref", payload.get("target_ref")),
             confidence=_required_unit_float("confidence", payload.get("confidence")),
             ts_decision=_required_text("ts_decision", payload.get("ts_decision")),
             feature_snapshot=FeatureSnapshotRef.from_dict(snapshot_payload),

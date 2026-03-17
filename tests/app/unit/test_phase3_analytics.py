@@ -20,6 +20,9 @@ def _candidate() -> DecisionCandidate:
         strategy_version_id="trend-follow-v1",
         mode=Mode.SHADOW,
         side=TradeSide.LONG,
+        entry_ref=82.45,
+        stop_ref=81.70,
+        target_ref=83.95,
         confidence=0.81,
         ts_decision="2026-03-17T09:30:00Z",
         feature_snapshot=FeatureSnapshotRef(
