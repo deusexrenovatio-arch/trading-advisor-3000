@@ -1,0 +1,16 @@
+{
+  "signal_id": "SIG-20260318-0001",
+  "strategy_version_id": "trend-follow-v1",
+  "contract_id": "BR-6.26",
+  "mode": "shadow",
+  "side": "long",
+  "entry_price": 82.45,
+  "stop_price": 81.7,
+  "target_price": 83.95,
+  "confidence": 0.77,
+  "state": "active",
+  "opened_at": "2026-03-18T10:16:00Z",
+  "updated_at": "2026-03-18T10:16:00Z",
+  "expires_at": "2026-03-18T11:16:00Z",
+  "publication_message_id": "tg-a1b2c3d4e5"
+}

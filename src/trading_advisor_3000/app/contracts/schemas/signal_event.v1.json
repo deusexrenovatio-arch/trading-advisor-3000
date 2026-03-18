@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/signal_event.v1.json",
+  "title": "SignalEvent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "signal_id",
+    "event_ts",
+    "event_type",
+    "reason_code",
+    "payload_json"
+  ],
+  "properties": {
+    "event_id": {"type": "string", "minLength": 1},
+    "signal_id": {"type": "string", "minLength": 1},
+    "event_ts": {"type": "string", "minLength": 1},
+    "event_type": {"type": "string", "minLength": 1},
+    "reason_code": {"type": "string", "minLength": 1},
+    "payload_json": {"type": "object"}
+  }
+}

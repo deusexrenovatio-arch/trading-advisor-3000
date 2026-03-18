@@ -1,12 +1,22 @@
-# Migrations Skeleton (Phase 1)
+# App Migrations
 
-Эта директория хранит версионируемые миграции для runtime state (PostgreSQL).
+This directory stores ordered PostgreSQL migrations for the Trading Advisor 3000 product plane.
 
-## Структура
-- `src/trading_advisor_3000/migrations/versions/` — отдельные версии.
-- `src/trading_advisor_3000/migrations/0001_initial_contract_tables.sql` — стартовый SQL-скелет.
+## Layout
+- `0001_initial_contract_tables.sql` keeps the original contract-table baseline.
+- `0002_signal_runtime_state.sql` adds durable runtime state for signals, events, and publications.
+- `versions/` remains reserved for future split/archived migration chains.
 
-## Правила
-1. Каждая новая миграция идемпотентна по возможности.
-2. Ломающие изменения требуют новой версии и плана обратной совместимости.
-3. Изменения контрактов и миграций должны сопровождаться тестами в `tests/app/contracts/*`.
+## Canonical Apply Command
+Use the Python runner from the repository root:
+
+```bash
+python scripts/apply_app_migrations.py --dsn postgresql://postgres:postgres@127.0.0.1:5432/ta3000
+```
+
+You can also set `TA3000_APP_DSN` and omit `--dsn`.
+
+## Rules
+1. Migration files are immutable after they land.
+2. New migrations must be idempotent where practical.
+3. Schema changes must be accompanied by tests and contract/docs updates.
