@@ -1,13 +1,17 @@
-# StockSharp Sidecar Stub
+# StockSharp Sidecar Status
 
-Phase 2D provides a contract-level sidecar stub for local execution flow validation.
+This directory is not a real StockSharp/.NET sidecar implementation.
 
-## Current stub behavior
-- Accepts `OrderIntent` payload envelopes.
-- Returns deterministic acknowledgement with `external_order_id`.
-- Exposes in-memory queue via adapter API for integration tests.
+## What exists today
+- Python live bridge logic under `src/trading_advisor_3000/app/execution/adapters/`
+- HTTP wire contract in `docs/architecture/app/sidecar-wire-api-v1.md`
+- staging gateway stub/profile under `deployment/docker/staging-gateway/`
+- rollout and incident runbooks for staging-first transport proving
 
-## Scope boundary
-- No live broker transport.
-- No external process management.
-- No credentials/secrets in repository.
+## What does not exist here
+- no `.sln` / `.csproj` real sidecar project,
+- no real QUIK/Finam broker process in the repo,
+- no claim of live production readiness.
+
+## Reading rule
+Treat the current sidecar surface as a transport contract and staging stub baseline only.

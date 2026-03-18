@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
 
-from trading_advisor_3000.app.contracts import DecisionCandidate, Mode, TradeSide
+from trading_advisor_3000.app.contracts import DecisionCandidate, DecisionPublication, RuntimeSignal, SignalEvent
 from trading_advisor_3000.app.research.ids import candidate_id_from_candidate
 
 
@@ -11,60 +10,20 @@ def _event_id(seed: str) -> str:
     return "SEVT-" + hashlib.sha256(seed.encode("utf-8")).hexdigest()[:12].upper()
 
 
-@dataclass(frozen=True)
-class RuntimeSignal:
-    signal_id: str
-    strategy_version_id: str
-    contract_id: str
-    mode: Mode
-    side: TradeSide
-    entry_price: float
-    stop_price: float
-    target_price: float
-    confidence: float
-    state: str
-    opened_at: str
-    updated_at: str
-    expires_at: str | None
-    publication_message_id: str | None
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "signal_id": self.signal_id,
-            "strategy_version_id": self.strategy_version_id,
-            "contract_id": self.contract_id,
-            "mode": self.mode.value,
-            "side": self.side.value,
-            "entry_price": self.entry_price,
-            "stop_price": self.stop_price,
-            "target_price": self.target_price,
-            "confidence": self.confidence,
-            "state": self.state,
-            "opened_at": self.opened_at,
-            "updated_at": self.updated_at,
-            "expires_at": self.expires_at,
-            "publication_message_id": self.publication_message_id,
-        }
+def _publication_dedup_key(publication: DecisionPublication) -> str:
+    return (
+        f"{publication.signal_id}|{publication.publication_type.value}|{publication.message_id}|"
+        f"{publication.status.value}|{publication.published_at}"
+    )
 
 
-@dataclass(frozen=True)
-class SignalEvent:
-    event_id: str
-    signal_id: str
-    event_ts: str
-    event_type: str
-    reason_code: str
-    payload_json: dict[str, object]
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "event_id": self.event_id,
-            "signal_id": self.signal_id,
-            "event_ts": self.event_ts,
-            "event_type": self.event_type,
-            "reason_code": self.reason_code,
-            "payload_json": self.payload_json,
-        }
+def _publication_event_type(publication: DecisionPublication) -> str:
+    return {
+        "create": "signal_activated",
+        "edit": "signal_published_edit",
+        "close": "signal_publication_closed",
+        "cancel": "signal_publication_canceled",
+    }.get(publication.publication_type.value, "signal_publication_updated")
 
 
 class InMemorySignalStore:
@@ -72,6 +31,9 @@ class InMemorySignalStore:
         self._signals: dict[str, RuntimeSignal] = {}
         self._events: list[SignalEvent] = []
         self._event_dedup_keys: set[str] = set()
+        self._publications: dict[str, DecisionPublication] = {}
+        self._publication_history: list[DecisionPublication] = []
+        self._publication_dedup_keys: set[str] = set()
 
     def _append_event(
         self,
@@ -96,6 +58,14 @@ class InMemorySignalStore:
                 payload_json=payload_json,
             )
         )
+
+    def _record_publication(self, publication: DecisionPublication) -> None:
+        dedup_key = _publication_dedup_key(publication)
+        if dedup_key in self._publication_dedup_keys:
+            return
+        self._publication_dedup_keys.add(dedup_key)
+        self._publications[publication.signal_id] = publication
+        self._publication_history.append(publication)
 
     def upsert_candidate(self, candidate: DecisionCandidate, *, expires_at: str | None) -> tuple[RuntimeSignal, bool]:
         existing = self._signals.get(candidate.signal_id)
@@ -168,7 +138,7 @@ class InMemorySignalStore:
         )
         return updated, True
 
-    def mark_published(self, *, signal_id: str, message_id: str, published_at: str, status: str) -> RuntimeSignal:
+    def mark_published(self, *, signal_id: str, publication: DecisionPublication) -> RuntimeSignal:
         existing = self._signals.get(signal_id)
         if existing is None:
             raise ValueError(f"signal not found: {signal_id}")
@@ -184,26 +154,36 @@ class InMemorySignalStore:
             confidence=existing.confidence,
             state="active" if existing.state in {"candidate", "active"} else existing.state,
             opened_at=existing.opened_at,
-            updated_at=published_at,
+            updated_at=publication.published_at,
             expires_at=existing.expires_at,
-            publication_message_id=message_id,
+            publication_message_id=publication.message_id,
         )
         self._signals[signal_id] = updated
         self._append_event(
             signal_id=signal_id,
-            event_ts=published_at,
-            event_type="signal_activated",
-            reason_code=status,
-            payload_json={"message_id": message_id, "status": status},
-            dedup_key=f"{signal_id}|published|{message_id}|{status}",
+            event_ts=publication.published_at,
+            event_type=_publication_event_type(publication),
+            reason_code=publication.status.value,
+            payload_json=publication.to_dict(),
+            dedup_key=f"{signal_id}|publication|{_publication_dedup_key(publication)}",
         )
+        self._record_publication(publication)
         return updated
 
-    def close_signal(self, *, signal_id: str, closed_at: str, reason_code: str) -> RuntimeSignal:
+    def close_signal(
+        self,
+        *,
+        signal_id: str,
+        closed_at: str,
+        reason_code: str,
+        publication: DecisionPublication | None = None,
+    ) -> RuntimeSignal:
         existing = self._signals.get(signal_id)
         if existing is None:
             raise ValueError(f"signal not found: {signal_id}")
         if existing.state == "closed":
+            if publication is not None:
+                self._record_publication(publication)
             return existing
         closed = RuntimeSignal(
             signal_id=existing.signal_id,
@@ -230,13 +210,24 @@ class InMemorySignalStore:
             payload_json={"state": "closed"},
             dedup_key=f"{signal_id}|closed|{closed_at}|{reason_code}",
         )
+        if publication is not None:
+            self._record_publication(publication)
         return closed
 
-    def cancel_signal(self, *, signal_id: str, canceled_at: str, reason_code: str) -> RuntimeSignal:
+    def cancel_signal(
+        self,
+        *,
+        signal_id: str,
+        canceled_at: str,
+        reason_code: str,
+        publication: DecisionPublication | None = None,
+    ) -> RuntimeSignal:
         existing = self._signals.get(signal_id)
         if existing is None:
             raise ValueError(f"signal not found: {signal_id}")
         if existing.state == "canceled":
+            if publication is not None:
+                self._record_publication(publication)
             return existing
         canceled = RuntimeSignal(
             signal_id=existing.signal_id,
@@ -263,6 +254,8 @@ class InMemorySignalStore:
             payload_json={"state": "canceled"},
             dedup_key=f"{signal_id}|canceled|{canceled_at}|{reason_code}",
         )
+        if publication is not None:
+            self._record_publication(publication)
         return canceled
 
     def expire_signal(self, *, signal_id: str, expired_at: str) -> RuntimeSignal:
@@ -356,3 +349,12 @@ class InMemorySignalStore:
 
     def list_signal_events(self) -> list[SignalEvent]:
         return list(self._events)
+
+    def list_publications(self) -> list[DecisionPublication]:
+        return sorted(
+            self._publications.values(),
+            key=lambda publication: (publication.signal_id, publication.published_at, publication.publication_id),
+        )
+
+    def list_publication_events(self) -> list[DecisionPublication]:
+        return list(self._publication_history)

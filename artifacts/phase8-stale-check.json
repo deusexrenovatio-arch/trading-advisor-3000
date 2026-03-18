@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "generated_at": "2026-03-18T09:10:47Z",
+  "status": "failed",
+  "steps": [],
+  "failure": {
+    "lane": "dashboard-refresh",
+    "step_id": "artifact-validation",
+    "return_code": 2,
+    "missing_artifacts": [],
+    "stale_artifacts": [
+      "artifacts/governance-dashboard.json"
+    ]
+  },
+  "dashboard_artifacts": [
+    {
+      "path": "artifacts/governance-dashboard.json",
+      "exists": true,
+      "size_bytes": 1642,
+      "mtime_ns": 1773824646542881600,
+      "fresh_in_run": false
+    }
+  ]
+}

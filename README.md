@@ -7,6 +7,12 @@ This repository hosts the AI delivery control-plane shell for Trading Advisor 30
 - context routing and gate stack,
 - durable plans, memory, and process telemetry.
 
+Product-plane work lives inside this shell repository, but it is not equivalent to full product acceptance.
+Current truth source for the product plane:
+- `docs/architecture/app/STATUS.md`
+- `docs/architecture/app/CONTRACT_SURFACES.md`
+- `docs/runbooks/app/bootstrap.md`
+
 Start here:
 1. `AGENTS.md`
 2. `docs/agent/entrypoint.md`

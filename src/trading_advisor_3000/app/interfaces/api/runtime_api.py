@@ -13,9 +13,7 @@ class RuntimeAPI:
         return {
             "replay_report": replay_report,
             "active_signals": [signal.to_dict() for signal in self._runtime_stack.signal_store.list_active_signals()],
-            "publications": [
-                publication.to_dict() for publication in self._runtime_stack.publisher.list_publications()
-            ],
+            "publications": [publication.to_dict() for publication in self._runtime_stack.signal_store.list_publications()],
         }
 
     def close_signal(self, *, signal_id: str, closed_at: str, reason_code: str) -> dict[str, object]:
@@ -27,9 +25,7 @@ class RuntimeAPI:
         return {
             "close_result": result,
             "active_signals": [signal.to_dict() for signal in self._runtime_stack.signal_store.list_active_signals()],
-            "publications": [
-                publication.to_dict() for publication in self._runtime_stack.publisher.list_publications()
-            ],
+            "publications": [publication.to_dict() for publication in self._runtime_stack.signal_store.list_publications()],
         }
 
     def cancel_signal(self, *, signal_id: str, canceled_at: str, reason_code: str) -> dict[str, object]:
@@ -41,9 +37,7 @@ class RuntimeAPI:
         return {
             "cancel_result": result,
             "active_signals": [signal.to_dict() for signal in self._runtime_stack.signal_store.list_active_signals()],
-            "publications": [
-                publication.to_dict() for publication in self._runtime_stack.publisher.list_publications()
-            ],
+            "publications": [publication.to_dict() for publication in self._runtime_stack.signal_store.list_publications()],
         }
 
     def list_signal_events(self) -> list[dict[str, object]]:

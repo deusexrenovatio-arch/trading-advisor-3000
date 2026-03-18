@@ -11,6 +11,8 @@ from trading_advisor_3000.app.contracts import (
     DecisionPublication,
     OrderIntent,
     PositionSnapshot,
+    RuntimeSignal,
+    SignalEvent,
 )
 
 
@@ -50,6 +52,18 @@ def test_decision_publication_fixture_round_trip() -> None:
 def test_position_snapshot_fixture_round_trip() -> None:
     payload = _load_json(FIXTURES / "position_snapshot.v1.json")
     contract = PositionSnapshot.from_dict(payload)
+    assert contract.to_dict() == payload
+
+
+def test_runtime_signal_fixture_round_trip() -> None:
+    payload = _load_json(FIXTURES / "runtime_signal.v1.json")
+    contract = RuntimeSignal.from_dict(payload)
+    assert contract.to_dict() == payload
+
+
+def test_signal_event_fixture_round_trip() -> None:
+    payload = _load_json(FIXTURES / "signal_event.v1.json")
+    contract = SignalEvent.from_dict(payload)
     assert contract.to_dict() == payload
 
 
@@ -123,6 +137,8 @@ def test_contract_schema_snapshots_exist() -> None:
         "order_intent.v1.json": "contracts/order_intent.v1.json",
         "decision_publication.v1.json": "contracts/decision_publication.v1.json",
         "position_snapshot.v1.json": "contracts/position_snapshot.v1.json",
+        "runtime_signal.v1.json": "contracts/runtime_signal.v1.json",
+        "signal_event.v1.json": "contracts/signal_event.v1.json",
     }
     for file_name, schema_id in expected.items():
         payload = _load_json(SCHEMAS / file_name)
@@ -138,3 +154,10 @@ def test_publication_schema_contains_traceability_fields() -> None:
     schema = _load_json(SCHEMAS / "decision_publication.v1.json")
     required = set(schema["required"])
     assert {"publication_id", "publication_type", "signal_id"} <= required
+
+
+def test_signal_event_rejects_non_object_payload() -> None:
+    payload = _load_json(FIXTURES / "signal_event.v1.json")
+    payload["payload_json"] = "bad-payload"
+    with pytest.raises(ValueError):
+        SignalEvent.from_dict(payload)

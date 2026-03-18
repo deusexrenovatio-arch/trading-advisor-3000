@@ -120,6 +120,7 @@ def _mock_sidecar_server(
             self._json(404, {"error_code": "not_found", "message": "unknown path"})
 
         def do_POST(self) -> None:  # noqa: N802
+            payload = self._read_json()
             if fail_mode == "retryable":
                 self._json(503, {"error_code": "sidecar_unavailable", "message": "temporary outage"})
                 return
@@ -133,7 +134,6 @@ def _mock_sidecar_server(
                 self.wfile.write(b"NOT_JSON")
                 return
 
-            payload = self._read_json()
             path = self.path
             if path == "/v1/intents/submit":
                 intent_id = str(payload.get("intent_id", "")).strip()

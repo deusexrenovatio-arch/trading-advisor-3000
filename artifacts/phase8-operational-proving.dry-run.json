@@ -1,0 +1,136 @@
+{
+  "version": 1,
+  "generated_at": "2026-03-18T09:00:44Z",
+  "status": "dry_run",
+  "steps": [
+    {
+      "lane": "loop-lane",
+      "step_id": "loop-gate",
+      "command": "C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python311\\python.exe scripts/run_loop_gate.py --mapping configs/change_surface_mapping.yaml --skip-session-check --from-git --git-ref HEAD",
+      "status": "planned",
+      "return_code": null,
+      "started_at": "2026-03-18T09:00:44Z",
+      "finished_at": "2026-03-18T09:00:44Z",
+      "duration_sec": 0.0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "lane": "pr-lane",
+      "step_id": "pr-gate",
+      "command": "C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python311\\python.exe scripts/run_pr_gate.py --mapping configs/change_surface_mapping.yaml --skip-session-check --from-git --git-ref HEAD",
+      "status": "planned",
+      "return_code": null,
+      "started_at": "2026-03-18T09:00:44Z",
+      "finished_at": "2026-03-18T09:00:44Z",
+      "duration_sec": 0.0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "lane": "nightly-lane",
+      "step_id": "nightly-gate",
+      "command": "C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python311\\python.exe scripts/run_nightly_gate.py --mapping configs/change_surface_mapping.yaml --from-git --git-ref HEAD",
+      "status": "planned",
+      "return_code": null,
+      "started_at": "2026-03-18T09:00:44Z",
+      "finished_at": "2026-03-18T09:00:44Z",
+      "duration_sec": 0.0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "lane": "dashboard-refresh",
+      "step_id": "measure-dev-loop",
+      "command": "C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python311\\python.exe scripts/measure_dev_loop.py --format markdown --output artifacts/dev-loop-baseline.md",
+      "status": "planned",
+      "return_code": null,
+      "started_at": "2026-03-18T09:00:44Z",
+      "finished_at": "2026-03-18T09:00:44Z",
+      "duration_sec": 0.0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "lane": "dashboard-refresh",
+      "step_id": "harness-baseline-metrics",
+      "command": "C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python311\\python.exe scripts/harness_baseline_metrics.py --output artifacts/harness-baseline-metrics.json",
+      "status": "planned",
+      "return_code": null,
+      "started_at": "2026-03-18T09:00:44Z",
+      "finished_at": "2026-03-18T09:00:44Z",
+      "duration_sec": 0.0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "lane": "dashboard-refresh",
+      "step_id": "process-improvement-report",
+      "command": "C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python311\\python.exe scripts/process_improvement_report.py --output artifacts/process-improvement-report.md",
+      "status": "planned",
+      "return_code": null,
+      "started_at": "2026-03-18T09:00:44Z",
+      "finished_at": "2026-03-18T09:00:44Z",
+      "duration_sec": 0.0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "lane": "dashboard-refresh",
+      "step_id": "autonomy-kpi-report",
+      "command": "C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python311\\python.exe scripts/autonomy_kpi_report.py --output artifacts/autonomy-kpi-report.md",
+      "status": "planned",
+      "return_code": null,
+      "started_at": "2026-03-18T09:00:44Z",
+      "finished_at": "2026-03-18T09:00:44Z",
+      "duration_sec": 0.0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "lane": "dashboard-refresh",
+      "step_id": "build-governance-dashboard",
+      "command": "C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python311\\python.exe scripts/build_governance_dashboard.py --output-json artifacts/governance-dashboard.json --output-md artifacts/governance-dashboard.md",
+      "status": "planned",
+      "return_code": null,
+      "started_at": "2026-03-18T09:00:44Z",
+      "finished_at": "2026-03-18T09:00:44Z",
+      "duration_sec": 0.0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    }
+  ],
+  "failure": null,
+  "dashboard_artifacts": [
+    {
+      "path": "artifacts/dev-loop-baseline.md",
+      "exists": true,
+      "size_bytes": 436
+    },
+    {
+      "path": "artifacts/harness-baseline-metrics.json",
+      "exists": true,
+      "size_bytes": 1018
+    },
+    {
+      "path": "artifacts/process-improvement-report.md",
+      "exists": true,
+      "size_bytes": 1475
+    },
+    {
+      "path": "artifacts/autonomy-kpi-report.md",
+      "exists": true,
+      "size_bytes": 604
+    },
+    {
+      "path": "artifacts/governance-dashboard.json",
+      "exists": true,
+      "size_bytes": 1642
+    },
+    {
+      "path": "artifacts/governance-dashboard.md",
+      "exists": true,
+      "size_bytes": 356
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-03-17'
+updated_at: '2026-03-18'
 items:
 - task_id: TASK-2026-03-16-BASELINE-SEED
   closed_at: '2026-03-16T10:00:00Z'
@@ -425,6 +425,57 @@ items:
   incident_signature: none
   improvement_action: test
   improvement_artifact: tests/app/unit/test_phase2b_manifests.py
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-03-18-PHASE-5-ACCEPTANCE-REVIEW-AND-TESTING
+  closed_at: '2026-03-18T12:02:43Z'
+  branch: codex/phase0-full-acceptance
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-CONTRACTS
+  - CTX-ARCHITECTURE
+  - CTX-OPS
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: architecture_gap
+  incident_signature: none
+  improvement_action: architecture
+  improvement_artifact: docs/architecture/app/STATUS.md
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-03-18-PUSH-ACCEPTANCE-REMEDIATION-COMMITS-AND-UPDATE-P
+  closed_at: '2026-03-18T13:13:54Z'
+  branch: codex/phase0-full-acceptance
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  - CTX-CONTRACTS
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_first_time
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: workflow
+  improvement_artifact: https://github.com/deusexrenovatio-arch/trading-advisor-3000/pull/2
   linked_plan_id: null
   linked_memory_id: null
   outcome_status: completed
