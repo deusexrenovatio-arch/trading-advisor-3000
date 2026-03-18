@@ -13,6 +13,7 @@ REQUIRED_HARNESS_FILES = (
     "scripts/measure_dev_loop.py",
     "scripts/harness_baseline_metrics.py",
     "scripts/build_governance_dashboard.py",
+    "scripts/run_phase8_operational_proving.py",
     "scripts/skill_update_decision.py",
     "scripts/skill_precommit_gate.py",
     "scripts/sync_architecture_map.py",

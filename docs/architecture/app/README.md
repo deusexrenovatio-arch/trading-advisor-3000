@@ -20,6 +20,7 @@ This section stores product-plane architecture artifacts on top of the existing 
 - `docs/architecture/app/phase5-review-analytics-observability.md` - review dashboards, latency analytics, and observability plumbing.
 - `docs/architecture/app/phase6-operational-hardening.md` - retry/idempotency hardening, secrets policy, recovery and production-like ops profile.
 - `docs/architecture/app/phase7-scale-up-readiness.md` - extension seams for providers/adapters and expansion performance backlog.
+- `docs/architecture/app/phase8-ci-pilot-operational-proving.md` - CI lane parity, operational proving entrypoint, and fail-closed evidence flow.
 - `docs/architecture/app/phase0-3-acceptance-verdict-2026-03-17.md` - architecture acceptance disposition (MVP vs full target closure).
 
 ## Related Checklists
@@ -34,6 +35,7 @@ This section stores product-plane architecture artifacts on top of the existing 
 - `docs/checklists/app/phase5-acceptance-checklist.md`
 - `docs/checklists/app/phase6-acceptance-checklist.md`
 - `docs/checklists/app/phase7-acceptance-checklist.md`
+- `docs/checklists/app/phase8-acceptance-checklist.md`
 
 ## Boundary Rule
 Product-plane changes must not break shell contracts and must not move trading business logic into shell-sensitive paths.
