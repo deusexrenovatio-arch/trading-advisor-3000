@@ -8,14 +8,14 @@ Keep changes predictable by assigning each patch to explicit ownership surfaces.
 | Surface | Owns | Guarded paths | Minimum check |
 | --- | --- | --- | --- |
 | `GOV-POLICY` | root governance rules | `AGENTS.md`, `CODEOWNERS`, `.githooks/*` | policy validators |
-| `GOV-DOCS` | hot/warm docs | `docs/agent/*`, `docs/checklists/*`, `docs/workflows/*` | docs + contract checks |
+| `GOV-DOCS` | hot/warm docs | `docs/agent/*`, `docs/checklists/*`, `docs/workflows/*`, `src/trading_advisor_3000/AGENTS.md` | docs + contract checks |
 | `GOV-RUNTIME` | lifecycle/gates/validators | `scripts/*`, `configs/*` | loop gate |
 | `PROCESS-STATE` | plans/memory/task ledgers | `plans/*`, `memory/*`, `docs/tasks/*` | state validators |
 | `CTX-CONTRACTS` (high-risk) | policy contracts and durable schemas | `configs/*`, `plans/*`, `memory/*`, contract validators | contract validators + loop gate |
 | `ARCH-DOCS` | architecture package | `docs/architecture/*`, `tests/architecture/*` | architecture policy + tests |
 | `CTX-DATA` | data ingestion/canonical flows | `src/trading_advisor_3000/app/data_plane/*` | data-plane tests |
 | `CTX-RESEARCH` | research/analysis surfaces | `src/trading_advisor_3000/app/research/*` | research tests |
-| `CTX-ORCHESTRATION` | runtime/execution wiring | `src/trading_advisor_3000/app/runtime/*`, `app/execution/*` | orchestration tests |
+| `CTX-ORCHESTRATION` | runtime/execution wiring | `src/trading_advisor_3000/app/__init__.py`, `app/common/*`, `app/config/*`, `app/runtime/*`, `app/execution/*` | orchestration tests |
 | `CTX-API-UI` | interface and API surfaces | `src/trading_advisor_3000/app/interfaces/*` | interface tests |
 | `CTX-DOMAIN` | residual domain internals | `src/trading_advisor_3000/app/domain/*` | domain tests |
 
