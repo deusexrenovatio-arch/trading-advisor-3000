@@ -1,0 +1,30 @@
+version: 1
+
+required_patterns:
+  - "*"
+  - "/AGENTS.md"
+  - "/harness-guideline.md"
+  - "/docs/agent/"
+  - "/docs/agent-contexts/"
+  - "/docs/workflows/"
+  - "/docs/runbooks/"
+  - "/configs/"
+  - "/scripts/"
+  - "/tests/"
+  - "/src/trading_advisor_3000/"
+  - "/.github/workflows/"
+
+significant_paths:
+  - AGENTS.md
+  - CODEOWNERS
+  - docs/agent/
+  - docs/agent-contexts/
+  - docs/workflows/
+  - docs/runbooks/
+  - configs/
+  - scripts/
+  - tests/
+  - src/trading_advisor_3000/
+  - .github/workflows/
+
+owner_token_regex: "^(@[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)?|[^@\\s]+@[^@\\s]+)$"
