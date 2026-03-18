@@ -54,6 +54,24 @@ def test_phase0_plan_contains_pr1_baseline_decision() -> None:
     assert "shell hardening" in plan
 
 
+def test_product_status_doc_separates_shell_and_product_phase_namespaces() -> None:
+    status_doc = _read(ROOT / "docs" / "architecture" / "app" / "STATUS.md")
+    assert "S0-S8" in status_doc
+    assert "P0-P7" in status_doc
+    assert "not accepted as live/prod ready" in status_doc
+
+
+def test_app_docs_index_points_to_status_and_contract_truth_sources() -> None:
+    index_doc = _read(ROOT / "docs" / "architecture" / "app" / "README.md")
+    assert "STATUS.md" in index_doc
+    assert "CONTRACT_SURFACES.md" in index_doc
+
+
+def test_bootstrap_runbook_is_listed_in_app_runbooks_index() -> None:
+    runbooks_index = _read(ROOT / "docs" / "runbooks" / "app" / "README.md")
+    assert "bootstrap.md" in runbooks_index
+
+
 def test_phase0_checklist_contains_acceptance_evidence_commands() -> None:
     checklist = _read(
         ROOT / "docs" / "checklists" / "app" / "phase0-acceptance-checklist.md"
