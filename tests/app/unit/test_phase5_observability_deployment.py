@@ -71,6 +71,15 @@ def test_phase5_dashboard_is_valid_json_and_contains_key_panels() -> None:
     assert isinstance(panels, list) and panels
     panel_types = {str(panel.get("type")) for panel in panels}
     assert {"timeseries", "bargauge", "logs"} <= panel_types
+    datasource_uids = {
+        str(panel.get("datasource", {}).get("uid", ""))
+        for panel in panels
+        if isinstance(panel, dict) and isinstance(panel.get("datasource"), dict)
+    }
+    assert "prometheus" in datasource_uids
+    assert "loki" in datasource_uids
+    assert "${DS_PROMETHEUS}" not in datasource_uids
+    assert "${DS_LOKI}" not in datasource_uids
 
 
 def test_phase5_runtime_artifacts_are_parseable() -> None:
