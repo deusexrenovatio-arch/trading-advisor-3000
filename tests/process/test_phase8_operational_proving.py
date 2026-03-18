@@ -92,13 +92,67 @@ def test_phase8_run_fails_on_missing_dashboard_artifacts(tmp_path: Path) -> None
     assert report["failure"]["step_id"] == "artifact-validation"
 
 
-def test_phase8_cli_dry_run_writes_report(tmp_path: Path) -> None:
+def test_phase8_run_fails_on_stale_dashboard_artifacts(tmp_path: Path) -> None:
+    stale_artifact = tmp_path / "dashboard-stale.json"
+    stale_artifact.write_text('{"stale": true}\n', encoding="utf-8")
+    exit_code, report = run_phase8_plan(
+        plan=[],
+        report_path=tmp_path / "phase8-stale.json",
+        dry_run=False,
+        dashboard_artifact_paths=(stale_artifact,),
+        require_dashboard_artifacts=True,
+    )
+
+    assert exit_code == 1
+    assert report["status"] == "failed"
+    assert report["failure"]["step_id"] == "artifact-validation"
+    assert stale_artifact.as_posix() in report["failure"]["stale_artifacts"]
+
+
+def test_phase8_run_dry_run_can_skip_report_write(tmp_path: Path) -> None:
+    report_path = tmp_path / "dry-run-report.json"
+    exit_code, report = run_phase8_plan(
+        plan=[Phase8Step(lane="loop-lane", step_id="dry-step", command=("python", "-c", "print('x')"))],
+        report_path=report_path,
+        dry_run=True,
+        require_dashboard_artifacts=False,
+        write_report=False,
+    )
+
+    assert exit_code == 0
+    assert report["status"] == "dry_run"
+    assert report_path.exists() is False
+
+
+def test_phase8_cli_dry_run_rejects_output_without_opt_in(tmp_path: Path) -> None:
     output = tmp_path / "phase8-dry-run.json"
     result = subprocess.run(
         [
             sys.executable,
             "scripts/run_phase8_operational_proving.py",
             "--dry-run",
+            "--changed-files",
+            "docs/README.md",
+            "--output",
+            str(output),
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2, result.stdout + "\n" + result.stderr
+    assert output.exists() is False
+
+
+def test_phase8_cli_dry_run_writes_report_when_opted_in(tmp_path: Path) -> None:
+    output = tmp_path / "phase8-dry-run.json"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/run_phase8_operational_proving.py",
+            "--dry-run",
+            "--write-dry-run-report",
             "--changed-files",
             "docs/README.md",
             "--output",

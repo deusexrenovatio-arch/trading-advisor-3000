@@ -16,10 +16,11 @@ Close the final production-readiness loop for the delivery shell + app integrati
 
 ## Design Decisions
 1. Phase 8 proving is executable, not narrative-only: one script orchestrates all lanes in fixed order and emits a machine-readable report.
-2. Proving flow is fail-closed: execution stops at first failed lane step, and missing dashboard/report artifacts are treated as a hard failure.
+2. Proving flow is fail-closed: execution stops at first failed lane step, and missing or stale dashboard/report artifacts are treated as a hard failure.
 3. Scope is deterministic per run: all gate lanes receive one resolved scope contract (`changed-files`, `base/head`, or `from-git`) to avoid drift.
 4. Hosted CI remains opt-in (`AI_SHELL_ENABLE_HOSTED_CI=1`), but local proving is mandatory and equivalent by lane semantics.
-5. Evidence remains durable through a single report artifact (`artifacts/phase8-operational-proving.json`) plus dashboard pack outputs.
+5. Dry-run mode is side-effect-free by default (no report write), while explicit evidence persistence stays opt-in.
+6. Evidence remains durable through a single report artifact (`artifacts/phase8-operational-proving.json`) plus dashboard pack outputs.
 
 ## Acceptance Commands
 - `python -m pytest tests/process/test_phase8_operational_proving.py -q`

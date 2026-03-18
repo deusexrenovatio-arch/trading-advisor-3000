@@ -12,13 +12,13 @@ Date: 2026-03-18
 - [x] Hosted CI opt-in guard is documented and tested
 - [x] Consolidated proving entrypoint (`run_phase8_operational_proving.py`) added
 - [x] Proving entrypoint emits machine-readable execution report
-- [x] Dashboard/report artifact validation is fail-closed
+- [x] Dashboard/report artifact validation is fail-closed (missing and stale artifacts)
 - [x] Phase 8 runbook added
 - [x] Phase 8 process tests added for dry-run and failure paths
 
 ## Acceptance Criteria
 - [x] Proving flow stops on first lane failure and reports failing step
-- [x] Missing dashboard artifacts fail proving even when commands are green
+- [x] Missing or stale dashboard artifacts fail proving even when commands are green
 - [x] Dry-run mode provides deterministic lane plan without side effects
 - [x] Full process/architecture/app regression remains green
 - [x] Loop gate green

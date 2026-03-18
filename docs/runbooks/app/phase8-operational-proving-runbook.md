@@ -13,6 +13,8 @@ Execute and validate the full production-like delivery loop for shell-controlled
 ## Standard Execution
 1. Preview lane plan without side effects:
    - `python scripts/run_phase8_operational_proving.py --dry-run --from-git --git-ref HEAD`
+   - dry-run does not write report files by default.
+   - if report persistence is needed for review, add: `--write-dry-run-report --output artifacts/phase8-operational-proving.dry-run.json`.
 2. Run full proving:
    - `python scripts/run_phase8_operational_proving.py --from-git --git-ref HEAD --output artifacts/phase8-operational-proving.json`
 3. Review report:

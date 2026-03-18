@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Any, Callable, Sequence
 
 from gate_common import collect_changed_files
 
@@ -190,16 +190,31 @@ def build_phase8_plan(
 def collect_dashboard_artifact_status(
     *,
     artifact_paths: Sequence[Path] = REQUIRED_DASHBOARD_ARTIFACTS,
+    baseline_by_path: dict[str, dict[str, Any]] | None = None,
+    run_started_ns: int | None = None,
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for path in artifact_paths:
+        key = path.as_posix()
+        baseline = (baseline_by_path or {}).get(key)
         exists = path.exists()
         size_bytes = path.stat().st_size if exists else 0
+        mtime_ns = int(path.stat().st_mtime_ns) if exists else 0
+        fresh_in_run = False
+        if exists and size_bytes > 0:
+            if baseline is None:
+                fresh_in_run = run_started_ns is None or mtime_ns >= run_started_ns
+            else:
+                baseline_mtime_ns = int(baseline.get("mtime_ns", 0))
+                baseline_size = int(baseline.get("size_bytes", 0))
+                fresh_in_run = mtime_ns > baseline_mtime_ns or size_bytes != baseline_size
         rows.append(
             {
-                "path": path.as_posix(),
+                "path": key,
                 "exists": exists,
                 "size_bytes": size_bytes,
+                "mtime_ns": mtime_ns,
+                "fresh_in_run": fresh_in_run,
             }
         )
     return rows
@@ -208,11 +223,12 @@ def collect_dashboard_artifact_status(
 def run_phase8_plan(
     *,
     plan: Sequence[Phase8Step],
-    report_path: Path,
+    report_path: Path | None,
     dry_run: bool,
     runner: Callable[[Sequence[str]], subprocess.CompletedProcess[str]] | None = None,
     dashboard_artifact_paths: Sequence[Path] = REQUIRED_DASHBOARD_ARTIFACTS,
     require_dashboard_artifacts: bool,
+    write_report: bool = True,
 ) -> tuple[int, dict[str, object]]:
     run_command = (
         runner
@@ -227,6 +243,17 @@ def run_phase8_plan(
     records: list[dict[str, object]] = []
     overall_status = "dry_run" if dry_run else "ok"
     failure: dict[str, object] | None = None
+    run_started_ns = time.time_ns()
+    dashboard_baseline: dict[str, dict[str, Any]] = {}
+    for path in dashboard_artifact_paths:
+        key = path.as_posix()
+        exists = path.exists()
+        stat = path.stat() if exists else None
+        dashboard_baseline[key] = {
+            "exists": exists,
+            "size_bytes": int(stat.st_size) if stat is not None else 0,
+            "mtime_ns": int(stat.st_mtime_ns) if stat is not None else 0,
+        }
 
     for step in plan:
         command_rendered = _render_command(step.command)
@@ -276,17 +303,26 @@ def run_phase8_plan(
             }
             break
 
-    dashboard_artifacts = collect_dashboard_artifact_status(artifact_paths=dashboard_artifact_paths)
+    dashboard_artifacts = collect_dashboard_artifact_status(
+        artifact_paths=dashboard_artifact_paths,
+        baseline_by_path=dashboard_baseline,
+        run_started_ns=run_started_ns,
+    )
     missing_dashboard_artifacts = [
         str(row["path"])
         for row in dashboard_artifacts
         if not bool(row["exists"]) or int(row["size_bytes"]) <= 0
     ]
+    stale_dashboard_artifacts = [
+        str(row["path"])
+        for row in dashboard_artifacts
+        if bool(row["exists"]) and int(row["size_bytes"]) > 0 and not bool(row["fresh_in_run"])
+    ]
     if (
         not dry_run
         and overall_status == "ok"
         and require_dashboard_artifacts
-        and missing_dashboard_artifacts
+        and (missing_dashboard_artifacts or stale_dashboard_artifacts)
     ):
         overall_status = "failed"
         failure = {
@@ -294,6 +330,7 @@ def run_phase8_plan(
             "step_id": "artifact-validation",
             "return_code": 2,
             "missing_artifacts": missing_dashboard_artifacts,
+            "stale_artifacts": stale_dashboard_artifacts,
         }
 
     report = {
@@ -304,8 +341,9 @@ def run_phase8_plan(
         "failure": failure,
         "dashboard_artifacts": dashboard_artifacts,
     }
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if write_report and report_path is not None:
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return (0 if overall_status in {"ok", "dry_run"} else 1), report
 
 
@@ -320,12 +358,19 @@ def main() -> int:
     parser.add_argument("--head-ref", "--head", dest="head_ref", default=None)
     parser.add_argument("--stdin", action="store_true")
     parser.add_argument("--changed-files", nargs="*", default=[])
-    parser.add_argument("--output", default=DEFAULT_REPORT_PATH.as_posix())
+    parser.add_argument("--output", default=None)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--write-dry-run-report", action="store_true")
     parser.add_argument("--enforce-session-check", action="store_true")
     parser.add_argument("--skip-nightly-lane", action="store_true")
     parser.add_argument("--skip-dashboard-refresh", action="store_true")
     args = parser.parse_args()
+    if args.dry_run and args.output and not args.write_dry_run_report:
+        print(
+            "phase8 operational proving: dry-run report output is disabled by default. "
+            "Use --write-dry-run-report to opt in."
+        )
+        return 2
 
     explicit_scope_mode = bool(args.changed_files) or args.stdin
     use_from_git = bool(args.from_git) or (
@@ -349,6 +394,10 @@ def main() -> int:
     )
     include_nightly_lane = not args.skip_nightly_lane
     include_dashboard_refresh = not args.skip_dashboard_refresh
+    write_report = bool((not args.dry_run) or args.write_dry_run_report)
+    output_path: Path | None = None
+    if write_report:
+        output_path = Path(args.output) if args.output else DEFAULT_REPORT_PATH
     plan = build_phase8_plan(
         mapping=args.mapping,
         scope_args=scope_args,
@@ -358,14 +407,16 @@ def main() -> int:
     )
     exit_code, report = run_phase8_plan(
         plan=plan,
-        report_path=Path(args.output),
+        report_path=output_path,
         dry_run=args.dry_run,
         require_dashboard_artifacts=include_dashboard_refresh,
+        write_report=write_report,
     )
+    report_target = output_path.as_posix() if output_path is not None else "not-written"
     print(
         "phase8 operational proving: "
         f"{report['status']} "
-        f"(steps={len(report['steps'])}, report={Path(args.output).as_posix()})"
+        f"(steps={len(report['steps'])}, report={report_target})"
     )
     if report.get("failure"):
         print(f"phase8 failure details: {json.dumps(report['failure'], ensure_ascii=False)}")
