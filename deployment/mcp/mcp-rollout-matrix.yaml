@@ -1,0 +1,84 @@
+version: 1
+updated_at: "2026-03-18"
+servers:
+  github:
+    wave: "wave1"
+    owner: "platform"
+    auth_model: "github_token_env"
+    required_env:
+      - "TA3000_MCP_GITHUB_TOKEN"
+    limitations:
+      - "Repository-scoped access only"
+      - "No admin-scope tokens"
+    expected_health_probe:
+      mode: "cli_help"
+      args:
+        - "--help"
+
+  openai_docs:
+    wave: "wave1"
+    owner: "platform"
+    auth_model: "openai_docs_public_or_api_env"
+    required_env: []
+    limitations:
+      - "Docs-only access"
+      - "No write operations"
+    expected_health_probe:
+      mode: "cli_help"
+      args:
+        - "--help"
+
+  docker:
+    wave: "wave2"
+    owner: "platform"
+    auth_model: "docker_host_access"
+    required_env: []
+    limitations:
+      - "Local/staging hosts only"
+      - "No production daemon by default"
+    expected_health_probe:
+      mode: "cli_help"
+      args:
+        - "--help"
+
+  dagster:
+    wave: "wave2"
+    owner: "data-platform"
+    auth_model: "dagster_workspace_token_env"
+    required_env:
+      - "TA3000_MCP_DAGSTER_WORKSPACE"
+    limitations:
+      - "Read-oriented metadata access by default"
+      - "Run operations allowed only in dev/staging"
+    expected_health_probe:
+      mode: "cli_help"
+      args:
+        - "--help"
+
+  postgres_readonly:
+    wave: "wave3"
+    owner: "data-platform"
+    auth_model: "readonly_db_url_env"
+    required_env:
+      - "TA3000_MCP_POSTGRES_READONLY_DSN"
+    limitations:
+      - "Read-only role required"
+      - "Production DSN is forbidden"
+    expected_health_probe:
+      mode: "cli_help"
+      args:
+        - "--help"
+
+  duckdb:
+    wave: "wave3"
+    owner: "data-platform"
+    auth_model: "filesystem_or_service_env"
+    required_env:
+      - "TA3000_MCP_DUCKDB_PATH"
+    limitations:
+      - "Dev/staging datasets only"
+      - "No direct production lake access"
+    expected_health_probe:
+      mode: "cli_help"
+      args:
+        - "--help"

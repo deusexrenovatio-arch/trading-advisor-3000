@@ -46,6 +46,11 @@ jobs:
       - name: Bootstrap Dry Run
         run: python scripts/install_git_hooks.py --dry-run --allow-no-git
 
+      - name: MCP Governance Contract
+        run: |
+          python scripts/validate_mcp_config.py
+          python scripts/validate_no_tracked_secrets.py
+
       - name: Loop Gate
         run: python scripts/run_loop_gate.py --skip-session-check --from-git --git-ref HEAD
 
@@ -80,6 +85,11 @@ jobs:
       - name: PR Gate
         run: python scripts/run_pr_gate.py --skip-session-check --from-git --git-ref HEAD
 
+      - name: MCP Governance Contract
+        run: |
+          python scripts/validate_mcp_config.py
+          python scripts/validate_no_tracked_secrets.py
+
       - name: Full QA Matrix
         run: python -m pytest tests/process tests/architecture tests/app -q
 
@@ -104,6 +114,11 @@ jobs:
 
       - name: Nightly Gate
         run: python scripts/run_nightly_gate.py --from-git --git-ref HEAD
+
+      - name: MCP Governance Contract
+        run: |
+          python scripts/validate_mcp_config.py
+          python scripts/validate_no_tracked_secrets.py
 
       - name: Nightly QA
         run: |
