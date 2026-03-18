@@ -2,6 +2,15 @@
 
 This section stores product-plane architecture artifacts on top of the existing AI shell.
 
+Read these first:
+- [STATUS.md](docs/architecture/app/STATUS.md) - current implemented reality and no-go zones.
+- [CONTRACT_SURFACES.md](docs/architecture/app/CONTRACT_SURFACES.md) - current versioned boundary inventory.
+
+Phase naming rule:
+- `S0-S8` refers to shell delivery phases.
+- `P0-P7` refers to product capability phases from the product spec.
+- [phase8-ci-pilot-operational-proving.md](docs/architecture/app/phase8-ci-pilot-operational-proving.md) is a shell-controlled evidence overlay, not proof of full product closure.
+
 ## Phase 0 Package
 - `docs/architecture/app/product-plane-spec-v2/TECHNICAL_REQUIREMENTS.md`
 - `docs/architecture/app/product-plane-spec-v2/00_AI_Shell_Alignment.md`
