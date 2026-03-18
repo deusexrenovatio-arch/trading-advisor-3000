@@ -20,12 +20,18 @@ This bundle defines the operational rollout contract for MCP Wave 1-3.
 ## Rollout
 1. Validate config contract:
    - `python scripts/validate_mcp_config.py`
-2. Run preflight smoke (env + command readiness):
+2. Bootstrap project config and merge active Codex Desktop MCP entries:
+   - `python deployment/mcp/bootstrap_mcp_config.py --target .codex/config.toml --merge-home-config --force`
+3. Run preflight smoke (env + command readiness):
    - `python scripts/mcp_preflight_smoke.py --profile ops`
-3. Run strict data-readonly profile smoke:
+4. Run strict data-readonly profile smoke:
    - `python scripts/mcp_preflight_smoke.py --profile data_readonly --strict-env-check`
-4. Run tracked-secret check:
+5. Run tracked-secret check:
    - `python scripts/validate_no_tracked_secrets.py`
+
+Notes:
+- `config.template.toml` remains the project contract.
+- Codex Desktop currently discovers MCP servers from the user-level config in `~/.codex/config.toml`; `--merge-home-config` keeps that file aligned without overwriting unrelated personal settings.
 
 ## Rollback
 1. Disable MCP profile usage in local `.codex/config.toml`.

@@ -33,7 +33,8 @@ Wave 3:
 
 ## Token and Role Preparation
 1. `github`:
-   - use repo-scoped token/app with minimum read/write PR permissions.
+   - use repo-scoped token/app with minimum read/write PR permissions;
+   - export both `TA3000_MCP_GITHUB_TOKEN` and `GITHUB_PERSONAL_ACCESS_TOKEN` to satisfy local preflight and Docker pass-through.
 2. `dagster`:
    - use workspace token limited to dev/staging assets.
 3. `postgres_readonly`:
@@ -42,17 +43,24 @@ Wave 3:
    - use dev/staging dataset path only.
 
 ## Network Requirements
-1. Host must reach required MCP endpoints (GitHub API, Dagster workspace endpoint).
+1. Host must reach required MCP endpoints (`github`, `openai_docs`, Dagster workspace endpoint).
 2. `docker`, `npx`, and `uvx` executables must be available in PATH.
 3. Production data networks are not allowed for Wave 1-3 default profiles.
 
 ## Bootstrap
 1. Create project-scoped config:
    - `python deployment/mcp/bootstrap_mcp_config.py --target .codex/config.toml`
-2. Validate static contract:
+   - on Windows the bootstrap script normalizes `npx` and `uvx` command entries to runnable executable variants.
+2. Merge MCP entries into the active Codex Desktop user config:
+   - `python deployment/mcp/bootstrap_mcp_config.py --target .codex/config.toml --merge-home-config --force`
+3. Validate static contract:
    - `python scripts/validate_mcp_config.py`
-3. Validate tracked secret hygiene:
+4. Validate tracked secret hygiene:
    - `python scripts/validate_no_tracked_secrets.py`
+
+Desktop note:
+- the project file `.codex/config.toml` is the repo contract;
+- the desktop application currently reads MCP server definitions from `~/.codex/config.toml`, so the merge step above is part of the operational bootstrap.
 
 ## Smoke Procedure
 1. Base profile:

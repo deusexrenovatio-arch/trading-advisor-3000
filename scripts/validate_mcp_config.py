@@ -7,6 +7,7 @@ import sys
 import tomllib
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import yaml
 
@@ -23,6 +24,18 @@ _SUSPICIOUS_SECRET_PATTERNS = (
     re.compile(r"AKIA[0-9A-Z]{16}"),
     re.compile(r"-----BEGIN [A-Z ]+PRIVATE KEY-----"),
 )
+
+
+def _validate_url_contract(*, server_id: str, url_value: str) -> list[str]:
+    errors: list[str] = []
+    parsed = urlparse(url_value)
+    if parsed.scheme not in {"http", "https"}:
+        errors.append(f"mcp_servers.{server_id}.url must use http/https scheme")
+    if not parsed.netloc:
+        errors.append(f"mcp_servers.{server_id}.url must include hostname")
+    if parsed.username or parsed.password:
+        errors.append(f"mcp_servers.{server_id}.url must not embed credentials")
+    return errors
 
 
 def _load_toml(path: Path) -> dict[str, Any]:
@@ -126,19 +139,30 @@ def validate(
             errors.append(f"missing mcp_servers.{server_id}")
             continue
         command = entry.get("command")
+        url_value = entry.get("url")
         args = entry.get("args")
         required_env = entry.get("required_env")
         health_probe_args = entry.get("health_probe_args")
-        if not isinstance(command, str) or not command.strip():
-            errors.append(f"mcp_servers.{server_id}.command must be non-empty string")
-        if not isinstance(args, list) or not all(isinstance(item, str) for item in args):
-            errors.append(f"mcp_servers.{server_id}.args must be list[str]")
         if not isinstance(required_env, list) or not all(isinstance(item, str) for item in required_env):
             errors.append(f"mcp_servers.{server_id}.required_env must be list[str]")
         if not isinstance(health_probe_args, list) or not all(
             isinstance(item, str) for item in health_probe_args
         ):
             errors.append(f"mcp_servers.{server_id}.health_probe_args must be list[str]")
+        has_command = isinstance(command, str) and bool(command.strip())
+        has_url = isinstance(url_value, str) and bool(url_value.strip())
+        if has_command == has_url:
+            errors.append(
+                f"mcp_servers.{server_id} must define exactly one transport entry: either command or url"
+            )
+            continue
+        if has_command:
+            if not isinstance(args, list) or not all(isinstance(item, str) for item in args):
+                errors.append(f"mcp_servers.{server_id}.args must be list[str]")
+            continue
+        if args is not None and (not isinstance(args, list) or not all(isinstance(item, str) for item in args)):
+            errors.append(f"mcp_servers.{server_id}.args must be list[str] when provided")
+        errors.extend(_validate_url_contract(server_id=server_id, url_value=str(url_value)))
 
     if manifest:
         manifest_profiles = manifest.get("profiles", {})
