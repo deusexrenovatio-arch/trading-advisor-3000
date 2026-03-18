@@ -80,6 +80,20 @@ jobs:
       - name: PR Gate
         run: python scripts/run_pr_gate.py --skip-session-check --from-git --git-ref HEAD
 
+      - name: Governance Validators (PR)
+        run: |
+          python scripts/validate_codeowners.py
+          python scripts/validate_agent_contexts.py
+          python scripts/sync_skills_catalog.py --check
+          python scripts/validate_skills.py --strict
+
+      - name: Skill Governance Tests (PR)
+        run: |
+          python -m pytest tests/process/test_sync_skills_catalog.py -q
+          python -m pytest tests/process/test_validate_skills.py -q
+          python -m pytest tests/process/test_skill_update_decision.py -q
+          python -m pytest tests/process/test_skill_precommit_gate.py -q
+
       - name: Full QA Matrix
         run: python -m pytest tests/process tests/architecture tests/app -q
 
@@ -105,9 +119,18 @@ jobs:
       - name: Nightly Gate
         run: python scripts/run_nightly_gate.py --from-git --git-ref HEAD
 
+      - name: Governance Validators (Nightly)
+        run: |
+          python scripts/nightly_root_hygiene.py
+          python scripts/validate_agent_contexts.py
+          python scripts/validate_codeowners.py
+          python scripts/sync_skills_catalog.py --check
+          python scripts/validate_skills.py --strict
+
       - name: Nightly QA
         run: |
           python -m pytest tests/process/test_nightly_root_hygiene.py -q
+          python -m pytest tests/process/test_validate_codeowners.py -q
           python -m pytest tests/architecture/test_context_coverage.py -q
           python -m pytest tests/architecture/test_codeowners_coverage.py -q
           python -m pytest tests/architecture/test_crosslayer_boundaries.py -q

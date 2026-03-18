@@ -7,6 +7,8 @@
 | Hook bootstrap (dry run) | `python scripts/install_git_hooks.py --dry-run --allow-no-git` | verify operational bootstrap entrypoint |
 | Session handoff contract | `python scripts/validate_session_handoff.py` | keep pointer-shim and context budget valid |
 | Task request contract | `python scripts/validate_task_request_contract.py` | enforce objective/scope/repetition controls |
+| Skills catalog drift | `python scripts/sync_skills_catalog.py --check` | ensure generated catalog matches runtime skills |
+| CODEOWNERS coverage | `python scripts/validate_codeowners.py` | ensure ownership routing remains complete |
 | Docs links | `python scripts/validate_docs_links.py --roots AGENTS.md docs` | prevent broken markdown references |
 
 ## Gate lanes
@@ -27,6 +29,9 @@ Hosted CI note:
 - `python scripts/validate_agent_memory.py`
 - `python scripts/validate_task_outcomes.py`
 - `python scripts/validate_process_regressions.py`
+- `python scripts/validate_codeowners.py`
+- `python scripts/validate_skills.py --strict`
+- `python scripts/sync_skills_catalog.py --check`
 
 ## QA matrix core
 - `python -m pytest tests/process/test_compute_change_surface.py -q`
@@ -38,6 +43,11 @@ Hosted CI note:
 - `python -m pytest tests/process/test_agent_process_telemetry.py -q`
 - `python -m pytest tests/process/test_process_reports.py -q`
 - `python -m pytest tests/process/test_nightly_root_hygiene.py -q`
+- `python -m pytest tests/process/test_sync_skills_catalog.py -q`
+- `python -m pytest tests/process/test_validate_skills.py -q`
+- `python -m pytest tests/process/test_skill_update_decision.py -q`
+- `python -m pytest tests/process/test_skill_precommit_gate.py -q`
+- `python -m pytest tests/process/test_validate_codeowners.py -q`
 - `python -m pytest tests/process/test_validate_plans_contract.py -q`
 - `python -m pytest tests/process/test_validate_task_request_contract.py -q`
 - `python -m pytest tests/architecture/test_context_coverage.py -q`
