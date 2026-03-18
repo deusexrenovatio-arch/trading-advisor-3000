@@ -33,6 +33,14 @@ def test_phase6_compose_wires_runtime_sidecar_postgres_and_prometheus() -> None:
     assert "TA3000_STOCKSHARP_API_KEY" in compose
     assert "TA3000_FINAM_API_TOKEN" in compose
     assert "TA3000_ENFORCE_LIVE_SECRETS" in compose
+    assert "TA3000_ENABLE_LIVE_EXECUTION: ${TA3000_ENABLE_LIVE_EXECUTION:-}" in compose
+    assert "TA3000_ENABLE_STOCKSHARP_BRIDGE: ${TA3000_ENABLE_STOCKSHARP_BRIDGE:-}" in compose
+    assert "TA3000_ENABLE_QUIK_CONNECTOR: ${TA3000_ENABLE_QUIK_CONNECTOR:-}" in compose
+    assert "TA3000_ENABLE_FINAM_TRANSPORT: ${TA3000_ENABLE_FINAM_TRANSPORT:-}" in compose
+    assert "TA3000_ENABLE_LIVE_EXECUTION: ${TA3000_ENABLE_LIVE_EXECUTION:-1}" not in compose
+    assert "TA3000_ENABLE_STOCKSHARP_BRIDGE: ${TA3000_ENABLE_STOCKSHARP_BRIDGE:-1}" not in compose
+    assert "TA3000_ENABLE_QUIK_CONNECTOR: ${TA3000_ENABLE_QUIK_CONNECTOR:-1}" not in compose
+    assert "TA3000_ENABLE_FINAM_TRANSPORT: ${TA3000_ENABLE_FINAM_TRANSPORT:-1}" not in compose
     assert "http://127.0.0.1:8088/ready" in compose
     assert "./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro" in compose
 

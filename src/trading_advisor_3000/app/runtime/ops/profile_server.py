@@ -55,10 +55,10 @@ def _required_secret_names(env: Mapping[str, str]) -> tuple[str, ...]:
 def build_live_bridge_from_env(env: Mapping[str, str] | None = None) -> LiveExecutionBridge:
     source = env or os.environ
     flags = LiveExecutionFeatureFlags(
-        enable_live_execution=_env_bool(source, "TA3000_ENABLE_LIVE_EXECUTION", True),
-        enable_stocksharp_bridge=_env_bool(source, "TA3000_ENABLE_STOCKSHARP_BRIDGE", True),
-        enable_quik_connector=_env_bool(source, "TA3000_ENABLE_QUIK_CONNECTOR", True),
-        enable_finam_transport=_env_bool(source, "TA3000_ENABLE_FINAM_TRANSPORT", True),
+        enable_live_execution=_env_bool(source, "TA3000_ENABLE_LIVE_EXECUTION", False),
+        enable_stocksharp_bridge=_env_bool(source, "TA3000_ENABLE_STOCKSHARP_BRIDGE", False),
+        enable_quik_connector=_env_bool(source, "TA3000_ENABLE_QUIK_CONNECTOR", False),
+        enable_finam_transport=_env_bool(source, "TA3000_ENABLE_FINAM_TRANSPORT", False),
         enforce_live_secrets=_env_bool(source, "TA3000_ENFORCE_LIVE_SECRETS", True),
         required_live_secret_env_vars=_required_secret_names(source),
         environment=source.get("TA3000_ENVIRONMENT", "staging-live-sim").strip() or "staging-live-sim",

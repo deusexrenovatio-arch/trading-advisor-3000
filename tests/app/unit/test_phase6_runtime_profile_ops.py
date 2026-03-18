@@ -20,6 +20,23 @@ def _base_env() -> dict[str, str]:
     }
 
 
+def test_phase6_profile_is_fail_closed_when_live_flags_are_not_explicitly_set() -> None:
+    env = {
+        "TA3000_STOCKSHARP_API_KEY": "stocksharp-secret-001",
+        "TA3000_FINAM_API_TOKEN": "finam-token-001",
+    }
+
+    snapshot = build_runtime_operational_snapshot(env)
+    preflight_errors = set(snapshot["bridge"]["preflight_errors"])
+
+    assert snapshot["ready"] is False
+    assert snapshot["bridge"]["status"] == "degraded"
+    assert "live_execution_disabled" in preflight_errors
+    assert "stocksharp_bridge_disabled" in preflight_errors
+    assert "quik_connector_disabled" in preflight_errors
+    assert "finam_transport_disabled" in preflight_errors
+
+
 def test_phase6_runtime_snapshot_is_not_ready_when_required_secrets_are_missing() -> None:
     env = {
         **_base_env(),
