@@ -102,7 +102,21 @@ def scope_validate_command(
         "scripts/validate_task_outcomes.py",
     )
     if not any(any(token.endswith(script_name) for token in normalized) for script_name in scoped_scripts):
-        return command
+        skill_precommit = "scripts/skill_precommit_gate.py"
+        if not any(token.endswith(skill_precommit) for token in normalized):
+            return command
+        if "--changed-files" in normalized:
+            return command
+        scoped_parts = list(parts)
+        if changed_files:
+            scoped_parts.append("--changed-files")
+            scoped_parts.extend(changed_files)
+        if "--strict" not in normalized:
+            scoped_parts.append("--strict")
+        if os.name == "nt":
+            return subprocess.list2cmdline(scoped_parts)
+        return shlex.join(scoped_parts)
+
     if "--base-sha" in normalized or "--changed-files" in normalized:
         return command
 
