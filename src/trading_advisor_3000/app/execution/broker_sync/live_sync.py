@@ -542,6 +542,26 @@ class BrokerSyncEngine:
             key=lambda item: (item.intent_id, item.updated_at, item.broker_order_id),
         )
 
+    def get_order_by_intent_id(self, intent_id: str) -> BrokerOrder | None:
+        candidates = [item for item in self._orders_by_external_id.values() if item.intent_id == intent_id]
+        if not candidates:
+            return None
+        return sorted(candidates, key=lambda item: (item.updated_at, item.broker_order_id))[-1]
+
+    def build_submission_ack_snapshot(self, intent_id: str) -> dict[str, object] | None:
+        order = self.get_order_by_intent_id(intent_id)
+        if order is None:
+            return None
+        return {
+            "intent_id": order.intent_id,
+            "external_order_id": order.external_order_id,
+            "accepted": order.state != "rejected",
+            "broker_adapter": order.broker,
+            "state": order.state,
+            "accepted_at": order.updated_at,
+            "idempotent_reuse": True,
+        }
+
     def list_registered_intents(self) -> list[OrderIntent]:
         return sorted(
             self._intents_by_id.values(),

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from trading_advisor_3000.app.contracts import OrderIntent, PositionSnapshot
 from trading_advisor_3000.app.execution.adapters import LiveExecutionBridge
+from trading_advisor_3000.app.execution.recovery import LiveRecoveryPlan, build_live_recovery_plan
 from trading_advisor_3000.app.execution.reconciliation import (
     LiveExecutionReconciliationReport,
     reconcile_live_execution,
@@ -33,6 +34,18 @@ class ControlledLiveCycleReport:
         }
 
 
+@dataclass(frozen=True)
+class ControlledLiveHardeningReport:
+    cycle: ControlledLiveCycleReport
+    recovery_plan: LiveRecoveryPlan
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "cycle": self.cycle.to_dict(),
+            "recovery_plan": self.recovery_plan.to_dict(),
+        }
+
+
 class ControlledLiveExecutionEngine:
     def __init__(self, *, bridge: LiveExecutionBridge, sync_engine: BrokerSyncEngine) -> None:
         self._bridge = bridge
@@ -41,6 +54,12 @@ class ControlledLiveExecutionEngine:
     def submit_intents(self, intents: list[OrderIntent], *, submitted_at: str) -> list[dict[str, object]]:
         acks: list[dict[str, object]] = []
         for intent in intents:
+            existing_ack = self._sync_engine.build_submission_ack_snapshot(intent.intent_id)
+            if existing_ack is not None:
+                self._sync_engine.register_intent(intent)
+                acks.append(existing_ack)
+                continue
+
             ack = self._bridge.submit_order_intent(intent, accepted_at=submitted_at)
             self._sync_engine.register_intent(intent)
             self._sync_engine.record_submission_ack(
@@ -48,7 +67,7 @@ class ControlledLiveExecutionEngine:
                 ack=ack,
                 acknowledged_at=submitted_at,
             )
-            acks.append(ack)
+            acks.append({**ack, "idempotent_reuse": False})
         return acks
 
     def replace_intent(
@@ -101,4 +120,32 @@ class ControlledLiveExecutionEngine:
             synced_updates=sync_stats["updates"],
             synced_fills=sync_stats["fills"],
             reconciliation=reconciliation,
+        )
+
+    def build_recovery_plan(self, *, expected_positions: list[PositionSnapshot]) -> LiveRecoveryPlan:
+        reconciliation = self.reconcile(expected_positions=expected_positions)
+        return build_live_recovery_plan(
+            reconciliation_report=reconciliation,
+            sync_incidents=self._sync_engine.list_incidents(),
+        )
+
+    def run_hardened_cycle(
+        self,
+        *,
+        intents: list[OrderIntent],
+        submitted_at: str,
+        expected_positions: list[PositionSnapshot],
+    ) -> ControlledLiveHardeningReport:
+        cycle = self.run_controlled_cycle(
+            intents=intents,
+            submitted_at=submitted_at,
+            expected_positions=expected_positions,
+        )
+        recovery_plan = build_live_recovery_plan(
+            reconciliation_report=cycle.reconciliation,
+            sync_incidents=self._sync_engine.list_incidents(),
+        )
+        return ControlledLiveHardeningReport(
+            cycle=cycle,
+            recovery_plan=recovery_plan,
         )

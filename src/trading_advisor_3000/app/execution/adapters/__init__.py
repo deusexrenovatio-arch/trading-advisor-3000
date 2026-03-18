@@ -5,17 +5,22 @@ from .live_bridge import (
     LiveExecutionBridgeError,
     LiveExecutionDisabledError,
     LiveExecutionFeatureFlags,
+    LiveExecutionRetryExhaustedError,
+    LiveExecutionRetryPolicy,
     UnsupportedBrokerAdapterError,
     UnsupportedExecutionModeError,
 )
-from .stocksharp_sidecar_stub import StockSharpSidecarStub
+from .stocksharp_sidecar_stub import StockSharpSidecarStub, TransientSidecarError
 
 __all__ = [
     "LiveExecutionBridge",
     "LiveExecutionBridgeError",
     "LiveExecutionDisabledError",
     "LiveExecutionFeatureFlags",
+    "LiveExecutionRetryExhaustedError",
+    "LiveExecutionRetryPolicy",
     "UnsupportedBrokerAdapterError",
     "UnsupportedExecutionModeError",
     "StockSharpSidecarStub",
+    "TransientSidecarError",
 ]

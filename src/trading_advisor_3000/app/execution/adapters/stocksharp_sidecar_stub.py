@@ -5,6 +5,10 @@ import hashlib
 from trading_advisor_3000.app.contracts import OrderIntent
 
 
+class TransientSidecarError(RuntimeError):
+    pass
+
+
 class StockSharpSidecarStub:
     def __init__(self) -> None:
         self._queued_intents: list[dict[str, object]] = []
@@ -12,6 +16,19 @@ class StockSharpSidecarStub:
         self._broker_updates: list[dict[str, object]] = []
         self._broker_fills: list[dict[str, object]] = []
         self._transport_path = "stocksharp->quik->finam"
+        self._transient_failures: dict[str, int] = {}
+
+    def inject_transient_failures(self, *, operation: str, failures: int) -> None:
+        if failures < 0:
+            raise ValueError("failures must be non-negative")
+        self._transient_failures[operation] = failures
+
+    def _consume_transient_failure(self, operation: str) -> None:
+        remaining = self._transient_failures.get(operation, 0)
+        if remaining <= 0:
+            return
+        self._transient_failures[operation] = remaining - 1
+        raise TransientSidecarError(f"transient sidecar failure: operation={operation}, remaining={remaining - 1}")
 
     def health(self) -> dict[str, object]:
         return {
@@ -20,6 +37,7 @@ class StockSharpSidecarStub:
             "transport_path": self._transport_path,
             "queued_intents": len(self._queued_intents),
             "acked_intents": len(self._acks_by_intent_id),
+            "transient_failures": dict(self._transient_failures),
         }
 
     def readiness(self) -> dict[str, object]:
@@ -31,6 +49,7 @@ class StockSharpSidecarStub:
         }
 
     def submit_order_intent(self, intent: OrderIntent) -> dict[str, object]:
+        self._consume_transient_failure("submit_order_intent")
         external_order_id = "stub-" + hashlib.sha256(intent.intent_id.encode("utf-8")).hexdigest()[:12]
         envelope = {
             "intent_id": intent.intent_id,
@@ -47,6 +66,7 @@ class StockSharpSidecarStub:
         return list(self._queued_intents)
 
     def cancel_order_intent(self, *, intent_id: str, canceled_at: str) -> dict[str, object]:
+        self._consume_transient_failure("cancel_order_intent")
         existing = self._acks_by_intent_id.get(intent_id)
         if existing is None:
             raise ValueError(f"unknown intent_id: {intent_id}")
@@ -72,6 +92,7 @@ class StockSharpSidecarStub:
         new_price: float,
         replaced_at: str,
     ) -> dict[str, object]:
+        self._consume_transient_failure("replace_order_intent")
         if new_qty <= 0:
             raise ValueError("new_qty must be positive")
         if new_price <= 0:
