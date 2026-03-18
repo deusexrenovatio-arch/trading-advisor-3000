@@ -178,3 +178,12 @@ class TelegramPublicationEngine:
 
     def list_operations(self) -> list[TelegramOperation]:
         return list(self._operations)
+
+    def restore(self, *, publications: list[DecisionPublication]) -> None:
+        self._publications = {}
+        self._history = []
+        self._rendered_messages = {}
+        self._operations = []
+        for publication in sorted(publications, key=lambda item: (item.published_at, item.publication_id)):
+            self._publications[publication.signal_id] = publication
+            self._history.append(publication)

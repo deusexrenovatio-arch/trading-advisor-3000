@@ -8,7 +8,7 @@ from trading_advisor_3000.app.research.ids import candidate_id_from_candidate
 from trading_advisor_3000.app.runtime.config import StrategyRegistry
 from trading_advisor_3000.app.runtime.context import ContextProviderRegistry
 from trading_advisor_3000.app.runtime.publishing import TelegramPublicationEngine
-from trading_advisor_3000.app.runtime.signal_store import InMemorySignalStore
+from trading_advisor_3000.app.runtime.signal_store import SignalStore
 
 
 def _render_message(candidate: DecisionCandidate) -> str:
@@ -24,7 +24,7 @@ class SignalRuntimeEngine:
         self,
         *,
         strategy_registry: StrategyRegistry,
-        signal_store: InMemorySignalStore,
+        signal_store: SignalStore,
         publisher: TelegramPublicationEngine,
         context_provider_registry: ContextProviderRegistry | None = None,
         validity_minutes_by_timeframe: dict[str, int] | None = None,
@@ -168,12 +168,7 @@ class SignalRuntimeEngine:
                     rendered_message=message,
                     published_at=candidate.ts_decision,
                 )
-                self._signal_store.mark_published(
-                    signal_id=signal.signal_id,
-                    message_id=publication.message_id,
-                    published_at=candidate.ts_decision,
-                    status=publication.status.value,
-                )
+                self._signal_store.mark_published(signal_id=signal.signal_id, publication=publication)
                 if created:
                     published += 1
             elif changed:
@@ -184,12 +179,7 @@ class SignalRuntimeEngine:
                 )
                 if was_edited:
                     edited += 1
-                    self._signal_store.mark_published(
-                        signal_id=signal.signal_id,
-                        message_id=publication.message_id,
-                        published_at=candidate.ts_decision,
-                        status=publication.status.value,
-                    )
+                    self._signal_store.mark_published(signal_id=signal.signal_id, publication=publication)
 
             accepted += 1
             accepted_signal_ids.append(candidate.signal_id)
@@ -218,16 +208,26 @@ class SignalRuntimeEngine:
         }
 
     def close_signal(self, *, signal_id: str, closed_at: str, reason_code: str) -> dict[str, object]:
-        signal = self._signal_store.close_signal(signal_id=signal_id, closed_at=closed_at, reason_code=reason_code)
         publication, _ = self._publisher.close(signal_id=signal_id, closed_at=closed_at)
+        signal = self._signal_store.close_signal(
+            signal_id=signal_id,
+            closed_at=closed_at,
+            reason_code=reason_code,
+            publication=publication,
+        )
         return {
             "signal": signal.to_dict(),
             "publication": publication.to_dict(),
         }
 
     def cancel_signal(self, *, signal_id: str, canceled_at: str, reason_code: str) -> dict[str, object]:
-        signal = self._signal_store.cancel_signal(signal_id=signal_id, canceled_at=canceled_at, reason_code=reason_code)
         publication, _ = self._publisher.cancel(signal_id=signal_id, canceled_at=canceled_at)
+        signal = self._signal_store.cancel_signal(
+            signal_id=signal_id,
+            canceled_at=canceled_at,
+            reason_code=reason_code,
+            publication=publication,
+        )
         return {
             "signal": signal.to_dict(),
             "publication": publication.to_dict(),
