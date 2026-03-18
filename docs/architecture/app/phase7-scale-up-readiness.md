@@ -9,24 +9,26 @@ Prepare architecture and core contracts for expansion without blocking refactors
 
 ## Deliverables
 - `src/trading_advisor_3000/app/execution/adapters/catalog.py`
+- `src/trading_advisor_3000/app/execution/adapters/transport.py`
 - `src/trading_advisor_3000/app/data_plane/providers/registry.py`
 - `src/trading_advisor_3000/app/runtime/context/providers.py`
 - `tests/app/unit/test_phase7_execution_adapter_catalog.py`
 - `tests/app/unit/test_phase7_provider_extension_seams.py`
+- `tests/app/unit/test_phase7_runtime_context_orchestration.py`
 - `docs/architecture/adr/0002-scale-up-extension-seams.md`
 - `docs/architecture/app/phase7-scale-up-readiness.md`
 - `docs/checklists/app/phase7-acceptance-checklist.md`
 
 ## Design Decisions
 1. Adapter/provider extensibility is registry-first: core flow uses catalogs/registries, not hardcoded if-else branches.
-2. Fundamentals/news path is introduced as a runtime context seam (`ContextProviderRegistry`) before model-specific decision logic.
-3. Execution adapter growth uses `ExecutionAdapterCatalog` with mode support contracts (`supports_live`, `supports_paper`).
+2. Fundamentals/news path is wired into runtime orchestration: `build_runtime_stack*` injects `ContextProviderRegistry` into `SignalRuntimeEngine`, and replay persists context slices as signal events.
+3. Execution adapter growth uses `ExecutionAdapterCatalog` with mode contracts (`supports_live`, `supports_paper`) plus adapter-to-transport bindings, so submit/cancel/replace dispatch is adapter-driven (not hardcoded sidecar-only).
 4. Scale-up readiness is accepted only with explicit non-blocking architecture path and validated seam tests.
 
 ## Performance Notes
 - Current replay path is CPU-light and file-contract friendly, but not tuned for high-cardinality provider fan-out.
 - Runtime context fan-out should remain bounded per signal decision window.
-- Execution adapter dispatch is catalog lookup and O(1), suitable for current expansion scope.
+- Execution adapter dispatch is catalog + transport lookup and O(1) per operation; broker stream drain cost grows with number of bound transports.
 
 ## Performance Backlog (next wave)
 1. Add bounded cache/TTL layer for fundamentals/news context requests by (`contract_id`, `as_of_ts`, `provider_id`).
@@ -37,6 +39,7 @@ Prepare architecture and core contracts for expansion without blocking refactors
 ## Acceptance Commands
 - `python -m pytest tests/app/unit/test_phase7_execution_adapter_catalog.py -q`
 - `python -m pytest tests/app/unit/test_phase7_provider_extension_seams.py -q`
+- `python -m pytest tests/app/unit/test_phase7_runtime_context_orchestration.py -q`
 - `python -m pytest tests/app -q`
 - `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
 - `python scripts/run_pr_gate.py --from-git --git-ref HEAD --skip-session-check`

@@ -324,6 +324,28 @@ class InMemorySignalStore:
             dedup_key=f"{signal_id}|execution_fill|{fill_id}|{role}",
         )
 
+    def record_context_slice(
+        self,
+        *,
+        signal_id: str,
+        event_ts: str,
+        context_kind: str,
+        provider_id: str,
+        payload_json: dict[str, object],
+    ) -> None:
+        self._append_event(
+            signal_id=signal_id,
+            event_ts=event_ts,
+            event_type="signal_context",
+            reason_code=context_kind,
+            payload_json={
+                "context_kind": context_kind,
+                "provider_id": provider_id,
+                "payload": payload_json,
+            },
+            dedup_key=f"{signal_id}|signal_context|{context_kind}|{provider_id}|{event_ts}",
+        )
+
     def list_active_signals(self) -> list[RuntimeSignal]:
         active_states = {"candidate", "active"}
         items = [signal for signal in self._signals.values() if signal.state in active_states]

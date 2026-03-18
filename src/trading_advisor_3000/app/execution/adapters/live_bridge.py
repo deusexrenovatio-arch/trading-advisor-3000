@@ -10,6 +10,7 @@ from trading_advisor_3000.app.runtime.config import DEFAULT_REQUIRED_LIVE_SECRET
 
 from .catalog import ExecutionAdapterCatalog, default_execution_adapter_catalog
 from .stocksharp_sidecar_stub import StockSharpSidecarStub, TransientSidecarError
+from .transport import ExecutionAdapterTransport
 
 
 class LiveExecutionBridgeError(RuntimeError):
@@ -25,6 +26,10 @@ class UnsupportedExecutionModeError(LiveExecutionBridgeError):
 
 
 class UnsupportedBrokerAdapterError(LiveExecutionBridgeError):
+    pass
+
+
+class AdapterTransportNotConfiguredError(LiveExecutionBridgeError):
     pass
 
 
@@ -99,15 +104,34 @@ class LiveExecutionBridge:
         flags: LiveExecutionFeatureFlags,
         retry_policy: LiveExecutionRetryPolicy | None = None,
         adapter_catalog: ExecutionAdapterCatalog | None = None,
+        adapter_transports: Mapping[str, ExecutionAdapterTransport] | None = None,
         env: Mapping[str, str] | None = None,
     ) -> None:
         self._sidecar = sidecar
         self._flags = flags
         self._retry_policy = retry_policy or LiveExecutionRetryPolicy()
         self._adapter_catalog = adapter_catalog or default_execution_adapter_catalog()
+        bindings: dict[str, ExecutionAdapterTransport] = {
+            "stocksharp-sidecar-stub": sidecar,
+            "stocksharp-sidecar": sidecar,
+        }
+        if adapter_transports is not None:
+            bindings.update(adapter_transports)
+        self._transport_key_by_adapter_id: dict[str, str] = {}
+        self._transports_by_key: dict[str, ExecutionAdapterTransport] = {}
+        object_key_by_id: dict[int, str] = {}
+        for adapter_id, transport in sorted(bindings.items()):
+            object_id = id(transport)
+            transport_key = object_key_by_id.get(object_id)
+            if transport_key is None:
+                transport_key = f"transport-{len(object_key_by_id) + 1}"
+                object_key_by_id[object_id] = transport_key
+                self._transports_by_key[transport_key] = transport
+            self._transport_key_by_adapter_id[adapter_id] = transport_key
         self._env = dict(env if env is not None else os.environ)
-        self._seen_update_index = 0
-        self._seen_fill_index = 0
+        self._seen_update_index_by_transport_key = {key: 0 for key in self._transports_by_key}
+        self._seen_fill_index_by_transport_key = {key: 0 for key in self._transports_by_key}
+        self._transport_key_by_intent_id: dict[str, str] = {}
         self._retryable_exceptions = (TransientSidecarError, TimeoutError, ConnectionError)
 
     def _live_secrets_report(self) -> dict[str, object]:
@@ -135,6 +159,34 @@ class LiveExecutionBridge:
                 "broker_adapter does not support requested mode: "
                 f"adapter={intent.broker_adapter}, mode={intent.mode.value}"
             )
+        if intent.broker_adapter not in self._transport_key_by_adapter_id:
+            raise AdapterTransportNotConfiguredError(
+                "adapter transport is not configured: "
+                f"adapter={intent.broker_adapter}"
+            )
+
+    def _transport_for_adapter(self, adapter_id: str) -> tuple[str, ExecutionAdapterTransport]:
+        transport_key = self._transport_key_by_adapter_id.get(adapter_id)
+        if transport_key is None:
+            raise AdapterTransportNotConfiguredError(
+                f"adapter transport is not configured: adapter={adapter_id}"
+            )
+        transport = self._transports_by_key[transport_key]
+        return transport_key, transport
+
+    def _transport_for_intent(self, intent_id: str) -> tuple[str, ExecutionAdapterTransport]:
+        transport_key = self._transport_key_by_intent_id.get(intent_id)
+        if transport_key is not None:
+            transport = self._transports_by_key.get(transport_key)
+            if transport is not None:
+                return transport_key, transport
+        if len(self._transports_by_key) == 1:
+            only_key = next(iter(self._transports_by_key))
+            return only_key, self._transports_by_key[only_key]
+        raise AdapterTransportNotConfiguredError(
+            "intent transport is ambiguous for multi-adapter bridge: "
+            f"intent_id={intent_id}"
+        )
 
     def _ensure_live_allowed(self, intent: OrderIntent) -> None:
         if intent.mode != Mode.LIVE:
@@ -192,6 +244,21 @@ class LiveExecutionBridge:
                 "backoff_seconds": self._retry_policy.backoff_seconds,
             },
             "adapter_catalog": self._adapter_catalog.to_dict(),
+            "adapter_transport_bindings": [
+                {
+                    "adapter_id": adapter_id,
+                    "transport_key": self._transport_key_by_adapter_id[adapter_id],
+                }
+                for adapter_id in sorted(self._transport_key_by_adapter_id)
+            ],
+            "transport_health": {
+                transport_key: (
+                    transport.health()
+                    if callable(getattr(transport, "health", None))
+                    else {"status": "unknown"}
+                )
+                for transport_key, transport in sorted(self._transports_by_key.items())
+            },
             "secrets_policy": secrets_report,
             "sidecar": self._sidecar.health(),
         }
@@ -200,16 +267,27 @@ class LiveExecutionBridge:
         self._ensure_supported_mode(intent)
         self._ensure_supported_adapter(intent)
         self._ensure_live_allowed(intent)
+        transport_key, transport = self._transport_for_adapter(intent.broker_adapter)
         ack = self._call_with_retry(
             operation="submit_order_intent",
-            fn=lambda: self._sidecar.submit_order_intent(intent),
+            fn=lambda: transport.submit_order_intent(intent),
         )
-        return {**ack, "accepted_at": accepted_at}
+        self._transport_key_by_intent_id[intent.intent_id] = transport_key
+        return {
+            **ack,
+            "accepted_at": accepted_at,
+            "broker_adapter": intent.broker_adapter,
+            "transport_key": transport_key,
+        }
 
     def cancel_order_intent(self, *, intent_id: str, canceled_at: str) -> dict[str, object]:
+        transport_key, transport = self._transport_for_intent(intent_id)
         return self._call_with_retry(
             operation="cancel_order_intent",
-            fn=lambda: self._sidecar.cancel_order_intent(intent_id=intent_id, canceled_at=canceled_at),
+            fn=lambda: {
+                **transport.cancel_order_intent(intent_id=intent_id, canceled_at=canceled_at),
+                "transport_key": transport_key,
+            },
         )
 
     def replace_order_intent(
@@ -220,26 +298,54 @@ class LiveExecutionBridge:
         new_price: float,
         replaced_at: str,
     ) -> dict[str, object]:
+        transport_key, transport = self._transport_for_intent(intent_id)
         return self._call_with_retry(
             operation="replace_order_intent",
-            fn=lambda: self._sidecar.replace_order_intent(
-                intent_id=intent_id,
-                new_qty=new_qty,
-                new_price=new_price,
-                replaced_at=replaced_at,
-            ),
+            fn=lambda: {
+                **transport.replace_order_intent(
+                    intent_id=intent_id,
+                    new_qty=new_qty,
+                    new_price=new_price,
+                    replaced_at=replaced_at,
+                ),
+                "transport_key": transport_key,
+            },
         )
 
     def drain_broker_streams(self) -> dict[str, list[dict[str, object]]]:
-        all_updates = self._sidecar.list_broker_updates()
-        all_fills = self._sidecar.list_broker_fills()
-
-        new_updates = all_updates[self._seen_update_index :]
-        new_fills = all_fills[self._seen_fill_index :]
-
-        self._seen_update_index = len(all_updates)
-        self._seen_fill_index = len(all_fills)
-
+        new_updates: list[dict[str, object]] = []
+        new_fills: list[dict[str, object]] = []
+        for transport_key, transport in sorted(self._transports_by_key.items()):
+            all_updates = transport.list_broker_updates()
+            all_fills = transport.list_broker_fills()
+            seen_updates = self._seen_update_index_by_transport_key.get(transport_key, 0)
+            seen_fills = self._seen_fill_index_by_transport_key.get(transport_key, 0)
+            self._seen_update_index_by_transport_key[transport_key] = len(all_updates)
+            self._seen_fill_index_by_transport_key[transport_key] = len(all_fills)
+            for row in all_updates[seen_updates:]:
+                payload = row if isinstance(row, dict) else {"raw_payload": row}
+                new_updates.append({**payload, "transport_key": transport_key})
+            for row in all_fills[seen_fills:]:
+                payload = row if isinstance(row, dict) else {"raw_payload": row}
+                new_fills.append({**payload, "transport_key": transport_key})
+        new_updates = sorted(
+            new_updates,
+            key=lambda item: (
+                str(item.get("event_ts", "")),
+                str(item.get("external_order_id", "")),
+                str(item.get("state", "")),
+                str(item.get("transport_key", "")),
+            ),
+        )
+        new_fills = sorted(
+            new_fills,
+            key=lambda item: (
+                str(item.get("fill_ts", "")),
+                str(item.get("fill_id", "")),
+                str(item.get("external_order_id", "")),
+                str(item.get("transport_key", "")),
+            ),
+        )
         return {
             "updates": new_updates,
             "fills": new_fills,

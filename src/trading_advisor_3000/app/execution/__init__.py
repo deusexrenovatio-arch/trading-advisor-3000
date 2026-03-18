@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from .adapters import (
+    AdapterTransportNotConfiguredError,
     ExecutionAdapterCatalog,
     ExecutionAdapterSpec,
+    ExecutionAdapterTransport,
     LiveExecutionBridge,
     LiveExecutionFeatureFlags,
     StockSharpSidecarStub,
@@ -22,8 +24,10 @@ __all__ = [
     "BrokerSyncEngine",
     "ControlledLiveExecutionEngine",
     "ControlledLiveHardeningReport",
+    "AdapterTransportNotConfiguredError",
     "ExecutionAdapterCatalog",
     "ExecutionAdapterSpec",
+    "ExecutionAdapterTransport",
     "LiveExecutionBridge",
     "LiveExecutionFeatureFlags",
     "LiveRecoveryPlan",

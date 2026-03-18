@@ -6,6 +6,7 @@ from trading_advisor_3000.app.contracts import DecisionCandidate
 from trading_advisor_3000.app.research.ids import candidate_id_from_candidate
 
 from trading_advisor_3000.app.runtime.config import StrategyRegistry
+from trading_advisor_3000.app.runtime.context import ContextProviderRegistry
 from trading_advisor_3000.app.runtime.publishing import TelegramPublicationEngine
 from trading_advisor_3000.app.runtime.signal_store import InMemorySignalStore
 
@@ -25,6 +26,7 @@ class SignalRuntimeEngine:
         strategy_registry: StrategyRegistry,
         signal_store: InMemorySignalStore,
         publisher: TelegramPublicationEngine,
+        context_provider_registry: ContextProviderRegistry | None = None,
         validity_minutes_by_timeframe: dict[str, int] | None = None,
         cooldown_seconds: int = 0,
         blackout_windows_by_contract: dict[str, list[tuple[str, str]]] | None = None,
@@ -32,6 +34,7 @@ class SignalRuntimeEngine:
         self._strategy_registry = strategy_registry
         self._signal_store = signal_store
         self._publisher = publisher
+        self._context_provider_registry = context_provider_registry or ContextProviderRegistry()
         self._validity_minutes_by_timeframe = validity_minutes_by_timeframe or {
             "5m": 20,
             "15m": 60,
@@ -84,6 +87,18 @@ class SignalRuntimeEngine:
         )
         self._last_accepted_by_key[key] = candidate.ts_decision
 
+    def _collect_context_slices(self, candidate: DecisionCandidate) -> list[dict[str, object]]:
+        slices: list[dict[str, object]] = []
+        for context_kind in ("fundamentals", "news"):
+            kind_slices = self._context_provider_registry.fetch_slices(
+                context_kind=context_kind,
+                contract_id=candidate.contract_id,
+                as_of_ts=candidate.ts_decision,
+            )
+            for item in kind_slices:
+                slices.append(item.to_dict())
+        return slices
+
     def _expire_elapsed_signals(self, *, as_of_ts: str) -> None:
         for signal in self._signal_store.list_active_signals():
             if signal.expires_at is None:
@@ -100,6 +115,9 @@ class SignalRuntimeEngine:
         accepted_signal_ids: list[str] = []
         accepted_candidates: list[dict[str, str]] = []
         rejected_signal_ids: list[str] = []
+        context_slices_total = 0
+        context_slices_by_kind: dict[str, int] = {}
+        signals_with_context = 0
 
         ordered = sorted(candidates, key=lambda item: (item.ts_decision, item.signal_id))
         for candidate in ordered:
@@ -123,6 +141,21 @@ class SignalRuntimeEngine:
                 rejected_signal_ids.append(candidate.signal_id)
                 rejection_reasons["strategy_policy_reject"] = rejection_reasons.get("strategy_policy_reject", 0) + 1
                 continue
+
+            context_slices = self._collect_context_slices(candidate)
+            if context_slices:
+                signals_with_context += 1
+            for item in context_slices:
+                context_kind = str(item.get("context_kind", ""))
+                context_slices_total += 1
+                context_slices_by_kind[context_kind] = context_slices_by_kind.get(context_kind, 0) + 1
+                self._signal_store.record_context_slice(
+                    signal_id=candidate.signal_id,
+                    event_ts=candidate.ts_decision,
+                    context_kind=context_kind,
+                    provider_id=str(item.get("provider_id", "")),
+                    payload_json=item,
+                )
 
             signal, changed = self._signal_store.upsert_candidate(
                 candidate,
@@ -179,6 +212,9 @@ class SignalRuntimeEngine:
             "accepted_candidates": accepted_candidates,
             "rejected_signal_ids": rejected_signal_ids,
             "rejection_reasons": rejection_reasons,
+            "context_slices_total": context_slices_total,
+            "context_slices_by_kind": context_slices_by_kind,
+            "signals_with_context": signals_with_context,
         }
 
     def close_signal(self, *, signal_id: str, closed_at: str, reason_code: str) -> dict[str, object]:
