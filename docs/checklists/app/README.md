@@ -14,3 +14,4 @@ Product phase acceptance checklists.
 - `docs/checklists/app/phase6-acceptance-checklist.md`
 - `docs/checklists/app/phase7-acceptance-checklist.md`
 - `docs/checklists/app/phase8-acceptance-checklist.md`
+- `docs/checklists/app/mcp-and-real-execution-rollout-checklist.md`
