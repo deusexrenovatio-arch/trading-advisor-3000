@@ -13,6 +13,10 @@ Close the review and observability slice on top of integrated replay:
 - `deployment/docker/observability/docker-compose.observability.yml`
 - `deployment/docker/observability/prometheus/prometheus.yml`
 - `deployment/docker/observability/loki/loki-config.yml`
+- `deployment/docker/observability/promtail/promtail-config.yml`
+- `deployment/docker/observability/metrics_file_server.py`
+- `deployment/docker/observability/runtime-artifacts/observability.prometheus.metrics.txt`
+- `deployment/docker/observability/runtime-artifacts/observability.loki.events.jsonl`
 - `deployment/docker/observability/grafana/provisioning/datasources/datasources.yml`
 - `deployment/docker/observability/grafana/provisioning/dashboards/dashboards.yml`
 - `deployment/docker/observability/grafana/dashboards/ta3000-phase5-overview.json`
@@ -29,7 +33,7 @@ Close the review and observability slice on top of integrated replay:
 3. Latency metrics are emitted per signal with explicit non-happy statuses (`missing_activation`, `missing_open_fill`, `missing_close_event`, `missing_close_fill`, `clock_skew`), so operational drift is visible even when execution did not fully complete.
 4. Observability exports are file-contract based (`metrics.txt` for Prometheus and JSON lines for Loki) to keep acceptance reproducible in CI and replay runs.
 5. Replay integration now emits Phase 5 artifacts and delta-manifest entries in one pass, so acceptance can validate full lineage from market bars to operational metrics.
-6. Local observability stack is provisioned as a standalone compose profile to avoid coupling shell/runtime testing with production infra assumptions.
+6. Local observability stack is provisioned as a standalone compose profile with file bridges (`metrics-file-exporter` and `promtail`) so Phase 5 file artifacts can be validated end-to-end without external metrics or log pipelines.
 
 ## Acceptance Commands
 - `python -m pytest tests/app/unit/test_phase5_review_metrics.py -q`
@@ -44,6 +48,6 @@ Close the review and observability slice on top of integrated replay:
 - `python scripts/run_nightly_gate.py --from-git --git-ref HEAD`
 
 ## Out of Scope
-- production-grade log shipping agent configuration,
+- production-grade clustered log shipping topology,
 - external alert routing and on-call escalation wiring,
 - long-term retention and cost policies for observability storage.

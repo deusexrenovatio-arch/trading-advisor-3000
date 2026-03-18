@@ -6,7 +6,7 @@ scrape_configs:
   - job_name: "trading-advisor-runtime"
     metrics_path: /metrics
     static_configs:
-      - targets: ["host.docker.internal:9464"]
+      - targets: ["metrics-file-exporter:9464"]
         labels:
           service: "trading_advisor_3000"
           env: "local"

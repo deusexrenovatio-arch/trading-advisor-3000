@@ -1,0 +1,9 @@
+# HELP ta3000_strategy_signals_total Signals count by strategy/day/mode.
+# TYPE ta3000_strategy_signals_total gauge
+ta3000_strategy_signals_total{strategy_version_id="trend-follow-v1",trade_date="2026-03-17",mode="shadow"} 3
+ta3000_strategy_win_rate{strategy_version_id="trend-follow-v1",trade_date="2026-03-17",mode="shadow"} 0.6666666667
+ta3000_strategy_sum_r{strategy_version_id="trend-follow-v1",trade_date="2026-03-17",mode="shadow"} 2.5000000000
+ta3000_strategy_max_drawdown_r{strategy_version_id="trend-follow-v1",trade_date="2026-03-17",mode="shadow"} 0.5000000000
+# HELP ta3000_latency_status_total Latency row count by status.
+# TYPE ta3000_latency_status_total gauge
+ta3000_latency_status_total{status="ok"} 3

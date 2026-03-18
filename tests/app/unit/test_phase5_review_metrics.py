@@ -67,3 +67,23 @@ def test_phase5_review_report_handles_empty_outcomes() -> None:
     assert report.summary["strategy_rows"] == 0
     assert report.summary["instrument_rows"] == 0
     assert report.summary["latency_rows"] == 0
+
+
+def test_phase5_dashboards_ignore_non_closed_or_invalid_closed_ts_outcomes() -> None:
+    outcomes = [
+        _outcome(signal_id="SIG-OPEN-1", closed_at="", pnl_r=0.7, mfe_r=1.1, mae_r=-0.3),
+        _outcome(signal_id="SIG-BAD-TS", closed_at="not-a-timestamp", pnl_r=1.0, mfe_r=1.5, mae_r=-0.2),
+        _outcome(signal_id="SIG-CLOSED-1", closed_at="2026-03-17T11:00:00Z", pnl_r=-0.4, mfe_r=0.3, mae_r=-0.8),
+    ]
+
+    strategy_rows = build_strategy_metrics_dashboard(outcomes)
+    instrument_rows = build_instrument_metrics_dashboard(outcomes)
+
+    assert len(strategy_rows) == 1
+    assert strategy_rows[0].trade_date == "2026-03-17"
+    assert strategy_rows[0].signals_count == 1
+    assert strategy_rows[0].sum_r == -0.4
+
+    assert len(instrument_rows) == 1
+    assert instrument_rows[0].trade_date == "2026-03-17"
+    assert instrument_rows[0].signals_count == 1

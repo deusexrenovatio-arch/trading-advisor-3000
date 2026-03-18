@@ -79,6 +79,13 @@ def _as_outcomes(rows: list[SignalOutcome | dict[str, object]]) -> list[SignalOu
     return sorted(outcomes, key=lambda item: (item.closed_at, item.signal_id))
 
 
+def _trade_date_from_closed_at(closed_at: str) -> str | None:
+    parsed = _parse_utc(closed_at)
+    if parsed is None:
+        return None
+    return parsed.date().isoformat()
+
+
 @dataclass(frozen=True)
 class StrategyMetricsRow:
     trade_date: str
@@ -300,7 +307,9 @@ def build_strategy_metrics_dashboard(outcomes: list[SignalOutcome | dict[str, ob
     rows = _as_outcomes(outcomes)
     grouped: dict[tuple[str, str, str], list[SignalOutcome]] = {}
     for item in rows:
-        trade_date = item.closed_at[:10]
+        trade_date = _trade_date_from_closed_at(item.closed_at)
+        if trade_date is None:
+            continue
         grouped.setdefault((trade_date, item.strategy_version_id, item.mode), []).append(item)
 
     dashboard: list[StrategyMetricsRow] = []
@@ -332,7 +341,9 @@ def build_instrument_metrics_dashboard(outcomes: list[SignalOutcome | dict[str, 
     rows = _as_outcomes(outcomes)
     grouped: dict[tuple[str, str, str, str], list[SignalOutcome]] = {}
     for item in rows:
-        trade_date = item.closed_at[:10]
+        trade_date = _trade_date_from_closed_at(item.closed_at)
+        if trade_date is None:
+            continue
         instrument_id = _instrument_id(item.contract_id)
         grouped.setdefault((trade_date, instrument_id, item.contract_id, item.mode), []).append(item)
 

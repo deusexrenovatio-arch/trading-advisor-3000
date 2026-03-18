@@ -21,17 +21,23 @@ Operate and validate Phase 5 review analytics and observability:
    - `python -m pytest tests/app -q`
 
 ## Local Observability Smoke
+1. Ensure file-contract artifacts are present:
+   - `deployment/docker/observability/runtime-artifacts/observability.prometheus.metrics.txt`
+   - `deployment/docker/observability/runtime-artifacts/observability.loki.events.jsonl`
+   - (optional) replace with fresh replay output before smoke.
 1. Start the stack:
    - `docker compose -f deployment/docker/observability/docker-compose.observability.yml up -d`
 2. Check availability:
+   - Metrics bridge: `http://localhost:9464/metrics`
    - Prometheus: `http://localhost:9090`
    - Grafana: `http://localhost:3000`
    - Loki API: `http://localhost:3100/ready`
 3. In Grafana, confirm dashboard `TA3000 Phase5 Overview` is provisioned.
 4. In Prometheus, query:
    - `ta3000_strategy_signals_total`
-   - `ta3000_latency_status_total`
-5. Stop stack after smoke:
+   - `ta3000_observability_file_bridge_up`
+5. In Grafana Explore (Loki), query `{job="trading-advisor-runtime"}` and verify `stream="latency"` rows.
+6. Stop stack after smoke:
    - `docker compose -f deployment/docker/observability/docker-compose.observability.yml down`
 
 ## Incident Triage Map
