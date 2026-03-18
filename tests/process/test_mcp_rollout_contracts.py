@@ -167,7 +167,8 @@ def test_mcp_preflight_fails_when_server_command_is_not_available(tmp_path: Path
 
 def test_tracked_secret_validator_detects_hardcoded_token_pattern(tmp_path: Path) -> None:
     suspicious = tmp_path / "suspicious.env"
-    suspicious.write_text("GITHUB_TOKEN=ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ12345\n", encoding="utf-8")
+    token = "ghp_" + "ABCDEFGHIJKLMNO" + "PQRSTUVWXYZ12345"
+    suspicious.write_text(f"GITHUB_TOKEN={token}\n", encoding="utf-8")
 
     findings, report = validate_no_tracked_secrets(root=tmp_path, paths=[suspicious.name])
     assert report["status"] == "failed"
