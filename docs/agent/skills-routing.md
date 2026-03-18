@@ -1,28 +1,64 @@
 # Skills Routing Policy
 
-## Goal
-Use skills as a managed capability layer, not as an uncontrolled markdown archive.
+## Runtime Model
+- Primary runtime catalog: local skill descriptors under `.cursor/skills/*/`.
+- Mirror artifact: `docs/agent/skills-catalog.md` (generated only).
+- Hot-context policy: `.cursor/skills/**` stays cold-by-default.
+- Retrieval rule: open only targeted, specific skill files selected by routing triggers.
 
-## Routing order
-1. Use generic process and architecture skills first.
-2. Add stack-specific skills only when the stack is actually present.
-3. Exclude domain-specialized skills from baseline shell.
+## Generic-First Routing
+1. Start from generic process/architecture/testing/governance skills.
+2. Apply stack skills only after stack surfaces are present and validated.
+3. Keep domain-specialized skills outside baseline shell runtime.
+4. When multiple skills match, pick the smallest set that covers intent.
 
-## Baseline decision
-- Runtime source: local `.cursor/skills/*`.
-- Loading policy: `.cursor/skills/**` stays cold-by-default and is opened only for the
-  specific skill selected by routing trigger.
-- Catalog source: `docs/agent/skills-catalog.md`.
+## Class Policy
 
-## Wave policy
-1. Wave 1: generic shell skills (`ai-agent-architect`, `docs-sync`, `testing-suite`, `architecture-review`, etc.).
-2. Wave 2: governance/CI hardening skills.
-3. Wave 3: stack-specific skills.
-4. Wave 4: domain-specialized skills only after explicit business model definition.
+| Class | Baseline runtime | Policy |
+| --- | --- | --- |
+| `KEEP_CORE` | allowed | baseline required |
+| `KEEP_OPTIONAL` | blocked | separate phase gate |
+| `DEFER_STACK` | blocked | stack activation gate |
+| `EXCLUDE_DOMAIN_INITIAL` | blocked | non-baseline by default |
 
-## Update rule
-When skill files are introduced or changed:
-1. update catalog metadata,
-2. update routing policy if trigger logic changed,
-3. run `python scripts/validate_skills.py`,
-4. add/adjust validation in future skill governance gates.
+## Lifecycle Rules
+
+### Add Skill
+1. Create a new skill folder under `.cursor/skills/` with a metadata-complete descriptor file.
+2. Run `python scripts/sync_skills_catalog.py`.
+3. Update routing policy only if class policy or routing behavior changed.
+4. Run strict validators and skill tests.
+
+### Change Skill
+1. Edit skill metadata/body.
+2. Regenerate catalog.
+3. Update routing doc only when routing metadata changed.
+4. Run `python scripts/skill_update_decision.py --strict ...`.
+
+### Remove Skill
+1. Remove skill directory.
+2. Regenerate catalog.
+3. Update roadmap if the skill moves out of runtime baseline.
+4. Validate strict parity and change-surface gates.
+
+### Rename Skill
+1. Rename directory and frontmatter `name` together.
+2. Regenerate catalog.
+3. Update routing references if triggers or class placement changed.
+4. Run strict decision and precommit gates.
+
+## What Requires Which Docs
+- Only catalog sync required:
+  - content edits without routing metadata/class changes.
+- Routing policy update required:
+  - `routing_triggers` changes;
+  - class policy rule changes;
+  - add/remove/rename rules change.
+- Workflow update required:
+  - process contract changes in validation/remediation flow.
+
+## Validation Commands
+- `python scripts/sync_skills_catalog.py --check`
+- `python scripts/validate_skills.py --strict`
+- `python scripts/skill_update_decision.py --strict --from-git --git-ref HEAD`
+- `python scripts/skill_precommit_gate.py --from-git --git-ref HEAD`

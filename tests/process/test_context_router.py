@@ -26,6 +26,27 @@ def test_cold_context_stays_cold_by_default() -> None:
 
 
 def test_multi_context_change_is_marked_with_recommendation() -> None:
-    result = route_files(["docs/architecture/README.md", "src/trading_advisor_3000/app.py"])
+    result = route_files(
+        [
+            "docs/architecture/README.md",
+            "src/trading_advisor_3000/app/data_plane/pipeline.py",
+        ]
+    )
     notes = " ".join(result["recommendations"]).lower()
     assert "multiple contexts" in notes
+
+
+def test_data_research_orchestration_api_contexts_are_resolved() -> None:
+    result = route_files(
+        [
+            "src/trading_advisor_3000/app/data_plane/pipeline.py",
+            "src/trading_advisor_3000/app/research/pipeline.py",
+            "src/trading_advisor_3000/app/runtime/pipeline.py",
+            "src/trading_advisor_3000/app/interfaces/api/runtime_api.py",
+        ]
+    )
+    context_ids = [entry["id"] for entry in result["contexts"]]
+    assert "CTX-DATA" in context_ids
+    assert "CTX-RESEARCH" in context_ids
+    assert "CTX-ORCHESTRATION" in context_ids
+    assert "CTX-API-UI" in context_ids

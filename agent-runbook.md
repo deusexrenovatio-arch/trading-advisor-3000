@@ -3,6 +3,9 @@
 ## Goal
 Keep parallel AI sessions predictable, isolated, and recoverable.
 
+Primary source-of-truth for multi-worktree policy:
+- `docs/workflows/worktree-governance.md`
+
 ## Session Rules
 1. One task per active branch.
 2. Do not mix governance-shell and product logic in one patch set.

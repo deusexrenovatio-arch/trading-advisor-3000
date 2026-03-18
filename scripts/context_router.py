@@ -70,12 +70,16 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         owned_paths=(
             "agents.md",
             "codeowners",
+            "harness-guideline.md",
+            "agent-runbook.md",
             "docs/agent/",
-            "docs/agent-contexts/",
+            "docs/agent-contexts/README.md",
+            "docs/agent-contexts/CTX-OPS.md",
             "docs/workflows/",
             "docs/runbooks/",
             "docs/tasks/",
             "docs/session_handoff.md",
+            "src/trading_advisor_3000/agents.md",
             "scripts/",
             "tests/process/",
             ".githooks/",
@@ -101,6 +105,9 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "plans/",
             "memory/",
             "docs/checklists/",
+            "docs/agent-contexts/CTX-CONTRACTS.md",
+            "src/trading_advisor_3000/app/contracts/",
+            "tests/app/contracts/",
             "scripts/validate_task_request_contract.py",
             "scripts/validate_plans.py",
             "scripts/validate_agent_memory.py",
@@ -108,7 +115,7 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "scripts/sync_task_outcomes.py",
             "scripts/sync_state_layout.py",
         ),
-        guarded_paths=("src/trading_advisor_3000/", "docs/architecture/"),
+        guarded_paths=("src/trading_advisor_3000/app/interfaces/", "docs/architecture/"),
         source_of_truth=(
             "docs/checklists/task-request-contract.md",
             "docs/checklists/first-time-right-gate.md",
@@ -129,6 +136,7 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         summary="Architecture-as-docs package, ADRs, and boundary tests.",
         owned_paths=(
             "docs/architecture/",
+            "docs/agent-contexts/CTX-ARCHITECTURE.md",
             "tests/architecture/",
         ),
         guarded_paths=("src/trading_advisor_3000/",),
@@ -144,11 +152,119 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         risk="high",
     ),
     ContextSpec(
-        context_id="CTX-DOMAIN",
-        summary="Application placeholder package and neutral app contracts.",
+        context_id="CTX-DATA",
+        summary="Data ingestion, normalization, and canonical data-plane flows.",
         owned_paths=(
-            "src/trading_advisor_3000/",
-            "tests/app/",
+            "docs/agent-contexts/CTX-DATA.md",
+            "src/trading_advisor_3000/app/data_plane/",
+            "src/trading_advisor_3000/migrations/",
+            "tests/app/integration/test_phase2a_data_plane.py",
+            "tests/app/unit/test_phase2a_",
+            "tests/app/fixtures/data_plane/",
+        ),
+        guarded_paths=("src/trading_advisor_3000/app/research/", "src/trading_advisor_3000/app/runtime/"),
+        source_of_truth=(
+            "docs/agent-contexts/CTX-DATA.md",
+            "docs/architecture/layers-v2.md",
+        ),
+        minimal_checks=(
+            "python scripts/run_loop_gate.py --from-git --git-ref HEAD",
+            "python -m pytest tests/app/integration/test_phase2a_data_plane.py -q",
+        ),
+        intent_keywords=("data", "ingestion", "canonical", "provider", "dataset", "pipeline"),
+    ),
+    ContextSpec(
+        context_id="CTX-RESEARCH",
+        summary="Research and analysis surfaces for feature and experimental workflows.",
+        owned_paths=(
+            "docs/agent-contexts/CTX-RESEARCH.md",
+            "src/trading_advisor_3000/app/research/",
+            "src/trading_advisor_3000/spark_jobs/",
+            "src/trading_advisor_3000/dagster_defs/phase2b_assets.py",
+            "tests/app/integration/test_phase2b_research_plane.py",
+            "tests/app/unit/test_phase2b_",
+            "tests/app/fixtures/research/",
+        ),
+        guarded_paths=("src/trading_advisor_3000/app/runtime/", "src/trading_advisor_3000/app/interfaces/"),
+        source_of_truth=(
+            "docs/agent-contexts/CTX-RESEARCH.md",
+            "docs/architecture/layers-v2.md",
+        ),
+        minimal_checks=(
+            "python scripts/run_loop_gate.py --from-git --git-ref HEAD",
+            "python -m pytest tests/app/integration/test_phase2b_research_plane.py -q",
+        ),
+        intent_keywords=("research", "analysis", "features", "experiment", "backtest", "forward"),
+    ),
+    ContextSpec(
+        context_id="CTX-ORCHESTRATION",
+        summary="Runtime orchestration, execution coordination, and entrypoint flow wiring.",
+        owned_paths=(
+            "docs/agent-contexts/CTX-ORCHESTRATION.md",
+            "src/trading_advisor_3000/__init__.py",
+            "src/trading_advisor_3000/__main__.py",
+            "src/trading_advisor_3000/app/__init__.py",
+            "src/trading_advisor_3000/app/common/",
+            "src/trading_advisor_3000/app/config/",
+            "src/trading_advisor_3000/app.py",
+            "src/trading_advisor_3000/app_metadata.py",
+            "src/trading_advisor_3000/app/runtime/",
+            "src/trading_advisor_3000/app/execution/",
+            "src/trading_advisor_3000/dagster_defs/",
+            "tests/app/integration/test_phase2c_runtime.py",
+            "tests/app/integration/test_phase2d_execution.py",
+            "tests/app/integration/test_phase3_system_replay.py",
+            "tests/app/integration/test_phase5_review_observability.py",
+            "tests/app/integration/test_phase6_operational_hardening.py",
+            "tests/app/unit/test_phase2c_",
+            "tests/app/unit/test_phase2d_",
+            "tests/app/unit/test_phase3_",
+            "tests/app/unit/test_phase4_broker_sync.py",
+            "tests/app/unit/test_phase4_reconciliation.py",
+            "tests/app/unit/test_phase5_latency_metrics.py",
+            "tests/app/unit/test_phase5_review_metrics.py",
+            "tests/app/unit/test_phase6_",
+            "tests/app/unit/test_phase7_",
+        ),
+        guarded_paths=("src/trading_advisor_3000/app/contracts/", "src/trading_advisor_3000/app/interfaces/"),
+        source_of_truth=(
+            "docs/agent-contexts/CTX-ORCHESTRATION.md",
+            "docs/agent/runtime.md",
+        ),
+        minimal_checks=(
+            "python scripts/run_loop_gate.py --from-git --git-ref HEAD",
+            "python -m pytest tests/app/integration/test_phase2c_runtime.py -q",
+        ),
+        intent_keywords=("runtime", "orchestration", "execution", "flow", "entrypoint", "coordination"),
+    ),
+    ContextSpec(
+        context_id="CTX-API-UI",
+        summary="API and operator-facing interface behavior.",
+        owned_paths=(
+            "docs/agent-contexts/CTX-API-UI.md",
+            "src/trading_advisor_3000/app/interfaces/",
+            "tests/app/integration/test_phase4_live_execution_controlled.py",
+            "tests/app/unit/test_phase4_live_bridge.py",
+            "tests/app/unit/test_phase5_observability_export.py",
+        ),
+        guarded_paths=("src/trading_advisor_3000/app/contracts/", "src/trading_advisor_3000/app/domain/"),
+        source_of_truth=(
+            "docs/agent-contexts/CTX-API-UI.md",
+            "docs/architecture/modules.md",
+        ),
+        minimal_checks=(
+            "python scripts/run_loop_gate.py --from-git --git-ref HEAD",
+            "python -m pytest tests/app/integration/test_phase4_live_execution_controlled.py -q",
+        ),
+        intent_keywords=("api", "interface", "delivery", "ui", "operator", "endpoint"),
+    ),
+    ContextSpec(
+        context_id="CTX-DOMAIN",
+        summary="Domain-only internals not covered by data/research/runtime/interface contexts.",
+        owned_paths=(
+            "docs/agent-contexts/CTX-DOMAIN.md",
+            "src/trading_advisor_3000/app/domain/",
+            "tests/app/test_app_placeholder.py",
         ),
         guarded_paths=("docs/architecture/", "scripts/"),
         source_of_truth=(
@@ -157,9 +273,9 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         ),
         minimal_checks=(
             "python scripts/run_loop_gate.py --from-git --git-ref HEAD",
-            "python -m pytest tests/app -q",
+            "python -m pytest tests/app/test_app_placeholder.py -q",
         ),
-        intent_keywords=("app", "placeholder", "module", "package"),
+        intent_keywords=("domain", "core behavior", "business rules"),
     ),
     ContextSpec(
         context_id="CTX-EXTERNAL-SOURCES",
@@ -180,11 +296,22 @@ CONTEXTS: tuple[ContextSpec, ...] = (
     ),
     ContextSpec(
         context_id="CTX-SKILLS",
-        summary="Local skills catalog and generic-skill governance.",
+        summary="Local runtime skills catalog and governance policy.",
         owned_paths=(
+            "docs/agent-contexts/CTX-SKILLS.md",
             ".cursor/skills/",
             "docs/agent/skills-catalog.md",
             "docs/agent/skills-routing.md",
+            "docs/workflows/skill-governance-sync.md",
+            "docs/planning/skills-roadmap.md",
+            "scripts/sync_skills_catalog.py",
+            "scripts/validate_skills.py",
+            "scripts/skill_update_decision.py",
+            "scripts/skill_precommit_gate.py",
+            "tests/process/test_sync_skills_catalog.py",
+            "tests/process/test_validate_skills.py",
+            "tests/process/test_skill_update_decision.py",
+            "tests/process/test_skill_precommit_gate.py",
         ),
         guarded_paths=("src/trading_advisor_3000/",),
         source_of_truth=(
@@ -192,8 +319,8 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "docs/workflows/skill-governance-sync.md",
         ),
         minimal_checks=(
-            "python scripts/validate_skills.py",
-            "python scripts/run_loop_gate.py --from-git --git-ref HEAD",
+            "python scripts/validate_skills.py --strict",
+            "python scripts/sync_skills_catalog.py --check",
         ),
         intent_keywords=("skill", "skills", "catalog", "routing", "governance"),
     ),
@@ -390,6 +517,8 @@ def route_files(
         recommendations.append(
             "Patch touches multiple contexts. Split by ownership to keep review and retrieval small."
         )
+    if "CTX-CONTRACTS" in [entry["id"] for entry in context_entries] and len(context_entries) > 1:
+        recommendations.append("High-risk mix detected. Use order: contracts -> code -> docs.")
     if unmapped:
         recommendations.append("Some files are unmapped. Classify manually before implementation.")
     if cold_context_files:

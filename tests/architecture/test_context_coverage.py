@@ -25,3 +25,8 @@ def test_context_coverage_config_declares_high_risk_contract_context() -> None:
     payload = yaml.safe_load((ROOT / "configs/context_coverage.yaml").read_text(encoding="utf-8"))
     assert payload["required_high_risk_context"] == "CTX-CONTRACTS"
     assert "plans/" in payload["high_risk_paths"]
+    required_cards = set(payload["required_context_cards"])
+    assert "CTX-DATA" in required_cards
+    assert "CTX-RESEARCH" in required_cards
+    assert "CTX-ORCHESTRATION" in required_cards
+    assert "CTX-API-UI" in required_cards

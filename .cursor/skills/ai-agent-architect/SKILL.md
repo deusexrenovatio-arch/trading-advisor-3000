@@ -1,22 +1,30 @@
 ---
 name: ai-agent-architect
-description: Plan resilient multi-step agent delivery pipelines with explicit quality checkpoints.
+description: Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+classification: KEEP_CORE
+wave: WAVE_1
+status: ACTIVE
+owner_surface: CTX-OPS
+scope: agent delivery planning and execution boundaries
+routing_triggers:
+  - "agent"
+  - "orchestration"
+  - "pipeline"
+  - "plan"
+  - "strategy"
 ---
 
-# AI Agent Architect
+# Ai Agent Architect
 
-## Goal
-Design a phased delivery strategy with clear boundaries, checkpoints, and fallback paths.
+## Purpose
+Design resilient multi-step agent delivery flows with explicit quality checkpoints.
 
 ## Workflow
-1. Confirm objective and constraints.
-2. Map capability blocks and execution phases.
-3. Define quality gates and fallback conditions.
-4. Record assumptions and residual risks.
+1. Confirm request scope and expected output.
+2. Apply the skill workflow only to the relevant change surface.
+3. Keep changes small, deterministic, and review-friendly.
+4. Record assumptions and residual risks in task artifacts.
 
-## Governance Baseline
-1. Start with `python scripts/task_session.py begin --request "<request>"`.
-2. Run `python scripts/run_loop_gate.py --from-git --git-ref HEAD` after meaningful patches.
-3. Validate handoff and contract:
-   - `python scripts/validate_task_request_contract.py`
-   - `python scripts/validate_session_handoff.py`
+## Validation
+- `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
+- `python scripts/validate_skills.py --strict`

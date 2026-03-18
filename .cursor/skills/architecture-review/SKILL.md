@@ -1,18 +1,29 @@
 ---
 name: architecture-review
-description: Review module boundaries, dependencies, and architecture contracts for regressions.
+description: Review module boundaries, dependency direction, and architecture contracts for regressions.
+classification: KEEP_CORE
+wave: WAVE_1
+status: ACTIVE
+owner_surface: CTX-ARCHITECTURE
+scope: architecture boundary review and dependency control
+routing_triggers:
+  - "architecture"
+  - "boundaries"
+  - "dependencies"
+  - "module review"
 ---
 
 # Architecture Review
 
-## Goal
-Keep architecture boundaries explicit and enforceable.
+## Purpose
+Review module boundaries, dependency direction, and architecture contracts for regressions.
 
 ## Workflow
-1. Check boundary assumptions and intended dependency direction.
-2. Validate architecture docs and tests remain aligned.
-3. Flag coupling risks and missing guards.
+1. Confirm request scope and expected output.
+2. Apply the skill workflow only to the relevant change surface.
+3. Keep changes small, deterministic, and review-friendly.
+4. Record assumptions and residual risks in task artifacts.
 
-## Governance Baseline
-1. Run `python -m pytest tests/architecture -q`.
-2. Run `python scripts/run_loop_gate.py --from-git --git-ref HEAD`.
+## Validation
+- `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
+- `python scripts/validate_skills.py --strict`

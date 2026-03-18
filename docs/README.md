@@ -19,7 +19,8 @@ Business and trading logic are intentionally excluded.
 6. `docs/DEV_WORKFLOW.md`
 
 ## Current phase
-- Implemented now: Phase 0 through Phase 8 shell package with remediation closure.
+- Target scope: Phase 0 through Phase 8 shell baseline.
+- Current status: governance baseline is active and still being hardened; completion is tracked by gate/test evidence, not optimistic phase labels.
 - Ongoing focus: keep governance metrics green and preserve domain-free boundaries.
 
 ## Sections

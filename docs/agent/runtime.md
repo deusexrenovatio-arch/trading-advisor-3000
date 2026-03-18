@@ -15,12 +15,16 @@ Do not reintroduce shell-only wrapper flows as primary control paths.
 - `python scripts/validate_plans.py`
 - `python scripts/validate_agent_memory.py`
 - `python scripts/validate_task_outcomes.py`
+- `python scripts/validate_codeowners.py`
+- `python scripts/validate_skills.py --strict`
+- `python scripts/sync_skills_catalog.py --check`
 
 ## Gate entrypoints
 - `python scripts/run_loop_gate.py ...`
 - `python scripts/run_pr_gate.py ...`
 - `python scripts/run_nightly_gate.py ...`
 - `python scripts/compute_change_surface.py ...`
+- `python scripts/sync_skills_catalog.py ...`
 
 ## Hook runtime policy
 - Main protection is implemented in `.githooks/pre-push`.

@@ -7,6 +7,10 @@ Keep hot context deterministic by routing work to bounded ownership cards.
 - `CTX-OPS` -> `docs/agent-contexts/CTX-OPS.md`
 - `CTX-CONTRACTS` -> `docs/agent-contexts/CTX-CONTRACTS.md`
 - `CTX-ARCHITECTURE` -> `docs/agent-contexts/CTX-ARCHITECTURE.md`
+- `CTX-DATA` -> `docs/agent-contexts/CTX-DATA.md`
+- `CTX-RESEARCH` -> `docs/agent-contexts/CTX-RESEARCH.md`
+- `CTX-ORCHESTRATION` -> `docs/agent-contexts/CTX-ORCHESTRATION.md`
+- `CTX-API-UI` -> `docs/agent-contexts/CTX-API-UI.md`
 - `CTX-DOMAIN` -> `docs/agent-contexts/CTX-DOMAIN.md`
 - `CTX-EXTERNAL-SOURCES` -> `docs/agent-contexts/CTX-EXTERNAL-SOURCES.md`
 - `CTX-SKILLS` -> `docs/agent-contexts/CTX-SKILLS.md`

@@ -1,26 +1,57 @@
 # Skill Governance Sync Workflow
 
 ## Purpose
-- Keep local skill catalog aligned with repository governance rules.
-- Enforce generic-first skill rollout and domain-skill exclusion in baseline shell.
+Keep local runtime skills, generated catalog, routing policy, and governance validators in deterministic sync.
 
-## Mandatory Baseline
-1. Prefer generic skills first.
-2. Defer stack-specific skills until the stack exists.
-3. Exclude domain-specialized skill packs from baseline.
-4. Keep one source of truth:
-   - runtime files: `.cursor/skills/*/SKILL.md`
-   - catalog metadata: `docs/agent/skills-catalog.md`
-5. Keep skills corpus cold in hot context:
-   - `.cursorignore` must include `.cursor/skills/**`
-   - load only targeted skills by routing signal
+## Source of Truth
+1. Runtime catalog: local skill descriptors under `.cursor/skills/*/`.
+2. Generated mirror: `docs/agent/skills-catalog.md`.
+3. Routing policy: `docs/agent/skills-routing.md`.
+4. Process workflow: `docs/workflows/skill-governance-sync.md`.
 
-## Validation
-- `python scripts/validate_skills.py`
-- `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
+Generated catalog must not be edited manually.
 
-## Update Procedure
-1. Add/update local skill files in `.cursor/skills/`.
-2. Sync catalog status in `docs/agent/skills-catalog.md`.
-3. Verify routing policy in `docs/agent/skills-routing.md`.
-4. Run validation commands.
+## Cold-Context Rule
+- `.cursorignore` must keep `.cursor/skills/**`.
+- Load only targeted skill files selected by routing triggers.
+
+## Required Commands
+- `python scripts/sync_skills_catalog.py`
+- `python scripts/sync_skills_catalog.py --check`
+- `python scripts/validate_skills.py --strict`
+- `python scripts/skill_update_decision.py --strict --from-git --git-ref HEAD`
+- `python scripts/skill_precommit_gate.py --from-git --git-ref HEAD`
+
+## Add Flow
+1. Create a new skill folder with a metadata-complete descriptor file.
+2. Ensure class policy allows runtime inclusion (`KEEP_CORE` for baseline).
+3. Regenerate catalog.
+4. Update routing policy only if routing/class rules changed.
+5. Run strict validators and skill tests.
+
+## Update Flow
+1. Edit existing skill metadata/content.
+2. Regenerate catalog.
+3. If routing metadata changed, update routing policy.
+4. If process contract changed, update this workflow doc.
+5. Run strict decision + precommit gate.
+
+## Remove/Rename Flow
+1. Apply remove or rename in `.cursor/skills`.
+2. Regenerate catalog immediately.
+3. Update routing policy if references or trigger policy changed.
+4. Update roadmap when class placement changed.
+5. Run strict validators for parity and drift.
+
+## Evidence Checklist
+1. Strict validator output is green.
+2. Catalog check reports no drift.
+3. Skill update decision reports no missing required docs.
+4. Relevant tests for sync/validation/decision/precommit are green.
+
+## Remediation Path
+1. If catalog drift: run sync script and commit generated file.
+2. If runtime/catalog mismatch: fix skill metadata or catalog generation inputs.
+3. If routing metadata drift: update `docs/agent/skills-routing.md`.
+4. If process contract drift: update this workflow doc.
+5. Re-run strict validators before gate rerun.

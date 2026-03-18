@@ -1,11 +1,12 @@
 # CTX-DOMAIN
 
 ## Scope
-Application placeholder package and neutral app contracts only.
+Domain-only package internals that are not data/research/orchestration/interface layers.
 
 ## Owned Paths
-- `src/trading_advisor_3000/`
-- `tests/app/`
+- `src/trading_advisor_3000/app/domain/`
+- `tests/app/contracts/`
+- `tests/app/test_app_placeholder.py`
 
 ## Guarded Paths
 - `docs/architecture/`
@@ -17,4 +18,4 @@ Application placeholder package and neutral app contracts only.
 
 ## Minimum Checks
 - `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
-- `python -m pytest tests/app -q`
+- `python -m pytest tests/app/contracts -q`
