@@ -1,10 +1,10 @@
 # Governance Dashboard
 
-- generated_at: 2026-03-16
+- generated_at: 2026-03-17
 - overall_status: green
 
 | Section | Status | Notes |
 | --- | --- | --- |
-| lifecycle | green | terminal_outcomes=6, correct_first_time_rate=0.67 |
+| lifecycle | green | terminal_outcomes=17, correct_first_time_rate=0.24 |
 | state | green | plans_total=2, memory_decisions=1, memory_patterns=1 |
-| quality | green | completed_tasks=6, window_tasks=6, burn_in=False |
+| quality | green | completed_tasks=17, window_tasks=17, burn_in=False |

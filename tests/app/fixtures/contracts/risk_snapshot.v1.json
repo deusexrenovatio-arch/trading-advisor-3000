@@ -1,0 +1,11 @@
+{
+  "account_id": "PAPER-01",
+  "as_of_ts": "2026-03-16T10:18:00Z",
+  "available_cash": 125000.0,
+  "margin_required": 15750.0,
+  "margin_free": 109250.0,
+  "broker_limits_json": {
+    "max_orders_per_minute": 20,
+    "max_notional": 5000000
+  }
+}

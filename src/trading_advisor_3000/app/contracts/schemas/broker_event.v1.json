@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/broker_event.v1.json",
+  "title": "BrokerEventV1",
+  "type": "object",
+  "required": [
+    "event_id",
+    "broker_adapter",
+    "external_object_id",
+    "event_type",
+    "event_ts",
+    "payload_json"
+  ],
+  "properties": {
+    "event_id": {"type": "string", "minLength": 1},
+    "broker_adapter": {"type": "string", "minLength": 1},
+    "external_object_id": {"type": "string", "minLength": 1},
+    "event_type": {"type": "string", "minLength": 1},
+    "event_ts": {"type": "string", "minLength": 1},
+    "payload_json": {"type": "object"}
+  },
+  "additionalProperties": false
+}

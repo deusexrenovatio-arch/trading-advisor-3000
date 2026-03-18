@@ -19,6 +19,7 @@
 | PR gate | `python scripts/run_pr_gate.py --from-git --git-ref HEAD` | closeout superset checks |
 | Nightly gate | `python scripts/run_nightly_gate.py --from-git --git-ref HEAD` | deep hygiene and reporting |
 | Dashboard refresh | `python scripts/build_governance_dashboard.py --output-json artifacts/governance-dashboard.json --output-md artifacts/governance-dashboard.md` | dashboard/report regeneration lane |
+| Phase 8 proving | `python scripts/run_phase8_operational_proving.py --from-git --git-ref HEAD --output artifacts/phase8-operational-proving.json` | consolidated lane proof with fail-closed evidence |
 
 Hosted CI note:
 - GitHub-hosted lane execution is enabled only when `AI_SHELL_ENABLE_HOSTED_CI=1`.

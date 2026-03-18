@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/risk_snapshot.v1.json",
+  "title": "RiskSnapshotV1",
+  "type": "object",
+  "required": [
+    "account_id",
+    "as_of_ts",
+    "available_cash",
+    "margin_required",
+    "margin_free",
+    "broker_limits_json"
+  ],
+  "properties": {
+    "account_id": {"type": "string", "minLength": 1},
+    "as_of_ts": {"type": "string", "minLength": 1},
+    "available_cash": {"type": "number", "minimum": 0},
+    "margin_required": {"type": "number", "minimum": 0},
+    "margin_free": {"type": "number", "minimum": 0},
+    "broker_limits_json": {"type": "object"}
+  },
+  "additionalProperties": false
+}

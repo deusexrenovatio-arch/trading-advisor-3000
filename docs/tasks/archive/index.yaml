@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-03-16'
+updated_at: '2026-03-17'
 items:
 - id: TASK-2026-03-16-SHELL-BOOTSTRAP
   path: docs/tasks/archive/TASK-2026-03-16-shell-bootstrap.md
@@ -31,3 +31,69 @@ items:
   status: completed
   started_at: '2026-03-16'
   completed_at: '2026-03-16'
+- id: TASK-2026-03-16-0-PRODUCT-PLANE-PACKAGE
+  path: docs/tasks/archive/TASK-2026-03-16-0-product-plane-package.md
+  mode: full
+  status: completed
+  started_at: '2026-03-16'
+  completed_at: '2026-03-16'
+- id: TASK-2026-03-16-PHASE-1-CONTRACTS-AND-SCAFFOLDING
+  path: docs/tasks/archive/TASK-2026-03-16-phase-1-contracts-and-scaffolding.md
+  mode: full
+  status: completed
+  started_at: '2026-03-16'
+  completed_at: '2026-03-16'
+- id: TASK-2026-03-16-PHASE-0-1-BASELINE
+  path: docs/tasks/archive/TASK-2026-03-16-phase-0-1-baseline.md
+  mode: full
+  status: completed
+  started_at: '2026-03-16'
+  completed_at: '2026-03-16'
+- id: TASK-2026-03-16-PHASE-1-CONTRACTS-FREEZE-STRATEGY-VERSION-ID-STR
+  path: docs/tasks/archive/TASK-2026-03-16-phase-1-contracts-freeze-strategy-version-id-str.md
+  mode: full
+  status: completed
+  started_at: '2026-03-16'
+  completed_at: '2026-03-16'
+- id: TASK-2026-03-16-PHASE-1-CONTRACTS-FREEZE
+  path: docs/tasks/archive/TASK-2026-03-16-phase-1-contracts-freeze.md
+  mode: full
+  status: completed
+  started_at: '2026-03-16'
+  completed_at: '2026-03-16'
+- id: TASK-2026-03-16-PHASE-2A-DATA-PLANE-MVP
+  path: docs/tasks/archive/TASK-2026-03-16-phase-2a-data-plane-mvp.md
+  mode: full
+  status: completed
+  started_at: '2026-03-16'
+  completed_at: '2026-03-16'
+- id: TASK-2026-03-16-2B-C-D
+  path: docs/tasks/archive/TASK-2026-03-16-2b-c-d.md
+  mode: full
+  status: completed
+  started_at: '2026-03-16'
+  completed_at: '2026-03-16'
+- id: TASK-2026-03-16-2B-2C-2D
+  path: docs/tasks/archive/TASK-2026-03-16-2b-2c-2d.md
+  mode: full
+  status: completed
+  started_at: '2026-03-16'
+  completed_at: '2026-03-16'
+- id: TASK-2026-03-17-PHASE-3-SHADOW-FORWARD-ENGINE-INTEGRATED-REPLAY-
+  path: docs/tasks/archive/TASK-2026-03-17-phase-3-shadow-forward-engine-integrated-replay-.md
+  mode: full
+  status: completed
+  started_at: '2026-03-17'
+  completed_at: '2026-03-17'
+- id: TASK-2026-03-17-3-SHADOW-FORWARD-SYSTEM-INTEGRATION
+  path: docs/tasks/archive/TASK-2026-03-17-3-shadow-forward-system-integration.md
+  mode: full
+  status: completed
+  started_at: '2026-03-17'
+  completed_at: '2026-03-17'
+- id: TASK-2026-03-17-2-3
+  path: docs/tasks/archive/TASK-2026-03-17-2-3.md
+  mode: full
+  status: completed
+  started_at: '2026-03-17'
+  completed_at: '2026-03-17'

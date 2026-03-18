@@ -1,0 +1,12 @@
+apiVersion: 1
+
+providers:
+  - name: "TA3000 Phase5"
+    orgId: 1
+    folder: "Trading Advisor 3000"
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards

@@ -1,0 +1,12 @@
+{
+  "contract_id": "BR-6.26",
+  "instrument_id": "BR",
+  "timeframe": "15m",
+  "ts": "2026-03-16T10:00:00Z",
+  "open": 82.1,
+  "high": 82.8,
+  "low": 81.9,
+  "close": 82.4,
+  "volume": 1500,
+  "open_interest": 21000
+}

@@ -1,0 +1,49 @@
+-- Phase 1 migration skeleton
+-- Runtime state tables for signals and execution intents.
+
+CREATE TABLE IF NOT EXISTS app_signal_candidates (
+    signal_id TEXT PRIMARY KEY,
+    contract_id TEXT NOT NULL,
+    timeframe TEXT NOT NULL,
+    strategy_version_id TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    side TEXT NOT NULL,
+    confidence DOUBLE PRECISION NOT NULL,
+    ts_decision TIMESTAMPTZ NOT NULL,
+    dataset_version TEXT NOT NULL,
+    snapshot_id TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS app_order_intents (
+    intent_id TEXT PRIMARY KEY,
+    signal_id TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    broker_adapter TEXT NOT NULL,
+    action TEXT NOT NULL,
+    contract_id TEXT NOT NULL,
+    qty INTEGER NOT NULL,
+    price DOUBLE PRECISION NOT NULL,
+    stop_price DOUBLE PRECISION NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS app_decision_publications (
+    publication_id TEXT PRIMARY KEY,
+    signal_id TEXT NOT NULL,
+    channel TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    publication_type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    published_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS app_position_snapshots (
+    position_key TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    contract_id TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    qty INTEGER NOT NULL,
+    avg_price DOUBLE PRECISION NOT NULL,
+    as_of_ts TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (position_key, as_of_ts)
+);

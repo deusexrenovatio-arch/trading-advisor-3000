@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-03-16'
+updated_at: '2026-03-17'
 items:
 - task_id: TASK-2026-03-16-BASELINE-SEED
   closed_at: '2026-03-16T10:00:00Z'
@@ -142,6 +142,291 @@ items:
   improvement_artifact: artifacts/acceptance-remarks-closure-2026-03-16.md
   linked_plan_id: P1-SHELL-BOOTSTRAP-001
   linked_memory_id: ADM-2026-03-16-001
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-03-16-0-PRODUCT-PLANE-PACKAGE
+  closed_at: '2026-03-16T16:33:00Z'
+  branch: codex/phase0-full-acceptance
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  - APP-PLACEHOLDER
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: workflow_gap
+  incident_signature: none
+  improvement_action: docs
+  improvement_artifact: docs/checklists/app/phase0-acceptance-checklist.md
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-03-16-PHASE-1-CONTRACTS-AND-SCAFFOLDING
+  closed_at: '2026-03-16T17:57:30Z'
+  branch: codex/phase0-full-acceptance
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  - APP-PLACEHOLDER
+  - CTX-CONTRACTS
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: workflow_gap
+  incident_signature: none
+  improvement_action: test
+  improvement_artifact: tests/app/contracts/test_phase1_contracts.py
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-03-16-PHASE-0-1-BASELINE
+  closed_at: '2026-03-16T18:42:22Z'
+  branch: codex/phase0-full-acceptance
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  - APP-PLACEHOLDER
+  - CTX-CONTRACTS
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: test_gap
+  incident_signature: none
+  improvement_action: test
+  improvement_artifact: tests/app/contracts/test_phase1_contracts.py
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-03-16-PHASE-1-CONTRACTS-FREEZE-STRATEGY-VERSION-ID-STR
+  closed_at: '2026-03-16T18:58:00Z'
+  branch: codex/phase0-full-acceptance
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  - CTX-CONTRACTS
+  - APP-PLACEHOLDER
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: workflow_gap
+  incident_signature: none
+  improvement_action: test
+  improvement_artifact: tests/app/contracts/test_phase1_contracts.py
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-03-16-PHASE-1-CONTRACTS-FREEZE
+  closed_at: '2026-03-16T19:05:30Z'
+  branch: codex/phase0-full-acceptance
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  - APP-PLACEHOLDER
+  - CTX-CONTRACTS
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: test
+  improvement_artifact: tests/app/contracts/test_phase1_contracts.py
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-03-16-PHASE-2A-DATA-PLANE-MVP
+  closed_at: '2026-03-16T20:18:06Z'
+  branch: codex/phase0-full-acceptance
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  - APP-PLACEHOLDER
+  - CTX-CONTRACTS
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: requirements_gap
+  incident_signature: none
+  improvement_action: test
+  improvement_artifact: tests/app/unit/test_phase2a_builder.py
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-03-16-2B-C-D
+  closed_at: '2026-03-16T20:46:06Z'
+  branch: codex/phase0-full-acceptance
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  - APP-PLACEHOLDER
+  - CTX-CONTRACTS
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: architecture_gap
+  incident_signature: none
+  improvement_action: test
+  improvement_artifact: tests/app/integration/test_phase2c_runtime.py
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-03-16-2B-2C-2D
+  closed_at: '2026-03-16T20:53:40Z'
+  branch: codex/phase0-full-acceptance
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  - APP-PLACEHOLDER
+  - CTX-CONTRACTS
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: partial_outcome
+  primary_rework_cause: requirements_gap
+  incident_signature: none
+  improvement_action: test
+  improvement_artifact: tests/app/unit/test_phase2b_manifests.py
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-03-17-PHASE-3-SHADOW-FORWARD-ENGINE-INTEGRATED-REPLAY-
+  closed_at: '2026-03-17T06:42:33Z'
+  branch: codex/phase0-full-acceptance
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  - APP-PLACEHOLDER
+  - CTX-CONTRACTS
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: test_gap
+  incident_signature: none
+  improvement_action: test
+  improvement_artifact: tests/app/unit/test_phase3_analytics.py
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-03-17-3-SHADOW-FORWARD-SYSTEM-INTEGRATION
+  closed_at: '2026-03-17T06:48:55Z'
+  branch: codex/phase0-full-acceptance
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  - APP-PLACEHOLDER
+  - CTX-CONTRACTS
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: partial_outcome
+  primary_rework_cause: requirements_gap
+  incident_signature: none
+  improvement_action: test
+  improvement_artifact: tests/app/integration/test_phase3_system_replay.py
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-03-17-2-3
+  closed_at: '2026-03-17T07:04:54Z'
+  branch: codex/phase0-full-acceptance
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  - APP-PLACEHOLDER
+  - CTX-CONTRACTS
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: partial_outcome
+  primary_rework_cause: requirements_gap
+  incident_signature: none
+  improvement_action: test
+  improvement_artifact: tests/app/unit/test_phase2b_manifests.py
+  linked_plan_id: null
+  linked_memory_id: null
   outcome_status: completed
   unmapped_files_count: 0
   intent_sources:

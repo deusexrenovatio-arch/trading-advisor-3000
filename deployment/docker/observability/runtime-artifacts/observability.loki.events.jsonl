@@ -1,0 +1,2 @@
+{"contract_id":"BR-6.26","decision_to_activation_ms":1000.0,"decision_to_close_ms":1800000.0,"mode":"shadow","signal_id":"SIG-OBS-1","status":"ok","stream":"latency","strategy_version_id":"trend-follow-v1","timestamp":"2026-03-17T10:00:00Z"}
+{"max_dd_r":0.5,"mode":"shadow","signals_count":3,"stream":"strategy_dashboard","strategy_version_id":"trend-follow-v1","sum_r":2.5,"trade_date":"2026-03-17","win_rate":0.6666666667}
