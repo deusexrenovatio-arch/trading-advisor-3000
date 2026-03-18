@@ -1,23 +1,22 @@
 ---
-name: ai-agent-architect
-description: Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+name: secrets-and-config-hardening
+description: Harden secrets handling and configuration safety across automation paths.
 classification: KEEP_CORE
-wave: WAVE_1
+wave: WAVE_2
 status: ACTIVE
-owner_surface: CTX-OPS
-scope: agent delivery planning and execution boundaries
+owner_surface: CTX-CONTRACTS
+scope: secrets management and config safety controls
 routing_triggers:
-  - "agent"
-  - "orchestration"
-  - "pipeline"
-  - "plan"
-  - "strategy"
+  - "secrets"
+  - "configuration"
+  - "hardening"
+  - "sensitive data"
 ---
 
-# Ai Agent Architect
+# Secrets And Config Hardening
 
 ## Purpose
-Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+Harden secrets handling and configuration safety across automation paths.
 
 ## Workflow
 1. Confirm request scope and expected output.

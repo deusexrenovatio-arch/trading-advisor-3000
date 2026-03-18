@@ -1,23 +1,22 @@
 ---
-name: ai-agent-architect
-description: Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+name: qa-test-engineer
+description: Design quality verification plans and regression coverage for delivery gates.
 classification: KEEP_CORE
 wave: WAVE_1
 status: ACTIVE
 owner_surface: CTX-OPS
-scope: agent delivery planning and execution boundaries
+scope: quality planning and end-to-end verification
 routing_triggers:
-  - "agent"
-  - "orchestration"
-  - "pipeline"
-  - "plan"
-  - "strategy"
+  - "qa"
+  - "test plan"
+  - "regression"
+  - "validation"
 ---
 
-# Ai Agent Architect
+# Qa Test Engineer
 
 ## Purpose
-Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+Design quality verification plans and regression coverage for delivery gates.
 
 ## Workflow
 1. Confirm request scope and expected output.

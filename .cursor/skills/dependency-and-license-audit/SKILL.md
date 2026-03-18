@@ -1,23 +1,22 @@
 ---
-name: ai-agent-architect
-description: Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+name: dependency-and-license-audit
+description: Audit dependencies for vulnerability and license policy compliance.
 classification: KEEP_CORE
-wave: WAVE_1
+wave: WAVE_2
 status: ACTIVE
 owner_surface: CTX-OPS
-scope: agent delivery planning and execution boundaries
+scope: dependency risk and license governance
 routing_triggers:
-  - "agent"
-  - "orchestration"
-  - "pipeline"
-  - "plan"
-  - "strategy"
+  - "dependency audit"
+  - "license audit"
+  - "supply chain"
+  - "vulnerability"
 ---
 
-# Ai Agent Architect
+# Dependency And License Audit
 
 ## Purpose
-Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+Audit dependencies for vulnerability and license policy compliance.
 
 ## Workflow
 1. Confirm request scope and expected output.

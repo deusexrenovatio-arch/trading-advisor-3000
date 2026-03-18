@@ -1,23 +1,22 @@
 ---
-name: ai-agent-architect
-description: Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+name: composition-contracts
+description: Define composition contracts with explicit ownership and interface boundaries.
 classification: KEEP_CORE
 wave: WAVE_1
 status: ACTIVE
-owner_surface: CTX-OPS
-scope: agent delivery planning and execution boundaries
+owner_surface: CTX-CONTRACTS
+scope: interface composition and contract ownership
 routing_triggers:
-  - "agent"
-  - "orchestration"
-  - "pipeline"
-  - "plan"
-  - "strategy"
+  - "composition"
+  - "contract"
+  - "ownership"
+  - "resolver mapping"
 ---
 
-# Ai Agent Architect
+# Composition Contracts
 
 ## Purpose
-Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+Define composition contracts with explicit ownership and interface boundaries.
 
 ## Workflow
 1. Confirm request scope and expected output.

@@ -1,23 +1,22 @@
 ---
-name: ai-agent-architect
-description: Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+name: registry-first
+description: Apply registry-first change discipline for contracts, schemas, and ownership records.
 classification: KEEP_CORE
 wave: WAVE_1
 status: ACTIVE
-owner_surface: CTX-OPS
-scope: agent delivery planning and execution boundaries
+owner_surface: CTX-CONTRACTS
+scope: registry-first governance for contract evolution
 routing_triggers:
-  - "agent"
-  - "orchestration"
-  - "pipeline"
-  - "plan"
-  - "strategy"
+  - "registry"
+  - "schema"
+  - "contract"
+  - "catalog"
 ---
 
-# Ai Agent Architect
+# Registry First
 
 ## Purpose
-Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+Apply registry-first change discipline for contracts, schemas, and ownership records.
 
 ## Workflow
 1. Confirm request scope and expected output.

@@ -1,23 +1,22 @@
 ---
-name: ai-agent-architect
-description: Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+name: parallel-worktree-flow
+description: Coordinate parallel worktrees with deterministic isolation, sync rules, and merge order.
 classification: KEEP_CORE
 wave: WAVE_1
 status: ACTIVE
 owner_surface: CTX-OPS
-scope: agent delivery planning and execution boundaries
+scope: parallel worktree operations and branch isolation
 routing_triggers:
-  - "agent"
-  - "orchestration"
-  - "pipeline"
-  - "plan"
-  - "strategy"
+  - "worktree"
+  - "parallel streams"
+  - "branch isolation"
+  - "integration branch"
 ---
 
-# Ai Agent Architect
+# Parallel Worktree Flow
 
 ## Purpose
-Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+Coordinate parallel worktrees with deterministic isolation, sync rules, and merge order.
 
 ## Workflow
 1. Confirm request scope and expected output.

@@ -1,23 +1,22 @@
 ---
-name: ai-agent-architect
-description: Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+name: ai-change-explainer
+description: Produce explainable change summaries for AI-generated diffs and governance updates.
 classification: KEEP_CORE
 wave: WAVE_1
 status: ACTIVE
 owner_surface: CTX-OPS
-scope: agent delivery planning and execution boundaries
+scope: change explanation and PR narrative quality
 routing_triggers:
-  - "agent"
-  - "orchestration"
-  - "pipeline"
-  - "plan"
-  - "strategy"
+  - "change summary"
+  - "pr narrative"
+  - "diff explanation"
+  - "impact report"
 ---
 
-# Ai Agent Architect
+# Ai Change Explainer
 
 ## Purpose
-Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+Produce explainable change summaries for AI-generated diffs and governance updates.
 
 ## Workflow
 1. Confirm request scope and expected output.

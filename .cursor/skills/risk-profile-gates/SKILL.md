@@ -1,23 +1,22 @@
 ---
-name: ai-agent-architect
-description: Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+name: risk-profile-gates
+description: Define deterministic risk-profile gates for process changes and release readiness.
 classification: KEEP_CORE
 wave: WAVE_1
 status: ACTIVE
-owner_surface: CTX-OPS
-scope: agent delivery planning and execution boundaries
+owner_surface: CTX-CONTRACTS
+scope: risk classification and gating rules
 routing_triggers:
-  - "agent"
-  - "orchestration"
-  - "pipeline"
-  - "plan"
-  - "strategy"
+  - "risk profile"
+  - "risk gate"
+  - "release gate"
+  - "policy threshold"
 ---
 
-# Ai Agent Architect
+# Risk Profile Gates
 
 ## Purpose
-Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+Define deterministic risk-profile gates for process changes and release readiness.
 
 ## Workflow
 1. Confirm request scope and expected output.

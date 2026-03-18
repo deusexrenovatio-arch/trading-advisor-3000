@@ -1,23 +1,22 @@
 ---
-name: ai-agent-architect
-description: Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+name: validate-crosslayer
+description: Validate cross-layer consistency and prevent boundary drift between subsystems.
 classification: KEEP_CORE
-wave: WAVE_1
+wave: WAVE_2
 status: ACTIVE
-owner_surface: CTX-OPS
-scope: agent delivery planning and execution boundaries
+owner_surface: CTX-ARCHITECTURE
+scope: cross-layer consistency and boundary validation
 routing_triggers:
-  - "agent"
-  - "orchestration"
-  - "pipeline"
-  - "plan"
-  - "strategy"
+  - "crosslayer"
+  - "boundary validation"
+  - "consistency checks"
+  - "layer contract"
 ---
 
-# Ai Agent Architect
+# Validate Crosslayer
 
 ## Purpose
-Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+Validate cross-layer consistency and prevent boundary drift between subsystems.
 
 ## Workflow
 1. Confirm request scope and expected output.

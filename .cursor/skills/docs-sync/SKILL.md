@@ -1,18 +1,29 @@
 ---
 name: docs-sync
-description: Keep policy, architecture, and workflow documents aligned with code and registry changes.
+description: Synchronize documentation with runtime behavior, contracts, and governance policy.
+classification: KEEP_CORE
+wave: WAVE_1
+status: ACTIVE
+owner_surface: CTX-OPS
+scope: docs-as-source-of-truth synchronization
+routing_triggers:
+  - "documentation"
+  - "sync docs"
+  - "docs as code"
+  - "policy docs"
 ---
 
 # Docs Sync
 
-## Goal
-Prevent drift between scripts, tests, and source-of-truth documentation.
+## Purpose
+Synchronize documentation with runtime behavior, contracts, and governance policy.
 
 ## Workflow
-1. Identify changed policy/runtime surfaces.
-2. Update affected docs and indexes.
-3. Validate markdown links and command references.
+1. Confirm request scope and expected output.
+2. Apply the skill workflow only to the relevant change surface.
+3. Keep changes small, deterministic, and review-friendly.
+4. Record assumptions and residual risks in task artifacts.
 
-## Governance Baseline
-1. Run `python scripts/validate_docs_links.py --roots AGENTS.md docs`.
-2. Run `python scripts/run_loop_gate.py --from-git --git-ref HEAD`.
+## Validation
+- `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
+- `python scripts/validate_skills.py --strict`

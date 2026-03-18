@@ -1,23 +1,22 @@
 ---
-name: ai-agent-architect
-description: Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+name: archctl-policy-authoring
+description: Author and tighten architecture policy gates and fitness rules.
 classification: KEEP_CORE
-wave: WAVE_1
+wave: WAVE_2
 status: ACTIVE
-owner_surface: CTX-OPS
-scope: agent delivery planning and execution boundaries
+owner_surface: CTX-CONTRACTS
+scope: policy gate authoring and fitness rule design
 routing_triggers:
-  - "agent"
-  - "orchestration"
-  - "pipeline"
-  - "plan"
-  - "strategy"
+  - "policy gate"
+  - "fitness rule"
+  - "architecture policy"
+  - "ci blocking"
 ---
 
-# Ai Agent Architect
+# Archctl Policy Authoring
 
 ## Purpose
-Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+Author and tighten architecture policy gates and fitness rules.
 
 ## Workflow
 1. Confirm request scope and expected output.

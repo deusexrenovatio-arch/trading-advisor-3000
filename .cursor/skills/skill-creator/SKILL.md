@@ -1,23 +1,22 @@
 ---
-name: ai-agent-architect
-description: Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+name: skill-creator
+description: Create or revise skills with clear triggers, compact instructions, and governance alignment.
 classification: KEEP_CORE
 wave: WAVE_1
 status: ACTIVE
-owner_surface: CTX-OPS
-scope: agent delivery planning and execution boundaries
+owner_surface: CTX-SKILLS
+scope: skill authoring and lifecycle maintenance
 routing_triggers:
-  - "agent"
-  - "orchestration"
-  - "pipeline"
-  - "plan"
-  - "strategy"
+  - "create skill"
+  - "update skill"
+  - "skill design"
+  - "skill authoring"
 ---
 
-# Ai Agent Architect
+# Skill Creator
 
 ## Purpose
-Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+Create or revise skills with clear triggers, compact instructions, and governance alignment.
 
 ## Workflow
 1. Confirm request scope and expected output.

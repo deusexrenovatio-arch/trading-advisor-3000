@@ -1,23 +1,22 @@
 ---
-name: ai-agent-architect
-description: Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+name: golden-tests-and-fixtures
+description: Create deterministic fixture-based regression tests for high-change workflows.
 classification: KEEP_CORE
 wave: WAVE_1
 status: ACTIVE
 owner_surface: CTX-OPS
-scope: agent delivery planning and execution boundaries
+scope: golden fixtures and deterministic regression protection
 routing_triggers:
-  - "agent"
-  - "orchestration"
-  - "pipeline"
-  - "plan"
-  - "strategy"
+  - "golden tests"
+  - "fixtures"
+  - "regression protection"
+  - "deterministic tests"
 ---
 
-# Ai Agent Architect
+# Golden Tests And Fixtures
 
 ## Purpose
-Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+Create deterministic fixture-based regression tests for high-change workflows.
 
 ## Workflow
 1. Confirm request scope and expected output.

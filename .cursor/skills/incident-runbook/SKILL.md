@@ -1,23 +1,22 @@
 ---
-name: ai-agent-architect
-description: Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+name: incident-runbook
+description: Define incident response and remediation paths with durable evidence.
 classification: KEEP_CORE
 wave: WAVE_1
 status: ACTIVE
 owner_surface: CTX-OPS
-scope: agent delivery planning and execution boundaries
+scope: incident handling and remediation flow
 routing_triggers:
-  - "agent"
-  - "orchestration"
-  - "pipeline"
-  - "plan"
-  - "strategy"
+  - "incident"
+  - "runbook"
+  - "postmortem"
+  - "remediation"
 ---
 
-# Ai Agent Architect
+# Incident Runbook
 
 ## Purpose
-Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+Define incident response and remediation paths with durable evidence.
 
 ## Workflow
 1. Confirm request scope and expected output.

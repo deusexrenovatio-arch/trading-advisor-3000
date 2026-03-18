@@ -1,23 +1,22 @@
 ---
-name: ai-agent-architect
-description: Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+name: layer-diagnostics-debug
+description: Diagnose cross-layer visibility and routing failures with structured checks.
 classification: KEEP_CORE
 wave: WAVE_1
 status: ACTIVE
-owner_surface: CTX-OPS
-scope: agent delivery planning and execution boundaries
+owner_surface: CTX-ARCHITECTURE
+scope: cross-layer diagnostics and root-cause reporting
 routing_triggers:
-  - "agent"
-  - "orchestration"
-  - "pipeline"
-  - "plan"
-  - "strategy"
+  - "layer diagnostics"
+  - "debug path"
+  - "cross-layer"
+  - "visibility check"
 ---
 
-# Ai Agent Architect
+# Layer Diagnostics Debug
 
 ## Purpose
-Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+Diagnose cross-layer visibility and routing failures with structured checks.
 
 ## Workflow
 1. Confirm request scope and expected output.

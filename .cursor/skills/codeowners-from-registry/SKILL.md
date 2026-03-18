@@ -1,23 +1,22 @@
 ---
-name: ai-agent-architect
-description: Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+name: codeowners-from-registry
+description: Generate and maintain CODEOWNERS mappings from ownership contracts.
 classification: KEEP_CORE
-wave: WAVE_1
+wave: WAVE_2
 status: ACTIVE
-owner_surface: CTX-OPS
-scope: agent delivery planning and execution boundaries
+owner_surface: CTX-CONTRACTS
+scope: ownership routing and review coverage
 routing_triggers:
-  - "agent"
-  - "orchestration"
-  - "pipeline"
-  - "plan"
-  - "strategy"
+  - "codeowners"
+  - "ownership"
+  - "review routing"
+  - "owner mapping"
 ---
 
-# Ai Agent Architect
+# Codeowners From Registry
 
 ## Purpose
-Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+Generate and maintain CODEOWNERS mappings from ownership contracts.
 
 ## Workflow
 1. Confirm request scope and expected output.

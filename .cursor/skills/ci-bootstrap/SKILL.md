@@ -1,23 +1,23 @@
 ---
-name: ai-agent-architect
-description: Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+name: ci-bootstrap
+description: Bootstrap CI lanes and merge gates aligned with repository governance.
 classification: KEEP_CORE
-wave: WAVE_1
+wave: WAVE_2
 status: ACTIVE
 owner_surface: CTX-OPS
-scope: agent delivery planning and execution boundaries
+scope: ci lane setup and gate wiring
 routing_triggers:
-  - "agent"
-  - "orchestration"
+  - "ci"
   - "pipeline"
-  - "plan"
-  - "strategy"
+  - "merge gate"
+  - "workflow"
+  - "hosted runners"
 ---
 
-# Ai Agent Architect
+# Ci Bootstrap
 
 ## Purpose
-Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+Bootstrap CI lanes and merge gates aligned with repository governance.
 
 ## Workflow
 1. Confirm request scope and expected output.

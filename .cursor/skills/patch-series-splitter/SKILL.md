@@ -1,21 +1,29 @@
 ---
 name: patch-series-splitter
-description: Split large diffs into ordered, reviewable patch sets by risk and responsibility.
+description: Split large changes into ordered patch sets by risk and ownership surface.
+classification: KEEP_CORE
+wave: WAVE_1
+status: ACTIVE
+owner_surface: CTX-OPS
+scope: patch decomposition and change sequencing
+routing_triggers:
+  - "patch series"
+  - "split diff"
+  - "ordered patches"
+  - "review sequence"
 ---
 
 # Patch Series Splitter
 
-## Goal
-Convert large mixed changes into focused patch sets with predictable review flow.
+## Purpose
+Split large changes into ordered patch sets by risk and ownership surface.
 
 ## Workflow
-1. Group files by responsibility.
-2. Apply ordered sequence:
-   - contracts/policy
-   - runtime/code
-   - tests/docs
-3. Validate each patch set before moving to the next.
+1. Confirm request scope and expected output.
+2. Apply the skill workflow only to the relevant change surface.
+3. Keep changes small, deterministic, and review-friendly.
+4. Record assumptions and residual risks in task artifacts.
 
-## Governance Baseline
-1. Run `python scripts/run_loop_gate.py --from-git --git-ref HEAD` after each patch set.
-2. Stop expansion after repeated failures and execute remediation runbook.
+## Validation
+- `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
+- `python scripts/validate_skills.py --strict`

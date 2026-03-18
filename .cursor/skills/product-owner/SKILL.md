@@ -1,23 +1,22 @@
 ---
-name: ai-agent-architect
-description: Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+name: product-owner
+description: Prioritize outcome value and define delivery sequencing for planned changes.
 classification: KEEP_CORE
 wave: WAVE_1
 status: ACTIVE
 owner_surface: CTX-OPS
-scope: agent delivery planning and execution boundaries
+scope: value-based prioritization and roadmap sequencing
 routing_triggers:
-  - "agent"
-  - "orchestration"
-  - "pipeline"
-  - "plan"
-  - "strategy"
+  - "value"
+  - "priorities"
+  - "roadmap"
+  - "mvp"
 ---
 
-# Ai Agent Architect
+# Product Owner
 
 ## Purpose
-Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+Prioritize outcome value and define delivery sequencing for planned changes.
 
 ## Workflow
 1. Confirm request scope and expected output.

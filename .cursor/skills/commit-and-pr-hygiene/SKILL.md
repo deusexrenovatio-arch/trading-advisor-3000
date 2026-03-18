@@ -1,23 +1,22 @@
 ---
-name: ai-agent-architect
-description: Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+name: commit-and-pr-hygiene
+description: Keep commit series and pull requests atomic, reviewable, and policy-compliant.
 classification: KEEP_CORE
-wave: WAVE_1
+wave: WAVE_2
 status: ACTIVE
 owner_surface: CTX-OPS
-scope: agent delivery planning and execution boundaries
+scope: commit hygiene and pull request structure
 routing_triggers:
-  - "agent"
-  - "orchestration"
-  - "pipeline"
-  - "plan"
-  - "strategy"
+  - "commit hygiene"
+  - "pr hygiene"
+  - "atomic changes"
+  - "reviewability"
 ---
 
-# Ai Agent Architect
+# Commit And Pr Hygiene
 
 ## Purpose
-Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+Keep commit series and pull requests atomic, reviewable, and policy-compliant.
 
 ## Workflow
 1. Confirm request scope and expected output.

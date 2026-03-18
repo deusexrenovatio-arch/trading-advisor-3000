@@ -1,23 +1,22 @@
 ---
-name: ai-agent-architect
-description: Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+name: source-onboarding
+description: Onboard new data sources with provenance, quality checks, and lineage metadata.
 classification: KEEP_CORE
 wave: WAVE_1
 status: ACTIVE
-owner_surface: CTX-OPS
-scope: agent delivery planning and execution boundaries
+owner_surface: CTX-DATA
+scope: source onboarding with quality and provenance controls
 routing_triggers:
-  - "agent"
-  - "orchestration"
-  - "pipeline"
-  - "plan"
-  - "strategy"
+  - "source onboarding"
+  - "ingestion"
+  - "lineage"
+  - "provenance"
 ---
 
-# Ai Agent Architect
+# Source Onboarding
 
 ## Purpose
-Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+Onboard new data sources with provenance, quality checks, and lineage metadata.
 
 ## Workflow
 1. Confirm request scope and expected output.

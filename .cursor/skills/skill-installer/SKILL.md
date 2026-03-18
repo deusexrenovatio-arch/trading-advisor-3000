@@ -1,23 +1,22 @@
 ---
-name: ai-agent-architect
-description: Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+name: skill-installer
+description: Install and activate approved skills into local runtime catalogs.
 classification: KEEP_CORE
 wave: WAVE_1
 status: ACTIVE
-owner_surface: CTX-OPS
-scope: agent delivery planning and execution boundaries
+owner_surface: CTX-SKILLS
+scope: skill onboarding and local catalog installation
 routing_triggers:
-  - "agent"
-  - "orchestration"
-  - "pipeline"
-  - "plan"
-  - "strategy"
+  - "install skill"
+  - "catalog install"
+  - "skill onboarding"
+  - "skill source"
 ---
 
-# Ai Agent Architect
+# Skill Installer
 
 ## Purpose
-Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+Install and activate approved skills into local runtime catalogs.
 
 ## Workflow
 1. Confirm request scope and expected output.

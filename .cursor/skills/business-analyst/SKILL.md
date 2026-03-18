@@ -1,23 +1,23 @@
 ---
-name: ai-agent-architect
-description: Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+name: business-analyst
+description: Decompose requests into measurable scope, acceptance criteria, and traceable outcomes.
 classification: KEEP_CORE
 wave: WAVE_1
 status: ACTIVE
 owner_surface: CTX-OPS
-scope: agent delivery planning and execution boundaries
+scope: requirements framing and acceptance decomposition
 routing_triggers:
-  - "agent"
-  - "orchestration"
-  - "pipeline"
-  - "plan"
-  - "strategy"
+  - "requirements"
+  - "scope"
+  - "acceptance"
+  - "traceability"
+  - "stakeholder"
 ---
 
-# Ai Agent Architect
+# Business Analyst
 
 ## Purpose
-Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+Decompose requests into measurable scope, acceptance criteria, and traceable outcomes.
 
 ## Workflow
 1. Confirm request scope and expected output.

@@ -1,23 +1,22 @@
 ---
-name: ai-agent-architect
-description: Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+name: repeated-issue-review
+description: Perform deep repeated-issue analysis with explicit root-cause and prevention actions.
 classification: KEEP_CORE
 wave: WAVE_1
 status: ACTIVE
 owner_surface: CTX-OPS
-scope: agent delivery planning and execution boundaries
+scope: repeat-failure analysis and prevention strategy
 routing_triggers:
-  - "agent"
-  - "orchestration"
-  - "pipeline"
-  - "plan"
-  - "strategy"
+  - "repeated issue"
+  - "root cause"
+  - "stability"
+  - "full review"
 ---
 
-# Ai Agent Architect
+# Repeated Issue Review
 
 ## Purpose
-Design resilient multi-step agent delivery flows with explicit quality checkpoints.
+Perform deep repeated-issue analysis with explicit root-cause and prevention actions.
 
 ## Workflow
 1. Confirm request scope and expected output.
