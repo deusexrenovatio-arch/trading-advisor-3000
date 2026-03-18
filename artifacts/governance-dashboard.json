@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-03-17",
+  "generated_at": "2026-03-18",
   "overall_status": "green",
   "sections": {
     "lifecycle": {
@@ -21,7 +21,7 @@
     }
   },
   "baseline_metrics": {
-    "generated_at": "2026-03-17",
+    "generated_at": "2026-03-18",
     "plans": {
       "total_items": 2,
       "active_items": 0,
@@ -46,7 +46,7 @@
       }
     },
     "dev_loop_baseline": {
-      "generated_at": "2026-03-17",
+      "generated_at": "2026-03-18",
       "task_outcomes_total": 17,
       "terminal_outcomes_total": 17,
       "outcomes_with_patch_timing": 2,

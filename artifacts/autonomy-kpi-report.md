@@ -1,6 +1,6 @@
 # Autonomy KPI Report
 
-- generated_at: 2026-03-17
+- generated_at: 2026-03-18
 
 | KPI | Value |
 | --- | --- |

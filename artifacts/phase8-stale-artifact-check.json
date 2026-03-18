@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "generated_at": "2026-03-18T09:06:18Z",
+  "status": "ok",
+  "steps": [],
+  "failure": null,
+  "dashboard_artifacts": [
+    {
+      "path": "artifacts/dev-loop-baseline.md",
+      "exists": true,
+      "size_bytes": 436
+    },
+    {
+      "path": "artifacts/harness-baseline-metrics.json",
+      "exists": true,
+      "size_bytes": 1018
+    },
+    {
+      "path": "artifacts/process-improvement-report.md",
+      "exists": true,
+      "size_bytes": 1475
+    },
+    {
+      "path": "artifacts/autonomy-kpi-report.md",
+      "exists": true,
+      "size_bytes": 604
+    },
+    {
+      "path": "artifacts/governance-dashboard.json",
+      "exists": true,
+      "size_bytes": 1642
+    },
+    {
+      "path": "artifacts/governance-dashboard.md",
+      "exists": true,
+      "size_bytes": 356
+    }
+  ]
+}

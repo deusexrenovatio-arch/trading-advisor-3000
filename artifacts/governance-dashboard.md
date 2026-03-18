@@ -1,6 +1,6 @@
 # Governance Dashboard
 
-- generated_at: 2026-03-17
+- generated_at: 2026-03-18
 - overall_status: green
 
 | Section | Status | Notes |
