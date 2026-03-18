@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .catalog import ExecutionAdapterCatalog, ExecutionAdapterSpec, default_execution_adapter_catalog
 from .live_bridge import (
     LiveExecutionBridge,
     LiveExecutionBridgeError,
@@ -13,6 +14,8 @@ from .live_bridge import (
 from .stocksharp_sidecar_stub import StockSharpSidecarStub, TransientSidecarError
 
 __all__ = [
+    "ExecutionAdapterCatalog",
+    "ExecutionAdapterSpec",
     "LiveExecutionBridge",
     "LiveExecutionBridgeError",
     "LiveExecutionDisabledError",
@@ -23,4 +26,5 @@ __all__ = [
     "UnsupportedExecutionModeError",
     "StockSharpSidecarStub",
     "TransientSidecarError",
+    "default_execution_adapter_catalog",
 ]

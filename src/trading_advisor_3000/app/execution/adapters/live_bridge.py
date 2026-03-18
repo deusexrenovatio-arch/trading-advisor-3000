@@ -8,6 +8,7 @@ from typing import Callable, Mapping
 from trading_advisor_3000.app.contracts import Mode, OrderIntent
 from trading_advisor_3000.app.runtime.config import DEFAULT_REQUIRED_LIVE_SECRETS, evaluate_secrets_policy
 
+from .catalog import ExecutionAdapterCatalog, default_execution_adapter_catalog
 from .stocksharp_sidecar_stub import StockSharpSidecarStub, TransientSidecarError
 
 
@@ -97,15 +98,16 @@ class LiveExecutionBridge:
         sidecar: StockSharpSidecarStub,
         flags: LiveExecutionFeatureFlags,
         retry_policy: LiveExecutionRetryPolicy | None = None,
+        adapter_catalog: ExecutionAdapterCatalog | None = None,
         env: Mapping[str, str] | None = None,
     ) -> None:
         self._sidecar = sidecar
         self._flags = flags
         self._retry_policy = retry_policy or LiveExecutionRetryPolicy()
+        self._adapter_catalog = adapter_catalog or default_execution_adapter_catalog()
         self._env = dict(env if env is not None else os.environ)
         self._seen_update_index = 0
         self._seen_fill_index = 0
-        self._allowed_adapters = {"stocksharp-sidecar-stub", "stocksharp-sidecar"}
         self._retryable_exceptions = (TransientSidecarError, TimeoutError, ConnectionError)
 
     def _live_secrets_report(self) -> dict[str, object]:
@@ -123,9 +125,15 @@ class LiveExecutionBridge:
             )
 
     def _ensure_supported_adapter(self, intent: OrderIntent) -> None:
-        if intent.broker_adapter not in self._allowed_adapters:
+        adapter = self._adapter_catalog.get(intent.broker_adapter)
+        if adapter is None:
             raise UnsupportedBrokerAdapterError(
                 f"unsupported broker_adapter for controlled live bridge: {intent.broker_adapter}"
+            )
+        if not adapter.supports_mode(intent.mode):
+            raise UnsupportedBrokerAdapterError(
+                "broker_adapter does not support requested mode: "
+                f"adapter={intent.broker_adapter}, mode={intent.mode.value}"
             )
 
     def _ensure_live_allowed(self, intent: OrderIntent) -> None:
@@ -183,6 +191,7 @@ class LiveExecutionBridge:
                 "max_attempts": self._retry_policy.max_attempts,
                 "backoff_seconds": self._retry_policy.backoff_seconds,
             },
+            "adapter_catalog": self._adapter_catalog.to_dict(),
             "secrets_policy": secrets_report,
             "sidecar": self._sidecar.health(),
         }

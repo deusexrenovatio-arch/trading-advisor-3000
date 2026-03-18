@@ -6,3 +6,4 @@ Product runtime and operational runbooks live in this directory.
 - `docs/runbooks/app/phase4-live-execution-incident-runbook.md` - controlled live execution sync and incident response.
 - `docs/runbooks/app/phase5-observability-runbook.md` - review metrics validation and observability smoke/triage.
 - `docs/runbooks/app/phase6-operational-hardening-runbook.md` - operational resilience, secrets policy, and DR recovery sequence.
+- `docs/runbooks/app/phase7-scale-up-readiness-runbook.md` - expansion seam validation for providers, context, and adapters.
