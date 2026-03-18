@@ -12,6 +12,13 @@ from .live_bridge import (
     UnsupportedBrokerAdapterError,
     UnsupportedExecutionModeError,
 )
+from .stocksharp_http_transport import (
+    SidecarTransportError,
+    SidecarTransportPermanentError,
+    SidecarTransportRetryableError,
+    StockSharpHTTPTransport,
+    StockSharpHTTPTransportConfig,
+)
 from .stocksharp_sidecar_stub import StockSharpSidecarStub, TransientSidecarError
 from .transport import ExecutionAdapterTransport
 
@@ -26,6 +33,11 @@ __all__ = [
     "LiveExecutionFeatureFlags",
     "LiveExecutionRetryExhaustedError",
     "LiveExecutionRetryPolicy",
+    "SidecarTransportError",
+    "SidecarTransportPermanentError",
+    "SidecarTransportRetryableError",
+    "StockSharpHTTPTransport",
+    "StockSharpHTTPTransportConfig",
     "UnsupportedBrokerAdapterError",
     "UnsupportedExecutionModeError",
     "StockSharpSidecarStub",

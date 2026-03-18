@@ -50,6 +50,26 @@ class ControlledLiveExecutionEngine:
     def __init__(self, *, bridge: LiveExecutionBridge, sync_engine: BrokerSyncEngine) -> None:
         self._bridge = bridge
         self._sync_engine = sync_engine
+        self._reconciliation_cycles_total = 0
+        self._reconciliation_incidents_total = 0
+
+    def _record_reconciliation(self, *, incidents: int) -> None:
+        self._reconciliation_cycles_total += 1
+        self._reconciliation_incidents_total += max(0, incidents)
+
+    def observability_snapshot(self) -> dict[str, object]:
+        cycles = self._reconciliation_cycles_total
+        incident_rate = (
+            round(self._reconciliation_incidents_total / cycles, 6)
+            if cycles > 0
+            else 0.0
+        )
+        return {
+            "reconciliation_cycles_total": cycles,
+            "reconciliation_incidents_total": self._reconciliation_incidents_total,
+            "reconciliation_incident_rate": incident_rate,
+            "bridge": self._bridge.health().get("execution_telemetry", {}),
+        }
 
     def submit_intents(self, intents: list[OrderIntent], *, submitted_at: str) -> list[dict[str, object]]:
         acks: list[dict[str, object]] = []
@@ -97,13 +117,15 @@ class ControlledLiveExecutionEngine:
         return {"updates": len(updates), "fills": len(fills)}
 
     def reconcile(self, *, expected_positions: list[PositionSnapshot]) -> LiveExecutionReconciliationReport:
-        return reconcile_live_execution(
+        report = reconcile_live_execution(
             expected_intents=self._sync_engine.list_registered_intents(),
             observed_orders=self._sync_engine.list_broker_orders(),
             observed_fills=self._sync_engine.list_broker_fills(),
             expected_positions=expected_positions,
             observed_positions=self._sync_engine.list_positions(),
         )
+        self._record_reconciliation(incidents=len(report.incidents))
+        return report
 
     def run_controlled_cycle(
         self,
