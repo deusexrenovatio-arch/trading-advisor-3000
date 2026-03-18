@@ -17,7 +17,18 @@ Symptoms:
 Actions:
 1. Install required runtime (`docker`, `npx`, `uvx`).
 2. Verify command path from shell (`docker --version`, `npx --version`, `uvx --version`).
-3. Re-run profile smoke.
+3. On Windows, prefer executable wrappers such as `npx.cmd` and `uvx.exe` if PowerShell execution policy blocks `.ps1`.
+4. Re-run profile smoke.
+
+## 2a. Codex Desktop does not show MCP servers
+Symptoms:
+- `mcp_preflight_smoke.py` is green, but the Codex UI still shows no MCP servers.
+
+Actions:
+1. Merge the project MCP contract into the user-level Codex config:
+   - `python deployment/mcp/bootstrap_mcp_config.py --target .codex/config.toml --merge-home-config --force`
+2. Restart Codex Desktop completely.
+3. Re-check `~/.codex/config.toml` and confirm `mcp_servers.*` entries exist there.
 
 ## 3. Permission denied on repo/data
 Symptoms:
