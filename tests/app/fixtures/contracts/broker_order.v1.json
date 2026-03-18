@@ -1,0 +1,9 @@
+{
+  "broker_order_id": "BORD-20260316-0001",
+  "intent_id": "OI-20260316-0001",
+  "external_order_id": "EXT-20260316-0001",
+  "broker": "stocksharp-sidecar-stub",
+  "state": "filled",
+  "submitted_at": "2026-03-16T10:17:00Z",
+  "updated_at": "2026-03-16T10:17:02Z"
+}

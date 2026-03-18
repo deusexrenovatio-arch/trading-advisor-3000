@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "generated_at": "2026-03-18T09:11:45Z",
+  "status": "ok",
+  "steps": [
+    {
+      "lane": "loop-lane",
+      "step_id": "loop-gate",
+      "command": "C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python311\\python.exe scripts/run_loop_gate.py --mapping configs/change_surface_mapping.yaml --skip-session-check --from-git --git-ref HEAD",
+      "status": "ok",
+      "return_code": 0,
+      "started_at": "2026-03-18T09:11:32Z",
+      "finished_at": "2026-03-18T09:11:32Z",
+      "duration_sec": 0.754,
+      "stdout_tail": " resolved.\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe scripts/validate_task_request_contract.py --changed-files artifacts/autonomy-kpi-report.md artifacts/dev-loop-baseline.md artifacts/governance-dashboard.json artifacts/governance-dashboard.md artifacts/harness-baseline-metrics.json artifacts/process-improvement-report.md docs/architecture/app/phase8-ci-pilot-operational-proving.md docs/checklists/app/phase8-acceptance-checklist.md docs/runbooks/app/phase8-operational-proving-runbook.md docs/session_handoff.md docs/tasks/active/index.yaml memory/agent_memory.yaml memory/decisions/index.yaml memory/incidents/index.yaml memory/patterns/index.yaml plans/PLANS.yaml plans/items/index.yaml scripts/run_phase8_operational_proving.py tests/process/test_phase8_operational_proving.py .runlogs/task-session/session-lock.json artifacts/phase8-operational-proving.dry-run.json artifacts/phase8-operational-proving.dry-run.optin.json artifacts/phase8-operational-proving.dryrun.json artifacts/phase8-operational-proving.json artifacts/phase8-stale-artifact-check.json artifacts/phase8-stale-check.json docs/tasks/active/TASK-2026-03-18-phase-5-acceptance-review-and-testing.md\ntask request contract validation: OK (source=D:/trading advisor 3000/docs/tasks/active/TASK-2026-03-18-phase-5-acceptance-review-and-testing.md pointer_mode=True contract_items=6 report_items=4 repetition_items=5)\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe scripts/validate_plans.py\nplans validation: OK (source=plans/items/index.yaml items=2 updated_at=2026-03-18 statuses[active=0, planned=0, blocked=0, deferred=0, completed=2])\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe scripts/validate_agent_memory.py\nagent memory validation: OK (source=memory entries=2 updated_at=2026-03-18)\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe scripts/validate_task_outcomes.py --changed-files artifacts/autonomy-kpi-report.md artifacts/dev-loop-baseline.md artifacts/governance-dashboard.json artifacts/governance-dashboard.md artifacts/harness-baseline-metrics.json artifacts/process-improvement-report.md docs/architecture/app/phase8-ci-pilot-operational-proving.md docs/checklists/app/phase8-acceptance-checklist.md docs/runbooks/app/phase8-operational-proving-runbook.md docs/session_handoff.md docs/tasks/active/index.yaml memory/agent_memory.yaml memory/decisions/index.yaml memory/incidents/index.yaml memory/patterns/index.yaml plans/PLANS.yaml plans/items/index.yaml scripts/run_phase8_operational_proving.py tests/process/test_phase8_operational_proving.py .runlogs/task-session/session-lock.json artifacts/phase8-operational-proving.dry-run.json artifacts/phase8-operational-proving.dry-run.optin.json artifacts/phase8-operational-proving.dryrun.json artifacts/phase8-operational-proving.json artifacts/phase8-stale-artifact-check.json artifacts/phase8-stale-check.json docs/tasks/active/TASK-2026-03-18-phase-5-acceptance-review-and-testing.md\ntask outcomes validation: OK (items=17 terminal_records=17 non_trivial_diff=True)\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe scripts/validate_architecture_policy.py\narchitecture policy validation: OK (adr_files=2)\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe scripts/validate_session_handoff.py\ncontext budget validation: OK (source=D:/trading advisor 3000/docs/tasks/active/TASK-2026-03-18-phase-5-acceptance-review-and-testing.md pointer_mode=True non_empty_lines=41 delta_bullets=1)\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe scripts/validate_pr_only_policy.py\npr-only policy validation: OK\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe scripts/validate_agent_contexts.py\nagent context coverage: OK (significant_files=277 high_risk_files=43 contexts=6)\nloop gate: OK (primary_surface=contracts surfaces=contracts,architecture,governance,mixed non_trivial_validation=True)",
+      "stderr_tail": ""
+    },
+    {
+      "lane": "pr-lane",
+      "step_id": "pr-gate",
+      "command": "C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python311\\python.exe scripts/run_pr_gate.py --mapping configs/change_surface_mapping.yaml --skip-session-check --from-git --git-ref HEAD",
+      "status": "ok",
+      "return_code": 0,
+      "started_at": "2026-03-18T09:11:32Z",
+      "finished_at": "2026-03-18T09:11:38Z",
+      "duration_sec": 5.481,
+      "stdout_tail": "rtifacts/phase8-operational-proving.dryrun.json artifacts/phase8-operational-proving.json artifacts/phase8-stale-artifact-check.json artifacts/phase8-stale-check.json docs/tasks/active/TASK-2026-03-18-phase-5-acceptance-review-and-testing.md\ntask outcomes validation: OK (items=17 terminal_records=17 non_trivial_diff=True)\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe scripts/validate_architecture_policy.py\narchitecture policy validation: OK (adr_files=2)\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe scripts/validate_session_handoff.py\ncontext budget validation: OK (source=D:/trading advisor 3000/docs/tasks/active/TASK-2026-03-18-phase-5-acceptance-review-and-testing.md pointer_mode=True non_empty_lines=41 delta_bullets=1)\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe scripts/validate_pr_only_policy.py\npr-only policy validation: OK\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe scripts/validate_agent_contexts.py\nagent context coverage: OK (significant_files=277 high_risk_files=43 contexts=6)\nloop gate: OK (primary_surface=contracts surfaces=contracts,architecture,governance,mixed non_trivial_validation=True)\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe scripts/validate_task_outcomes.py --require-terminal-outcome --changed-files artifacts/autonomy-kpi-report.md artifacts/dev-loop-baseline.md artifacts/governance-dashboard.json artifacts/governance-dashboard.md artifacts/harness-baseline-metrics.json artifacts/process-improvement-report.md docs/architecture/app/phase8-ci-pilot-operational-proving.md docs/checklists/app/phase8-acceptance-checklist.md docs/runbooks/app/phase8-operational-proving-runbook.md docs/session_handoff.md docs/tasks/active/index.yaml memory/agent_memory.yaml memory/decisions/index.yaml memory/incidents/index.yaml memory/patterns/index.yaml plans/PLANS.yaml plans/items/index.yaml scripts/run_phase8_operational_proving.py tests/process/test_phase8_operational_proving.py .runlogs/task-session/session-lock.json artifacts/phase8-operational-proving.dry-run.json artifacts/phase8-operational-proving.dry-run.optin.json artifacts/phase8-operational-proving.dryrun.json artifacts/phase8-operational-proving.json artifacts/phase8-stale-artifact-check.json artifacts/phase8-stale-check.json docs/tasks/active/TASK-2026-03-18-phase-5-acceptance-review-and-testing.md\ntask outcomes validation: OK (items=17 terminal_records=17 non_trivial_diff=True)\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe -m pytest tests/process/test_phase1_governance_shell.py\n============================= test session starts =============================\nplatform win32 -- Python 3.11.9, pytest-9.0.2, pluggy-1.6.0\nrootdir: D:\\trading advisor 3000\nplugins: anyio-4.12.1, dash-3.4.0\ncollected 5 items\n\ntests\\process\\test_phase1_governance_shell.py .....                      [100%]\n\n============================== 5 passed in 0.10s ==============================\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe -m pytest tests/process/test_validate_plans_contract.py -q\n..                                                                       [100%]\n2 passed in 0.03s\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe -m pytest tests/process/test_validate_task_request_contract.py -q\n..                                                                       [100%]\n2 passed in 0.04s\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe -m pytest tests/architecture/test_context_coverage.py -q\n..                                                                       [100%]\n2 passed in 0.14s\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe -m pytest tests/architecture -q\n................                                                         [100%]\n16 passed in 0.75s\npr gate: OK (primary_surface=contracts surfaces=contracts,architecture,governance,mixed)",
+      "stderr_tail": ""
+    },
+    {
+      "lane": "nightly-lane",
+      "step_id": "nightly-gate",
+      "command": "C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python311\\python.exe scripts/run_nightly_gate.py --mapping configs/change_surface_mapping.yaml --from-git --git-ref HEAD",
+      "status": "ok",
+      "return_code": 0,
+      "started_at": "2026-03-18T09:11:38Z",
+      "finished_at": "2026-03-18T09:11:44Z",
+      "duration_sec": 6.389,
+      "stdout_tail": "\ntests\\process\\test_phase1_governance_shell.py .....                      [100%]\n\n============================== 5 passed in 0.09s ==============================\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe -m pytest tests/process/test_validate_plans_contract.py -q\n..                                                                       [100%]\n2 passed in 0.03s\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe -m pytest tests/process/test_validate_task_request_contract.py -q\n..                                                                       [100%]\n2 passed in 0.04s\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe -m pytest tests/architecture/test_context_coverage.py -q\n..                                                                       [100%]\n2 passed in 0.14s\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe -m pytest tests/architecture -q\n................                                                         [100%]\n16 passed in 0.72s\npr gate: OK (primary_surface=contracts surfaces=contracts,architecture,governance,mixed)\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe scripts/validate_process_regressions.py\nprocess regressions validation: OK (burn_in=False completed=17 window_size=20)\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe scripts/nightly_root_hygiene.py\nnightly root hygiene: OK\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe scripts/sync_state_layout.py\nstate layout sync: OK (plans_items=2 plans_layout_exists=True memory_entries=2 memory_layout_exists=True)\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe scripts/measure_dev_loop.py --format markdown --output artifacts/dev-loop-baseline.md\ndev loop baseline written: artifacts/dev-loop-baseline.md\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe scripts/validate_architecture_policy.py\narchitecture policy validation: OK (adr_files=2)\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe scripts/validate_docs_links.py --roots AGENTS.md docs\n[validate_docs_links] All markdown references resolved.\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe scripts/validate_governance_remediation.py\ngovernance remediation validation: OK\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe scripts/harness_baseline_metrics.py --output artifacts/harness-baseline-metrics.json\nharness baseline metrics written: artifacts/harness-baseline-metrics.json\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe scripts/process_improvement_report.py --output artifacts/process-improvement-report.md\nprocess improvement report written: artifacts/process-improvement-report.md\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe scripts/autonomy_kpi_report.py --output artifacts/autonomy-kpi-report.md\nautonomy KPI report written: artifacts/autonomy-kpi-report.md\n>>> C:/Users/Admin/AppData/Local/Programs/Python/Python311/python.exe scripts/build_governance_dashboard.py --output-json artifacts/governance-dashboard.json --output-md artifacts/governance-dashboard.md\ngovernance dashboard written: artifacts/governance-dashboard.json and artifacts/governance-dashboard.md\nnightly gate: OK (primary_surface=contracts surfaces=contracts,architecture,governance,mixed)",
+      "stderr_tail": ""
+    },
+    {
+      "lane": "dashboard-refresh",
+      "step_id": "measure-dev-loop",
+      "command": "C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python311\\python.exe scripts/measure_dev_loop.py --format markdown --output artifacts/dev-loop-baseline.md",
+      "status": "ok",
+      "return_code": 0,
+      "started_at": "2026-03-18T09:11:44Z",
+      "finished_at": "2026-03-18T09:11:44Z",
+      "duration_sec": 0.073,
+      "stdout_tail": "dev loop baseline written: artifacts/dev-loop-baseline.md",
+      "stderr_tail": ""
+    },
+    {
+      "lane": "dashboard-refresh",
+      "step_id": "harness-baseline-metrics",
+      "command": "C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python311\\python.exe scripts/harness_baseline_metrics.py --output artifacts/harness-baseline-metrics.json",
+      "status": "ok",
+      "return_code": 0,
+      "started_at": "2026-03-18T09:11:44Z",
+      "finished_at": "2026-03-18T09:11:44Z",
+      "duration_sec": 0.075,
+      "stdout_tail": "harness baseline metrics written: artifacts/harness-baseline-metrics.json",
+      "stderr_tail": ""
+    },
+    {
+      "lane": "dashboard-refresh",
+      "step_id": "process-improvement-report",
+      "command": "C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python311\\python.exe scripts/process_improvement_report.py --output artifacts/process-improvement-report.md",
+      "status": "ok",
+      "return_code": 0,
+      "started_at": "2026-03-18T09:11:44Z",
+      "finished_at": "2026-03-18T09:11:45Z",
+      "duration_sec": 0.068,
+      "stdout_tail": "process improvement report written: artifacts/process-improvement-report.md",
+      "stderr_tail": ""
+    },
+    {
+      "lane": "dashboard-refresh",
+      "step_id": "autonomy-kpi-report",
+      "command": "C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python311\\python.exe scripts/autonomy_kpi_report.py --output artifacts/autonomy-kpi-report.md",
+      "status": "ok",
+      "return_code": 0,
+      "started_at": "2026-03-18T09:11:45Z",
+      "finished_at": "2026-03-18T09:11:45Z",
+      "duration_sec": 0.07,
+      "stdout_tail": "autonomy KPI report written: artifacts/autonomy-kpi-report.md",
+      "stderr_tail": ""
+    },
+    {
+      "lane": "dashboard-refresh",
+      "step_id": "build-governance-dashboard",
+      "command": "C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python311\\python.exe scripts/build_governance_dashboard.py --output-json artifacts/governance-dashboard.json --output-md artifacts/governance-dashboard.md",
+      "status": "ok",
+      "return_code": 0,
+      "started_at": "2026-03-18T09:11:45Z",
+      "finished_at": "2026-03-18T09:11:45Z",
+      "duration_sec": 0.087,
+      "stdout_tail": "governance dashboard written: artifacts/governance-dashboard.json and artifacts/governance-dashboard.md",
+      "stderr_tail": ""
+    }
+  ],
+  "failure": null,
+  "dashboard_artifacts": [
+    {
+      "path": "artifacts/dev-loop-baseline.md",
+      "exists": true,
+      "size_bytes": 436,
+      "mtime_ns": 1773825104852050900,
+      "fresh_in_run": true
+    },
+    {
+      "path": "artifacts/harness-baseline-metrics.json",
+      "exists": true,
+      "size_bytes": 1018,
+      "mtime_ns": 1773825104927399800,
+      "fresh_in_run": true
+    },
+    {
+      "path": "artifacts/process-improvement-report.md",
+      "exists": true,
+      "size_bytes": 1475,
+      "mtime_ns": 1773825104995781600,
+      "fresh_in_run": true
+    },
+    {
+      "path": "artifacts/autonomy-kpi-report.md",
+      "exists": true,
+      "size_bytes": 604,
+      "mtime_ns": 1773825105066704000,
+      "fresh_in_run": true
+    },
+    {
+      "path": "artifacts/governance-dashboard.json",
+      "exists": true,
+      "size_bytes": 1642,
+      "mtime_ns": 1773825105152315800,
+      "fresh_in_run": true
+    },
+    {
+      "path": "artifacts/governance-dashboard.md",
+      "exists": true,
+      "size_bytes": 356,
+      "mtime_ns": 1773825105152315800,
+      "fresh_in_run": true
+    }
+  ]
+}

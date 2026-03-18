@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/position_snapshot.v1.json",
+  "title": "PositionSnapshotV1",
+  "type": "object",
+  "required": [
+    "position_key",
+    "account_id",
+    "contract_id",
+    "mode",
+    "qty",
+    "avg_price",
+    "as_of_ts"
+  ],
+  "properties": {
+    "position_key": {"type": "string", "minLength": 1},
+    "account_id": {"type": "string", "minLength": 1},
+    "contract_id": {"type": "string", "minLength": 1},
+    "mode": {"type": "string", "enum": ["shadow", "paper", "live"]},
+    "qty": {"type": "integer"},
+    "avg_price": {"type": "number", "minimum": 0},
+    "as_of_ts": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

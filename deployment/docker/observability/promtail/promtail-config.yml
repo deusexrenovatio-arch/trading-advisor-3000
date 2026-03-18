@@ -1,0 +1,33 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: trading-advisor-runtime
+    static_configs:
+      - targets: ["localhost"]
+        labels:
+          job: trading-advisor-runtime
+          service: trading_advisor_3000
+          env: local
+          __path__: /runtime/observability.loki.events.jsonl
+    pipeline_stages:
+      - json:
+          expressions:
+            stream: stream
+            strategy_version_id: strategy_version_id
+            contract_id: contract_id
+            mode: mode
+            status: status
+      - labels:
+          stream:
+          strategy_version_id:
+          contract_id:
+          mode:
+          status:

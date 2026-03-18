@@ -1,0 +1,9 @@
+{
+  "fill_id": "BFILL-20260316-0001",
+  "broker_order_id": "BORD-20260316-0001",
+  "fill_ts": "2026-03-16T10:17:02Z",
+  "qty": 1,
+  "price": 82.45,
+  "fee": 0.03,
+  "external_trade_id": "TRD-20260316-0001"
+}

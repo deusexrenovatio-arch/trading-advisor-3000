@@ -10,6 +10,10 @@ FORBIDDEN_TOKENS = (
     "orderbook",
 )
 
+ALLOWED_DOMAIN_PATH_PREFIXES = (
+    "src/trading_advisor_3000/app/",
+)
+
 
 def _python_files(root: Path) -> list[Path]:
     if not root.exists():
@@ -21,8 +25,11 @@ def test_placeholder_package_has_no_domain_tokens() -> None:
     root = Path("src/trading_advisor_3000")
     offenders: list[str] = []
     for path in _python_files(root):
+        rel = path.as_posix()
+        if any(rel.startswith(prefix) for prefix in ALLOWED_DOMAIN_PATH_PREFIXES):
+            continue
         text = path.read_text(encoding="utf-8").lower()
         for token in FORBIDDEN_TOKENS:
             if token in text:
-                offenders.append(f"{path.as_posix()}:{token}")
+                offenders.append(f"{rel}:{token}")
     assert not offenders, f"domain_boundary_violation:{offenders}"

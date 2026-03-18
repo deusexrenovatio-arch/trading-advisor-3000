@@ -1,0 +1,42 @@
+version: 1
+generated_for: "trading-advisor-3000"
+scope: "project-scoped"
+waves:
+  wave1:
+    servers:
+      - github
+      - openai_docs
+  wave2:
+    servers:
+      - docker
+      - dagster
+  wave3:
+    servers:
+      - postgres_readonly
+      - duckdb
+profiles:
+  base:
+    servers:
+      - github
+      - openai_docs
+  ops:
+    servers:
+      - github
+      - openai_docs
+      - docker
+      - dagster
+  data_readonly:
+    servers:
+      - github
+      - openai_docs
+      - docker
+      - dagster
+      - postgres_readonly
+      - duckdb
+bootstrap:
+  script: "deployment/mcp/bootstrap_mcp_config.py"
+  template: "deployment/mcp/config.template.toml"
+security:
+  credentials_storage: "env-only"
+  allow_repo_credentials: false
+  trusted_project_required: true

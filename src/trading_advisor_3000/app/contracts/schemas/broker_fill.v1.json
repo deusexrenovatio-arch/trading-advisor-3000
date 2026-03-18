@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/broker_fill.v1.json",
+  "title": "BrokerFillV1",
+  "type": "object",
+  "required": [
+    "fill_id",
+    "broker_order_id",
+    "fill_ts",
+    "qty",
+    "price",
+    "fee"
+  ],
+  "properties": {
+    "fill_id": {"type": "string", "minLength": 1},
+    "broker_order_id": {"type": "string", "minLength": 1},
+    "fill_ts": {"type": "string", "minLength": 1},
+    "qty": {"type": "integer", "minimum": 1},
+    "price": {"type": "number", "exclusiveMinimum": 0},
+    "fee": {"type": "number", "minimum": 0},
+    "external_trade_id": {"type": ["string", "null"], "minLength": 1}
+  },
+  "additionalProperties": false
+}

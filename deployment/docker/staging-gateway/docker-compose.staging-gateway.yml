@@ -1,0 +1,107 @@
+version: "3.9"
+
+services:
+  runtime-profile:
+    image: python:3.12-slim
+    container_name: ta3000-runtime-profile-staging
+    working_dir: /workspace
+    command: ["python", "-m", "trading_advisor_3000.app.runtime.ops.profile_server"]
+    environment:
+      PYTHONPATH: /workspace/src
+      TA3000_PROFILE_HOST: 0.0.0.0
+      TA3000_PROFILE_PORT: "8088"
+      TA3000_ENVIRONMENT: ${TA3000_ENVIRONMENT:-staging-real-transport}
+      TA3000_ENABLE_LIVE_EXECUTION: ${TA3000_ENABLE_LIVE_EXECUTION:-}
+      TA3000_ENABLE_STOCKSHARP_BRIDGE: ${TA3000_ENABLE_STOCKSHARP_BRIDGE:-}
+      TA3000_ENABLE_QUIK_CONNECTOR: ${TA3000_ENABLE_QUIK_CONNECTOR:-}
+      TA3000_ENABLE_FINAM_TRANSPORT: ${TA3000_ENABLE_FINAM_TRANSPORT:-}
+      TA3000_ENFORCE_LIVE_SECRETS: ${TA3000_ENFORCE_LIVE_SECRETS:-1}
+      TA3000_ENFORCE_SECRET_AGE: ${TA3000_ENFORCE_SECRET_AGE:-1}
+      TA3000_SECRET_MAX_AGE_DAYS: ${TA3000_SECRET_MAX_AGE_DAYS:-90}
+      TA3000_RETRY_MAX_ATTEMPTS: ${TA3000_RETRY_MAX_ATTEMPTS:-3}
+      TA3000_RETRY_BACKOFF_SECONDS: ${TA3000_RETRY_BACKOFF_SECONDS:-0.05}
+      TA3000_STOCKSHARP_API_KEY: ${TA3000_STOCKSHARP_API_KEY:-}
+      TA3000_STOCKSHARP_API_KEY_ROTATED_AT: ${TA3000_STOCKSHARP_API_KEY_ROTATED_AT:-}
+      TA3000_FINAM_API_TOKEN: ${TA3000_FINAM_API_TOKEN:-}
+      TA3000_FINAM_API_TOKEN_ROTATED_AT: ${TA3000_FINAM_API_TOKEN_ROTATED_AT:-}
+      TA3000_SIDECAR_TRANSPORT: ${TA3000_SIDECAR_TRANSPORT:-http}
+      TA3000_SIDECAR_BASE_URL: ${TA3000_SIDECAR_BASE_URL:-http://stocksharp-sidecar-gateway:18081}
+      TA3000_SIDECAR_TIMEOUT_SECONDS: ${TA3000_SIDECAR_TIMEOUT_SECONDS:-3.0}
+      TA3000_SIDECAR_STREAM_BATCH_SIZE: ${TA3000_SIDECAR_STREAM_BATCH_SIZE:-500}
+      TA3000_SIDECAR_API_PREFIX: ${TA3000_SIDECAR_API_PREFIX:-v1}
+    ports:
+      - "8088:8088"
+    volumes:
+      - ../../..:/workspace:ro
+    depends_on:
+      stocksharp-sidecar-gateway:
+        condition: service_started
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8088/ready', timeout=2).status == 200 else 1)"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - ta3000-staging-gateway
+
+  stocksharp-sidecar-gateway:
+    image: python:3.12-slim
+    container_name: ta3000-stocksharp-sidecar-gateway
+    working_dir: /opt/gateway
+    command: ["python", "sidecar_gateway_stub.py"]
+    environment:
+      TA3000_GATEWAY_HOST: 0.0.0.0
+      TA3000_GATEWAY_PORT: "18081"
+      TA3000_GATEWAY_KILL_SWITCH: ${TA3000_GATEWAY_KILL_SWITCH:-0}
+      TA3000_GATEWAY_ROUTE: ${TA3000_GATEWAY_ROUTE:-stocksharp->quik->finam}
+    volumes:
+      - ./gateway/sidecar_gateway_stub.py:/opt/gateway/sidecar_gateway_stub.py:ro
+    ports:
+      - "18081:18081"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:18081/ready', timeout=2).status == 200 else 1)"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 8s
+    restart: unless-stopped
+    networks:
+      - ta3000-staging-gateway
+
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    container_name: ta3000-prometheus-staging-gateway
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    ports:
+      - "9092:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-staging-data:/prometheus
+    depends_on:
+      runtime-profile:
+        condition: service_started
+      stocksharp-sidecar-gateway:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - ta3000-staging-gateway
+
+volumes:
+  prometheus-staging-data:
+
+networks:
+  ta3000-staging-gateway:
+    driver: bridge

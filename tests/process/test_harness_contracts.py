@@ -13,10 +13,15 @@ REQUIRED_HARNESS_FILES = (
     "scripts/measure_dev_loop.py",
     "scripts/harness_baseline_metrics.py",
     "scripts/build_governance_dashboard.py",
+    "scripts/run_phase8_operational_proving.py",
     "scripts/skill_update_decision.py",
     "scripts/skill_precommit_gate.py",
     "scripts/sync_architecture_map.py",
     "scripts/nightly_root_hygiene.py",
+    "scripts/validate_mcp_config.py",
+    "scripts/mcp_preflight_smoke.py",
+    "scripts/validate_no_tracked_secrets.py",
+    "scripts/run_staging_real_execution_rollout.py",
 )
 
 
@@ -30,12 +35,15 @@ def test_phase8_dashboard_lane_scripts_are_registered_in_mapping() -> None:
     assert "build_governance_dashboard.py" in mapping_text
     assert "harness_baseline_metrics.py" in mapping_text
     assert "measure_dev_loop.py" in mapping_text
+    assert "validate_mcp_config.py" in mapping_text
+    assert "validate_no_tracked_secrets.py" in mapping_text
 
 
 def test_ci_workflow_has_hosted_ci_opt_in_guard() -> None:
     workflow_text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     assert "AI_SHELL_ENABLE_HOSTED_CI" in workflow_text
     assert "vars.AI_SHELL_ENABLE_HOSTED_CI == '1'" in workflow_text
+    assert "MCP Governance Contract" in workflow_text
 
 
 def test_skill_update_decision_contract() -> None:

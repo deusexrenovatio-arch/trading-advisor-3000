@@ -77,6 +77,8 @@ command_profiles:
       - "{python} scripts/validate_task_request_contract.py"
       - "{python} scripts/validate_pr_only_policy.py"
       - "{python} scripts/validate_agent_contexts.py"
+      - "{python} scripts/validate_mcp_config.py"
+      - "{python} scripts/validate_no_tracked_secrets.py"
     skills:
       - "{python} scripts/skill_precommit_gate.py"
       - "{python} scripts/validate_skills.py"
@@ -100,6 +102,8 @@ command_profiles:
       - "{python} scripts/run_pr_gate.py --skip-session-check"
       - "{python} scripts/validate_process_regressions.py"
       - "{python} scripts/nightly_root_hygiene.py"
+      - "{python} scripts/validate_mcp_config.py"
+      - "{python} scripts/validate_no_tracked_secrets.py"
       - "{python} scripts/sync_state_layout.py"
       - "{python} scripts/measure_dev_loop.py --format markdown --output artifacts/dev-loop-baseline.md"
       - "{python} scripts/validate_architecture_policy.py"
