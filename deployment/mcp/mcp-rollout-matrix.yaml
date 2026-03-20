@@ -7,6 +7,7 @@ servers:
     auth_model: "github_token_env"
     required_env:
       - "TA3000_MCP_GITHUB_TOKEN"
+      - "GITHUB_PERSONAL_ACCESS_TOKEN"
     limitations:
       - "Repository-scoped access only"
       - "No admin-scope tokens"
@@ -24,9 +25,8 @@ servers:
       - "Docs-only access"
       - "No write operations"
     expected_health_probe:
-      mode: "cli_help"
-      args:
-        - "--help"
+      mode: "http_reachability"
+      args: []
 
   docker:
     wave: "wave2"

@@ -17,15 +17,14 @@ servers = ["github", "openai_docs", "docker", "dagster", "postgres_readonly", "d
 
 [mcp_servers.github]
 command = "docker"
-args = ["run", "--rm", "-i", "ghcr.io/github/github-mcp-server"]
-required_env = ["TA3000_MCP_GITHUB_TOKEN"]
+args = ["run", "--rm", "-i", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "ghcr.io/github/github-mcp-server", "stdio"]
+required_env = ["TA3000_MCP_GITHUB_TOKEN", "GITHUB_PERSONAL_ACCESS_TOKEN"]
 health_probe_args = ["--help"]
 
 [mcp_servers.openai_docs]
-command = "npx"
-args = ["-y", "@openai/docs-mcp"]
+url = "https://developers.openai.com/mcp"
 required_env = []
-health_probe_args = ["--help"]
+health_probe_args = []
 
 [mcp_servers.docker]
 command = "docker"
@@ -35,7 +34,7 @@ health_probe_args = ["--help"]
 
 [mcp_servers.dagster]
 command = "uvx"
-args = ["dagster", "mcp"]
+args = ["dagster-mcp"]
 required_env = ["TA3000_MCP_DAGSTER_WORKSPACE"]
 health_probe_args = ["--help"]
 
@@ -47,6 +46,6 @@ health_probe_args = ["--help"]
 
 [mcp_servers.duckdb]
 command = "npx"
-args = ["-y", "@modelcontextprotocol/server-duckdb", "${TA3000_MCP_DUCKDB_PATH}"]
+args = ["-y", "mcp-duckdb-local", "--db-path", "${TA3000_MCP_DUCKDB_PATH}"]
 required_env = ["TA3000_MCP_DUCKDB_PATH"]
 health_probe_args = ["--help"]

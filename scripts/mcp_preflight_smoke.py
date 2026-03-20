@@ -4,10 +4,12 @@ import argparse
 import json
 import os
 import shutil
+import socket
 import subprocess
 import tomllib
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import yaml
 
@@ -15,6 +17,34 @@ import yaml
 DEFAULT_CONFIG = Path("deployment/mcp/config.template.toml")
 DEFAULT_MATRIX = Path("deployment/mcp/mcp-rollout-matrix.yaml")
 DEFAULT_PROFILE = "ops"
+
+
+def _resolve_command_path(command: str) -> str | None:
+    if os.name == "nt":
+        command = command.strip()
+        if not command:
+            return None
+        if "." in Path(command).name:
+            return shutil.which(command)
+        for ext in (".exe", ".cmd", ".bat", ".com", ""):
+            candidate = f"{command}{ext}"
+            resolved = shutil.which(candidate)
+            if resolved:
+                return resolved
+        return None
+    return shutil.which(command)
+
+
+def _probe_url_reachability(url_value: str, timeout_sec: float) -> tuple[bool, str | None]:
+    parsed = urlparse(url_value)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return False, "invalid url format"
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        with socket.create_connection((parsed.hostname, port), timeout=timeout_sec):
+            return True, None
+    except OSError as exc:
+        return False, str(exc)
 
 
 def _load_toml(path: Path) -> dict[str, Any]:
@@ -69,6 +99,9 @@ def run_preflight(
             "status": "ok",
             "missing_env": [],
             "command_available": False,
+            "resolved_command": None,
+            "transport": "unknown",
+            "url_reachable": None,
             "probe_executed": False,
             "probe_return_code": None,
         }
@@ -86,16 +119,19 @@ def run_preflight(
             continue
 
         command = str(config_entry.get("command", "")).strip()
+        url_value = str(config_entry.get("url", "")).strip()
         args = config_entry.get("args", [])
         required_env = matrix_entry.get("required_env", [])
-        if not command:
+        has_command = bool(command)
+        has_url = bool(url_value)
+        if has_command == has_url:
             row["status"] = "failed"
-            errors.append(f"{server_id}: empty command")
+            errors.append(f"{server_id}: expected exactly one transport configuration (command or url)")
             rows.append(row)
             continue
-        if not isinstance(args, list) or not all(isinstance(item, str) for item in args):
+        if args is not None and (not isinstance(args, list) or not all(isinstance(item, str) for item in args)):
             row["status"] = "failed"
-            errors.append(f"{server_id}: args must be list[str]")
+            errors.append(f"{server_id}: args must be list[str] when provided")
             rows.append(row)
             continue
         if not isinstance(required_env, list) or not all(isinstance(item, str) for item in required_env):
@@ -110,29 +146,62 @@ def run_preflight(
             row["status"] = "failed"
             errors.append(f"{server_id}: missing env vars: {', '.join(missing_env)}")
 
-        row["command_available"] = shutil.which(command) is not None
-        if not row["command_available"]:
-            row["status"] = "failed"
-            errors.append(f"{server_id}: command not found in PATH: {command}")
-
-        if probe_commands and row["command_available"]:
-            probe_args = config_entry.get("health_probe_args", [])
-            if not isinstance(probe_args, list) or not all(isinstance(item, str) for item in probe_args):
+        if has_command:
+            row["transport"] = "stdio"
+            if not isinstance(args, list):
                 row["status"] = "failed"
-                errors.append(f"{server_id}: health_probe_args must be list[str]")
-            else:
-                row["probe_executed"] = True
-                completed = subprocess.run(
-                    [command, *probe_args],
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                    timeout=command_timeout_sec,
-                )
-                row["probe_return_code"] = int(completed.returncode)
-                if completed.returncode != 0:
+                errors.append(f"{server_id}: args must be list[str] for command transport")
+                rows.append(row)
+                continue
+            resolved_command = _resolve_command_path(command)
+            row["resolved_command"] = resolved_command
+            row["command_available"] = resolved_command is not None
+            if not row["command_available"]:
+                row["status"] = "failed"
+                errors.append(f"{server_id}: command not found in PATH: {command}")
+
+            if probe_commands and row["command_available"]:
+                probe_args = config_entry.get("health_probe_args", [])
+                if not isinstance(probe_args, list) or not all(isinstance(item, str) for item in probe_args):
                     row["status"] = "failed"
-                    errors.append(f"{server_id}: probe command failed with code {completed.returncode}")
+                    errors.append(f"{server_id}: health_probe_args must be list[str]")
+                else:
+                    row["probe_executed"] = True
+                    try:
+                        completed = subprocess.run(
+                            [str(resolved_command), *probe_args],
+                            check=False,
+                            capture_output=True,
+                            text=True,
+                            timeout=command_timeout_sec,
+                        )
+                        row["probe_return_code"] = int(completed.returncode)
+                        if completed.returncode != 0:
+                            row["status"] = "failed"
+                            errors.append(f"{server_id}: probe command failed with code {completed.returncode}")
+                    except subprocess.TimeoutExpired:
+                        row["status"] = "failed"
+                        row["probe_return_code"] = -1
+                        errors.append(f"{server_id}: probe command timed out after {command_timeout_sec:.1f}s")
+            rows.append(row)
+            continue
+
+        row["transport"] = "streamable_http"
+        parsed_url = urlparse(url_value)
+        if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+            row["status"] = "failed"
+            errors.append(f"{server_id}: invalid url transport entry: {url_value}")
+            rows.append(row)
+            continue
+        row["command_available"] = True
+        if probe_commands:
+            row["probe_executed"] = True
+            reachable, reason = _probe_url_reachability(url_value, command_timeout_sec)
+            row["url_reachable"] = reachable
+            row["probe_return_code"] = 0 if reachable else 1
+            if not reachable:
+                row["status"] = "failed"
+                errors.append(f"{server_id}: url probe failed: {reason}")
 
         rows.append(row)
 

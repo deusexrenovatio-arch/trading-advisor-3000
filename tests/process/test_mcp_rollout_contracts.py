@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 import sys
+import threading
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts"
+DEPLOYMENT_MCP = ROOT / "deployment" / "mcp"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
+if str(DEPLOYMENT_MCP) not in sys.path:
+    sys.path.insert(0, str(DEPLOYMENT_MCP))
 
+from bootstrap_mcp_config import merge_home_config_data  # noqa: E402
 from mcp_preflight_smoke import run_preflight  # noqa: E402
 from validate_mcp_config import validate as validate_mcp_config  # noqa: E402
 from validate_no_tracked_secrets import validate as validate_no_tracked_secrets  # noqa: E402
@@ -163,6 +170,165 @@ def test_mcp_preflight_fails_when_server_command_is_not_available(tmp_path: Path
     assert exit_code == 1
     assert payload["status"] == "failed"
     assert any("command not found in PATH" in row for row in payload["errors"])
+
+
+def test_mcp_config_validation_accepts_url_transport_entry(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.toml"
+    matrix_path = tmp_path / "matrix.yaml"
+    runbook_path = tmp_path / "runbook.md"
+    runbook_path.write_text("openai_docs\n", encoding="utf-8")
+    config_path.write_text(
+        "\n".join(
+            [
+                "[project]",
+                "require_trusted = true",
+                "",
+                "[profiles.base]",
+                'servers = ["openai_docs"]',
+                "[profiles.ops]",
+                'servers = ["openai_docs"]',
+                "[profiles.data_readonly]",
+                'servers = ["openai_docs"]',
+                "",
+                "[mcp_servers.openai_docs]",
+                'url = "https://developers.openai.com/mcp"',
+                "required_env = []",
+                "health_probe_args = []",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    matrix_path.write_text(
+        "\n".join(
+            [
+                "servers:",
+                "  openai_docs:",
+                "    required_env: []",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    errors, report = validate_mcp_config(
+        config_path=config_path,
+        matrix_path=matrix_path,
+        runbook_path=runbook_path,
+    )
+    assert errors == []
+    assert report["errors_total"] == 0
+
+
+@contextmanager
+def _probe_server() -> str:
+    class _Handler(BaseHTTPRequestHandler):
+        def do_HEAD(self) -> None:  # noqa: N802
+            self.send_response(204)
+            self.end_headers()
+
+        def log_message(self, _format: str, *_args: object) -> None:  # noqa: A003
+            return None
+
+    server = HTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}/mcp"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2.0)
+
+
+def test_mcp_preflight_supports_url_transport_probe(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.toml"
+    matrix_path = tmp_path / "matrix.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "[profiles.base]",
+                'servers = ["openai_docs"]',
+                "",
+                "[mcp_servers.openai_docs]",
+                'url = "http://127.0.0.1:1/placeholder"',
+                "required_env = []",
+                "health_probe_args = []",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    matrix_path.write_text(
+        "\n".join(
+            [
+                "servers:",
+                "  openai_docs:",
+                "    required_env: []",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with _probe_server() as server_url:
+        config_path.write_text(
+            config_path.read_text(encoding="utf-8").replace(
+                "http://127.0.0.1:1/placeholder",
+                server_url,
+            ),
+            encoding="utf-8",
+        )
+        exit_code, payload = run_preflight(
+            config_path=config_path,
+            matrix_path=matrix_path,
+            profile="base",
+            env={},
+            strict_env_check=True,
+            probe_commands=True,
+            command_timeout_sec=2.0,
+        )
+
+    assert exit_code == 0
+    assert payload["status"] == "ok"
+    assert payload["servers"][0]["transport"] == "streamable_http"
+    assert payload["servers"][0]["url_reachable"] is True
+
+
+def test_merge_home_config_data_preserves_existing_user_settings() -> None:
+    home_config = {
+        "model": "gpt-5.4",
+        "personality": "friendly",
+        "windows": {"sandbox": "elevated"},
+        "mcp_servers": {
+            "github": {
+                "command": "docker",
+                "args": ["run", "legacy-github"],
+            }
+        },
+    }
+    source_config = {
+        "project": {"name": "trading-advisor-3000"},
+        "mcp_servers": {
+            "github": {
+                "command": "docker",
+                "args": ["run", "--rm", "github-mcp"],
+            },
+            "openai_docs": {
+                "url": "https://developers.openai.com/mcp",
+            },
+        },
+    }
+
+    merged = merge_home_config_data(
+        home_config=home_config,
+        source_config=source_config,
+    )
+
+    assert merged["model"] == "gpt-5.4"
+    assert merged["windows"]["sandbox"] == "elevated"
+    assert merged["mcp_servers"]["github"]["args"] == ["run", "--rm", "github-mcp"]
+    assert merged["mcp_servers"]["openai_docs"]["url"] == "https://developers.openai.com/mcp"
 
 
 def test_tracked_secret_validator_detects_hardcoded_token_pattern(tmp_path: Path) -> None:
