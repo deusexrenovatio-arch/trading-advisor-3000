@@ -5,6 +5,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib import request as urllib_request
 
 from .registry import DataProviderRegistry, DataProviderSpec
 
@@ -178,7 +179,7 @@ def default_phase9_provider_contracts() -> dict[str, Phase9ProviderContract]:
             provider_id="moex-history",
             external_system="MOEX",
             role="historical_source",
-            transport_kind="batch-jsonl-import",
+            transport_kind="moex-iss-http",
             required_env_names=(),
             freshness_window_seconds=None,
             session_timezone="Europe/Moscow",
@@ -190,7 +191,7 @@ def default_phase9_provider_contracts() -> dict[str, Phase9ProviderContract]:
             provider_id="quik-live",
             external_system="QUIK",
             role="live_feed",
-            transport_kind="snapshot-import",
+            transport_kind="quik-json-snapshot",
             required_env_names=(),
             freshness_window_seconds=90,
             session_timezone="Europe/Moscow",
@@ -250,10 +251,9 @@ def build_phase9_dataset_version(
     )
 
 
-def load_phase9_live_snapshot(
-    path: Path,
+def _parse_phase9_live_snapshot_payload(
+    payload: object,
 ) -> tuple[str | None, list[Phase9LiveFeedObservation]]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
     provider_id: str | None = None
     rows_payload: object
     if isinstance(payload, dict):
@@ -267,6 +267,28 @@ def load_phase9_live_snapshot(
         raise ValueError("live snapshot rows must be a list")
     rows = [Phase9LiveFeedObservation.from_dict(item) for item in rows_payload]
     return provider_id, rows
+
+
+def load_phase9_live_snapshot(
+    path: Path,
+) -> tuple[str | None, list[Phase9LiveFeedObservation]]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return _parse_phase9_live_snapshot_payload(payload)
+
+
+def load_phase9_live_snapshot_from_url(
+    url: str,
+    *,
+    timeout_seconds: float = 10.0,
+) -> tuple[str | None, list[Phase9LiveFeedObservation]]:
+    request = urllib_request.Request(
+        url=url,
+        method="GET",
+        headers={"Accept": "application/json"},
+    )
+    with urllib_request.urlopen(request, timeout=timeout_seconds) as response:
+        payload = json.load(response)
+    return _parse_phase9_live_snapshot_payload(payload)
 
 
 def evaluate_phase9_live_smoke(
