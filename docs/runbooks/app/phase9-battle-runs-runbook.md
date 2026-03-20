@@ -156,14 +156,20 @@ Check:
 - reconciliation after each cycle
 - kill-switch path proven
 
-## Target commands to add in Phase 9
+## Landed WS-A commands
 
-These commands are target interfaces for later code phases.
-They are documented here; they are not assumed to exist yet.
+These commands are now implemented for the Phase 9 data-foundation workstream.
 
 ```bash
-python scripts/run_phase9_provider_bootstrap.py --provider moex --universe <file>
-python scripts/run_phase9_real_data_smoke.py --provider quik --universe <file>
+python scripts/run_phase9_provider_bootstrap.py --provider moex-history --source-path <jsonl> --output-dir <dir>
+python scripts/run_phase9_real_data_smoke.py --provider quik-live --snapshot-path <json> --as-of-ts <ts>
+```
+
+## Target commands to add in later Phase 9 workstreams
+
+The remaining commands stay planned until the next workstreams land.
+
+```bash
 python scripts/run_phase9_strategy_replay.py --strategy <strategy_id> --dataset <dataset_version>
 python scripts/run_phase9_shadow_signal_smoke.py --channel shadow --duration 1h
 python scripts/run_phase9_battle_run.py --mode advisory --duration 1d
