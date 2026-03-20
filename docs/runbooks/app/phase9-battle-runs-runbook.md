@@ -161,6 +161,7 @@ Check:
 These commands are now implemented for the Phase 9 data-foundation workstream.
 
 ```bash
+python scripts/build_phase9_quik_connector.py
 python scripts/run_phase9_provider_bootstrap.py --provider moex-history --from-date 2026-03-16 --till-date 2026-03-16 --output-dir artifacts/phase9-moex
 python scripts/run_phase9_provider_bootstrap.py --provider moex-history --source-path <jsonl> --output-dir <dir>
 python scripts/run_phase9_real_data_smoke.py --provider quik-live --snapshot-path <json> --as-of-ts <ts>
@@ -170,6 +171,7 @@ python scripts/run_phase9_real_data_smoke.py --provider quik-live --snapshot-url
 ### WS-A external mode notes
 - historical path can now fetch from real `MOEX ISS` over HTTP
 - live smoke can now consume a real `QUIK` snapshot/export surface from either a file or an HTTP URL
+- local `QUIK` can now be wired through a generated `Lua` export script under `deployment/quik-live-feed/`
 - fixture import remains available for deterministic local replay and contract checks
 
 ## Target commands to add in later Phase 9 workstreams

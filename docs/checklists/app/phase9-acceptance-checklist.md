@@ -29,8 +29,10 @@
 - [ ] `QUIK` freshness rule landed
 - [ ] `python scripts/run_phase9_provider_bootstrap.py ...` landed
 - [ ] `python scripts/run_phase9_real_data_smoke.py ...` landed
+- [ ] `python scripts/build_phase9_quik_connector.py` landed
 - [ ] `MOEX ISS` external fetch path landed
 - [ ] `QUIK` live snapshot file or URL path landed
+- [ ] local `QUIK Lua` export path landed
 - [ ] 5 consecutive refresh cycles green
 
 ## Phase 9A - strategy and runtime
