@@ -12,6 +12,13 @@ from .moex_iss import (
     derive_moex_secid,
     fetch_moex_historical_bars,
 )
+from .quik_connector import (
+    Phase9QuikConnectorConfig,
+    QuikConnectorBinding,
+    default_phase9_quik_connector_config,
+    render_phase9_quik_lua_script,
+    write_phase9_quik_connector_bundle,
+)
 from .phase9 import (
     KNOWN_SESSION_STATES,
     PHASE9_PROVIDER_ROLES,
@@ -50,4 +57,9 @@ __all__ = [
     "load_phase9_live_snapshot",
     "load_phase9_live_snapshot_from_url",
     "phase9_data_provider_registry",
+    "Phase9QuikConnectorConfig",
+    "QuikConnectorBinding",
+    "default_phase9_quik_connector_config",
+    "render_phase9_quik_lua_script",
+    "write_phase9_quik_connector_bundle",
 ]
