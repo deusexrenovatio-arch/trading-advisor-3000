@@ -2,9 +2,10 @@
 
 ## Purpose
 This repository is the control plane for AI-first delivery of Trading Advisor 3000.
-It defines process, governance, validation, and durable development state.
+It defines process, governance, validation, and durable development state for the shell layer.
 
-Business and trading logic are out of scope for this shell baseline.
+The same repository also contains isolated product-plane code, tests, and app-specific documentation.
+Business and trading logic remain out of scope for the shell layer itself and must not leak into shell control-plane surfaces.
 
 ## Non-Negotiable Rules
 1. Do not port domain-specific trading logic into the shell layer.
@@ -30,6 +31,9 @@ Business and trading logic are out of scope for this shell baseline.
 - `docs/workflows/README.md`
 - `docs/runbooks/README.md`
 - `docs/architecture/README.md`
+- `docs/architecture/app/STATUS.md`
+- `docs/architecture/app/CONTRACT_SURFACES.md`
+- `docs/runbooks/app/bootstrap.md`
 
 ### Cold (do not load by default)
 - `codex_ai_delivery_shell_package/**`
@@ -41,7 +45,7 @@ Business and trading logic are out of scope for this shell baseline.
 ## Phase-Aware Delivery Loop
 ### Phase 1 baseline
 1. Read hot docs.
-2. Confirm change surface and no domain contamination.
+2. Confirm change surface and keep domain logic out of shell files.
 3. Implement one small patch set.
 4. Run checks from `docs/agent/checks.md`.
 5. Prepare PR-oriented change summary.
@@ -61,5 +65,5 @@ Business and trading logic are out of scope for this shell baseline.
 3. If the same failure repeats twice, stop expansion and perform remediation before continuing.
 
 ## Phase Status
-- Active scope: Phase 0 through Phase 8 (shell baseline).
-- The repository remains process/governance focused and intentionally excludes product business logic.
+- Active scope: Phase 0 through Phase 8 for the shell baseline, with product-plane implementation now present under isolated app paths.
+- The shell layer remains process/governance focused and intentionally excludes product business logic from shell surfaces.

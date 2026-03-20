@@ -260,11 +260,11 @@ CONTEXTS: tuple[ContextSpec, ...] = (
     ),
     ContextSpec(
         context_id="CTX-DOMAIN",
-        summary="Domain-only internals not covered by data/research/runtime/interface contexts.",
+        summary="Residual app-plane internals and package metadata not covered by data/research/runtime/interface contexts.",
         owned_paths=(
             "docs/agent-contexts/CTX-DOMAIN.md",
             "src/trading_advisor_3000/app/domain/",
-            "tests/app/test_app_placeholder.py",
+            "tests/app/test_app_plane_metadata.py",
         ),
         guarded_paths=("docs/architecture/", "scripts/"),
         source_of_truth=(
@@ -273,7 +273,7 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         ),
         minimal_checks=(
             "python scripts/run_loop_gate.py --from-git --git-ref HEAD",
-            "python -m pytest tests/app/test_app_placeholder.py -q",
+            "python -m pytest tests/app/test_app_plane_metadata.py -q",
         ),
         intent_keywords=("domain", "core behavior", "business rules"),
     ),

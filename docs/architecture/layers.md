@@ -18,7 +18,7 @@
 - `memory/{decisions,incidents,patterns}/*` (canonical)
 - `memory/agent_memory.yaml` and `memory/task_outcomes.yaml` (compatibility)
 
-## Layer 4: Placeholder Application
+## Layer 4: Application Plane
 - `src/trading_advisor_3000/*`
 - `tests/app/*`
 

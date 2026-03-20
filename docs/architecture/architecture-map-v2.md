@@ -1,5 +1,5 @@
 <!-- generated-by: scripts/sync_architecture_map.py -->
-<!-- generated-at: 2026-03-16 -->
+<!-- generated-at: 2026-03-20 -->
 # Architecture Map v2
 
 ```mermaid
@@ -13,7 +13,7 @@ flowchart TB
   L3 --> L4
   L5["L5 - Reporting and Governance Analytics Layer"]
   L4 --> L5
-  L6["L6 - Application Placeholder Layer"]
+  L6["L6 - Application Plane Layer"]
   L5 --> L6
   E0["Entity Registry"]
   E1["TaskSession"]

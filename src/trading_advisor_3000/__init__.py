@@ -1,4 +1,4 @@
-"""Trading Advisor 3000 placeholder application package."""
+"""Trading Advisor 3000 application-plane package."""
 
 from __future__ import annotations
 

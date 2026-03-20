@@ -4,13 +4,13 @@
 Trading Advisor 3000 uses an AI delivery shell as the control plane for how work is requested, executed, validated, and closed.
 
 The shell governs process quality and repository state.
-It does not implement trading business behavior in this baseline.
+It does not implement trading business behavior inside shell surfaces.
 
 ## System split
 1. Control Plane:
    governance policy, lifecycle scripts, validators, gates, plans, memory, and reporting.
 2. Application Plane:
-   placeholder package `src/trading_advisor_3000` with neutral metadata contract only.
+   isolated product/application plane under app paths, with code, contracts, tests, and app-specific docs.
 
 ## Design decisions
 1. PR-only mainline with explicit emergency override variables.

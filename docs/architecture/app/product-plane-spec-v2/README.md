@@ -14,7 +14,7 @@
 - surface-aware gates: `run_loop_gate.py`, `run_pr_gate.py`, `run_nightly_gate.py`;
 - durable state в `plans/*` и `memory/*`;
 - локальные skills в `.cursor/skills/*`;
-- placeholder application package `src/trading_advisor_3000/*`.
+- application-plane package `src/trading_advisor_3000/*`.
 
 PR `#1` дополнительно описывает целевое усиление shell:
 - split CI lanes: `loop`, `pr`, `nightly`, `dashboard-refresh`;
