@@ -1,0 +1,17 @@
+{
+  "provider_id": "quik-live",
+  "rows": [
+    {
+      "contract_id": "BR-6.26",
+      "event_ts": "2026-03-20T07:00:10Z",
+      "session_state": "open",
+      "last_price": 82.6
+    },
+    {
+      "contract_id": "Si-6.26",
+      "event_ts": "2026-03-20T07:00:15Z",
+      "session_state": "open",
+      "last_price": 104330.0
+    }
+  ]
+}

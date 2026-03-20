@@ -1,0 +1,11 @@
+{
+  "provider_id": "quik-live",
+  "rows": [
+    {
+      "contract_id": "BR-6.26",
+      "event_ts": "2026-03-20T06:55:00Z",
+      "session_state": "open",
+      "last_price": 82.6
+    }
+  ]
+}
