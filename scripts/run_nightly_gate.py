@@ -85,6 +85,13 @@ def main() -> int:
         return pr_code
 
     commands = [command for command in surface["commands"]["nightly"] if "scripts/run_pr_gate.py" not in command]
+    if surface["docs_only"]:
+        # Docs-only changes should not fail nightly on global KPI drift unrelated to the current diff.
+        commands = [
+            command
+            for command in commands
+            if "scripts/validate_process_regressions.py" not in command
+        ]
     code, failed_command = run_commands(commands)
     write_summary(
         summary_file=args.summary_file,
