@@ -27,6 +27,8 @@
 - [ ] dataset versioning rule landed
 - [ ] roll/session note landed
 - [ ] `QUIK` freshness rule landed
+- [ ] `python scripts/run_phase9_provider_bootstrap.py ...` landed
+- [ ] `python scripts/run_phase9_real_data_smoke.py ...` landed
 - [ ] 5 consecutive refresh cycles green
 
 ## Phase 9A - strategy and runtime
