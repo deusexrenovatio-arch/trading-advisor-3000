@@ -71,8 +71,8 @@ Builds measurable evidence for process health and regressions.
 ### Allowed dependencies
 - Aggregates data from L3 and signals from L4.
 
-## L6 - Application Placeholder Layer
-Holds neutral application shell without domain behavior.
+## L6 - Application Plane Layer
+Holds isolated application/product-plane code, contracts, and app-facing runtime surfaces.
 
 ### Assets
 - `src/trading_advisor_3000/*`

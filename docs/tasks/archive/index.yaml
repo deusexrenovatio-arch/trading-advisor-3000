@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-03-18'
+updated_at: '2026-03-20'
 items:
 - id: TASK-2026-03-16-SHELL-BOOTSTRAP
   path: docs/tasks/archive/TASK-2026-03-16-shell-bootstrap.md
@@ -109,3 +109,9 @@ items:
   status: completed
   started_at: '2026-03-18'
   completed_at: '2026-03-18'
+- id: TASK-2026-03-20-ALIGN-TOP-LEVEL-DOCS-WITH-REAL-PRODUCT-PLANE-PRE
+  path: docs/tasks/archive/TASK-2026-03-20-align-top-level-docs-with-real-product-plane-pre.md
+  mode: full
+  status: completed
+  started_at: '2026-03-20'
+  completed_at: '2026-03-20'

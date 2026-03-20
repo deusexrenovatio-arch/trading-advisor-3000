@@ -16,6 +16,6 @@
 - Owns local generic skills and routing policy.
 - Baseline excludes domain-specialized skills.
 
-## App Placeholder Module
-- Owns minimal package skeleton only.
-- No domain strategy or exchange-specific logic allowed.
+## App Plane Module
+- Owns isolated application/product-plane code and app-specific tests.
+- Must not leak shell-sensitive behavior back into governance surfaces.

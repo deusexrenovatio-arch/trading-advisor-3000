@@ -13,7 +13,7 @@
 - loop / PR / nightly gates
 - durable plans and memory
 - local `.cursor/skills/*`
-- `src/trading_advisor_3000/*` как placeholder application plane
+- `src/trading_advisor_3000/*` как application plane внутри общего репозитория
 
 ## 2. Что добавляет PR #1 как целевое shell-hardening состояние
 
@@ -56,14 +56,16 @@ Product разрабатывается в изолированных путях:
 - `docs/architecture/app/*` — архитектура платформы сигналов;
 - `docs/architecture/shared/*` — только при явной необходимости.
 
-### 3.5 `APP-PLACEHOLDER` — текущая shell surface для product code
-До тех пор пока shell surface taxonomy не будет расширена, продуктовые изменения внутри `src/trading_advisor_3000/*` и `tests/app/*` фактически проходят через существующий surface `APP-PLACEHOLDER`.
-Это допустимо на старте.
+### 3.5 `APP-PLANE` — umbrella surface для исторического/spec-level описания product code
+Пока shell surface taxonomy обсуждается на уровне product-plane spec и historical records, продуктовые изменения внутри `src/trading_advisor_3000/*` и `tests/app/*` можно описывать через umbrella surface `APP-PLANE`.
+Это уже не placeholder-термин, а нейтральное имя для application/product plane.
 После стабилизации Phase 1 можно вынести отдельный governance patch на более точную product surface taxonomy:
 - `APP-DATA`
 - `APP-RESEARCH`
 - `APP-RUNTIME`
 - `APP-EXECUTION`
+
+На актуальном `main` живая маршрутизация уже finer-grained и идёт через `CTX-DATA`, `CTX-RESEARCH`, `CTX-ORCHESTRATION`, `CTX-API-UI` и `CTX-DOMAIN`.
 
 ## 4. Предлагаемая стратегия внедрения
 

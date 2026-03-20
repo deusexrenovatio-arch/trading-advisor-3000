@@ -7,9 +7,13 @@
 4. `docs/agent/runtime.md`
 5. `docs/DEV_WORKFLOW.md`
 
+If the task touches the product plane, also read:
+1. `docs/architecture/app/STATUS.md`
+2. `docs/architecture/app/CONTRACT_SURFACES.md`
+
 ## Startup checklist
-1. Confirm task belongs to AI delivery shell scope.
-2. Confirm no business/domain logic is being imported.
+1. Confirm the task change surface: shell, product plane, or both.
+2. Confirm no business/domain logic is being imported into shell control-plane files.
 3. Start lifecycle: `python scripts/task_session.py begin --request "<request>"`.
 4. Confirm patch set is small and explicit.
 5. Run loop gate before PR prep.
@@ -20,8 +24,10 @@
 - `docs/session_handoff.md` stays a pointer-shim.
 - Skills corpus is cold-by-default; open only targeted skill files by signal.
 - Emergency main push requires explicit neutral variables.
+- Product-plane work is allowed in isolated app paths; shell surfaces stay domain-free.
 
 ## Escalate when
 - one patch mixes multiple high-risk surfaces,
 - the same validation failure repeats twice,
-- runtime entrypoints are missing for the requested flow.
+- runtime entrypoints are missing for the requested flow,
+- the task spans shell and product-plane boundaries and the split is unclear.

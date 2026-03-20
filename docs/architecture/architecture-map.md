@@ -6,7 +6,7 @@ flowchart LR
   B --> C["Durable State"]
   B --> D["Skills Governance"]
   C --> E["Reporting"]
-  B --> F["Placeholder App"]
+  B --> F["Application Plane"]
   F --> G["Process + Architecture Tests"]
   G --> H["CI Lanes"]
 ```

@@ -1,16 +1,18 @@
 ﻿# Development Workflow (AI Delivery Shell)
 
 ## Objective
-Provide a predictable and enforceable workflow for AI-first governance delivery.
+Provide a predictable and enforceable workflow for governance-first delivery in a repository that contains both shell and isolated product-plane surfaces.
 
 ## Canonical loop
 1. Read hot docs (`docs/agent/*`).
-2. Confirm shell-only scope (no domain logic).
+2. Confirm the change surface (`shell`, `product-plane`, or mixed) and keep domain logic out of shell control-plane files.
 3. Start task session: `python scripts/task_session.py begin --request "<request>"`.
 4. Keep task contract current in active task note.
 5. Run loop gate: `python scripts/run_loop_gate.py --from-git --git-ref HEAD`.
 6. Run PR gate before closeout.
 7. Close lifecycle with `python scripts/task_session.py end` when outcome is terminal.
+
+For product-plane tasks, read `docs/architecture/app/STATUS.md` before treating older phase-closure language as current truth.
 
 ## Gate order
 `begin -> task note -> task contract validation -> loop gate -> pr gate -> nightly gate -> dashboard refresh -> end`
@@ -36,6 +38,7 @@ If hosted runners are unavailable, replay lanes locally for acceptance evidence:
 2. No legacy gate aliases.
 3. No manual bypass when enforced scripts exist.
 4. No domain-specific logic inside shell control-plane files.
+5. Product-plane work must stay inside isolated app paths unless a governance change is explicit.
 
 ## Change management policy
 1. One patch set equals one major governance concept.
