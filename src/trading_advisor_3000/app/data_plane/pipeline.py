@@ -5,6 +5,11 @@ from pathlib import Path
 
 from .canonical import build_canonical_dataset, run_data_quality_checks
 from .ingestion import ingest_raw_backfill
+from .providers import (
+    build_phase9_dataset_version,
+    default_phase9_pilot_universe,
+    get_phase9_provider_contract,
+)
 from .schemas import phase2a_delta_schema_manifest
 
 
@@ -88,4 +93,38 @@ def run_sample_backfill(
             "canonical_roll_map": roll_map_output_path.as_posix(),
         },
         "delta_schema_manifest": phase2a_delta_schema_manifest(),
+    }
+
+
+def run_phase9_historical_bootstrap(
+    *,
+    source_path: Path,
+    output_dir: Path,
+    provider_id: str = "moex-history",
+) -> dict[str, object]:
+    provider = get_phase9_provider_contract(provider_id)
+    if provider.role != "historical_source":
+        raise ValueError(f"provider is not configured as historical source: {provider_id}")
+
+    pilot_universe = default_phase9_pilot_universe()
+    if pilot_universe.historical_provider_id != provider_id:
+        raise ValueError("pilot universe historical_provider_id does not match provider_id")
+
+    report = run_sample_backfill(
+        source_path=source_path,
+        output_dir=output_dir,
+        whitelist_contracts=pilot_universe.whitelist_contracts(),
+    )
+    dataset_version = build_phase9_dataset_version(
+        provider_id=provider_id,
+        pilot_universe=pilot_universe,
+        watermark_by_key=dict(report["watermark_by_key"]),
+    )
+    return {
+        **report,
+        "provider": provider.to_dict(),
+        "pilot_universe": pilot_universe.to_dict(),
+        "dataset_version": dataset_version,
+        "source_path": source_path.as_posix(),
+        "output_dir": output_dir.as_posix(),
     }
