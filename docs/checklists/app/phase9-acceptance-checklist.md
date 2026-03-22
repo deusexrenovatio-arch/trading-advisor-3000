@@ -55,6 +55,13 @@
 - [ ] observability snapshots attached
 - [ ] operator review note attached
 
+## Phase 9A - integrated battle-run
+- [ ] `phase9-phase9a-battle-run-integration` note landed
+- [ ] `python scripts/run_phase9_battle_run.py ...` landed
+- [ ] integrated report status is `ready_for_review` on green contour
+- [ ] integrated evidence markdown package is generated
+- [ ] optional 9B boundary evidence stays non-blocking for 9A readiness
+
 ## Phase 9B - execution canary
 - [ ] sidecar delivery manifest landed
 - [ ] `python scripts/run_phase9_sidecar_preflight.py ...` landed

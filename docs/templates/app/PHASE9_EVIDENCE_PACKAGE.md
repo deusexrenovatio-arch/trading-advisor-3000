@@ -5,6 +5,7 @@
 - date range:
 - pilot universe:
 - Phase 9 surface: `9A | 9B`
+- publication posture: `shadow | advisory`
 
 ## 2. External systems used
 
@@ -59,6 +60,7 @@
 - incident note:
 
 ## 9. Verdict
+- integrated battle-run report:
 - Phase 9A: `accepted | rejected`
 - Phase 9B: `accepted | rejected | deferred`
 

@@ -221,12 +221,26 @@ python scripts/run_phase9_sidecar_preflight.py --base-url http://127.0.0.1:18081
 - rollout dry-run is part of reproducibility proof, not an optional extra
 - this still does not count as broker canary evidence
 
+## Landed WS-E commands
+
+These commands are now implemented for the integrated Phase 9A battle-run workstream.
+
+```bash
+python scripts/run_phase9_battle_run.py --output-dir artifacts/phase9-battle-run --bootstrap-report <bootstrap-report.json> --snapshot-path <quik-snapshot.json>
+python scripts/run_phase9_battle_run.py --output-dir artifacts/phase9-battle-run --bootstrap-report <bootstrap-report.json> --snapshot-path <quik-snapshot.json> --mode advisory --sidecar-base-url http://127.0.0.1:18081
+```
+
+### WS-E integration notes
+- integrated status is `ready_for_review` or `blocked`; it does not silently self-upgrade to accepted
+- `advisory` is still a publication posture, not a new runtime signal mode
+- optional sidecar preflight may be attached to the same report, but it does not block 9A readiness
+- missing Phase 8 proving evidence is kept as an explicit warning in the integrated report
+
 ## Target commands to add in later Phase 9 workstreams
 
 The remaining commands stay planned until the next workstreams land.
 
 ```bash
-python scripts/run_phase9_battle_run.py --mode advisory --duration 1d
 python scripts/run_phase9_canary_live_intent.py --base-url http://localhost:18081 --qty 1
 ```
 

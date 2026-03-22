@@ -42,6 +42,7 @@ Phase naming rule:
 - `docs/architecture/app/phase9-moex-breakout-v1-spec.md` - first landed production strategy spec and replay/evidence contract for the pilot universe.
 - `docs/architecture/app/phase9-battle-run-env-contract.md` - explicit WS-C env contract for Telegram, PostgreSQL, and observability-backed battle runs.
 - `docs/architecture/app/phase9-sidecar-delivery-contract.md` - explicit WS-D freeze for delivery mode, readiness probes, and dry-run/canary sequencing.
+- `docs/architecture/app/phase9-phase9a-battle-run-integration.md` - integrated WS-E flow that assembles data, strategy, runtime, and evidence into one Phase 9A run.
 - `docs/architecture/app/phase9-module-dod.md` - module-level closure expectations for each integration surface.
 - `docs/architecture/app/phase9-workstreams-and-patch-sets.md` - workstream order and patch-set discipline.
 - `docs/architecture/app/phase9-mcp-and-secrets-update.md` - MCP and secrets policy update for battle runs.
