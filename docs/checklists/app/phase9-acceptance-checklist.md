@@ -56,7 +56,10 @@
 - [ ] operator review note attached
 
 ## Phase 9B - execution canary
+- [ ] sidecar delivery manifest landed
+- [ ] `python scripts/run_phase9_sidecar_preflight.py ...` landed
 - [ ] actual `StockSharp` delivery mode frozen
+- [ ] dry-run rollout is part of reproducibility evidence
 - [ ] `HTTP sidecar gateway` readiness proof attached
 - [ ] canary evidence attached
 - [ ] reconciliation evidence attached

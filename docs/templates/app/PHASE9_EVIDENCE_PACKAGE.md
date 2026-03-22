@@ -50,6 +50,8 @@
 - dashboard export or screenshot reference:
 
 ## 8. Phase 9B optional execution evidence
+- sidecar delivery manifest:
+- sidecar preflight report:
 - `HTTP gateway` readiness snapshot:
 - `StockSharp` version and build hash:
 - canary report:

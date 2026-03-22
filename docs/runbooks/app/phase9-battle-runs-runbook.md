@@ -206,6 +206,21 @@ python scripts/run_phase9_shadow_signal_smoke.py --output-dir artifacts/phase9-s
 - observability evidence can be exported locally even when live `Prometheus / Loki / Grafana` URLs are still missing
 - advisory Telegram destination remains optional and explicitly named only when used
 
+## Landed WS-D commands
+
+These commands are now implemented for the sidecar delivery preparation workstream.
+
+```bash
+python scripts/run_phase9_sidecar_preflight.py --base-url http://127.0.0.1:18081
+python scripts/run_phase9_sidecar_preflight.py --base-url http://127.0.0.1:18081 --skip-rollout-dry-run
+```
+
+### WS-D delivery notes
+- sidecar delivery mode is now frozen by machine-readable manifest
+- preflight verifies `/health`, `/ready`, and `/metrics` against the frozen route
+- rollout dry-run is part of reproducibility proof, not an optional extra
+- this still does not count as broker canary evidence
+
 ## Target commands to add in later Phase 9 workstreams
 
 The remaining commands stay planned until the next workstreams land.
