@@ -59,6 +59,7 @@ def test_phase9_strategy_replay_script_emits_backtest_replay_and_live_smoke_evid
     assert payload["strategy_spec"]["live_feed"] == "QUIK"
     assert payload["research_summary"]["signal_contracts"] > 0
     assert payload["replay_summary"]["runtime_signal_candidates"] > 0
+    assert len(payload["replay_summary"]["runtime_candidate_rows"]) == payload["replay_summary"]["runtime_signal_candidates"]
     assert payload["live_smoke"]["status"] == "ok"
     assert payload["pilot_readiness"]["status"] == "ready_for_shadow_pilot"
     assert "the evidence window is one-sided and still needs multi-session follow-up" in payload["pilot_readiness"]["warnings"]

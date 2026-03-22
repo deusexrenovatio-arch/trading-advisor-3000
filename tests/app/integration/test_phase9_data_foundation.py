@@ -132,6 +132,8 @@ def test_phase9_provider_bootstrap_script_emits_moex_report(tmp_path: Path) -> N
     assert payload["provider"]["external_system"] == "MOEX"
     assert payload["pilot_universe"]["live_provider_id"] == "quik-live"
     assert payload["canonical_rows"] == 2
+    assert payload["materialization_mode"] == "manifest_only_jsonl_samples"
+    assert payload["materialized_delta_tables"] == []
     assert payload["dataset_version"].startswith("phase9-moex-futures-pilot-moex-history-")
     assert Path(str(payload["output_paths"]["canonical_bars"])).exists()
 
@@ -166,6 +168,7 @@ def test_phase9_provider_bootstrap_script_can_fetch_real_moex_style_http_payload
         assert payload["source_kind"] == "moex-iss"
         assert payload["resolved_secids"] == {"BR-6.26": "BRM6", "Si-6.26": "SiM6"}
         assert payload["canonical_rows"] == 2
+        assert payload["materialization_mode"] == "manifest_only_jsonl_samples"
         assert len(payload["source_urls"]) == 2
 
 

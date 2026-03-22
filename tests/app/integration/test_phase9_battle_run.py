@@ -18,7 +18,7 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[3]
-BARS_FIXTURE = ROOT / "tests" / "app" / "fixtures" / "research" / "canonical_bars_sample.jsonl"
+RAW_BACKFILL_FIXTURE = ROOT / "tests" / "app" / "fixtures" / "data_plane" / "raw_backfill_strategy_ready.jsonl"
 FRESH_SNAPSHOT_FIXTURE = ROOT / "tests" / "app" / "fixtures" / "data_plane" / "quik_live_snapshot_fresh.json"
 
 
@@ -148,27 +148,80 @@ def _sidecar_gateway_server(*, route: str = "stocksharp->quik->finam") -> Iterat
         thread.join(timeout=2)
 
 
-def _write_bootstrap_report(path: Path) -> None:
-    path.write_text(
-        json.dumps(
-            {
-                "dataset_version": "phase9-moex-futures-pilot-moex-history-20260316T093000Z-sample",
-                "output_paths": {
-                    "canonical_bars": str(BARS_FIXTURE),
-                },
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+@contextmanager
+def _telegram_api_server() -> Iterator[tuple[str, list[dict[str, object]]]]:
+    request_log: list[dict[str, object]] = []
+    next_message_id = 1000
+
+    class Handler(BaseHTTPRequestHandler):
+        def _json(self, status: int, payload: dict[str, object]) -> None:
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self) -> None:  # noqa: N802
+            nonlocal next_message_id
+            content_length = int(self.headers.get("Content-Length", "0"))
+            raw = self.rfile.read(content_length).decode("utf-8")
+            payload = json.loads(raw) if raw else {}
+            request_log.append(
+                {
+                    "path": self.path,
+                    "payload": payload,
+                }
+            )
+            if self.path.endswith("/sendMessage"):
+                next_message_id += 1
+                self._json(
+                    200,
+                    {
+                        "ok": True,
+                        "result": {
+                            "message_id": next_message_id,
+                            "chat": {"id": payload.get("chat_id")},
+                            "text": payload.get("text", ""),
+                        },
+                    },
+                )
+                return
+            if self.path.endswith("/editMessageText"):
+                self._json(
+                    200,
+                    {
+                        "ok": True,
+                        "result": {
+                            "message_id": payload.get("message_id"),
+                            "chat": {"id": payload.get("chat_id")},
+                            "text": payload.get("text", ""),
+                        },
+                    },
+                )
+                return
+            self._json(404, {"ok": False, "description": "unknown telegram method"})
+
+        def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.2}, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_port}"
+    try:
+        yield base_url, request_log
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
 
 
 def test_phase9_battle_run_script_integrates_ws_a_to_ws_d_surfaces(tmp_path: Path) -> None:
-    with _postgres_container() as dsn, _sidecar_gateway_server() as base_url:
-        bootstrap_report = tmp_path / "bootstrap.report.json"
-        _write_bootstrap_report(bootstrap_report)
+    with _postgres_container() as dsn, _sidecar_gateway_server() as base_url, _telegram_api_server() as (
+        telegram_base_url,
+        telegram_requests,
+    ):
         env = {
             **dict(os.environ),
             "PYTHONPATH": str(ROOT / "src"),
@@ -181,6 +234,8 @@ def test_phase9_battle_run_script_integrates_ws_a_to_ws_d_surfaces(tmp_path: Pat
             "TA3000_STOCKSHARP_API_KEY": "stocksharp-secret-001",
             "TA3000_FINAM_API_TOKEN": "finam-secret-001",
             "TA3000_APP_DSN": dsn,
+            "TA3000_TELEGRAM_TRANSPORT": "bot-api",
+            "TA3000_TELEGRAM_API_BASE_URL": telegram_base_url,
             "TA3000_TELEGRAM_BOT_TOKEN": "telegram-bot-token-001",
             "TA3000_TELEGRAM_SHADOW_CHANNEL": "@ta3000_shadow",
             "TA3000_TELEGRAM_ADVISORY_CHANNEL": "@ta3000_advisory",
@@ -191,8 +246,8 @@ def test_phase9_battle_run_script_integrates_ws_a_to_ws_d_surfaces(tmp_path: Pat
                 "scripts/run_phase9_battle_run.py",
                 "--output-dir",
                 str(tmp_path / "phase9-battle-run"),
-                "--bootstrap-report",
-                str(bootstrap_report),
+                "--source-path",
+                str(RAW_BACKFILL_FIXTURE),
                 "--snapshot-path",
                 str(FRESH_SNAPSHOT_FIXTURE),
                 "--as-of-ts",
@@ -214,12 +269,22 @@ def test_phase9_battle_run_script_integrates_ws_a_to_ws_d_surfaces(tmp_path: Pat
         assert result.returncode == 0, result.stdout + "\n" + result.stderr
         payload = json.loads(result.stdout)
         assert payload["phase9a_status"] == "ready_for_review"
+        assert payload["bootstrap"]["source_path"].endswith("raw_backfill_strategy_ready.jsonl")
+        assert payload["bootstrap"]["materialization_mode"] == "manifest_only_jsonl_samples"
         assert payload["strategy_replay"]["live_smoke"]["status"] == "ok"
+        assert payload["strategy_replay"]["pilot_readiness"]["status"] == "ready_for_shadow_pilot"
+        assert payload["signal_continuity"]["status"] == "matched"
         assert payload["runtime_smoke"]["publication_posture"] == "advisory"
         assert payload["runtime_smoke"]["publisher_channel"] == "@ta3000_advisory"
+        assert payload["runtime_smoke"]["publication_transport"] == "bot-api"
+        assert payload["runtime_smoke"]["signal_source"] == "strategy_replay"
         assert payload["runtime_smoke"]["publication_audit"]["lifecycle_total"] == 10
         assert payload["sidecar_preflight"]["status"] == "ok"
         assert any("Phase 8 proving is not attached" in item for item in payload["warnings"])
+        assert (
+            payload["strategy_replay"]["replay_summary"]["runtime_signal_ids"]
+            == payload["runtime_smoke"]["source_signal_ids"]
+        )
 
         for path_text in payload["output_paths"].values():
             assert Path(path_text).exists()
@@ -227,3 +292,11 @@ def test_phase9_battle_run_script_integrates_ws_a_to_ws_d_surfaces(tmp_path: Pat
         evidence_text = Path(str(payload["output_paths"]["evidence_markdown"])).read_text(encoding="utf-8")
         assert "phase9a integration status: `ready_for_review`" in evidence_text
         assert "publisher channel: `@ta3000_advisory`" in evidence_text
+        assert "signal continuity: `matched`" in evidence_text
+
+        send_calls = [item for item in telegram_requests if str(item["path"]).endswith("/sendMessage")]
+        edit_calls = [item for item in telegram_requests if str(item["path"]).endswith("/editMessageText")]
+        assert len(send_calls) == 4
+        assert len(edit_calls) == 6
+        assert {str(item["payload"]["chat_id"]) for item in send_calls} == {"@ta3000_advisory"}
+        assert {str(item["payload"]["chat_id"]) for item in edit_calls} == {"@ta3000_advisory"}

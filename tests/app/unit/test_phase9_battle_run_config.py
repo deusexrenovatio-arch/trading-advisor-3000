@@ -18,6 +18,7 @@ def _base_env() -> dict[str, str]:
         "TA3000_SIGNAL_STORE_BACKEND": "postgres",
         "TA3000_SIGNAL_STORE_SCHEMA": "signal",
         "TA3000_APP_DSN": "postgresql://postgres:postgres@127.0.0.1:5432/ta3000",
+        "TA3000_TELEGRAM_TRANSPORT": "bot-api",
         "TA3000_TELEGRAM_BOT_TOKEN": "telegram-bot-token-001",
         "TA3000_TELEGRAM_SHADOW_CHANNEL": "@ta3000_shadow",
         "TA3000_TELEGRAM_ADVISORY_CHANNEL": "@ta3000_advisory",
@@ -71,6 +72,19 @@ def test_phase9_battle_run_preflight_is_fail_closed_for_wrong_backend_and_missin
     assert report.is_ready is False
     assert "TA3000_SIGNAL_STORE_BACKEND must stay postgres for Phase 9 battle-run mode" in report.invalid_config
     assert report.secrets_policy["missing_secret_names"] == ["TA3000_TELEGRAM_BOT_TOKEN"]
+
+
+def test_phase9_battle_run_preflight_is_fail_closed_for_non_real_telegram_transport() -> None:
+    env = _base_env()
+    env["TA3000_TELEGRAM_TRANSPORT"] = "stub"
+
+    report = evaluate_phase9_battle_run_preflight(env)
+
+    assert report.is_ready is False
+    assert (
+        "TA3000_TELEGRAM_TRANSPORT must be bot-api for real Telegram Phase 9 battle-run closure"
+        in report.invalid_config
+    )
 
 
 def test_phase9_battle_run_audit_exports_expected_observability_counts() -> None:
