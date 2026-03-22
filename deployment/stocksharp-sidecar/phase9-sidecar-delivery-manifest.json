@@ -1,0 +1,18 @@
+{
+  "delivery_mode": "pinned-staging-gateway-bundle",
+  "wire_api_version": "v1",
+  "sidecar_route": "stocksharp->quik->finam",
+  "gateway_profile_dir": "deployment/docker/staging-gateway",
+  "gateway_entrypoint": "deployment/docker/staging-gateway/gateway/sidecar_gateway_stub.py",
+  "gateway_compose_file": "deployment/docker/staging-gateway/docker-compose.staging-gateway.yml",
+  "gateway_env_template": "deployment/docker/staging-gateway/.env.staging-gateway.example",
+  "readiness_endpoints": [
+    "/health",
+    "/ready",
+    "/metrics"
+  ],
+  "dry_run_command": "python scripts/run_staging_real_execution_rollout.py --base-url <base_url> --dry-run --format json",
+  "canary_command": "python scripts/run_staging_real_execution_rollout.py --base-url <base_url> --stage canary --format json",
+  "kill_switch_env_name": "TA3000_GATEWAY_KILL_SWITCH",
+  "stocksharp_delivery_note": "repo ships a pinned staging gateway bundle and wire contract; real StockSharp broker process remains external to this repository"
+}
