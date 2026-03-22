@@ -47,6 +47,7 @@
 
 ## Phase 9A - Telegram and evidence
 - [ ] `Telegram` shadow/advisory path landed
+- [ ] `Telegram Bot API` transport is the explicit external publication boundary
 - [ ] `phase9-battle-run` env contract landed
 - [ ] `python scripts/run_phase9_shadow_signal_smoke.py ...` landed
 - [ ] battle-run preflight fails closed on missing `Telegram` or `PostgreSQL` requirements
@@ -59,6 +60,7 @@
 - [ ] `phase9-phase9a-battle-run-integration` note landed
 - [ ] `python scripts/run_phase9_battle_run.py ...` landed
 - [ ] integrated report status is `ready_for_review` on green contour
+- [ ] integrated runtime smoke consumes the same signal ids produced by strategy replay
 - [ ] integrated evidence markdown package is generated
 - [ ] optional 9B boundary evidence stays non-blocking for 9A readiness
 
@@ -75,5 +77,6 @@
 ## Explicit non-claims
 - [ ] docs do not claim broker readiness for Phase 9A
 - [ ] docs do not treat `QUIK` live feed as proof of `Finam` execution readiness
+- [ ] docs do not claim materialized Delta tables for Phase 9A data closure
 - [ ] docs do not describe `MCP` as runtime dependency
 - [ ] docs do not include live secret values

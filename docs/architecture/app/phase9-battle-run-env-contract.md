@@ -19,6 +19,8 @@ This document defines which external integrations must be present before Phase 9
 | `TA3000_SIGNAL_STORE_BACKEND` | `PostgreSQL` | must stay `postgres` | yes |
 | `TA3000_SIGNAL_STORE_SCHEMA` | `PostgreSQL` | runtime schema name, default `signal` | yes |
 | `TA3000_APP_DSN` | `PostgreSQL` | durable state connection string | yes |
+| `TA3000_TELEGRAM_TRANSPORT` | `Telegram` | must stay `bot-api` for real external publication proof | yes |
+| `TA3000_TELEGRAM_API_BASE_URL` | `Telegram` | optional Bot API base URL override for mirrors/tests | no |
 | `TA3000_TELEGRAM_BOT_TOKEN` | `Telegram` | publication credentials | yes |
 | `TA3000_TELEGRAM_SHADOW_CHANNEL` | `Telegram` | mandatory shadow destination | yes |
 | `TA3000_TELEGRAM_ADVISORY_CHANNEL` | `Telegram` | optional advisory destination | no |
@@ -33,6 +35,7 @@ Battle-run mode is blocked when any of these are true:
 - runtime profile is not `phase9-battle-run`
 - signal store backend is not `postgres`
 - `TA3000_APP_DSN` is missing
+- `TA3000_TELEGRAM_TRANSPORT` is not `bot-api`
 - `TA3000_TELEGRAM_BOT_TOKEN` is missing
 - `TA3000_TELEGRAM_SHADOW_CHANNEL` is missing
 
@@ -44,7 +47,7 @@ The smoke can still export metrics and logs as local evidence artifacts when tho
 When the env contract is valid:
 
 - runtime stack is built with `PostgreSQL` as the default signal store
-- publication lifecycle is anchored to the named `Telegram` shadow destination
+- publication lifecycle is anchored to the named `Telegram` shadow destination through `Telegram Bot API`
 - restart safety is checked against durable publication and signal-event history
 - evidence bundle exports Prometheus-style metrics and Loki-style logs for the same smoke window
 

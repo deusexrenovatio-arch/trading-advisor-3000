@@ -17,7 +17,7 @@ The landed flow now works in this order:
 
 1. consume or generate `MOEX` bootstrap evidence
 2. run the frozen production strategy replay with `QUIK` live-smoke attachment
-3. run battle-run lifecycle smoke on `PostgreSQL` + `Telegram`
+3. replay the strategy-produced runtime candidates through the battle-run lifecycle smoke on `PostgreSQL` + real `Telegram Bot API`
 4. attach observability artifacts
 5. optionally attach sidecar preflight as a visible 9B boundary
 6. render one integrated evidence package
@@ -35,6 +35,7 @@ The integrated command writes:
 - bootstrap report
 - strategy replay report
 - runtime smoke report
+- signal-continuity verdict between strategy replay ids and runtime publication ids
 - evidence markdown package
 - optional sidecar preflight section
 
@@ -80,3 +81,11 @@ The integrated Phase 9A command does not claim:
 - automatic Phase 9B canary readiness
 
 It only claims that the current named Phase 9A battle-run contour is reproducible as one integrated run.
+
+## Data materialization boundary
+
+The integrated Phase 9A flow consumes the Phase 2A/2B manifest-backed data surface:
+
+- canonical and replay artifacts are exported as deterministic JSONL samples
+- Delta contracts remain represented as manifests
+- materialized Delta tables are not claimed as part of Phase 9A acceptance

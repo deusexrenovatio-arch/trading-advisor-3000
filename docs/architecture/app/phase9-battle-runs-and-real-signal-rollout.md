@@ -25,7 +25,7 @@ The Phase 9 docs package fixes these named external systems:
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `MOEX` | historical source and backfill | inbound | 9A | provider bootstrap -> canonical builder | env-managed only | backfill success + dataset freshness | bootstrap log, dataset version, roll/session note |
 | `QUIK` | primary live market feed | inbound | 9A | live provider adapter | env-managed only | live freshness window + session validity | live smoke report |
-| `Telegram` | signal publication and lifecycle | outbound | 9A | runtime publisher | bot token + destination ids in env | create/edit/close/cancel lifecycle smoke | publication samples, lifecycle audit |
+| `Telegram` | signal publication and lifecycle | outbound | 9A | runtime publisher -> `Telegram Bot API` transport | bot token + destination ids in env | create/edit/close/cancel lifecycle smoke over Bot API | publication samples, lifecycle audit |
 | `PostgreSQL` | durable runtime state | bidirectional | 9A / 9B | signal store + migrations | DSN in env | migration success + restart/idempotency smoke | migration log, restart evidence |
 | `Prometheus / Loki / Grafana` | observability and evidence | side-band | 9A / 9B | existing observability bundle | env-managed only | metrics scrape + log capture | metrics snapshot, log snapshot |
 | `HTTP sidecar gateway` | network boundary to sidecar | outbound | 9B | wire API v1 | gateway auth in env | `/health`, `/ready`, `/metrics` | readiness snapshots |
@@ -96,6 +96,7 @@ flowchart LR
 
 ### Phase 9A accepted
 - `MOEX` bootstrap evidence is reproducible
+- data-plane materialization remains manifest-backed JSONL plus Delta manifests, not physical Delta tables
 - `QUIK` live-feed freshness is within allowed window
 - `Telegram` lifecycle shows 10+ correct signal runs
 - battle-run mode uses `PostgreSQL`

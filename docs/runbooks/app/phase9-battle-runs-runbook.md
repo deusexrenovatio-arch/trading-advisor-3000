@@ -63,6 +63,10 @@ Evidence:
 - dataset version
 - freshness summary
 - roll/session note
+- manifest-backed JSONL outputs for the canonical data surface
+
+Boundary:
+- this step does not claim materialized Delta tables; Phase 9A stays on manifest-backed JSONL evidence
 
 ### Step A2 - strategy replay on real data
 Target:
@@ -83,10 +87,11 @@ Target:
 Evidence:
 - live smoke report
 - runtime context note
+- strategy-produced signal ids that will be replayed into the runtime smoke
 
 ### Step A4 - Telegram lifecycle smoke
 Target:
-- create, edit, close, and cancel work in the real shadow/advisory contour
+- create, edit, close, and cancel work through the real `Telegram Bot API` shadow/advisory contour
 
 Evidence:
 - publication samples
@@ -201,7 +206,9 @@ python scripts/run_phase9_shadow_signal_smoke.py --output-dir artifacts/phase9-s
 
 ### WS-C runtime notes
 - battle-run preflight is fail-closed for `TA3000_APP_DSN`, `TA3000_TELEGRAM_BOT_TOKEN`, and `TA3000_TELEGRAM_SHADOW_CHANNEL`
+- battle-run preflight is also fail-closed for `TA3000_TELEGRAM_TRANSPORT=bot-api`
 - runtime stack now has an explicit `phase9-battle-run` profile with `PostgreSQL` as the default signal store
+- `TA3000_TELEGRAM_API_BASE_URL` may point to a Bot API mirror or test server, but the transport contract stays `bot-api`
 - restart smoke must show zero duplicate publications after replay
 - observability evidence can be exported locally even when live `Prometheus / Loki / Grafana` URLs are still missing
 - advisory Telegram destination remains optional and explicitly named only when used
@@ -233,6 +240,7 @@ python scripts/run_phase9_battle_run.py --output-dir artifacts/phase9-battle-run
 ### WS-E integration notes
 - integrated status is `ready_for_review` or `blocked`; it does not silently self-upgrade to accepted
 - `advisory` is still a publication posture, not a new runtime signal mode
+- integrated runtime smoke must consume the same signal ids that were accepted by the strategy replay surface
 - optional sidecar preflight may be attached to the same report, but it does not block 9A readiness
 - missing Phase 8 proving evidence is kept as an explicit warning in the integrated report
 

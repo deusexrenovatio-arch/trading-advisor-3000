@@ -62,7 +62,7 @@ It only acts when the fast trend is already ahead of the slow trend and current 
 | --- | --- | --- | --- | --- |
 | `MOEX` | historical bars | Phase 9 provider bootstrap | none for public ISS path | bootstrap report with dataset version |
 | `QUIK` | live feed and evidence context | local `Lua -> JSON snapshot` or snapshot URL | env-managed only | live-smoke freshness report |
-| `Telegram` | shadow publication lifecycle | existing runtime publisher | bot token + destination id | lifecycle smoke / replay sample |
+| `Telegram` | shadow publication lifecycle | existing runtime publisher -> `Telegram Bot API` transport | bot token + destination id | lifecycle smoke / replay sample |
 | `PostgreSQL` | battle-run state | existing runtime store | DSN in env | restart/idempotency smoke |
 | `Prometheus / Loki / Grafana` | replay evidence | existing observability path | env-managed only | metrics/log artifact export |
 | `HTTP gateway -> StockSharp -> QUIK -> Finam` | optional 9B route only | sidecar execution boundary | gateway + broker secrets in env | not required for WS-B acceptance |
@@ -81,6 +81,7 @@ The current landed `WS-B` code proves:
 - backtest config is derived from the strategy risk template
 - replay/evidence flow consumes the `WS-A` bootstrap context
 - `QUIK` live-smoke evidence can be attached to the same replay report
+- data-plane evidence stays manifest-backed JSONL plus Delta manifests, not materialized Delta tables
 
 The current landed `WS-B` code does not claim:
 
