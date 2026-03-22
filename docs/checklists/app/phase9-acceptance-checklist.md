@@ -47,6 +47,9 @@
 
 ## Phase 9A - Telegram and evidence
 - [ ] `Telegram` shadow/advisory path landed
+- [ ] `phase9-battle-run` env contract landed
+- [ ] `python scripts/run_phase9_shadow_signal_smoke.py ...` landed
+- [ ] battle-run preflight fails closed on missing `Telegram` or `PostgreSQL` requirements
 - [ ] 10+ correct `Telegram` lifecycles captured
 - [ ] no duplicate publication after restart smoke
 - [ ] observability snapshots attached

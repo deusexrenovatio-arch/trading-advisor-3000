@@ -190,12 +190,27 @@ python scripts/run_phase9_strategy_replay.py --strategy phase9-moex-breakout-v1 
 - `QUIK` live-smoke can be attached to replay evidence, but that still does not prove `9B` broker execution readiness
 - `advisory` stays a docs/operations posture until the runtime enum surface is intentionally expanded
 
+## Landed WS-C commands
+
+These commands are now implemented for the Telegram/PostgreSQL battle-run closure workstream.
+
+```bash
+python scripts/run_phase9_shadow_signal_smoke.py --output-dir artifacts/phase9-shadow-smoke
+python scripts/run_phase9_shadow_signal_smoke.py --output-dir artifacts/phase9-shadow-smoke --dsn <postgres-dsn> --telegram-bot-token <token> --telegram-shadow-channel <channel>
+```
+
+### WS-C runtime notes
+- battle-run preflight is fail-closed for `TA3000_APP_DSN`, `TA3000_TELEGRAM_BOT_TOKEN`, and `TA3000_TELEGRAM_SHADOW_CHANNEL`
+- runtime stack now has an explicit `phase9-battle-run` profile with `PostgreSQL` as the default signal store
+- restart smoke must show zero duplicate publications after replay
+- observability evidence can be exported locally even when live `Prometheus / Loki / Grafana` URLs are still missing
+- advisory Telegram destination remains optional and explicitly named only when used
+
 ## Target commands to add in later Phase 9 workstreams
 
 The remaining commands stay planned until the next workstreams land.
 
 ```bash
-python scripts/run_phase9_shadow_signal_smoke.py --channel shadow --duration 1h
 python scripts/run_phase9_battle_run.py --mode advisory --duration 1d
 python scripts/run_phase9_canary_live_intent.py --base-url http://localhost:18081 --qty 1
 ```

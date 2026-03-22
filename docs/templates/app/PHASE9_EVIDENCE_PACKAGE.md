@@ -39,6 +39,7 @@
 
 ## 6. Runtime and Telegram evidence
 - `Telegram` shadow channel identifier:
+- preflight report:
 - publication samples:
 - lifecycle audit sample:
 - `PostgreSQL` restart / replay note:

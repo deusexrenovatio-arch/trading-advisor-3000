@@ -40,6 +40,7 @@ Phase naming rule:
 - `docs/architecture/app/phase9-battle-runs-and-real-signal-rollout.md` - main Phase 9 rollout doc with integration matrix and 9A/9B separation.
 - `docs/architecture/app/phase9-architecture-and-stop-rules.md` - end-to-end external-system flow, stop rules, and kill-switch boundaries.
 - `docs/architecture/app/phase9-moex-breakout-v1-spec.md` - first landed production strategy spec and replay/evidence contract for the pilot universe.
+- `docs/architecture/app/phase9-battle-run-env-contract.md` - explicit WS-C env contract for Telegram, PostgreSQL, and observability-backed battle runs.
 - `docs/architecture/app/phase9-module-dod.md` - module-level closure expectations for each integration surface.
 - `docs/architecture/app/phase9-workstreams-and-patch-sets.md` - workstream order and patch-set discipline.
 - `docs/architecture/app/phase9-mcp-and-secrets-update.md` - MCP and secrets policy update for battle runs.
