@@ -43,5 +43,11 @@ class RuntimeAPI:
     def list_signal_events(self) -> list[dict[str, object]]:
         return [event.to_dict() for event in self._runtime_stack.signal_store.list_signal_events()]
 
+    def list_active_signals(self) -> list[dict[str, object]]:
+        return [signal.to_dict() for signal in self._runtime_stack.signal_store.list_active_signals()]
+
+    def list_publication_events(self) -> list[dict[str, object]]:
+        return [publication.to_dict() for publication in self._runtime_stack.signal_store.list_publication_events()]
+
     def list_strategy_registry(self) -> list[dict[str, object]]:
         return self._runtime_stack.strategy_registry.snapshot()
