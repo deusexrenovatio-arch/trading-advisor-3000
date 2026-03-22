@@ -4,7 +4,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Mapping
 
@@ -52,6 +52,11 @@ ROOT = Path(__file__).resolve().parents[4]
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _shift_utc(ts: str, *, minutes: int) -> str:
+    parsed = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(timezone.utc)
+    return (parsed + timedelta(minutes=minutes)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _write_json(path: Path, payload: dict[str, object]) -> None:
@@ -220,6 +225,7 @@ def run_phase9_strategy_replay_workflow(
             "runtime_signal_candidates": replay_report["runtime_signal_candidates"],
             "forward_observations": replay_report["forward_observations"],
             "runtime_signal_ids": replay_report["runtime_signal_ids"],
+            "runtime_candidate_rows": replay_report["runtime_candidate_rows"],
             "runtime_report": replay_report["runtime_report"],
             "output_paths": replay_report["output_paths"],
         },
@@ -235,6 +241,8 @@ def build_phase9_env_with_overrides(
     signal_store_backend: str = DEFAULT_PHASE9_SIGNAL_STORE_BACKEND,
     signal_store_schema: str | None = None,
     dsn: str | None = None,
+    telegram_transport: str = "bot-api",
+    telegram_api_base_url: str | None = None,
     telegram_bot_token: str | None = None,
     telegram_shadow_channel: str | None = None,
     telegram_advisory_channel: str | None = None,
@@ -245,10 +253,13 @@ def build_phase9_env_with_overrides(
     env = dict(base_env or os.environ)
     env["TA3000_RUNTIME_PROFILE"] = runtime_profile
     env["TA3000_SIGNAL_STORE_BACKEND"] = signal_store_backend
+    env["TA3000_TELEGRAM_TRANSPORT"] = telegram_transport
     if signal_store_schema:
         env["TA3000_SIGNAL_STORE_SCHEMA"] = signal_store_schema
     if dsn:
         env["TA3000_APP_DSN"] = dsn
+    if telegram_api_base_url:
+        env["TA3000_TELEGRAM_API_BASE_URL"] = telegram_api_base_url
     if telegram_bot_token:
         env["TA3000_TELEGRAM_BOT_TOKEN"] = telegram_bot_token
     if telegram_shadow_channel:
@@ -312,54 +323,38 @@ def _candidate(
     )
 
 
-def _select_publication_channel(*, mode: str, preflight_config) -> tuple[str, list[str]]:
-    warnings: list[str] = []
-    channel = str(preflight_config.telegram_shadow_channel)
-    if mode == "advisory":
-        advisory = preflight_config.telegram_advisory_channel
-        if advisory:
-            channel = advisory
-            warnings.append("runtime signals remain shadow mode while publication posture uses advisory destination")
-        else:
-            warnings.append("advisory mode requested but advisory channel is not configured; using shadow channel")
-    return channel, warnings
-
-
-def _build_api(*, env: dict[str, str], telegram_channel: str) -> RuntimeAPI:
-    stack = build_phase9_battle_run_stack(env=env, telegram_channel_override=telegram_channel)
-    spec = phase9_production_strategy_spec()
-    stack.strategy_registry.register(
-        StrategyVersion(
-            strategy_version_id=spec.strategy_version_id,
-            status="active",
-            allowed_contracts=frozenset(spec.pilot_universe),
-            allowed_timeframes=frozenset(spec.allowed_timeframes),
-            allowed_modes=frozenset(spec.allowed_modes),
-            activated_from="2026-03-22T07:00:00Z",
-        )
+def _edit_candidate(candidate: DecisionCandidate, *, minutes: int) -> DecisionCandidate:
+    risk = abs(candidate.entry_ref - candidate.stop_ref)
+    entry_shift = max(risk * 0.10, 0.01)
+    if candidate.side == TradeSide.LONG:
+        entry_ref = candidate.entry_ref + entry_shift
+        stop_ref = candidate.stop_ref + (entry_shift * 0.80)
+        target_ref = candidate.target_ref + (entry_shift * 1.20)
+    else:
+        entry_ref = candidate.entry_ref - entry_shift
+        stop_ref = candidate.stop_ref - (entry_shift * 0.80)
+        target_ref = candidate.target_ref - (entry_shift * 1.20)
+    return DecisionCandidate(
+        signal_id=candidate.signal_id,
+        contract_id=candidate.contract_id,
+        timeframe=candidate.timeframe,
+        strategy_version_id=candidate.strategy_version_id,
+        mode=candidate.mode,
+        side=candidate.side,
+        entry_ref=entry_ref,
+        stop_ref=stop_ref,
+        target_ref=target_ref,
+        confidence=min(candidate.confidence + 0.08, 0.99),
+        ts_decision=_shift_utc(candidate.ts_decision, minutes=minutes),
+        feature_snapshot=FeatureSnapshotRef(
+            dataset_version=candidate.feature_snapshot.dataset_version,
+            snapshot_id=f"{candidate.feature_snapshot.snapshot_id}-EDIT-{minutes}",
+        ),
     )
-    return RuntimeAPI(runtime_stack=stack)
 
 
-def run_phase9_shadow_signal_smoke_workflow(
-    *,
-    env: Mapping[str, str],
-    output_dir: Path,
-    skip_migrations: bool,
-    min_lifecycle_events: int,
-    mode: str = "shadow",
-) -> dict[str, object]:
-    if mode not in {"shadow", "advisory"}:
-        raise ValueError("mode must be one of: shadow, advisory")
-    preflight = evaluate_phase9_battle_run_preflight(env)
-    if not preflight.is_ready:
-        return {"preflight": preflight.to_dict()}
-
-    channel, posture_warnings = _select_publication_channel(mode=mode, preflight_config=preflight.config)
-    if not skip_migrations:
-        _run_migrations(dsn=preflight.config.app_dsn)
-
-    initial_candidates = [
+def _default_shadow_smoke_candidates() -> list[DecisionCandidate]:
+    return [
         _candidate(
             signal_id="SIG-PHASE9-WSC-0001",
             contract_id="BR-6.26",
@@ -402,6 +397,65 @@ def run_phase9_shadow_signal_smoke_workflow(
         ),
     ]
 
+
+def _resolve_shadow_smoke_candidates(
+    candidate_rows: list[dict[str, object]] | None,
+) -> tuple[list[DecisionCandidate], str]:
+    if candidate_rows is None:
+        return _default_shadow_smoke_candidates(), "synthetic_ws_c_smoke"
+    return [DecisionCandidate.from_dict(row) for row in candidate_rows], "strategy_replay"
+
+
+def _select_publication_channel(*, mode: str, preflight_config) -> tuple[str, list[str]]:
+    warnings: list[str] = []
+    channel = str(preflight_config.telegram_shadow_channel)
+    if mode == "advisory":
+        advisory = preflight_config.telegram_advisory_channel
+        if advisory:
+            channel = advisory
+            warnings.append("runtime signals remain shadow mode while publication posture uses advisory destination")
+        else:
+            warnings.append("advisory mode requested but advisory channel is not configured; using shadow channel")
+    return channel, warnings
+
+
+def _build_api(*, env: dict[str, str], telegram_channel: str) -> RuntimeAPI:
+    stack = build_phase9_battle_run_stack(env=env, telegram_channel_override=telegram_channel)
+    spec = phase9_production_strategy_spec()
+    stack.strategy_registry.register(
+        StrategyVersion(
+            strategy_version_id=spec.strategy_version_id,
+            status="active",
+            allowed_contracts=frozenset(spec.pilot_universe),
+            allowed_timeframes=frozenset(spec.allowed_timeframes),
+            allowed_modes=frozenset(spec.allowed_modes),
+            activated_from="2026-03-22T07:00:00Z",
+        )
+    )
+    return RuntimeAPI(runtime_stack=stack)
+
+
+def run_phase9_shadow_signal_smoke_workflow(
+    *,
+    env: Mapping[str, str],
+    output_dir: Path,
+    skip_migrations: bool,
+    min_lifecycle_events: int,
+    mode: str = "shadow",
+    candidate_rows: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    if mode not in {"shadow", "advisory"}:
+        raise ValueError("mode must be one of: shadow, advisory")
+    preflight = evaluate_phase9_battle_run_preflight(env)
+    if not preflight.is_ready:
+        return {"preflight": preflight.to_dict()}
+
+    channel, posture_warnings = _select_publication_channel(mode=mode, preflight_config=preflight.config)
+    if not skip_migrations:
+        _run_migrations(dsn=preflight.config.app_dsn)
+
+    initial_candidates, signal_source = _resolve_shadow_smoke_candidates(candidate_rows)
+
     env_dict = dict(env)
     api_first = _build_api(env=env_dict, telegram_channel=channel)
     first_batch = api_first.replay_candidates(initial_candidates)
@@ -409,53 +463,30 @@ def run_phase9_shadow_signal_smoke_workflow(
     api_second = _build_api(env=env_dict, telegram_channel=channel)
     restart_batch = api_second.replay_candidates(initial_candidates)
 
+    terminal_split = max(1, len(initial_candidates) // 2) if initial_candidates else 0
+    close_targets = initial_candidates[:terminal_split]
+    cancel_targets = initial_candidates[terminal_split:]
     edited_candidates = [
-        DecisionCandidate.from_dict(
-            {
-                **initial_candidates[0].to_dict(),
-                "entry_ref": 82.68,
-                "stop_ref": 82.02,
-                "target_ref": 84.02,
-                "confidence": 0.79,
-                "ts_decision": "2026-03-22T07:05:00Z",
-            }
-        ),
-        DecisionCandidate.from_dict(
-            {
-                **initial_candidates[2].to_dict(),
-                "entry_ref": 82.84,
-                "stop_ref": 82.16,
-                "target_ref": 84.18,
-                "confidence": 0.81,
-                "ts_decision": "2026-03-22T07:06:00Z",
-            }
-        ),
+        _edit_candidate(candidate, minutes=5 + index)
+        for index, candidate in enumerate(close_targets)
     ]
     edit_batch = api_second.replay_candidates(edited_candidates)
 
     close_results = [
         api_second.close_signal(
-            signal_id="SIG-PHASE9-WSC-0001",
-            closed_at="2026-03-22T07:10:00Z",
+            signal_id=candidate.signal_id,
+            closed_at=_shift_utc(candidate.ts_decision, minutes=10 + index),
             reason_code="shadow_take_profit",
-        ),
-        api_second.close_signal(
-            signal_id="SIG-PHASE9-WSC-0003",
-            closed_at="2026-03-22T07:12:00Z",
-            reason_code="shadow_time_exit",
-        ),
+        )
+        for index, candidate in enumerate(close_targets)
     ]
     cancel_results = [
         api_second.cancel_signal(
-            signal_id="SIG-PHASE9-WSC-0002",
-            canceled_at="2026-03-22T07:11:00Z",
+            signal_id=candidate.signal_id,
+            canceled_at=_shift_utc(candidate.ts_decision, minutes=11 + index),
             reason_code="operator_cancel",
-        ),
-        api_second.cancel_signal(
-            signal_id="SIG-PHASE9-WSC-0004",
-            canceled_at="2026-03-22T07:13:00Z",
-            reason_code="operator_cancel",
-        ),
+        )
+        for index, candidate in enumerate(cancel_targets)
     ]
 
     api_final = _build_api(env=env_dict, telegram_channel=channel)
@@ -503,6 +534,9 @@ def run_phase9_shadow_signal_smoke_workflow(
         "preflight": preflight.to_dict(),
         "publication_posture": mode,
         "publisher_channel": channel,
+        "publication_transport": preflight.config.telegram_transport,
+        "signal_source": signal_source,
+        "source_signal_ids": first_batch["replay_report"]["accepted_signal_ids"],
         "initial_batch": first_batch,
         "restart_probe": {
             "accepted": restart_batch["replay_report"]["accepted"],
@@ -542,6 +576,7 @@ def render_phase9_evidence_markdown(report: dict[str, object]) -> str:
         "",
         "## Data evidence",
         f"- MOEX dataset version: `{bootstrap.get('dataset_version', '')}`",
+        f"- data materialization mode: `{bootstrap.get('materialization_mode', 'unspecified')}`",
         f"- bootstrap report: `{output_paths.get('bootstrap_report', '')}`",
         f"- live smoke status: `{((strategy.get('live_smoke') or {}).get('status', 'missing'))}`",
         "",
@@ -552,8 +587,10 @@ def render_phase9_evidence_markdown(report: dict[str, object]) -> str:
         "",
         "## Runtime and Telegram evidence",
         f"- publisher channel: `{runtime.get('publisher_channel', '')}`",
+        f"- Telegram transport: `{runtime.get('publication_transport', '')}`",
         f"- lifecycle total: `{((runtime.get('publication_audit') or {}).get('lifecycle_total', 0))}`",
         f"- runtime report: `{output_paths.get('runtime_report', '')}`",
+        f"- signal continuity: `{((report.get('signal_continuity') or {}).get('status', 'unknown'))}`",
         "",
         "## Observability evidence",
         f"- battle-run metrics: `{((runtime.get('output_paths') or {}).get('observability_prometheus_metrics', ''))}`",
@@ -592,18 +629,36 @@ def build_phase9_battle_run_report(
     strategy_readiness = ((strategy_report.get("pilot_readiness") or {}).get("status") == "ready_for_shadow_pilot")
     live_smoke_ok = ((strategy_report.get("live_smoke") or {}).get("status") == "ok")
     runtime_ready = bool(runtime_report.get("ready_for_battle_run"))
+    strategy_signal_ids = sorted(str(item) for item in ((strategy_report.get("replay_summary") or {}).get("runtime_signal_ids") or []))
+    runtime_signal_ids = sorted(str(item) for item in (runtime_report.get("source_signal_ids") or []))
+    if strategy_signal_ids and not runtime_signal_ids:
+        continuity_status = "missing_runtime_signal_ids"
+    elif strategy_signal_ids != runtime_signal_ids:
+        continuity_status = "diverged"
+    else:
+        continuity_status = "matched"
     if not live_smoke_ok:
         warnings.append("QUIK live smoke is not green in the integrated battle-run report")
     if not strategy_readiness:
         warnings.append("strategy replay is not ready for pilot according to WS-B readiness rules")
     if not runtime_ready:
         warnings.append("Telegram/PostgreSQL battle-run smoke is not ready according to WS-C audit")
+    if continuity_status == "missing_runtime_signal_ids":
+        warnings.append("integrated runtime smoke did not consume strategy-produced signal ids")
+    elif continuity_status == "diverged":
+        warnings.append("integrated runtime smoke diverged from strategy-produced signal ids")
     if phase8_proving is None or str(phase8_proving.get("status", "")) != "ok":
         warnings.append("Phase 8 proving is not attached as green evidence in this integrated report")
     if publication_posture == "advisory":
         warnings.append("advisory publication posture still uses shadow runtime signals under the current runtime enum surface")
+    if str(bootstrap_report.get("materialization_mode", "")) != "manifest_only_jsonl_samples":
+        warnings.append("data-plane materialization mode is not the expected manifest-backed JSONL shape for Phase 9A")
 
-    phase9a_status = "ready_for_review" if strategy_readiness and live_smoke_ok and runtime_ready else "blocked"
+    phase9a_status = (
+        "ready_for_review"
+        if strategy_readiness and live_smoke_ok and runtime_ready and continuity_status == "matched"
+        else "blocked"
+    )
     return {
         "git_ref": git_ref,
         "phase9_surface": "9A",
@@ -614,6 +669,11 @@ def build_phase9_battle_run_report(
         "phase8_proving": phase8_proving,
         "sidecar_preflight": sidecar_preflight,
         "warnings": warnings,
+        "signal_continuity": {
+            "status": continuity_status,
+            "strategy_runtime_signal_ids": strategy_signal_ids,
+            "runtime_source_signal_ids": runtime_signal_ids,
+        },
         "phase9a_status": phase9a_status,
         "output_paths": output_paths,
     }

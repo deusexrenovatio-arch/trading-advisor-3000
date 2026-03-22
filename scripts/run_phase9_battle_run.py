@@ -120,6 +120,8 @@ def main() -> int:
     parser.add_argument("--mode", choices=("shadow", "advisory"), default="shadow")
     parser.add_argument("--horizon-bars", type=int, default=3)
     parser.add_argument("--dsn", default=None)
+    parser.add_argument("--telegram-transport", default="bot-api")
+    parser.add_argument("--telegram-api-base-url", default=None)
     parser.add_argument("--telegram-bot-token", default=None)
     parser.add_argument("--telegram-shadow-channel", default=None)
     parser.add_argument("--telegram-advisory-channel", default=None)
@@ -168,6 +170,8 @@ def main() -> int:
 
     env = build_phase9_env_with_overrides(
         dsn=args.dsn,
+        telegram_transport=args.telegram_transport,
+        telegram_api_base_url=args.telegram_api_base_url,
         telegram_bot_token=args.telegram_bot_token,
         telegram_shadow_channel=args.telegram_shadow_channel,
         telegram_advisory_channel=args.telegram_advisory_channel,
@@ -182,6 +186,7 @@ def main() -> int:
         skip_migrations=args.skip_migrations,
         min_lifecycle_events=10,
         mode=args.mode,
+        candidate_rows=list((strategy_report.get("replay_summary") or {}).get("runtime_candidate_rows") or []),
     )
     runtime_report_path = output_dir / "phase9.runtime.report.json"
     _write_json(runtime_report_path, runtime_report)

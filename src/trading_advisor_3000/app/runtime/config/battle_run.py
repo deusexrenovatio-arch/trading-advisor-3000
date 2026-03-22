@@ -17,11 +17,13 @@ DEFAULT_REQUIRED_BATTLE_RUN_ENV_NAMES = (
     "TA3000_RUNTIME_PROFILE",
     "TA3000_SIGNAL_STORE_BACKEND",
     "TA3000_APP_DSN",
+    "TA3000_TELEGRAM_TRANSPORT",
     "TA3000_TELEGRAM_BOT_TOKEN",
     "TA3000_TELEGRAM_SHADOW_CHANNEL",
 )
 DEFAULT_OPTIONAL_BATTLE_RUN_ENV_NAMES = (
     "TA3000_SIGNAL_STORE_SCHEMA",
+    "TA3000_TELEGRAM_API_BASE_URL",
     "TA3000_TELEGRAM_ADVISORY_CHANNEL",
     "TA3000_PROMETHEUS_BASE_URL",
     "TA3000_LOKI_BASE_URL",
@@ -42,6 +44,8 @@ class Phase9BattleRunConfig:
     signal_store_backend: str
     signal_store_schema: str
     app_dsn: str
+    telegram_transport: str
+    telegram_api_base_url: str | None
     telegram_shadow_channel: str
     telegram_advisory_channel: str | None
     prometheus_base_url: str | None
@@ -54,6 +58,8 @@ class Phase9BattleRunConfig:
             "signal_store_backend": self.signal_store_backend,
             "signal_store_schema": self.signal_store_schema,
             "app_dsn": redact_secret(self.app_dsn) if self.app_dsn else "<missing>",
+            "telegram_transport": self.telegram_transport,
+            "telegram_api_base_url": self.telegram_api_base_url,
             "telegram_shadow_channel": self.telegram_shadow_channel,
             "telegram_advisory_channel": self.telegram_advisory_channel,
             "prometheus_base_url": self.prometheus_base_url,
@@ -107,6 +113,8 @@ def evaluate_phase9_battle_run_preflight(
             DEFAULT_PHASE9_SIGNAL_STORE_SCHEMA,
         ),
         app_dsn=_env_text(source, "TA3000_APP_DSN"),
+        telegram_transport=_env_text(source, "TA3000_TELEGRAM_TRANSPORT").lower(),
+        telegram_api_base_url=_env_text(source, "TA3000_TELEGRAM_API_BASE_URL") or None,
         telegram_shadow_channel=_env_text(source, "TA3000_TELEGRAM_SHADOW_CHANNEL"),
         telegram_advisory_channel=_env_text(source, "TA3000_TELEGRAM_ADVISORY_CHANNEL") or None,
         prometheus_base_url=_env_text(source, "TA3000_PROMETHEUS_BASE_URL") or None,
@@ -117,6 +125,8 @@ def evaluate_phase9_battle_run_preflight(
     missing_config_names: list[str] = []
     if not config.app_dsn:
         missing_config_names.append("TA3000_APP_DSN")
+    if not config.telegram_transport:
+        missing_config_names.append("TA3000_TELEGRAM_TRANSPORT")
     if not config.telegram_shadow_channel:
         missing_config_names.append("TA3000_TELEGRAM_SHADOW_CHANNEL")
 
@@ -128,6 +138,10 @@ def evaluate_phase9_battle_run_preflight(
     if config.signal_store_backend != DEFAULT_PHASE9_SIGNAL_STORE_BACKEND:
         invalid_config.append(
             "TA3000_SIGNAL_STORE_BACKEND must stay postgres for Phase 9 battle-run mode"
+        )
+    if config.telegram_transport != "bot-api":
+        invalid_config.append(
+            "TA3000_TELEGRAM_TRANSPORT must be bot-api for real Telegram Phase 9 battle-run closure"
         )
     if not config.signal_store_schema:
         invalid_config.append("TA3000_SIGNAL_STORE_SCHEMA must be non-empty when provided")

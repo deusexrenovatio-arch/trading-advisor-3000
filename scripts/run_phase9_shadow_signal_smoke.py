@@ -26,6 +26,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run the Phase 9 WS-C Telegram/Postgres shadow lifecycle smoke.")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--dsn", default=os.environ.get("TA3000_APP_DSN", ""))
+    parser.add_argument(
+        "--telegram-transport",
+        default=os.environ.get("TA3000_TELEGRAM_TRANSPORT", "bot-api"),
+    )
+    parser.add_argument(
+        "--telegram-api-base-url",
+        default=os.environ.get("TA3000_TELEGRAM_API_BASE_URL", ""),
+    )
     parser.add_argument("--telegram-bot-token", default=os.environ.get("TA3000_TELEGRAM_BOT_TOKEN", ""))
     parser.add_argument(
         "--telegram-shadow-channel",
@@ -52,6 +60,8 @@ def main() -> int:
         signal_store_backend=args.signal_store_backend,
         signal_store_schema=args.signal_store_schema,
         dsn=args.dsn,
+        telegram_transport=args.telegram_transport,
+        telegram_api_base_url=args.telegram_api_base_url or None,
         telegram_bot_token=args.telegram_bot_token,
         telegram_shadow_channel=args.telegram_shadow_channel,
         telegram_advisory_channel=args.telegram_advisory_channel,

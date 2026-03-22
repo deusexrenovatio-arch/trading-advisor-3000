@@ -85,6 +85,9 @@ def run_sample_backfill(
         "deduplicated_rows": ingestion_batch.deduplicated_rows,
         "stale_rows": ingestion_batch.stale_rows,
         "watermark_by_key": ingestion_batch.watermark_by_key,
+        "materialization_mode": "manifest_only_jsonl_samples",
+        "materialized_delta_tables": [],
+        "delta_runtime_status": "manifest_only",
         "output_path": bars_output_path.as_posix(),
         "output_paths": {
             "raw_market_backfill": raw_output_path.as_posix(),
