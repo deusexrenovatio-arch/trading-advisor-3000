@@ -60,10 +60,11 @@ def build_phase9_battle_run_stack(
     validity_minutes_by_timeframe: dict[str, int] | None = None,
     cooldown_seconds: int = 0,
     blackout_windows_by_contract: dict[str, list[tuple[str, str]]] | None = None,
+    telegram_channel_override: str | None = None,
 ) -> RuntimeStack:
     config = require_phase9_battle_run_config(env)
     return build_runtime_stack_with_policies(
-        telegram_channel=config.telegram_shadow_channel,
+        telegram_channel=telegram_channel_override or config.telegram_shadow_channel,
         validity_minutes_by_timeframe=validity_minutes_by_timeframe,
         cooldown_seconds=cooldown_seconds,
         blackout_windows_by_contract=blackout_windows_by_contract,
