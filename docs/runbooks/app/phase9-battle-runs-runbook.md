@@ -73,6 +73,7 @@ Evidence:
 - strategy spec
 - backtest report
 - replay report
+- optional `QUIK` live-smoke attachment on the same evidence run
 
 ### Step A3 - live-feed and runtime smoke
 Target:
@@ -174,12 +175,26 @@ python scripts/run_phase9_real_data_smoke.py --provider quik-live --snapshot-url
 - local `QUIK` can now be wired through a generated `Lua` export script under `deployment/quik-live-feed/`
 - fixture import remains available for deterministic local replay and contract checks
 
+## Landed WS-B commands
+
+These commands are now implemented for the first production-strategy workstream.
+
+```bash
+python scripts/run_phase9_strategy_replay.py --strategy phase9-moex-breakout-v1 --bootstrap-report <bootstrap-report.json> --output-dir artifacts/phase9-strategy
+python scripts/run_phase9_strategy_replay.py --strategy phase9-moex-breakout-v1 --bootstrap-report <bootstrap-report.json> --output-dir artifacts/phase9-strategy --snapshot-path <quik-snapshot.json> --as-of-ts <ts>
+```
+
+### WS-B runtime notes
+- the landed runtime mode is `shadow`
+- the strategy contract is frozen in `phase9-moex-breakout-v1`
+- `QUIK` live-smoke can be attached to replay evidence, but that still does not prove `9B` broker execution readiness
+- `advisory` stays a docs/operations posture until the runtime enum surface is intentionally expanded
+
 ## Target commands to add in later Phase 9 workstreams
 
 The remaining commands stay planned until the next workstreams land.
 
 ```bash
-python scripts/run_phase9_strategy_replay.py --strategy <strategy_id> --dataset <dataset_version>
 python scripts/run_phase9_shadow_signal_smoke.py --channel shadow --duration 1h
 python scripts/run_phase9_battle_run.py --mode advisory --duration 1d
 python scripts/run_phase9_canary_live_intent.py --base-url http://localhost:18081 --qty 1

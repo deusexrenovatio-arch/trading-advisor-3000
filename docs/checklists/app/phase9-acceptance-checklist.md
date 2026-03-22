@@ -37,9 +37,12 @@
 
 ## Phase 9A - strategy and runtime
 - [ ] first production strategy spec landed
+- [ ] `phase9-moex-breakout-v1` spec landed
 - [ ] backtest artifact generated
 - [ ] replay artifact generated
+- [ ] `python scripts/run_phase9_strategy_replay.py ...` landed
 - [ ] strategy assumptions mention `MOEX` and `QUIK`
+- [ ] `WS-B` evidence is explicit that code closure is `shadow`-ready, not broker-ready
 - [ ] battle-run mode defaults to `PostgreSQL`
 
 ## Phase 9A - Telegram and evidence
