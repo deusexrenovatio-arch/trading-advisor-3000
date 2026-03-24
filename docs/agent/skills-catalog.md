@@ -3,7 +3,7 @@
 <!-- generated-by: scripts/sync_skills_catalog.py -->
 <!-- source-of-truth: .cursor/skills/*/SKILL.md -->
 <!-- generated-contract: do not edit manually; run python scripts/sync_skills_catalog.py -->
-<!-- catalog-sha256: 51a483bec3a933318d5dd5997dd23b2f3642e8dc18aecd81e431f485cef66f59 -->
+<!-- catalog-sha256: 9d6bdd5a8ecb3d2b9ed2bdcb3da129d8f9f9008ebba5c071f7839e357b7ee941 -->
 
 | skill_id | classification | wave | status | scope | owner_surface | routing_triggers | source | hot_context_policy |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -19,6 +19,7 @@
 | `module-scaffold` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | module initialization with governance defaults | `CTX-ARCHITECTURE` | module scaffold; new module; bounded context; scaffold | `local_runtime` | `cold-by-default` |
 | `parallel-worktree-flow` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | parallel worktree operations and branch isolation | `CTX-OPS` | worktree; parallel streams; branch isolation; integration branch | `local_runtime` | `cold-by-default` |
 | `patch-series-splitter` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | patch decomposition and change sequencing | `CTX-OPS` | patch series; split diff; ordered patches; review sequence | `local_runtime` | `cold-by-default` |
+| `phase-acceptance-governor` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | hard phase acceptance policy and evidence-based unblock rules | `CTX-OPS` | phase acceptance; acceptance gate; acceptor; fallback; skip checks | `local_runtime` | `cold-by-default` |
 | `product-owner` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | value-based prioritization and roadmap sequencing | `CTX-OPS` | value; priorities; roadmap; mvp | `local_runtime` | `cold-by-default` |
 | `qa-test-engineer` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | quality planning and end-to-end verification | `CTX-OPS` | qa; test plan; regression; validation | `local_runtime` | `cold-by-default` |
 | `registry-first` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | registry-first governance for contract evolution | `CTX-CONTRACTS` | registry; schema; contract; catalog | `local_runtime` | `cold-by-default` |

@@ -1,0 +1,234 @@
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[2]
+SCRIPTS = ROOT / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+from codex_phase_orchestrator import orchestrate_current_phase  # noqa: E402
+from codex_phase_policy import RoleLaunchConfig  # noqa: E402
+
+
+def _write(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def _launch(model: str) -> RoleLaunchConfig:
+    return RoleLaunchConfig(profile="", model=model, config_overrides=())
+
+
+def _module_fixture(repo: Path) -> tuple[Path, Path]:
+    contract = repo / "docs/codex/contracts/demo.execution-contract.md"
+    parent = repo / "docs/codex/modules/demo.parent.md"
+    phase1 = repo / "docs/codex/modules/demo.phase-01.md"
+    phase2 = repo / "docs/codex/modules/demo.phase-02.md"
+    worker = repo / "docs/codex/prompts/phases/worker.md"
+    acceptor = repo / "docs/codex/prompts/phases/acceptor.md"
+    remediation = repo / "docs/codex/prompts/phases/remediation.md"
+
+    _write(
+        contract,
+        """# Execution Contract
+
+## Next Allowed Unit Of Work
+- Execute phase 01 only: foundation work.
+""",
+    )
+    _write(
+        parent,
+        """# Module Parent Brief
+
+## Next Phase To Execute
+- docs/codex/modules/demo.phase-01.md
+""",
+    )
+    _write(
+        phase1,
+        """# Module Phase Brief
+
+## Phase
+- Name: Phase 01
+- Status: planned
+
+## Objective
+- Build the foundation.
+""",
+    )
+    _write(
+        phase2,
+        """# Module Phase Brief
+
+## Phase
+- Name: Phase 02
+- Status: planned
+
+## Objective
+- Add enforcement.
+""",
+    )
+    _write(worker, "worker prompt\n")
+    _write(acceptor, "acceptor prompt\n")
+    _write(remediation, "remediation prompt\n")
+    return contract, parent
+
+
+def test_orchestrator_pass_advances_next_phase(tmp_path: Path) -> None:
+    contract, parent = _module_fixture(tmp_path)
+    code, state_path = orchestrate_current_phase(
+        repo_root=tmp_path,
+        execution_contract_path=contract,
+        parent_path=parent,
+        worker_prompt_path=tmp_path / "docs/codex/prompts/phases/worker.md",
+        acceptor_prompt_path=tmp_path / "docs/codex/prompts/phases/acceptor.md",
+        remediation_prompt_path=tmp_path / "docs/codex/prompts/phases/remediation.md",
+        artifact_root=tmp_path / "artifacts/codex/orchestration",
+        backend="simulate",
+        worker_launch=_launch("gpt-5.3-codex"),
+        acceptor_launch=_launch("gpt-5.4"),
+        remediation_launch=_launch("gpt-5.3-codex"),
+        codex_bin=None,
+        simulate_scenario="pass",
+        max_remediation_cycles=2,
+        ignore_globs=(),
+        skip_clean_check=True,
+    )
+    assert code == 0
+    assert "Status: completed" in (tmp_path / "docs/codex/modules/demo.phase-01.md").read_text(encoding="utf-8")
+    assert "- docs/codex/modules/demo.phase-02.md" in parent.read_text(encoding="utf-8")
+    assert "Execute Phase 02 only: Add enforcement." in contract.read_text(encoding="utf-8")
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert payload["final_status"] == "accepted"
+    assert payload["attempts_total"] == 1
+    assert payload["route_mode"] == "governed-phase-orchestration"
+    assert payload["attempts"][0]["acceptor_used_skills"][0] == "phase-acceptance-governor"
+
+
+def test_orchestrator_block_then_pass_uses_remediation_loop(tmp_path: Path) -> None:
+    contract, parent = _module_fixture(tmp_path)
+    code, state_path = orchestrate_current_phase(
+        repo_root=tmp_path,
+        execution_contract_path=contract,
+        parent_path=parent,
+        worker_prompt_path=tmp_path / "docs/codex/prompts/phases/worker.md",
+        acceptor_prompt_path=tmp_path / "docs/codex/prompts/phases/acceptor.md",
+        remediation_prompt_path=tmp_path / "docs/codex/prompts/phases/remediation.md",
+        artifact_root=tmp_path / "artifacts/codex/orchestration",
+        backend="simulate",
+        worker_launch=_launch("gpt-5.3-codex"),
+        acceptor_launch=_launch("gpt-5.4"),
+        remediation_launch=_launch("gpt-5.3-codex"),
+        codex_bin=None,
+        simulate_scenario="block-then-pass",
+        max_remediation_cycles=2,
+        ignore_globs=(),
+        skip_clean_check=True,
+    )
+    assert code == 0
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert payload["final_status"] == "accepted"
+    assert payload["attempts_total"] == 2
+    assert payload["attempts"][0]["verdict"] == "BLOCKED"
+    assert payload["attempts"][1]["verdict"] == "PASS"
+    assert any("unlock next phase" in item for item in payload["route_trace"])
+
+
+def test_orchestrator_blocked_keeps_same_phase_locked(tmp_path: Path) -> None:
+    contract, parent = _module_fixture(tmp_path)
+    code, state_path = orchestrate_current_phase(
+        repo_root=tmp_path,
+        execution_contract_path=contract,
+        parent_path=parent,
+        worker_prompt_path=tmp_path / "docs/codex/prompts/phases/worker.md",
+        acceptor_prompt_path=tmp_path / "docs/codex/prompts/phases/acceptor.md",
+        remediation_prompt_path=tmp_path / "docs/codex/prompts/phases/remediation.md",
+        artifact_root=tmp_path / "artifacts/codex/orchestration",
+        backend="simulate",
+        worker_launch=_launch("gpt-5.3-codex"),
+        acceptor_launch=_launch("gpt-5.4"),
+        remediation_launch=_launch("gpt-5.3-codex"),
+        codex_bin=None,
+        simulate_scenario="blocked",
+        max_remediation_cycles=1,
+        ignore_globs=(),
+        skip_clean_check=True,
+    )
+    assert code == 3
+    assert "Status: blocked" in (tmp_path / "docs/codex/modules/demo.phase-01.md").read_text(encoding="utf-8")
+    assert "- docs/codex/modules/demo.phase-01.md" in parent.read_text(encoding="utf-8")
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert payload["final_status"] == "blocked"
+    assert payload["attempts_total"] == 2
+    assert payload["route_trace"][-1] == "phase remains locked"
+
+
+def test_orchestrator_auto_blocks_worker_shortcuts_even_if_acceptor_passes(tmp_path: Path) -> None:
+    contract, parent = _module_fixture(tmp_path)
+    code, state_path = orchestrate_current_phase(
+        repo_root=tmp_path,
+        execution_contract_path=contract,
+        parent_path=parent,
+        worker_prompt_path=tmp_path / "docs/codex/prompts/phases/worker.md",
+        acceptor_prompt_path=tmp_path / "docs/codex/prompts/phases/acceptor.md",
+        remediation_prompt_path=tmp_path / "docs/codex/prompts/phases/remediation.md",
+        artifact_root=tmp_path / "artifacts/codex/orchestration",
+        backend="simulate",
+        worker_launch=_launch("gpt-5.3-codex"),
+        acceptor_launch=_launch("gpt-5.4"),
+        remediation_launch=_launch("gpt-5.3-codex"),
+        codex_bin=None,
+        simulate_scenario="pass-with-shortcut",
+        max_remediation_cycles=0,
+        ignore_globs=(),
+        skip_clean_check=True,
+    )
+    assert code == 3
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert payload["final_status"] == "blocked"
+    assert payload["attempts"][0]["policy_blockers_total"] >= 1
+    acceptance_md = (
+        tmp_path
+        / "artifacts/codex/orchestration"
+        / payload["run_id"]
+        / "attempt-01"
+        / "acceptance.md"
+    ).read_text(encoding="utf-8")
+    assert "Silent or unapproved fallback path" in acceptance_md
+
+
+def test_orchestrator_auto_blocks_acceptance_evidence_gaps(tmp_path: Path) -> None:
+    contract, parent = _module_fixture(tmp_path)
+    code, state_path = orchestrate_current_phase(
+        repo_root=tmp_path,
+        execution_contract_path=contract,
+        parent_path=parent,
+        worker_prompt_path=tmp_path / "docs/codex/prompts/phases/worker.md",
+        acceptor_prompt_path=tmp_path / "docs/codex/prompts/phases/acceptor.md",
+        remediation_prompt_path=tmp_path / "docs/codex/prompts/phases/remediation.md",
+        artifact_root=tmp_path / "artifacts/codex/orchestration",
+        backend="simulate",
+        worker_launch=_launch("gpt-5.3-codex"),
+        acceptor_launch=_launch("gpt-5.4"),
+        remediation_launch=_launch("gpt-5.3-codex"),
+        codex_bin=None,
+        simulate_scenario="pass-with-evidence-gap",
+        max_remediation_cycles=0,
+        ignore_globs=(),
+        skip_clean_check=True,
+    )
+    assert code == 3
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert payload["attempts"][0]["policy_blockers_total"] >= 1
+    route_report = (
+        tmp_path
+        / "artifacts/codex/orchestration"
+        / payload["run_id"]
+        / "route-report.md"
+    ).read_text(encoding="utf-8")
+    assert "Route Mode: governed-phase-orchestration" in route_report
+    assert "acceptor: model=gpt-5.4" in route_report
