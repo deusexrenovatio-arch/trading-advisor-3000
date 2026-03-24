@@ -10,6 +10,7 @@
 3. User-case coverage includes success, edge, and failure flows.
 4. Budget/stop-replan controls are explicit.
 5. Context integrity is preserved (no unrelated side-work).
+6. If the task hits a critical contour, declare `target|staged|fallback` before coding and name why the chosen path is not a shortcut.
 
 ## Required Output Block
 Keep this under `## First-Time-Right Report` in the active task note:

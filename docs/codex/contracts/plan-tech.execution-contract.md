@@ -1,6 +1,6 @@
 # Execution Contract
 
-Updated: 2026-03-24 15:00 UTC
+Updated: 2026-03-24 15:08 UTC
 
 ## Source Package
 
@@ -75,7 +75,7 @@ Updated: 2026-03-24 15:00 UTC
 
 ## Next Allowed Unit Of Work
 
-- Execute phase 01 only: define the lightweight anti-shortcut policy model, critical contour config, and task-contract extensions without yet wiring new validators into the gates.
+- Execute phase 02 only: add validator and gate enforcement on top of the completed phase-01 policy, config, and task-contract foundations.
 
 ## Suggested Branch / PR
 

@@ -1,6 +1,6 @@
 # Module Phase Brief
 
-Updated: 2026-03-24 15:00 UTC
+Updated: 2026-03-24 15:08 UTC
 
 ## Parent
 
@@ -10,7 +10,7 @@ Updated: 2026-03-24 15:00 UTC
 ## Phase
 
 - Name: Policy and Critical Contour Foundations
-- Status: planned
+- Status: completed
 
 ## Objective
 
@@ -60,4 +60,4 @@ Updated: 2026-03-24 15:00 UTC
 
 ## Next Allowed Step
 
-- Implement only the contract and policy surfaces first, then rerun the loop gate before starting validators.
+- Start phase 02 only after the phase-01 policy/config/task-note foundations are green in the loop gate.

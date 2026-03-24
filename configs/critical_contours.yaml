@@ -1,0 +1,103 @@
+version: 1
+
+solution_classes:
+  target:
+    summary: Full intended contour closure with the contour's required evidence.
+  staged:
+    summary: Bounded intermediate closure that preserves the target shape and names the remaining gap.
+  fallback:
+    summary: Explicitly weaker stop-gap that is declared as fallback and must not pretend to be target closure.
+
+forbidden_shortcuts:
+  - id: synthetic-upstream-boundary
+    summary: Replacing a real upstream output with a synthetic stand-in while claiming true closure.
+  - id: scaffold-only-closure
+    summary: Claiming full closure from scaffolding or wiring without the required contour evidence.
+  - id: undeclared-runtime-substitution
+    summary: Using a substitute runtime or technology without explicitly declaring it.
+  - id: hidden-fallback-path
+    summary: Using fallback behavior without naming it as fallback.
+  - id: sample-evidence-instead-of-contour-evidence
+    summary: Using smoke/sample/manifests instead of the contour's required evidence.
+
+contours:
+  - id: data-integration-closure
+    status: pilot
+    trigger_paths:
+      - src/trading_advisor_3000/app/data_plane/
+      - src/trading_advisor_3000/migrations/
+      - tests/app/integration/test_phase2a_data_plane.py
+      - docs/checklists/app/phase2a-acceptance-checklist.md
+    default_required_class: target
+    required_task_fields:
+      - Solution Class
+      - Critical Contour
+      - Forbidden Shortcuts
+      - Closure Evidence
+      - Shortcut Waiver
+    forbidden_shortcut_markers:
+      - synthetic-upstream-boundary
+      - scaffold-only-closure
+      - undeclared-runtime-substitution
+      - hidden-fallback-path
+      - sample-evidence-instead-of-contour-evidence
+    required_evidence_markers:
+      target:
+        - durable upstream-integrated output
+        - downstream research or runtime-ready evidence
+      staged:
+        - explicit staged declaration
+        - named missing downstream link
+      fallback:
+        - explicit fallback declaration
+        - bounded operational reason
+    allowed_staged_wording:
+      - staged
+      - partial closure
+      - not yet downstream-ready
+    reacceptance_trigger_markers:
+      - upstream contract changed
+      - durable output schema changed
+      - downstream-ready evidence invalidated
+
+  - id: runtime-publication-closure
+    status: pilot
+    trigger_paths:
+      - src/trading_advisor_3000/app/runtime/
+      - src/trading_advisor_3000/app/execution/
+      - src/trading_advisor_3000/app/interfaces/
+      - src/trading_advisor_3000/app/phase9/
+      - tests/app/integration/test_phase2d_execution.py
+      - tests/app/integration/test_phase4_live_execution_controlled.py
+      - docs/checklists/app/phase4-acceptance-checklist.md
+    default_required_class: target
+    required_task_fields:
+      - Solution Class
+      - Critical Contour
+      - Forbidden Shortcuts
+      - Closure Evidence
+      - Shortcut Waiver
+    forbidden_shortcut_markers:
+      - synthetic-upstream-boundary
+      - scaffold-only-closure
+      - undeclared-runtime-substitution
+      - hidden-fallback-path
+      - sample-evidence-instead-of-contour-evidence
+    required_evidence_markers:
+      target:
+        - durable store or publication evidence
+        - runtime-to-publication contour evidence
+      staged:
+        - explicit staged declaration
+        - named missing publication or durability step
+      fallback:
+        - explicit fallback declaration
+        - bounded operational reason
+    allowed_staged_wording:
+      - staged
+      - advisory-only
+      - not yet durable
+    reacceptance_trigger_markers:
+      - publication transport changed
+      - durable store path changed
+      - runtime output contract changed

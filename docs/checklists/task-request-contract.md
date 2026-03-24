@@ -12,6 +12,21 @@
 - Done Evidence: exact commands and artifacts that prove completion.
 - Priority Rule: tie-breaker when requirements conflict.
 
+## Critical Contour Extension
+Only when a task hits a configured critical contour, add:
+- Solution Class: `target|staged|fallback`
+- Critical Contour: configured contour id
+- Forbidden Shortcuts: explicit shortcut ids that must not be used
+- Closure Evidence: the exact evidence that proves the claimed contour closure
+- Shortcut Waiver: `none` or one-line reason
+
+Also add one short design checkpoint that states:
+- chosen path,
+- why it is not a shortcut,
+- what target shape is preserved.
+
+Use the snippet in [docs/templates/critical_contour_task_note_block.md](docs/templates/critical_contour_task_note_block.md).
+
 ## Mandatory Repetition Control
 - Max Same-Path Attempts: cap before forced strategy reset.
 - Stop Trigger: explicit signal that current path is exhausted.
@@ -31,6 +46,7 @@
   - `## Task Request Contract`
   - `## First-Time-Right Report`
   - `## Repetition Control`
+- For configured critical contours, also add the critical contour block from `docs/templates/critical_contour_task_note_block.md`.
 - Validate with:
   - `python scripts/validate_task_request_contract.py`
   - `python scripts/validate_session_handoff.py`
