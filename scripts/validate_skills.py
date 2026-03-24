@@ -46,6 +46,7 @@ KEEP_CORE_BASELINE = {
     "module-scaffold",
     "parallel-worktree-flow",
     "patch-series-splitter",
+    "phase-acceptance-governor",
     "product-owner",
     "qa-test-engineer",
     "registry-first",

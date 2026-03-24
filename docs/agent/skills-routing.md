@@ -12,6 +12,10 @@
 3. Keep domain-specialized skills outside baseline shell runtime.
 4. When multiple skills match, pick the smallest set that covers intent.
 
+## Acceptance Routing
+- When a task involves phase acceptance, acceptor flows, unblock decisions, or explicit guardrails against fallbacks/skips, load `phase-acceptance-governor` first.
+- Co-load `architecture-review`, `testing-suite`, and `docs-sync` when acceptance covers architecture fit, executed tests, and documentation closure.
+
 ## Class Policy
 
 | Class | Baseline runtime | Policy |
