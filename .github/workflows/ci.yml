@@ -51,8 +51,29 @@ jobs:
           python scripts/validate_mcp_config.py
           python scripts/validate_no_tracked_secrets.py
 
+      - name: Resolve Diff Range
+        id: diff-range
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "base_ref=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+            echo "head_ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event_name }}" == "push" && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
+            echo "base_ref=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
+            echo "head_ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          elif git rev-parse HEAD^ >/dev/null 2>&1; then
+            echo "base_ref=$(git rev-parse HEAD^)" >> "$GITHUB_OUTPUT"
+            echo "head_ref=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Loop Gate
-        run: python scripts/run_loop_gate.py --skip-session-check --from-git --git-ref HEAD
+        shell: bash
+        run: |
+          if [[ -n "${{ steps.diff-range.outputs.base_ref }}" && -n "${{ steps.diff-range.outputs.head_ref }}" ]]; then
+            python scripts/run_loop_gate.py --skip-session-check --base-ref "${{ steps.diff-range.outputs.base_ref }}" --head-ref "${{ steps.diff-range.outputs.head_ref }}"
+          else
+            python scripts/run_loop_gate.py --skip-session-check --from-git --git-ref HEAD
+          fi
 
       - name: Fast QA Matrix
         run: |
@@ -82,8 +103,29 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install pytest pyyaml
 
+      - name: Resolve Diff Range
+        id: diff-range
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "base_ref=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+            echo "head_ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event_name }}" == "push" && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
+            echo "base_ref=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
+            echo "head_ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          elif git rev-parse HEAD^ >/dev/null 2>&1; then
+            echo "base_ref=$(git rev-parse HEAD^)" >> "$GITHUB_OUTPUT"
+            echo "head_ref=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: PR Gate
-        run: python scripts/run_pr_gate.py --skip-session-check --from-git --git-ref HEAD
+        shell: bash
+        run: |
+          if [[ -n "${{ steps.diff-range.outputs.base_ref }}" && -n "${{ steps.diff-range.outputs.head_ref }}" ]]; then
+            python scripts/run_pr_gate.py --skip-session-check --base-ref "${{ steps.diff-range.outputs.base_ref }}" --head-ref "${{ steps.diff-range.outputs.head_ref }}"
+          else
+            python scripts/run_pr_gate.py --skip-session-check --from-git --git-ref HEAD
+          fi
 
       - name: MCP Governance Contract
         run: |
@@ -126,8 +168,29 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install pytest pyyaml
 
+      - name: Resolve Diff Range
+        id: diff-range
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "base_ref=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+            echo "head_ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event_name }}" == "push" && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
+            echo "base_ref=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
+            echo "head_ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          elif git rev-parse HEAD^ >/dev/null 2>&1; then
+            echo "base_ref=$(git rev-parse HEAD^)" >> "$GITHUB_OUTPUT"
+            echo "head_ref=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Nightly Gate
-        run: python scripts/run_nightly_gate.py --from-git --git-ref HEAD
+        shell: bash
+        run: |
+          if [[ -n "${{ steps.diff-range.outputs.base_ref }}" && -n "${{ steps.diff-range.outputs.head_ref }}" ]]; then
+            python scripts/run_nightly_gate.py --base-ref "${{ steps.diff-range.outputs.base_ref }}" --head-ref "${{ steps.diff-range.outputs.head_ref }}"
+          else
+            python scripts/run_nightly_gate.py --from-git --git-ref HEAD
+          fi
 
       - name: MCP Governance Contract
         run: |

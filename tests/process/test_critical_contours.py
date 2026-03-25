@@ -96,6 +96,26 @@ def test_validate_solution_intent_requires_fields_for_critical_contour(tmp_path:
     assert code == 1
 
 
+def test_validate_solution_intent_rejects_empty_required_values(tmp_path: Path) -> None:
+    handoff_path = _write_handoff_pair(
+        tmp_path,
+        solution_intent_block=(
+            "## Solution Intent\n"
+            "- Solution Class: \n"
+            "- Critical Contour: data-integration-closure\n"
+            "- Forbidden Shortcuts: none\n"
+            "- Closure Evidence: \n"
+            "- Shortcut Waiver: none\n"
+        ),
+    )
+    code = run_solution_intent(
+        handoff_path,
+        config_path=ROOT / "configs" / "critical_contours.yaml",
+        changed_files_override=["src/trading_advisor_3000/app/data_plane/pipeline.py"],
+    )
+    assert code == 1
+
+
 def test_validate_solution_intent_allows_docs_only_change_without_addendum(tmp_path: Path) -> None:
     handoff_path = _write_handoff_pair(tmp_path)
     code = run_solution_intent(
@@ -123,6 +143,26 @@ def test_validate_critical_contour_closure_blocks_target_with_fixture_evidence(t
         handoff_path,
         config_path=ROOT / "configs" / "critical_contours.yaml",
         changed_files_override=["src/trading_advisor_3000/app/data_plane/pipeline.py"],
+    )
+    assert code == 1
+
+
+def test_validate_critical_contour_closure_rejects_empty_required_values(tmp_path: Path) -> None:
+    handoff_path = _write_handoff_pair(
+        tmp_path,
+        solution_intent_block=(
+            "## Solution Intent\n"
+            "- Solution Class: \n"
+            "- Critical Contour: runtime-publication-closure\n"
+            "- Forbidden Shortcuts: none\n"
+            "- Closure Evidence: \n"
+            "- Shortcut Waiver: none\n"
+        ),
+    )
+    code = run_closure_validation(
+        handoff_path,
+        config_path=ROOT / "configs" / "critical_contours.yaml",
+        changed_files_override=["src/trading_advisor_3000/app/runtime/runtime_service.py"],
     )
     assert code == 1
 

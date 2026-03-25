@@ -77,7 +77,8 @@ def run(
     errors: list[str] = []
     required_fields = ("solution_class", "critical_contour", "forbidden_shortcuts", "closure_evidence", "shortcut_waiver")
     for field_name in required_fields:
-        if field_name not in fields:
+        raw_value = fields.get(field_name, "")
+        if field_name not in fields or not normalize_text(raw_value):
             errors.append(
                 "Solution Intent is incomplete; run solution intent remediation first"
             )
