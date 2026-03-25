@@ -46,6 +46,16 @@ def test_ci_workflow_has_hosted_ci_opt_in_guard() -> None:
     assert "MCP Governance Contract" in workflow_text
 
 
+def test_ci_workflow_resolves_explicit_diff_ranges_for_hosted_gates() -> None:
+    workflow_text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    assert "Resolve Diff Range" in workflow_text
+    assert "github.event.pull_request.base.sha" in workflow_text
+    assert "github.event.pull_request.head.sha" in workflow_text
+    assert "github.event.before" in workflow_text
+    assert "--base-ref" in workflow_text
+    assert "--head-ref" in workflow_text
+
+
 def test_skill_update_decision_contract() -> None:
     result = subprocess.run(
         [

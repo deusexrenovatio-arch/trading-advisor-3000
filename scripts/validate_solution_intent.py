@@ -75,7 +75,8 @@ def run(
 
     errors: list[str] = []
     for field_name in REQUIRED_INTENT_FIELDS:
-        if field_name not in fields:
+        raw_value = fields.get(field_name, "")
+        if field_name not in fields or not normalize_text(raw_value):
             errors.append(f"missing Solution Intent field: {field_name.replace('_', ' ')}")
 
     solution_class = normalize_text(fields.get("solution_class", ""))
