@@ -212,6 +212,7 @@ def normalize_route_argv(argv: list[str]) -> list[str]:
 
 def run_package_route(
     *,
+    repo_root: Path,
     decision: RouteDecision,
     mode: str,
     profile: str,
@@ -234,7 +235,20 @@ def run_package_route(
         "--output-last-message",
         output_last_message.as_posix(),
     ]
-    return int(package_main(args))
+    exit_code = int(package_main(args))
+    if exit_code != 0:
+        return exit_code
+
+    active_module = discover_active_module(repo_root)
+    if active_module is not None:
+        print("package_route_outcome: active_module_detected")
+        print("next_governed_route: continue")
+        print(f"execution_contract: {active_module.execution_contract.as_posix()}")
+        print(f"parent_brief: {active_module.parent_brief.as_posix()}")
+        print(f"current_phase: {active_module.current_phase.as_posix()}")
+    else:
+        print("package_route_outcome: no_active_module_detected")
+    return 0
 
 
 def run_continue_route(
@@ -355,6 +369,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if decision.route == "package":
         return run_package_route(
+            repo_root=repo_root,
             decision=decision,
             mode=args.mode,
             profile=args.profile,

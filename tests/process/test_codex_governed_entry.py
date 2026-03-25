@@ -155,5 +155,41 @@ def test_main_accepts_positional_package_route_in_plan_only_dry_run(
     assert payload["package_path"] == (tmp_path / "incoming.zip").resolve().as_posix()
 
 
+def test_package_route_prints_continue_hint_when_active_module_is_materialized(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    monkeypatch.setattr("codex_governed_entry.resolve_repo_root", lambda: tmp_path)
+
+    package = tmp_path / "incoming.zip"
+    package.write_bytes(b"zip-placeholder")
+
+    def fake_package_main(argv: list[str]) -> int:
+        _phase_module(tmp_path, "demo")
+        return 0
+
+    monkeypatch.setattr("codex_governed_entry.package_main", fake_package_main)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "codex_governed_entry.py",
+            "package",
+            "--package-path",
+            "incoming.zip",
+            "--route-state-file",
+            ".runlogs/test-route.json",
+        ],
+    )
+
+    code = main()
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "package_route_outcome: active_module_detected" in captured.out
+    assert "next_governed_route: continue" in captured.out
+    assert "docs/codex/contracts/demo.execution-contract.md" in captured.out
+    assert "docs/codex/modules/demo.parent.md" in captured.out
+
+
 def test_resolve_repo_root_points_at_script_parent() -> None:
     assert resolve_repo_root() == ROOT
