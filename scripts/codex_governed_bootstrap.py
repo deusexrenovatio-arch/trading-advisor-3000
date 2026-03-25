@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from codex_governed_entry import main as governed_entry_main
-from task_session import check_active_session
+from task_session import default_session_lock_path, evaluate_session_lock, load_session_lock
 
 
 DEFAULT_BOOTSTRAP_STATE = Path(".runlogs/codex-governed-entry/bootstrap-state.json")
@@ -38,8 +38,10 @@ def resolve_path(repo_root: Path, raw: str | Path) -> Path:
 
 
 def ensure_active_session(*, repo_root: Path, request: str) -> dict[str, Any]:
-    code, message, payload = check_active_session()
-    if code == 0:
+    session_lock_path = default_session_lock_path(repo_root)
+    payload = load_session_lock(session_lock_path)
+    ok, message = evaluate_session_lock(payload, repo_root=repo_root)
+    if ok:
         return {
             "action": "reused",
             "message": message,
@@ -83,7 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--route-state-file", default=".runlogs/codex-governed-entry/last-route.json")
     parser.add_argument("--bootstrap-state-file", default=str(DEFAULT_BOOTSTRAP_STATE))
     parser.add_argument("--mode", default="auto")
-    parser.add_argument("--profile", default="deep")
+    parser.add_argument("--profile", default="")
     parser.add_argument("--backend", choices=("simulate", "codex-cli"), default="codex-cli")
     parser.add_argument("--worker-model", default="gpt-5.3-codex")
     parser.add_argument("--acceptor-model", default="gpt-5.4")
@@ -119,8 +121,6 @@ def main(argv: list[str] | None = None) -> int:
         args.route_state_file,
         "--mode",
         args.mode,
-        "--profile",
-        args.profile,
         "--backend",
         args.backend,
         "--worker-model",
@@ -132,6 +132,8 @@ def main(argv: list[str] | None = None) -> int:
         "--max-remediation-cycles",
         str(max(args.max_remediation_cycles, 0)),
     ]
+    if args.profile.strip():
+        entry_args.extend(["--profile", args.profile])
     if args.package_path:
         entry_args.extend(["--package-path", args.package_path])
     if args.execution_contract:

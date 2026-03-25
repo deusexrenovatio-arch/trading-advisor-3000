@@ -7,6 +7,7 @@ Drop incoming task/TZ packages into `docs/codex/packages/inbox/`.
 1. Put a `zip` archive into the inbox.
 2. Tell Codex to take the latest package or give the package path explicitly.
 3. Codex unpacks the archive, generates a manifest, picks the suggested primary document, and continues the governance flow.
+4. The runtime package prompt is used after launcher dispatch and must not recursively call the launcher.
 
 ## What the launcher produces
 

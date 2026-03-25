@@ -14,6 +14,8 @@ from codex_governed_entry import (  # noqa: E402
     DEFAULT_ROUTE_STATE,
     decide_route,
     discover_active_module,
+    main,
+    normalize_route_argv,
     resolve_repo_root,
     write_route_state,
 )
@@ -117,6 +119,40 @@ def test_write_route_state_records_decision(tmp_path: Path) -> None:
     payload = json.loads(target.read_text(encoding="utf-8"))
     assert payload["route"] == "continue"
     assert payload["module"]["current_phase"] == phase.resolve().as_posix()
+
+
+def test_normalize_route_argv_accepts_positional_route_alias() -> None:
+    argv = normalize_route_argv(["package", "--package-path", "docs/codex/packages/inbox/sample.zip"])
+    assert argv[:2] == ["--route", "package"]
+    assert "--package-path" in argv
+
+
+def test_main_accepts_positional_package_route_in_plan_only_dry_run(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("codex_governed_entry.resolve_repo_root", lambda: tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "codex_governed_entry.py",
+            "package",
+            "--package-path",
+            "incoming.zip",
+            "--mode",
+            "plan-only",
+            "--route-state-file",
+            ".runlogs/test-route.json",
+            "--dry-run",
+        ],
+    )
+
+    code = main()
+
+    assert code == 0
+    payload = json.loads((tmp_path / ".runlogs/test-route.json").read_text(encoding="utf-8"))
+    assert payload["route"] == "package"
+    assert payload["package_path"] == (tmp_path / "incoming.zip").resolve().as_posix()
 
 
 def test_resolve_repo_root_points_at_script_parent() -> None:

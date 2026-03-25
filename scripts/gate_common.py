@@ -4,8 +4,15 @@ import os
 import shlex
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+
+@dataclass(frozen=True)
+class CommandSpec:
+    command: str
+    stdin_text: str | None = None
 
 
 def collect_changed_files(
@@ -60,17 +67,36 @@ def collect_changed_files(
     return normalized
 
 
-def run_command(command: str) -> int:
-    print(f">>> {command}", flush=True)
-    completed = subprocess.run(command, shell=True, check=False)
+def command_text(command: str | CommandSpec) -> str:
+    if isinstance(command, CommandSpec):
+        return command.command
+    return command
+
+
+def _join_command(parts: list[str]) -> str:
+    if os.name == "nt":
+        return subprocess.list2cmdline(parts)
+    return shlex.join(parts)
+
+
+def run_command(command: str | CommandSpec) -> int:
+    rendered = command_text(command)
+    print(f">>> {rendered}", flush=True)
+    completed = subprocess.run(
+        rendered,
+        shell=True,
+        check=False,
+        text=True,
+        input=command.stdin_text if isinstance(command, CommandSpec) else None,
+    )
     return int(completed.returncode)
 
 
-def run_commands(commands: list[str]) -> tuple[int, str | None]:
+def run_commands(commands: list[str | CommandSpec]) -> tuple[int, str | None]:
     for command in commands:
         code = run_command(command)
         if code != 0:
-            return code, command
+            return code, command_text(command)
     return 0, None
 
 
@@ -85,13 +111,19 @@ def is_non_trivial_diff(paths: list[str]) -> bool:
     return False
 
 
+def _stdin_payload(changed_files: list[str]) -> str:
+    if not changed_files:
+        return ""
+    return "\n".join(changed_files) + "\n"
+
+
 def scope_validate_command(
     command: str,
     *,
     base_sha: str | None,
     head_sha: str | None,
     changed_files: list[str],
-) -> str:
+) -> str | CommandSpec:
     try:
         parts = shlex.split(command, posix=os.name != "nt")
     except ValueError:
@@ -113,9 +145,7 @@ def scope_validate_command(
             scoped_parts.extend(changed_files)
         if "--strict" not in normalized:
             scoped_parts.append("--strict")
-        if os.name == "nt":
-            return subprocess.list2cmdline(scoped_parts)
-        return shlex.join(scoped_parts)
+        return _join_command(scoped_parts)
 
     if "--base-sha" in normalized or "--changed-files" in normalized:
         return command
@@ -124,14 +154,15 @@ def scope_validate_command(
     if base_sha and head_sha:
         scoped_parts.extend(["--base-sha", base_sha, "--head-sha", head_sha])
     elif changed_files:
-        scoped_parts.append("--changed-files")
-        scoped_parts.extend(changed_files)
+        scoped_parts.append("--stdin")
+        return CommandSpec(
+            command=_join_command(scoped_parts),
+            stdin_text=_stdin_payload(changed_files),
+        )
     else:
         return command
 
-    if os.name == "nt":
-        return subprocess.list2cmdline(scoped_parts)
-    return shlex.join(scoped_parts)
+    return _join_command(scoped_parts)
 
 
 def write_summary(
@@ -139,7 +170,7 @@ def write_summary(
     summary_file: str | None,
     gate_name: str,
     surface_result: dict[str, Any],
-    commands: list[str],
+    commands: list[str | CommandSpec],
 ) -> None:
     if not summary_file:
         return
@@ -156,7 +187,7 @@ def write_summary(
         "### Commands",
     ]
     for command in commands:
-        lines.append(f"- `{command}`")
+        lines.append(f"- `{command_text(command)}`")
     lines.append("")
     with summary_path.open("a", encoding="utf-8") as handle:
         handle.write("\n".join(lines))

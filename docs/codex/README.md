@@ -25,7 +25,7 @@ This lab patch therefore optimizes for:
 
 - [Package Intake Contract](docs/codex/contracts/package-intake-lab.md)
 - [Package Inbox](docs/codex/packages/README.md)
-- [Package Entry Prompt](docs/codex/prompts/entry/from_package.md)
+- [Package Runtime Prompt](docs/codex/prompts/entry/from_package.md)
 - [Resume Current Phase Prompt](docs/codex/prompts/entry/resume_current_phase.md)
 - `python scripts/codex_governed_bootstrap.py --request "<request>" --route auto`
 - `python scripts/codex_governed_entry.py auto`
@@ -52,6 +52,7 @@ The route itself is now expected to be hard-entered:
 
 - package intake or phase continuation should begin via `scripts/codex_governed_entry.py`,
 - a plain prompt that never enters the launcher is a route miss, not a valid governed run.
+- the runtime package prompt is launcher-internal and must not recursively call the launcher again.
 
 The remaining open question is backend maturity:
 - `simulate` is deterministic and testable now;

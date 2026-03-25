@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-03-20'
+updated_at: '2026-03-25'
 items:
 - id: TASK-2026-03-16-SHELL-BOOTSTRAP
   path: docs/tasks/archive/TASK-2026-03-16-shell-bootstrap.md
@@ -115,3 +115,9 @@ items:
   status: completed
   started_at: '2026-03-20'
   completed_at: '2026-03-20'
+- id: TASK-2026-03-25-HARDCODE-GOVERNED-CODEX-ROUTING-THROUGH-A-SINGLE
+  path: docs/tasks/archive/TASK-2026-03-25-hardcode-governed-codex-routing-through-a-single.md
+  mode: full
+  status: completed
+  started_at: '2026-03-25'
+  completed_at: '2026-03-25'

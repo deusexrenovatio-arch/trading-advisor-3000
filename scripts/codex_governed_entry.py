@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -200,6 +201,15 @@ def write_route_state(path: Path, decision: RouteDecision) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def normalize_route_argv(argv: list[str]) -> list[str]:
+    if not argv:
+        return []
+    first = str(argv[0]).strip().lower()
+    if first in {"auto", "package", "continue"}:
+        return ["--route", first, *argv[1:]]
+    return list(argv)
+
+
 def run_package_route(
     *,
     decision: RouteDecision,
@@ -286,7 +296,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-last-message", default="artifacts/codex/from-package-last-message.txt")
     parser.add_argument("--route-state-file", default=str(DEFAULT_ROUTE_STATE))
     parser.add_argument("--mode", default="auto")
-    parser.add_argument("--profile", default="deep")
+    parser.add_argument("--profile", default="")
     parser.add_argument("--backend", choices=("simulate", "codex-cli"), default="codex-cli")
     parser.add_argument("--worker-model", default="gpt-5.3-codex")
     parser.add_argument("--acceptor-model", default="gpt-5.4")
@@ -299,7 +309,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    normalized_argv = normalize_route_argv(list(argv or sys.argv[1:]))
+    args = build_parser().parse_args(normalized_argv)
     repo_root = resolve_repo_root()
     inbox = resolve_path(repo_root, args.inbox)
     artifact_root = resolve_path(repo_root, args.artifact_root)
