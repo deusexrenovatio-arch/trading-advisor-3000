@@ -132,6 +132,8 @@ def scope_validate_command(
     scoped_scripts = (
         "scripts/validate_task_request_contract.py",
         "scripts/validate_task_outcomes.py",
+        "scripts/validate_solution_intent.py",
+        "scripts/validate_critical_contour_closure.py",
     )
     if not any(any(token.endswith(script_name) for token in normalized) for script_name in scoped_scripts):
         skill_precommit = "scripts/skill_precommit_gate.py"

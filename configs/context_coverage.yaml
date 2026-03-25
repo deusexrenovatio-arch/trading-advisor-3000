@@ -39,6 +39,9 @@ high_risk_paths:
   - memory/
   - docs/checklists/
   - scripts/validate_task_request_contract.py
+  - scripts/critical_contours.py
+  - scripts/validate_solution_intent.py
+  - scripts/validate_critical_contour_closure.py
   - scripts/validate_plans.py
   - scripts/validate_agent_memory.py
   - scripts/validate_task_outcomes.py

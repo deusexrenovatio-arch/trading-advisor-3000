@@ -9,6 +9,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
+from critical_contours import load_critical_contours, match_critical_contours
 from handoff_resolver import read_task_note_lines
 
 
@@ -108,7 +109,10 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "docs/agent-contexts/CTX-CONTRACTS.md",
             "src/trading_advisor_3000/app/contracts/",
             "tests/app/contracts/",
+            "scripts/critical_contours.py",
             "scripts/validate_task_request_contract.py",
+            "scripts/validate_solution_intent.py",
+            "scripts/validate_critical_contour_closure.py",
             "scripts/validate_plans.py",
             "scripts/validate_agent_memory.py",
             "scripts/validate_task_outcomes.py",
@@ -430,6 +434,17 @@ def _load_session_handoff_text(path_value: str | None) -> str:
     return "\n".join(lines)
 
 
+def _detect_critical_contours(changed_files: list[str]) -> list[str]:
+    config_path = Path("configs/critical_contours.yaml")
+    if not changed_files or not config_path.exists():
+        return []
+    try:
+        contours = load_critical_contours(config_path)
+    except ValueError:
+        return []
+    return [contour.contour_id for contour in match_critical_contours(changed_files, contours)]
+
+
 def route_files(
     changed_files: list[str],
     *,
@@ -443,6 +458,7 @@ def route_files(
     matched: dict[str, list[str]] = defaultdict(list)
     cold_context_files: list[str] = []
     unmapped: list[str] = []
+    critical_contours = _detect_critical_contours([original_path for _normalized, original_path in normalized])
 
     for normalized_path, original_path in normalized:
         if (not include_cold_paths) and any(
@@ -491,6 +507,11 @@ def route_files(
             )
             if score >= max(max_score - 1, 1)
         ]
+    if critical_contours and "CTX-ARCHITECTURE" not in visible_contexts:
+        visible_contexts = sorted(
+            [*visible_contexts, "CTX-ARCHITECTURE"],
+            key=lambda cid: CONTEXT_PRIORITY.index(cid),
+        )
 
     context_entries: list[dict[str, object]] = []
     for context_id in visible_contexts:
@@ -507,6 +528,11 @@ def route_files(
                 "source_of_truth": list(spec.source_of_truth),
                 "minimal_checks": list(spec.minimal_checks),
                 "intent_score": int(intent_scores.get(context_id, 0)),
+                "policy_role": (
+                    "companion"
+                    if critical_contours and context_id == "CTX-ARCHITECTURE" and not matched_files
+                    else "owned"
+                ),
             }
         )
 
@@ -525,6 +551,13 @@ def route_files(
         recommendations.append(
             "Cold-context files are present. Keep them out of hot retrieval unless explicitly required."
         )
+    if critical_contours:
+        recommendations.append(
+            "Critical contour detected. Declare Solution Intent in the task note before coding."
+        )
+        recommendations.append(
+            "Critical contour requires CTX-ARCHITECTURE plus architecture and QA/acceptance review lenses."
+        )
     if not recommendations:
         recommendations.append("Patch is scoped to one context.")
 
@@ -534,6 +567,12 @@ def route_files(
         "intent_sources": intent_sources,
         "cold_context_files": sorted(cold_context_files),
         "unmapped_files": sorted(unmapped),
+        "critical_contours": critical_contours,
+        "required_review_lenses": (
+            ["architecture-review", "qa-test-engineer", "phase-acceptance-governor"]
+            if critical_contours
+            else []
+        ),
         "recommendations": recommendations,
     }
 
@@ -553,6 +592,12 @@ def _render_text(result: dict[str, object]) -> str:
             if isinstance(matched_files, list):
                 for path in matched_files:
                     lines.append(f"  * {path}")
+    critical_contours = result.get("critical_contours", [])
+    if isinstance(critical_contours, list) and critical_contours:
+        lines.append(f"critical_contours: {', '.join(critical_contours)}")
+    review_lenses = result.get("required_review_lenses", [])
+    if isinstance(review_lenses, list) and review_lenses:
+        lines.append(f"required_review_lenses: {', '.join(review_lenses)}")
     unmapped = result.get("unmapped_files", [])
     if isinstance(unmapped, list) and unmapped:
         lines.append("unmapped_files:")

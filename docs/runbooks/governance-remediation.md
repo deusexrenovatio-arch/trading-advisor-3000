@@ -42,6 +42,16 @@ Use this runbook when a governance gate fails.
   - `## Repetition Control`
 - Keep max same-path attempts within `configs/agent_incident_policy.yaml`.
 
+## `python scripts/validate_solution_intent.py`
+- If a diff matches `configs/critical_contours.yaml`, add `## Solution Intent` before coding.
+- Declare `Solution Class`, `Critical Contour`, `Forbidden Shortcuts`, `Closure Evidence`, and `Shortcut Waiver`.
+- Split the patch if multiple critical contours are triggered at once.
+
+## `python scripts/validate_critical_contour_closure.py`
+- Keep target and staged claims backed by contour-specific evidence.
+- Do not use fixture paths, sample artifacts, smoke-only proofs, or synthetic publication paths as closure evidence.
+- If the patch is intentionally non-target, downgrade to `fallback` and state the waiver explicitly.
+
 ## `python scripts/validate_session_handoff.py`
 - Keep `docs/session_handoff.md` as pointer shim.
 - Keep `## Current Delta` concise (max 8 bullets) in active task note.

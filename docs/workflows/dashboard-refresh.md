@@ -25,3 +25,18 @@ When hosted runners are unavailable, run this workflow locally.
 - `artifacts/autonomy-kpi-report.md`
 - `artifacts/governance-dashboard.json`
 - `artifacts/governance-dashboard.md`
+
+## Pilot Observation Counters
+- The governance dashboard includes a lightweight `pilot_observation` section sourced from task notes under `docs/tasks/`.
+- Counters are intentionally limited to:
+  - `critical tasks with explicit solution class`
+  - `blocked shortcut claims`
+  - `staged-vs-target declarations`
+- Counter definitions are explicit and deterministic:
+  - `critical tasks with explicit solution class`: task notes that declare both a valid `Solution Class` (`target|staged|fallback`) and a non-`none` `Critical Contour` in `## Solution Intent`.
+  - `blocked shortcut claims`: the subset of those critical task notes where `Task Outcome` is `blocked` and the note text explicitly references `shortcut`.
+  - `staged-vs-target declarations`: counts of `staged` and `target` classes among the same critical task notes.
+- Pilot window guardrails are fail-closed:
+  - `observation_window_start` is always the configured pilot start date.
+  - notes dated before the configured pilot start are excluded from pilot-window counters.
+- This stays a pilot aid and must not evolve into a standalone analytics subsystem.

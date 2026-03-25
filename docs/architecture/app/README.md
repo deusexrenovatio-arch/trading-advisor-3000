@@ -47,6 +47,8 @@ Phase naming rule:
 - `docs/checklists/app/phase6-acceptance-checklist.md`
 - `docs/checklists/app/phase7-acceptance-checklist.md`
 - `docs/checklists/app/phase8-acceptance-checklist.md`
+- `docs/checklists/app/data-integration-closure-passport.md`
+- `docs/checklists/app/runtime-publication-closure-passport.md`
 
 ## Boundary Rule
 Product-plane changes must not break shell contracts and must not move trading business logic into shell-sensitive paths.

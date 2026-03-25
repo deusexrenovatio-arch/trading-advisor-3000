@@ -16,6 +16,13 @@
 - When a task involves phase acceptance, acceptor flows, unblock decisions, or explicit guardrails against fallbacks/skips, load `phase-acceptance-governor` first.
 - Co-load `architecture-review`, `testing-suite`, and `docs-sync` when acceptance covers architecture fit, executed tests, and documentation closure.
 
+## Critical Contour Routing
+- When changed files match `configs/critical_contours.yaml`, route `CTX-ARCHITECTURE` as a companion context even when no architecture doc changed directly.
+- For critical contours, load `architecture-review` and `qa-test-engineer` before implementation so the chosen path is checked against target shape and executable evidence.
+- If the task claims contour closure or acceptance, also load `phase-acceptance-governor`.
+- Critical contour work must declare `target`, `staged`, or `fallback` in the active task note before code changes begin.
+- If the chosen path is simpler than the target shape, the agent must name that fact explicitly instead of presenting it as target closure.
+
 ## Class Policy
 
 | Class | Baseline runtime | Policy |

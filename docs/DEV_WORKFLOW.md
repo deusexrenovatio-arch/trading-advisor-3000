@@ -8,9 +8,10 @@ Provide a predictable and enforceable workflow for governance-first delivery in 
 2. Confirm the change surface (`shell`, `product-plane`, or mixed) and keep domain logic out of shell control-plane files.
 3. Start task session: `python scripts/task_session.py begin --request "<request>"`.
 4. Keep task contract current in active task note.
-5. Run loop gate: `python scripts/run_loop_gate.py --from-git --git-ref HEAD`.
-6. Run PR gate before closeout.
-7. Close lifecycle with `python scripts/task_session.py end` when outcome is terminal.
+5. If the diff matches a critical contour, add `## Solution Intent` before coding and keep the declared class aligned with contour evidence.
+6. Run loop gate: `python scripts/run_loop_gate.py --from-git --git-ref HEAD`.
+7. Run PR gate before closeout.
+8. Close lifecycle with `python scripts/task_session.py end` when outcome is terminal.
 
 For product-plane tasks, read `docs/architecture/app/STATUS.md` before treating older phase-closure language as current truth.
 
@@ -39,6 +40,7 @@ If hosted runners are unavailable, replay lanes locally for acceptance evidence:
 3. No manual bypass when enforced scripts exist.
 4. No domain-specific logic inside shell control-plane files.
 5. Product-plane work must stay inside isolated app paths unless a governance change is explicit.
+6. Critical contour tasks must not claim target closure with scaffold, sample, smoke, or synthetic evidence.
 
 ## Change management policy
 1. One patch set equals one major governance concept.
