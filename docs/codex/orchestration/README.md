@@ -79,6 +79,10 @@ Role-specific model and profile overrides are available directly on the runner C
 ## Main entrypoint
 
 ```bash
+python scripts/codex_governed_bootstrap.py --request "continue governed module" --route auto
+```
+
+```bash
 python scripts/codex_governed_entry.py auto
 ```
 

@@ -27,6 +27,7 @@ This lab patch therefore optimizes for:
 - [Package Inbox](docs/codex/packages/README.md)
 - [Package Entry Prompt](docs/codex/prompts/entry/from_package.md)
 - [Resume Current Phase Prompt](docs/codex/prompts/entry/resume_current_phase.md)
+- `python scripts/codex_governed_bootstrap.py --request "<request>" --route auto`
 - `python scripts/codex_governed_entry.py auto`
 - [Launcher](scripts/codex_from_package.py)
 - [Phase Orchestration](docs/codex/orchestration/README.md)

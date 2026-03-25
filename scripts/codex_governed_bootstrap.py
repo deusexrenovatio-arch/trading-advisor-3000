@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+"""Start lifecycle and governed Codex route in one step."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from codex_governed_entry import main as governed_entry_main
+from task_session import check_active_session
+
+
+DEFAULT_BOOTSTRAP_STATE = Path(".runlogs/codex-governed-entry/bootstrap-state.json")
+
+
+class GovernedBootstrapError(RuntimeError):
+    """Raised when governed bootstrap cannot proceed safely."""
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def resolve_repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def resolve_path(repo_root: Path, raw: str | Path) -> Path:
+    path = Path(raw)
+    if path.is_absolute():
+        return path.resolve()
+    return (repo_root / path).resolve()
+
+
+def ensure_active_session(*, repo_root: Path, request: str) -> dict[str, Any]:
+    code, message, payload = check_active_session()
+    if code == 0:
+        return {
+            "action": "reused",
+            "message": message,
+            "payload": payload,
+        }
+
+    command = [
+        sys.executable,
+        str((repo_root / "scripts" / "task_session.py").resolve()),
+        "begin",
+        "--request",
+        request,
+    ]
+    completed = subprocess.run(command, cwd=repo_root, text=True, check=False, capture_output=True)
+    if completed.returncode != 0:
+        raise GovernedBootstrapError(
+            "failed to start task session:\n" + (completed.stdout + completed.stderr).strip()
+        )
+    return {
+        "action": "started",
+        "message": (completed.stdout or "").strip(),
+        "payload": {},
+    }
+
+
+def write_bootstrap_state(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Start task session and governed Codex route in one step.")
+    parser.add_argument("--request", required=True)
+    parser.add_argument("--route", choices=("auto", "package", "continue"), default="auto")
+    parser.add_argument("--package-path", default=None)
+    parser.add_argument("--execution-contract", default=None)
+    parser.add_argument("--parent-brief", default=None)
+    parser.add_argument("--inbox", default="docs/codex/packages/inbox")
+    parser.add_argument("--artifact-root", default="artifacts/codex")
+    parser.add_argument("--output-last-message", default="artifacts/codex/from-package-last-message.txt")
+    parser.add_argument("--route-state-file", default=".runlogs/codex-governed-entry/last-route.json")
+    parser.add_argument("--bootstrap-state-file", default=str(DEFAULT_BOOTSTRAP_STATE))
+    parser.add_argument("--mode", default="auto")
+    parser.add_argument("--profile", default="deep")
+    parser.add_argument("--backend", choices=("simulate", "codex-cli"), default="codex-cli")
+    parser.add_argument("--worker-model", default="gpt-5.3-codex")
+    parser.add_argument("--acceptor-model", default="gpt-5.4")
+    parser.add_argument("--remediation-model", default="")
+    parser.add_argument("--max-remediation-cycles", type=int, default=2)
+    parser.add_argument("--codex-bin", default=None)
+    parser.add_argument("--skip-clean-check", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv or sys.argv[1:])
+    repo_root = resolve_repo_root()
+    bootstrap_state_file = resolve_path(repo_root, args.bootstrap_state_file)
+
+    try:
+        session_state = ensure_active_session(repo_root=repo_root, request=args.request)
+    except GovernedBootstrapError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    entry_args = [
+        "--route",
+        args.route,
+        "--inbox",
+        args.inbox,
+        "--artifact-root",
+        args.artifact_root,
+        "--output-last-message",
+        args.output_last_message,
+        "--route-state-file",
+        args.route_state_file,
+        "--mode",
+        args.mode,
+        "--profile",
+        args.profile,
+        "--backend",
+        args.backend,
+        "--worker-model",
+        args.worker_model,
+        "--acceptor-model",
+        args.acceptor_model,
+        "--remediation-model",
+        args.remediation_model,
+        "--max-remediation-cycles",
+        str(max(args.max_remediation_cycles, 0)),
+    ]
+    if args.package_path:
+        entry_args.extend(["--package-path", args.package_path])
+    if args.execution_contract:
+        entry_args.extend(["--execution-contract", args.execution_contract])
+    if args.parent_brief:
+        entry_args.extend(["--parent-brief", args.parent_brief])
+    if args.codex_bin:
+        entry_args.extend(["--codex-bin", args.codex_bin])
+    if args.skip_clean_check:
+        entry_args.append("--skip-clean-check")
+    if args.dry_run:
+        entry_args.append("--dry-run")
+
+    write_bootstrap_state(
+        bootstrap_state_file,
+        {
+            "updated_at": utc_now().isoformat().replace("+00:00", "Z"),
+            "request": args.request,
+            "session_action": session_state["action"],
+            "route_args": entry_args,
+        },
+    )
+    print(f"session_action: {session_state['action']}")
+    return int(governed_entry_main(entry_args))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

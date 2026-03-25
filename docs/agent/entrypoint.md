@@ -14,10 +14,11 @@ If the task touches the product plane, also read:
 ## Startup checklist
 1. Confirm the task change surface: shell, product plane, or both.
 2. Confirm no business/domain logic is being imported into shell control-plane files.
-3. Start lifecycle: `python scripts/task_session.py begin --request "<request>"`.
-4. If the operator asks to take a package or continue a module phase, do not start manual inline execution. Route first through `python scripts/codex_governed_entry.py ...`.
-5. Confirm patch set is small and explicit.
-6. Run loop gate before PR prep.
+3. For package intake or governed continuation, prefer the one-step bootstrap: `python scripts/codex_governed_bootstrap.py --request "<request>" ...`.
+4. Otherwise start lifecycle directly: `python scripts/task_session.py begin --request "<request>"`.
+5. If the operator asks to take a package or continue a module phase, do not start manual inline execution. Route first through `python scripts/codex_governed_entry.py ...`.
+6. Confirm patch set is small and explicit.
+7. Run loop gate before PR prep.
 
 ## Critical constraints
 - Mainline is PR-only by default.

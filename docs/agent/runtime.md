@@ -8,6 +8,7 @@ Do not reintroduce shell-only wrapper flows as primary control paths.
 - `python scripts/task_session.py begin --request "<request>"`
 - `python scripts/task_session.py status`
 - `python scripts/task_session.py end`
+- `python scripts/codex_governed_bootstrap.py --request "<request>" ...`
 
 ## Validation
 - `python scripts/validate_task_request_contract.py`
@@ -27,6 +28,7 @@ Do not reintroduce shell-only wrapper flows as primary control paths.
 - `python scripts/sync_skills_catalog.py ...`
 
 ## Governed Codex entrypoints
+- `python scripts/codex_governed_bootstrap.py --request "<request>" --route auto`
 - `python scripts/codex_governed_entry.py auto`
 - `python scripts/codex_governed_entry.py package --package-path <zip>`
 - `python scripts/codex_governed_entry.py continue --execution-contract <path> --parent-brief <path>`
