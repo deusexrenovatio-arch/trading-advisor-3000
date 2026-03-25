@@ -206,6 +206,7 @@ def run_system_shadow_replay(
         "signal_candidates": len(candidates),
         "runtime_signal_candidates": len(runtime_candidates),
         "runtime_candidate_ids": runtime_candidate_ids,
+        "runtime_candidate_rows": [item.to_dict() for item in runtime_candidates],
         "runtime_report": runtime_payload["replay_report"],
         "forward_observations": len(forward_observations),
         "analytics_outcomes": len(outcomes),

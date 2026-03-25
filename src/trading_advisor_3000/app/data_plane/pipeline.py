@@ -5,6 +5,13 @@ from pathlib import Path
 
 from .canonical import build_canonical_dataset, run_data_quality_checks
 from .ingestion import ingest_raw_backfill
+from .providers import (
+    DEFAULT_MOEX_ISS_BASE_URL,
+    build_phase9_dataset_version,
+    default_phase9_pilot_universe,
+    fetch_moex_historical_bars,
+    get_phase9_provider_contract,
+)
 from .schemas import phase2a_delta_schema_manifest
 
 
@@ -78,6 +85,9 @@ def run_sample_backfill(
         "deduplicated_rows": ingestion_batch.deduplicated_rows,
         "stale_rows": ingestion_batch.stale_rows,
         "watermark_by_key": ingestion_batch.watermark_by_key,
+        "materialization_mode": "manifest_only_jsonl_samples",
+        "materialized_delta_tables": [],
+        "delta_runtime_status": "manifest_only",
         "output_path": bars_output_path.as_posix(),
         "output_paths": {
             "raw_market_backfill": raw_output_path.as_posix(),
@@ -88,4 +98,91 @@ def run_sample_backfill(
             "canonical_roll_map": roll_map_output_path.as_posix(),
         },
         "delta_schema_manifest": phase2a_delta_schema_manifest(),
+    }
+
+
+def run_phase9_historical_bootstrap(
+    *,
+    source_path: Path,
+    output_dir: Path,
+    provider_id: str = "moex-history",
+) -> dict[str, object]:
+    provider = get_phase9_provider_contract(provider_id)
+    if provider.role != "historical_source":
+        raise ValueError(f"provider is not configured as historical source: {provider_id}")
+
+    pilot_universe = default_phase9_pilot_universe()
+    if pilot_universe.historical_provider_id != provider_id:
+        raise ValueError("pilot universe historical_provider_id does not match provider_id")
+
+    report = run_sample_backfill(
+        source_path=source_path,
+        output_dir=output_dir,
+        whitelist_contracts=pilot_universe.whitelist_contracts(),
+    )
+    dataset_version = build_phase9_dataset_version(
+        provider_id=provider_id,
+        pilot_universe=pilot_universe,
+        watermark_by_key=dict(report["watermark_by_key"]),
+    )
+    return {
+        **report,
+        "provider": provider.to_dict(),
+        "pilot_universe": pilot_universe.to_dict(),
+        "dataset_version": dataset_version,
+        "source_path": source_path.as_posix(),
+        "output_dir": output_dir.as_posix(),
+        "source_kind": "jsonl-import",
+    }
+
+
+def run_phase9_moex_historical_bootstrap(
+    *,
+    output_dir: Path,
+    from_date: str,
+    till_date: str,
+    timeframe: str = "15m",
+    provider_id: str = "moex-history",
+    base_url: str = DEFAULT_MOEX_ISS_BASE_URL,
+) -> dict[str, object]:
+    provider = get_phase9_provider_contract(provider_id)
+    if provider.role != "historical_source":
+        raise ValueError(f"provider is not configured as historical source: {provider_id}")
+
+    pilot_universe = default_phase9_pilot_universe()
+    if pilot_universe.historical_provider_id != provider_id:
+        raise ValueError("pilot universe historical_provider_id does not match provider_id")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    fetched_rows: list[dict[str, object]] = []
+    resolved_secids: dict[str, str] = {}
+    source_urls: list[str] = []
+    for contract_id in pilot_universe.contract_ids:
+        fetched = fetch_moex_historical_bars(
+            contract_id=contract_id,
+            timeframe=timeframe,
+            from_date=from_date,
+            till_date=till_date,
+            base_url=base_url,
+        )
+        fetched_rows.extend(fetched.rows)
+        resolved_secids[contract_id] = fetched.secid
+        source_urls.append(fetched.source_url)
+
+    source_path = output_dir / "phase9-moex-history.fetch.jsonl"
+    _write_jsonl(source_path, fetched_rows)
+    report = run_phase9_historical_bootstrap(
+        source_path=source_path,
+        output_dir=output_dir,
+        provider_id=provider_id,
+    )
+    return {
+        **report,
+        "from_date": from_date,
+        "till_date": till_date,
+        "timeframe": timeframe,
+        "source_kind": "moex-iss",
+        "source_urls": source_urls,
+        "resolved_secids": resolved_secids,
+        "source_path": source_path.as_posix(),
     }

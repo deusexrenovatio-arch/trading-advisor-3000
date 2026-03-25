@@ -9,6 +9,8 @@ from trading_advisor_3000.app.contracts import (
     PublicationType,
 )
 
+from .telegram_bot_api import TelegramBotTransport
+
 
 def _message_id(signal_id: str) -> str:
     return "tg-" + hashlib.sha256(signal_id.encode("utf-8")).hexdigest()[:10]
@@ -36,10 +38,11 @@ class TelegramOperation:
 
 
 class TelegramPublicationEngine:
-    def __init__(self, *, channel: str) -> None:
+    def __init__(self, *, channel: str, transport: TelegramBotTransport | None = None) -> None:
         if not channel.strip():
             raise ValueError("channel must be non-empty")
         self._channel = channel
+        self._transport = transport
         self._publications: dict[str, DecisionPublication] = {}
         self._history: list[DecisionPublication] = []
         self._rendered_messages: dict[str, str] = {}
@@ -76,9 +79,14 @@ class TelegramPublicationEngine:
         if existing is not None and existing.status == PublicationState.PUBLISHED:
             return existing, False
 
+        message_id = (
+            self._transport.send_message(channel=self._channel, text=rendered_message)
+            if self._transport is not None
+            else _message_id(signal_id)
+        )
         publication = self._emit_publication(
             signal_id=signal_id,
-            message_id=_message_id(signal_id),
+            message_id=message_id,
             publication_type=PublicationType.CREATE,
             status=PublicationState.PUBLISHED,
             at=published_at,
@@ -103,6 +111,12 @@ class TelegramPublicationEngine:
         current = self._rendered_messages.get(signal_id)
         if current == rendered_message:
             return existing, False
+        if self._transport is not None:
+            self._transport.edit_message(
+                channel=self._channel,
+                message_id=existing.message_id,
+                text=rendered_message,
+            )
         self._rendered_messages[signal_id] = rendered_message
         publication = self._emit_publication(
             signal_id=signal_id,
@@ -121,12 +135,24 @@ class TelegramPublicationEngine:
         )
         return publication, True
 
-    def close(self, *, signal_id: str, closed_at: str) -> tuple[DecisionPublication, bool]:
+    def close(
+        self,
+        *,
+        signal_id: str,
+        closed_at: str,
+        rendered_message: str | None = None,
+    ) -> tuple[DecisionPublication, bool]:
         existing = self._publications.get(signal_id)
         if existing is None:
             raise ValueError(f"publication missing for signal: {signal_id}")
         if existing.status == PublicationState.CLOSED:
             return existing, False
+        if self._transport is not None and rendered_message is not None:
+            self._transport.edit_message(
+                channel=self._channel,
+                message_id=existing.message_id,
+                text=rendered_message,
+            )
         closed = self._emit_publication(
             signal_id=existing.signal_id,
             message_id=existing.message_id,
@@ -144,12 +170,24 @@ class TelegramPublicationEngine:
         )
         return closed, True
 
-    def cancel(self, *, signal_id: str, canceled_at: str) -> tuple[DecisionPublication, bool]:
+    def cancel(
+        self,
+        *,
+        signal_id: str,
+        canceled_at: str,
+        rendered_message: str | None = None,
+    ) -> tuple[DecisionPublication, bool]:
         existing = self._publications.get(signal_id)
         if existing is None:
             raise ValueError(f"publication missing for signal: {signal_id}")
         if existing.status == PublicationState.CANCELED:
             return existing, False
+        if self._transport is not None and rendered_message is not None:
+            self._transport.edit_message(
+                channel=self._channel,
+                message_id=existing.message_id,
+                text=rendered_message,
+            )
         canceled = self._emit_publication(
             signal_id=existing.signal_id,
             message_id=existing.message_id,

@@ -6,6 +6,7 @@ Runtime wiring, execution flow orchestration, and cross-subsystem coordination.
 ## Owned Paths
 - `src/trading_advisor_3000/__main__.py`
 - `src/trading_advisor_3000/app_metadata.py`
+- `src/trading_advisor_3000/app/phase9/`
 - `src/trading_advisor_3000/app/runtime/`
 - `src/trading_advisor_3000/app/execution/`
 - `src/trading_advisor_3000/dagster_defs/`

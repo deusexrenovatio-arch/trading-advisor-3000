@@ -12,6 +12,7 @@ with fail-closed controls, canary rollout, and controlled batch recovery.
 2. Env-only secrets are present and redacted in logs.
 3. Secret rotation timestamps are set when age policy is enabled.
 4. Staging gateway profile is healthy (`/ready` green).
+5. `WS-D` sidecar preflight is green for the same base URL and frozen route.
 
 ## 3-Stage Rollout
 1. Stage 1: Connectivity and readiness (no order send)
@@ -27,6 +28,7 @@ with fail-closed controls, canary rollout, and controlled batch recovery.
    - if incidents cross threshold, activate kill-switch and cancel active intents.
 
 Reference command:
+- `python scripts/run_phase9_sidecar_preflight.py --base-url http://localhost:18081`
 - `python scripts/run_staging_real_execution_rollout.py --base-url http://localhost:18081 --stage all --batch-size 3`
 - for dry-run planning: `python scripts/run_staging_real_execution_rollout.py --base-url http://localhost:18081 --dry-run --format json`
 

@@ -11,3 +11,4 @@ Product runtime and operational runbooks live in this directory.
 - `docs/runbooks/app/phase8-operational-proving-runbook.md` - consolidated lane proving, fail-closed evidence, and triage workflow.
 - `docs/runbooks/app/mcp-wave-rollout-runbook.md` - Wave 1-3 MCP rollout, preflight checks, and incident recovery.
 - `docs/runbooks/app/real-execution-transport-runbook.md` - staging-first real HTTP transport rollout and incident handling.
+- `docs/runbooks/app/phase9-battle-runs-runbook.md` - battle-run preflight and evidence flow for `MOEX`, `QUIK`, `Telegram`, `PostgreSQL`, observability, and optional 9B canary.

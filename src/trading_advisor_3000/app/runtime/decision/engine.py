@@ -19,6 +19,10 @@ def _render_message(candidate: DecisionCandidate) -> str:
     )
 
 
+def _render_terminal_message(*, signal_id: str, terminal_state: str, reason_code: str, at: str) -> str:
+    return f"[{terminal_state}] {signal_id} reason={reason_code} at {at}"
+
+
 class SignalRuntimeEngine:
     def __init__(
         self,
@@ -208,7 +212,16 @@ class SignalRuntimeEngine:
         }
 
     def close_signal(self, *, signal_id: str, closed_at: str, reason_code: str) -> dict[str, object]:
-        publication, _ = self._publisher.close(signal_id=signal_id, closed_at=closed_at)
+        publication, _ = self._publisher.close(
+            signal_id=signal_id,
+            closed_at=closed_at,
+            rendered_message=_render_terminal_message(
+                signal_id=signal_id,
+                terminal_state="CLOSED",
+                reason_code=reason_code,
+                at=closed_at,
+            ),
+        )
         signal = self._signal_store.close_signal(
             signal_id=signal_id,
             closed_at=closed_at,
@@ -221,7 +234,16 @@ class SignalRuntimeEngine:
         }
 
     def cancel_signal(self, *, signal_id: str, canceled_at: str, reason_code: str) -> dict[str, object]:
-        publication, _ = self._publisher.cancel(signal_id=signal_id, canceled_at=canceled_at)
+        publication, _ = self._publisher.cancel(
+            signal_id=signal_id,
+            canceled_at=canceled_at,
+            rendered_message=_render_terminal_message(
+                signal_id=signal_id,
+                terminal_state="CANCELED",
+                reason_code=reason_code,
+                at=canceled_at,
+            ),
+        )
         signal = self._signal_store.cancel_signal(
             signal_id=signal_id,
             canceled_at=canceled_at,

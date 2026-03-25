@@ -24,6 +24,14 @@ from .reconciliation import (
     reconcile_live_execution,
     reconcile_position_snapshots,
 )
+from .sidecar_delivery import (
+    DEFAULT_REQUIRED_SIDECAR_ENV_NAMES,
+    Phase9SidecarDeliverySpec,
+    Phase9SidecarPreflightReport,
+    SidecarEndpointProbe,
+    evaluate_phase9_sidecar_preflight,
+    load_phase9_sidecar_delivery_manifest,
+)
 
 __all__ = [
     "BrokerSyncEngine",
@@ -41,13 +49,19 @@ __all__ = [
     "LiveRecoveryPlan",
     "LiveExecutionReconciliationReport",
     "PaperBrokerEngine",
+    "Phase9SidecarDeliverySpec",
+    "Phase9SidecarPreflightReport",
     "ReconciliationReport",
     "RecoveryAction",
+    "SidecarEndpointProbe",
     "StockSharpSidecarStub",
     "StockSharpHTTPTransport",
     "StockSharpHTTPTransportConfig",
+    "DEFAULT_REQUIRED_SIDECAR_ENV_NAMES",
     "default_execution_adapter_catalog",
+    "evaluate_phase9_sidecar_preflight",
     "build_live_recovery_plan",
+    "load_phase9_sidecar_delivery_manifest",
     "reconcile_live_execution",
     "reconcile_position_snapshots",
 ]

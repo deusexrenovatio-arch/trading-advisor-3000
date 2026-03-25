@@ -1,0 +1,7 @@
+{"contract_id":"BR-6.26","instrument_id":"BR","timeframe":"15m","ts_open":"2026-03-16T09:00:00Z","ts_close":"2026-03-16T09:15:00Z","open":82.0,"high":82.4,"low":81.8,"close":82.3,"volume":1200,"open_interest":20500}
+{"contract_id":"BR-6.26","instrument_id":"BR","timeframe":"15m","ts_open":"2026-03-16T09:15:00Z","ts_close":"2026-03-16T09:30:00Z","open":82.3,"high":82.9,"low":82.1,"close":82.7,"volume":1450,"open_interest":20750}
+{"contract_id":"BR-6.26","instrument_id":"BR","timeframe":"15m","ts_open":"2026-03-16T09:30:00Z","ts_close":"2026-03-16T09:45:00Z","open":82.7,"high":83.2,"low":82.5,"close":83.0,"volume":1700,"open_interest":21020}
+{"contract_id":"BR-6.26","instrument_id":"BR","timeframe":"15m","ts_open":"2026-03-16T09:45:00Z","ts_close":"2026-03-16T10:00:00Z","open":83.0,"high":83.1,"low":82.2,"close":82.4,"volume":1900,"open_interest":21210}
+{"contract_id":"Si-6.26","instrument_id":"Si","timeframe":"15m","ts_open":"2026-03-16T09:00:00Z","ts_close":"2026-03-16T09:15:00Z","open":91800.0,"high":91920.0,"low":91720.0,"close":91880.0,"volume":900,"open_interest":17620}
+{"contract_id":"Si-6.26","instrument_id":"Si","timeframe":"15m","ts_open":"2026-03-16T09:15:00Z","ts_close":"2026-03-16T09:30:00Z","open":91880.0,"high":92010.0,"low":91810.0,"close":91990.0,"volume":980,"open_interest":17715}
+{"contract_id":"Si-6.26","instrument_id":"Si","timeframe":"15m","ts_open":"2026-03-16T09:30:00Z","ts_close":"2026-03-16T09:45:00Z","open":91990.0,"high":92120.0,"low":91940.0,"close":92080.0,"volume":1040,"open_interest":17805}
