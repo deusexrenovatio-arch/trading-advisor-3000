@@ -14,6 +14,7 @@ Business and trading logic remain out of scope for the shell layer itself and mu
 4. `docs/session_handoff.md` must stay a lightweight pointer shim.
 5. `plans/items/` is canonical and `plans/PLANS.yaml` is generated compatibility output (enabled in Phase 5).
 6. Domain skills are excluded from the baseline shell.
+7. Package intake and governed phase continuation must start through `python scripts/codex_governed_entry.py ...`; manual chat-only continuation is not a valid governed route.
 
 ## Source-Of-Truth Layers
 ### Hot (read first)

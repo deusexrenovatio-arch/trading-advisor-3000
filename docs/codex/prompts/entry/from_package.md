@@ -16,6 +16,8 @@ Read first:
 Execution preferences:
 
 - Treat the `zip` archive as one source package, not as one already-clean spec.
+- The first execution action must be the governed launcher:
+  - `python scripts/codex_governed_entry.py package --package-path <zip>`
 - Choose one primary document and record the rule used.
 - Treat remaining documents as supporting material unless they contradict the primary document.
 - Ask at most one compact clarification block only if safe progress is impossible.

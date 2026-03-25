@@ -7,6 +7,7 @@ The target operator experience is:
 1. drop one `zip` package with a full task/TZ document set into the intake inbox;
 2. tell Codex to take the latest package;
 3. let Codex unpack the package, choose the primary document, and continue the normal governance flow without silent assumptions.
+4. for any real run, use the single governed launcher instead of relying on a plain prompt.
 
 ## Why this exists
 
@@ -26,6 +27,8 @@ This lab patch therefore optimizes for:
 - [Package Inbox](docs/codex/packages/README.md)
 - [Package Entry Prompt](docs/codex/prompts/entry/from_package.md)
 - [Resume Current Phase Prompt](docs/codex/prompts/entry/resume_current_phase.md)
+- `python scripts/codex_governed_bootstrap.py --request "<request>" --route auto`
+- `python scripts/codex_governed_entry.py auto`
 - [Launcher](scripts/codex_from_package.py)
 - [Phase Orchestration](docs/codex/orchestration/README.md)
 - [Phase Orchestrator](scripts/codex_phase_orchestrator.py)
@@ -44,6 +47,11 @@ The acceptance layer is now expected to enforce a hard contract:
 - no unresolved implementation assumptions,
 - no deferred critical work,
 - no `PASS` without real architecture, test, and docs evidence.
+
+The route itself is now expected to be hard-entered:
+
+- package intake or phase continuation should begin via `scripts/codex_governed_entry.py`,
+- a plain prompt that never enters the launcher is a route miss, not a valid governed run.
 
 The remaining open question is backend maturity:
 - `simulate` is deterministic and testable now;

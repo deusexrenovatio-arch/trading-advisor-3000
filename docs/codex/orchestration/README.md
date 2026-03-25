@@ -79,6 +79,14 @@ Role-specific model and profile overrides are available directly on the runner C
 ## Main entrypoint
 
 ```bash
+python scripts/codex_governed_bootstrap.py --request "continue governed module" --route auto
+```
+
+```bash
+python scripts/codex_governed_entry.py auto
+```
+
+```bash
 python scripts/codex_phase_orchestrator.py preflight \
   --execution-contract docs/codex/contracts/plan-tech.execution-contract.md \
   --parent-brief docs/codex/modules/plan-tech.parent.md
@@ -102,9 +110,12 @@ If acceptance is `BLOCKED`, the same phase remains current.
 When a package has already been intake-processed and the module is in progress, use:
 
 - `docs/codex/prompts/entry/resume_current_phase.md`
+- `python scripts/codex_governed_entry.py continue --execution-contract <path> --parent-brief <path>`
 
 This keeps the operator flow simple:
 
 1. intake once;
 2. continue by current phase pointer;
 3. keep the governed route visible in artifacts and summaries.
+
+Manual chat continuation without the governed launcher is a route miss.
