@@ -19,6 +19,8 @@ Execution rules:
 
 - Do not re-intake a package when a valid module execution contract already exists.
 - Continue only from the current phase pointer in the parent brief.
+- The first execution action must be the governed launcher:
+  - `python scripts/codex_governed_entry.py continue --execution-contract <path> --parent-brief <path>`
 - Use the governed route only:
   - worker,
   - acceptance,
@@ -26,6 +28,7 @@ Execution rules:
   - unlock next phase only after `PASS`.
 - Do not silently introduce assumptions, fallbacks, skipped checks, or deferred critical work.
 - Make the route explicit in reports so the operator can see the path taken.
+- If the launcher was not run, the route was not started.
 
 The launcher or operator appends lines in this exact form:
 
