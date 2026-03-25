@@ -315,12 +315,12 @@ def run_codex(*, repo_root: Path, prompt: str, profile: str, output_path: Path) 
         "exec",
         "-C",
         str(repo_root),
-        "-p",
-        profile,
         "--output-last-message",
         str(output_path),
         "-",
     ]
+    if profile.strip():
+        cmd[4:4] = ["-p", profile]
     completed = subprocess.run(
         cmd,
         input=prompt,
@@ -342,7 +342,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--profile",
-        default="deep",
+        default="",
         help="Codex profile name.",
     )
     parser.add_argument(

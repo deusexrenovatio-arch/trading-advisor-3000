@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from compute_change_surface import compute_surface
-from gate_common import collect_changed_files, run_command, run_commands, write_summary
+from gate_common import CommandSpec, collect_changed_files, run_command, run_commands, write_summary
 
 
 REMEDIATION_DOC = "docs/runbooks/governance-remediation.md"
@@ -28,7 +28,7 @@ def _build_pr_gate_command(
     base_ref: str | None,
     head_ref: str | None,
     explicit_changed_files: list[str] | None,
-) -> str:
+) -> str | CommandSpec:
     parts = [
         sys.executable,
         "scripts/run_pr_gate.py",
@@ -37,9 +37,11 @@ def _build_pr_gate_command(
         "--skip-session-check",
     ]
     if explicit_changed_files is not None:
-        parts.append("--changed-files")
-        parts.extend(explicit_changed_files)
-        return _join_command(parts)
+        parts.append("--stdin")
+        stdin_text = "\n".join(explicit_changed_files)
+        if stdin_text:
+            stdin_text += "\n"
+        return CommandSpec(command=_join_command(parts), stdin_text=stdin_text)
     if base_ref and head_ref:
         parts.extend(["--base-ref", base_ref, "--head-ref", head_ref])
     elif from_git:

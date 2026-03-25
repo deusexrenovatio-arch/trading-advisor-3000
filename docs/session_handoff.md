@@ -1,8 +1,8 @@
 # Session Handoff
-Updated: 2026-03-20 15:18 UTC
+Updated: 2026-03-25 11:31 UTC
 
 ## Active Task Note
-- Path: docs/tasks/archive/TASK-2026-03-20-align-top-level-docs-with-real-product-plane-pre.md
+- Path: docs/tasks/archive/TASK-2026-03-25-hardcode-governed-codex-routing-through-a-single.md
 - Mode: full
 - Status: completed
 
