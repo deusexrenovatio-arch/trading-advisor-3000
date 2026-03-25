@@ -24,6 +24,8 @@ Execution preferences:
 - Do not rely on silent assumptions; if package ambiguity materially changes execution, surface one compact clarification block or classify the package as repairable.
 - Keep `docs/session_handoff.md` as a lightweight pointer shim.
 - Use canonical gate names only.
+- If the selected source document declares an explicit phase/module rollout, first materialize the canonical execution contract and phase briefs under `docs/codex/contracts/` and `docs/codex/modules/`.
+- For such phase-driven packages, stop after module-path normalization and phase planning; do not collapse multiple declared phases into one package-run implementation patch.
 - After intake, continue the normal execution-contract and loop-gate flow.
 
 The launcher or operator appends lines in this exact form:
