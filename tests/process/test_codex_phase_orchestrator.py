@@ -232,3 +232,72 @@ def test_orchestrator_auto_blocks_acceptance_evidence_gaps(tmp_path: Path) -> No
     ).read_text(encoding="utf-8")
     assert "Route Mode: governed-phase-orchestration" in route_report
     assert "acceptor: model=gpt-5.4" in route_report
+
+
+def test_skip_clean_check_uses_worker_files_for_changed_files_snapshot(monkeypatch, tmp_path: Path) -> None:
+    contract, parent = _module_fixture(tmp_path)
+
+    def fake_run_role(**kwargs: object) -> dict[str, object]:
+        role = kwargs["role"]
+        if role in {"worker", "remediation"}:
+            return {
+                "status": "DONE",
+                "summary": "Synthetic worker output.",
+                "route_signal": f"{role}:phase-only",
+                "files_touched": ["docs/example.md", "scripts/example.py"],
+                "checks_run": [],
+                "remaining_risks": [],
+                "assumptions": [],
+                "skips": [],
+                "fallbacks": [],
+                "deferred_work": [],
+            }
+        return {
+            "verdict": "PASS",
+            "summary": "Synthetic acceptance pass.",
+            "route_signal": "acceptance:governed-phase-route",
+            "used_skills": [
+                "phase-acceptance-governor",
+                "architecture-review",
+                "testing-suite",
+                "docs-sync",
+            ],
+            "blockers": [],
+            "rerun_checks": [],
+            "evidence_gaps": [],
+            "prohibited_findings": [],
+        }
+
+    monkeypatch.setattr("codex_phase_orchestrator.run_role", fake_run_role)
+
+    code, state_path = orchestrate_current_phase(
+        repo_root=tmp_path,
+        execution_contract_path=contract,
+        parent_path=parent,
+        worker_prompt_path=tmp_path / "docs/codex/prompts/phases/worker.md",
+        acceptor_prompt_path=tmp_path / "docs/codex/prompts/phases/acceptor.md",
+        remediation_prompt_path=tmp_path / "docs/codex/prompts/phases/remediation.md",
+        artifact_root=tmp_path / "artifacts/codex/orchestration",
+        backend="simulate",
+        worker_launch=_launch("gpt-5.3-codex"),
+        acceptor_launch=_launch("gpt-5.4"),
+        remediation_launch=_launch("gpt-5.3-codex"),
+        codex_bin=None,
+        simulate_scenario="pass",
+        max_remediation_cycles=0,
+        ignore_globs=(),
+        skip_clean_check=True,
+    )
+
+    assert code == 0
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    changed_files_payload = json.loads(
+        (
+            tmp_path
+            / "artifacts/codex/orchestration"
+            / payload["run_id"]
+            / "attempt-01"
+            / "changed-files.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert changed_files_payload["changed_files"] == ["docs/example.md", "scripts/example.py"]

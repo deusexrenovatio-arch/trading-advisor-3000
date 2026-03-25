@@ -624,7 +624,9 @@ def orchestrate_current_phase(
         worker_report_path = attempt_dir / f"{kind}-report.json"
         write_json(worker_report_path, asdict(worker_report))
 
-        changed_files = [] if skip_clean_check else visible_changes(repo_root, ignore_globs)
+        # When clean-check is skipped, keep attempt-scoped evidence from the worker report
+        # instead of emitting an empty changed-files snapshot that will fail acceptance.
+        changed_files = list(worker_report.files_touched) if skip_clean_check else visible_changes(repo_root, ignore_globs)
         changed_files_path = attempt_dir / "changed-files.json"
         write_changed_files(changed_files_path, changed_files)
 
