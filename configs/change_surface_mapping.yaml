@@ -16,6 +16,9 @@ surfaces:
       - memory/
       - docs/checklists/
       - scripts/validate_task_request_contract.py
+      - scripts/critical_contours.py
+      - scripts/validate_solution_intent.py
+      - scripts/validate_critical_contour_closure.py
       - scripts/validate_plans.py
       - scripts/validate_agent_memory.py
       - scripts/validate_task_outcomes.py
@@ -91,6 +94,7 @@ command_profiles:
     contracts:
       - "{python} -m pytest tests/process/test_validate_plans_contract.py -q"
       - "{python} -m pytest tests/process/test_validate_task_request_contract.py -q"
+      - "{python} -m pytest tests/process/test_critical_contours.py -q"
       - "{python} -m pytest tests/architecture/test_context_coverage.py -q"
     architecture:
       - "{python} -m pytest tests/architecture -q"

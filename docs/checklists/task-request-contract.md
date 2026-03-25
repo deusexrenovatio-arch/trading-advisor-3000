@@ -12,6 +12,19 @@
 - Done Evidence: exact commands and artifacts that prove completion.
 - Priority Rule: tie-breaker when requirements conflict.
 
+## Critical Contour Addendum
+When the diff matches `configs/critical_contours.yaml`, add `## Solution Intent` and record:
+- Solution Class: `target`, `staged`, or `fallback`.
+- Critical Contour: the matching pilot contour id.
+- Forbidden Shortcuts: the shortcut patterns that must stay blocked.
+- Closure Evidence: the contour-specific evidence being used.
+- Shortcut Waiver: `none` or one explicit reason for an intentional fallback.
+
+Keep the design checkpoint inline:
+- chosen path;
+- why it is not a shortcut;
+- what future shape stays preserved.
+
 ## Mandatory Repetition Control
 - Max Same-Path Attempts: cap before forced strategy reset.
 - Stop Trigger: explicit signal that current path is exhausted.

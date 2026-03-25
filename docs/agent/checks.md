@@ -7,6 +7,8 @@
 | Hook bootstrap (dry run) | `python scripts/install_git_hooks.py --dry-run --allow-no-git` | verify operational bootstrap entrypoint |
 | Session handoff contract | `python scripts/validate_session_handoff.py` | keep pointer-shim and context budget valid |
 | Task request contract | `python scripts/validate_task_request_contract.py` | enforce objective/scope/repetition controls |
+| Solution intent contract | `python scripts/validate_solution_intent.py --from-git --git-ref HEAD` | require explicit `target|staged|fallback` on critical contours |
+| Critical contour closure | `python scripts/validate_critical_contour_closure.py --from-git --git-ref HEAD` | block scaffold/sample/synthetic closure claims on pilot contours |
 | Skills catalog drift | `python scripts/sync_skills_catalog.py --check` | ensure generated catalog matches runtime skills |
 | CODEOWNERS coverage | `python scripts/validate_codeowners.py` | ensure ownership routing remains complete |
 | Docs links | `python scripts/validate_docs_links.py --roots AGENTS.md docs` | prevent broken markdown references |

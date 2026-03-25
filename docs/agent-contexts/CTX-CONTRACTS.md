@@ -8,7 +8,10 @@ High-risk contract and durable-state surfaces for plans, memory, and validation 
 - `plans/`
 - `memory/`
 - `docs/checklists/`
+- `scripts/critical_contours.py`
 - `scripts/validate_task_request_contract.py`
+- `scripts/validate_solution_intent.py`
+- `scripts/validate_critical_contour_closure.py`
 - `scripts/validate_plans.py`
 - `scripts/validate_agent_memory.py`
 - `scripts/validate_task_outcomes.py`
@@ -26,7 +29,8 @@ High-risk contract and durable-state surfaces for plans, memory, and validation 
 
 ## Minimum Checks
 - `python scripts/validate_task_request_contract.py`
+- `python scripts/validate_solution_intent.py --from-git --git-ref HEAD`
+- `python scripts/validate_critical_contour_closure.py --from-git --git-ref HEAD`
 - `python scripts/validate_plans.py`
 - `python scripts/validate_agent_memory.py`
 - `python scripts/validate_task_outcomes.py`
-

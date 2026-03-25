@@ -19,6 +19,8 @@ REMEDIATION_DOC = "docs/runbooks/governance-remediation.md"
 NON_TRIVIAL_LOOP_VALIDATION_SCRIPTS = (
     "scripts/validate_task_request_contract.py",
     "scripts/validate_session_handoff.py",
+    "scripts/validate_solution_intent.py",
+    "scripts/validate_critical_contour_closure.py",
 )
 
 

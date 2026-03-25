@@ -1,0 +1,59 @@
+version: 1
+
+contours:
+  - id: data-integration-closure
+    summary: require real upstream-to-downstream closure for data ingestion and canonical handoff.
+    trigger_paths:
+      - src/trading_advisor_3000/app/data_plane/
+      - tests/app/integration/test_phase2a_data_plane.py
+      - tests/app/fixtures/data_plane/
+    default_solution_class: target
+    forbidden_shortcut_markers:
+      - fixture path
+      - tests/app/fixtures/
+      - sample artifact
+      - synthetic upstream
+      - scaffold-only
+    required_evidence_markers:
+      - integration test
+      - canonical dataset
+      - downstream research
+      - runtime-ready surface
+    allowed_staged_markers:
+      - staged
+      - partial closure
+      - future shape preserved
+      - not full target closure
+    reacceptance_trigger_markers:
+      - upstream boundary
+      - canonical contract
+      - downstream handoff
+  - id: runtime-publication-closure
+    summary: require runtime output to reach the durable publication contour with explicit evidence.
+    trigger_paths:
+      - src/trading_advisor_3000/app/runtime/
+      - src/trading_advisor_3000/app/execution/
+      - src/trading_advisor_3000/app/interfaces/
+      - tests/app/integration/test_phase2c_runtime.py
+      - tests/app/integration/test_phase2d_execution.py
+    default_solution_class: target
+    forbidden_shortcut_markers:
+      - synthetic publication
+      - sample artifact
+      - smoke only
+      - manifest only
+      - scaffold-only
+    required_evidence_markers:
+      - runtime output
+      - durable store
+      - publication contour
+      - end-to-end publication
+    allowed_staged_markers:
+      - staged
+      - partial publication
+      - future shape preserved
+      - not full target closure
+    reacceptance_trigger_markers:
+      - runtime output
+      - durable store
+      - publication path

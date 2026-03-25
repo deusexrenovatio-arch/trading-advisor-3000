@@ -14,11 +14,12 @@ If the task touches the product plane, also read:
 ## Startup checklist
 1. Confirm the task change surface: shell, product plane, or both.
 2. Confirm no business/domain logic is being imported into shell control-plane files.
-3. For package intake or governed continuation, prefer the one-step bootstrap: `python scripts/codex_governed_bootstrap.py --request "<request>" ...`.
-4. Otherwise start lifecycle directly: `python scripts/task_session.py begin --request "<request>"`.
-5. If the operator asks to take a package or continue a module phase, do not start manual inline execution. Route first through `python scripts/codex_governed_entry.py ...`.
-6. Confirm patch set is small and explicit.
-7. Run loop gate before PR prep.
+3. If the diff hits a configured critical contour, read `docs/agent/critical-contours.md` and add `## Solution Intent` to the active task note before coding.
+4. For package intake or governed continuation, prefer the one-step bootstrap: `python scripts/codex_governed_bootstrap.py --request "<request>" ...`.
+5. Otherwise start lifecycle directly: `python scripts/task_session.py begin --request "<request>"`.
+6. If the operator asks to take a package or continue a module phase, do not start manual inline execution. Route first through `python scripts/codex_governed_entry.py ...`.
+7. Confirm patch set is small and explicit.
+8. Run loop gate before PR prep.
 
 ## Critical constraints
 - Mainline is PR-only by default.
@@ -32,5 +33,6 @@ If the task touches the product plane, also read:
 ## Escalate when
 - one patch mixes multiple high-risk surfaces,
 - the same validation failure repeats twice,
+- one patch triggers multiple critical contours,
 - runtime entrypoints are missing for the requested flow,
 - the task spans shell and product-plane boundaries and the split is unclear.
