@@ -9,7 +9,14 @@ description = "Trading Advisor 3000 shell and product-plane scaffolding"
 requires-python = ">=3.11"
 dependencies = [
   "PyYAML>=6,<7",
+  "fastapi>=0.110,<1",
+  "uvicorn>=0.30,<1",
+  "deltalake>=0.21,<1",
+  "dagster>=1.8,<2",
   "psycopg[binary]>=3.2,<4",
+  "pyspark>=3.5,<4",
+  "delta-spark>=3.3,<4",
+  "jdk4py>=17,<22",
 ]
 
 [project.optional-dependencies]

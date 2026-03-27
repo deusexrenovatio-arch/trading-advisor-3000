@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from trading_advisor_3000.app.contracts import CanonicalBar, DecisionCandidate
+from trading_advisor_3000.app.data_plane.delta_runtime import read_delta_table_rows
 from trading_advisor_3000.app.research import run_research_from_bars
 
 
@@ -40,7 +41,9 @@ def test_phase2b_backtest_is_reproducible_and_writes_outputs(tmp_path: Path) -> 
     assert run_a["delta_manifest"]["feature_snapshots"]["format"] == "delta"
 
     for path_text in run_a["output_paths"].values():
-        assert Path(path_text).exists()
+        path = Path(path_text)
+        assert path.exists()
+        assert (path / "_delta_log").exists()
 
     assert run_a["signal_contracts"] > 0
     for row in run_a["signal_contract_rows"]:
@@ -71,11 +74,7 @@ def test_phase2b_backtest_supports_walk_forward_costs_and_strategy_metrics(tmp_p
     assert "avg_score" in metrics
     assert "avg_risk_reward" in metrics
 
-    candidate_rows = [
-        json.loads(line)
-        for line in Path(str(report["output_paths"]["signal_candidates"])).read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    candidate_rows = read_delta_table_rows(Path(str(report["output_paths"]["signal_candidates"])))
     assert candidate_rows
     assert all("window_id" in row for row in candidate_rows)
     assert all("estimated_commission" in row for row in candidate_rows)
