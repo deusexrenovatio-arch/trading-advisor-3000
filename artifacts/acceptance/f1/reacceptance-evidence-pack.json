@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "phase_id": "F1",
+  "git_sha": "b2cf446eb7960794d9326997eddfea30cd4e015a",
+  "generated_at_utc": "2026-03-27T10:30:00Z",
+  "route_signal": "remediation:phase-only",
+  "contract_amendment": "F1-2026-03-27-release-readiness-decision-contract",
+  "surfaces_touched": [
+    "docs/codex/modules/*",
+    "docs/checklists/app/*",
+    "docs/architecture/app/*",
+    "artifacts/acceptance/f1/*",
+    "docs/tasks/active/*",
+    "docs/session_handoff.md"
+  ],
+  "commands": [
+    {
+      "command": "python scripts/validate_task_request_contract.py",
+      "exit_code": 0
+    },
+    {
+      "command": "python scripts/validate_session_handoff.py",
+      "exit_code": 0
+    },
+    {
+      "command": "python scripts/validate_stack_conformance.py",
+      "exit_code": 0
+    },
+    {
+      "command": "python -m pytest tests/process/test_validate_stack_conformance.py -q",
+      "exit_code": 0
+    },
+    {
+      "command": "python scripts/validate_docs_links.py --roots docs/architecture/app docs/checklists/app",
+      "exit_code": 0
+    },
+    {
+      "command": "python scripts/run_loop_gate.py --changed-files docs/codex/contracts/stack-conformance-remediation.execution-contract.md docs/codex/modules/stack-conformance-remediation.parent.md docs/codex/modules/stack-conformance-remediation.phase-10.md docs/architecture/app/phase10-stack-conformance-reacceptance-report.md docs/checklists/app/phase10-reacceptance-checklist.md artifacts/acceptance/f1/red-team-review-result.md artifacts/acceptance/f1/reacceptance-evidence-pack.json docs/tasks/active/TASK-2026-03-27-continue-governed-module-phase-10-remediation-route.md docs/session_handoff.md",
+      "exit_code": 0
+    },
+    {
+      "command": "python scripts/run_pr_gate.py --changed-files docs/codex/contracts/stack-conformance-remediation.execution-contract.md docs/codex/modules/stack-conformance-remediation.parent.md docs/codex/modules/stack-conformance-remediation.phase-10.md docs/architecture/app/phase10-stack-conformance-reacceptance-report.md docs/checklists/app/phase10-reacceptance-checklist.md artifacts/acceptance/f1/red-team-review-result.md artifacts/acceptance/f1/reacceptance-evidence-pack.json docs/tasks/active/TASK-2026-03-27-continue-governed-module-phase-10-remediation-route.md docs/session_handoff.md",
+      "exit_code": 0
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "docs/architecture/app/phase10-stack-conformance-reacceptance-report.md",
+      "sha256": "19fdab7429a5309e36f94b7692492edbdc1a6808fda4336a4a9476ec97a4b27d",
+      "description": "Final stack-conformance re-acceptance report for F1."
+    },
+    {
+      "path": "artifacts/acceptance/f1/red-team-review-result.md",
+      "sha256": "eaf7495fd2c3d483c81c6a4cf3e4e800eed8e391dca74fa4bb5524578552b4e7",
+      "description": "Red-team review result and deny-readiness verdict."
+    },
+    {
+      "path": "docs/checklists/app/phase10-reacceptance-checklist.md",
+      "sha256": "0bab84be182a1637b470e0d57b2be41d0ffdbbfa9f9a7b64718e4e3c3660f8fd",
+      "description": "Phase-10 checklist that binds regenerated phase evidence to F1 review scope."
+    }
+  ],
+  "negative_tests": [
+    {
+      "name": "stack_conformance_forbidden_term_guard",
+      "status": "passed"
+    },
+    {
+      "name": "registry_runtime_proof_guard",
+      "status": "passed"
+    },
+    {
+      "name": "truth_source_non_overclaiming_review",
+      "status": "passed"
+    }
+  ],
+  "registry_before": {
+    "path": "registry/stack_conformance.yaml",
+    "state": "unchanged"
+  },
+  "registry_after": {
+    "path": "registry/stack_conformance.yaml",
+    "state": "unchanged"
+  },
+  "review_verdict": {
+    "status": "ready_for_acceptance_review",
+    "notes": "F1 remediation package is evidence-complete and aligned to execution-contract amendment F1-2026-03-27-release-readiness-decision-contract."
+  }
+}
