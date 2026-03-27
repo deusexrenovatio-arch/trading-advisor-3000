@@ -1,0 +1,28 @@
+{
+  "status": "DONE",
+  "summary": "Phase 06 worker scope executed: durable runtime/service closure evidence refreshed, worker route integrity fixed, and phase-06 checks/tests passed.",
+  "route_signal": "worker:phase-only",
+  "files_touched": [
+    "docs/tasks/active/TASK-2026-03-26-continue-governed-module-phase-06-for-stack-conf.md",
+    "tests/app/unit/test_phase6_runtime_durable_bootstrap.py"
+  ],
+  "checks_run": [
+    "python scripts/validate_task_request_contract.py",
+    "python scripts/validate_session_handoff.py",
+    "python scripts/validate_solution_intent.py --changed-files <phase-06-scope>",
+    "python scripts/run_loop_gate.py --changed-files <phase-06-scope>",
+    "python -m pytest tests/app/unit/test_phase6_runtime_durable_bootstrap.py -q",
+    "python -m pytest tests/app/unit/test_phase6_fastapi_smoke.py -q",
+    "python -m pytest tests/app/unit/test_phase6_runtime_profile_ops.py -q",
+    "python -m pytest tests/app/integration/test_phase2c_runtime_postgres_store.py -q",
+    "python scripts/validate_stack_conformance.py",
+    "python scripts/validate_docs_links.py --roots docs/architecture/app docs/runbooks/app"
+  ],
+  "remaining_risks": [
+    "В рабочем дереве есть широкие изменения вне Phase 06; для route integrity использован строго phase-scoped changed-files набор при валидации."
+  ],
+  "assumptions": [],
+  "skips": [],
+  "fallbacks": [],
+  "deferred_work": []
+}

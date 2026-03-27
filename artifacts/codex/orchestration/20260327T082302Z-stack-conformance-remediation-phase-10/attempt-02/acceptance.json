@@ -1,0 +1,37 @@
+{
+  "verdict": "BLOCKED",
+  "summary": "Governed route and required checks are in place, but Phase 10 still does not satisfy the stronger F1 acceptance bar carried by the package/execution contract, and the remediation introduced contract drift by reframing F1 as a decision-proof without closing or formally re-contracting the underlying readiness blockers.",
+  "route_signal": "acceptance:governed-phase-route",
+  "used_skills": [
+    "phase-acceptance-governor",
+    "architecture-review",
+    "testing-suite",
+    "docs-sync"
+  ],
+  "blockers": [
+    {
+      "id": "B1",
+      "title": "F1 readiness acceptance bar is still unmet",
+      "why": "The truth source still shows unresolved blocker surfaces such as `contracts_freeze`=`partial`, `real_broker_process`=`planned`, `production_readiness`=`not accepted`, and multiple technology claims still `partial`, while the package phase plan for F1 requires every architecture-critical surface implemented and every replaceable surface implemented or ADR-removed.",
+      "remediation": "Either close the remaining blocker surfaces with executable proof and updated truth-source state, or obtain an explicit higher-level contract change for F1 before re-submitting acceptance."
+    },
+    {
+      "id": "B2",
+      "title": "Phase-10 contract drift remains between source package, execution contract, and current phase brief",
+      "why": "The package phase plan and execution contract still describe F1 as release-readiness proof with the stronger closure bar, but the current phase brief/parent were rewritten to `Decision Proof` semantics that allow an explicit deny package. That leaves operator guidance and acceptance expectations inconsistent.",
+      "remediation": "Align the execution contract, package-derived phase contract, and phase artifacts to one approved acceptance model, then regenerate the F1 report, checklist, red-team result, and evidence pack under that single model."
+    }
+  ],
+  "rerun_checks": [
+    "python scripts/validate_task_request_contract.py",
+    "python scripts/validate_session_handoff.py",
+    "python scripts/validate_stack_conformance.py",
+    "python -m pytest tests/process/test_validate_stack_conformance.py -q",
+    "python scripts/validate_docs_links.py --roots docs/architecture/app docs/checklists/app",
+    "python scripts/run_loop_gate.py --changed-files <phase10 files>",
+    "python scripts/run_pr_gate.py --changed-files <phase10 files>"
+  ],
+  "evidence_gaps": [],
+  "prohibited_findings": [],
+  "policy_blockers": []
+}

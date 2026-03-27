@@ -1,0 +1,21 @@
+{
+  "updated_at": "2026-03-25T12:59:25.213398Z",
+  "package_zip": "D:/trading advisor 3000/docs/codex/packages/chat-intake-inbox/PLAN_tech-chat-intake-20260325T125858Z.zip",
+  "extracted_root": "D:/trading advisor 3000/artifacts/codex/chat-intake/package-intake/20260325T125925Z-plan-tech-chat-intake-20260325t125858z/extracted",
+  "suggested_primary_document": "PLAN_tech.md",
+  "candidates": [
+    {
+      "rel_path": "PLAN_tech.md",
+      "score": 63,
+      "reasons": [
+        "extension weight: .md",
+        "path depth bias: +18",
+        "non-trivial file size"
+      ],
+      "title": "План: Lightweight Anti-Shortcut Governance для AI-Shell"
+    }
+  ],
+  "extension_counts": {
+    ".md": 1
+  }
+}

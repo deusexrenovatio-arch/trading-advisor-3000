@@ -1,0 +1,7 @@
+PASS. Phase 07 is closed enough to unlock the next phase. The governed route is now explicitly bound to a dedicated phase-07 remediation task, and the Telegram mismatch is resolved through the honest ADR-backed removal path: the current baseline consistently says deterministic in-repo Telegram publication adapter, not `aiogram`.
+
+I reran the claimed evidence directly: task/session validators, the phase-scoped loop gate, stack/docs validators, and the two referenced pytest suites. All passed. The worker report contains no assumptions, skips, fallbacks, or deferred critical work, and for the chosen removal path the unit plus fail-closed validator evidence is sufficient.
+
+BEGIN_PHASE_ACCEPTANCE_JSON
+{"verdict":"PASS","summary":"Phase-07 is route-correct and closed via ADR-backed aiogram removal, with runtime/docs/registry aligned and the rerun evidence passing.","route_signal":"acceptance:governed-phase-route","used_skills":["phase-acceptance-governor","architecture-review","testing-suite","docs-sync"],"blockers":[],"rerun_checks":[],"evidence_gaps":[],"prohibited_findings":[]}
+END_PHASE_ACCEPTANCE_JSON

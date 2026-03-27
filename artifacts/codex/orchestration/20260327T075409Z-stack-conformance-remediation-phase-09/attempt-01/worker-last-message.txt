@@ -1,0 +1,10 @@
+Маршрут выполнен явно: governed continuation в режиме `worker` и строго только `Phase 09 (S1)` без перехода к следующей фазе.
+
+Сделано по фазе:
+- Убрано состояние `chosen but not real` для `vectorbt`, `Alembic`, `OpenTelemetry`, `Polars`, `DuckDB`: зафиксировано как `removed` с ADR-привязкой.
+- Добавлен ADR-012 с явным решением по этим пяти replaceable-технологиям.
+- Синхронизированы стек-документы и baseline-документация, чтобы убрать неоднозначные `chosen`-маркеры и выровнять формулировки.
+
+BEGIN_PHASE_WORKER_JSON
+{"status":"DONE","summary":"Phase 09 (S1) implemented in worker scope: all five replaceable technologies were moved from ambiguous state to explicit ADR-backed removed state, and registry/spec/baseline docs were aligned.","route_signal":"worker:phase-only","files_touched":["registry/stack_conformance.yaml","docs/architecture/app/stack-conformance-baseline.md","docs/architecture/app/product-plane-spec-v2/07_Tech_Stack_and_Open_Source.md","docs/architecture/app/product-plane-spec-v2/04_ADRs.md","docs/architecture/app/product-plane-spec-v2/TECHNICAL_REQUIREMENTS.md","docs/architecture/app/product-plane-spec-v2/01_Architecture_Overview.md","docs/architecture/app/product-plane-spec-v2/08_Codex_AI_Shell_Integration.md"],"checks_run":["python scripts/validate_stack_conformance.py","python -m pytest tests/process/test_validate_stack_conformance.py -q"],"remaining_risks":["Historical ADR sections still describe earlier intent; ADR-012 is now the baseline authority for these five technologies and must be used as current decision source."],"assumptions":[],"skips":[],"fallbacks":[],"deferred_work":[]}
+END_PHASE_WORKER_JSON

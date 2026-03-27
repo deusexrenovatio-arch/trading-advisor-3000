@@ -1,0 +1,14 @@
+{
+  "changed_files": [
+    "deployment/stocksharp-sidecar/README.md",
+    "deployment/stocksharp-sidecar/scripts/build.ps1",
+    "deployment/stocksharp-sidecar/scripts/test.ps1",
+    "deployment/stocksharp-sidecar/scripts/publish.ps1",
+    "deployment/stocksharp-sidecar/scripts/prove.ps1",
+    "docs/architecture/app/sidecar-wire-api-v1.md",
+    "docs/architecture/app/phase8-dotnet-sidecar-closure.md",
+    "docs/runbooks/app/phase8-dotnet-sidecar-runbook.md",
+    "scripts/smoke_stocksharp_sidecar_binary.py",
+    "tests/app/unit/test_phase8_dotnet_sidecar_assets.py"
+  ]
+}

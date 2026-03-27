@@ -1,0 +1,10 @@
+{
+  "changed_files": [
+    "scripts/build_governance_dashboard.py",
+    "tests/process/test_process_reports.py",
+    "docs/workflows/dashboard-refresh.md",
+    "artifacts/codex/plan-tech-continue/orchestration/20260325T134422Z-plan-tech-phase-04/attempt-01/changed-files.json",
+    "artifacts/governance-dashboard.json",
+    "artifacts/governance-dashboard.md"
+  ]
+}

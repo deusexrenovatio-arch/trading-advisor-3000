@@ -1,0 +1,24 @@
+{
+  "status": "DONE",
+  "summary": "Phase 02 (G1) scoped patch completed: strengthened fail-closed validator coverage and expanded change-surface routing tests so stack-conformance validation is enforced on relevant governance/runtime/docs/architecture paths.",
+  "route_signal": "worker:phase-only",
+  "files_touched": [
+    "tests/process/test_validate_stack_conformance.py",
+    "tests/process/test_compute_change_surface.py"
+  ],
+  "checks_run": [
+    "python scripts/validate_task_request_contract.py",
+    "python scripts/validate_session_handoff.py",
+    "python scripts/validate_stack_conformance.py",
+    "python -m pytest tests/process/test_validate_stack_conformance.py -q",
+    "python -m pytest tests/process/test_compute_change_surface.py -q"
+  ],
+  "remaining_risks": [
+    "Worktree contains many pre-existing unrelated changes; final PR assembly must keep this phase patch isolated.",
+    "Core G1 artifacts (registry/validator) were already present before this attempt; this run focused on closure of targeted test evidence and routing guarantees."
+  ],
+  "assumptions": [],
+  "skips": [],
+  "fallbacks": [],
+  "deferred_work": []
+}

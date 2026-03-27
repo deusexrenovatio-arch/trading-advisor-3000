@@ -1,0 +1,63 @@
+{
+  "run_id": "20260326T084425Z-stack-conformance-remediation-phase-02",
+  "updated_at": "2026-03-26 08:54 UTC",
+  "backend": "codex-cli",
+  "route_mode": "governed-phase-orchestration",
+  "route_guardrails": [
+    "no silent assumptions",
+    "no skipped required checks",
+    "no silent fallbacks",
+    "no deferred critical work",
+    "acceptance requires architecture, test, and docs closure"
+  ],
+  "role_configs": {
+    "worker": {
+      "profile": "",
+      "model": "gpt-5.3-codex",
+      "config_overrides": []
+    },
+    "acceptor": {
+      "profile": "",
+      "model": "gpt-5.4",
+      "config_overrides": []
+    },
+    "remediation": {
+      "profile": "",
+      "model": "gpt-5.3-codex",
+      "config_overrides": []
+    }
+  },
+  "phase_brief": "D:/trading advisor 3000/docs/codex/modules/stack-conformance-remediation.phase-02.md",
+  "phase_name": "G1 - Machine-Verifiable Stack-Conformance Gate",
+  "phase_status": "completed",
+  "attempts": [
+    {
+      "attempt": 1,
+      "kind": "worker",
+      "worker_summary": "Phase 02 (G1) scoped patch completed: strengthened fail-closed validator coverage and expanded change-surface routing tests so stack-conformance validation is enforced on relevant governance/runtime/docs/architecture paths.",
+      "worker_route_signal": "worker:phase-only",
+      "worker_report_path": "D:/trading advisor 3000/artifacts/codex/orchestration/20260326T084425Z-stack-conformance-remediation-phase-02/attempt-01/worker-report.json",
+      "changed_files_path": "D:/trading advisor 3000/artifacts/codex/orchestration/20260326T084425Z-stack-conformance-remediation-phase-02/attempt-01/changed-files.json",
+      "acceptance_json_path": "D:/trading advisor 3000/artifacts/codex/orchestration/20260326T084425Z-stack-conformance-remediation-phase-02/attempt-01/acceptance.json",
+      "acceptance_md_path": "D:/trading advisor 3000/artifacts/codex/orchestration/20260326T084425Z-stack-conformance-remediation-phase-02/attempt-01/acceptance.md",
+      "acceptor_route_signal": "acceptance:governed-phase-route",
+      "acceptor_used_skills": [
+        "phase-acceptance-governor",
+        "architecture-review",
+        "testing-suite",
+        "docs-sync"
+      ],
+      "verdict": "PASS",
+      "blockers_total": 0,
+      "policy_blockers_total": 0
+    }
+  ],
+  "attempts_total": 1,
+  "final_status": "accepted",
+  "next_phase": "docs/codex/modules/stack-conformance-remediation.phase-03.md",
+  "route_trace": [
+    "worker[1] worker:phase-only",
+    "acceptance[1] acceptance:governed-phase-route => PASS (policy_blockers=0)",
+    "unlock next phase => docs/codex/modules/stack-conformance-remediation.phase-03.md"
+  ]
+}

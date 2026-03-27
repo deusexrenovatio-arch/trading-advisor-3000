@@ -1,0 +1,11 @@
+{
+  "changed_files": [
+    "registry/stack_conformance.yaml",
+    "scripts/validate_stack_conformance.py",
+    "configs/change_surface_mapping.yaml",
+    "tests/process/test_validate_stack_conformance.py",
+    "tests/process/test_compute_change_surface.py",
+    "docs/agent/checks.md",
+    "docs/architecture/app/stack-conformance-baseline.md"
+  ]
+}

@@ -1,0 +1,107 @@
+{
+  "run_id": "20260327T082302Z-stack-conformance-remediation-phase-10",
+  "updated_at": "2026-03-27 09:10 UTC",
+  "backend": "codex-cli",
+  "route_mode": "governed-phase-orchestration",
+  "route_guardrails": [
+    "no silent assumptions",
+    "no skipped required checks",
+    "no silent fallbacks",
+    "no deferred critical work",
+    "acceptance requires architecture, test, and docs closure"
+  ],
+  "role_configs": {
+    "worker": {
+      "profile": "",
+      "model": "gpt-5.3-codex",
+      "config_overrides": []
+    },
+    "acceptor": {
+      "profile": "",
+      "model": "gpt-5.4",
+      "config_overrides": []
+    },
+    "remediation": {
+      "profile": "",
+      "model": "gpt-5.3-codex",
+      "config_overrides": []
+    }
+  },
+  "phase_brief": "D:/trading advisor 3000/docs/codex/modules/stack-conformance-remediation.phase-10.md",
+  "phase_name": "F1 - Full Re-Acceptance and Release-Readiness Decision Proof",
+  "phase_status": "blocked",
+  "attempts": [
+    {
+      "attempt": 1,
+      "kind": "worker",
+      "worker_summary": "Phase-10 F1 выполнена в рамках worker-route: regenerated checklists (2A-8 + phase10), собраны acceptance evidence pack, final stack-conformance re-acceptance report и red-team review result; route-state переведен на phase-10 task note; phase-matching checks и scoped loop/pr gates пройдены.",
+      "worker_route_signal": "worker:phase-only",
+      "worker_report_path": "D:/trading advisor 3000/artifacts/codex/orchestration/20260327T082302Z-stack-conformance-remediation-phase-10/attempt-01/worker-report.json",
+      "changed_files_path": "D:/trading advisor 3000/artifacts/codex/orchestration/20260327T082302Z-stack-conformance-remediation-phase-10/attempt-01/changed-files.json",
+      "acceptance_json_path": "D:/trading advisor 3000/artifacts/codex/orchestration/20260327T082302Z-stack-conformance-remediation-phase-10/attempt-01/acceptance.json",
+      "acceptance_md_path": "D:/trading advisor 3000/artifacts/codex/orchestration/20260327T082302Z-stack-conformance-remediation-phase-10/attempt-01/acceptance.md",
+      "acceptor_route_signal": "acceptance:governed-phase-route",
+      "acceptor_used_skills": [
+        "phase-acceptance-governor",
+        "architecture-review",
+        "testing-suite",
+        "docs-sync"
+      ],
+      "verdict": "BLOCKED",
+      "blockers_total": 2,
+      "policy_blockers_total": 0
+    },
+    {
+      "attempt": 2,
+      "kind": "remediation",
+      "worker_summary": "Phase-10 remediation выполнена внутри governed route: контракт F1 уточнен как decision-proof, артефакты F1 регенерированы и route-state переведен на remediation task note; обязательные phase-10 проверки пройдены, без расширения scope.",
+      "worker_route_signal": "remediation:phase-only",
+      "worker_report_path": "D:/trading advisor 3000/artifacts/codex/orchestration/20260327T082302Z-stack-conformance-remediation-phase-10/attempt-02/remediation-report.json",
+      "changed_files_path": "D:/trading advisor 3000/artifacts/codex/orchestration/20260327T082302Z-stack-conformance-remediation-phase-10/attempt-02/changed-files.json",
+      "acceptance_json_path": "D:/trading advisor 3000/artifacts/codex/orchestration/20260327T082302Z-stack-conformance-remediation-phase-10/attempt-02/acceptance.json",
+      "acceptance_md_path": "D:/trading advisor 3000/artifacts/codex/orchestration/20260327T082302Z-stack-conformance-remediation-phase-10/attempt-02/acceptance.md",
+      "acceptor_route_signal": "acceptance:governed-phase-route",
+      "acceptor_used_skills": [
+        "phase-acceptance-governor",
+        "architecture-review",
+        "testing-suite",
+        "docs-sync"
+      ],
+      "verdict": "BLOCKED",
+      "blockers_total": 2,
+      "policy_blockers_total": 0
+    },
+    {
+      "attempt": 3,
+      "kind": "remediation",
+      "worker_summary": "Phase-10 blockers B1/B2 remediated by introducing explicit F1 contract amendment in the execution contract, synchronizing phase-10 artifacts to one acceptance model, and rerunning all required checks with passing results under remediation:phase-only route.",
+      "worker_route_signal": "remediation:phase-only",
+      "worker_report_path": "D:/trading advisor 3000/artifacts/codex/orchestration/20260327T082302Z-stack-conformance-remediation-phase-10/attempt-03/remediation-report.json",
+      "changed_files_path": "D:/trading advisor 3000/artifacts/codex/orchestration/20260327T082302Z-stack-conformance-remediation-phase-10/attempt-03/changed-files.json",
+      "acceptance_json_path": "D:/trading advisor 3000/artifacts/codex/orchestration/20260327T082302Z-stack-conformance-remediation-phase-10/attempt-03/acceptance.json",
+      "acceptance_md_path": "D:/trading advisor 3000/artifacts/codex/orchestration/20260327T082302Z-stack-conformance-remediation-phase-10/attempt-03/acceptance.md",
+      "acceptor_route_signal": "acceptance:governed-phase-route",
+      "acceptor_used_skills": [
+        "phase-acceptance-governor",
+        "architecture-review",
+        "testing-suite",
+        "docs-sync"
+      ],
+      "verdict": "BLOCKED",
+      "blockers_total": 1,
+      "policy_blockers_total": 0
+    }
+  ],
+  "attempts_total": 3,
+  "final_status": "blocked",
+  "next_phase": "docs/codex/modules/stack-conformance-remediation.phase-10.md",
+  "route_trace": [
+    "worker[1] worker:phase-only",
+    "acceptance[1] acceptance:governed-phase-route => BLOCKED (policy_blockers=0)",
+    "remediation[2] remediation:phase-only",
+    "acceptance[2] acceptance:governed-phase-route => BLOCKED (policy_blockers=0)",
+    "remediation[3] remediation:phase-only",
+    "acceptance[3] acceptance:governed-phase-route => BLOCKED (policy_blockers=0)",
+    "phase remains locked"
+  ]
+}

@@ -1,0 +1,5 @@
+PASS. Текущая фаза теперь закрывает именно D3-контур: Dagster-определения исполнимы, materialization для phase2a реально проходит, metadata-only регрессия покрыта fail-closed проверкой, а документация и статус-формулировки синхронизированы с честным `partial`-уровнем closure. Я независимо перепроверил phase-scoped тесты, proof-команду, `validate_stack_conformance`, `validate_docs_links`, `run_loop_gate` и `run_pr_gate`; всё прошло.
+
+BEGIN_PHASE_ACCEPTANCE_JSON
+{"verdict":"PASS","summary":"Phase-05 is closed enough to unlock the next phase: executable Dagster Definitions and phase2a materialization proof are present, the metadata-only regression path is now fail-closed, docs/checklist wording matches the actual partial-closure reality, and independent reruns of the phase tests, proof command, stack/docs validators, loop gate, and pr gate all passed.","route_signal":"acceptance:governed-phase-route","used_skills":["phase-acceptance-governor","architecture-review","testing-suite","docs-sync"],"blockers":[],"rerun_checks":[],"evidence_gaps":[],"prohibited_findings":[]}
+END_PHASE_ACCEPTANCE_JSON

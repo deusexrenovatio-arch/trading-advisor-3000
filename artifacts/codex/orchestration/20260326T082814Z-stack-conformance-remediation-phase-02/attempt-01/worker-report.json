@@ -1,0 +1,29 @@
+{
+  "status": "DONE",
+  "summary": "Implemented phase-02 G1 machine-verifiable stack-conformance gate: added registry, fail-closed validator, loop-surface wiring, and targeted mismatch tests without touching next-phase scope.",
+  "route_signal": "worker:phase-only",
+  "files_touched": [
+    "registry/stack_conformance.yaml",
+    "scripts/validate_stack_conformance.py",
+    "configs/change_surface_mapping.yaml",
+    "tests/process/test_validate_stack_conformance.py",
+    "tests/process/test_compute_change_surface.py",
+    "docs/agent/checks.md",
+    "docs/architecture/app/stack-conformance-baseline.md"
+  ],
+  "checks_run": [
+    "python scripts/validate_stack_conformance.py",
+    "python -m pytest tests/process/test_validate_stack_conformance.py -q",
+    "python -m pytest tests/process/test_compute_change_surface.py -q",
+    "python -m pytest tests/process/test_gate_scope_routing.py -q",
+    "python scripts/run_loop_gate.py --skip-session-check --changed-files registry/stack_conformance.yaml scripts/validate_stack_conformance.py configs/change_surface_mapping.yaml tests/process/test_validate_stack_conformance.py tests/process/test_compute_change_surface.py docs/agent/checks.md docs/architecture/app/stack-conformance-baseline.md"
+  ],
+  "remaining_risks": [
+    "spec marker matching is string-based; if stack spec table wording changes, registry markers must be updated in the same patch",
+    "technology removal path depends on ADR marker quality; weak ADR text can still require stricter marker conventions later"
+  ],
+  "assumptions": [],
+  "skips": [],
+  "fallbacks": [],
+  "deferred_work": []
+}

@@ -1,0 +1,5 @@
+PASS. Phase 05 is closed strongly enough to unlock the next phase: the Dagster slice now has executable `Definitions`, real per-asset materialization on the agreed phase2a outputs, a fail-closed metadata-only disprover, and I independently re-ran the phase tests, proof command, docs validation, stack-conformance validation, loop gate, PR gate, `validate_skills --strict`, and `sync_skills_catalog --check` successfully.
+
+BEGIN_PHASE_ACCEPTANCE_JSON
+{"verdict":"PASS","summary":"Phase-05 closes D3 on the agreed phase2a slice: executable Dagster Definitions load, full and partial materialization succeed with honest per-asset Delta ownership, metadata-only closure fails closed, and the phase-scoped tests, proof command, docs validation, stack conformance, loop gate, PR gate, and skill validations all pass on current state.","route_signal":"acceptance:governed-phase-route","used_skills":["phase-acceptance-governor","architecture-review","testing-suite","docs-sync"],"blockers":[],"rerun_checks":[],"evidence_gaps":[],"prohibited_findings":[]}
+END_PHASE_ACCEPTANCE_JSON

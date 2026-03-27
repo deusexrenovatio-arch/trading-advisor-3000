@@ -1,0 +1,11 @@
+{
+  "changed_files": [
+    "registry/stack_conformance.yaml",
+    "docs/architecture/app/stack-conformance-baseline.md",
+    "docs/architecture/app/product-plane-spec-v2/07_Tech_Stack_and_Open_Source.md",
+    "docs/architecture/app/product-plane-spec-v2/04_ADRs.md",
+    "docs/architecture/app/product-plane-spec-v2/TECHNICAL_REQUIREMENTS.md",
+    "docs/architecture/app/product-plane-spec-v2/01_Architecture_Overview.md",
+    "docs/architecture/app/product-plane-spec-v2/08_Codex_AI_Shell_Integration.md"
+  ]
+}

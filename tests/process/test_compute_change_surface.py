@@ -39,3 +39,53 @@ def test_mixed_surface_detection() -> None:
     assert "architecture" in result["surfaces"]
     assert "app" in result["surfaces"]
     assert "mixed" in result["surfaces"]
+
+
+def test_registry_changes_route_to_contracts_and_run_stack_conformance_validator() -> None:
+    result = compute_surface(
+        ["registry/stack_conformance.yaml"],
+        mapping_path=ROOT / "configs" / "change_surface_mapping.yaml",
+    )
+    assert result["primary_surface"] == "contracts"
+    assert any(
+        "scripts/validate_stack_conformance.py" in command
+        for command in result["commands"]["loop"]
+    )
+
+
+def test_stack_validator_wiring_for_runtime_script_changes() -> None:
+    result = compute_surface(
+        ["scripts/validate_stack_conformance.py"],
+        mapping_path=ROOT / "configs" / "change_surface_mapping.yaml",
+    )
+    assert result["primary_surface"] == "contracts"
+    assert "governance" in result["surfaces"]
+    assert any(
+        "scripts/validate_stack_conformance.py" in command
+        for command in result["commands"]["loop"]
+    )
+
+
+def test_stack_validator_wiring_for_governance_docs_changes() -> None:
+    result = compute_surface(
+        ["docs/agent/checks.md"],
+        mapping_path=ROOT / "configs" / "change_surface_mapping.yaml",
+    )
+    assert result["primary_surface"] == "governance"
+    assert result["docs_only"] is True
+    assert any(
+        "scripts/validate_stack_conformance.py" in command
+        for command in result["commands"]["loop"]
+    )
+
+
+def test_stack_validator_wiring_for_architecture_docs_changes() -> None:
+    result = compute_surface(
+        ["docs/architecture/app/stack-conformance-baseline.md"],
+        mapping_path=ROOT / "configs" / "change_surface_mapping.yaml",
+    )
+    assert result["primary_surface"] == "architecture"
+    assert any(
+        "scripts/validate_stack_conformance.py" in command
+        for command in result["commands"]["loop"]
+    )

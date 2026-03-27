@@ -1,0 +1,24 @@
+{
+  "status": "DONE",
+  "summary": "Remediation stayed inside phase-02 only: closed the evidence gap by adding phase-scoped PR gate to the phase note validation list, rerunning the required checks, and recording explicit PR gate execution evidence for acceptance resubmission.",
+  "route_signal": "remediation:phase-only",
+  "files_touched": [
+    "docs/tasks/active/TASK-2026-03-26-continue-governed-module-phase-02-for-stack-conf.md"
+  ],
+  "checks_run": [
+    "python scripts/validate_task_request_contract.py",
+    "python scripts/validate_session_handoff.py",
+    "python scripts/validate_stack_conformance.py",
+    "python -m pytest tests/process/test_validate_stack_conformance.py -q",
+    "python -m pytest tests/process/test_compute_change_surface.py -q",
+    "python scripts/run_loop_gate.py --changed-files registry/stack_conformance.yaml scripts/validate_stack_conformance.py tests/process/test_validate_stack_conformance.py docs/session_handoff.md docs/tasks/active/TASK-2026-03-26-continue-governed-module-phase-02-for-stack-conf.md",
+    "python scripts/run_pr_gate.py --skip-session-check --changed-files registry/stack_conformance.yaml scripts/validate_stack_conformance.py tests/process/test_validate_stack_conformance.py docs/session_handoff.md docs/tasks/active/TASK-2026-03-26-continue-governed-module-phase-02-for-stack-conf.md"
+  ],
+  "remaining_risks": [
+    "Acceptance was not rerun in this remediation step; phase remains blocked until the acceptor confirms unblock."
+  ],
+  "assumptions": [],
+  "skips": [],
+  "fallbacks": [],
+  "deferred_work": []
+}

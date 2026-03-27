@@ -1,0 +1,11 @@
+Маршрут выполнен явно как `worker:phase-only`.
+
+Сделано только в рамках `phase-06 (R1)`:
+- выровнен pointer-shim, чтобы governed-маршрут указывал на phase-06 задачу;
+- перепроверен phase-06 контур: durable runtime default (fail-closed), FastAPI runtime smoke, restart/recovery через Postgres store, stack/docs conformance.
+
+Текущие phase-06 проверки прошли без ошибок, acceptance-заявлений не делал.
+
+BEGIN_PHASE_WORKER_JSON
+{"status":"DONE","summary":"Phase-06 worker route executed with phase-only scope: session handoff pointer aligned to phase-06 and all required phase checks passed (durable runtime fail-closed, FastAPI smoke, Postgres restart/recovery, stack/docs conformance).","route_signal":"worker:phase-only","files_touched":["docs/session_handoff.md"],"checks_run":["python scripts/validate_task_request_contract.py","python scripts/validate_session_handoff.py","python scripts/validate_solution_intent.py --changed-files <phase-06-scope>","python scripts/run_loop_gate.py --changed-files <phase-06-scope>","python -m pytest tests/app/unit/test_phase6_runtime_durable_bootstrap.py -q","python -m pytest tests/app/unit/test_phase6_fastapi_smoke.py -q","python -m pytest tests/app/unit/test_phase6_runtime_profile_ops.py -q","python -m pytest tests/app/integration/test_phase2c_runtime_postgres_store.py -q","python scripts/validate_stack_conformance.py","python scripts/validate_docs_links.py --roots docs/architecture/app docs/runbooks/app"],"remaining_risks":["Production-grade API perimeter hardening (authn/z, rate limiting, gateway policy) is still not claimed in this phase.","HA/replication/multi-region recovery topology for runtime state remains outside phase-06 scope."],"assumptions":[],"skips":[],"fallbacks":[],"deferred_work":[]}
+END_PHASE_WORKER_JSON
