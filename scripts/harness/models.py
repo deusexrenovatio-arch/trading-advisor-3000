@@ -134,6 +134,7 @@ class PhaseContextModel(HarnessModel):
     phase_id: str = Field(min_length=1)
     generated_at: str = Field(min_length=1)
     requirement_ids: list[str] = Field(default_factory=list)
+    requirements: list[NormalizedRequirementModel] = Field(default_factory=list)
     doc_excerpts: list[DocExcerptModel] = Field(default_factory=list)
     risk_notes: list[str] = Field(default_factory=list)
     open_questions: list[str] = Field(default_factory=list)
@@ -409,6 +410,7 @@ class PhaseContext:
     phase_id: str
     generated_at: str
     requirement_ids: tuple[str, ...]
+    requirements: tuple[NormalizedRequirement, ...]
     doc_excerpts: tuple[DocExcerpt, ...]
     risk_notes: tuple[str, ...]
     open_questions: tuple[str, ...]
@@ -424,6 +426,7 @@ class PhaseContext:
             phase_id=self.phase_id,
             generated_at=self.generated_at,
             requirement_ids=list(self.requirement_ids),
+            requirements=[item.to_model() for item in self.requirements],
             doc_excerpts=[item.to_model() for item in self.doc_excerpts],
             risk_notes=list(self.risk_notes),
             open_questions=list(self.open_questions),
@@ -441,6 +444,7 @@ class PhaseContext:
             phase_id=model.phase_id,
             generated_at=model.generated_at,
             requirement_ids=tuple(model.requirement_ids),
+            requirements=tuple(NormalizedRequirement.from_model(item) for item in model.requirements),
             doc_excerpts=tuple(DocExcerpt.from_model(item) for item in model.doc_excerpts),
             risk_notes=tuple(model.risk_notes),
             open_questions=tuple(model.open_questions),

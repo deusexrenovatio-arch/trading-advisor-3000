@@ -177,6 +177,7 @@ def run_phase_context_build(
         "phase_id": phase_id,
         "generated_at": _utc_now(),
         "requirement_ids": list(selected_phase.requirement_ids),
+        "requirements": [req.model_dump(mode="json") for req in relevant_requirements],
         "doc_excerpts": doc_excerpts,
         "risk_notes": risk_notes,
         "open_questions": open_questions,

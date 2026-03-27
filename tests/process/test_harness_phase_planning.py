@@ -27,10 +27,10 @@ def test_phase_planning_and_context_happy_path(tmp_path: Path) -> None:
             "spec/main.md": "\n".join(
                 [
                     "# WP04 Sample",
+                    "- Data: schema artifacts must be validated before planning. depends on: REQ-0002",
                     "- Functional: system must generate phase plan from normalized requirements.",
-                    "- Data: schema artifacts must be validated before planning.",
                     "- Constraint: must not mutate unrelated shell surfaces.",
-                    "- Integration: planner should emit deterministic phase ordering.",
+                    "- Integration: planner should emit deterministic phase ordering for WP-07.",
                     "- Non-functional: planning output should be stable and reproducible.",
                     "- Acceptance: context file must include done_definition and test scope.",
                     "- Open question: how many iterations are allowed for rework?",
@@ -56,8 +56,19 @@ def test_phase_planning_and_context_happy_path(tmp_path: Path) -> None:
     assert planning.phase_count >= 2
 
     phases = phase_plan_payload["phases"]
-    for index in range(1, len(phases)):
-        assert phases[index]["dependencies"] == [phases[index - 1]["phase_id"]]
+    phase_by_requirement: dict[str, dict[str, object]] = {}
+    for phase in phases:
+        for requirement_id in phase["requirement_ids"]:
+            phase_by_requirement[requirement_id] = phase
+
+    # Dependency-aware check: REQ-0001 depends on REQ-0002, so its phase must depend on REQ-0002 phase.
+    dep_source_phase = phase_by_requirement["REQ-0001"]
+    dep_target_phase = phase_by_requirement["REQ-0002"]
+    assert dep_target_phase["phase_id"] in dep_source_phase["dependencies"]
+
+    # phase_hint-aware check: requirement with WP-07 hint should be routed into hinted phase.
+    hinted_phase = phase_by_requirement["REQ-0004"]
+    assert "WP-07" in hinted_phase["name"]
 
     first_phase_id = phases[0]["phase_id"]
     context = run_phase_context_build(
@@ -70,6 +81,8 @@ def test_phase_planning_and_context_happy_path(tmp_path: Path) -> None:
     assert context_payload["run_id"] == intake.run_id
     assert context_payload["phase_id"] == first_phase_id
     assert context_payload["requirement_ids"] == phases[0]["requirement_ids"]
+    assert context_payload["requirements"]
+    assert [item["requirement_id"] for item in context_payload["requirements"]] == phases[0]["requirement_ids"]
     assert context_payload["doc_excerpts"]
     assert context_payload["done_definition"]
     assert context_payload["acceptance_checks"]

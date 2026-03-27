@@ -9,6 +9,38 @@
     "phase_id": {"type": "string", "minLength": 1},
     "generated_at": {"type": "string", "minLength": 1},
     "requirement_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "requirements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "requirement_id": {"type": "string", "minLength": 1},
+          "title": {"type": "string", "minLength": 1},
+          "statement": {"type": "string", "minLength": 1},
+          "category": {
+            "type": "string",
+            "enum": ["functional", "non_functional", "constraint", "assumption", "open_question", "acceptance", "integration", "data", "security"]
+          },
+          "priority": {"type": "string", "enum": ["critical", "high", "medium", "low"]},
+          "phase_hint": {"type": ["string", "null"]},
+          "source_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "ambiguity_flag": {"type": "boolean"},
+          "acceptance_hint": {"type": ["string", "null"]},
+          "depends_on": {"type": "array", "items": {"type": "string", "minLength": 1}}
+        },
+        "required": [
+          "requirement_id",
+          "title",
+          "statement",
+          "category",
+          "priority",
+          "source_refs",
+          "ambiguity_flag",
+          "depends_on"
+        ]
+      }
+    },
     "doc_excerpts": {
       "type": "array",
       "items": {
@@ -46,6 +78,7 @@
     "phase_id",
     "generated_at",
     "requirement_ids",
+    "requirements",
     "doc_excerpts",
     "risk_notes",
     "open_questions",
