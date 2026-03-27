@@ -13,6 +13,7 @@ try:
         parse_phase_review_report,
         parse_traceability_matrix,
     )
+    from .test_evidence import find_missing_required_tests, normalize_test_entries
 except ImportError:  # pragma: no cover - script execution fallback
     from scripts.harness.models import (
         parse_implementation_summary,
@@ -20,6 +21,7 @@ except ImportError:  # pragma: no cover - script execution fallback
         parse_phase_review_report,
         parse_traceability_matrix,
     )
+    from scripts.harness.test_evidence import find_missing_required_tests, normalize_test_entries
 
 
 class ReviewStageError(RuntimeError):
@@ -129,11 +131,23 @@ def run_phase_review_stage(
             }
         )
 
-    required_tests = list(implementation.required_tests)
-    executed_tests = set(implementation.checks_run)
-    missing_tests = _unique(
-        [test_name for test_name in required_tests if test_name not in executed_tests]
-        + list(implementation.failed_tests)
+    failed_test_evidence = normalize_test_entries(list(implementation.failed_tests))
+    for test_name in failed_test_evidence:
+        findings.append(
+            {
+                "severity": "high",
+                "file": phase_root.as_posix(),
+                "problem": f"Test failed during implementation evidence capture: {test_name}",
+                "requirement_refs": [],
+                "fix_hint": "Fix the failing test and rerun implementation before acceptance.",
+            }
+        )
+
+    missing_tests = find_missing_required_tests(
+        required_tests=list(implementation.required_tests),
+        checks_run=list(implementation.checks_run),
+        passed_tests=list(implementation.passed_tests),
+        failed_tests=failed_test_evidence,
     )
 
     covered_requirements = set(implementation.covered_requirements)

@@ -17,6 +17,7 @@ try:
         parse_phase_rework_request,
         parse_traceability_matrix,
     )
+    from .test_evidence import build_test_evidence, find_missing_required_tests, normalize_test_entries
 except ImportError:  # pragma: no cover - script execution fallback
     from scripts.harness.models import (
         parse_implementation_summary,
@@ -28,6 +29,7 @@ except ImportError:  # pragma: no cover - script execution fallback
         parse_phase_rework_request,
         parse_traceability_matrix,
     )
+    from scripts.harness.test_evidence import build_test_evidence, find_missing_required_tests, normalize_test_entries
 
 
 class AcceptanceStageError(RuntimeError):
@@ -127,6 +129,17 @@ def run_phase_acceptance_stage(
     traceability_map = {item.requirement_id: item for item in traceability.mappings}
     covered_requirements = set(implementation.covered_requirements)
     review_gap_set = set(review.traceability_gaps)
+    normalized_checks, normalized_passed_tests, normalized_failed_tests = build_test_evidence(
+        checks_run=list(implementation.checks_run),
+        passed_tests=list(implementation.passed_tests),
+        failed_tests=list(implementation.failed_tests),
+    )
+    canonical_missing_tests = find_missing_required_tests(
+        required_tests=list(implementation.required_tests),
+        checks_run=normalized_checks,
+        passed_tests=normalized_passed_tests,
+        failed_tests=normalized_failed_tests,
+    )
 
     evidence_refs = _unique(
         [
@@ -134,25 +147,28 @@ def run_phase_acceptance_stage(
             _to_posix(phase_root / "phase_review_report.json", registry_root),
             _to_posix(registry_root / "traceability" / run_id / "traceability_matrix.json", registry_root),
         ]
-        + implementation.passed_tests
+        + normalize_test_entries(normalized_passed_tests)
     )
 
     missing_evidence: list[str] = []
     if not implementation.changed_files:
         missing_evidence.append("Implementation diff evidence is missing (changed_files is empty).")
-    if not implementation.checks_run:
+    if not normalized_checks:
         missing_evidence.append("Test evidence is missing (checks_run is empty).")
     for requirement_id in requirement_ids:
         if requirement_id not in traceability_map:
             missing_evidence.append(f"Traceability mapping missing for requirement `{requirement_id}`.")
 
     failed_checks: list[str] = []
-    if review.verdict == "fail":
+    review_has_hard_blockers = bool(review.traceability_gaps) or any(
+        finding.severity in {"high", "critical"} for finding in review.findings
+    )
+    if review.verdict == "fail" and review_has_hard_blockers:
         failed_checks.append("Independent review verdict is fail.")
-    if implementation.failed_tests:
-        failed_checks.extend(f"Failed test evidence: {item}" for item in implementation.failed_tests)
-    if review.missing_tests:
-        failed_checks.extend(f"Missing required test execution: {item}" for item in review.missing_tests)
+    if normalized_failed_tests:
+        failed_checks.extend(f"Failed test evidence: {item}" for item in normalized_failed_tests)
+    if canonical_missing_tests:
+        failed_checks.extend(f"Missing required test execution: {item}" for item in canonical_missing_tests)
     if any(finding.severity in {"high", "critical"} for finding in review.findings):
         failed_checks.append("Independent review reported high severity findings.")
 

@@ -11,8 +11,10 @@ from typing import Any
 
 try:
     from .models import parse_implementation_summary, parse_phase_context, parse_run_state
+    from .test_evidence import build_test_evidence, coerce_string_entries, normalize_test_entries
 except ImportError:  # pragma: no cover - script execution fallback
     from scripts.harness.models import parse_implementation_summary, parse_phase_context, parse_run_state
+    from scripts.harness.test_evidence import build_test_evidence, coerce_string_entries, normalize_test_entries
 
 
 IMPLEMENTATION_BEGIN = "BEGIN_PHASE_IMPLEMENTATION_JSON"
@@ -236,36 +238,12 @@ def _run_codex_backend(
     payload = _parse_tagged_json(output_text, IMPLEMENTATION_BEGIN, IMPLEMENTATION_END)
     return {
         "summary": str(payload.get("summary", "")).strip() or "Implementation completed via codex backend.",
-        "changed_files": [
-            str(item).strip()
-            for item in payload.get("changed_files", [])
-            if str(item).strip()
-        ],
-        "checks_run": [
-            str(item).strip()
-            for item in payload.get("checks_run", [])
-            if str(item).strip()
-        ],
-        "passed_tests": [
-            str(item).strip()
-            for item in payload.get("passed_tests", [])
-            if str(item).strip()
-        ],
-        "failed_tests": [
-            str(item).strip()
-            for item in payload.get("failed_tests", [])
-            if str(item).strip()
-        ],
-        "covered_requirements": [
-            str(item).strip()
-            for item in payload.get("covered_requirements", [])
-            if str(item).strip()
-        ],
-        "unresolved_risks": [
-            str(item).strip()
-            for item in payload.get("unresolved_risks", [])
-            if str(item).strip()
-        ],
+        "changed_files": coerce_string_entries(payload.get("changed_files", [])),
+        "checks_run": coerce_string_entries(payload.get("checks_run", [])),
+        "passed_tests": coerce_string_entries(payload.get("passed_tests", [])),
+        "failed_tests": coerce_string_entries(payload.get("failed_tests", [])),
+        "covered_requirements": coerce_string_entries(payload.get("covered_requirements", [])),
+        "unresolved_risks": coerce_string_entries(payload.get("unresolved_risks", [])),
     }
 
 
@@ -313,6 +291,13 @@ def run_phase_implementation_stage(
     else:
         raise ImplementationStageError(f"unsupported backend: {backend}")
 
+    checks_run, passed_tests, failed_tests = build_test_evidence(
+        checks_run=stage_payload.get("checks_run", []),
+        passed_tests=stage_payload.get("passed_tests", []),
+        failed_tests=stage_payload.get("failed_tests", []),
+    )
+    required_tests = normalize_test_entries(list(phase_context.test_scope))
+
     payload = {
         "run_id": run_id,
         "phase_id": phase_id,
@@ -323,10 +308,10 @@ def run_phase_implementation_stage(
         "phase_context_ref": _to_posix(phase_context_path, registry_root),
         "summary": stage_payload["summary"],
         "changed_files": _unique(list(stage_payload["changed_files"])),
-        "checks_run": _unique(list(stage_payload["checks_run"])),
-        "required_tests": list(phase_context.test_scope),
-        "passed_tests": _unique(list(stage_payload["passed_tests"])),
-        "failed_tests": _unique(list(stage_payload["failed_tests"])),
+        "checks_run": checks_run,
+        "required_tests": required_tests,
+        "passed_tests": passed_tests,
+        "failed_tests": failed_tests,
         "covered_requirements": _unique(list(stage_payload["covered_requirements"])),
         "unresolved_risks": _unique(list(stage_payload["unresolved_risks"])),
     }
