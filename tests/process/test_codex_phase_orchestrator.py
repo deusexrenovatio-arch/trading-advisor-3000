@@ -11,7 +11,7 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-from codex_phase_orchestrator import orchestrate_current_phase  # noqa: E402
+from codex_phase_orchestrator import orchestrate_current_phase, run_codex_prompt  # noqa: E402
 from codex_phase_policy import RoleLaunchConfig  # noqa: E402
 
 
@@ -414,3 +414,25 @@ def test_codex_cli_route_owned_runtime_artifacts_do_not_break_worker_contract(
     )
     assert "artifacts/codex/orchestration/route-owned.tmp" not in changed_files_payload["changed_files"]
     assert ".runlogs/codex-governed-entry/last-route.json" not in changed_files_payload["changed_files"]
+
+
+def test_run_codex_prompt_forces_utf8_encoding(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_subprocess_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        captured.update(kwargs)
+        return subprocess.CompletedProcess(args=list(args), returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("codex_phase_orchestrator.subprocess.run", fake_subprocess_run)
+
+    exit_code = run_codex_prompt(
+        repo_root=tmp_path,
+        prompt="worker prompt",
+        launch=_launch("gpt-5.3-codex"),
+        output_path=tmp_path / "last-message.txt",
+        codex_bin="codex",
+    )
+
+    assert exit_code == 0
+    assert captured["text"] is True
+    assert captured["encoding"] == "utf-8"

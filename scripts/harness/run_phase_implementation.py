@@ -229,6 +229,7 @@ def _run_codex_backend(
         cmd,
         input=prompt,
         text=True,
+        encoding="utf-8",
         cwd=repo_root,
         check=False,
     )

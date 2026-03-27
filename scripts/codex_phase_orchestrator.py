@@ -412,6 +412,7 @@ def run_codex_prompt(
         cmd,
         input=prompt,
         text=True,
+        encoding="utf-8",
         cwd=repo_root,
         check=False,
     )
