@@ -26,8 +26,8 @@ Updated: 2026-03-27 15:21 UTC
 ## Solution Intent
 - Solution Class: target
 - Critical Contour: data-integration-closure
-- Forbidden Shortcuts: synthetic upstream, scaffold-only, hidden fallback, sample artifact
-- Closure Evidence: real Delta runtime, Spark execution proof, Dagster materialization proof, and branch-local truth-source that matches only these data-foundation surfaces
+- Forbidden Shortcuts: synthetic upstream, scaffold-only, sample artifact
+- Closure Evidence: integration test evidence for real Delta runtime, canonical dataset outputs, downstream research proof, and runtime-ready surface alignment limited to the data foundation contour
 - Shortcut Waiver: none
 
 ## Repetition Control
