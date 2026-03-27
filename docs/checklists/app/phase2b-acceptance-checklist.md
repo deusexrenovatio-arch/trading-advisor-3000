@@ -6,7 +6,7 @@ Date: 2026-03-16
 - [x] Phase 2B accepted as MVP
 - [x] Phase 2B accepted as full module DoD
 
-## Full DoD Resolution (closed 2026-03-17)
+## Baseline Resolution (closed 2026-03-17)
 - Backtest now supports walk-forward windows.
 - Commissions, slippage, and session filters are integrated in research execution.
 - Strategy metrics are persisted as explicit research outputs and reflected in manifest/tests.

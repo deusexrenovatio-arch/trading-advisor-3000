@@ -11,7 +11,7 @@ Date: 2026-03-17
 - Integrated replay builds forward/outcomes only for runtime-accepted and published signals.
 - These are validated in code and integration tests.
 
-## Full DoD Resolution (closed 2026-03-17)
+## Baseline Resolution (closed 2026-03-17)
 - `analytics.signal_outcomes` is now built from `signal.signal_events` + `execution.broker_fills` + `execution.positions`.
 - Runtime -> forward hand-off uses explicit `candidate_id` transfer from runtime replay report, not only implicit recomputation.
 

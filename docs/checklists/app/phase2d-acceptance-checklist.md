@@ -6,7 +6,7 @@ Date: 2026-03-16
 - [x] Phase 2D accepted as skeleton/MVP
 - [x] Phase 2D accepted as full sidecar/reconciliation DoD
 
-## Full DoD Resolution (closed 2026-03-17)
+## Baseline Resolution (closed 2026-03-17)
 - Sidecar now supports submit/cancel/replace operations.
 - Reverse broker update/fill ingestion path is present in stub contract flow.
 - Reconciliation upgraded from detector to incident model with explicit recovery actions and tests.

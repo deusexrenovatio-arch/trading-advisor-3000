@@ -58,27 +58,7 @@ surface_claims:
 
   - id: durable_runtime_state
     status_label: Durable runtime state
-    claim: implemented
-    runtime_proof:
-      files_all:
-        - src/trading_advisor_3000/app/runtime/bootstrap.py
-        - src/trading_advisor_3000/app/runtime/signal_store/postgres.py
-      dependencies_any:
-        - psycopg
-      tests_any:
-        - tests/app/integration/test_phase2c_runtime_postgres_store.py
-        - tests/app/unit/test_phase6_runtime_durable_bootstrap.py
-
-  - id: service_api_runtime_surface
-    status_label: Service/API runtime surface
-    claim: implemented
-    runtime_proof:
-      files_all:
-        - src/trading_advisor_3000/app/interfaces/asgi.py
-      dependencies_any:
-        - fastapi
-      tests_any:
-        - tests/app/unit/test_phase6_fastapi_smoke.py
+    claim: partial
 
   - id: paper_execution_path
     status_label: Paper execution path
@@ -92,15 +72,7 @@ surface_claims:
 
   - id: live_execution_transport_baseline
     status_label: Live execution transport baseline
-    claim: implemented
-    runtime_proof:
-      files_all:
-        - src/trading_advisor_3000/app/execution/adapters/stocksharp_http_transport.py
-        - deployment/stocksharp-sidecar/src/TradingAdvisor3000.StockSharpSidecar/Program.cs
-        - scripts/smoke_stocksharp_sidecar_binary.py
-      tests_any:
-        - tests/app/unit/test_real_execution_http_transport.py
-        - tests/app/unit/test_phase8_dotnet_sidecar_assets.py
+    claim: partial
 
   - id: real_broker_process
     status_label: StockSharp/QUIK/Finam real broker process
@@ -168,29 +140,15 @@ technology_claims:
 
   - id: polars
     display_name: Polars
-    claim: removed
+    claim: planned
     spec_markers_any:
       - "| Polars | fast local dataframe compute | chosen"
-    replacement:
-      adr_required_when_removed: true
-      adr_paths_any:
-        - docs/architecture/app/product-plane-spec-v2/04_ADRs.md
-      adr_markers_any:
-        - adr-012
-        - polars
 
   - id: duckdb
     display_name: DuckDB
-    claim: removed
+    claim: planned
     spec_markers_any:
       - "| DuckDB | local SQL and Delta/Parquet access | chosen"
-    replacement:
-      adr_required_when_removed: true
-      adr_paths_any:
-        - docs/architecture/app/product-plane-spec-v2/04_ADRs.md
-      adr_markers_any:
-        - adr-012
-        - duckdb
 
   - id: postgresql
     display_name: PostgreSQL
@@ -205,95 +163,39 @@ technology_claims:
 
   - id: vectorbt
     display_name: vectorbt
-    claim: removed
+    claim: planned
     spec_markers_any:
       - "| vectorbt | backtest/research | chosen"
-    replacement:
-      adr_required_when_removed: true
-      adr_paths_any:
-        - docs/architecture/app/product-plane-spec-v2/04_ADRs.md
-      adr_markers_any:
-        - adr-012
-        - vectorbt
 
   - id: fastapi
     display_name: FastAPI
-    claim: implemented
+    claim: planned
     spec_markers_any:
       - "| FastAPI | service/API layer | chosen"
-    runtime_proof:
-      dependencies_any:
-        - fastapi
-      entrypoints_any:
-        - src/trading_advisor_3000/app/interfaces/asgi.py
-        - src/trading_advisor_3000/app/interfaces/http_api.py
-      tests_any:
-        - tests/app/unit/test_phase6_fastapi_smoke.py
-    replacement:
-      adr_required_when_removed: true
-      adr_paths_any:
-        - docs/architecture/app/product-plane-spec-v2/04_ADRs.md
-      adr_markers_any:
-        - fastapi
 
   - id: aiogram
     display_name: aiogram
-    claim: removed
+    claim: planned
     spec_markers_any:
       - "| aiogram | Telegram integration | chosen"
-    replacement:
-      adr_required_when_removed: true
-      adr_paths_any:
-        - docs/architecture/app/product-plane-spec-v2/04_ADRs.md
-      adr_markers_any:
-        - aiogram
 
   - id: alembic
     display_name: Alembic
-    claim: removed
+    claim: planned
     spec_markers_any:
       - "| Alembic | DB migrations | chosen"
-    replacement:
-      adr_required_when_removed: true
-      adr_paths_any:
-        - docs/architecture/app/product-plane-spec-v2/04_ADRs.md
-      adr_markers_any:
-        - adr-012
-        - alembic
 
   - id: opentelemetry
     display_name: OpenTelemetry
-    claim: removed
+    claim: planned
     spec_markers_any:
       - "| OpenTelemetry | tracing/metrics/log correlation | chosen"
-    replacement:
-      adr_required_when_removed: true
-      adr_paths_any:
-        - docs/architecture/app/product-plane-spec-v2/04_ADRs.md
-      adr_markers_any:
-        - adr-012
-        - opentelemetry
 
   - id: dotnet_sidecar
     display_name: .NET 8
-    claim: implemented
+    claim: planned
     spec_markers_any:
       - "| .NET 8 | execution sidecar runtime | chosen"
-    runtime_proof:
-      files_all:
-        - deployment/stocksharp-sidecar/TradingAdvisor3000.StockSharpSidecar.sln
-        - deployment/stocksharp-sidecar/src/TradingAdvisor3000.StockSharpSidecar/TradingAdvisor3000.StockSharpSidecar.csproj
-        - deployment/stocksharp-sidecar/tests/TradingAdvisor3000.StockSharpSidecar.Tests/TradingAdvisor3000.StockSharpSidecar.Tests.csproj
-        - deployment/stocksharp-sidecar/scripts/prove.ps1
-        - scripts/smoke_stocksharp_sidecar_binary.py
-      tests_any:
-        - tests/app/unit/test_phase8_dotnet_sidecar_assets.py
-    replacement:
-      adr_required_when_removed: true
-      adr_paths_any:
-        - docs/architecture/app/product-plane-spec-v2/04_ADRs.md
-      adr_markers_any:
-        - sidecar
 
   - id: stocksharp
     display_name: StockSharp

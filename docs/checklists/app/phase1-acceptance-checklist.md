@@ -4,9 +4,9 @@
 
 ## Acceptance Disposition (updated 2026-03-17)
 - [x] Phase 1 accepted as MVP contract baseline
-- [x] Phase 1 accepted as final/full contracts freeze
+- [x] Phase 1 accepted as bounded contract baseline only
 
-## Full DoD Resolution (closed 2026-03-17)
+## Contract Baseline Resolution (closed 2026-03-17)
 - `strategy_version_id` unification is accepted and stable across phase doc, signal contracts, and migration skeleton.
 - `signal.publications` expanded to include `publication_id` and `publication_type` in contracts, schema snapshots, fixture payload, and migration skeleton.
 - Contract tests cover traceability fields and reject `side="flat"` in public `signal_candidate.v1` surface.
