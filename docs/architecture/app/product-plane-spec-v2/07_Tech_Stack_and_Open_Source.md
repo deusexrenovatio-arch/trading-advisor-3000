@@ -8,14 +8,14 @@
 | Delta Lake | durable data tables | chosen | OSS | основной storage contract |
 | Apache Spark | heavy compute / rebuilds | chosen (scoped) | OSS | не входит в live runtime |
 | Dagster | orchestration | chosen | OSS | data/research assets and checks |
-| Polars | fast local dataframe compute | chosen | OSS | ad hoc/research/debug |
-| DuckDB | local SQL and Delta/Parquet access | chosen | OSS | local/dev analytics |
+| Polars | fast local dataframe compute | removed | OSS | baseline uses pandas + SQL; reintroduction requires ADR-backed proof (ADR-012) |
+| DuckDB | local SQL and Delta/Parquet access | removed | OSS | kept only as optional MCP/local tooling; not in product runtime baseline (ADR-012) |
 | PostgreSQL | runtime state | chosen | OSS | signal/config/execution |
-| vectorbt | backtest/research | chosen | OSS core | только research |
+| vectorbt | backtest/research | removed | OSS core | baseline research uses in-repo backtest engine; reintroduction requires ADR-backed proof (ADR-012) |
 | FastAPI | service/API layer | chosen | OSS | runtime/admin APIs |
-| aiogram | Telegram integration | chosen | OSS | async-friendly |
-| Alembic | DB migrations | chosen | OSS | PostgreSQL schema evolution |
-| OpenTelemetry | tracing/metrics/log correlation | chosen | OSS | observability |
+| aiogram | Telegram integration | removed | OSS | replaced by deterministic in-repo publication adapter (ADR-011) |
+| Alembic | DB migrations | removed | OSS | baseline uses ordered SQL migrations with checksum runner (ADR-012) |
+| OpenTelemetry | tracing/metrics/log correlation | removed | OSS | baseline observability is file-contract based; OTel requires dedicated rollout ADR (ADR-012) |
 | Prometheus | metrics | chosen | OSS | monitoring |
 | Grafana | dashboards | chosen | OSS | metrics and logs |
 | Loki | logs | chosen | OSS | structured log aggregation |
@@ -58,13 +58,10 @@
 - schedules,
 - integration with Spark jobs.
 
-## 2.4 vectorbt
-Подходит для:
-- research,
-- parameter sweeps,
-- reproducible backtests.
-
-Не использовать как live OMS/runtime.
+## 2.4 vectorbt (current baseline decision)
+vectorbt removed from the chosen baseline for the current governed phase state.
+Research/backtest currently runs on the in-repo deterministic engine and fixtures.
+Reintroduction path: new ADR + dependency/runtime proof + dedicated research tests.
 
 ## 2.5 StockSharp
 Подходит как:
@@ -73,25 +70,31 @@
 
 Не использовать как носитель strategy logic и не делать из него центр всего продукта.
 
+## 2.6 Replaceable stack decisions (S1)
+Removed from current chosen baseline (ADR-012):
+- Polars
+- DuckDB
+- vectorbt
+- Alembic
+- OpenTelemetry
+
+Removal means these technologies are not claimed as active product runtime stack today.
+Any comeback requires explicit ADR update plus executable proof and tests.
+
 ## 3. Open-source решения по слоям
 
 ### Data/research
 - Delta Lake
 - Apache Spark
 - Dagster
-- Polars
-- DuckDB
-- vectorbt
 
 ### Runtime
 - FastAPI
 - Pydantic
-- aiogram
+- deterministic in-repo Telegram publication adapter
 - PostgreSQL
-- Alembic
 
 ### Observability
-- OpenTelemetry
 - Prometheus
 - Grafana
 - Loki
@@ -143,3 +146,4 @@
 
 ### Wave 4 — domain-specialized skills
 Только после стабилизации бизнес-логики и strategy packages.
+

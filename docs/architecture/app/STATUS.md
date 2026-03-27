@@ -13,11 +13,12 @@ It supersedes older phase-closure claims when they disagree.
 | Surface | Status | What is real now | What is not yet real |
 | --- | --- | --- | --- |
 | Product-plane landing in shell repo | implemented | Code/tests/docs are isolated under product-plane paths. | None at baseline scope. |
-| Data/research/runtime scaffolding | implemented | Contracts, fixtures, runtime/research/data modules, and test slices exist. | Full production hardening is not implied. |
+| Data/research/runtime scaffolding | implemented | Contracts, fixtures, runtime/research/data modules, test slices, a Docker/Linux scoped Spark proof path, and a scoped Dagster materialization proof path for canonical phase2 outputs exist. | Full production hardening is not implied. |
 | Runtime signal lifecycle | implemented | Candidate replay, publication lifecycle, close/cancel/expire flow, and signal-event history exist. | Multi-worker operational hardening is still future work. |
-| Durable runtime state | partial | `PostgresSignalStore`, migrations, and restart/idempotency coverage now exist. | There is no env-wired default runtime entrypoint that forces Postgres in every path yet. |
+| Durable runtime state | implemented | Runtime bootstrap now wires `staging/production` profiles to `PostgresSignalStore` and blocks non-durable fallbacks; restart proof is covered through the env bootstrap path. | HA topology, replication, and multi-region runtime recovery are not claimed. |
+| Service/API runtime surface | implemented | FastAPI ASGI runtime entrypoint boots through the same profile-aware durable runtime bootstrap and has smoke coverage for `/health` and `/ready`. | This is not yet a full production API perimeter (authn/z, rate limiting, external gateway hardening). |
 | Paper execution path | implemented | Paper broker flow, replay, reconciliation, and related tests exist. | This does not imply live broker readiness. |
-| Live execution transport baseline | partial | Python live bridge, HTTP transport, staging gateway stub, rollout script, and runbooks exist. | A real .NET StockSharp sidecar project is not landed in this repo. |
+| Live execution transport baseline | implemented | Python live bridge, HTTP transport, staging gateway stub, and an in-repo .NET 8 sidecar project (build/test/publish + compiled-binary Python smoke path) exist. | This slice still does not imply production broker rollout readiness. |
 | StockSharp/QUIK/Finam real broker process | planned | Wire contract and staging-first rollout surface are defined. | No production broker bridge binary/process is shipped here. |
 | Contracts freeze | partial | Versioned schemas/fixtures cover market, signal, runtime signal state, execution, and publications. | Full config/runtime/external envelope inventory still needs expansion as live path grows. |
 | Production readiness / operational readiness | not accepted | There is production-like scaffolding and proving flow for shell delivery. | The product plane is not accepted as live/prod ready. |

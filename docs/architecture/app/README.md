@@ -5,11 +5,18 @@ This section stores product-plane architecture artifacts on top of the existing 
 Read these first:
 - [STATUS.md](docs/architecture/app/STATUS.md) - current implemented reality and no-go zones.
 - [CONTRACT_SURFACES.md](docs/architecture/app/CONTRACT_SURFACES.md) - current versioned boundary inventory.
+- [stack-conformance-baseline.md](docs/architecture/app/stack-conformance-baseline.md) - allowed stack-conformance claim baseline.
+- [restricted-acceptance-vocabulary.md](docs/architecture/app/restricted-acceptance-vocabulary.md) - constrained acceptance wording rules.
 
 Phase naming rule:
 - `S0-S8` refers to shell delivery phases.
 - `P0-P7` refers to product capability phases from the product spec.
 - [phase8-ci-pilot-operational-proving.md](docs/architecture/app/phase8-ci-pilot-operational-proving.md) is a shell-controlled evidence overlay, not proof of full product closure.
+
+## Claim Integrity Rule
+- Use `docs/architecture/app/STATUS.md` for current reality statements.
+- Treat phase docs/checklists as scoped evidence records, not automatic full-closure proof.
+- Use only restricted terms from `docs/architecture/app/restricted-acceptance-vocabulary.md` when writing acceptance outcomes.
 
 ## Phase 0 Package
 - `docs/architecture/app/product-plane-spec-v2/TECHNICAL_REQUIREMENTS.md`
@@ -20,16 +27,19 @@ Phase naming rule:
 ## Phase Artifacts
 - `docs/architecture/app/phase0-plan.md` - shell alignment and repo landing.
 - `docs/architecture/app/phase1-contracts-and-scaffolding.md` - contracts freeze and scaffolding.
-- `docs/architecture/app/phase2a-data-plane-mvp.md` - data plane MVP implementation and acceptance.
-- `docs/architecture/app/phase2b-research-plane-mvp.md` - research plane MVP implementation and acceptance.
-- `docs/architecture/app/phase2c-runtime-mvp.md` - runtime MVP implementation and acceptance.
-- `docs/architecture/app/phase2d-execution-mvp.md` - execution MVP implementation and acceptance.
+- `docs/architecture/app/phase2a-data-plane-mvp.md` - data plane MVP slice scope and evidence commands.
+- `docs/architecture/app/phase2b-research-plane-mvp.md` - research plane MVP slice scope and evidence commands.
+- `docs/architecture/app/phase2c-runtime-mvp.md` - runtime MVP slice scope and evidence commands.
+- `docs/architecture/app/phase2d-execution-mvp.md` - execution MVP slice scope and evidence commands.
 - `docs/architecture/app/phase3-shadow-forward-system-integration.md` - shadow-forward and integrated system replay.
 - `docs/architecture/app/phase4-live-execution-integration.md` - controlled live execution integration and reconciliation hardening.
 - `docs/architecture/app/phase5-review-analytics-observability.md` - review dashboards, latency analytics, and observability plumbing.
 - `docs/architecture/app/phase6-operational-hardening.md` - retry/idempotency hardening, secrets policy, recovery and production-like ops profile.
 - `docs/architecture/app/phase7-scale-up-readiness.md` - extension seams for providers/adapters and expansion performance backlog.
 - `docs/architecture/app/phase8-ci-pilot-operational-proving.md` - CI lane parity, operational proving entrypoint, and fail-closed evidence flow.
+- `docs/architecture/app/phase8-dotnet-sidecar-closure.md` - real in-repo .NET sidecar closure evidence for wire-contract execution path.
+- `docs/architecture/app/phase10-stack-conformance-reacceptance-report.md` - final F1 re-acceptance report and readiness verdict package.
+- `docs/architecture/app/release-readiness-prerequisites-program.md` - pre-readiness implementation program required to move from honest deny state to a future F1 allow decision.
 - `docs/architecture/app/mcp-and-real-execution-rollout.md` - MCP Wave 1-3 rollout + staging-first real HTTP execution transport closure.
 - `docs/architecture/app/sidecar-wire-api-v1.md` - wire-level HTTP/JSON sidecar contract for staging-first real transport.
 - `docs/architecture/app/phase0-3-acceptance-verdict-2026-03-17.md` - architecture acceptance disposition (MVP vs full target closure).

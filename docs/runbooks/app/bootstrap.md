@@ -29,6 +29,20 @@ python scripts/run_pr_gate.py --from-git --git-ref HEAD
 python scripts/apply_app_migrations.py --dsn postgresql://postgres:postgres@127.0.0.1:5432/ta3000
 ```
 
+## Runtime API Bootstrap (Durable Default)
+For non-test runtime profiles, use PostgreSQL-backed bootstrap explicitly:
+
+```bash
+set TA3000_RUNTIME_PROFILE=staging
+set TA3000_SIGNAL_STORE_BACKEND=postgres
+set TA3000_APP_DSN=postgresql://postgres:postgres@127.0.0.1:5432/ta3000
+python -m uvicorn trading_advisor_3000.app.interfaces.asgi:app --host 0.0.0.0 --port 8080
+```
+
+Fail-closed behavior:
+- if `TA3000_RUNTIME_PROFILE` is `staging` or `production` and DSN is missing, bootstrap must fail;
+- no silent fallback to in-memory runtime state is allowed.
+
 ## Optional Docker Profiles
 - `deployment/docker/production-like/docker-compose.production-like.yml`
 - `deployment/docker/staging-gateway/docker-compose.staging-gateway.yml`

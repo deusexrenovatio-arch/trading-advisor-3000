@@ -3,9 +3,9 @@
 Date: 2026-03-18
 
 ## Acceptance Disposition
-- [x] Phase 8 operational proving package delivered
-- [x] CI lane model and local operational proving flow are aligned
-- [x] Non-happy-path behavior is validated by tests and runtime contract
+- [x] Phase 8 baseline evidence is retained for shell-controlled operational proving flow.
+- [x] CI lane model alignment remains evidenced for governance/process closure.
+- [x] This checklist does not promote shell proving outcomes to product-plane production closure.
 
 ## Deliverables
 - [x] CI workflow has explicit lanes (`loop`, `pr`, `nightly`, `dashboard-refresh`)
@@ -32,3 +32,9 @@ Date: 2026-03-18
 - [x] `python scripts/run_phase8_operational_proving.py --from-git --git-ref HEAD --output artifacts/phase8-operational-proving.json`
 - [x] `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
 - [x] `python scripts/run_pr_gate.py --from-git --git-ref HEAD --skip-session-check`
+
+## F1 Re-Acceptance Snapshot (2026-03-27)
+- [x] Checklist wording is normalized to avoid cross-plane overclaiming.
+- [x] Phase-8 evidence remains explicitly scoped to process/governance proving artifacts.
+- [x] Product-plane readiness status remains governed by `docs/architecture/app/STATUS.md`.
+- [x] This checklist remains valid as shell evidence and not as product release proof.

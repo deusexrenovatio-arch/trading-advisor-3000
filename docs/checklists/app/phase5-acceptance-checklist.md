@@ -3,9 +3,9 @@
 Date: 2026-03-17
 
 ## Acceptance Disposition
-- [x] Phase 5 review/analytics/observability delivered
-- [x] Strategy/instrument dashboards and latency metrics generated from replay
-- [x] Prometheus/Loki exports and local observability plumbing added
+- [x] Phase 5 baseline evidence is retained for replay analytics and local observability plumbing.
+- [x] Strategy/instrument dashboards and latency metrics remain evidenced for the bounded replay contour.
+- [x] This checklist does not claim full observability-stack closure beyond current truth-source statements.
 
 ## Deliverables
 - [x] Phase 5 review metrics module added
@@ -32,3 +32,9 @@ Date: 2026-03-17
 - [x] `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
 - [x] `python scripts/run_pr_gate.py --from-git --git-ref HEAD --skip-session-check`
 - [x] `python scripts/run_nightly_gate.py --from-git --git-ref HEAD`
+
+## F1 Re-Acceptance Snapshot (2026-03-27)
+- [x] Checklist language is aligned with the restricted acceptance vocabulary.
+- [x] Registry mapping remains explicit for removed replacement surfaces (`opentelemetry` removed by ADR) and implemented local observability slice.
+- [x] Evidence remains bounded to local replay/analytics and deployment smoke contours.
+- [x] This checklist remains phase evidence and does not elevate product-plane production status.

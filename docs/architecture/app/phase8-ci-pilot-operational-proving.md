@@ -1,7 +1,7 @@
 # Phase 8 - CI, Pilot, And Operational Proving
 
 ## Goal
-Close the final production-readiness loop for the delivery shell + app integration:
+Close the delivery proving loop for shell + app integration without claiming product production readiness:
 - prove lane parity between local runtime and hosted CI (`loop`, `pr`, `nightly`, `dashboard-refresh`),
 - provide one deterministic operational proving entrypoint for pilot execution,
 - enforce fail-closed behavior for non-happy lane outcomes and missing reporting artifacts,

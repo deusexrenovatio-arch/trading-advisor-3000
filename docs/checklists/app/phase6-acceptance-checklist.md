@@ -3,9 +3,9 @@
 Date: 2026-03-18
 
 ## Acceptance Disposition
-- [x] Phase 6 operational hardening delivered
-- [x] Failure recovery + retry/idempotency hardening implemented
-- [x] Secrets policy and production-like profile documented
+- [x] Phase 6 baseline evidence is retained for runtime durability hardening and profile-aware service bootstrap.
+- [x] Failure recovery plus retry/idempotency behavior remains evidenced for the bounded runtime contour.
+- [x] Production readiness remains not accepted in `docs/architecture/app/STATUS.md`.
 
 ## Deliverables
 - [x] Bridge retry policy and retry-exhaustion contract added
@@ -33,3 +33,9 @@ Date: 2026-03-18
 - [x] `python -m pytest tests/app -q`
 - [x] `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
 - [x] `python scripts/run_pr_gate.py --from-git --git-ref HEAD --skip-session-check`
+
+## F1 Re-Acceptance Snapshot (2026-03-27)
+- [x] Checklist wording is normalized to truth-source constrained language.
+- [x] Registry mapping remains explicit: `durable_runtime_state` and `service_api_runtime_surface` are implemented for bounded runtime/service contours.
+- [x] Negative proof expectations remain fail-closed (`staging/production` must not silently fall back to in-memory runtime state).
+- [x] This checklist does not claim full operational closure beyond the evidenced contour.

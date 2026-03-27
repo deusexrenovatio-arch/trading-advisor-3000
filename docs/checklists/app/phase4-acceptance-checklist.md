@@ -3,9 +3,9 @@
 Date: 2026-03-17
 
 ## Acceptance Disposition
-- [x] Phase 4 controlled-live execution integration delivered
-- [x] Feature-flag gated live route enforced (fail-closed)
-- [x] Live sync/reconciliation incident surfacing delivered
+- [x] Phase 4 baseline evidence is retained for the controlled-live execution integration slice.
+- [x] Feature-flag live-route enforcement and sync/reconciliation incident surfacing remain evidenced for that bounded slice.
+- [x] Real broker process and production readiness remain not accepted in `docs/architecture/app/STATUS.md`.
 
 ## Deliverables
 - [x] StockSharp <-> Python controlled bridge added
@@ -29,3 +29,9 @@ Date: 2026-03-17
 - [x] `python -m pytest tests/app -q`
 - [x] `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
 - [x] `python scripts/run_pr_gate.py --from-git --git-ref HEAD --skip-session-check`
+
+## F1 Re-Acceptance Snapshot (2026-03-27)
+- [x] Checklist language was normalized to truth-source constrained wording.
+- [x] Registry mapping stays explicit: this phase supports transport baseline evidence, not real broker-process closure.
+- [x] Negative evidence remains required through fail-closed bridge/reconciliation scenarios.
+- [x] This checklist remains historical phase evidence and does not assert target-architecture closure.

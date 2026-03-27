@@ -6,7 +6,7 @@ Deliver a reproducible research baseline:
 - feature/research Delta contracts,
 - sample strategy catalog,
 - backtest engine with deterministic run IDs,
-- candidate outputs persisted to research artifacts.
+- candidate outputs persisted as physical Delta tables.
 
 ## Deliverables
 - `src/trading_advisor_3000/app/research/features/snapshot.py`
@@ -25,7 +25,8 @@ Deliver a reproducible research baseline:
 2. Feature snapshots include deterministic `snapshot_id` based on contract/time/timeframe/version.
 3. Backtest outputs are deterministic and reproducible through stable hashing.
 4. Candidate outputs include contract-safe `DecisionCandidate` payloads.
-5. Research artifacts are written as Delta-compatible JSONL sample outputs for acceptance replay.
+5. Research outputs are materialized as local Delta directories (`*.delta`) with `_delta_log`.
+6. Integration coverage reads Delta outputs back through runtime APIs, not manifest-only proofs.
 
 ## Acceptance Commands
 - `python -m pytest tests/app/unit/test_phase2b_features.py -q`

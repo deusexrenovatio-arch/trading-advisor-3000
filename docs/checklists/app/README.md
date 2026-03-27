@@ -2,6 +2,10 @@
 
 Product phase acceptance checklists.
 
+Reading rule:
+- Checklists are phase-scoped evidence snapshots and do not override current truth in `docs/architecture/app/STATUS.md`.
+- Acceptance wording must follow `docs/architecture/app/restricted-acceptance-vocabulary.md`.
+
 - `docs/checklists/app/phase0-acceptance-checklist.md`
 - `docs/checklists/app/phase1-acceptance-checklist.md`
 - `docs/checklists/app/phase2a-acceptance-checklist.md`
@@ -14,6 +18,7 @@ Product phase acceptance checklists.
 - `docs/checklists/app/phase6-acceptance-checklist.md`
 - `docs/checklists/app/phase7-acceptance-checklist.md`
 - `docs/checklists/app/phase8-acceptance-checklist.md`
+- `docs/checklists/app/phase10-reacceptance-checklist.md`
 - `docs/checklists/app/mcp-and-real-execution-rollout-checklist.md`
 - `docs/checklists/app/data-integration-closure-passport.md`
 - `docs/checklists/app/runtime-publication-closure-passport.md`

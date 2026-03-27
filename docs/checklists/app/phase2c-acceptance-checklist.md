@@ -3,10 +3,10 @@
 Date: 2026-03-16
 
 ## Acceptance Disposition (updated 2026-03-17)
-- [x] Phase 2C accepted as MVP
-- [x] Phase 2C accepted as full module DoD
+- [x] Phase 2C accepted as MVP baseline slice
+- [x] Full module DoD closure is not accepted in the current truth source (`docs/architecture/app/STATUS.md`)
 
-## Full DoD Resolution (closed 2026-03-17)
+## Baseline Evidence Snapshot (captured 2026-03-17; not full closure)
 - Runtime now sets and enforces validity/expiry windows.
 - Cooldown and blackout gates are implemented in replay acceptance path.
 - Publishing lifecycle supports create/edit/close/cancel.
@@ -30,3 +30,9 @@ Date: 2026-03-16
 - [x] `python -m pytest tests/app/unit/test_phase2c_runtime_components.py -q`
 - [x] `python -m pytest tests/app/integration/test_phase2c_runtime.py -q`
 - [x] `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
+
+## F1 Re-Acceptance Snapshot (2026-03-27)
+- [x] Phase 2C remains baseline accepted for runtime lifecycle behavior and does not claim full product closure.
+- [x] Registry mapping is explicit: this slice contributes to `runtime_signal_lifecycle` (`implemented`) and bounded parts of `durable_runtime_state` (`implemented` with phase-06 proof).
+- [x] Restart/recovery and fallback-denial behavior are tracked in later phase evidence and remain part of re-acceptance review.
+- [x] Checklist wording remains aligned with the restricted acceptance vocabulary.

@@ -4,9 +4,9 @@
 
 ## Acceptance Disposition (updated 2026-03-17)
 - [x] Phase 1 accepted as MVP contract baseline
-- [x] Phase 1 accepted as final/full contracts freeze
+- [x] Full contracts-freeze closure is not accepted in the current truth source (`docs/architecture/app/STATUS.md`)
 
-## Full DoD Resolution (closed 2026-03-17)
+## Baseline Evidence Snapshot (captured 2026-03-17; not full closure)
 - `strategy_version_id` unification is accepted and stable across phase doc, signal contracts, and migration skeleton.
 - `signal.publications` expanded to include `publication_id` and `publication_type` in contracts, schema snapshots, fixture payload, and migration skeleton.
 - Contract tests cover traceability fields and reject `side="flat"` in public `signal_candidate.v1` surface.

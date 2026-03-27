@@ -75,7 +75,7 @@ Root `AGENTS.md` остаётся shell-first.
 ### Product skills, которые стоит подготовить
 - `delta-contracts`
 - `dagster-assets`
-- `vectorbt-research`
+- `research-backtest-engine`
 - `telegram-lifecycle`
 - `stocksharp-sidecar`
 - `execution-reconciliation`

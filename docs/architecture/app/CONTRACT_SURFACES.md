@@ -19,7 +19,7 @@ This document tracks the current boundary contracts that are versioned in code a
 | Execution intent | `order_intent.v1` | implemented | Runtime -> execution boundary. |
 | Broker feedback | `broker_order.v1`, `broker_fill.v1`, `broker_event.v1` | implemented | Live/paper execution feedback envelope set. |
 | Position and risk | `position_snapshot.v1`, `risk_snapshot.v1` | implemented | Reconciliation and risk snapshots. |
-| Sidecar wire API | `docs/architecture/app/sidecar-wire-api-v1.md` | partial | Wire-level HTTP contract exists, real .NET sidecar implementation does not. |
+| Sidecar wire API | `docs/architecture/app/sidecar-wire-api-v1.md` | implemented | Wire-level HTTP contract is implemented by the in-repo .NET 8 sidecar project under `deployment/stocksharp-sidecar/` with compiled-binary smoke path. |
 
 ## DB Mapping Baseline
 - `runtime_signal.v1` maps to `signal.active_signals`

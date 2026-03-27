@@ -114,7 +114,7 @@ flowchart LR
 Технологии:
 - Delta Lake,
 - Spark,
-- Polars/DuckDB,
+- in-repo Python dataframe tooling + SQL snapshots (Polars/DuckDB removed in current baseline via ADR-012),
 - Dagster.
 
 ### 4.2 Research plane
@@ -127,7 +127,7 @@ flowchart LR
 
 Технологии:
 - Python,
-- vectorbt,
+- in-repo deterministic backtest engine (vectorbt removed in current baseline via ADR-012),
 - Delta,
 - Dagster.
 
@@ -142,7 +142,7 @@ flowchart LR
 - Python,
 - PostgreSQL,
 - FastAPI,
-- aiogram.
+- deterministic in-repo Telegram publication adapter.
 
 ### 4.4 Execution plane
 Ответственность:

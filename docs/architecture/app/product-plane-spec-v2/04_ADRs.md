@@ -175,3 +175,59 @@ Nightly/dashboard lanes используются как hygiene/reporting layer,
 ### Последствия
 - Codex получает чёткие stop/go критерии;
 - проще параллелить работу по фазам.
+
+---
+
+## ADR-011 - Remove aiogram from current stack baseline
+
+**Status:** accepted
+
+### Context
+The runtime Telegram publication path in this repository is implemented by the deterministic in-repo adapter (`src/trading_advisor_3000/app/runtime/publishing/telegram.py`).
+There is no real aiogram runtime adapter, dependency-backed execution path, or mocked Telegram API proof in the current baseline.
+
+### Decision
+Remove aiogram from the chosen stack baseline for the current governed phase state.
+Keep Telegram publication on the deterministic in-repo adapter until a real external Telegram integration is implemented.
+
+### Consequences
+- Stack registry marks aiogram as `removed` and enforces ADR linkage.
+- Stack/spec docs must not claim aiogram as chosen in the current baseline.
+- Reintroducing aiogram requires a new ADR and runtime proof (dependency evidence, adapter implementation, and mocked Telegram API tests).
+
+---
+
+## ADR-012 - Remove replaceable stack ghost claims from current baseline
+
+**Status:** accepted
+
+### Context
+The governed stack-conformance remediation identified five replaceable technologies that were still described as chosen without executable proof in the current repository baseline:
+- vectorbt
+- Alembic
+- OpenTelemetry
+- Polars
+- DuckDB
+
+Current implemented slices use deterministic in-repo alternatives:
+- research/backtest path uses the in-repo deterministic backtest engine and fixtures;
+- database schema evolution uses ordered SQL migrations with checksum verification;
+- observability proof path is file-contract based with Prometheus/Grafana/Loki overlays;
+- local dataframe/SQL acceleration toolchains are not part of the active product runtime baseline.
+
+### Decision
+Remove vectorbt, Alembic, OpenTelemetry, Polars, and DuckDB from the chosen stack baseline for the current governed phase state.
+For baseline conformance, this decision supersedes earlier assumptions that these five technologies are part of the active chosen runtime stack.
+
+For this baseline:
+- vectorbt is removed from active chosen stack claims;
+- alembic is removed from active chosen stack claims;
+- opentelemetry is removed from active chosen stack claims;
+- polars is removed from active chosen stack claims;
+- duckdb is removed from active chosen stack claims.
+
+### Consequences
+- Stack registry must mark each of these technologies as `removed` and link back to ADR-012.
+- Stack/spec truth documents must not keep `chosen` markers for these technologies.
+- Reintroducing any removed technology requires a dedicated ADR update plus executable evidence:
+  dependency presence, runtime entrypoint/path evidence, and focused tests.
