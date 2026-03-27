@@ -1,0 +1,70 @@
+﻿{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "harness/project_docs_bundle.schema.json",
+  "title": "Project Docs Bundle",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "run_id": {"type": "string", "minLength": 1},
+    "generated_at": {"type": "string", "minLength": 1},
+    "problem_statement": {"type": "string", "minLength": 1},
+    "scope_in": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "scope_out": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "actors": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "business_flows": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "domain_glossary": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "term": {"type": "string", "minLength": 1},
+          "definition": {"type": "string", "minLength": 1}
+        },
+        "required": ["term", "definition"]
+      }
+    },
+    "data_objects": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "integration_points": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "nfrs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "architecture_constraints": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "design_decisions": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "risk_register": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "risk_id": {"type": "string", "minLength": 1},
+          "statement": {"type": "string", "minLength": 1},
+          "mitigation": {"type": "string"}
+        },
+        "required": ["risk_id", "statement"]
+      }
+    },
+    "open_questions": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "assumptions": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "adr_seeds": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "implementation_boundaries": {"type": "array", "items": {"type": "string", "minLength": 1}}
+  },
+  "required": [
+    "run_id",
+    "generated_at",
+    "problem_statement",
+    "scope_in",
+    "scope_out",
+    "actors",
+    "business_flows",
+    "domain_glossary",
+    "data_objects",
+    "integration_points",
+    "nfrs",
+    "architecture_constraints",
+    "design_decisions",
+    "risk_register",
+    "open_questions",
+    "assumptions",
+    "adr_seeds",
+    "implementation_boundaries"
+  ]
+}

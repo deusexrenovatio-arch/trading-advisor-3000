@@ -1,0 +1,30 @@
+﻿{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "harness/phase_review_report.schema.json",
+  "title": "Phase Review Report",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "run_id": {"type": "string", "minLength": 1},
+    "phase_id": {"type": "string", "minLength": 1},
+    "verdict": {"type": "string", "enum": ["pass", "pass_with_notes", "fail"]},
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "severity": {"type": "string", "enum": ["low", "medium", "high", "critical"]},
+          "file": {"type": "string", "minLength": 1},
+          "problem": {"type": "string", "minLength": 1},
+          "requirement_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "fix_hint": {"type": "string"}
+        },
+        "required": ["severity", "file", "problem", "requirement_refs"]
+      }
+    },
+    "missing_tests": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "traceability_gaps": {"type": "array", "items": {"type": "string", "minLength": 1}}
+  },
+  "required": ["run_id", "phase_id", "verdict", "findings", "missing_tests", "traceability_gaps"]
+}

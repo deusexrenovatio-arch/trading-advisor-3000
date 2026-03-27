@@ -1,0 +1,31 @@
+﻿{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "harness/phase_acceptance_report.schema.json",
+  "title": "Phase Acceptance Report",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "run_id": {"type": "string", "minLength": 1},
+    "phase_id": {"type": "string", "minLength": 1},
+    "verdict": {"type": "string", "enum": ["accepted", "rejected"]},
+    "accepted_requirements": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "rejected_requirements": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "evidence_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "missing_evidence": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "failed_checks": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "follow_up_actions": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "rework_required": {"type": "boolean"}
+  },
+  "required": [
+    "run_id",
+    "phase_id",
+    "verdict",
+    "accepted_requirements",
+    "rejected_requirements",
+    "evidence_refs",
+    "missing_evidence",
+    "failed_checks",
+    "follow_up_actions",
+    "rework_required"
+  ]
+}
