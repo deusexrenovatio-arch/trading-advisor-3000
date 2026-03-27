@@ -20,9 +20,8 @@ from trading_advisor_3000.app.contracts import (
     TradeSide,
 )
 from trading_advisor_3000.app.interfaces.api import RuntimeAPI
-from trading_advisor_3000.app.runtime import build_runtime_stack
+from trading_advisor_3000.app.runtime import build_runtime_stack_from_env
 from trading_advisor_3000.app.runtime.config import StrategyVersion
-from trading_advisor_3000.app.runtime.signal_store import PostgresSignalStore
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -141,10 +140,16 @@ def _postgres_container() -> Iterator[str]:
 
 
 def _build_api(*, dsn: str) -> RuntimeAPI:
-    stack = build_runtime_stack(
-        telegram_channel="@ta3000_signals",
-        signal_store=PostgresSignalStore(dsn=dsn),
+    bootstrap = build_runtime_stack_from_env(
+        {
+            "TA3000_RUNTIME_PROFILE": "staging",
+            "TA3000_SIGNAL_STORE_BACKEND": "postgres",
+            "TA3000_APP_DSN": dsn,
+            "TA3000_TELEGRAM_CHANNEL": "@ta3000_signals",
+        }
     )
+    assert bootstrap.config.durable_runtime_required is True
+    stack = bootstrap.runtime_stack
     stack.strategy_registry.register(
         StrategyVersion(
             strategy_version_id="trend-follow-v1",
