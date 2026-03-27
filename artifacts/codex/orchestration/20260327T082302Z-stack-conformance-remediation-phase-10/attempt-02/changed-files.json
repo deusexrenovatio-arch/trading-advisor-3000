@@ -1,0 +1,13 @@
+{
+  "changed_files": [
+    "docs/codex/modules/stack-conformance-remediation.phase-10.md",
+    "docs/codex/modules/stack-conformance-remediation.parent.md",
+    "docs/architecture/app/phase10-stack-conformance-reacceptance-report.md",
+    "docs/checklists/app/phase10-reacceptance-checklist.md",
+    "artifacts/acceptance/f1/red-team-review-result.md",
+    "artifacts/acceptance/f1/reacceptance-evidence-pack.json",
+    "docs/tasks/active/TASK-2026-03-27-continue-governed-module-phase-10-remediation-route.md",
+    "docs/tasks/active/index.yaml",
+    "docs/session_handoff.md"
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "changed_files": [
+    "deployment/stocksharp-sidecar/README.md",
+    "deployment/stocksharp-sidecar/TradingAdvisor3000.StockSharpSidecar.sln",
+    "deployment/stocksharp-sidecar/src/TradingAdvisor3000.StockSharpSidecar/TradingAdvisor3000.StockSharpSidecar.csproj",
+    "deployment/stocksharp-sidecar/src/TradingAdvisor3000.StockSharpSidecar/Program.cs",
+    "deployment/stocksharp-sidecar/src/TradingAdvisor3000.StockSharpSidecar/Runtime/Contracts.cs",
+    "deployment/stocksharp-sidecar/src/TradingAdvisor3000.StockSharpSidecar/Runtime/SidecarGatewayState.cs",
+    "deployment/stocksharp-sidecar/tests/TradingAdvisor3000.StockSharpSidecar.Tests/TradingAdvisor3000.StockSharpSidecar.Tests.csproj",
+    "deployment/stocksharp-sidecar/tests/TradingAdvisor3000.StockSharpSidecar.Tests/SidecarGatewayStateTests.cs",
+    "deployment/stocksharp-sidecar/scripts/build.ps1",
+    "deployment/stocksharp-sidecar/scripts/test.ps1",
+    "deployment/stocksharp-sidecar/scripts/publish.ps1",
+    "deployment/stocksharp-sidecar/scripts/prove.ps1",
+    "scripts/smoke_stocksharp_sidecar_binary.py",
+    "tests/app/unit/test_phase8_dotnet_sidecar_assets.py",
+    "docs/architecture/app/STATUS.md",
+    "docs/architecture/app/CONTRACT_SURFACES.md",
+    "docs/architecture/app/README.md",
+    "docs/architecture/app/phase8-dotnet-sidecar-closure.md",
+    "docs/architecture/app/stack-conformance-baseline.md",
+    "docs/runbooks/app/README.md",
+    "docs/runbooks/app/phase8-dotnet-sidecar-runbook.md",
+    "registry/stack_conformance.yaml",
+    "artifacts/phase8/stocksharp-sidecar/python-smoke.json"
+  ]
+}

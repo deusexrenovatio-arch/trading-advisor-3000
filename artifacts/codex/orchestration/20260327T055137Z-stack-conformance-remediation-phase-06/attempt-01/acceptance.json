@@ -1,0 +1,30 @@
+{
+  "verdict": "BLOCKED",
+  "summary": "Phase 06 is close: governed route integrity is acceptable, required phase tests were rerun successfully, and the durable runtime/FastAPI implementation fits the intended architecture. The phase still cannot unlock because the runbook now declares a reproducible `python -m uvicorn ...` operator path, but `uvicorn` is not declared in the project install path, so docs and executable operator behavior are not yet closed.",
+  "route_signal": "acceptance:governed-phase-route",
+  "used_skills": [
+    "phase-acceptance-governor",
+    "architecture-review",
+    "testing-suite",
+    "docs-sync"
+  ],
+  "blockers": [
+    {
+      "id": "B1",
+      "title": "Runbook promises an ASGI boot path that the project does not install",
+      "why": "`docs/runbooks/app/bootstrap.md` says the product-plane baseline has one reproducible dependency path via `pip install -e .[dev]`, then instructs the operator to start the Phase 06 API with `python -m uvicorn trading_advisor_3000.app.interfaces.asgi:app`. `pyproject.toml` adds `fastapi` and `psycopg`, but not `uvicorn`, so the documented operator route is not actually guaranteed by the repo-managed environment. Phase acceptance rules require docs and operator behavior to match the implementation.",
+      "remediation": "Either add `uvicorn` to the supported install path used by the runbook, or change the runbook to the real supported launch method and prove that documented path from a clean repo-managed environment. Then rerun the phase-06 checks and acceptance."
+    }
+  ],
+  "rerun_checks": [
+    "python -m pytest tests/app/unit/test_phase6_runtime_durable_bootstrap.py -q",
+    "python -m pytest tests/app/unit/test_phase6_fastapi_smoke.py -q",
+    "python -m pytest tests/app/integration/test_phase2c_runtime_postgres_store.py -q",
+    "python scripts/validate_stack_conformance.py",
+    "python scripts/validate_docs_links.py --roots docs/architecture/app docs/runbooks/app",
+    "python scripts/run_loop_gate.py --changed-files pyproject.toml src/trading_advisor_3000/app/runtime/bootstrap.py src/trading_advisor_3000/app/runtime/__init__.py src/trading_advisor_3000/app/interfaces/asgi.py tests/app/unit/test_phase6_runtime_durable_bootstrap.py tests/app/unit/test_phase6_fastapi_smoke.py tests/app/unit/test_phase6_runtime_profile_ops.py tests/app/integration/test_phase2c_runtime_postgres_store.py docs/architecture/app/STATUS.md docs/architecture/app/stack-conformance-baseline.md docs/runbooks/app/bootstrap.md registry/stack_conformance.yaml docs/session_handoff.md docs/tasks/active/index.yaml docs/tasks/active/TASK-2026-03-27-continue-governed-module-phase-06-worker-route-f.md"
+  ],
+  "evidence_gaps": [],
+  "prohibited_findings": [],
+  "policy_blockers": []
+}

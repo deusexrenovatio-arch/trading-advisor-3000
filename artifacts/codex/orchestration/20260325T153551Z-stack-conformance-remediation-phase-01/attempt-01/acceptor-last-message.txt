@@ -1,0 +1,5 @@
+PASS. Фаза закрыта достаточно чисто для перехода дальше: изменения остались в границах `ARCH-DOCS/GOV-DOCS`, цель `G0` выполнена через baseline/vocabulary docs и выравнивание app README/checklists под `STATUS.md`, а заявленные проверки я перепроверил отдельно и они реально проходят. Признаков обхода маршрута, скрытых fallback, skipped checks, незакрытых assumptions или stale docs по текущей фазе не нашёл.
+
+BEGIN_PHASE_ACCEPTANCE_JSON
+{"verdict":"PASS","summary":"Phase 01 closed as a docs-only G0 repair: stack-conformance baseline and restricted acceptance vocabulary docs exist, app README/checklist wording is aligned to STATUS.md as the truth source, the phase stayed inside ARCH-DOCS/GOV-DOCS surfaces, and the cited checks were actually rerun successfully.","route_signal":"acceptance:governed-phase-route","used_skills":["phase-acceptance-governor","architecture-review","testing-suite","docs-sync"],"blockers":[],"rerun_checks":["python scripts/validate_docs_links.py --roots AGENTS.md docs","python -m pytest tests/architecture -q","python scripts/run_loop_gate.py --from-git --git-ref HEAD"],"evidence_gaps":[],"prohibited_findings":[]}
+END_PHASE_ACCEPTANCE_JSON

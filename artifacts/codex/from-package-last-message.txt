@@ -1,0 +1,16 @@
+Нормализация intake завершена как фазовый module-path, без схлопывания пакета в одну “реализационную” правку.
+
+Первичным документом я выбрал `02_corrective_technical_assignment`, а не предложенный `00_validation_verdict`: у манифеста был tie, и я применил явное правило tie-breaker — брать нормативный документ исполнения с objective/scope/rules/deliverables/success criteria, а verdict и phase plan оставить supporting. Это зафиксировано в [execution contract](D:/trading advisor 3000/docs/codex/contracts/stack-conformance-remediation.execution-contract.md) и отражено в активной [task note](D:/trading advisor 3000/docs/tasks/active/TASK-2026-03-25-governed-package-intake-for-explicit-zip-route-c.md).
+
+Пакет оформлен в канонический governed module path:
+[execution contract](D:/trading advisor 3000/docs/codex/contracts/stack-conformance-remediation.execution-contract.md),
+[parent brief](D:/trading advisor 3000/docs/codex/modules/stack-conformance-remediation.parent.md),
+и 10 phase briefs от `G0` до `F1`, где следующий разрешенный шаг — [phase 01](D:/trading advisor 3000/docs/codex/modules/stack-conformance-remediation.phase-01.md). Это соответствует правилу пакета: сначала module-path normalization и phase planning, потом отдельные governed continuation runs по фазам.
+
+Проверки прошли:
+`python scripts/validate_task_request_contract.py`,
+`python scripts/validate_session_handoff.py`,
+`python scripts/validate_docs_links.py --roots AGENTS.md docs`,
+`python scripts/run_loop_gate.py --from-git --git-ref HEAD`.
+
+Следующий логичный ход — запускать уже не intake, а фазу `G0`: repair claim vocabulary и checklist freeze.

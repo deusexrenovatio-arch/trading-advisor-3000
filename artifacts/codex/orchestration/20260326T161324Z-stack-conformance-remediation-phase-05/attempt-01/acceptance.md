@@ -1,0 +1,44 @@
+# Acceptance Result
+
+- Verdict: BLOCKED
+- Summary: Dagster D3 behavior is real and independently re-verified, but the phase cannot unlock because the worker silently omitted the required PR gate and the Dagster operator/acceptance docs are not fully synced to the implemented fail-closed contract.
+- Route Signal: acceptance:governed-phase-route
+- Used Skills: phase-acceptance-governor, architecture-review, testing-suite, docs-sync
+
+## Blockers
+- B1: Required closeout gate was silently skipped
+  why: The canonical workflow requires `run_pr_gate.py` before closeout, but the worker evidence stops at loop gate and still reports no skips. That is a hard route-integrity failure under the acceptance contract even though the acceptor reran the PR gate successfully.
+  remediation: Add the phase-05 PR-gate run to the worker evidence and task note, keep `skips` empty only after the command is actually executed, then resubmit acceptance.
+- B2: Dagster docs do not fully match the implemented fail-closed contract
+  why: Phase 05 requires docs/tests for definition loading and materialization plus the metadata-only disprover. The code and tests implement that disprover, but the Dagster runbook documents only the missing-source failure path and the checklist is still explicitly scoped to phase-04 Spark remediation rather than current phase-05 closure.
+  remediation: Update the Dagster runbook and the phase2a acceptance/checklist layer so they describe the metadata-only disprover and current phase-05 evidence, then rerun docs validation and the phase-05 proof/test set.
+- P-EVIDENCE_GAP-1: Required evidence is missing
+  why: Attempt-01 changed-files snapshot records only docs/session_handoff.md and artifacts/phase2a-dagster-proof.json, while the phase-05 task note claims broader Dagster code/test/doc delta; route-local traceability of the implementation surface is therefore incomplete.
+  remediation: Produce the missing evidence and rerun acceptance.
+- P-PROHIBITED_FINDING-1: Prohibited acceptance finding present
+  why: silent skipped required closeout check (PR gate)
+  remediation: Resolve the prohibited condition and rerun acceptance.
+
+## Evidence Gaps
+- Attempt-01 changed-files snapshot records only docs/session_handoff.md and artifacts/phase2a-dagster-proof.json, while the phase-05 task note claims broader Dagster code/test/doc delta; route-local traceability of the implementation surface is therefore incomplete.
+
+## Prohibited Findings
+- silent skipped required closeout check (PR gate)
+
+## Policy Blockers
+- P-EVIDENCE_GAP-1: Required evidence is missing
+  why: Attempt-01 changed-files snapshot records only docs/session_handoff.md and artifacts/phase2a-dagster-proof.json, while the phase-05 task note claims broader Dagster code/test/doc delta; route-local traceability of the implementation surface is therefore incomplete.
+  remediation: Produce the missing evidence and rerun acceptance.
+- P-PROHIBITED_FINDING-1: Prohibited acceptance finding present
+  why: silent skipped required closeout check (PR gate)
+  remediation: Resolve the prohibited condition and rerun acceptance.
+
+## Rerun Checks
+- python -m pytest tests/app/unit/test_phase2a_manifests.py -q
+- python -m pytest tests/app/integration/test_phase2a_dagster_execution.py -q
+- python -m pytest tests/app/integration/test_phase2a_dagster_execution.py -k metadata_only -q
+- python scripts/run_phase2a_dagster_proof.py --source tests/app/fixtures/data_plane/raw_backfill_sample.jsonl --output-dir .tmp/phase2a-dagster-proof --contracts BR-6.26,Si-6.26 --output-json artifacts/phase2a-dagster-proof.json
+- python scripts/validate_docs_links.py --roots docs/architecture/app docs/runbooks/app docs/checklists/app
+- python scripts/validate_stack_conformance.py
+- python scripts/run_loop_gate.py --skip-session-check --changed-files pyproject.toml registry/stack_conformance.yaml src/trading_advisor_3000/dagster_defs/phase2a_assets.py src/trading_advisor_3000/dagster_defs/__init__.py scripts/run_phase2a_dagster_proof.py tests/app/unit/test_phase2a_manifests.py tests/app/integration/test_phase2a_dagster_execution.py docs/architecture/app/phase2a-data-plane-mvp.md docs/architecture/app/stack-conformance-baseline.md docs/architecture/app/STATUS.md docs/runbooks/app/README.md docs/runbooks/app/phase2-dagster-execution-runbook.md docs/checklists/app/phase2a-acceptance-checklist.md docs/session_handoff.md docs/tasks/active/index.yaml docs/tasks/active/TASK-2026-03-26-continue-governed-module-phase-05-for-stack-conf.md artifacts/phase2a-dagster-proof.json
+- python scripts/run_pr_gate.py --skip-session-check --changed-files pyproject.toml registry/stack_conformance.yaml src/trading_advisor_3000/dagster_defs/phase2a_assets.py src/trading_advisor_3000/dagster_defs/__init__.py scripts/run_phase2a_dagster_proof.py tests/app/unit/test_phase2a_manifests.py tests/app/integration/test_phase2a_dagster_execution.py docs/architecture/app/phase2a-data-plane-mvp.md docs/architecture/app/stack-conformance-baseline.md docs/architecture/app/STATUS.md docs/runbooks/app/README.md docs/runbooks/app/phase2-dagster-execution-runbook.md docs/checklists/app/phase2a-acceptance-checklist.md docs/session_handoff.md docs/tasks/active/index.yaml docs/tasks/active/TASK-2026-03-26-continue-governed-module-phase-05-for-stack-conf.md artifacts/phase2a-dagster-proof.json

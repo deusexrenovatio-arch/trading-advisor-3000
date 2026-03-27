@@ -1,0 +1,32 @@
+{
+  "status": "DONE",
+  "summary": "Phase-05 D3 remediation implemented in governed worker phase-only route: Dagster assets now own their own Delta outputs, partial-selection side-effect disprover is enforced, and phase-scoped tests/docs/checks pass.",
+  "route_signal": "worker:phase-only",
+  "files_touched": [
+    "src/trading_advisor_3000/dagster_defs/phase2a_assets.py",
+    "tests/app/integration/test_phase2a_dagster_execution.py",
+    "docs/runbooks/app/phase2-dagster-execution-runbook.md",
+    "docs/checklists/app/phase2a-acceptance-checklist.md",
+    "docs/architecture/app/phase2a-data-plane-mvp.md",
+    "artifacts/phase2a-dagster-proof.json"
+  ],
+  "checks_run": [
+    "python -m pytest tests/app/unit/test_phase2a_manifests.py -q",
+    "python -m pytest tests/app/integration/test_phase2a_dagster_execution.py -q",
+    "python -m pytest tests/app/integration/test_phase2a_dagster_execution.py -k metadata_only -q",
+    "python -m pytest tests/app/integration/test_phase2a_dagster_execution.py -k partial_selection -q",
+    "python scripts/run_phase2a_dagster_proof.py --source tests/app/fixtures/data_plane/raw_backfill_sample.jsonl --output-dir .tmp/phase2a-dagster-proof --contracts BR-6.26,Si-6.26 --output-json artifacts/phase2a-dagster-proof.json",
+    "python scripts/validate_docs_links.py --roots docs/architecture/app docs/runbooks/app docs/checklists/app",
+    "python scripts/validate_stack_conformance.py",
+    "python scripts/run_loop_gate.py --skip-session-check --changed-files src/trading_advisor_3000/dagster_defs/phase2a_assets.py tests/app/integration/test_phase2a_dagster_execution.py docs/runbooks/app/phase2-dagster-execution-runbook.md docs/checklists/app/phase2a-acceptance-checklist.md docs/architecture/app/phase2a-data-plane-mvp.md artifacts/phase2a-dagster-proof.json",
+    "python scripts/run_pr_gate.py --skip-session-check --changed-files src/trading_advisor_3000/dagster_defs/phase2a_assets.py tests/app/integration/test_phase2a_dagster_execution.py docs/runbooks/app/phase2-dagster-execution-runbook.md docs/checklists/app/phase2a-acceptance-checklist.md docs/architecture/app/phase2a-data-plane-mvp.md artifacts/phase2a-dagster-proof.json"
+  ],
+  "remaining_risks": [
+    "Canonical assets recompute dataset from raw rows per asset execution; performance optimization is outside phase-05 scope.",
+    "Partial-selection proof is fail-closed for stale non-selected Delta outputs in reused directories; use isolated output dirs for deterministic evidence."
+  ],
+  "assumptions": [],
+  "skips": [],
+  "fallbacks": [],
+  "deferred_work": []
+}

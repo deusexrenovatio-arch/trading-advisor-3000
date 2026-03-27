@@ -1,0 +1,7 @@
+{
+  "changed_files": [
+    "docs/tasks/active/TASK-2026-03-26-continue-governed-module-phase-02-for-stack-conf.md",
+    "artifacts/codex/orchestration/20260326T115803Z-stack-conformance-remediation-phase-02/attempt-02/worker-report.json",
+    "artifacts/codex/orchestration/20260326T115803Z-stack-conformance-remediation-phase-02/attempt-02/changed-files.json"
+  ]
+}

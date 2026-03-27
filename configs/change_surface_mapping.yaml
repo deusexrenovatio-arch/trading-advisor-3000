@@ -12,6 +12,7 @@ surfaces:
   contracts:
     prefixes:
       - configs/
+      - registry/
       - plans/
       - memory/
       - docs/checklists/
@@ -22,6 +23,7 @@ surfaces:
       - scripts/validate_plans.py
       - scripts/validate_agent_memory.py
       - scripts/validate_task_outcomes.py
+      - scripts/validate_stack_conformance.py
       - scripts/sync_task_outcomes.py
       - scripts/sync_state_layout.py
   architecture:
@@ -66,13 +68,18 @@ command_profiles:
     default:
       - "{python} scripts/validate_docs_links.py --roots AGENTS.md docs"
     contracts:
+      - "{python} scripts/validate_stack_conformance.py"
       - "{python} scripts/validate_task_request_contract.py"
       - "{python} scripts/validate_plans.py"
       - "{python} scripts/validate_agent_memory.py"
       - "{python} scripts/validate_task_outcomes.py"
     architecture:
+      - "{python} scripts/validate_stack_conformance.py"
       - "{python} scripts/validate_architecture_policy.py"
+    app:
+      - "{python} scripts/validate_stack_conformance.py"
     governance:
+      - "{python} scripts/validate_stack_conformance.py"
       - "{python} scripts/validate_plans.py"
       - "{python} scripts/validate_agent_memory.py"
       - "{python} scripts/validate_task_outcomes.py"

@@ -1,0 +1,43 @@
+# Acceptance Result
+
+- Verdict: BLOCKED
+- Summary: Dagster phase-05 implementation is technically executable and passed independent local verification, but acceptance is blocked because the phase-brief disprover against metadata-only regression is not actually covered and the updated checklist contains stale/over-claimed evidence dated March 17, 2026 for commands not shown as executed in this phase on March 26, 2026.
+- Route Signal: acceptance:governed-phase-route
+- Used Skills: phase-acceptance-governor, architecture-review, testing-suite, docs-sync
+
+## Blockers
+- B1: Required metadata-only disprover is missing
+  why: The phase contract requires proving that replacing real Dagster Definitions with static metadata-only evidence fails acceptance, but the current negative test only checks a missing source fixture.
+  remediation: Add fail-closed coverage that would break on a metadata-only Dagster regression, or encode that condition in a validator/test and execute it as part of phase-05 evidence.
+- B2: Checklist evidence is stale and over-claims execution
+  why: The checklist says the evidence snapshot was captured on 2026-03-17, yet it marks Dagster/Spark proof commands, full tests/app, and PR gate as completed without current-phase execution evidence for those commands.
+  remediation: Either downgrade those checklist items to unverified/historical wording, or actually run the missing commands and record current-date evidence that matches the checklist.
+- P-EVIDENCE_GAP-1: Required evidence is missing
+  why: No executed evidence currently shows that a metadata-only Dagster regression would fail phase-05 acceptance.
+  remediation: Produce the missing evidence and rerun acceptance.
+- P-EVIDENCE_GAP-2: Required evidence is missing
+  why: The checklist claims checked evidence for commands that are not shown in the phase-05 executed evidence trail.
+  remediation: Produce the missing evidence and rerun acceptance.
+
+## Evidence Gaps
+- No executed evidence currently shows that a metadata-only Dagster regression would fail phase-05 acceptance.
+- The checklist claims checked evidence for commands that are not shown in the phase-05 executed evidence trail.
+
+## Prohibited Findings
+- none
+
+## Policy Blockers
+- P-EVIDENCE_GAP-1: Required evidence is missing
+  why: No executed evidence currently shows that a metadata-only Dagster regression would fail phase-05 acceptance.
+  remediation: Produce the missing evidence and rerun acceptance.
+- P-EVIDENCE_GAP-2: Required evidence is missing
+  why: The checklist claims checked evidence for commands that are not shown in the phase-05 executed evidence trail.
+  remediation: Produce the missing evidence and rerun acceptance.
+
+## Rerun Checks
+- python -m pytest tests/app/unit/test_phase2a_manifests.py -q
+- python -m pytest tests/app/integration/test_phase2a_dagster_execution.py -q
+- python scripts/run_phase2a_dagster_proof.py --source tests/app/fixtures/data_plane/raw_backfill_sample.jsonl --output-dir .tmp/phase2a-dagster-proof --contracts BR-6.26,Si-6.26 --output-json artifacts/phase2a-dagster-proof.json
+- python scripts/validate_stack_conformance.py
+- python scripts/validate_docs_links.py --roots docs/architecture/app docs/runbooks/app docs/checklists/app
+- python scripts/run_loop_gate.py --skip-session-check --changed-files pyproject.toml registry/stack_conformance.yaml src/trading_advisor_3000/dagster_defs/phase2a_assets.py src/trading_advisor_3000/dagster_defs/__init__.py scripts/run_phase2a_dagster_proof.py tests/app/unit/test_phase2a_manifests.py tests/app/integration/test_phase2a_dagster_execution.py docs/architecture/app/phase2a-data-plane-mvp.md docs/architecture/app/stack-conformance-baseline.md docs/architecture/app/STATUS.md docs/runbooks/app/README.md docs/runbooks/app/phase2-dagster-execution-runbook.md docs/checklists/app/phase2a-acceptance-checklist.md docs/session_handoff.md docs/tasks/active/index.yaml docs/tasks/active/TASK-2026-03-26-continue-governed-module-phase-05-for-stack-conf.md artifacts/phase2a-dagster-proof.json

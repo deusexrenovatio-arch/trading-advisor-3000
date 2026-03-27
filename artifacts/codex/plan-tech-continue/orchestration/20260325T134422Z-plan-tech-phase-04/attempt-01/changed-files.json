@@ -1,0 +1,11 @@
+﻿{
+    "changed_files":  [
+                          "scripts/build_governance_dashboard.py",
+                          "tests/process/test_process_reports.py",
+                          "docs/workflows/dashboard-refresh.md",
+                          "docs/codex/modules/plan-tech.phase-04.md",
+                          "artifacts/governance-dashboard.json",
+                          "artifacts/governance-dashboard.md",
+                          "memory/task_outcomes.yaml"
+                      ]
+}

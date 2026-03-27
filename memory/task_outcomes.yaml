@@ -535,3 +535,59 @@ items:
   intent_sources:
   - request
   - session_handoff
+- task_id: TASK-2026-03-25-GOVERNED-PACKAGE-INTAKE-OF-PLAN-TECH-MD-DELIVERE
+  closed_at: '2026-03-25T13:31:46Z'
+  branch: main
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-CONTRACTS
+  - GOV-RUNTIME
+  - GOV-DOCS
+  - PROCESS-STATE
+  - ARCH-DOCS
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_first_time
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: validator
+  improvement_artifact: configs/critical_contours.yaml
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-03-25-GOVERNED-CONTINUATION-OF-PLAN-TECH-PHASE-04-OBSE
+  closed_at: '2026-03-25T14:27:23Z'
+  branch: main
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - GOV-RUNTIME
+  - GOV-DOCS
+  - PROCESS-STATE
+  - CTX-CONTRACTS
+  - ARCH-DOCS
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: workflow
+  improvement_artifact: artifacts/codex/plan-tech-continue-rerun/orchestration/20260325T141713Z-plan-tech-phase-04/state.json
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff

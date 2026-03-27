@@ -1,0 +1,6 @@
+{
+  "changed_files": [
+    "tests/process/test_validate_stack_conformance.py",
+    "tests/process/test_compute_change_surface.py"
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "status": "DONE",
+  "summary": "Phase-06 worker route aligned and validated: active handoff now points to a phase-06 task note with contour-compliant Solution Intent, expired session blocker was remediated via canonical task_session begin, and all phase-scoped checks/tests passed.",
+  "route_signal": "worker:phase-only",
+  "files_touched": [
+    "docs/session_handoff.md",
+    "docs/tasks/active/index.yaml",
+    "docs/tasks/active/TASK-2026-03-27-continue-governed-module-phase-06-worker-route-f.md"
+  ],
+  "checks_run": [
+    "python scripts/task_session.py begin --request \"Continue governed module phase-06 worker route for stack-conformance remediation (R1 durable runtime default and FastAPI service closure), phase-only scope.\"",
+    "python scripts/validate_task_request_contract.py",
+    "python scripts/validate_session_handoff.py",
+    "python scripts/validate_solution_intent.py --changed-files pyproject.toml src/trading_advisor_3000/app/runtime/bootstrap.py src/trading_advisor_3000/app/runtime/__init__.py src/trading_advisor_3000/app/interfaces/asgi.py tests/app/unit/test_phase6_runtime_durable_bootstrap.py tests/app/unit/test_phase6_fastapi_smoke.py tests/app/unit/test_phase6_runtime_profile_ops.py tests/app/integration/test_phase2c_runtime_postgres_store.py docs/architecture/app/STATUS.md docs/architecture/app/stack-conformance-baseline.md docs/runbooks/app/bootstrap.md registry/stack_conformance.yaml docs/session_handoff.md docs/tasks/active/index.yaml docs/tasks/active/TASK-2026-03-27-continue-governed-module-phase-06-worker-route-f.md",
+    "python scripts/run_loop_gate.py --changed-files pyproject.toml src/trading_advisor_3000/app/runtime/bootstrap.py src/trading_advisor_3000/app/runtime/__init__.py src/trading_advisor_3000/app/interfaces/asgi.py tests/app/unit/test_phase6_runtime_durable_bootstrap.py tests/app/unit/test_phase6_fastapi_smoke.py tests/app/unit/test_phase6_runtime_profile_ops.py tests/app/integration/test_phase2c_runtime_postgres_store.py docs/architecture/app/STATUS.md docs/architecture/app/stack-conformance-baseline.md docs/runbooks/app/bootstrap.md registry/stack_conformance.yaml docs/session_handoff.md docs/tasks/active/index.yaml docs/tasks/active/TASK-2026-03-27-continue-governed-module-phase-06-worker-route-f.md",
+    "python -m pytest tests/app/unit/test_phase6_runtime_durable_bootstrap.py -q",
+    "python -m pytest tests/app/unit/test_phase6_fastapi_smoke.py -q",
+    "python -m pytest tests/app/unit/test_phase6_runtime_profile_ops.py -q",
+    "python -m pytest tests/app/integration/test_phase2c_runtime_postgres_store.py -q",
+    "python scripts/validate_stack_conformance.py",
+    "python scripts/validate_docs_links.py --roots docs/architecture/app docs/runbooks/app"
+  ],
+  "remaining_risks": [
+    "Repository contains unrelated in-progress diffs outside phase-06 scope; this run stayed phase-scoped via explicit changed-files routing."
+  ],
+  "assumptions": [],
+  "skips": [],
+  "fallbacks": [],
+  "deferred_work": []
+}

@@ -1,0 +1,21 @@
+{
+  "changed_files": [
+    "pyproject.toml",
+    "registry/stack_conformance.yaml",
+    "src/trading_advisor_3000/dagster_defs/phase2a_assets.py",
+    "src/trading_advisor_3000/dagster_defs/__init__.py",
+    "scripts/run_phase2a_dagster_proof.py",
+    "tests/app/unit/test_phase2a_manifests.py",
+    "tests/app/integration/test_phase2a_dagster_execution.py",
+    "docs/architecture/app/phase2a-data-plane-mvp.md",
+    "docs/architecture/app/stack-conformance-baseline.md",
+    "docs/architecture/app/STATUS.md",
+    "docs/runbooks/app/README.md",
+    "docs/runbooks/app/phase2-dagster-execution-runbook.md",
+    "docs/checklists/app/phase2a-acceptance-checklist.md",
+    "docs/session_handoff.md",
+    "docs/tasks/active/index.yaml",
+    "docs/tasks/active/TASK-2026-03-26-continue-governed-module-phase-05-for-stack-conf.md",
+    "artifacts/phase2a-dagster-proof.json"
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "changed_files": [
+    "registry/stack_conformance.yaml",
+    "scripts/validate_stack_conformance.py",
+    "tests/process/test_validate_stack_conformance.py"
+  ]
+}

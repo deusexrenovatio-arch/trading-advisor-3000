@@ -1,0 +1,34 @@
+{
+  "status": "DONE",
+  "summary": "Phase-10 remediation выполнена внутри governed route: контракт F1 уточнен как decision-proof, артефакты F1 регенерированы и route-state переведен на remediation task note; обязательные phase-10 проверки пройдены, без расширения scope.",
+  "route_signal": "remediation:phase-only",
+  "files_touched": [
+    "docs/codex/modules/stack-conformance-remediation.phase-10.md",
+    "docs/codex/modules/stack-conformance-remediation.parent.md",
+    "docs/architecture/app/phase10-stack-conformance-reacceptance-report.md",
+    "docs/checklists/app/phase10-reacceptance-checklist.md",
+    "artifacts/acceptance/f1/red-team-review-result.md",
+    "artifacts/acceptance/f1/reacceptance-evidence-pack.json",
+    "docs/tasks/active/TASK-2026-03-27-continue-governed-module-phase-10-remediation-route.md",
+    "docs/tasks/active/index.yaml",
+    "docs/session_handoff.md"
+  ],
+  "checks_run": [
+    "python scripts/validate_task_request_contract.py",
+    "python scripts/validate_session_handoff.py",
+    "python scripts/validate_stack_conformance.py",
+    "python -m pytest tests/process/test_validate_stack_conformance.py -q",
+    "python scripts/validate_docs_links.py --roots docs/architecture/app docs/checklists/app",
+    "python scripts/run_loop_gate.py --changed-files docs/codex/modules/stack-conformance-remediation.phase-10.md docs/codex/modules/stack-conformance-remediation.parent.md docs/architecture/app/phase10-stack-conformance-reacceptance-report.md docs/checklists/app/phase10-reacceptance-checklist.md artifacts/acceptance/f1/red-team-review-result.md artifacts/acceptance/f1/reacceptance-evidence-pack.json docs/tasks/active/TASK-2026-03-27-continue-governed-module-phase-10-remediation-route.md docs/tasks/active/index.yaml docs/session_handoff.md",
+    "python scripts/run_pr_gate.py --changed-files docs/codex/modules/stack-conformance-remediation.phase-10.md docs/codex/modules/stack-conformance-remediation.parent.md docs/architecture/app/phase10-stack-conformance-reacceptance-report.md docs/checklists/app/phase10-reacceptance-checklist.md artifacts/acceptance/f1/red-team-review-result.md artifacts/acceptance/f1/reacceptance-evidence-pack.json docs/tasks/active/TASK-2026-03-27-continue-governed-module-phase-10-remediation-route.md docs/tasks/active/index.yaml docs/session_handoff.md"
+  ],
+  "remaining_risks": [
+    "`production_readiness` остается `not accepted`, поэтому unlock релизной готовности по-прежнему невозможен.",
+    "`real_broker_process` остается `planned`; в этой фазовой ремедиации runtime-реализация не добавлялась.",
+    "Часть стек-поверхностей остается `partial` (`delta_lake`, `apache_spark`, `dagster`, `postgresql`, `stocksharp`), поэтому допустим только deny-readiness исход до их закрытия."
+  ],
+  "assumptions": [],
+  "skips": [],
+  "fallbacks": [],
+  "deferred_work": []
+}

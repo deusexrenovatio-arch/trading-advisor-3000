@@ -1,0 +1,94 @@
+{
+  "updated_at": "2026-03-25T15:23:31.602111Z",
+  "package_zip": "C:/Users/Admin/Downloads/trading_advisor_3000_stack_conformance_remediation_2026-03-24 (1).zip",
+  "extracted_root": "D:/trading advisor 3000/artifacts/codex/package-intake/20260325T152331Z-trading-advisor-3000-stack-conformance-remediati/extracted",
+  "suggested_primary_document": "ta3000_stack_conformance_remediation_2026-03-24/00_validation_verdict.md",
+  "candidates": [
+    {
+      "rel_path": "ta3000_stack_conformance_remediation_2026-03-24/00_validation_verdict.md",
+      "score": 59,
+      "reasons": [
+        "extension weight: .md",
+        "path depth bias: +14",
+        "non-trivial file size"
+      ],
+      "title": "Validation verdict"
+    },
+    {
+      "rel_path": "ta3000_stack_conformance_remediation_2026-03-24/01_current_stack_conformance_matrix.md",
+      "score": 59,
+      "reasons": [
+        "extension weight: .md",
+        "path depth bias: +14",
+        "non-trivial file size"
+      ],
+      "title": "Current stack conformance matrix"
+    },
+    {
+      "rel_path": "ta3000_stack_conformance_remediation_2026-03-24/02_corrective_technical_assignment.md",
+      "score": 59,
+      "reasons": [
+        "extension weight: .md",
+        "path depth bias: +14",
+        "non-trivial file size"
+      ],
+      "title": "Corrective technical assignment"
+    },
+    {
+      "rel_path": "ta3000_stack_conformance_remediation_2026-03-24/03_phase_plan_and_acceptance_gates.md",
+      "score": 59,
+      "reasons": [
+        "extension weight: .md",
+        "path depth bias: +14",
+        "non-trivial file size"
+      ],
+      "title": "Phase plan and acceptance gates"
+    },
+    {
+      "rel_path": "ta3000_stack_conformance_remediation_2026-03-24/04_anti_self_deception_controls.md",
+      "score": 59,
+      "reasons": [
+        "extension weight: .md",
+        "path depth bias: +14",
+        "non-trivial file size"
+      ],
+      "title": "Anti-self-deception controls"
+    },
+    {
+      "rel_path": "ta3000_stack_conformance_remediation_2026-03-24/09_evidence_map.md",
+      "score": 59,
+      "reasons": [
+        "extension weight: .md",
+        "path depth bias: +14",
+        "non-trivial file size"
+      ],
+      "title": "Evidence map"
+    },
+    {
+      "rel_path": "ta3000_stack_conformance_remediation_2026-03-24/08_red_team_checklist.md",
+      "score": 54,
+      "reasons": [
+        "extension weight: .md",
+        "path depth bias: +14"
+      ],
+      "title": "Red-team checklist for acceptance review"
+    },
+    {
+      "rel_path": "ta3000_stack_conformance_remediation_2026-03-24/README.md",
+      "score": 19,
+      "reasons": [
+        "extension weight: .md",
+        "path depth bias: +14",
+        "non-trivial file size",
+        "generic README is usually supporting material"
+      ],
+      "title": "Trading Advisor 3000 — stack-conformance remediation package"
+    }
+  ],
+  "extension_counts": {
+    ".csv": 1,
+    ".json": 1,
+    ".md": 8,
+    ".yaml": 1
+  }
+}

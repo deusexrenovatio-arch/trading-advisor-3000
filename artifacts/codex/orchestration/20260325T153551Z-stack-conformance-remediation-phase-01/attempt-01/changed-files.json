@@ -1,0 +1,15 @@
+{
+  "changed_files": [
+    "docs/architecture/app/stack-conformance-baseline.md",
+    "docs/architecture/app/restricted-acceptance-vocabulary.md",
+    "docs/architecture/app/README.md",
+    "docs/architecture/app/phase8-ci-pilot-operational-proving.md",
+    "docs/checklists/app/README.md",
+    "docs/checklists/app/phase1-acceptance-checklist.md",
+    "docs/checklists/app/phase2a-acceptance-checklist.md",
+    "docs/checklists/app/phase2b-acceptance-checklist.md",
+    "docs/checklists/app/phase2c-acceptance-checklist.md",
+    "docs/checklists/app/phase2d-acceptance-checklist.md",
+    "docs/checklists/app/phase3-acceptance-checklist.md"
+  ]
+}

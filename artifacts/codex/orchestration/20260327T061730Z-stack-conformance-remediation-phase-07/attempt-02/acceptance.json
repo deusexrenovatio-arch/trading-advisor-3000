@@ -1,0 +1,16 @@
+{
+  "verdict": "PASS",
+  "summary": "Phase-07 is route-correct and closed via ADR-backed aiogram removal, with runtime/docs/registry aligned and the rerun evidence passing.",
+  "route_signal": "acceptance:governed-phase-route",
+  "used_skills": [
+    "phase-acceptance-governor",
+    "architecture-review",
+    "testing-suite",
+    "docs-sync"
+  ],
+  "blockers": [],
+  "rerun_checks": [],
+  "evidence_gaps": [],
+  "prohibited_findings": [],
+  "policy_blockers": []
+}

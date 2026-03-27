@@ -1,0 +1,27 @@
+{
+  "status": "DONE",
+  "summary": "Phase-07 R2 выполнен через ADR-backed removal: aiogram убран из текущего chosen stack baseline, Telegram path зафиксирован как deterministic in-repo adapter, registry/spec/architecture claims выровнены; phase-scoped проверки прошли на worker route.",
+  "route_signal": "worker:phase-only",
+  "files_touched": [
+    "registry/stack_conformance.yaml",
+    "docs/architecture/app/product-plane-spec-v2/07_Tech_Stack_and_Open_Source.md",
+    "docs/architecture/app/product-plane-spec-v2/04_ADRs.md",
+    "docs/architecture/app/product-plane-spec-v2/01_Architecture_Overview.md",
+    "docs/architecture/app/product-plane-spec-v2/TECHNICAL_REQUIREMENTS.md",
+    "docs/architecture/app/stack-conformance-baseline.md"
+  ],
+  "checks_run": [
+    "python scripts/validate_stack_conformance.py",
+    "python scripts/validate_docs_links.py --roots docs/architecture/app",
+    "python -m pytest tests/app/unit/test_phase2c_runtime_components.py -q",
+    "python -m pytest tests/process/test_validate_stack_conformance.py -q",
+    "python scripts/run_loop_gate.py --changed-files docs/architecture/app/product-plane-spec-v2/01_Architecture_Overview.md docs/architecture/app/product-plane-spec-v2/04_ADRs.md docs/architecture/app/product-plane-spec-v2/07_Tech_Stack_and_Open_Source.md docs/architecture/app/product-plane-spec-v2/TECHNICAL_REQUIREMENTS.md docs/architecture/app/stack-conformance-baseline.md registry/stack_conformance.yaml"
+  ],
+  "remaining_risks": [
+    "Внешняя Telegram-интеграция через aiogram отсутствует по принятому ADR-пути; текущая реализация ограничена deterministic in-repo publication adapter."
+  ],
+  "assumptions": [],
+  "skips": [],
+  "fallbacks": [],
+  "deferred_work": []
+}
