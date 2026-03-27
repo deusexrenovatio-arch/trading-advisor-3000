@@ -157,6 +157,78 @@ class RunStateModel(HarnessModel):
     last_event_sequence: int = Field(ge=0, default=0)
 
 
+class ImplementationSummaryModel(HarnessModel):
+    run_id: str = Field(min_length=1)
+    phase_id: str = Field(min_length=1)
+    iteration: int = Field(ge=1)
+    generated_at: str = Field(min_length=1)
+    backend: Literal["simulate", "codex-cli"]
+    prompt_template: str = Field(min_length=1)
+    phase_context_ref: str = Field(min_length=1)
+    summary: str = Field(min_length=1)
+    changed_files: list[str] = Field(default_factory=list)
+    checks_run: list[str] = Field(default_factory=list)
+    required_tests: list[str] = Field(default_factory=list)
+    passed_tests: list[str] = Field(default_factory=list)
+    failed_tests: list[str] = Field(default_factory=list)
+    covered_requirements: list[str] = Field(default_factory=list)
+    unresolved_risks: list[str] = Field(default_factory=list)
+
+
+class ReviewFindingModel(HarnessModel):
+    severity: Literal["low", "medium", "high", "critical"]
+    file: str = Field(min_length=1)
+    problem: str = Field(min_length=1)
+    requirement_refs: list[str] = Field(default_factory=list)
+    fix_hint: str | None = None
+
+
+class PhaseReviewReportModel(HarnessModel):
+    run_id: str = Field(min_length=1)
+    phase_id: str = Field(min_length=1)
+    verdict: PhaseVerdict
+    findings: list[ReviewFindingModel] = Field(default_factory=list)
+    missing_tests: list[str] = Field(default_factory=list)
+    traceability_gaps: list[str] = Field(default_factory=list)
+
+
+class PhaseAcceptanceReportModel(HarnessModel):
+    run_id: str = Field(min_length=1)
+    phase_id: str = Field(min_length=1)
+    verdict: AcceptanceVerdict
+    accepted_requirements: list[str] = Field(default_factory=list)
+    rejected_requirements: list[str] = Field(default_factory=list)
+    evidence_refs: list[str] = Field(default_factory=list)
+    missing_evidence: list[str] = Field(default_factory=list)
+    failed_checks: list[str] = Field(default_factory=list)
+    follow_up_actions: list[str] = Field(default_factory=list)
+    rework_required: bool
+
+
+class PhaseReworkRequestModel(HarnessModel):
+    run_id: str = Field(min_length=1)
+    phase_id: str = Field(min_length=1)
+    generated_at: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    required_fixes: list[str] = Field(default_factory=list)
+    requirement_ids: list[str] = Field(default_factory=list)
+    target_iteration: int = Field(ge=1)
+
+
+class TraceabilityMappingModel(HarnessModel):
+    requirement_id: str = Field(min_length=1)
+    phase_ids: list[str] = Field(default_factory=list)
+    artifact_refs: list[str] = Field(default_factory=list)
+    status: Literal["covered", "partial", "missing"]
+    notes: str | None = None
+
+
+class TraceabilityMatrixModel(HarnessModel):
+    run_id: str = Field(min_length=1)
+    generated_at: str = Field(min_length=1)
+    mappings: list[TraceabilityMappingModel] = Field(default_factory=list)
+
+
 @dataclass(frozen=True)
 class ArtifactManifestEntry:
     artifact_id: str
@@ -520,6 +592,26 @@ def parse_run_state(payload: Mapping[str, object]) -> RunStateModel:
     return RunStateModel.model_validate(dict(payload))
 
 
+def parse_implementation_summary(payload: Mapping[str, object]) -> ImplementationSummaryModel:
+    return ImplementationSummaryModel.model_validate(dict(payload))
+
+
+def parse_phase_review_report(payload: Mapping[str, object]) -> PhaseReviewReportModel:
+    return PhaseReviewReportModel.model_validate(dict(payload))
+
+
+def parse_phase_acceptance_report(payload: Mapping[str, object]) -> PhaseAcceptanceReportModel:
+    return PhaseAcceptanceReportModel.model_validate(dict(payload))
+
+
+def parse_phase_rework_request(payload: Mapping[str, object]) -> PhaseReworkRequestModel:
+    return PhaseReworkRequestModel.model_validate(dict(payload))
+
+
+def parse_traceability_matrix(payload: Mapping[str, object]) -> TraceabilityMatrixModel:
+    return TraceabilityMatrixModel.model_validate(dict(payload))
+
+
 __all__ = [
     "AcceptanceVerdict",
     "ArtifactManifestEntry",
@@ -529,9 +621,11 @@ __all__ = [
     "DomainGlossaryEntry",
     "DomainGlossaryEntryModel",
     "HarnessModel",
+    "ImplementationSummaryModel",
     "NormalizedRequirement",
     "NormalizedRequirementModel",
     "NormalizedRequirementsModel",
+    "PhaseAcceptanceReportModel",
     "PhaseContext",
     "PhaseContextModel",
     "ProjectDocsBundle",
@@ -539,9 +633,12 @@ __all__ = [
     "PhaseDefinition",
     "PhaseDefinitionModel",
     "PhasePlanModel",
+    "PhaseReviewReportModel",
+    "PhaseReworkRequestModel",
     "PhaseVerdict",
     "PriorFinding",
     "PriorFindingModel",
+    "ReviewFindingModel",
     "RiskRegisterEntry",
     "RiskRegisterEntryModel",
     "RequirementCategory",
@@ -550,10 +647,17 @@ __all__ = [
     "RunStateModel",
     "RunStatus",
     "SpecManifestModel",
+    "TraceabilityMappingModel",
+    "TraceabilityMatrixModel",
+    "parse_implementation_summary",
+    "parse_phase_acceptance_report",
     "parse_normalized_requirements",
+    "parse_phase_review_report",
+    "parse_phase_rework_request",
     "parse_phase_context",
     "parse_project_docs_bundle",
     "parse_phase_plan",
     "parse_run_state",
+    "parse_traceability_matrix",
     "parse_spec_manifest",
 ]
