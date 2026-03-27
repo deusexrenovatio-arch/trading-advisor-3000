@@ -13,7 +13,7 @@ It supersedes older phase-closure claims when they disagree.
 | Surface | Status | What is real now | What is not yet real |
 | --- | --- | --- | --- |
 | Product-plane landing in shell repo | implemented | Code/tests/docs are isolated under product-plane paths. | None at baseline scope. |
-| Data/research/runtime scaffolding | implemented | Contracts, fixtures, runtime/research/data modules, test slices, a Docker/Linux scoped Spark proof path, and a scoped Dagster materialization proof path for canonical phase2 outputs exist. | Full production hardening is not implied. |
+| Data/research/runtime scaffolding | implemented | Contracts, fixtures, runtime/research/data modules, and test slices exist. | Full production hardening is not implied. |
 | Runtime signal lifecycle | implemented | Candidate replay, publication lifecycle, close/cancel/expire flow, and signal-event history exist. | Multi-worker operational hardening is still future work. |
 | Durable runtime state | implemented | Runtime bootstrap now wires `staging/production` profiles to `PostgresSignalStore` and blocks non-durable fallbacks; restart proof is covered through the env bootstrap path. | HA topology, replication, and multi-region runtime recovery are not claimed. |
 | Service/API runtime surface | implemented | FastAPI ASGI runtime entrypoint boots through the same profile-aware durable runtime bootstrap and has smoke coverage for `/health` and `/ready`. | This is not yet a full production API perimeter (authn/z, rate limiting, external gateway hardening). |

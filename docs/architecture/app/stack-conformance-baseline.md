@@ -22,9 +22,7 @@ It does not replace implementation docs, checklists, or phase narratives.
 ## Current Baseline (G0)
 - Product-plane production readiness remains `not accepted`.
 - Real broker process closure remains `planned`.
-- Delta Lake closure is `partial`: physical Delta runtime proof exists for the phase2 data/research slice only.
-- Apache Spark closure is `partial`: the phase2 canonical job is executable in a Docker/Linux proof profile, but full distributed orchestration remains open.
-- Dagster closure is `partial`: executable `Definitions` and local materialization proof exist for the phase2a canonical slice, while broader orchestration coverage remains open.
+- Delta Lake, Spark, and Dagster remain unresolved on this branch and must not be described as closed data-foundation contours here.
 - FastAPI service/API closure is `implemented` for runtime/admin bootstrap and health/readiness smoke paths.
 - aiogram is `removed` from the current chosen stack baseline; Telegram publication is currently implemented via the deterministic in-repo adapter.
 - vectorbt, Alembic, OpenTelemetry, Polars, and DuckDB are `removed` from the current chosen stack baseline under ADR-012; they require explicit ADR + executable proof before any reintroduction.

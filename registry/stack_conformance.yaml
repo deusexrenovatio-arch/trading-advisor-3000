@@ -122,49 +122,21 @@ surface_claims:
 technology_claims:
   - id: delta_lake
     display_name: Delta Lake
-    claim: partial
+    claim: planned
     spec_markers_any:
       - "| Delta Lake | durable data tables | chosen"
-    runtime_proof:
-      dependencies_any:
-        - deltalake
-      files_all:
-        - src/trading_advisor_3000/app/data_plane/delta_runtime.py
-        - src/trading_advisor_3000/app/data_plane/pipeline.py
-        - src/trading_advisor_3000/app/research/backtest/engine.py
-      tests_any:
-        - tests/app/integration/test_phase2a_data_plane.py
-        - tests/app/integration/test_phase2b_research_plane.py
 
   - id: apache_spark
     display_name: Apache Spark
-    claim: partial
+    claim: planned
     spec_markers_any:
       - "| Apache Spark | heavy compute / rebuilds | chosen"
-    runtime_proof:
-      dependencies_any:
-        - delta-spark
-      files_all:
-        - src/trading_advisor_3000/spark_jobs/canonical_bars_job.py
-        - scripts/run_phase2a_spark_proof.py
-        - deployment/docker/phase-proofs/Dockerfile
-      tests_any:
-        - tests/app/integration/test_phase2a_spark_execution.py
 
   - id: dagster
     display_name: Dagster
-    claim: partial
+    claim: planned
     spec_markers_any:
       - "| Dagster | orchestration | chosen"
-    runtime_proof:
-      dependencies_any:
-        - dagster
-      files_all:
-        - src/trading_advisor_3000/dagster_defs/phase2a_assets.py
-        - scripts/run_phase2a_dagster_proof.py
-      tests_any:
-        - tests/app/integration/test_phase2a_dagster_execution.py
-        - tests/app/unit/test_phase2a_manifests.py
 
   - id: polars
     display_name: Polars

@@ -9,6 +9,8 @@ description = "Trading Advisor 3000 shell and product-plane scaffolding"
 requires-python = ">=3.11"
 dependencies = [
   "PyYAML>=6,<7",
+  "fastapi>=0.110,<1",
+  "uvicorn>=0.30,<1",
   "psycopg[binary]>=3.2,<4",
 ]
 
