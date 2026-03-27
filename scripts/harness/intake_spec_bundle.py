@@ -5,7 +5,6 @@ import hashlib
 import json
 import mimetypes
 import shutil
-import uuid
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -39,8 +38,11 @@ class IntakeResult:
     run_root: Path
     manifest_path: Path
     text_cache_path: Path
+    open_questions_path: Path
     workspace_root: Path
     artifact_count: int
+    extracted_count: int
+    unsupported_count: int
 
 
 def _utc_now() -> str:
@@ -130,6 +132,7 @@ def run_bundle_intake(
     text_cache_root = run_root / "text_cache"
     manifest_path = run_root / "spec_manifest.json"
     text_cache_path = run_root / "extracted_text_cache.json"
+    open_questions_path = run_root / "open_questions.json"
     seen_member_paths: set[PurePosixPath] = set()
 
     intake_root.mkdir(parents=True, exist_ok=True)
@@ -138,6 +141,9 @@ def run_bundle_intake(
     try:
         artifacts: list[ArtifactManifestEntryModel] = []
         text_cache_entries: list[dict[str, object]] = []
+        open_questions: list[dict[str, object]] = []
+        extracted_count = 0
+        unsupported_count = 0
 
         with zipfile.ZipFile(input_zip) as archive:
             members = [info for info in archive.infolist() if not info.is_dir()]
@@ -157,12 +163,6 @@ def run_bundle_intake(
                     raise IntakeError(f"duplicate member path in archive: {relative_member.as_posix()}")
                 seen_member_paths.add(relative_member)
 
-                suffix = relative_member.suffix.lower()
-                if suffix not in SUPPORTED_TEXT_SUFFIXES:
-                    raise UnsupportedArtifactError(
-                        f"unsupported file type `{suffix or '<none>'}` in archive member: {relative_member.as_posix()}"
-                    )
-
                 raw_bytes = archive.read(info)
                 sha256 = hashlib.sha256(raw_bytes).hexdigest()
                 artifact_id = _artifact_id(index, sha256)
@@ -171,7 +171,57 @@ def run_bundle_intake(
                 workspace_target.parent.mkdir(parents=True, exist_ok=True)
                 workspace_target.write_bytes(raw_bytes)
 
-                extracted_text = _decode_text(raw_bytes)
+                suffix = relative_member.suffix.lower()
+                if suffix not in SUPPORTED_TEXT_SUFFIXES:
+                    unsupported_count += 1
+                    artifacts.append(
+                        ArtifactManifestEntryModel(
+                            artifact_id=artifact_id,
+                            path=workspace_target.relative_to(run_root).as_posix(),
+                            sha256=sha256,
+                            size_bytes=len(raw_bytes),
+                            media_type=_media_type(relative_member),
+                            extraction_status="unsupported",
+                            source_kind="zip",
+                        )
+                    )
+                    open_questions.append(
+                        {
+                            "artifact_id": artifact_id,
+                            "path": workspace_target.relative_to(run_root).as_posix(),
+                            "question": (
+                                f"Unsupported artifact type `{suffix or '<none>'}` requires explicit parser policy."
+                            ),
+                            "reason": "unsupported_file_type",
+                        }
+                    )
+                    continue
+
+                try:
+                    extracted_text = _decode_text(raw_bytes)
+                except IntakeError:
+                    unsupported_count += 1
+                    artifacts.append(
+                        ArtifactManifestEntryModel(
+                            artifact_id=artifact_id,
+                            path=workspace_target.relative_to(run_root).as_posix(),
+                            sha256=sha256,
+                            size_bytes=len(raw_bytes),
+                            media_type=_media_type(relative_member),
+                            extraction_status="unsupported",
+                            source_kind="zip",
+                        )
+                    )
+                    open_questions.append(
+                        {
+                            "artifact_id": artifact_id,
+                            "path": workspace_target.relative_to(run_root).as_posix(),
+                            "question": "Text extraction failed due to unsupported encoding.",
+                            "reason": "unsupported_encoding",
+                        }
+                    )
+                    continue
+
                 text_cache_file = text_cache_root / f"{artifact_id}.txt"
                 text_cache_file.parent.mkdir(parents=True, exist_ok=True)
                 text_cache_file.write_text(extracted_text, encoding="utf-8")
@@ -195,6 +245,12 @@ def run_bundle_intake(
                         "sha256": sha256,
                     }
                 )
+                extracted_count += 1
+
+        if extracted_count == 0:
+            raise UnsupportedArtifactError(
+                "bundle does not contain supported extractable artifacts; nothing to process"
+            )
 
         manifest = SpecManifestModel(run_id=run_id, generated_at=_utc_now(), artifacts=artifacts)
         _write_json(manifest_path, manifest.model_dump(mode="json"))
@@ -204,6 +260,15 @@ def run_bundle_intake(
                 "run_id": run_id,
                 "generated_at": _utc_now(),
                 "entries": text_cache_entries,
+                "open_questions": open_questions,
+            },
+        )
+        _write_json(
+            open_questions_path,
+            {
+                "run_id": run_id,
+                "generated_at": _utc_now(),
+                "open_questions": open_questions,
             },
         )
 
@@ -212,8 +277,11 @@ def run_bundle_intake(
             run_root=run_root,
             manifest_path=manifest_path,
             text_cache_path=text_cache_path,
+            open_questions_path=open_questions_path,
             workspace_root=workspace_root,
             artifact_count=len(artifacts),
+            extracted_count=extracted_count,
+            unsupported_count=unsupported_count,
         )
     except (zipfile.BadZipFile, KeyError) as exc:
         shutil.rmtree(run_root, ignore_errors=True)
@@ -256,7 +324,10 @@ def main() -> None:
         "run_root": result.run_root.as_posix(),
         "spec_manifest": result.manifest_path.as_posix(),
         "extracted_text_cache": result.text_cache_path.as_posix(),
+        "open_questions": result.open_questions_path.as_posix(),
         "artifact_count": result.artifact_count,
+        "extracted_count": result.extracted_count,
+        "unsupported_count": result.unsupported_count,
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 

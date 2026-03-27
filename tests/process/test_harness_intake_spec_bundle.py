@@ -61,7 +61,7 @@ def test_bundle_intake_happy_path_generates_manifest_and_text_cache(tmp_path: Pa
         assert text_path.read_text(encoding="utf-8")
 
 
-def test_bundle_intake_fail_closed_on_unsupported_member_type(tmp_path: Path) -> None:
+def test_bundle_intake_mixed_bundle_keeps_unsupported_artifacts_in_manifest(tmp_path: Path) -> None:
     zip_path = tmp_path / "unsupported_bundle.zip"
     _build_zip(
         zip_path,
@@ -72,10 +72,44 @@ def test_bundle_intake_fail_closed_on_unsupported_member_type(tmp_path: Path) ->
     )
 
     registry_root = tmp_path / "registry"
-    with pytest.raises(UnsupportedArtifactError):
-        run_bundle_intake(input_zip=zip_path, registry_root=registry_root, run_id="RUN-WP02-UNSUPPORTED")
+    result = run_bundle_intake(
+        input_zip=zip_path,
+        registry_root=registry_root,
+        run_id="RUN-WP02-UNSUPPORTED-MIXED",
+    )
 
-    assert not (registry_root / "intake" / "RUN-WP02-UNSUPPORTED").exists()
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    assert len(manifest["artifacts"]) == 2
+    by_path = {item["path"]: item for item in manifest["artifacts"]}
+    assert by_path["workspace/payload.exe"]["extraction_status"] == "unsupported"
+    assert by_path["workspace/requirements.md"]["extraction_status"] == "extracted"
+    assert result.unsupported_count == 1
+    assert result.extracted_count == 1
+
+    cache_payload = json.loads(result.text_cache_path.read_text(encoding="utf-8"))
+    assert len(cache_payload["entries"]) == 1
+    assert cache_payload["open_questions"]
+    assert cache_payload["open_questions"][0]["reason"] == "unsupported_file_type"
+
+    open_questions_payload = json.loads(result.open_questions_path.read_text(encoding="utf-8"))
+    assert open_questions_payload["open_questions"]
+
+
+def test_bundle_intake_fail_closed_when_bundle_has_only_unsupported_members(tmp_path: Path) -> None:
+    zip_path = tmp_path / "unsupported_only_bundle.zip"
+    _build_zip(
+        zip_path,
+        {
+            "payload.exe": b"MZ...",
+            "binary.bin": b"\x00\x01",
+        },
+    )
+
+    registry_root = tmp_path / "registry"
+    with pytest.raises(UnsupportedArtifactError):
+        run_bundle_intake(input_zip=zip_path, registry_root=registry_root, run_id="RUN-WP02-UNSUPPORTED-ONLY")
+
+    assert not (registry_root / "intake" / "RUN-WP02-UNSUPPORTED-ONLY").exists()
 
 
 def test_bundle_intake_fail_closed_on_corrupted_zip(tmp_path: Path) -> None:
