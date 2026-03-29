@@ -2,10 +2,25 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+def _bootstrap_direct_file_imports() -> None:
+    """Ensure absolute `scripts.harness.*` imports work for file-based execution."""
+
+    if __package__:
+        return
+    repo_root = Path(__file__).resolve().parents[2]
+    repo_root_text = str(repo_root)
+    if repo_root_text not in sys.path:
+        sys.path.insert(0, repo_root_text)
+
+
+_bootstrap_direct_file_imports()
 
 try:
     from .advance_phase import run_phase_advancement
