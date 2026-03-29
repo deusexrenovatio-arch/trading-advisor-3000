@@ -108,6 +108,33 @@ Define the wire-level contract between Python execution bridge and StockSharp si
 - `GET /health`
 - `GET /ready`
 - `GET /metrics`
+- `GET /ready` returns `503` with `{"ready": false, "reason": "kill_switch_active"}` when admin kill-switch is enabled.
+- `GET /metrics` includes `ta3000_sidecar_gateway_kill_switch` gauge (`0` or `1`).
+
+### 7. Admin kill-switch
+- `POST /v1/admin/kill-switch`
+- Request:
+```json
+{
+  "active": true
+}
+```
+- Response:
+```json
+{
+  "ok": true,
+  "kill_switch_active": true
+}
+```
+- Behavior:
+  - When `kill_switch_active=true`, submit requests fail with `503` and:
+  ```json
+  {
+    "error_code": "kill_switch_active",
+    "message": "gateway kill-switch is active"
+  }
+  ```
+  - After disabling kill-switch (`active=false`), readiness and submit flow return to normal contract behavior.
 
 ## Error Model
 Error payload:
