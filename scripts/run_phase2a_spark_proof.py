@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -67,6 +68,14 @@ def _ensure_docker_image(image: str, dockerfile: Path) -> None:
         raise RuntimeError(f"docker build failed for Spark proof image `{image}`")
 
 
+def _docker_user_args() -> list[str]:
+    getuid = getattr(os, "getuid", None)
+    getgid = getattr(os, "getgid", None)
+    if not callable(getuid) or not callable(getgid):
+        return []
+    return ["--user", f"{getuid()}:{getgid()}"]
+
+
 def _run_in_docker(
     *,
     source: Path,
@@ -88,6 +97,7 @@ def _run_in_docker(
         "docker",
         "run",
         "--rm",
+        *_docker_user_args(),
         "-v",
         f"{repo_root}:/workspace",
         "-w",
@@ -135,6 +145,7 @@ def _run_in_docker(
             for key, path_text in output_paths.items()
         }
     payload["proof_profile"] = "docker-linux"
+    output_json.unlink(missing_ok=True)
     output_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return payload
 
