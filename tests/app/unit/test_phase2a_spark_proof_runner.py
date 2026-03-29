@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from scripts.run_phase2a_spark_proof import _docker_exec_args, _docker_host_owner
+from scripts.run_phase2a_spark_proof import _docker_exec_args, _docker_host_owner, _hostify_container_path
 
 
 def test_docker_host_owner_uses_host_uid_gid_when_available(monkeypatch) -> None:
@@ -50,3 +50,9 @@ def test_docker_exec_args_fall_back_to_plain_python_command(monkeypatch) -> None
     )
 
     assert args[:2] == ["python", "scripts/run_phase2a_spark_proof.py"]
+
+
+def test_hostify_container_path_maps_workspace_path_back_into_repo() -> None:
+    host_path = Path(_hostify_container_path("/workspace/.tmp/test-phase2a-proof/canonical_bars.delta"))
+
+    assert host_path.parts[-3:] == (".tmp", "test-phase2a-proof", "canonical_bars.delta")

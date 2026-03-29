@@ -46,8 +46,8 @@ def _hostify_container_path(value: str) -> str:
     prefix = "/workspace/"
     if not value.startswith(prefix):
         return value
-    relative = value[len(prefix) :].replace("/", "\\")
-    return str((_repo_root() / relative).resolve())
+    relative_parts = [part for part in value[len(prefix) :].split("/") if part]
+    return str((_repo_root() / Path(*relative_parts)).resolve())
 
 
 def _ensure_docker_image(image: str, dockerfile: Path) -> None:
