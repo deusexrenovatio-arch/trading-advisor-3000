@@ -1,0 +1,140 @@
+version: 1
+generated_by: manual-bootstrap
+surfaces:
+- surface: delta_lake
+  category: architecture_critical
+  target_status: required
+  current_status: scaffold
+  decision: implement
+  runtime_entrypoints: []
+  tests: []
+  artifacts: []
+  docs:
+  - docs/architecture/app/product-plane-spec-v2/TECHNICAL_REQUIREMENTS.md
+  - docs/architecture/app/phase2a-data-plane-mvp.md
+  - docs/architecture/app/phase2b-research-plane-mvp.md
+  adr: null
+  owner: app/data-plane
+  notes: Manifest or JSONL sample outputs do not count as Delta closure.
+- surface: spark
+  category: architecture_critical
+  target_status: required
+  current_status: scaffold
+  decision: implement
+  runtime_entrypoints: []
+  tests: []
+  artifacts: []
+  docs:
+  - docs/architecture/app/product-plane-spec-v2/TECHNICAL_REQUIREMENTS.md
+  - docs/architecture/app/phase2a-data-plane-mvp.md
+  adr: null
+  owner: app/data-plane
+  notes: SQL plan builders do not count as Spark closure.
+- surface: dagster
+  category: architecture_critical
+  target_status: required
+  current_status: scaffold
+  decision: implement
+  runtime_entrypoints: []
+  tests: []
+  artifacts: []
+  docs:
+  - docs/architecture/app/product-plane-spec-v2/TECHNICAL_REQUIREMENTS.md
+  - docs/architecture/app/phase2a-data-plane-mvp.md
+  adr: null
+  owner: app/data-plane
+  notes: AssetSpec metadata does not count as Dagster closure.
+- surface: postgres_runtime_default
+  category: architecture_critical
+  target_status: required
+  current_status: partial
+  decision: implement
+  runtime_entrypoints: []
+  tests: []
+  artifacts: []
+  docs:
+  - docs/architecture/app/STATUS.md
+  - docs/architecture/app/phase2c-runtime-mvp.md
+  adr: null
+  owner: app/runtime
+  notes: Staging/prod must not silently fall back to in-memory store.
+- surface: stocksharp_dotnet_sidecar
+  category: architecture_critical
+  target_status: required
+  current_status: scaffold
+  decision: implement
+  runtime_entrypoints: []
+  tests: []
+  artifacts: []
+  docs:
+  - docs/architecture/app/product-plane-spec-v2/TECHNICAL_REQUIREMENTS.md
+  - deployment/stocksharp-sidecar/README.md
+  adr: null
+  owner: app/execution
+  notes: Python transport and docs do not count as sidecar closure.
+- surface: fastapi
+  category: replaceable
+  target_status: declared_in_spec
+  current_status: not_evidenced
+  decision: undecided
+  runtime_entrypoints: []
+  tests: []
+  artifacts: []
+  docs:
+  - docs/architecture/app/product-plane-spec-v2/07_Tech_Stack_and_Open_Source.md
+  adr: null
+  owner: app/runtime
+  notes: Must be implemented or removed by ADR.
+- surface: aiogram
+  category: replaceable
+  target_status: declared_in_spec
+  current_status: not_evidenced
+  decision: undecided
+  runtime_entrypoints: []
+  tests: []
+  artifacts: []
+  docs:
+  - docs/architecture/app/product-plane-spec-v2/07_Tech_Stack_and_Open_Source.md
+  adr: null
+  owner: app/runtime
+  notes: Current custom publication engine is not aiogram proof.
+- surface: vectorbt
+  category: replaceable
+  target_status: declared_in_spec
+  current_status: not_evidenced
+  decision: undecided
+  runtime_entrypoints: []
+  tests: []
+  artifacts: []
+  docs:
+  - docs/architecture/app/product-plane-spec-v2/07_Tech_Stack_and_Open_Source.md
+  adr: null
+  owner: app/research
+  notes: Current custom backtest engine is not vectorbt proof.
+- surface: alembic
+  category: replaceable
+  target_status: declared_in_spec
+  current_status: not_evidenced
+  decision: undecided
+  runtime_entrypoints: []
+  tests: []
+  artifacts: []
+  docs:
+  - docs/architecture/app/product-plane-spec-v2/07_Tech_Stack_and_Open_Source.md
+  adr: null
+  owner: app/runtime
+  notes: Current checksum migration runner is a different solution.
+- surface: opentelemetry
+  category: replaceable
+  target_status: declared_in_spec
+  current_status: not_evidenced
+  decision: undecided
+  runtime_entrypoints: []
+  tests: []
+  artifacts: []
+  docs:
+  - docs/architecture/app/product-plane-spec-v2/07_Tech_Stack_and_Open_Source.md
+  - docs/architecture/app/phase5-review-analytics-observability.md
+  adr: null
+  owner: app/observability
+  notes: Current file-bridge observability is not OTel proof.

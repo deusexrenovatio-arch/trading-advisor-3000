@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from trading_advisor_3000.app.contracts import CanonicalBar
+from trading_advisor_3000.app.data_plane.delta_runtime import read_delta_table_rows
 from trading_advisor_3000.app.runtime.analytics import run_system_shadow_replay
 
 
@@ -46,7 +47,7 @@ def test_phase3_integrated_replay_produces_traceable_runtime_bound_outcomes(tmp_
     assert "research_forward_observations" in report["delta_manifest"]
     assert set(report["runtime_signal_ids"]) == {row["signal_id"] for row in report["runtime_payload"]["publications"]}
 
-    research_rows = _load_jsonl(Path(str(report["output_paths"]["signal_candidates"])))
+    research_rows = read_delta_table_rows(Path(str(report["output_paths"]["signal_candidates"])))
     forward_rows = _load_jsonl(Path(str(report["output_paths"]["research_forward_observations"])))
     expected_candidate_ids = set(report["runtime_candidate_ids"])
     actual_forward_candidate_ids = {str(row["candidate_id"]) for row in forward_rows}

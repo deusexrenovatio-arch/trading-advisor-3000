@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-03-25",
+  "generated_at": "2026-03-26",
   "overall_status": "yellow",
   "sections": {
     "lifecycle": {
       "status": "green",
-      "terminal_outcomes_total": 21,
-      "correct_first_time_rate": 0.2857142857142857
+      "terminal_outcomes_total": 23,
+      "correct_first_time_rate": 0.30434782608695654
     },
     "state": {
       "status": "green",
@@ -15,7 +15,7 @@
     },
     "quality": {
       "status": "green",
-      "process_completed_tasks": 21,
+      "process_completed_tasks": 23,
       "process_window_tasks": 20,
       "burn_in_complete": true
     },
@@ -28,15 +28,15 @@
         "target": 0
       },
       "observation_window_start": "2026-03-25",
-      "observation_window_days": 0,
+      "observation_window_days": 1,
       "observation_window_min_days": 7,
       "observation_window_max_days": 14,
       "observation_window_status": "collecting",
-      "task_notes_scanned": 23
+      "task_notes_scanned": 27
     }
   },
   "baseline_metrics": {
-    "generated_at": "2026-03-25",
+    "generated_at": "2026-03-26",
     "plans": {
       "total_items": 2,
       "active_items": 0,
@@ -48,7 +48,7 @@
       "patterns": 1
     },
     "process_rollup": {
-      "completed_tasks_count": 21,
+      "completed_tasks_count": 23,
       "window_size": 20,
       "window_tasks_count": 20,
       "burn_in_complete": true,
@@ -61,16 +61,16 @@
       }
     },
     "dev_loop_baseline": {
-      "generated_at": "2026-03-25",
-      "task_outcomes_total": 21,
-      "terminal_outcomes_total": 21,
+      "generated_at": "2026-03-26",
+      "task_outcomes_total": 23,
+      "terminal_outcomes_total": 23,
       "outcomes_with_patch_timing": 2,
-      "outcomes_without_patch_timing": 19,
+      "outcomes_without_patch_timing": 21,
       "median_time_to_first_patch_sec": 105.0,
       "p90_time_to_first_patch_sec": 120,
       "median_same_path_attempts": 1,
-      "correct_first_time_rate": 0.2857142857142857,
-      "start_route_match_rate": 0.9523809523809523
+      "correct_first_time_rate": 0.30434782608695654,
+      "start_route_match_rate": 0.9565217391304348
     }
   }
 }

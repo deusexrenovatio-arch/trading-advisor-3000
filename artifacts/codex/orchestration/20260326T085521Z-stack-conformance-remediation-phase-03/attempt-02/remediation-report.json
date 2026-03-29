@@ -1,0 +1,30 @@
+{
+  "status": "DONE",
+  "summary": "Phase-03 remediation выполнен точечно: восстановлена governed-route запись (phase-03 task/session + Solution Intent для critical contour) и синхронизированы phase2 acceptance wording с physical Delta runtime path. Обязательные rerun checks из acceptance пройдены.",
+  "route_signal": "remediation:phase-only",
+  "files_touched": [
+    "docs/session_handoff.md",
+    "docs/tasks/active/TASK-2026-03-26-continue-governed-module-phase-03-for-stack-conf.md",
+    "docs/checklists/app/phase2b-acceptance-checklist.md"
+  ],
+  "checks_run": [
+    "python scripts/validate_task_request_contract.py",
+    "python scripts/validate_session_handoff.py",
+    "python scripts/run_loop_gate.py --skip-session-check --changed-files pyproject.toml registry/stack_conformance.yaml src/trading_advisor_3000/app/data_plane/delta_runtime.py src/trading_advisor_3000/app/data_plane/pipeline.py src/trading_advisor_3000/app/research/backtest/engine.py tests/app/integration/test_phase2a_data_plane.py tests/app/integration/test_phase2b_research_plane.py tests/app/integration/test_phase3_system_replay.py docs/architecture/app/phase2a-data-plane-mvp.md docs/architecture/app/phase2b-research-plane-mvp.md docs/architecture/app/stack-conformance-baseline.md docs/runbooks/app/README.md docs/runbooks/app/phase2-delta-runtime-runbook.md",
+    "python -m pytest tests/app/unit/test_phase2a_manifests.py tests/app/unit/test_phase2b_features.py tests/app/unit/test_phase2b_manifests.py tests/app/integration/test_phase2a_data_plane.py tests/app/integration/test_phase2b_research_plane.py tests/app/integration/test_phase3_system_replay.py -q",
+    "python scripts/validate_stack_conformance.py",
+    "python -m pytest tests/process/test_validate_stack_conformance.py -q",
+    "python scripts/validate_docs_links.py --roots docs/architecture/app docs/runbooks/app",
+    "python scripts/validate_docs_links.py --roots docs/checklists/app",
+    "python scripts/validate_task_request_contract.py --changed-files docs/session_handoff.md docs/tasks/active/TASK-2026-03-26-continue-governed-module-phase-03-for-stack-conf.md",
+    "python scripts/validate_solution_intent.py --changed-files pyproject.toml registry/stack_conformance.yaml src/trading_advisor_3000/app/data_plane/delta_runtime.py src/trading_advisor_3000/app/data_plane/pipeline.py src/trading_advisor_3000/app/research/backtest/engine.py tests/app/integration/test_phase2a_data_plane.py tests/app/integration/test_phase2b_research_plane.py tests/app/integration/test_phase3_system_replay.py docs/architecture/app/phase2a-data-plane-mvp.md docs/architecture/app/phase2b-research-plane-mvp.md docs/architecture/app/stack-conformance-baseline.md docs/runbooks/app/README.md docs/runbooks/app/phase2-delta-runtime-runbook.md",
+    "python scripts/validate_critical_contour_closure.py --changed-files pyproject.toml registry/stack_conformance.yaml src/trading_advisor_3000/app/data_plane/delta_runtime.py src/trading_advisor_3000/app/data_plane/pipeline.py src/trading_advisor_3000/app/research/backtest/engine.py tests/app/integration/test_phase2a_data_plane.py tests/app/integration/test_phase2b_research_plane.py tests/app/integration/test_phase3_system_replay.py docs/architecture/app/phase2a-data-plane-mvp.md docs/architecture/app/phase2b-research-plane-mvp.md docs/architecture/app/stack-conformance-baseline.md docs/runbooks/app/README.md docs/runbooks/app/phase2-delta-runtime-runbook.md"
+  ],
+  "remaining_risks": [
+    "Acceptance verdict для phase-03 еще не переисполнен acceptor-стадией; текущий результат — remediation evidence, не unlock."
+  ],
+  "assumptions": [],
+  "skips": [],
+  "fallbacks": [],
+  "deferred_work": []
+}

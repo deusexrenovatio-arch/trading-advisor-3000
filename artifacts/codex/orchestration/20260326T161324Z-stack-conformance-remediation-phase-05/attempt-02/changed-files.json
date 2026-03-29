@@ -1,0 +1,8 @@
+{
+  "changed_files": [
+    "docs/runbooks/app/phase2-dagster-execution-runbook.md",
+    "docs/checklists/app/phase2a-acceptance-checklist.md",
+    "docs/tasks/active/TASK-2026-03-26-continue-governed-module-phase-05-for-stack-conf.md",
+    "artifacts/phase2a-dagster-proof.json"
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "success": true,
+  "output_paths": {
+    "raw_market_backfill": "D:/trading advisor 3000/.tmp/phase2a-dagster-proof/raw_market_backfill.delta",
+    "canonical_bars": "D:/trading advisor 3000/.tmp/phase2a-dagster-proof/canonical_bars.delta",
+    "canonical_instruments": "D:/trading advisor 3000/.tmp/phase2a-dagster-proof/canonical_instruments.delta",
+    "canonical_contracts": "D:/trading advisor 3000/.tmp/phase2a-dagster-proof/canonical_contracts.delta",
+    "canonical_session_calendar": "D:/trading advisor 3000/.tmp/phase2a-dagster-proof/canonical_session_calendar.delta",
+    "canonical_roll_map": "D:/trading advisor 3000/.tmp/phase2a-dagster-proof/canonical_roll_map.delta"
+  },
+  "selected_assets": [
+    "raw_market_backfill",
+    "canonical_bars",
+    "canonical_instruments",
+    "canonical_contracts",
+    "canonical_session_calendar",
+    "canonical_roll_map"
+  ],
+  "materialized_assets": [
+    "raw_market_backfill",
+    "canonical_bars",
+    "canonical_instruments",
+    "canonical_contracts",
+    "canonical_session_calendar",
+    "canonical_roll_map"
+  ],
+  "rows_by_table": {
+    "raw_market_backfill": 2,
+    "canonical_bars": 2,
+    "canonical_instruments": 2,
+    "canonical_contracts": 2,
+    "canonical_session_calendar": 2,
+    "canonical_roll_map": 2
+  }
+}

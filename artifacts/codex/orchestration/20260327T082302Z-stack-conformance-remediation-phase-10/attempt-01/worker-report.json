@@ -1,0 +1,44 @@
+{
+  "status": "DONE",
+  "summary": "Phase-10 F1 выполнена в рамках worker-route: regenerated checklists (2A-8 + phase10), собраны acceptance evidence pack, final stack-conformance re-acceptance report и red-team review result; route-state переведен на phase-10 task note; phase-matching checks и scoped loop/pr gates пройдены.",
+  "route_signal": "worker:phase-only",
+  "files_touched": [
+    "artifacts/acceptance/f1/reacceptance-evidence-pack.json",
+    "artifacts/acceptance/f1/red-team-review-result.md",
+    "docs/architecture/app/README.md",
+    "docs/architecture/app/phase10-stack-conformance-reacceptance-report.md",
+    "docs/checklists/app/README.md",
+    "docs/checklists/app/phase2a-acceptance-checklist.md",
+    "docs/checklists/app/phase2b-acceptance-checklist.md",
+    "docs/checklists/app/phase2c-acceptance-checklist.md",
+    "docs/checklists/app/phase2d-acceptance-checklist.md",
+    "docs/checklists/app/phase3-acceptance-checklist.md",
+    "docs/checklists/app/phase4-acceptance-checklist.md",
+    "docs/checklists/app/phase5-acceptance-checklist.md",
+    "docs/checklists/app/phase6-acceptance-checklist.md",
+    "docs/checklists/app/phase7-acceptance-checklist.md",
+    "docs/checklists/app/phase8-acceptance-checklist.md",
+    "docs/checklists/app/phase10-reacceptance-checklist.md",
+    "docs/session_handoff.md",
+    "docs/tasks/active/TASK-2026-03-27-continue-governed-module-phase-10-worker-route.md",
+    "docs/tasks/active/index.yaml"
+  ],
+  "checks_run": [
+    "python scripts/validate_task_request_contract.py",
+    "python scripts/validate_session_handoff.py",
+    "python scripts/validate_stack_conformance.py",
+    "python -m pytest tests/process/test_validate_stack_conformance.py -q",
+    "python scripts/validate_docs_links.py --roots docs/architecture/app docs/checklists/app",
+    "python scripts/run_loop_gate.py --changed-files <phase10-scoped-files>",
+    "python scripts/run_pr_gate.py --changed-files <phase10-scoped-files>"
+  ],
+  "remaining_risks": [
+    "`production_readiness` в truth source остается `not accepted`, поэтому финальный readiness unlock невозможен в текущем состоянии.",
+    "`real_broker_process` остается `planned`, что блокирует полный readiness-контур.",
+    "Несколько stack surfaces сохраняют класс `partial` (например Delta/Spark/Dagster/StockSharp), поэтому их нельзя интерпретировать как полное closure."
+  ],
+  "assumptions": [],
+  "skips": [],
+  "fallbacks": [],
+  "deferred_work": []
+}

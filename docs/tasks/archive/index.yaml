@@ -121,3 +121,15 @@ items:
   status: completed
   started_at: '2026-03-25'
   completed_at: '2026-03-25'
+- id: TASK-2026-03-25-GOVERNED-PACKAGE-INTAKE-OF-PLAN-TECH-MD-DELIVERE
+  path: docs/tasks/archive/TASK-2026-03-25-governed-package-intake-of-plan-tech-md-delivere.md
+  mode: full
+  status: completed
+  started_at: '2026-03-25'
+  completed_at: '2026-03-25'
+- id: TASK-2026-03-25-GOVERNED-CONTINUATION-OF-PLAN-TECH-PHASE-04-OBSE
+  path: docs/tasks/archive/TASK-2026-03-25-governed-continuation-of-plan-tech-phase-04-obse.md
+  mode: full
+  status: completed
+  started_at: '2026-03-25'
+  completed_at: '2026-03-25'

@@ -1,0 +1,210 @@
+version: 1
+
+truth_sources:
+  status_doc: docs/architecture/app/STATUS.md
+  spec_doc: docs/architecture/app/product-plane-spec-v2/07_Tech_Stack_and_Open_Source.md
+  pyproject: pyproject.toml
+
+closure_claim_guard:
+  documents:
+    - docs/architecture/app/README.md
+    - docs/architecture/app/stack-conformance-baseline.md
+    - docs/architecture/app/STATUS.md
+  document_globs:
+    - docs/checklists/app/*.md
+    - docs/architecture/app/phase*-acceptance-*.md
+  forbidden_terms:
+    - full DoD
+    - full acceptance
+    - final closure
+    - production ready
+    - live ready
+    - release ready
+
+surface_claims:
+  - id: product_plane_landing
+    status_label: Product-plane landing in shell repo
+    claim: implemented
+    runtime_proof:
+      files_all:
+        - src/trading_advisor_3000/app/__init__.py
+        - docs/architecture/app/README.md
+      tests_any:
+        - tests/app/test_app_plane_metadata.py
+
+  - id: data_research_runtime_scaffolding
+    status_label: Data/research/runtime scaffolding
+    claim: implemented
+    runtime_proof:
+      files_all:
+        - src/trading_advisor_3000/app/data_plane/__init__.py
+        - src/trading_advisor_3000/app/research/__init__.py
+        - src/trading_advisor_3000/app/runtime/__init__.py
+      tests_any:
+        - tests/app/integration/test_phase2a_data_plane.py
+        - tests/app/integration/test_phase2b_research_plane.py
+        - tests/app/integration/test_phase2c_runtime.py
+
+  - id: runtime_signal_lifecycle
+    status_label: Runtime signal lifecycle
+    claim: implemented
+    runtime_proof:
+      files_all:
+        - src/trading_advisor_3000/app/runtime/pipeline.py
+        - src/trading_advisor_3000/app/runtime/decision/engine.py
+        - src/trading_advisor_3000/app/runtime/signal_store/store.py
+      tests_any:
+        - tests/app/integration/test_phase2c_runtime.py
+
+  - id: durable_runtime_state
+    status_label: Durable runtime state
+    claim: partial
+
+  - id: paper_execution_path
+    status_label: Paper execution path
+    claim: implemented
+    runtime_proof:
+      files_all:
+        - src/trading_advisor_3000/app/execution/intents/paper_broker.py
+        - src/trading_advisor_3000/app/execution/reconciliation/reconcile.py
+      tests_any:
+        - tests/app/integration/test_phase2d_execution.py
+
+  - id: live_execution_transport_baseline
+    status_label: Live execution transport baseline
+    claim: partial
+
+  - id: real_broker_process
+    status_label: StockSharp/QUIK/Finam real broker process
+    claim: planned
+
+  - id: contracts_freeze
+    status_label: Contracts freeze
+    claim: partial
+    runtime_proof:
+      files_all:
+        - docs/architecture/app/CONTRACT_SURFACES.md
+      tests_any:
+        - tests/app/contracts/test_phase1_contracts.py
+
+  - id: production_readiness
+    status_label: Production readiness / operational readiness
+    claim: not accepted
+
+technology_claims:
+  - id: delta_lake
+    display_name: Delta Lake
+    claim: partial
+    spec_markers_any:
+      - "| Delta Lake | durable data tables | chosen"
+    runtime_proof:
+      dependencies_any:
+        - deltalake
+      files_all:
+        - src/trading_advisor_3000/app/data_plane/delta_runtime.py
+        - src/trading_advisor_3000/app/data_plane/pipeline.py
+        - src/trading_advisor_3000/app/research/backtest/engine.py
+      tests_any:
+        - tests/app/integration/test_phase2a_data_plane.py
+        - tests/app/integration/test_phase2b_research_plane.py
+
+  - id: apache_spark
+    display_name: Apache Spark
+    claim: partial
+    spec_markers_any:
+      - "| Apache Spark | heavy compute / rebuilds | chosen"
+    runtime_proof:
+      dependencies_any:
+        - delta-spark
+      files_all:
+        - src/trading_advisor_3000/spark_jobs/canonical_bars_job.py
+        - scripts/run_phase2a_spark_proof.py
+        - deployment/docker/phase-proofs/Dockerfile
+      tests_any:
+        - tests/app/integration/test_phase2a_spark_execution.py
+
+  - id: dagster
+    display_name: Dagster
+    claim: partial
+    spec_markers_any:
+      - "| Dagster | orchestration | chosen"
+    runtime_proof:
+      dependencies_any:
+        - dagster
+      files_all:
+        - src/trading_advisor_3000/dagster_defs/phase2a_assets.py
+        - scripts/run_phase2a_dagster_proof.py
+      tests_any:
+        - tests/app/integration/test_phase2a_dagster_execution.py
+        - tests/app/unit/test_phase2a_manifests.py
+
+  - id: polars
+    display_name: Polars
+    claim: planned
+    spec_markers_any:
+      - "| Polars | fast local dataframe compute | chosen"
+
+  - id: duckdb
+    display_name: DuckDB
+    claim: planned
+    spec_markers_any:
+      - "| DuckDB | local SQL and Delta/Parquet access | chosen"
+
+  - id: postgresql
+    display_name: PostgreSQL
+    claim: partial
+    spec_markers_any:
+      - "| PostgreSQL | runtime state | chosen"
+    runtime_proof:
+      dependencies_any:
+        - psycopg
+      files_any:
+        - src/trading_advisor_3000/app/runtime/signal_store/postgres.py
+
+  - id: vectorbt
+    display_name: vectorbt
+    claim: planned
+    spec_markers_any:
+      - "| vectorbt | backtest/research | chosen"
+
+  - id: fastapi
+    display_name: FastAPI
+    claim: planned
+    spec_markers_any:
+      - "| FastAPI | service/API layer | chosen"
+
+  - id: aiogram
+    display_name: aiogram
+    claim: planned
+    spec_markers_any:
+      - "| aiogram | Telegram integration | chosen"
+
+  - id: alembic
+    display_name: Alembic
+    claim: planned
+    spec_markers_any:
+      - "| Alembic | DB migrations | chosen"
+
+  - id: opentelemetry
+    display_name: OpenTelemetry
+    claim: planned
+    spec_markers_any:
+      - "| OpenTelemetry | tracing/metrics/log correlation | chosen"
+
+  - id: dotnet_sidecar
+    display_name: .NET 8
+    claim: planned
+    spec_markers_any:
+      - "| .NET 8 | execution sidecar runtime | chosen"
+
+  - id: stocksharp
+    display_name: StockSharp
+    claim: partial
+    spec_markers_any:
+      - "| StockSharp | execution/QUIK bridge | chosen"
+    runtime_proof:
+      files_any:
+        - src/trading_advisor_3000/app/execution/adapters/stocksharp_sidecar_stub.py
+        - src/trading_advisor_3000/app/execution/adapters/stocksharp_http_transport.py
+      tests_any:
+        - tests/app/unit/test_real_execution_http_transport.py

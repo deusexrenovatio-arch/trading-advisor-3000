@@ -1,0 +1,7 @@
+{
+  "changed_files": [
+    "docs/tasks/active/TASK-2026-03-26-continue-governed-module-phase-05-for-stack-conf.md",
+    "docs/checklists/app/phase2a-acceptance-checklist.md",
+    "artifacts/phase2a-dagster-proof.json"
+  ]
+}

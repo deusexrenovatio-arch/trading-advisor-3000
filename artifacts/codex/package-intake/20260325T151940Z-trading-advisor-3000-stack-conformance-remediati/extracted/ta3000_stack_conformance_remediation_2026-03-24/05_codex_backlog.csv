@@ -1,0 +1,15 @@
+phase,surface,task_id,title,priority,expected_change_surface,acceptance,ci_lane,depends_on
+G0,governance,CR-001,Freeze false closure language and repair checklists,critical,docs/architecture/app/*; docs/checklists/app/*,docs consistency review; claim linter clean,process+conformance,none
+G1,governance,CR-002,Add stack conformance registry and validator,critical,registry/stack_conformance.yaml; scripts/validate_stack_conformance.py,validator unit tests; deliberate mismatch fails,conformance,CR-001
+D1,data,CR-003,Implement physical Delta outputs for canonical/research artifacts,critical,app/data_plane/*; app/research/*,_delta_log exists; read/write integration passes,foundation,CR-002
+D2,data,CR-004,Execute Spark runtime path in CI/staging profile,critical,spark_jobs/*; docker/profile if needed,spark execution smoke; output contract checks,foundation,CR-003
+D3,data,CR-005,Execute Dagster asset materialization path,high,dagster_defs/*; resources/config,Definitions load; materialization smoke,foundation,CR-003
+R1,runtime,CR-006,Make Postgres the required durable default outside explicit test/dev,critical,app/runtime/*; interfaces/*,restart/recovery smoke; no silent in-memory fallback,foundation,CR-002
+R1,runtime,CR-007,Implement FastAPI service or ADR-remove FastAPI from target stack,high,interfaces/api/*; docs; registry,HTTP smoke or ADR replacement,conformance,CR-002
+R2,runtime,CR-008,Implement aiogram Telegram adapter or ADR-remove aiogram,medium,runtime/publishing/*; docs; registry,mocked Telegram adapter smoke or ADR replacement,conformance,CR-002
+E1,execution,CR-009,Land real .NET sidecar project implementing wire contract,critical,deployment/stocksharp-sidecar/*; sidecar code,dotnet build/test/publish; Python smoke,sidecar,CR-002
+S1,research,CR-010,Implement vectorbt in research path or ADR-remove it,medium,app/research/*; docs; registry,research smoke or ADR replacement,conformance,CR-002
+S1,migrations,CR-011,Adopt Alembic or ADR-approve custom migration framework,medium,migrations; scripts; docs; registry,migration smoke or ADR replacement,conformance,CR-002
+S1,observability,CR-012,Implement OpenTelemetry path or ADR-remove it,medium,runtime/analytics; deployment; docs; registry,otel export smoke or ADR replacement,conformance,CR-002
+S1,data,CR-013,Adopt or de-scope Polars and DuckDB honestly,low,deps/docs/registry,dependency+usage proof or ADR replacement,conformance,CR-002
+F1,release,CR-014,Re-run phase acceptance under repaired evidence model,critical,docs/checklists/app/*; artifacts/*,red-team pass; final report clean,release-acceptance,CR-003|CR-004|CR-005|CR-006|CR-009 and all S1 decisions

@@ -1,0 +1,5 @@
+PASS. Phase 06 is closed enough to unlock the next phase: the default non-test runtime is durable and fail-closed for `staging`/`production`, restart persistence is proven against Postgres, the FastAPI ASGI surface is real rather than narrative-only, and the architecture/docs/stack registry stay aligned. I re-ran the phase-scoped validators, `loop` and `pr` gates, the phase-06 unit tests, and the Postgres restart integration test; all passed.
+
+BEGIN_PHASE_ACCEPTANCE_JSON
+{"verdict":"PASS","summary":"Phase 06 is acceptably closed: the governed phase route was revalidated with phase-scoped loop/pr gates, durable runtime default is explicit and fail-closed, restart persistence is proven, FastAPI runtime closure is real, and docs plus stack-conformance truth sources are aligned.","route_signal":"acceptance:governed-phase-route","used_skills":["phase-acceptance-governor","architecture-review","testing-suite","docs-sync"],"blockers":[],"rerun_checks":[],"evidence_gaps":[],"prohibited_findings":[]}
+END_PHASE_ACCEPTANCE_JSON

@@ -1,0 +1,33 @@
+{
+  "status": "DONE",
+  "summary": "Phase-08-only remediation completed via governed remediation route: operator proving commands were aligned to executable PowerShell Bypass form, sidecar wire contract now documents /v1/admin/kill-switch and /metrics kill-switch behavior, compiled sidecar smoke now exercises metrics + kill-switch enable/disable + readiness/submit gating, and phase scripts were hardened to fail closed on non-zero external command exits.",
+  "route_signal": "remediation:phase-only",
+  "files_touched": [
+    "deployment/stocksharp-sidecar/README.md",
+    "deployment/stocksharp-sidecar/scripts/build.ps1",
+    "deployment/stocksharp-sidecar/scripts/test.ps1",
+    "deployment/stocksharp-sidecar/scripts/publish.ps1",
+    "deployment/stocksharp-sidecar/scripts/prove.ps1",
+    "docs/architecture/app/sidecar-wire-api-v1.md",
+    "docs/architecture/app/phase8-dotnet-sidecar-closure.md",
+    "docs/runbooks/app/phase8-dotnet-sidecar-runbook.md",
+    "scripts/smoke_stocksharp_sidecar_binary.py",
+    "tests/app/unit/test_phase8_dotnet_sidecar_assets.py"
+  ],
+  "checks_run": [
+    "powershell -NoProfile -ExecutionPolicy Bypass -File deployment/stocksharp-sidecar/scripts/prove.ps1 -Port 18101 (FAILED: no .NET SDK installed; dotnet build failed fail-closed)",
+    "python -m pytest tests/app/unit/test_phase8_dotnet_sidecar_assets.py -q (PASS)",
+    "python -m pytest tests/app/unit/test_real_execution_http_transport.py -q (PASS)",
+    "python scripts/validate_stack_conformance.py (PASS)",
+    "python scripts/validate_docs_links.py --roots AGENTS.md docs (PASS)",
+    "python -m py_compile scripts/smoke_stocksharp_sidecar_binary.py (PASS)"
+  ],
+  "remaining_risks": [
+    "Current environment lacks required .NET build/runtime prerequisites for full compiled-sidecar proving (dotnet --list-sdks empty; Microsoft.AspNetCore.App runtime missing), so prove lane cannot complete successfully here.",
+    "Because prove lane failed in this environment, fresh phase evidence JSON with the new metrics/kill-switch fields is not regenerated yet."
+  ],
+  "assumptions": [],
+  "skips": [],
+  "fallbacks": [],
+  "deferred_work": []
+}

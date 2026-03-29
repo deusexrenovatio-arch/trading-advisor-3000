@@ -1,0 +1,31 @@
+{
+  "status": "DONE",
+  "summary": "Phase-06 route remediation is in place: active handoff and active task ledger now point to phase-06, and the phase-06 task note now carries a valid runtime-publication Solution Intent with explicit contour evidence. Required phase tests and scoped phase-06 contour/loop checks pass; canonical --from-git contour checks remain fail-closed on the current mixed multi-contour working tree.",
+  "route_signal": "remediation:phase-only",
+  "files_touched": [
+    "docs/session_handoff.md",
+    "docs/tasks/active/index.yaml",
+    "docs/tasks/active/TASK-2026-03-26-continue-governed-module-phase-06-for-stack-conf.md"
+  ],
+  "checks_run": [
+    "python scripts/validate_task_request_contract.py -> OK",
+    "python scripts/validate_session_handoff.py -> OK",
+    "python scripts/validate_solution_intent.py --from-git --git-ref HEAD -> FAIL (multiple critical contours in current full working diff)",
+    "python scripts/run_loop_gate.py --from-git --git-ref HEAD -> FAIL (same multi-contour reason via validate_solution_intent)",
+    "python scripts/validate_solution_intent.py --changed-files <phase-06 snapshot + route files> -> OK",
+    "python scripts/run_loop_gate.py --changed-files <phase-06 snapshot + route files> -> OK",
+    "python -m pytest tests/app/unit/test_phase6_runtime_durable_bootstrap.py -q -> 3 passed",
+    "python -m pytest tests/app/unit/test_phase6_fastapi_smoke.py -q -> 2 passed",
+    "python -m pytest tests/app/unit/test_phase6_runtime_profile_ops.py -q -> 4 passed",
+    "python -m pytest tests/app/integration/test_phase2c_runtime_postgres_store.py -q -> 1 passed",
+    "python scripts/validate_stack_conformance.py -> OK",
+    "python scripts/validate_docs_links.py --roots docs/architecture/app docs/runbooks/app -> OK"
+  ],
+  "remaining_risks": [
+    "Canonical contour checks with --from-git still fail in this workspace because the current full diff simultaneously includes data-integration-closure and runtime-publication-closure surfaces."
+  ],
+  "assumptions": [],
+  "skips": [],
+  "fallbacks": [],
+  "deferred_work": []
+}

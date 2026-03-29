@@ -1,0 +1,23 @@
+{
+  "changed_files": [
+    "artifacts/acceptance/f1/reacceptance-evidence-pack.json",
+    "artifacts/acceptance/f1/red-team-review-result.md",
+    "docs/architecture/app/README.md",
+    "docs/architecture/app/phase10-stack-conformance-reacceptance-report.md",
+    "docs/checklists/app/README.md",
+    "docs/checklists/app/phase2a-acceptance-checklist.md",
+    "docs/checklists/app/phase2b-acceptance-checklist.md",
+    "docs/checklists/app/phase2c-acceptance-checklist.md",
+    "docs/checklists/app/phase2d-acceptance-checklist.md",
+    "docs/checklists/app/phase3-acceptance-checklist.md",
+    "docs/checklists/app/phase4-acceptance-checklist.md",
+    "docs/checklists/app/phase5-acceptance-checklist.md",
+    "docs/checklists/app/phase6-acceptance-checklist.md",
+    "docs/checklists/app/phase7-acceptance-checklist.md",
+    "docs/checklists/app/phase8-acceptance-checklist.md",
+    "docs/checklists/app/phase10-reacceptance-checklist.md",
+    "docs/session_handoff.md",
+    "docs/tasks/active/TASK-2026-03-27-continue-governed-module-phase-10-worker-route.md",
+    "docs/tasks/active/index.yaml"
+  ]
+}

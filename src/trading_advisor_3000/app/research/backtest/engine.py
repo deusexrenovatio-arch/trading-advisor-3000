@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import math
 from pathlib import Path
 
 from trading_advisor_3000.app.contracts import DecisionCandidate, FeatureSnapshotRef, Mode, TradeSide
+from trading_advisor_3000.app.data_plane.delta_runtime import write_delta_table_rows
 from trading_advisor_3000.app.research.features import FeatureSnapshot, phase2b_feature_store_contract
 from trading_advisor_3000.app.research.ids import candidate_id
 from trading_advisor_3000.app.research.strategies import evaluate_strategy
@@ -68,12 +68,6 @@ def _window_id(*, index: int, total: int, windows: int) -> str:
     window_size = max(1, math.ceil(total / effective_windows))
     return f"wf-{(index // window_size) + 1}"
 
-
-def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
-    lines = [json.dumps(row, ensure_ascii=False, sort_keys=True) for row in rows]
-    path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
-
-
 def run_backtest(
     snapshots: list[FeatureSnapshot],
     *,
@@ -92,6 +86,7 @@ def run_backtest(
     if slippage_bps < 0:
         raise ValueError("slippage_bps must be non-negative")
 
+    delta_manifest = phase2b_feature_store_contract()
     ordered = sorted(snapshots, key=lambda item: (item.contract_id, item.timeframe.value, item.ts))
     backtest_run_id = _build_run_id(
         strategy_version_id=strategy_version_id,
@@ -210,15 +205,31 @@ def run_backtest(
     output_paths: dict[str, str] = {}
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
-        run_path = output_dir / "research.backtest_runs.sample.jsonl"
-        candidate_path = output_dir / "research.signal_candidates.sample.jsonl"
-        snapshot_path = output_dir / "feature.snapshots.sample.jsonl"
-        strategy_metrics_path = output_dir / "research.strategy_metrics.sample.jsonl"
+        run_path = output_dir / "research.backtest_runs.delta"
+        candidate_path = output_dir / "research.signal_candidates.delta"
+        snapshot_path = output_dir / "feature.snapshots.delta"
+        strategy_metrics_path = output_dir / "research.strategy_metrics.delta"
 
-        _write_jsonl(run_path, [backtest_row])
-        _write_jsonl(candidate_path, research_rows)
-        _write_jsonl(snapshot_path, [snapshot.to_dict() for snapshot in ordered])
-        _write_jsonl(strategy_metrics_path, [strategy_metrics])
+        write_delta_table_rows(
+            table_path=run_path,
+            rows=[backtest_row],
+            columns=delta_manifest["research_backtest_runs"]["columns"],
+        )
+        write_delta_table_rows(
+            table_path=candidate_path,
+            rows=research_rows,
+            columns=delta_manifest["research_signal_candidates"]["columns"],
+        )
+        write_delta_table_rows(
+            table_path=snapshot_path,
+            rows=[snapshot.to_dict() for snapshot in ordered],
+            columns=delta_manifest["feature_snapshots"]["columns"],
+        )
+        write_delta_table_rows(
+            table_path=strategy_metrics_path,
+            rows=[strategy_metrics],
+            columns=delta_manifest["research_strategy_metrics"]["columns"],
+        )
         output_paths = {
             "backtest_runs": run_path.as_posix(),
             "signal_candidates": candidate_path.as_posix(),
@@ -232,5 +243,5 @@ def run_backtest(
         "signal_contracts": [contract.to_dict() for contract in signal_contracts],
         "research_candidates": research_rows,
         "output_paths": output_paths,
-        "delta_manifest": phase2b_feature_store_contract(),
+        "delta_manifest": delta_manifest,
     }

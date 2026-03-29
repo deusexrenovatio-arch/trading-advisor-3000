@@ -6,7 +6,7 @@ Date: 2026-03-16
 - [x] Phase 2C accepted as MVP
 - [x] Phase 2C accepted as full module DoD
 
-## Full DoD Resolution (closed 2026-03-17)
+## Baseline Resolution (closed 2026-03-17)
 - Runtime now sets and enforces validity/expiry windows.
 - Cooldown and blackout gates are implemented in replay acceptance path.
 - Publishing lifecycle supports create/edit/close/cancel.

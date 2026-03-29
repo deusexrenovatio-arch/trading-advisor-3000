@@ -1,0 +1,11 @@
+Сделан phase-06 patch строго в `R1`-рамке и без захода в следующую фазу.
+
+Ключевой результат:
+1. Добавлен профильный runtime bootstrap с fail-closed политикой: для `staging/production` разрешён только Postgres, без silent fallback в in-memory.
+2. Реализован FastAPI ASGI runtime entrypoint, который стартует через этот же durable bootstrap (health/ready + runtime endpoints).
+3. Обновлены phase-06 доказательства: disprover на отсутствие Postgres в staging, restart/recovery через env-bootstrap с Postgres, FastAPI smoke.
+4. Синхронизированы архитектурный статус, baseline и stack registry под новую фактическую реализацию.
+
+BEGIN_PHASE_WORKER_JSON
+{"status":"DONE","summary":"Worker-implementation for phase-06 is complete: profile-aware durable runtime bootstrap is in place (staging/production require Postgres with fail-closed behavior), FastAPI service surface is implemented and smoke-tested via the same bootstrap path, and architecture/runbook/stack-conformance docs were aligned to this reality.","route_signal":"worker:phase-only","files_touched":["pyproject.toml","src/trading_advisor_3000/app/runtime/bootstrap.py","src/trading_advisor_3000/app/runtime/__init__.py","src/trading_advisor_3000/app/interfaces/asgi.py","tests/app/unit/test_phase6_runtime_durable_bootstrap.py","tests/app/unit/test_phase6_fastapi_smoke.py","tests/app/integration/test_phase2c_runtime_postgres_store.py","docs/architecture/app/STATUS.md","docs/architecture/app/stack-conformance-baseline.md","docs/runbooks/app/bootstrap.md","registry/stack_conformance.yaml"],"checks_run":["python -m pytest tests/app/unit/test_phase6_runtime_durable_bootstrap.py -q","python -m pytest tests/app/unit/test_phase6_fastapi_smoke.py -q","python -m pytest tests/app/unit/test_phase6_runtime_profile_ops.py -q","python -m pytest tests/app/integration/test_phase2c_runtime_postgres_store.py -q","python scripts/validate_stack_conformance.py"],"remaining_risks":["API perimeter hardening (authn/z, rate limiting, external gateway hardening) is still not part of this phase scope.","Durable runtime HA/replication and multi-region recovery are still outside current phase scope."],"assumptions":[],"skips":[],"fallbacks":[],"deferred_work":[]}
+END_PHASE_WORKER_JSON

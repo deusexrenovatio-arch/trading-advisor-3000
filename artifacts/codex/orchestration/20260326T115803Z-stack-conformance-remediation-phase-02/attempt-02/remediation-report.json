@@ -1,0 +1,26 @@
+{
+  "status": "DONE",
+  "summary": "Phase-02 remediation closed only the acceptance evidence gap: added phase-scoped PR gate to the phase note validation list, reran all required rerun checks including run_pr_gate, and recorded remediation closeout evidence for attempt-02.",
+  "route_signal": "remediation:phase-only",
+  "files_touched": [
+    "docs/tasks/active/TASK-2026-03-26-continue-governed-module-phase-02-for-stack-conf.md",
+    "artifacts/codex/orchestration/20260326T115803Z-stack-conformance-remediation-phase-02/attempt-02/worker-report.json",
+    "artifacts/codex/orchestration/20260326T115803Z-stack-conformance-remediation-phase-02/attempt-02/changed-files.json"
+  ],
+  "checks_run": [
+    "python scripts/validate_task_request_contract.py",
+    "python scripts/validate_session_handoff.py",
+    "python scripts/validate_stack_conformance.py",
+    "python -m pytest tests/process/test_validate_stack_conformance.py -q",
+    "python -m pytest tests/process/test_compute_change_surface.py -q",
+    "python scripts/run_loop_gate.py --changed-files registry/stack_conformance.yaml scripts/validate_stack_conformance.py tests/process/test_validate_stack_conformance.py docs/session_handoff.md docs/tasks/active/TASK-2026-03-26-continue-governed-module-phase-02-for-stack-conf.md",
+    "python scripts/run_pr_gate.py --skip-session-check --changed-files registry/stack_conformance.yaml scripts/validate_stack_conformance.py tests/process/test_validate_stack_conformance.py docs/session_handoff.md docs/tasks/active/TASK-2026-03-26-continue-governed-module-phase-02-for-stack-conf.md"
+  ],
+  "remaining_risks": [
+    "Acceptance rerun was not executed in this worker remediation step; phase remains blocked until acceptor verdict."
+  ],
+  "assumptions": [],
+  "skips": [],
+  "fallbacks": [],
+  "deferred_work": []
+}
