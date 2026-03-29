@@ -61,6 +61,11 @@ Use this runbook when a governance gate fails.
 - Keep emergency override variables neutral:
   - `AI_SHELL_EMERGENCY_MAIN_PUSH`
   - `AI_SHELL_EMERGENCY_MAIN_PUSH_REASON`
+- Keep GitHub server-side protection active for `main`.
+- Required GitHub merge checks for `main` are:
+  - `loop-lane`
+  - `pr-lane`
+- Public GitHub repositories can validate rules anonymously; private repositories require `GH_TOKEN` or `GITHUB_TOKEN`.
 
 ## `python scripts/validate_plans.py`
 - Keep `plans/items/` canonical and structurally valid.

@@ -27,6 +27,10 @@ For product-plane tasks, read `docs/architecture/app/STATUS.md` before treating 
    - `AI_SHELL_ENABLE_HOSTED_CI=1`
    - default is disabled to avoid false-red checks when hosted runners are unavailable.
 
+Main merge requirement:
+- GitHub protection for `main` must require successful `loop-lane` and `pr-lane` before merge.
+- `nightly-lane` and `dashboard-refresh` are non-merge lanes and remain post-PR hygiene/report lanes.
+
 ## Hosted CI fallback
 If hosted runners are unavailable, replay lanes locally for acceptance evidence:
 1. `python scripts/run_loop_gate.py --skip-session-check --from-git --git-ref HEAD`
