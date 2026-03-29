@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 
@@ -69,16 +70,77 @@ def _ensure_docker_image(image: str, dockerfile: Path) -> None:
         raise RuntimeError(f"docker build failed for Spark proof image `{image}`")
 
 
-def _docker_user_args() -> list[str]:
+def _docker_host_owner() -> str:
     getuid = getattr(os, "getuid", None)
     getgid = getattr(os, "getgid", None)
     if not callable(getuid) or not callable(getgid):
-        return []
-    return ["--user", f"{getuid()}:{getgid()}"]
+        return ""
+    return f"{getuid()}:{getgid()}"
 
 
 def _docker_runtime_root() -> str:
     return DEFAULT_DOCKER_RUNTIME_ROOT
+
+
+def _docker_python_command(
+    *,
+    source: Path,
+    output_dir: Path,
+    contracts: str,
+    spark_master: str,
+    output_json: Path | None,
+) -> list[str]:
+    command = [
+        "python",
+        "scripts/run_phase2a_spark_proof.py",
+        "--profile",
+        "local",
+        "--source",
+        _container_path(source),
+        "--output-dir",
+        _container_path(output_dir),
+        "--contracts",
+        contracts,
+        "--spark-master",
+        spark_master,
+    ]
+    if output_json is not None:
+        command.extend(["--output-json", _container_path(output_json)])
+    return command
+
+
+def _docker_exec_args(
+    *,
+    source: Path,
+    output_dir: Path,
+    contracts: str,
+    spark_master: str,
+    output_json: Path | None,
+) -> list[str]:
+    python_command = _docker_python_command(
+        source=source,
+        output_dir=output_dir,
+        contracts=contracts,
+        spark_master=spark_master,
+        output_json=output_json,
+    )
+    host_owner = _docker_host_owner()
+    if not host_owner:
+        return python_command
+
+    chown_targets = [_container_path(output_dir)]
+    if output_json is not None:
+        chown_targets.append(_container_path(output_json))
+
+    python_text = " ".join(shlex.quote(part) for part in python_command)
+    chown_text = " ".join(shlex.quote(path_text) for path_text in chown_targets)
+    shell_text = (
+        f"{python_text}; "
+        f"rc=$?; "
+        f"chown -R {shlex.quote(host_owner)} {chown_text} >/dev/null 2>&1 || true; "
+        f"exit $rc"
+    )
+    return ["/bin/sh", "-lc", shell_text]
 
 
 def _run_in_docker(
@@ -102,7 +164,6 @@ def _run_in_docker(
         "docker",
         "run",
         "--rm",
-        *_docker_user_args(),
         "-v",
         f"{repo_root}:/workspace",
         "-w",
@@ -114,21 +175,14 @@ def _run_in_docker(
         "-e",
         f"TA3000_SPARK_RUNTIME_ROOT={_docker_runtime_root()}",
         image,
-        "python",
-        "scripts/run_phase2a_spark_proof.py",
-        "--profile",
-        "local",
-        "--source",
-        _container_path(source),
-        "--output-dir",
-        _container_path(output_dir),
-        "--contracts",
-        contracts,
-        "--spark-master",
-        spark_master,
+        *_docker_exec_args(
+            source=source,
+            output_dir=output_dir,
+            contracts=contracts,
+            spark_master=spark_master,
+            output_json=output_json,
+        ),
     ]
-    if output_json is not None:
-        command.extend(["--output-json", _container_path(output_json)])
 
     completed = subprocess.run(
         command,
