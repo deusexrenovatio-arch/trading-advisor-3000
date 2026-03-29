@@ -214,6 +214,7 @@ def run_package_route(
     *,
     repo_root: Path,
     decision: RouteDecision,
+    route_state_file: Path,
     mode: str,
     profile: str,
     inbox: Path,
@@ -241,6 +242,13 @@ def run_package_route(
 
     active_module = discover_active_module(repo_root)
     if active_module is not None:
+        continue_decision = RouteDecision(
+            route="continue",
+            reason="package intake materialized an active module; governed continuation is now required",
+            package_path=None,
+            module=active_module,
+        )
+        write_route_state(route_state_file, continue_decision)
         print("package_route_outcome: active_module_detected")
         print("next_governed_route: continue")
         print(f"execution_contract: {active_module.execution_contract.as_posix()}")
@@ -371,6 +379,7 @@ def main(argv: list[str] | None = None) -> int:
         return run_package_route(
             repo_root=repo_root,
             decision=decision,
+            route_state_file=route_state_file,
             mode=args.mode,
             profile=args.profile,
             inbox=inbox,

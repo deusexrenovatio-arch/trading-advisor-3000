@@ -15,10 +15,12 @@ from pathlib import Path
 from typing import Any
 
 from codex_phase_policy import (
+    ACCEPTANCE_ROUTE_SIGNAL,
     ACCEPTANCE_BEGIN,
     ACCEPTANCE_END,
     DEFAULT_ACCEPTOR_MODEL,
     DEFAULT_WORKER_MODEL,
+    EXPECTED_WORKER_ROUTE_SIGNALS,
     ROUTE_GUARDRAILS,
     ROUTE_MODE,
     WORKER_BEGIN,
@@ -41,11 +43,12 @@ DEFAULT_ARTIFACT_ROOT = Path("artifacts/codex/orchestration")
 DEFAULT_WORKER_PROMPT = Path("docs/codex/prompts/phases/worker.md")
 DEFAULT_ACCEPTOR_PROMPT = Path("docs/codex/prompts/phases/acceptor.md")
 DEFAULT_REMEDIATION_PROMPT = Path("docs/codex/prompts/phases/remediation.md")
-DEFAULT_IGNORE_GLOBS = (
+ROUTE_OWNED_RUNTIME_GLOBS = (
     ".runlogs/**",
-    "artifacts/**",
+    "artifacts/codex/**",
     "docs/codex/packages/inbox/*.zip",
 )
+DEFAULT_IGNORE_GLOBS = ROUTE_OWNED_RUNTIME_GLOBS
 
 
 class OrchestratorError(RuntimeError):
@@ -323,10 +326,14 @@ def build_worker_prompt(
 ) -> str:
     base = read_text(template_path).rstrip()
     blockers = remediation_blockers_path.as_posix() if remediation_blockers_path else "NONE"
+    runtime_artifacts = "\n".join(f"- {item}" for item in ROUTE_OWNED_RUNTIME_GLOBS)
     return (
         f"{base}\n\n"
         "Route Guardrails:\n"
         f"{route_guardrail_text()}\n\n"
+        "Route-Owned Runtime Artifacts (ignore in unexpected-diff triage):\n"
+        f"{runtime_artifacts}\n"
+        "These files are orchestrator-managed and do not count as worker-owned changes.\n\n"
         f"Execution Contract: {execution_contract_path.as_posix()}\n"
         f"Module Parent Brief: {parent_path.as_posix()}\n"
         f"Phase Brief: {phase_path.as_posix()}\n"
@@ -346,10 +353,14 @@ def build_acceptor_prompt(
     attempt: int,
 ) -> str:
     base = read_text(template_path).rstrip()
+    runtime_artifacts = "\n".join(f"- {item}" for item in ROUTE_OWNED_RUNTIME_GLOBS)
     return (
         f"{base}\n\n"
         "Route Guardrails:\n"
         f"{route_guardrail_text()}\n\n"
+        "Route-Owned Runtime Artifacts (ignore in changed-files review):\n"
+        f"{runtime_artifacts}\n"
+        "Changed-files snapshot already excludes these orchestrator-managed paths.\n\n"
         f"Execution Contract: {execution_contract_path.as_posix()}\n"
         f"Module Parent Brief: {parent_path.as_posix()}\n"
         f"Phase Brief: {phase_path.as_posix()}\n"
@@ -401,6 +412,7 @@ def run_codex_prompt(
         cmd,
         input=prompt,
         text=True,
+        encoding="utf-8",
         cwd=repo_root,
         check=False,
     )
@@ -408,10 +420,13 @@ def run_codex_prompt(
 
 
 def simulate_worker_payload(scenario: str, attempt: int, kind: str) -> dict[str, Any]:
+    route_signal = EXPECTED_WORKER_ROUTE_SIGNALS.get(kind)
+    if not route_signal:
+        raise OrchestratorError(f"unsupported simulated worker kind: {kind}")
     payload = {
         "status": "DONE",
         "summary": f"Simulated {kind} attempt {attempt}.",
-        "route_signal": f"{kind}:attempt-{attempt:02d}",
+        "route_signal": route_signal,
         "files_touched": [],
         "checks_run": [],
         "remaining_risks": [],
@@ -427,7 +442,7 @@ def simulate_worker_payload(scenario: str, attempt: int, kind: str) -> dict[str,
 
 def simulate_acceptance_payload(scenario: str, attempt: int) -> dict[str, Any]:
     payload = {
-        "route_signal": f"acceptance:attempt-{attempt:02d}",
+        "route_signal": ACCEPTANCE_ROUTE_SIGNAL,
         "used_skills": [
             "phase-acceptance-governor",
             "architecture-review",
@@ -516,9 +531,24 @@ def run_role(
     if backend != "codex-cli":
         raise OrchestratorError(f"unsupported backend: {backend}")
 
+    enforced_prompt = prompt_text.rstrip()
+    if role in {"worker", "remediation"}:
+        enforced_prompt += (
+            "\n\nFINAL OUTPUT CONTRACT:\n"
+            f"- End your final response with a valid {WORKER_BEGIN} ... {WORKER_END} JSON block.\n"
+            "- Do not ask follow-up questions instead of returning the marker block.\n"
+        )
+    else:
+        enforced_prompt += (
+            "\n\nFINAL OUTPUT CONTRACT:\n"
+            f"- End your final response with a valid {ACCEPTANCE_BEGIN} ... {ACCEPTANCE_END} JSON block.\n"
+            "- Do not ask follow-up questions instead of returning the marker block.\n"
+        )
+    prompt_path.write_text(enforced_prompt + "\n", encoding="utf-8")
+
     code = run_codex_prompt(
         repo_root=repo_root,
-        prompt=prompt_text,
+        prompt=enforced_prompt,
         launch=launch,
         output_path=output_path,
         codex_bin=codex_bin,
@@ -618,15 +648,15 @@ def orchestrate_current_phase(
             attempt=attempt,
         )
         try:
-            worker_report = normalize_worker_payload(worker_payload)
+            worker_report = normalize_worker_payload(worker_payload, role=kind)
         except ValueError as exc:
             raise OrchestratorError(str(exc)) from exc
         worker_report_path = attempt_dir / f"{kind}-report.json"
         write_json(worker_report_path, asdict(worker_report))
 
-        # When clean-check is skipped, keep attempt-scoped evidence from the worker report
-        # instead of emitting an empty changed-files snapshot that will fail acceptance.
-        changed_files = list(worker_report.files_touched) if skip_clean_check else visible_changes(repo_root, ignore_globs)
+        # Always build the changed-files snapshot from git so acceptance does not rely
+        # on self-reported worker file lists.
+        changed_files = visible_changes(repo_root, ignore_globs)
         changed_files_path = attempt_dir / "changed-files.json"
         write_changed_files(changed_files_path, changed_files)
 

@@ -24,6 +24,13 @@ ROUTE_GUARDRAILS = (
     "no deferred critical work",
     "acceptance requires architecture, test, and docs closure",
 )
+WORKER_ROUTE_SIGNAL = "worker:phase-only"
+REMEDIATION_ROUTE_SIGNAL = "remediation:phase-only"
+ACCEPTANCE_ROUTE_SIGNAL = "acceptance:governed-phase-route"
+EXPECTED_WORKER_ROUTE_SIGNALS = {
+    "worker": WORKER_ROUTE_SIGNAL,
+    "remediation": REMEDIATION_ROUTE_SIGNAL,
+}
 
 
 @dataclass
@@ -96,13 +103,22 @@ def normalize_string_list(value: Any) -> list[str]:
     return out
 
 
-def normalize_worker_payload(payload: dict[str, Any]) -> WorkerReport:
+def normalize_worker_payload(payload: dict[str, Any], *, role: str = "worker") -> WorkerReport:
+    role_key = str(role).strip().lower()
+    expected_route_signal = EXPECTED_WORKER_ROUTE_SIGNALS.get(role_key)
+    if expected_route_signal is None:
+        raise ValueError(f"unsupported worker role for route validation: {role!r}")
     status = str(payload.get("status", "")).strip().upper()
     if status != "DONE":
         raise ValueError(f"worker status must be DONE, got {status!r}")
     route_signal = str(payload.get("route_signal", "")).strip()
     if not route_signal:
         raise ValueError("worker payload missing required `route_signal`")
+    if route_signal != expected_route_signal:
+        raise ValueError(
+            f"{role_key} payload has invalid `route_signal`: "
+            f"expected {expected_route_signal!r}, got {route_signal!r}"
+        )
     return WorkerReport(
         status=status,
         summary=str(payload.get("summary", "")).strip() or "No summary provided.",
@@ -136,6 +152,11 @@ def normalize_acceptance_payload(payload: dict[str, Any]) -> AcceptanceResult:
     route_signal = str(payload.get("route_signal", "")).strip()
     if not route_signal:
         raise ValueError("acceptance payload missing required `route_signal`")
+    if route_signal != ACCEPTANCE_ROUTE_SIGNAL:
+        raise ValueError(
+            "acceptance payload has invalid `route_signal`: "
+            f"expected {ACCEPTANCE_ROUTE_SIGNAL!r}, got {route_signal!r}"
+        )
     used_skills = normalize_string_list(payload.get("used_skills", []))
     if not used_skills:
         raise ValueError("acceptance payload missing required `used_skills`")
