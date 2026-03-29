@@ -14,6 +14,7 @@ from trading_advisor_3000.app.data_plane.schemas import phase2a_delta_schema_man
 
 
 DEFAULT_SPARK_MASTER = "local[2]"
+DEFAULT_SPARK_RUNTIME_ROOT = "/tmp/ta3000-spark-runtime"
 
 
 @dataclass(frozen=True)
@@ -163,9 +164,27 @@ def _load_spark_modules() -> tuple[Any, Any, Any, Any]:
     return SparkSession, Window, F, configure_spark_with_delta_pip
 
 
+def _spark_runtime_dirs() -> dict[str, str]:
+    runtime_root = os.environ.get("TA3000_SPARK_RUNTIME_ROOT", "").strip()
+    if not runtime_root:
+        return {}
+
+    runtime_path = Path(runtime_root)
+    ivy_path = runtime_path / ".ivy2"
+    local_dir_path = runtime_path / "local"
+    ivy_path.mkdir(parents=True, exist_ok=True)
+    local_dir_path.mkdir(parents=True, exist_ok=True)
+    return {
+        "runtime_root": runtime_path.as_posix(),
+        "ivy": ivy_path.as_posix(),
+        "local_dir": local_dir_path.as_posix(),
+    }
+
+
 def _create_spark_session(app_name: str, master: str) -> Any:
     _ensure_java_home()
     spark_session, _, _, configure = _load_spark_modules()
+    runtime_dirs = _spark_runtime_dirs()
     builder = (
         spark_session.builder.master(master)
         .appName(app_name)
@@ -175,6 +194,11 @@ def _create_spark_session(app_name: str, master: str) -> Any:
         .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
         .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
     )
+    if runtime_dirs:
+        builder = (
+            builder.config("spark.jars.ivy", runtime_dirs["ivy"])
+            .config("spark.local.dir", runtime_dirs["local_dir"])
+        )
     return configure(builder).getOrCreate()
 
 

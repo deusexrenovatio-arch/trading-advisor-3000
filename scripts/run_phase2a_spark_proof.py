@@ -14,6 +14,7 @@ DEFAULT_FIXTURE = Path("tests/app/fixtures/data_plane/raw_backfill_sample.jsonl"
 DEFAULT_OUTPUT_DIR = Path(".tmp/phase2a-spark-proof")
 DEFAULT_DOCKER_IMAGE = "ta3000-phase-proof:latest"
 DEFAULT_DOCKERFILE = Path("deployment/docker/phase-proofs/Dockerfile")
+DEFAULT_DOCKER_RUNTIME_ROOT = "/tmp/ta3000-phase-proof"
 
 
 def _parse_contracts(value: str) -> set[str]:
@@ -76,6 +77,10 @@ def _docker_user_args() -> list[str]:
     return ["--user", f"{getuid()}:{getgid()}"]
 
 
+def _docker_runtime_root() -> str:
+    return DEFAULT_DOCKER_RUNTIME_ROOT
+
+
 def _run_in_docker(
     *,
     source: Path,
@@ -104,6 +109,10 @@ def _run_in_docker(
         "/workspace",
         "-e",
         "PYTHONPATH=/workspace/src",
+        "-e",
+        f"HOME={_docker_runtime_root()}",
+        "-e",
+        f"TA3000_SPARK_RUNTIME_ROOT={_docker_runtime_root()}",
         image,
         "python",
         "scripts/run_phase2a_spark_proof.py",
