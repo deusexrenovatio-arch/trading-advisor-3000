@@ -58,7 +58,27 @@ surface_claims:
 
   - id: durable_runtime_state
     status_label: Durable runtime state
-    claim: partial
+    claim: implemented
+    runtime_proof:
+      files_all:
+        - src/trading_advisor_3000/app/runtime/bootstrap.py
+        - src/trading_advisor_3000/app/runtime/signal_store/postgres.py
+      dependencies_any:
+        - psycopg
+      tests_any:
+        - tests/app/integration/test_phase2c_runtime_postgres_store.py
+        - tests/app/unit/test_phase6_runtime_durable_bootstrap.py
+
+  - id: service_api_runtime_surface
+    status_label: Service/API runtime surface
+    claim: implemented
+    runtime_proof:
+      files_all:
+        - src/trading_advisor_3000/app/interfaces/asgi.py
+      dependencies_any:
+        - fastapi
+      tests_any:
+        - tests/app/unit/test_phase6_fastapi_smoke.py
 
   - id: paper_execution_path
     status_label: Paper execution path
@@ -72,7 +92,15 @@ surface_claims:
 
   - id: live_execution_transport_baseline
     status_label: Live execution transport baseline
-    claim: partial
+    claim: implemented
+    runtime_proof:
+      files_all:
+        - src/trading_advisor_3000/app/execution/adapters/stocksharp_http_transport.py
+        - deployment/stocksharp-sidecar/src/TradingAdvisor3000.StockSharpSidecar/Program.cs
+        - scripts/smoke_stocksharp_sidecar_binary.py
+      tests_any:
+        - tests/app/unit/test_real_execution_http_transport.py
+        - tests/app/unit/test_phase8_dotnet_sidecar_assets.py
 
   - id: real_broker_process
     status_label: StockSharp/QUIK/Finam real broker process
@@ -169,9 +197,17 @@ technology_claims:
 
   - id: fastapi
     display_name: FastAPI
-    claim: planned
+    claim: implemented
     spec_markers_any:
       - "| FastAPI | service/API layer | chosen"
+    runtime_proof:
+      dependencies_any:
+        - fastapi
+      entrypoints_any:
+        - src/trading_advisor_3000/app/interfaces/asgi.py
+        - src/trading_advisor_3000/app/interfaces/http_api.py
+      tests_any:
+        - tests/app/unit/test_phase6_fastapi_smoke.py
 
   - id: aiogram
     display_name: aiogram
@@ -193,9 +229,18 @@ technology_claims:
 
   - id: dotnet_sidecar
     display_name: .NET 8
-    claim: planned
+    claim: implemented
     spec_markers_any:
       - "| .NET 8 | execution sidecar runtime | chosen"
+    runtime_proof:
+      files_all:
+        - deployment/stocksharp-sidecar/TradingAdvisor3000.StockSharpSidecar.sln
+        - deployment/stocksharp-sidecar/src/TradingAdvisor3000.StockSharpSidecar/TradingAdvisor3000.StockSharpSidecar.csproj
+        - deployment/stocksharp-sidecar/tests/TradingAdvisor3000.StockSharpSidecar.Tests/TradingAdvisor3000.StockSharpSidecar.Tests.csproj
+        - deployment/stocksharp-sidecar/scripts/prove.ps1
+        - scripts/smoke_stocksharp_sidecar_binary.py
+      tests_any:
+        - tests/app/unit/test_phase8_dotnet_sidecar_assets.py
 
   - id: stocksharp
     display_name: StockSharp

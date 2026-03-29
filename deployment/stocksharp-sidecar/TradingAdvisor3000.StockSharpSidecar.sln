@@ -1,0 +1,27 @@
+﻿Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TradingAdvisor3000.StockSharpSidecar", "src\\TradingAdvisor3000.StockSharpSidecar\\TradingAdvisor3000.StockSharpSidecar.csproj", "{A0F78E2D-5D6E-4E27-B720-6F4A89B97A18}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TradingAdvisor3000.StockSharpSidecar.Tests", "tests\\TradingAdvisor3000.StockSharpSidecar.Tests\\TradingAdvisor3000.StockSharpSidecar.Tests.csproj", "{B1E70C63-8B7E-4EC2-95C4-2F7D1D4A5B56}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A0F78E2D-5D6E-4E27-B720-6F4A89B97A18}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A0F78E2D-5D6E-4E27-B720-6F4A89B97A18}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A0F78E2D-5D6E-4E27-B720-6F4A89B97A18}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A0F78E2D-5D6E-4E27-B720-6F4A89B97A18}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B1E70C63-8B7E-4EC2-95C4-2F7D1D4A5B56}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B1E70C63-8B7E-4EC2-95C4-2F7D1D4A5B56}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B1E70C63-8B7E-4EC2-95C4-2F7D1D4A5B56}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B1E70C63-8B7E-4EC2-95C4-2F7D1D4A5B56}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
