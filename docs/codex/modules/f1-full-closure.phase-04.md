@@ -57,6 +57,24 @@ Updated: 2026-03-30 10:08 UTC
 - The proof chain is replayed in governed automation, not only locally.
 - `E1` no longer depends on ad-hoc evidence.
 
+## Release Gate Impact
+
+- Surface Transition: `E1` evidence debt `ad-hoc -> immutable governed proof`
+- Minimum Proof Class: staging-real
+- Accepted State Label: real_contour_closed
+
+## Release Surface Ownership
+
+- Owned Surfaces: sidecar_immutable_evidence
+- Delivered Proof Class: staging-real
+- Required Real Bindings: compiled sidecar artifact set, governed replay environment, and immutable artifact hashes
+- Target Downgrade Is Forbidden: yes
+
+## What This Phase Does Not Prove
+
+- Release readiness: this phase does not prove `ALLOW_RELEASE_READINESS`.
+- Live contour closure: this phase does not prove a real broker connector or production rollout.
+
 ## Rollback Note
 
 - Revert any hardened evidence claim if it cannot be reproduced from clean checkout with the recorded artifacts.

@@ -61,6 +61,24 @@ Updated: 2026-03-30 10:08 UTC
 - Telegram closure no longer contradicts runtime reality, spec, registry, or route history.
 - Negative tests prove that ghost chosen states are rejected.
 
+## Release Gate Impact
+
+- Surface Transition: `R2/S1` ghost-state model `ambiguous -> terminal`
+- Minimum Proof Class: live-real
+- Accepted State Label: real_contour_closed
+
+## Release Surface Ownership
+
+- Owned Surfaces: replaceable_stack_alignment, publication_chat_contour
+- Delivered Proof Class: live-real
+- Required Real Bindings: configured real publication chat/channel, real publication credentials, and replayable publication evidence
+- Target Downgrade Is Forbidden: yes
+
+## What This Phase Does Not Prove
+
+- Release readiness: this phase does not prove `ALLOW_RELEASE_READINESS`.
+- Live contour closure: this phase does not prove a real configured production chat/channel or a real broker rollout contour.
+
 ## Rollback Note
 
 - Revert any terminal-state claim that lacks aligned runtime, registry, doc, and ADR evidence.

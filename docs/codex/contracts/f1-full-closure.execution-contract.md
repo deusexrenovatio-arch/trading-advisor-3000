@@ -35,6 +35,29 @@ Updated: 2026-03-30 10:08 UTC
 
 - Convert the F1 acceptance and full-closure package into an explicit governed follow-on module that closes release blockers phase by phase instead of collapsing governance repair, stack cleanup, contract hardening, broker closure, and final readiness into one implementation burst.
 
+## Release Target Contract
+
+- Target Decision: ALLOW_RELEASE_READINESS
+- Target Environment: real production contour with live data, configured publication chat, real broker process, governed secrets/config, and immutable release artifacts
+- Forbidden Proof Substitutes: docs-only, schema-only, fixture-only, mock-only, stub-only, smoke-only, staging-only, route-report-only
+- Release-Ready Proof Class: live-real
+
+## Mandatory Real Contours
+
+- publication_chat_contour: configured real publication chat/channel with real credentials, real message lifecycle, and replayable evidence
+- broker_execution_contour: real broker connector contour with real config/secrets, executable order lifecycle, and governed failure-mode proof
+- production_live_readiness: integrated live-real readiness bundle proving the live data, publication, broker, and operational contours together
+
+## Release Surface Matrix
+
+- Surface: truth_source_and_validator_integrity | Owner Phase: F1-A | Required Proof Class: doc | Must Reach: aligned_truth_source
+- Surface: replaceable_stack_alignment | Owner Phase: F1-B | Required Proof Class: integration | Must Reach: terminal_non_ghost_state
+- Surface: publication_chat_contour | Owner Phase: F1-B | Required Proof Class: live-real | Must Reach: real_configured_chat
+- Surface: contracts_freeze | Owner Phase: F1-C | Required Proof Class: integration | Must Reach: versioned_release_blocking_boundaries
+- Surface: sidecar_immutable_evidence | Owner Phase: F1-D | Required Proof Class: staging-real | Must Reach: immutable_replayable_sidecar_proof
+- Surface: broker_execution_contour | Owner Phase: F1-E | Required Proof Class: staging-real | Must Reach: real_broker_connector_contour
+- Surface: production_live_readiness | Owner Phase: F1-F | Required Proof Class: live-real | Must Reach: integrated_release_decision_bundle
+
 ## In Scope
 
 - One canonical execution contract under `docs/codex/contracts/`.

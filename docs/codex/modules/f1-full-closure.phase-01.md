@@ -63,6 +63,24 @@ Updated: 2026-03-30 10:08 UTC
 - The stack-conformance validator and tests fail closed on the newly covered claim surfaces.
 - Acceptance-report level overclaims are blocked by deterministic checks.
 
+## Release Gate Impact
+
+- Surface Transition: truth-source integrity contradictions `reopened -> aligned`
+- Minimum Proof Class: doc
+- Accepted State Label: prep_closed
+
+## Release Surface Ownership
+
+- Owned Surfaces: truth_source_and_validator_integrity
+- Delivered Proof Class: doc
+- Required Real Bindings: none
+- Target Downgrade Is Forbidden: yes
+
+## What This Phase Does Not Prove
+
+- Release readiness: this phase does not prove `ALLOW_RELEASE_READINESS`.
+- Live contour closure: this phase does not prove real data, real publication chat, or real broker readiness.
+
 ## Rollback Note
 
 - Revert the validator expansion and truth-source wording together if the phase broadens scope without restoring mutually consistent evidence.

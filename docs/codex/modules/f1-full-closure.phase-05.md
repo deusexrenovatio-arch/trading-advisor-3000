@@ -58,6 +58,24 @@ Updated: 2026-03-30 10:08 UTC
 - The config and secrets contract is versioned and documented.
 - Recovery and failure semantics are executable rather than narrative-only.
 
+## Release Gate Impact
+
+- Surface Transition: `real_broker_process` `planned -> implemented`
+- Minimum Proof Class: staging-real
+- Accepted State Label: real_contour_closed
+
+## Release Surface Ownership
+
+- Owned Surfaces: broker_execution_contour
+- Delivered Proof Class: staging-real
+- Required Real Bindings: real broker connector contour, real connector configuration and secrets, and replayable staging-real broker proof
+- Target Downgrade Is Forbidden: yes
+
+## What This Phase Does Not Prove
+
+- Release readiness: this phase does not prove `ALLOW_RELEASE_READINESS`.
+- Production-wide closure: this phase does not prove broad production rollout beyond the agreed broker contour.
+
 ## Rollback Note
 
 - Revert any broker readiness claim immediately if the proof contour depends on stubs, hidden credentials, or unreplayed local state.

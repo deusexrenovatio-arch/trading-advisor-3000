@@ -61,6 +61,24 @@ Updated: 2026-03-30 10:08 UTC
 - Compatibility rules are explicit and enforced by tests.
 - The truth-source bundle no longer describes `contracts_freeze` as partial.
 
+## Release Gate Impact
+
+- Surface Transition: `contracts_freeze` `partial -> implemented`
+- Minimum Proof Class: integration
+- Accepted State Label: prep_closed
+
+## Release Surface Ownership
+
+- Owned Surfaces: contracts_freeze
+- Delivered Proof Class: integration
+- Required Real Bindings: none
+- Target Downgrade Is Forbidden: yes
+
+## What This Phase Does Not Prove
+
+- Release readiness: this phase does not prove `ALLOW_RELEASE_READINESS`.
+- Live contour closure: this phase does not prove that every release-blocking boundary has been exercised against a real live contour.
+
 ## Rollback Note
 
 - Revert any new contract claim that cannot be backed by schema, fixture, and regression tests together.

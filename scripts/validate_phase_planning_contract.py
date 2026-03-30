@@ -8,14 +8,15 @@ from pathlib import Path
 
 REMEDIATION_DOC = "docs/runbooks/governance-remediation.md"
 EXECUTION_CONTRACT_HEADING = "## Release Target Contract"
+MANDATORY_REAL_CONTOURS_HEADING = "## Mandatory Real Contours"
+RELEASE_SURFACE_MATRIX_HEADING = "## Release Surface Matrix"
 PHASE_IMPACT_HEADING = "## Release Gate Impact"
+PHASE_OWNERSHIP_HEADING = "## Release Surface Ownership"
 PHASE_LIMITS_HEADING = "## What This Phase Does Not Prove"
 EXECUTION_CONTRACT_PREFIXES = (
     "- target decision:",
     "- target environment:",
-    "- mandatory real contours:",
     "- forbidden proof substitutes:",
-    "- release-blocking surfaces:",
     "- release-ready proof class:",
 )
 PHASE_IMPACT_PREFIXES = (
@@ -23,8 +24,15 @@ PHASE_IMPACT_PREFIXES = (
     "- minimum proof class:",
     "- accepted state label:",
 )
+PHASE_OWNERSHIP_PREFIXES = (
+    "- owned surfaces:",
+    "- delivered proof class:",
+    "- required real bindings:",
+    "- target downgrade is forbidden:",
+)
 ALLOWED_PROOF_CLASSES = {"doc", "schema", "unit", "integration", "staging-real", "live-real"}
 ALLOWED_ACCEPTED_STATE_LABELS = {"prep_closed", "real_contour_closed", "release_decision"}
+REAL_PROOF_CLASSES = {"staging-real", "live-real"}
 
 
 def _normalize_changed_files(paths: list[str]) -> list[str]:
@@ -102,6 +110,57 @@ def _extract_prefixed_value(section_lines: list[str], prefix: str) -> str | None
     return None
 
 
+def _bullet_values(section_lines: list[str]) -> list[str]:
+    values: list[str] = []
+    for raw in section_lines:
+        stripped = raw.strip()
+        if stripped.startswith("- "):
+            values.append(stripped[2:].strip())
+    return values
+
+
+def _slug_from_execution_contract(path: Path) -> str | None:
+    suffix = ".execution-contract.md"
+    if not path.name.endswith(suffix):
+        return None
+    return path.name[: -len(suffix)]
+
+
+def _slug_from_phase_brief(path: Path) -> str | None:
+    marker = ".phase-"
+    if marker not in path.name:
+        return None
+    return path.name.split(marker, 1)[0]
+
+
+def _phase_name_short(path: Path) -> str | None:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    phase_section = _section_lines(lines, "## Phase")
+    phase_name = _extract_prefixed_value(phase_section, "- name:")
+    if not phase_name:
+        return None
+    return phase_name.split(" -", 1)[0].strip()
+
+
+def _phase_artifacts_for_contract(path: Path) -> list[Path]:
+    slug = _slug_from_execution_contract(path)
+    if not slug:
+        return []
+    modules_root = path.resolve().parents[1] / "modules"
+    return sorted(modules_root.glob(f"{slug}.phase-*.md"))
+
+
+def _execution_contract_for_phase(path: Path) -> Path | None:
+    slug = _slug_from_phase_brief(path)
+    if not slug:
+        return None
+    contracts_root = path.resolve().parents[1] / "contracts"
+    candidate = contracts_root / f"{slug}.execution-contract.md"
+    if candidate.exists():
+        return candidate
+    return None
+
+
 def _relevant_planning_files(repo_root: Path, changed_files: list[str], validate_all: bool) -> list[Path]:
     candidates: list[Path] = []
     if validate_all:
@@ -126,6 +185,8 @@ def _relevant_planning_files(repo_root: Path, changed_files: list[str], validate
 def _validate_execution_contract(path: Path, errors: list[str]) -> None:
     lines = path.read_text(encoding="utf-8").splitlines()
     section = _section_lines(lines, EXECUTION_CONTRACT_HEADING)
+    contours_section = _section_lines(lines, MANDATORY_REAL_CONTOURS_HEADING)
+    matrix_section = _section_lines(lines, RELEASE_SURFACE_MATRIX_HEADING)
     if not section:
         errors.append(f"{path.as_posix()}: missing section `{EXECUTION_CONTRACT_HEADING}`")
         return
@@ -138,15 +199,68 @@ def _validate_execution_contract(path: Path, errors: list[str]) -> None:
         errors.append(
             f"{path.as_posix()}: `ALLOW_RELEASE_READINESS` target must use `live-real` release-ready proof class"
         )
+    if not contours_section:
+        errors.append(f"{path.as_posix()}: missing section `{MANDATORY_REAL_CONTOURS_HEADING}`")
+    if not matrix_section:
+        errors.append(f"{path.as_posix()}: missing section `{RELEASE_SURFACE_MATRIX_HEADING}`")
+
+
+def _parse_contour_map(path: Path, errors: list[str]) -> dict[str, str]:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    contours_section = _section_lines(lines, MANDATORY_REAL_CONTOURS_HEADING)
+    contours: dict[str, str] = {}
+    for raw in _bullet_values(contours_section):
+        if ":" not in raw:
+            errors.append(f"{path.as_posix()}: invalid mandatory real contour row `{raw}`")
+            continue
+        key, value = raw.split(":", 1)
+        contour_id = key.strip().lower()
+        contour_desc = value.strip()
+        if not contour_id or not contour_desc:
+            errors.append(f"{path.as_posix()}: invalid mandatory real contour row `{raw}`")
+            continue
+        contours[contour_id] = contour_desc
+    if not contours:
+        errors.append(f"{path.as_posix()}: `{MANDATORY_REAL_CONTOURS_HEADING}` must contain at least one bullet")
+    return contours
+
+
+def _parse_surface_matrix(path: Path, errors: list[str]) -> dict[str, dict[str, str]]:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    matrix_section = _section_lines(lines, RELEASE_SURFACE_MATRIX_HEADING)
+    surfaces: dict[str, dict[str, str]] = {}
+    for raw in _bullet_values(matrix_section):
+        parts = [item.strip() for item in raw.split("|")]
+        row: dict[str, str] = {}
+        for part in parts:
+            if ":" not in part:
+                continue
+            key, value = part.split(":", 1)
+            row[key.strip().lower()] = value.strip()
+        surface_id = row.get("surface", "").strip().lower()
+        if not surface_id:
+            errors.append(f"{path.as_posix()}: invalid release surface row `{raw}`")
+            continue
+        if surface_id in surfaces:
+            errors.append(f"{path.as_posix()}: duplicate release surface `{surface_id}`")
+            continue
+        surfaces[surface_id] = row
+    if not surfaces:
+        errors.append(f"{path.as_posix()}: `{RELEASE_SURFACE_MATRIX_HEADING}` must contain at least one bullet")
+    return surfaces
 
 
 def _validate_phase_brief(path: Path, errors: list[str]) -> None:
     lines = path.read_text(encoding="utf-8").splitlines()
     impact_section = _section_lines(lines, PHASE_IMPACT_HEADING)
+    ownership_section = _section_lines(lines, PHASE_OWNERSHIP_HEADING)
     limits_section = _section_lines(lines, PHASE_LIMITS_HEADING)
 
     if not impact_section:
         errors.append(f"{path.as_posix()}: missing section `{PHASE_IMPACT_HEADING}`")
+        return
+    if not ownership_section:
+        errors.append(f"{path.as_posix()}: missing section `{PHASE_OWNERSHIP_HEADING}`")
         return
     if not limits_section:
         errors.append(f"{path.as_posix()}: missing section `{PHASE_LIMITS_HEADING}`")
@@ -154,6 +268,8 @@ def _validate_phase_brief(path: Path, errors: list[str]) -> None:
 
     for prefix in _missing_prefixes(impact_section, PHASE_IMPACT_PREFIXES):
         errors.append(f"{path.as_posix()}: missing phase-planning item `{prefix}`")
+    for prefix in _missing_prefixes(ownership_section, PHASE_OWNERSHIP_PREFIXES):
+        errors.append(f"{path.as_posix()}: missing phase-ownership item `{prefix}`")
 
     minimum_proof_class = (_extract_prefixed_value(impact_section, "- minimum proof class:") or "").strip().lower()
     accepted_state_label = (_extract_prefixed_value(impact_section, "- accepted state label:") or "").strip().lower()
@@ -182,6 +298,117 @@ def _validate_phase_brief(path: Path, errors: list[str]) -> None:
         )
 
 
+def _parse_phase_ownership(path: Path, errors: list[str]) -> dict[str, object]:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    impact_section = _section_lines(lines, PHASE_IMPACT_HEADING)
+    ownership_section = _section_lines(lines, PHASE_OWNERSHIP_HEADING)
+    minimum_proof_class = (_extract_prefixed_value(impact_section, "- minimum proof class:") or "").strip().lower()
+    accepted_state_label = (_extract_prefixed_value(impact_section, "- accepted state label:") or "").strip().lower()
+    owned_surfaces_raw = (_extract_prefixed_value(ownership_section, "- owned surfaces:") or "").strip()
+    delivered_proof_class = (_extract_prefixed_value(ownership_section, "- delivered proof class:") or "").strip().lower()
+    real_bindings = (_extract_prefixed_value(ownership_section, "- required real bindings:") or "").strip().lower()
+    downgrade_forbidden = (_extract_prefixed_value(ownership_section, "- target downgrade is forbidden:") or "").strip().lower()
+    owned_surfaces = [
+        item.strip().lower()
+        for item in owned_surfaces_raw.split(",")
+        if item.strip()
+    ]
+    return {
+        "phase_id": (_phase_name_short(path) or "").strip().lower(),
+        "path": path,
+        "minimum_proof_class": minimum_proof_class,
+        "accepted_state_label": accepted_state_label,
+        "owned_surfaces": owned_surfaces,
+        "delivered_proof_class": delivered_proof_class,
+        "required_real_bindings": real_bindings,
+        "target_downgrade_forbidden": downgrade_forbidden,
+    }
+
+
+def _proof_rank(value: str) -> int:
+    order = ["doc", "schema", "unit", "integration", "staging-real", "live-real"]
+    try:
+        return order.index(value)
+    except ValueError:
+        return -1
+
+
+def _cross_validate_release_plan(execution_contract: Path, errors: list[str]) -> None:
+    contours = _parse_contour_map(execution_contract, errors)
+    matrix = _parse_surface_matrix(execution_contract, errors)
+    phase_files = _phase_artifacts_for_contract(execution_contract)
+    if not phase_files:
+        errors.append(f"{execution_contract.as_posix()}: no phase briefs found for execution contract")
+        return
+    phase_rows = [_parse_phase_ownership(path, errors) for path in phase_files]
+    phase_by_id = {
+        str(row["phase_id"]): row
+        for row in phase_rows
+        if str(row["phase_id"])
+    }
+
+    owner_seen: dict[str, str] = {}
+    for surface_id, row in matrix.items():
+        owner_phase = str(row.get("owner phase", "")).strip().lower()
+        required_proof_class = str(row.get("required proof class", "")).strip().lower()
+        if owner_phase in owner_seen.values():
+            pass
+        if owner_phase not in phase_by_id:
+            errors.append(
+                f"{execution_contract.as_posix()}: surface `{surface_id}` points to unknown owner phase `{owner_phase}`"
+            )
+            continue
+        phase_row = phase_by_id[owner_phase]
+        if surface_id not in phase_row["owned_surfaces"]:
+            errors.append(
+                f"{phase_row['path'].as_posix()}: phase does not declare owned surface `{surface_id}` from the matrix"
+            )
+        if required_proof_class not in ALLOWED_PROOF_CLASSES:
+            errors.append(
+                f"{execution_contract.as_posix()}: surface `{surface_id}` uses invalid required proof class `{required_proof_class}`"
+            )
+        if _proof_rank(str(phase_row["delivered_proof_class"])) < _proof_rank(required_proof_class):
+            errors.append(
+                f"{phase_row['path'].as_posix()}: delivered proof class `{phase_row['delivered_proof_class']}` "
+                f"is weaker than matrix requirement `{required_proof_class}` for `{surface_id}`"
+            )
+        if required_proof_class in REAL_PROOF_CLASSES and phase_row["accepted_state_label"] == "prep_closed":
+            errors.append(
+                f"{phase_row['path'].as_posix()}: real contour `{surface_id}` cannot be owned by a `prep_closed` phase"
+            )
+        if required_proof_class in REAL_PROOF_CLASSES and phase_row["required_real_bindings"] in {"", "none"}:
+            errors.append(
+                f"{phase_row['path'].as_posix()}: real contour `{surface_id}` must declare explicit real bindings"
+            )
+        owner_seen[surface_id] = owner_phase
+
+    for contour_id in contours:
+        if contour_id not in matrix:
+            errors.append(
+                f"{execution_contract.as_posix()}: mandatory real contour `{contour_id}` is missing from the release surface matrix"
+            )
+            continue
+        row = matrix[contour_id]
+        required_proof_class = str(row.get("required proof class", "")).strip().lower()
+        owner_phase = str(row.get("owner phase", "")).strip().lower()
+        phase_row = phase_by_id.get(owner_phase)
+        if required_proof_class not in REAL_PROOF_CLASSES:
+            errors.append(
+                f"{execution_contract.as_posix()}: mandatory real contour `{contour_id}` must require `staging-real` or `live-real` proof"
+            )
+        if phase_row and phase_row["accepted_state_label"] == "prep_closed":
+            errors.append(
+                f"{phase_row['path'].as_posix()}: mandatory real contour `{contour_id}` cannot terminate as `prep_closed`"
+            )
+
+    for row in phase_rows:
+        for surface_id in row["owned_surfaces"]:
+            if surface_id not in matrix:
+                errors.append(
+                    f"{row['path'].as_posix()}: phase claims unknown owned surface `{surface_id}`"
+                )
+
+
 def run(
     repo_root: Path,
     *,
@@ -202,11 +429,19 @@ def run(
         return 0
 
     errors: list[str] = []
+    execution_contracts: list[Path] = []
     for path in planning_files:
         if path.name.endswith(".execution-contract.md"):
             _validate_execution_contract(path, errors)
+            execution_contracts.append(path)
         elif ".phase-" in path.name:
             _validate_phase_brief(path, errors)
+            execution_contract = _execution_contract_for_phase(path)
+            if execution_contract and execution_contract not in execution_contracts:
+                execution_contracts.append(execution_contract)
+
+    for execution_contract in execution_contracts:
+        _cross_validate_release_plan(execution_contract, errors)
 
     if errors:
         print("phase planning contract validation failed:")

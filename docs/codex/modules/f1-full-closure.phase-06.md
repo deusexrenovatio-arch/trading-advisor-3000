@@ -61,6 +61,24 @@ Updated: 2026-03-30 10:08 UTC
 - The package emits an explicit `ALLOW_RELEASE_READINESS` or `DENY_RELEASE_READINESS` verdict with no overclaiming language.
 - The final decision is reproducible from the truth-source and artifact bundle.
 
+## Release Gate Impact
+
+- Surface Transition: release decision state `absent -> explicit allow_or_deny`
+- Minimum Proof Class: live-real
+- Accepted State Label: release_decision
+
+## Release Surface Ownership
+
+- Owned Surfaces: production_live_readiness
+- Delivered Proof Class: live-real
+- Required Real Bindings: live data contour, configured real publication chat/channel, real broker execution contour, release checklist, runbooks, red-team output, and immutable artifact bundle
+- Target Downgrade Is Forbidden: yes
+
+## What This Phase Does Not Prove
+
+- Release readiness: this phase does not replace upstream implementation and evidence; if any prerequisite is weak, only `DENY` is legal.
+- Missing contour closure: this phase does not prove a missing real contour retroactively if earlier phases failed to land it.
+
 ## Rollback Note
 
 - Revoke any `ALLOW_RELEASE_READINESS` outcome immediately if one prerequisite surface falls back to `planned`, `partial`, `not accepted`, or unsupported evidence.
