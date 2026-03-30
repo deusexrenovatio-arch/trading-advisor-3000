@@ -80,6 +80,23 @@ def test_scope_validate_command_uses_stdin_for_task_outcomes() -> None:
     assert "scripts/codex_governed_entry.py" in scoped.stdin_text
 
 
+def test_scope_validate_command_uses_stdin_for_phase_planning_contract() -> None:
+    scoped = scope_validate_command(
+        f"{sys.executable} scripts/validate_phase_planning_contract.py",
+        base_sha=None,
+        head_sha=None,
+        changed_files=[
+            "docs/codex/contracts/f1-full-closure.execution-contract.md",
+            "docs/codex/modules/f1-full-closure.phase-01.md",
+        ],
+    )
+
+    assert isinstance(scoped, CommandSpec)
+    assert "--stdin" in scoped.command
+    assert scoped.stdin_text is not None
+    assert "docs/codex/contracts/f1-full-closure.execution-contract.md" in scoped.stdin_text
+
+
 def test_loop_gate_handles_large_scope_from_stdin() -> None:
     changed_files = "\n".join(
         [

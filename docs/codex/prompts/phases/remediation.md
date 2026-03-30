@@ -13,6 +13,7 @@ Read first:
 9. the current phase brief
 10. the latest acceptance blockers
 11. `docs/codex/orchestration/acceptance-contract.md`
+12. `docs/checklists/phase-evidence-contract.md`
 
 Rules:
 
@@ -22,10 +23,11 @@ Rules:
 - Do not declare acceptance complete.
 - Do not silently introduce assumptions, fallback paths, skipped checks, or deferred critical work.
 - If any assumption, skip, fallback, or deferral exists, report it explicitly. Acceptance will treat it as a blocker.
+- Include the bounded `evidence_contract` object from `docs/checklists/phase-evidence-contract.md`.
 - Make the route explicit so the operator can see that remediation happened inside the governed route.
 
 Return a short human summary and finish with this exact marker block:
 
 BEGIN_PHASE_WORKER_JSON
-{"status":"DONE","summary":"...","route_signal":"remediation:phase-only","files_touched":["..."],"checks_run":["..."],"remaining_risks":["..."],"assumptions":[],"skips":[],"fallbacks":[],"deferred_work":[]}
+{"status":"DONE","summary":"...","route_signal":"remediation:phase-only","files_touched":["..."],"checks_run":["..."],"remaining_risks":["..."],"assumptions":[],"skips":[],"fallbacks":[],"deferred_work":[],"evidence_contract":{"surfaces":["..."],"proof_class":"doc|schema|unit|integration|staging-real|live-real","artifact_paths":["..."],"checks":["..."],"real_bindings":["..."]}}
 END_PHASE_WORKER_JSON

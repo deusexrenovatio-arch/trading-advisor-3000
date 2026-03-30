@@ -29,6 +29,7 @@ The operator wants automatic progression only after an independent acceptance pa
 ## Acceptance contract
 
 - Human-readable contract: `docs/codex/orchestration/acceptance-contract.md`
+- Bounded worker evidence contract: `docs/checklists/phase-evidence-contract.md`
 - Hard review lens skill: `.cursor/skills/phase-acceptance-governor/SKILL.md`
 - Companion skills:
   - `.cursor/skills/architecture-review/SKILL.md`

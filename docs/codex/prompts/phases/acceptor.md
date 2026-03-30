@@ -14,10 +14,11 @@ Read first:
 10. the worker report
 11. the changed-files snapshot
 12. `docs/codex/orchestration/acceptance-contract.md`
-13. `.cursor/skills/phase-acceptance-governor/SKILL.md`
-14. `.cursor/skills/architecture-review/SKILL.md`
-15. `.cursor/skills/testing-suite/SKILL.md`
-16. `.cursor/skills/docs-sync/SKILL.md`
+13. `docs/checklists/phase-evidence-contract.md`
+14. `.cursor/skills/phase-acceptance-governor/SKILL.md`
+15. `.cursor/skills/architecture-review/SKILL.md`
+16. `.cursor/skills/testing-suite/SKILL.md`
+17. `.cursor/skills/docs-sync/SKILL.md`
 
 Review rules:
 
@@ -35,6 +36,11 @@ Review rules:
   - required unit/integration/contract coverage for the changed behavior,
   - the tests were actually executed, not only listed,
   - no acceptance based only on smoke or sample artifacts when stronger contour evidence is expected.
+- Treat the bounded worker evidence contract as mandatory:
+  - owned surfaces must be listed,
+  - proof class must be explicit and strong enough,
+  - artifact paths and executed checks must be present,
+  - real bindings must be present when the phase requires them.
 - Treat documentation coverage as mandatory when docs, contracts, runbooks, or operator behavior changed:
   - required docs must be updated,
   - instructions must match the actual implementation,
