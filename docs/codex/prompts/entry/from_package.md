@@ -25,6 +25,20 @@ Execution preferences:
 - Keep `docs/session_handoff.md` as a lightweight pointer shim.
 - Use canonical gate names only.
 - If the selected source document declares an explicit phase/module rollout, first materialize the canonical execution contract and phase briefs under `docs/codex/contracts/` and `docs/codex/modules/`.
+- If `Suggested phase compiler artifact` is not `NONE`, treat it as the deterministic phase IR for the suggested primary document.
+- Do not merge, rename, reorder, or soften source phases when a deterministic phase IR is present.
+- Preserve source phase ids, objectives, acceptance gates, and disprovers unless the package is explicitly classified as repairable.
+- Before accepting that phase plan, bind a `## Release Target Contract` in the execution contract.
+- Add `## Mandatory Real Contours` with one bullet per contour that must become real before final allow.
+- Add `## Release Surface Matrix` and make every mandatory contour owned by exactly one phase.
+- Every phase brief must include `## Release Gate Impact` and `## What This Phase Does Not Prove`.
+- Every phase brief must include `## Release Surface Ownership`.
+- Use accepted-state labels honestly:
+  - `prep_closed`
+  - `real_contour_closed`
+  - `release_decision`
+- If a mandatory real contour is owned only by a `prep_closed` phase, the plan is invalid.
+- Do not let a docs/schema/mock/stub/smoke phase read as release readiness when the target decision requires `live-real` proof.
 - For such phase-driven packages, stop after module-path normalization and phase planning; do not collapse multiple declared phases into one package-run implementation patch.
 - After intake, continue the normal execution-contract and loop-gate flow.
 
@@ -34,4 +48,5 @@ Package zip path: <ABSOLUTE_OR_REPO_RELATIVE_PATH>
 Extracted package root: <ABSOLUTE_OR_REPO_RELATIVE_PATH>
 Package manifest path: <ABSOLUTE_OR_REPO_RELATIVE_PATH>
 Suggested primary document: <ABSOLUTE_OR_REPO_RELATIVE_PATH_OR_NONE>
+Suggested phase compiler artifact: <ABSOLUTE_OR_REPO_RELATIVE_PATH_OR_NONE>
 Mode hint: <auto|plan-only|implement-only|continue|repair>

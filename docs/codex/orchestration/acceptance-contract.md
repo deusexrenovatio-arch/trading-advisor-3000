@@ -6,6 +6,16 @@ Define what phase acceptance means in this repository.
 Acceptance is not a stylistic review.
 It is the hard unblock decision for phase progression.
 
+## Evidence Contract
+- Use the bounded worker evidence contract from `docs/checklists/phase-evidence-contract.md`.
+- Acceptance is not allowed to rely only on prose, summaries, or route telemetry when the phase claims progress on one or more owned surfaces.
+- The worker evidence contract is intentionally small:
+  - `surfaces`
+  - `proof_class`
+  - `artifact_paths`
+  - `checks`
+  - `real_bindings`
+
 ## Hard Rules
 The acceptor must block the phase when any of these are true:
 
@@ -14,8 +24,9 @@ The acceptor must block the phase when any of these are true:
 3. A material implementation assumption remains unresolved.
 4. Critical work was deferred without an explicit contract decision.
 5. Evidence is declared but not actually shown or executed.
-6. Documentation drift remains in any required layer.
-7. The solution is a local patch-up instead of a sound architectural fit.
+6. The bounded worker evidence contract is missing, incomplete, or weaker than the phase brief requires.
+7. Documentation drift remains in any required layer.
+8. The solution is a local patch-up instead of a sound architectural fit.
 
 ## Required Acceptance Dimensions
 Every phase verdict must cover all of these:
@@ -35,22 +46,34 @@ Every phase verdict must cover all of these:
 - Required tests were run.
 - Negative or fail-closed paths are covered where the phase contract expects them.
 
-4. Documentation Coverage
+4. Evidence Contract Integrity
+- Owned surfaces are named explicitly in worker evidence.
+- Proof class is explicit and not weaker than the phase brief requires.
+- Artifact paths and executed checks are present.
+- Real bindings are explicit when the phase requires real systems or channels.
+
+5. Documentation Coverage
 - Operator docs are current.
 - Relevant test-case or user-case docs are current.
 - Architecture/governance docs are current when the change surface affects them.
 
-5. Architecture Fit
+6. Architecture Fit
 - Boundaries stay intact.
 - Dependency direction remains acceptable.
 - The result scales as part of the intended system shape.
 
-6. Traceability
+7. Traceability
 - The phase objective is fully closed.
 - Done evidence is real, not narrative-only.
 
 ## PASS Criteria
 Return `PASS` only when the current phase is closed enough to unlock the next phase with no open blockers in the dimensions above.
+
+Phase `PASS` does not automatically mean release readiness.
+The acceptor must respect the phase brief's accepted-state label:
+- `prep_closed` = local prerequisite closure only;
+- `real_contour_closed` = real contour closure for the owned surface only;
+- `release_decision` = only this class may emit the final `ALLOW_RELEASE_READINESS` or `DENY`.
 
 ## BLOCKED Criteria
 Return `BLOCKED` when the current phase needs remediation, clarification, or a contract change before progression.

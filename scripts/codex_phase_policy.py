@@ -10,6 +10,9 @@ WORKER_BEGIN = "BEGIN_PHASE_WORKER_JSON"
 WORKER_END = "END_PHASE_WORKER_JSON"
 ACCEPTANCE_BEGIN = "BEGIN_PHASE_ACCEPTANCE_JSON"
 ACCEPTANCE_END = "END_PHASE_ACCEPTANCE_JSON"
+WORKER_ROUTE_SIGNAL = "worker:phase-only"
+REMEDIATION_ROUTE_SIGNAL = "remediation:phase-only"
+ACCEPTANCE_ROUTE_SIGNAL = "acceptance:governed-phase-route"
 REQUIRED_ACCEPTANCE_SKILLS = (
     "phase-acceptance-governor",
     "architecture-review",
@@ -24,13 +27,6 @@ ROUTE_GUARDRAILS = (
     "no deferred critical work",
     "acceptance requires architecture, test, and docs closure",
 )
-WORKER_ROUTE_SIGNAL = "worker:phase-only"
-REMEDIATION_ROUTE_SIGNAL = "remediation:phase-only"
-ACCEPTANCE_ROUTE_SIGNAL = "acceptance:governed-phase-route"
-EXPECTED_WORKER_ROUTE_SIGNALS = {
-    "worker": WORKER_ROUTE_SIGNAL,
-    "remediation": REMEDIATION_ROUTE_SIGNAL,
-}
 
 
 @dataclass
@@ -38,6 +34,13 @@ class RoleLaunchConfig:
     profile: str
     model: str
     config_overrides: tuple[str, ...]
+
+
+@dataclass
+class SkillBinding:
+    skill_id: str
+    path: str
+    sha256: str
 
 
 @dataclass
@@ -52,6 +55,14 @@ class WorkerReport:
     skips: list[str]
     fallbacks: list[str]
     deferred_work: list[str]
+    evidence_contract: dict[str, Any] | None
+
+
+@dataclass
+class PhaseEvidenceRequirement:
+    owned_surfaces: list[str]
+    delivered_proof_class: str
+    requires_real_bindings: bool
 
 
 @dataclass
@@ -103,22 +114,19 @@ def normalize_string_list(value: Any) -> list[str]:
     return out
 
 
-def normalize_worker_payload(payload: dict[str, Any], *, role: str = "worker") -> WorkerReport:
-    role_key = str(role).strip().lower()
-    expected_route_signal = EXPECTED_WORKER_ROUTE_SIGNALS.get(role_key)
-    if expected_route_signal is None:
-        raise ValueError(f"unsupported worker role for route validation: {role!r}")
+def normalize_worker_payload(payload: dict[str, Any], role: str = "worker") -> WorkerReport:
     status = str(payload.get("status", "")).strip().upper()
     if status != "DONE":
         raise ValueError(f"worker status must be DONE, got {status!r}")
     route_signal = str(payload.get("route_signal", "")).strip()
     if not route_signal:
         raise ValueError("worker payload missing required `route_signal`")
-    if route_signal != expected_route_signal:
-        raise ValueError(
-            f"{role_key} payload has invalid `route_signal`: "
-            f"expected {expected_route_signal!r}, got {route_signal!r}"
-        )
+    expected_route = WORKER_ROUTE_SIGNAL if role == "worker" else REMEDIATION_ROUTE_SIGNAL
+    if route_signal != expected_route:
+        raise ValueError(f"invalid `route_signal` for {role}: expected {expected_route!r}, got {route_signal!r}")
+    evidence_contract = payload.get("evidence_contract")
+    if evidence_contract is not None and not isinstance(evidence_contract, dict):
+        raise ValueError("worker payload `evidence_contract` must be an object when present")
     return WorkerReport(
         status=status,
         summary=str(payload.get("summary", "")).strip() or "No summary provided.",
@@ -130,6 +138,7 @@ def normalize_worker_payload(payload: dict[str, Any], *, role: str = "worker") -
         skips=normalize_string_list(payload.get("skips", [])),
         fallbacks=normalize_string_list(payload.get("fallbacks", [])),
         deferred_work=normalize_string_list(payload.get("deferred_work", [])),
+        evidence_contract=evidence_contract if isinstance(evidence_contract, dict) else None,
     )
 
 
@@ -154,8 +163,7 @@ def normalize_acceptance_payload(payload: dict[str, Any]) -> AcceptanceResult:
         raise ValueError("acceptance payload missing required `route_signal`")
     if route_signal != ACCEPTANCE_ROUTE_SIGNAL:
         raise ValueError(
-            "acceptance payload has invalid `route_signal`: "
-            f"expected {ACCEPTANCE_ROUTE_SIGNAL!r}, got {route_signal!r}"
+            f"invalid `route_signal` for acceptance: expected {ACCEPTANCE_ROUTE_SIGNAL!r}, got {route_signal!r}"
         )
     used_skills = normalize_string_list(payload.get("used_skills", []))
     if not used_skills:
@@ -203,7 +211,37 @@ def make_policy_blocker(kind: str, index: int, detail: str) -> AcceptanceBlocker
     )
 
 
-def apply_acceptance_policy(worker: WorkerReport, acceptance: AcceptanceResult) -> AcceptanceResult:
+def _proof_rank(value: str) -> int:
+    order = ["doc", "schema", "unit", "integration", "staging-real", "live-real"]
+    try:
+        return order.index(value)
+    except ValueError:
+        return -1
+
+
+def _parse_worker_evidence_contract(value: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {
+            "surfaces": [],
+            "proof_class": "",
+            "artifact_paths": [],
+            "checks": [],
+            "real_bindings": [],
+        }
+    return {
+        "surfaces": normalize_string_list(value.get("surfaces", [])),
+        "proof_class": str(value.get("proof_class", "")).strip().lower(),
+        "artifact_paths": normalize_string_list(value.get("artifact_paths", [])),
+        "checks": normalize_string_list(value.get("checks", [])),
+        "real_bindings": normalize_string_list(value.get("real_bindings", [])),
+    }
+
+
+def apply_acceptance_policy(
+    worker: WorkerReport,
+    acceptance: AcceptanceResult,
+    phase_requirement: PhaseEvidenceRequirement | None = None,
+) -> AcceptanceResult:
     policy_blockers: list[AcceptanceBlocker] = []
     for idx, item in enumerate(worker.assumptions, start=1):
         policy_blockers.append(make_policy_blocker("assumption", idx, item))
@@ -217,6 +255,61 @@ def apply_acceptance_policy(worker: WorkerReport, acceptance: AcceptanceResult) 
         policy_blockers.append(make_policy_blocker("evidence_gap", idx, item))
     for idx, item in enumerate(acceptance.prohibited_findings, start=1):
         policy_blockers.append(make_policy_blocker("prohibited_finding", idx, item))
+
+    if phase_requirement and phase_requirement.owned_surfaces:
+        evidence = _parse_worker_evidence_contract(worker.evidence_contract)
+        if worker.evidence_contract is None:
+            policy_blockers.append(
+                make_policy_blocker(
+                    "evidence_gap",
+                    len(policy_blockers) + 1,
+                    "Worker evidence contract is missing for a phase that owns one or more surfaces.",
+                )
+            )
+        else:
+            missing_surfaces = [item for item in phase_requirement.owned_surfaces if item not in evidence["surfaces"]]
+            if missing_surfaces:
+                policy_blockers.append(
+                    make_policy_blocker(
+                        "evidence_gap",
+                        len(policy_blockers) + 1,
+                        "Worker evidence contract does not cover owned surfaces: " + ", ".join(missing_surfaces),
+                    )
+                )
+            if not evidence["artifact_paths"]:
+                policy_blockers.append(
+                    make_policy_blocker(
+                        "evidence_gap",
+                        len(policy_blockers) + 1,
+                        "Worker evidence contract has no artifact_paths.",
+                    )
+                )
+            if not evidence["checks"]:
+                policy_blockers.append(
+                    make_policy_blocker(
+                        "evidence_gap",
+                        len(policy_blockers) + 1,
+                        "Worker evidence contract has no checks.",
+                    )
+                )
+            if _proof_rank(evidence["proof_class"]) < _proof_rank(phase_requirement.delivered_proof_class):
+                policy_blockers.append(
+                    make_policy_blocker(
+                        "evidence_gap",
+                        len(policy_blockers) + 1,
+                        "Worker evidence proof_class "
+                        f"`{evidence['proof_class'] or 'missing'}` is weaker than phase requirement "
+                        f"`{phase_requirement.delivered_proof_class}`.",
+                    )
+                )
+            if phase_requirement.requires_real_bindings and not evidence["real_bindings"]:
+                policy_blockers.append(
+                    make_policy_blocker(
+                        "evidence_gap",
+                        len(policy_blockers) + 1,
+                        "Worker evidence contract is missing real_bindings for a phase that requires real bindings.",
+                    )
+                )
 
     missing_skills = [item for item in REQUIRED_ACCEPTANCE_SKILLS if item not in acceptance.used_skills]
     for idx, skill_id in enumerate(missing_skills, start=1):
@@ -337,6 +430,7 @@ def state_payload(
     final_status: str,
     next_phase: str,
     role_configs: dict[str, RoleLaunchConfig],
+    role_skill_bindings: dict[str, list[SkillBinding]],
 ) -> dict[str, Any]:
     return {
         "run_id": run_id,
@@ -351,6 +445,10 @@ def state_payload(
                 "config_overrides": list(config.config_overrides),
             }
             for name, config in role_configs.items()
+        },
+        "role_skill_bindings": {
+            name: [asdict(binding) for binding in bindings]
+            for name, bindings in role_skill_bindings.items()
         },
         "phase_brief": phase_brief,
         "phase_name": phase_name,
@@ -388,6 +486,25 @@ def render_route_report(payload: dict[str, Any]) -> str:
                 f"- {role_name}: model={role_payload.get('model') or 'default'}, "
                 f"profile={role_payload.get('profile') or 'none'}"
             )
+
+    role_skill_bindings = payload.get("role_skill_bindings", {})
+    if isinstance(role_skill_bindings, dict):
+        lines.extend(["", "## Bound Skills"])
+        has_any = False
+        for role_name in ("worker", "acceptor", "remediation"):
+            bindings = role_skill_bindings.get(role_name, [])
+            if not isinstance(bindings, list) or not bindings:
+                continue
+            has_any = True
+            for binding in bindings:
+                if not isinstance(binding, dict):
+                    continue
+                lines.append(
+                    f"- {role_name}: {binding.get('skill_id')} "
+                    f"(sha256={binding.get('sha256')}, path={binding.get('path')})"
+                )
+        if not has_any:
+            lines.append("- none")
 
     lines.extend(["", "## Route Trace"])
     route_trace = payload.get("route_trace", [])

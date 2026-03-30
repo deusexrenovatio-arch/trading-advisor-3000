@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -15,14 +16,18 @@ from pathlib import Path
 from typing import Any
 
 from codex_phase_policy import (
-    ACCEPTANCE_ROUTE_SIGNAL,
     ACCEPTANCE_BEGIN,
     ACCEPTANCE_END,
+    ACCEPTANCE_ROUTE_SIGNAL,
     DEFAULT_ACCEPTOR_MODEL,
     DEFAULT_WORKER_MODEL,
-    EXPECTED_WORKER_ROUTE_SIGNALS,
+    PhaseEvidenceRequirement,
+    REQUIRED_ACCEPTANCE_SKILLS,
+    REMEDIATION_ROUTE_SIGNAL,
     ROUTE_GUARDRAILS,
     ROUTE_MODE,
+    SkillBinding,
+    WORKER_ROUTE_SIGNAL,
     WORKER_BEGIN,
     WORKER_END,
     AcceptanceResult,
@@ -43,12 +48,11 @@ DEFAULT_ARTIFACT_ROOT = Path("artifacts/codex/orchestration")
 DEFAULT_WORKER_PROMPT = Path("docs/codex/prompts/phases/worker.md")
 DEFAULT_ACCEPTOR_PROMPT = Path("docs/codex/prompts/phases/acceptor.md")
 DEFAULT_REMEDIATION_PROMPT = Path("docs/codex/prompts/phases/remediation.md")
-ROUTE_OWNED_RUNTIME_GLOBS = (
+DEFAULT_IGNORE_GLOBS = (
     ".runlogs/**",
-    "artifacts/codex/**",
+    "artifacts/**",
     "docs/codex/packages/inbox/*.zip",
 )
-DEFAULT_IGNORE_GLOBS = ROUTE_OWNED_RUNTIME_GLOBS
 
 
 class OrchestratorError(RuntimeError):
@@ -149,6 +153,27 @@ def set_single_bullet_section(path: Path, heading: str, value: str) -> None:
     start, end = section_bounds(lines, heading)
     new_lines = lines[: start + 1] + [f"- {value}"] + lines[end:]
     write_lines(path, new_lines)
+
+
+def split_csv_values(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def phase_evidence_requirement(path: Path) -> PhaseEvidenceRequirement | None:
+    lines = read_lines(path)
+    ownership = parse_bullet_map(section_lines(lines, "## Release Surface Ownership"))
+    if not ownership:
+        return None
+    owned_surfaces = split_csv_values(ownership.get("Owned Surfaces", ""))
+    delivered_proof_class = ownership.get("Delivered Proof Class", "").strip().lower()
+    required_real_bindings = ownership.get("Required Real Bindings", "").strip().lower()
+    if not owned_surfaces and not delivered_proof_class and not required_real_bindings:
+        return None
+    return PhaseEvidenceRequirement(
+        owned_surfaces=owned_surfaces,
+        delivered_proof_class=delivered_proof_class,
+        requires_real_bindings=required_real_bindings not in {"", "none"},
+    )
 
 
 def phase_name_from_brief(path: Path) -> str:
@@ -300,6 +325,49 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def resolve_skill_binding(repo_root: Path, skill_id: str) -> SkillBinding:
+    skill_path = (repo_root / ".cursor" / "skills" / skill_id / "SKILL.md").resolve()
+    if not skill_path.exists():
+        raise OrchestratorError(f"missing required skill binding: {skill_id} ({skill_path.as_posix()})")
+    text = read_text(skill_path)
+    return SkillBinding(
+        skill_id=skill_id,
+        path=skill_path.as_posix(),
+        sha256=sha256_text(text),
+    )
+
+
+def resolve_role_skill_bindings(repo_root: Path) -> dict[str, list[SkillBinding]]:
+    return {
+        "worker": [],
+        "acceptor": [resolve_skill_binding(repo_root, skill_id) for skill_id in REQUIRED_ACCEPTANCE_SKILLS],
+        "remediation": [],
+    }
+
+
+def render_bound_skills_text(bindings: list[SkillBinding]) -> str:
+    if not bindings:
+        return "Bound Skill Artifacts:\n- none"
+    lines = ["Bound Skill Artifacts:"]
+    for binding in bindings:
+        skill_text = read_text(Path(binding.path)).rstrip()
+        lines.extend(
+            [
+                f"- Skill: {binding.skill_id}",
+                f"  Path: {binding.path}",
+                f"  SHA256: {binding.sha256}",
+                f"BEGIN_BOUND_SKILL::{binding.skill_id}",
+                skill_text,
+                f"END_BOUND_SKILL::{binding.skill_id}",
+            ]
+        )
+    return "\n".join(lines)
+
+
 def tagged_json(text: str, begin: str, end: str) -> dict[str, Any]:
     start = text.rfind(begin)
     stop = text.rfind(end)
@@ -326,14 +394,10 @@ def build_worker_prompt(
 ) -> str:
     base = read_text(template_path).rstrip()
     blockers = remediation_blockers_path.as_posix() if remediation_blockers_path else "NONE"
-    runtime_artifacts = "\n".join(f"- {item}" for item in ROUTE_OWNED_RUNTIME_GLOBS)
     return (
         f"{base}\n\n"
         "Route Guardrails:\n"
         f"{route_guardrail_text()}\n\n"
-        "Route-Owned Runtime Artifacts (ignore in unexpected-diff triage):\n"
-        f"{runtime_artifacts}\n"
-        "These files are orchestrator-managed and do not count as worker-owned changes.\n\n"
         f"Execution Contract: {execution_contract_path.as_posix()}\n"
         f"Module Parent Brief: {parent_path.as_posix()}\n"
         f"Phase Brief: {phase_path.as_posix()}\n"
@@ -351,16 +415,14 @@ def build_acceptor_prompt(
     worker_report_path: Path,
     changed_files_path: Path,
     attempt: int,
+    skill_bindings: list[SkillBinding],
 ) -> str:
     base = read_text(template_path).rstrip()
-    runtime_artifacts = "\n".join(f"- {item}" for item in ROUTE_OWNED_RUNTIME_GLOBS)
     return (
         f"{base}\n\n"
         "Route Guardrails:\n"
         f"{route_guardrail_text()}\n\n"
-        "Route-Owned Runtime Artifacts (ignore in changed-files review):\n"
-        f"{runtime_artifacts}\n"
-        "Changed-files snapshot already excludes these orchestrator-managed paths.\n\n"
+        f"{render_bound_skills_text(skill_bindings)}\n\n"
         f"Execution Contract: {execution_contract_path.as_posix()}\n"
         f"Module Parent Brief: {parent_path.as_posix()}\n"
         f"Phase Brief: {phase_path.as_posix()}\n"
@@ -412,7 +474,6 @@ def run_codex_prompt(
         cmd,
         input=prompt,
         text=True,
-        encoding="utf-8",
         cwd=repo_root,
         check=False,
     )
@@ -420,20 +481,25 @@ def run_codex_prompt(
 
 
 def simulate_worker_payload(scenario: str, attempt: int, kind: str) -> dict[str, Any]:
-    route_signal = EXPECTED_WORKER_ROUTE_SIGNALS.get(kind)
-    if not route_signal:
-        raise OrchestratorError(f"unsupported simulated worker kind: {kind}")
+    route_signal = WORKER_ROUTE_SIGNAL if kind == "worker" else REMEDIATION_ROUTE_SIGNAL
     payload = {
         "status": "DONE",
         "summary": f"Simulated {kind} attempt {attempt}.",
         "route_signal": route_signal,
         "files_touched": [],
-        "checks_run": [],
+        "checks_run": ["python scripts/run_loop_gate.py --from-git --git-ref HEAD"],
         "remaining_risks": [],
         "assumptions": [],
         "skips": [],
         "fallbacks": [],
         "deferred_work": [],
+        "evidence_contract": {
+            "surfaces": ["demo_surface"],
+            "proof_class": "integration",
+            "artifact_paths": ["artifacts/demo-proof.json"],
+            "checks": ["python scripts/run_loop_gate.py --from-git --git-ref HEAD"],
+            "real_bindings": [],
+        },
     }
     if scenario == "pass-with-shortcut":
         payload["fallbacks"] = ["Used a weaker fallback path without explicit phase-contract approval."]
@@ -531,24 +597,9 @@ def run_role(
     if backend != "codex-cli":
         raise OrchestratorError(f"unsupported backend: {backend}")
 
-    enforced_prompt = prompt_text.rstrip()
-    if role in {"worker", "remediation"}:
-        enforced_prompt += (
-            "\n\nFINAL OUTPUT CONTRACT:\n"
-            f"- End your final response with a valid {WORKER_BEGIN} ... {WORKER_END} JSON block.\n"
-            "- Do not ask follow-up questions instead of returning the marker block.\n"
-        )
-    else:
-        enforced_prompt += (
-            "\n\nFINAL OUTPUT CONTRACT:\n"
-            f"- End your final response with a valid {ACCEPTANCE_BEGIN} ... {ACCEPTANCE_END} JSON block.\n"
-            "- Do not ask follow-up questions instead of returning the marker block.\n"
-        )
-    prompt_path.write_text(enforced_prompt + "\n", encoding="utf-8")
-
     code = run_codex_prompt(
         repo_root=repo_root,
-        prompt=enforced_prompt,
+        prompt=prompt_text,
         launch=launch,
         output_path=output_path,
         codex_bin=codex_bin,
@@ -563,6 +614,22 @@ def run_role(
 def write_changed_files(path: Path, changed_files: list[str]) -> None:
     payload = {"changed_files": changed_files}
     write_json(path, payload)
+
+
+def merged_changed_files(
+    *,
+    repo_root: Path,
+    ignore_globs: tuple[str, ...],
+    worker_report: WorkerReport,
+    skip_clean_check: bool,
+) -> list[str]:
+    sources = [*worker_report.files_touched] if skip_clean_check else [*visible_changes(repo_root, ignore_globs), *worker_report.files_touched]
+    merged: list[str] = []
+    for item in sources:
+        normalized = str(item).replace("\\", "/").strip()
+        if normalized and normalized not in merged:
+            merged.append(normalized)
+    return merged
 
 
 def default_run_dir(artifact_root: Path, phase_path: Path) -> Path:
@@ -611,8 +678,9 @@ def orchestrate_current_phase(
         "acceptor": acceptor_launch,
         "remediation": remediation_launch,
     }
+    role_skill_bindings = resolve_role_skill_bindings(repo_root)
+    current_phase_evidence_requirement = phase_evidence_requirement(phase_path)
 
-    update_phase_status(phase_path, "in_progress")
     final_code = 3
     final_status = "blocked"
     blockers_path: Path | None = None
@@ -654,9 +722,14 @@ def orchestrate_current_phase(
         worker_report_path = attempt_dir / f"{kind}-report.json"
         write_json(worker_report_path, asdict(worker_report))
 
-        # Always build the changed-files snapshot from git so acceptance does not rely
-        # on self-reported worker file lists.
-        changed_files = visible_changes(repo_root, ignore_globs)
+        # Route evidence should reflect both the git-visible diff and the files the
+        # worker explicitly reports touching, including accepted artifact surfaces.
+        changed_files = merged_changed_files(
+            repo_root=repo_root,
+            ignore_globs=ignore_globs,
+            worker_report=worker_report,
+            skip_clean_check=bool(skip_clean_check),
+        )
         changed_files_path = attempt_dir / "changed-files.json"
         write_changed_files(changed_files_path, changed_files)
 
@@ -668,9 +741,14 @@ def orchestrate_current_phase(
             worker_report_path=worker_report_path,
             changed_files_path=changed_files_path,
             attempt=attempt,
+            skill_bindings=role_skill_bindings["acceptor"],
         )
         acceptor_prompt_file = attempt_dir / "acceptor-prompt.md"
         acceptor_last_message = attempt_dir / "acceptor-last-message.txt"
+        write_json(
+            attempt_dir / "acceptor-bound-skills.json",
+            {"bindings": [asdict(binding) for binding in role_skill_bindings["acceptor"]]},
+        )
         acceptance_payload = run_role(
             role="acceptor",
             backend=backend,
@@ -687,6 +765,7 @@ def orchestrate_current_phase(
             acceptance = apply_acceptance_policy(
                 worker=worker_report,
                 acceptance=normalize_acceptance_payload(acceptance_payload),
+                phase_requirement=current_phase_evidence_requirement,
             )
         except ValueError as exc:
             raise OrchestratorError(str(exc)) from exc
@@ -738,6 +817,7 @@ def orchestrate_current_phase(
             final_status=final_status,
             next_phase=parent_next_phase(parent_path),
             role_configs=role_configs,
+            role_skill_bindings=role_skill_bindings,
         )
         interim_state["current_attempt"] = attempt
         write_state_and_route_report(
@@ -763,7 +843,6 @@ def orchestrate_current_phase(
             final_code = 3
             final_status = "blocked"
             break
-        update_phase_status(phase_path, "in_progress")
 
     final_state = state_payload(
         run_id=run_root.name,
@@ -776,6 +855,7 @@ def orchestrate_current_phase(
         final_status=final_status,
         next_phase=parent_next_phase(parent_path),
         role_configs=role_configs,
+        role_skill_bindings=role_skill_bindings,
     )
     write_state_and_route_report(
         state_path=state_path,
