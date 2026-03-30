@@ -59,4 +59,4 @@ Updated: 2026-03-30 10:08 UTC
 - Evidence hardening must stay reproducible across both Python/Linux and Windows/.NET proof surfaces.
 
 ## Next Phase To Execute
-- docs/codex/modules/f1-full-closure.phase-02.md
+- docs/codex/modules/f1-full-closure.phase-03.md

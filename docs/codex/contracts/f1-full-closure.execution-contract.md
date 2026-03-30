@@ -86,7 +86,7 @@ Updated: 2026-03-30 10:08 UTC
 - continue
 
 ## Next Allowed Unit Of Work
-- Execute F1-B - Telegram and Replaceable Stack Closure only: Remove every ghost chosen state from the replaceable stack set and close the Telegram adapter mismatch with one honest terminal outcome per technology.
+- Execute F1-C - Contracts Freeze Closure only: Move `contracts_freeze` from partial to fully governed by versioning every release-blocking public boundary with schemas, fixtures, tests, and compatibility rules.
 ## Suggested Branch / PR
 
 - Branch: codex/f1-full-closure-phase01

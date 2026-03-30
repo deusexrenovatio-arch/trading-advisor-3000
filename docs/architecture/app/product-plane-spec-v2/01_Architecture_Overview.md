@@ -113,8 +113,8 @@ flowchart LR
 
 Технологии:
 - Delta Lake,
-- Spark,
-- Polars/DuckDB,
+- Spark (scoped heavy compute),
+- PyArrow local dataframe/query path (ADR-011 replacement for Polars/DuckDB),
 - Dagster.
 
 ### 4.2 Research plane
@@ -127,7 +127,7 @@ flowchart LR
 
 Технологии:
 - Python,
-- vectorbt,
+- internal backtest engine (`src/trading_advisor_3000/app/research/backtest/engine.py`),
 - Delta,
 - Dagster.
 
@@ -142,7 +142,7 @@ flowchart LR
 - Python,
 - PostgreSQL,
 - FastAPI,
-- aiogram.
+- custom Bot API publication engine (`TelegramPublicationEngine`).
 
 ### 4.4 Execution plane
 Ответственность:
@@ -184,6 +184,8 @@ flowchart LR
 3. **Execution sidecar** — StockSharp интегрируется как внешний execution bridge.
 4. **Forward and live share strategy contracts**.
 5. **Control plane and app plane remain loosely coupled** — через процесс, а не через runtime imports.
+
+6. **F1-B terminal replaceable stack policy** — aiogram/Polars/DuckDB/vectorbt/Alembic/OpenTelemetry are resolved through ADR-011 terminal decisions and must not reappear as active chosen stack items.
 
 ## 7. Что не входит в MVP
 

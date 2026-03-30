@@ -42,6 +42,17 @@ removed_claim_guard:
     - confirm validation fails
     - confirm the phase fails
 
+removed_technology_active_guard:
+  documents:
+    - docs/architecture/app/product-plane-spec-v2/01_Architecture_Overview.md
+    - docs/architecture/app/product-plane-spec-v2/04_ADRs.md
+    - docs/architecture/app/product-plane-spec-v2/08_Codex_AI_Shell_Integration.md
+  neutral_markers_any:
+    - removed
+    - replaced
+    - superseded
+    - adr-011
+
 terminal_technology_guard:
   technology_ids:
     - aiogram

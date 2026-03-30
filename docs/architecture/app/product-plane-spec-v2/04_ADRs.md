@@ -30,7 +30,7 @@
 
 ### Последствия
 - проще масштабировать data plane;
-- можно использовать Spark для тяжёлых джобов и Polars/DuckDB для локального анализа;
+- можно использовать Spark для тяжёлых джобов и PyArrow для локального dataframe/query анализа (Polars/DuckDB removed by ADR-011; this historical wording is superseded);
 - advanced Delta features включать только по мере необходимости.
 
 ---
@@ -70,20 +70,21 @@ Runtime decisioning, signal lifecycle и publishing остаются Python serv
 
 ---
 
-## ADR-005 — vectorbt только для research/backtest
+## ADR-005 — vectorbt only for research/backtest (superseded by ADR-011)
 
-**Статус:** accepted
+**Status:** superseded by ADR-011
 
-### Контекст
-Нужен быстрый исследовательский движок, но не live OMS.
+### Historical superseded context
+An earlier superseded design step considered vectorbt as the default research/backtest engine.
 
-### Решение
-vectorbt использовать для P4 и связанных research сценариев.
-Не использовать его как центр live runtime.
+### Historical superseded decision (no longer active target stack)
+vectorbt was historically allowed for P4-oriented research scenarios, but was never accepted as live-runtime core and is now removed by ADR-011.
 
-### Последствия
-- сильный research контур;
-- stateful signal lifecycle реализуется отдельно.
+### Supersession note
+F1-B terminal-stack closure replaces this decision:
+- vectorbt removed by ADR and replaced by the internal backtest engine in `src/trading_advisor_3000/app/research/backtest/engine.py`;
+- the active stack truth-source is ADR-011 plus `docs/architecture/app/product-plane-spec-v2/07_Tech_Stack_and_Open_Source.md` and `registry/stack_conformance.yaml`;
+- any future vectorbt reintroduction requires a new ADR and aligned runtime/test evidence while vectorbt stays removed under ADR-011.
 
 ---
 

@@ -471,6 +471,107 @@ def test_validate_stack_conformance_allows_module_brief_disprover_skip_marker(
     assert code == 0
 
 
+def test_validate_stack_conformance_fails_when_removed_technology_is_listed_without_terminal_marker(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    _seed_common(
+        tmp_path,
+        status_claim="implemented",
+        readme_text="Constrained wording.\n",
+        dependencies=["fastapi>=0.110"],
+        include_fastapi_entrypoint=True,
+        include_fastapi_test=True,
+    )
+    _write(
+        tmp_path / "docs/architecture/app/product-plane-spec-v2/01_Architecture_Overview.md",
+        "Runtime technologies: aiogram.\n",
+    )
+    registry = _base_registry(surface_claim="implemented", technology_claim="implemented")
+    registry["technology_claims"][1]["claim"] = "removed"
+    registry["removed_technology_active_guard"] = {
+        "documents": ["docs/architecture/app/product-plane-spec-v2/01_Architecture_Overview.md"],
+        "neutral_markers_any": ["removed", "replaced", "superseded", "adr-011"],
+    }
+    registry_path = _write_registry(tmp_path, registry)
+
+    code = validate_stack_conformance.run(tmp_path, registry_path)
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "technology `aiogram` has claim `removed` but appears without terminal marker" in captured.out
+
+
+def test_validate_stack_conformance_allows_removed_technology_with_terminal_marker_in_overview(
+    tmp_path: Path,
+) -> None:
+    _seed_common(
+        tmp_path,
+        status_claim="implemented",
+        readme_text="Constrained wording.\n",
+        dependencies=["fastapi>=0.110"],
+        include_fastapi_entrypoint=True,
+        include_fastapi_test=True,
+    )
+    _write(
+        tmp_path / "docs/architecture/app/product-plane-spec-v2/01_Architecture_Overview.md",
+        "Runtime technologies: aiogram removed by ADR-011 and replaced by custom bot api engine.\n",
+    )
+    registry = _base_registry(surface_claim="implemented", technology_claim="implemented")
+    registry["technology_claims"][1]["claim"] = "removed"
+    registry["removed_technology_active_guard"] = {
+        "documents": ["docs/architecture/app/product-plane-spec-v2/01_Architecture_Overview.md"],
+        "neutral_markers_any": ["removed", "replaced", "superseded", "adr-011"],
+    }
+    registry_path = _write_registry(tmp_path, registry)
+
+    code = validate_stack_conformance.run(tmp_path, registry_path)
+    assert code == 0
+
+
+def test_validate_stack_conformance_fails_when_removed_technology_is_listed_without_terminal_marker_in_active_docs(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    _seed_common(
+        tmp_path,
+        status_claim="implemented",
+        readme_text="Constrained wording.\n",
+        dependencies=["fastapi>=0.110"],
+        include_fastapi_entrypoint=True,
+        include_fastapi_test=True,
+    )
+    _write(
+        tmp_path / "docs/architecture/app/product-plane-spec-v2/04_ADRs.md",
+        "ADR-011 keeps vectorbt removed and replaced by internal engine.\n",
+    )
+    _write(
+        tmp_path / "docs/architecture/app/product-plane-spec-v2/08_Codex_AI_Shell_Integration.md",
+        "Suggested operator skill: vectorbt-research.\n",
+    )
+    registry = _base_registry(surface_claim="implemented", technology_claim="implemented")
+    registry["technology_claims"].append(
+        {
+            "id": "vectorbt",
+            "display_name": "vectorbt",
+            "claim": "removed",
+        }
+    )
+    registry["removed_technology_active_guard"] = {
+        "documents": [
+            "docs/architecture/app/product-plane-spec-v2/04_ADRs.md",
+            "docs/architecture/app/product-plane-spec-v2/08_Codex_AI_Shell_Integration.md",
+        ],
+        "neutral_markers_any": ["removed", "replaced", "superseded", "adr-011"],
+    }
+    registry_path = _write_registry(tmp_path, registry)
+
+    code = validate_stack_conformance.run(tmp_path, registry_path)
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "technology `vectorbt` has claim `removed` but appears without terminal marker" in captured.out
+    assert "08_Codex_AI_Shell_Integration.md:1" in captured.out
+
+
 def test_validate_stack_conformance_fails_when_terminal_guard_keeps_planned_claim(
     tmp_path: Path,
     capsys,

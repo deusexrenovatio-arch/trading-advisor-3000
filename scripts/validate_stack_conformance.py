@@ -457,6 +457,107 @@ def _validate_removed_claim_guard(
                     )
 
 
+def _validate_removed_technology_active_guard(
+    *,
+    registry: dict[str, Any],
+    repo_root: Path,
+    errors: list[str],
+) -> None:
+    guard = registry.get("removed_technology_active_guard") or {}
+    if not guard:
+        return
+    if not isinstance(guard, dict):
+        errors.append("removed_technology_active_guard must be an object")
+        return
+
+    documents = _string_list(
+        guard.get("documents"),
+        context="removed_technology_active_guard.documents",
+        errors=errors,
+    )
+    document_globs = _string_list(
+        guard.get("document_globs"),
+        context="removed_technology_active_guard.document_globs",
+        errors=errors,
+    )
+    neutral_markers = _string_list(
+        guard.get("neutral_markers_any"),
+        context="removed_technology_active_guard.neutral_markers_any",
+        errors=errors,
+    )
+    if not documents and not document_globs:
+        errors.append("removed_technology_active_guard must define documents or document_globs")
+        return
+
+    expanded_documents = _expand_glob_paths(
+        repo_root,
+        document_globs,
+        context="removed_technology_active_guard.document_globs",
+        errors=errors,
+    )
+    guard_documents: list[str] = []
+    for document in [*documents, *expanded_documents]:
+        if document not in guard_documents:
+            guard_documents.append(document)
+    if not guard_documents:
+        errors.append("removed_technology_active_guard resolved no documents for scanning")
+        return
+
+    entries = registry.get("technology_claims") or []
+    if not isinstance(entries, list):
+        errors.append("technology_claims must be a list")
+        return
+
+    removed_technologies: list[dict[str, Any]] = []
+    for index, payload in enumerate(entries, start=1):
+        if not isinstance(payload, dict):
+            continue
+        claim = _normalize_claim(payload.get("claim"))
+        if claim != "removed" and not _is_replaced_by_claim(claim):
+            continue
+        tech_id = str(payload.get("id") or f"technology-{index}").strip()
+        display_name = str(payload.get("display_name") or tech_id).strip()
+        extra_aliases = _string_list(
+            payload.get("active_aliases_any"),
+            context=f"technology `{display_name}`.active_aliases_any",
+            errors=errors,
+        )
+        aliases = {
+            tech_id.lower(),
+            display_name.lower(),
+            *(alias.lower() for alias in extra_aliases),
+        }
+        aliases = {alias for alias in aliases if alias}
+        if not aliases:
+            continue
+        removed_technologies.append(
+            {
+                "subject": f"technology `{display_name}`",
+                "claim": claim,
+                "aliases": sorted(aliases),
+            }
+        )
+    if not removed_technologies:
+        return
+
+    neutral_tokens = [item.lower() for item in neutral_markers]
+    for document in guard_documents:
+        text = _read_text(repo_root, document, errors, context="removed-technology-active-guard document")
+        if not text:
+            continue
+        for line_no, raw in enumerate(text.splitlines(), start=1):
+            lowered = raw.lower()
+            if neutral_tokens and any(token in lowered for token in neutral_tokens):
+                continue
+            for technology in removed_technologies:
+                if not any(_line_mentions_alias(lowered, alias) for alias in technology["aliases"]):
+                    continue
+                errors.append(
+                    f"{technology['subject']} has claim `{technology['claim']}` but appears without terminal marker "
+                    f"in {document}:{line_no}"
+                )
+
+
 def _validate_removed_replacement(
     *,
     subject: str,
@@ -682,6 +783,11 @@ def run(repo_root: Path, registry_path: Path) -> int:
         errors=errors,
     )
     _validate_removed_claim_guard(
+        registry=registry,
+        repo_root=repo_root,
+        errors=errors,
+    )
+    _validate_removed_technology_active_guard(
         registry=registry,
         repo_root=repo_root,
         errors=errors,
