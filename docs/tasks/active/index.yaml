@@ -76,3 +76,8 @@ items:
   mode: full
   status: in_progress
   started_at: '2026-03-30'
+- id: TASK-2026-03-30-F1-A-PHASE-REMEDIATION-ATTEMPT-2-CLOSE-BLOCKERS-
+  path: docs/tasks/active/TASK-2026-03-30-f1-a-phase-remediation-attempt-2-close-blockers-.md
+  mode: full
+  status: in_progress
+  started_at: '2026-03-30'

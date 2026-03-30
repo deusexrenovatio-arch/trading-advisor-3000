@@ -25,8 +25,9 @@ It does not replace implementation docs, checklists, or phase narratives.
 - Delta Lake closure is `partial`: physical Delta runtime proof exists for the phase2 data/research slice only.
 - Apache Spark closure is `partial`: the phase2 canonical job is executable in a Docker/Linux proof profile, but full distributed orchestration remains open.
 - Dagster closure is `partial`: executable `Definitions` and local materialization proof exist for the phase2a canonical slice, while broader orchestration coverage remains open.
-- Durable runtime, service/API, Telegram adapter, replaceable-stack removals, and real sidecar closure are not part of this branch baseline and remain unresolved here.
-- Live execution transport baseline remains `partial` on this branch and must not be described as real sidecar closure.
+- Durable runtime state and service/API runtime surface are `implemented` in this branch baseline with profile-aware bootstrap and ASGI smoke proof.
+- Live execution transport baseline is `implemented` for the in-repo Python bridge + HTTP transport + compiled .NET sidecar proof, but this still does not close real broker process readiness.
+- Telegram adapter closure and replaceable-stack terminal decisions remain unresolved and stay governed by the dedicated F1-B phase path.
 - Shell proving artifacts do not equal product capability closure.
 
 ## Writer Rules

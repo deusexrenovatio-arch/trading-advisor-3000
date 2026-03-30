@@ -14,10 +14,10 @@ Updated: 2026-03-30 10:08 UTC
 - Selected Primary Document: D:/trading advisor 3000/artifacts/codex/package-intake/20260330T100458Z-trading-advisor-3000-phase-acceptance-upto-f1-20/extracted/03_f1_full_closure_TZ.md
 - Selection Rule: the manifest produced a top-score tie across several substantive markdown documents, so the primary was resolved by preferring the directive execution source that defines the F1 objective, ordered rollout phases, hard rules, acceptance gates, disprovers, and release-decision semantics over verdict, findings, matrix, or evidence-manifest documents.
 - Supporting Documents:
-  - `01_phase_acceptance_verdict.md` for the accepted versus rejected phase baseline that constrains what the F1 closure route may assume.
-  - `02_detailed_phase_findings.md` for blocker detail, cross-phase contradictions, and the evidence gaps behind `G0`, `G1`, `R2`, `S1`, and conditional `E1`.
-  - `04_anti_self_deception_controls.md` for truth-source precedence, negative-test obligations, and the no-proxy evidence model.
-  - `05_source_evidence_manifest.md` and `07_phase_status_matrix.json` for source traceability and machine-readable scope reconstruction.
+  - `artifacts/codex/package-intake/20260330T100458Z-trading-advisor-3000-phase-acceptance-upto-f1-20/extracted/01_phase_acceptance_verdict.md` for the accepted versus rejected phase baseline that constrains what the F1 closure route may assume.
+  - `artifacts/codex/package-intake/20260330T100458Z-trading-advisor-3000-phase-acceptance-upto-f1-20/extracted/02_detailed_phase_findings.md` for blocker detail, cross-phase contradictions, and the evidence gaps behind `G0`, `G1`, `R2`, `S1`, and conditional `E1`.
+  - `artifacts/codex/package-intake/20260330T100458Z-trading-advisor-3000-phase-acceptance-upto-f1-20/extracted/04_anti_self_deception_controls.md` for truth-source precedence, negative-test obligations, and the no-proxy evidence model.
+  - `artifacts/codex/package-intake/20260330T100458Z-trading-advisor-3000-phase-acceptance-upto-f1-20/extracted/05_source_evidence_manifest.md` and `07_phase_status_matrix.json` for source traceability and machine-readable scope reconstruction.
 - Conflict Status: no material contradiction was found between the selected primary and its supporting documents; the supporting set sharpens blocker detail and evidence rules without changing the F1 phase order.
 
 ## Prompt / Spec Quality

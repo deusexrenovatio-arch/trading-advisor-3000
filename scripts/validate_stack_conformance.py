@@ -157,6 +157,14 @@ def _parse_status_table(status_markdown: str) -> dict[str, str]:
     return rows
 
 
+def _line_mentions_alias(line_lower: str, alias_lower: str) -> bool:
+    if not alias_lower:
+        return False
+    if alias_lower.isalnum():
+        return re.search(rf"\b{re.escape(alias_lower)}\b", line_lower) is not None
+    return alias_lower in line_lower
+
+
 def _validate_runtime_proof(
     *,
     subject: str,
@@ -323,6 +331,121 @@ def _validate_closure_claim_guard(
                     )
 
 
+def _validate_removed_claim_guard(
+    *,
+    registry: dict[str, Any],
+    repo_root: Path,
+    errors: list[str],
+) -> None:
+    guard = registry.get("removed_claim_guard") or {}
+    if not guard:
+        return
+    if not isinstance(guard, dict):
+        errors.append("removed_claim_guard must be an object")
+        return
+
+    documents = _string_list(guard.get("documents"), context="removed_claim_guard.documents", errors=errors)
+    document_globs = _string_list(
+        guard.get("document_globs"),
+        context="removed_claim_guard.document_globs",
+        errors=errors,
+    )
+    phrase_markers = _string_list(
+        guard.get("phrase_markers_any"),
+        context="removed_claim_guard.phrase_markers_any",
+        errors=errors,
+    )
+    skip_markers = _string_list(
+        guard.get("skip_markers_any"),
+        context="removed_claim_guard.skip_markers_any",
+        errors=errors,
+    )
+    if not phrase_markers:
+        return
+    if not documents and not document_globs:
+        errors.append("removed_claim_guard must define documents or document_globs")
+        return
+
+    expanded_documents = _expand_glob_paths(
+        repo_root,
+        document_globs,
+        context="removed_claim_guard.document_globs",
+        errors=errors,
+    )
+    claim_documents: list[str] = []
+    for document in [*documents, *expanded_documents]:
+        if document not in claim_documents:
+            claim_documents.append(document)
+    if not claim_documents:
+        errors.append("removed_claim_guard resolved no documents for ADR-removal scanning")
+        return
+
+    raw_technologies = registry.get("technology_claims") or []
+    if not isinstance(raw_technologies, list):
+        errors.append("technology_claims must be a list")
+        return
+
+    technologies: list[dict[str, Any]] = []
+    for index, payload in enumerate(raw_technologies, start=1):
+        if not isinstance(payload, dict):
+            errors.append(f"technology_claims[{index}] must be an object")
+            continue
+        claim = _normalize_claim(payload.get("claim"))
+        if claim not in ALLOWED_CLAIMS:
+            continue
+        tech_id = str(payload.get("id") or f"technology-{index}").strip()
+        display_name = str(payload.get("display_name") or tech_id).strip()
+        aliases = {
+            tech_id.lower(),
+            display_name.lower(),
+        }
+        aliases = {alias for alias in aliases if alias}
+        if not aliases:
+            continue
+        technologies.append(
+            {
+                "subject": f"technology `{display_name}`",
+                "claim": claim,
+                "aliases": sorted(aliases),
+            }
+        )
+
+    if not technologies:
+        return
+
+    phrase_tokens = [item.lower() for item in phrase_markers]
+    skip_tokens = [item.lower() for item in skip_markers]
+    for document in claim_documents:
+        text = _read_text(repo_root, document, errors, context="removed-claim document")
+        if not text:
+            continue
+        for line_no, raw in enumerate(text.splitlines(), start=1):
+            lowered = raw.lower()
+            if not any(token in lowered for token in phrase_tokens):
+                continue
+            if skip_tokens and any(token in lowered for token in skip_tokens):
+                continue
+
+            matched = [
+                technology
+                for technology in technologies
+                if any(_line_mentions_alias(lowered, alias) for alias in technology["aliases"])
+            ]
+            if not matched:
+                errors.append(
+                    f"ADR-removal wording appears in {document}:{line_no} "
+                    "without a recognized technology marker"
+                )
+                continue
+
+            for technology in matched:
+                if technology["claim"] != "removed":
+                    errors.append(
+                        f"{technology['subject']} has claim `{technology['claim']}` but ADR-removal wording "
+                        f"appears in {document}:{line_no}"
+                    )
+
+
 def _validate_removed_replacement(
     *,
     subject: str,
@@ -471,6 +594,11 @@ def run(repo_root: Path, registry_path: Path) -> int:
         spec_text=spec_text,
         repo_root=repo_root,
         dependencies=dependencies,
+        errors=errors,
+    )
+    _validate_removed_claim_guard(
+        registry=registry,
+        repo_root=repo_root,
         errors=errors,
     )
 

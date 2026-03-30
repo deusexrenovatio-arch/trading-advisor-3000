@@ -30,6 +30,14 @@ def _seed_common(
     include_fastapi_test: bool,
     checklist_text: str = "Checklist wording only.\n",
     acceptance_doc_text: str = "Acceptance verdict wording only.\n",
+    reacceptance_report_text: str = "Report wording only.\n",
+    red_team_text: str = "Red-team wording only.\n",
+    evidence_pack_text: str = "{\"status\":\"deny_release_readiness\"}\n",
+    module_brief_text: str = (
+        "## Disprover\n"
+        "- Reinsert an unsupported phrase such as `aiogram removed by ADR` "
+        "and confirm validation fails.\n"
+    ),
 ) -> None:
     status_md = """# Status
 
@@ -57,6 +65,22 @@ def _seed_common(
     _write(
         tmp_path / "docs/architecture/app/phase0-acceptance-verdict.md",
         acceptance_doc_text,
+    )
+    _write(
+        tmp_path / "docs/architecture/app/phase10-stack-conformance-reacceptance-report.md",
+        reacceptance_report_text,
+    )
+    _write(
+        tmp_path / "artifacts/acceptance/f1/red-team-review-result.md",
+        red_team_text,
+    )
+    _write(
+        tmp_path / "artifacts/acceptance/f1/reacceptance-evidence-pack.json",
+        evidence_pack_text,
+    )
+    _write(
+        tmp_path / "docs/codex/modules/f1-full-closure.phase-01.md",
+        module_brief_text,
     )
 
     quoted = ", ".join(f'"{item}"' for item in dependencies)
@@ -95,12 +119,36 @@ def _base_registry(*, surface_claim: str, technology_claim: str) -> dict[str, An
             "pyproject": "pyproject.toml",
         },
         "closure_claim_guard": {
-            "documents": ["docs/architecture/app/README.md"],
+            "documents": [
+                "docs/architecture/app/README.md",
+                "docs/architecture/app/phase10-stack-conformance-reacceptance-report.md",
+                "artifacts/acceptance/f1/red-team-review-result.md",
+                "artifacts/acceptance/f1/reacceptance-evidence-pack.json",
+                "docs/codex/modules/f1-full-closure.phase-01.md",
+            ],
             "document_globs": [
                 "docs/checklists/app/*acceptance*.md",
                 "docs/architecture/app/phase*-acceptance-*.md",
             ],
             "forbidden_terms": ["production ready", "full acceptance"],
+        },
+        "removed_claim_guard": {
+            "documents": [
+                "docs/architecture/app/phase10-stack-conformance-reacceptance-report.md",
+                "artifacts/acceptance/f1/red-team-review-result.md",
+                "artifacts/acceptance/f1/reacceptance-evidence-pack.json",
+                "docs/codex/modules/f1-full-closure.phase-01.md",
+            ],
+            "phrase_markers_any": [
+                "removed by ADR",
+                "ADR-backed removal",
+                "removed through ADR",
+            ],
+            "skip_markers_any": [
+                "unsupported phrase",
+                "confirm validation fails",
+                "confirm the phase fails",
+            ],
         },
         "surface_claims": [
             {
@@ -129,7 +177,12 @@ def _base_registry(*, surface_claim: str, technology_claim: str) -> dict[str, An
                     "adr_paths_any": ["docs/architecture/app/product-plane-spec-v2/04_ADRs.md"],
                     "adr_markers_any": ["fastapi"],
                 },
-            }
+            },
+            {
+                "id": "aiogram",
+                "display_name": "aiogram",
+                "claim": "planned",
+            },
         ],
     }
 
@@ -291,3 +344,78 @@ def test_validate_stack_conformance_fails_when_removed_technology_is_still_chose
     captured = capsys.readouterr()
     assert code == 1
     assert "technology `FastAPI` is `removed` but still declared as chosen in the stack spec" in captured.out
+
+
+def test_validate_stack_conformance_fails_when_report_claims_removed_without_registry_removed_state(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    _seed_common(
+        tmp_path,
+        status_claim="partial",
+        readme_text="Constrained wording.\n",
+        dependencies=[],
+        include_fastapi_entrypoint=False,
+        include_fastapi_test=False,
+        reacceptance_report_text="aiogram removed by ADR in this report.\n",
+    )
+    registry_path = _write_registry(
+        tmp_path,
+        _base_registry(surface_claim="partial", technology_claim="planned"),
+    )
+
+    code = validate_stack_conformance.run(tmp_path, registry_path)
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "technology `aiogram` has claim `planned` but ADR-removal wording appears" in captured.out
+    assert "phase10-stack-conformance-reacceptance-report.md:1" in captured.out
+
+
+def test_validate_stack_conformance_fails_when_module_brief_claims_removed_without_registry_removed_state(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    _seed_common(
+        tmp_path,
+        status_claim="implemented",
+        readme_text="Constrained wording.\n",
+        dependencies=["fastapi>=0.110"],
+        include_fastapi_entrypoint=True,
+        include_fastapi_test=True,
+        module_brief_text="aiogram removed by ADR in this module brief.\n",
+    )
+    registry_path = _write_registry(
+        tmp_path,
+        _base_registry(surface_claim="implemented", technology_claim="implemented"),
+    )
+
+    code = validate_stack_conformance.run(tmp_path, registry_path)
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "technology `aiogram` has claim `planned` but ADR-removal wording appears" in captured.out
+    assert "docs/codex/modules/f1-full-closure.phase-01.md:1" in captured.out
+
+
+def test_validate_stack_conformance_allows_module_brief_disprover_skip_marker(
+    tmp_path: Path,
+) -> None:
+    _seed_common(
+        tmp_path,
+        status_claim="implemented",
+        readme_text="Constrained wording.\n",
+        dependencies=["fastapi>=0.110"],
+        include_fastapi_entrypoint=True,
+        include_fastapi_test=True,
+        module_brief_text=(
+            "## Disprover\n"
+            "- Reinsert an unsupported phrase such as aiogram removed by ADR "
+            "and confirm validation fails.\n"
+        ),
+    )
+    registry_path = _write_registry(
+        tmp_path,
+        _base_registry(surface_claim="implemented", technology_claim="implemented"),
+    )
+
+    code = validate_stack_conformance.run(tmp_path, registry_path)
+    assert code == 0

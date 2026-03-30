@@ -10,7 +10,7 @@ Updated: 2026-03-30 10:08 UTC
 ## Phase
 
 - Name: F1-A - Truth-Source and Validator Repair
-- Status: planned
+- Status: blocked
 
 ## Objective
 
@@ -43,15 +43,15 @@ Updated: 2026-03-30 10:08 UTC
 
 ## Constraints
 
-- Either add real ADR-backed removals for claimed removed technologies or delete unsupported removal claims; do not keep mixed truth.
-- `STATUS.md`, the baseline, acceptance reports, registry, stack spec, and ADR set must agree after the phase.
+- Either add real ADR-supported retirement decisions for claimed removed technologies or delete unsupported removal claims; do not keep mixed truth.
+- `docs/architecture/app/STATUS.md`, the baseline, acceptance reports, registry, stack spec, and ADR set must agree after the phase.
 - Route reports stay orchestration metadata, not capability proof.
 
 ## Acceptance Gate
 
 - A deliberate contradiction between report, registry, spec, ADR, or status surfaces fails validation.
 - The validator covers reacceptance reports, red-team result docs, module briefs carrying stack claims, and claim-carrying evidence-pack text.
-- Touched docs contain no unsupported `accepted`, `removed by ADR`, or readiness language.
+- Touched docs contain no unsupported `accepted`, retirement-claim, or readiness language.
 
 ## Disprover
 

@@ -46,12 +46,12 @@
   "artifacts": [
     {
       "path": "docs/architecture/app/phase10-stack-conformance-reacceptance-report.md",
-      "sha256": "19fdab7429a5309e36f94b7692492edbdc1a6808fda4336a4a9476ec97a4b27d",
+      "sha256": "c551242ab60427ef1b91c4e28a01b0c5d499a8f1ff63180e70eb0307640b98df",
       "description": "Final stack-conformance re-acceptance report for F1."
     },
     {
       "path": "artifacts/acceptance/f1/red-team-review-result.md",
-      "sha256": "eaf7495fd2c3d483c81c6a4cf3e4e800eed8e391dca74fa4bb5524578552b4e7",
+      "sha256": "6f974b64d027a2e945054fd0e13f542d9d3b81c6cfd712de437970ec64fcdd7d",
       "description": "Red-team review result and deny-readiness verdict."
     },
     {
@@ -83,7 +83,7 @@
     "state": "unchanged"
   },
   "review_verdict": {
-    "status": "ready_for_acceptance_review",
-    "notes": "F1 remediation package is evidence-complete and aligned to execution-contract amendment F1-2026-03-27-release-readiness-decision-contract."
+    "status": "deny_release_readiness",
+    "notes": "Truth-source alignment now keeps replaceable technologies (`polars`, `duckdb`, `vectorbt`, `alembic`, `opentelemetry`, `aiogram`) as chosen/planned blockers, so no ADR-removal closure is claimed in this evidence pack."
   }
 }

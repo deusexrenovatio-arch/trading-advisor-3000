@@ -10,6 +10,11 @@ closure_claim_guard:
     - docs/architecture/app/README.md
     - docs/architecture/app/stack-conformance-baseline.md
     - docs/architecture/app/STATUS.md
+    - docs/architecture/app/phase10-stack-conformance-reacceptance-report.md
+    - artifacts/acceptance/f1/red-team-review-result.md
+    - artifacts/acceptance/f1/reacceptance-evidence-pack.json
+    - docs/codex/modules/f1-full-closure.phase-01.md
+    - docs/codex/modules/f1-full-closure.phase-02.md
   document_globs:
     - docs/checklists/app/*.md
     - docs/architecture/app/phase*-acceptance-*.md
@@ -20,6 +25,22 @@ closure_claim_guard:
     - production ready
     - live ready
     - release ready
+
+removed_claim_guard:
+  documents:
+    - docs/architecture/app/phase10-stack-conformance-reacceptance-report.md
+    - artifacts/acceptance/f1/red-team-review-result.md
+    - artifacts/acceptance/f1/reacceptance-evidence-pack.json
+    - docs/codex/modules/f1-full-closure.phase-01.md
+    - docs/codex/modules/f1-full-closure.phase-02.md
+  phrase_markers_any:
+    - removed by ADR
+    - ADR-backed removal
+    - removed through ADR
+  skip_markers_any:
+    - unsupported phrase
+    - confirm validation fails
+    - confirm the phase fails
 
 surface_claims:
   - id: product_plane_landing
