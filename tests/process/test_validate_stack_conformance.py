@@ -371,6 +371,56 @@ def test_validate_stack_conformance_fails_when_report_claims_removed_without_reg
     assert "phase10-stack-conformance-reacceptance-report.md:1" in captured.out
 
 
+def test_validate_stack_conformance_fails_when_red_team_claims_removed_without_registry_removed_state(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    _seed_common(
+        tmp_path,
+        status_claim="partial",
+        readme_text="Constrained wording.\n",
+        dependencies=[],
+        include_fastapi_entrypoint=False,
+        include_fastapi_test=False,
+        red_team_text="aiogram removed by ADR in this red-team note.\n",
+    )
+    registry_path = _write_registry(
+        tmp_path,
+        _base_registry(surface_claim="partial", technology_claim="planned"),
+    )
+
+    code = validate_stack_conformance.run(tmp_path, registry_path)
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "technology `aiogram` has claim `planned` but ADR-removal wording appears" in captured.out
+    assert "artifacts/acceptance/f1/red-team-review-result.md:1" in captured.out
+
+
+def test_validate_stack_conformance_fails_when_evidence_pack_claims_removed_without_registry_removed_state(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    _seed_common(
+        tmp_path,
+        status_claim="partial",
+        readme_text="Constrained wording.\n",
+        dependencies=[],
+        include_fastapi_entrypoint=False,
+        include_fastapi_test=False,
+        evidence_pack_text='{"finding":"aiogram removed by ADR in this evidence pack"}\n',
+    )
+    registry_path = _write_registry(
+        tmp_path,
+        _base_registry(surface_claim="partial", technology_claim="planned"),
+    )
+
+    code = validate_stack_conformance.run(tmp_path, registry_path)
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "technology `aiogram` has claim `planned` but ADR-removal wording appears" in captured.out
+    assert "artifacts/acceptance/f1/reacceptance-evidence-pack.json:1" in captured.out
+
+
 def test_validate_stack_conformance_fails_when_module_brief_claims_removed_without_registry_removed_state(
     tmp_path: Path,
     capsys,

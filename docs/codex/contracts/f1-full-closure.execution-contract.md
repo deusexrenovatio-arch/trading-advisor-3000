@@ -86,9 +86,7 @@ Updated: 2026-03-30 10:08 UTC
 - continue
 
 ## Next Allowed Unit Of Work
-
-- Execute F1-A - Truth-Source and Validator Repair only: reopen and close the governance blockers honestly so the evidence model becomes fail-closed before any downstream runtime closure is attempted.
-
+- Execute F1-B - Telegram and Replaceable Stack Closure only: Remove every ghost chosen state from the replaceable stack set and close the Telegram adapter mismatch with one honest terminal outcome per technology.
 ## Suggested Branch / PR
 
 - Branch: codex/f1-full-closure-phase01

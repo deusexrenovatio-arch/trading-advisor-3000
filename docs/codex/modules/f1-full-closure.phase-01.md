@@ -10,7 +10,7 @@ Updated: 2026-03-30 10:08 UTC
 ## Phase
 
 - Name: F1-A - Truth-Source and Validator Repair
-- Status: blocked
+- Status: completed
 
 ## Objective
 
