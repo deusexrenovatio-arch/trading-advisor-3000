@@ -10,6 +10,9 @@ WORKER_BEGIN = "BEGIN_PHASE_WORKER_JSON"
 WORKER_END = "END_PHASE_WORKER_JSON"
 ACCEPTANCE_BEGIN = "BEGIN_PHASE_ACCEPTANCE_JSON"
 ACCEPTANCE_END = "END_PHASE_ACCEPTANCE_JSON"
+WORKER_ROUTE_SIGNAL = "worker:phase-only"
+REMEDIATION_ROUTE_SIGNAL = "remediation:phase-only"
+ACCEPTANCE_ROUTE_SIGNAL = "acceptance:governed-phase-route"
 REQUIRED_ACCEPTANCE_SKILLS = (
     "phase-acceptance-governor",
     "architecture-review",
@@ -111,13 +114,16 @@ def normalize_string_list(value: Any) -> list[str]:
     return out
 
 
-def normalize_worker_payload(payload: dict[str, Any]) -> WorkerReport:
+def normalize_worker_payload(payload: dict[str, Any], role: str = "worker") -> WorkerReport:
     status = str(payload.get("status", "")).strip().upper()
     if status != "DONE":
         raise ValueError(f"worker status must be DONE, got {status!r}")
     route_signal = str(payload.get("route_signal", "")).strip()
     if not route_signal:
         raise ValueError("worker payload missing required `route_signal`")
+    expected_route = WORKER_ROUTE_SIGNAL if role == "worker" else REMEDIATION_ROUTE_SIGNAL
+    if route_signal != expected_route:
+        raise ValueError(f"invalid `route_signal` for {role}: expected {expected_route!r}, got {route_signal!r}")
     evidence_contract = payload.get("evidence_contract")
     if evidence_contract is not None and not isinstance(evidence_contract, dict):
         raise ValueError("worker payload `evidence_contract` must be an object when present")
@@ -155,6 +161,10 @@ def normalize_acceptance_payload(payload: dict[str, Any]) -> AcceptanceResult:
     route_signal = str(payload.get("route_signal", "")).strip()
     if not route_signal:
         raise ValueError("acceptance payload missing required `route_signal`")
+    if route_signal != ACCEPTANCE_ROUTE_SIGNAL:
+        raise ValueError(
+            f"invalid `route_signal` for acceptance: expected {ACCEPTANCE_ROUTE_SIGNAL!r}, got {route_signal!r}"
+        )
     used_skills = normalize_string_list(payload.get("used_skills", []))
     if not used_skills:
         raise ValueError("acceptance payload missing required `used_skills`")

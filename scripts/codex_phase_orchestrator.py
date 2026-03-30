@@ -18,13 +18,16 @@ from typing import Any
 from codex_phase_policy import (
     ACCEPTANCE_BEGIN,
     ACCEPTANCE_END,
+    ACCEPTANCE_ROUTE_SIGNAL,
     DEFAULT_ACCEPTOR_MODEL,
     DEFAULT_WORKER_MODEL,
     PhaseEvidenceRequirement,
     REQUIRED_ACCEPTANCE_SKILLS,
+    REMEDIATION_ROUTE_SIGNAL,
     ROUTE_GUARDRAILS,
     ROUTE_MODE,
     SkillBinding,
+    WORKER_ROUTE_SIGNAL,
     WORKER_BEGIN,
     WORKER_END,
     AcceptanceResult,
@@ -478,10 +481,11 @@ def run_codex_prompt(
 
 
 def simulate_worker_payload(scenario: str, attempt: int, kind: str) -> dict[str, Any]:
+    route_signal = WORKER_ROUTE_SIGNAL if kind == "worker" else REMEDIATION_ROUTE_SIGNAL
     payload = {
         "status": "DONE",
         "summary": f"Simulated {kind} attempt {attempt}.",
-        "route_signal": f"{kind}:attempt-{attempt:02d}",
+        "route_signal": route_signal,
         "files_touched": [],
         "checks_run": ["python scripts/run_loop_gate.py --from-git --git-ref HEAD"],
         "remaining_risks": [],
@@ -504,7 +508,7 @@ def simulate_worker_payload(scenario: str, attempt: int, kind: str) -> dict[str,
 
 def simulate_acceptance_payload(scenario: str, attempt: int) -> dict[str, Any]:
     payload = {
-        "route_signal": f"acceptance:attempt-{attempt:02d}",
+        "route_signal": ACCEPTANCE_ROUTE_SIGNAL,
         "used_skills": [
             "phase-acceptance-governor",
             "architecture-review",
@@ -712,7 +716,7 @@ def orchestrate_current_phase(
             attempt=attempt,
         )
         try:
-            worker_report = normalize_worker_payload(worker_payload)
+            worker_report = normalize_worker_payload(worker_payload, role=kind)
         except ValueError as exc:
             raise OrchestratorError(str(exc)) from exc
         worker_report_path = attempt_dir / f"{kind}-report.json"
