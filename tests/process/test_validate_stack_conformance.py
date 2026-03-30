@@ -343,7 +343,7 @@ def test_validate_stack_conformance_fails_when_removed_technology_is_still_chose
     code = validate_stack_conformance.run(tmp_path, registry_path)
     captured = capsys.readouterr()
     assert code == 1
-    assert "technology `FastAPI` is `removed` but still declared as chosen in the stack spec" in captured.out
+    assert "technology `FastAPI` has claim `removed` but is still declared as chosen in the stack spec" in captured.out
 
 
 def test_validate_stack_conformance_fails_when_report_claims_removed_without_registry_removed_state(
@@ -466,6 +466,61 @@ def test_validate_stack_conformance_allows_module_brief_disprover_skip_marker(
         tmp_path,
         _base_registry(surface_claim="implemented", technology_claim="implemented"),
     )
+
+    code = validate_stack_conformance.run(tmp_path, registry_path)
+    assert code == 0
+
+
+def test_validate_stack_conformance_fails_when_terminal_guard_keeps_planned_claim(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    _seed_common(
+        tmp_path,
+        status_claim="implemented",
+        readme_text="Constrained wording.\n",
+        dependencies=["fastapi>=0.110"],
+        include_fastapi_entrypoint=True,
+        include_fastapi_test=True,
+    )
+    registry = _base_registry(surface_claim="implemented", technology_claim="implemented")
+    registry["terminal_technology_guard"] = {
+        "technology_ids": ["aiogram"],
+    }
+    registry_path = _write_registry(tmp_path, registry)
+
+    code = validate_stack_conformance.run(tmp_path, registry_path)
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "technology `aiogram` has non-terminal claim `planned` under terminal_technology_guard" in captured.out
+
+
+def test_validate_stack_conformance_allows_replaced_by_claim_under_terminal_guard(
+    tmp_path: Path,
+) -> None:
+    _seed_common(
+        tmp_path,
+        status_claim="implemented",
+        readme_text="Constrained wording.\n",
+        dependencies=["fastapi>=0.110"],
+        include_fastapi_entrypoint=True,
+        include_fastapi_test=True,
+    )
+    _write(
+        tmp_path / "docs/architecture/app/product-plane-spec-v2/04_ADRs.md",
+        "ADR-011: aiogram removed by ADR and replaced by custom_bot_api_engine.\n",
+    )
+    registry = _base_registry(surface_claim="implemented", technology_claim="implemented")
+    registry["terminal_technology_guard"] = {
+        "technology_ids": ["aiogram"],
+    }
+    registry["technology_claims"][1]["claim"] = "replaced_by:custom_bot_api_engine"
+    registry["technology_claims"][1]["replacement"] = {
+        "adr_required_when_removed": True,
+        "adr_paths_any": ["docs/architecture/app/product-plane-spec-v2/04_ADRs.md"],
+        "adr_markers_any": ["custom_bot_api_engine"],
+    }
+    registry_path = _write_registry(tmp_path, registry)
 
     code = validate_stack_conformance.run(tmp_path, registry_path)
     assert code == 0

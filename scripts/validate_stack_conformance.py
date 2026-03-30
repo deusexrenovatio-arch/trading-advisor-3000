@@ -19,6 +19,17 @@ def _normalize_claim(value: Any) -> str:
     return str(value or "").strip().lower()
 
 
+def _is_replaced_by_claim(claim: str) -> bool:
+    if not claim.startswith("replaced_by:"):
+        return False
+    replacement_target = claim.split(":", 1)[1].strip()
+    return bool(replacement_target)
+
+
+def _is_supported_technology_claim(claim: str) -> bool:
+    return claim in ALLOWED_CLAIMS or _is_replaced_by_claim(claim)
+
+
 def _resolve(repo_root: Path, path_text: str) -> Path:
     candidate = Path(path_text)
     if candidate.is_absolute():
@@ -391,7 +402,7 @@ def _validate_removed_claim_guard(
             errors.append(f"technology_claims[{index}] must be an object")
             continue
         claim = _normalize_claim(payload.get("claim"))
-        if claim not in ALLOWED_CLAIMS:
+        if not _is_supported_technology_claim(claim):
             continue
         tech_id = str(payload.get("id") or f"technology-{index}").strip()
         display_name = str(payload.get("display_name") or tech_id).strip()
@@ -439,7 +450,7 @@ def _validate_removed_claim_guard(
                 continue
 
             for technology in matched:
-                if technology["claim"] != "removed":
+                if technology["claim"] != "removed" and not _is_replaced_by_claim(technology["claim"]):
                     errors.append(
                         f"{technology['subject']} has claim `{technology['claim']}` but ADR-removal wording "
                         f"appears in {document}:{line_no}"
@@ -449,10 +460,13 @@ def _validate_removed_claim_guard(
 def _validate_removed_replacement(
     *,
     subject: str,
+    claim: str,
     replacement_payload: Any,
     repo_root: Path,
     errors: list[str],
 ) -> None:
+    if claim != "removed" and not _is_replaced_by_claim(claim):
+        return
     replacement = replacement_payload if isinstance(replacement_payload, dict) else {}
     adr_required = bool(replacement.get("adr_required_when_removed", False))
     if not adr_required:
@@ -460,12 +474,12 @@ def _validate_removed_replacement(
 
     adr_paths = _string_list(replacement.get("adr_paths_any"), context=f"{subject}.replacement.adr_paths_any", errors=errors)
     if not adr_paths:
-        errors.append(f"{subject} is `removed` but replacement ADR paths are missing")
+        errors.append(f"{subject} has claim `{claim}` but replacement ADR paths are missing")
         return
 
     existing_paths = [path for path in adr_paths if _resolve(repo_root, path).exists()]
     if not existing_paths:
-        errors.append(f"{subject} is `removed` but no replacement ADR file exists: {', '.join(adr_paths)}")
+        errors.append(f"{subject} has claim `{claim}` but no replacement ADR file exists: {', '.join(adr_paths)}")
         return
 
     markers = _string_list(
@@ -487,8 +501,72 @@ def _validate_removed_replacement(
             break
     if not found_marker:
         errors.append(
-            f"{subject} is `removed` but replacement ADR markers are missing: "
+            f"{subject} has claim `{claim}` but replacement ADR markers are missing: "
             f"{', '.join(markers)}"
+        )
+
+
+def _validate_terminal_technology_guard(
+    *,
+    registry: dict[str, Any],
+    errors: list[str],
+) -> None:
+    guard = registry.get("terminal_technology_guard") or {}
+    if not guard:
+        return
+    if not isinstance(guard, dict):
+        errors.append("terminal_technology_guard must be an object")
+        return
+
+    technology_ids = _string_list(
+        guard.get("technology_ids"),
+        context="terminal_technology_guard.technology_ids",
+        errors=errors,
+    )
+    if not technology_ids:
+        errors.append("terminal_technology_guard must define technology_ids")
+        return
+
+    terminal_claims = _string_list(
+        guard.get("terminal_claims"),
+        context="terminal_technology_guard.terminal_claims",
+        errors=errors,
+    )
+    allowed_terminal_claims = {item.lower() for item in terminal_claims}
+    if not allowed_terminal_claims:
+        allowed_terminal_claims = {"implemented", "removed"}
+
+    entries = registry.get("technology_claims") or []
+    if not isinstance(entries, list):
+        errors.append("technology_claims must be a list")
+        return
+
+    claims_by_id: dict[str, dict[str, str]] = {}
+    for index, payload in enumerate(entries, start=1):
+        if not isinstance(payload, dict):
+            continue
+        tech_id = str(payload.get("id") or f"technology-{index}").strip().lower()
+        if not tech_id:
+            continue
+        display_name = str(payload.get("display_name") or payload.get("id") or f"technology-{index}").strip()
+        claims_by_id[tech_id] = {
+            "claim": _normalize_claim(payload.get("claim")),
+            "subject": f"technology `{display_name}`",
+        }
+
+    for tech_id in technology_ids:
+        normalized_id = tech_id.strip().lower()
+        if not normalized_id:
+            continue
+        entry = claims_by_id.get(normalized_id)
+        if entry is None:
+            errors.append(f"terminal_technology_guard references unknown technology id `{tech_id}`")
+            continue
+        claim = entry["claim"]
+        if claim in allowed_terminal_claims or _is_replaced_by_claim(claim):
+            continue
+        errors.append(
+            f"{entry['subject']} has non-terminal claim `{claim}` under terminal_technology_guard"
         )
 
 
@@ -514,7 +592,7 @@ def _validate_technology_claims(
         display_name = str(payload.get("display_name") or payload.get("id") or f"technology-{index}").strip()
         subject = f"technology `{display_name}`"
         claim = _normalize_claim(payload.get("claim"))
-        if claim not in ALLOWED_CLAIMS:
+        if not _is_supported_technology_claim(claim):
             errors.append(f"{subject} has unsupported claim `{claim}`")
             continue
 
@@ -522,11 +600,14 @@ def _validate_technology_claims(
         has_spec_marker = any(marker.lower() in lowered_spec for marker in markers) if markers else False
         require_spec_presence = bool(payload.get("require_spec_presence", True))
 
-        if claim == "removed":
+        if claim == "removed" or _is_replaced_by_claim(claim):
             if has_spec_marker:
-                errors.append(f"{subject} is `removed` but still declared as chosen in the stack spec")
+                errors.append(
+                    f"{subject} has claim `{claim}` but is still declared as chosen in the stack spec"
+                )
             _validate_removed_replacement(
                 subject=subject,
+                claim=claim,
                 replacement_payload=payload.get("replacement"),
                 repo_root=repo_root,
                 errors=errors,
@@ -594,6 +675,10 @@ def run(repo_root: Path, registry_path: Path) -> int:
         spec_text=spec_text,
         repo_root=repo_root,
         dependencies=dependencies,
+        errors=errors,
+    )
+    _validate_terminal_technology_guard(
+        registry=registry,
         errors=errors,
     )
     _validate_removed_claim_guard(

@@ -175,3 +175,31 @@ Nightly/dashboard lanes используются как hygiene/reporting layer,
 ### Последствия
 - Codex получает чёткие stop/go критерии;
 - проще параллелить работу по фазам.
+
+---
+
+## ADR-011 — F1-B replaceable stack terminal decisions
+
+**Статус:** accepted
+
+### Context
+The F1-B closure phase requires one terminal state per replaceable technology with no `chosen but planned` ghosts.
+Runtime reality already ships a custom Telegram publication engine, SQL-file migrations, internal backtest execution, and Prometheus/Loki observability artifacts.
+
+### Decision
+- aiogram removed by ADR and replaced by custom Bot API engine (`TelegramPublicationEngine`).
+- polars removed by ADR and replaced by pyarrow local dataframe path.
+- duckdb removed by ADR and replaced by delta lake plus pyarrow local query path.
+- vectorbt removed by ADR and replaced by internal backtest engine.
+- alembic removed by ADR and replaced by sql migration runner.
+- opentelemetry removed by ADR and replaced by prometheus loki observability path.
+
+### Evidence anchors
+- Telegram runtime path: `src/trading_advisor_3000/app/runtime/publishing/telegram.py`, `tests/app/unit/test_phase2c_runtime_components.py`.
+- SQL migration runner: `scripts/apply_app_migrations.py`, `src/trading_advisor_3000/migrations/*.sql`, `tests/app/integration/test_phase2c_runtime_postgres_store.py`.
+- Internal backtest runtime: `src/trading_advisor_3000/app/research/backtest/engine.py`, `tests/app/integration/test_phase2b_research_plane.py`.
+- Observability runtime: `src/trading_advisor_3000/app/runtime/analytics/review.py`, `tests/app/integration/test_phase5_review_observability.py`.
+
+### Consequences
+- Replaceable stack claims stay honest and terminal for release blocking checks.
+- Future reintroduction of any removed technology must land as a new ADR plus runtime and test proof.

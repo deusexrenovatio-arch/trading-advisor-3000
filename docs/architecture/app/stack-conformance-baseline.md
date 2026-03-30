@@ -27,7 +27,7 @@ It does not replace implementation docs, checklists, or phase narratives.
 - Dagster closure is `partial`: executable `Definitions` and local materialization proof exist for the phase2a canonical slice, while broader orchestration coverage remains open.
 - Durable runtime state and service/API runtime surface are `implemented` in this branch baseline with profile-aware bootstrap and ASGI smoke proof.
 - Live execution transport baseline is `implemented` for the in-repo Python bridge + HTTP transport + compiled .NET sidecar proof, but this still does not close real broker process readiness.
-- Telegram adapter closure and replaceable-stack terminal decisions remain unresolved and stay governed by the dedicated F1-B phase path.
+- Telegram adapter closure and replaceable-stack terminal decisions are closed in F1-B through ADR-backed terminal states in the stack spec and registry.
 - Shell proving artifacts do not equal product capability closure.
 
 ## Writer Rules

@@ -10,7 +10,7 @@ Updated: 2026-03-30 10:08 UTC
 ## Phase
 
 - Name: F1-B - Telegram and Replaceable Stack Closure
-- Status: planned
+- Status: blocked
 
 ## Objective
 

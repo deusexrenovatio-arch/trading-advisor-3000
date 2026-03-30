@@ -42,6 +42,18 @@ removed_claim_guard:
     - confirm validation fails
     - confirm the phase fails
 
+terminal_technology_guard:
+  technology_ids:
+    - aiogram
+    - polars
+    - duckdb
+    - vectorbt
+    - alembic
+    - opentelemetry
+  terminal_claims:
+    - implemented
+    - removed
+
 surface_claims:
   - id: product_plane_landing
     status_label: Product-plane landing in shell repo
@@ -189,15 +201,31 @@ technology_claims:
 
   - id: polars
     display_name: Polars
-    claim: planned
+    claim: removed
     spec_markers_any:
       - "| Polars | fast local dataframe compute | chosen"
+    replacement:
+      adr_required_when_removed: true
+      adr_paths_any:
+        - docs/architecture/app/product-plane-spec-v2/04_ADRs.md
+      adr_markers_any:
+        - adr-011
+        - polars removed by adr
+        - pyarrow local dataframe path
 
   - id: duckdb
     display_name: DuckDB
-    claim: planned
+    claim: removed
     spec_markers_any:
       - "| DuckDB | local SQL and Delta/Parquet access | chosen"
+    replacement:
+      adr_required_when_removed: true
+      adr_paths_any:
+        - docs/architecture/app/product-plane-spec-v2/04_ADRs.md
+      adr_markers_any:
+        - adr-011
+        - duckdb removed by adr
+        - delta lake plus pyarrow local query path
 
   - id: postgresql
     display_name: PostgreSQL
@@ -212,9 +240,17 @@ technology_claims:
 
   - id: vectorbt
     display_name: vectorbt
-    claim: planned
+    claim: removed
     spec_markers_any:
       - "| vectorbt | backtest/research | chosen"
+    replacement:
+      adr_required_when_removed: true
+      adr_paths_any:
+        - docs/architecture/app/product-plane-spec-v2/04_ADRs.md
+      adr_markers_any:
+        - adr-011
+        - vectorbt removed by adr
+        - internal backtest engine
 
   - id: fastapi
     display_name: FastAPI
@@ -232,21 +268,45 @@ technology_claims:
 
   - id: aiogram
     display_name: aiogram
-    claim: planned
+    claim: removed
     spec_markers_any:
       - "| aiogram | Telegram integration | chosen"
+    replacement:
+      adr_required_when_removed: true
+      adr_paths_any:
+        - docs/architecture/app/product-plane-spec-v2/04_ADRs.md
+      adr_markers_any:
+        - adr-011
+        - aiogram removed by adr
+        - custom bot api engine
 
   - id: alembic
     display_name: Alembic
-    claim: planned
+    claim: removed
     spec_markers_any:
       - "| Alembic | DB migrations | chosen"
+    replacement:
+      adr_required_when_removed: true
+      adr_paths_any:
+        - docs/architecture/app/product-plane-spec-v2/04_ADRs.md
+      adr_markers_any:
+        - adr-011
+        - alembic removed by adr
+        - sql migration runner
 
   - id: opentelemetry
     display_name: OpenTelemetry
-    claim: planned
+    claim: removed
     spec_markers_any:
       - "| OpenTelemetry | tracing/metrics/log correlation | chosen"
+    replacement:
+      adr_required_when_removed: true
+      adr_paths_any:
+        - docs/architecture/app/product-plane-spec-v2/04_ADRs.md
+      adr_markers_any:
+        - adr-011
+        - opentelemetry removed by adr
+        - prometheus loki observability path
 
   - id: dotnet_sidecar
     display_name: .NET 8

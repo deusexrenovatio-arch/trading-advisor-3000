@@ -53,7 +53,7 @@ The following checklist surfaces were regenerated in this phase to enforce truth
 | Architecture-critical partial/planned/not accepted | `contracts_freeze` (`partial`), `real_broker_process` (`planned`), `production_readiness` (`not accepted`) | Not promoted by F1 wording; remains an open readiness blocker. |
 | Technology implemented | `fastapi`, `dotnet_sidecar` | Runtime/dependency/test proofs remain declared and validated by stack-conformance checks. |
 | Technology partial | `delta_lake`, `apache_spark`, `dagster`, `postgresql`, `stocksharp` | Explicitly treated as bounded closures; no full-system promotion. |
-| Technology planned (replaceable, unresolved) | `polars`, `duckdb`, `vectorbt`, `alembic`, `opentelemetry`, `aiogram` | These remain `chosen` in the stack spec and `planned` in the registry, so they stay open blockers and are not promoted as ADR-removed in this cycle. |
+| Technology removed via ADR (replaceable terminal closure) | `polars`, `duckdb`, `vectorbt`, `alembic`, `opentelemetry`, `aiogram` | F1-B moved each item to an ADR-backed terminal state and removed `chosen` markers from the active stack spec to prevent ghost declarations. |
 
 ## Evidence Integrity Result
 - Stack-conformance registry and docs remain aligned under fail-closed validation.
