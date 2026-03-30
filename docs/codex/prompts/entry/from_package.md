@@ -25,6 +25,13 @@ Execution preferences:
 - Keep `docs/session_handoff.md` as a lightweight pointer shim.
 - Use canonical gate names only.
 - If the selected source document declares an explicit phase/module rollout, first materialize the canonical execution contract and phase briefs under `docs/codex/contracts/` and `docs/codex/modules/`.
+- Before accepting that phase plan, bind a `## Release Target Contract` in the execution contract.
+- Every phase brief must include `## Release Gate Impact` and `## What This Phase Does Not Prove`.
+- Use accepted-state labels honestly:
+  - `prep_closed`
+  - `real_contour_closed`
+  - `release_decision`
+- Do not let a docs/schema/mock/stub/smoke phase read as release readiness when the target decision requires `live-real` proof.
 - For such phase-driven packages, stop after module-path normalization and phase planning; do not collapse multiple declared phases into one package-run implementation patch.
 - After intake, continue the normal execution-contract and loop-gate flow.
 

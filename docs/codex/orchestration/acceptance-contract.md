@@ -52,6 +52,12 @@ Every phase verdict must cover all of these:
 ## PASS Criteria
 Return `PASS` only when the current phase is closed enough to unlock the next phase with no open blockers in the dimensions above.
 
+Phase `PASS` does not automatically mean release readiness.
+The acceptor must respect the phase brief's accepted-state label:
+- `prep_closed` = local prerequisite closure only;
+- `real_contour_closed` = real contour closure for the owned surface only;
+- `release_decision` = only this class may emit the final `ALLOW_RELEASE_READINESS` or `DENY`.
+
 ## BLOCKED Criteria
 Return `BLOCKED` when the current phase needs remediation, clarification, or a contract change before progression.
 
