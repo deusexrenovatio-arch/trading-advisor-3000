@@ -11,6 +11,7 @@ This package defines shell architecture boundaries and governance contracts.
 - `docs/architecture/layers-v2.md`
 - `docs/architecture/entities-v2.md`
 - `docs/architecture/architecture-map-v2.md`
+- `docs/architecture/governed-pipeline-hardening-technical-specification.md`
 
 ## ADRs
 - `docs/architecture/adr/README.md`
