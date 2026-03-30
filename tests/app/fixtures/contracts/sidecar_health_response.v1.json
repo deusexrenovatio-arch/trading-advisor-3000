@@ -1,0 +1,7 @@
+{
+  "service": "stocksharp-sidecar-gateway-stub",
+  "status": "ok",
+  "route": "stocksharp->quik->finam",
+  "kill_switch": false,
+  "queued_intents": 0
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/runtime_api_close_signal_request.v1.json",
+  "title": "RuntimeApiCloseSignalRequestV1",
+  "type": "object",
+  "required": ["signal_id", "closed_at", "reason_code"],
+  "properties": {
+    "signal_id": {"type": "string", "minLength": 1},
+    "closed_at": {"type": "string", "minLength": 1},
+    "reason_code": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

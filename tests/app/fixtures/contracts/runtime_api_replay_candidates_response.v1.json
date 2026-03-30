@@ -1,0 +1,51 @@
+{
+  "replay_report": {
+    "accepted": 1,
+    "rejected": 0,
+    "published": 1,
+    "edited": 0,
+    "active_signals": 1,
+    "accepted_signal_ids": ["SIG-20260316-0001"],
+    "accepted_unique_signals": 1,
+    "accepted_candidates": [
+      {
+        "signal_id": "SIG-20260316-0001",
+        "candidate_id": "CAND-121AA90DC5CE"
+      }
+    ],
+    "rejected_signal_ids": [],
+    "rejection_reasons": {},
+    "context_slices_total": 0,
+    "context_slices_by_kind": {},
+    "signals_with_context": 0
+  },
+  "active_signals": [
+    {
+      "signal_id": "SIG-20260316-0001",
+      "strategy_version_id": "trend-follow-v1",
+      "contract_id": "BR-6.26",
+      "mode": "shadow",
+      "side": "long",
+      "entry_price": 82.45,
+      "stop_price": 81.7,
+      "target_price": 83.95,
+      "confidence": 0.77,
+      "state": "active",
+      "opened_at": "2026-03-16T10:16:00Z",
+      "updated_at": "2026-03-16T10:16:00Z",
+      "expires_at": "2026-03-16T11:16:00Z",
+      "publication_message_id": "tg-48b07003d7"
+    }
+  ],
+  "publications": [
+    {
+      "publication_id": "PUB-A22E082EF113",
+      "signal_id": "SIG-20260316-0001",
+      "channel": "@ta3000_signals",
+      "message_id": "tg-48b07003d7",
+      "publication_type": "create",
+      "status": "published",
+      "published_at": "2026-03-16T10:16:00Z"
+    }
+  ]
+}

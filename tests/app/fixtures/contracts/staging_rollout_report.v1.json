@@ -1,0 +1,35 @@
+{
+  "generated_at": "2026-03-18T13:20:00Z",
+  "status": "ok",
+  "base_url": "http://127.0.0.1:18081",
+  "account_id": "STAGING-LIVE-ACC",
+  "dry_run": false,
+  "stages": [
+    {
+      "stage": "connectivity",
+      "status": "ok",
+      "details": {
+        "bridge_status": "ok",
+        "degraded_transports": [],
+        "preflight_errors": []
+      }
+    },
+    {
+      "stage": "canary",
+      "status": "ok",
+      "details": {
+        "registered_intents": 1,
+        "orders_synced": 1
+      }
+    },
+    {
+      "stage": "batch",
+      "status": "ok",
+      "details": {
+        "batch_size": 3,
+        "reconciliation_incidents": 0,
+        "sync_incidents_total": 0
+      }
+    }
+  ]
+}

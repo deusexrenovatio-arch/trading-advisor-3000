@@ -86,7 +86,7 @@ Updated: 2026-03-30 10:08 UTC
 - continue
 
 ## Next Allowed Unit Of Work
-- Execute F1-C - Contracts Freeze Closure only: Move `contracts_freeze` from partial to fully governed by versioning every release-blocking public boundary with schemas, fixtures, tests, and compatibility rules.
+- Execute F1-D - Sidecar Immutable Evidence Hardening only: Keep `E1` accepted while removing its remaining evidence debt by making build, test, publish, and compiled-binary smoke proof reproducible and immutable.
 ## Suggested Branch / PR
 
 - Branch: codex/f1-full-closure-phase01

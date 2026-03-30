@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/sidecar_kill_switch_response.v1.json",
+  "title": "SidecarKillSwitchResponseV1",
+  "type": "object",
+  "required": ["ok", "kill_switch_active"],
+  "properties": {
+    "ok": {"type": "boolean"},
+    "kill_switch_active": {"type": "boolean"}
+  },
+  "additionalProperties": false
+}

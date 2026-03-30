@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/sidecar_health_response.v1.json",
+  "title": "SidecarHealthResponseV1",
+  "type": "object",
+  "required": ["service", "status", "route", "kill_switch", "queued_intents"],
+  "properties": {
+    "service": {"type": "string", "minLength": 1},
+    "status": {"type": "string", "enum": ["ok"]},
+    "route": {"type": "string", "minLength": 1},
+    "kill_switch": {"type": "boolean"},
+    "queued_intents": {"type": "integer", "minimum": 0}
+  },
+  "additionalProperties": false
+}

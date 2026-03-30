@@ -15,6 +15,7 @@ closure_claim_guard:
     - artifacts/acceptance/f1/reacceptance-evidence-pack.json
     - docs/codex/modules/f1-full-closure.phase-01.md
     - docs/codex/modules/f1-full-closure.phase-02.md
+    - docs/codex/modules/f1-full-closure.phase-03.md
   document_globs:
     - docs/checklists/app/*.md
     - docs/architecture/app/phase*-acceptance-*.md
@@ -33,6 +34,7 @@ removed_claim_guard:
     - artifacts/acceptance/f1/reacceptance-evidence-pack.json
     - docs/codex/modules/f1-full-closure.phase-01.md
     - docs/codex/modules/f1-full-closure.phase-02.md
+    - docs/codex/modules/f1-full-closure.phase-03.md
   phrase_markers_any:
     - removed by ADR
     - ADR-backed removal
@@ -152,12 +154,16 @@ surface_claims:
 
   - id: contracts_freeze
     status_label: Contracts freeze
-    claim: partial
+    claim: implemented
     runtime_proof:
       files_all:
         - docs/architecture/app/CONTRACT_SURFACES.md
+        - docs/architecture/app/contract-change-policy.md
+        - src/trading_advisor_3000/app/contracts/schemas/release_blocking_contracts.v1.yaml
       tests_any:
         - tests/app/contracts/test_phase1_contracts.py
+        - tests/app/contracts/test_phase2d_execution_contracts.py
+        - tests/app/contracts/test_phase3_contract_freeze.py
 
   - id: production_readiness
     status_label: Production readiness / operational readiness

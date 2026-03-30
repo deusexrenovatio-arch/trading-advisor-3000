@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/sidecar_replace_intent_response.v1.json",
+  "title": "SidecarReplaceIntentResponseV1",
+  "type": "object",
+  "required": ["ack"],
+  "properties": {
+    "ack": {
+      "type": "object",
+      "required": ["intent_id", "external_order_id", "state", "new_qty", "new_price", "replaced_at"],
+      "properties": {
+        "intent_id": {"type": "string", "minLength": 1},
+        "external_order_id": {"type": "string", "minLength": 1},
+        "state": {"type": "string", "enum": ["replaced"]},
+        "new_qty": {"type": "integer", "minimum": 1},
+        "new_price": {"type": "number", "exclusiveMinimum": 0},
+        "replaced_at": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

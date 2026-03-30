@@ -1,0 +1,21 @@
+{
+  "candidates": [
+    {
+      "signal_id": "SIG-20260316-0001",
+      "contract_id": "BR-6.26",
+      "timeframe": "15m",
+      "strategy_version_id": "trend-follow-v1",
+      "mode": "shadow",
+      "side": "long",
+      "entry_ref": 82.45,
+      "stop_ref": 81.7,
+      "target_ref": 83.95,
+      "confidence": 0.77,
+      "ts_decision": "2026-03-16T10:16:00Z",
+      "feature_snapshot": {
+        "dataset_version": "bars-whitelist-v1",
+        "snapshot_id": "FS-20260316-0001"
+      }
+    }
+  ]
+}

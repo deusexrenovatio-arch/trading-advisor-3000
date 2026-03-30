@@ -50,7 +50,7 @@ The following checklist surfaces were regenerated in this phase to enforce truth
 | Surface Class | Current State | F1 Re-Acceptance Reading |
 | --- | --- | --- |
 | Architecture-critical implemented | `product_plane_landing`, `data_research_runtime_scaffolding`, `runtime_signal_lifecycle`, `durable_runtime_state`, `service_api_runtime_surface`, `paper_execution_path`, `live_execution_transport_baseline` | Evidence chain is explicit and retained. |
-| Architecture-critical partial/planned/not accepted | `contracts_freeze` (`partial`), `real_broker_process` (`planned`), `production_readiness` (`not accepted`) | Not promoted by F1 wording; remains an open readiness blocker. |
+| Architecture-critical unresolved surfaces | `real_broker_process` (`planned`), `production_readiness` (`not accepted`) | Not promoted by F1 wording; remains an open readiness blocker. |
 | Technology implemented | `fastapi`, `dotnet_sidecar` | Runtime/dependency/test proofs remain declared and validated by stack-conformance checks. |
 | Technology partial | `delta_lake`, `apache_spark`, `dagster`, `postgresql`, `stocksharp` | Explicitly treated as bounded closures; no full-system promotion. |
 | Technology removed via ADR (replaceable terminal closure) | `polars`, `duckdb`, `vectorbt`, `alembic`, `opentelemetry`, `aiogram` | F1-B moved each item to an ADR-backed terminal state and removed `chosen` markers from the active stack spec to prevent ghost declarations. |
@@ -67,6 +67,6 @@ The following checklist surfaces were regenerated in this phase to enforce truth
 Reasoning:
 1. `production_readiness` is still `not accepted` in the truth-source status table.
 2. `real_broker_process` remains `planned` and therefore cannot satisfy full closure expectations.
-3. Multiple architecture-critical and technology surfaces intentionally remain `partial`, which is valid for bounded phase evidence but insufficient for final readiness unlock.
+3. Technology-level `partial` surfaces intentionally remain bounded and are insufficient for final readiness unlock while `real_broker_process` and `production_readiness` stay unresolved.
 
 This report is an explicit deny-readiness decision package for acceptance-stage review and does not unlock progression by itself.

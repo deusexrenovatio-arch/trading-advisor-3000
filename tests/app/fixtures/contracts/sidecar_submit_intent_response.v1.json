@@ -1,0 +1,9 @@
+{
+  "ack": {
+    "intent_id": "INT-123",
+    "external_order_id": "gw-abcdef1234567890",
+    "accepted": true,
+    "broker_adapter": "stocksharp-sidecar",
+    "state": "submitted"
+  }
+}

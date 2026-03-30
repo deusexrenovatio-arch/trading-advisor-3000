@@ -20,7 +20,7 @@ It supersedes older phase-closure claims when they disagree.
 | Paper execution path | implemented | Paper broker flow, replay, reconciliation, and related tests exist. | This does not imply live broker readiness. |
 | Live execution transport baseline | implemented | Python live bridge, HTTP transport, staging gateway stub, and an in-repo .NET 8 sidecar project (build/test/publish + compiled-binary Python smoke path) exist. | This slice still does not imply production broker rollout readiness. |
 | StockSharp/QUIK/Finam real broker process | planned | Wire contract and staging-first rollout surface are defined. | No production broker bridge binary/process is shipped here. |
-| Contracts freeze | partial | Versioned schemas/fixtures cover market, signal, runtime signal state, execution, and publications. | Full config/runtime/external envelope inventory still needs expansion as live path grows. |
+| Contracts freeze | implemented | Release-blocking runtime API, Telegram, sidecar wire (including `/metrics`), runtime config, persistence/migration, rollout/connectivity envelopes are versioned with schema+fixture+tests and explicit compatibility policy; runtime API exclusion decision `F1-C-RUNTIME-API-INVENTORY-SCOPE-V1` is documented in the inventory source. | This does not imply real broker-process closure or production readiness. |
 | Production readiness / operational readiness | not accepted | There is production-like scaffolding and proving flow for shell delivery. | The product plane is not accepted as live/prod ready. |
 
 ## Acceptance Reading Rule

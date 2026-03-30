@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/runtime_operational_snapshot.v1.json",
+  "title": "RuntimeOperationalSnapshotV1",
+  "type": "object",
+  "required": [
+    "generated_at",
+    "service",
+    "ready",
+    "preflight_error_count",
+    "transport_degraded_keys",
+    "bridge"
+  ],
+  "properties": {
+    "generated_at": {"type": "string", "minLength": 1},
+    "service": {"type": "string", "minLength": 1},
+    "ready": {"type": "boolean"},
+    "preflight_error_count": {"type": "integer", "minimum": 0},
+    "transport_degraded_keys": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "bridge": {
+      "type": "object",
+      "required": ["status", "preflight_errors", "secrets_policy", "retry_policy", "execution_telemetry"],
+      "properties": {
+        "status": {"type": "string", "enum": ["ok", "degraded"]},
+        "preflight_errors": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "secrets_policy": {
+          "type": "object",
+          "required": ["missing_count", "stale_count", "check_age", "is_ready", "probes"],
+          "properties": {
+            "missing_count": {"type": "integer", "minimum": 0},
+            "stale_count": {"type": "integer", "minimum": 0},
+            "check_age": {"type": "boolean"},
+            "is_ready": {"type": "boolean"},
+            "probes": {"type": "array", "items": {"type": "object"}}
+          },
+          "additionalProperties": true
+        },
+        "retry_policy": {
+          "type": "object",
+          "required": ["max_attempts", "backoff_seconds"],
+          "properties": {
+            "max_attempts": {"type": "integer", "minimum": 1},
+            "backoff_seconds": {"type": "number", "minimum": 0}
+          },
+          "additionalProperties": true
+        },
+        "execution_telemetry": {
+          "type": "object",
+          "required": ["submit_latency_ms", "sync_lag_ms", "sidecar_errors_by_code", "retry_exhausted_total"],
+          "properties": {
+            "submit_latency_ms": {
+              "type": "object",
+              "required": ["count", "avg", "p95"],
+              "properties": {
+                "count": {"type": "integer", "minimum": 0},
+                "avg": {"type": "number", "minimum": 0},
+                "p95": {"type": "number", "minimum": 0}
+              },
+              "additionalProperties": true
+            },
+            "sync_lag_ms": {
+              "type": "object",
+              "required": ["count", "avg", "p95", "max", "latest"],
+              "properties": {
+                "count": {"type": "integer", "minimum": 0},
+                "avg": {"type": "number", "minimum": 0},
+                "p95": {"type": "number", "minimum": 0},
+                "max": {"type": "number", "minimum": 0},
+                "latest": {"type": "number", "minimum": 0}
+              },
+              "additionalProperties": true
+            },
+            "sidecar_errors_by_code": {"type": "object"},
+            "retry_exhausted_total": {"type": "integer", "minimum": 0}
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

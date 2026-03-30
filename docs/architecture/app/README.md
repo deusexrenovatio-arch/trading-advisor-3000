@@ -5,6 +5,7 @@ This section stores product-plane architecture artifacts on top of the existing 
 Read these first:
 - [STATUS.md](docs/architecture/app/STATUS.md) - current implemented reality and no-go zones.
 - [CONTRACT_SURFACES.md](docs/architecture/app/CONTRACT_SURFACES.md) - current versioned boundary inventory.
+- [contract-change-policy.md](docs/architecture/app/contract-change-policy.md) - compatibility and versioning policy for release-blocking envelopes.
 
 Phase naming rule:
 - `S0-S8` refers to shell delivery phases.

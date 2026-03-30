@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/sidecar_submit_intent_response.v1.json",
+  "title": "SidecarSubmitIntentResponseV1",
+  "type": "object",
+  "required": ["ack"],
+  "properties": {
+    "ack": {
+      "type": "object",
+      "required": ["intent_id", "external_order_id", "accepted", "broker_adapter", "state"],
+      "properties": {
+        "intent_id": {"type": "string", "minLength": 1},
+        "external_order_id": {"type": "string", "minLength": 1},
+        "accepted": {"type": "boolean"},
+        "broker_adapter": {"type": "string", "minLength": 1},
+        "state": {"type": "string", "enum": ["submitted"]}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

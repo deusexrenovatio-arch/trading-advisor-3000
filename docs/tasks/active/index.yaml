@@ -81,3 +81,8 @@ items:
   mode: full
   status: in_progress
   started_at: '2026-03-30'
+- id: TASK-2026-03-30-F1-C-PHASE-03-CONTRACTS-FREEZE-REMEDIATION-ATTEMPT-2
+  path: docs/tasks/active/TASK-2026-03-30-f1-c-phase-03-contracts-freeze-remediation-attempt-2.md
+  mode: full
+  status: in_progress
+  started_at: '2026-03-30'

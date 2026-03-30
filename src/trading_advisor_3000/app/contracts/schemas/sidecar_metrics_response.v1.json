@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/sidecar_metrics_response.v1.json",
+  "title": "SidecarMetricsResponseV1",
+  "type": "object",
+  "required": ["endpoint", "content_type", "metrics_text", "parsed_metrics"],
+  "properties": {
+    "endpoint": {"type": "string", "const": "/metrics"},
+    "content_type": {"type": "string", "const": "text/plain; charset=utf-8"},
+    "metrics_text": {"type": "string", "minLength": 1},
+    "parsed_metrics": {
+      "type": "object",
+      "required": [
+        "ta3000_sidecar_gateway_up",
+        "ta3000_sidecar_gateway_queued_intents",
+        "ta3000_sidecar_gateway_kill_switch"
+      ],
+      "properties": {
+        "ta3000_sidecar_gateway_up": {"type": "integer", "enum": [1]},
+        "ta3000_sidecar_gateway_queued_intents": {"type": "integer", "minimum": 0},
+        "ta3000_sidecar_gateway_kill_switch": {"type": "integer", "enum": [0, 1]}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
