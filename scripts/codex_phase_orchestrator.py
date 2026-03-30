@@ -535,6 +535,22 @@ def write_changed_files(path: Path, changed_files: list[str]) -> None:
     write_json(path, payload)
 
 
+def merged_changed_files(
+    *,
+    repo_root: Path,
+    ignore_globs: tuple[str, ...],
+    worker_report: WorkerReport,
+    skip_clean_check: bool,
+) -> list[str]:
+    sources = [*worker_report.files_touched] if skip_clean_check else [*visible_changes(repo_root, ignore_globs), *worker_report.files_touched]
+    merged: list[str] = []
+    for item in sources:
+        normalized = str(item).replace("\\", "/").strip()
+        if normalized and normalized not in merged:
+            merged.append(normalized)
+    return merged
+
+
 def default_run_dir(artifact_root: Path, phase_path: Path) -> Path:
     name = f"{utc_slug()}-{slugify(phase_path.stem)}"
     return artifact_root / name
@@ -623,9 +639,14 @@ def orchestrate_current_phase(
         worker_report_path = attempt_dir / f"{kind}-report.json"
         write_json(worker_report_path, asdict(worker_report))
 
-        # When clean-check is skipped, keep attempt-scoped evidence from the worker report
-        # instead of emitting an empty changed-files snapshot that will fail acceptance.
-        changed_files = list(worker_report.files_touched) if skip_clean_check else visible_changes(repo_root, ignore_globs)
+        # Route evidence should reflect both the git-visible diff and the files the
+        # worker explicitly reports touching, including accepted artifact surfaces.
+        changed_files = merged_changed_files(
+            repo_root=repo_root,
+            ignore_globs=ignore_globs,
+            worker_report=worker_report,
+            skip_clean_check=bool(skip_clean_check),
+        )
         changed_files_path = attempt_dir / "changed-files.json"
         write_changed_files(changed_files_path, changed_files)
 
