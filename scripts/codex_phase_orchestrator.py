@@ -582,7 +582,6 @@ def orchestrate_current_phase(
         "remediation": remediation_launch,
     }
 
-    update_phase_status(phase_path, "in_progress")
     final_code = 3
     final_status = "blocked"
     blockers_path: Path | None = None
@@ -733,7 +732,6 @@ def orchestrate_current_phase(
             final_code = 3
             final_status = "blocked"
             break
-        update_phase_status(phase_path, "in_progress")
 
     final_state = state_payload(
         run_id=run_root.name,
