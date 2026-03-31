@@ -73,6 +73,24 @@ Updated: 2026-03-27 10:18 UTC
 - Red-team review result exists and contains an explicit release-readiness decision.
 - Decision package states whether unlock is allowed or denied and why.
 
+## Release Gate Impact
+
+- Surface Transition: release decision state `absent -> explicit allow_or_deny`
+- Minimum Proof Class: live-real
+- Accepted State Label: release_decision
+
+## Release Surface Ownership
+
+- Owned Surfaces: production_live_readiness
+- Delivered Proof Class: live-real
+- Required Real Bindings: truth-source mapped blocker evidence, red-team release decision output, and immutable governed evidence bundle
+- Target Downgrade Is Forbidden: yes
+
+## What This Phase Does Not Prove
+
+- Release readiness: this phase does not auto-grant `ALLOW_RELEASE_READINESS` while prerequisites remain unresolved.
+- Missing contour closure: this phase does not replace required real contour closure from earlier phases; it only emits an explicit decision package.
+
 ## Rollback Note
 
 - Revert any `ALLOW_RELEASE_READINESS` claim immediately if prerequisite evidence is missing or if overclaiming language returns.

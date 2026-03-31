@@ -48,7 +48,7 @@ Updated: 2026-03-27 10:18 UTC
 
 ## Release Surface Matrix
 
-- Surface: production_live_readiness | Owner Phase: phase-10 | Required Proof Class: live-real | Must Reach: deny_release_readiness_package
+- Surface: production_live_readiness | Owner Phase: F1 | Required Proof Class: live-real | Must Reach: deny_release_readiness_package
 
 ## In Scope
 
