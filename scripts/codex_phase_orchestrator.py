@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -19,8 +20,11 @@ from codex_phase_policy import (
     ACCEPTANCE_END,
     DEFAULT_ACCEPTOR_MODEL,
     DEFAULT_WORKER_MODEL,
+    PhaseEvidenceRequirement,
+    REQUIRED_ACCEPTANCE_SKILLS,
     ROUTE_GUARDRAILS,
     ROUTE_MODE,
+    SkillBinding,
     WORKER_BEGIN,
     WORKER_END,
     AcceptanceResult,
@@ -146,6 +150,27 @@ def set_single_bullet_section(path: Path, heading: str, value: str) -> None:
     start, end = section_bounds(lines, heading)
     new_lines = lines[: start + 1] + [f"- {value}"] + lines[end:]
     write_lines(path, new_lines)
+
+
+def split_csv_values(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def phase_evidence_requirement(path: Path) -> PhaseEvidenceRequirement | None:
+    lines = read_lines(path)
+    ownership = parse_bullet_map(section_lines(lines, "## Release Surface Ownership"))
+    if not ownership:
+        return None
+    owned_surfaces = split_csv_values(ownership.get("Owned Surfaces", ""))
+    delivered_proof_class = ownership.get("Delivered Proof Class", "").strip().lower()
+    required_real_bindings = ownership.get("Required Real Bindings", "").strip().lower()
+    if not owned_surfaces and not delivered_proof_class and not required_real_bindings:
+        return None
+    return PhaseEvidenceRequirement(
+        owned_surfaces=owned_surfaces,
+        delivered_proof_class=delivered_proof_class,
+        requires_real_bindings=required_real_bindings not in {"", "none"},
+    )
 
 
 def phase_name_from_brief(path: Path) -> str:
@@ -297,6 +322,49 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def resolve_skill_binding(repo_root: Path, skill_id: str) -> SkillBinding:
+    skill_path = (repo_root / ".cursor" / "skills" / skill_id / "SKILL.md").resolve()
+    if not skill_path.exists():
+        raise OrchestratorError(f"missing required skill binding: {skill_id} ({skill_path.as_posix()})")
+    text = read_text(skill_path)
+    return SkillBinding(
+        skill_id=skill_id,
+        path=skill_path.as_posix(),
+        sha256=sha256_text(text),
+    )
+
+
+def resolve_role_skill_bindings(repo_root: Path) -> dict[str, list[SkillBinding]]:
+    return {
+        "worker": [],
+        "acceptor": [resolve_skill_binding(repo_root, skill_id) for skill_id in REQUIRED_ACCEPTANCE_SKILLS],
+        "remediation": [],
+    }
+
+
+def render_bound_skills_text(bindings: list[SkillBinding]) -> str:
+    if not bindings:
+        return "Bound Skill Artifacts:\n- none"
+    lines = ["Bound Skill Artifacts:"]
+    for binding in bindings:
+        skill_text = read_text(Path(binding.path)).rstrip()
+        lines.extend(
+            [
+                f"- Skill: {binding.skill_id}",
+                f"  Path: {binding.path}",
+                f"  SHA256: {binding.sha256}",
+                f"BEGIN_BOUND_SKILL::{binding.skill_id}",
+                skill_text,
+                f"END_BOUND_SKILL::{binding.skill_id}",
+            ]
+        )
+    return "\n".join(lines)
+
+
 def tagged_json(text: str, begin: str, end: str) -> dict[str, Any]:
     start = text.rfind(begin)
     stop = text.rfind(end)
@@ -344,12 +412,14 @@ def build_acceptor_prompt(
     worker_report_path: Path,
     changed_files_path: Path,
     attempt: int,
+    skill_bindings: list[SkillBinding],
 ) -> str:
     base = read_text(template_path).rstrip()
     return (
         f"{base}\n\n"
         "Route Guardrails:\n"
         f"{route_guardrail_text()}\n\n"
+        f"{render_bound_skills_text(skill_bindings)}\n\n"
         f"Execution Contract: {execution_contract_path.as_posix()}\n"
         f"Module Parent Brief: {parent_path.as_posix()}\n"
         f"Phase Brief: {phase_path.as_posix()}\n"
@@ -413,12 +483,19 @@ def simulate_worker_payload(scenario: str, attempt: int, kind: str) -> dict[str,
         "summary": f"Simulated {kind} attempt {attempt}.",
         "route_signal": f"{kind}:attempt-{attempt:02d}",
         "files_touched": [],
-        "checks_run": [],
+        "checks_run": ["python scripts/run_loop_gate.py --from-git --git-ref HEAD"],
         "remaining_risks": [],
         "assumptions": [],
         "skips": [],
         "fallbacks": [],
         "deferred_work": [],
+        "evidence_contract": {
+            "surfaces": ["demo_surface"],
+            "proof_class": "integration",
+            "artifact_paths": ["artifacts/demo-proof.json"],
+            "checks": ["python scripts/run_loop_gate.py --from-git --git-ref HEAD"],
+            "real_bindings": [],
+        },
     }
     if scenario == "pass-with-shortcut":
         payload["fallbacks"] = ["Used a weaker fallback path without explicit phase-contract approval."]
@@ -597,6 +674,8 @@ def orchestrate_current_phase(
         "acceptor": acceptor_launch,
         "remediation": remediation_launch,
     }
+    role_skill_bindings = resolve_role_skill_bindings(repo_root)
+    current_phase_evidence_requirement = phase_evidence_requirement(phase_path)
 
     final_code = 3
     final_status = "blocked"
@@ -658,9 +737,14 @@ def orchestrate_current_phase(
             worker_report_path=worker_report_path,
             changed_files_path=changed_files_path,
             attempt=attempt,
+            skill_bindings=role_skill_bindings["acceptor"],
         )
         acceptor_prompt_file = attempt_dir / "acceptor-prompt.md"
         acceptor_last_message = attempt_dir / "acceptor-last-message.txt"
+        write_json(
+            attempt_dir / "acceptor-bound-skills.json",
+            {"bindings": [asdict(binding) for binding in role_skill_bindings["acceptor"]]},
+        )
         acceptance_payload = run_role(
             role="acceptor",
             backend=backend,
@@ -677,6 +761,7 @@ def orchestrate_current_phase(
             acceptance = apply_acceptance_policy(
                 worker=worker_report,
                 acceptance=normalize_acceptance_payload(acceptance_payload),
+                phase_requirement=current_phase_evidence_requirement,
             )
         except ValueError as exc:
             raise OrchestratorError(str(exc)) from exc
@@ -728,6 +813,7 @@ def orchestrate_current_phase(
             final_status=final_status,
             next_phase=parent_next_phase(parent_path),
             role_configs=role_configs,
+            role_skill_bindings=role_skill_bindings,
         )
         interim_state["current_attempt"] = attempt
         write_state_and_route_report(
@@ -765,6 +851,7 @@ def orchestrate_current_phase(
         final_status=final_status,
         next_phase=parent_next_phase(parent_path),
         role_configs=role_configs,
+        role_skill_bindings=role_skill_bindings,
     )
     write_state_and_route_report(
         state_path=state_path,

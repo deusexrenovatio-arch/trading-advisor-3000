@@ -10,11 +10,11 @@ Updated: 2026-03-30 10:08 UTC
 ## Phase
 
 - Name: F1-D - Sidecar Immutable Evidence Hardening
-- Status: planned
+- Status: completed
 
 ## Objective
 
-- Keep `E1` accepted while removing its remaining evidence debt by making build, test, publish, and compiled-binary smoke proof reproducible and immutable.
+- оставить E1 accepted, но убрать remaining evidence debt.
 
 ## In Scope
 
@@ -43,9 +43,9 @@ Updated: 2026-03-30 10:08 UTC
 
 ## Acceptance Gate
 
-- Build, test, publish, and smoke are replayable with recorded exit codes and artifact hashes.
-- The evidence pack links artifacts to commit SHA and environment manifest.
-- Negative tests prove that stale or fake sidecar artifacts are rejected.
+- Build/test/publish/smoke are reproducible from clean checkout.
+- Evidence artifacts are machine-linked to commit SHA and command exit codes.
+- E1 no longer relies on docs or one-off local proof.
 
 ## Disprover
 

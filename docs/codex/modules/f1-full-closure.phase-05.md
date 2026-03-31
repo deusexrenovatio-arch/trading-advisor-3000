@@ -1,6 +1,6 @@
 # Module Phase Brief
 
-Updated: 2026-03-30 10:08 UTC
+Updated: 2026-03-31 19:12 UTC
 
 ## Parent
 
@@ -10,18 +10,20 @@ Updated: 2026-03-30 10:08 UTC
 ## Phase
 
 - Name: F1-E - Real Broker Process Closure
-- Status: planned
+- Status: blocked
 
 ## Objective
 
-- Move `real_broker_process` from planned to implemented by proving a real agreed broker connector contour inside the in-repo sidecar process.
+- перевести `StockSharp/QUIK/Finam real broker process` из `planned` в implemented release-blocking surface.
+- Finam-native session and transport proof remain mandatory for the staging-real closure contour.
 
 ## In Scope
 
-- in-repo sidecar connector path for the agreed broker surface
-- versioned secrets and staging connector configuration contract
+- in-repo sidecar execution path for the agreed broker surface
+- versioned secrets and staging Finam session configuration contract
+- Finam-native preflight proof via session details (`/v1/sessions/details`) with real JWT binding
 - staging-first proof profile for boot, readiness, kill-switch, submit, replace, cancel, updates, and reconciliation
-- explicit failure-mode handling and tests for connector miswire and runtime recovery
+- explicit failure-mode handling and tests for transport miswire and runtime recovery
 
 ## Out Of Scope
 
@@ -33,28 +35,32 @@ Updated: 2026-03-30 10:08 UTC
 
 - CTX-ORCHESTRATION
 - CTX-CONTRACTS
+- GOV-RUNTIME
 - GOV-DOCS
 - ARCH-DOCS
 
 ## Constraints
 
 - HTTP stubs, wire docs, or mock-only gateways do not close this phase.
-- The broker connector must be real for the agreed staging contour.
+- Finam session proof must be real for the agreed staging contour.
+- Vendor API root cannot be treated as gateway `/health`; proof is bound to Finam-native session contract.
 - Secrets, readiness semantics, failure modes, and recovery behavior must be explicit and versioned.
 
 ## Acceptance Gate
 
-- `real_broker_process` can move honestly from `planned` to `implemented`.
-- STATUS, registry, runbooks, runtime code, and tests describe the same broker contour.
-- Negative tests cover missing credentials, connector unavailability, session-not-ready, kill-switch active, rejected order, and timeout or retry behavior.
+- `real_broker_process` can move from `planned` to `implemented`.
+- STATUS, registry, docs and runbooks reflect the same scope.
+- No doc uses words like `production ready` unless release readiness phase also passes.
 
 ## Disprover
 
-- Run the staging profile with a miswired or unavailable connector and confirm the phase fails rather than overclaiming readiness.
+- Run the staging profile with unreachable sidecar transport and confirm fail-closed behavior.
+- Run Finam session preflight with invalid or expired JWT and confirm the phase fails rather than overclaiming readiness.
 
 ## Done Evidence
 
-- A real broker connector contour exists in the sidecar and is exercised by governed proof.
+- Real Finam session contour is proved in governed artifacts (`/v1/sessions/details` + required fields).
+- Sidecar staging-real lifecycle (boot/readiness/kill-switch/submit/replace/cancel/updates/reconciliation) is exercised by governed proof.
 - The config and secrets contract is versioned and documented.
 - Recovery and failure semantics are executable rather than narrative-only.
 
@@ -68,7 +74,7 @@ Updated: 2026-03-30 10:08 UTC
 
 - Owned Surfaces: broker_execution_contour
 - Delivered Proof Class: staging-real
-- Required Real Bindings: real broker connector contour, real connector configuration and secrets, and replayable staging-real broker proof
+- Required Real Bindings: real Finam API contour (session JWT), real connector configuration and secrets, and replayable staging-real broker proof
 - Target Downgrade Is Forbidden: yes
 
 ## What This Phase Does Not Prove

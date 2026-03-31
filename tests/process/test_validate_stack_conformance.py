@@ -144,6 +144,11 @@ def _base_registry(*, surface_claim: str, technology_claim: str) -> dict[str, An
                 "ADR-backed removal",
                 "removed through ADR",
             ],
+            "contradiction_markers_any": [
+                "chosen/planned",
+                "no ADR-backed terminal state is active",
+                "remain unresolved chosen/planned states",
+            ],
             "skip_markers_any": [
                 "unsupported phrase",
                 "confirm validation fails",
@@ -418,6 +423,54 @@ def test_validate_stack_conformance_fails_when_evidence_pack_claims_removed_with
     captured = capsys.readouterr()
     assert code == 1
     assert "technology `aiogram` has claim `planned` but ADR-removal wording appears" in captured.out
+    assert "artifacts/acceptance/f1/reacceptance-evidence-pack.json:1" in captured.out
+
+
+def test_validate_stack_conformance_fails_when_red_team_claims_non_terminal_state_for_removed_technology(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    _seed_common(
+        tmp_path,
+        status_claim="partial",
+        readme_text="Constrained wording.\n",
+        dependencies=[],
+        include_fastapi_entrypoint=False,
+        include_fastapi_test=False,
+        red_team_text="aiogram remains chosen/planned and no ADR-backed terminal state is active.\n",
+    )
+    registry = _base_registry(surface_claim="partial", technology_claim="planned")
+    registry["technology_claims"][1]["claim"] = "removed"
+    registry_path = _write_registry(tmp_path, registry)
+
+    code = validate_stack_conformance.run(tmp_path, registry_path)
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "technology `aiogram` has terminal claim `removed` but non-terminal wording appears" in captured.out
+    assert "artifacts/acceptance/f1/red-team-review-result.md:1" in captured.out
+
+
+def test_validate_stack_conformance_fails_when_evidence_pack_claims_non_terminal_state_for_removed_technology(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    _seed_common(
+        tmp_path,
+        status_claim="partial",
+        readme_text="Constrained wording.\n",
+        dependencies=[],
+        include_fastapi_entrypoint=False,
+        include_fastapi_test=False,
+        evidence_pack_text='{"finding":"aiogram remains chosen/planned and no ADR-backed terminal state is active"}\n',
+    )
+    registry = _base_registry(surface_claim="partial", technology_claim="planned")
+    registry["technology_claims"][1]["claim"] = "removed"
+    registry_path = _write_registry(tmp_path, registry)
+
+    code = validate_stack_conformance.run(tmp_path, registry_path)
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "technology `aiogram` has terminal claim `removed` but non-terminal wording appears" in captured.out
     assert "artifacts/acceptance/f1/reacceptance-evidence-pack.json:1" in captured.out
 
 

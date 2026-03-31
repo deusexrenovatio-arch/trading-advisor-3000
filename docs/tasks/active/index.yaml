@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-03-30'
+updated_at: '2026-03-31'
 items:
 - id: TASK-2026-03-17-CREATE-PR-TO-MAIN-FOR-PHASE0-PHASE3-DELIVERY-INC
   path: docs/tasks/active/TASK-2026-03-17-create-pr-to-main-for-phase0-phase3-delivery-inc.md
@@ -86,3 +86,28 @@ items:
   mode: full
   status: in_progress
   started_at: '2026-03-30'
+- id: TASK-2026-03-31-F1-A-PHASE-01-EXECUTION-REMEDIATION-REBIND-GOVER
+  path: docs/tasks/active/TASK-2026-03-31-f1-a-phase-01-execution-remediation-rebind-gover.md
+  mode: full
+  status: in_progress
+  started_at: '2026-03-31'
+- id: TASK-2026-03-31-F1-C-PHASE-03-CONTRACTS-FREEZE-WORKER-ATTEMPT-1
+  path: docs/tasks/active/TASK-2026-03-31-f1-c-phase-03-contracts-freeze-worker-attempt-1.md
+  mode: full
+  status: in_progress
+  started_at: '2026-03-31'
+- id: TASK-2026-03-31-F1-D-PHASE-04-SIDECAR-IMMUTABLE-EVIDENCE-WORKER-ATTEMPT-1
+  path: docs/tasks/active/TASK-2026-03-31-f1-d-phase-04-sidecar-immutable-evidence-worker-attempt-1.md
+  mode: full
+  status: in_progress
+  started_at: '2026-03-31'
+- id: TASK-2026-03-31-F1-E-PHASE-05-REAL-BROKER-PROCESS-WORKER-ATTEMPT-1
+  path: docs/tasks/active/TASK-2026-03-31-f1-e-phase-05-real-broker-process-worker-attempt-1.md
+  mode: full
+  status: in_progress
+  started_at: '2026-03-31'
+- id: TASK-2026-03-31-F1-E-PHASE-05-REMEDIATION-ATTEMPT-2-BLOCKERS-ONL
+  path: docs/tasks/active/TASK-2026-03-31-f1-e-phase-05-remediation-attempt-2-blockers-onl.md
+  mode: full
+  status: in_progress
+  started_at: '2026-03-31'

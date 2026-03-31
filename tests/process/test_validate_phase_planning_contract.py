@@ -183,3 +183,206 @@ def test_validate_phase_planning_contract_rejects_real_contour_owned_by_prep_pha
         ],
     )
     assert code == 1
+
+
+def test_validate_phase_planning_contract_preserves_source_phase_traceability(tmp_path: Path) -> None:
+    source = tmp_path / "artifacts/pkg/F1_TZ.md"
+    contract_path = tmp_path / "docs" / "codex" / "contracts" / "demo.execution-contract.md"
+    phase_a = tmp_path / "docs" / "codex" / "modules" / "demo.phase-01.md"
+    phase_b = tmp_path / "docs" / "codex" / "modules" / "demo.phase-02.md"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    contract_path.parent.mkdir(parents=True, exist_ok=True)
+    phase_a.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text(
+        """# F1
+
+### Phase F1-A - Truth Source
+**Objective:** Align truth sources honestly.
+
+**Acceptance gate**
+- Truth sources agree.
+
+**Disprover**
+- Reinsert false claim and confirm validation fails.
+
+### Phase F1-B - Runtime Closure
+**Objective:** Close runtime contour with real evidence.
+
+**Acceptance gate**
+- Runtime contour reaches terminal state.
+
+**Disprover**
+- Remove runtime artifact and confirm the phase fails.
+""",
+        encoding="utf-8",
+    )
+    contract_path.write_text(
+        f"""# Execution Contract
+## Primary Source Decision
+- Selected Primary Document: {source.as_posix()}
+
+## Release Target Contract
+- Target Decision: ALLOW_RELEASE_READINESS
+- Target Environment: real production contour
+- Forbidden Proof Substitutes: docs-only, schema-only, fixture-only, mock-only, stub-only
+- Release-Ready Proof Class: live-real
+
+## Mandatory Real Contours
+- publication_chat_contour: real configured chat
+
+## Release Surface Matrix
+- Surface: publication_chat_contour | Owner Phase: F1-B | Required Proof Class: live-real | Must Reach: real_configured_chat
+""",
+        encoding="utf-8",
+    )
+    phase_a.write_text(
+        """# Module Phase Brief
+## Phase
+- Name: F1-A - Truth Source
+
+## Objective
+- Align truth sources honestly.
+
+## Acceptance Gate
+- Truth sources agree.
+
+## Disprover
+- Reinsert false claim and confirm validation fails.
+
+## Release Gate Impact
+- Surface Transition: none
+- Minimum Proof Class: doc
+- Accepted State Label: prep_closed
+
+## Release Surface Ownership
+- Owned Surfaces:
+- Delivered Proof Class: doc
+- Required Real Bindings: none
+- Target Downgrade Is Forbidden: yes
+
+## What This Phase Does Not Prove
+- Release readiness: this phase does not prove ALLOW_RELEASE_READINESS.
+""",
+        encoding="utf-8",
+    )
+    phase_b.write_text(
+        """# Module Phase Brief
+## Phase
+- Name: F1-B - Runtime Closure
+
+## Objective
+- Close runtime contour with real evidence.
+
+## Acceptance Gate
+- Runtime contour reaches terminal state.
+
+## Disprover
+- Remove runtime artifact and confirm the phase fails.
+
+## Release Gate Impact
+- Surface Transition: publication_chat_contour planned -> implemented
+- Minimum Proof Class: live-real
+- Accepted State Label: real_contour_closed
+
+## Release Surface Ownership
+- Owned Surfaces: publication_chat_contour
+- Delivered Proof Class: live-real
+- Required Real Bindings: real configured chat
+- Target Downgrade Is Forbidden: yes
+
+## What This Phase Does Not Prove
+- Release readiness: this phase does not prove ALLOW_RELEASE_READINESS.
+""",
+        encoding="utf-8",
+    )
+
+    code = run(
+        tmp_path,
+        changed_files_override=[
+            "docs/codex/contracts/demo.execution-contract.md",
+            "docs/codex/modules/demo.phase-01.md",
+            "docs/codex/modules/demo.phase-02.md",
+        ],
+    )
+    assert code == 0
+
+
+def test_validate_phase_planning_contract_rejects_lossy_source_phase_rewrite(tmp_path: Path) -> None:
+    source = tmp_path / "artifacts/pkg/F1_TZ.md"
+    contract_path = tmp_path / "docs" / "codex" / "contracts" / "demo.execution-contract.md"
+    phase_path = tmp_path / "docs" / "codex" / "modules" / "demo.phase-01.md"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    contract_path.parent.mkdir(parents=True, exist_ok=True)
+    phase_path.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text(
+        """# F1
+
+### Phase F1-A - Truth Source
+**Objective:** Align truth sources honestly.
+
+**Acceptance gate**
+- Truth sources agree.
+
+**Disprover**
+- Reinsert false claim and confirm validation fails.
+""",
+        encoding="utf-8",
+    )
+    contract_path.write_text(
+        f"""# Execution Contract
+## Primary Source Decision
+- Selected Primary Document: {source.as_posix()}
+
+## Release Target Contract
+- Target Decision: ALLOW_RELEASE_READINESS
+- Target Environment: real production contour
+- Forbidden Proof Substitutes: docs-only, schema-only, fixture-only, mock-only, stub-only
+- Release-Ready Proof Class: live-real
+
+## Mandatory Real Contours
+- publication_chat_contour: real configured chat
+
+## Release Surface Matrix
+- Surface: publication_chat_contour | Owner Phase: F1-A | Required Proof Class: live-real | Must Reach: real_configured_chat
+""",
+        encoding="utf-8",
+    )
+    phase_path.write_text(
+        """# Module Phase Brief
+## Phase
+- Name: F1-A - Truth Source
+
+## Objective
+- Tidy supporting docs.
+
+## Acceptance Gate
+- Truth sources agree.
+
+## Disprover
+- Some different disprover.
+
+## Release Gate Impact
+- Surface Transition: publication_chat_contour planned -> implemented
+- Minimum Proof Class: live-real
+- Accepted State Label: real_contour_closed
+
+## Release Surface Ownership
+- Owned Surfaces: publication_chat_contour
+- Delivered Proof Class: live-real
+- Required Real Bindings: real configured chat
+- Target Downgrade Is Forbidden: yes
+
+## What This Phase Does Not Prove
+- Release readiness: this phase does not prove ALLOW_RELEASE_READINESS.
+""",
+        encoding="utf-8",
+    )
+
+    code = run(
+        tmp_path,
+        changed_files_override=[
+            "docs/codex/contracts/demo.execution-contract.md",
+            "docs/codex/modules/demo.phase-01.md",
+        ],
+    )
+    assert code == 1

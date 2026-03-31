@@ -14,7 +14,7 @@ Updated: 2026-03-30 10:08 UTC
 
 ## Objective
 
-- Remove every ghost chosen state from the replaceable stack set and close the Telegram adapter mismatch with one honest terminal outcome per technology.
+- убрать все replaceable ghost technologies и закрыть Telegram mismatch.
 
 ## In Scope
 
@@ -47,23 +47,24 @@ Updated: 2026-03-30 10:08 UTC
 
 ## Acceptance Gate
 
-- Stack spec, registry, ADR set, runtime code, and tests agree for every in-scope technology.
-- No replaceable technology remains ambiguous after the phase.
-- Negative tests cover at least one ghost chosen-state regression path.
+- Stack spec, registry, ADR set, runtime code и tests совпадают по каждой технологии.
+- Ни одна replaceable technology не остаётся ambiguous.
+- Publication chat contour is proven with a configured real publication chat/channel, real publication credentials, and replayable publication evidence.
+- Negative tests покрывают случай ghost chosen state.
 
 ## Disprover
 
-- Leave one technology such as `OpenTelemetry` marked as chosen without executable proof or ADR-backed removal and confirm the phase fails.
+- Оставить `OpenTelemetry` как chosen в stack spec без runtime proof и без ADR, и убедиться, что phase fail-ится.
 
 ## Done Evidence
 
 - Every in-scope replaceable technology is terminal and non-ambiguous.
-- Telegram closure no longer contradicts runtime reality, spec, registry, or route history.
+- Telegram/publication closure is proven on a configured real publication chat/channel and no longer contradicts runtime reality, spec, registry, or route history.
 - Negative tests prove that ghost chosen states are rejected.
 
 ## Release Gate Impact
 
-- Surface Transition: `R2/S1` ghost-state model `ambiguous -> terminal`
+- Surface Transition: `R2/S1` ghost-state model `ambiguous -> terminal`; `publication_chat_contour` `unconfigured -> real_configured_chat`
 - Minimum Proof Class: live-real
 - Accepted State Label: real_contour_closed
 
@@ -77,7 +78,7 @@ Updated: 2026-03-30 10:08 UTC
 ## What This Phase Does Not Prove
 
 - Release readiness: this phase does not prove `ALLOW_RELEASE_READINESS`.
-- Live contour closure: this phase does not prove a real configured production chat/channel or a real broker rollout contour.
+- Live contour closure beyond owned surfaces: this phase does not prove a real broker rollout contour or the integrated `production_live_readiness` bundle.
 
 ## Rollback Note
 

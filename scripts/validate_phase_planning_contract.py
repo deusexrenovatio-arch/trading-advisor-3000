@@ -5,6 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from phase_tz_compiler import CompiledPhasePlan, compile_phase_plan
 
 REMEDIATION_DOC = "docs/runbooks/governance-remediation.md"
 EXECUTION_CONTRACT_HEADING = "## Release Target Contract"
@@ -159,6 +160,19 @@ def _execution_contract_for_phase(path: Path) -> Path | None:
     if candidate.exists():
         return candidate
     return None
+
+
+def _repo_root_for_planning_path(path: Path) -> Path:
+    return path.resolve().parents[3]
+
+
+def _resolve_declared_path(base_path: Path, raw: str | None) -> Path | None:
+    if not raw:
+        return None
+    candidate = Path(raw.strip())
+    if candidate.is_absolute():
+        return candidate.resolve()
+    return (_repo_root_for_planning_path(base_path) / candidate).resolve()
 
 
 def _relevant_planning_files(repo_root: Path, changed_files: list[str], validate_all: bool) -> list[Path]:
@@ -325,6 +339,98 @@ def _parse_phase_ownership(path: Path, errors: list[str]) -> dict[str, object]:
     }
 
 
+def _normalize_text(value: str) -> str:
+    cleaned = (
+        value.lower()
+        .replace("`", "")
+        .replace("'", "")
+        .replace('"', "")
+        .replace("(", " ")
+        .replace(")", " ")
+        .replace(",", " ")
+        .replace(":", " ")
+        .replace(";", " ")
+        .replace("-", " ")
+    )
+    return " ".join(cleaned.split())
+
+
+def _matching_entry_present(expected: str, actual_items: list[str]) -> bool:
+    expected_normalized = _normalize_text(expected)
+    if not expected_normalized:
+        return True
+    for item in actual_items:
+        actual_normalized = _normalize_text(item)
+        if not actual_normalized:
+            continue
+        if expected_normalized in actual_normalized or actual_normalized in expected_normalized:
+            return True
+    return False
+
+
+def _primary_source_document(execution_contract: Path) -> Path | None:
+    lines = execution_contract.read_text(encoding="utf-8").splitlines()
+    section = _section_lines(lines, "## Primary Source Decision")
+    raw_path = _extract_prefixed_value(section, "- selected primary document:")
+    return _resolve_declared_path(execution_contract, raw_path)
+
+
+def _phase_section_entries(path: Path, heading: str) -> list[str]:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    return _bullet_values(_section_lines(lines, heading))
+
+
+def _phase_objective_entry(path: Path) -> str:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    objective_section = _section_lines(lines, "## Objective")
+    values = _bullet_values(objective_section)
+    return values[0] if values else ""
+
+
+def _cross_validate_compiled_source_plan(
+    execution_contract: Path,
+    compiled_plan: CompiledPhasePlan,
+    errors: list[str],
+) -> None:
+    if not compiled_plan.phases:
+        return
+    phase_files = _phase_artifacts_for_contract(execution_contract)
+    if len(phase_files) != len(compiled_plan.phases):
+        errors.append(
+            f"{execution_contract.as_posix()}: source TZ declares {len(compiled_plan.phases)} phases "
+            f"but execution contract materializes {len(phase_files)} phase briefs"
+        )
+        return
+
+    for phase_path, compiled_phase in zip(phase_files, compiled_plan.phases):
+        phase_id = (_phase_name_short(phase_path) or "").strip()
+        if phase_id.lower() != compiled_phase.phase_id.lower():
+            errors.append(
+                f"{phase_path.as_posix()}: phase id `{phase_id}` does not preserve source phase id "
+                f"`{compiled_phase.phase_id}`"
+            )
+        objective = _phase_objective_entry(phase_path)
+        if compiled_phase.objective and not _matching_entry_present(compiled_phase.objective, [objective]):
+            errors.append(
+                f"{phase_path.as_posix()}: phase objective does not preserve source objective "
+                f"`{compiled_phase.objective}`"
+            )
+
+        acceptance_entries = _phase_section_entries(phase_path, "## Acceptance Gate")
+        for expected in compiled_phase.acceptance_gate:
+            if not _matching_entry_present(expected, acceptance_entries):
+                errors.append(
+                    f"{phase_path.as_posix()}: acceptance gate dropped or rewrote source clause `{expected}`"
+                )
+
+        disprover_entries = _phase_section_entries(phase_path, "## Disprover")
+        for expected in compiled_phase.disprover:
+            if not _matching_entry_present(expected, disprover_entries):
+                errors.append(
+                    f"{phase_path.as_posix()}: disprover dropped or rewrote source clause `{expected}`"
+                )
+
+
 def _proof_rank(value: str) -> int:
     order = ["doc", "schema", "unit", "integration", "staging-real", "live-real"]
     try:
@@ -407,6 +513,17 @@ def _cross_validate_release_plan(execution_contract: Path, errors: list[str]) ->
                 errors.append(
                     f"{row['path'].as_posix()}: phase claims unknown owned surface `{surface_id}`"
                 )
+
+    primary_source = _primary_source_document(execution_contract)
+    if primary_source is None:
+        return
+    if not primary_source.exists():
+        errors.append(
+            f"{execution_contract.as_posix()}: selected primary document does not exist: {primary_source.as_posix()}"
+        )
+        return
+    compiled_plan = compile_phase_plan(primary_source)
+    _cross_validate_compiled_source_plan(execution_contract, compiled_plan, errors)
 
 
 def run(

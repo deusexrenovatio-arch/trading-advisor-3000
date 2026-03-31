@@ -15,6 +15,8 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from phase_tz_compiler import compile_phase_plan, phase_plan_payload
+
 
 DEFAULT_INBOX = Path("docs/codex/packages/inbox")
 DEFAULT_PROMPT = Path("docs/codex/prompts/entry/from_package.md")
@@ -27,6 +29,7 @@ POSITIVE_HINTS = (
     ("requirements", 120, "filename looks like requirements"),
     ("specification", 120, "filename looks like specification"),
     ("spec", 110, "filename looks like specification"),
+    ("tz", 130, "filename looks like TZ"),
     ("тз", 130, "filename looks like TZ"),
     ("техническ", 110, "filename looks like technical doc"),
     ("task", 70, "filename looks task-oriented"),
@@ -35,6 +38,10 @@ POSITIVE_HINTS = (
 )
 NEGATIVE_HINTS = (
     ("readme", -40, "generic README is usually supporting material"),
+    ("verdict", -80, "verdict docs are usually downstream acceptance outputs"),
+    ("findings", -55, "findings docs are usually analytical supporting material"),
+    ("manifest", -45, "manifest docs are usually inventory/supporting material"),
+    ("evidence", -25, "evidence docs are usually supporting material"),
     ("notes", -20, "notes are usually supporting material"),
     ("appendix", -15, "appendix is usually supporting material"),
     ("draft", -10, "draft is less stable than a finalized spec"),
@@ -135,6 +142,15 @@ def extract_title(path: Path) -> str | None:
     return None
 
 
+def read_plain_text(path: Path) -> str | None:
+    if path.suffix.lower() not in {".md", ".txt", ".rst"}:
+        return None
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
 def normalized_hint_text(path: Path) -> str:
     return path.as_posix().lower().replace(" ", "_").replace("-", "_")
 
@@ -171,9 +187,35 @@ def score_candidate(path: Path, *, extracted_root: Path) -> DocumentCandidate:
         if "requirements" in title_normalized or "требован" in title_normalized:
             score += 30
             reasons.append("title looks like requirements")
-        if "spec" in title_normalized or "specification" in title_normalized or "тз" in title_normalized:
+        if "spec" in title_normalized or "specification" in title_normalized or "тз" in title_normalized or "tz" in title_normalized:
             score += 25
             reasons.append("title looks like specification")
+        if "verdict" in title_normalized:
+            score -= 50
+            reasons.append("title looks like verdict output")
+        if "findings" in title_normalized:
+            score -= 30
+            reasons.append("title looks like findings output")
+
+    text = read_plain_text(path)
+    if text:
+        normalized_text = text.lower()
+        phase_headings = len(re.findall(r"^###\s+phase\s+[a-z0-9-]+", text, flags=re.IGNORECASE | re.MULTILINE))
+        if phase_headings:
+            score += 180 + phase_headings * 12
+            reasons.append(f"content defines explicit phase rollout ({phase_headings} phases)")
+        if "**acceptance gate**" in normalized_text and "**disprover**" in normalized_text:
+            score += 90
+            reasons.append("content carries acceptance/disprover contract")
+        if "allow_release_readiness" in normalized_text:
+            score += 45
+            reasons.append("content names explicit release decision target")
+        if "phase acceptance verdict" in normalized_text or "acceptance verdict" in normalized_text:
+            score -= 40
+            reasons.append("content reads like downstream verdict output")
+        if "detailed phase findings" in normalized_text:
+            score -= 25
+            reasons.append("content reads like findings output")
 
     return DocumentCandidate(
         rel_path=rel_path,
@@ -266,6 +308,8 @@ def write_manifest_json(
     package_path: Path,
     extracted_root: Path,
     candidates: list[DocumentCandidate],
+    compiler_artifact: Path | None,
+    compiler_phase_ids: list[str],
 ) -> None:
     payload = {
         "updated_at": utc_now().isoformat().replace("+00:00", "Z"),
@@ -274,6 +318,8 @@ def write_manifest_json(
         "suggested_primary_document": candidates[0].rel_path if candidates else None,
         "candidates": [asdict(candidate) for candidate in candidates],
         "extension_counts": summarize_extensions(extracted_root),
+        "suggested_phase_compiler_artifact": compiler_artifact.as_posix() if compiler_artifact else None,
+        "suggested_phase_ids": compiler_phase_ids,
     }
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
@@ -285,16 +331,19 @@ def build_prompt(
     extracted_root: Path,
     manifest_path: Path,
     suggested_primary: str | None,
+    suggested_phase_compiler_artifact: str | None,
     mode: str,
 ) -> str:
     base = prompt_path.read_text(encoding="utf-8").rstrip()
     primary_line = suggested_primary if suggested_primary else "NONE"
+    compiler_line = suggested_phase_compiler_artifact if suggested_phase_compiler_artifact else "NONE"
     return (
         f"{base}\n\n"
         f"Package zip path: {package_path.as_posix()}\n"
         f"Extracted package root: {extracted_root.as_posix()}\n"
         f"Package manifest path: {manifest_path.as_posix()}\n"
         f"Suggested primary document: {primary_line}\n"
+        f"Suggested phase compiler artifact: {compiler_line}\n"
         f"Mode hint: {mode}\n"
     )
 
@@ -427,21 +476,39 @@ def main(argv: list[str] | None = None) -> int:
         ),
         encoding="utf-8",
     )
-    write_manifest_json(
-        path=manifest_json_path,
-        package_path=package_path,
-        extracted_root=extracted_root,
-        candidates=candidates,
-    )
 
     suggested_primary = None
+    suggested_phase_compiler_artifact: Path | None = None
+    suggested_phase_ids: list[str] = []
     if candidates:
-        suggested_primary = (extracted_root / candidates[0].rel_path).resolve().as_posix()
+        suggested_primary_path = (extracted_root / candidates[0].rel_path).resolve()
+        suggested_primary = suggested_primary_path.as_posix()
+        compiled_plan = compile_phase_plan(suggested_primary_path)
+        if compiled_plan.phases:
+            suggested_phase_compiler_artifact = run_root / "suggested-phase-plan.json"
+            suggested_phase_ids = [phase.phase_id for phase in compiled_plan.phases]
+            suggested_phase_compiler_artifact.write_text(
+                json.dumps(phase_plan_payload(compiled_plan), ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
 
     print(f"package zip: {package_path.as_posix()}")
     print(f"extracted root: {extracted_root.as_posix()}")
     print(f"manifest: {manifest_path.as_posix()}")
     print(f"suggested primary document: {suggested_primary or 'NONE'}")
+    print(
+        "suggested phase compiler artifact: "
+        f"{suggested_phase_compiler_artifact.as_posix() if suggested_phase_compiler_artifact else 'NONE'}"
+    )
+
+    write_manifest_json(
+        path=manifest_json_path,
+        package_path=package_path,
+        extracted_root=extracted_root,
+        candidates=candidates,
+        compiler_artifact=suggested_phase_compiler_artifact,
+        compiler_phase_ids=suggested_phase_ids,
+    )
 
     if args.dry_run:
         print("dry run: Codex invocation skipped")
@@ -454,6 +521,9 @@ def main(argv: list[str] | None = None) -> int:
         extracted_root=extracted_root,
         manifest_path=manifest_path,
         suggested_primary=suggested_primary,
+        suggested_phase_compiler_artifact=(
+            suggested_phase_compiler_artifact.as_posix() if suggested_phase_compiler_artifact else None
+        ),
         mode=args.mode,
     )
     return run_codex(

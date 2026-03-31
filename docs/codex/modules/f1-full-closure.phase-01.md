@@ -14,7 +14,7 @@ Updated: 2026-03-30 10:08 UTC
 
 ## Objective
 
-- Remove false closure language, align the truth-source bundle, and extend stack-conformance validation so acceptance-report surfaces fail closed instead of overclaiming.
+- убрать ложные truth-source claims и сделать validator реально fail-closed.
 
 ## In Scope
 
@@ -49,19 +49,21 @@ Updated: 2026-03-30 10:08 UTC
 
 ## Acceptance Gate
 
-- A deliberate contradiction between report, registry, spec, ADR, or status surfaces fails validation.
-- The validator covers reacceptance reports, red-team result docs, module briefs carrying stack claims, and claim-carrying evidence-pack text.
-- Touched docs contain no unsupported `accepted`, retirement-claim, or readiness language.
+- Любой deliberate contradiction между report/registy/spec/ADR должен ломать validator.
+- `docs/architecture/app/STATUS.md`, baseline, phase10 report, red-team result и registry согласованы.
+- В touched docs нет overclaiming beyond truth-source state.
 
 ## Disprover
 
-- Reinsert an unsupported phrase such as `aiogram removed by ADR` into a claim-carrying report without matching registry/spec/ADR updates and confirm validation fails.
+- Снова вернуть фразу `aiogram removed by ADR` только в phase10 report, не меняя registry/spec/ADR, и убедиться, что CI падает.
 
 ## Done Evidence
 
 - Truth-source drift across `STATUS`, baseline, phase10 report, red-team result, and registry is closed.
 - The stack-conformance validator and tests fail closed on the newly covered claim surfaces.
 - Acceptance-report level overclaims are blocked by deterministic checks.
+- `python scripts/run_loop_gate.py --from-git --git-ref HEAD` passes for the phase-scoped diff.
+- `python scripts/run_pr_gate.py --from-git --git-ref HEAD` passes and is recorded in worker evidence.
 
 ## Release Gate Impact
 

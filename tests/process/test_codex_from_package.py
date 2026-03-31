@@ -55,6 +55,35 @@ def test_collect_document_candidates_prefers_requirements_over_readme(tmp_path: 
     assert candidates[0].score > candidates[1].score
 
 
+def test_collect_document_candidates_prefers_phase_tz_over_verdict_outputs(tmp_path: Path) -> None:
+    extracted = tmp_path / "extracted"
+    extracted.mkdir()
+    (extracted / "01_phase_acceptance_verdict.md").write_text(
+        "# Phase acceptance verdict\n\nThis is the acceptance verdict summary.\n",
+        encoding="utf-8",
+    )
+    (extracted / "03_f1_full_closure_TZ.md").write_text(
+        """# Technical requirements for F1
+
+### Phase F1-A - Truth source
+**Objective:** Align truth sources honestly.
+
+**Acceptance gate**
+- Truth sources agree.
+
+**Disprover**
+- Reinsert false claim and confirm validation fails.
+""",
+        encoding="utf-8",
+    )
+
+    candidates = collect_document_candidates(extracted)
+
+    assert candidates
+    assert candidates[0].rel_path == "03_f1_full_closure_TZ.md"
+    assert candidates[0].score > candidates[1].score
+
+
 def test_extract_docx_title_reads_first_text(tmp_path: Path) -> None:
     docx = tmp_path / "spec.docx"
     with zipfile.ZipFile(docx, "w") as archive:

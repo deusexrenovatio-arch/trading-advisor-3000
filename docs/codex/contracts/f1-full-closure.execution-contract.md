@@ -1,4 +1,4 @@
-# Execution Contract
+﻿# Execution Contract
 
 Updated: 2026-03-30 10:08 UTC
 
@@ -109,8 +109,9 @@ Updated: 2026-03-30 10:08 UTC
 - continue
 
 ## Next Allowed Unit Of Work
-- Execute F1-D - Sidecar Immutable Evidence Hardening only: Keep `E1` accepted while removing its remaining evidence debt by making build, test, publish, and compiled-binary smoke proof reproducible and immutable.
+- Execute F1-E - Real Broker Process Closure only: move `StockSharp/QUIK/Finam real broker process` from `planned` to implemented release-blocking surface via Finam-native session and transport proof.
 ## Suggested Branch / PR
 
 - Branch: codex/f1-full-closure-phase01
 - PR Title: Normalize F1 full-closure module and start truth-source repair
+

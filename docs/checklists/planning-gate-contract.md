@@ -3,6 +3,7 @@
 ## Purpose
 - Block lazy phase slicing between a hard target TZ and execution-phase briefs.
 - Keep release-oriented planning anchored to the real target environment and proof class.
+- Treat phase planning as deterministic compilation from the selected TZ, not as a free rewrite.
 
 ## Mandatory Execution Contract
 - `## Release Target Contract`
@@ -32,6 +33,7 @@
 - `ALLOW_RELEASE_READINESS` must bind to a real target environment, not a demo or abstract contour.
 - `live-real` target proof must not be silently downgraded to `staging-real`, `integration`, `schema`, or `doc`.
 - Every mandatory real contour must appear in the release surface matrix and be owned by a non-`prep_closed` phase.
+- If the selected primary source contains an explicit phase rollout, the planner must preserve source phase ids, objectives, acceptance gates, and disprovers unless the package is explicitly classified as repairable.
 - A phase that closes only planning, docs, contracts, or validator work must not use `release_decision` as its accepted state label.
 - A phase brief must say explicitly what it does not prove; otherwise the phase is invalid for release planning.
 - A phase that does not move any release-blocking surface must not be presented as release closure.
@@ -48,6 +50,7 @@
 - Phase brief implies final release closure while its accepted state label is only `prep_closed` or `real_contour_closed`.
 - Mandatory real contour mapped only to `doc`, `schema`, `unit`, or `integration`.
 - Mandatory real contour owned by a `prep_closed` phase.
+- Explicit source TZ phase clauses are dropped, merged, renamed, or materially rewritten without a repairable-contract decision.
 
 ## Enforcement
 - Validate with:

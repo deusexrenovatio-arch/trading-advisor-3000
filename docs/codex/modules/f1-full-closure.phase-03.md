@@ -14,7 +14,7 @@ Updated: 2026-03-30 10:08 UTC
 
 ## Objective
 
-- Move `contracts_freeze` from partial to fully governed by versioning every release-blocking public boundary with schemas, fixtures, tests, and compatibility rules.
+- перевести `contracts_freeze` из `partial` в fully governed implemented release surface.
 
 ## In Scope
 
@@ -47,13 +47,13 @@ Updated: 2026-03-30 10:08 UTC
 
 ## Acceptance Gate
 
-- Every release-blocking public boundary is represented by versioned schema and fixture artifacts with tests.
-- Contract tests cover the release-blocking envelopes named by the phase.
-- `contracts_freeze` can move honestly from `partial` to `implemented`.
+- Нельзя изменить публичный boundary без schema + fixture + test delta.
+- Contract tests cover all release-blocking envelopes.
+- `contracts_freeze` can honestly move from `partial` to `implemented`.
 
 ## Disprover
 
-- Mutate one public payload without a matching schema, fixture, and test update and confirm the phase fails.
+- Изменить любой public payload без schema/fixture/test update и убедиться, что CI падает.
 
 ## Done Evidence
 

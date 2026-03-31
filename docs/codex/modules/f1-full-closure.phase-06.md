@@ -14,7 +14,7 @@ Updated: 2026-03-30 10:08 UTC
 
 ## Objective
 
-- Produce the final governed release decision package only after every upstream F1 closure prerequisite is satisfied and reproducibly evidenced.
+- перевести `production_readiness` из `not accepted` в explicit allow decision.
 
 ## In Scope
 

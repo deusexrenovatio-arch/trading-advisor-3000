@@ -366,12 +366,17 @@ def _validate_removed_claim_guard(
         context="removed_claim_guard.phrase_markers_any",
         errors=errors,
     )
+    contradiction_markers = _string_list(
+        guard.get("contradiction_markers_any"),
+        context="removed_claim_guard.contradiction_markers_any",
+        errors=errors,
+    )
     skip_markers = _string_list(
         guard.get("skip_markers_any"),
         context="removed_claim_guard.skip_markers_any",
         errors=errors,
     )
-    if not phrase_markers:
+    if not phrase_markers and not contradiction_markers:
         return
     if not documents and not document_globs:
         errors.append("removed_claim_guard must define documents or document_globs")
@@ -425,6 +430,7 @@ def _validate_removed_claim_guard(
         return
 
     phrase_tokens = [item.lower() for item in phrase_markers]
+    contradiction_tokens = [item.lower() for item in contradiction_markers]
     skip_tokens = [item.lower() for item in skip_markers]
     for document in claim_documents:
         text = _read_text(repo_root, document, errors, context="removed-claim document")
@@ -432,9 +438,14 @@ def _validate_removed_claim_guard(
             continue
         for line_no, raw in enumerate(text.splitlines(), start=1):
             lowered = raw.lower()
-            if not any(token in lowered for token in phrase_tokens):
-                continue
             if skip_tokens and any(token in lowered for token in skip_tokens):
+                continue
+
+            has_removal_wording = phrase_tokens and any(token in lowered for token in phrase_tokens)
+            has_terminal_contradiction = (
+                contradiction_tokens and any(token in lowered for token in contradiction_tokens)
+            )
+            if not has_removal_wording and not has_terminal_contradiction:
                 continue
 
             matched = [
@@ -442,7 +453,7 @@ def _validate_removed_claim_guard(
                 for technology in technologies
                 if any(_line_mentions_alias(lowered, alias) for alias in technology["aliases"])
             ]
-            if not matched:
+            if has_removal_wording and not matched:
                 errors.append(
                     f"ADR-removal wording appears in {document}:{line_no} "
                     "without a recognized technology marker"
@@ -450,9 +461,16 @@ def _validate_removed_claim_guard(
                 continue
 
             for technology in matched:
-                if technology["claim"] != "removed" and not _is_replaced_by_claim(technology["claim"]):
+                claim = technology["claim"]
+                has_terminal_claim = claim == "removed" or _is_replaced_by_claim(claim)
+                if has_removal_wording and not has_terminal_claim:
                     errors.append(
-                        f"{technology['subject']} has claim `{technology['claim']}` but ADR-removal wording "
+                        f"{technology['subject']} has claim `{claim}` but ADR-removal wording "
+                        f"appears in {document}:{line_no}"
+                    )
+                if has_terminal_contradiction and has_terminal_claim:
+                    errors.append(
+                        f"{technology['subject']} has terminal claim `{claim}` but non-terminal wording "
                         f"appears in {document}:{line_no}"
                     )
 
