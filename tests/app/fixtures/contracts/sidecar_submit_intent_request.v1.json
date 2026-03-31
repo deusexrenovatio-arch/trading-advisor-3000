@@ -1,0 +1,15 @@
+{
+  "intent_id": "INT-123",
+  "intent": {
+    "intent_id": "INT-123",
+    "signal_id": "SIG-123",
+    "mode": "live",
+    "broker_adapter": "stocksharp-sidecar",
+    "action": "buy",
+    "contract_id": "BR-6.26",
+    "qty": 1,
+    "price": 82.5,
+    "stop_price": 81.8,
+    "created_at": "2026-03-18T12:00:00Z"
+  }
+}

@@ -13,11 +13,50 @@ if (string.IsNullOrWhiteSpace(route))
 {
     route = "stocksharp->quik->finam";
 }
+var connectorMode = builder.Configuration["TA3000_CONNECTOR_MODE"];
+if (string.IsNullOrWhiteSpace(connectorMode))
+{
+    connectorMode = "staging-real";
+}
+var connectorBackend = builder.Configuration["TA3000_CONNECTOR_BACKEND"];
+if (string.IsNullOrWhiteSpace(connectorBackend))
+{
+    connectorBackend = "stocksharp-quik-finam";
+}
+var connectorBaseUrl = builder.Configuration["TA3000_BROKER_CONNECTOR_BASE_URL"];
+var connectorApiPrefix = builder.Configuration["TA3000_BROKER_CONNECTOR_API_PREFIX"];
+if (string.IsNullOrWhiteSpace(connectorApiPrefix))
+{
+    connectorApiPrefix = "v1";
+}
+var connectorAuthHeader = builder.Configuration["TA3000_BROKER_CONNECTOR_AUTH_HEADER"];
+if (string.IsNullOrWhiteSpace(connectorAuthHeader))
+{
+    connectorAuthHeader = "X-Broker-Api-Key";
+}
+var connectorAuthToken = builder.Configuration["TA3000_BROKER_CONNECTOR_AUTH_TOKEN"];
+if (string.IsNullOrWhiteSpace(connectorAuthToken))
+{
+    connectorAuthToken = builder.Configuration["TA3000_STOCKSHARP_API_KEY"];
+}
+var connectorTimeoutSeconds = ParseDouble(builder.Configuration["TA3000_BROKER_CONNECTOR_TIMEOUT_SECONDS"], defaultValue: 3.0);
+
+var connectorTransport = new BrokerConnectorHttpTransport(
+    connectorBaseUrl: connectorBaseUrl,
+    apiPrefix: connectorApiPrefix,
+    authHeaderName: connectorAuthHeader,
+    authToken: connectorAuthToken,
+    timeoutSeconds: connectorTimeoutSeconds,
+    expectedConnectorMode: connectorMode,
+    expectedConnectorBackend: connectorBackend,
+    route: route
+);
 
 builder.Services.AddSingleton(
     new SidecarGatewayState(
         brokerRoute: route,
-        killSwitchActive: ParseBool(builder.Configuration["TA3000_GATEWAY_KILL_SWITCH"])
+        killSwitchActive: ParseBool(builder.Configuration["TA3000_GATEWAY_KILL_SWITCH"], defaultValue: false),
+        connectorTransport: connectorTransport
     )
 );
 
@@ -43,12 +82,12 @@ app.MapGet("/metrics", (SidecarGatewayState state) =>
 
 app.MapGet("/v1/stream/updates", (string? cursor, int? limit, SidecarGatewayState state) =>
 {
-    return Results.Json(state.StreamUpdates(cursor, limit), statusCode: StatusCodes.Status200OK);
+    return ToResult(state.StreamUpdates(cursor, limit), value => value);
 });
 
 app.MapGet("/v1/stream/fills", (string? cursor, int? limit, SidecarGatewayState state) =>
 {
-    return Results.Json(state.StreamFills(cursor, limit), statusCode: StatusCodes.Status200OK);
+    return ToResult(state.StreamFills(cursor, limit), value => value);
 });
 
 app.MapPost("/v1/intents/submit", (HttpContext context, SubmitIntentRequest request, SidecarGatewayState state) =>
@@ -80,15 +119,35 @@ app.MapPost("/v1/admin/kill-switch", (KillSwitchRequest request, SidecarGatewayS
 
 app.Run();
 
-static bool ParseBool(string? value)
+static bool ParseBool(string? value, bool defaultValue)
 {
     if (string.IsNullOrWhiteSpace(value))
     {
-        return false;
+        return defaultValue;
     }
 
     var token = value.Trim().ToLowerInvariant();
     return token is "1" or "true" or "yes" or "on";
+}
+
+static double ParseDouble(string? value, double defaultValue)
+{
+    if (string.IsNullOrWhiteSpace(value))
+    {
+        return defaultValue;
+    }
+
+    if (!double.TryParse(
+        value.Trim(),
+        System.Globalization.NumberStyles.Float,
+        System.Globalization.CultureInfo.InvariantCulture,
+        out var parsed
+    ))
+    {
+        return defaultValue;
+    }
+
+    return parsed > 0 ? parsed : defaultValue;
 }
 
 static IResult ToResult<T>(GatewayResult<T> result, Func<T, object> successPayload)

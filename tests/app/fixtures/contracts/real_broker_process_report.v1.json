@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "phase": "F1-E - Real Broker Process Closure",
+  "phase_brief": "docs/codex/modules/f1-full-closure.phase-05.md",
+  "route_signal": "worker:phase-only",
+  "proof_class": "staging-real",
+  "generated_at": "2026-03-31T12:00:00Z",
+  "run_id": "20260331T120000Z-sample123456",
+  "git_sha": "sample1234567890abcdef1234567890abcdef1234",
+  "commands": [
+    {
+      "step_id": "build",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File deployment/stocksharp-sidecar/scripts/build.ps1",
+      "return_code": 0,
+      "started_at": "2026-03-31T12:00:00Z",
+      "finished_at": "2026-03-31T12:00:25Z",
+      "duration_sec": 25.0,
+      "stdout_path": "artifacts/f1/phase05/sample/logs/build.stdout.log",
+      "stderr_path": "artifacts/f1/phase05/sample/logs/build.stderr.log"
+    }
+  ],
+  "artifacts": {
+    "run_dir": "artifacts/f1/phase05/real-broker-process/sample",
+    "environment": "artifacts/f1/phase05/real-broker-process/sample/environment.json",
+    "build": "artifacts/f1/phase05/real-broker-process/sample/build.json",
+    "test": "artifacts/f1/phase05/real-broker-process/sample/test.json",
+    "publish": "artifacts/f1/phase05/real-broker-process/sample/publish.json",
+    "smoke": "artifacts/f1/phase05/real-broker-process/sample/smoke.json",
+    "smoke_validation": "artifacts/f1/phase05/real-broker-process/sample/smoke-validation.json",
+    "connector_health_validation": "artifacts/f1/phase05/real-broker-process/sample/connector-health-validation.json",
+    "connector_session_proof": "artifacts/f1/phase05/real-broker-process/sample/connector-session-proof.json",
+    "rollout": "artifacts/f1/phase05/real-broker-process/sample/rollout.json",
+    "recovery_validation": "artifacts/f1/phase05/real-broker-process/sample/recovery-validation.json",
+    "negative_tests": "artifacts/f1/phase05/real-broker-process/sample/negative-tests.json",
+    "hashes_json": "artifacts/f1/phase05/real-broker-process/sample/hashes.json",
+    "hashes_sha256": "artifacts/f1/phase05/real-broker-process/sample/hashes.sha256",
+    "hash_validation": "artifacts/f1/phase05/real-broker-process/sample/hash-validation.json",
+    "publish_dir": "artifacts/f1/phase05/real-broker-process/sample/publish"
+  },
+  "real_bindings": [
+    "compiled stocksharp sidecar binary",
+    "staging-real broker connector profile and secrets contract",
+    "staging rollout with reconciliation and fail-closed recovery proof"
+  ]
+}

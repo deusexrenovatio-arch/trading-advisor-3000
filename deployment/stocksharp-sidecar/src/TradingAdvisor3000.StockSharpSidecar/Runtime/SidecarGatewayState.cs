@@ -1,44 +1,32 @@
-﻿using System.Globalization;
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
+using System.Globalization;
 
 namespace TradingAdvisor3000.StockSharpSidecar.Runtime;
 
 public sealed class SidecarGatewayState
 {
-    private sealed record IntentRecord(string ExternalOrderId, string BrokerAdapter, string State);
-
     private readonly object _gate = new();
     private readonly string _brokerRoute;
+    private readonly IBrokerConnectorTransport _connectorTransport;
     private bool _killSwitchActive;
 
-    private readonly Dictionary<string, IntentRecord> _intents = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, SubmitAck> _submitCache = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, CancelAck> _cancelCache = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, ReplaceAck> _replaceCache = new(StringComparer.Ordinal);
-    private readonly List<BrokerUpdate> _updates = new();
-    private readonly List<BrokerFill> _fills = new();
-
-    public SidecarGatewayState(string brokerRoute, bool killSwitchActive)
+    public SidecarGatewayState(
+        string brokerRoute,
+        bool killSwitchActive,
+        IBrokerConnectorTransport connectorTransport
+    )
     {
         _brokerRoute = string.IsNullOrWhiteSpace(brokerRoute)
             ? "stocksharp->quik->finam"
             : brokerRoute.Trim();
         _killSwitchActive = killSwitchActive;
+        _connectorTransport = connectorTransport ?? throw new ArgumentNullException(nameof(connectorTransport));
     }
 
     public HealthPayload Health()
     {
         lock (_gate)
         {
-            return new HealthPayload(
-                Service: "stocksharp-sidecar-gateway",
-                Status: "ok",
-                Route: _brokerRoute,
-                KillSwitch: _killSwitchActive,
-                QueuedIntents: _intents.Count
-            );
+            return BuildHealthPayload(_connectorTransport.ProbeHealth());
         }
     }
 
@@ -46,9 +34,16 @@ public sealed class SidecarGatewayState
     {
         lock (_gate)
         {
+            var connector = _connectorTransport.ProbeHealth();
+            var ready = !_killSwitchActive && connector.ConnectorReady;
+            var reason = _killSwitchActive
+                ? "kill_switch_active"
+                : connector.ConnectorReady
+                    ? "ok"
+                    : NormalizeConnectorError(connector.ErrorCode);
             return new ReadyPayload(
-                Ready: !_killSwitchActive,
-                Reason: _killSwitchActive ? "kill_switch_active" : "ok",
+                Ready: ready,
+                Reason: reason,
                 Route: _brokerRoute
             );
         }
@@ -67,6 +62,7 @@ public sealed class SidecarGatewayState
     {
         lock (_gate)
         {
+            var connector = _connectorTransport.ProbeHealth();
             var lines = new[]
             {
                 "# HELP ta3000_sidecar_gateway_up Sidecar gateway process health.",
@@ -74,10 +70,13 @@ public sealed class SidecarGatewayState
                 "ta3000_sidecar_gateway_up 1",
                 "# HELP ta3000_sidecar_gateway_queued_intents Total queued intents.",
                 "# TYPE ta3000_sidecar_gateway_queued_intents gauge",
-                $"ta3000_sidecar_gateway_queued_intents {_intents.Count.ToString(CultureInfo.InvariantCulture)}",
+                $"ta3000_sidecar_gateway_queued_intents {connector.QueuedIntents.ToString(CultureInfo.InvariantCulture)}",
                 "# HELP ta3000_sidecar_gateway_kill_switch Kill switch state.",
                 "# TYPE ta3000_sidecar_gateway_kill_switch gauge",
                 $"ta3000_sidecar_gateway_kill_switch {(_killSwitchActive ? "1" : "0")}",
+                "# HELP ta3000_sidecar_connector_up External broker connector health.",
+                "# TYPE ta3000_sidecar_connector_up gauge",
+                $"ta3000_sidecar_connector_up {(connector.ConnectorReady ? "1" : "0")}",
             };
             return string.Join('\n', lines) + "\n";
         }
@@ -85,16 +84,6 @@ public sealed class SidecarGatewayState
 
     public GatewayResult<SubmitAck> Submit(SubmitIntentRequest request, string? idempotencyKey)
     {
-        var intentId = (request.IntentId ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(intentId) || request.Intent.ValueKind != JsonValueKind.Object)
-        {
-            return GatewayResult<SubmitAck>.Fail(
-                StatusCodes.Status400BadRequest,
-                "invalid_submit_payload",
-                "intent_id and intent object are required"
-            );
-        }
-
         lock (_gate)
         {
             if (_killSwitchActive)
@@ -106,257 +95,109 @@ public sealed class SidecarGatewayState
                 );
             }
 
-            var cacheKey = NormalizeCacheKey(idempotencyKey, fallback: intentId);
-            if (_submitCache.TryGetValue(cacheKey, out var cached))
+            var gate = GateConnectorHealth<SubmitAck>();
+            if (gate is not null)
             {
-                return GatewayResult<SubmitAck>.Ok(cached);
+                return gate;
             }
 
-            var brokerAdapter = ReadString(request.Intent, "broker_adapter", "stocksharp-sidecar");
-            var createdAt = ReadString(request.Intent, "created_at", UtcNow());
-            var externalOrderId = HashExternalOrderId(intentId);
-
-            _intents[intentId] = new IntentRecord(externalOrderId, brokerAdapter, "submitted");
-            var ack = new SubmitAck(
-                IntentId: intentId,
-                ExternalOrderId: externalOrderId,
-                Accepted: true,
-                BrokerAdapter: brokerAdapter,
-                State: "submitted"
-            );
-            _submitCache[cacheKey] = ack;
-            _updates.Add(
-                new BrokerUpdate(
-                    ExternalOrderId: externalOrderId,
-                    State: "submitted",
-                    EventTs: createdAt,
-                    Payload: new Dictionary<string, object?>
-                    {
-                        ["intent_id"] = intentId,
-                    }
-                )
-            );
-            return GatewayResult<SubmitAck>.Ok(ack);
+            return _connectorTransport.Submit(request, idempotencyKey);
         }
     }
 
     public GatewayResult<CancelAck> Cancel(string intentId, CancelIntentRequest request, string? idempotencyKey)
     {
-        var normalizedIntentId = (intentId ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(normalizedIntentId))
-        {
-            return GatewayResult<CancelAck>.Fail(
-                StatusCodes.Status400BadRequest,
-                "invalid_cancel_payload",
-                "intent_id path parameter is required"
-            );
-        }
-
-        var canceledAt = string.IsNullOrWhiteSpace(request.CanceledAt) ? UtcNow() : request.CanceledAt.Trim();
-
         lock (_gate)
         {
-            var cacheKey = NormalizeCacheKey(idempotencyKey, fallback: $"cancel:{normalizedIntentId}:{canceledAt}");
-            if (_cancelCache.TryGetValue(cacheKey, out var cached))
+            var gate = GateConnectorHealth<CancelAck>();
+            if (gate is not null)
             {
-                return GatewayResult<CancelAck>.Ok(cached);
+                return gate;
             }
 
-            if (!_intents.TryGetValue(normalizedIntentId, out var record))
-            {
-                return GatewayResult<CancelAck>.Fail(
-                    StatusCodes.Status404NotFound,
-                    "unknown_intent_id",
-                    $"unknown intent_id: {normalizedIntentId}"
-                );
-            }
-
-            _intents[normalizedIntentId] = record with { State = "canceled" };
-            var ack = new CancelAck(
-                IntentId: normalizedIntentId,
-                ExternalOrderId: record.ExternalOrderId,
-                State: "canceled",
-                CanceledAt: canceledAt
-            );
-            _cancelCache[cacheKey] = ack;
-            _updates.Add(
-                new BrokerUpdate(
-                    ExternalOrderId: record.ExternalOrderId,
-                    State: "canceled",
-                    EventTs: canceledAt,
-                    Payload: new Dictionary<string, object?>
-                    {
-                        ["intent_id"] = normalizedIntentId,
-                    }
-                )
-            );
-            return GatewayResult<CancelAck>.Ok(ack);
+            return _connectorTransport.Cancel(intentId, request, idempotencyKey);
         }
     }
 
     public GatewayResult<ReplaceAck> Replace(string intentId, ReplaceIntentRequest request, string? idempotencyKey)
     {
-        var normalizedIntentId = (intentId ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(normalizedIntentId))
-        {
-            return GatewayResult<ReplaceAck>.Fail(
-                StatusCodes.Status400BadRequest,
-                "invalid_replace_payload",
-                "intent_id path parameter is required"
-            );
-        }
-
-        if (!request.NewQty.HasValue || !request.NewPrice.HasValue)
-        {
-            return GatewayResult<ReplaceAck>.Fail(
-                StatusCodes.Status400BadRequest,
-                "invalid_replace_payload",
-                "new_qty and new_price must be numeric"
-            );
-        }
-
-        if (request.NewQty.Value <= 0 || request.NewPrice.Value <= 0)
-        {
-            return GatewayResult<ReplaceAck>.Fail(
-                StatusCodes.Status400BadRequest,
-                "invalid_replace_payload",
-                "new_qty/new_price must be positive"
-            );
-        }
-
-        var replacedAt = string.IsNullOrWhiteSpace(request.ReplacedAt) ? UtcNow() : request.ReplacedAt.Trim();
-
         lock (_gate)
         {
-            var cacheKey = NormalizeCacheKey(idempotencyKey, fallback: $"replace:{normalizedIntentId}:{replacedAt}");
-            if (_replaceCache.TryGetValue(cacheKey, out var cached))
+            var gate = GateConnectorHealth<ReplaceAck>();
+            if (gate is not null)
             {
-                return GatewayResult<ReplaceAck>.Ok(cached);
+                return gate;
             }
 
-            if (!_intents.TryGetValue(normalizedIntentId, out var record))
-            {
-                return GatewayResult<ReplaceAck>.Fail(
-                    StatusCodes.Status404NotFound,
-                    "unknown_intent_id",
-                    $"unknown intent_id: {normalizedIntentId}"
-                );
-            }
-
-            _intents[normalizedIntentId] = record with { State = "replaced" };
-            var ack = new ReplaceAck(
-                IntentId: normalizedIntentId,
-                ExternalOrderId: record.ExternalOrderId,
-                State: "replaced",
-                NewQty: request.NewQty.Value,
-                NewPrice: request.NewPrice.Value,
-                ReplacedAt: replacedAt
-            );
-            _replaceCache[cacheKey] = ack;
-            _updates.Add(
-                new BrokerUpdate(
-                    ExternalOrderId: record.ExternalOrderId,
-                    State: "replaced",
-                    EventTs: replacedAt,
-                    Payload: new Dictionary<string, object?>
-                    {
-                        ["intent_id"] = normalizedIntentId,
-                        ["new_qty"] = request.NewQty.Value,
-                        ["new_price"] = request.NewPrice.Value,
-                    }
-                )
-            );
-            return GatewayResult<ReplaceAck>.Ok(ack);
+            return _connectorTransport.Replace(intentId, request, idempotencyKey);
         }
     }
 
-    public UpdatesEnvelope StreamUpdates(string? cursor, int? limit)
+    public GatewayResult<UpdatesEnvelope> StreamUpdates(string? cursor, int? limit)
     {
         lock (_gate)
         {
-            var (start, safeLimit) = ParseStreamWindow(cursor, limit, _updates.Count);
-            var rows = _updates
-                .Skip(start)
-                .Take(safeLimit)
-                .ToList();
-            var nextCursor = (start + rows.Count).ToString(CultureInfo.InvariantCulture);
-            return new UpdatesEnvelope(rows, nextCursor);
+            var gate = GateConnectorHealth<UpdatesEnvelope>();
+            if (gate is not null)
+            {
+                return gate;
+            }
+
+            return _connectorTransport.StreamUpdates(cursor, limit);
         }
     }
 
-    public FillsEnvelope StreamFills(string? cursor, int? limit)
+    public GatewayResult<FillsEnvelope> StreamFills(string? cursor, int? limit)
     {
         lock (_gate)
         {
-            var (start, safeLimit) = ParseStreamWindow(cursor, limit, _fills.Count);
-            var rows = _fills
-                .Skip(start)
-                .Take(safeLimit)
-                .ToList();
-            var nextCursor = (start + rows.Count).ToString(CultureInfo.InvariantCulture);
-            return new FillsEnvelope(rows, nextCursor);
-        }
-    }
-
-    private static (int Start, int Limit) ParseStreamWindow(string? cursor, int? limit, int count)
-    {
-        var parsedCursor = 0;
-        if (!string.IsNullOrWhiteSpace(cursor) && int.TryParse(cursor, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
-        {
-            parsedCursor = value;
-        }
-        if (parsedCursor < 0)
-        {
-            parsedCursor = 0;
-        }
-        if (parsedCursor > count)
-        {
-            parsedCursor = count;
-        }
-
-        var safeLimit = limit.GetValueOrDefault(500);
-        if (safeLimit <= 0)
-        {
-            safeLimit = 500;
-        }
-        if (safeLimit > 5000)
-        {
-            safeLimit = 5000;
-        }
-
-        return (parsedCursor, safeLimit);
-    }
-
-    private static string NormalizeCacheKey(string? raw, string fallback)
-    {
-        return string.IsNullOrWhiteSpace(raw) ? fallback : raw.Trim();
-    }
-
-    private static string HashExternalOrderId(string intentId)
-    {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(intentId));
-        var hash = Convert.ToHexString(bytes).ToLowerInvariant();
-        return $"gw-{hash[..16]}";
-    }
-
-    private static string ReadString(JsonElement payload, string name, string fallback)
-    {
-        if (payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty(name, out var value))
-        {
-            if (value.ValueKind == JsonValueKind.String)
+            var gate = GateConnectorHealth<FillsEnvelope>();
+            if (gate is not null)
             {
-                var text = value.GetString();
-                if (!string.IsNullOrWhiteSpace(text))
-                {
-                    return text.Trim();
-                }
+                return gate;
             }
+
+            return _connectorTransport.StreamFills(cursor, limit);
         }
-        return fallback;
     }
 
-    private static string UtcNow()
+    private GatewayResult<T>? GateConnectorHealth<T>()
     {
-        return DateTimeOffset.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
+        var connector = _connectorTransport.ProbeHealth();
+        if (connector.ConnectorReady)
+        {
+            return null;
+        }
+
+        var errorCode = NormalizeConnectorError(connector.ErrorCode);
+        return GatewayResult<T>.Fail(
+            StatusCodes.Status503ServiceUnavailable,
+            errorCode,
+            $"broker connector is not ready: {errorCode}"
+        );
+    }
+
+    private HealthPayload BuildHealthPayload(ConnectorHealthSnapshot connector)
+    {
+        var status = connector.ConnectorReady ? "ok" : "degraded";
+        return new HealthPayload(
+            Service: "stocksharp-sidecar-gateway",
+            Status: status,
+            Route: _brokerRoute,
+            KillSwitch: _killSwitchActive,
+            QueuedIntents: connector.QueuedIntents,
+            ConnectorMode: connector.ConnectorMode,
+            ConnectorBackend: connector.ConnectorBackend,
+            ConnectorReady: connector.ConnectorReady,
+            ConnectorSessionId: connector.ConnectorSessionId,
+            ConnectorBindingSource: connector.ConnectorBindingSource,
+            ConnectorLastHeartbeat: connector.ConnectorLastHeartbeat,
+            ConnectorError: connector.ErrorCode
+        );
+    }
+
+    private static string NormalizeConnectorError(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? "connector_not_ready" : value.Trim();
     }
 }

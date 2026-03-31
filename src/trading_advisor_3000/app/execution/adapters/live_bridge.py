@@ -11,7 +11,7 @@ from trading_advisor_3000.app.runtime.config import DEFAULT_REQUIRED_LIVE_SECRET
 
 from .catalog import ExecutionAdapterCatalog, default_execution_adapter_catalog
 from .stocksharp_http_transport import SidecarTransportError, SidecarTransportRetryableError
-from .stocksharp_sidecar_stub import StockSharpSidecarStub, TransientSidecarError
+from .stocksharp_sidecar_stub import TransientSidecarError
 from .transport import ExecutionAdapterTransport
 
 
@@ -106,7 +106,7 @@ class LiveExecutionBridge:
     def __init__(
         self,
         *,
-        sidecar: StockSharpSidecarStub,
+        sidecar: ExecutionAdapterTransport,
         flags: LiveExecutionFeatureFlags,
         retry_policy: LiveExecutionRetryPolicy | None = None,
         adapter_catalog: ExecutionAdapterCatalog | None = None,
@@ -395,7 +395,11 @@ class LiveExecutionBridge:
                 for transport_key, transport in sorted(self._transports_by_key.items())
             },
             "secrets_policy": secrets_report,
-            "sidecar": self._sidecar.health(),
+            "sidecar": (
+                self._sidecar.health()
+                if callable(getattr(self._sidecar, "health", None))
+                else {"status": "unknown"}
+            ),
             "execution_telemetry": self._telemetry_snapshot(),
             "operation_log_tail": self.operation_log_tail(limit=20),
         }

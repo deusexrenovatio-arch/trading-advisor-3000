@@ -13,5 +13,37 @@ JSON-schema snapshots for Phase 1 contract surface.
 - `src/trading_advisor_3000/app/contracts/schemas/broker_event.v1.json`
 - `src/trading_advisor_3000/app/contracts/schemas/runtime_signal.v1.json`
 - `src/trading_advisor_3000/app/contracts/schemas/signal_event.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/runtime_api_health_response.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/runtime_api_ready_response.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/runtime_api_replay_candidates_request.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/runtime_api_replay_candidates_response.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/runtime_api_close_signal_request.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/runtime_api_close_signal_response.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/runtime_api_cancel_signal_request.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/runtime_api_cancel_signal_response.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/telegram_operation.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/sidecar_submit_intent_request.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/sidecar_submit_intent_response.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/sidecar_cancel_intent_request.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/sidecar_cancel_intent_response.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/sidecar_replace_intent_request.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/sidecar_replace_intent_response.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/sidecar_updates_stream_response.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/sidecar_fills_stream_response.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/sidecar_health_response.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/sidecar_ready_response.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/sidecar_metrics_response.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/sidecar_kill_switch_request.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/sidecar_kill_switch_response.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/sidecar_error_response.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/runtime_bootstrap_config.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/runtime_signal_store_persistence_manifest.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/staging_rollout_report.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/runtime_operational_snapshot.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/broker_staging_connector_profile.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/real_broker_process_report.v1.json`
 
 Versioning rule: breaking changes create `v2` files; existing `v1` files remain immutable.
+
+Release-blocking compatibility matrix and coverage inventory:
+- `src/trading_advisor_3000/app/contracts/schemas/release_blocking_contracts.v1.yaml`

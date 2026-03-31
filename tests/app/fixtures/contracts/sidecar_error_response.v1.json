@@ -1,0 +1,4 @@
+{
+  "error_code": "permission_denied",
+  "message": "token scope is insufficient"
+}

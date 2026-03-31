@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/sidecar_cancel_intent_request.v1.json",
+  "title": "SidecarCancelIntentRequestV1",
+  "type": "object",
+  "required": ["intent_id", "canceled_at"],
+  "properties": {
+    "intent_id": {"type": "string", "minLength": 1},
+    "canceled_at": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

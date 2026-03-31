@@ -1,0 +1,8 @@
+{
+  "profile": "staging",
+  "signal_store_backend": "postgres",
+  "durable_runtime_required": true,
+  "postgres_dsn_configured": true,
+  "postgres_schema": "signal",
+  "telegram_channel": "@ta3000_runtime"
+}

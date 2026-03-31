@@ -8,14 +8,14 @@
 | Delta Lake | durable data tables | chosen | OSS | основной storage contract |
 | Apache Spark | heavy compute / rebuilds | chosen (scoped) | OSS | не входит в live runtime |
 | Dagster | orchestration | chosen | OSS | data/research assets and checks |
-| Polars | fast local dataframe compute | chosen | OSS | ad hoc/research/debug |
-| DuckDB | local SQL and Delta/Parquet access | chosen | OSS | local/dev analytics |
+| Polars | fast local dataframe compute | removed (ADR-011) | OSS | replaced by PyArrow-based local dataframe path |
+| DuckDB | local SQL and Delta/Parquet access | removed (ADR-011) | OSS | replaced by Delta Lake + PyArrow query/read path |
 | PostgreSQL | runtime state | chosen | OSS | signal/config/execution |
-| vectorbt | backtest/research | chosen | OSS core | только research |
+| vectorbt | backtest/research | removed (ADR-011) | OSS core | replaced by internal `research/backtest` engine |
 | FastAPI | service/API layer | chosen | OSS | runtime/admin APIs |
-| aiogram | Telegram integration | chosen | OSS | async-friendly |
-| Alembic | DB migrations | chosen | OSS | PostgreSQL schema evolution |
-| OpenTelemetry | tracing/metrics/log correlation | chosen | OSS | observability |
+| aiogram | Telegram integration | removed (ADR-011) | OSS | replaced by custom Bot API publication engine |
+| Alembic | DB migrations | removed (ADR-011) | OSS | replaced by SQL migration runner (`scripts/apply_app_migrations.py`) |
+| OpenTelemetry | tracing/metrics/log correlation | removed (ADR-011) | OSS | replaced by Prometheus + Loki evidence path |
 | Prometheus | metrics | chosen | OSS | monitoring |
 | Grafana | dashboards | chosen | OSS | metrics and logs |
 | Loki | logs | chosen | OSS | structured log aggregation |
@@ -59,12 +59,8 @@
 - integration with Spark jobs.
 
 ## 2.4 vectorbt
-Подходит для:
-- research,
-- parameter sweeps,
-- reproducible backtests.
-
-Не использовать как live OMS/runtime.
+F1-B terminal decision (`ADR-011`): vectorbt removed from the active target stack.
+Backtest and research execution use the in-repo engine in `src/trading_advisor_3000/app/research/backtest/engine.py`.
 
 ## 2.5 StockSharp
 Подходит как:
@@ -79,19 +75,13 @@
 - Delta Lake
 - Apache Spark
 - Dagster
-- Polars
-- DuckDB
-- vectorbt
 
 ### Runtime
 - FastAPI
 - Pydantic
-- aiogram
 - PostgreSQL
-- Alembic
 
 ### Observability
-- OpenTelemetry
 - Prometheus
 - Grafana
 - Loki

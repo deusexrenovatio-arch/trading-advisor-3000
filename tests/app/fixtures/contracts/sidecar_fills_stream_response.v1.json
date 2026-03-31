@@ -1,0 +1,13 @@
+{
+  "fills": [
+    {
+      "external_order_id": "gw-abcdef1234567890",
+      "fill_id": "FILL-123",
+      "qty": 1,
+      "price": 82.55,
+      "fee": 0.01,
+      "fill_ts": "2026-03-18T12:00:04Z"
+    }
+  ],
+  "next_cursor": "1"
+}

@@ -1,0 +1,72 @@
+{
+  "schema": "signal",
+  "migration_versions": [
+    "0002_signal_runtime_state.sql"
+  ],
+  "tables": [
+    {
+      "name": "signal.active_signals",
+      "primary_key": "signal_id",
+      "columns": [
+        "signal_id",
+        "strategy_version_id",
+        "contract_id",
+        "mode",
+        "side",
+        "entry_price",
+        "stop_price",
+        "target_price",
+        "confidence",
+        "state",
+        "opened_at",
+        "updated_at",
+        "expires_at",
+        "publication_message_id"
+      ],
+      "indexes": [
+        "idx_active_signals_contract_state"
+      ]
+    },
+    {
+      "name": "signal.signal_events",
+      "primary_key": "event_id",
+      "columns": [
+        "event_id",
+        "signal_id",
+        "event_ts",
+        "event_type",
+        "reason_code",
+        "payload_json",
+        "dedup_key"
+      ],
+      "indexes": [
+        "idx_signal_events_signal_ts"
+      ]
+    },
+    {
+      "name": "signal.publications",
+      "primary_key": "publication_id",
+      "columns": [
+        "publication_id",
+        "signal_id",
+        "channel",
+        "message_id",
+        "publication_type",
+        "status",
+        "published_at",
+        "dedup_key"
+      ],
+      "indexes": [
+        "idx_publications_signal_ts"
+      ]
+    }
+  ],
+  "migration_tracking_table": {
+    "name": "public.schema_migrations",
+    "columns": [
+      "version",
+      "checksum",
+      "applied_at"
+    ]
+  }
+}

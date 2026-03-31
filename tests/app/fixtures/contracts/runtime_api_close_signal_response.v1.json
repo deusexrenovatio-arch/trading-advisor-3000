@@ -1,0 +1,41 @@
+{
+  "close_result": {
+    "signal": {
+      "signal_id": "SIG-20260316-0001",
+      "strategy_version_id": "trend-follow-v1",
+      "contract_id": "BR-6.26",
+      "mode": "shadow",
+      "side": "long",
+      "entry_price": 82.45,
+      "stop_price": 81.7,
+      "target_price": 83.95,
+      "confidence": 0.77,
+      "state": "closed",
+      "opened_at": "2026-03-16T10:16:00Z",
+      "updated_at": "2026-03-16T10:30:00Z",
+      "expires_at": "2026-03-16T10:30:00Z",
+      "publication_message_id": "tg-48b07003d7"
+    },
+    "publication": {
+      "publication_id": "PUB-14906FDCD82E",
+      "signal_id": "SIG-20260316-0001",
+      "channel": "@ta3000_signals",
+      "message_id": "tg-48b07003d7",
+      "publication_type": "close",
+      "status": "closed",
+      "published_at": "2026-03-16T10:30:00Z"
+    }
+  },
+  "active_signals": [],
+  "publications": [
+    {
+      "publication_id": "PUB-14906FDCD82E",
+      "signal_id": "SIG-20260316-0001",
+      "channel": "@ta3000_signals",
+      "message_id": "tg-48b07003d7",
+      "publication_type": "close",
+      "status": "closed",
+      "published_at": "2026-03-16T10:30:00Z"
+    }
+  ]
+}

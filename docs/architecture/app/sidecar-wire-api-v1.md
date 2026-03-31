@@ -108,6 +108,24 @@ Define the wire-level contract between Python execution bridge and StockSharp si
 - `GET /health`
 - `GET /ready`
 - `GET /metrics`
+- `GET /health` returns connector binding markers required for governed F1-E proof:
+```json
+{
+  "service": "stocksharp-sidecar-gateway",
+  "status": "ok",
+  "route": "stocksharp->quik->finam",
+  "kill_switch": false,
+  "queued_intents": 0,
+  "connector_mode": "staging-real",
+  "connector_backend": "stocksharp-quik-finam",
+  "connector_ready": true,
+  "connector_session_id": "SESSION-20260331-01",
+  "connector_binding_source": "staging-broker-contour",
+  "connector_last_heartbeat": "2026-03-31T12:00:00Z",
+  "connector_error": null
+}
+```
+- Gateway must fail closed (`status=degraded`) when external connector session binding is missing or unreachable.
 - `GET /ready` returns `503` with `{"ready": false, "reason": "kill_switch_active"}` when admin kill-switch is enabled.
 - `GET /metrics` includes `ta3000_sidecar_gateway_kill_switch` gauge (`0` or `1`).
 

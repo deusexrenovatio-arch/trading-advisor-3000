@@ -80,7 +80,12 @@ def read_runtime_bootstrap_config(env: Mapping[str, str] | None = None) -> Runti
     dsn = _env_text(source, "TA3000_APP_DSN", "")
     dsn_value = dsn if dsn else None
     postgres_schema = _env_text(source, "TA3000_SIGNAL_STORE_SCHEMA", "signal")
-    telegram_channel = _env_text(source, "TA3000_TELEGRAM_CHANNEL", "@ta3000_signals")
+    telegram_channel = _env_text(source, "TA3000_TELEGRAM_CHANNEL", "")
+    if not telegram_channel:
+        raise RuntimeConfigurationError(
+            "runtime bootstrap requires TA3000_TELEGRAM_CHANNEL; "
+            "no default or fallback channel is allowed",
+        )
 
     if profile in _DURABLE_RUNTIME_PROFILES and signal_store_backend != "postgres":
         raise RuntimeConfigurationError(
@@ -115,9 +120,12 @@ def build_signal_store_from_config(config: RuntimeBootstrapConfig) -> SignalStor
 
 def build_runtime_stack_from_env(env: Mapping[str, str] | None = None) -> RuntimeBootstrapResult:
     config = read_runtime_bootstrap_config(env)
+    source = env or os.environ
+    telegram_bot_token = _env_text(source, "TA3000_TELEGRAM_BOT_TOKEN", "")
     signal_store = build_signal_store_from_config(config)
     runtime_stack = build_runtime_stack(
         telegram_channel=config.telegram_channel,
+        telegram_bot_token=telegram_bot_token if telegram_bot_token else None,
         signal_store=signal_store,
     )
     return RuntimeBootstrapResult(config=config, runtime_stack=runtime_stack)

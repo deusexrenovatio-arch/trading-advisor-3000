@@ -35,6 +35,15 @@ def test_phase6_default_profile_is_durable_and_fails_closed_without_postgres_dsn
         )
 
 
+def test_phase6_runtime_requires_explicit_telegram_channel_binding() -> None:
+    with pytest.raises(RuntimeConfigurationError, match="TA3000_TELEGRAM_CHANNEL"):
+        build_runtime_stack_from_env(
+            {
+                "TA3000_RUNTIME_PROFILE": "test",
+            }
+        )
+
+
 def test_phase6_production_profile_requires_postgres_and_has_no_inmemory_fallback() -> None:
     with pytest.raises(RuntimeConfigurationError):
         build_runtime_stack_from_env(

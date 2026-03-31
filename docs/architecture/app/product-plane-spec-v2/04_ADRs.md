@@ -30,7 +30,7 @@
 
 ### Последствия
 - проще масштабировать data plane;
-- можно использовать Spark для тяжёлых джобов и Polars/DuckDB для локального анализа;
+- можно использовать Spark для тяжёлых джобов и PyArrow для локального dataframe/query анализа (Polars/DuckDB removed by ADR-011; this historical wording is superseded);
 - advanced Delta features включать только по мере необходимости.
 
 ---
@@ -70,20 +70,21 @@ Runtime decisioning, signal lifecycle и publishing остаются Python serv
 
 ---
 
-## ADR-005 — vectorbt только для research/backtest
+## ADR-005 — vectorbt only for research/backtest (superseded by ADR-011)
 
-**Статус:** accepted
+**Status:** superseded by ADR-011
 
-### Контекст
-Нужен быстрый исследовательский движок, но не live OMS.
+### Historical superseded context
+An earlier superseded design step considered vectorbt as the default research/backtest engine.
 
-### Решение
-vectorbt использовать для P4 и связанных research сценариев.
-Не использовать его как центр live runtime.
+### Historical superseded decision (no longer active target stack)
+vectorbt was historically allowed for P4-oriented research scenarios, but was never accepted as live-runtime core and is now removed by ADR-011.
 
-### Последствия
-- сильный research контур;
-- stateful signal lifecycle реализуется отдельно.
+### Supersession note
+F1-B terminal-stack closure replaces this decision:
+- vectorbt removed by ADR and replaced by the internal backtest engine in `src/trading_advisor_3000/app/research/backtest/engine.py`;
+- the active stack truth-source is ADR-011 plus `docs/architecture/app/product-plane-spec-v2/07_Tech_Stack_and_Open_Source.md` and `registry/stack_conformance.yaml`;
+- any future vectorbt reintroduction requires a new ADR and aligned runtime/test evidence while vectorbt stays removed under ADR-011.
 
 ---
 
@@ -175,3 +176,31 @@ Nightly/dashboard lanes используются как hygiene/reporting layer,
 ### Последствия
 - Codex получает чёткие stop/go критерии;
 - проще параллелить работу по фазам.
+
+---
+
+## ADR-011 — F1-B replaceable stack terminal decisions
+
+**Статус:** accepted
+
+### Context
+The F1-B closure phase requires one terminal state per replaceable technology with no `chosen but planned` ghosts.
+Runtime reality already ships a custom Telegram publication engine, SQL-file migrations, internal backtest execution, and Prometheus/Loki observability artifacts.
+
+### Decision
+- aiogram removed by ADR and replaced by custom Bot API engine (`TelegramPublicationEngine`).
+- polars removed by ADR and replaced by pyarrow local dataframe path.
+- duckdb removed by ADR and replaced by delta lake plus pyarrow local query path.
+- vectorbt removed by ADR and replaced by internal backtest engine.
+- alembic removed by ADR and replaced by sql migration runner.
+- opentelemetry removed by ADR and replaced by prometheus loki observability path.
+
+### Evidence anchors
+- Telegram runtime path: `src/trading_advisor_3000/app/runtime/publishing/telegram.py`, `tests/app/unit/test_phase2c_runtime_components.py`.
+- SQL migration runner: `scripts/apply_app_migrations.py`, `src/trading_advisor_3000/migrations/*.sql`, `tests/app/integration/test_phase2c_runtime_postgres_store.py`.
+- Internal backtest runtime: `src/trading_advisor_3000/app/research/backtest/engine.py`, `tests/app/integration/test_phase2b_research_plane.py`.
+- Observability runtime: `src/trading_advisor_3000/app/runtime/analytics/review.py`, `tests/app/integration/test_phase5_review_observability.py`.
+
+### Consequences
+- Replaceable stack claims stay honest and terminal for release blocking checks.
+- Future reintroduction of any removed technology must land as a new ADR plus runtime and test proof.

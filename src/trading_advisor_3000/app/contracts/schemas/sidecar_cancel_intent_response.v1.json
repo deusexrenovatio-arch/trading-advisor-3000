@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/sidecar_cancel_intent_response.v1.json",
+  "title": "SidecarCancelIntentResponseV1",
+  "type": "object",
+  "required": ["ack"],
+  "properties": {
+    "ack": {
+      "type": "object",
+      "required": ["intent_id", "external_order_id", "state", "canceled_at"],
+      "properties": {
+        "intent_id": {"type": "string", "minLength": 1},
+        "external_order_id": {"type": "string", "minLength": 1},
+        "state": {"type": "string", "enum": ["canceled"]},
+        "canceled_at": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

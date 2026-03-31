@@ -1,0 +1,13 @@
+{
+  "updates": [
+    {
+      "external_order_id": "gw-abcdef1234567890",
+      "state": "submitted",
+      "event_ts": "2026-03-18T12:00:00Z",
+      "payload": {
+        "intent_id": "INT-123"
+      }
+    }
+  ],
+  "next_cursor": "1"
+}
