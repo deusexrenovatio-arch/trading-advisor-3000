@@ -35,6 +35,21 @@ Updated: 2026-03-27 10:18 UTC
 
 - Convert the stack-conformance remediation package into explicit governed module-phase orchestration so future work can proceed phase by phase instead of as one package-wide implementation burst.
 
+## Release Target Contract
+
+- Target Decision: DENY_RELEASE_READINESS
+- Target Environment: historical stack-conformance remediation decision route for release denial evidence only
+- Forbidden Proof Substitutes: docs-only, schema-only, fixture-only, mock-only, stub-only, smoke-only, route-report-only
+- Release-Ready Proof Class: live-real
+
+## Mandatory Real Contours
+
+- production_live_readiness: this historical module path records denial evidence and must not claim live-real closure of production readiness.
+
+## Release Surface Matrix
+
+- Surface: production_live_readiness | Owner Phase: phase-10 | Required Proof Class: live-real | Must Reach: deny_release_readiness_package
+
 ## In Scope
 
 - One canonical execution contract under `docs/codex/contracts/`.
