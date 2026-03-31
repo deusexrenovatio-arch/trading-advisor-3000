@@ -1,7 +1,14 @@
 {
-  "service": "stocksharp-sidecar-gateway-stub",
+  "service": "stocksharp-sidecar-gateway",
   "status": "ok",
   "route": "stocksharp->quik->finam",
   "kill_switch": false,
-  "queued_intents": 0
+  "queued_intents": 0,
+  "connector_mode": "staging-real",
+  "connector_backend": "stocksharp-quik-finam",
+  "connector_ready": true,
+  "connector_session_id": "session-20260331-01",
+  "connector_binding_source": "staging-broker-contour",
+  "connector_last_heartbeat": "2026-03-31T12:00:00Z",
+  "connector_error": null
 }

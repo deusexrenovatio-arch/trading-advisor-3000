@@ -34,6 +34,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File deployment/stocksharp-sideca
 Optional override when global `dotnet` is unavailable:
 - set `TA3000_DOTNET_BIN=<absolute-path-to-dotnet.exe>`
 
+## External Connector Binding
+- The sidecar gateway now fails closed without an external connector endpoint.
+- Required runtime env:
+  - `TA3000_BROKER_CONNECTOR_BASE_URL`
+  - `TA3000_BROKER_CONNECTOR_AUTH_TOKEN` (or `TA3000_STOCKSHARP_API_KEY`)
+- `/health` must expose session-bound connector fields:
+  - `connector_session_id`
+  - `connector_binding_source`
+  - `connector_last_heartbeat`
+
 ## Compiled-Binary Python Smoke
 Run all phase checks in one command:
 
@@ -49,6 +59,15 @@ This executes:
 
 Smoke output is written to:
 - `artifacts/phase8/stocksharp-sidecar/python-smoke.json`
+
+## F1-D Immutable Evidence Chain
+To produce commit-linked immutable sidecar evidence with hash validation and disprovers:
+
+```powershell
+python scripts/run_f1d_sidecar_immutable_evidence.py --output-root artifacts/f1/phase04/sidecar-immutable
+```
+
+This command writes phase artifacts for environment/build/test/publish/smoke/hashes plus a manifest with recorded step exit codes.
 
 ## Non-Goals In This Slice
 - No production broker rollout claim.

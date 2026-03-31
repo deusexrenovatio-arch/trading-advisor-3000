@@ -19,7 +19,7 @@ This document tracks release-blocking boundary contracts that are versioned in c
 | Sidecar HTTP wire envelopes | `sidecar_submit_intent_request.v1`, `sidecar_submit_intent_response.v1`, `sidecar_cancel_intent_request.v1`, `sidecar_cancel_intent_response.v1`, `sidecar_replace_intent_request.v1`, `sidecar_replace_intent_response.v1`, `sidecar_updates_stream_response.v1`, `sidecar_fills_stream_response.v1`, `sidecar_health_response.v1`, `sidecar_ready_response.v1`, `sidecar_metrics_response.v1`, `sidecar_kill_switch_request.v1`, `sidecar_kill_switch_response.v1`, `sidecar_error_response.v1` | implemented | Wire envelopes are freeze-governed independent of real broker process status. |
 | Runtime configuration envelope | `runtime_bootstrap_config.v1` | implemented | Runtime bootstrap profile/backend/channel envelope is versioned and tested. |
 | Persistence + migration boundary | `runtime_signal_store_persistence_manifest.v1` + runtime signal/event/publication DTO schemas | implemented | Signal-store table and migration-tracking boundary are versioned and test-enforced. |
-| External rollout/connectivity envelopes | `staging_rollout_report.v1`, `runtime_operational_snapshot.v1` | implemented | Rollout and operational profile envelopes are versioned with compatibility class rules. |
+| External rollout/connectivity envelopes | `broker_staging_connector_profile.v1`, `staging_rollout_report.v1`, `runtime_operational_snapshot.v1`, `real_broker_process_report.v1` | implemented | Rollout profile, Finam session/secrets contract, operational snapshot, and governed broker proof report are versioned with compatibility class rules. |
 
 ## Runtime API Inventory Scope Decision
 - Decision ID: `F1-C-RUNTIME-API-INVENTORY-SCOPE-V1`

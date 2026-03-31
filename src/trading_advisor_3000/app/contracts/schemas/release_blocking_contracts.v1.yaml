@@ -274,6 +274,12 @@ release_blocking_boundaries:
   - boundary_id: rollout_and_connectivity
     release_blocking: true
     contracts:
+      - contract_id: broker_staging_connector_profile
+        schema: broker_staging_connector_profile.v1.json
+        fixture: broker_staging_connector_profile.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/app/contracts/test_phase5_real_broker_process_contracts.py
       - contract_id: staging_rollout_report
         schema: staging_rollout_report.v1.json
         fixture: staging_rollout_report.v1.json
@@ -286,3 +292,9 @@ release_blocking_boundaries:
         compatibility: additive
         coverage_tests_any:
           - tests/app/contracts/test_phase3_contract_freeze.py
+      - contract_id: real_broker_process_report
+        schema: real_broker_process_report.v1.json
+        fixture: real_broker_process_report.v1.json
+        compatibility: additive
+        coverage_tests_any:
+          - tests/app/contracts/test_phase5_real_broker_process_contracts.py

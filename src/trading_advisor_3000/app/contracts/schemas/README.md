@@ -40,6 +40,8 @@ JSON-schema snapshots for Phase 1 contract surface.
 - `src/trading_advisor_3000/app/contracts/schemas/runtime_signal_store_persistence_manifest.v1.json`
 - `src/trading_advisor_3000/app/contracts/schemas/staging_rollout_report.v1.json`
 - `src/trading_advisor_3000/app/contracts/schemas/runtime_operational_snapshot.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/broker_staging_connector_profile.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/real_broker_process_report.v1.json`
 
 Versioning rule: breaking changes create `v2` files; existing `v1` files remain immutable.
 

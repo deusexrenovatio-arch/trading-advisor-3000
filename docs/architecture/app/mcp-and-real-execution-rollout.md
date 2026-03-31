@@ -14,6 +14,7 @@ Close two implementation gaps outside next-wave scope:
 - `deployment/docker/staging-gateway/*` containerized staging profile.
 - `docs/architecture/app/sidecar-wire-api-v1.md`.
 - `docs/runbooks/app/real-execution-transport-runbook.md`.
+- `scripts/run_f1e_real_broker_process.py` + `docs/runbooks/app/f1e-real-broker-process-runbook.md`.
 
 ## Design Decisions
 1. MCP rollout is project-scoped and fail-closed: static contract checks + tracked secret scan are mandatory governance checks.

@@ -3,13 +3,32 @@
   "$id": "contracts/sidecar_health_response.v1.json",
   "title": "SidecarHealthResponseV1",
   "type": "object",
-  "required": ["service", "status", "route", "kill_switch", "queued_intents"],
+  "required": [
+    "service",
+    "status",
+    "route",
+    "kill_switch",
+    "queued_intents",
+    "connector_mode",
+    "connector_backend",
+    "connector_ready",
+    "connector_session_id",
+    "connector_binding_source",
+    "connector_last_heartbeat"
+  ],
   "properties": {
     "service": {"type": "string", "minLength": 1},
-    "status": {"type": "string", "enum": ["ok"]},
+    "status": {"type": "string", "enum": ["ok", "degraded"]},
     "route": {"type": "string", "minLength": 1},
     "kill_switch": {"type": "boolean"},
-    "queued_intents": {"type": "integer", "minimum": 0}
+    "queued_intents": {"type": "integer", "minimum": 0},
+    "connector_mode": {"type": "string", "minLength": 1},
+    "connector_backend": {"type": "string", "minLength": 1},
+    "connector_ready": {"type": "boolean"},
+    "connector_session_id": {"type": "string"},
+    "connector_binding_source": {"type": "string"},
+    "connector_last_heartbeat": {"type": "string"},
+    "connector_error": {"type": ["string", "null"]}
   },
   "additionalProperties": false
 }

@@ -21,7 +21,7 @@ It does not replace implementation docs, checklists, or phase narratives.
 
 ## Current Baseline (G0)
 - Product-plane production readiness remains `not accepted`.
-- Real broker process closure remains `planned`.
+- Real broker process closure is `implemented` for the bounded staging-real contour: governed F1-E proof artifacts are replayable and hash-validated with Finam-native session binding evidence (`artifacts/f1/phase05/real-broker-process/20260331T184215Z-7a1dc827e46e/manifest.json`), while final production readiness remains a separate gate.
 - Delta Lake closure is `partial`: physical Delta runtime proof exists for the phase2 data/research slice only.
 - Apache Spark closure is `partial`: the phase2 canonical job is executable in a Docker/Linux proof profile, but full distributed orchestration remains open.
 - Dagster closure is `partial`: executable `Definitions` and local materialization proof exist for the phase2a canonical slice, while broader orchestration coverage remains open.

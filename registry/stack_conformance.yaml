@@ -39,6 +39,10 @@ removed_claim_guard:
     - removed by ADR
     - ADR-backed removal
     - removed through ADR
+  contradiction_markers_any:
+    - chosen/planned
+    - no adr-backed terminal state is active
+    - remain unresolved chosen/planned states
   skip_markers_any:
     - unsupported phrase
     - confirm validation fails
@@ -150,7 +154,17 @@ surface_claims:
 
   - id: real_broker_process
     status_label: StockSharp/QUIK/Finam real broker process
-    claim: planned
+    claim: implemented
+    runtime_proof:
+      files_all:
+        - scripts/run_f1e_real_broker_process.py
+        - configs/broker_staging_connector_profile.v1.json
+        - src/trading_advisor_3000/app/contracts/schemas/broker_staging_connector_profile.v1.json
+        - src/trading_advisor_3000/app/contracts/schemas/real_broker_process_report.v1.json
+      tests_any:
+        - tests/process/test_run_f1e_real_broker_process.py
+        - tests/app/contracts/test_phase5_real_broker_process_contracts.py
+        - tests/app/integration/test_real_execution_staging_rollout.py
 
   - id: contracts_freeze
     status_label: Contracts freeze
