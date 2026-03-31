@@ -5,13 +5,13 @@ Updated: 2026-03-30 10:08 UTC
 ## Source Package
 
 - Package Zip: C:/Users/Admin/Downloads/trading_advisor_3000_phase_acceptance_upto_F1_2026-03-30.zip
-- Package Manifest: D:/trading advisor 3000/artifacts/codex/package-intake/20260330T100458Z-trading-advisor-3000-phase-acceptance-upto-f1-20/manifest.md
-- Manifest Suggested Primary Document: D:/trading advisor 3000/artifacts/codex/package-intake/20260330T100458Z-trading-advisor-3000-phase-acceptance-upto-f1-20/extracted/01_phase_acceptance_verdict.md
+- Package Manifest: artifacts/codex/package-intake/20260330T100458Z-trading-advisor-3000-phase-acceptance-upto-f1-20/manifest.md
+- Manifest Suggested Primary Document: artifacts/codex/package-intake/20260330T100458Z-trading-advisor-3000-phase-acceptance-upto-f1-20/extracted/01_phase_acceptance_verdict.md
 - Source Title: Trading Advisor 3000 phase acceptance up to F1 and F1 full-closure package
 
 ## Primary Source Decision
 
-- Selected Primary Document: D:/trading advisor 3000/artifacts/codex/package-intake/20260330T100458Z-trading-advisor-3000-phase-acceptance-upto-f1-20/extracted/03_f1_full_closure_TZ.md
+- Selected Primary Document: artifacts/codex/package-intake/20260330T100458Z-trading-advisor-3000-phase-acceptance-upto-f1-20/extracted/03_f1_full_closure_TZ.md
 - Selection Rule: the manifest produced a top-score tie across several substantive markdown documents, so the primary was resolved by preferring the directive execution source that defines the F1 objective, ordered rollout phases, hard rules, acceptance gates, disprovers, and release-decision semantics over verdict, findings, matrix, or evidence-manifest documents.
 - Supporting Documents:
   - `artifacts/codex/package-intake/20260330T100458Z-trading-advisor-3000-phase-acceptance-upto-f1-20/extracted/01_phase_acceptance_verdict.md` for the accepted versus rejected phase baseline that constrains what the F1 closure route may assume.

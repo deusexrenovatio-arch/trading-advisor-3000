@@ -5,13 +5,13 @@ Updated: 2026-03-27 10:18 UTC
 ## Source Package
 
 - Package Zip: C:/Users/Admin/Downloads/trading_advisor_3000_stack_conformance_remediation_2026-03-24 (1).zip
-- Package Manifest: D:/trading advisor 3000/artifacts/codex/package-intake/20260325T152331Z-trading-advisor-3000-stack-conformance-remediati/manifest.md
-- Manifest Suggested Primary Document: D:/trading advisor 3000/artifacts/codex/package-intake/20260325T152331Z-trading-advisor-3000-stack-conformance-remediati/extracted/ta3000_stack_conformance_remediation_2026-03-24/00_validation_verdict.md
+- Package Manifest: artifacts/codex/package-intake/20260325T152331Z-trading-advisor-3000-stack-conformance-remediati/manifest.md
+- Manifest Suggested Primary Document: artifacts/codex/package-intake/20260325T152331Z-trading-advisor-3000-stack-conformance-remediati/extracted/ta3000_stack_conformance_remediation_2026-03-24/00_validation_verdict.md
 - Source Title: Trading Advisor 3000 stack-conformance remediation package
 
 ## Primary Source Decision
 
-- Selected Primary Document: D:/trading advisor 3000/artifacts/codex/package-intake/20260325T152331Z-trading-advisor-3000-stack-conformance-remediati/extracted/ta3000_stack_conformance_remediation_2026-03-24/02_corrective_technical_assignment.md
+- Selected Primary Document: artifacts/codex/package-intake/20260325T152331Z-trading-advisor-3000-stack-conformance-remediati/extracted/ta3000_stack_conformance_remediation_2026-03-24/02_corrective_technical_assignment.md
 - Selection Rule: the manifest produced a top-score tie across several substantive markdown documents, so the primary was resolved by preferring the directive execution source that defines objective, scope, hard rules, deliverables, and success criteria over verdict, matrix, checklist, or appendix documents.
 - Supporting Documents:
   - the package validation verdict for issue confirmation and severity.
