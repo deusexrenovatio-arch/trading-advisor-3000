@@ -1,0 +1,10 @@
+{
+  "status": "ok",
+  "validated_at": "2026-03-31T13:19:17Z",
+  "checks": [
+    "boot_health_ok",
+    "kill_switch_fail_closed",
+    "submit_replace_cancel_updates_proved",
+    "readiness_recovered_after_kill_switch"
+  ]
+}

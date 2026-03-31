@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "phase": "F1-D - Sidecar Immutable Evidence Hardening",
+  "phase_brief": "docs/codex/modules/f1-full-closure.phase-04.md",
+  "route_signal": "worker:phase-only",
+  "proof_class": "staging-real",
+  "generated_at": "2026-03-31T12:27:51Z",
+  "git_sha": "7a1dc827e46ecdcf5b96e478de660346d46d0e83",
+  "python": {
+    "executable": "C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python311\\python.exe",
+    "version": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+    "platform": "Windows-10-10.0.26200-SP0"
+  },
+  "dotnet": {
+    "executable": "C:\\Program Files\\dotnet\\dotnet.exe",
+    "info_return_code": 0,
+    "stdout_log": "artifacts/f1/phase04/sidecar-immutable/20260331T122751Z-7a1dc827e46e/logs/dotnet-info.stdout.log",
+    "stderr_log": "artifacts/f1/phase04/sidecar-immutable/20260331T122751Z-7a1dc827e46e/logs/dotnet-info.stderr.log"
+  }
+}

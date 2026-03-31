@@ -1,0 +1,10 @@
+Traceback (most recent call last):
+  File "D:\trading advisor 3000\scripts\smoke_stocksharp_sidecar_binary.py", line 380, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "D:\trading advisor 3000\scripts\smoke_stocksharp_sidecar_binary.py", line 345, in main
+    boot_health = _wait_for_health(base_url, timeout_seconds=args.startup_timeout)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\trading advisor 3000\scripts\smoke_stocksharp_sidecar_binary.py", line 95, in _wait_for_health
+    raise TimeoutError(f"timeout waiting for /health from compiled sidecar: {last_error}")
+TimeoutError: timeout waiting for /health from compiled sidecar: health is not ready for connector proof: status=degraded, connector_ready=False, session=False, binding=False, heartbeat=False

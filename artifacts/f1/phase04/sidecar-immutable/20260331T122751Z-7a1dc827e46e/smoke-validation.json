@@ -1,0 +1,10 @@
+{
+  "status": "ok",
+  "validated_at": "2026-03-31T12:28:02Z",
+  "checks": [
+    "kill_switch_readiness_fail_closed",
+    "kill_switch_blocked_submit_503",
+    "kill_switch_metric_toggle",
+    "submit_restore_acceptance"
+  ]
+}
