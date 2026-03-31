@@ -1,0 +1,10 @@
+{
+  "step_id": "publish",
+  "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"D:\\trading advisor 3000\\deployment\\stocksharp-sidecar\\scripts\\publish.ps1\" -Configuration Release -OutputDir \"D:\\trading advisor 3000\\artifacts\\f1\\phase05\\real-broker-process\\20260331T141208Z-7a1dc827e46e\\publish\" -DotnetExecutable \"C:\\Program Files\\dotnet\\dotnet.exe\"",
+  "return_code": 0,
+  "started_at": "2026-03-31T14:12:11Z",
+  "finished_at": "2026-03-31T14:12:12Z",
+  "duration_sec": 0.946,
+  "stdout_path": "artifacts/f1/phase05/real-broker-process/20260331T141208Z-7a1dc827e46e/logs/publish.stdout.log",
+  "stderr_path": "artifacts/f1/phase05/real-broker-process/20260331T141208Z-7a1dc827e46e/logs/publish.stderr.log"
+}

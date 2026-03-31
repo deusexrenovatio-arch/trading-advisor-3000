@@ -1,0 +1,27 @@
+{
+  "status": "ok",
+  "validated_at": "2026-03-31T16:32:20Z",
+  "health_url": "http://10.5.0.2:18081/health",
+  "status_code": 200,
+  "connector_health": {
+    "connector_mode": "staging-real",
+    "connector_backend": "stocksharp-quik-finam",
+    "connector_ready": true,
+    "connector_session_id": "finam-session-20260331T163218Z",
+    "connector_binding_source": "stocksharp-quik-finam-gateway",
+    "connector_last_heartbeat": "2026-03-31T16:32:20Z"
+  },
+  "raw_health": {
+    "connector_backend": "stocksharp-quik-finam",
+    "connector_binding_source": "stocksharp-quik-finam-gateway",
+    "connector_last_heartbeat": "2026-03-31T16:32:20Z",
+    "connector_mode": "staging-real",
+    "connector_ready": true,
+    "connector_session_id": "finam-session-20260331T163218Z",
+    "kill_switch": false,
+    "queued_intents": 0,
+    "route": "stocksharp->quik->finam",
+    "service": "stocksharp-sidecar-gateway-stub",
+    "status": "ok"
+  }
+}

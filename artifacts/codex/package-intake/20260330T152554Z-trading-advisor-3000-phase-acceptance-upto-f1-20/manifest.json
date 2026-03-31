@@ -1,0 +1,93 @@
+{
+  "updated_at": "2026-03-30T15:25:54.969950Z",
+  "package_zip": "C:/Users/Admin/Downloads/trading_advisor_3000_phase_acceptance_upto_F1_2026-03-30.zip",
+  "extracted_root": "D:/trading advisor 3000/artifacts/codex/package-intake/20260330T152554Z-trading-advisor-3000-phase-acceptance-upto-f1-20/extracted",
+  "suggested_primary_document": "03_f1_full_closure_TZ.md",
+  "candidates": [
+    {
+      "rel_path": "03_f1_full_closure_TZ.md",
+      "score": 580,
+      "reasons": [
+        "extension weight: .md",
+        "path depth bias: +18",
+        "non-trivial file size",
+        "filename looks like TZ",
+        "content defines explicit phase rollout (6 phases)",
+        "content carries acceptance/disprover contract",
+        "content names explicit release decision target"
+      ],
+      "title": "Техническое задание на полноценное закрытие F1"
+    },
+    {
+      "rel_path": "04_anti_self_deception_controls.md",
+      "score": 63,
+      "reasons": [
+        "extension weight: .md",
+        "path depth bias: +18",
+        "non-trivial file size"
+      ],
+      "title": "Anti-self-deception controls для приёмки и закрытия F1"
+    },
+    {
+      "rel_path": "00_README.md",
+      "score": 48,
+      "reasons": [
+        "extension weight: .md",
+        "path depth bias: +18",
+        "non-trivial file size",
+        "generic README is usually supporting material",
+        "title looks like specification"
+      ],
+      "title": "Trading Advisor 3000 — приёмка фаз до F1 и ТЗ на закрытие F1"
+    },
+    {
+      "rel_path": "05_source_evidence_manifest.md",
+      "score": -7,
+      "reasons": [
+        "extension weight: .md",
+        "path depth bias: +18",
+        "non-trivial file size",
+        "manifest docs are usually inventory/supporting material",
+        "evidence docs are usually supporting material"
+      ],
+      "title": "Source evidence manifest"
+    },
+    {
+      "rel_path": "01_phase_acceptance_verdict.md",
+      "score": -17,
+      "reasons": [
+        "extension weight: .md",
+        "path depth bias: +18",
+        "non-trivial file size",
+        "verdict docs are usually downstream acceptance outputs"
+      ],
+      "title": "Приёмка фаз до F1"
+    },
+    {
+      "rel_path": "02_detailed_phase_findings.md",
+      "score": -22,
+      "reasons": [
+        "extension weight: .md",
+        "path depth bias: +18",
+        "non-trivial file size",
+        "findings docs are usually analytical supporting material",
+        "title looks like findings output"
+      ],
+      "title": "Детальные findings по фазам до F1"
+    }
+  ],
+  "extension_counts": {
+    ".csv": 1,
+    ".json": 1,
+    ".md": 6
+  },
+  "suggested_phase_compiler_artifact": "D:/trading advisor 3000/artifacts/codex/package-intake/20260330T152554Z-trading-advisor-3000-phase-acceptance-upto-f1-20/suggested-phase-plan.json",
+  "suggested_phase_ids": [
+    "F1-A",
+    "F1-B",
+    "F1-C",
+    "F1-D",
+    "F1-E",
+    "F1-F"
+  ]
+}

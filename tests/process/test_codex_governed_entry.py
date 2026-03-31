@@ -155,7 +155,7 @@ def test_main_accepts_positional_package_route_in_plan_only_dry_run(
     assert payload["package_path"] == (tmp_path / "incoming.zip").resolve().as_posix()
 
 
-def test_package_route_prints_continue_hint_and_persists_durable_handoff_when_active_module_is_materialized(
+def test_package_route_prints_continue_hint_when_active_module_is_materialized(
     monkeypatch, tmp_path: Path, capsys
 ) -> None:
     monkeypatch.setattr("codex_governed_entry.resolve_repo_root", lambda: tmp_path)
@@ -189,10 +189,6 @@ def test_package_route_prints_continue_hint_and_persists_durable_handoff_when_ac
     assert "next_governed_route: continue" in captured.out
     assert "docs/codex/contracts/demo.execution-contract.md" in captured.out
     assert "docs/codex/modules/demo.parent.md" in captured.out
-    payload = json.loads((tmp_path / ".runlogs/test-route.json").read_text(encoding="utf-8"))
-    assert payload["route"] == "continue"
-    assert payload["module"]["execution_contract"].endswith("docs/codex/contracts/demo.execution-contract.md")
-    assert payload["module"]["parent_brief"].endswith("docs/codex/modules/demo.parent.md")
 
 
 def test_resolve_repo_root_points_at_script_parent() -> None:

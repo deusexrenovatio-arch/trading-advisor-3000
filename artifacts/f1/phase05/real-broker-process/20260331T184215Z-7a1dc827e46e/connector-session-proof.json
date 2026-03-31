@@ -1,0 +1,22 @@
+{
+  "status": "ok",
+  "validated_at": "2026-03-31T18:42:26Z",
+  "required_session_fields": [
+    "account_ids",
+    "created_at",
+    "expires_at",
+    "readonly"
+  ],
+  "finam_session": {
+    "created_at": "2026-03-31T15:38:32Z",
+    "expires_at": "2026-04-29T21:00:01Z",
+    "readonly": true,
+    "account_ids": [],
+    "md_permissions_count": 0
+  },
+  "connector_session_id": "session-3a1fad1c6bc5b8f1",
+  "connector_binding_source": "finam-session-readonly",
+  "connector_last_heartbeat": "2026-03-31T18:42:26Z",
+  "connector_backend": "stocksharp-quik-finam",
+  "connector_mode": "staging-real"
+}

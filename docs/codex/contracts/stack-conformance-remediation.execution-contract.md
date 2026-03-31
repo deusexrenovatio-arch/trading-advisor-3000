@@ -29,10 +29,26 @@ Updated: 2026-03-27 10:18 UTC
 
 - This governed intake does not implement the remediation itself.
 - The package explicitly declares atomic merge phases from governance repair through re-acceptance, so this run normalizes the package into the canonical module path under `docs/codex/` and stops before any declared remediation phase is collapsed into the intake patch.
+- A follow-on package dated 2026-03-30 converted the denied F1 outcome into `docs/codex/contracts/f1-full-closure.execution-contract.md`; this earlier contract remains historical route evidence rather than the active continuation pointer.
 
 ## Objective
 
 - Convert the stack-conformance remediation package into explicit governed module-phase orchestration so future work can proceed phase by phase instead of as one package-wide implementation burst.
+
+## Release Target Contract
+
+- Target Decision: DENY_RELEASE_READINESS
+- Target Environment: historical stack-conformance remediation decision route for release denial evidence only
+- Forbidden Proof Substitutes: docs-only, schema-only, fixture-only, mock-only, stub-only, smoke-only, route-report-only
+- Release-Ready Proof Class: live-real
+
+## Mandatory Real Contours
+
+- production_live_readiness: this historical module path records denial evidence and must not claim live-real closure of production readiness.
+
+## Release Surface Matrix
+
+- Surface: production_live_readiness | Owner Phase: F1 | Required Proof Class: live-real | Must Reach: deny_release_readiness_package
 
 ## In Scope
 
@@ -94,7 +110,7 @@ Updated: 2026-03-27 10:18 UTC
 - continue
 
 ## Next Allowed Unit Of Work
-- Execute F1 - Full Re-Acceptance and Release-Readiness Decision Proof only under amendment `F1-2026-03-27-release-readiness-decision-contract`: regenerate the phase evidence pack and return an explicit `ALLOW_RELEASE_READINESS` or `DENY_RELEASE_READINESS` decision with blocker mapping and no overclaiming language.
+- Continue through `docs/codex/contracts/f1-full-closure.execution-contract.md` and `docs/codex/modules/f1-full-closure.parent.md`; do not reopen the denied phase-10 decision route inside this historical module path.
 ## Suggested Branch / PR
 
 - Branch: codex/stack-conformance-remediation-phase01

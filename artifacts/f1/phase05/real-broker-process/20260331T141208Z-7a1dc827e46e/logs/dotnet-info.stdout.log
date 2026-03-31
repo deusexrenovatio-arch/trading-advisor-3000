@@ -1,0 +1,46 @@
+ПАКЕТ SDK ДЛЯ .NET:
+ Version:           8.0.419
+ Commit:            dd994f60cd
+ Workload version:  8.0.400-manifests.1462dc69
+ MSBuild version:   17.11.48+02bf66295
+
+Среда выполнения:
+ OS Name:     Windows
+ OS Version:  10.0.26200
+ OS Platform: Windows
+ RID:         win-x64
+ Base Path:   C:\Program Files\dotnet\sdk\8.0.419\
+
+Установленные рабочие нагрузки .NET:
+Настроено на использование loose manifests при установке новых манифестов.
+Нет установленных рабочих нагрузок для отображения.
+
+Host:
+  Version:      8.0.25
+  Architecture: x64
+  Commit:       b753199016
+
+.NET SDKs installed:
+  8.0.419 [C:\Program Files\dotnet\sdk]
+
+.NET runtimes installed:
+  Microsoft.AspNetCore.App 8.0.25 [C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App]
+  Microsoft.NETCore.App 8.0.8 [C:\Program Files\dotnet\shared\Microsoft.NETCore.App]
+  Microsoft.NETCore.App 8.0.25 [C:\Program Files\dotnet\shared\Microsoft.NETCore.App]
+  Microsoft.WindowsDesktop.App 8.0.8 [C:\Program Files\dotnet\shared\Microsoft.WindowsDesktop.App]
+  Microsoft.WindowsDesktop.App 8.0.25 [C:\Program Files\dotnet\shared\Microsoft.WindowsDesktop.App]
+
+Other architectures found:
+  None
+
+Environment variables:
+  Not set
+
+global.json file:
+  Not found
+
+Learn more:
+  https://aka.ms/dotnet/info
+
+Download .NET:
+  https://aka.ms/dotnet/download

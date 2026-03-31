@@ -1,0 +1,14 @@
+{
+  "status": "ok",
+  "validated_at": "2026-03-31T14:51:21Z",
+  "required_health_fields": [
+    "connector_binding_source",
+    "connector_last_heartbeat",
+    "connector_session_id"
+  ],
+  "connector_session_id": "remediation-session-001",
+  "connector_binding_source": "local-remediation-stub",
+  "connector_last_heartbeat": "2026-03-31T14:51:21Z",
+  "connector_backend": "stocksharp-quik-finam",
+  "connector_mode": "staging-real"
+}

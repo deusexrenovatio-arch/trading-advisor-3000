@@ -1,0 +1,14 @@
+{
+  "status": "ok",
+  "validated_at": "2026-03-31T16:32:30Z",
+  "required_health_fields": [
+    "connector_binding_source",
+    "connector_last_heartbeat",
+    "connector_session_id"
+  ],
+  "connector_session_id": "finam-session-20260331T163218Z",
+  "connector_binding_source": "stocksharp-quik-finam-gateway",
+  "connector_last_heartbeat": "2026-03-31T16:32:30Z",
+  "connector_backend": "stocksharp-quik-finam",
+  "connector_mode": "staging-real"
+}

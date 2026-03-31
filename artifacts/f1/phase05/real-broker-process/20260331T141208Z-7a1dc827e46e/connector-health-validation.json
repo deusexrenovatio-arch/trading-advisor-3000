@@ -1,0 +1,19 @@
+{
+  "status": "ok",
+  "validated_at": "2026-03-31T14:12:18Z",
+  "connector_health": {
+    "connector_mode": "staging-real",
+    "connector_backend": "stocksharp-quik-finam",
+    "connector_ready": true
+  },
+  "sidecar_health": {
+    "service": "stocksharp-sidecar-gateway",
+    "status": "ok",
+    "route": "stocksharp->quik->finam",
+    "kill_switch": false,
+    "queued_intents": 0,
+    "connector_mode": "staging-real",
+    "connector_backend": "stocksharp-quik-finam",
+    "connector_ready": true
+  }
+}

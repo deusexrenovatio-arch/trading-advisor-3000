@@ -8,6 +8,4 @@ deployment/stocksharp-sidecar/**/bin/
 deployment/stocksharp-sidecar/**/obj/
 artifacts/phase8/stocksharp-sidecar/publish/
 docs/codex/packages/chat-intake-inbox/*.zip
-.runlogs/
-artifacts/codex/
-docs/codex/packages/inbox/*.zip
+artifacts/codex/orchestration/
