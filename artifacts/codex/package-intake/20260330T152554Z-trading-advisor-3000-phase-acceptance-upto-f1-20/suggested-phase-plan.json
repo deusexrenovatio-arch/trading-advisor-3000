@@ -1,0 +1,82 @@
+{
+  "source_path": "D:/trading advisor 3000/artifacts/codex/package-intake/20260330T152554Z-trading-advisor-3000-phase-acceptance-upto-f1-20/extracted/03_f1_full_closure_TZ.md",
+  "phase_count": 6,
+  "phase_ids": [
+    "F1-A",
+    "F1-B",
+    "F1-C",
+    "F1-D",
+    "F1-E",
+    "F1-F"
+  ],
+  "phases": [
+    {
+      "phase_id": "F1-A",
+      "title": "Reopen and close G0/G1 honestly",
+      "objective": "убрать ложные truth-source claims и сделать validator реально fail-closed.",
+      "acceptance_gate": [
+        "Любой deliberate contradiction между report/registy/spec/ADR должен ломать validator.",
+        "`STATUS.md`, baseline, phase10 report, red-team result и registry согласованы.",
+        "В touched docs нет overclaiming beyond truth-source state."
+      ],
+      "disprover": [
+        "Снова вернуть фразу `aiogram removed by ADR` только в phase10 report, не меняя registry/spec/ADR, и убедиться, что CI падает."
+      ]
+    },
+    {
+      "phase_id": "F1-B",
+      "title": "Close R2 and S1 without ghost states",
+      "objective": "убрать все replaceable ghost technologies и закрыть Telegram mismatch.",
+      "acceptance_gate": [
+        "Stack spec, registry, ADR set, runtime code и tests совпадают по каждой технологии.",
+        "Ни одна replaceable technology не остаётся ambiguous.",
+        "Negative tests покрывают случай ghost chosen state."
+      ],
+      "disprover": [
+        "Оставить `OpenTelemetry` как chosen в stack spec без runtime proof и без ADR, и убедиться, что phase fail-ится."
+      ]
+    },
+    {
+      "phase_id": "F1-C",
+      "title": "Close `contracts_freeze`",
+      "objective": "перевести `contracts_freeze` из `partial` в fully governed implemented release surface.",
+      "acceptance_gate": [
+        "Нельзя изменить публичный boundary без schema + fixture + test delta.",
+        "Contract tests cover all release-blocking envelopes.",
+        "`contracts_freeze` can honestly move from `partial` to `implemented`."
+      ],
+      "disprover": [
+        "Изменить любой public payload без schema/fixture/test update и убедиться, что CI падает."
+      ]
+    },
+    {
+      "phase_id": "F1-D",
+      "title": "Harden E1 evidence for release gating",
+      "objective": "оставить E1 accepted, но убрать remaining evidence debt.",
+      "acceptance_gate": [
+        "Build/test/publish/smoke are reproducible from clean checkout.",
+        "Evidence artifacts are machine-linked to commit SHA and command exit codes.",
+        "E1 no longer relies on docs or one-off local proof."
+      ],
+      "disprover": []
+    },
+    {
+      "phase_id": "F1-E",
+      "title": "Close `real_broker_process`",
+      "objective": "перевести `StockSharp/QUIK/Finam real broker process` из `planned` в implemented release-blocking surface.",
+      "acceptance_gate": [
+        "`real_broker_process` can move from `planned` to `implemented`.",
+        "STATUS, registry, docs and runbooks reflect the same scope.",
+        "No doc uses words like `production ready` unless release readiness phase also passes."
+      ],
+      "disprover": []
+    },
+    {
+      "phase_id": "F1-F",
+      "title": "Operational readiness closure and final re-acceptance",
+      "objective": "перевести `production_readiness` из `not accepted` в explicit allow decision.",
+      "acceptance_gate": [],
+      "disprover": []
+    }
+  ]
+}

@@ -44,6 +44,8 @@ Keep the design checkpoint inline:
   - `## Task Request Contract`
   - `## First-Time-Right Report`
   - `## Repetition Control`
+- For package/module planning, also satisfy `docs/checklists/planning-gate-contract.md`.
 - Validate with:
   - `python scripts/validate_task_request_contract.py`
+  - `python scripts/validate_phase_planning_contract.py`
   - `python scripts/validate_session_handoff.py`

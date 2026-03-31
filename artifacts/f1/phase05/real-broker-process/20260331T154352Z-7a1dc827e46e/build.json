@@ -1,0 +1,10 @@
+{
+  "step_id": "build",
+  "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"D:\\trading advisor 3000\\deployment\\stocksharp-sidecar\\scripts\\build.ps1\" -Configuration Release -DotnetExecutable \"C:\\Program Files\\dotnet\\dotnet.exe\"",
+  "return_code": 0,
+  "started_at": "2026-03-31T15:43:52Z",
+  "finished_at": "2026-03-31T15:43:53Z",
+  "duration_sec": 1.007,
+  "stdout_path": "artifacts/f1/phase05/real-broker-process/20260331T154352Z-7a1dc827e46e/logs/build.stdout.log",
+  "stderr_path": "artifacts/f1/phase05/real-broker-process/20260331T154352Z-7a1dc827e46e/logs/build.stderr.log"
+}

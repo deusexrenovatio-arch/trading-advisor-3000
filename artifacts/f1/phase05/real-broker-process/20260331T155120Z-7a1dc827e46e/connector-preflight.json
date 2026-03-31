@@ -1,0 +1,6 @@
+{
+  "status": "failed",
+  "validated_at": "2026-03-31T15:51:20Z",
+  "health_url": "https://api.finam.ru:443/health",
+  "error": "external connector /health preflight failed (404) at https://api.finam.ru:443/health; TA3000_BROKER_CONNECTOR_BASE_URL must target a broker connector gateway with /health contract; body=<!DOCTYPE html><html lang=\"ru\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"stylesheet\" href=\"/_next/static/chunks/afc6316aeed5710d.css\""
+}

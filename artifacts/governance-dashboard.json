@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-03-26",
-  "overall_status": "yellow",
+  "generated_at": "2026-03-30",
+  "overall_status": "green",
   "sections": {
     "lifecycle": {
       "status": "green",
@@ -20,23 +20,23 @@
       "burn_in_complete": true
     },
     "pilot_observation": {
-      "status": "yellow",
-      "critical_tasks_with_explicit_solution_class": 0,
+      "status": "green",
+      "critical_tasks_with_explicit_solution_class": 7,
       "blocked_shortcut_claims": 0,
       "staged_vs_target_declarations": {
         "staged": 0,
-        "target": 0
+        "target": 7
       },
       "observation_window_start": "2026-03-25",
-      "observation_window_days": 1,
+      "observation_window_days": 5,
       "observation_window_min_days": 7,
       "observation_window_max_days": 14,
       "observation_window_status": "collecting",
-      "task_notes_scanned": 27
+      "task_notes_scanned": 44
     }
   },
   "baseline_metrics": {
-    "generated_at": "2026-03-26",
+    "generated_at": "2026-03-30",
     "plans": {
       "total_items": 2,
       "active_items": 0,
@@ -61,7 +61,7 @@
       }
     },
     "dev_loop_baseline": {
-      "generated_at": "2026-03-26",
+      "generated_at": "2026-03-30",
       "task_outcomes_total": 23,
       "terminal_outcomes_total": 23,
       "outcomes_with_patch_timing": 2,

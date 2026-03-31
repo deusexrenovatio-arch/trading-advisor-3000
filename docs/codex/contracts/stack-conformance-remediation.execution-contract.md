@@ -5,13 +5,13 @@ Updated: 2026-03-27 10:18 UTC
 ## Source Package
 
 - Package Zip: C:/Users/Admin/Downloads/trading_advisor_3000_stack_conformance_remediation_2026-03-24 (1).zip
-- Package Manifest: D:/trading advisor 3000/artifacts/codex/package-intake/20260325T152331Z-trading-advisor-3000-stack-conformance-remediati/manifest.md
-- Manifest Suggested Primary Document: D:/trading advisor 3000/artifacts/codex/package-intake/20260325T152331Z-trading-advisor-3000-stack-conformance-remediati/extracted/ta3000_stack_conformance_remediation_2026-03-24/00_validation_verdict.md
+- Package Manifest: artifacts/codex/package-intake/20260325T152331Z-trading-advisor-3000-stack-conformance-remediati/manifest.md
+- Manifest Suggested Primary Document: artifacts/codex/package-intake/20260325T152331Z-trading-advisor-3000-stack-conformance-remediati/extracted/ta3000_stack_conformance_remediation_2026-03-24/00_validation_verdict.md
 - Source Title: Trading Advisor 3000 stack-conformance remediation package
 
 ## Primary Source Decision
 
-- Selected Primary Document: D:/trading advisor 3000/artifacts/codex/package-intake/20260325T152331Z-trading-advisor-3000-stack-conformance-remediati/extracted/ta3000_stack_conformance_remediation_2026-03-24/02_corrective_technical_assignment.md
+- Selected Primary Document: artifacts/codex/package-intake/20260325T152331Z-trading-advisor-3000-stack-conformance-remediati/extracted/ta3000_stack_conformance_remediation_2026-03-24/02_corrective_technical_assignment.md
 - Selection Rule: the manifest produced a top-score tie across several substantive markdown documents, so the primary was resolved by preferring the directive execution source that defines objective, scope, hard rules, deliverables, and success criteria over verdict, matrix, checklist, or appendix documents.
 - Supporting Documents:
   - the package validation verdict for issue confirmation and severity.
@@ -29,10 +29,26 @@ Updated: 2026-03-27 10:18 UTC
 
 - This governed intake does not implement the remediation itself.
 - The package explicitly declares atomic merge phases from governance repair through re-acceptance, so this run normalizes the package into the canonical module path under `docs/codex/` and stops before any declared remediation phase is collapsed into the intake patch.
+- A follow-on package dated 2026-03-30 converted the denied F1 outcome into `docs/codex/contracts/f1-full-closure.execution-contract.md`; this earlier contract remains historical route evidence rather than the active continuation pointer.
 
 ## Objective
 
 - Convert the stack-conformance remediation package into explicit governed module-phase orchestration so future work can proceed phase by phase instead of as one package-wide implementation burst.
+
+## Release Target Contract
+
+- Target Decision: DENY_RELEASE_READINESS
+- Target Environment: historical stack-conformance remediation decision route for release denial evidence only
+- Forbidden Proof Substitutes: docs-only, schema-only, fixture-only, mock-only, stub-only, smoke-only, route-report-only
+- Release-Ready Proof Class: live-real
+
+## Mandatory Real Contours
+
+- production_live_readiness: this historical module path records denial evidence and must not claim live-real closure of production readiness.
+
+## Release Surface Matrix
+
+- Surface: production_live_readiness | Owner Phase: F1 | Required Proof Class: live-real | Must Reach: deny_release_readiness_package
 
 ## In Scope
 
@@ -94,7 +110,7 @@ Updated: 2026-03-27 10:18 UTC
 - continue
 
 ## Next Allowed Unit Of Work
-- Execute F1 - Full Re-Acceptance and Release-Readiness Decision Proof only under amendment `F1-2026-03-27-release-readiness-decision-contract`: regenerate the phase evidence pack and return an explicit `ALLOW_RELEASE_READINESS` or `DENY_RELEASE_READINESS` decision with blocker mapping and no overclaiming language.
+- Continue through `docs/codex/contracts/f1-full-closure.execution-contract.md` and `docs/codex/modules/f1-full-closure.parent.md`; do not reopen the denied phase-10 decision route inside this historical module path.
 ## Suggested Branch / PR
 
 - Branch: codex/stack-conformance-remediation-phase01

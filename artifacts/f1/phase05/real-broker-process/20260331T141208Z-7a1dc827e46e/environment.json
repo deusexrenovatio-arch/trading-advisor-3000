@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "phase": "F1-E - Real Broker Process Closure",
+  "phase_brief": "docs/codex/modules/f1-full-closure.phase-05.md",
+  "route_signal": "worker:phase-only",
+  "proof_class": "staging-real",
+  "generated_at": "2026-03-31T14:12:08Z",
+  "git_sha": "7a1dc827e46ecdcf5b96e478de660346d46d0e83",
+  "python": {
+    "executable": "C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python311\\python.exe",
+    "version": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+    "platform": "Windows-10-10.0.26200-SP0"
+  },
+  "dotnet": {
+    "executable": "C:\\Program Files\\dotnet\\dotnet.exe",
+    "info_return_code": 0,
+    "stdout_log": "artifacts/f1/phase05/real-broker-process/20260331T141208Z-7a1dc827e46e/logs/dotnet-info.stdout.log",
+    "stderr_log": "artifacts/f1/phase05/real-broker-process/20260331T141208Z-7a1dc827e46e/logs/dotnet-info.stderr.log"
+  },
+  "connector_profile": {
+    "path": "configs/broker_staging_connector_profile.v1.json",
+    "profile_id": "stocksharp-quik-finam-staging-real-v1",
+    "environment": "staging-real",
+    "proof_class": "staging-real",
+    "connector_binding_env": {
+      "TA3000_GATEWAY_ROUTE": "stocksharp->quik->finam",
+      "TA3000_CONNECTOR_MODE": "staging-real",
+      "TA3000_CONNECTOR_BACKEND": "stocksharp-quik-finam",
+      "TA3000_CONNECTOR_READY": "1"
+    },
+    "transport": {
+      "base_url": "http://127.0.0.1:18101",
+      "api_prefix": "v1",
+      "timeout_seconds": 3.0,
+      "stream_batch_size": 500
+    },
+    "required_feature_flags": {
+      "TA3000_ENABLE_LIVE_EXECUTION": "1",
+      "TA3000_ENABLE_STOCKSHARP_BRIDGE": "1",
+      "TA3000_ENABLE_QUIK_CONNECTOR": "1",
+      "TA3000_ENABLE_FINAM_TRANSPORT": "1",
+      "TA3000_ENFORCE_LIVE_SECRETS": "1"
+    },
+    "required_secret_env_vars": [
+      "TA3000_STOCKSHARP_API_KEY",
+      "TA3000_FINAM_API_TOKEN"
+    ],
+    "secret_probes": [
+      {
+        "name": "TA3000_STOCKSHARP_API_KEY",
+        "present": true,
+        "placeholder_like": false,
+        "redacted_value": "AQ***cx"
+      },
+      {
+        "name": "TA3000_FINAM_API_TOKEN",
+        "present": true,
+        "placeholder_like": false,
+        "redacted_value": "TX***JT"
+      }
+    ],
+    "effective_base_url": "http://127.0.0.1:18101",
+    "miswire_base_url": "http://127.0.0.1:18138"
+  }
+}

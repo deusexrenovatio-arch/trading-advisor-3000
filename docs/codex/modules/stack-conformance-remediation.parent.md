@@ -50,6 +50,7 @@ Updated: 2026-03-27 10:18 UTC
   - `ALLOW_RELEASE_READINESS` only when prerequisite readiness surfaces are fully closed.
   - `DENY_RELEASE_READINESS` with blocker mapping when prerequisites remain open.
 - A `DENY_RELEASE_READINESS` outcome does not unlock progression; it preserves route integrity while keeping the phase locked.
+- The denied outcome is now superseded operationally by the follow-on module `docs/codex/modules/f1-full-closure.parent.md`, which decomposes the unresolved F1 closure work into a new explicit phase plan.
 
 ## Global Done Evidence
 
@@ -64,4 +65,4 @@ Updated: 2026-03-27 10:18 UTC
 - The current repo already contains honesty-restoring docs, so G0 must repair historical overclaiming without reintroducing conflicting narratives.
 
 ## Next Phase To Execute
-- docs/codex/modules/stack-conformance-remediation.phase-10.md
+- none

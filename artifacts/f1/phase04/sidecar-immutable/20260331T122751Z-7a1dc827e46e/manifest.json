@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "phase": "F1-D - Sidecar Immutable Evidence Hardening",
+  "phase_brief": "docs/codex/modules/f1-full-closure.phase-04.md",
+  "route_signal": "worker:phase-only",
+  "proof_class": "staging-real",
+  "generated_at": "2026-03-31T12:28:03Z",
+  "run_id": "20260331T122751Z-7a1dc827e46e",
+  "git_sha": "7a1dc827e46ecdcf5b96e478de660346d46d0e83",
+  "commands": [
+    {
+      "step_id": "build",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"D:\\trading advisor 3000\\deployment\\stocksharp-sidecar\\scripts\\build.ps1\" -Configuration Release -DotnetExecutable \"C:\\Program Files\\dotnet\\dotnet.exe\"",
+      "return_code": 0,
+      "started_at": "2026-03-31T12:27:51Z",
+      "finished_at": "2026-03-31T12:27:56Z",
+      "duration_sec": 4.361,
+      "stdout_path": "artifacts/f1/phase04/sidecar-immutable/20260331T122751Z-7a1dc827e46e/logs/build.stdout.log",
+      "stderr_path": "artifacts/f1/phase04/sidecar-immutable/20260331T122751Z-7a1dc827e46e/logs/build.stderr.log"
+    },
+    {
+      "step_id": "test",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"D:\\trading advisor 3000\\deployment\\stocksharp-sidecar\\scripts\\test.ps1\" -Configuration Release -DotnetExecutable \"C:\\Program Files\\dotnet\\dotnet.exe\"",
+      "return_code": 0,
+      "started_at": "2026-03-31T12:27:56Z",
+      "finished_at": "2026-03-31T12:28:00Z",
+      "duration_sec": 3.865,
+      "stdout_path": "artifacts/f1/phase04/sidecar-immutable/20260331T122751Z-7a1dc827e46e/logs/test.stdout.log",
+      "stderr_path": "artifacts/f1/phase04/sidecar-immutable/20260331T122751Z-7a1dc827e46e/logs/test.stderr.log"
+    },
+    {
+      "step_id": "publish",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"D:\\trading advisor 3000\\deployment\\stocksharp-sidecar\\scripts\\publish.ps1\" -Configuration Release -OutputDir \"D:\\trading advisor 3000\\artifacts\\f1\\phase04\\sidecar-immutable\\20260331T122751Z-7a1dc827e46e\\publish\" -DotnetExecutable \"C:\\Program Files\\dotnet\\dotnet.exe\"",
+      "return_code": 0,
+      "started_at": "2026-03-31T12:28:00Z",
+      "finished_at": "2026-03-31T12:28:01Z",
+      "duration_sec": 1.016,
+      "stdout_path": "artifacts/f1/phase04/sidecar-immutable/20260331T122751Z-7a1dc827e46e/logs/publish.stdout.log",
+      "stderr_path": "artifacts/f1/phase04/sidecar-immutable/20260331T122751Z-7a1dc827e46e/logs/publish.stderr.log"
+    },
+    {
+      "step_id": "smoke",
+      "command": "C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python311\\python.exe \"D:\\trading advisor 3000\\scripts\\smoke_stocksharp_sidecar_binary.py\" --sidecar-binary \"D:\\trading advisor 3000\\artifacts\\f1\\phase04\\sidecar-immutable\\20260331T122751Z-7a1dc827e46e\\publish\\TradingAdvisor3000.StockSharpSidecar.dll\" --dotnet \"C:\\Program Files\\dotnet\\dotnet.exe\" --host 127.0.0.1 --port 18091 --output \"D:\\trading advisor 3000\\artifacts\\f1\\phase04\\sidecar-immutable\\20260331T122751Z-7a1dc827e46e\\smoke.json\"",
+      "return_code": 0,
+      "started_at": "2026-03-31T12:28:01Z",
+      "finished_at": "2026-03-31T12:28:02Z",
+      "duration_sec": 1.351,
+      "stdout_path": "artifacts/f1/phase04/sidecar-immutable/20260331T122751Z-7a1dc827e46e/logs/smoke.stdout.log",
+      "stderr_path": "artifacts/f1/phase04/sidecar-immutable/20260331T122751Z-7a1dc827e46e/logs/smoke.stderr.log"
+    }
+  ],
+  "artifacts": {
+    "run_dir": "artifacts/f1/phase04/sidecar-immutable/20260331T122751Z-7a1dc827e46e",
+    "environment": "artifacts/f1/phase04/sidecar-immutable/20260331T122751Z-7a1dc827e46e/environment.json",
+    "build": "artifacts/f1/phase04/sidecar-immutable/20260331T122751Z-7a1dc827e46e/build.json",
+    "test": "artifacts/f1/phase04/sidecar-immutable/20260331T122751Z-7a1dc827e46e/test.json",
+    "publish": "artifacts/f1/phase04/sidecar-immutable/20260331T122751Z-7a1dc827e46e/publish.json",
+    "smoke": "artifacts/f1/phase04/sidecar-immutable/20260331T122751Z-7a1dc827e46e/smoke.json",
+    "smoke_validation": "artifacts/f1/phase04/sidecar-immutable/20260331T122751Z-7a1dc827e46e/smoke-validation.json",
+    "negative_tests": "artifacts/f1/phase04/sidecar-immutable/20260331T122751Z-7a1dc827e46e/negative-tests.json",
+    "hashes_json": "artifacts/f1/phase04/sidecar-immutable/20260331T122751Z-7a1dc827e46e/hashes.json",
+    "hashes_sha256": "artifacts/f1/phase04/sidecar-immutable/20260331T122751Z-7a1dc827e46e/hashes.sha256",
+    "hash_validation": "artifacts/f1/phase04/sidecar-immutable/20260331T122751Z-7a1dc827e46e/hash-validation.json",
+    "publish_dir": "artifacts/f1/phase04/sidecar-immutable/20260331T122751Z-7a1dc827e46e/publish"
+  },
+  "real_bindings": [
+    "compiled sidecar artifact set",
+    "governed replay environment",
+    "immutable artifact hashes"
+  ]
+}

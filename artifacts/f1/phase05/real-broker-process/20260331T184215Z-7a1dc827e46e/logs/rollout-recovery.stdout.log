@@ -1,0 +1,116 @@
+{
+  "generated_at": "2026-03-31T18:42:27Z",
+  "status": "ok",
+  "base_url": "http://127.0.0.1:18101",
+  "account_id": "STAGING-LIVE-ACC",
+  "dry_run": false,
+  "stages": [
+    {
+      "stage": "connectivity",
+      "status": "ok",
+      "details": {
+        "bridge_status": "ok",
+        "degraded_transports": [],
+        "preflight_errors": [],
+        "connector_mode": "staging-real",
+        "connector_backend": "stocksharp-quik-finam",
+        "connector_ready": true,
+        "connector_session_id": "session-3a1fad1c6bc5b8f1",
+        "connector_binding_source": "finam-session-readonly",
+        "connector_last_heartbeat": "2026-03-31T18:42:26Z",
+        "connector_errors": []
+      }
+    },
+    {
+      "stage": "canary",
+      "status": "ok",
+      "details": {
+        "acks": [
+          {
+            "intent_id": "INT-STAGING-CANARY-1",
+            "external_order_id": "finam-dd0bef00bfb85e3b",
+            "accepted": true,
+            "broker_adapter": "stocksharp-sidecar",
+            "state": "submitted",
+            "accepted_at": "2026-03-31T18:42:27Z",
+            "transport_key": "transport-1",
+            "idempotent_reuse": false
+          }
+        ],
+        "sync_stats": {
+          "updates": 1,
+          "fills": 0
+        },
+        "registered_intents": 1,
+        "orders_synced": 1
+      }
+    },
+    {
+      "stage": "batch",
+      "status": "ok",
+      "details": {
+        "batch_size": 3,
+        "acks": [
+          {
+            "intent_id": "INT-STAGING-BATCH-1",
+            "external_order_id": "finam-9b18002e3ac435f8",
+            "accepted": true,
+            "broker_adapter": "stocksharp-sidecar",
+            "state": "submitted",
+            "accepted_at": "2026-03-31T18:42:27Z",
+            "transport_key": "transport-1",
+            "idempotent_reuse": false
+          },
+          {
+            "intent_id": "INT-STAGING-BATCH-2",
+            "external_order_id": "finam-4a6b534e978e1140",
+            "accepted": true,
+            "broker_adapter": "stocksharp-sidecar",
+            "state": "submitted",
+            "accepted_at": "2026-03-31T18:42:27Z",
+            "transport_key": "transport-1",
+            "idempotent_reuse": false
+          },
+          {
+            "intent_id": "INT-STAGING-BATCH-3",
+            "external_order_id": "finam-30f37652477eb05a",
+            "accepted": true,
+            "broker_adapter": "stocksharp-sidecar",
+            "state": "submitted",
+            "accepted_at": "2026-03-31T18:42:27Z",
+            "transport_key": "transport-1",
+            "idempotent_reuse": false
+          }
+        ],
+        "sync_stats": {
+          "updates": 3,
+          "fills": 0
+        },
+        "reconciliation_incidents": 0,
+        "sync_incidents_total": 0,
+        "sync_incidents_delta": 0,
+        "observability": {
+          "reconciliation_cycles_total": 1,
+          "reconciliation_incidents_total": 0,
+          "reconciliation_incident_rate": 0.0,
+          "bridge": {
+            "submit_latency_ms": {
+              "count": 4,
+              "avg": 5.955,
+              "p95": 21.685
+            },
+            "sync_lag_ms": {
+              "count": 4,
+              "avg": 80.169,
+              "p95": 84.238,
+              "max": 84.238,
+              "latest": 84.238
+            },
+            "sidecar_errors_by_code": {},
+            "retry_exhausted_total": 0
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+[phase08] C:\Program Files\dotnet\dotnet.exe publish D:\trading advisor 3000\deployment\stocksharp-sidecar\src\TradingAdvisor3000.StockSharpSidecar\TradingAdvisor3000.StockSharpSidecar.csproj -c Release -o D:\trading advisor 3000\artifacts\f1\phase05\real-broker-process\20260331T144904Z-7a1dc827e46e\publish
+  Определение проектов для восстановления...
+  Все проекты обновлены для восстановления.
+  TradingAdvisor3000.StockSharpSidecar -> D:\trading advisor 3000\deployment\stocksharp-sidecar\src\TradingAdvisor3000.StockSharpSidecar\bin\Release\net8.0\TradingAdvisor3000.StockSharpSidecar.dll
+  TradingAdvisor3000.StockSharpSidecar -> D:\trading advisor 3000\artifacts\f1\phase05\real-broker-process\20260331T144904Z-7a1dc827e46e\publish\

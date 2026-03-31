@@ -1,0 +1,12 @@
+[phase08] C:\Program Files\dotnet\dotnet.exe build D:\trading advisor 3000\deployment\stocksharp-sidecar\TradingAdvisor3000.StockSharpSidecar.sln -c Release
+  Определение проектов для восстановления...
+  Восстановлен D:\trading advisor 3000\deployment\stocksharp-sidecar\src\TradingAdvisor3000.StockSharpSidecar\TradingAdvisor3000.StockSharpSidecar.csproj (за 45 мс).
+  Восстановлен D:\trading advisor 3000\deployment\stocksharp-sidecar\tests\TradingAdvisor3000.StockSharpSidecar.Tests\TradingAdvisor3000.StockSharpSidecar.Tests.csproj (за 642 мс).
+  TradingAdvisor3000.StockSharpSidecar -> D:\trading advisor 3000\deployment\stocksharp-sidecar\src\TradingAdvisor3000.StockSharpSidecar\bin\Release\net8.0\TradingAdvisor3000.StockSharpSidecar.dll
+  TradingAdvisor3000.StockSharpSidecar.Tests -> D:\trading advisor 3000\deployment\stocksharp-sidecar\tests\TradingAdvisor3000.StockSharpSidecar.Tests\bin\Release\net8.0\TradingAdvisor3000.StockSharpSidecar.Tests.dll
+
+Сборка успешно завершена.
+    Предупреждений: 0
+    Ошибок: 0
+
+Прошло времени 00:00:03.99

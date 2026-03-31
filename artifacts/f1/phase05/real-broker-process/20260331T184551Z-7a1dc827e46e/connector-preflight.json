@@ -1,0 +1,6 @@
+{
+  "status": "failed",
+  "validated_at": "2026-03-31T18:45:52Z",
+  "details_url": "https://api.finam.ru/v1/sessions/details",
+  "error": "Finam session preflight failed (500) at https://api.finam.ru/v1/sessions/details; verify TA3000_FINAM_API_BASE_URL and TA3000_FINAM_API_TOKEN bindings; body={  \"code\": 13,  \"message\": \"Jwt token check failed: UNAUTHENTICATED: The token was expected to have 3 parts, but got 1.\",  \"details\": [] }"
+}
