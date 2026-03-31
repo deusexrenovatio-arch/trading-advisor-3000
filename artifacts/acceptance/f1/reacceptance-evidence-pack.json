@@ -51,7 +51,7 @@
     },
     {
       "path": "artifacts/acceptance/f1/red-team-review-result.md",
-      "sha256": "6f974b64d027a2e945054fd0e13f542d9d3b81c6cfd712de437970ec64fcdd7d",
+      "sha256": "f8482af870ceaa1a596140510e33fceba8e9700e64752601ce1dbf579dd5f938",
       "description": "Red-team review result and deny-readiness verdict."
     },
     {
@@ -84,6 +84,6 @@
   },
   "review_verdict": {
     "status": "deny_release_readiness",
-    "notes": "Truth-source alignment now keeps replaceable technologies (`polars`, `duckdb`, `vectorbt`, `alembic`, `opentelemetry`, `aiogram`) as chosen/planned blockers, so no ADR-removal closure is claimed in this evidence pack."
+    "notes": "Truth-source alignment keeps replaceable technologies (`polars`, `duckdb`, `vectorbt`, `alembic`, `opentelemetry`, `aiogram`) in ADR-011 terminal removed states; this evidence pack still denies release readiness because production and broker contours remain open."
   }
 }

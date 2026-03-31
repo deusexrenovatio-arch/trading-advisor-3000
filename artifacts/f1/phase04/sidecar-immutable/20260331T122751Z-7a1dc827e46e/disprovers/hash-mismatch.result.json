@@ -1,0 +1,7 @@
+{
+  "name": "artifact_hash_mismatch",
+  "status": "expected_failure_observed",
+  "detail": "hash mismatch for build.json: expected 583c7d293e9a76f7eb6831028b1f83936852dc499f74989440724ca8a6835fa3, got 30590ed467668788b8ef1b997f5a8dba4b28ef5a64f720fea9bbd728d9a36f02",
+  "tampered_target": "artifacts/f1/phase04/sidecar-immutable/20260331T122751Z-7a1dc827e46e/build.json",
+  "post_restore_verification": "ok"
+}

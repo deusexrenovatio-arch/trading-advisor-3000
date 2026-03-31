@@ -1,0 +1,101 @@
+{
+  "generated_at": "2026-03-31T12:57:30Z",
+  "status": "ok",
+  "route": "worker:phase-only",
+  "sidecar_binary": "D:\\trading advisor 3000\\artifacts\\f1\\phase05\\real-broker-process\\20260331T125725Z-7a1dc827e46e\\publish\\TradingAdvisor3000.StockSharpSidecar.dll",
+  "base_url": "http://127.0.0.1:18101",
+  "boot_health": {
+    "service": "stocksharp-sidecar-gateway",
+    "status": "ok",
+    "route": "stocksharp->quik->finam",
+    "kill_switch": false,
+    "queued_intents": 0
+  },
+  "smoke": {
+    "submit_ack": {
+      "intent_id": "INT-PHASE8-COMPILED-1",
+      "external_order_id": "gw-dd1c16b6d43ff203",
+      "accepted": true,
+      "broker_adapter": "stocksharp-sidecar",
+      "state": "submitted"
+    },
+    "replace_ack": {
+      "intent_id": "INT-PHASE8-COMPILED-1",
+      "state": "replaced",
+      "new_qty": 2,
+      "new_price": 82.7,
+      "replaced_at": "2026-03-31T12:57:30Z",
+      "external_order_id": "gw-dd1c16b6d43ff203"
+    },
+    "cancel_ack": {
+      "intent_id": "INT-PHASE8-COMPILED-1",
+      "state": "canceled",
+      "canceled_at": "2026-03-31T12:57:30Z",
+      "external_order_id": "gw-dd1c16b6d43ff203"
+    },
+    "updates_count": 3,
+    "fills_count": 0,
+    "health": {
+      "adapter": "stocksharp-sidecar-http",
+      "status": "ok",
+      "base_url": "http://127.0.0.1:18101",
+      "api_prefix": "v1",
+      "updates_cursor": "3",
+      "fills_cursor": "0",
+      "updates_cached": 3,
+      "fills_cached": 0,
+      "error_code": null,
+      "remote": {
+        "service": "stocksharp-sidecar-gateway",
+        "status": "ok",
+        "route": "stocksharp->quik->finam",
+        "kill_switch": false,
+        "queued_intents": 1
+      }
+    },
+    "readiness": {
+      "adapter": "stocksharp-sidecar-http",
+      "ready": true,
+      "reason": "ok",
+      "base_url": "http://127.0.0.1:18101"
+    },
+    "metrics": {
+      "before_kill_switch": "# HELP ta3000_sidecar_gateway_up Sidecar gateway process health.\n# TYPE ta3000_sidecar_gateway_up gauge\nta3000_sidecar_gateway_up 1\n# HELP ta3000_sidecar_gateway_queued_intents Total queued intents.\n# TYPE ta3000_sidecar_gateway_queued_intents gauge\nta3000_sidecar_gateway_queued_intents 0\n# HELP ta3000_sidecar_gateway_kill_switch Kill switch state.\n# TYPE ta3000_sidecar_gateway_kill_switch gauge\nta3000_sidecar_gateway_kill_switch 0\n",
+      "while_kill_switch_enabled": "# HELP ta3000_sidecar_gateway_up Sidecar gateway process health.\n# TYPE ta3000_sidecar_gateway_up gauge\nta3000_sidecar_gateway_up 1\n# HELP ta3000_sidecar_gateway_queued_intents Total queued intents.\n# TYPE ta3000_sidecar_gateway_queued_intents gauge\nta3000_sidecar_gateway_queued_intents 1\n# HELP ta3000_sidecar_gateway_kill_switch Kill switch state.\n# TYPE ta3000_sidecar_gateway_kill_switch gauge\nta3000_sidecar_gateway_kill_switch 1\n",
+      "after_kill_switch_restore": "# HELP ta3000_sidecar_gateway_up Sidecar gateway process health.\n# TYPE ta3000_sidecar_gateway_up gauge\nta3000_sidecar_gateway_up 1\n# HELP ta3000_sidecar_gateway_queued_intents Total queued intents.\n# TYPE ta3000_sidecar_gateway_queued_intents gauge\nta3000_sidecar_gateway_queued_intents 2\n# HELP ta3000_sidecar_gateway_kill_switch Kill switch state.\n# TYPE ta3000_sidecar_gateway_kill_switch gauge\nta3000_sidecar_gateway_kill_switch 0\n"
+    },
+    "kill_switch": {
+      "enable_response": {
+        "ok": true,
+        "kill_switch_active": true
+      },
+      "ready_under_kill_switch": {
+        "ready": false,
+        "reason": "kill_switch_active",
+        "route": "stocksharp->quik->finam"
+      },
+      "blocked_submit": {
+        "error_code": "kill_switch_active",
+        "status_code": 503,
+        "message": "sidecar request failed: gateway kill-switch is active"
+      },
+      "disable_response": {
+        "ok": true,
+        "kill_switch_active": false
+      },
+      "readiness_after_restore": {
+        "adapter": "stocksharp-sidecar-http",
+        "ready": true,
+        "reason": "ok",
+        "base_url": "http://127.0.0.1:18101"
+      },
+      "submit_after_restore": {
+        "intent_id": "INT-PHASE8-COMPILED-2",
+        "external_order_id": "gw-c2d7a5ea40a363f1",
+        "accepted": true,
+        "broker_adapter": "stocksharp-sidecar",
+        "state": "submitted"
+      }
+    }
+  }
+}

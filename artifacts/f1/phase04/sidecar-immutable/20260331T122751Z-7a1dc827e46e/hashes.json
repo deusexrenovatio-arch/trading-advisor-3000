@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-03-31T12:28:02Z",
+  "entries": [
+    {
+      "path": "build.json",
+      "sha256": "583c7d293e9a76f7eb6831028b1f83936852dc499f74989440724ca8a6835fa3",
+      "size_bytes": 615
+    },
+    {
+      "path": "environment.json",
+      "sha256": "630b532342834959509eb4d5af3d61f8268bfa226f6b9f79d26af10062d456a4",
+      "size_bytes": 939
+    },
+    {
+      "path": "publish/TradingAdvisor3000.StockSharpSidecar.deps.json",
+      "sha256": "9d7f7fa454d035783717a33fc5554621607acf300654d1cb18159d8e900de3b8",
+      "size_bytes": 500
+    },
+    {
+      "path": "publish/TradingAdvisor3000.StockSharpSidecar.dll",
+      "sha256": "9a811b6de3f1da78974e7ca9f60d5c0476a537c0fa74e69491622dcaeefb851e",
+      "size_bytes": 50176
+    },
+    {
+      "path": "publish/TradingAdvisor3000.StockSharpSidecar.exe",
+      "sha256": "4f864824b5a0c68c461ca059b53e57fd3e43d55761e68ccccbc1744d7d31219d",
+      "size_bytes": 152064
+    },
+    {
+      "path": "publish/TradingAdvisor3000.StockSharpSidecar.pdb",
+      "sha256": "f8113685bc7fc2c78a7b19dbf609d31d8ddc1a9d1ee595b154c8956519006bb9",
+      "size_bytes": 29168
+    },
+    {
+      "path": "publish/TradingAdvisor3000.StockSharpSidecar.runtimeconfig.json",
+      "sha256": "2927e7d9a65748a82c4f265a0c9c1876a5ee233d9f5283881e0966e81ca94e14",
+      "size_bytes": 488
+    },
+    {
+      "path": "publish/web.config",
+      "sha256": "fc47e8c3beb5c3c69bb50fa7e80d50e6d5681509b0ed021b36a480940e3eb814",
+      "size_bytes": 580
+    },
+    {
+      "path": "publish.json",
+      "sha256": "4fb01d14647f6324486d822d0ddf037a3e561846f4e27385f171475f1b9fe855",
+      "size_bytes": 746
+    },
+    {
+      "path": "smoke-validation.json",
+      "sha256": "ae04ad54631bb082a967a53ab3a96ba358c0e9bb43e2d64d6505d1264b30bb45",
+      "size_bytes": 236
+    },
+    {
+      "path": "smoke.json",
+      "sha256": "18f39becaf346ed4a0bd1ad95ffdecd609b828212202e17b06af96869207f552",
+      "size_bytes": 4385
+    },
+    {
+      "path": "test.json",
+      "sha256": "c6bf304ff55ac93dad44e72f58b8dc2e7184a680f0c8a9abd3a72db1938f75d8",
+      "size_bytes": 611
+    }
+  ]
+}

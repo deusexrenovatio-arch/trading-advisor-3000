@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-03-31T14:51:22Z",
+  "entries": [
+    {
+      "path": "build.json",
+      "sha256": "d34832a80664b3f944932d46872adfc10d2834e2457c8e6cb412fddb87328b66",
+      "size_bytes": 619
+    },
+    {
+      "path": "connector-health-validation.json",
+      "sha256": "7f5122640127785ee1fe1c20e9f9ebe084cb0d5dee6d5b8ffc30f9de867cc9e1",
+      "size_bytes": 870
+    },
+    {
+      "path": "connector-session-proof.json",
+      "sha256": "9e73d740feb1778ae995bdcefcfdc773cabf22d0969c5bc680721a27c600d6da",
+      "size_bytes": 450
+    },
+    {
+      "path": "disprover-miswire-rollout.json",
+      "sha256": "4e852cf6a8c217736041a02976a04af505ddc6de67524c783f38c911a157a210",
+      "size_bytes": 970
+    },
+    {
+      "path": "environment.json",
+      "sha256": "61435f5a6b46c63dd73e99b3c0b7686b2e85b3e385a9d70f7dab6260e078c58c",
+      "size_bytes": 3215
+    },
+    {
+      "path": "negative-tests.json",
+      "sha256": "766cd0a4e539c73abcdbccdfd6dfe442bdfeb6491b7b5ad55e5087beff5b1467",
+      "size_bytes": 611
+    },
+    {
+      "path": "publish/TradingAdvisor3000.StockSharpSidecar.deps.json",
+      "sha256": "9d7f7fa454d035783717a33fc5554621607acf300654d1cb18159d8e900de3b8",
+      "size_bytes": 500
+    },
+    {
+      "path": "publish/TradingAdvisor3000.StockSharpSidecar.dll",
+      "sha256": "87551de130d91153a3ec1d727af0ce718a12dae5ea62242e019bfe534c177b52",
+      "size_bytes": 70144
+    },
+    {
+      "path": "publish/TradingAdvisor3000.StockSharpSidecar.exe",
+      "sha256": "4f864824b5a0c68c461ca059b53e57fd3e43d55761e68ccccbc1744d7d31219d",
+      "size_bytes": 152064
+    },
+    {
+      "path": "publish/TradingAdvisor3000.StockSharpSidecar.pdb",
+      "sha256": "801d460628c243fc6a7b4dc68d3bcbac4835606577c60ffdc618668ea295e524",
+      "size_bytes": 33104
+    },
+    {
+      "path": "publish/TradingAdvisor3000.StockSharpSidecar.runtimeconfig.json",
+      "sha256": "2927e7d9a65748a82c4f265a0c9c1876a5ee233d9f5283881e0966e81ca94e14",
+      "size_bytes": 488
+    },
+    {
+      "path": "publish/web.config",
+      "sha256": "fc47e8c3beb5c3c69bb50fa7e80d50e6d5681509b0ed021b36a480940e3eb814",
+      "size_bytes": 580
+    },
+    {
+      "path": "publish.json",
+      "sha256": "44ede59daf8f2196b764a758df6dc6d0cebdf93d823a9701f1e99608085aeb6a",
+      "size_bytes": 752
+    },
+    {
+      "path": "recovery-validation.json",
+      "sha256": "824103c95543b3dd8c984dbac065667fbe21e0479cb3e2617514f2adbeffc10c",
+      "size_bytes": 994
+    },
+    {
+      "path": "rollout.json",
+      "sha256": "977771757e213e961a92e9acc6fd2cbf94b4feebf21fbafb8e29c5b76e3166dc",
+      "size_bytes": 3538
+    },
+    {
+      "path": "sidecar-process.log",
+      "sha256": "eb0f4887f35e3fc473347f1f8ab6926dfadba75ab5b694d7f0959a4560c3a1bc",
+      "size_bytes": 10172
+    },
+    {
+      "path": "smoke-validation.json",
+      "sha256": "f50e0fe6d1a8bf8f3cb6d6e7346629deda45782c1896d94b97b5a3822f07a979",
+      "size_bytes": 233
+    },
+    {
+      "path": "smoke.json",
+      "sha256": "e37145508b44ba622a1f112db4cfababd135251f94185cd8e2920354745b06f1",
+      "size_bytes": 5637
+    },
+    {
+      "path": "test.json",
+      "sha256": "3bbf4678f5c6bfce6b6f818899f021242d9add1fee487bac663ca2404cf31b10",
+      "size_bytes": 615
+    }
+  ]
+}

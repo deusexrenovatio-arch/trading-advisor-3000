@@ -1,0 +1,13 @@
+{
+  "generated_at": "2026-03-31T13:35:17Z",
+  "tests": [
+    {
+      "name": "miswire_unavailable_connector",
+      "status": "expected_failure_observed",
+      "return_code": 1,
+      "output_path": "artifacts/f1/phase05/real-broker-process/20260331T133505Z-7a1dc827e46e/disprover-miswire-rollout.json",
+      "stdout_path": "artifacts/f1/phase05/real-broker-process/20260331T133505Z-7a1dc827e46e/logs/negative-miswire-connectivity.stdout.log",
+      "stderr_path": "artifacts/f1/phase05/real-broker-process/20260331T133505Z-7a1dc827e46e/logs/negative-miswire-connectivity.stderr.log"
+    }
+  ]
+}

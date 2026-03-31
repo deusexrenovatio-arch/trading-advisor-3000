@@ -22,15 +22,15 @@ The review attempts to disprove closure by checking runtime-vs-doc alignment, ne
 - Dagster: `PASS` for bounded materialization contour; still `partial` for broader closure.
 - Runtime durability: `PASS` for fail-closed profile behavior and durable bootstrap contour.
 - FastAPI: `PASS` for ASGI surface and smoke-proof contour.
-- aiogram: `BLOCKED` because stack truth sources still keep `aiogram` as chosen/planned and no ADR-backed terminal state is active.
+- aiogram: `PASS` with ADR-011 terminal removal and custom Bot API replacement path.
 - Sidecar: `PASS` for in-repo .NET project plus compiled proof contour.
-- Observability replacement controls: `BLOCKED` because `opentelemetry` remains chosen/planned and has no ADR-backed terminal state in current truth sources.
+- Observability replacement controls: `PASS` with ADR-011 terminal removal and Prometheus/Loki replacement path.
 
 ## Findings
 1. Final readiness cannot be unlocked while `production_readiness` remains `not accepted`.
 2. Final readiness cannot be unlocked while `real_broker_process` remains `planned`.
 3. Partial surfaces (`delta_lake`, `apache_spark`, `dagster`, `postgresql`, `stocksharp`) remain correctly constrained and must not be reworded as terminal readiness.
-4. Replaceable technologies (`polars`, `duckdb`, `vectorbt`, `alembic`, `opentelemetry`, `aiogram`) remain unresolved chosen/planned states and cannot be narrated as ADR-removed closure.
+4. Replaceable technologies (`polars`, `duckdb`, `vectorbt`, `alembic`, `opentelemetry`, `aiogram`) are tracked as ADR-011 terminal removals and must not regress.
 5. Under amendment `F1-2026-03-27-release-readiness-decision-contract`, these blockers require an explicit `DENY_RELEASE_READINESS` verdict with no implicit unlock language.
 
 ## Red-Team Verdict

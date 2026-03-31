@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "phase": "F1-E - Real Broker Process Closure",
+  "phase_brief": "docs/codex/modules/f1-full-closure.phase-05.md",
+  "route_signal": "worker:phase-only",
+  "proof_class": "staging-real",
+  "generated_at": "2026-03-31T12:57:34Z",
+  "run_id": "20260331T125725Z-7a1dc827e46e",
+  "git_sha": "7a1dc827e46ecdcf5b96e478de660346d46d0e83",
+  "commands": [
+    {
+      "step_id": "build",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"D:\\trading advisor 3000\\deployment\\stocksharp-sidecar\\scripts\\build.ps1\" -Configuration Release -DotnetExecutable \"C:\\Program Files\\dotnet\\dotnet.exe\"",
+      "return_code": 0,
+      "started_at": "2026-03-31T12:57:25Z",
+      "finished_at": "2026-03-31T12:57:26Z",
+      "duration_sec": 1.35,
+      "stdout_path": "artifacts/f1/phase05/real-broker-process/20260331T125725Z-7a1dc827e46e/logs/build.stdout.log",
+      "stderr_path": "artifacts/f1/phase05/real-broker-process/20260331T125725Z-7a1dc827e46e/logs/build.stderr.log"
+    },
+    {
+      "step_id": "test",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"D:\\trading advisor 3000\\deployment\\stocksharp-sidecar\\scripts\\test.ps1\" -Configuration Release -DotnetExecutable \"C:\\Program Files\\dotnet\\dotnet.exe\"",
+      "return_code": 0,
+      "started_at": "2026-03-31T12:57:26Z",
+      "finished_at": "2026-03-31T12:57:28Z",
+      "duration_sec": 1.795,
+      "stdout_path": "artifacts/f1/phase05/real-broker-process/20260331T125725Z-7a1dc827e46e/logs/test.stdout.log",
+      "stderr_path": "artifacts/f1/phase05/real-broker-process/20260331T125725Z-7a1dc827e46e/logs/test.stderr.log"
+    },
+    {
+      "step_id": "publish",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"D:\\trading advisor 3000\\deployment\\stocksharp-sidecar\\scripts\\publish.ps1\" -Configuration Release -OutputDir \"D:\\trading advisor 3000\\artifacts\\f1\\phase05\\real-broker-process\\20260331T125725Z-7a1dc827e46e\\publish\" -DotnetExecutable \"C:\\Program Files\\dotnet\\dotnet.exe\"",
+      "return_code": 0,
+      "started_at": "2026-03-31T12:57:28Z",
+      "finished_at": "2026-03-31T12:57:29Z",
+      "duration_sec": 0.982,
+      "stdout_path": "artifacts/f1/phase05/real-broker-process/20260331T125725Z-7a1dc827e46e/logs/publish.stdout.log",
+      "stderr_path": "artifacts/f1/phase05/real-broker-process/20260331T125725Z-7a1dc827e46e/logs/publish.stderr.log"
+    },
+    {
+      "step_id": "smoke",
+      "command": "C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python311\\python.exe \"D:\\trading advisor 3000\\scripts\\smoke_stocksharp_sidecar_binary.py\" --sidecar-binary \"D:\\trading advisor 3000\\artifacts\\f1\\phase05\\real-broker-process\\20260331T125725Z-7a1dc827e46e\\publish\\TradingAdvisor3000.StockSharpSidecar.dll\" --dotnet \"C:\\Program Files\\dotnet\\dotnet.exe\" --host 127.0.0.1 --port 18101 --output \"D:\\trading advisor 3000\\artifacts\\f1\\phase05\\real-broker-process\\20260331T125725Z-7a1dc827e46e\\smoke.json\"",
+      "return_code": 0,
+      "started_at": "2026-03-31T12:57:29Z",
+      "finished_at": "2026-03-31T12:57:30Z",
+      "duration_sec": 1.318,
+      "stdout_path": "artifacts/f1/phase05/real-broker-process/20260331T125725Z-7a1dc827e46e/logs/smoke.stdout.log",
+      "stderr_path": "artifacts/f1/phase05/real-broker-process/20260331T125725Z-7a1dc827e46e/logs/smoke.stderr.log"
+    },
+    {
+      "step_id": "negative-miswire-connectivity",
+      "command": "C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python311\\python.exe \"D:\\trading advisor 3000\\scripts\\run_staging_real_execution_rollout.py\" --base-url http://127.0.0.1:18138 --stage all --batch-size 3 --kill-switch-on-failure --format json --output \"D:\\trading advisor 3000\\artifacts\\f1\\phase05\\real-broker-process\\20260331T125725Z-7a1dc827e46e\\disprover-miswire-rollout.json\"",
+      "return_code": 1,
+      "started_at": "2026-03-31T12:57:30Z",
+      "finished_at": "2026-03-31T12:57:33Z",
+      "duration_sec": 2.63,
+      "stdout_path": "artifacts/f1/phase05/real-broker-process/20260331T125725Z-7a1dc827e46e/logs/negative-miswire-connectivity.stdout.log",
+      "stderr_path": "artifacts/f1/phase05/real-broker-process/20260331T125725Z-7a1dc827e46e/logs/negative-miswire-connectivity.stderr.log"
+    },
+    {
+      "step_id": "rollout-recovery",
+      "command": "C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python311\\python.exe \"D:\\trading advisor 3000\\scripts\\run_staging_real_execution_rollout.py\" --base-url http://127.0.0.1:18101 --stage all --batch-size 3 --kill-switch-on-failure --format json --output \"D:\\trading advisor 3000\\artifacts\\f1\\phase05\\real-broker-process\\20260331T125725Z-7a1dc827e46e\\rollout.json\"",
+      "return_code": 0,
+      "started_at": "2026-03-31T12:57:34Z",
+      "finished_at": "2026-03-31T12:57:34Z",
+      "duration_sec": 0.708,
+      "stdout_path": "artifacts/f1/phase05/real-broker-process/20260331T125725Z-7a1dc827e46e/logs/rollout-recovery.stdout.log",
+      "stderr_path": "artifacts/f1/phase05/real-broker-process/20260331T125725Z-7a1dc827e46e/logs/rollout-recovery.stderr.log"
+    }
+  ],
+  "artifacts": {
+    "run_dir": "artifacts/f1/phase05/real-broker-process/20260331T125725Z-7a1dc827e46e",
+    "environment": "artifacts/f1/phase05/real-broker-process/20260331T125725Z-7a1dc827e46e/environment.json",
+    "build": "artifacts/f1/phase05/real-broker-process/20260331T125725Z-7a1dc827e46e/build.json",
+    "test": "artifacts/f1/phase05/real-broker-process/20260331T125725Z-7a1dc827e46e/test.json",
+    "publish": "artifacts/f1/phase05/real-broker-process/20260331T125725Z-7a1dc827e46e/publish.json",
+    "smoke": "artifacts/f1/phase05/real-broker-process/20260331T125725Z-7a1dc827e46e/smoke.json",
+    "smoke_validation": "artifacts/f1/phase05/real-broker-process/20260331T125725Z-7a1dc827e46e/smoke-validation.json",
+    "rollout": "artifacts/f1/phase05/real-broker-process/20260331T125725Z-7a1dc827e46e/rollout.json",
+    "recovery_validation": "artifacts/f1/phase05/real-broker-process/20260331T125725Z-7a1dc827e46e/recovery-validation.json",
+    "negative_tests": "artifacts/f1/phase05/real-broker-process/20260331T125725Z-7a1dc827e46e/negative-tests.json",
+    "hashes_json": "artifacts/f1/phase05/real-broker-process/20260331T125725Z-7a1dc827e46e/hashes.json",
+    "hashes_sha256": "artifacts/f1/phase05/real-broker-process/20260331T125725Z-7a1dc827e46e/hashes.sha256",
+    "hash_validation": "artifacts/f1/phase05/real-broker-process/20260331T125725Z-7a1dc827e46e/hash-validation.json",
+    "publish_dir": "artifacts/f1/phase05/real-broker-process/20260331T125725Z-7a1dc827e46e/publish"
+  },
+  "real_bindings": [
+    "compiled stocksharp sidecar binary",
+    "staging-real broker connector profile and secrets contract",
+    "staging rollout with reconciliation and fail-closed recovery proof"
+  ]
+}
