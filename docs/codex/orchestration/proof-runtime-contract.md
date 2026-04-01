@@ -1,6 +1,6 @@
 # CI And Proof Runtime Contract (H2)
 
-Updated: 2026-04-01 16:45 UTC
+Updated: 2026-04-01 18:05 UTC
 
 ## Purpose
 
@@ -14,6 +14,7 @@ Bind phase `H2` to one explicit runtime contract for:
 - Phase: `H2 - CI and Proof Refactor`
 - Contract level: `staging-real`
 - Scope: hosted Ubuntu CI plus reproducible local Windows replay semantics.
+- Accepted local replay binding for H2: Windows host + Docker proof profile (`proof_profile=docker-linux`).
 
 ## Dependency Profiles
 
@@ -53,6 +54,7 @@ Docker/host path exchange proof runners must use `scripts/proof_runtime_contract
 - container runtime-root normalization (`normalize_runtime_root`);
 - host-to-container path normalization (`host_to_container_path`);
 - container-to-host path normalization (`container_to_host_path`);
+- strict workspace-root boundary matching (prefix-only collisions are rejected);
 - writable output directory/file fail-closed guards;
 - host ownership normalization wrapper for docker-run artifacts.
 
@@ -64,7 +66,8 @@ Current adopter:
 Required fail-closed tests:
 - unwritable output path;
 - missing runtime root;
-- cross-platform path normalization.
+- cross-platform path normalization;
+- workspace-root prefix collision that must not remap host paths.
 
 Covered by:
 - `tests/app/unit/test_proof_runtime_contract.py`

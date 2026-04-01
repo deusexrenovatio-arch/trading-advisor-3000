@@ -27,6 +27,12 @@ def normalize_runtime_root(raw_value: str, *, field_name: str) -> str:
     return normalized.rstrip("/") or "/"
 
 
+def _is_within_runtime_workspace(*, normalized_path: str, runtime_workspace: str) -> bool:
+    if runtime_workspace == "/":
+        return normalized_path.startswith("/")
+    return normalized_path == runtime_workspace or normalized_path.startswith(f"{runtime_workspace}/")
+
+
 def host_to_container_path(path: Path, *, repo_root: Path, workspace_root: str = DEFAULT_WORKSPACE_ROOT) -> str:
     runtime_workspace = PurePosixPath(normalize_runtime_root(workspace_root, field_name="workspace root"))
     resolved = resolve_repo_path(path, repo_root=repo_root)
@@ -42,9 +48,12 @@ def container_to_host_path(value: str, *, repo_root: Path, workspace_root: str =
     normalized = str(value).strip().replace("\\", "/")
     while "//" in normalized:
         normalized = normalized.replace("//", "/")
-    if not normalized.startswith(runtime_workspace):
+    if not _is_within_runtime_workspace(normalized_path=normalized, runtime_workspace=runtime_workspace):
         return value
-    suffix = normalized[len(runtime_workspace) :].lstrip("/")
+    if runtime_workspace == "/":
+        suffix = normalized.lstrip("/")
+    else:
+        suffix = normalized[len(runtime_workspace) :].lstrip("/")
     if not suffix:
         return repo_root.resolve().as_posix()
     parts = tuple(part for part in suffix.split("/") if part)

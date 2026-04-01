@@ -1,6 +1,6 @@
 # Module Phase Brief
 
-Updated: 2026-04-01 11:20 UTC
+Updated: 2026-04-01 18:05 UTC
 
 ## Parent
 
@@ -40,7 +40,12 @@ Updated: 2026-04-01 11:20 UTC
 
 - Hosted CI remains fail-closed while avoiding unrelated heavy proofs for narrow contours.
 - Proof outputs must carry explicit profile markers.
-- Linux hosted and Windows local proof semantics must stay reproducible.
+- Linux hosted and Windows local proof semantics must stay reproducible through one portable contract path.
+
+## Binding Decision (Remediation)
+
+- For H2 acceptance evidence, the required local-Windows proof binding is `--profile docker` executed on a Windows host with Docker engine.
+- Native Windows Spark execution (`--profile local`) is not an H2 acceptance binding and must not be treated as fallback from the accepted portable path.
 
 ## Acceptance Gate
 
@@ -62,7 +67,7 @@ Updated: 2026-04-01 11:20 UTC
 
 - Owned Surfaces: snapshot_ci_profile_contour
 - Delivered Proof Class: staging-real
-- Required Real Bindings: hosted-ubuntu ci evidence, local-windows replay evidence, profile-tagged proof artifacts
+- Required Real Bindings: hosted-ubuntu ci evidence for this patch, local-windows docker replay evidence, profile-tagged proof artifacts
 - Target Downgrade Is Forbidden: yes
 
 ## What This Phase Does Not Prove

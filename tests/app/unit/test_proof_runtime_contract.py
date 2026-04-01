@@ -55,3 +55,12 @@ def test_path_round_trip_normalizes_slashes_for_host_and_container(tmp_path: Pat
     windows_like_container = container_path.replace("/", "\\")
     host_path_windows_like = Path(container_to_host_path(windows_like_container, repo_root=repo_root))
     assert host_path_windows_like == artifact_path.resolve()
+
+
+def test_container_to_host_path_rejects_prefix_only_workspace_collisions(tmp_path: Path) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    runtime_outside_path = "/workspace-proof/nested/proof.json"
+
+    mapped = container_to_host_path(runtime_outside_path, repo_root=repo_root)
+
+    assert mapped == runtime_outside_path
