@@ -1,16 +1,29 @@
-Нормализация intake завершена как фазовый module-path, без схлопывания пакета в одну “реализационную” правку.
+Выполнен package-intake в phase-driven режиме без повторного запуска launcher.
 
-Первичным документом я выбрал `02_corrective_technical_assignment`, а не предложенный `00_validation_verdict`: у манифеста был tie, и я применил явное правило tie-breaker — брать нормативный документ исполнения с objective/scope/rules/deliverables/success criteria, а verdict и phase plan оставить supporting. Это зафиксировано в [execution contract](D:/trading advisor 3000/docs/codex/contracts/stack-conformance-remediation.execution-contract.md) и отражено в активной [task note](D:/trading advisor 3000/docs/tasks/active/TASK-2026-03-25-governed-package-intake-for-explicit-zip-route-c.md).
+**Что сделано**
+1. Зафиксировал primary source и правило выбора: выбран документ из manifest (`single-doc package`, без tie-break).
+2. Материализовал канонический execution contract с обязательными блоками:
+   - `Release Target Contract`
+   - `Mandatory Real Contours`
+   - `Release Surface Matrix` (обязательные real-контуры привязаны только к фазам с `real_contour_closed`/`release_decision`).
+3. Создал module parent brief и 5 phase briefs `H0..H4`, с обязательными секциями в каждой фазе:
+   - `Release Gate Impact`
+   - `Release Surface Ownership`
+   - `What This Phase Does Not Prove`
+4. Фазы не схлопывались и не переупорядочивались; это чистая нормализация phase-плана (без реализации FR-работ).
 
-Пакет оформлен в канонический governed module path:
-[execution contract](D:/trading advisor 3000/docs/codex/contracts/stack-conformance-remediation.execution-contract.md),
-[parent brief](D:/trading advisor 3000/docs/codex/modules/stack-conformance-remediation.parent.md),
-и 10 phase briefs от `G0` до `F1`, где следующий разрешенный шаг — [phase 01](D:/trading advisor 3000/docs/codex/modules/stack-conformance-remediation.phase-01.md). Это соответствует правилу пакета: сначала module-path normalization и phase planning, потом отдельные governed continuation runs по фазам.
+**Ключевые артефакты**
+- [Execution Contract](D:/trading advisor 3000-wt-governed-20260401/docs/codex/contracts/governed-pipeline-hardening.execution-contract.md)
+- [Module Parent Brief](D:/trading advisor 3000-wt-governed-20260401/docs/codex/modules/governed-pipeline-hardening.parent.md)
+- Фазы `H0..H4`:  
+  [Phase 01](D:/trading advisor 3000-wt-governed-20260401/docs/codex/modules/governed-pipeline-hardening.phase-01.md), [Phase 02](D:/trading advisor 3000-wt-governed-20260401/docs/codex/modules/governed-pipeline-hardening.phase-02.md), [Phase 03](D:/trading advisor 3000-wt-governed-20260401/docs/codex/modules/governed-pipeline-hardening.phase-03.md), [Phase 04](D:/trading advisor 3000-wt-governed-20260401/docs/codex/modules/governed-pipeline-hardening.phase-04.md), [Phase 05](D:/trading advisor 3000-wt-governed-20260401/docs/codex/modules/governed-pipeline-hardening.phase-05.md)
 
-Проверки прошли:
-`python scripts/validate_task_request_contract.py`,
-`python scripts/validate_session_handoff.py`,
-`python scripts/validate_docs_links.py --roots AGENTS.md docs`,
-`python scripts/run_loop_gate.py --from-git --git-ref HEAD`.
+**Проверки**
+- `python scripts/validate_task_request_contract.py` -> OK
+- `python scripts/validate_session_handoff.py` -> OK
+- `python scripts/validate_phase_planning_contract.py --changed-files ...` -> OK
+- `python scripts/run_loop_gate.py --from-git --git-ref HEAD` -> FAIL (причина: `inactive task session: session lock is not set`)
+- `python scripts/run_loop_gate.py --skip-session-check --from-git --git-ref HEAD` -> OK
 
-Следующий логичный ход — запускать уже не intake, а фазу `G0`: repair claim vocabulary и checklist freeze.
+**Принятое допущение**
+- Новый модуль оставлен неактивным (`Next Phase To Execute: none`), чтобы не создать конфликт “multiple active modules” в текущем auto-route.
