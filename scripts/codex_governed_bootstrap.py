@@ -11,7 +11,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from codex_governed_entry import main as governed_entry_main
+from codex_governed_entry import (
+    GovernedEntryError,
+    main as governed_entry_main,
+    normalize_entry_route_mode,
+    normalize_snapshot_mode,
+)
 from task_session import (
     LEGACY_SESSION_MODE,
     default_session_lock_path,
@@ -125,6 +130,13 @@ def main(argv: list[str] | None = None) -> int:
     bootstrap_state_file = resolve_path(repo_root, args.bootstrap_state_file)
 
     try:
+        normalized_route_mode = normalize_entry_route_mode(args.route_mode, positional_alias=False)
+        normalized_snapshot_mode = normalize_snapshot_mode(args.snapshot_mode)
+    except GovernedEntryError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    try:
         requested_session_mode = normalize_session_mode(args.session_mode)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -150,11 +162,11 @@ def main(argv: list[str] | None = None) -> int:
         "--route",
         args.route,
         "--route-mode",
-        args.route_mode,
+        normalized_route_mode,
         "--session-mode",
         effective_session_mode,
         "--snapshot-mode",
-        args.snapshot_mode,
+        normalized_snapshot_mode,
         "--inbox",
         args.inbox,
         "--artifact-root",
@@ -197,9 +209,9 @@ def main(argv: list[str] | None = None) -> int:
             "updated_at": utc_now().isoformat().replace("+00:00", "Z"),
             "request": args.request,
             "session_action": session_state["action"],
-            "route_mode": args.route_mode,
+            "route_mode": normalized_route_mode,
             "session_mode": effective_session_mode,
-            "snapshot_mode": args.snapshot_mode,
+            "snapshot_mode": normalized_snapshot_mode,
             "profile": args.profile.strip() or "none",
             "route_args": entry_args,
         },

@@ -103,7 +103,7 @@ Updated: 2026-04-01 11:20 UTC
 - continue
 
 ## Next Allowed Unit Of Work
-- Execute H1 - Dual-Mode Operation only: Keep old commands operational while introducing new route and session modes, and expose snapshot/profile metadata in validator reporting.
+- Execute H2 - CI and Proof Refactor only: Split dependency and CI execution by surface profile and enforce a portable proof-runner contract across local and hosted environments.
 ## Suggested Branch / PR
 
 - Branch: codex/governed-pipeline-hardening-phase-plan

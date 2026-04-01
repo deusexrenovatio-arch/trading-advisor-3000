@@ -159,6 +159,95 @@ def test_bootstrap_normalizes_session_mode_alias_before_writing_state(
     assert state["session_mode"] == "legacy-full"
 
 
+def test_bootstrap_normalizes_route_mode_before_writing_state(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(bootstrap, "resolve_repo_root", lambda: tmp_path)
+    monkeypatch.setattr(
+        bootstrap,
+        "ensure_active_session",
+        lambda repo_root, request, session_mode: {
+            "action": "reused",
+            "message": "ok",
+            "payload": {},
+            "session_mode": session_mode,
+        },
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_entry(argv: list[str]) -> int:
+        captured["argv"] = list(argv)
+        return 0
+
+    monkeypatch.setattr(bootstrap, "governed_entry_main", fake_entry)
+
+    code = bootstrap.main(
+        [
+            "--request",
+            "normalize route and snapshot markers",
+            "--route",
+            "package",
+            "--package-path",
+            "incoming.zip",
+            "--route-mode",
+            "legacy",
+            "--snapshot-mode",
+            "phase-state",
+            "--dry-run",
+        ]
+    )
+
+    assert code == 0
+    forwarded = captured["argv"]
+    route_mode_index = forwarded.index("--route-mode")
+    snapshot_mode_index = forwarded.index("--snapshot-mode")
+    assert forwarded[route_mode_index + 1] == "legacy-wrapper"
+    assert forwarded[snapshot_mode_index + 1] == "phase-state"
+    state = json.loads((tmp_path / ".runlogs/codex-governed-entry/bootstrap-state.json").read_text(encoding="utf-8"))
+    assert state["route_mode"] == "legacy-wrapper"
+    assert state["snapshot_mode"] == "phase-state"
+
+
+def test_bootstrap_fails_closed_on_invalid_route_mode_before_session_or_state(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    monkeypatch.setattr(bootstrap, "resolve_repo_root", lambda: tmp_path)
+    called = {"session": False, "entry": False}
+
+    def fake_session(*args, **kwargs):
+        called["session"] = True
+        return {"action": "reused", "message": "ok", "payload": {}}
+
+    def fake_entry(argv: list[str]) -> int:
+        called["entry"] = True
+        return 0
+
+    monkeypatch.setattr(bootstrap, "ensure_active_session", fake_session)
+    monkeypatch.setattr(bootstrap, "governed_entry_main", fake_entry)
+
+    code = bootstrap.main(
+        [
+            "--request",
+            "reject invalid route mode",
+            "--route",
+            "package",
+            "--package-path",
+            "incoming.zip",
+            "--route-mode",
+            "invalid-mode",
+            "--dry-run",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "unknown route mode" in captured.err
+    assert called["session"] is False
+    assert called["entry"] is False
+    assert not (tmp_path / ".runlogs/codex-governed-entry/bootstrap-state.json").exists()
+
+
 def test_bootstrap_plan_only_package_route_omits_empty_profile(
     monkeypatch, tmp_path: Path
 ) -> None:

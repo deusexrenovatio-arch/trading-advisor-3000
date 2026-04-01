@@ -125,6 +125,7 @@ H0 compatibility note:
 
 - governed entry route-state fields: `route_mode`, `session_mode`, `snapshot_mode`, `profile`, `entry_route`, `route_signal`;
 - loop/pr gate status lines: `snapshot_mode`, `profile`.
+- governed bootstrap normalizes `route_mode` and `snapshot_mode` to canonical values before writing durable bootstrap state.
 - governed bootstrap session reuse is fail-closed for mode drift: when active task-session mode and requested mode differ, bootstrap stops with an error and does not emit conflicting state.
 
 This phase is still `prep_closed` only; it does not claim real contour closure for CI/proof portability.
