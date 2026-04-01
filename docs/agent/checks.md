@@ -13,6 +13,7 @@
 | Stack conformance | `python scripts/validate_stack_conformance.py` | fail-closed stack claim drift between registry, docs, and runtime proof |
 | Truth recomposition validator | `python scripts/truth_recomposition.py validate --report <path>` | fail closed when stacked follow-up recomposition still carries temporary downgrade surfaces or out-of-contract deltas |
 | PR surface matrix plan | `python scripts/run_surface_pr_matrix.py --plan-only --from-git --git-ref HEAD --output-json artifacts/ci/pr-surface-plan.json --summary-file artifacts/ci/pr-surface-plan.md` | resolve contour-aware profile/check plan and emit CI-visible evidence |
+| H4 release decision package | `python scripts/build_governed_release_decision.py --execution-contract <path> --phase-brief <path> --acceptance-json <path> --route-state <path> --loop-summary <path> --pr-summary <path> --mutation-events <path> --output <path>` | emit explicit `ALLOW_RELEASE_READINESS` or `DENY_RELEASE_READINESS` package from immutable evidence |
 | Skills catalog drift | `python scripts/sync_skills_catalog.py --check` | ensure generated catalog matches runtime skills |
 | CODEOWNERS coverage | `python scripts/validate_codeowners.py` | ensure ownership routing remains complete |
 | Docs links | `python scripts/validate_docs_links.py --roots AGENTS.md docs` | prevent broken markdown references |
@@ -21,8 +22,8 @@
 
 | Lane | Canonical command | Scope |
 | --- | --- | --- |
-| Loop gate | `python scripts/run_loop_gate.py --from-git --git-ref HEAD` | fast surface-aware checks |
-| PR gate | `python scripts/run_pr_gate.py --from-git --git-ref HEAD` | closeout superset checks |
+| Loop gate | `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none` | fast surface-aware checks with explicit markers |
+| PR gate | `python scripts/run_pr_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none` | closeout superset checks with explicit markers |
 | Nightly gate | `python scripts/run_nightly_gate.py --from-git --git-ref HEAD` | deep hygiene and reporting |
 | Dashboard refresh | `python scripts/build_governance_dashboard.py --output-json artifacts/governance-dashboard.json --output-md artifacts/governance-dashboard.md` | dashboard/report regeneration lane |
 | Phase 8 proving | `python scripts/run_phase8_operational_proving.py --from-git --git-ref HEAD --output artifacts/phase8-operational-proving.json` | consolidated lane proof with fail-closed evidence |

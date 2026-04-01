@@ -10,7 +10,7 @@ Updated: 2026-04-01 11:20 UTC
 ## Phase
 
 - Name: H4 - Enforcement Upgrade
-- Status: planned
+- Status: blocked
 
 ## Objective
 
@@ -47,6 +47,7 @@ Updated: 2026-04-01 11:20 UTC
 - Missing or conflicting snapshot/profile markers in policy-critical validation paths fail closed.
 - Concurrent governed git write attempts serialize safely with clear retry contracts.
 - Final decision package emits explicit `ALLOW_RELEASE_READINESS` or `DENY_RELEASE_READINESS` grounded in live-real evidence.
+- Final release-decision emission is acceptance-owned and must bind to acceptance artifacts from a real governed `continue` route run (`--dry-run` evidence is not valid live-real closure).
 
 ## Disprover
 

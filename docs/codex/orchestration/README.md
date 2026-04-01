@@ -68,6 +68,18 @@ Acceptance is fail-closed.
   - `scripts/truth_recomposition.py build`
   - `scripts/truth_recomposition.py validate`
 
+## H4 enforcement / release-decision status
+
+- Loop/PR policy-critical paths now require explicit markers (`snapshot_mode` + `profile`) and fail closed when missing.
+- Governed write paths use repo mutation serialization with lock event evidence:
+  - `.runlogs/codex-governed-entry/repo-mutation-events.jsonl`
+- Explicit release decision package builder is available:
+  - `scripts/build_governed_release_decision.py`
+- Final `ALLOW_RELEASE_READINESS` / `DENY_RELEASE_READINESS` emission is acceptance-owned and must bind to acceptance artifacts (`acceptance.json`), not worker-only evidence.
+- Decision output is explicit and fail-closed:
+  - `ALLOW_RELEASE_READINESS`
+  - `DENY_RELEASE_READINESS`
+
 ## Backends
 
 The orchestrator supports pluggable backends.

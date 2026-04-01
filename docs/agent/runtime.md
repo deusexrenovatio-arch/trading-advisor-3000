@@ -64,11 +64,15 @@ Do not reintroduce shell-only wrapper flows as primary control paths.
 Example:
 - `python scripts/codex_governed_entry.py --route continue --route-mode explicit --session-mode tracked_session --snapshot-mode route-report --execution-contract <path> --parent-brief <path>`
 
-## Loop/PR Metadata (H1)
-- `run_loop_gate.py` and `run_pr_gate.py` now emit explicit `snapshot_mode` and `profile` markers in gate output.
-- Optional profile marker:
-  - `python scripts/run_loop_gate.py --from-git --git-ref HEAD --profile ops`
-  - `python scripts/run_pr_gate.py --from-git --git-ref HEAD --profile ops`
+## Loop/PR Metadata (H1 -> H4)
+- `run_loop_gate.py` and `run_pr_gate.py` emit explicit `snapshot_mode` and `profile` markers in gate output.
+- On policy-critical validation paths, missing markers now fail closed.
+- Canonical explicit invocation:
+  - `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`
+  - `python scripts/run_pr_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`
+- Profile override remains supported:
+  - `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile ops`
+  - `python scripts/run_pr_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile ops`
 
 ## CI / Proof Binding (H2)
 - Hosted PR lane resolves contour-aware profile/check plan via:
@@ -102,6 +106,17 @@ Example:
 - Truth recomposition helper/validator:
   - `python scripts/truth_recomposition.py build --followup-contract <path> --merged-surface <surface> --candidate-surface <surface> --output <path>`
   - `python scripts/truth_recomposition.py validate --report <path>`
+
+## Enforcement Upgrade / Serialization (H4)
+- Governed state writes now use a repo mutation lock with retry semantics.
+- If `.git/index.lock` is present, governed writers fail closed and require explicit retry after active git writes finish.
+- Mutation lock events are written to:
+  - `.runlogs/codex-governed-entry/repo-mutation-events.jsonl`
+- Explicit release decision package emission:
+  - `python scripts/build_governed_release_decision.py --execution-contract <path> --phase-brief <path> --acceptance-json <path> --route-state <path> --loop-summary <path> --pr-summary <path> --mutation-events <path> --output <path>`
+- Decision output is explicit and fail-closed:
+  - `ALLOW_RELEASE_READINESS`
+  - `DENY_RELEASE_READINESS`
 
 ## Hook runtime policy
 - Main protection is implemented in `.githooks/pre-push`.

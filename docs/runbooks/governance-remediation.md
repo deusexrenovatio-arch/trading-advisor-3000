@@ -6,13 +6,19 @@ Use this runbook when a governance gate fails.
 - Start session in the real worktree/branch you are using.
 - If session is already active, inspect with `python scripts/task_session.py status`.
 
-## `python scripts/run_loop_gate.py`
+## `python scripts/run_loop_gate.py --snapshot-mode changed-files --profile none`
 - Read reported `primary_surface` and failing command.
+- On policy-critical surfaces, pass explicit marker contract:
+  - `--snapshot-mode changed-files`
+  - `--profile none` (or explicit profile id)
 - Re-run `python scripts/compute_change_surface.py --from-git --git-ref HEAD --format text`.
 - Fix scoped validator/test and rerun loop gate.
 
-## `python scripts/run_pr_gate.py`
+## `python scripts/run_pr_gate.py --snapshot-mode changed-files --profile none`
 - Ensure loop gate passes first.
+- Keep explicit marker contract in PR closeout:
+  - `--snapshot-mode changed-files`
+  - `--profile none` (or explicit profile id)
 - Fix PR-only command failures and rerun.
 
 ## `python scripts/run_nightly_gate.py`
@@ -67,6 +73,15 @@ Use this runbook when a governance gate fails.
   - `pr-lane`
 - Public GitHub repositories can validate rules anonymously; private repositories require `GH_TOKEN` or `GITHUB_TOKEN`.
 
+## Governed mutation lock contention
+- Symptom: governed write fails because repo mutation lock is held.
+- Inspect lock evidence:
+  - `.runlogs/codex-governed-entry/repo-mutation-events.jsonl`
+- If `.git/index.lock` exists, do not delete it blindly.
+  - Confirm active git write process ended.
+  - Retry governed command after index lock is naturally released.
+- For long-running governed writes, retry after the holder run completes.
+
 ## `python scripts/validate_plans.py`
 - Keep `plans/items/` canonical and structurally valid.
 - Regenerate compatibility output: `plans/PLANS.yaml`.
@@ -92,7 +107,7 @@ Use this runbook when a governance gate fails.
 - Enable hosted execution only with repository variable:
   - `AI_SHELL_ENABLE_HOSTED_CI=1`
 - If hosted runners are unavailable, collect lane evidence locally:
-  - `python scripts/run_loop_gate.py --skip-session-check --from-git --git-ref HEAD`
-  - `python scripts/run_pr_gate.py --skip-session-check --from-git --git-ref HEAD`
+  - `python scripts/run_loop_gate.py --skip-session-check --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`
+  - `python scripts/run_pr_gate.py --skip-session-check --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`
   - `python scripts/run_nightly_gate.py --from-git --git-ref HEAD`
   - `python scripts/build_governance_dashboard.py --output-json artifacts/governance-dashboard.json --output-md artifacts/governance-dashboard.md`

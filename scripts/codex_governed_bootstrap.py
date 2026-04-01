@@ -25,6 +25,7 @@ from task_session import (
     load_session_lock,
     normalize_session_mode,
 )
+from repo_mutation_lock import RepoMutationLockError, repo_mutation_lock
 
 
 DEFAULT_BOOTSTRAP_STATE = Path(".runlogs/codex-governed-entry/bootstrap-state.json")
@@ -92,9 +93,27 @@ def ensure_active_session(*, repo_root: Path, request: str, session_mode: str) -
     }
 
 
-def write_bootstrap_state(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+def write_bootstrap_state(
+    path: Path,
+    payload: dict[str, Any],
+    *,
+    repo_root: Path | None = None,
+    mutation_lock_timeout_sec: float = 5.0,
+) -> None:
+    if repo_root is None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        return
+    try:
+        with repo_mutation_lock(
+            repo_root=repo_root,
+            owner="codex_governed_bootstrap:state-write",
+            timeout_sec=mutation_lock_timeout_sec,
+        ):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    except RepoMutationLockError as exc:
+        raise GovernedBootstrapError(str(exc)) from exc
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -134,6 +153,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-remediation-cycles", type=int, default=2)
     parser.add_argument("--codex-bin", default=None)
     parser.add_argument("--skip-clean-check", action="store_true")
+    parser.add_argument("--mutation-lock-timeout-sec", type=float, default=5.0)
     parser.add_argument("--dry-run", action="store_true")
     return parser
 
@@ -205,6 +225,8 @@ def main(argv: list[str] | None = None) -> int:
         args.remediation_model,
         "--max-remediation-cycles",
         str(max(args.max_remediation_cycles, 0)),
+        "--mutation-lock-timeout-sec",
+        str(max(float(args.mutation_lock_timeout_sec), 0.0)),
     ]
     if args.profile.strip():
         entry_args.extend(["--profile", args.profile])
@@ -255,6 +277,8 @@ def main(argv: list[str] | None = None) -> int:
             "temporary_downgrade_surfaces": list(args.temporary_downgrade_surface),
             "route_args": entry_args,
         },
+        repo_root=repo_root,
+        mutation_lock_timeout_sec=max(float(args.mutation_lock_timeout_sec), 0.0),
     )
     print(f"session_action: {session_state['action']}")
     print(f"session_mode: {effective_session_mode}")

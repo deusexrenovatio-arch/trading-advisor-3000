@@ -39,6 +39,7 @@ from codex_phase_policy import (
     route_guardrail_text,
     state_payload,
 )
+from repo_mutation_lock import RepoMutationLockError, repo_mutation_lock
 
 
 DEFAULT_ARTIFACT_ROOT = Path("artifacts/codex/orchestration")
@@ -130,7 +131,15 @@ def parse_bullet_map(lines: list[str]) -> dict[str, str]:
     return result
 
 
-def set_bullet_value(path: Path, heading: str, key: str, value: str) -> None:
+def set_bullet_value(
+    path: Path,
+    heading: str,
+    key: str,
+    value: str,
+    *,
+    repo_root: Path,
+    mutation_lock_timeout_sec: float,
+) -> None:
     lines = read_lines(path)
     start, end = section_bounds(lines, heading)
     replacement = f"- {key}: {value}"
@@ -143,14 +152,37 @@ def set_bullet_value(path: Path, heading: str, key: str, value: str) -> None:
             break
     if not inserted:
         lines.insert(end, replacement)
-    write_lines(path, lines)
+    try:
+        with repo_mutation_lock(
+            repo_root=repo_root,
+            owner=f"codex_phase_orchestrator:set-bullet:{path.name}",
+            timeout_sec=mutation_lock_timeout_sec,
+        ):
+            write_lines(path, lines)
+    except RepoMutationLockError as exc:
+        raise OrchestratorError(str(exc)) from exc
 
 
-def set_single_bullet_section(path: Path, heading: str, value: str) -> None:
+def set_single_bullet_section(
+    path: Path,
+    heading: str,
+    value: str,
+    *,
+    repo_root: Path,
+    mutation_lock_timeout_sec: float,
+) -> None:
     lines = read_lines(path)
     start, end = section_bounds(lines, heading)
     new_lines = lines[: start + 1] + [f"- {value}"] + lines[end:]
-    write_lines(path, new_lines)
+    try:
+        with repo_mutation_lock(
+            repo_root=repo_root,
+            owner=f"codex_phase_orchestrator:set-section:{path.name}",
+            timeout_sec=mutation_lock_timeout_sec,
+        ):
+            write_lines(path, new_lines)
+    except RepoMutationLockError as exc:
+        raise OrchestratorError(str(exc)) from exc
 
 
 def split_csv_values(value: str) -> list[str]:
@@ -247,30 +279,60 @@ def update_parent_and_contract_after_pass(
     parent_path: Path,
     execution_contract_path: Path,
     current_phase_path: Path,
+    mutation_lock_timeout_sec: float = 5.0,
 ) -> None:
     next_phase = next_phase_after(parent_path, current_phase_path)
     if next_phase is None:
-        set_single_bullet_section(parent_path, "## Next Phase To Execute", "none")
+        set_single_bullet_section(
+            parent_path,
+            "## Next Phase To Execute",
+            "none",
+            repo_root=repo_root,
+            mutation_lock_timeout_sec=mutation_lock_timeout_sec,
+        )
         set_single_bullet_section(
             execution_contract_path,
             "## Next Allowed Unit Of Work",
             "All planned phases are accepted. Prepare closeout or a new module run.",
+            repo_root=repo_root,
+            mutation_lock_timeout_sec=mutation_lock_timeout_sec,
         )
         return
 
     next_rel = relative_to_repo(next_phase, repo_root)
     next_name = phase_name_from_brief(next_phase)
     next_objective = phase_objective_from_brief(next_phase)
-    set_single_bullet_section(parent_path, "## Next Phase To Execute", next_rel)
+    set_single_bullet_section(
+        parent_path,
+        "## Next Phase To Execute",
+        next_rel,
+        repo_root=repo_root,
+        mutation_lock_timeout_sec=mutation_lock_timeout_sec,
+    )
     set_single_bullet_section(
         execution_contract_path,
         "## Next Allowed Unit Of Work",
         f"Execute {next_name} only: {next_objective}",
+        repo_root=repo_root,
+        mutation_lock_timeout_sec=mutation_lock_timeout_sec,
     )
 
 
-def update_phase_status(path: Path, status: str) -> None:
-    set_bullet_value(path, "## Phase", "Status", status)
+def update_phase_status(
+    path: Path,
+    status: str,
+    *,
+    repo_root: Path,
+    mutation_lock_timeout_sec: float = 5.0,
+) -> None:
+    set_bullet_value(
+        path,
+        "## Phase",
+        "Status",
+        status,
+        repo_root=repo_root,
+        mutation_lock_timeout_sec=mutation_lock_timeout_sec,
+    )
 
 
 def git_changed_paths(repo_root: Path) -> list[str]:
@@ -750,6 +812,7 @@ def orchestrate_current_phase(
     max_remediation_cycles: int,
     ignore_globs: tuple[str, ...],
     skip_clean_check: bool,
+    mutation_lock_timeout_sec: float = 5.0,
     entry_route: str = "continue",
     continuation_contract_path: Path | None = None,
 ) -> tuple[int, Path]:
@@ -932,18 +995,29 @@ def orchestrate_current_phase(
         )
 
         if acceptance.verdict == "PASS":
-            update_phase_status(phase_path, "completed")
+            update_phase_status(
+                phase_path,
+                "completed",
+                repo_root=repo_root,
+                mutation_lock_timeout_sec=mutation_lock_timeout_sec,
+            )
             update_parent_and_contract_after_pass(
                 repo_root=repo_root,
                 parent_path=parent_path,
                 execution_contract_path=execution_contract_path,
                 current_phase_path=phase_path,
+                mutation_lock_timeout_sec=mutation_lock_timeout_sec,
             )
             final_code = 0
             final_status = "accepted"
             break
 
-        update_phase_status(phase_path, "blocked")
+        update_phase_status(
+            phase_path,
+            "blocked",
+            repo_root=repo_root,
+            mutation_lock_timeout_sec=mutation_lock_timeout_sec,
+        )
         if attempt >= total_attempts:
             final_code = 3
             final_status = "blocked"
@@ -1093,6 +1167,7 @@ def build_parser() -> argparse.ArgumentParser:
         target.add_argument("--remediation-config", action="append", default=[])
         target.add_argument("--ignore-glob", action="append", default=[])
         target.add_argument("--skip-clean-check", action="store_true")
+        target.add_argument("--mutation-lock-timeout-sec", type=float, default=5.0)
 
     preflight = subparsers.add_parser("preflight")
     add_common(preflight)
@@ -1212,6 +1287,7 @@ def main(argv: list[str] | None = None) -> int:
             max_remediation_cycles=max(int(args.max_remediation_cycles), 0),
             ignore_globs=ignore_globs,
             skip_clean_check=bool(args.skip_clean_check),
+            mutation_lock_timeout_sec=max(float(args.mutation_lock_timeout_sec), 0.0),
             entry_route=entry_route,
             continuation_contract_path=continuation_contract_path,
         )

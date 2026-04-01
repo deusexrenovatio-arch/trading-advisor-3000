@@ -9,7 +9,7 @@ Provide a predictable and enforceable workflow for governance-first delivery in 
 3. Start task session: `python scripts/task_session.py begin --request "<request>"`.
 4. Keep task contract current in active task note.
 5. If the diff matches a critical contour, add `## Solution Intent` before coding and keep the declared class aligned with contour evidence.
-6. Run loop gate: `python scripts/run_loop_gate.py --from-git --git-ref HEAD`.
+6. Run loop gate: `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`.
 7. Run PR gate before closeout.
 8. Close lifecycle with `python scripts/task_session.py end` when outcome is terminal.
 
@@ -35,9 +35,9 @@ Main merge requirement:
 
 ## Hosted CI fallback
 If hosted runners are unavailable, replay lanes locally for acceptance evidence:
-1. `python scripts/run_loop_gate.py --skip-session-check --from-git --git-ref HEAD`
+1. `python scripts/run_loop_gate.py --skip-session-check --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`
 2. `python scripts/run_surface_pr_matrix.py --plan-only --from-git --git-ref HEAD --output-json artifacts/ci/pr-surface-plan.json --summary-file artifacts/ci/pr-surface-plan.md`
-3. `python scripts/run_pr_gate.py --skip-session-check --from-git --git-ref HEAD --profile runtime-api --summary-file artifacts/ci/pr-gate-summary.md`
+3. `python scripts/run_pr_gate.py --skip-session-check --from-git --git-ref HEAD --snapshot-mode changed-files --profile runtime-api --summary-file artifacts/ci/pr-gate-summary.md`
 4. `python scripts/run_nightly_gate.py --from-git --git-ref HEAD`
 5. `python scripts/build_governance_dashboard.py --output-json artifacts/governance-dashboard.json --output-md artifacts/governance-dashboard.md`
 

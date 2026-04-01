@@ -162,3 +162,18 @@ This update raises CI/proof behavior to `staging-real` for the owned contour onl
   - `scripts/truth_recomposition.py validate`
 
 This phase raises stacked follow-up/recomposition contour behavior to `staging-real` for owned surface closure only.
+
+## H4 Runtime Binding Note
+
+`H4` upgrades marker and mutation enforcement to fail-closed behavior for policy-critical governed flows:
+
+- loop/pr policy-critical validations require explicit `snapshot_mode` and `profile` markers;
+- missing or conflicting marker bindings fail closed;
+- governed repo writes use serialized mutation lock with retry-contract errors instead of silent contention;
+- `.git/index.lock` presence blocks governed writes and must not be auto-removed;
+- lock evidence is written to `.runlogs/codex-governed-entry/repo-mutation-events.jsonl`;
+- explicit release-decision package emission is bound to immutable evidence artifacts:
+  - `scripts/build_governed_release_decision.py`
+  - the final decision package must bind to acceptance-owned evidence (`acceptance.json`); worker/remediation-only emission is invalid.
+
+This phase is the enforcement boundary for marker/serialization behavior and closes the owned contour at `live-real` decision class only.

@@ -15,6 +15,7 @@ from typing import Any
 
 from codex_from_package import choose_latest_package, main as package_main
 from codex_phase_orchestrator import main as orchestrator_main
+from repo_mutation_lock import RepoMutationLockError, repo_mutation_lock
 
 
 DEFAULT_INBOX = Path("docs/codex/packages/inbox")
@@ -297,6 +298,7 @@ def build_stacked_followup_contract(
     new_base_ref: str,
     carry_surfaces: list[str],
     temporary_downgrade_surfaces: list[str],
+    mutation_lock_timeout_sec: float = 5.0,
 ) -> Path:
     if decision.module is None:
         raise GovernedEntryError("stacked-followup route requires a module context")
@@ -356,8 +358,16 @@ def build_stacked_followup_contract(
             "validator": "python scripts/truth_recomposition.py validate --report <path>",
         },
     }
-    contract_path.parent.mkdir(parents=True, exist_ok=True)
-    contract_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    try:
+        with repo_mutation_lock(
+            repo_root=repo_root,
+            owner="codex_governed_entry:stacked-followup-contract",
+            timeout_sec=mutation_lock_timeout_sec,
+        ):
+            contract_path.parent.mkdir(parents=True, exist_ok=True)
+            contract_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    except RepoMutationLockError as exc:
+        raise GovernedEntryError(str(exc)) from exc
     return contract_path
 
 
@@ -442,10 +452,12 @@ def write_route_state(
     path: Path,
     decision: RouteDecision,
     *,
+    repo_root: Path | None = None,
     route_mode: str = LEGACY_ENTRY_ROUTE_MODE,
     session_mode: str = LEGACY_SESSION_MODE,
     snapshot_mode: str = DEFAULT_SNAPSHOT_MODE,
     profile: str = "none",
+    mutation_lock_timeout_sec: float = 5.0,
 ) -> None:
     phase_brief = decision.module.current_phase.as_posix() if decision.module is not None else None
     payload: dict[str, Any] = {
@@ -477,8 +489,20 @@ def write_route_state(
             "parent_brief": decision.module.parent_brief.as_posix(),
             "current_phase": decision.module.current_phase.as_posix(),
         }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if repo_root is None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        return
+    try:
+        with repo_mutation_lock(
+            repo_root=repo_root,
+            owner="codex_governed_entry:route-state",
+            timeout_sec=mutation_lock_timeout_sec,
+        ):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    except RepoMutationLockError as exc:
+        raise GovernedEntryError(str(exc)) from exc
 
 
 def normalize_route_argv(argv: list[str]) -> list[str]:
@@ -591,6 +615,7 @@ def run_continue_route(
     acceptor_model: str,
     remediation_model: str,
     skip_clean_check: bool,
+    mutation_lock_timeout_sec: float,
     codex_bin: str | None,
     max_remediation_cycles: int,
 ) -> int:
@@ -613,6 +638,8 @@ def run_continue_route(
         acceptor_model,
         "--remediation-model",
         remediation_model or worker_model,
+        "--mutation-lock-timeout-sec",
+        str(max(mutation_lock_timeout_sec, 0.0)),
     ]
     if continuation_contract_path is not None:
         common.extend(["--continuation-contract", continuation_contract_path.as_posix()])
@@ -671,6 +698,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-remediation-cycles", type=int, default=2)
     parser.add_argument("--codex-bin", default=None)
     parser.add_argument("--skip-clean-check", action="store_true")
+    parser.add_argument("--mutation-lock-timeout-sec", type=float, default=5.0)
     parser.add_argument("--dry-run", action="store_true")
     return parser
 
@@ -744,6 +772,7 @@ def main(argv: list[str] | None = None) -> int:
                 new_base_ref=str(args.new_base_ref or ""),
                 carry_surfaces=list(args.carry_surface or []),
                 temporary_downgrade_surfaces=list(args.temporary_downgrade_surface or []),
+                mutation_lock_timeout_sec=max(float(args.mutation_lock_timeout_sec), 0.0),
             )
         except GovernedEntryError as exc:
             print(f"error: {exc}", file=sys.stderr)
@@ -752,10 +781,12 @@ def main(argv: list[str] | None = None) -> int:
     write_route_state(
         route_state_file,
         decision,
+        repo_root=repo_root,
         route_mode=route_mode,
         session_mode=session_mode,
         snapshot_mode=snapshot_mode,
         profile=profile_marker,
+        mutation_lock_timeout_sec=max(float(args.mutation_lock_timeout_sec), 0.0),
     )
 
     print(f"route_mode: {route_mode}")
@@ -806,6 +837,7 @@ def main(argv: list[str] | None = None) -> int:
         acceptor_model=args.acceptor_model,
         remediation_model=args.remediation_model,
         skip_clean_check=bool(args.skip_clean_check),
+        mutation_lock_timeout_sec=max(float(args.mutation_lock_timeout_sec), 0.0),
         codex_bin=args.codex_bin,
         max_remediation_cycles=args.max_remediation_cycles,
     )

@@ -29,6 +29,10 @@ def test_loop_gate_contract_surface_smoke() -> None:
             sys.executable,
             "scripts/run_loop_gate.py",
             "--skip-session-check",
+            "--snapshot-mode",
+            "changed-files",
+            "--profile",
+            "none",
             "--changed-files",
             "plans/items/index.yaml",
         ]
@@ -45,6 +49,8 @@ def test_loop_gate_reports_explicit_profile_metadata() -> None:
             sys.executable,
             "scripts/run_loop_gate.py",
             "--skip-session-check",
+            "--snapshot-mode",
+            "changed-files",
             "--changed-files",
             "plans/items/index.yaml",
             "--profile",
@@ -56,12 +62,31 @@ def test_loop_gate_reports_explicit_profile_metadata() -> None:
     assert "profile=ops" in result.stdout
 
 
+def test_loop_gate_fails_closed_without_explicit_markers_on_policy_critical_diff() -> None:
+    result = _run(
+        [
+            sys.executable,
+            "scripts/run_loop_gate.py",
+            "--skip-session-check",
+            "--changed-files",
+            "plans/items/index.yaml",
+        ]
+    )
+    assert result.returncode == 2, result.stdout + "\n" + result.stderr
+    combined = result.stdout + "\n" + result.stderr
+    assert "explicit snapshot marker is required" in combined
+
+
 def test_pr_gate_docs_smoke() -> None:
     result = _run(
         [
             sys.executable,
             "scripts/run_pr_gate.py",
             "--skip-session-check",
+            "--snapshot-mode",
+            "changed-files",
+            "--profile",
+            "none",
             "--changed-files",
             "docs/README.md",
         ]
@@ -77,6 +102,8 @@ def test_pr_gate_reports_explicit_profile_metadata() -> None:
             sys.executable,
             "scripts/run_pr_gate.py",
             "--skip-session-check",
+            "--snapshot-mode",
+            "changed-files",
             "--changed-files",
             "docs/README.md",
             "--profile",
@@ -86,6 +113,21 @@ def test_pr_gate_reports_explicit_profile_metadata() -> None:
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
     assert "snapshot_mode=changed-files" in result.stdout
     assert "profile=ops" in result.stdout
+
+
+def test_pr_gate_fails_closed_without_explicit_markers_on_policy_critical_diff() -> None:
+    result = _run(
+        [
+            sys.executable,
+            "scripts/run_pr_gate.py",
+            "--skip-session-check",
+            "--changed-files",
+            "scripts/run_loop_gate.py",
+        ]
+    )
+    assert result.returncode == 2, result.stdout + "\n" + result.stderr
+    combined = result.stdout + "\n" + result.stderr
+    assert "explicit snapshot marker is required" in combined
 
 
 def test_nightly_gate_docs_smoke() -> None:
@@ -164,6 +206,10 @@ def test_loop_gate_handles_large_scope_from_stdin() -> None:
             sys.executable,
             "scripts/run_loop_gate.py",
             "--skip-session-check",
+            "--snapshot-mode",
+            "changed-files",
+            "--profile",
+            "none",
             "--stdin",
         ],
         cwd=ROOT,

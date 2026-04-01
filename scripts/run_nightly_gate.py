@@ -28,6 +28,8 @@ def _build_pr_gate_command(
     base_ref: str | None,
     head_ref: str | None,
     explicit_changed_files: list[str] | None,
+    snapshot_mode: str,
+    profile: str,
 ) -> str | CommandSpec:
     parts = [
         sys.executable,
@@ -35,6 +37,11 @@ def _build_pr_gate_command(
         "--mapping",
         mapping,
         "--skip-session-check",
+        "--snapshot-mode",
+        snapshot_mode,
+        "--profile",
+        profile,
+        "--enforce-explicit-markers",
     ]
     if explicit_changed_files is not None:
         parts.append("--stdin")
@@ -60,6 +67,8 @@ def main() -> int:
     parser.add_argument("--head-ref", "--head", dest="head_ref", default=None)
     parser.add_argument("--stdin", action="store_true")
     parser.add_argument("--changed-files", nargs="*", default=[])
+    parser.add_argument("--snapshot-mode", default="changed-files")
+    parser.add_argument("--profile", default="none")
     parser.add_argument("--summary-file", default=None)
     args = parser.parse_args()
 
@@ -80,6 +89,8 @@ def main() -> int:
         base_ref=args.base_ref,
         head_ref=args.head_ref,
         explicit_changed_files=list(changed_files) if (args.stdin or args.changed_files) else None,
+        snapshot_mode=str(args.snapshot_mode or "").strip() or "changed-files",
+        profile=str(args.profile or "").strip() or "none",
     )
     pr_code = run_command(pr_command)
     if pr_code != 0:
