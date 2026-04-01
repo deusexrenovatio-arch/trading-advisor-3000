@@ -19,7 +19,7 @@ If the task touches the product plane, also read:
 5. Otherwise start lifecycle directly: `python scripts/task_session.py begin --request "<request>"`.
 6. If the operator asks to take a package or continue a module phase, do not start manual inline execution. Route first through `python scripts/codex_governed_entry.py ...`.
 7. Confirm patch set is small and explicit.
-8. Run loop gate before PR prep.
+8. Run loop gate before PR prep: `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`.
 
 ## Critical constraints
 - Mainline is PR-only by default.

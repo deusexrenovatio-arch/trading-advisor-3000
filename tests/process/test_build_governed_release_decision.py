@@ -14,15 +14,15 @@ def _write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def _write_contracts(root: Path) -> tuple[Path, Path]:
+def _write_contracts(root: Path, *, target_decision: str = "ALLOW_RELEASE_READINESS") -> tuple[Path, Path]:
     execution_contract = root / "docs/codex/contracts/demo.execution-contract.md"
     phase_brief = root / "docs/codex/modules/demo.phase-05.md"
     _write(
         execution_contract,
-        """# Execution Contract
+        f"""# Execution Contract
 
 ## Release Target Contract
-- Target Decision: ALLOW_RELEASE_READINESS
+- Target Decision: {target_decision}
 - Target Environment: governed pipeline
 - Forbidden Proof Substitutes: docs-only
 - Release-Ready Proof Class: live-real
@@ -92,8 +92,14 @@ def _write_mutation_events(path: Path) -> None:
     _write(path, "\n".join(json.dumps(item, ensure_ascii=False) for item in payloads) + "\n")
 
 
-def _run_build(tmp_path: Path, *, route_profile: str, pr_profile: str) -> dict[str, object]:
-    execution_contract, phase_brief = _write_contracts(tmp_path)
+def _run_build(
+    tmp_path: Path,
+    *,
+    route_profile: str,
+    pr_profile: str,
+    target_decision: str = "ALLOW_RELEASE_READINESS",
+) -> dict[str, object]:
+    execution_contract, phase_brief = _write_contracts(tmp_path, target_decision=target_decision)
     route_state = tmp_path / ".runlogs/codex-governed-entry/last-route.json"
     _write(
         route_state,
@@ -206,3 +212,15 @@ def test_build_release_decision_emits_deny_when_acceptance_is_blocked(tmp_path: 
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert payload["verdict"] == "DENY_RELEASE_READINESS"
     assert any("acceptance verdict is BLOCKED" in item for item in payload["blockers"])
+
+
+def test_build_release_decision_emits_deny_when_execution_contract_targets_deny(tmp_path: Path) -> None:
+    payload = _run_build(
+        tmp_path,
+        route_profile="ops",
+        pr_profile="ops",
+        target_decision="DENY_RELEASE_READINESS",
+    )
+    assert payload["target_decision"] == "DENY_RELEASE_READINESS"
+    assert payload["verdict"] == "DENY_RELEASE_READINESS"
+    assert any("target decision is DENY_RELEASE_READINESS" in item for item in payload["blockers"])

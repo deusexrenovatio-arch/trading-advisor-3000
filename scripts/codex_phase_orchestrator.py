@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -18,6 +19,7 @@ from typing import Any
 from codex_phase_policy import (
     ACCEPTANCE_BEGIN,
     ACCEPTANCE_END,
+    AcceptanceBlocker,
     DEFAULT_ACCEPTOR_MODEL,
     DEFAULT_WORKER_MODEL,
     PhaseEvidenceRequirement,
@@ -229,6 +231,14 @@ def phase_objective_from_brief(path: Path) -> str:
         if stripped.startswith("- "):
             return stripped[2:].strip()
     raise OrchestratorError(f"{path.as_posix()} missing objective bullet")
+
+
+def phase_accepted_state_label(path: Path) -> str:
+    gate = parse_bullet_map(section_lines(read_lines(path), "## Release Gate Impact"))
+    value = gate.get("Accepted State Label", "").strip().lower()
+    if not value:
+        raise OrchestratorError(f"{path.as_posix()} missing accepted state label")
+    return value
 
 
 def parent_next_phase(parent_path: Path) -> str:
@@ -470,6 +480,192 @@ def validate_entry_route_contract(
     elif continuation_contract_path is not None:
         raise OrchestratorError(
             "--continuation-contract is only valid when --entry-route stacked-followup"
+        )
+
+
+def normalize_string_list(values: list[Any]) -> list[str]:
+    out: list[str] = []
+    for item in values:
+        text = str(item).strip()
+        if text and text not in out:
+            out.append(text)
+    return out
+
+
+def parse_option_value(command: str, option: str) -> str | None:
+    pattern = re.compile(rf"{re.escape(option)}\s+(\"[^\"]+\"|'[^']+'|[^\s|]+)")
+    match = pattern.search(command)
+    if not match:
+        return None
+    value = match.group(1).strip()
+    if len(value) >= 2 and ((value[0] == value[-1] == '"') or (value[0] == value[-1] == "'")):
+        return value[1:-1].strip()
+    return value
+
+
+def first_existing_path(repo_root: Path, candidates: list[str]) -> Path | None:
+    for raw in candidates:
+        try:
+            candidate = resolve_path(repo_root, raw)
+        except Exception:
+            continue
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def resolve_release_decision_inputs(
+    *,
+    repo_root: Path,
+    worker_report: WorkerReport,
+) -> tuple[Path, Path, Path, Path, list[Path]]:
+    evidence = worker_report.evidence_contract if isinstance(worker_report.evidence_contract, dict) else {}
+    evidence_checks = normalize_string_list(list(evidence.get("checks", [])))
+    evidence_artifacts = normalize_string_list(list(evidence.get("artifact_paths", [])))
+    all_checks = normalize_string_list([*worker_report.checks_run, *evidence_checks])
+    all_artifacts = normalize_string_list([*worker_report.files_touched, *evidence_artifacts])
+
+    def summary_from_checks(gate_script_name: str) -> Path | None:
+        for check in all_checks:
+            normalized = check.lower().replace("\\", "/")
+            if gate_script_name not in normalized:
+                continue
+            summary_value = parse_option_value(check, "--summary-file")
+            if not summary_value:
+                continue
+            candidate = resolve_path(repo_root, summary_value)
+            if candidate.exists():
+                return candidate
+        return None
+
+    def summary_from_artifacts(keyword: str) -> Path | None:
+        for raw in all_artifacts:
+            normalized = raw.lower().replace("\\", "/")
+            if keyword in normalized and normalized.endswith(".md"):
+                candidate = resolve_path(repo_root, raw)
+                if candidate.exists():
+                    return candidate
+        return None
+
+    loop_summary_path = summary_from_checks("run_loop_gate.py") or summary_from_artifacts("loop")
+    pr_summary_path = summary_from_checks("run_pr_gate.py") or summary_from_artifacts("pr")
+
+    route_state_candidates: list[str] = []
+    for check in all_checks:
+        route_state = parse_option_value(check, "--route-state")
+        if route_state:
+            route_state_candidates.append(route_state)
+        route_state_file = parse_option_value(check, "--route-state-file")
+        if route_state_file:
+            route_state_candidates.append(route_state_file)
+    for raw in all_artifacts:
+        normalized = raw.lower().replace("\\", "/")
+        if "route-state" in normalized and normalized.endswith(".json"):
+            route_state_candidates.append(raw)
+    default_route_state = resolve_path(repo_root, ".runlogs/codex-governed-entry/last-route.json")
+    phase_scoped_route_state_candidates: list[str] = []
+    for raw in route_state_candidates:
+        try:
+            candidate = resolve_path(repo_root, raw)
+        except Exception:
+            continue
+        if candidate == default_route_state:
+            continue
+        phase_scoped_route_state_candidates.append(raw)
+    route_state_path = first_existing_path(repo_root, phase_scoped_route_state_candidates)
+
+    mutation_event_candidates: list[str] = []
+    for raw in all_artifacts:
+        normalized = raw.lower().replace("\\", "/")
+        if normalized.endswith("repo-mutation-events.jsonl"):
+            mutation_event_candidates.append(raw)
+    mutation_event_candidates.append(".runlogs/codex-governed-entry/repo-mutation-events.jsonl")
+    mutation_events_path = first_existing_path(repo_root, mutation_event_candidates)
+
+    artifact_bundle_paths: list[Path] = []
+    for raw in all_artifacts:
+        candidate = resolve_path(repo_root, raw)
+        if candidate.exists() and candidate not in artifact_bundle_paths:
+            artifact_bundle_paths.append(candidate)
+
+    missing: list[str] = []
+    if loop_summary_path is None:
+        missing.append("loop summary path")
+    if pr_summary_path is None:
+        missing.append("pr summary path")
+    if route_state_path is None:
+        missing.append("phase-scoped route state path")
+    if mutation_events_path is None:
+        missing.append("repo mutation events path")
+    if missing:
+        raise OrchestratorError(
+            "cannot emit acceptance-owned release decision package because required inputs are missing: "
+            + ", ".join(missing)
+        )
+
+    return (
+        loop_summary_path,
+        pr_summary_path,
+        route_state_path,
+        mutation_events_path,
+        artifact_bundle_paths,
+    )
+
+
+def emit_acceptance_owned_release_decision(
+    *,
+    repo_root: Path,
+    execution_contract_path: Path,
+    phase_path: Path,
+    acceptance_json_path: Path,
+    output_path: Path,
+    worker_report: WorkerReport,
+) -> None:
+    (
+        loop_summary_path,
+        pr_summary_path,
+        route_state_path,
+        mutation_events_path,
+        artifact_bundle_paths,
+    ) = resolve_release_decision_inputs(
+        repo_root=repo_root,
+        worker_report=worker_report,
+    )
+    script_path = Path(__file__).resolve().with_name("build_governed_release_decision.py")
+    cmd = [
+        sys.executable,
+        script_path.as_posix(),
+        "--execution-contract",
+        execution_contract_path.as_posix(),
+        "--phase-brief",
+        phase_path.as_posix(),
+        "--acceptance-json",
+        acceptance_json_path.as_posix(),
+        "--route-state",
+        route_state_path.as_posix(),
+        "--loop-summary",
+        loop_summary_path.as_posix(),
+        "--pr-summary",
+        pr_summary_path.as_posix(),
+        "--mutation-events",
+        mutation_events_path.as_posix(),
+        "--output",
+        output_path.as_posix(),
+    ]
+    for artifact_path in artifact_bundle_paths:
+        cmd.extend(["--artifact-path", artifact_path.as_posix()])
+    completed = subprocess.run(
+        cmd,
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        message = (completed.stderr or completed.stdout).strip()
+        raise OrchestratorError(
+            "acceptance-owned release decision emission failed: "
+            + (message or f"exit code {completed.returncode}")
         )
 
 
@@ -842,6 +1038,7 @@ def orchestrate_current_phase(
     }
     role_skill_bindings = resolve_role_skill_bindings(repo_root)
     current_phase_evidence_requirement = phase_evidence_requirement(phase_path)
+    current_phase_accepted_state = phase_accepted_state_label(phase_path)
 
     final_code = 3
     final_status = "blocked"
@@ -935,9 +1132,10 @@ def orchestrate_current_phase(
             raise OrchestratorError(str(exc)) from exc
         acceptance_json_path = attempt_dir / "acceptance.json"
         acceptance_md_path = attempt_dir / "acceptance.md"
-        write_json(
-            acceptance_json_path,
-            {
+        release_decision_path: Path | None = None
+        if current_phase_accepted_state == "release_decision":
+            release_decision_path = attempt_dir / "release-decision.json"
+            initial_acceptance_payload = {
                 "verdict": acceptance.verdict,
                 "summary": acceptance.summary,
                 "route_signal": acceptance.route_signal,
@@ -947,8 +1145,52 @@ def orchestrate_current_phase(
                 "evidence_gaps": acceptance.evidence_gaps,
                 "prohibited_findings": acceptance.prohibited_findings,
                 "policy_blockers": [asdict(item) for item in acceptance.policy_blockers],
-            },
-        )
+            }
+            write_json(acceptance_json_path, initial_acceptance_payload)
+            try:
+                emit_acceptance_owned_release_decision(
+                    repo_root=repo_root,
+                    execution_contract_path=execution_contract_path,
+                    phase_path=phase_path,
+                    acceptance_json_path=acceptance_json_path,
+                    output_path=release_decision_path,
+                    worker_report=worker_report,
+                )
+            except OrchestratorError as exc:
+                detail = (
+                    "Acceptance-owned release decision artifact could not be emitted for this attempt: "
+                    + str(exc)
+                )
+                blocker = AcceptanceBlocker(
+                    id=f"P-EVIDENCE_GAP-RELDEC-{attempt}",
+                    title="Required evidence is missing",
+                    why=detail,
+                    remediation="Fix release decision inputs and rerun acceptance.",
+                )
+                acceptance.blockers.append(blocker)
+                acceptance.policy_blockers.append(blocker)
+                if detail not in acceptance.evidence_gaps:
+                    acceptance.evidence_gaps.append(detail)
+                acceptance.verdict = "BLOCKED"
+                acceptance.summary = (
+                    (acceptance.summary.strip() + " " if acceptance.summary.strip() else "")
+                    + "Release-decision closeout failed; phase remains blocked."
+                )
+
+        acceptance_payload_doc = {
+            "verdict": acceptance.verdict,
+            "summary": acceptance.summary,
+            "route_signal": acceptance.route_signal,
+            "used_skills": acceptance.used_skills,
+            "blockers": [asdict(item) for item in acceptance.blockers],
+            "rerun_checks": acceptance.rerun_checks,
+            "evidence_gaps": acceptance.evidence_gaps,
+            "prohibited_findings": acceptance.prohibited_findings,
+            "policy_blockers": [asdict(item) for item in acceptance.policy_blockers],
+        }
+        if release_decision_path is not None and release_decision_path.exists():
+            acceptance_payload_doc["release_decision_path"] = release_decision_path.as_posix()
+        write_json(acceptance_json_path, acceptance_payload_doc)
         acceptance_md_path.write_text(render_acceptance_markdown(acceptance), encoding="utf-8")
         blockers_path = acceptance_md_path
 

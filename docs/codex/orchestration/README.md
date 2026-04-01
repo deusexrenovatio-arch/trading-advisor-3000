@@ -76,6 +76,7 @@ Acceptance is fail-closed.
 - Explicit release decision package builder is available:
   - `scripts/build_governed_release_decision.py`
 - Final `ALLOW_RELEASE_READINESS` / `DENY_RELEASE_READINESS` emission is acceptance-owned and must bind to acceptance artifacts (`acceptance.json`), not worker-only evidence.
+- Release-decision closeout fails closed unless the current attempt provides an explicit phase-scoped route-state artifact/input; mutable global `.runlogs/codex-governed-entry/last-route.json` is not accepted as implicit fallback.
 - Decision output is explicit and fail-closed:
   - `ALLOW_RELEASE_READINESS`
   - `DENY_RELEASE_READINESS`

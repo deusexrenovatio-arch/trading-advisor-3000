@@ -62,6 +62,22 @@ def test_loop_gate_reports_explicit_profile_metadata() -> None:
     assert "profile=ops" in result.stdout
 
 
+def test_loop_gate_emits_deprecation_guidance_for_non_policy_critical_path() -> None:
+    result = _run(
+        [
+            sys.executable,
+            "scripts/run_loop_gate.py",
+            "--skip-session-check",
+            "--changed-files",
+            "docs/README.md",
+        ]
+    )
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    combined = result.stdout + "\n" + result.stderr
+    assert "DEPRECATION implicit snapshot marker fallback is active" in combined
+    assert "DEPRECATION implicit profile marker fallback is active" in combined
+
+
 def test_loop_gate_fails_closed_without_explicit_markers_on_policy_critical_diff() -> None:
     result = _run(
         [
@@ -113,6 +129,22 @@ def test_pr_gate_reports_explicit_profile_metadata() -> None:
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
     assert "snapshot_mode=changed-files" in result.stdout
     assert "profile=ops" in result.stdout
+
+
+def test_pr_gate_emits_deprecation_guidance_for_non_policy_critical_path() -> None:
+    result = _run(
+        [
+            sys.executable,
+            "scripts/run_pr_gate.py",
+            "--skip-session-check",
+            "--changed-files",
+            "docs/README.md",
+        ]
+    )
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    combined = result.stdout + "\n" + result.stderr
+    assert "DEPRECATION implicit snapshot marker fallback is active" in combined
+    assert "DEPRECATION implicit profile marker fallback is active" in combined
 
 
 def test_pr_gate_fails_closed_without_explicit_markers_on_policy_critical_diff() -> None:

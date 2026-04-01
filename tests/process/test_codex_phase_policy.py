@@ -110,6 +110,40 @@ def test_policy_blocks_worker_release_decision_emission() -> None:
     assert any("release-decision emission before acceptance-owned closeout" in blocker.why for blocker in result.policy_blockers)
 
 
+def test_policy_does_not_treat_release_decision_builder_code_edit_as_emission() -> None:
+    worker = WorkerReport(
+        status="DONE",
+        summary="Worker updates release decision logic without emitting release package.",
+        route_signal="worker:phase-only",
+        files_touched=["scripts/build_governed_release_decision.py"],
+        checks_run=["python -m pytest tests/process/test_build_governed_release_decision.py -q"],
+        remaining_risks=[],
+        assumptions=[],
+        skips=[],
+        fallbacks=[],
+        deferred_work=[],
+        evidence_contract={
+            "surfaces": ["enforcement_serialization_contour"],
+            "proof_class": "integration",
+            "artifact_paths": ["scripts/build_governed_release_decision.py"],
+            "checks": ["python -m pytest tests/process/test_build_governed_release_decision.py -q"],
+            "real_bindings": [],
+        },
+    )
+    phase_requirement = PhaseEvidenceRequirement(
+        owned_surfaces=["enforcement_serialization_contour"],
+        delivered_proof_class="integration",
+        requires_real_bindings=False,
+    )
+
+    result = apply_acceptance_policy(worker=worker, acceptance=_acceptance_payload(), phase_requirement=phase_requirement)
+    assert result.verdict == "PASS"
+    assert not any(
+        "release-decision emission before acceptance-owned closeout" in blocker.why
+        for blocker in result.policy_blockers
+    )
+
+
 def test_policy_blocks_live_real_dry_run_continue_route() -> None:
     worker = WorkerReport(
         status="DONE",

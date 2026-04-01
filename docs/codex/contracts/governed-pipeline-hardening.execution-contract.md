@@ -103,7 +103,7 @@ Updated: 2026-04-01 11:20 UTC
 - continue
 
 ## Next Allowed Unit Of Work
-- Execute H4 - Enforcement Upgrade only: Deprecate implicit legacy behavior, require explicit snapshot/profile markers for policy-critical decisions, and enforce serialized git mutations for governed writes.
+- All planned phases are accepted. Prepare closeout or a new module run.
 ## Suggested Branch / PR
 
 - Branch: codex/governed-pipeline-hardening-phase-plan

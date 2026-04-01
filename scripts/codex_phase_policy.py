@@ -233,11 +233,23 @@ def _has_placeholder_token(text: str) -> bool:
     return bool(PLACEHOLDER_TOKEN_RE.search(text or ""))
 
 
-def _is_release_decision_reference(text: str) -> bool:
-    normalized = (text or "").strip().lower()
+def _is_release_decision_emission_command(text: str) -> bool:
+    normalized = (text or "").strip().lower().replace("\\", "/")
     if not normalized:
         return False
-    return "build_governed_release_decision.py" in normalized or "release-decision.json" in normalized
+    return bool(
+        re.search(
+            r"(^|\s)(python(\.exe)?\s+)?[^\s\"']*scripts/build_governed_release_decision\.py(\s|$)",
+            normalized,
+        )
+    )
+
+
+def _is_release_decision_output_artifact(text: str) -> bool:
+    normalized = (text or "").strip().lower().replace("\\", "/")
+    if not normalized:
+        return False
+    return normalized.endswith("/release-decision.json") or normalized == "release-decision.json"
 
 
 def _is_continue_route_command(text: str) -> bool:
@@ -279,7 +291,10 @@ def apply_acceptance_policy(
             )
         )
 
-    if any(_is_release_decision_reference(item) for item in [*all_checks, *all_artifact_paths]):
+    release_decision_emission_detected = any(
+        _is_release_decision_emission_command(item) for item in all_checks
+    ) or any(_is_release_decision_output_artifact(item) for item in all_artifact_paths)
+    if release_decision_emission_detected:
         policy_blockers.append(
             make_policy_blocker(
                 "prohibited_finding",

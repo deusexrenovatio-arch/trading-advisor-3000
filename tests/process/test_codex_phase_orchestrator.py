@@ -119,6 +119,92 @@ def _module_fixture(repo: Path) -> tuple[Path, Path]:
     return contract, parent
 
 
+def _release_decision_module_fixture(repo: Path) -> tuple[Path, Path]:
+    _write_acceptor_skills(repo)
+    contract = repo / "docs/codex/contracts/demo.execution-contract.md"
+    parent = repo / "docs/codex/modules/demo.parent.md"
+    phase1 = repo / "docs/codex/modules/demo.phase-01.md"
+    worker = repo / "docs/codex/prompts/phases/worker.md"
+    acceptor = repo / "docs/codex/prompts/phases/acceptor.md"
+    remediation = repo / "docs/codex/prompts/phases/remediation.md"
+
+    _write(
+        contract,
+        """# Execution Contract
+
+## Release Target Contract
+- Target Decision: ALLOW_RELEASE_READINESS
+- Target Environment: governed pipeline
+- Forbidden Proof Substitutes: docs-only
+- Release-Ready Proof Class: live-real
+
+## Next Allowed Unit Of Work
+- Execute phase 01 only: enforce release decision.
+""",
+    )
+    _write(
+        parent,
+        """# Module Parent Brief
+
+## Next Phase To Execute
+- docs/codex/modules/demo.phase-01.md
+""",
+    )
+    _write(
+        phase1,
+        """# Module Phase Brief
+
+## Phase
+- Name: Phase 01
+- Status: planned
+
+## Objective
+- Enforce release decision closeout.
+
+## Release Gate Impact
+- Surface Transition: demo_surface enforcement
+- Minimum Proof Class: live-real
+- Accepted State Label: release_decision
+
+## Release Surface Ownership
+- Owned Surfaces: demo_surface
+- Delivered Proof Class: live-real
+- Required Real Bindings: explicit markers, mutation lock evidence
+- Target Downgrade Is Forbidden: yes
+""",
+    )
+    _write(worker, "worker prompt\n")
+    _write(acceptor, "acceptor prompt\n")
+    _write(remediation, "remediation prompt\n")
+    _write(
+        repo / ".runlogs/codex-governed-entry/last-route.json",
+        json.dumps({"snapshot_mode": "changed-files", "profile": "none"}, ensure_ascii=False, indent=2) + "\n",
+    )
+    _write(
+        repo / "artifacts/codex/h4/route-state.attempt-01.json",
+        json.dumps({"snapshot_mode": "changed-files", "profile": "none"}, ensure_ascii=False, indent=2) + "\n",
+    )
+    _write(
+        repo / "artifacts/codex/h4/loop-gate-summary.md",
+        "# Loop Gate Summary\n\n- Snapshot mode: `changed-files`\n- Profile: `none`\n",
+    )
+    _write(
+        repo / "artifacts/codex/h4/pr-gate-summary.md",
+        "# PR Gate Summary\n\n- Snapshot mode: `changed-files`\n- Profile: `none`\n",
+    )
+    _write(
+        repo / ".runlogs/codex-governed-entry/repo-mutation-events.jsonl",
+        "\n".join(
+            [
+                json.dumps({"event": "acquired", "owner": "test", "timestamp": "2026-04-01T10:00:00Z"}),
+                json.dumps({"event": "released", "owner": "test", "timestamp": "2026-04-01T10:00:01Z"}),
+            ]
+        )
+        + "\n",
+    )
+    return contract, parent
+
+
 def test_orchestrator_pass_advances_next_phase(tmp_path: Path) -> None:
     contract, parent = _module_fixture(tmp_path)
     code, state_path = orchestrate_current_phase(
@@ -207,6 +293,197 @@ def test_orchestrator_blocked_keeps_same_phase_locked(tmp_path: Path) -> None:
     assert payload["final_status"] == "blocked"
     assert payload["attempts_total"] == 2
     assert payload["route_trace"][-1] == "phase remains locked"
+
+
+def test_orchestrator_emits_attempt_bound_release_decision_for_release_decision_phase(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    contract, parent = _release_decision_module_fixture(tmp_path)
+
+    def fake_run_role(**kwargs: object) -> dict[str, object]:
+        role = kwargs["role"]
+        if role in {"worker", "remediation"}:
+            return {
+                "status": "DONE",
+                "summary": "Worker completed H4 scoped checks without worker-side release emission.",
+                "route_signal": "worker:phase-only",
+                "files_touched": [
+                    "artifacts/codex/h4/route-state.attempt-01.json",
+                    "artifacts/codex/h4/loop-gate-summary.md",
+                    "artifacts/codex/h4/pr-gate-summary.md",
+                    ".runlogs/codex-governed-entry/repo-mutation-events.jsonl",
+                ],
+                "checks_run": [
+                    "python scripts/codex_governed_entry.py --route continue --execution-contract docs/codex/contracts/governed-pipeline-hardening.execution-contract.md --parent-brief docs/codex/modules/governed-pipeline-hardening.parent.md --snapshot-mode changed-files --profile none --route-state-file artifacts/codex/h4/route-state.attempt-01.json --dry-run",
+                    "python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none --summary-file artifacts/codex/h4/loop-gate-summary.md",
+                    "python scripts/run_pr_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none --summary-file artifacts/codex/h4/pr-gate-summary.md",
+                ],
+                "remaining_risks": [],
+                "assumptions": [],
+                "skips": [],
+                "fallbacks": [],
+                "deferred_work": [],
+                "evidence_contract": {
+                    "surfaces": ["demo_surface"],
+                    "proof_class": "live-real",
+                    "artifact_paths": [
+                        "artifacts/codex/h4/route-state.attempt-01.json",
+                        "artifacts/codex/h4/loop-gate-summary.md",
+                        "artifacts/codex/h4/pr-gate-summary.md",
+                        ".runlogs/codex-governed-entry/repo-mutation-events.jsonl",
+                    ],
+                    "checks": [
+                        "python scripts/codex_governed_entry.py --route continue --execution-contract docs/codex/contracts/governed-pipeline-hardening.execution-contract.md --parent-brief docs/codex/modules/governed-pipeline-hardening.parent.md --snapshot-mode changed-files --profile none --route-state-file artifacts/codex/h4/route-state.attempt-01.json --dry-run"
+                    ],
+                    "real_bindings": ["real repository working tree (Windows)"],
+                },
+            }
+        return {
+            "verdict": "BLOCKED",
+            "summary": "Acceptance remains blocked pending evidence closure.",
+            "route_signal": "acceptance:governed-phase-route",
+            "used_skills": [
+                "phase-acceptance-governor",
+                "architecture-review",
+                "testing-suite",
+                "docs-sync",
+            ],
+            "blockers": [
+                {
+                    "id": "B1",
+                    "title": "Upstream acceptance blocker",
+                    "why": "Simulated blocker to force DENY release decision.",
+                    "remediation": "Keep remediation loop active.",
+                }
+            ],
+            "rerun_checks": [],
+            "evidence_gaps": [],
+            "prohibited_findings": [],
+        }
+
+    monkeypatch.setattr("codex_phase_orchestrator.run_role", fake_run_role)
+
+    code, state_path = orchestrate_current_phase(
+        repo_root=tmp_path,
+        execution_contract_path=contract,
+        parent_path=parent,
+        worker_prompt_path=tmp_path / "docs/codex/prompts/phases/worker.md",
+        acceptor_prompt_path=tmp_path / "docs/codex/prompts/phases/acceptor.md",
+        remediation_prompt_path=tmp_path / "docs/codex/prompts/phases/remediation.md",
+        artifact_root=tmp_path / "artifacts/codex/orchestration",
+        backend="simulate",
+        worker_launch=_launch("gpt-5.3-codex"),
+        acceptor_launch=_launch("gpt-5.4"),
+        remediation_launch=_launch("gpt-5.3-codex"),
+        codex_bin=None,
+        simulate_scenario="pass",
+        max_remediation_cycles=0,
+        ignore_globs=(),
+        skip_clean_check=True,
+    )
+
+    assert code == 3
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    attempt_dir = tmp_path / "artifacts/codex/orchestration" / payload["run_id"] / "attempt-01"
+    acceptance_payload = json.loads((attempt_dir / "acceptance.json").read_text(encoding="utf-8"))
+    release_decision_path = Path(acceptance_payload["release_decision_path"])
+    assert release_decision_path.exists()
+    decision_payload = json.loads(release_decision_path.read_text(encoding="utf-8"))
+    assert decision_payload["truth_sources"]["acceptance_json"] == (attempt_dir / "acceptance.json").resolve().as_posix()
+    assert decision_payload["verdict"] == "DENY_RELEASE_READINESS"
+
+
+def test_orchestrator_release_decision_closeout_fails_without_phase_scoped_route_state(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    contract, parent = _release_decision_module_fixture(tmp_path)
+
+    def fake_run_role(**kwargs: object) -> dict[str, object]:
+        role = kwargs["role"]
+        if role in {"worker", "remediation"}:
+            return {
+                "status": "DONE",
+                "summary": "Worker completed H4 scoped checks but did not publish phase-scoped route-state evidence.",
+                "route_signal": "worker:phase-only",
+                "files_touched": [
+                    "artifacts/codex/h4/loop-gate-summary.md",
+                    "artifacts/codex/h4/pr-gate-summary.md",
+                    ".runlogs/codex-governed-entry/repo-mutation-events.jsonl",
+                ],
+                "checks_run": [
+                    "python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none --summary-file artifacts/codex/h4/loop-gate-summary.md",
+                    "python scripts/run_pr_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none --summary-file artifacts/codex/h4/pr-gate-summary.md",
+                ],
+                "remaining_risks": [],
+                "assumptions": [],
+                "skips": [],
+                "fallbacks": [],
+                "deferred_work": [],
+                "evidence_contract": {
+                    "surfaces": ["demo_surface"],
+                    "proof_class": "live-real",
+                    "artifact_paths": [
+                        "artifacts/codex/h4/loop-gate-summary.md",
+                        "artifacts/codex/h4/pr-gate-summary.md",
+                        ".runlogs/codex-governed-entry/repo-mutation-events.jsonl",
+                    ],
+                    "checks": [
+                        "python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none --summary-file artifacts/codex/h4/loop-gate-summary.md",
+                        "python scripts/run_pr_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none --summary-file artifacts/codex/h4/pr-gate-summary.md",
+                    ],
+                    "real_bindings": ["real repository working tree (Windows)"],
+                },
+            }
+        return {
+            "verdict": "PASS",
+            "summary": "Acceptance would pass, pending orchestrator release-decision closeout.",
+            "route_signal": "acceptance:governed-phase-route",
+            "used_skills": [
+                "phase-acceptance-governor",
+                "architecture-review",
+                "testing-suite",
+                "docs-sync",
+            ],
+            "blockers": [],
+            "rerun_checks": [],
+            "evidence_gaps": [],
+            "prohibited_findings": [],
+        }
+
+    monkeypatch.setattr("codex_phase_orchestrator.run_role", fake_run_role)
+
+    code, state_path = orchestrate_current_phase(
+        repo_root=tmp_path,
+        execution_contract_path=contract,
+        parent_path=parent,
+        worker_prompt_path=tmp_path / "docs/codex/prompts/phases/worker.md",
+        acceptor_prompt_path=tmp_path / "docs/codex/prompts/phases/acceptor.md",
+        remediation_prompt_path=tmp_path / "docs/codex/prompts/phases/remediation.md",
+        artifact_root=tmp_path / "artifacts/codex/orchestration",
+        backend="simulate",
+        worker_launch=_launch("gpt-5.3-codex"),
+        acceptor_launch=_launch("gpt-5.4"),
+        remediation_launch=_launch("gpt-5.3-codex"),
+        codex_bin=None,
+        simulate_scenario="pass",
+        max_remediation_cycles=0,
+        ignore_globs=(),
+        skip_clean_check=True,
+    )
+
+    assert code == 3
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    attempt_dir = tmp_path / "artifacts/codex/orchestration" / payload["run_id"] / "attempt-01"
+    acceptance_payload = json.loads((attempt_dir / "acceptance.json").read_text(encoding="utf-8"))
+    assert acceptance_payload["verdict"] == "BLOCKED"
+    assert not (attempt_dir / "release-decision.json").exists()
+    assert "release_decision_path" not in acceptance_payload
+    assert any(
+        "phase-scoped route state path" in str(item).lower()
+        for item in [*acceptance_payload.get("evidence_gaps", []), acceptance_payload.get("summary", "")]
+    )
 
 
 def test_orchestrator_auto_blocks_worker_shortcuts_even_if_acceptor_passes(tmp_path: Path) -> None:

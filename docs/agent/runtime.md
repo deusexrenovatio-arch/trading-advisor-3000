@@ -114,6 +114,7 @@ Example:
   - `.runlogs/codex-governed-entry/repo-mutation-events.jsonl`
 - Explicit release decision package emission:
   - `python scripts/build_governed_release_decision.py --execution-contract <path> --phase-brief <path> --acceptance-json <path> --route-state <path> --loop-summary <path> --pr-summary <path> --mutation-events <path> --output <path>`
+- H4 closeout is fail-closed on route-state evidence: acceptance-owned release decision emission must use an explicit phase-scoped route-state artifact/input from the current attempt; mutable global `.runlogs/codex-governed-entry/last-route.json` is not a valid implicit fallback.
 - Decision output is explicit and fail-closed:
   - `ALLOW_RELEASE_READINESS`
   - `DENY_RELEASE_READINESS`

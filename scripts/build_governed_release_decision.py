@@ -202,6 +202,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     blockers: list[str] = []
+    if target_decision == DENY_VERDICT:
+        blockers.append(
+            "execution contract target decision is DENY_RELEASE_READINESS; ALLOW_RELEASE_READINESS is out of contract"
+        )
     if route_snapshot != loop_snapshot or route_snapshot != pr_snapshot:
         blockers.append(
             "snapshot marker mismatch across route-state/loop/pr evidence"
