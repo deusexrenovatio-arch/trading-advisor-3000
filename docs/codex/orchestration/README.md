@@ -40,11 +40,14 @@ The operator wants automatic progression only after an independent acceptance pa
 Acceptance is fail-closed.
 `PASS` is not allowed when unresolved quality debt is only being "recorded".
 
-## H0 contract vocabulary status
+## H0/H1 contract vocabulary status
 
-`H0` introduces explicit route/snapshot/profile/session terms as contracts only.
-This does not switch launcher, gate, or validator behavior yet.
-Behavior-changing enforcement stays in later phases.
+- `H0` introduced explicit route/snapshot/profile/session terms as contracts.
+- `H1` keeps legacy commands operational as wrappers, and adds explicit dual-mode metadata in runtime outputs:
+  - governed entry route state now records `route_mode`, `session_mode`, `snapshot_mode`, and `profile`;
+  - loop/pr gate output now includes explicit `snapshot_mode` and `profile` markers.
+  - bootstrap reuse must fail closed on session-mode mismatch instead of silently reporting a different mode than the active task session.
+- Strong fail-closed marker enforcement remains a later phase concern.
 
 ## Backends
 

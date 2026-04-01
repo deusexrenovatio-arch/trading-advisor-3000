@@ -12,7 +12,13 @@ from pathlib import Path
 from typing import Any
 
 from codex_governed_entry import main as governed_entry_main
-from task_session import default_session_lock_path, evaluate_session_lock, load_session_lock
+from task_session import (
+    LEGACY_SESSION_MODE,
+    default_session_lock_path,
+    evaluate_session_lock,
+    load_session_lock,
+    normalize_session_mode,
+)
 
 
 DEFAULT_BOOTSTRAP_STATE = Path(".runlogs/codex-governed-entry/bootstrap-state.json")
@@ -37,15 +43,25 @@ def resolve_path(repo_root: Path, raw: str | Path) -> Path:
     return (repo_root / path).resolve()
 
 
-def ensure_active_session(*, repo_root: Path, request: str) -> dict[str, Any]:
+def ensure_active_session(*, repo_root: Path, request: str, session_mode: str) -> dict[str, Any]:
+    requested_session_mode = normalize_session_mode(session_mode)
     session_lock_path = default_session_lock_path(repo_root)
     payload = load_session_lock(session_lock_path)
     ok, message = evaluate_session_lock(payload, repo_root=repo_root)
     if ok:
+        active_raw_mode = str(payload.get("session_mode", "")).strip() or LEGACY_SESSION_MODE
+        active_session_mode = normalize_session_mode(active_raw_mode)
+        if active_session_mode != requested_session_mode:
+            raise GovernedBootstrapError(
+                "active task session mode mismatch: "
+                f"requested `{requested_session_mode}` but active session is `{active_session_mode}`; "
+                "end the current session first or rerun bootstrap with the active session mode"
+            )
         return {
             "action": "reused",
             "message": message,
             "payload": payload,
+            "session_mode": active_session_mode,
         }
 
     command = [
@@ -54,6 +70,8 @@ def ensure_active_session(*, repo_root: Path, request: str) -> dict[str, Any]:
         "begin",
         "--request",
         request,
+        "--mode",
+        requested_session_mode,
     ]
     completed = subprocess.run(command, cwd=repo_root, text=True, check=False, capture_output=True)
     if completed.returncode != 0:
@@ -64,6 +82,7 @@ def ensure_active_session(*, repo_root: Path, request: str) -> dict[str, Any]:
         "action": "started",
         "message": (completed.stdout or "").strip(),
         "payload": {},
+        "session_mode": requested_session_mode,
     }
 
 
@@ -76,6 +95,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Start task session and governed Codex route in one step.")
     parser.add_argument("--request", required=True)
     parser.add_argument("--route", choices=("auto", "package", "continue"), default="auto")
+    parser.add_argument("--route-mode", default="legacy")
+    parser.add_argument("--session-mode", default="legacy-full")
+    parser.add_argument("--snapshot-mode", default="route-report")
     parser.add_argument("--package-path", default=None)
     parser.add_argument("--execution-contract", default=None)
     parser.add_argument("--parent-brief", default=None)
@@ -103,14 +125,36 @@ def main(argv: list[str] | None = None) -> int:
     bootstrap_state_file = resolve_path(repo_root, args.bootstrap_state_file)
 
     try:
-        session_state = ensure_active_session(repo_root=repo_root, request=args.request)
+        requested_session_mode = normalize_session_mode(args.session_mode)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    try:
+        session_state = ensure_active_session(
+            repo_root=repo_root,
+            request=args.request,
+            session_mode=requested_session_mode,
+        )
     except GovernedBootstrapError as exc:
         print(f"error: {exc}", file=sys.stderr)
+        return 2
+    effective_session_mode = str(session_state.get("session_mode", requested_session_mode)).strip()
+    try:
+        effective_session_mode = normalize_session_mode(effective_session_mode)
+    except ValueError as exc:
+        print(f"error: bootstrap reported invalid session mode `{effective_session_mode}` ({exc})", file=sys.stderr)
         return 2
 
     entry_args = [
         "--route",
         args.route,
+        "--route-mode",
+        args.route_mode,
+        "--session-mode",
+        effective_session_mode,
+        "--snapshot-mode",
+        args.snapshot_mode,
         "--inbox",
         args.inbox,
         "--artifact-root",
@@ -153,10 +197,15 @@ def main(argv: list[str] | None = None) -> int:
             "updated_at": utc_now().isoformat().replace("+00:00", "Z"),
             "request": args.request,
             "session_action": session_state["action"],
+            "route_mode": args.route_mode,
+            "session_mode": effective_session_mode,
+            "snapshot_mode": args.snapshot_mode,
+            "profile": args.profile.strip() or "none",
             "route_args": entry_args,
         },
     )
     print(f"session_action: {session_state['action']}")
+    print(f"session_mode: {effective_session_mode}")
     return int(governed_entry_main(entry_args))
 
 

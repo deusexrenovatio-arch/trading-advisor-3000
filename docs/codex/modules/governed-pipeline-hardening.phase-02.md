@@ -10,7 +10,7 @@ Updated: 2026-04-01 11:20 UTC
 ## Phase
 
 - Name: H1 - Dual-Mode Operation
-- Status: planned
+- Status: blocked
 
 ## Objective
 

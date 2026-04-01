@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -17,6 +17,12 @@ from codex_phase_orchestrator import main as orchestrator_main
 
 DEFAULT_INBOX = Path("docs/codex/packages/inbox")
 DEFAULT_ROUTE_STATE = Path(".runlogs/codex-governed-entry/last-route.json")
+LEGACY_ENTRY_ROUTE_MODE = "legacy-wrapper"
+EXPLICIT_ENTRY_ROUTE_MODE = "explicit-dual-mode"
+LEGACY_SESSION_MODE = "legacy-full"
+TRACKED_SESSION_MODE = "tracked_session"
+DEFAULT_SNAPSHOT_MODE = "route-report"
+ROUTE_SIGNAL = "entry:route-selection"
 
 
 class GovernedEntryError(RuntimeError):
@@ -182,9 +188,23 @@ def decide_route(
     raise GovernedEntryError("no governed route could be chosen: no active module and no package in the inbox")
 
 
-def write_route_state(path: Path, decision: RouteDecision) -> None:
+def write_route_state(
+    path: Path,
+    decision: RouteDecision,
+    *,
+    route_mode: str = LEGACY_ENTRY_ROUTE_MODE,
+    session_mode: str = LEGACY_SESSION_MODE,
+    snapshot_mode: str = DEFAULT_SNAPSHOT_MODE,
+    profile: str = "none",
+) -> None:
     payload: dict[str, Any] = {
         "updated_at": utc_now().isoformat().replace("+00:00", "Z"),
+        "route_mode": route_mode,
+        "session_mode": session_mode,
+        "snapshot_mode": snapshot_mode,
+        "profile": profile,
+        "route_signal": ROUTE_SIGNAL,
+        "entry_route": decision.route,
         "route": decision.route,
         "reason": decision.reason,
         "package_path": decision.package_path.as_posix() if decision.package_path else None,
@@ -208,6 +228,48 @@ def normalize_route_argv(argv: list[str]) -> list[str]:
     if first in {"auto", "package", "continue"}:
         return ["--route", first, *argv[1:]]
     return list(argv)
+
+
+def uses_positional_route_alias(argv: list[str]) -> bool:
+    if not argv:
+        return False
+    first = str(argv[0]).strip().lower()
+    return first in {"auto", "package", "continue"}
+
+
+def normalize_entry_route_mode(raw: str, *, positional_alias: bool) -> str:
+    value = str(raw or "").strip().lower()
+    if value in {"", "legacy", "legacy-wrapper", "compat", "compatibility"}:
+        return LEGACY_ENTRY_ROUTE_MODE
+    if value in {"explicit", "explicit-dual-mode", "dual-mode"}:
+        if positional_alias:
+            raise GovernedEntryError(
+                "explicit route mode requires `--route <value>`; positional route alias is legacy-only"
+            )
+        return EXPLICIT_ENTRY_ROUTE_MODE
+    raise GovernedEntryError(
+        "unknown route mode; expected one of legacy|explicit|legacy-wrapper|explicit-dual-mode"
+    )
+
+
+def normalize_session_mode(raw: str) -> str:
+    value = str(raw or "").strip().lower()
+    if value in {"", "legacy", "legacy-full", "full"}:
+        return LEGACY_SESSION_MODE
+    if value in {"tracked", "tracked-session", "tracked_session"}:
+        return TRACKED_SESSION_MODE
+    raise GovernedEntryError("unknown session mode; expected one of legacy-full|tracked-session")
+
+
+def normalize_snapshot_mode(raw: str) -> str:
+    value = str(raw or "").strip().lower()
+    if value in {"", "route-report"}:
+        return DEFAULT_SNAPSHOT_MODE
+    if value in {"changed-files", "phase-state", "contract-only"}:
+        return value
+    raise GovernedEntryError(
+        "unknown snapshot mode; expected one of route-report|changed-files|phase-state|contract-only"
+    )
 
 
 def run_package_route(
@@ -256,6 +318,7 @@ def run_continue_route(
     decision: RouteDecision,
     backend: str,
     artifact_root: Path,
+    profile: str,
     worker_model: str,
     acceptor_model: str,
     remediation_model: str,
@@ -281,6 +344,8 @@ def run_continue_route(
         "--remediation-model",
         remediation_model or worker_model,
     ]
+    if profile.strip():
+        common.extend(["--profile", profile])
     if codex_bin:
         common.extend(["--codex-bin", codex_bin])
     if skip_clean_check:
@@ -302,6 +367,9 @@ def run_continue_route(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Mandatory governed Codex entrypoint.")
     parser.add_argument("--route", choices=("auto", "package", "continue"), default="auto")
+    parser.add_argument("--route-mode", default="legacy")
+    parser.add_argument("--session-mode", default=LEGACY_SESSION_MODE)
+    parser.add_argument("--snapshot-mode", default=DEFAULT_SNAPSHOT_MODE)
     parser.add_argument("--package-path", default=None)
     parser.add_argument("--execution-contract", default=None)
     parser.add_argument("--parent-brief", default=None)
@@ -323,7 +391,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    normalized_argv = normalize_route_argv(list(argv or sys.argv[1:]))
+    raw_argv = list(argv or sys.argv[1:])
+    positional_alias = uses_positional_route_alias(raw_argv)
+    normalized_argv = normalize_route_argv(raw_argv)
     args = build_parser().parse_args(normalized_argv)
     repo_root = resolve_repo_root()
     inbox = resolve_path(repo_root, args.inbox)
@@ -333,6 +403,16 @@ def main(argv: list[str] | None = None) -> int:
     explicit_package = resolve_path(repo_root, args.package_path) if args.package_path else None
     explicit_contract = resolve_path(repo_root, args.execution_contract) if args.execution_contract else None
     explicit_parent = resolve_path(repo_root, args.parent_brief) if args.parent_brief else None
+    profile = args.profile.strip()
+    profile_marker = profile or "none"
+
+    try:
+        route_mode = normalize_entry_route_mode(args.route_mode, positional_alias=positional_alias)
+        session_mode = normalize_session_mode(args.session_mode)
+        snapshot_mode = normalize_snapshot_mode(args.snapshot_mode)
+    except GovernedEntryError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
 
     try:
         decision = decide_route(
@@ -353,7 +433,20 @@ def main(argv: list[str] | None = None) -> int:
         print("error: forced continue route could not be satisfied safely", file=sys.stderr)
         return 2
 
-    write_route_state(route_state_file, decision)
+    write_route_state(
+        route_state_file,
+        decision,
+        route_mode=route_mode,
+        session_mode=session_mode,
+        snapshot_mode=snapshot_mode,
+        profile=profile_marker,
+    )
+
+    print(f"route_mode: {route_mode}")
+    print(f"session_mode: {session_mode}")
+    print(f"snapshot_mode: {snapshot_mode}")
+    print(f"profile: {profile_marker}")
+    print(f"entry_route: {decision.route}")
     print(f"governed_route: {decision.route}")
     print(f"reason: {decision.reason}")
     if decision.package_path is not None:
@@ -372,7 +465,7 @@ def main(argv: list[str] | None = None) -> int:
             repo_root=repo_root,
             decision=decision,
             mode=args.mode,
-            profile=args.profile,
+            profile=profile,
             inbox=inbox,
             artifact_root=artifact_root / "package-intake",
             output_last_message=output_last_message,
@@ -382,6 +475,7 @@ def main(argv: list[str] | None = None) -> int:
         decision=decision,
         backend=args.backend,
         artifact_root=artifact_root / "orchestration",
+        profile=profile,
         worker_model=args.worker_model,
         acceptor_model=args.acceptor_model,
         remediation_model=args.remediation_model,

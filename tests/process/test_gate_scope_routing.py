@@ -35,6 +35,8 @@ def test_loop_gate_contract_surface_smoke() -> None:
     )
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
     assert "primary_surface=contracts" in result.stdout
+    assert "snapshot_mode=changed-files" in result.stdout
+    assert "profile=none" in result.stdout
 
 
 def test_pr_gate_docs_smoke() -> None:
@@ -48,6 +50,25 @@ def test_pr_gate_docs_smoke() -> None:
         ]
     )
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    assert "snapshot_mode=changed-files" in result.stdout
+    assert "profile=none" in result.stdout
+
+
+def test_pr_gate_reports_explicit_profile_metadata() -> None:
+    result = _run(
+        [
+            sys.executable,
+            "scripts/run_pr_gate.py",
+            "--skip-session-check",
+            "--changed-files",
+            "docs/README.md",
+            "--profile",
+            "ops",
+        ]
+    )
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    assert "snapshot_mode=changed-files" in result.stdout
+    assert "profile=ops" in result.stdout
 
 
 def test_nightly_gate_docs_smoke() -> None:

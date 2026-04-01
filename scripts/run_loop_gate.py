@@ -76,6 +76,21 @@ def _apply_non_trivial_loop_policy(
     return filtered, require_contract_validation
 
 
+def _snapshot_mode(
+    *,
+    from_git: bool,
+    base_ref: str | None,
+    head_ref: str | None,
+    from_stdin: bool,
+    explicit_changed_files: list[str],
+) -> str:
+    if from_stdin or explicit_changed_files:
+        return "changed-files"
+    if from_git or (base_ref and head_ref):
+        return "changed-files"
+    return "contract-only"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run scoped hot-loop governance gate.")
     parser.add_argument("--mapping", default="configs/change_surface_mapping.yaml")
@@ -85,9 +100,18 @@ def main() -> int:
     parser.add_argument("--head-ref", "--head", dest="head_ref", default=None)
     parser.add_argument("--stdin", action="store_true")
     parser.add_argument("--changed-files", nargs="*", default=[])
+    parser.add_argument("--profile", default="")
     parser.add_argument("--summary-file", default=None)
     parser.add_argument("--skip-session-check", action="store_true")
     args = parser.parse_args()
+    profile = str(args.profile or "").strip() or "none"
+    snapshot_mode = _snapshot_mode(
+        from_git=bool(args.from_git),
+        base_ref=args.base_ref,
+        head_ref=args.head_ref,
+        from_stdin=bool(args.stdin),
+        explicit_changed_files=list(args.changed_files),
+    )
 
     if not args.skip_session_check:
         code = _ensure_active_session()
@@ -123,11 +147,13 @@ def main() -> int:
         gate_name="loop gate",
         surface_result=surface,
         commands=commands,
+        snapshot_mode=snapshot_mode,
+        profile=profile,
     )
     if code != 0:
         print(
             "loop gate: FAILED "
-            f"(command={failed_command})\n"
+            f"(command={failed_command} snapshot_mode={snapshot_mode} profile={profile})\n"
             f"remediation: see {REMEDIATION_DOC}"
         )
         return code
@@ -136,7 +162,8 @@ def main() -> int:
         "loop gate: OK "
         f"(primary_surface={surface['primary_surface']} "
         f"surfaces={','.join(surface['surfaces'])} "
-        f"non_trivial_validation={non_trivial_validation})"
+        f"non_trivial_validation={non_trivial_validation} "
+        f"snapshot_mode={snapshot_mode} profile={profile})"
     )
     return 0
 

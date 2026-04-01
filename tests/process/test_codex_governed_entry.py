@@ -191,5 +191,100 @@ def test_package_route_prints_continue_hint_when_active_module_is_materialized(
     assert "docs/codex/modules/demo.parent.md" in captured.out
 
 
+def test_main_writes_dual_mode_metadata_into_route_state(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("codex_governed_entry.resolve_repo_root", lambda: tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "codex_governed_entry.py",
+            "--route",
+            "package",
+            "--route-mode",
+            "explicit",
+            "--session-mode",
+            "tracked_session",
+            "--snapshot-mode",
+            "changed-files",
+            "--profile",
+            "ops",
+            "--package-path",
+            "incoming.zip",
+            "--route-state-file",
+            ".runlogs/test-route.json",
+            "--dry-run",
+        ],
+    )
+
+    code = main()
+
+    assert code == 0
+    payload = json.loads((tmp_path / ".runlogs/test-route.json").read_text(encoding="utf-8"))
+    assert payload["route_mode"] == "explicit-dual-mode"
+    assert payload["session_mode"] == "tracked_session"
+    assert payload["snapshot_mode"] == "changed-files"
+    assert payload["profile"] == "ops"
+    assert payload["entry_route"] == "package"
+
+
+def test_main_rejects_positional_alias_in_explicit_route_mode(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("codex_governed_entry.resolve_repo_root", lambda: tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "codex_governed_entry.py",
+            "package",
+            "--route-mode",
+            "explicit",
+            "--package-path",
+            "incoming.zip",
+            "--dry-run",
+        ],
+    )
+
+    code = main()
+
+    assert code == 2
+
+
+def test_continue_route_forwards_profile_to_orchestrator(monkeypatch, tmp_path: Path) -> None:
+    parent, _phase, contract = _phase_module(tmp_path, "demo")
+    monkeypatch.setattr("codex_governed_entry.resolve_repo_root", lambda: tmp_path)
+
+    calls: list[list[str]] = []
+
+    def fake_orchestrator(argv: list[str]) -> int:
+        calls.append(list(argv))
+        return 0
+
+    monkeypatch.setattr("codex_governed_entry.orchestrator_main", fake_orchestrator)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "codex_governed_entry.py",
+            "--route",
+            "continue",
+            "--execution-contract",
+            contract.as_posix(),
+            "--parent-brief",
+            parent.as_posix(),
+            "--backend",
+            "simulate",
+            "--profile",
+            "ops",
+            "--max-remediation-cycles",
+            "0",
+        ],
+    )
+
+    code = main()
+
+    assert code == 0
+    assert len(calls) == 2
+    assert any("--profile" in call and "ops" in call for call in calls)
+
+
 def test_resolve_repo_root_points_at_script_parent() -> None:
     assert resolve_repo_root() == ROOT

@@ -47,6 +47,28 @@ Do not reintroduce shell-only wrapper flows as primary control paths.
 - H0 status: contract terms are declared for route, snapshot, profile, and session lifecycle boundaries.
 - H0 limitation: this declaration does not switch runtime behavior or validator enforcement yet.
 
+## Dual-Mode Route/Session Semantics (H1)
+- Governed entry now accepts dual-mode route/session metadata while keeping legacy invocation paths operational.
+- Route mode:
+  - `legacy` / `legacy-wrapper` keeps compatibility wrappers (including positional `auto|package|continue` aliases).
+  - `explicit` / `explicit-dual-mode` requires flag-based route invocation (`--route <value>`) and fails closed on positional alias use.
+- Session mode:
+  - `legacy-full` keeps existing lifecycle behavior.
+  - `tracked_session` is explicit mode for the same governed lifecycle boundary.
+  - Compatibility aliases `full` and `legacy` are accepted only at input boundaries and must be normalized to `legacy-full` in durable/session outputs.
+  - `codex_governed_bootstrap.py` must fail closed when an active reused task session has a different mode than the requested `--session-mode`; no silent mode drift is allowed between bootstrap state, route state, and runtime output.
+- Snapshot mode marker:
+  - `route-report` (default) and explicit alternatives (`changed-files`, `phase-state`, `contract-only`) are persisted in governed route state.
+
+Example:
+- `python scripts/codex_governed_entry.py --route continue --route-mode explicit --session-mode tracked_session --snapshot-mode route-report --execution-contract <path> --parent-brief <path>`
+
+## Loop/PR Metadata (H1)
+- `run_loop_gate.py` and `run_pr_gate.py` now emit explicit `snapshot_mode` and `profile` markers in gate output.
+- Optional profile marker:
+  - `python scripts/run_loop_gate.py --from-git --git-ref HEAD --profile ops`
+  - `python scripts/run_pr_gate.py --from-git --git-ref HEAD --profile ops`
+
 ## Hook runtime policy
 - Main protection is implemented in `.githooks/pre-push`.
 - Emergency override uses neutral variables:

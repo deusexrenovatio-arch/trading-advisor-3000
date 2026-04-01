@@ -174,6 +174,8 @@ def write_summary(
     gate_name: str,
     surface_result: dict[str, Any],
     commands: list[str | CommandSpec],
+    snapshot_mode: str | None = None,
+    profile: str | None = None,
 ) -> None:
     if not summary_file:
         return
@@ -186,9 +188,17 @@ def write_summary(
         f"- Surfaces: `{', '.join(surface_result['surfaces'])}`",
         f"- Docs only: `{surface_result['docs_only']}`",
         f"- Changed files: `{len(surface_result['changed_files'])}`",
-        "",
-        "### Commands",
     ]
+    if snapshot_mode is not None:
+        lines.append(f"- Snapshot mode: `{snapshot_mode}`")
+    if profile is not None:
+        lines.append(f"- Profile: `{profile}`")
+    lines.extend(
+        [
+            "",
+            "### Commands",
+        ]
+    )
     for command in commands:
         lines.append(f"- `{command_text(command)}`")
     lines.append("")

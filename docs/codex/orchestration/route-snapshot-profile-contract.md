@@ -118,3 +118,13 @@ H0 compatibility note:
 - `H1`: expose dual-mode route/session semantics and snapshot/profile metadata in outputs.
 - `H2`: bind profile-aware CI/proof behavior with staging-real evidence.
 - `H4`: enforce fail-closed marker requirements in policy-critical validations.
+
+## H1 Runtime Binding Note
+
+`H1` runtime outputs now expose these markers explicitly while preserving legacy command compatibility:
+
+- governed entry route-state fields: `route_mode`, `session_mode`, `snapshot_mode`, `profile`, `entry_route`, `route_signal`;
+- loop/pr gate status lines: `snapshot_mode`, `profile`.
+- governed bootstrap session reuse is fail-closed for mode drift: when active task-session mode and requested mode differ, bootstrap stops with an error and does not emit conflicting state.
+
+This phase is still `prep_closed` only; it does not claim real contour closure for CI/proof portability.
