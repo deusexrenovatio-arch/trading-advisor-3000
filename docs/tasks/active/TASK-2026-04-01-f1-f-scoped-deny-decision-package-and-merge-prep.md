@@ -1,0 +1,57 @@
+# Task Note
+Updated: 2026-04-01 10:29 UTC
+
+## Goal
+- Deliver: F1-F scoped deny decision package and merge prep to main
+
+## Task Request Contract
+- Objective: define one measurable process/governance outcome.
+- In Scope: list explicit files/surfaces that can change now.
+- Out of Scope: list deferred items and non-goals.
+- Constraints: list risk/time/policy/runtime constraints.
+- Done Evidence: list exact commands/artifacts proving completion.
+- Priority Rule: quality and safety over speed when tradeoffs appear.
+
+## Solution Intent
+- Solution Class: staged
+- Critical Contour: runtime-publication-closure
+- Forbidden Shortcuts: no synthetic publication claims, no fake broker closure, no checklist-only acceptance
+- Closure Evidence: scoped deny package plus non-broker test stability (`294 passed`) and explicit deferred broker-profile list
+- Shortcut Waiver: none
+
+## Current Delta
+- Session started and baseline scope captured.
+
+## First-Time-Right Report
+1. Confirmed coverage: objective and acceptance path are explicit.
+2. Missing or risky scenarios: unknown integrations and policy drifts.
+3. Resource/time risks and chosen controls: phased patches and deterministic checks.
+4. Highest-priority fixes or follow-ups: stabilize contract and validation first.
+
+## Repetition Control
+- Max Same-Path Attempts: 2
+- Stop Trigger: same failure repeats after two focused edits.
+- Reset Action: pause edits, capture failing check, and reframe the approach.
+- New Search Space: validator contract, routing logic, and docs alignment.
+- Next Probe: run the smallest failing command before next patch.
+
+## Task Outcome
+- Outcome Status: in_progress
+- Decision Quality: pending
+- Final Contexts: pending
+- Route Match: pending
+- Primary Rework Cause: none
+- Incident Signature: none
+- Improvement Action: pending
+- Improvement Artifact: pending
+
+## Blockers
+- No blocker.
+
+## Next Step
+- Implement focused patch and rerun loop gate.
+
+## Validation
+- `python scripts/validate_task_request_contract.py`
+- `python scripts/validate_session_handoff.py`
+- `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
