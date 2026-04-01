@@ -5,7 +5,7 @@ Updated: 2026-04-01 11:20 UTC
 ## Source Package
 
 - Package Zip: D:/trading advisor 3000/artifacts/spec-packages/governed-pipeline-hardening-technical-specification-2026-03-30.zip
-- Package Manifest: artifacts/codex/package-intake/20260401T104845Z-governed-pipeline-hardening-technical-specificat/manifest.md
+- Package Manifest: D:/trading advisor 3000-wt-governed-20260401/artifacts/codex/package-intake/20260401T104845Z-governed-pipeline-hardening-technical-specificat/manifest.md
 - Manifest Suggested Primary Document: docs/architecture/governed-pipeline-hardening-technical-specification.md
 - Suggested Phase Compiler Artifact: NONE
 - Source Title: Governed Pipeline Hardening Technical Specification
@@ -15,7 +15,7 @@ Updated: 2026-04-01 11:20 UTC
 - Selected Primary Document: docs/architecture/governed-pipeline-hardening-technical-specification.md
 - Selection Rule: the package contains one substantive supported specification document and the manifest already ranked it first, so it is selected directly as the primary source without tie-break.
 - Supporting Documents:
-  - `artifacts/codex/package-intake/20260401T104845Z-governed-pipeline-hardening-technical-specificat/manifest.md` for package provenance and ranking rationale.
+  - `D:/trading advisor 3000-wt-governed-20260401/artifacts/codex/package-intake/20260401T104845Z-governed-pipeline-hardening-technical-specificat/manifest.md` for package provenance and ranking rationale.
   - no additional source documents were present in the extracted package.
 - Conflict Status: no material contradiction was detected because the package is single-document.
 
