@@ -69,6 +69,17 @@ Example:
   - `python scripts/run_loop_gate.py --from-git --git-ref HEAD --profile ops`
   - `python scripts/run_pr_gate.py --from-git --git-ref HEAD --profile ops`
 
+## CI / Proof Binding (H2)
+- Hosted PR lane resolves contour-aware profile/check plan via:
+  - `python scripts/run_surface_pr_matrix.py --plan-only ...`
+- PR gate app contours run through:
+  - `python scripts/run_surface_pr_matrix.py ...`
+- Dependency installation is profile-aware:
+  - runtime contour: `runtime-api` + `dev-test`
+  - data contour: `runtime-api` + `data-proof` + `proof-docker` + `dev-test`
+  - mixed contour: integration profile (runtime + data bundles)
+- Docker-based governed proof scripts must use shared runtime contract utilities in `scripts/proof_runtime_contract.py` for path normalization, runtime-root validation, and writable-output fail-closed checks.
+
 ## Hook runtime policy
 - Main protection is implemented in `.githooks/pre-push`.
 - Emergency override uses neutral variables:

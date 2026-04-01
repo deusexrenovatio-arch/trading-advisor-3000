@@ -22,6 +22,7 @@ REQUIRED_HARNESS_FILES = (
     "scripts/mcp_preflight_smoke.py",
     "scripts/validate_no_tracked_secrets.py",
     "scripts/run_staging_real_execution_rollout.py",
+    "scripts/run_surface_pr_matrix.py",
 )
 
 
@@ -54,6 +55,14 @@ def test_ci_workflow_resolves_explicit_diff_ranges_for_hosted_gates() -> None:
     assert "github.event.before" in workflow_text
     assert "--base-ref" in workflow_text
     assert "--head-ref" in workflow_text
+
+
+def test_ci_workflow_uses_surface_aware_profile_planning() -> None:
+    workflow_text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    assert "scripts/run_surface_pr_matrix.py" in workflow_text
+    assert "--plan-only" in workflow_text
+    assert "install_extras" in workflow_text
+    assert "--summary-file artifacts/ci/pr-gate-summary.md" in workflow_text
 
 
 def test_skill_update_decision_contract() -> None:

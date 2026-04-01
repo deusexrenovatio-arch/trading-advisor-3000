@@ -20,7 +20,9 @@ For product-plane tasks, read `docs/architecture/app/STATUS.md` before treating 
 
 ## CI lane model
 1. `loop-lane` for fast surface-aware feedback.
-2. `pr-lane` for closeout confidence and full QA matrix.
+2. `pr-lane` for closeout confidence with contour-aware dependency/test selection.
+   - planner: `python scripts/run_surface_pr_matrix.py --plan-only ...`
+   - executor: `python scripts/run_surface_pr_matrix.py ...`
 3. `nightly-lane` for hygiene, telemetry, and report generation.
 4. `dashboard-refresh` for deterministic report/dashboard rebuild.
 5. Hosted lane execution is opt-in via repository variable:
@@ -34,9 +36,10 @@ Main merge requirement:
 ## Hosted CI fallback
 If hosted runners are unavailable, replay lanes locally for acceptance evidence:
 1. `python scripts/run_loop_gate.py --skip-session-check --from-git --git-ref HEAD`
-2. `python scripts/run_pr_gate.py --skip-session-check --from-git --git-ref HEAD`
-3. `python scripts/run_nightly_gate.py --from-git --git-ref HEAD`
-4. `python scripts/build_governance_dashboard.py --output-json artifacts/governance-dashboard.json --output-md artifacts/governance-dashboard.md`
+2. `python scripts/run_surface_pr_matrix.py --plan-only --from-git --git-ref HEAD --output-json artifacts/ci/pr-surface-plan.json --summary-file artifacts/ci/pr-surface-plan.md`
+3. `python scripts/run_pr_gate.py --skip-session-check --from-git --git-ref HEAD --profile runtime-api --summary-file artifacts/ci/pr-gate-summary.md`
+4. `python scripts/run_nightly_gate.py --from-git --git-ref HEAD`
+5. `python scripts/build_governance_dashboard.py --output-json artifacts/governance-dashboard.json --output-md artifacts/governance-dashboard.md`
 
 ## Guardrails
 1. No direct main pushes by default.

@@ -31,6 +31,7 @@ The operator wants automatic progression only after an independent acceptance pa
 - Human-readable contract: `docs/codex/orchestration/acceptance-contract.md`
 - Bounded worker evidence contract: `docs/checklists/phase-evidence-contract.md`
 - Route/snapshot/profile vocabulary (H0 declaration): `docs/codex/orchestration/route-snapshot-profile-contract.md`
+- CI/proof runtime contract (H2): `docs/codex/orchestration/proof-runtime-contract.md`
 - Hard review lens skill: `.cursor/skills/phase-acceptance-governor/SKILL.md`
 - Companion skills:
   - `.cursor/skills/architecture-review/SKILL.md`
@@ -48,6 +49,12 @@ Acceptance is fail-closed.
   - loop/pr gate output now includes explicit `snapshot_mode` and `profile` markers.
   - bootstrap reuse must fail closed on session-mode mismatch instead of silently reporting a different mode than the active task session.
 - Strong fail-closed marker enforcement remains a later phase concern.
+
+## H2 CI/proof status
+
+- PR lane now resolves contour-aware profile/check plans through `scripts/run_surface_pr_matrix.py`.
+- Hosted CI emits contour/profile summary artifacts under `artifacts/ci/`.
+- Docker proof runtime normalization is shared through `scripts/proof_runtime_contract.py` and adopted by `scripts/run_phase2a_spark_proof.py`.
 
 ## Backends
 

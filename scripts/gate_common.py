@@ -137,6 +137,20 @@ def scope_validate_command(
         "scripts/validate_critical_contour_closure.py",
     )
     if not any(any(token.endswith(script_name) for token in normalized) for script_name in scoped_scripts):
+        surface_matrix_script = "scripts/run_surface_pr_matrix.py"
+        if any(token.endswith(surface_matrix_script) for token in normalized):
+            if "--base-ref" in normalized or "--head-ref" in normalized or "--changed-files" in normalized:
+                return command
+            scoped_parts = list(parts)
+            if base_sha and head_sha:
+                scoped_parts.extend(["--base-ref", base_sha, "--head-ref", head_sha])
+            elif changed_files:
+                scoped_parts.append("--stdin")
+                return CommandSpec(
+                    command=_join_command(scoped_parts),
+                    stdin_text=_stdin_payload(changed_files),
+                )
+            return _join_command(scoped_parts)
         skill_precommit = "scripts/skill_precommit_gate.py"
         if not any(token.endswith(skill_precommit) for token in normalized):
             return command

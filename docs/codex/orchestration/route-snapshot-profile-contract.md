@@ -129,3 +129,14 @@ H0 compatibility note:
 - governed bootstrap session reuse is fail-closed for mode drift: when active task-session mode and requested mode differ, bootstrap stops with an error and does not emit conflicting state.
 
 This phase is still `prep_closed` only; it does not claim real contour closure for CI/proof portability.
+
+## H2 Runtime Binding Note
+
+`H2` binds profile metadata into hosted PR execution and proof portability operations:
+
+- PR contour planner/executor: `scripts/run_surface_pr_matrix.py`;
+- CI artifacts include contour/profile plans and gate summaries under `artifacts/ci/`;
+- shared docker proof runtime contract utilities live in `scripts/proof_runtime_contract.py`;
+- `scripts/run_phase2a_spark_proof.py` now uses shared runtime-root/path/output guards.
+
+This update raises CI/proof behavior to `staging-real` for the owned contour only.

@@ -3,6 +3,8 @@ version: 1
 surface_priority:
   - contracts
   - architecture
+  - app-runtime
+  - app-data
   - app
   - skills
   - governance
@@ -30,6 +32,38 @@ surfaces:
     prefixes:
       - docs/architecture/
       - tests/architecture/
+  app-runtime:
+    prefixes:
+      - src/trading_advisor_3000/app/runtime/
+      - src/trading_advisor_3000/app/interfaces/
+      - src/trading_advisor_3000/app/execution/
+      - src/trading_advisor_3000/app/config/
+      - src/trading_advisor_3000/app/common/
+      - src/trading_advisor_3000/app/contracts/
+      - tests/app/unit/test_phase6_
+      - tests/app/unit/test_real_execution_http_transport.py
+      - tests/app/unit/test_real_execution_runtime_profile_ops.py
+      - tests/app/unit/test_real_execution_staging_gateway_deployment.py
+      - tests/app/integration/test_phase2c_
+      - tests/app/integration/test_phase2d_
+      - tests/app/integration/test_phase4_live_execution_controlled.py
+      - tests/app/integration/test_phase6_operational_hardening.py
+      - tests/process/test_run_f1d_sidecar_immutable_evidence.py
+      - tests/process/test_run_f1e_real_broker_process.py
+      - scripts/run_f1d_sidecar_immutable_evidence.py
+      - scripts/run_f1e_real_broker_process.py
+  app-data:
+    prefixes:
+      - src/trading_advisor_3000/app/data_plane/
+      - src/trading_advisor_3000/app/research/
+      - src/trading_advisor_3000/dagster_defs/
+      - src/trading_advisor_3000/spark_jobs/
+      - tests/app/unit/test_phase2a_
+      - tests/app/unit/test_phase2b_
+      - tests/app/integration/test_phase2a_
+      - tests/app/integration/test_phase2b_
+      - scripts/run_phase2a_spark_proof.py
+      - scripts/run_phase2a_dagster_proof.py
   app:
     prefixes:
       - src/trading_advisor_3000/
@@ -105,8 +139,12 @@ command_profiles:
       - "{python} -m pytest tests/architecture/test_context_coverage.py -q"
     architecture:
       - "{python} -m pytest tests/architecture -q"
+    app-runtime:
+      - "{python} scripts/run_surface_pr_matrix.py"
+    app-data:
+      - "{python} scripts/run_surface_pr_matrix.py"
     app:
-      - "{python} -m pytest tests/app -q"
+      - "{python} scripts/run_surface_pr_matrix.py"
 
   nightly:
     default:
