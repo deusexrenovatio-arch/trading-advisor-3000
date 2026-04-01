@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Reflection;
 using Microsoft.AspNetCore.Http;
 using TradingAdvisor3000.StockSharpSidecar.Runtime;
 using Xunit;
@@ -137,6 +138,50 @@ public sealed class SidecarGatewayStateTests
         Assert.Equal("connector_unreachable", outcome.Error!.ErrorCode);
     }
 
+    [Fact]
+    public void FinamSessionMode_DoesNotMasqueradeLifecycleAsRealTransport()
+    {
+        var transport = new BrokerConnectorHttpTransport(
+            connectorBaseUrl: "https://api.finam.ru",
+            apiPrefix: "v1",
+            authHeaderName: "Authorization",
+            authToken: "integration-token",
+            timeoutSeconds: 1.0,
+            expectedConnectorMode: "staging-real",
+            expectedConnectorBackend: "stocksharp-quik-finam",
+            route: "stocksharp->quik->finam"
+        );
+
+        SeedFinamReadySnapshot(
+            transport,
+            new ConnectorHealthSnapshot(
+                Route: "stocksharp->quik->finam",
+                ConnectorReady: true,
+                ConnectorMode: "staging-real",
+                ConnectorBackend: "stocksharp-quik-finam",
+                QueuedIntents: 0,
+                ConnectorSessionId: "SESSION-REAL-001",
+                ConnectorBindingSource: "finam-account:1899011",
+                ConnectorLastHeartbeat: "2026-03-31T12:00:00Z",
+                ErrorCode: null
+            )
+        );
+
+        var outcome = transport.Submit(
+            new SubmitIntentRequest
+            {
+                IntentId = "INT-FINAM-1",
+                Intent = ParseObject("{\"broker_adapter\":\"stocksharp-sidecar\",\"created_at\":\"2026-03-31T12:00:00Z\"}"),
+            },
+            idempotencyKey: "submit:INT-FINAM-1"
+        );
+
+        Assert.False(outcome.IsSuccess);
+        Assert.NotNull(outcome.Error);
+        Assert.Equal(503, outcome.StatusCode);
+        Assert.Equal("finam_lifecycle_not_bound", outcome.Error!.ErrorCode);
+    }
+
     private static SidecarGatewayState BuildState(FakeConnectorTransport connector)
     {
         return new SidecarGatewayState(
@@ -150,6 +195,24 @@ public sealed class SidecarGatewayStateTests
     {
         using var document = JsonDocument.Parse(json);
         return document.RootElement.Clone();
+    }
+
+    private static void SeedFinamReadySnapshot(BrokerConnectorHttpTransport transport, ConnectorHealthSnapshot snapshot)
+    {
+        var snapshotField = typeof(BrokerConnectorHttpTransport).GetField(
+            "_cachedFinamSnapshot",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        var snapshotAtField = typeof(BrokerConnectorHttpTransport).GetField(
+            "_cachedFinamSnapshotAt",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+
+        Assert.NotNull(snapshotField);
+        Assert.NotNull(snapshotAtField);
+
+        snapshotField!.SetValue(transport, snapshot);
+        snapshotAtField!.SetValue(transport, DateTimeOffset.UtcNow);
     }
 
     private static void SeedIntent(SidecarGatewayState state, string intentId)

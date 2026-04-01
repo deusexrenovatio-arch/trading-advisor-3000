@@ -342,6 +342,10 @@ def validate_finam_session_details(payload: dict[str, object]) -> dict[str, obje
     if not isinstance(account_ids_raw, list):
         raise RuntimeError("Finam session preflight must include account_ids array")
     account_ids = [str(item).strip() for item in account_ids_raw if str(item).strip()]
+    if readonly:
+        raise RuntimeError("Finam session preflight must expose executable trading contour (`readonly=false`)")
+    if not account_ids:
+        raise RuntimeError("Finam session preflight must include non-empty account_ids for executable binding")
     if not isinstance(md_permissions_raw, list):
         raise RuntimeError("Finam session preflight must include md_permissions array")
     md_permissions = [item for item in md_permissions_raw if isinstance(item, dict)]
@@ -706,6 +710,9 @@ def validate_smoke_payload(payload: dict[str, Any]) -> None:
         raise ValueError("smoke payload connector_session must include connector_session_id")
     if not str(connector_session.get("connector_binding_source", "")).strip():
         raise ValueError("smoke payload connector_session must include connector_binding_source")
+    connector_binding_source = str(connector_session.get("connector_binding_source", "")).strip()
+    if has_synthetic_marker(connector_binding_source) or connector_binding_source.lower().startswith("finam-session"):
+        raise ValueError("smoke payload connector_session must prove executable external binding, not stub/session-only marker")
     if not str(connector_session.get("connector_last_heartbeat", "")).strip():
         raise ValueError("smoke payload connector_session must include connector_last_heartbeat")
 
@@ -761,6 +768,15 @@ def validate_rollout_payload(payload: dict[str, Any]) -> None:
             raise ValueError(f"rollout payload missing stage `{stage_name}`")
         if str(row.get("status", "")).strip() != "ok":
             raise ValueError(f"rollout stage `{stage_name}` must be ok")
+    connectivity_details = by_stage["connectivity"].get("details")
+    if not isinstance(connectivity_details, dict):
+        raise ValueError("rollout connectivity stage must include details object")
+    connector_backend = str(connectivity_details.get("connector_backend", "")).strip()
+    if has_synthetic_marker(connector_backend):
+        raise ValueError("rollout connectivity connector_backend must not be stub/mock/synthetic")
+    connector_binding_source = str(connectivity_details.get("connector_binding_source", "")).strip()
+    if has_synthetic_marker(connector_binding_source):
+        raise ValueError("rollout connectivity connector_binding_source must not be stub/mock/synthetic")
 
     batch_details = by_stage["batch"].get("details")
     if not isinstance(batch_details, dict):

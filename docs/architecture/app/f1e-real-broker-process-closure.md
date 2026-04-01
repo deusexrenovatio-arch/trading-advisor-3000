@@ -4,28 +4,23 @@
 Move the release-blocking broker contour from planned to implemented for a governed staging-real profile using Finam-native session proof.
 
 ## Current Closure State
-0. Phase state is currently `blocked` and not promoted to implemented.
-1. Compiled sidecar process is built/tested/published in-repo (`deployment/stocksharp-sidecar`) and exercised through governed rollout on the compiled contour.
+0. Phase state is `blocked` for `staging-real` closure.
+1. Compiled sidecar process is built/tested/published in-repo (`deployment/stocksharp-sidecar`) and exercised through governed rollout.
 2. Connector + secrets requirements are versioned through:
    - `configs/broker_staging_connector_profile.v1.json`
-   - `contracts/broker_staging_connector_profile.v1.json`
-3. Governed proof route:
+   - `src/trading_advisor_3000/app/contracts/schemas/broker_staging_connector_profile.v1.json`
+3. Governed route remains:
    - `python scripts/run_f1e_real_broker_process.py --output-root artifacts/f1/phase05/real-broker-process ...`
-4. Finam-native preflight requires real JWT/session details payload (`/v1/sessions/details`) before rollout starts.
-5. Sidecar and rollout checks enforce explicit runtime connector fields:
-   - sidecar `/health` includes `connector_mode`, `connector_backend`, `connector_ready`, `connector_session_id`, `connector_binding_source`, `connector_last_heartbeat`,
-   - governed runner rejects local loopback Finam API base URLs,
-   - staging rollout evidence is produced from compiled sidecar runtime through Finam-bound transport profile.
-6. The route remains fail-closed for invalid bindings:
-   - smoke lifecycle (`boot`, `readiness`, `kill-switch`, `submit`, `replace`, `cancel`, `updates`),
-   - staging rollout with reconciliation,
-   - miswire/unavailable transport disprover and recovery replay,
-   - immutable hash manifest and commit-linked run manifest.
+4. Finam-native preflight (`/v1/sessions/details`) is enforced as a prerequisite, not as lifecycle closure.
+5. Fail-closed controls are explicit:
+   - synthetic/stub connector markers are rejected in rollout validation,
+   - executable Finam session binding requires `readonly=false` and non-empty `account_ids`,
+   - Finam session-only mode cannot masquerade submit/cancel/replace/updates/fills as real broker transport.
 
 ## Closure Rule
 The contour is promoted to `implemented` only after governed runs prove Finam-native session binding with operator-managed secrets and replayable artifacts.
 
-Successful governed evidence bundle (staging-real contour candidate):
+Observed governed evidence (insufficient for closure on its own):
 - `artifacts/f1/phase05/real-broker-process/20260331T184215Z-7a1dc827e46e/connector-preflight.json` (`status=ok`, Finam-native `/v1/sessions/details`, required session fields present)
 - `artifacts/f1/phase05/real-broker-process/20260331T184215Z-7a1dc827e46e/build.json`
 - `artifacts/f1/phase05/real-broker-process/20260331T184215Z-7a1dc827e46e/test.json`
@@ -36,16 +31,23 @@ Successful governed evidence bundle (staging-real contour candidate):
 - `artifacts/f1/phase05/real-broker-process/20260331T184215Z-7a1dc827e46e/negative-tests.json`
 - `artifacts/f1/phase05/real-broker-process/20260331T184215Z-7a1dc827e46e/hashes.json`
 - `artifacts/f1/phase05/real-broker-process/20260331T184215Z-7a1dc827e46e/manifest.json`
+- `artifacts/f1/phase05/real-broker-process/20260331T204717Z-2cfa7ca773f5/connector-preflight.json`
+- `artifacts/f1/phase05/real-broker-process/20260331T204717Z-2cfa7ca773f5/rollout.json`
+- `artifacts/f1/phase05/real-broker-process/20260331T204717Z-2cfa7ca773f5/recovery-validation.json`
+- `artifacts/f1/phase05/real-broker-process/20260331T204717Z-2cfa7ca773f5/negative-tests.json`
+- `artifacts/f1/phase05/real-broker-process/20260331T204717Z-2cfa7ca773f5/hashes.json`
+- `artifacts/f1/phase05/real-broker-process/20260331T204717Z-2cfa7ca773f5/manifest.json`
 
 Fail-closed disprover evidence (still required, not closure by itself):
 - `artifacts/f1/phase05/real-broker-process/20260331T184828Z-7a1dc827e46e/connector-preflight.json` (Finam-native `/v1/sessions/details` rejects invalid JWT and keeps the phase fail-closed)
 - `artifacts/f1/phase05/real-broker-process/20260331T184828Z-7a1dc827e46e/failure.json` (records `failure_stage=finam_session_preflight` for governed traceability)
+- `artifacts/codex/orchestration/20260331T204848Z-f1-full-closure-phase-05/attempt-01/acceptance.json` (documents current blocked verdict and remaining lifecycle boundary gap)
 
 ## Contract Surfaces
-- `contracts/broker_staging_connector_profile.v1.json`
-- `contracts/staging_rollout_report.v1.json`
-- `contracts/runtime_operational_snapshot.v1.json`
-- `contracts/real_broker_process_report.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/broker_staging_connector_profile.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/staging_rollout_report.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/runtime_operational_snapshot.v1.json`
+- `src/trading_advisor_3000/app/contracts/schemas/real_broker_process_report.v1.json`
 
 ## Non-Goals
 1. This is not a final production rollout claim.

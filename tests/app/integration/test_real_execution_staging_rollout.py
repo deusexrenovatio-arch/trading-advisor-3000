@@ -95,7 +95,7 @@ def _wait_for_health(base_url: str, *, timeout_seconds: float = 20.0) -> None:
 
 
 @contextmanager
-def _running_connector_stub() -> Iterator[str]:
+def _running_connector_stub(*, binding_source: str) -> Iterator[str]:
     port = _free_port()
     base_url = f"http://127.0.0.1:{port}"
     env = dict(os.environ)
@@ -106,7 +106,7 @@ def _running_connector_stub() -> Iterator[str]:
             "TA3000_GATEWAY_ROUTE": "stocksharp->quik->finam",
             "TA3000_CONNECTOR_MODE": "staging-real",
             "TA3000_CONNECTOR_BACKEND": "stocksharp-quik-finam",
-            "TA3000_CONNECTOR_BINDING_SOURCE": "integration-test-stub",
+            "TA3000_CONNECTOR_BINDING_SOURCE": binding_source,
             "TA3000_CONNECTOR_SESSION_ID": "integration-session-001",
         }
     )
@@ -213,7 +213,7 @@ def sidecar_binary() -> Path:
 
 
 def test_staging_rollout_script_passes_all_stages_with_compiled_sidecar(sidecar_binary: Path) -> None:
-    with _running_connector_stub() as connector_base_url:
+    with _running_connector_stub(binding_source="integration-broker-boundary") as connector_base_url:
         with _running_compiled_sidecar(sidecar_binary, connector_base_url=connector_base_url) as base_url:
             result = subprocess.run(
                 [
@@ -245,9 +245,41 @@ def test_staging_rollout_script_passes_all_stages_with_compiled_sidecar(sidecar_
             assert details["connector_backend"] == "stocksharp-quik-finam"
             assert details["connector_ready"] is True
             assert details["connector_session_id"] == "integration-session-001"
-            assert details["connector_binding_source"] == "integration-test-stub"
+            assert details["connector_binding_source"] == "integration-broker-boundary"
             assert details["connector_last_heartbeat"]
             assert details["connector_errors"] == []
+
+
+def test_staging_rollout_script_fails_closed_when_connector_binding_source_is_stub(sidecar_binary: Path) -> None:
+    with _running_connector_stub(binding_source="integration-test-stub") as connector_base_url:
+        with _running_compiled_sidecar(sidecar_binary, connector_base_url=connector_base_url) as base_url:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/run_staging_real_execution_rollout.py",
+                    "--base-url",
+                    base_url,
+                    "--stage",
+                    "all",
+                    "--batch-size",
+                    "2",
+                    "--format",
+                    "json",
+                ],
+                cwd=ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+                env=_script_env(),
+            )
+            assert result.returncode == 1, result.stdout + "\n" + result.stderr
+            payload = json.loads(result.stdout)
+            assert payload["status"] == "failed"
+            first_stage = payload["stages"][0]
+            assert first_stage["stage"] == "connectivity"
+            assert first_stage["status"] == "failed"
+            connector_errors = first_stage["details"]["connector_errors"]
+            assert "missing_or_invalid_connector_binding_source" in connector_errors
 
 
 def test_staging_rollout_script_fails_closed_with_unavailable_connector() -> None:

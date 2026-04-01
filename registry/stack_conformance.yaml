@@ -105,10 +105,20 @@ surface_claims:
   - id: real_broker_process
     status_label: StockSharp/QUIK/Finam real broker process
     claim: planned
+    runtime_proof:
+      files_all:
+        - scripts/run_f1e_real_broker_process.py
+        - docs/runbooks/app/f1e-real-broker-process-runbook.md
+        - docs/architecture/app/f1e-real-broker-process-closure.md
+        - src/trading_advisor_3000/app/contracts/schemas/real_broker_process_report.v1.json
+      tests_any:
+        - tests/process/test_run_f1e_real_broker_process.py
+        - tests/app/contracts/test_phase5_real_broker_process_contracts.py
+        - tests/app/integration/test_real_execution_staging_rollout.py
 
   - id: contracts_freeze
     status_label: Contracts freeze
-    claim: partial
+    claim: implemented
     runtime_proof:
       files_all:
         - docs/architecture/app/CONTRACT_SURFACES.md
@@ -168,15 +178,27 @@ technology_claims:
 
   - id: polars
     display_name: Polars
-    claim: planned
+    claim: removed
     spec_markers_any:
       - "| Polars | fast local dataframe compute | chosen"
+    replacement:
+      adr_required_when_removed: true
+      adr_paths_any:
+        - docs/architecture/app/product-plane-spec-v2/04_ADRs.md
+      adr_markers_any:
+        - ADR-011
 
   - id: duckdb
     display_name: DuckDB
-    claim: planned
+    claim: removed
     spec_markers_any:
       - "| DuckDB | local SQL and Delta/Parquet access | chosen"
+    replacement:
+      adr_required_when_removed: true
+      adr_paths_any:
+        - docs/architecture/app/product-plane-spec-v2/04_ADRs.md
+      adr_markers_any:
+        - ADR-011
 
   - id: postgresql
     display_name: PostgreSQL
@@ -191,9 +213,15 @@ technology_claims:
 
   - id: vectorbt
     display_name: vectorbt
-    claim: planned
+    claim: removed
     spec_markers_any:
       - "| vectorbt | backtest/research | chosen"
+    replacement:
+      adr_required_when_removed: true
+      adr_paths_any:
+        - docs/architecture/app/product-plane-spec-v2/04_ADRs.md
+      adr_markers_any:
+        - ADR-011
 
   - id: fastapi
     display_name: FastAPI
@@ -211,21 +239,39 @@ technology_claims:
 
   - id: aiogram
     display_name: aiogram
-    claim: planned
+    claim: removed
     spec_markers_any:
       - "| aiogram | Telegram integration | chosen"
+    replacement:
+      adr_required_when_removed: true
+      adr_paths_any:
+        - docs/architecture/app/product-plane-spec-v2/04_ADRs.md
+      adr_markers_any:
+        - ADR-011
 
   - id: alembic
     display_name: Alembic
-    claim: planned
+    claim: removed
     spec_markers_any:
       - "| Alembic | DB migrations | chosen"
+    replacement:
+      adr_required_when_removed: true
+      adr_paths_any:
+        - docs/architecture/app/product-plane-spec-v2/04_ADRs.md
+      adr_markers_any:
+        - ADR-011
 
   - id: opentelemetry
     display_name: OpenTelemetry
-    claim: planned
+    claim: removed
     spec_markers_any:
       - "| OpenTelemetry | tracing/metrics/log correlation | chosen"
+    replacement:
+      adr_required_when_removed: true
+      adr_paths_any:
+        - docs/architecture/app/product-plane-spec-v2/04_ADRs.md
+      adr_markers_any:
+        - ADR-011
 
   - id: dotnet_sidecar
     display_name: .NET 8

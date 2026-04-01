@@ -46,13 +46,6 @@ public sealed class BrokerConnectorHttpTransport : IBrokerConnectorTransport
     private ConnectorHealthSnapshot? _cachedFinamSnapshot;
     private DateTimeOffset _cachedFinamSnapshotAt = DateTimeOffset.MinValue;
 
-    private readonly Dictionary<string, SubmitAck> _submitCache = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, CancelAck> _cancelCache = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, ReplaceAck> _replaceCache = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, string> _externalOrderIdByIntent = new(StringComparer.Ordinal);
-    private readonly List<BrokerUpdate> _updates = new();
-    private readonly List<BrokerFill> _fills = new();
-
     public BrokerConnectorHttpTransport(
         string? connectorBaseUrl,
         string apiPrefix,
@@ -116,7 +109,7 @@ public sealed class BrokerConnectorHttpTransport : IBrokerConnectorTransport
     {
         lock (_gate)
         {
-            var queued = Math.Max(0, _externalOrderIdByIntent.Count);
+            const int queued = 0;
             var now = DateTimeOffset.UtcNow;
             if (_cachedFinamSnapshot is not null && (now - _cachedFinamSnapshotAt).TotalSeconds < _finamSessionCacheSeconds)
             {
@@ -215,79 +208,32 @@ public sealed class BrokerConnectorHttpTransport : IBrokerConnectorTransport
 
     private GatewayResult<SubmitAck> SubmitFinam(SubmitIntentRequest request, string? idempotencyKey)
     {
-        var intentId = (request.IntentId ?? "").Trim();
-        if (string.IsNullOrWhiteSpace(intentId) || request.Intent.ValueKind != JsonValueKind.Object) return GatewayResult<SubmitAck>.Fail(400, "invalid_submit_payload", "intent_id and intent object are required");
-        lock (_gate)
-        {
-            var gate = EnsureFinamReady<SubmitAck>(); if (gate is not null) return gate;
-            var key = string.IsNullOrWhiteSpace(idempotencyKey) ? intentId : idempotencyKey.Trim();
-            if (_submitCache.TryGetValue(key, out var cached)) return GatewayResult<SubmitAck>.Ok(cached);
-            var externalOrderId = StableId("finam", intentId);
-            _externalOrderIdByIntent[intentId] = externalOrderId;
-            var ack = new SubmitAck(intentId, externalOrderId, true, "stocksharp-sidecar", "submitted");
-            _submitCache[key] = ack;
-            _updates.Add(new BrokerUpdate(externalOrderId, "submitted", UtcNow(), new Dictionary<string, object?> { ["intent_id"] = intentId }));
-            return GatewayResult<SubmitAck>.Ok(ack);
-        }
+        var gate = EnsureFinamReady<SubmitAck>(); if (gate is not null) return gate;
+        return FinamLifecycleNotBound<SubmitAck>();
     }
 
     private GatewayResult<CancelAck> CancelFinam(string intentId, CancelIntentRequest request, string? idempotencyKey)
     {
-        var normalized = (intentId ?? "").Trim();
-        if (string.IsNullOrWhiteSpace(normalized)) return GatewayResult<CancelAck>.Fail(400, "invalid_cancel_payload", "intent_id path parameter is required");
-        lock (_gate)
-        {
-            var gate = EnsureFinamReady<CancelAck>(); if (gate is not null) return gate;
-            var canceledAt = string.IsNullOrWhiteSpace(request.CanceledAt) ? UtcNow() : request.CanceledAt.Trim();
-            var key = string.IsNullOrWhiteSpace(idempotencyKey) ? $"cancel:{normalized}:{canceledAt}" : idempotencyKey.Trim();
-            if (_cancelCache.TryGetValue(key, out var cached)) return GatewayResult<CancelAck>.Ok(cached);
-            if (!_externalOrderIdByIntent.TryGetValue(normalized, out var externalOrderId)) return GatewayResult<CancelAck>.Fail(404, "unknown_intent_id", $"unknown intent_id: {normalized}");
-            var ack = new CancelAck(normalized, externalOrderId, "canceled", canceledAt);
-            _cancelCache[key] = ack;
-            _updates.Add(new BrokerUpdate(externalOrderId, "canceled", canceledAt, new Dictionary<string, object?> { ["intent_id"] = normalized }));
-            return GatewayResult<CancelAck>.Ok(ack);
-        }
+        var gate = EnsureFinamReady<CancelAck>(); if (gate is not null) return gate;
+        return FinamLifecycleNotBound<CancelAck>();
     }
 
     private GatewayResult<ReplaceAck> ReplaceFinam(string intentId, ReplaceIntentRequest request, string? idempotencyKey)
     {
-        var normalized = (intentId ?? "").Trim();
-        if (string.IsNullOrWhiteSpace(normalized)) return GatewayResult<ReplaceAck>.Fail(400, "invalid_replace_payload", "intent_id path parameter is required");
-        if (!request.NewQty.HasValue || !request.NewPrice.HasValue || request.NewQty.Value <= 0 || request.NewPrice.Value <= 0) return GatewayResult<ReplaceAck>.Fail(400, "invalid_replace_payload", "new_qty/new_price must be positive");
-        lock (_gate)
-        {
-            var gate = EnsureFinamReady<ReplaceAck>(); if (gate is not null) return gate;
-            var replacedAt = string.IsNullOrWhiteSpace(request.ReplacedAt) ? UtcNow() : request.ReplacedAt.Trim();
-            var key = string.IsNullOrWhiteSpace(idempotencyKey) ? $"replace:{normalized}:{replacedAt}" : idempotencyKey.Trim();
-            if (_replaceCache.TryGetValue(key, out var cached)) return GatewayResult<ReplaceAck>.Ok(cached);
-            if (!_externalOrderIdByIntent.TryGetValue(normalized, out var externalOrderId)) return GatewayResult<ReplaceAck>.Fail(404, "unknown_intent_id", $"unknown intent_id: {normalized}");
-            var ack = new ReplaceAck(normalized, externalOrderId, "replaced", request.NewQty.Value, request.NewPrice.Value, replacedAt);
-            _replaceCache[key] = ack;
-            _updates.Add(new BrokerUpdate(externalOrderId, "replaced", replacedAt, new Dictionary<string, object?> { ["intent_id"] = normalized, ["new_qty"] = request.NewQty.Value, ["new_price"] = request.NewPrice.Value }));
-            return GatewayResult<ReplaceAck>.Ok(ack);
-        }
+        var gate = EnsureFinamReady<ReplaceAck>(); if (gate is not null) return gate;
+        return FinamLifecycleNotBound<ReplaceAck>();
     }
 
     private GatewayResult<UpdatesEnvelope> StreamUpdatesFinam(string? cursor, int? limit)
     {
-        lock (_gate)
-        {
-            var gate = EnsureFinamReady<UpdatesEnvelope>(); if (gate is not null) return gate;
-            var start = ParseCursor(cursor, _updates.Count); var safeLimit = limit.GetValueOrDefault(500); if (safeLimit <= 0) safeLimit = 500;
-            var rows = _updates.Skip(start).Take(safeLimit).ToList();
-            return GatewayResult<UpdatesEnvelope>.Ok(new UpdatesEnvelope(rows, (start + rows.Count).ToString(CultureInfo.InvariantCulture)));
-        }
+        var gate = EnsureFinamReady<UpdatesEnvelope>(); if (gate is not null) return gate;
+        return FinamLifecycleNotBound<UpdatesEnvelope>();
     }
 
     private GatewayResult<FillsEnvelope> StreamFillsFinam(string? cursor, int? limit)
     {
-        lock (_gate)
-        {
-            var gate = EnsureFinamReady<FillsEnvelope>(); if (gate is not null) return gate;
-            var start = ParseCursor(cursor, _fills.Count); var safeLimit = limit.GetValueOrDefault(500); if (safeLimit <= 0) safeLimit = 500;
-            var rows = _fills.Skip(start).Take(safeLimit).ToList();
-            return GatewayResult<FillsEnvelope>.Ok(new FillsEnvelope(rows, (start + rows.Count).ToString(CultureInfo.InvariantCulture)));
-        }
+        var gate = EnsureFinamReady<FillsEnvelope>(); if (gate is not null) return gate;
+        return FinamLifecycleNotBound<FillsEnvelope>();
     }
 
     private GatewayResult<T>? EnsureFinamReady<T>()
@@ -296,6 +242,15 @@ public sealed class BrokerConnectorHttpTransport : IBrokerConnectorTransport
         if (snapshot.ConnectorReady) return null;
         var code = string.IsNullOrWhiteSpace(snapshot.ErrorCode) ? "connector_not_ready" : snapshot.ErrorCode.Trim();
         return GatewayResult<T>.Fail(503, code, $"broker connector is not ready: {code}");
+    }
+
+    private static GatewayResult<T> FinamLifecycleNotBound<T>()
+    {
+        return GatewayResult<T>.Fail(
+            503,
+            "finam_lifecycle_not_bound",
+            "finam session preflight is readiness-only; submit/cancel/replace/updates/fills require an external connector transport boundary"
+        );
     }
 
     private ConnectorHealthSnapshot CacheAndReturn(ConnectorHealthSnapshot snapshot, DateTimeOffset at) { _cachedFinamSnapshot = snapshot; _cachedFinamSnapshotAt = at; return snapshot; }
@@ -346,7 +301,6 @@ public sealed class BrokerConnectorHttpTransport : IBrokerConnectorTransport
     private static double ReadDouble(JsonElement element, string name, double fallback) => element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value) && ((value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out var parsed)) || (value.ValueKind == JsonValueKind.String && double.TryParse(value.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out parsed))) ? parsed : fallback;
     private static IReadOnlyList<string> ReadStringList(JsonElement element, string name) => element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.Array ? Array.Empty<string>() : value.EnumerateArray().Where(i => i.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(i.GetString())).Select(i => i.GetString()!.Trim()).ToArray();
     private static object? JsonValue(JsonElement value) => value.ValueKind switch { JsonValueKind.String => value.GetString(), JsonValueKind.Number when value.TryGetInt64(out var i64) => i64, JsonValueKind.Number when value.TryGetDouble(out var dbl) => dbl, JsonValueKind.True => true, JsonValueKind.False => false, JsonValueKind.Null => null, JsonValueKind.Object => value.EnumerateObject().ToDictionary(i => i.Name, i => JsonValue(i.Value)), JsonValueKind.Array => value.EnumerateArray().Select(JsonValue).ToArray(), _ => value.ToString(), };
-    private static int ParseCursor(string? cursor, int count) { if (!int.TryParse(cursor, out var start)) start = 0; if (start < 0) start = 0; if (start > count) start = count; return start; }
     private static bool IsFinamHost(Uri? uri) { var host = uri?.Host?.Trim().ToLowerInvariant() ?? ""; return host.EndsWith("finam.ru", StringComparison.Ordinal); }
     private static string NormalizePath(string path) => path.Trim().StartsWith("/") ? path.Trim() : "/" + path.Trim();
     private static string UtcNow() => DateTimeOffset.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);

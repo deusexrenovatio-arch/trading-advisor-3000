@@ -32,6 +32,33 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+_SYNTHETIC_MARKER_TOKENS = {
+    "stub",
+    "mock",
+    "simulated",
+    "simulation",
+    "synthetic",
+    "memory",
+    "inmemory",
+    "local",
+    "dummy",
+    "fake",
+    "test",
+    "sandbox",
+}
+
+
+def _has_synthetic_marker(value: str) -> bool:
+    normalized = value.strip().lower()
+    if not normalized:
+        return True
+    compact = normalized.replace("-", "").replace("_", "").replace(".", "")
+    if compact in {"inmemory", "memory"}:
+        return True
+    tokens = {token for token in normalized.replace(".", "-").replace("_", "-").split("-") if token}
+    return bool(tokens.intersection(_SYNTHETIC_MARKER_TOKENS))
+
+
 def _env_bool(env: dict[str, str], name: str, default: bool) -> bool:
     raw = env.get(name)
     if raw is None:
@@ -186,13 +213,13 @@ def _run_connectivity_stage(
     connector_errors: list[str] = []
     if connector_mode not in {"staging-real", "real-staging", "real"}:
         connector_errors.append("missing_or_invalid_connector_mode")
-    if connector_backend in {"", "stub", "mock", "simulated", "in-memory", "memory"}:
+    if _has_synthetic_marker(connector_backend):
         connector_errors.append("missing_or_invalid_connector_backend")
     if connector_ready is not True:
         connector_errors.append("connector_not_ready")
     if not connector_session_id:
         connector_errors.append("missing_connector_session_id")
-    if connector_binding_source in {"", "stub", "mock", "simulated", "in-memory", "memory"}:
+    if _has_synthetic_marker(connector_binding_source):
         connector_errors.append("missing_or_invalid_connector_binding_source")
     if not connector_last_heartbeat:
         connector_errors.append("missing_connector_last_heartbeat")

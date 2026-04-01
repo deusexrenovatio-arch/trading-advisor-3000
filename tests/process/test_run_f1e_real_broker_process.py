@@ -118,7 +118,14 @@ def test_validate_rollout_payload_rejects_reconciliation_incidents() -> None:
     payload = {
         "status": "ok",
         "stages": [
-            {"stage": "connectivity", "status": "ok", "details": {}},
+            {
+                "stage": "connectivity",
+                "status": "ok",
+                "details": {
+                    "connector_backend": "stocksharp-quik-finam",
+                    "connector_binding_source": "integration-broker-boundary",
+                },
+            },
             {"stage": "canary", "status": "ok", "details": {}},
             {
                 "stage": "batch",
@@ -133,6 +140,34 @@ def test_validate_rollout_payload_rejects_reconciliation_incidents() -> None:
         assert "reconciliation_incidents" in str(exc)
     else:
         raise AssertionError("expected rollout validation failure")
+
+
+def test_validate_rollout_payload_rejects_stub_binding_source() -> None:
+    payload = {
+        "status": "ok",
+        "stages": [
+            {
+                "stage": "connectivity",
+                "status": "ok",
+                "details": {
+                    "connector_backend": "stocksharp-quik-finam",
+                    "connector_binding_source": "integration-test-stub",
+                },
+            },
+            {"stage": "canary", "status": "ok", "details": {}},
+            {
+                "stage": "batch",
+                "status": "ok",
+                "details": {"reconciliation_incidents": 0, "sync_incidents_delta": 0},
+            },
+        ],
+    }
+    try:
+        validate_rollout_payload(payload)
+    except ValueError as exc:
+        assert "connector_binding_source" in str(exc)
+    else:
+        raise AssertionError("expected rollout validation failure for stub binding source")
 
 
 def test_validate_miswire_failure_requires_connectivity_failed() -> None:
@@ -317,13 +352,43 @@ def test_validate_finam_session_details_requires_contract_fields() -> None:
     payload = {
         "created_at": "2026-03-31T12:00:00Z",
         "expires_at": "2026-04-01T12:00:00Z",
-        "account_ids": [],
-        "readonly": True,
+        "account_ids": ["1899011"],
+        "readonly": False,
         "md_permissions": [],
     }
     validated = validate_finam_session_details(payload)
-    assert validated["readonly"] is True
-    assert validated["account_ids"] == []
+    assert validated["readonly"] is False
+    assert validated["account_ids"] == ["1899011"]
+
+
+def test_validate_finam_session_details_rejects_readonly_or_accountless_binding() -> None:
+    readonly_payload = {
+        "created_at": "2026-03-31T12:00:00Z",
+        "expires_at": "2026-04-01T12:00:00Z",
+        "account_ids": ["1899011"],
+        "readonly": True,
+        "md_permissions": [],
+    }
+    try:
+        validate_finam_session_details(readonly_payload)
+    except RuntimeError as exc:
+        assert "readonly=false" in str(exc)
+    else:
+        raise AssertionError("expected readonly session rejection")
+
+    accountless_payload = {
+        "created_at": "2026-03-31T12:00:00Z",
+        "expires_at": "2026-04-01T12:00:00Z",
+        "account_ids": [],
+        "readonly": False,
+        "md_permissions": [],
+    }
+    try:
+        validate_finam_session_details(accountless_payload)
+    except RuntimeError as exc:
+        assert "account_ids" in str(exc)
+    else:
+        raise AssertionError("expected accountless session rejection")
 
 
 def test_hash_manifest_round_trip(tmp_path: Path) -> None:
