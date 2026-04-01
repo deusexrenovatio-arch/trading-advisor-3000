@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -24,6 +25,13 @@ SIDECAR_BINARY = PUBLISH_DIR / "TradingAdvisor3000.StockSharpSidecar.dll"
 CONNECTOR_STUB_SCRIPT = ROOT / "deployment" / "docker" / "staging-gateway" / "gateway" / "sidecar_gateway_stub.py"
 
 
+def _resolve_powershell() -> str | None:
+    for candidate in ("powershell", "pwsh"):
+        if shutil.which(candidate):
+            return candidate
+    return None
+
+
 def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
@@ -31,9 +39,13 @@ def _free_port() -> int:
 
 
 def _ensure_sidecar_binary() -> Path:
+    shell = _resolve_powershell()
+    if shell is None:
+        pytest.skip("staging rollout sidecar build requires powershell/pwsh")
+
     build = subprocess.run(
         [
-            "powershell",
+            shell,
             "-NoProfile",
             "-ExecutionPolicy",
             "Bypass",
@@ -53,7 +65,7 @@ def _ensure_sidecar_binary() -> Path:
 
     publish = subprocess.run(
         [
-            "powershell",
+            shell,
             "-NoProfile",
             "-ExecutionPolicy",
             "Bypass",
