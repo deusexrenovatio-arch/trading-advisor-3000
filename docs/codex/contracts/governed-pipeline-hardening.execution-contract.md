@@ -103,7 +103,7 @@ Updated: 2026-04-01 11:20 UTC
 - continue
 
 ## Next Allowed Unit Of Work
-- Execute H2 - CI and Proof Refactor only: Split dependency and CI execution by surface profile and enforce a portable proof-runner contract across local and hosted environments.
+- Execute H3 - Recomposition and Multi-Module Enablement only: Enable stacked follow-up continuation, machine-readable multi-module resolution, and tooling-assisted truth recomposition after split-branch merges.
 ## Suggested Branch / PR
 
 - Branch: codex/governed-pipeline-hardening-phase-plan
