@@ -15,8 +15,8 @@ Updated: 2026-04-01 10:29 UTC
 ## Solution Intent
 - Solution Class: staged
 - Critical Contour: runtime-publication-closure
-- Forbidden Shortcuts: no synthetic publication claims, no fake broker closure, no checklist-only acceptance
-- Closure Evidence: scoped deny package plus non-broker test stability (`294 passed`) and explicit deferred broker-profile list
+- Forbidden Shortcuts: synthetic publication, smoke only, scaffold-only
+- Closure Evidence: staged runtime output and durable store validation are stable in this cycle; publication contour is covered for non-broker scope; end-to-end publication with real broker execution profile remains deferred
 - Shortcut Waiver: none
 
 ## Current Delta
