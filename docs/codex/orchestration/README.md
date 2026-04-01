@@ -30,6 +30,7 @@ The operator wants automatic progression only after an independent acceptance pa
 
 - Human-readable contract: `docs/codex/orchestration/acceptance-contract.md`
 - Bounded worker evidence contract: `docs/checklists/phase-evidence-contract.md`
+- Route/snapshot/profile vocabulary (H0 declaration): `docs/codex/orchestration/route-snapshot-profile-contract.md`
 - Hard review lens skill: `.cursor/skills/phase-acceptance-governor/SKILL.md`
 - Companion skills:
   - `.cursor/skills/architecture-review/SKILL.md`
@@ -38,6 +39,12 @@ The operator wants automatic progression only after an independent acceptance pa
 
 Acceptance is fail-closed.
 `PASS` is not allowed when unresolved quality debt is only being "recorded".
+
+## H0 contract vocabulary status
+
+`H0` introduces explicit route/snapshot/profile/session terms as contracts only.
+This does not switch launcher, gate, or validator behavior yet.
+Behavior-changing enforcement stays in later phases.
 
 ## Backends
 

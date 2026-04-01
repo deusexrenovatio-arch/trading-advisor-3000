@@ -103,9 +103,7 @@ Updated: 2026-04-01 11:20 UTC
 - continue
 
 ## Next Allowed Unit Of Work
-
-- Activate this module explicitly after current active-module obligations are cleared, then execute `H0 - Contract Introduction` only.
-
+- Execute H1 - Dual-Mode Operation only: Keep old commands operational while introducing new route and session modes, and expose snapshot/profile metadata in validator reporting.
 ## Suggested Branch / PR
 
 - Branch: codex/governed-pipeline-hardening-phase-plan

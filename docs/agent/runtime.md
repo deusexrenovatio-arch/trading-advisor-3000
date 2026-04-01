@@ -42,6 +42,11 @@ Do not reintroduce shell-only wrapper flows as primary control paths.
   - `remediation` when blocked
   - `unlock` only after `PASS`
 
+## Route vocabulary contract
+- Canonical declaration: `docs/codex/orchestration/route-snapshot-profile-contract.md`
+- H0 status: contract terms are declared for route, snapshot, profile, and session lifecycle boundaries.
+- H0 limitation: this declaration does not switch runtime behavior or validator enforcement yet.
+
 ## Hook runtime policy
 - Main protection is implemented in `.githooks/pre-push`.
 - Emergency override uses neutral variables:
