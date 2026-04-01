@@ -357,12 +357,19 @@ def test_orchestrator_binds_stacked_followup_contract_into_worker_prompt_and_sta
     tmp_path: Path,
 ) -> None:
     contract, parent = _module_fixture(tmp_path)
+    phase = tmp_path / "docs/codex/modules/demo.phase-01.md"
     continuation_contract = tmp_path / ".runlogs/codex-governed-entry/followup.json"
     _write(
         continuation_contract,
         json.dumps(
             {
                 "route": "stacked-followup",
+                "module": {
+                    "slug": "demo",
+                    "execution_contract": contract.as_posix(),
+                    "parent_brief": parent.as_posix(),
+                    "current_phase": phase.as_posix(),
+                },
                 "predecessor_merge_context": {
                     "ref": "merge-123",
                     "resolved_sha": "sha-merge-123",
@@ -405,6 +412,61 @@ def test_orchestrator_binds_stacked_followup_contract_into_worker_prompt_and_sta
     ).read_text(encoding="utf-8")
     assert "Entry Route: stacked-followup" in worker_prompt
     assert f"Continuation Contract: {continuation_contract.as_posix()}" in worker_prompt
+
+
+def test_orchestrator_fails_closed_when_stacked_followup_contract_module_binding_mismatches(
+    tmp_path: Path,
+) -> None:
+    contract, parent = _module_fixture(tmp_path)
+    continuation_contract = tmp_path / ".runlogs/codex-governed-entry/followup.json"
+    _write(
+        continuation_contract,
+        json.dumps(
+            {
+                "route": "stacked-followup",
+                "module": {
+                    "slug": "other",
+                    "execution_contract": (tmp_path / "docs/codex/contracts/other.execution-contract.md").as_posix(),
+                    "parent_brief": (tmp_path / "docs/codex/modules/other.parent.md").as_posix(),
+                    "current_phase": (tmp_path / "docs/codex/modules/other.phase-01.md").as_posix(),
+                },
+                "predecessor_merge_context": {
+                    "ref": "merge-123",
+                    "resolved_sha": "sha-merge-123",
+                    "merged_into_new_base": True,
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+    )
+
+    try:
+        orchestrate_current_phase(
+            repo_root=tmp_path,
+            execution_contract_path=contract,
+            parent_path=parent,
+            worker_prompt_path=tmp_path / "docs/codex/prompts/phases/worker.md",
+            acceptor_prompt_path=tmp_path / "docs/codex/prompts/phases/acceptor.md",
+            remediation_prompt_path=tmp_path / "docs/codex/prompts/phases/remediation.md",
+            artifact_root=tmp_path / "artifacts/codex/orchestration",
+            backend="simulate",
+            worker_launch=_launch("gpt-5.3-codex"),
+            acceptor_launch=_launch("gpt-5.4"),
+            remediation_launch=_launch("gpt-5.3-codex"),
+            codex_bin=None,
+            simulate_scenario="pass",
+            max_remediation_cycles=0,
+            ignore_globs=(),
+            skip_clean_check=True,
+            entry_route="stacked-followup",
+            continuation_contract_path=continuation_contract,
+        )
+    except OrchestratorError as exc:
+        assert "execution contract mismatch" in str(exc)
+    else:
+        raise AssertionError("expected mismatched module binding to fail closed")
 
 
 def test_orchestrator_fails_closed_when_required_acceptor_skill_is_missing(tmp_path: Path) -> None:

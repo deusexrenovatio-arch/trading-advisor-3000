@@ -63,7 +63,7 @@ Acceptance is fail-closed.
   - `.runlogs/codex-governed-entry/module-ambiguity-report.json`
 - Stacked follow-up continuation contract artifact is emitted by default:
   - `.runlogs/codex-governed-entry/stacked-followup-contract.json`
-- Stacked follow-up continuation contract is now forwarded into orchestrator preflight/worker execution and recorded in orchestration state metadata.
+- Stacked follow-up continuation contract is forwarded into orchestrator preflight/worker execution, recorded in orchestration state metadata, and validated fail-closed against the selected execution contract + parent brief.
 - Truth recomposition helper/validator is available:
   - `scripts/truth_recomposition.py build`
   - `scripts/truth_recomposition.py validate`

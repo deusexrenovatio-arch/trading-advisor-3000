@@ -332,7 +332,13 @@ def normalize_entry_route(raw: str) -> str:
     raise OrchestratorError("entry route must be one of continue|stacked-followup")
 
 
-def validate_continuation_contract(path: Path) -> None:
+def validate_continuation_contract(
+    path: Path,
+    *,
+    repo_root: Path,
+    execution_contract_path: Path,
+    parent_path: Path,
+) -> None:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
@@ -352,6 +358,56 @@ def validate_continuation_contract(path: Path) -> None:
         raise OrchestratorError(
             "continuation contract does not confirm merged predecessor context; "
             f"cannot run stacked-followup orchestration ({path.as_posix()})"
+        )
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        raise OrchestratorError(
+            "continuation contract is missing `module` binding; expected execution contract and parent brief "
+            f"for {path.as_posix()}"
+        )
+    declared_execution = str(module.get("execution_contract", "")).strip()
+    declared_parent = str(module.get("parent_brief", "")).strip()
+    if not declared_execution or not declared_parent:
+        raise OrchestratorError(
+            "continuation contract module binding is incomplete; "
+            f"expected `execution_contract` and `parent_brief` in {path.as_posix()}"
+        )
+    declared_execution_path = resolve_path(repo_root, declared_execution)
+    declared_parent_path = resolve_path(repo_root, declared_parent)
+    expected_execution_path = execution_contract_path.resolve()
+    expected_parent_path = parent_path.resolve()
+    if declared_execution_path != expected_execution_path:
+        raise OrchestratorError(
+            "continuation contract execution contract mismatch; "
+            f"expected {expected_execution_path.as_posix()} but got {declared_execution_path.as_posix()}"
+        )
+    if declared_parent_path != expected_parent_path:
+        raise OrchestratorError(
+            "continuation contract parent brief mismatch; "
+            f"expected {expected_parent_path.as_posix()} but got {declared_parent_path.as_posix()}"
+        )
+
+
+def validate_entry_route_contract(
+    *,
+    entry_route: str,
+    continuation_contract_path: Path | None,
+    repo_root: Path,
+    execution_contract_path: Path,
+    parent_path: Path,
+) -> None:
+    if entry_route == STACKED_FOLLOWUP_ROUTE:
+        if continuation_contract_path is None:
+            raise OrchestratorError("stacked-followup entry route requires --continuation-contract")
+        validate_continuation_contract(
+            continuation_contract_path,
+            repo_root=repo_root,
+            execution_contract_path=execution_contract_path,
+            parent_path=parent_path,
+        )
+    elif continuation_contract_path is not None:
+        raise OrchestratorError(
+            "--continuation-contract is only valid when --entry-route stacked-followup"
         )
 
 
@@ -700,6 +756,13 @@ def orchestrate_current_phase(
     phase_path = resolve_current_phase(repo_root, parent_path)
     if phase_status_from_brief(phase_path) == "completed":
         raise OrchestratorError(f"phase already completed: {phase_path.as_posix()}")
+    validate_entry_route_contract(
+        entry_route=entry_route,
+        continuation_contract_path=continuation_contract_path,
+        repo_root=repo_root,
+        execution_contract_path=execution_contract_path,
+        parent_path=parent_path,
+    )
 
     if not skip_clean_check:
         ensure_clean_worktree(repo_root, ignore_globs)
@@ -956,6 +1019,13 @@ def run_preflight(
     continuation_contract_path: Path | None = None,
 ) -> int:
     phase_path = resolve_current_phase(repo_root, parent_path)
+    validate_entry_route_contract(
+        entry_route=entry_route,
+        continuation_contract_path=continuation_contract_path,
+        repo_root=repo_root,
+        execution_contract_path=execution_contract_path,
+        parent_path=parent_path,
+    )
     phase_name = phase_name_from_brief(phase_path)
     phase_status = phase_status_from_brief(phase_path)
     print(f"execution_contract: {execution_contract_path.as_posix()}")
@@ -1096,23 +1166,16 @@ def main(argv: list[str] | None = None) -> int:
     except OrchestratorError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    if entry_route == STACKED_FOLLOWUP_ROUTE:
-        if continuation_contract_path is None:
-            print(
-                "error: stacked-followup entry route requires --continuation-contract",
-                file=sys.stderr,
-            )
-            return 2
-        try:
-            validate_continuation_contract(continuation_contract_path)
-        except OrchestratorError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            return 2
-    elif continuation_contract_path is not None:
-        print(
-            "error: --continuation-contract is only valid when --entry-route stacked-followup",
-            file=sys.stderr,
+    try:
+        validate_entry_route_contract(
+            entry_route=entry_route,
+            continuation_contract_path=continuation_contract_path,
+            repo_root=repo_root,
+            execution_contract_path=execution_contract_path,
+            parent_path=parent_path,
         )
+    except OrchestratorError as exc:
+        print(f"error: {exc}", file=sys.stderr)
         return 2
 
     if args.command == "preflight":

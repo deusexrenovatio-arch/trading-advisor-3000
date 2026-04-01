@@ -95,6 +95,10 @@ Example:
 - Stacked follow-up route emits continuation contract artifact by default:
   - `.runlogs/codex-governed-entry/stacked-followup-contract.json`
 - When `--route stacked-followup` executes (not dry-run), the continuation contract is forwarded into orchestrator preflight/worker flow and persisted in orchestration state for route traceability.
+- Orchestrator route validation is fail-closed for stacked follow-up contracts:
+  - contract route must be `stacked-followup`;
+  - predecessor context must confirm merged ancestor state;
+  - contract module binding must match the active execution contract and parent brief.
 - Truth recomposition helper/validator:
   - `python scripts/truth_recomposition.py build --followup-contract <path> --merged-surface <surface> --candidate-surface <surface> --output <path>`
   - `python scripts/truth_recomposition.py validate --report <path>`

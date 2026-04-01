@@ -156,6 +156,7 @@ This update raises CI/proof behavior to `staging-real` for the owned contour onl
   - `.runlogs/codex-governed-entry/module-ambiguity-report.json`
 - stacked follow-up route emits machine-readable continuation contract artifact:
   - `.runlogs/codex-governed-entry/stacked-followup-contract.json`
+- orchestrator validates stacked follow-up continuation contracts fail-closed against route type, merged predecessor context, and module binding (`execution_contract` + `parent_brief`);
 - truth recomposition helper/validator scripts are available:
   - `scripts/truth_recomposition.py build`
   - `scripts/truth_recomposition.py validate`

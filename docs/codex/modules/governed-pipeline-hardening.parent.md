@@ -55,4 +55,4 @@ Updated: 2026-04-01 11:32 UTC
 - Enforcement changes may reveal hidden compatibility debt in legacy wrappers.
 
 ## Next Phase To Execute
-- docs/codex/modules/governed-pipeline-hardening.phase-04.md
+- docs/codex/modules/governed-pipeline-hardening.phase-05.md

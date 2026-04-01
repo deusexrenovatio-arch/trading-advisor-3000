@@ -103,7 +103,7 @@ Updated: 2026-04-01 11:20 UTC
 - continue
 
 ## Next Allowed Unit Of Work
-- Execute H3 - Recomposition and Multi-Module Enablement only: Enable stacked follow-up continuation, machine-readable multi-module resolution, and tooling-assisted truth recomposition after split-branch merges.
+- Execute H4 - Enforcement Upgrade only: Deprecate implicit legacy behavior, require explicit snapshot/profile markers for policy-critical decisions, and enforce serialized git mutations for governed writes.
 ## Suggested Branch / PR
 
 - Branch: codex/governed-pipeline-hardening-phase-plan
