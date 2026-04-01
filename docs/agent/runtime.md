@@ -32,11 +32,12 @@ Do not reintroduce shell-only wrapper flows as primary control paths.
 - `python scripts/codex_governed_entry.py auto`
 - `python scripts/codex_governed_entry.py package --package-path <zip>`
 - `python scripts/codex_governed_entry.py continue --execution-contract <path> --parent-brief <path>`
+- `python scripts/codex_governed_entry.py --route stacked-followup --execution-contract <path> --parent-brief <path> --predecessor-ref <merged-ref> --source-branch <split-branch> --new-base-ref origin/main --carry-surface <surface>`
 
 ## Governed route policy
 - If the operator asks to take a package, continue a current module, or resume a governed phase, use `scripts/codex_governed_entry.py` first.
 - A plain chat response without the governed launcher does not count as a valid governed run.
-- For `continue`, the valid path is the orchestrator route:
+- For `continue` and `stacked-followup`, the valid path is the orchestrator route:
   - `worker`
   - `acceptance`
   - `remediation` when blocked
@@ -50,7 +51,7 @@ Do not reintroduce shell-only wrapper flows as primary control paths.
 ## Dual-Mode Route/Session Semantics (H1)
 - Governed entry now accepts dual-mode route/session metadata while keeping legacy invocation paths operational.
 - Route mode:
-  - `legacy` / `legacy-wrapper` keeps compatibility wrappers (including positional `auto|package|continue` aliases).
+  - `legacy` / `legacy-wrapper` keeps compatibility wrappers (including positional `auto|package|continue|stacked-followup` aliases).
   - `explicit` / `explicit-dual-mode` requires flag-based route invocation (`--route <value>`) and fails closed on positional alias use.
 - Session mode:
   - `legacy-full` keeps existing lifecycle behavior.
@@ -79,6 +80,24 @@ Example:
   - data contour: `runtime-api` + `data-proof` + `proof-docker` + `dev-test`
   - mixed contour: integration profile (runtime + data bundles)
 - Docker-based governed proof scripts must use shared runtime contract utilities in `scripts/proof_runtime_contract.py` for path normalization, runtime-root validation, and writable-output fail-closed checks.
+
+## Stacked Follow-Up / Recomposition (H3)
+- Governed entry supports `--route stacked-followup` with explicit merge context and base contract fields:
+  - `--predecessor-ref`
+  - `--source-branch`
+  - `--new-base-ref`
+  - `--carry-surface`
+  - optional `--temporary-downgrade-surface`
+- Multi-module continuation now supports:
+  - explicit `--module-slug <slug>`;
+  - explicit `--module-priority phase-order|slug-lexical`;
+  - machine-readable ambiguity report artifact when unresolved: `.runlogs/codex-governed-entry/module-ambiguity-report.json`.
+- Stacked follow-up route emits continuation contract artifact by default:
+  - `.runlogs/codex-governed-entry/stacked-followup-contract.json`
+- When `--route stacked-followup` executes (not dry-run), the continuation contract is forwarded into orchestrator preflight/worker flow and persisted in orchestration state for route traceability.
+- Truth recomposition helper/validator:
+  - `python scripts/truth_recomposition.py build --followup-contract <path> --merged-surface <surface> --candidate-surface <surface> --output <path>`
+  - `python scripts/truth_recomposition.py validate --report <path>`
 
 ## Hook runtime policy
 - Main protection is implemented in `.githooks/pre-push`.

@@ -45,6 +45,7 @@ DEFAULT_ARTIFACT_ROOT = Path("artifacts/codex/orchestration")
 DEFAULT_WORKER_PROMPT = Path("docs/codex/prompts/phases/worker.md")
 DEFAULT_ACCEPTOR_PROMPT = Path("docs/codex/prompts/phases/acceptor.md")
 DEFAULT_REMEDIATION_PROMPT = Path("docs/codex/prompts/phases/remediation.md")
+STACKED_FOLLOWUP_ROUTE = "stacked-followup"
 DEFAULT_IGNORE_GLOBS = (
     ".runlogs/**",
     "artifacts/**",
@@ -322,6 +323,38 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def normalize_entry_route(raw: str) -> str:
+    value = str(raw or "").strip().lower()
+    if value in {"", "continue"}:
+        return "continue"
+    if value == STACKED_FOLLOWUP_ROUTE:
+        return STACKED_FOLLOWUP_ROUTE
+    raise OrchestratorError("entry route must be one of continue|stacked-followup")
+
+
+def validate_continuation_contract(path: Path) -> None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise OrchestratorError(f"continuation contract not found: {path.as_posix()}") from exc
+    except json.JSONDecodeError as exc:
+        raise OrchestratorError(f"continuation contract is not valid json: {path.as_posix()} ({exc})") from exc
+
+    if not isinstance(payload, dict):
+        raise OrchestratorError(f"continuation contract root must be an object: {path.as_posix()}")
+    if str(payload.get("route", "")).strip() != STACKED_FOLLOWUP_ROUTE:
+        raise OrchestratorError(
+            "continuation contract route mismatch; expected `stacked-followup` in "
+            f"{path.as_posix()}"
+        )
+    predecessor = payload.get("predecessor_merge_context")
+    if not isinstance(predecessor, dict) or not bool(predecessor.get("merged_into_new_base", False)):
+        raise OrchestratorError(
+            "continuation contract does not confirm merged predecessor context; "
+            f"cannot run stacked-followup orchestration ({path.as_posix()})"
+        )
+
+
 def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -388,9 +421,12 @@ def build_worker_prompt(
     phase_path: Path,
     attempt: int,
     remediation_blockers_path: Path | None,
+    entry_route: str = "continue",
+    continuation_contract_path: Path | None = None,
 ) -> str:
     base = read_text(template_path).rstrip()
     blockers = remediation_blockers_path.as_posix() if remediation_blockers_path else "NONE"
+    continuation_contract = continuation_contract_path.as_posix() if continuation_contract_path else "NONE"
     return (
         f"{base}\n\n"
         "Route Guardrails:\n"
@@ -398,6 +434,8 @@ def build_worker_prompt(
         f"Execution Contract: {execution_contract_path.as_posix()}\n"
         f"Module Parent Brief: {parent_path.as_posix()}\n"
         f"Phase Brief: {phase_path.as_posix()}\n"
+        f"Entry Route: {entry_route}\n"
+        f"Continuation Contract: {continuation_contract}\n"
         f"Attempt Number: {attempt}\n"
         f"Remediation Blockers: {blockers}\n"
     )
@@ -656,6 +694,8 @@ def orchestrate_current_phase(
     max_remediation_cycles: int,
     ignore_globs: tuple[str, ...],
     skip_clean_check: bool,
+    entry_route: str = "continue",
+    continuation_contract_path: Path | None = None,
 ) -> tuple[int, Path]:
     phase_path = resolve_current_phase(repo_root, parent_path)
     if phase_status_from_brief(phase_path) == "completed":
@@ -696,6 +736,8 @@ def orchestrate_current_phase(
             phase_path=phase_path,
             attempt=attempt,
             remediation_blockers_path=blockers_path,
+            entry_route=entry_route,
+            continuation_contract_path=continuation_contract_path,
         )
         worker_prompt_file = attempt_dir / f"{kind}-prompt.md"
         worker_last_message = attempt_dir / f"{kind}-last-message.txt"
@@ -815,6 +857,10 @@ def orchestrate_current_phase(
             role_configs=role_configs,
             role_skill_bindings=role_skill_bindings,
         )
+        interim_state["entry_route"] = entry_route
+        interim_state["continuation_contract_path"] = (
+            continuation_contract_path.as_posix() if continuation_contract_path else None
+        )
         interim_state["current_attempt"] = attempt
         write_state_and_route_report(
             state_path=state_path,
@@ -852,6 +898,10 @@ def orchestrate_current_phase(
         next_phase=parent_next_phase(parent_path),
         role_configs=role_configs,
         role_skill_bindings=role_skill_bindings,
+    )
+    final_state["entry_route"] = entry_route
+    final_state["continuation_contract_path"] = (
+        continuation_contract_path.as_posix() if continuation_contract_path else None
     )
     write_state_and_route_report(
         state_path=state_path,
@@ -902,6 +952,8 @@ def run_preflight(
     codex_bin: str | None,
     ignore_globs: tuple[str, ...],
     skip_clean_check: bool,
+    entry_route: str = "continue",
+    continuation_contract_path: Path | None = None,
 ) -> int:
     phase_path = resolve_current_phase(repo_root, parent_path)
     phase_name = phase_name_from_brief(phase_path)
@@ -912,6 +964,11 @@ def run_preflight(
     print(f"current_phase_name: {phase_name}")
     print(f"current_phase_status: {phase_status}")
     print(f"route_mode: {ROUTE_MODE}")
+    print(f"entry_route: {entry_route}")
+    print(
+        "continuation_contract_path: "
+        + (continuation_contract_path.as_posix() if continuation_contract_path else "none")
+    )
     print(f"route_guardrails: {', '.join(ROUTE_GUARDRAILS)}")
     print_role_launches(worker_launch, acceptor_launch, remediation_launch)
     if backend == "codex-cli":
@@ -946,6 +1003,8 @@ def build_parser() -> argparse.ArgumentParser:
     def add_common(target: argparse.ArgumentParser) -> None:
         target.add_argument("--execution-contract", required=True)
         target.add_argument("--parent-brief", required=True)
+        target.add_argument("--entry-route", default="continue")
+        target.add_argument("--continuation-contract", default=None)
         target.add_argument("--backend", choices=("simulate", "codex-cli"), default="simulate")
         target.add_argument("--profile", default="")
         target.add_argument("--codex-bin", default=None)
@@ -1023,12 +1082,38 @@ def main(argv: list[str] | None = None) -> int:
 
     execution_contract_path = resolve_path(repo_root, args.execution_contract)
     parent_path = resolve_path(repo_root, args.parent_brief)
+    continuation_contract_path = (
+        resolve_path(repo_root, args.continuation_contract) if args.continuation_contract else None
+    )
     artifact_root = resolve_path(repo_root, args.artifact_root)
     worker_prompt_path = resolve_path(repo_root, args.worker_prompt_file)
     acceptor_prompt_path = resolve_path(repo_root, args.acceptor_prompt_file)
     remediation_prompt_path = resolve_path(repo_root, args.remediation_prompt_file)
     ignore_globs = tuple([*DEFAULT_IGNORE_GLOBS, *list(args.ignore_glob)])
     worker_launch, acceptor_launch, remediation_launch = build_role_launches(args)
+    try:
+        entry_route = normalize_entry_route(str(getattr(args, "entry_route", "")))
+    except OrchestratorError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if entry_route == STACKED_FOLLOWUP_ROUTE:
+        if continuation_contract_path is None:
+            print(
+                "error: stacked-followup entry route requires --continuation-contract",
+                file=sys.stderr,
+            )
+            return 2
+        try:
+            validate_continuation_contract(continuation_contract_path)
+        except OrchestratorError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+    elif continuation_contract_path is not None:
+        print(
+            "error: --continuation-contract is only valid when --entry-route stacked-followup",
+            file=sys.stderr,
+        )
+        return 2
 
     if args.command == "preflight":
         return run_preflight(
@@ -1042,6 +1127,8 @@ def main(argv: list[str] | None = None) -> int:
             codex_bin=args.codex_bin,
             ignore_globs=ignore_globs,
             skip_clean_check=bool(args.skip_clean_check),
+            entry_route=entry_route,
+            continuation_contract_path=continuation_contract_path,
         )
 
     try:
@@ -1062,6 +1149,8 @@ def main(argv: list[str] | None = None) -> int:
             max_remediation_cycles=max(int(args.max_remediation_cycles), 0),
             ignore_globs=ignore_globs,
             skip_clean_check=bool(args.skip_clean_check),
+            entry_route=entry_route,
+            continuation_contract_path=continuation_contract_path,
         )
     except OrchestratorError as exc:
         print(f"error: {exc}", file=sys.stderr)

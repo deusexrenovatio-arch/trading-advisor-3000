@@ -353,6 +353,60 @@ def test_skip_clean_check_uses_worker_files_for_changed_files_snapshot(monkeypat
     assert changed_files_payload["changed_files"] == ["docs/example.md", "scripts/example.py"]
 
 
+def test_orchestrator_binds_stacked_followup_contract_into_worker_prompt_and_state(
+    tmp_path: Path,
+) -> None:
+    contract, parent = _module_fixture(tmp_path)
+    continuation_contract = tmp_path / ".runlogs/codex-governed-entry/followup.json"
+    _write(
+        continuation_contract,
+        json.dumps(
+            {
+                "route": "stacked-followup",
+                "predecessor_merge_context": {
+                    "ref": "merge-123",
+                    "resolved_sha": "sha-merge-123",
+                    "merged_into_new_base": True,
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+    )
+
+    code, state_path = orchestrate_current_phase(
+        repo_root=tmp_path,
+        execution_contract_path=contract,
+        parent_path=parent,
+        worker_prompt_path=tmp_path / "docs/codex/prompts/phases/worker.md",
+        acceptor_prompt_path=tmp_path / "docs/codex/prompts/phases/acceptor.md",
+        remediation_prompt_path=tmp_path / "docs/codex/prompts/phases/remediation.md",
+        artifact_root=tmp_path / "artifacts/codex/orchestration",
+        backend="simulate",
+        worker_launch=_launch("gpt-5.3-codex"),
+        acceptor_launch=_launch("gpt-5.4"),
+        remediation_launch=_launch("gpt-5.3-codex"),
+        codex_bin=None,
+        simulate_scenario="pass",
+        max_remediation_cycles=0,
+        ignore_globs=(),
+        skip_clean_check=True,
+        entry_route="stacked-followup",
+        continuation_contract_path=continuation_contract,
+    )
+
+    assert code == 0
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert payload["entry_route"] == "stacked-followup"
+    assert payload["continuation_contract_path"] == continuation_contract.as_posix()
+    worker_prompt = (
+        tmp_path / "artifacts/codex/orchestration" / payload["run_id"] / "attempt-01" / "worker-prompt.md"
+    ).read_text(encoding="utf-8")
+    assert "Entry Route: stacked-followup" in worker_prompt
+    assert f"Continuation Contract: {continuation_contract.as_posix()}" in worker_prompt
+
+
 def test_orchestrator_fails_closed_when_required_acceptor_skill_is_missing(tmp_path: Path) -> None:
     contract = tmp_path / "docs/codex/contracts/demo.execution-contract.md"
     parent = tmp_path / "docs/codex/modules/demo.parent.md"

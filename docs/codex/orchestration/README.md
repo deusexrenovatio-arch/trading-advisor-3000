@@ -56,6 +56,18 @@ Acceptance is fail-closed.
 - Hosted CI emits contour/profile summary artifacts under `artifacts/ci/`.
 - Docker proof runtime normalization is shared through `scripts/proof_runtime_contract.py` and adopted by `scripts/run_phase2a_spark_proof.py`.
 
+## H3 stacked follow-up / recomposition status
+
+- Governed entry supports `--route stacked-followup` with explicit predecessor merge context and new base contract.
+- Multi-module ambiguity now emits machine-readable resolution artifact before fail-closed exit:
+  - `.runlogs/codex-governed-entry/module-ambiguity-report.json`
+- Stacked follow-up continuation contract artifact is emitted by default:
+  - `.runlogs/codex-governed-entry/stacked-followup-contract.json`
+- Stacked follow-up continuation contract is now forwarded into orchestrator preflight/worker execution and recorded in orchestration state metadata.
+- Truth recomposition helper/validator is available:
+  - `scripts/truth_recomposition.py build`
+  - `scripts/truth_recomposition.py validate`
+
 ## Backends
 
 The orchestrator supports pluggable backends.
@@ -102,6 +114,16 @@ python scripts/codex_governed_bootstrap.py --request "continue governed module" 
 
 ```bash
 python scripts/codex_governed_entry.py auto
+```
+
+```bash
+python scripts/codex_governed_entry.py --route stacked-followup \
+  --execution-contract docs/codex/contracts/plan-tech.execution-contract.md \
+  --parent-brief docs/codex/modules/plan-tech.parent.md \
+  --predecessor-ref <merged-ref> \
+  --source-branch <split-branch> \
+  --new-base-ref origin/main \
+  --carry-surface <surface>
 ```
 
 ```bash

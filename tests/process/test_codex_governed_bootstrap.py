@@ -331,6 +331,59 @@ def test_bootstrap_forwards_explicit_profile_when_requested(
     assert forwarded[profile_index + 1] == "deep"
 
 
+def test_bootstrap_forwards_stacked_followup_contract_arguments(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(bootstrap, "resolve_repo_root", lambda: tmp_path)
+    monkeypatch.setattr(
+        bootstrap,
+        "ensure_active_session",
+        lambda repo_root, request, session_mode: {"action": "reused", "message": "ok", "payload": {}},
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_entry(argv: list[str]) -> int:
+        captured["argv"] = list(argv)
+        return 0
+
+    monkeypatch.setattr(bootstrap, "governed_entry_main", fake_entry)
+
+    code = bootstrap.main(
+        [
+            "--request",
+            "continue stacked follow-up",
+            "--route",
+            "stacked-followup",
+            "--execution-contract",
+            "docs/codex/contracts/demo.execution-contract.md",
+            "--parent-brief",
+            "docs/codex/modules/demo.parent.md",
+            "--module-slug",
+            "demo",
+            "--predecessor-ref",
+            "merge-123",
+            "--source-branch",
+            "feature/split-contour",
+            "--new-base-ref",
+            "origin/main",
+            "--carry-surface",
+            "runtime_api",
+            "--temporary-downgrade-surface",
+            "legacy_truth_patch",
+            "--dry-run",
+        ]
+    )
+
+    assert code == 0
+    forwarded = captured["argv"]
+    assert "--route" in forwarded and "stacked-followup" in forwarded
+    assert "--predecessor-ref" in forwarded and "merge-123" in forwarded
+    assert "--source-branch" in forwarded and "feature/split-contour" in forwarded
+    assert "--carry-surface" in forwarded and "runtime_api" in forwarded
+    assert "--temporary-downgrade-surface" in forwarded and "legacy_truth_patch" in forwarded
+
+
 def test_ensure_active_session_checks_repo_specific_lock(monkeypatch, tmp_path: Path) -> None:
     expected_lock = tmp_path / ".runlogs/task-session/session-lock.json"
     payload = {"session_id": "TS-demo"}

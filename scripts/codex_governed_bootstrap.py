@@ -13,6 +13,7 @@ from typing import Any
 
 from codex_governed_entry import (
     GovernedEntryError,
+    STACKED_FOLLOWUP_ROUTE,
     main as governed_entry_main,
     normalize_entry_route_mode,
     normalize_snapshot_mode,
@@ -99,13 +100,26 @@ def write_bootstrap_state(path: Path, payload: dict[str, Any]) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Start task session and governed Codex route in one step.")
     parser.add_argument("--request", required=True)
-    parser.add_argument("--route", choices=("auto", "package", "continue"), default="auto")
+    parser.add_argument(
+        "--route",
+        choices=("auto", "package", "continue", STACKED_FOLLOWUP_ROUTE),
+        default="auto",
+    )
     parser.add_argument("--route-mode", default="legacy")
     parser.add_argument("--session-mode", default="legacy-full")
     parser.add_argument("--snapshot-mode", default="route-report")
     parser.add_argument("--package-path", default=None)
     parser.add_argument("--execution-contract", default=None)
     parser.add_argument("--parent-brief", default=None)
+    parser.add_argument("--module-slug", default=None)
+    parser.add_argument("--module-priority", choices=("phase-order", "slug-lexical"), default=None)
+    parser.add_argument("--ambiguity-report-file", default=".runlogs/codex-governed-entry/module-ambiguity-report.json")
+    parser.add_argument("--followup-contract-file", default=".runlogs/codex-governed-entry/stacked-followup-contract.json")
+    parser.add_argument("--predecessor-ref", default=None)
+    parser.add_argument("--source-branch", default=None)
+    parser.add_argument("--new-base-ref", default="origin/main")
+    parser.add_argument("--carry-surface", action="append", default=[])
+    parser.add_argument("--temporary-downgrade-surface", action="append", default=[])
     parser.add_argument("--inbox", default="docs/codex/packages/inbox")
     parser.add_argument("--artifact-root", default="artifacts/codex")
     parser.add_argument("--output-last-message", default="artifacts/codex/from-package-last-message.txt")
@@ -167,6 +181,10 @@ def main(argv: list[str] | None = None) -> int:
         effective_session_mode,
         "--snapshot-mode",
         normalized_snapshot_mode,
+        "--ambiguity-report-file",
+        args.ambiguity_report_file,
+        "--followup-contract-file",
+        args.followup_contract_file,
         "--inbox",
         args.inbox,
         "--artifact-root",
@@ -196,6 +214,20 @@ def main(argv: list[str] | None = None) -> int:
         entry_args.extend(["--execution-contract", args.execution_contract])
     if args.parent_brief:
         entry_args.extend(["--parent-brief", args.parent_brief])
+    if args.module_slug:
+        entry_args.extend(["--module-slug", args.module_slug])
+    if args.module_priority:
+        entry_args.extend(["--module-priority", args.module_priority])
+    if args.predecessor_ref:
+        entry_args.extend(["--predecessor-ref", args.predecessor_ref])
+    if args.source_branch:
+        entry_args.extend(["--source-branch", args.source_branch])
+    if str(args.new_base_ref or "").strip():
+        entry_args.extend(["--new-base-ref", args.new_base_ref])
+    for item in args.carry_surface:
+        entry_args.extend(["--carry-surface", item])
+    for item in args.temporary_downgrade_surface:
+        entry_args.extend(["--temporary-downgrade-surface", item])
     if args.codex_bin:
         entry_args.extend(["--codex-bin", args.codex_bin])
     if args.skip_clean_check:
@@ -213,6 +245,14 @@ def main(argv: list[str] | None = None) -> int:
             "session_mode": effective_session_mode,
             "snapshot_mode": normalized_snapshot_mode,
             "profile": args.profile.strip() or "none",
+            "route": args.route,
+            "module_slug": args.module_slug or "",
+            "module_priority": args.module_priority or "",
+            "predecessor_ref": args.predecessor_ref or "",
+            "source_branch": args.source_branch or "",
+            "new_base_ref": args.new_base_ref or "",
+            "carry_surfaces": list(args.carry_surface),
+            "temporary_downgrade_surfaces": list(args.temporary_downgrade_surface),
             "route_args": entry_args,
         },
     )

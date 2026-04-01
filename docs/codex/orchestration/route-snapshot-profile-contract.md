@@ -1,6 +1,6 @@
 # Route Snapshot Profile Contract (H0)
 
-Updated: 2026-04-01 12:55 UTC
+Updated: 2026-04-01 20:15 UTC
 
 ## Purpose
 
@@ -21,7 +21,7 @@ This phase is declaration-only:
 ### Route layers
 
 1. Entry route
-- Values: `auto`, `package`, `continue`
+- Values: `auto`, `package`, `continue`, `stacked-followup`
 - Owner: `scripts/codex_governed_entry.py`
 - Meaning: how governed flow is selected before work starts.
 
@@ -39,7 +39,7 @@ This phase is declaration-only:
 
 Required fields:
 - `route_mode`: orchestration mode id (for example `governed-phase-orchestration`)
-- `entry_route`: one of `auto|package|continue`
+- `entry_route`: one of `auto|package|continue|stacked-followup`
 - `route_signal`: role-scoped signal string
 - `phase_brief`: current phase brief path
 - `reason`: explicit route reason (human-readable)
@@ -47,6 +47,10 @@ Required fields:
 Optional fields:
 - `attempt`: positive integer for phase attempts
 - `module`: `{slug, execution_contract, parent_brief, current_phase}` when module route is active
+- `module_resolution`: selection rationale when route resolution involved module selection policy
+- `module_candidates`: active module candidates considered during route selection
+- `module_ambiguity_report`: machine-readable ambiguity contract path when unresolved selection blocked continuation
+- `continuation_contract_path`: stacked follow-up continuation contract artifact path
 
 ## Snapshot Contract
 
@@ -117,6 +121,7 @@ H0 compatibility note:
 
 - `H1`: expose dual-mode route/session semantics and snapshot/profile metadata in outputs.
 - `H2`: bind profile-aware CI/proof behavior with staging-real evidence.
+- `H3`: bind stacked follow-up continuation contracts, multi-module ambiguity contracts, and recomposition helper/validator artifacts.
 - `H4`: enforce fail-closed marker requirements in policy-critical validations.
 
 ## H1 Runtime Binding Note
@@ -140,3 +145,19 @@ This phase is still `prep_closed` only; it does not claim real contour closure f
 - `scripts/run_phase2a_spark_proof.py` now uses shared runtime-root/path/output guards.
 
 This update raises CI/proof behavior to `staging-real` for the owned contour only.
+
+## H3 Runtime Binding Note
+
+`H3` binds stacked follow-up continuation and recomposition artifacts into governed route execution:
+
+- entry route now supports `stacked-followup` with required merge/base context (`predecessor-ref`, `source-branch`, `new-base-ref`);
+- multi-module selection supports explicit `module-slug` and `module-priority` contracts;
+- unresolved multi-module auto/continue selection now emits machine-readable ambiguity report before fail-closed exit:
+  - `.runlogs/codex-governed-entry/module-ambiguity-report.json`
+- stacked follow-up route emits machine-readable continuation contract artifact:
+  - `.runlogs/codex-governed-entry/stacked-followup-contract.json`
+- truth recomposition helper/validator scripts are available:
+  - `scripts/truth_recomposition.py build`
+  - `scripts/truth_recomposition.py validate`
+
+This phase raises stacked follow-up/recomposition contour behavior to `staging-real` for owned surface closure only.

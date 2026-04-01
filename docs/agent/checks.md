@@ -11,6 +11,7 @@
 | Solution intent contract | `python scripts/validate_solution_intent.py --from-git --git-ref HEAD` | require explicit `target|staged|fallback` on critical contours |
 | Critical contour closure | `python scripts/validate_critical_contour_closure.py --from-git --git-ref HEAD` | block scaffold/sample/synthetic closure claims on pilot contours |
 | Stack conformance | `python scripts/validate_stack_conformance.py` | fail-closed stack claim drift between registry, docs, and runtime proof |
+| Truth recomposition validator | `python scripts/truth_recomposition.py validate --report <path>` | fail closed when stacked follow-up recomposition still carries temporary downgrade surfaces or out-of-contract deltas |
 | PR surface matrix plan | `python scripts/run_surface_pr_matrix.py --plan-only --from-git --git-ref HEAD --output-json artifacts/ci/pr-surface-plan.json --summary-file artifacts/ci/pr-surface-plan.md` | resolve contour-aware profile/check plan and emit CI-visible evidence |
 | Skills catalog drift | `python scripts/sync_skills_catalog.py --check` | ensure generated catalog matches runtime skills |
 | CODEOWNERS coverage | `python scripts/validate_codeowners.py` | ensure ownership routing remains complete |

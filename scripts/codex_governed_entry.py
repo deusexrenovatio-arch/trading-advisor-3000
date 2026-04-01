@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
+import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -17,12 +19,15 @@ from codex_phase_orchestrator import main as orchestrator_main
 
 DEFAULT_INBOX = Path("docs/codex/packages/inbox")
 DEFAULT_ROUTE_STATE = Path(".runlogs/codex-governed-entry/last-route.json")
+DEFAULT_AMBIGUITY_REPORT = Path(".runlogs/codex-governed-entry/module-ambiguity-report.json")
+DEFAULT_STACKED_FOLLOWUP_CONTRACT = Path(".runlogs/codex-governed-entry/stacked-followup-contract.json")
 LEGACY_ENTRY_ROUTE_MODE = "legacy-wrapper"
 EXPLICIT_ENTRY_ROUTE_MODE = "explicit-dual-mode"
 LEGACY_SESSION_MODE = "legacy-full"
 TRACKED_SESSION_MODE = "tracked_session"
 DEFAULT_SNAPSHOT_MODE = "route-report"
 ROUTE_SIGNAL = "entry:route-selection"
+STACKED_FOLLOWUP_ROUTE = "stacked-followup"
 
 
 class GovernedEntryError(RuntimeError):
@@ -37,12 +42,16 @@ class ModuleRoute:
     current_phase: Path
 
 
-@dataclass(frozen=True)
+@dataclass
 class RouteDecision:
     route: str
     reason: str
     package_path: Path | None
     module: ModuleRoute | None
+    module_resolution: str | None = None
+    module_candidates: list[str] | None = None
+    ambiguity_report_path: Path | None = None
+    continuation_contract_path: Path | None = None
 
 
 def utc_now() -> datetime:
@@ -92,10 +101,10 @@ def _single_bullet_value(path: Path, heading: str) -> str:
     raise GovernedEntryError(f"missing bullet value for `{heading}` in {path.as_posix()}")
 
 
-def discover_active_module(repo_root: Path) -> ModuleRoute | None:
+def discover_active_modules(repo_root: Path) -> list[ModuleRoute]:
     modules_root = repo_root / "docs/codex/modules"
     if not modules_root.exists():
-        return None
+        return []
 
     candidates: list[ModuleRoute] = []
     for parent_path in sorted(modules_root.glob("*.parent.md")):
@@ -122,23 +131,247 @@ def discover_active_module(repo_root: Path) -> ModuleRoute | None:
             )
         )
 
+    return candidates
+
+
+def discover_active_module(repo_root: Path) -> ModuleRoute | None:
+    candidates = discover_active_modules(repo_root)
     if not candidates:
         return None
     if len(candidates) > 1:
         joined = ", ".join(item.slug for item in candidates)
-        raise GovernedEntryError(
-            "multiple active modules require an explicit route choice: " + joined
-        )
+        raise GovernedEntryError("multiple active modules require an explicit route choice: " + joined)
     return candidates[0]
+
+
+def _phase_index(path: Path) -> int:
+    match = re.search(r"\.phase-(\d+)\.md$", path.name)
+    if not match:
+        return 9999
+    return int(match.group(1))
+
+
+def _normalize_surfaces(values: list[str]) -> list[str]:
+    cleaned: list[str] = []
+    for raw in values:
+        item = str(raw).strip()
+        if item and item not in cleaned:
+            cleaned.append(item)
+    return cleaned
+
+
+def write_module_ambiguity_report(
+    *,
+    path: Path,
+    requested_route: str,
+    candidates: list[ModuleRoute],
+    module_slug: str | None,
+    module_priority: str | None,
+) -> None:
+    payload = {
+        "updated_at": utc_now().isoformat().replace("+00:00", "Z"),
+        "route_signal": "entry:multi-module-ambiguity",
+        "requested_route": requested_route,
+        "requested_module_slug": module_slug or "",
+        "requested_priority_rule": module_priority or "",
+        "reason": "multiple active modules require explicit selection before continuation can proceed",
+        "candidates": [
+            {
+                "slug": item.slug,
+                "execution_contract": item.execution_contract.as_posix(),
+                "parent_brief": item.parent_brief.as_posix(),
+                "current_phase": item.current_phase.as_posix(),
+                "phase_index": _phase_index(item.current_phase),
+            }
+            for item in candidates
+        ],
+        "resolution_contract": {
+            "allowed_selection_modes": [
+                "module-slug",
+                "priority-rule",
+            ],
+            "priority_rules": ["phase-order", "slug-lexical"],
+            "recommended_flags": [
+                "--module-slug <slug>",
+                "--module-priority phase-order",
+            ],
+        },
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def resolve_active_module_selection(
+    *,
+    candidates: list[ModuleRoute],
+    requested_route: str,
+    module_slug: str | None,
+    module_priority: str | None,
+    ambiguity_report_path: Path,
+) -> tuple[ModuleRoute, str, Path | None]:
+    if not candidates:
+        raise GovernedEntryError("no active governed module is available for continuation")
+
+    if module_slug:
+        matched = [item for item in candidates if item.slug.lower() == module_slug.lower()]
+        if len(matched) == 1:
+            return matched[0], f"explicit module slug `{matched[0].slug}` was provided", None
+        write_module_ambiguity_report(
+            path=ambiguity_report_path,
+            requested_route=requested_route,
+            candidates=candidates,
+            module_slug=module_slug,
+            module_priority=module_priority,
+        )
+        available = ", ".join(item.slug for item in candidates)
+        raise GovernedEntryError(
+            "requested module slug was not resolved safely; ambiguity report written to "
+            f"{ambiguity_report_path.as_posix()} (available: {available})"
+        )
+
+    if len(candidates) == 1:
+        return candidates[0], "single active module pointer was detected", None
+
+    if module_priority == "phase-order":
+        ordered = sorted(candidates, key=lambda item: (_phase_index(item.current_phase), item.slug))
+        selected = ordered[0]
+        return selected, "priority rule `phase-order` selected the next module", None
+    if module_priority == "slug-lexical":
+        selected = sorted(candidates, key=lambda item: item.slug)[0]
+        return selected, "priority rule `slug-lexical` selected the next module", None
+    if module_priority:
+        raise GovernedEntryError(
+            "unknown module priority rule; expected one of phase-order|slug-lexical"
+        )
+
+    write_module_ambiguity_report(
+        path=ambiguity_report_path,
+        requested_route=requested_route,
+        candidates=candidates,
+        module_slug=module_slug,
+        module_priority=module_priority,
+    )
+    joined = ", ".join(item.slug for item in candidates)
+    raise GovernedEntryError(
+        "multiple active modules require explicit selection; ambiguity report written to "
+        f"{ambiguity_report_path.as_posix()} (candidates: {joined})"
+    )
+
+
+def _run_git(repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    completed = subprocess.run(
+        ["git", *args],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return completed
+
+
+def _git_stdout(repo_root: Path, *args: str) -> str:
+    completed = _run_git(repo_root, *args)
+    if completed.returncode != 0:
+        stderr = (completed.stderr or completed.stdout).strip()
+        raise GovernedEntryError(f"git {' '.join(args)} failed: {stderr}")
+    return completed.stdout.strip()
+
+
+def _git_is_ancestor(repo_root: Path, ancestor: str, descendant: str) -> bool:
+    completed = _run_git(repo_root, "merge-base", "--is-ancestor", ancestor, descendant)
+    if completed.returncode == 0:
+        return True
+    if completed.returncode == 1:
+        return False
+    stderr = (completed.stderr or completed.stdout).strip()
+    raise GovernedEntryError(f"git merge-base --is-ancestor failed: {stderr}")
+
+
+def build_stacked_followup_contract(
+    *,
+    repo_root: Path,
+    decision: RouteDecision,
+    contract_path: Path,
+    predecessor_ref: str,
+    source_branch: str,
+    new_base_ref: str,
+    carry_surfaces: list[str],
+    temporary_downgrade_surfaces: list[str],
+) -> Path:
+    if decision.module is None:
+        raise GovernedEntryError("stacked-followup route requires a module context")
+    predecessor_ref = predecessor_ref.strip()
+    source_branch = source_branch.strip()
+    new_base_ref = new_base_ref.strip()
+    carry_surfaces = _normalize_surfaces(carry_surfaces)
+    temporary_downgrade_surfaces = _normalize_surfaces(temporary_downgrade_surfaces)
+    if not predecessor_ref:
+        raise GovernedEntryError("stacked-followup route requires --predecessor-ref")
+    if not source_branch:
+        raise GovernedEntryError("stacked-followup route requires --source-branch")
+    if not new_base_ref:
+        raise GovernedEntryError("stacked-followup route requires --new-base-ref")
+    if not carry_surfaces:
+        raise GovernedEntryError("stacked-followup route requires at least one --carry-surface")
+
+    predecessor_sha = _git_stdout(repo_root, "rev-parse", f"{predecessor_ref}^{{commit}}")
+    source_sha = _git_stdout(repo_root, "rev-parse", f"{source_branch}^{{commit}}")
+    base_sha = _git_stdout(repo_root, "rev-parse", f"{new_base_ref}^{{commit}}")
+    merged_into_base = _git_is_ancestor(repo_root, predecessor_sha, base_sha)
+    if not merged_into_base:
+        raise GovernedEntryError(
+            "stacked-followup predecessor is not merged into the declared base ref; "
+            "cannot continue without a merged predecessor context"
+        )
+
+    payload = {
+        "updated_at": utc_now().isoformat().replace("+00:00", "Z"),
+        "route_signal": "entry:stacked-followup-contract",
+        "route": STACKED_FOLLOWUP_ROUTE,
+        "module": {
+            "slug": decision.module.slug,
+            "execution_contract": decision.module.execution_contract.as_posix(),
+            "parent_brief": decision.module.parent_brief.as_posix(),
+            "current_phase": decision.module.current_phase.as_posix(),
+        },
+        "predecessor_merge_context": {
+            "ref": predecessor_ref,
+            "resolved_sha": predecessor_sha,
+            "merged_into_new_base": merged_into_base,
+        },
+        "new_base_contract": {
+            "ref": new_base_ref,
+            "resolved_sha": base_sha,
+            "source_branch": source_branch,
+            "source_branch_sha": source_sha,
+        },
+        "surface_contract": {
+            "allowed_to_carry_forward": carry_surfaces,
+            "temporary_downgrade_surfaces": temporary_downgrade_surfaces,
+            "forbidden_after_recomposition": temporary_downgrade_surfaces,
+        },
+        "recomposition_contract": {
+            "status": "required",
+            "helper": "python scripts/truth_recomposition.py build --followup-contract <path> --merged-surface <surface> --candidate-surface <surface> --output <path>",
+            "validator": "python scripts/truth_recomposition.py validate --report <path>",
+        },
+    }
+    contract_path.parent.mkdir(parents=True, exist_ok=True)
+    contract_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return contract_path
 
 
 def decide_route(
     *,
     repo_root: Path,
+    requested_route: str,
     explicit_package: Path | None,
     explicit_contract: Path | None,
     explicit_parent: Path | None,
     inbox: Path,
+    module_slug: str | None,
+    module_priority: str | None,
+    ambiguity_report_path: Path,
 ) -> RouteDecision:
     if explicit_contract or explicit_parent:
         if not (explicit_contract and explicit_parent):
@@ -148,7 +381,7 @@ def decide_route(
             raise GovernedEntryError(f"current phase not found: {current_phase.as_posix()}")
         slug = explicit_parent.name[: -len(".parent.md")] if explicit_parent.name.endswith(".parent.md") else explicit_parent.stem
         return RouteDecision(
-            route="continue",
+            route=STACKED_FOLLOWUP_ROUTE if requested_route == STACKED_FOLLOWUP_ROUTE else "continue",
             reason="explicit module continuation arguments were provided",
             package_path=None,
             module=ModuleRoute(
@@ -157,9 +390,11 @@ def decide_route(
                 execution_contract=explicit_contract.resolve(),
                 current_phase=current_phase.resolve(),
             ),
+            module_resolution="explicit execution contract and parent brief arguments were provided",
+            module_candidates=[slug],
         )
 
-    if explicit_package is not None:
+    if explicit_package is not None and requested_route in {"auto", "package"}:
         return RouteDecision(
             route="package",
             reason="explicit package path was provided",
@@ -167,13 +402,28 @@ def decide_route(
             module=None,
         )
 
-    active_module = discover_active_module(repo_root)
-    if active_module is not None:
+    active_modules = discover_active_modules(repo_root)
+    if active_modules:
+        selected_module, module_resolution, report_path = resolve_active_module_selection(
+            candidates=active_modules,
+            requested_route=requested_route,
+            module_slug=module_slug,
+            module_priority=module_priority,
+            ambiguity_report_path=ambiguity_report_path,
+        )
         return RouteDecision(
-            route="continue",
+            route=STACKED_FOLLOWUP_ROUTE if requested_route == STACKED_FOLLOWUP_ROUTE else "continue",
             reason="an active module with a next phase pointer exists, so continuation wins over package intake",
             package_path=None,
-            module=active_module,
+            module=selected_module,
+            module_resolution=module_resolution,
+            module_candidates=sorted(item.slug for item in active_modules),
+            ambiguity_report_path=report_path,
+        )
+
+    if requested_route == STACKED_FOLLOWUP_ROUTE:
+        raise GovernedEntryError(
+            "stacked-followup route requires an active module or explicit execution contract/parent brief"
         )
 
     latest_package = choose_latest_package(inbox)
@@ -197,6 +447,7 @@ def write_route_state(
     snapshot_mode: str = DEFAULT_SNAPSHOT_MODE,
     profile: str = "none",
 ) -> None:
+    phase_brief = decision.module.current_phase.as_posix() if decision.module is not None else None
     payload: dict[str, Any] = {
         "updated_at": utc_now().isoformat().replace("+00:00", "Z"),
         "route_mode": route_mode,
@@ -206,8 +457,17 @@ def write_route_state(
         "route_signal": ROUTE_SIGNAL,
         "entry_route": decision.route,
         "route": decision.route,
+        "phase_brief": phase_brief,
         "reason": decision.reason,
         "package_path": decision.package_path.as_posix() if decision.package_path else None,
+        "module_resolution": decision.module_resolution,
+        "module_candidates": decision.module_candidates or [],
+        "module_ambiguity_report": (
+            decision.ambiguity_report_path.as_posix() if decision.ambiguity_report_path else None
+        ),
+        "continuation_contract_path": (
+            decision.continuation_contract_path.as_posix() if decision.continuation_contract_path else None
+        ),
         "module": None,
     }
     if decision.module is not None:
@@ -225,7 +485,7 @@ def normalize_route_argv(argv: list[str]) -> list[str]:
     if not argv:
         return []
     first = str(argv[0]).strip().lower()
-    if first in {"auto", "package", "continue"}:
+    if first in {"auto", "package", "continue", STACKED_FOLLOWUP_ROUTE}:
         return ["--route", first, *argv[1:]]
     return list(argv)
 
@@ -234,7 +494,7 @@ def uses_positional_route_alias(argv: list[str]) -> bool:
     if not argv:
         return False
     first = str(argv[0]).strip().lower()
-    return first in {"auto", "package", "continue"}
+    return first in {"auto", "package", "continue", STACKED_FOLLOWUP_ROUTE}
 
 
 def normalize_entry_route_mode(raw: str, *, positional_alias: bool) -> str:
@@ -301,13 +561,19 @@ def run_package_route(
     if exit_code != 0:
         return exit_code
 
-    active_module = discover_active_module(repo_root)
-    if active_module is not None:
+    active_modules = discover_active_modules(repo_root)
+    if len(active_modules) == 1:
+        active_module = active_modules[0]
         print("package_route_outcome: active_module_detected")
         print("next_governed_route: continue")
         print(f"execution_contract: {active_module.execution_contract.as_posix()}")
         print(f"parent_brief: {active_module.parent_brief.as_posix()}")
         print(f"current_phase: {active_module.current_phase.as_posix()}")
+    elif len(active_modules) > 1:
+        print("package_route_outcome: active_module_ambiguity")
+        print("next_governed_route: continue")
+        print("reason: multiple active modules require --module-slug or --module-priority")
+        print("candidates: " + ", ".join(sorted(item.slug for item in active_modules)))
     else:
         print("package_route_outcome: no_active_module_detected")
     return 0
@@ -316,6 +582,8 @@ def run_package_route(
 def run_continue_route(
     *,
     decision: RouteDecision,
+    entry_route: str,
+    continuation_contract_path: Path | None,
     backend: str,
     artifact_root: Path,
     profile: str,
@@ -333,6 +601,8 @@ def run_continue_route(
         decision.module.execution_contract.as_posix(),
         "--parent-brief",
         decision.module.parent_brief.as_posix(),
+        "--entry-route",
+        entry_route,
         "--backend",
         backend,
         "--artifact-root",
@@ -344,6 +614,8 @@ def run_continue_route(
         "--remediation-model",
         remediation_model or worker_model,
     ]
+    if continuation_contract_path is not None:
+        common.extend(["--continuation-contract", continuation_contract_path.as_posix()])
     if profile.strip():
         common.extend(["--profile", profile])
     if codex_bin:
@@ -366,13 +638,26 @@ def run_continue_route(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Mandatory governed Codex entrypoint.")
-    parser.add_argument("--route", choices=("auto", "package", "continue"), default="auto")
+    parser.add_argument(
+        "--route",
+        choices=("auto", "package", "continue", STACKED_FOLLOWUP_ROUTE),
+        default="auto",
+    )
     parser.add_argument("--route-mode", default="legacy")
     parser.add_argument("--session-mode", default=LEGACY_SESSION_MODE)
     parser.add_argument("--snapshot-mode", default=DEFAULT_SNAPSHOT_MODE)
     parser.add_argument("--package-path", default=None)
     parser.add_argument("--execution-contract", default=None)
     parser.add_argument("--parent-brief", default=None)
+    parser.add_argument("--module-slug", default=None)
+    parser.add_argument("--module-priority", choices=("phase-order", "slug-lexical"), default=None)
+    parser.add_argument("--ambiguity-report-file", default=str(DEFAULT_AMBIGUITY_REPORT))
+    parser.add_argument("--followup-contract-file", default=str(DEFAULT_STACKED_FOLLOWUP_CONTRACT))
+    parser.add_argument("--predecessor-ref", default=None)
+    parser.add_argument("--source-branch", default=None)
+    parser.add_argument("--new-base-ref", default="origin/main")
+    parser.add_argument("--carry-surface", action="append", default=[])
+    parser.add_argument("--temporary-downgrade-surface", action="append", default=[])
     parser.add_argument("--inbox", default=str(DEFAULT_INBOX))
     parser.add_argument("--artifact-root", default="artifacts/codex")
     parser.add_argument("--output-last-message", default="artifacts/codex/from-package-last-message.txt")
@@ -399,10 +684,14 @@ def main(argv: list[str] | None = None) -> int:
     inbox = resolve_path(repo_root, args.inbox)
     artifact_root = resolve_path(repo_root, args.artifact_root)
     route_state_file = resolve_path(repo_root, args.route_state_file)
+    ambiguity_report_file = resolve_path(repo_root, args.ambiguity_report_file)
+    followup_contract_file = resolve_path(repo_root, args.followup_contract_file)
     output_last_message = resolve_path(repo_root, args.output_last_message)
     explicit_package = resolve_path(repo_root, args.package_path) if args.package_path else None
     explicit_contract = resolve_path(repo_root, args.execution_contract) if args.execution_contract else None
     explicit_parent = resolve_path(repo_root, args.parent_brief) if args.parent_brief else None
+    module_slug = str(args.module_slug or "").strip() or None
+    module_priority = str(args.module_priority or "").strip() or None
     profile = args.profile.strip()
     profile_marker = profile or "none"
 
@@ -417,10 +706,18 @@ def main(argv: list[str] | None = None) -> int:
     try:
         decision = decide_route(
             repo_root=repo_root,
+            requested_route=args.route,
             explicit_package=explicit_package if args.route in {"auto", "package"} else None,
-            explicit_contract=explicit_contract if args.route in {"auto", "continue"} else None,
-            explicit_parent=explicit_parent if args.route in {"auto", "continue"} else None,
+            explicit_contract=(
+                explicit_contract if args.route in {"auto", "continue", STACKED_FOLLOWUP_ROUTE} else None
+            ),
+            explicit_parent=(
+                explicit_parent if args.route in {"auto", "continue", STACKED_FOLLOWUP_ROUTE} else None
+            ),
             inbox=inbox,
+            module_slug=module_slug,
+            module_priority=module_priority,
+            ambiguity_report_path=ambiguity_report_file,
         )
     except GovernedEntryError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -432,6 +729,25 @@ def main(argv: list[str] | None = None) -> int:
     if args.route == "continue" and decision.route != "continue":
         print("error: forced continue route could not be satisfied safely", file=sys.stderr)
         return 2
+    if args.route == STACKED_FOLLOWUP_ROUTE and decision.route != STACKED_FOLLOWUP_ROUTE:
+        print("error: forced stacked-followup route could not be satisfied safely", file=sys.stderr)
+        return 2
+
+    if decision.route == STACKED_FOLLOWUP_ROUTE:
+        try:
+            decision.continuation_contract_path = build_stacked_followup_contract(
+                repo_root=repo_root,
+                decision=decision,
+                contract_path=followup_contract_file,
+                predecessor_ref=str(args.predecessor_ref or ""),
+                source_branch=str(args.source_branch or ""),
+                new_base_ref=str(args.new_base_ref or ""),
+                carry_surfaces=list(args.carry_surface or []),
+                temporary_downgrade_surfaces=list(args.temporary_downgrade_surface or []),
+            )
+        except GovernedEntryError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
 
     write_route_state(
         route_state_file,
@@ -449,12 +765,20 @@ def main(argv: list[str] | None = None) -> int:
     print(f"entry_route: {decision.route}")
     print(f"governed_route: {decision.route}")
     print(f"reason: {decision.reason}")
+    if decision.module_resolution:
+        print(f"module_resolution: {decision.module_resolution}")
+    if decision.module_candidates:
+        print("module_candidates: " + ", ".join(decision.module_candidates))
+    if decision.ambiguity_report_path is not None:
+        print(f"module_ambiguity_report: {decision.ambiguity_report_path.as_posix()}")
     if decision.package_path is not None:
         print(f"package_path: {decision.package_path.as_posix()}")
     if decision.module is not None:
         print(f"execution_contract: {decision.module.execution_contract.as_posix()}")
         print(f"parent_brief: {decision.module.parent_brief.as_posix()}")
         print(f"current_phase: {decision.module.current_phase.as_posix()}")
+    if decision.continuation_contract_path is not None:
+        print(f"stacked_followup_contract: {decision.continuation_contract_path.as_posix()}")
 
     if args.dry_run:
         print("dry run: governed route dispatch skipped")
@@ -473,6 +797,8 @@ def main(argv: list[str] | None = None) -> int:
 
     return run_continue_route(
         decision=decision,
+        entry_route=decision.route,
+        continuation_contract_path=decision.continuation_contract_path,
         backend=args.backend,
         artifact_root=artifact_root / "orchestration",
         profile=profile,
