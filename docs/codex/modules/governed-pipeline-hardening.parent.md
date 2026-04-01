@@ -1,6 +1,6 @@
 # Module Parent Brief
 
-Updated: 2026-04-01 11:20 UTC
+Updated: 2026-04-01 11:32 UTC
 
 ## Source
 
@@ -39,8 +39,8 @@ Updated: 2026-04-01 11:20 UTC
 
 ## Activation Policy
 
-- This module is intentionally kept inactive in auto-routing until explicitly selected, because governed auto-route currently fails closed when multiple parent briefs expose non-`none` next-phase pointers.
-- The planning artifacts remain valid for explicit continuation once current active-module obligations are cleared.
+- This module is explicitly activated in this branch for governed continuation starting from `H0`.
+- `f1-full-closure` is temporarily parked with `Next Phase To Execute: none` to preserve one active-module pointer in auto-route.
 
 ## Global Done Evidence
 
@@ -56,4 +56,4 @@ Updated: 2026-04-01 11:20 UTC
 
 ## Next Phase To Execute
 
-- none
+- docs/codex/modules/governed-pipeline-hardening.phase-01.md
