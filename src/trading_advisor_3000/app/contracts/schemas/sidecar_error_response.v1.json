@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/sidecar_error_response.v1.json",
+  "title": "SidecarErrorResponseV1",
+  "type": "object",
+  "required": ["error_code", "message"],
+  "properties": {
+    "error_code": {"type": "string", "minLength": 1},
+    "message": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

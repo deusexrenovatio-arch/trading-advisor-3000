@@ -55,6 +55,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File deployment/stocksharp-sideca
 - `artifacts/phase8/stocksharp-sidecar/publish/`
 - `artifacts/phase8/stocksharp-sidecar/python-smoke.json`
 
+## F1-D Immutable Evidence Hardening
+For governed `F1-D` closure, run the immutable replay chain:
+
+```powershell
+python scripts/run_f1d_sidecar_immutable_evidence.py --output-root artifacts/f1/phase04/sidecar-immutable
+```
+
+This produces commit-linked evidence with:
+- machine-recorded step exit codes for build/test/publish/smoke;
+- immutable artifact hashes;
+- disprovers for broken binary path, kill-switch readiness failure, and hash mismatch.
+
 ## Constraints Reminder
 This phase closes contract-level sidecar implementation proof only.
 It does not declare full production readiness.

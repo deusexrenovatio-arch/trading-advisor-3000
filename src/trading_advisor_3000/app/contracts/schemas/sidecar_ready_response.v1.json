@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/sidecar_ready_response.v1.json",
+  "title": "SidecarReadyResponseV1",
+  "type": "object",
+  "required": ["ready", "reason", "route"],
+  "properties": {
+    "ready": {"type": "boolean"},
+    "reason": {"type": "string", "minLength": 1},
+    "route": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

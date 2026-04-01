@@ -1,0 +1,37 @@
+{
+  "decision_id": "f1f-scoped-release-decision-2026-04-01",
+  "date_utc": "2026-04-01T00:00:00Z",
+  "phase": "F1-F",
+  "verdict": "DENY_RELEASE_READINESS",
+  "scope": {
+    "mode": "scoped",
+    "intent": "validate non-broker contours while broker execution profile remains deferred",
+    "tests_result": {
+      "passed": 294,
+      "failed": 0,
+      "duration_seconds": 47.24
+    }
+  },
+  "excluded_tests": [
+    "tests/process/test_run_f1e_real_broker_process.py",
+    "tests/app/contracts/test_phase5_real_broker_process_contracts.py",
+    "tests/app/integration/test_real_execution_staging_rollout.py",
+    "tests/app/integration/test_phase4_live_execution_controlled.py",
+    "tests/app/integration/test_phase6_operational_hardening.py",
+    "tests/app/unit/test_real_execution_http_transport.py",
+    "tests/app/unit/test_real_execution_runtime_profile_ops.py",
+    "tests/app/unit/test_real_execution_staging_gateway_deployment.py",
+    "tests/app/unit/test_phase4_broker_sync.py",
+    "tests/app/unit/test_phase4_live_bridge.py",
+    "tests/app/unit/test_phase6_live_bridge_hardening.py",
+    "tests/app/unit/test_phase6_production_profile_deployment.py",
+    "tests/app/unit/test_phase6_runtime_profile_ops.py"
+  ],
+  "blockers": [
+    {
+      "id": "F1F-BROKER-PROFILE-DEFERRED",
+      "why": "Real broker execution contour is not yet closed in this iteration."
+    }
+  ],
+  "contract_note": "ALLOW_RELEASE_READINESS is illegal until broker execution profile evidence is terminal."
+}

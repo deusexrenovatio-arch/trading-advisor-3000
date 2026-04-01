@@ -1,0 +1,38 @@
+{
+  "generated_at": "2026-03-18T13:20:00Z",
+  "service": "ta3000-runtime-operational-profile",
+  "ready": true,
+  "preflight_error_count": 0,
+  "transport_degraded_keys": [],
+  "bridge": {
+    "status": "ok",
+    "preflight_errors": [],
+    "secrets_policy": {
+      "missing_count": 0,
+      "stale_count": 0,
+      "check_age": false,
+      "is_ready": true,
+      "probes": []
+    },
+    "retry_policy": {
+      "max_attempts": 3,
+      "backoff_seconds": 0.0
+    },
+    "execution_telemetry": {
+      "submit_latency_ms": {
+        "count": 0,
+        "avg": 0.0,
+        "p95": 0.0
+      },
+      "sync_lag_ms": {
+        "count": 0,
+        "avg": 0.0,
+        "p95": 0.0,
+        "max": 0.0,
+        "latest": 0.0
+      },
+      "sidecar_errors_by_code": {},
+      "retry_exhausted_total": 0
+    }
+  }
+}

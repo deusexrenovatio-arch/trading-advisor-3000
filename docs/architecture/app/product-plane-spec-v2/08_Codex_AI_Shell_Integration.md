@@ -75,7 +75,7 @@ Root `AGENTS.md` остаётся shell-first.
 ### Product skills, которые стоит подготовить
 - `delta-contracts`
 - `dagster-assets`
-- `vectorbt-research`
+- `research-backtest-internal`
 - `telegram-lifecycle`
 - `stocksharp-sidecar`
 - `execution-reconciliation`
@@ -137,4 +137,3 @@ args = ["mcp", "gateway", "run"]
 - отделить shell-sensitive changes от product changes;
 - показать acceptance evidence;
 - отметить, нужны ли новые MCP servers / skills / secrets.
-

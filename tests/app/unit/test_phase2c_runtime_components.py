@@ -10,6 +10,7 @@ from trading_advisor_3000.app.contracts import (
 from trading_advisor_3000.app.runtime.config import StrategyRegistry, StrategyVersion
 from trading_advisor_3000.app.runtime.decision import SignalRuntimeEngine
 from trading_advisor_3000.app.runtime.publishing import TelegramPublicationEngine
+from trading_advisor_3000.app.runtime.publishing.telegram import TelegramApiError
 from trading_advisor_3000.app.runtime.signal_store import InMemorySignalStore
 
 
@@ -132,3 +133,123 @@ def test_runtime_engine_enforces_cooldown_and_blackout() -> None:
     assert report["rejected"] == 2
     assert report["rejection_reasons"]["cooldown_active"] == 1
     assert report["rejection_reasons"]["blackout_window"] == 1
+
+
+def test_telegram_publisher_uses_bot_api_transport_when_token_present() -> None:
+    def _fake_api_call(method: str, params: dict[str, str] | None) -> dict[str, object]:
+        if method == "sendMessage":
+            signal_tag = str((params or {}).get("text", ""))
+            message_id = 101 if "#1" in signal_tag else 202
+            return {
+                "http_status": 200,
+                "ok": True,
+                "error_code": None,
+                "description": "",
+                "result": {
+                    "message_id": message_id,
+                    "chat": {"id": -1003000},
+                },
+            }
+        if method == "editMessageText":
+            return {
+                "http_status": 200,
+                "ok": True,
+                "error_code": None,
+                "description": "",
+                "result": {
+                    "message_id": int((params or {}).get("message_id", "0")),
+                    "chat": {"id": -1003000},
+                },
+            }
+        if method == "deleteMessage":
+            return {
+                "http_status": 200,
+                "ok": True,
+                "error_code": None,
+                "description": "",
+                "result": True,
+            }
+        raise AssertionError(f"unexpected Telegram method: {method}")
+
+    publisher = TelegramPublicationEngine(
+        channel="@phase02_real_channel",
+        bot_token="token",
+        api_call=_fake_api_call,
+    )
+    assert publisher.transport == "telegram-bot-api"
+
+    first, first_created = publisher.publish(
+        signal_id="SIG-F1B-PHASE02-001",
+        rendered_message="F1-B publication contour probe #1",
+        published_at="2026-03-31T12:00:00Z",
+    )
+    second, second_created = publisher.publish(
+        signal_id="SIG-F1B-PHASE02-001",
+        rendered_message="F1-B publication contour probe #1 duplicate",
+        published_at="2026-03-31T12:00:01Z",
+    )
+    edited, edited_changed = publisher.edit(
+        signal_id="SIG-F1B-PHASE02-001",
+        rendered_message="F1-B publication contour probe #1 edited",
+        edited_at="2026-03-31T12:00:02Z",
+    )
+    closed, closed_changed = publisher.close(
+        signal_id="SIG-F1B-PHASE02-001",
+        closed_at="2026-03-31T12:00:03Z",
+    )
+    _, second_signal_created = publisher.publish(
+        signal_id="SIG-F1B-PHASE02-002",
+        rendered_message="F1-B publication contour probe #2",
+        published_at="2026-03-31T12:00:04Z",
+    )
+    canceled, canceled_changed = publisher.cancel(
+        signal_id="SIG-F1B-PHASE02-002",
+        canceled_at="2026-03-31T12:00:05Z",
+    )
+
+    assert first_created is True
+    assert second_created is False
+    assert edited_changed is True
+    assert closed_changed is True
+    assert second_signal_created is True
+    assert canceled_changed is True
+    assert first.message_id == second.message_id == edited.message_id == closed.message_id
+    assert canceled.message_id == "202"
+
+    receipts = [item.to_dict() for item in publisher.list_api_receipts()]
+    methods = [item["method"] for item in receipts]
+    assert methods == [
+        "sendMessage",
+        "editMessageText",
+        "editMessageText",
+        "sendMessage",
+        "deleteMessage",
+    ]
+    assert all(item["ok"] is True for item in receipts)
+
+
+def test_telegram_publisher_raises_when_bot_api_call_fails() -> None:
+    def _failing_api_call(method: str, params: dict[str, str] | None) -> dict[str, object]:
+        return {
+            "http_status": 403,
+            "ok": False,
+            "error_code": 403,
+            "description": "Forbidden: bot is not a member of the channel chat",
+            "result": None,
+        }
+
+    publisher = TelegramPublicationEngine(
+        channel="@phase02_unreachable_channel",
+        bot_token="token",
+        api_call=_failing_api_call,
+    )
+    try:
+        publisher.publish(
+            signal_id="SIG-F1B-PHASE02-FAIL",
+            rendered_message="F1-B publication contour probe failure",
+            published_at="2026-03-31T12:01:00Z",
+        )
+        raise AssertionError("expected TelegramApiError")
+    except TelegramApiError as exc:
+        assert "sendMessage" in str(exc)
+        assert exc.receipt.error_code == 403

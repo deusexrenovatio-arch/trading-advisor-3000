@@ -1,0 +1,10 @@
+{
+  "endpoint": "/metrics",
+  "content_type": "text/plain; charset=utf-8",
+  "metrics_text": "# HELP ta3000_sidecar_gateway_up Sidecar gateway process health.\n# TYPE ta3000_sidecar_gateway_up gauge\nta3000_sidecar_gateway_up 1\n# HELP ta3000_sidecar_gateway_queued_intents Total queued intents.\n# TYPE ta3000_sidecar_gateway_queued_intents gauge\nta3000_sidecar_gateway_queued_intents 0\n# HELP ta3000_sidecar_gateway_kill_switch Kill switch state.\n# TYPE ta3000_sidecar_gateway_kill_switch gauge\nta3000_sidecar_gateway_kill_switch 0\n",
+  "parsed_metrics": {
+    "ta3000_sidecar_gateway_up": 1,
+    "ta3000_sidecar_gateway_queued_intents": 0,
+    "ta3000_sidecar_gateway_kill_switch": 0
+  }
+}

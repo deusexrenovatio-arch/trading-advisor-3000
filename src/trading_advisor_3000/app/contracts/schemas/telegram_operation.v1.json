@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/telegram_operation.v1.json",
+  "title": "TelegramOperationV1",
+  "type": "object",
+  "required": ["operation", "signal_id", "at", "message_id"],
+  "properties": {
+    "operation": {"type": "string", "enum": ["create", "edit", "close", "cancel"]},
+    "signal_id": {"type": "string", "minLength": 1},
+    "at": {"type": "string", "minLength": 1},
+    "message_id": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

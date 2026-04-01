@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/broker_staging_connector_profile.v1.json",
+  "title": "BrokerStagingConnectorProfileV1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "profile_id",
+    "environment",
+    "proof_class",
+    "transport",
+    "finam_session_binding",
+    "required_feature_flags",
+    "required_secret_env_vars",
+    "recovery",
+    "proof_operations"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "profile_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "environment": {
+      "type": "string",
+      "const": "staging-real"
+    },
+    "proof_class": {
+      "type": "string",
+      "const": "staging-real"
+    },
+    "transport": {
+      "type": "object",
+      "required": [
+        "base_url",
+        "api_prefix",
+        "timeout_seconds",
+        "stream_batch_size"
+      ],
+      "properties": {
+        "base_url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "api_prefix": {
+          "type": "string",
+          "minLength": 1
+        },
+        "timeout_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "stream_batch_size": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "finam_session_binding": {
+      "type": "object",
+      "required": [
+        "base_url_env_var",
+        "jwt_env_var",
+        "session_details_path",
+        "required_session_fields"
+      ],
+      "properties": {
+        "base_url_env_var": {
+          "type": "string",
+          "pattern": "^TA3000_[A-Z0-9_]+$"
+        },
+        "jwt_env_var": {
+          "type": "string",
+          "pattern": "^TA3000_[A-Z0-9_]+$"
+        },
+        "session_details_path": {
+          "type": "string",
+          "pattern": "^/[a-zA-Z0-9/_-]+$"
+        },
+        "required_session_fields": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "created_at",
+              "expires_at",
+              "readonly",
+              "account_ids",
+              "md_permissions"
+            ]
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "required_feature_flags": {
+      "type": "object",
+      "required": [
+        "TA3000_ENABLE_LIVE_EXECUTION",
+        "TA3000_ENABLE_STOCKSHARP_BRIDGE",
+        "TA3000_ENABLE_QUIK_CONNECTOR",
+        "TA3000_ENABLE_FINAM_TRANSPORT",
+        "TA3000_ENFORCE_LIVE_SECRETS"
+      ],
+      "properties": {
+        "TA3000_ENABLE_LIVE_EXECUTION": {
+          "type": "string",
+          "const": "1"
+        },
+        "TA3000_ENABLE_STOCKSHARP_BRIDGE": {
+          "type": "string",
+          "const": "1"
+        },
+        "TA3000_ENABLE_QUIK_CONNECTOR": {
+          "type": "string",
+          "const": "1"
+        },
+        "TA3000_ENABLE_FINAM_TRANSPORT": {
+          "type": "string",
+          "const": "1"
+        },
+        "TA3000_ENFORCE_LIVE_SECRETS": {
+          "type": "string",
+          "const": "1"
+        }
+      },
+      "additionalProperties": false
+    },
+    "required_secret_env_vars": {
+      "type": "array",
+      "minItems": 2,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^TA3000_[A-Z0-9_]+$"
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "required": [
+        "kill_switch_on_failure",
+        "retry_max_attempts",
+        "retry_backoff_seconds"
+      ],
+      "properties": {
+        "kill_switch_on_failure": {
+          "type": "boolean",
+          "const": true
+        },
+        "retry_max_attempts": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "retry_backoff_seconds": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "proof_operations": {
+      "type": "array",
+      "minItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "boot",
+          "readiness",
+          "kill_switch",
+          "submit",
+          "replace",
+          "cancel",
+          "updates",
+          "reconciliation"
+        ]
+      }
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

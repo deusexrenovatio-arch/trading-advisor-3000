@@ -57,8 +57,8 @@
 - Runtime state: PostgreSQL.
 - Оркестрация: Dagster.
 - Тяжёлые пересчёты: Spark.
-- Быстрый локальный анализ: Polars + DuckDB.
-- Research/backtest: vectorbt.
+- Быстрый локальный анализ: PyArrow + Delta Lake table reads.
+- Research/backtest: internal research/backtest engine (vectorbt removed by ADR-011).
 
 ### 4.2 Full / scale-up
 
@@ -136,14 +136,11 @@
 - Delta Lake
 - Apache Spark
 - Dagster
-- Polars
-- DuckDB
 - PostgreSQL
-- vectorbt
 - FastAPI
-- aiogram
-- Alembic
-- OpenTelemetry
+- custom Bot API publication engine (aiogram removed by ADR-011)
+- SQL migration runner (Alembic removed by ADR-011)
+- Prometheus + Loki observability path (OpenTelemetry removed by ADR-011)
 - Prometheus + Grafana + Loki
 - Docker Compose
 - .NET 8 sidecar

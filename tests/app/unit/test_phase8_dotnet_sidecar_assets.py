@@ -54,6 +54,7 @@ def test_phase8_readme_documents_compiled_binary_proof_path() -> None:
     assert "python scripts/smoke_stocksharp_sidecar_binary.py" in readme
     assert "artifacts/phase8/stocksharp-sidecar/python-smoke.json" in readme
     assert "powershell -NoProfile -ExecutionPolicy Bypass -File deployment/stocksharp-sidecar/scripts/prove.ps1" in readme
+    assert "python scripts/run_f1d_sidecar_immutable_evidence.py" in readme
 
 
 def test_phase8_docs_use_execution_policy_bypass_commands() -> None:

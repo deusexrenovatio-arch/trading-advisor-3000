@@ -153,6 +153,13 @@ def run_server() -> None:
     host = os.environ.get("TA3000_GATEWAY_HOST", "0.0.0.0")
     port = int(os.environ.get("TA3000_GATEWAY_PORT", "18081"))
     route = os.environ.get("TA3000_GATEWAY_ROUTE", "stocksharp->quik->finam").strip() or "stocksharp->quik->finam"
+    connector_mode = os.environ.get("TA3000_CONNECTOR_MODE", "staging-real").strip() or "staging-real"
+    connector_backend = os.environ.get("TA3000_CONNECTOR_BACKEND", "stocksharp-quik-finam").strip() or "stocksharp-quik-finam"
+    connector_binding_source = (
+        os.environ.get("TA3000_CONNECTOR_BINDING_SOURCE", "staging-gateway-stub").strip()
+        or "staging-gateway-stub"
+    )
+    connector_session_id = os.environ.get("TA3000_CONNECTOR_SESSION_ID", "").strip() or f"stub-session-{port}"
     kill_switch = os.environ.get("TA3000_GATEWAY_KILL_SWITCH", "0").strip().lower() in {"1", "true", "yes", "on"}
     kill_switch_state = {"active": kill_switch}
     state = GatewayState(broker_route=route)
@@ -198,6 +205,12 @@ def run_server() -> None:
                         "route": state.broker_route,
                         "kill_switch": bool(kill_switch_state["active"]),
                         "queued_intents": len(state.intents),
+                        "connector_mode": connector_mode,
+                        "connector_backend": connector_backend,
+                        "connector_ready": True,
+                        "connector_session_id": connector_session_id,
+                        "connector_binding_source": connector_binding_source,
+                        "connector_last_heartbeat": _utc_now(),
                     },
                 )
                 return

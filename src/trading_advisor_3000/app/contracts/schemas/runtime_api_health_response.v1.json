@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/runtime_api_health_response.v1.json",
+  "title": "RuntimeApiHealthResponseV1",
+  "type": "object",
+  "required": [
+    "status",
+    "profile",
+    "signal_store_backend",
+    "durable_runtime_required",
+    "postgres_dsn_configured",
+    "postgres_schema",
+    "telegram_channel"
+  ],
+  "properties": {
+    "status": {"type": "string", "const": "ok"},
+    "profile": {"type": "string", "enum": ["dev", "test", "staging", "production"]},
+    "signal_store_backend": {"type": "string", "enum": ["inmemory", "postgres"]},
+    "durable_runtime_required": {"type": "boolean"},
+    "postgres_dsn_configured": {"type": "boolean"},
+    "postgres_schema": {"type": "string", "minLength": 1},
+    "telegram_channel": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

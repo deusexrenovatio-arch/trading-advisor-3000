@@ -65,3 +65,5 @@ Required evidence package:
    - `intent_id`
    - `external_order_id`
    - `transport_key`
+
+For governed phase closure use `docs/runbooks/app/f1e-real-broker-process-runbook.md` and the canonical `scripts/run_f1e_real_broker_process.py` route.

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/sidecar_updates_stream_response.v1.json",
+  "title": "SidecarUpdatesStreamResponseV1",
+  "type": "object",
+  "required": ["updates", "next_cursor"],
+  "properties": {
+    "updates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["external_order_id", "state", "event_ts", "payload"],
+        "properties": {
+          "external_order_id": {"type": "string", "minLength": 1},
+          "state": {"type": "string", "minLength": 1},
+          "event_ts": {"type": "string", "minLength": 1},
+          "payload": {"type": "object"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "next_cursor": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

@@ -23,7 +23,6 @@ from trading_advisor_3000.app.execution.adapters import (
     LiveExecutionRetryPolicy,
     StockSharpHTTPTransport,
     StockSharpHTTPTransportConfig,
-    StockSharpSidecarStub,
 )
 from trading_advisor_3000.app.execution.broker_sync import BrokerSyncEngine, ControlledLiveExecutionEngine
 from trading_advisor_3000.app.runtime.config import DEFAULT_REQUIRED_LIVE_SECRETS
@@ -31,6 +30,33 @@ from trading_advisor_3000.app.runtime.config import DEFAULT_REQUIRED_LIVE_SECRET
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+_SYNTHETIC_MARKER_TOKENS = {
+    "stub",
+    "mock",
+    "simulated",
+    "simulation",
+    "synthetic",
+    "memory",
+    "inmemory",
+    "local",
+    "dummy",
+    "fake",
+    "test",
+    "sandbox",
+}
+
+
+def _has_synthetic_marker(value: str) -> bool:
+    normalized = value.strip().lower()
+    if not normalized:
+        return True
+    compact = normalized.replace("-", "").replace("_", "").replace(".", "")
+    if compact in {"inmemory", "memory"}:
+        return True
+    tokens = {token for token in normalized.replace(".", "-").replace("_", "-").split("-") if token}
+    return bool(tokens.intersection(_SYNTHETIC_MARKER_TOKENS))
 
 
 def _env_bool(env: dict[str, str], name: str, default: bool) -> bool:
@@ -114,10 +140,9 @@ def _build_engine(
         )
     )
     bridge = LiveExecutionBridge(
-        sidecar=StockSharpSidecarStub(),
+        sidecar=http_transport,
         flags=flags,
         retry_policy=retry_policy,
-        adapter_transports={"stocksharp-sidecar": http_transport},
         env=env,
     )
     sync = BrokerSyncEngine(account_id=account_id, broker_adapter="stocksharp-sidecar")
@@ -168,7 +193,38 @@ def _run_connectivity_stage(
             status = str(value.get("status", "unknown")) if isinstance(value, dict) else "unknown"
             if status != "ok":
                 degraded_transports.append(str(key))
-    if bridge_status != "ok" or degraded_transports:
+    connector_mode = ""
+    connector_backend = ""
+    connector_ready = False
+    connector_session_id = ""
+    connector_binding_source = ""
+    connector_last_heartbeat = ""
+    sidecar = health.get("sidecar")
+    if isinstance(sidecar, dict):
+        remote = sidecar.get("remote")
+        if isinstance(remote, dict):
+            connector_mode = str(remote.get("connector_mode", "")).strip().lower()
+            connector_backend = str(remote.get("connector_backend", "")).strip().lower()
+            connector_ready = bool(remote.get("connector_ready", False))
+            connector_session_id = str(remote.get("connector_session_id", "")).strip()
+            connector_binding_source = str(remote.get("connector_binding_source", "")).strip().lower()
+            connector_last_heartbeat = str(remote.get("connector_last_heartbeat", "")).strip()
+
+    connector_errors: list[str] = []
+    if connector_mode not in {"staging-real", "real-staging", "real"}:
+        connector_errors.append("missing_or_invalid_connector_mode")
+    if _has_synthetic_marker(connector_backend):
+        connector_errors.append("missing_or_invalid_connector_backend")
+    if connector_ready is not True:
+        connector_errors.append("connector_not_ready")
+    if not connector_session_id:
+        connector_errors.append("missing_connector_session_id")
+    if _has_synthetic_marker(connector_binding_source):
+        connector_errors.append("missing_or_invalid_connector_binding_source")
+    if not connector_last_heartbeat:
+        connector_errors.append("missing_connector_last_heartbeat")
+
+    if bridge_status != "ok" or degraded_transports or connector_errors:
         return StageResult(
             stage="connectivity",
             status="failed",
@@ -176,6 +232,13 @@ def _run_connectivity_stage(
                 "bridge_status": bridge_status,
                 "degraded_transports": degraded_transports,
                 "preflight_errors": health.get("preflight_errors", []),
+                "connector_mode": connector_mode,
+                "connector_backend": connector_backend,
+                "connector_ready": connector_ready,
+                "connector_session_id": connector_session_id,
+                "connector_binding_source": connector_binding_source,
+                "connector_last_heartbeat": connector_last_heartbeat,
+                "connector_errors": connector_errors,
             },
         )
     return StageResult(
@@ -185,6 +248,13 @@ def _run_connectivity_stage(
             "bridge_status": bridge_status,
             "degraded_transports": degraded_transports,
             "preflight_errors": health.get("preflight_errors", []),
+            "connector_mode": connector_mode,
+            "connector_backend": connector_backend,
+            "connector_ready": connector_ready,
+            "connector_session_id": connector_session_id,
+            "connector_binding_source": connector_binding_source,
+            "connector_last_heartbeat": connector_last_heartbeat,
+            "connector_errors": connector_errors,
         },
     )
 
@@ -243,6 +313,7 @@ def _run_batch_stage(
     if dry_run:
         return StageResult(stage="batch", status="planned", details={"batch_size": batch_size})
 
+    incidents_before = len(sync.list_incidents())
     submitted_at = _utc_now()
     intents = [
         _intent(
@@ -257,7 +328,8 @@ def _run_batch_stage(
     reconciliation = engine.reconcile(expected_positions=sync.list_positions())
     observability = engine.observability_snapshot()
     sync_incidents_total = len(sync.list_incidents())
-    if reconciliation.incidents or sync_incidents_total > 0:
+    sync_incidents_delta = max(0, sync_incidents_total - incidents_before)
+    if reconciliation.incidents or sync_incidents_delta > 0:
         kill_switch_result: dict[str, object] | None = None
         cancel_results: list[dict[str, object]] = []
         if kill_switch_on_failure:
@@ -285,6 +357,7 @@ def _run_batch_stage(
                 "reconciliation_incidents": len(reconciliation.incidents),
                 "reconciliation": reconciliation.to_dict(),
                 "sync_incidents_total": sync_incidents_total,
+                "sync_incidents_delta": sync_incidents_delta,
                 "observability": observability,
                 "kill_switch_result": kill_switch_result,
                 "cancel_results": cancel_results,
@@ -299,6 +372,7 @@ def _run_batch_stage(
             "sync_stats": sync_stats,
             "reconciliation_incidents": 0,
             "sync_incidents_total": sync_incidents_total,
+            "sync_incidents_delta": sync_incidents_delta,
             "observability": observability,
         },
     )

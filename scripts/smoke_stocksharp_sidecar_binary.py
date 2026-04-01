@@ -66,7 +66,27 @@ def _wait_for_health(base_url: str, *, timeout_seconds: float) -> dict[str, obje
                 body = response.read().decode("utf-8")
             payload = json.loads(body) if body.strip() else {}
             if isinstance(payload, dict):
-                return payload
+                status = str(payload.get("status", "")).strip().lower()
+                connector_ready = bool(payload.get("connector_ready", False))
+                connector_session_id = str(payload.get("connector_session_id", "")).strip()
+                connector_binding_source = str(payload.get("connector_binding_source", "")).strip()
+                connector_last_heartbeat = str(payload.get("connector_last_heartbeat", "")).strip()
+                if (
+                    status == "ok"
+                    and connector_ready
+                    and connector_session_id
+                    and connector_binding_source
+                    and connector_last_heartbeat
+                ):
+                    return payload
+                last_error = (
+                    "health is not ready for connector proof: "
+                    f"status={status}, connector_ready={connector_ready}, "
+                    f"session={bool(connector_session_id)}, binding={bool(connector_binding_source)}, "
+                    f"heartbeat={bool(connector_last_heartbeat)}"
+                )
+                time.sleep(0.25)
+                continue
             last_error = "health payload is not object"
         except (urllib_error.URLError, urllib_error.HTTPError, TimeoutError, socket.timeout, json.JSONDecodeError) as exc:
             last_error = f"{type(exc).__name__}: {exc}"
@@ -154,6 +174,18 @@ def _run_smoke(base_url: str) -> dict[str, object]:
     updates = transport.list_broker_updates()
     fills = transport.list_broker_fills()
     health = transport.health()
+    remote_health = health.get("remote", {}) if isinstance(health, dict) else {}
+    if not isinstance(remote_health, dict):
+        raise RuntimeError("sidecar health remote payload must be object")
+    connector_session_id = str(remote_health.get("connector_session_id", "")).strip()
+    connector_binding_source = str(remote_health.get("connector_binding_source", "")).strip()
+    connector_last_heartbeat = str(remote_health.get("connector_last_heartbeat", "")).strip()
+    if not connector_session_id:
+        raise RuntimeError("sidecar /health must expose connector_session_id for broker contour evidence")
+    if not connector_binding_source:
+        raise RuntimeError("sidecar /health must expose connector_binding_source for broker contour evidence")
+    if not connector_last_heartbeat:
+        raise RuntimeError("sidecar /health must expose connector_last_heartbeat for broker contour evidence")
     readiness = transport.readiness()
 
     kill_switch_on_status, kill_switch_on_payload = _http_json(
@@ -256,6 +288,11 @@ def _run_smoke(base_url: str) -> dict[str, object]:
         "updates_count": len(updates),
         "fills_count": len(fills),
         "health": health,
+        "connector_session": {
+            "connector_session_id": connector_session_id,
+            "connector_binding_source": connector_binding_source,
+            "connector_last_heartbeat": connector_last_heartbeat,
+        },
         "readiness": readiness,
         "metrics": {
             "before_kill_switch": metrics_before,

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/sidecar_fills_stream_response.v1.json",
+  "title": "SidecarFillsStreamResponseV1",
+  "type": "object",
+  "required": ["fills", "next_cursor"],
+  "properties": {
+    "fills": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["external_order_id", "fill_id", "qty", "price", "fee", "fill_ts"],
+        "properties": {
+          "external_order_id": {"type": "string", "minLength": 1},
+          "fill_id": {"type": "string", "minLength": 1},
+          "qty": {"type": "integer", "minimum": 1},
+          "price": {"type": "number", "exclusiveMinimum": 0},
+          "fee": {"type": "number", "minimum": 0},
+          "fill_ts": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "next_cursor": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

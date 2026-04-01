@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/runtime_signal_store_persistence_manifest.v1.json",
+  "title": "RuntimeSignalStorePersistenceManifestV1",
+  "type": "object",
+  "required": ["schema", "migration_versions", "tables", "migration_tracking_table"],
+  "properties": {
+    "schema": {"type": "string", "minLength": 1},
+    "migration_versions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "tables": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "primary_key", "columns", "indexes"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "primary_key": {"type": "string", "minLength": 1},
+          "columns": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string", "minLength": 1}
+          },
+          "indexes": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1}
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "migration_tracking_table": {
+      "type": "object",
+      "required": ["name", "columns"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "columns": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -108,7 +108,14 @@ public sealed record HealthPayload(
     [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("route")] string Route,
     [property: JsonPropertyName("kill_switch")] bool KillSwitch,
-    [property: JsonPropertyName("queued_intents")] int QueuedIntents
+    [property: JsonPropertyName("queued_intents")] int QueuedIntents,
+    [property: JsonPropertyName("connector_mode")] string ConnectorMode,
+    [property: JsonPropertyName("connector_backend")] string ConnectorBackend,
+    [property: JsonPropertyName("connector_ready")] bool ConnectorReady,
+    [property: JsonPropertyName("connector_session_id")] string ConnectorSessionId,
+    [property: JsonPropertyName("connector_binding_source")] string ConnectorBindingSource,
+    [property: JsonPropertyName("connector_last_heartbeat")] string ConnectorLastHeartbeat,
+    [property: JsonPropertyName("connector_error")] string? ConnectorError
 );
 
 public sealed record ReadyPayload(
