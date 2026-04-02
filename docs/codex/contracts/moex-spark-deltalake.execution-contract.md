@@ -11,8 +11,8 @@ Updated: 2026-04-02 08:18 UTC
 
 ## Primary Source Decision
 
-- Selected Primary Document: artifacts/codex/package-intake/20260402T080438Z-moex-spark-deltalake-2026-04-01/extracted/docs/01_TZ_MOEX_Spark_Delta.md
-- Selection Rule: the manifest produced one clear top-ranked document, and that document contains the end-to-end scope, functional requirements, hard boundaries, rollout phases, and acceptance structure for governed planning.
+- Selected Primary Document: docs/codex/modules/moex-spark-deltalake.parent.md
+- Selection Rule: package intake was normalized into governed module planning artifacts; the parent brief is used as the in-repo canonical anchor for phase continuation and release-surface ownership.
 - Supporting Documents:
   - Source section "02_DoD_and_Acceptance" for Gate A-D acceptance requirements and evidence expectations.
   - Source section "03_Implementation_Backlog" for epic/task dependency order behind each source phase.
