@@ -135,6 +135,7 @@ def scope_validate_command(
         "scripts/validate_task_outcomes.py",
         "scripts/validate_solution_intent.py",
         "scripts/validate_critical_contour_closure.py",
+        "scripts/validate_legacy_namespace_growth.py",
     )
     if not any(any(token.endswith(script_name) for token in normalized) for script_name in scoped_scripts):
         surface_matrix_script = "scripts/run_surface_pr_matrix.py"

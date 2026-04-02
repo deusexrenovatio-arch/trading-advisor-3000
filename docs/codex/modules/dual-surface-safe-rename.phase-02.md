@@ -1,6 +1,6 @@
 # Module Phase Brief
 
-Updated: 2026-04-02 14:10 UTC
+Updated: 2026-04-02 15:05 UTC
 
 ## Parent
 
@@ -10,7 +10,7 @@ Updated: 2026-04-02 14:10 UTC
 ## Phase
 
 - Name: P2 - Compatibility Bridge Layer
-- Status: planned
+- Status: completed
 
 ## Objective
 
@@ -31,7 +31,8 @@ Updated: 2026-04-02 14:10 UTC
 ## Change Surfaces
 
 - GOV-RUNTIME
-- CTX-CONTRACTS
+- CTX-ORCHESTRATION
+- ARCH-DOCS
 - PROCESS-STATE
 
 ## Constraints
@@ -52,9 +53,11 @@ Updated: 2026-04-02 14:10 UTC
 
 ## Done Evidence
 
-- Bridge adapters and policy checks exist with tests.
-- CI dual-path mode is active and documented.
-- rollback notes exist and were dry-run validated.
+- src/trading_advisor_3000/product_plane/__init__.py provides temporary import bridge to legacy product namespace.
+- docs/architecture/product-plane/README.md provides compatibility pointer for docs root migration.
+- scripts/validate_legacy_namespace_growth.py blocks new legacy namespace tokens in changed files outside explicit migration allowlist.
+- configs/change_surface_mapping.yaml runs legacy growth validator inside default loop lane.
+- tests/process/test_validate_legacy_namespace_growth.py and tests/process/test_gate_scope_routing.py cover scoped execution and fail-closed behavior.
 
 ## Release Gate Impact
 
