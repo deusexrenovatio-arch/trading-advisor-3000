@@ -510,6 +510,7 @@ def simulate_acceptance_payload(scenario: str, attempt: int) -> dict[str, Any]:
             "architecture-review",
             "testing-suite",
             "docs-sync",
+            "verification-before-completion",
         ],
         "blockers": [],
         "rerun_checks": [],

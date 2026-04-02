@@ -12,6 +12,7 @@ routing_triggers:
   - "acceptor"
   - "fallback"
   - "skip checks"
+  - "verification before completion"
 ---
 
 # Phase Acceptance Governor
@@ -19,6 +20,21 @@ routing_triggers:
 ## Purpose
 Keep phase acceptance hard and explicit.
 No phase may unlock the next phase if it still depends on silent assumptions, skipped checks, hidden fallbacks, deferred critical work, or missing evidence.
+
+## Trigger Patterns
+- "phase acceptance"
+- "acceptance gate"
+- "acceptor"
+- "fallback"
+- "skip checks"
+- "unresolved assumptions"
+- "deferred critical work"
+
+## Capabilities
+- Detect hidden quality downgrades and policy-breaching shortcuts.
+- Block phase completion when evidence or required checks are missing.
+- Produce explicit remediation requirements before re-running acceptance.
+- Enforce completion verification so "done" is evidence-backed, not assertion-backed.
 
 ## Mandatory Blockers
 Treat the phase as `BLOCKED` when any of the following are present:
@@ -40,6 +56,7 @@ The acceptor must evaluate every phase on all of these dimensions:
 4. Documentation coverage: docs reflect implementation and operator behavior.
 5. Architecture fit: boundaries, dependency direction, and future scale remain sound.
 6. Traceability: the phase objective and done evidence are fully closed, not "mostly done".
+7. Completion verification: every closure claim maps to executable proof, not narrative only.
 
 ## Required Review Lenses
 When available, combine this skill with:
@@ -47,6 +64,7 @@ When available, combine this skill with:
 - `.cursor/skills/architecture-review/SKILL.md`
 - `.cursor/skills/testing-suite/SKILL.md`
 - `.cursor/skills/docs-sync/SKILL.md`
+- `.cursor/skills/verification-before-completion/SKILL.md`
 
 ## Output Contract
 The acceptor should return:

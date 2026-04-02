@@ -30,6 +30,7 @@ def _write_acceptor_skills(repo: Path) -> None:
         "architecture-review": "---\nname: architecture-review\ndescription: test\nclassification: KEEP_CORE\nwave: WAVE_1\nstatus: ACTIVE\nowner_surface: CTX-ARCHITECTURE\nrouting_triggers:\n  - architecture\n---\n# architecture review\n",
         "testing-suite": "---\nname: testing-suite\ndescription: test\nclassification: KEEP_CORE\nwave: WAVE_1\nstatus: ACTIVE\nowner_surface: CTX-OPS\nrouting_triggers:\n  - tests\n---\n# testing suite\n",
         "docs-sync": "---\nname: docs-sync\ndescription: test\nclassification: KEEP_CORE\nwave: WAVE_1\nstatus: ACTIVE\nowner_surface: CTX-OPS\nrouting_triggers:\n  - docs\n---\n# docs sync\n",
+        "verification-before-completion": "---\nname: verification-before-completion\ndescription: test\nclassification: KEEP_CORE\nwave: WAVE_1\nstatus: ACTIVE\nowner_surface: CTX-OPS\nrouting_triggers:\n  - verification before completion\n---\n# verification before completion\n",
     }
     for skill_id, text in skills.items():
         _write(repo / ".cursor/skills" / skill_id / "SKILL.md", text)
@@ -311,6 +312,7 @@ def test_skip_clean_check_uses_worker_files_for_changed_files_snapshot(monkeypat
                 "architecture-review",
                 "testing-suite",
                 "docs-sync",
+                "verification-before-completion",
             ],
             "blockers": [],
             "rerun_checks": [],
@@ -422,6 +424,7 @@ def test_orchestrator_auto_blocks_missing_worker_evidence_contract(tmp_path: Pat
                 "architecture-review",
                 "testing-suite",
                 "docs-sync",
+                "verification-before-completion",
             ],
             "blockers": [],
             "rerun_checks": [],
@@ -489,6 +492,7 @@ def test_orchestrator_auto_blocks_weaker_worker_evidence_proof_class(tmp_path: P
                 "architecture-review",
                 "testing-suite",
                 "docs-sync",
+                "verification-before-completion",
             ],
             "blockers": [],
             "rerun_checks": [],
