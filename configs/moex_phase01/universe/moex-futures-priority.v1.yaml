@@ -1,0 +1,192 @@
+﻿version: 1
+universe_id: moex-futures-priority-v1
+universe_version: 2026-04-02.foundation.2
+as_of_utc: "2026-04-02T00:00:00Z"
+
+policy:
+  include_asset_class:
+    - futures
+  include_groups:
+    - commodity
+    - index
+  exclude_groups:
+    - equity
+    - bond
+    - fx_spot
+    - option
+
+symbols:
+  - internal_id: FUT_BR
+    asset_class: futures
+    asset_group: commodity
+    status: active
+    finam_symbol: BRK6@MOEX
+    moex:
+      engine: futures
+      market: forts
+      board: RFUD
+      secid: BRK6
+      asset_codes:
+        - BR
+
+  - internal_id: FUT_NG
+    asset_class: futures
+    asset_group: commodity
+    status: active
+    finam_symbol: NGJ6@MOEX
+    moex:
+      engine: futures
+      market: forts
+      board: RFUD
+      secid: NGJ6
+      asset_codes:
+        - NG
+
+  - internal_id: FUT_GOLD
+    asset_class: futures
+    asset_group: commodity
+    status: active
+    finam_symbol: GDM6@MOEX
+    moex:
+      engine: futures
+      market: forts
+      board: RFUD
+      secid: GDM6
+      asset_codes:
+        - GOLD
+
+  - internal_id: FUT_SILV
+    asset_class: futures
+    asset_group: commodity
+    status: active
+    finam_symbol: SVM6@MOEX
+    moex:
+      engine: futures
+      market: forts
+      board: RFUD
+      secid: SVM6
+      asset_codes:
+        - SILV
+
+  - internal_id: FUT_PLD
+    asset_class: futures
+    asset_group: commodity
+    status: active
+    finam_symbol: PDM6@MOEX
+    moex:
+      engine: futures
+      market: forts
+      board: RFUD
+      secid: PDM6
+      asset_codes:
+        - PLD
+
+  - internal_id: FUT_PLT
+    asset_class: futures
+    asset_group: commodity
+    status: active
+    finam_symbol: PTM6@MOEX
+    moex:
+      engine: futures
+      market: forts
+      board: RFUD
+      secid: PTM6
+      asset_codes:
+        - PLT
+
+  - internal_id: FUT_WHEAT
+    asset_class: futures
+    asset_group: commodity
+    status: active
+    finam_symbol: W4J6@MOEX
+    moex:
+      engine: futures
+      market: forts
+      board: RFUD
+      secid: W4J6
+      asset_codes:
+        - WHEAT
+
+  - internal_id: FUT_RTS
+    asset_class: futures
+    asset_group: index
+    status: active
+    finam_symbol: RIM6@MOEX
+    moex:
+      engine: futures
+      market: forts
+      board: RFUD
+      secid: RIM6
+      asset_codes:
+        - RTS
+
+  - internal_id: FUT_MIX
+    asset_class: futures
+    asset_group: index
+    status: active
+    finam_symbol: MXM6@MOEX
+    moex:
+      engine: futures
+      market: forts
+      board: RFUD
+      secid: MXM6
+      asset_codes:
+        - MIX
+
+  - internal_id: FUT_MXI
+    asset_class: futures
+    asset_group: index
+    status: active
+    finam_symbol: MMM6@MOEX
+    moex:
+      engine: futures
+      market: forts
+      board: RFUD
+      secid: MMM6
+      asset_codes:
+        - MXI
+
+  - internal_id: FUT_NASD
+    asset_class: futures
+    asset_group: index
+    status: active
+    finam_symbol: NAM6@MOEX
+    moex:
+      engine: futures
+      market: forts
+      board: RFUD
+      secid: NAM6
+      asset_codes:
+        - NASD
+
+  - internal_id: FUT_SPYF
+    asset_class: futures
+    asset_group: index
+    status: active
+    finam_symbol: SFM6@MOEX
+    moex:
+      engine: futures
+      market: forts
+      board: RFUD
+      secid: SFM6
+      asset_codes:
+        - SPYF
+
+  - internal_id: FUT_RGBI
+    asset_class: futures
+    asset_group: index
+    status: active
+    finam_symbol: RBM6@MOEX
+    moex:
+      engine: futures
+      market: forts
+      board: RFUD
+      secid: RBM6
+      asset_codes:
+        - RGBI
+
+validation:
+  require_mapping_for_all_active: true
+  require_coverage_discovery_pass: true
+  require_qc_dry_run_pass: true
+  require_reconciliation_dry_run_pass: true

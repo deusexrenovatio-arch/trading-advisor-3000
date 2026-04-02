@@ -20,7 +20,7 @@
   "properties": {
     "signal_id": {"type": "string", "minLength": 1},
     "contract_id": {"type": "string", "minLength": 1},
-    "timeframe": {"type": "string", "enum": ["5m", "15m", "1h"]},
+    "timeframe": {"type": "string", "enum": ["5m", "15m", "1h", "4h", "1d", "1w"]},
     "strategy_version_id": {"type": "string", "minLength": 1},
     "mode": {"type": "string", "enum": ["shadow", "paper", "live"]},
     "side": {"type": "string", "enum": ["long", "short"]},

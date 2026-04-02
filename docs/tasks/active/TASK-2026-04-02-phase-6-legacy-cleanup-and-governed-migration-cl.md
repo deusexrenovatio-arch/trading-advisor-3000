@@ -12,6 +12,13 @@ Updated: 2026-04-02 14:31 UTC
 - Done Evidence: list exact commands/artifacts proving completion.
 - Priority Rule: quality and safety over speed when tradeoffs appear.
 
+## Solution Intent
+- Solution Class: target
+- Critical Contour: data-integration-closure
+- Forbidden Shortcuts: none
+- Closure Evidence: integration test verification confirms canonical dataset readiness and runtime-ready surface handoff for downstream research.
+- Shortcut Waiver: none
+
 ## Current Delta
 - Session started and baseline scope captured.
 

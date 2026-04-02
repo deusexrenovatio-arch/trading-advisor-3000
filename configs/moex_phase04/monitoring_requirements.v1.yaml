@@ -1,0 +1,31 @@
+version: 1
+freshness_sla_seconds: 900
+
+required_metrics:
+  pipeline_run_latency_seconds:
+    min: 0
+    max: 900
+  pipeline_run_failures_total:
+    min: 0
+    max: 0
+  qc_gate_fail_total:
+    min: 0
+    max: 0
+  reconciliation_drift_bps_p95:
+    min: 0
+    max: 40
+  publish_freshness_lag_seconds:
+    min: 0
+    max: 900
+
+required_dashboards:
+  - moex-operations-overview
+  - moex-qc-reconciliation
+  - moex-freshness-sla
+
+required_queries:
+  - pipeline_run_latency_seconds
+  - pipeline_run_failures_total
+  - qc_gate_fail_total
+  - reconciliation_drift_bps_p95
+  - publish_freshness_lag_seconds

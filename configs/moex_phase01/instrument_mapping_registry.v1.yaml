@@ -1,0 +1,200 @@
+﻿version: 1
+registry_id: moex-futures-mapping-v1
+as_of_utc: "2026-04-02T00:00:00Z"
+
+mappings:
+  - internal_id: FUT_BR
+    finam_symbol: BRJ6@MOEX
+    moex_engine: futures
+    moex_market: forts
+    moex_board: RFUD
+    moex_secid: BRJ6
+    asset_class: futures
+    asset_group: commodity
+    mapping_version: 1
+    is_active: false
+    activated_at_utc: "2026-01-05T00:00:00Z"
+    deactivated_at_utc: "2026-04-02T00:00:00Z"
+    change_reason: roll-forward to front contract
+
+  - internal_id: FUT_BR
+    finam_symbol: BRK6@MOEX
+    moex_engine: futures
+    moex_market: forts
+    moex_board: RFUD
+    moex_secid: BRK6
+    asset_class: futures
+    asset_group: commodity
+    mapping_version: 2
+    is_active: true
+    activated_at_utc: "2026-04-02T00:00:00Z"
+    deactivated_at_utc: ""
+    change_reason: active front contract
+
+  - internal_id: FUT_NG
+    finam_symbol: NGJ6@MOEX
+    moex_engine: futures
+    moex_market: forts
+    moex_board: RFUD
+    moex_secid: NGJ6
+    asset_class: futures
+    asset_group: commodity
+    mapping_version: 1
+    is_active: true
+    activated_at_utc: "2026-04-02T00:00:00Z"
+    deactivated_at_utc: ""
+    change_reason: initial activation
+
+  - internal_id: FUT_GOLD
+    finam_symbol: GDM6@MOEX
+    moex_engine: futures
+    moex_market: forts
+    moex_board: RFUD
+    moex_secid: GDM6
+    asset_class: futures
+    asset_group: commodity
+    mapping_version: 1
+    is_active: true
+    activated_at_utc: "2026-04-02T00:00:00Z"
+    deactivated_at_utc: ""
+    change_reason: initial activation
+
+  - internal_id: FUT_SILV
+    finam_symbol: SVM6@MOEX
+    moex_engine: futures
+    moex_market: forts
+    moex_board: RFUD
+    moex_secid: SVM6
+    asset_class: futures
+    asset_group: commodity
+    mapping_version: 1
+    is_active: true
+    activated_at_utc: "2026-04-02T00:00:00Z"
+    deactivated_at_utc: ""
+    change_reason: initial activation
+
+  - internal_id: FUT_PLD
+    finam_symbol: PDM6@MOEX
+    moex_engine: futures
+    moex_market: forts
+    moex_board: RFUD
+    moex_secid: PDM6
+    asset_class: futures
+    asset_group: commodity
+    mapping_version: 1
+    is_active: true
+    activated_at_utc: "2026-04-02T00:00:00Z"
+    deactivated_at_utc: ""
+    change_reason: initial activation
+
+  - internal_id: FUT_PLT
+    finam_symbol: PTM6@MOEX
+    moex_engine: futures
+    moex_market: forts
+    moex_board: RFUD
+    moex_secid: PTM6
+    asset_class: futures
+    asset_group: commodity
+    mapping_version: 1
+    is_active: true
+    activated_at_utc: "2026-04-02T00:00:00Z"
+    deactivated_at_utc: ""
+    change_reason: initial activation
+
+  - internal_id: FUT_WHEAT
+    finam_symbol: W4J6@MOEX
+    moex_engine: futures
+    moex_market: forts
+    moex_board: RFUD
+    moex_secid: W4J6
+    asset_class: futures
+    asset_group: commodity
+    mapping_version: 1
+    is_active: true
+    activated_at_utc: "2026-04-02T00:00:00Z"
+    deactivated_at_utc: ""
+    change_reason: initial activation
+
+  - internal_id: FUT_RTS
+    finam_symbol: RIM6@MOEX
+    moex_engine: futures
+    moex_market: forts
+    moex_board: RFUD
+    moex_secid: RIM6
+    asset_class: futures
+    asset_group: index
+    mapping_version: 1
+    is_active: true
+    activated_at_utc: "2026-04-02T00:00:00Z"
+    deactivated_at_utc: ""
+    change_reason: initial activation
+
+  - internal_id: FUT_MIX
+    finam_symbol: MXM6@MOEX
+    moex_engine: futures
+    moex_market: forts
+    moex_board: RFUD
+    moex_secid: MXM6
+    asset_class: futures
+    asset_group: index
+    mapping_version: 1
+    is_active: true
+    activated_at_utc: "2026-04-02T00:00:00Z"
+    deactivated_at_utc: ""
+    change_reason: initial activation
+
+  - internal_id: FUT_MXI
+    finam_symbol: MMM6@MOEX
+    moex_engine: futures
+    moex_market: forts
+    moex_board: RFUD
+    moex_secid: MMM6
+    asset_class: futures
+    asset_group: index
+    mapping_version: 1
+    is_active: true
+    activated_at_utc: "2026-04-02T00:00:00Z"
+    deactivated_at_utc: ""
+    change_reason: initial activation
+
+  - internal_id: FUT_NASD
+    finam_symbol: NAM6@MOEX
+    moex_engine: futures
+    moex_market: forts
+    moex_board: RFUD
+    moex_secid: NAM6
+    asset_class: futures
+    asset_group: index
+    mapping_version: 1
+    is_active: true
+    activated_at_utc: "2026-04-02T00:00:00Z"
+    deactivated_at_utc: ""
+    change_reason: initial activation
+
+  - internal_id: FUT_SPYF
+    finam_symbol: SFM6@MOEX
+    moex_engine: futures
+    moex_market: forts
+    moex_board: RFUD
+    moex_secid: SFM6
+    asset_class: futures
+    asset_group: index
+    mapping_version: 1
+    is_active: true
+    activated_at_utc: "2026-04-02T00:00:00Z"
+    deactivated_at_utc: ""
+    change_reason: initial activation
+
+  - internal_id: FUT_RGBI
+    finam_symbol: RBM6@MOEX
+    moex_engine: futures
+    moex_market: forts
+    moex_board: RFUD
+    moex_secid: RBM6
+    asset_class: futures
+    asset_group: index
+    mapping_version: 1
+    is_active: true
+    activated_at_utc: "2026-04-02T00:00:00Z"
+    deactivated_at_utc: ""
+    change_reason: initial activation

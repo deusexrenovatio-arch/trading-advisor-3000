@@ -18,7 +18,7 @@
   "properties": {
     "contract_id": {"type": "string", "minLength": 1},
     "instrument_id": {"type": "string", "minLength": 1},
-    "timeframe": {"type": "string", "enum": ["5m", "15m", "1h"]},
+    "timeframe": {"type": "string", "enum": ["5m", "15m", "1h", "4h", "1d", "1w"]},
     "ts": {"type": "string", "minLength": 1},
     "open": {"type": "number"},
     "high": {"type": "number"},
