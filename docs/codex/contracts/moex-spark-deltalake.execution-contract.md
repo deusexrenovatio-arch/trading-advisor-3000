@@ -14,13 +14,13 @@ Updated: 2026-04-02 08:18 UTC
 - Selected Primary Document: artifacts/codex/package-intake/20260402T080438Z-moex-spark-deltalake-2026-04-01/extracted/docs/01_TZ_MOEX_Spark_Delta.md
 - Selection Rule: the manifest produced one clear top-ranked document, and that document contains the end-to-end scope, functional requirements, hard boundaries, rollout phases, and acceptance structure for governed planning.
 - Supporting Documents:
-  - `artifacts/codex/package-intake/20260402T080438Z-moex-spark-deltalake-2026-04-01/extracted/docs/02_DoD_and_Acceptance.md` for Gate A-D acceptance requirements and evidence expectations.
-  - `artifacts/codex/package-intake/20260402T080438Z-moex-spark-deltalake-2026-04-01/extracted/docs/03_Implementation_Backlog.md` for epic/task dependency order behind each source phase.
-  - `artifacts/codex/package-intake/20260402T080438Z-moex-spark-deltalake-2026-04-01/extracted/docs/04_Integration_Contracts_and_Mapping.md` for mapping, contract boundaries, and timeframe policy.
-  - `artifacts/codex/package-intake/20260402T080438Z-moex-spark-deltalake-2026-04-01/extracted/docs/05_Spark_Jobs_and_Schedules.md` for deterministic job inventory and orchestration order.
-  - `artifacts/codex/package-intake/20260402T080438Z-moex-spark-deltalake-2026-04-01/extracted/docs/06_Data_Quality_and_Reconciliation.md` for fail-closed quality and reconciliation rules.
-  - `artifacts/codex/package-intake/20260402T080438Z-moex-spark-deltalake-2026-04-01/extracted/docs/07_Operations_Runbook.md` for recovery and incident requirements.
-  - `artifacts/codex/package-intake/20260402T080438Z-moex-spark-deltalake-2026-04-01/extracted/docs/08_Initial_Asset_Universe_Futures_MOEX.md` for initial asset-universe boundaries.
+  - Source section "02_DoD_and_Acceptance" for Gate A-D acceptance requirements and evidence expectations.
+  - Source section "03_Implementation_Backlog" for epic/task dependency order behind each source phase.
+  - Source section "04_Integration_Contracts_and_Mapping" for mapping, contract boundaries, and timeframe policy.
+  - Source section "05_Spark_Jobs_and_Schedules" for deterministic job inventory and orchestration order.
+  - Source section "06_Data_Quality_and_Reconciliation" for fail-closed quality and reconciliation rules.
+  - Source section "07_Operations_Runbook" for recovery and incident requirements.
+  - Source section "08_Initial_Asset_Universe_Futures_MOEX" for initial asset-universe boundaries.
 - Conflict Status: no material contradiction was found; supporting documents refine acceptance and operational details without changing the source phase order.
 
 ## Prompt / Spec Quality
