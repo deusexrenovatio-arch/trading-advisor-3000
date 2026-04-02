@@ -116,3 +116,8 @@ items:
   mode: legacy-full
   status: in_progress
   started_at: '2026-04-02'
+- id: TASK-2026-04-02-PHASE-5-GOVERNANCE-AND-CI-SELECTOR-CUTOVER-FOR-D
+  path: docs/tasks/active/TASK-2026-04-02-phase-5-governance-and-ci-selector-cutover-for-d.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-04-02'

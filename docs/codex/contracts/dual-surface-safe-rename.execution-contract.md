@@ -1,6 +1,6 @@
 # Execution Contract
 
-Updated: 2026-04-02 14:00 UTC
+Updated: 2026-04-02 14:20 UTC
 
 ## Source Package
 
@@ -91,9 +91,9 @@ Updated: 2026-04-02 14:00 UTC
 - continue
 
 ## Next Allowed Unit Of Work
-- Execute P5 governance/CI selector cutover after runtime and test namespace cutover evidence and green loop/pr gates for phase-04.
+- Execute P6 legacy cleanup and migration closure after target-only governance selector evidence and green loop/pr gates for phase-05.
 
 ## Suggested Branch / PR
 
-- Branch: codex/dual-surface-rename-phase4
-- PR Title: Phase 4 runtime and test namespace cutover for dual-surface safe rename migration
+- Branch: codex/dual-surface-rename-phase5
+- PR Title: Phase 5 governance and CI selector cutover for dual-surface safe rename migration

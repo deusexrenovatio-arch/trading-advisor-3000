@@ -1,6 +1,6 @@
 # Module Phase Brief
 
-Updated: 2026-04-02 14:10 UTC
+Updated: 2026-04-02 14:20 UTC
 
 ## Parent
 
@@ -10,7 +10,7 @@ Updated: 2026-04-02 14:10 UTC
 ## Phase
 
 - Name: P5 - Governance and CI Selector Cutover
-- Status: planned
+- Status: completed
 
 ## Objective
 
@@ -53,9 +53,20 @@ Updated: 2026-04-02 14:10 UTC
 
 ## Done Evidence
 
-- Selector and ownership diff with deterministic validation output.
-- Updated templates and migration guard checks.
-- Loop and PR gate reports for selector-only mode.
+- CODEOWNERS routing switched to target selectors for product-plane surfaces:
+  - `/tests/product-plane/`
+  - `/docs/architecture/product-plane/`
+- CI/PR governance template updated to target regression command:
+  - `.github/PULL_REQUEST_TEMPLATE.md` now points to `python -m pytest tests/product-plane -q`.
+- Product-facing checklists and runbooks no longer suggest legacy namespace paths:
+  - `tests/app` -> `tests/product-plane`
+  - `src/trading_advisor_3000/app/` -> `src/trading_advisor_3000/product_plane/`
+  - `docs/architecture/app/` -> `docs/architecture/product-plane/`
+- Guard validation remained fail-closed for legacy namespace additions:
+  - `python scripts/validate_legacy_namespace_growth.py`
+- Gate evidence:
+  - `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`
+  - `python scripts/run_pr_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`
 
 ## Release Gate Impact
 

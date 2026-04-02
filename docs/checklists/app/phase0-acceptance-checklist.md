@@ -3,10 +3,10 @@
 Дата: 2026-03-16
 
 ## Deliverables
-- [x] docs package добавлен в `docs/architecture/app/product-plane-spec-v2/`
+- [x] docs package добавлен в `docs/architecture/product-plane/product-plane-spec-v2/`
 - [x] AGENTS overlay добавлен в `src/trading_advisor_3000/AGENTS.md`
-- [x] repo structure decision зафиксирован (`docs/architecture/app/product-plane-spec-v2/02_Repository_Structure.md` + skeleton dirs)
-- [x] phase plan добавлен (`docs/architecture/app/phase0-plan.md`)
+- [x] repo structure decision зафиксирован (`docs/architecture/product-plane/product-plane-spec-v2/02_Repository_Structure.md` + skeleton dirs)
+- [x] phase plan добавлен (`docs/architecture/product-plane/phase0-plan.md`)
 - [x] acceptance checklist оформлен
 
 ## Acceptance Criteria
@@ -16,7 +16,7 @@
 - [x] Loop gate green
 
 ## Evidence Commands
-- [x] `python -m pytest tests/app -q`
+- [x] `python -m pytest tests/product-plane -q`
 - [x] `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
 - [x] `python scripts/run_pr_gate.py --from-git --git-ref HEAD`
 

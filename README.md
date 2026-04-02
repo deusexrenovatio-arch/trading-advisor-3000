@@ -9,7 +9,7 @@ This repository operates with two explicit surfaces that are developed in one pl
 | Surface | Purpose | Canonical paths |
 | --- | --- | --- |
 | Delivery Shell | governance policy, lifecycle, validation, gates, durable process state | `AGENTS.md`, `docs/agent/*`, `scripts/*`, `configs/*`, `plans/*`, `memory/*` |
-| Product Plane | app runtime, data/research/execution flows, contracts, app docs/runbooks, deployment surfaces | `src/trading_advisor_3000/*`, `tests/app`, `docs/architecture/product-plane/*`, `docs/runbooks/app/*`, `deployment/*` |
+| Product Plane | app runtime, data/research/execution flows, contracts, app docs/runbooks, deployment surfaces | `src/trading_advisor_3000/*`, `tests/product-plane/*`, `docs/architecture/product-plane/*`, `docs/runbooks/app/*`, `deployment/*` |
 
 ## Fast navigation
 

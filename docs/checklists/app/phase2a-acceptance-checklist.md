@@ -28,10 +28,10 @@ Date: 2026-03-16
 - [x] Loop gate green
 
 ## Evidence Commands
-- [x] `python -m pytest tests/app/integration/test_phase2a_data_plane.py -q`
-- [x] `python -m pytest tests/app/unit/test_phase2a_builder.py -q`
-- [x] `python -m pytest tests/app/unit/test_phase2a_quality.py -q`
-- [x] `python -m pytest tests/app/unit/test_phase2a_manifests.py -q`
-- [x] `python -m pytest tests/app -q`
+- [x] `python -m pytest tests/product-plane/integration/test_phase2a_data_plane.py -q`
+- [x] `python -m pytest tests/product-plane/unit/test_phase2a_builder.py -q`
+- [x] `python -m pytest tests/product-plane/unit/test_phase2a_quality.py -q`
+- [x] `python -m pytest tests/product-plane/unit/test_phase2a_manifests.py -q`
+- [x] `python -m pytest tests/product-plane -q`
 - [x] `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
 - [x] `python scripts/run_pr_gate.py --from-git --git-ref HEAD`

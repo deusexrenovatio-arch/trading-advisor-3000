@@ -27,7 +27,7 @@ Date: 2026-03-18
 ## Evidence Commands
 - [x] `python -m pytest tests/process/test_phase8_operational_proving.py -q`
 - [x] `python -m pytest tests/process/test_harness_contracts.py -q`
-- [x] `python -m pytest tests/process tests/architecture tests/app -q`
+- [x] `python -m pytest tests/process tests/architecture tests/product-plane -q`
 - [x] `python scripts/run_phase8_operational_proving.py --dry-run --changed-files docs/README.md`
 - [x] `python scripts/run_phase8_operational_proving.py --from-git --git-ref HEAD --output artifacts/phase8-operational-proving.json`
 - [x] `python scripts/run_loop_gate.py --from-git --git-ref HEAD`

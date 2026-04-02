@@ -22,13 +22,13 @@ Date: 2026-03-17
 - [x] PR gate green
 
 ## Evidence Commands
-- [x] `python -m pytest tests/app/unit/test_phase5_review_metrics.py -q`
-- [x] `python -m pytest tests/app/unit/test_phase5_latency_metrics.py -q`
-- [x] `python -m pytest tests/app/unit/test_phase5_observability_export.py -q`
-- [x] `python -m pytest tests/app/unit/test_phase5_observability_deployment.py -q`
-- [x] `python -m pytest tests/app/integration/test_phase5_review_observability.py -q`
-- [x] `python -m pytest tests/app/integration/test_phase3_system_replay.py -q`
-- [x] `python -m pytest tests/app -q`
+- [x] `python -m pytest tests/product-plane/unit/test_phase5_review_metrics.py -q`
+- [x] `python -m pytest tests/product-plane/unit/test_phase5_latency_metrics.py -q`
+- [x] `python -m pytest tests/product-plane/unit/test_phase5_observability_export.py -q`
+- [x] `python -m pytest tests/product-plane/unit/test_phase5_observability_deployment.py -q`
+- [x] `python -m pytest tests/product-plane/integration/test_phase5_review_observability.py -q`
+- [x] `python -m pytest tests/product-plane/integration/test_phase3_system_replay.py -q`
+- [x] `python -m pytest tests/product-plane -q`
 - [x] `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
 - [x] `python scripts/run_pr_gate.py --from-git --git-ref HEAD --skip-session-check`
 - [x] `python scripts/run_nightly_gate.py --from-git --git-ref HEAD`

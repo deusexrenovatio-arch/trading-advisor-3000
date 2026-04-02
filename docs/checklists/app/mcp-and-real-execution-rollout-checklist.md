@@ -26,9 +26,9 @@ Date: 2026-03-18
 
 ## Evidence Commands
 - [x] `python -m pytest tests/process/test_mcp_rollout_contracts.py -q`
-- [x] `python -m pytest tests/app/unit/test_real_execution_http_transport.py -q`
-- [x] `python -m pytest tests/app/unit/test_real_execution_staging_gateway_deployment.py -q`
-- [x] `python -m pytest tests/app/integration/test_real_execution_staging_rollout.py -q`
+- [x] `python -m pytest tests/product-plane/unit/test_real_execution_http_transport.py -q`
+- [x] `python -m pytest tests/product-plane/unit/test_real_execution_staging_gateway_deployment.py -q`
+- [x] `python -m pytest tests/product-plane/integration/test_real_execution_staging_rollout.py -q`
 - [x] `python scripts/validate_mcp_config.py`
 - [x] `python scripts/validate_no_tracked_secrets.py`
 - [x] `python scripts/run_loop_gate.py --from-git --git-ref HEAD`

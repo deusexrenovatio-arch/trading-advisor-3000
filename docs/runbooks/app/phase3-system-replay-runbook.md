@@ -6,17 +6,17 @@ Run and validate the integrated shadow-forward replay path:
 
 ## Preconditions
 - Python environment with project dependencies is active.
-- Source bars fixture exists (for example `tests/app/fixtures/research/canonical_bars_sample.jsonl`).
+- Source bars fixture exists (for example `tests/product-plane/fixtures/research/canonical_bars_sample.jsonl`).
 - Strategy version used for replay is supported by sample strategy catalog (for MVP: `trend-follow-v1`).
 
 ## Replay Procedure
 1. Run the integrated replay acceptance test:
-   - `python -m pytest tests/app/integration/test_phase3_system_replay.py -q`
+   - `python -m pytest tests/product-plane/integration/test_phase3_system_replay.py -q`
 2. Run Phase 3 unit tests:
-   - `python -m pytest tests/app/unit/test_phase3_forward_engine.py -q`
-   - `python -m pytest tests/app/unit/test_phase3_analytics.py -q`
+   - `python -m pytest tests/product-plane/unit/test_phase3_forward_engine.py -q`
+   - `python -m pytest tests/product-plane/unit/test_phase3_analytics.py -q`
 3. Run full app regression:
-   - `python -m pytest tests/app -q`
+   - `python -m pytest tests/product-plane -q`
 
 ## Expected Evidence
 - Runtime replay report contains accepted/published signals (`runtime_report`).

@@ -1,4 +1,4 @@
-﻿# Phase 08 .NET Sidecar Proving Runbook
+# Phase 08 .NET Sidecar Proving Runbook
 
 ## Purpose
 Provide deterministic local proving for the in-repo `.NET 8` StockSharp sidecar contract process.
@@ -45,7 +45,7 @@ python scripts/smoke_stocksharp_sidecar_binary.py --sidecar-binary artifacts/pha
    - action: rerun smoke with `--port <free-port>`.
 3. Contract mismatch:
    - symptom: smoke failure on submit/replace/cancel or stream states.
-   - action: inspect sidecar logs printed by smoke script tail and compare with `docs/architecture/app/sidecar-wire-api-v1.md`.
+   - action: inspect sidecar logs printed by smoke script tail and compare with `docs/architecture/product-plane/sidecar-wire-api-v1.md`.
 
 ## Scope Guard
 This runbook validates contract-level sidecar closure only.

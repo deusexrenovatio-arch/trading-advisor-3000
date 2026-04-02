@@ -36,14 +36,14 @@ Policy behavior:
 
 ## Operational Validation
 1. Run Phase 6 integration tests:
-   - `python -m pytest tests/app/integration/test_phase6_operational_hardening.py -q`
+   - `python -m pytest tests/product-plane/integration/test_phase6_operational_hardening.py -q`
 2. Run Phase 6 unit tests:
-   - `python -m pytest tests/app/unit/test_phase6_live_bridge_hardening.py -q`
-   - `python -m pytest tests/app/unit/test_phase6_recovery_and_idempotency.py -q`
-   - `python -m pytest tests/app/unit/test_phase6_runtime_profile_ops.py -q`
-   - `python -m pytest tests/app/unit/test_phase6_production_profile_deployment.py -q`
+   - `python -m pytest tests/product-plane/unit/test_phase6_live_bridge_hardening.py -q`
+   - `python -m pytest tests/product-plane/unit/test_phase6_recovery_and_idempotency.py -q`
+   - `python -m pytest tests/product-plane/unit/test_phase6_runtime_profile_ops.py -q`
+   - `python -m pytest tests/product-plane/unit/test_phase6_production_profile_deployment.py -q`
 3. Run full app regression:
-   - `python -m pytest tests/app -q`
+   - `python -m pytest tests/product-plane -q`
 
 ## Production-like Compose Smoke
 1. Start profile:

@@ -14,7 +14,7 @@ Describe what changed and why.
 ## Validation Evidence
 - [ ] Loop gate executed (`python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`)
 - [ ] PR gate executed (`python scripts/run_pr_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`)
-- [ ] Product tests executed when product-plane paths changed (`python -m pytest tests/app -q`)
+- [ ] Product tests executed when product-plane paths changed (`python -m pytest tests/product-plane -q`)
 
 ## Notes For Reviewers
 List boundary-sensitive decisions, tradeoffs, and follow-ups.
