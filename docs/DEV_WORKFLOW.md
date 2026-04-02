@@ -1,11 +1,11 @@
-﻿# Development Workflow (AI Delivery Shell)
+# Development Workflow (Dual-Surface Delivery)
 
 ## Objective
 Provide a predictable and enforceable workflow for governance-first delivery in a repository that contains both shell and isolated product-plane surfaces.
 
 ## Canonical loop
 1. Read hot docs (`docs/agent/*`).
-2. Confirm the change surface (`shell`, `product-plane`, or mixed) and keep domain logic out of shell control-plane files.
+2. Confirm the change surface (`shell`, `product-plane`, or `mixed`), keep domain logic out of shell control-plane files, and keep the same surface declaration in task note + PR.
 3. Start task session: `python scripts/task_session.py begin --request "<request>"`.
 4. Keep task contract current in active task note.
 5. If the diff matches a critical contour, add `## Solution Intent` before coding and keep the declared class aligned with contour evidence.
@@ -48,6 +48,7 @@ If hosted runners are unavailable, replay lanes locally for acceptance evidence:
 4. No domain-specific logic inside shell control-plane files.
 5. Product-plane work must stay inside isolated app paths unless a governance change is explicit.
 6. Critical contour tasks must not claim target closure with scaffold, sample, smoke, or synthetic evidence.
+7. Every PR must declare `shell`, `product-plane`, or `mixed`, with boundary rationale when `mixed`.
 
 ## Change management policy
 1. One patch set equals one major governance concept.

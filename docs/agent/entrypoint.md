@@ -1,4 +1,4 @@
-﻿# Agent Entrypoint
+# Agent Entrypoint
 
 ## Read this first
 1. `AGENTS.md`
@@ -6,20 +6,22 @@
 3. `docs/agent/checks.md`
 4. `docs/agent/runtime.md`
 5. `docs/DEV_WORKFLOW.md`
+6. `docs/architecture/repository-surfaces.md`
 
 If the task touches the product plane, also read:
 1. `docs/architecture/app/STATUS.md`
 2. `docs/architecture/app/CONTRACT_SURFACES.md`
 
 ## Startup checklist
-1. Confirm the task change surface: shell, product plane, or both.
-2. Confirm no business/domain logic is being imported into shell control-plane files.
-3. If the diff hits a configured critical contour, read `docs/agent/critical-contours.md` and add `## Solution Intent` to the active task note before coding.
-4. For package intake or governed continuation, prefer the one-step bootstrap: `python scripts/codex_governed_bootstrap.py --request "<request>" ...`.
-5. Otherwise start lifecycle directly: `python scripts/task_session.py begin --request "<request>"`.
-6. If the operator asks to take a package or continue a module phase, do not start manual inline execution. Route first through `python scripts/codex_governed_entry.py ...`.
-7. Confirm patch set is small and explicit.
-8. Run loop gate before PR prep: `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`.
+1. Confirm the task change surface: `shell`, `product-plane`, or `mixed`.
+2. Record that surface in the active task note and keep the same declaration in PR metadata.
+3. Confirm no business/domain logic is being imported into shell control-plane files.
+4. If the diff hits a configured critical contour, read `docs/agent/critical-contours.md` and add `## Solution Intent` to the active task note before coding.
+5. For package intake or governed continuation, prefer the one-step bootstrap: `python scripts/codex_governed_bootstrap.py --request "<request>" ...`.
+6. Otherwise start lifecycle directly: `python scripts/task_session.py begin --request "<request>"`.
+7. If the operator asks to take a package or continue a module phase, do not start manual inline execution. Route first through `python scripts/codex_governed_entry.py ...`.
+8. Confirm patch set is small and explicit.
+9. Run loop gate before PR prep: `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`.
 
 ## Critical constraints
 - Mainline is PR-only by default.

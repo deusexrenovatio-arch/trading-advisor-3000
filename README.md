@@ -1,17 +1,22 @@
-﻿# Trading Advisor 3000 - AI Delivery Shell
+# Trading Advisor 3000 - Dual-Surface Repository
 
-This repository hosts the AI delivery control-plane shell for Trading Advisor 3000:
-- governance and workflow policy,
-- hot/warm/cold documentation system,
-- task lifecycle and request contracts,
-- context routing and gate stack,
-- durable plans, memory, and process telemetry.
+This repository operates with two explicit surfaces that are developed in one place:
+1. Delivery Shell (control plane for process/governance).
+2. Product Plane (application code, contracts, and operations).
 
-Product-plane work lives inside this shell repository, but it is not equivalent to full product acceptance.
-Current truth source for the product plane:
-- `docs/architecture/app/STATUS.md`
-- `docs/architecture/app/CONTRACT_SURFACES.md`
-- `docs/runbooks/app/bootstrap.md`
+## At a glance
+
+| Surface | Purpose | Canonical paths |
+| --- | --- | --- |
+| Delivery Shell | governance policy, lifecycle, validation, gates, durable process state | `AGENTS.md`, `docs/agent/*`, `scripts/*`, `configs/*`, `plans/*`, `memory/*` |
+| Product Plane | app runtime, data/research/execution flows, contracts, app docs/runbooks, deployment surfaces | `src/trading_advisor_3000/*`, `tests/app/*`, `docs/architecture/app/*`, `docs/runbooks/app/*`, `deployment/*` |
+
+## Fast navigation
+
+- Shell hub: `shell/README.md`
+- Product hub: `product-plane/README.md`
+- Boundary map: `docs/architecture/repository-surfaces.md`
+- Product truth source: `docs/architecture/app/STATUS.md`
 
 Start here:
 1. `AGENTS.md`

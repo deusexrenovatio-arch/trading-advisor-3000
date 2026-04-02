@@ -1,24 +1,28 @@
 # App Architecture Docs
 
-This section stores product-plane architecture artifacts on top of the existing AI shell.
+This directory is the product-plane architecture index inside the dual-surface repository.
 
 Read these first:
 - [STATUS.md](docs/architecture/app/STATUS.md) - current implemented reality and no-go zones.
 - [CONTRACT_SURFACES.md](docs/architecture/app/CONTRACT_SURFACES.md) - current versioned boundary inventory.
 - [contract-change-policy.md](docs/architecture/app/contract-change-policy.md) - compatibility and versioning policy for release-blocking envelopes.
 
+Repository naming note:
+- Use `product-plane` as the canonical term in docs and PR text.
+- The filesystem path stays `docs/architecture/app/` for compatibility with existing links, validators, and historical artifacts.
+
 Phase naming rule:
 - `S0-S8` refers to shell delivery phases.
 - `P0-P7` refers to product capability phases from the product spec.
 - [phase8-ci-pilot-operational-proving.md](docs/architecture/app/phase8-ci-pilot-operational-proving.md) is a shell-controlled evidence overlay, not proof of full product closure.
 
-## Phase 0 Package
+## Phase 0 package
 - `docs/architecture/app/product-plane-spec-v2/TECHNICAL_REQUIREMENTS.md`
 - `docs/architecture/app/product-plane-spec-v2/00_AI_Shell_Alignment.md`
 - `docs/architecture/app/product-plane-spec-v2/02_Repository_Structure.md`
 - `docs/architecture/app/product-plane-spec-v2/06_Phases_and_Acceptance_Gates.md`
 
-## Phase Artifacts
+## Phase artifacts
 - `docs/architecture/app/phase0-plan.md` - shell alignment and repo landing.
 - `docs/architecture/app/phase1-contracts-and-scaffolding.md` - contracts freeze and scaffolding.
 - `docs/architecture/app/phase2a-data-plane-mvp.md` - data plane MVP implementation and acceptance.
@@ -36,8 +40,9 @@ Phase naming rule:
 - `docs/architecture/app/mcp-and-real-execution-rollout.md` - MCP Wave 1-3 rollout + staging-first real HTTP execution transport closure.
 - `docs/architecture/app/sidecar-wire-api-v1.md` - wire-level HTTP/JSON sidecar contract for staging-first real transport.
 - `docs/architecture/app/phase0-3-acceptance-verdict-2026-03-17.md` - architecture acceptance disposition (MVP vs full target closure).
+- `docs/architecture/app/moex-spark-deltalake-integration-tz.md` - scoped technical assignment for MOEX historical ingestion + Spark jobs + Delta Lake quality/resampling contour.
 
-## Related Checklists
+## Related checklists
 - `docs/checklists/app/phase0-acceptance-checklist.md`
 - `docs/checklists/app/phase1-acceptance-checklist.md`
 - `docs/checklists/app/phase2a-acceptance-checklist.md`
@@ -53,5 +58,5 @@ Phase naming rule:
 - `docs/checklists/app/data-integration-closure-passport.md`
 - `docs/checklists/app/runtime-publication-closure-passport.md`
 
-## Boundary Rule
+## Boundary rule
 Product-plane changes must not break shell contracts and must not move trading business logic into shell-sensitive paths.
