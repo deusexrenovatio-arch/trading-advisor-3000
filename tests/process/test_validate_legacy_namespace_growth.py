@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -9,6 +10,7 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
+import validate_legacy_namespace_growth as legacy_growth  # noqa: E402
 from validate_legacy_namespace_growth import (  # noqa: E402
     extract_added_lines_from_patch,
     run,
@@ -55,4 +57,23 @@ def test_validate_legacy_namespace_growth_allows_migration_planning_paths(tmp_pa
 
 def test_validate_legacy_namespace_growth_passes_when_no_changes() -> None:
     code = run(ROOT, changed_files_override=[])
+    assert code == 0
+
+
+def test_validate_legacy_namespace_growth_handles_missing_stdout(monkeypatch, tmp_path: Path) -> None:
+    target = tmp_path / "docs" / "sample.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("# sample\n", encoding="utf-8")
+
+    def _fake_run_git(_repo_root: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
+        command = " ".join(args)
+        if command.startswith("diff --unified=0 --no-color"):
+            return subprocess.CompletedProcess(args=["git", *args], returncode=0, stdout=None, stderr="")
+        if command.startswith("ls-files --error-unmatch"):
+            return subprocess.CompletedProcess(args=["git", *args], returncode=0, stdout="", stderr="")
+        return subprocess.CompletedProcess(args=["git", *args], returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(legacy_growth, "_run_git", _fake_run_git)
+
+    code = run(tmp_path, changed_files_override=["docs/sample.md"])
     assert code == 0
