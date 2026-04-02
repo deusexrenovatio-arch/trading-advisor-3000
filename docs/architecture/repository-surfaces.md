@@ -30,9 +30,6 @@ Use these exact terms in task notes and PRs:
 2. Clarify intent through explicit terms, hubs, ownership, and PR templates.
 3. Defer physical folder renames to a dedicated migration once import/test/link impact is pre-validated.
 
-Migration specification reference:
-- `docs/architecture/dual-surface-safe-rename-migration-technical-specification.md`
-
 ## Controlled rename candidates (deferred)
 - `docs/architecture/app/` -> `docs/architecture/product-plane/`
 - `tests/app/` -> `tests/product-plane/`
