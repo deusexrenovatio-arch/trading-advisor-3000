@@ -26,12 +26,14 @@ Rules:
 - Do not silently introduce assumptions, fallback paths, skipped checks, or deferred critical work.
 - If any assumption, skip, fallback, or deferral exists, report it explicitly. Acceptance will treat it as a blocker.
 - Include the bounded `evidence_contract` object from `docs/checklists/phase-evidence-contract.md`.
+- Do not emit a final release-decision package from worker scope; for `release_decision` phases, only acceptance-owned closeout may emit final `ALLOW_RELEASE_READINESS` or `DENY_RELEASE_READINESS`.
 - Keep `evidence_contract` minimal and concrete:
   - `surfaces`
   - `proof_class`
   - `artifact_paths`
   - `checks`
   - `real_bindings`
+- `evidence_contract.checks` must contain exact executed commands (no placeholders like `<...>`).
 - Make the route explicit so the operator can see that the governed phase route is in use.
 
 Return a short human summary and finish with this exact marker block:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import re
 from typing import Any
 
 
@@ -24,6 +25,7 @@ ROUTE_GUARDRAILS = (
     "no deferred critical work",
     "acceptance requires architecture, test, and docs closure",
 )
+PLACEHOLDER_TOKEN_RE = re.compile(r"<[^>\n]+>")
 
 
 @dataclass
@@ -227,6 +229,34 @@ def _parse_worker_evidence_contract(value: dict[str, Any] | None) -> dict[str, A
     }
 
 
+def _has_placeholder_token(text: str) -> bool:
+    return bool(PLACEHOLDER_TOKEN_RE.search(text or ""))
+
+
+def _is_release_decision_emission_command(text: str) -> bool:
+    normalized = (text or "").strip().lower().replace("\\", "/")
+    if not normalized:
+        return False
+    return bool(
+        re.search(
+            r"(^|\s)(python(\.exe)?\s+)?[^\s\"']*scripts/build_governed_release_decision\.py(\s|$)",
+            normalized,
+        )
+    )
+
+
+def _is_release_decision_output_artifact(text: str) -> bool:
+    normalized = (text or "").strip().lower().replace("\\", "/")
+    if not normalized:
+        return False
+    return normalized.endswith("/release-decision.json") or normalized == "release-decision.json"
+
+
+def _is_continue_route_command(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    return "codex_governed_entry.py" in normalized and "--route continue" in normalized
+
+
 def apply_acceptance_policy(
     worker: WorkerReport,
     acceptance: AcceptanceResult,
@@ -246,8 +276,34 @@ def apply_acceptance_policy(
     for idx, item in enumerate(acceptance.prohibited_findings, start=1):
         policy_blockers.append(make_policy_blocker("prohibited_finding", idx, item))
 
+    evidence = _parse_worker_evidence_contract(worker.evidence_contract)
+    all_checks = normalize_string_list([*worker.checks_run, *evidence["checks"]])
+    all_artifact_paths = normalize_string_list([*worker.files_touched, *evidence["artifact_paths"]])
+
+    placeholder_checks = [item for item in all_checks if _has_placeholder_token(item)]
+    if placeholder_checks:
+        policy_blockers.append(
+            make_policy_blocker(
+                "evidence_gap",
+                len(policy_blockers) + 1,
+                "Worker evidence checks must be exact executed commands; placeholder tokens are not allowed: "
+                + ", ".join(placeholder_checks),
+            )
+        )
+
+    release_decision_emission_detected = any(
+        _is_release_decision_emission_command(item) for item in all_checks
+    ) or any(_is_release_decision_output_artifact(item) for item in all_artifact_paths)
+    if release_decision_emission_detected:
+        policy_blockers.append(
+            make_policy_blocker(
+                "prohibited_finding",
+                len(policy_blockers) + 1,
+                "Worker/remediation evidence includes release-decision emission before acceptance-owned closeout.",
+            )
+        )
+
     if phase_requirement and phase_requirement.owned_surfaces:
-        evidence = _parse_worker_evidence_contract(worker.evidence_contract)
         if worker.evidence_contract is None:
             policy_blockers.append(
                 make_policy_blocker(
@@ -300,6 +356,16 @@ def apply_acceptance_policy(
                         "Worker evidence contract is missing real_bindings for a phase that requires real bindings.",
                     )
                 )
+            if phase_requirement.delivered_proof_class == "live-real":
+                continue_checks = [item for item in all_checks if _is_continue_route_command(item)]
+                if continue_checks and all("--dry-run" in item.lower() for item in continue_checks):
+                    policy_blockers.append(
+                        make_policy_blocker(
+                            "prohibited_finding",
+                            len(policy_blockers) + 1,
+                            "Live-real route evidence used only dry-run governed continue commands.",
+                        )
+                    )
 
     missing_skills = [item for item in REQUIRED_ACCEPTANCE_SKILLS if item not in acceptance.used_skills]
     for idx, skill_id in enumerate(missing_skills, start=1):

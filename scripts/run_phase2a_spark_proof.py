@@ -2,12 +2,31 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path
-import shlex
 import subprocess
-import sys
 
+try:
+    from scripts.proof_runtime_contract import (
+        container_to_host_path,
+        docker_host_owner,
+        ensure_output_directory_writable,
+        ensure_output_file_writable,
+        host_to_container_path,
+        normalize_runtime_root,
+        resolve_repo_path,
+        wrap_with_owner_normalization,
+    )
+except ImportError:  # pragma: no cover - script execution fallback
+    from proof_runtime_contract import (
+        container_to_host_path,
+        docker_host_owner,
+        ensure_output_directory_writable,
+        ensure_output_file_writable,
+        host_to_container_path,
+        normalize_runtime_root,
+        resolve_repo_path,
+        wrap_with_owner_normalization,
+    )
 from trading_advisor_3000.spark_jobs import DEFAULT_SPARK_MASTER, run_canonical_bars_spark_job
 
 
@@ -27,27 +46,15 @@ def _repo_root() -> Path:
 
 
 def _resolve_repo_path(path: Path) -> Path:
-    return path if path.is_absolute() else (_repo_root() / path).resolve()
+    return resolve_repo_path(path, repo_root=_repo_root())
 
 
 def _container_path(path: Path) -> str:
-    repo_root = _repo_root().resolve()
-    resolved = _resolve_repo_path(path)
-    try:
-        relative = resolved.relative_to(repo_root)
-    except ValueError as exc:
-        raise RuntimeError(
-            f"path must stay inside repo for docker proof: {resolved.as_posix()}"
-        ) from exc
-    return (Path("/workspace") / relative).as_posix()
+    return host_to_container_path(path, repo_root=_repo_root().resolve())
 
 
 def _hostify_container_path(value: str) -> str:
-    prefix = "/workspace/"
-    if not value.startswith(prefix):
-        return value
-    relative_parts = [part for part in value[len(prefix) :].split("/") if part]
-    return str((_repo_root() / Path(*relative_parts)).resolve())
+    return container_to_host_path(value, repo_root=_repo_root().resolve())
 
 
 def _ensure_docker_image(image: str, dockerfile: Path) -> None:
@@ -71,15 +78,11 @@ def _ensure_docker_image(image: str, dockerfile: Path) -> None:
 
 
 def _docker_host_owner() -> str:
-    getuid = getattr(os, "getuid", None)
-    getgid = getattr(os, "getgid", None)
-    if not callable(getuid) or not callable(getgid):
-        return ""
-    return f"{getuid()}:{getgid()}"
+    return docker_host_owner()
 
 
-def _docker_runtime_root() -> str:
-    return DEFAULT_DOCKER_RUNTIME_ROOT
+def _docker_runtime_root(raw_runtime_root: str) -> str:
+    return normalize_runtime_root(raw_runtime_root, field_name="docker runtime root")
 
 
 def _docker_python_command(
@@ -125,22 +128,14 @@ def _docker_exec_args(
         output_json=output_json,
     )
     host_owner = _docker_host_owner()
-    if not host_owner:
-        return python_command
-
     chown_targets = [_container_path(output_dir)]
     if output_json is not None:
         chown_targets.append(_container_path(output_json))
-
-    python_text = " ".join(shlex.quote(part) for part in python_command)
-    chown_text = " ".join(shlex.quote(path_text) for path_text in chown_targets)
-    shell_text = (
-        f"{python_text}; "
-        f"rc=$?; "
-        f"chown -R {shlex.quote(host_owner)} {chown_text} >/dev/null 2>&1 || true; "
-        f"exit $rc"
+    return wrap_with_owner_normalization(
+        command=python_command,
+        owner=host_owner,
+        targets=chown_targets,
     )
-    return ["/bin/sh", "-lc", shell_text]
 
 
 def _run_in_docker(
@@ -152,13 +147,14 @@ def _run_in_docker(
     output_json: Path | None,
     image: str,
     dockerfile: Path,
+    runtime_root: str,
 ) -> dict[str, object]:
     _ensure_docker_image(image, dockerfile)
 
     repo_root = _repo_root().resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
+    ensure_output_directory_writable(output_dir)
     if output_json is not None:
-        output_json.parent.mkdir(parents=True, exist_ok=True)
+        ensure_output_file_writable(output_json)
 
     command = [
         "docker",
@@ -171,9 +167,9 @@ def _run_in_docker(
         "-e",
         "PYTHONPATH=/workspace/src",
         "-e",
-        f"HOME={_docker_runtime_root()}",
+        f"HOME={runtime_root}",
         "-e",
-        f"TA3000_SPARK_RUNTIME_ROOT={_docker_runtime_root()}",
+        f"TA3000_SPARK_RUNTIME_ROOT={runtime_root}",
         image,
         *_docker_exec_args(
             source=source,
@@ -227,6 +223,11 @@ def main() -> None:
     parser.add_argument("--output-json", default="", help="Optional JSON report output path")
     parser.add_argument("--docker-image", default=DEFAULT_DOCKER_IMAGE, help="Docker image tag for the Linux proof profile")
     parser.add_argument("--dockerfile", default=DEFAULT_DOCKERFILE.as_posix(), help="Dockerfile for the Linux proof profile")
+    parser.add_argument(
+        "--docker-runtime-root",
+        default=DEFAULT_DOCKER_RUNTIME_ROOT,
+        help="Absolute runtime root path inside docker container",
+    )
     args = parser.parse_args()
 
     source_path = _resolve_repo_path(Path(args.source))
@@ -234,6 +235,9 @@ def main() -> None:
     output_json = _resolve_repo_path(Path(args.output_json)) if args.output_json else None
 
     if args.profile == "docker":
+        if output_json is None:
+            raise RuntimeError("docker Spark proof requires output_json for deterministic evidence capture")
+        runtime_root = _docker_runtime_root(args.docker_runtime_root)
         report = _run_in_docker(
             source=source_path,
             output_dir=output_dir,
@@ -242,6 +246,7 @@ def main() -> None:
             output_json=output_json,
             image=args.docker_image,
             dockerfile=_resolve_repo_path(Path(args.dockerfile)),
+            runtime_root=runtime_root,
         )
     else:
         report = run_canonical_bars_spark_job(

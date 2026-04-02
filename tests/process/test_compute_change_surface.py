@@ -89,3 +89,29 @@ def test_stack_validator_wiring_for_architecture_docs_changes() -> None:
         "scripts/validate_stack_conformance.py" in command
         for command in result["commands"]["loop"]
     )
+
+
+def test_runtime_surface_routes_to_surface_pr_matrix_runner() -> None:
+    result = compute_surface(
+        ["src/trading_advisor_3000/app/runtime/bootstrap.py"],
+        mapping_path=ROOT / "configs" / "change_surface_mapping.yaml",
+    )
+    assert result["primary_surface"] == "app-runtime"
+    assert "app-runtime" in result["surfaces"]
+    assert any(
+        "scripts/run_surface_pr_matrix.py" in command
+        for command in result["commands"]["pr"]
+    )
+
+
+def test_data_surface_routes_to_surface_pr_matrix_runner() -> None:
+    result = compute_surface(
+        ["src/trading_advisor_3000/app/data_plane/pipeline.py"],
+        mapping_path=ROOT / "configs" / "change_surface_mapping.yaml",
+    )
+    assert result["primary_surface"] == "app-data"
+    assert "app-data" in result["surfaces"]
+    assert any(
+        "scripts/run_surface_pr_matrix.py" in command
+        for command in result["commands"]["pr"]
+    )

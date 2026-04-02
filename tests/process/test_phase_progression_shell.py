@@ -110,9 +110,38 @@ def test_no_legacy_gate_alias_references() -> None:
 def test_gate_stack_smoke() -> None:
     changed_files = _gate_smoke_changed_files()
     commands = [
-        [sys.executable, "scripts/run_loop_gate.py", "--skip-session-check", "--changed-files", *changed_files],
-        [sys.executable, "scripts/run_pr_gate.py", "--skip-session-check", "--changed-files", *changed_files],
-        [sys.executable, "scripts/run_nightly_gate.py", "--changed-files", *changed_files],
+        [
+            sys.executable,
+            "scripts/run_loop_gate.py",
+            "--skip-session-check",
+            "--snapshot-mode",
+            "changed-files",
+            "--profile",
+            "none",
+            "--changed-files",
+            *changed_files,
+        ],
+        [
+            sys.executable,
+            "scripts/run_pr_gate.py",
+            "--skip-session-check",
+            "--snapshot-mode",
+            "changed-files",
+            "--profile",
+            "none",
+            "--changed-files",
+            *changed_files,
+        ],
+        [
+            sys.executable,
+            "scripts/run_nightly_gate.py",
+            "--snapshot-mode",
+            "changed-files",
+            "--profile",
+            "none",
+            "--changed-files",
+            *changed_files,
+        ],
     ]
     for command in commands:
         result = _run(command)
