@@ -27,80 +27,80 @@ surface_claims:
     claim: implemented
     runtime_proof:
       files_all:
-        - src/trading_advisor_3000/app/__init__.py
+        - src/trading_advisor_3000/product_plane/__init__.py
         - docs/architecture/product-plane/README.md
       tests_any:
-        - tests/app/test_app_plane_metadata.py
+        - tests/product-plane/test_app_plane_metadata.py
 
   - id: data_research_runtime_scaffolding
     status_label: Data/research/runtime scaffolding
     claim: implemented
     runtime_proof:
       files_all:
-        - src/trading_advisor_3000/app/data_plane/__init__.py
-        - src/trading_advisor_3000/app/research/__init__.py
-        - src/trading_advisor_3000/app/runtime/__init__.py
+        - src/trading_advisor_3000/product_plane/data_plane/__init__.py
+        - src/trading_advisor_3000/product_plane/research/__init__.py
+        - src/trading_advisor_3000/product_plane/runtime/__init__.py
       tests_any:
-        - tests/app/integration/test_phase2a_data_plane.py
-        - tests/app/integration/test_phase2b_research_plane.py
-        - tests/app/integration/test_phase2c_runtime.py
+        - tests/product-plane/integration/test_phase2a_data_plane.py
+        - tests/product-plane/integration/test_phase2b_research_plane.py
+        - tests/product-plane/integration/test_phase2c_runtime.py
 
   - id: runtime_signal_lifecycle
     status_label: Runtime signal lifecycle
     claim: implemented
     runtime_proof:
       files_all:
-        - src/trading_advisor_3000/app/runtime/pipeline.py
-        - src/trading_advisor_3000/app/runtime/decision/engine.py
-        - src/trading_advisor_3000/app/runtime/signal_store/store.py
+        - src/trading_advisor_3000/product_plane/runtime/pipeline.py
+        - src/trading_advisor_3000/product_plane/runtime/decision/engine.py
+        - src/trading_advisor_3000/product_plane/runtime/signal_store/store.py
       tests_any:
-        - tests/app/integration/test_phase2c_runtime.py
+        - tests/product-plane/integration/test_phase2c_runtime.py
 
   - id: durable_runtime_state
     status_label: Durable runtime state
     claim: implemented
     runtime_proof:
       files_all:
-        - src/trading_advisor_3000/app/runtime/bootstrap.py
-        - src/trading_advisor_3000/app/runtime/signal_store/postgres.py
+        - src/trading_advisor_3000/product_plane/runtime/bootstrap.py
+        - src/trading_advisor_3000/product_plane/runtime/signal_store/postgres.py
       dependencies_any:
         - psycopg
       tests_any:
-        - tests/app/integration/test_phase2c_runtime_postgres_store.py
-        - tests/app/unit/test_phase6_runtime_durable_bootstrap.py
+        - tests/product-plane/integration/test_phase2c_runtime_postgres_store.py
+        - tests/product-plane/unit/test_phase6_runtime_durable_bootstrap.py
 
   - id: service_api_runtime_surface
     status_label: Service/API runtime surface
     claim: implemented
     runtime_proof:
       files_all:
-        - src/trading_advisor_3000/app/interfaces/asgi.py
+        - src/trading_advisor_3000/product_plane/interfaces/asgi.py
       dependencies_any:
         - fastapi
       tests_any:
-        - tests/app/unit/test_phase6_fastapi_smoke.py
+        - tests/product-plane/unit/test_phase6_fastapi_smoke.py
 
   - id: paper_execution_path
     status_label: Paper execution path
     claim: implemented
     runtime_proof:
       files_all:
-        - src/trading_advisor_3000/app/execution/intents/paper_broker.py
-        - src/trading_advisor_3000/app/execution/reconciliation/reconcile.py
+        - src/trading_advisor_3000/product_plane/execution/intents/paper_broker.py
+        - src/trading_advisor_3000/product_plane/execution/reconciliation/reconcile.py
       tests_any:
-        - tests/app/integration/test_phase2d_execution.py
+        - tests/product-plane/integration/test_phase2d_execution.py
 
   - id: live_execution_transport_baseline
     status_label: Live execution transport baseline
     claim: implemented
     runtime_proof:
       files_all:
-        - src/trading_advisor_3000/app/execution/adapters/stocksharp_http_transport.py
+        - src/trading_advisor_3000/product_plane/execution/adapters/stocksharp_http_transport.py
         - deployment/stocksharp-sidecar/src/TradingAdvisor3000.StockSharpSidecar/Program.cs
         - scripts/smoke_stocksharp_sidecar_binary.py
       tests_any:
-        - tests/app/unit/test_real_execution_http_transport.py
-        - tests/app/unit/test_phase8_dotnet_sidecar_assets.py
+        - tests/product-plane/unit/test_real_execution_http_transport.py
+        - tests/product-plane/unit/test_phase8_dotnet_sidecar_assets.py
 
   - id: real_broker_process
     status_label: StockSharp/QUIK/Finam real broker process
@@ -110,11 +110,11 @@ surface_claims:
         - scripts/run_f1e_real_broker_process.py
         - docs/runbooks/app/f1e-real-broker-process-runbook.md
         - docs/architecture/product-plane/f1e-real-broker-process-closure.md
-        - src/trading_advisor_3000/app/contracts/schemas/real_broker_process_report.v1.json
+        - src/trading_advisor_3000/product_plane/contracts/schemas/real_broker_process_report.v1.json
       tests_any:
         - tests/process/test_run_f1e_real_broker_process.py
-        - tests/app/contracts/test_phase5_real_broker_process_contracts.py
-        - tests/app/integration/test_real_execution_staging_rollout.py
+        - tests/product-plane/contracts/test_phase5_real_broker_process_contracts.py
+        - tests/product-plane/integration/test_real_execution_staging_rollout.py
 
   - id: contracts_freeze
     status_label: Contracts freeze
@@ -123,7 +123,7 @@ surface_claims:
       files_all:
         - docs/architecture/product-plane/CONTRACT_SURFACES.md
       tests_any:
-        - tests/app/contracts/test_phase1_contracts.py
+        - tests/product-plane/contracts/test_phase1_contracts.py
 
   - id: production_readiness
     status_label: Production readiness / operational readiness
@@ -139,12 +139,12 @@ technology_claims:
       dependencies_any:
         - deltalake
       files_all:
-        - src/trading_advisor_3000/app/data_plane/delta_runtime.py
-        - src/trading_advisor_3000/app/data_plane/pipeline.py
-        - src/trading_advisor_3000/app/research/backtest/engine.py
+        - src/trading_advisor_3000/product_plane/data_plane/delta_runtime.py
+        - src/trading_advisor_3000/product_plane/data_plane/pipeline.py
+        - src/trading_advisor_3000/product_plane/research/backtest/engine.py
       tests_any:
-        - tests/app/integration/test_phase2a_data_plane.py
-        - tests/app/integration/test_phase2b_research_plane.py
+        - tests/product-plane/integration/test_phase2a_data_plane.py
+        - tests/product-plane/integration/test_phase2b_research_plane.py
 
   - id: apache_spark
     display_name: Apache Spark
@@ -159,7 +159,7 @@ technology_claims:
         - scripts/run_phase2a_spark_proof.py
         - deployment/docker/phase-proofs/Dockerfile
       tests_any:
-        - tests/app/integration/test_phase2a_spark_execution.py
+        - tests/product-plane/integration/test_phase2a_spark_execution.py
 
   - id: dagster
     display_name: Dagster
@@ -173,8 +173,8 @@ technology_claims:
         - src/trading_advisor_3000/dagster_defs/phase2a_assets.py
         - scripts/run_phase2a_dagster_proof.py
       tests_any:
-        - tests/app/integration/test_phase2a_dagster_execution.py
-        - tests/app/unit/test_phase2a_manifests.py
+        - tests/product-plane/integration/test_phase2a_dagster_execution.py
+        - tests/product-plane/unit/test_phase2a_manifests.py
 
   - id: polars
     display_name: Polars
@@ -209,7 +209,7 @@ technology_claims:
       dependencies_any:
         - psycopg
       files_any:
-        - src/trading_advisor_3000/app/runtime/signal_store/postgres.py
+        - src/trading_advisor_3000/product_plane/runtime/signal_store/postgres.py
 
   - id: vectorbt
     display_name: vectorbt
@@ -232,10 +232,10 @@ technology_claims:
       dependencies_any:
         - fastapi
       entrypoints_any:
-        - src/trading_advisor_3000/app/interfaces/asgi.py
-        - src/trading_advisor_3000/app/interfaces/http_api.py
+        - src/trading_advisor_3000/product_plane/interfaces/asgi.py
+        - src/trading_advisor_3000/product_plane/interfaces/http_api.py
       tests_any:
-        - tests/app/unit/test_phase6_fastapi_smoke.py
+        - tests/product-plane/unit/test_phase6_fastapi_smoke.py
 
   - id: aiogram
     display_name: aiogram
@@ -286,7 +286,7 @@ technology_claims:
         - deployment/stocksharp-sidecar/scripts/prove.ps1
         - scripts/smoke_stocksharp_sidecar_binary.py
       tests_any:
-        - tests/app/unit/test_phase8_dotnet_sidecar_assets.py
+        - tests/product-plane/unit/test_phase8_dotnet_sidecar_assets.py
 
   - id: stocksharp
     display_name: StockSharp
@@ -295,7 +295,7 @@ technology_claims:
       - "| StockSharp | execution/QUIK bridge | chosen"
     runtime_proof:
       files_any:
-        - src/trading_advisor_3000/app/execution/adapters/stocksharp_sidecar_stub.py
-        - src/trading_advisor_3000/app/execution/adapters/stocksharp_http_transport.py
+        - src/trading_advisor_3000/product_plane/execution/adapters/stocksharp_sidecar_stub.py
+        - src/trading_advisor_3000/product_plane/execution/adapters/stocksharp_http_transport.py
       tests_any:
-        - tests/app/unit/test_real_execution_http_transport.py
+        - tests/product-plane/unit/test_real_execution_http_transport.py

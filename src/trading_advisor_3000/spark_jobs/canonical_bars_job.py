@@ -6,11 +6,11 @@ from typing import Any, Callable
 import os
 import shutil
 
-from trading_advisor_3000.app.data_plane.delta_runtime import (
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     has_delta_log,
     read_delta_table_rows,
 )
-from trading_advisor_3000.app.data_plane.schemas import phase2a_delta_schema_manifest
+from trading_advisor_3000.product_plane.data_plane.schemas import phase2a_delta_schema_manifest
 
 
 DEFAULT_SPARK_MASTER = "local[2]"

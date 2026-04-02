@@ -29,7 +29,7 @@ def test_multi_context_change_is_marked_with_recommendation() -> None:
     result = route_files(
         [
             "docs/architecture/README.md",
-            "src/trading_advisor_3000/app/data_plane/pipeline.py",
+            "src/trading_advisor_3000/product_plane/data_plane/pipeline.py",
         ]
     )
     notes = " ".join(result["recommendations"]).lower()
@@ -39,10 +39,10 @@ def test_multi_context_change_is_marked_with_recommendation() -> None:
 def test_data_research_orchestration_api_contexts_are_resolved() -> None:
     result = route_files(
         [
-            "src/trading_advisor_3000/app/data_plane/pipeline.py",
-            "src/trading_advisor_3000/app/research/pipeline.py",
-            "src/trading_advisor_3000/app/runtime/pipeline.py",
-            "src/trading_advisor_3000/app/interfaces/api/runtime_api.py",
+            "src/trading_advisor_3000/product_plane/data_plane/pipeline.py",
+            "src/trading_advisor_3000/product_plane/research/pipeline.py",
+            "src/trading_advisor_3000/product_plane/runtime/pipeline.py",
+            "src/trading_advisor_3000/product_plane/interfaces/api/runtime_api.py",
         ]
     )
     context_ids = [entry["id"] for entry in result["contexts"]]

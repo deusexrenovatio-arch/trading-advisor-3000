@@ -24,7 +24,7 @@ ALLOWED_PATH_PREFIXES: tuple[str, ...] = (
     "src/trading_advisor_3000/product_plane/",
     "scripts/build_dual_surface_rename_inventory.py",
     "scripts/validate_legacy_namespace_growth.py",
-    "tests/app/unit/test_product_plane_namespace_bridge.py",
+    "tests/product-plane/unit/test_product_plane_namespace_bridge.py",
     "tests/process/test_build_dual_surface_rename_inventory.py",
     "tests/process/test_validate_legacy_namespace_growth.py",
 )

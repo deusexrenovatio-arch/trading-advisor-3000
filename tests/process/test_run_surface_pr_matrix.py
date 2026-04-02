@@ -24,7 +24,7 @@ def _surface(changed_files: list[str]) -> dict[str, object]:
 
 def test_runtime_contour_plan_uses_runtime_profile_without_data_stack() -> None:
     plan = build_pr_surface_matrix_plan(
-        _surface(["src/trading_advisor_3000/app/runtime/bootstrap.py"])
+        _surface(["src/trading_advisor_3000/product_plane/runtime/bootstrap.py"])
     )
 
     assert plan.contour == "runtime-publication"
@@ -37,7 +37,7 @@ def test_runtime_contour_plan_uses_runtime_profile_without_data_stack() -> None:
 
 def test_data_contour_plan_uses_data_proof_profile() -> None:
     plan = build_pr_surface_matrix_plan(
-        _surface(["src/trading_advisor_3000/app/data_plane/pipeline.py"])
+        _surface(["src/trading_advisor_3000/product_plane/data_plane/pipeline.py"])
     )
 
     assert plan.contour == "data-proof"
@@ -50,8 +50,8 @@ def test_mixed_contour_plan_uses_integration_profile() -> None:
     plan = build_pr_surface_matrix_plan(
         _surface(
             [
-                "src/trading_advisor_3000/app/runtime/bootstrap.py",
-                "src/trading_advisor_3000/app/data_plane/pipeline.py",
+                "src/trading_advisor_3000/product_plane/runtime/bootstrap.py",
+                "src/trading_advisor_3000/product_plane/data_plane/pipeline.py",
             ]
         )
     )
@@ -82,7 +82,7 @@ def test_plan_only_cli_emits_github_outputs(tmp_path: Path) -> None:
             "scripts/run_surface_pr_matrix.py",
             "--plan-only",
             "--changed-files",
-            "src/trading_advisor_3000/app/runtime/bootstrap.py",
+            "src/trading_advisor_3000/product_plane/runtime/bootstrap.py",
             "--output-json",
             output_json.as_posix(),
             "--emit-github-output",

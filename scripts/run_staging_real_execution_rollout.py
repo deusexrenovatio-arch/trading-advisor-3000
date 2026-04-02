@@ -16,16 +16,16 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from trading_advisor_3000.app.contracts import Mode, OrderIntent
-from trading_advisor_3000.app.execution.adapters import (
+from trading_advisor_3000.product_plane.contracts import Mode, OrderIntent
+from trading_advisor_3000.product_plane.execution.adapters import (
     LiveExecutionBridge,
     LiveExecutionFeatureFlags,
     LiveExecutionRetryPolicy,
     StockSharpHTTPTransport,
     StockSharpHTTPTransportConfig,
 )
-from trading_advisor_3000.app.execution.broker_sync import BrokerSyncEngine, ControlledLiveExecutionEngine
-from trading_advisor_3000.app.runtime.config import DEFAULT_REQUIRED_LIVE_SECRETS
+from trading_advisor_3000.product_plane.execution.broker_sync import BrokerSyncEngine, ControlledLiveExecutionEngine
+from trading_advisor_3000.product_plane.runtime.config import DEFAULT_REQUIRED_LIVE_SECRETS
 
 
 def _utc_now() -> str:

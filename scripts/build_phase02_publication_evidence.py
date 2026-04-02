@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from trading_advisor_3000.app.runtime.publishing import TelegramPublicationEngine
+from trading_advisor_3000.product_plane.runtime.publishing import TelegramPublicationEngine
 
 
 DEFAULT_CREDENTIAL_ENV_NAMES = (

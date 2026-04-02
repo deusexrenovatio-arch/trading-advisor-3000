@@ -4,14 +4,14 @@ from pathlib import Path
 
 from dagster import AssetSelection, Config, Definitions, asset, define_asset_job, materialize
 
-from trading_advisor_3000.app.data_plane.canonical import build_canonical_dataset, run_data_quality_checks
-from trading_advisor_3000.app.data_plane.delta_runtime import (
+from trading_advisor_3000.product_plane.data_plane.canonical import build_canonical_dataset, run_data_quality_checks
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     has_delta_log,
     read_delta_table_rows,
     write_delta_table_rows,
 )
-from trading_advisor_3000.app.data_plane.ingestion import ingest_raw_backfill
-from trading_advisor_3000.app.data_plane.schemas import phase2a_delta_schema_manifest
+from trading_advisor_3000.product_plane.data_plane.ingestion import ingest_raw_backfill
+from trading_advisor_3000.product_plane.data_plane.schemas import phase2a_delta_schema_manifest
 
 
 @dataclass(frozen=True)

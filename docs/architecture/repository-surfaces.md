@@ -20,7 +20,7 @@ Use these exact terms in task notes and PRs:
 | `plans/*`, `memory/*` | shell | durable process state |
 | `docs/checklists/*`, `docs/workflows/*`, `docs/runbooks/*` | shell | governance contracts and operations |
 | `src/trading_advisor_3000/*` | product-plane | application runtime, contracts, and modules |
-| `tests/app/*` | product-plane | product tests |
+| `tests/product-plane/*` | product-plane | product tests |
 | `docs/architecture/product-plane/*`, `docs/runbooks/app/*`, `docs/checklists/app/*`, `docs/workflows/app/*` | product-plane | product architecture and operational evidence |
 | `deployment/*` | product-plane | deploy and transport surfaces |
 | `docs/architecture/*` (outside `product-plane/`) | shared | architecture bridge between shell and product-plane |
@@ -40,10 +40,10 @@ Migration specification reference:
 
 ## Controlled rename candidates and status
 - Completed in this phase: `docs/architecture/app` -> `docs/architecture/product-plane` with legacy redirect stubs.
-- `tests/app/` -> `tests/product-plane/`
-- `src/trading_advisor_3000/app/` -> `src/trading_advisor_3000/product_plane/`
+- Completed in this phase: product tests namespace now runs from `tests/product-plane/`.
+- Completed in this phase: product runtime namespace now runs from `src/trading_advisor_3000/product_plane/`.
 
-These are intentionally deferred to avoid hidden breakage in imports, tests, scripts, and historical references.
+Remaining migration work is deferred to governance selector finalization and legacy cleanup phases.
 
 ## Mixed change policy
 If a patch is `mixed`:

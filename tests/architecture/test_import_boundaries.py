@@ -11,7 +11,7 @@ FORBIDDEN_TOKENS = (
 )
 
 ALLOWED_DOMAIN_PATH_PREFIXES = (
-    "src/trading_advisor_3000/app/",
+    "src/trading_advisor_3000/product_plane/",
 )
 
 

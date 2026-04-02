@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-03-31'
+updated_at: '2026-04-02'
 items:
 - id: TASK-2026-03-17-CREATE-PR-TO-MAIN-FOR-PHASE0-PHASE3-DELIVERY-INC
   path: docs/tasks/active/TASK-2026-03-17-create-pr-to-main-for-phase0-phase3-delivery-inc.md
@@ -111,3 +111,8 @@ items:
   mode: full
   status: in_progress
   started_at: '2026-03-31'
+- id: TASK-2026-04-02-PHASE-4-RUNTIME-AND-TESTS-NAMESPACE-CUTOVER-FOR-
+  path: docs/tasks/active/TASK-2026-04-02-phase-4-runtime-and-tests-namespace-cutover-for-.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-04-02'

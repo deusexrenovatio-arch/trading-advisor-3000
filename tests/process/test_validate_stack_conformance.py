@@ -69,12 +69,12 @@ dependencies = [{quoted}]
 
     if include_fastapi_entrypoint:
         _write(
-            tmp_path / "src/trading_advisor_3000/app/interfaces/asgi.py",
+            tmp_path / "src/trading_advisor_3000/product_plane/interfaces/asgi.py",
             "app = object()\n",
         )
     if include_fastapi_test:
         _write(
-            tmp_path / "tests/app/unit/test_fastapi_smoke.py",
+            tmp_path / "tests/product-plane/unit/test_fastapi_smoke.py",
             "def test_fastapi_smoke() -> None:\n    assert True\n",
         )
 
@@ -108,8 +108,8 @@ def _base_registry(*, surface_claim: str, technology_claim: str) -> dict[str, An
                 "status_label": "API surface",
                 "claim": surface_claim,
                 "runtime_proof": {
-                    "entrypoints_any": ["src/trading_advisor_3000/app/interfaces/asgi.py"],
-                    "tests_any": ["tests/app/unit/test_fastapi_smoke.py"],
+                    "entrypoints_any": ["src/trading_advisor_3000/product_plane/interfaces/asgi.py"],
+                    "tests_any": ["tests/product-plane/unit/test_fastapi_smoke.py"],
                 },
             }
         ],
@@ -121,8 +121,8 @@ def _base_registry(*, surface_claim: str, technology_claim: str) -> dict[str, An
                 "spec_markers_any": ["| FastAPI | service/API layer | chosen"],
                 "runtime_proof": {
                     "dependencies_any": ["fastapi"],
-                    "entrypoints_any": ["src/trading_advisor_3000/app/interfaces/asgi.py"],
-                    "tests_any": ["tests/app/unit/test_fastapi_smoke.py"],
+                    "entrypoints_any": ["src/trading_advisor_3000/product_plane/interfaces/asgi.py"],
+                    "tests_any": ["tests/product-plane/unit/test_fastapi_smoke.py"],
                 },
                 "replacement": {
                     "adr_required_when_removed": True,
