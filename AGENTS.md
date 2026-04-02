@@ -1,11 +1,11 @@
-# AGENTS.md — Trading Advisor 3000 AI Delivery Shell
+# AGENTS.md - Trading Advisor 3000 Dual-Surface Delivery
 
 ## Purpose
-This repository is the control plane for AI-first delivery of Trading Advisor 3000.
-It defines process, governance, validation, and durable development state for the shell layer.
+This repository is a dual-surface delivery workspace:
+- the AI delivery shell (control plane for process, governance, validation, and durable development state);
+- the product plane (isolated app code, contracts, tests, and app operations documentation).
 
-The same repository also contains isolated product-plane code, tests, and app-specific documentation.
-Business and trading logic remain out of scope for the shell layer itself and must not leak into shell control-plane surfaces.
+Business and trading logic remain out of scope for shell control-plane surfaces.
 
 ## Non-Negotiable Rules
 1. Do not port domain-specific trading logic into the shell layer.
@@ -15,6 +15,7 @@ Business and trading logic remain out of scope for the shell layer itself and mu
 5. `plans/items/` is canonical and `plans/PLANS.yaml` is generated compatibility output (enabled in Phase 5).
 6. Domain skills are excluded from the baseline shell.
 7. Package intake and governed phase continuation must start through `python scripts/codex_governed_entry.py ...`; manual chat-only continuation is not a valid governed route.
+8. Every change set must declare a change surface: `shell`, `product-plane`, or `mixed`.
 
 ## Source-Of-Truth Layers
 ### Hot (read first)
@@ -26,7 +27,11 @@ Business and trading logic remain out of scope for the shell layer itself and mu
 - `docs/DEV_WORKFLOW.md`
 
 ### Warm (read by signal)
+- `README.md`
+- `shell/README.md`
+- `product-plane/README.md`
 - `docs/README.md`
+- `docs/architecture/repository-surfaces.md`
 - `docs/planning/phase0-phase1-bootstrap.md`
 - `docs/checklists/README.md`
 - `docs/workflows/README.md`

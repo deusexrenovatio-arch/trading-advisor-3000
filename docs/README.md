@@ -1,11 +1,9 @@
-﻿# Documentation Index
+# Documentation Index
 
-## Scope of this repository
-This repository is governance-first and contains two coordinated layers:
-- the AI delivery shell for development methodology, architecture governance, validation, gates, and process lifecycle;
-- isolated product-plane paths for app code, contracts, tests, and app-specific operational documentation.
-
-Business and trading logic are not allowed inside shell control-plane surfaces, but product-plane work does exist in dedicated app paths.
+## Repository model
+This repository has two coordinated documentation surfaces:
+- delivery-shell docs for governance/process/validation;
+- product-plane docs for app architecture, contracts, and operations.
 
 ## Read order
 1. `docs/agent/entrypoint.md`
@@ -14,11 +12,12 @@ Business and trading logic are not allowed inside shell control-plane surfaces, 
 4. `docs/agent/runtime.md`
 5. `docs/agent/skills-routing.md`
 6. `docs/DEV_WORKFLOW.md`
+7. `docs/architecture/repository-surfaces.md`
 
-If the task touches the product plane, continue with:
-1. `docs/architecture/app/STATUS.md`
-2. `docs/architecture/app/CONTRACT_SURFACES.md`
-3. `docs/runbooks/app/bootstrap.md`
+Then choose one route:
+- Shell-focused route: `shell/README.md`
+- Product-focused route: `product-plane/README.md`
+- Mixed route: both hubs + `docs/architecture/app/STATUS.md`
 
 ## Current phase
 - Target scope: Phase 0 through Phase 8 shell baseline, with landed product-plane slices under app paths.
@@ -31,6 +30,6 @@ If the task touches the product plane, continue with:
 - `docs/checklists/` - request and first-time-right contracts.
 - `docs/workflows/` - workflow playbooks.
 - `docs/runbooks/` - remediation and operational guides.
-- `docs/architecture/` - architecture-as-docs package.
+- `docs/architecture/` - cross-surface architecture package.
 - `docs/architecture/app/` - product-plane status, contract surfaces, and app phase specs.
 - `docs/tasks/` - active/archive lifecycle artifacts.

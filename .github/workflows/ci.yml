@@ -1,4 +1,4 @@
-name: shell-ci
+name: dual-surface-ci
 
 on:
   pull_request:
@@ -310,3 +310,4 @@ jobs:
             artifacts/governance-dashboard.json
             artifacts/governance-dashboard.md
           if-no-files-found: error
+

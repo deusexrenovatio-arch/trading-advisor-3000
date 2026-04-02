@@ -3,7 +3,15 @@
 ## Purpose
 Keep changes predictable by assigning each patch to explicit ownership surfaces.
 
-## Shell Surfaces
+## Change surface declaration contract
+Every change set and PR must declare exactly one surface class:
+- `shell`
+- `product-plane`
+- `mixed`
+
+`mixed` is valid only when one coherent outcome requires both surfaces.
+
+## Shell surfaces
 
 | Surface | Owns | Guarded paths | Minimum check |
 | --- | --- | --- | --- |
@@ -13,21 +21,26 @@ Keep changes predictable by assigning each patch to explicit ownership surfaces.
 | `PROCESS-STATE` | plans/memory/task ledgers | `plans/*`, `memory/*`, `docs/tasks/*` | state validators |
 | `CTX-CONTRACTS` (high-risk) | policy contracts and durable schemas | `configs/*`, `plans/*`, `memory/*`, contract validators | contract validators + loop gate |
 | `ARCH-DOCS` | architecture package | `docs/architecture/*`, `tests/architecture/*` | architecture policy + tests |
+
+## Product-plane surfaces
+
+| Surface | Owns | Guarded paths | Minimum check |
+| --- | --- | --- | --- |
 | `CTX-DATA` | data ingestion/canonical flows | `src/trading_advisor_3000/app/data_plane/*` | data-plane tests |
 | `CTX-RESEARCH` | research/analysis surfaces | `src/trading_advisor_3000/app/research/*` | research tests |
 | `CTX-ORCHESTRATION` | runtime/execution wiring | `src/trading_advisor_3000/app/__init__.py`, `app/common/*`, `app/config/*`, `app/runtime/*`, `app/execution/*` | orchestration tests |
 | `CTX-API-UI` | interface and API surfaces | `src/trading_advisor_3000/app/interfaces/*` | interface tests |
 | `CTX-DOMAIN` | residual domain internals | `src/trading_advisor_3000/app/domain/*` | domain tests |
 
-## High-Risk Policy
-Changes touching policy + runtime + state simultaneously are high-risk.
+## High-risk policy
+Changes touching shell policy + shell runtime + durable shell state simultaneously are high-risk.
 
-Required split order:
+For high-risk mixed changes, required split order:
 1. contracts/policy
 2. runtime code
 3. docs/reports
 
-## Context Card Freeze
+## Context card freeze
 - `CTX-STRATEGY` migrated to `CTX-DOMAIN`.
 - `CTX-NEWS` migrated to `CTX-EXTERNAL-SOURCES`.
 - App-space ownership is not coarse single-context: use `CTX-DATA`, `CTX-RESEARCH`, `CTX-ORCHESTRATION`, `CTX-API-UI`.
