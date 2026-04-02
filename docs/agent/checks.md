@@ -44,6 +44,7 @@ Hosted CI note:
 ## QA matrix core
 - `python -m pytest tests/process/test_compute_change_surface.py -q`
 - `python -m pytest tests/process/test_context_router.py -q`
+- `python -m pytest tests/process/test_codex_phase_orchestrator.py -q`
 - `python -m pytest tests/process/test_gate_scope_routing.py -q`
 - `python -m pytest tests/process/test_harness_contracts.py -q`
 - `python -m pytest tests/process/test_runtime_harness.py -q`

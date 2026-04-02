@@ -41,6 +41,7 @@ KEEP_CORE_BASELINE = {
     "dependency-and-license-audit",
     "docs-sync",
     "golden-tests-and-fixtures",
+    "github-actions-ops",
     "incident-runbook",
     "layer-diagnostics-debug",
     "module-scaffold",
@@ -58,6 +59,7 @@ KEEP_CORE_BASELINE = {
     "source-onboarding",
     "testing-suite",
     "validate-crosslayer",
+    "verification-before-completion",
 }
 DOMAIN_TOKEN_RE = re.compile(
     r"\b(trading|moex|futures|arbitrage|geopolitics|intraday|spread|commodity-news)\b",

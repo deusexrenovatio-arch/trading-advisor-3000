@@ -10,16 +10,36 @@
 1. Start from generic process/architecture/testing/governance skills.
 2. Apply stack skills only after stack surfaces are present and validated.
 3. Keep domain-specialized skills outside baseline shell runtime.
-4. When multiple skills match, pick the smallest set that covers intent.
+4. Prefer integration into an existing skill when overlap is high; add new skills only for missing, non-trivial capabilities.
+5. When multiple skills match, pick the smallest set that covers intent.
 
 ## Acceptance Routing
 - When a task involves phase acceptance, acceptor flows, unblock decisions, or explicit guardrails against fallbacks/skips, load `phase-acceptance-governor` first.
 - Co-load `architecture-review`, `testing-suite`, and `docs-sync` when acceptance covers architecture fit, executed tests, and documentation closure.
+- Co-load `verification-before-completion` whenever completion claims must be fail-closed on executable evidence.
+
+## Pipeline Routing
+- When changes touch `.github/workflows/**` or lane wiring, load:
+  - `ci-bootstrap`
+  - `github-actions-ops`
+  - `commit-and-pr-hygiene`
+- Use this set for both lane design and failing-check remediation so CI changes remain policy-aligned and reviewable.
+
+## Orchestration Routing
+- When changes touch governed orchestration surfaces:
+  - `scripts/codex_phase_orchestrator.py`
+  - `scripts/codex_phase_policy.py`
+  - `docs/codex/prompts/phases/**`
+  load:
+  - `phase-acceptance-governor`
+  - `verification-before-completion`
+  - `testing-suite`
+- Orchestration acceptance is considered incomplete if completion-verification evidence is missing.
 
 ## Critical Contour Routing
 - When changed files match `configs/critical_contours.yaml`, route `CTX-ARCHITECTURE` as a companion context even when no architecture doc changed directly.
 - For critical contours, load `architecture-review` and `qa-test-engineer` before implementation so the chosen path is checked against target shape and executable evidence.
-- If the task claims contour closure or acceptance, also load `phase-acceptance-governor`.
+- If the task claims contour closure or acceptance, also load `phase-acceptance-governor` and `verification-before-completion`.
 - Critical contour work must declare `target`, `staged`, or `fallback` in the active task note before code changes begin.
 - If the chosen path is simpler than the target shape, the agent must name that fact explicitly instead of presenting it as target closure.
 

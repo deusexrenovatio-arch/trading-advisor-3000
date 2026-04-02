@@ -27,3 +27,10 @@ Define incident response and remediation paths with durable evidence.
 ## Validation
 - `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
 - `python scripts/validate_skills.py --strict`
+
+## Boundaries
+
+This skill should NOT:
+- [Add constraints and limitations]
+- [Specify what the agent should never do]
+

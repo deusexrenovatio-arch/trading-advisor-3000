@@ -16,6 +16,7 @@ REQUIRED_ACCEPTANCE_SKILLS = (
     "architecture-review",
     "testing-suite",
     "docs-sync",
+    "verification-before-completion",
 )
 ROUTE_MODE = "governed-phase-orchestration"
 ROUTE_GUARDRAILS = (
@@ -24,6 +25,7 @@ ROUTE_GUARDRAILS = (
     "no silent fallbacks",
     "no deferred critical work",
     "acceptance requires architecture, test, and docs closure",
+    "completion claims require executable evidence before unlock",
 )
 PLACEHOLDER_TOKEN_RE = re.compile(r"<[^>\n]+>")
 

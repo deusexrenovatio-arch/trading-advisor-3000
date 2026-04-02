@@ -50,6 +50,28 @@ COLD_CONTEXT_PREFIXES: tuple[str, ...] = (
     "codex_ai_delivery_shell_package/",
     "docs/tasks/archive/",
 )
+CRITICAL_CONTOUR_REVIEW_LENSES: tuple[str, ...] = (
+    "architecture-review",
+    "qa-test-engineer",
+    "phase-acceptance-governor",
+    "verification-before-completion",
+)
+CI_WORKFLOW_PREFIXES: tuple[str, ...] = (".github/workflows/",)
+CI_REVIEW_LENSES: tuple[str, ...] = (
+    "ci-bootstrap",
+    "github-actions-ops",
+    "commit-and-pr-hygiene",
+)
+ORCHESTRATION_REVIEW_PREFIXES: tuple[str, ...] = (
+    "scripts/codex_phase_orchestrator.py",
+    "scripts/codex_phase_policy.py",
+    "docs/codex/prompts/phases/",
+)
+ORCHESTRATION_REVIEW_LENSES: tuple[str, ...] = (
+    "phase-acceptance-governor",
+    "verification-before-completion",
+    "testing-suite",
+)
 
 
 @dataclass(frozen=True)
@@ -445,6 +467,27 @@ def _detect_critical_contours(changed_files: list[str]) -> list[str]:
     return [contour.contour_id for contour in match_critical_contours(changed_files, contours)]
 
 
+def _collect_required_review_lenses(*, changed_files: list[str], critical_contours: list[str]) -> list[str]:
+    lenses: list[str] = []
+    normalized_paths = [_normalize_path(path) for path in changed_files]
+
+    def _append_many(values: tuple[str, ...]) -> None:
+        for value in values:
+            if value not in lenses:
+                lenses.append(value)
+
+    if critical_contours:
+        _append_many(CRITICAL_CONTOUR_REVIEW_LENSES)
+
+    if any(_prefix_match(path, prefix) for path in normalized_paths for prefix in CI_WORKFLOW_PREFIXES):
+        _append_many(CI_REVIEW_LENSES)
+
+    if any(_prefix_match(path, prefix) for path in normalized_paths for prefix in ORCHESTRATION_REVIEW_PREFIXES):
+        _append_many(ORCHESTRATION_REVIEW_LENSES)
+
+    return lenses
+
+
 def route_files(
     changed_files: list[str],
     *,
@@ -459,6 +502,10 @@ def route_files(
     cold_context_files: list[str] = []
     unmapped: list[str] = []
     critical_contours = _detect_critical_contours([original_path for _normalized, original_path in normalized])
+    required_review_lenses = _collect_required_review_lenses(
+        changed_files=[original_path for _normalized, original_path in normalized],
+        critical_contours=critical_contours,
+    )
 
     for normalized_path, original_path in normalized:
         if (not include_cold_paths) and any(
@@ -492,6 +539,7 @@ def route_files(
             "intent_sources": intent_sources,
             "cold_context_files": [],
             "unmapped_files": [],
+            "required_review_lenses": [],
             "recommendations": ["No files provided. Use --from-git, --stdin, or --changed-files."],
         }
 
@@ -556,7 +604,11 @@ def route_files(
             "Critical contour detected. Declare Solution Intent in the task note before coding."
         )
         recommendations.append(
-            "Critical contour requires CTX-ARCHITECTURE plus architecture and QA/acceptance review lenses."
+            "Critical contour requires CTX-ARCHITECTURE plus architecture, QA, acceptance, and completion-verification lenses."
+        )
+    if required_review_lenses and not critical_contours:
+        recommendations.append(
+            "Suggested review lenses: " + ", ".join(required_review_lenses) + "."
         )
     if not recommendations:
         recommendations.append("Patch is scoped to one context.")
@@ -568,11 +620,7 @@ def route_files(
         "cold_context_files": sorted(cold_context_files),
         "unmapped_files": sorted(unmapped),
         "critical_contours": critical_contours,
-        "required_review_lenses": (
-            ["architecture-review", "qa-test-engineer", "phase-acceptance-governor"]
-            if critical_contours
-            else []
-        ),
+        "required_review_lenses": required_review_lenses,
         "recommendations": recommendations,
     }
 

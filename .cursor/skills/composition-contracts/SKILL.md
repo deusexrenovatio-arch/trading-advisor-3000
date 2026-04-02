@@ -27,3 +27,10 @@ Define composition contracts with explicit ownership and interface boundaries.
 ## Validation
 - `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
 - `python scripts/validate_skills.py --strict`
+
+## Boundaries
+
+This skill should NOT:
+- [Add constraints and limitations]
+- [Specify what the agent should never do]
+

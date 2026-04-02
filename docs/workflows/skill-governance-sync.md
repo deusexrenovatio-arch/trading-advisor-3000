@@ -31,11 +31,14 @@ Generated catalog must not be edited manually.
 
 ## Update Flow
 1. Edit existing skill metadata/content.
-2. Regenerate catalog.
-3. If routing metadata changed, update routing policy.
-4. If process contract changed, update this workflow doc.
-5. When a runtime skill becomes part of a hard unblock decision, document the acceptance/governance effect here explicitly so strict review can see why the runtime skill matters.
-5. Run strict decision + precommit gate.
+2. If overlap is high, extend an existing skill before introducing a new runtime skill.
+3. Add a new runtime skill only when capability is materially missing and cannot stay maintainable as a subsection of an existing skill.
+4. For any new runtime skill, wire activation behavior into routing and, when relevant, orchestration/pipeline enforcement.
+5. Regenerate catalog.
+6. If routing metadata changed, update routing policy.
+7. If process contract changed, update this workflow doc.
+8. When a runtime skill becomes part of a hard unblock decision, document the acceptance/governance effect here explicitly so strict review can see why the runtime skill matters.
+9. Run strict decision + precommit gate.
 
 ## Remove/Rename Flow
 1. Apply remove or rename in `.cursor/skills`.
@@ -50,6 +53,7 @@ Generated catalog must not be edited manually.
 3. Skill update decision reports no missing required docs.
 4. Relevant tests for sync/validation/decision/precommit are green.
 5. If the skill affects phase acceptance or unblock policy, the workflow doc explicitly records that no silent fallback/skip/assumption path may pass through runtime review.
+6. If orchestration required skills changed, `tests/process/test_codex_phase_orchestrator.py` must stay green.
 
 ## Remediation Path
 1. If catalog drift: run sync script and commit generated file.
