@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from .forward import ForwardObservation, build_forward_observations, candidate_id_from_signal
-from .pipeline import run_research_from_bars
+
+
+def run_research_from_bars(*args: object, **kwargs: object) -> dict[str, object]:
+    from .pipeline import run_research_from_bars as _run_research_from_bars
+
+    return _run_research_from_bars(*args, **kwargs)
 
 __all__ = [
     "ForwardObservation",
