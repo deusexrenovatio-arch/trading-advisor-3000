@@ -3,10 +3,10 @@
 This document tracks release-blocking boundary contracts that are versioned in code and fixtures.
 
 ## Source Of Truth Rule
-- Versioned JSON schemas: `src/trading_advisor_3000/app/contracts/schemas/`
-- Matching fixtures: `tests/app/fixtures/contracts/`
-- Matching contract tests: `tests/app/contracts/`
-- Release-blocking inventory + compatibility classes: `src/trading_advisor_3000/app/contracts/schemas/release_blocking_contracts.v1.yaml`
+- Versioned JSON schemas: `src/trading_advisor_3000/product_plane/contracts/schemas/`
+- Matching fixtures: `tests/product-plane/fixtures/contracts/`
+- Matching contract tests: `tests/product-plane/contracts/`
+- Release-blocking inventory + compatibility classes: `src/trading_advisor_3000/product_plane/contracts/schemas/release_blocking_contracts.v1.yaml`
 - Contract change policy: `docs/architecture/product-plane/contract-change-policy.md`
 
 ## Release-Blocking Boundary Inventory
@@ -23,7 +23,7 @@ This document tracks release-blocking boundary contracts that are versioned in c
 
 ## Runtime API Inventory Scope Decision
 - Decision ID: `F1-C-RUNTIME-API-INVENTORY-SCOPE-V1`
-- Source: `src/trading_advisor_3000/app/contracts/schemas/release_blocking_contracts.v1.yaml`
+- Source: `src/trading_advisor_3000/product_plane/contracts/schemas/release_blocking_contracts.v1.yaml`
 - Exclusions from release-blocking runtime API inventory:
   - `GET /runtime/signal-events`: excluded because it is a read-only projection over `signal_event.v1`, which is already governed under the core DTO boundary.
   - `GET /runtime/strategy-registry`: excluded because it is an operator-facing inventory projection and not a release-blocking execution handshake envelope.
@@ -31,7 +31,7 @@ This document tracks release-blocking boundary contracts that are versioned in c
 ## Compatibility + Change Control
 Compatibility classes and upgrade rules are defined in:
 
-- `src/trading_advisor_3000/app/contracts/schemas/release_blocking_contracts.v1.yaml`
+- `src/trading_advisor_3000/product_plane/contracts/schemas/release_blocking_contracts.v1.yaml`
 - `docs/architecture/product-plane/contract-change-policy.md`
 
 Any public payload change is invalid unless schema, fixture, and tests are updated together.

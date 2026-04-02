@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "generated_at": "2026-04-02T14:43:28Z",
+  "route_signal": "release-decision:governed-h4",
+  "decision_mode": "auto",
+  "target_decision": "DENY_RELEASE_READINESS",
+  "verdict": "DENY_RELEASE_READINESS",
+  "proof_class": "live-real",
+  "minimum_proof_class": "live-real",
+  "truth_sources": {
+    "execution_contract": "C:/Users/Admin/.codex/worktrees/b4ee-phase6/docs/codex/contracts/dual-surface-safe-rename.execution-contract.md",
+    "phase_brief": "C:/Users/Admin/.codex/worktrees/b4ee-phase6/docs/codex/modules/dual-surface-safe-rename.phase-06.md",
+    "acceptance_json": "C:/Users/Admin/.codex/worktrees/b4ee-phase6/artifacts/rename-migration/phase6/acceptance.json",
+    "route_state": "C:/Users/Admin/.codex/worktrees/b4ee-phase6/artifacts/rename-migration/phase6/route-state.json",
+    "loop_summary": "C:/Users/Admin/.codex/worktrees/b4ee-phase6/artifacts/rename-migration/phase6/loop-gate-summary.md",
+    "pr_summary": "C:/Users/Admin/.codex/worktrees/b4ee-phase6/artifacts/rename-migration/phase6/pr-gate-summary.md",
+    "mutation_events": "C:/Users/Admin/.codex/worktrees/b4ee-phase6/.runlogs/codex-governed-entry/repo-mutation-events.jsonl"
+  },
+  "acceptance_binding": {
+    "route_signal": "acceptance:governed-phase-route",
+    "verdict": "PASS"
+  },
+  "marker_bindings": {
+    "route_state": {
+      "snapshot_mode": "changed-files",
+      "profile": "none"
+    },
+    "loop_gate": {
+      "snapshot_mode": "changed-files",
+      "profile": "none"
+    },
+    "pr_gate": {
+      "snapshot_mode": "changed-files",
+      "profile": "none"
+    },
+    "consistent": true
+  },
+  "mutation_lock_evidence": {
+    "events_path": "C:/Users/Admin/.codex/worktrees/b4ee-phase6/.runlogs/codex-governed-entry/repo-mutation-events.jsonl",
+    "acquired_events": 1,
+    "released_events": 1
+  },
+  "artifact_bundle": [],
+  "blockers": [
+    "execution contract target decision is DENY_RELEASE_READINESS; ALLOW_RELEASE_READINESS is out of contract"
+  ],
+  "reasons": []
+}

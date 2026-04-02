@@ -4,8 +4,8 @@
 Residual app-plane internals and package metadata not covered by data, research, orchestration, or interface contexts.
 
 ## Owned Paths
-- `src/trading_advisor_3000/app/domain/`
-- `tests/app/test_app_plane_metadata.py`
+- `src/trading_advisor_3000/product_plane/domain/`
+- `tests/product-plane/test_app_plane_metadata.py`
 
 ## Guarded Paths
 - `docs/architecture/`
@@ -17,4 +17,4 @@ Residual app-plane internals and package metadata not covered by data, research,
 
 ## Minimum Checks
 - `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
-- `python -m pytest tests/app/test_app_plane_metadata.py -q`
+- `python -m pytest tests/product-plane/test_app_plane_metadata.py -q`

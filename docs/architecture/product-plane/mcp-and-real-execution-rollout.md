@@ -9,8 +9,8 @@ Close two implementation gaps outside next-wave scope:
 - `deployment/mcp/*` bundle (matrix, manifest, template, env placeholders, bootstrap, troubleshooting, limitations, rollback).
 - `scripts/validate_mcp_config.py` + `scripts/mcp_preflight_smoke.py` + `scripts/validate_no_tracked_secrets.py`.
 - Gate integration in `configs/change_surface_mapping.yaml` and `.github/workflows/ci.yml`.
-- `src/trading_advisor_3000/app/execution/adapters/stocksharp_http_transport.py`.
-- `src/trading_advisor_3000/app/execution/adapters/live_bridge.py` telemetry/fail-closed extensions.
+- `src/trading_advisor_3000/product_plane/execution/adapters/stocksharp_http_transport.py`.
+- `src/trading_advisor_3000/product_plane/execution/adapters/live_bridge.py` telemetry/fail-closed extensions.
 - `deployment/docker/staging-gateway/*` containerized staging profile.
 - `docs/architecture/product-plane/sidecar-wire-api-v1.md`.
 - `docs/runbooks/app/real-execution-transport-runbook.md`.

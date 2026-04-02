@@ -1,0 +1,6 @@
+{
+  "snapshot_mode": "changed-files",
+  "profile": "none",
+  "route": "continue",
+  "route_signal": "entry:route-selection"
+}

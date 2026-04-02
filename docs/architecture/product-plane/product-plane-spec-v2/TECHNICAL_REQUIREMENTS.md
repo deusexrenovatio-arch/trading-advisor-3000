@@ -37,7 +37,7 @@
 1. **Shell не переписывается** ради продуктовой логики.
 2. Product plane должен быть встроен как **новый слой приложения**, а не как новый независимый фреймворк.
 3. Любые изменения в `scripts/*`, root `configs/*`, `plans/*`, `memory/*`, `docs/agent/*` считаются shell-sensitive.
-4. Product code по умолчанию развивается в `src/trading_advisor_3000/*`, `tests/app/*`, `docs/architecture/product-plane/*`, `docs/runbooks/app/*`, `deployment/*`.
+4. Product code по умолчанию развивается в `src/trading_advisor_3000/*`, `tests/product-plane/*`, `docs/architecture/product-plane/*`, `docs/runbooks/app/*`, `deployment/*`.
 
 ## 4. Целевое состояние продукта
 
@@ -150,7 +150,7 @@
 
 ### 8.1 Кодовая организация
 - Product code живёт в `src/trading_advisor_3000/`.
-- Product tests живут в `tests/app/`.
+- Product tests живут в `tests/product-plane/`.
 - Product docs живут в `docs/architecture/product-plane/`, `docs/runbooks/app/`.
 - Sidecar deployment artifacts живут в `deployment/stocksharp-sidecar/`.
 
@@ -202,7 +202,7 @@
 - Telegram bot,
 - forward/paper/live execution contracts,
 - StockSharp sidecar contract,
-- tests/app для unit/integration/e2e,
+- tests/product-plane для unit/integration/e2e,
 - runbooks,
 - Codex/MCP integration docs,
 - фазные acceptance gates.

@@ -38,16 +38,16 @@ def _seed_common(
 | API surface | {status_claim} | slice exists | closure pending |
 """
     _write(
-        tmp_path / "docs/architecture/app/STATUS.md",
+        tmp_path / "docs/architecture/product-plane/STATUS.md",
         status_md.format(status_claim=status_claim),
     )
-    _write(tmp_path / "docs/architecture/app/README.md", readme_text)
+    _write(tmp_path / "docs/architecture/product-plane/README.md", readme_text)
     _write(
-        tmp_path / "docs/architecture/app/product-plane-spec-v2/07_Tech_Stack_and_Open_Source.md",
+        tmp_path / "docs/architecture/product-plane/product-plane-spec-v2/07_Tech_Stack_and_Open_Source.md",
         "| FastAPI | service/API layer | chosen | OSS | runtime/admin APIs |\n",
     )
     _write(
-        tmp_path / "docs/architecture/app/product-plane-spec-v2/04_ADRs.md",
+        tmp_path / "docs/architecture/product-plane/product-plane-spec-v2/04_ADRs.md",
         "ADR placeholder for stack replacement notes.\n",
     )
     _write(
@@ -55,7 +55,7 @@ def _seed_common(
         checklist_text,
     )
     _write(
-        tmp_path / "docs/architecture/app/phase0-acceptance-verdict.md",
+        tmp_path / "docs/architecture/product-plane/phase0-acceptance-verdict.md",
         acceptance_doc_text,
     )
 
@@ -90,15 +90,15 @@ def _base_registry(*, surface_claim: str, technology_claim: str) -> dict[str, An
     return {
         "version": 1,
         "truth_sources": {
-            "status_doc": "docs/architecture/app/STATUS.md",
-            "spec_doc": "docs/architecture/app/product-plane-spec-v2/07_Tech_Stack_and_Open_Source.md",
+            "status_doc": "docs/architecture/product-plane/STATUS.md",
+            "spec_doc": "docs/architecture/product-plane/product-plane-spec-v2/07_Tech_Stack_and_Open_Source.md",
             "pyproject": "pyproject.toml",
         },
         "closure_claim_guard": {
-            "documents": ["docs/architecture/app/README.md"],
+            "documents": ["docs/architecture/product-plane/README.md"],
             "document_globs": [
                 "docs/checklists/app/*acceptance*.md",
-                "docs/architecture/app/phase*-acceptance-*.md",
+                "docs/architecture/product-plane/phase*-acceptance-*.md",
             ],
             "forbidden_terms": ["production ready", "full acceptance"],
         },
@@ -126,7 +126,7 @@ def _base_registry(*, surface_claim: str, technology_claim: str) -> dict[str, An
                 },
                 "replacement": {
                     "adr_required_when_removed": True,
-                    "adr_paths_any": ["docs/architecture/app/product-plane-spec-v2/04_ADRs.md"],
+                    "adr_paths_any": ["docs/architecture/product-plane/product-plane-spec-v2/04_ADRs.md"],
                     "adr_markers_any": ["fastapi"],
                 },
             }
@@ -281,7 +281,7 @@ def test_validate_stack_conformance_fails_when_removed_technology_is_still_chose
         include_fastapi_test=False,
     )
     _write(
-        tmp_path / "docs/architecture/app/product-plane-spec-v2/04_ADRs.md",
+        tmp_path / "docs/architecture/product-plane/product-plane-spec-v2/04_ADRs.md",
         "ADR remove fastapi from runtime path.\n",
     )
     registry = _base_registry(surface_claim="partial", technology_claim="removed")

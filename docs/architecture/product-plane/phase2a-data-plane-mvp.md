@@ -9,18 +9,18 @@ Deliver a runnable data-plane baseline:
 - initial Dagster/Spark skeleton artifacts.
 
 ## Deliverables
-- `src/trading_advisor_3000/app/data_plane/ingestion/backfill.py`
-- `src/trading_advisor_3000/app/data_plane/canonical/builder.py`
-- `src/trading_advisor_3000/app/data_plane/canonical/quality.py`
-- `src/trading_advisor_3000/app/data_plane/schemas/delta.py`
-- `src/trading_advisor_3000/app/data_plane/pipeline.py`
+- `src/trading_advisor_3000/product_plane/data_plane/ingestion/backfill.py`
+- `src/trading_advisor_3000/product_plane/data_plane/canonical/builder.py`
+- `src/trading_advisor_3000/product_plane/data_plane/canonical/quality.py`
+- `src/trading_advisor_3000/product_plane/data_plane/schemas/delta.py`
+- `src/trading_advisor_3000/product_plane/data_plane/pipeline.py`
 - `src/trading_advisor_3000/dagster_defs/phase2a_assets.py`
 - `src/trading_advisor_3000/spark_jobs/canonical_bars_job.py`
-- `tests/app/fixtures/data_plane/raw_backfill_sample.jsonl`
-- `tests/app/integration/test_phase2a_data_plane.py`
-- `tests/app/unit/test_phase2a_builder.py`
-- `tests/app/unit/test_phase2a_quality.py`
-- `tests/app/unit/test_phase2a_manifests.py`
+- `tests/product-plane/fixtures/data_plane/raw_backfill_sample.jsonl`
+- `tests/product-plane/integration/test_phase2a_data_plane.py`
+- `tests/product-plane/unit/test_phase2a_builder.py`
+- `tests/product-plane/unit/test_phase2a_quality.py`
+- `tests/product-plane/unit/test_phase2a_manifests.py`
 
 ## Design Decisions
 1. Ingestion validates shape and types before canonical conversion.
@@ -31,10 +31,10 @@ Deliver a runnable data-plane baseline:
 6. Dagster/Spark artifacts are delivered as executable skeletons without external runtime dependency.
 
 ## Acceptance Commands
-- `python -m pytest tests/app/integration/test_phase2a_data_plane.py -q`
-- `python -m pytest tests/app/unit/test_phase2a_quality.py -q`
-- `python -m pytest tests/app/unit/test_phase2a_manifests.py -q`
-- `python -m pytest tests/app -q`
+- `python -m pytest tests/product-plane/integration/test_phase2a_data_plane.py -q`
+- `python -m pytest tests/product-plane/unit/test_phase2a_quality.py -q`
+- `python -m pytest tests/product-plane/unit/test_phase2a_manifests.py -q`
+- `python -m pytest tests/product-plane -q`
 - `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
 - `python scripts/run_pr_gate.py --from-git --git-ref HEAD`
 

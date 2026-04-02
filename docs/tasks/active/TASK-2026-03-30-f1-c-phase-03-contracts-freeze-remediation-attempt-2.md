@@ -6,10 +6,10 @@ Updated: 2026-03-30 13:07 UTC
 
 ## Task Request Contract
 - Objective: restore governed phase-route integrity and close the remaining release-blocking contract evidence gaps for contracts freeze.
-- In Scope: `docs/session_handoff.md`; this F1-C task note; `docs/tasks/active/index.yaml`; `docs/architecture/app/CONTRACT_SURFACES.md`; `docs/architecture/app/STATUS.md`; `src/trading_advisor_3000/app/contracts/schemas/release_blocking_contracts.v1.yaml`; phase-03 contract schemas/fixtures/tests for sidecar metrics and runtime API exclusion decision evidence.
+- In Scope: `docs/session_handoff.md`; this F1-C task note; `docs/tasks/active/index.yaml`; `docs/architecture/product-plane/CONTRACT_SURFACES.md`; `docs/architecture/product-plane/STATUS.md`; `src/trading_advisor_3000/product_plane/contracts/schemas/release_blocking_contracts.v1.yaml`; phase-03 contract schemas/fixtures/tests for sidecar metrics and runtime API exclusion decision evidence.
 - Out of Scope: F1-D/F1-E/F1-F implementation, real broker connector closure, release-readiness verdict change, and any trading/business logic.
 - Constraints: stay inside phase-03; no silent assumptions/fallbacks/skips/deferrals; keep pointer-shim handoff contract; rerun canonical loop gate and record evidence.
-- Done Evidence: `python scripts/validate_task_request_contract.py`; `python scripts/validate_session_handoff.py`; `python scripts/run_loop_gate.py --from-git --git-ref HEAD`; `python -m pytest tests/app/contracts/test_phase3_contract_freeze.py -q`; `python -m pytest tests/app/contracts -q`; `python scripts/validate_stack_conformance.py`; `python scripts/validate_architecture_policy.py`; `python scripts/validate_docs_links.py --roots AGENTS.md docs`.
+- Done Evidence: `python scripts/validate_task_request_contract.py`; `python scripts/validate_session_handoff.py`; `python scripts/run_loop_gate.py --from-git --git-ref HEAD`; `python -m pytest tests/product-plane/contracts/test_phase3_contract_freeze.py -q`; `python -m pytest tests/product-plane/contracts -q`; `python scripts/validate_stack_conformance.py`; `python scripts/validate_architecture_policy.py`; `python scripts/validate_docs_links.py --roots AGENTS.md docs`.
 - Priority Rule: quality and governance integrity over speed.
 
 ## Current Delta
@@ -38,7 +38,7 @@ Updated: 2026-03-30 13:07 UTC
 - Primary Rework Cause: close blockers from acceptance attempt-01 for F1-C phase-03
 - Incident Signature: none
 - Improvement Action: make blocker-to-artifact traceability explicit in task note and truth-source inventory.
-- Improvement Artifact: `src/trading_advisor_3000/app/contracts/schemas/release_blocking_contracts.v1.yaml`
+- Improvement Artifact: `src/trading_advisor_3000/product_plane/contracts/schemas/release_blocking_contracts.v1.yaml`
 
 ## Blockers
 - No blocker.
@@ -50,8 +50,8 @@ Updated: 2026-03-30 13:07 UTC
 - `python scripts/validate_task_request_contract.py`
 - `python scripts/validate_session_handoff.py`
 - `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
-- `python -m pytest tests/app/contracts/test_phase3_contract_freeze.py -q`
-- `python -m pytest tests/app/contracts -q`
+- `python -m pytest tests/product-plane/contracts/test_phase3_contract_freeze.py -q`
+- `python -m pytest tests/product-plane/contracts -q`
 - `python scripts/validate_stack_conformance.py`
 - `python scripts/validate_architecture_policy.py`
 - `python scripts/validate_docs_links.py --roots AGENTS.md docs`

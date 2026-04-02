@@ -31,7 +31,7 @@ PHASE_REQUIRED_FILES = [
     "docs/checklists/task-request-contract.md",
     "docs/agent/critical-contours.md",
     "docs/checklists/first-time-right-gate.md",
-    "docs/architecture/app/phase8-ci-pilot-operational-proving.md",
+    "docs/architecture/product-plane/phase8-ci-pilot-operational-proving.md",
     "docs/checklists/app/phase8-acceptance-checklist.md",
     "docs/checklists/app/data-integration-closure-passport.md",
     "docs/checklists/app/runtime-publication-closure-passport.md",

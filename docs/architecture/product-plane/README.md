@@ -10,7 +10,7 @@ Read these first:
 Repository naming note:
 - Use `product-plane` as the canonical term in docs and PR text.
 - Canonical docs root is `docs/architecture/product-plane/`.
-- Legacy `docs/architecture/app/` files are temporary compatibility redirects and are removed in the cleanup phase.
+- Legacy `docs/architecture/app/` compatibility redirects are retired; minimal historical anchors may remain for immutable planning references.
 
 Phase naming rule:
 - `S0-S8` refers to shell delivery phases.

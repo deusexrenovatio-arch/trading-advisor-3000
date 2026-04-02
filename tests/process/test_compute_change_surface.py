@@ -81,7 +81,7 @@ def test_stack_validator_wiring_for_governance_docs_changes() -> None:
 
 def test_stack_validator_wiring_for_architecture_docs_changes() -> None:
     result = compute_surface(
-        ["docs/architecture/app/stack-conformance-baseline.md"],
+        ["docs/architecture/product-plane/stack-conformance-baseline.md"],
         mapping_path=ROOT / "configs" / "change_surface_mapping.yaml",
     )
     assert result["primary_surface"] == "architecture"

@@ -13,7 +13,7 @@ Provide a predictable and enforceable workflow for governance-first delivery in 
 7. Run PR gate before closeout.
 8. Close lifecycle with `python scripts/task_session.py end` when outcome is terminal.
 
-For product-plane tasks, read `docs/architecture/app/STATUS.md` before treating older phase-closure language as current truth.
+For product-plane tasks, read `docs/architecture/product-plane/STATUS.md` before treating older phase-closure language as current truth.
 
 ## Gate order
 `begin -> task note -> task contract validation -> loop gate -> pr gate -> nightly gate -> dashboard refresh -> end`

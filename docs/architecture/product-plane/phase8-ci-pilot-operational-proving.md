@@ -25,7 +25,7 @@ Close the final production-readiness loop for the delivery shell + app integrati
 ## Acceptance Commands
 - `python -m pytest tests/process/test_phase8_operational_proving.py -q`
 - `python -m pytest tests/process/test_harness_contracts.py -q`
-- `python -m pytest tests/process tests/architecture tests/app -q`
+- `python -m pytest tests/process tests/architecture tests/product-plane -q`
 - `python scripts/run_phase8_operational_proving.py --dry-run --from-git --git-ref HEAD`
 - `python scripts/run_phase8_operational_proving.py --from-git --git-ref HEAD --output artifacts/phase8-operational-proving.json`
 - `python scripts/run_loop_gate.py --from-git --git-ref HEAD`

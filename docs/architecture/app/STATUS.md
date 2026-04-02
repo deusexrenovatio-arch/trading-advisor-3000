@@ -1,4 +1,4 @@
 # Legacy Redirect
 
-This compatibility file is retained for migration safety.
-Canonical document path: docs/architecture/product-plane/STATUS.md.
+This legacy anchor is retained for historical planning references.
+Canonical document: `docs/architecture/product-plane/STATUS.md`.

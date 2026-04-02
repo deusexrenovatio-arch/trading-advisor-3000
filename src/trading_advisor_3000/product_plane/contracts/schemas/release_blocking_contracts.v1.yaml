@@ -1,5 +1,5 @@
 version: 1
-change_policy_ref: docs/architecture/app/contract-change-policy.md
+change_policy_ref: docs/architecture/product-plane/contract-change-policy.md
 compatibility_classes:
   strict:
     allowed_changes:

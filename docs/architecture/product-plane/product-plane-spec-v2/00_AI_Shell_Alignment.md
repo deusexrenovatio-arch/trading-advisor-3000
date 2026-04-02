@@ -39,7 +39,7 @@ Product не должен:
 ### 3.2 Product — это application plane
 Product разрабатывается в изолированных путях:
 - `src/trading_advisor_3000/*`
-- `tests/app/*`
+- `tests/product-plane/*`
 - `docs/architecture/product-plane/*`
 - `docs/runbooks/app/*`
 - `deployment/*`
@@ -57,7 +57,7 @@ Product разрабатывается в изолированных путях:
 - `docs/architecture/shared/*` — только при явной необходимости.
 
 ### 3.5 `APP-PLANE` — umbrella surface для исторического/spec-level описания product code
-Пока shell surface taxonomy обсуждается на уровне product-plane spec и historical records, продуктовые изменения внутри `src/trading_advisor_3000/*` и `tests/app/*` можно описывать через umbrella surface `APP-PLANE`.
+Пока shell surface taxonomy обсуждается на уровне product-plane spec и historical records, продуктовые изменения внутри `src/trading_advisor_3000/*` и `tests/product-plane/*` можно описывать через umbrella surface `APP-PLANE`.
 Это уже не placeholder-термин, а нейтральное имя для application/product plane.
 После стабилизации Phase 1 можно вынести отдельный governance patch на более точную product surface taxonomy:
 - `APP-DATA`
@@ -87,7 +87,7 @@ Product разрабатывается в изолированных путях:
 - подтвердить наличие hot docs и canonical runtime entrypoints;
 - подтвердить loop/pr/nightly gate flow;
 - подтвердить high-risk routing policy;
-- подтвердить структуру `tests/process`, `tests/architecture`, `tests/app`;
+- подтвердить структуру `tests/process`, `tests/architecture`, `tests/product-plane`;
 - закрепить, где именно будут жить product docs, configs, skills и runbooks.
 
 ## 6. Что должен сделать Codex

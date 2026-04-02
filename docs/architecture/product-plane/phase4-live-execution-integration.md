@@ -9,14 +9,14 @@ Close the controlled-live execution slice with explicit broker bridge controls:
 - operational runbook for incident handling.
 
 ## Deliverables
-- `src/trading_advisor_3000/app/execution/adapters/live_bridge.py`
-- `src/trading_advisor_3000/app/execution/broker_sync/live_sync.py`
-- `src/trading_advisor_3000/app/execution/broker_sync/controlled_live.py`
-- `src/trading_advisor_3000/app/execution/reconciliation/reconcile.py` (extended live reconciliation)
-- `tests/app/unit/test_phase4_live_bridge.py`
-- `tests/app/unit/test_phase4_broker_sync.py`
-- `tests/app/unit/test_phase4_reconciliation.py`
-- `tests/app/integration/test_phase4_live_execution_controlled.py`
+- `src/trading_advisor_3000/product_plane/execution/adapters/live_bridge.py`
+- `src/trading_advisor_3000/product_plane/execution/broker_sync/live_sync.py`
+- `src/trading_advisor_3000/product_plane/execution/broker_sync/controlled_live.py`
+- `src/trading_advisor_3000/product_plane/execution/reconciliation/reconcile.py` (extended live reconciliation)
+- `tests/product-plane/unit/test_phase4_live_bridge.py`
+- `tests/product-plane/unit/test_phase4_broker_sync.py`
+- `tests/product-plane/unit/test_phase4_reconciliation.py`
+- `tests/product-plane/integration/test_phase4_live_execution_controlled.py`
 - `docs/runbooks/app/phase4-live-execution-incident-runbook.md`
 
 ## Design Decisions
@@ -27,11 +27,11 @@ Close the controlled-live execution slice with explicit broker bridge controls:
 5. Controlled cycle orchestration (`submit -> sync -> reconcile`) is isolated from strategy/runtime logic to preserve plane boundaries.
 
 ## Acceptance Commands
-- `python -m pytest tests/app/unit/test_phase4_live_bridge.py -q`
-- `python -m pytest tests/app/unit/test_phase4_broker_sync.py -q`
-- `python -m pytest tests/app/unit/test_phase4_reconciliation.py -q`
-- `python -m pytest tests/app/integration/test_phase4_live_execution_controlled.py -q`
-- `python -m pytest tests/app -q`
+- `python -m pytest tests/product-plane/unit/test_phase4_live_bridge.py -q`
+- `python -m pytest tests/product-plane/unit/test_phase4_broker_sync.py -q`
+- `python -m pytest tests/product-plane/unit/test_phase4_reconciliation.py -q`
+- `python -m pytest tests/product-plane/integration/test_phase4_live_execution_controlled.py -q`
+- `python -m pytest tests/product-plane -q`
 - `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
 - `python scripts/run_pr_gate.py --from-git --git-ref HEAD --skip-session-check`
 

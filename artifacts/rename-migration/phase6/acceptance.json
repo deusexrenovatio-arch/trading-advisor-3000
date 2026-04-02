@@ -1,0 +1,17 @@
+{
+  "verdict": "PASS",
+  "route_signal": "acceptance:governed-phase-route",
+  "used_skills": [
+    "phase-acceptance-governor",
+    "architecture-review",
+    "testing-suite",
+    "docs-sync"
+  ],
+  "blockers": [],
+  "rerun_checks": [
+    "python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none",
+    "python scripts/run_pr_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none"
+  ],
+  "evidence_gaps": [],
+  "prohibited_findings": []
+}
