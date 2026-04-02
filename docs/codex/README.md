@@ -31,6 +31,7 @@ This lab patch therefore optimizes for:
 - `python scripts/codex_governed_entry.py auto`
 - [Launcher](scripts/codex_from_package.py)
 - [Phase Orchestration](docs/codex/orchestration/README.md)
+- [Route/Snapshot/Profile Contract (H0)](docs/codex/orchestration/route-snapshot-profile-contract.md)
 - [Phase Orchestrator](scripts/codex_phase_orchestrator.py)
 
 ## Current lab boundary

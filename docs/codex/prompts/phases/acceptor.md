@@ -59,6 +59,8 @@ Review rules:
   - `fallbacks`
   - `deferred_work`
 - Return `BLOCKED` if evidence is missing, tests were not actually run, or required docs remain stale.
+- Return `BLOCKED` if worker evidence uses placeholder commands (`<...>`), emits a release-decision package from worker/remediation scope, or uses only `--dry-run` governed continue checks for live-real claims.
+- For `release_decision` phases, final `ALLOW_RELEASE_READINESS` / `DENY_RELEASE_READINESS` emission is acceptance-owned closeout and must bind to this attempt's acceptance artifact; worker/remediation emission is always invalid.
 - Ignore style-only feedback unless it hides a phase blocker.
 
 Return a short human summary and finish with this exact marker block:

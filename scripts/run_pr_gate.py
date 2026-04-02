@@ -8,9 +8,11 @@ import sys
 from pathlib import Path
 
 from compute_change_surface import compute_surface
+from gate_marker_contract import GateMarkerError, resolve_gate_markers
 from gate_common import (
     CommandSpec,
     collect_changed_files,
+    is_non_trivial_diff,
     run_command,
     run_commands,
     scope_validate_command,
@@ -46,6 +48,8 @@ def _build_loop_gate_command(
     base_ref: str | None,
     head_ref: str | None,
     explicit_changed_files: list[str] | None,
+    snapshot_mode: str,
+    profile: str,
 ) -> str | CommandSpec:
     parts = [
         sys.executable,
@@ -53,6 +57,11 @@ def _build_loop_gate_command(
         "--mapping",
         mapping,
         "--skip-session-check",
+        "--snapshot-mode",
+        snapshot_mode,
+        "--profile",
+        profile,
+        "--enforce-explicit-markers",
     ]
     if explicit_changed_files is not None:
         parts.append("--stdin")
@@ -78,6 +87,9 @@ def main() -> int:
     parser.add_argument("--head-ref", "--head", dest="head_ref", default=None)
     parser.add_argument("--stdin", action="store_true")
     parser.add_argument("--changed-files", nargs="*", default=[])
+    parser.add_argument("--snapshot-mode", default=None)
+    parser.add_argument("--profile", default=None)
+    parser.add_argument("--enforce-explicit-markers", action="store_true")
     parser.add_argument("--summary-file", default=None)
     parser.add_argument("--skip-session-check", action="store_true")
     args = parser.parse_args()
@@ -96,6 +108,30 @@ def main() -> int:
         from_stdin=args.stdin,
     )
     surface = compute_surface(changed_files, mapping_path=Path(args.mapping))
+    policy_critical = is_non_trivial_diff(changed_files) and not bool(surface.get("docs_only"))
+    try:
+        markers = resolve_gate_markers(
+            gate_name="pr gate",
+            from_git=bool(args.from_git),
+            base_ref=args.base_ref,
+            head_ref=args.head_ref,
+            from_stdin=bool(args.stdin),
+            explicit_changed_files=list(args.changed_files),
+            snapshot_mode_raw=args.snapshot_mode,
+            profile_raw=args.profile,
+            policy_critical=policy_critical,
+            enforce_explicit_markers=bool(args.enforce_explicit_markers),
+            # PR gate always resolves against diff semantics even when selectors are omitted.
+            default_when_no_selector="changed-files",
+        )
+    except GateMarkerError as exc:
+        print(f"pr gate: FAILED ({exc})")
+        print(f"remediation: see {REMEDIATION_DOC}")
+        return 2
+    snapshot_mode = markers.snapshot_mode
+    profile = markers.profile
+    for message in markers.deprecation_messages:
+        print(message)
 
     loop_command = _build_loop_gate_command(
         mapping=args.mapping,
@@ -104,10 +140,16 @@ def main() -> int:
         base_ref=args.base_ref,
         head_ref=args.head_ref,
         explicit_changed_files=list(changed_files) if (args.stdin or args.changed_files) else None,
+        snapshot_mode=snapshot_mode,
+        profile=profile,
     )
     loop_code = run_command(loop_command)
     if loop_code != 0:
-        print(f"pr gate: FAILED (command={loop_command})\nremediation: see {REMEDIATION_DOC}")
+        print(
+            "pr gate: FAILED "
+            f"(command={loop_command} snapshot_mode={snapshot_mode} profile={profile})\n"
+            f"remediation: see {REMEDIATION_DOC}"
+        )
         return loop_code
 
     commands = [
@@ -126,18 +168,22 @@ def main() -> int:
         gate_name="pr gate",
         surface_result=surface,
         commands=[loop_command, *commands],
+        snapshot_mode=snapshot_mode,
+        profile=profile,
     )
     if code != 0:
         print(
             "pr gate: FAILED "
-            f"(command={failed_command})\n"
+            f"(command={failed_command} snapshot_mode={snapshot_mode} profile={profile})\n"
             f"remediation: see {REMEDIATION_DOC}"
         )
         return code
 
     print(
         "pr gate: OK "
-        f"(primary_surface={surface['primary_surface']} surfaces={','.join(surface['surfaces'])})"
+        f"(primary_surface={surface['primary_surface']} surfaces={','.join(surface['surfaces'])} "
+        f"policy_critical={policy_critical} "
+        f"snapshot_mode={snapshot_mode} profile={profile})"
     )
     return 0
 

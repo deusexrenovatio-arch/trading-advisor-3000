@@ -19,6 +19,8 @@ DEFAULT_SESSION_TTL_HOURS = 12
 TASK_INDEX_ACTIVE = Path("docs/tasks/active/index.yaml")
 TASK_INDEX_ARCHIVE = Path("docs/tasks/archive/index.yaml")
 TERMINAL_OUTCOME_STATUSES = {"completed", "partial", "blocked"}
+LEGACY_SESSION_MODE = "legacy-full"
+TRACKED_SESSION_MODE = "tracked_session"
 
 
 def _now() -> datetime:
@@ -53,6 +55,17 @@ def _run(cmd: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess
 def _slugify(text: str, *, fallback: str = "task") -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
     return slug[:48] if slug else fallback
+
+
+def normalize_session_mode(raw: str) -> str:
+    value = str(raw or "").strip().lower()
+    if value in {"", "full", "legacy", "legacy-full"}:
+        return LEGACY_SESSION_MODE
+    if value in {"tracked", "tracked_session", "tracked-session"}:
+        return TRACKED_SESSION_MODE
+    raise ValueError(
+        "unknown session mode; expected one of legacy-full|tracked_session|tracked-session"
+    )
 
 
 def get_repo_root() -> Path:
@@ -99,12 +112,13 @@ def build_session_id() -> str:
     return f"TS-{_now().strftime('%Y%m%dT%H%M%SZ')}-{os.urandom(4).hex()}"
 
 
-def create_session_lock(*, repo_root: Path, ttl_hours: int) -> dict[str, Any]:
+def create_session_lock(*, repo_root: Path, ttl_hours: int, session_mode: str) -> dict[str, Any]:
     started_at = _now()
     return {
         "session_id": build_session_id(),
         "worktree": str(repo_root),
         "branch": get_current_branch(repo_root),
+        "session_mode": session_mode,
         "started_at": _iso(started_at),
         "expires_at": _iso(started_at + timedelta(hours=max(ttl_hours, 1))),
     }
@@ -115,11 +129,17 @@ def evaluate_session_lock(payload: dict[str, Any], *, repo_root: Path) -> tuple[
         return False, "session lock is not set"
     worktree = str(payload.get("worktree", "")).strip()
     branch = str(payload.get("branch", "")).strip()
+    session_mode_raw = str(payload.get("session_mode", "")).strip()
     started_at = _parse_iso(str(payload.get("started_at", "")).strip())
     expires_at = _parse_iso(str(payload.get("expires_at", "")).strip())
     session_id = str(payload.get("session_id", "")).strip()
     if not all((worktree, branch, started_at, expires_at, session_id)):
         return False, "session lock is invalid"
+    if session_mode_raw:
+        try:
+            normalize_session_mode(session_mode_raw)
+        except ValueError:
+            return False, f"session lock has unknown session_mode `{session_mode_raw}`"
     current_branch = get_current_branch(repo_root)
     current_worktree = str(repo_root)
     if os.name == "nt":
@@ -219,7 +239,7 @@ def _task_note_template(*, request: str) -> str:
     )
 
 
-def _write_session_handoff(*, path: Path, note_path: str, status: str, mode: str = "full") -> None:
+def _write_session_handoff(*, path: Path, note_path: str, status: str, mode: str = LEGACY_SESSION_MODE) -> None:
     content = (
         "# Session Handoff\n"
         f"Updated: {_updated_stamp_utc()}\n\n"
@@ -251,7 +271,7 @@ def _task_id_from_path(path: Path) -> str:
     return path.stem.replace("_", "-").upper()
 
 
-def _set_active_index_entry(*, repo_root: Path, note_rel: str, mode: str = "full") -> str:
+def _set_active_index_entry(*, repo_root: Path, note_rel: str, mode: str = LEGACY_SESSION_MODE) -> str:
     index_path = (repo_root / TASK_INDEX_ACTIVE).resolve()
     payload = _load_index(index_path)
     task_id = _task_id_from_path(Path(note_rel))
@@ -277,7 +297,7 @@ def _close_task_indexes(
     repo_root: Path,
     source_relative: str,
     archive_relative: str,
-    mode: str = "full",
+    mode: str = LEGACY_SESSION_MODE,
 ) -> str:
     active_index_path = (repo_root / TASK_INDEX_ACTIVE).resolve()
     archive_index_path = (repo_root / TASK_INDEX_ARCHIVE).resolve()
@@ -295,7 +315,12 @@ def _close_task_indexes(
         if marker == source_key:
             task_id = str(row.get("id", "")).strip() or task_id
             started_at = str(row.get("started_at", "")).strip() or started_at
-            mode = str(row.get("mode", "")).strip() or mode
+            row_mode = str(row.get("mode", "")).strip()
+            if row_mode:
+                try:
+                    mode = normalize_session_mode(row_mode)
+                except ValueError:
+                    mode = row_mode
             continue
         remaining_active.append(dict(row))
 
@@ -369,10 +394,17 @@ def begin_session(
     request: str,
     ttl_hours: int,
     session_handoff_path: Path,
+    mode: str,
     lock_path: Path | None = None,
 ) -> int:
     if not request.strip():
         print("task session: begin requires non-empty --request")
+        return 2
+
+    try:
+        session_mode = normalize_session_mode(mode)
+    except ValueError as exc:
+        print(f"task session: begin requires a valid --mode ({exc})")
         return 2
 
     repo_root = get_repo_root()
@@ -391,15 +423,15 @@ def begin_session(
     note_path.parent.mkdir(parents=True, exist_ok=True)
     note_path.write_text(_task_note_template(request=request), encoding="utf-8")
     note_rel = _repo_relative(note_path, repo_root=repo_root)
-    task_id = _set_active_index_entry(repo_root=repo_root, note_rel=note_rel, mode="full")
+    task_id = _set_active_index_entry(repo_root=repo_root, note_rel=note_rel, mode=session_mode)
     _write_session_handoff(
         path=session_handoff_path,
         note_path=note_rel,
         status="in_progress",
-        mode="full",
+        mode=session_mode,
     )
 
-    payload = create_session_lock(repo_root=repo_root, ttl_hours=ttl_hours)
+    payload = create_session_lock(repo_root=repo_root, ttl_hours=ttl_hours, session_mode=session_mode)
     write_session_lock(session_lock_path, payload)
 
     route = _route_begin_context(request=request.strip(), handoff_path=session_handoff_path)
@@ -407,6 +439,7 @@ def begin_session(
     print(f"  session_id: {payload['session_id']}")
     print(f"  task_id: {task_id}")
     print(f"  task_note: {note_rel}")
+    print(f"  session_mode: {session_mode}")
     print(f"  primary_context: {route.get('primary_context') or 'unknown'}")
     print("  next_gate: python scripts/run_loop_gate.py --from-git --git-ref HEAD")
     for note in list(route.get("recommendations", []))[:3]:
@@ -429,6 +462,12 @@ def session_status(*, lock_path: Path | None = None, quiet: bool = False) -> int
     print(f"  session_id: {payload['session_id']}")
     print(f"  worktree: {payload['worktree']}")
     print(f"  branch: {payload['branch']}")
+    session_mode_raw = str(payload.get("session_mode", LEGACY_SESSION_MODE)).strip() or LEGACY_SESSION_MODE
+    try:
+        session_mode = normalize_session_mode(session_mode_raw)
+    except ValueError:
+        session_mode = session_mode_raw
+    print(f"  session_mode: {session_mode}")
     print(f"  started_at: {payload['started_at']}")
     print(f"  expires_at: {payload['expires_at']}")
     return 0
@@ -446,6 +485,11 @@ def end_session(
     if not ok:
         print(f"task session: cannot end inactive session ({message})")
         return 1
+    session_mode_raw = str(payload.get("session_mode", LEGACY_SESSION_MODE)).strip() or LEGACY_SESSION_MODE
+    try:
+        session_mode = normalize_session_mode(session_mode_raw)
+    except ValueError:
+        session_mode = session_mode_raw
     if not session_handoff_path.exists():
         print(f"task session: missing {session_handoff_path.as_posix()}")
         return 1
@@ -482,7 +526,7 @@ def end_session(
         path=session_handoff_path,
         note_path=archive_rel,
         status="completed",
-        mode="full",
+        mode=session_mode,
     )
 
     try:
@@ -512,6 +556,7 @@ def build_parser() -> argparse.ArgumentParser:
     begin = subparsers.add_parser("begin")
     begin.add_argument("--request", required=True)
     begin.add_argument("--ttl-hours", type=int, default=DEFAULT_SESSION_TTL_HOURS)
+    begin.add_argument("--mode", default=LEGACY_SESSION_MODE)
     begin.add_argument("--session-handoff-path", default="docs/session_handoff.md")
     begin.add_argument("--lock-path", default=None)
 
@@ -533,6 +578,7 @@ def main() -> int:
         return begin_session(
             request=args.request,
             ttl_hours=args.ttl_hours,
+            mode=args.mode,
             session_handoff_path=Path(args.session_handoff_path),
             lock_path=Path(args.lock_path) if args.lock_path else None,
         )

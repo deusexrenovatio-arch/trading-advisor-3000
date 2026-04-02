@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -18,6 +19,7 @@ from typing import Any
 from codex_phase_policy import (
     ACCEPTANCE_BEGIN,
     ACCEPTANCE_END,
+    AcceptanceBlocker,
     DEFAULT_ACCEPTOR_MODEL,
     DEFAULT_WORKER_MODEL,
     PhaseEvidenceRequirement,
@@ -39,12 +41,14 @@ from codex_phase_policy import (
     route_guardrail_text,
     state_payload,
 )
+from repo_mutation_lock import RepoMutationLockError, repo_mutation_lock
 
 
 DEFAULT_ARTIFACT_ROOT = Path("artifacts/codex/orchestration")
 DEFAULT_WORKER_PROMPT = Path("docs/codex/prompts/phases/worker.md")
 DEFAULT_ACCEPTOR_PROMPT = Path("docs/codex/prompts/phases/acceptor.md")
 DEFAULT_REMEDIATION_PROMPT = Path("docs/codex/prompts/phases/remediation.md")
+STACKED_FOLLOWUP_ROUTE = "stacked-followup"
 DEFAULT_IGNORE_GLOBS = (
     ".runlogs/**",
     "artifacts/**",
@@ -129,7 +133,15 @@ def parse_bullet_map(lines: list[str]) -> dict[str, str]:
     return result
 
 
-def set_bullet_value(path: Path, heading: str, key: str, value: str) -> None:
+def set_bullet_value(
+    path: Path,
+    heading: str,
+    key: str,
+    value: str,
+    *,
+    repo_root: Path,
+    mutation_lock_timeout_sec: float,
+) -> None:
     lines = read_lines(path)
     start, end = section_bounds(lines, heading)
     replacement = f"- {key}: {value}"
@@ -142,14 +154,37 @@ def set_bullet_value(path: Path, heading: str, key: str, value: str) -> None:
             break
     if not inserted:
         lines.insert(end, replacement)
-    write_lines(path, lines)
+    try:
+        with repo_mutation_lock(
+            repo_root=repo_root,
+            owner=f"codex_phase_orchestrator:set-bullet:{path.name}",
+            timeout_sec=mutation_lock_timeout_sec,
+        ):
+            write_lines(path, lines)
+    except RepoMutationLockError as exc:
+        raise OrchestratorError(str(exc)) from exc
 
 
-def set_single_bullet_section(path: Path, heading: str, value: str) -> None:
+def set_single_bullet_section(
+    path: Path,
+    heading: str,
+    value: str,
+    *,
+    repo_root: Path,
+    mutation_lock_timeout_sec: float,
+) -> None:
     lines = read_lines(path)
     start, end = section_bounds(lines, heading)
     new_lines = lines[: start + 1] + [f"- {value}"] + lines[end:]
-    write_lines(path, new_lines)
+    try:
+        with repo_mutation_lock(
+            repo_root=repo_root,
+            owner=f"codex_phase_orchestrator:set-section:{path.name}",
+            timeout_sec=mutation_lock_timeout_sec,
+        ):
+            write_lines(path, new_lines)
+    except RepoMutationLockError as exc:
+        raise OrchestratorError(str(exc)) from exc
 
 
 def split_csv_values(value: str) -> list[str]:
@@ -196,6 +231,14 @@ def phase_objective_from_brief(path: Path) -> str:
         if stripped.startswith("- "):
             return stripped[2:].strip()
     raise OrchestratorError(f"{path.as_posix()} missing objective bullet")
+
+
+def phase_accepted_state_label(path: Path) -> str:
+    gate = parse_bullet_map(section_lines(read_lines(path), "## Release Gate Impact"))
+    value = gate.get("Accepted State Label", "").strip().lower()
+    if not value:
+        raise OrchestratorError(f"{path.as_posix()} missing accepted state label")
+    return value
 
 
 def parent_next_phase(parent_path: Path) -> str:
@@ -246,30 +289,60 @@ def update_parent_and_contract_after_pass(
     parent_path: Path,
     execution_contract_path: Path,
     current_phase_path: Path,
+    mutation_lock_timeout_sec: float = 5.0,
 ) -> None:
     next_phase = next_phase_after(parent_path, current_phase_path)
     if next_phase is None:
-        set_single_bullet_section(parent_path, "## Next Phase To Execute", "none")
+        set_single_bullet_section(
+            parent_path,
+            "## Next Phase To Execute",
+            "none",
+            repo_root=repo_root,
+            mutation_lock_timeout_sec=mutation_lock_timeout_sec,
+        )
         set_single_bullet_section(
             execution_contract_path,
             "## Next Allowed Unit Of Work",
             "All planned phases are accepted. Prepare closeout or a new module run.",
+            repo_root=repo_root,
+            mutation_lock_timeout_sec=mutation_lock_timeout_sec,
         )
         return
 
     next_rel = relative_to_repo(next_phase, repo_root)
     next_name = phase_name_from_brief(next_phase)
     next_objective = phase_objective_from_brief(next_phase)
-    set_single_bullet_section(parent_path, "## Next Phase To Execute", next_rel)
+    set_single_bullet_section(
+        parent_path,
+        "## Next Phase To Execute",
+        next_rel,
+        repo_root=repo_root,
+        mutation_lock_timeout_sec=mutation_lock_timeout_sec,
+    )
     set_single_bullet_section(
         execution_contract_path,
         "## Next Allowed Unit Of Work",
         f"Execute {next_name} only: {next_objective}",
+        repo_root=repo_root,
+        mutation_lock_timeout_sec=mutation_lock_timeout_sec,
     )
 
 
-def update_phase_status(path: Path, status: str) -> None:
-    set_bullet_value(path, "## Phase", "Status", status)
+def update_phase_status(
+    path: Path,
+    status: str,
+    *,
+    repo_root: Path,
+    mutation_lock_timeout_sec: float = 5.0,
+) -> None:
+    set_bullet_value(
+        path,
+        "## Phase",
+        "Status",
+        status,
+        repo_root=repo_root,
+        mutation_lock_timeout_sec=mutation_lock_timeout_sec,
+    )
 
 
 def git_changed_paths(repo_root: Path) -> list[str]:
@@ -320,6 +393,280 @@ def read_text(path: Path) -> str:
 def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def normalize_entry_route(raw: str) -> str:
+    value = str(raw or "").strip().lower()
+    if value in {"", "continue"}:
+        return "continue"
+    if value == STACKED_FOLLOWUP_ROUTE:
+        return STACKED_FOLLOWUP_ROUTE
+    raise OrchestratorError("entry route must be one of continue|stacked-followup")
+
+
+def validate_continuation_contract(
+    path: Path,
+    *,
+    repo_root: Path,
+    execution_contract_path: Path,
+    parent_path: Path,
+) -> None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise OrchestratorError(f"continuation contract not found: {path.as_posix()}") from exc
+    except json.JSONDecodeError as exc:
+        raise OrchestratorError(f"continuation contract is not valid json: {path.as_posix()} ({exc})") from exc
+
+    if not isinstance(payload, dict):
+        raise OrchestratorError(f"continuation contract root must be an object: {path.as_posix()}")
+    if str(payload.get("route", "")).strip() != STACKED_FOLLOWUP_ROUTE:
+        raise OrchestratorError(
+            "continuation contract route mismatch; expected `stacked-followup` in "
+            f"{path.as_posix()}"
+        )
+    predecessor = payload.get("predecessor_merge_context")
+    if not isinstance(predecessor, dict) or not bool(predecessor.get("merged_into_new_base", False)):
+        raise OrchestratorError(
+            "continuation contract does not confirm merged predecessor context; "
+            f"cannot run stacked-followup orchestration ({path.as_posix()})"
+        )
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        raise OrchestratorError(
+            "continuation contract is missing `module` binding; expected execution contract and parent brief "
+            f"for {path.as_posix()}"
+        )
+    declared_execution = str(module.get("execution_contract", "")).strip()
+    declared_parent = str(module.get("parent_brief", "")).strip()
+    if not declared_execution or not declared_parent:
+        raise OrchestratorError(
+            "continuation contract module binding is incomplete; "
+            f"expected `execution_contract` and `parent_brief` in {path.as_posix()}"
+        )
+    declared_execution_path = resolve_path(repo_root, declared_execution)
+    declared_parent_path = resolve_path(repo_root, declared_parent)
+    expected_execution_path = execution_contract_path.resolve()
+    expected_parent_path = parent_path.resolve()
+    if declared_execution_path != expected_execution_path:
+        raise OrchestratorError(
+            "continuation contract execution contract mismatch; "
+            f"expected {expected_execution_path.as_posix()} but got {declared_execution_path.as_posix()}"
+        )
+    if declared_parent_path != expected_parent_path:
+        raise OrchestratorError(
+            "continuation contract parent brief mismatch; "
+            f"expected {expected_parent_path.as_posix()} but got {declared_parent_path.as_posix()}"
+        )
+
+
+def validate_entry_route_contract(
+    *,
+    entry_route: str,
+    continuation_contract_path: Path | None,
+    repo_root: Path,
+    execution_contract_path: Path,
+    parent_path: Path,
+) -> None:
+    if entry_route == STACKED_FOLLOWUP_ROUTE:
+        if continuation_contract_path is None:
+            raise OrchestratorError("stacked-followup entry route requires --continuation-contract")
+        validate_continuation_contract(
+            continuation_contract_path,
+            repo_root=repo_root,
+            execution_contract_path=execution_contract_path,
+            parent_path=parent_path,
+        )
+    elif continuation_contract_path is not None:
+        raise OrchestratorError(
+            "--continuation-contract is only valid when --entry-route stacked-followup"
+        )
+
+
+def normalize_string_list(values: list[Any]) -> list[str]:
+    out: list[str] = []
+    for item in values:
+        text = str(item).strip()
+        if text and text not in out:
+            out.append(text)
+    return out
+
+
+def parse_option_value(command: str, option: str) -> str | None:
+    pattern = re.compile(rf"{re.escape(option)}\s+(\"[^\"]+\"|'[^']+'|[^\s|]+)")
+    match = pattern.search(command)
+    if not match:
+        return None
+    value = match.group(1).strip()
+    if len(value) >= 2 and ((value[0] == value[-1] == '"') or (value[0] == value[-1] == "'")):
+        return value[1:-1].strip()
+    return value
+
+
+def first_existing_path(repo_root: Path, candidates: list[str]) -> Path | None:
+    for raw in candidates:
+        try:
+            candidate = resolve_path(repo_root, raw)
+        except Exception:
+            continue
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def resolve_release_decision_inputs(
+    *,
+    repo_root: Path,
+    worker_report: WorkerReport,
+) -> tuple[Path, Path, Path, Path, list[Path]]:
+    evidence = worker_report.evidence_contract if isinstance(worker_report.evidence_contract, dict) else {}
+    evidence_checks = normalize_string_list(list(evidence.get("checks", [])))
+    evidence_artifacts = normalize_string_list(list(evidence.get("artifact_paths", [])))
+    all_checks = normalize_string_list([*worker_report.checks_run, *evidence_checks])
+    all_artifacts = normalize_string_list([*worker_report.files_touched, *evidence_artifacts])
+
+    def summary_from_checks(gate_script_name: str) -> Path | None:
+        for check in all_checks:
+            normalized = check.lower().replace("\\", "/")
+            if gate_script_name not in normalized:
+                continue
+            summary_value = parse_option_value(check, "--summary-file")
+            if not summary_value:
+                continue
+            candidate = resolve_path(repo_root, summary_value)
+            if candidate.exists():
+                return candidate
+        return None
+
+    def summary_from_artifacts(keyword: str) -> Path | None:
+        for raw in all_artifacts:
+            normalized = raw.lower().replace("\\", "/")
+            if keyword in normalized and normalized.endswith(".md"):
+                candidate = resolve_path(repo_root, raw)
+                if candidate.exists():
+                    return candidate
+        return None
+
+    loop_summary_path = summary_from_checks("run_loop_gate.py") or summary_from_artifacts("loop")
+    pr_summary_path = summary_from_checks("run_pr_gate.py") or summary_from_artifacts("pr")
+
+    route_state_candidates: list[str] = []
+    for check in all_checks:
+        route_state = parse_option_value(check, "--route-state")
+        if route_state:
+            route_state_candidates.append(route_state)
+        route_state_file = parse_option_value(check, "--route-state-file")
+        if route_state_file:
+            route_state_candidates.append(route_state_file)
+    for raw in all_artifacts:
+        normalized = raw.lower().replace("\\", "/")
+        if "route-state" in normalized and normalized.endswith(".json"):
+            route_state_candidates.append(raw)
+    default_route_state = resolve_path(repo_root, ".runlogs/codex-governed-entry/last-route.json")
+    phase_scoped_route_state_candidates: list[str] = []
+    for raw in route_state_candidates:
+        try:
+            candidate = resolve_path(repo_root, raw)
+        except Exception:
+            continue
+        if candidate == default_route_state:
+            continue
+        phase_scoped_route_state_candidates.append(raw)
+    route_state_path = first_existing_path(repo_root, phase_scoped_route_state_candidates)
+
+    mutation_event_candidates: list[str] = []
+    for raw in all_artifacts:
+        normalized = raw.lower().replace("\\", "/")
+        if normalized.endswith("repo-mutation-events.jsonl"):
+            mutation_event_candidates.append(raw)
+    mutation_event_candidates.append(".runlogs/codex-governed-entry/repo-mutation-events.jsonl")
+    mutation_events_path = first_existing_path(repo_root, mutation_event_candidates)
+
+    artifact_bundle_paths: list[Path] = []
+    for raw in all_artifacts:
+        candidate = resolve_path(repo_root, raw)
+        if candidate.exists() and candidate not in artifact_bundle_paths:
+            artifact_bundle_paths.append(candidate)
+
+    missing: list[str] = []
+    if loop_summary_path is None:
+        missing.append("loop summary path")
+    if pr_summary_path is None:
+        missing.append("pr summary path")
+    if route_state_path is None:
+        missing.append("phase-scoped route state path")
+    if mutation_events_path is None:
+        missing.append("repo mutation events path")
+    if missing:
+        raise OrchestratorError(
+            "cannot emit acceptance-owned release decision package because required inputs are missing: "
+            + ", ".join(missing)
+        )
+
+    return (
+        loop_summary_path,
+        pr_summary_path,
+        route_state_path,
+        mutation_events_path,
+        artifact_bundle_paths,
+    )
+
+
+def emit_acceptance_owned_release_decision(
+    *,
+    repo_root: Path,
+    execution_contract_path: Path,
+    phase_path: Path,
+    acceptance_json_path: Path,
+    output_path: Path,
+    worker_report: WorkerReport,
+) -> None:
+    (
+        loop_summary_path,
+        pr_summary_path,
+        route_state_path,
+        mutation_events_path,
+        artifact_bundle_paths,
+    ) = resolve_release_decision_inputs(
+        repo_root=repo_root,
+        worker_report=worker_report,
+    )
+    script_path = Path(__file__).resolve().with_name("build_governed_release_decision.py")
+    cmd = [
+        sys.executable,
+        script_path.as_posix(),
+        "--execution-contract",
+        execution_contract_path.as_posix(),
+        "--phase-brief",
+        phase_path.as_posix(),
+        "--acceptance-json",
+        acceptance_json_path.as_posix(),
+        "--route-state",
+        route_state_path.as_posix(),
+        "--loop-summary",
+        loop_summary_path.as_posix(),
+        "--pr-summary",
+        pr_summary_path.as_posix(),
+        "--mutation-events",
+        mutation_events_path.as_posix(),
+        "--output",
+        output_path.as_posix(),
+    ]
+    for artifact_path in artifact_bundle_paths:
+        cmd.extend(["--artifact-path", artifact_path.as_posix()])
+    completed = subprocess.run(
+        cmd,
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        message = (completed.stderr or completed.stdout).strip()
+        raise OrchestratorError(
+            "acceptance-owned release decision emission failed: "
+            + (message or f"exit code {completed.returncode}")
+        )
 
 
 def sha256_text(text: str) -> str:
@@ -388,9 +735,12 @@ def build_worker_prompt(
     phase_path: Path,
     attempt: int,
     remediation_blockers_path: Path | None,
+    entry_route: str = "continue",
+    continuation_contract_path: Path | None = None,
 ) -> str:
     base = read_text(template_path).rstrip()
     blockers = remediation_blockers_path.as_posix() if remediation_blockers_path else "NONE"
+    continuation_contract = continuation_contract_path.as_posix() if continuation_contract_path else "NONE"
     return (
         f"{base}\n\n"
         "Route Guardrails:\n"
@@ -398,6 +748,8 @@ def build_worker_prompt(
         f"Execution Contract: {execution_contract_path.as_posix()}\n"
         f"Module Parent Brief: {parent_path.as_posix()}\n"
         f"Phase Brief: {phase_path.as_posix()}\n"
+        f"Entry Route: {entry_route}\n"
+        f"Continuation Contract: {continuation_contract}\n"
         f"Attempt Number: {attempt}\n"
         f"Remediation Blockers: {blockers}\n"
     )
@@ -657,10 +1009,20 @@ def orchestrate_current_phase(
     max_remediation_cycles: int,
     ignore_globs: tuple[str, ...],
     skip_clean_check: bool,
+    mutation_lock_timeout_sec: float = 5.0,
+    entry_route: str = "continue",
+    continuation_contract_path: Path | None = None,
 ) -> tuple[int, Path]:
     phase_path = resolve_current_phase(repo_root, parent_path)
     if phase_status_from_brief(phase_path) == "completed":
         raise OrchestratorError(f"phase already completed: {phase_path.as_posix()}")
+    validate_entry_route_contract(
+        entry_route=entry_route,
+        continuation_contract_path=continuation_contract_path,
+        repo_root=repo_root,
+        execution_contract_path=execution_contract_path,
+        parent_path=parent_path,
+    )
 
     if not skip_clean_check:
         ensure_clean_worktree(repo_root, ignore_globs)
@@ -677,6 +1039,7 @@ def orchestrate_current_phase(
     }
     role_skill_bindings = resolve_role_skill_bindings(repo_root)
     current_phase_evidence_requirement = phase_evidence_requirement(phase_path)
+    current_phase_accepted_state = phase_accepted_state_label(phase_path)
 
     final_code = 3
     final_status = "blocked"
@@ -697,6 +1060,8 @@ def orchestrate_current_phase(
             phase_path=phase_path,
             attempt=attempt,
             remediation_blockers_path=blockers_path,
+            entry_route=entry_route,
+            continuation_contract_path=continuation_contract_path,
         )
         worker_prompt_file = attempt_dir / f"{kind}-prompt.md"
         worker_last_message = attempt_dir / f"{kind}-last-message.txt"
@@ -768,9 +1133,10 @@ def orchestrate_current_phase(
             raise OrchestratorError(str(exc)) from exc
         acceptance_json_path = attempt_dir / "acceptance.json"
         acceptance_md_path = attempt_dir / "acceptance.md"
-        write_json(
-            acceptance_json_path,
-            {
+        release_decision_path: Path | None = None
+        if current_phase_accepted_state == "release_decision":
+            release_decision_path = attempt_dir / "release-decision.json"
+            initial_acceptance_payload = {
                 "verdict": acceptance.verdict,
                 "summary": acceptance.summary,
                 "route_signal": acceptance.route_signal,
@@ -780,8 +1146,52 @@ def orchestrate_current_phase(
                 "evidence_gaps": acceptance.evidence_gaps,
                 "prohibited_findings": acceptance.prohibited_findings,
                 "policy_blockers": [asdict(item) for item in acceptance.policy_blockers],
-            },
-        )
+            }
+            write_json(acceptance_json_path, initial_acceptance_payload)
+            try:
+                emit_acceptance_owned_release_decision(
+                    repo_root=repo_root,
+                    execution_contract_path=execution_contract_path,
+                    phase_path=phase_path,
+                    acceptance_json_path=acceptance_json_path,
+                    output_path=release_decision_path,
+                    worker_report=worker_report,
+                )
+            except OrchestratorError as exc:
+                detail = (
+                    "Acceptance-owned release decision artifact could not be emitted for this attempt: "
+                    + str(exc)
+                )
+                blocker = AcceptanceBlocker(
+                    id=f"P-EVIDENCE_GAP-RELDEC-{attempt}",
+                    title="Required evidence is missing",
+                    why=detail,
+                    remediation="Fix release decision inputs and rerun acceptance.",
+                )
+                acceptance.blockers.append(blocker)
+                acceptance.policy_blockers.append(blocker)
+                if detail not in acceptance.evidence_gaps:
+                    acceptance.evidence_gaps.append(detail)
+                acceptance.verdict = "BLOCKED"
+                acceptance.summary = (
+                    (acceptance.summary.strip() + " " if acceptance.summary.strip() else "")
+                    + "Release-decision closeout failed; phase remains blocked."
+                )
+
+        acceptance_payload_doc = {
+            "verdict": acceptance.verdict,
+            "summary": acceptance.summary,
+            "route_signal": acceptance.route_signal,
+            "used_skills": acceptance.used_skills,
+            "blockers": [asdict(item) for item in acceptance.blockers],
+            "rerun_checks": acceptance.rerun_checks,
+            "evidence_gaps": acceptance.evidence_gaps,
+            "prohibited_findings": acceptance.prohibited_findings,
+            "policy_blockers": [asdict(item) for item in acceptance.policy_blockers],
+        }
+        if release_decision_path is not None and release_decision_path.exists():
+            acceptance_payload_doc["release_decision_path"] = release_decision_path.as_posix()
+        write_json(acceptance_json_path, acceptance_payload_doc)
         acceptance_md_path.write_text(render_acceptance_markdown(acceptance), encoding="utf-8")
         blockers_path = acceptance_md_path
 
@@ -816,6 +1226,10 @@ def orchestrate_current_phase(
             role_configs=role_configs,
             role_skill_bindings=role_skill_bindings,
         )
+        interim_state["entry_route"] = entry_route
+        interim_state["continuation_contract_path"] = (
+            continuation_contract_path.as_posix() if continuation_contract_path else None
+        )
         interim_state["current_attempt"] = attempt
         write_state_and_route_report(
             state_path=state_path,
@@ -824,18 +1238,29 @@ def orchestrate_current_phase(
         )
 
         if acceptance.verdict == "PASS":
-            update_phase_status(phase_path, "completed")
+            update_phase_status(
+                phase_path,
+                "completed",
+                repo_root=repo_root,
+                mutation_lock_timeout_sec=mutation_lock_timeout_sec,
+            )
             update_parent_and_contract_after_pass(
                 repo_root=repo_root,
                 parent_path=parent_path,
                 execution_contract_path=execution_contract_path,
                 current_phase_path=phase_path,
+                mutation_lock_timeout_sec=mutation_lock_timeout_sec,
             )
             final_code = 0
             final_status = "accepted"
             break
 
-        update_phase_status(phase_path, "blocked")
+        update_phase_status(
+            phase_path,
+            "blocked",
+            repo_root=repo_root,
+            mutation_lock_timeout_sec=mutation_lock_timeout_sec,
+        )
         if attempt >= total_attempts:
             final_code = 3
             final_status = "blocked"
@@ -853,6 +1278,10 @@ def orchestrate_current_phase(
         next_phase=parent_next_phase(parent_path),
         role_configs=role_configs,
         role_skill_bindings=role_skill_bindings,
+    )
+    final_state["entry_route"] = entry_route
+    final_state["continuation_contract_path"] = (
+        continuation_contract_path.as_posix() if continuation_contract_path else None
     )
     write_state_and_route_report(
         state_path=state_path,
@@ -903,8 +1332,17 @@ def run_preflight(
     codex_bin: str | None,
     ignore_globs: tuple[str, ...],
     skip_clean_check: bool,
+    entry_route: str = "continue",
+    continuation_contract_path: Path | None = None,
 ) -> int:
     phase_path = resolve_current_phase(repo_root, parent_path)
+    validate_entry_route_contract(
+        entry_route=entry_route,
+        continuation_contract_path=continuation_contract_path,
+        repo_root=repo_root,
+        execution_contract_path=execution_contract_path,
+        parent_path=parent_path,
+    )
     phase_name = phase_name_from_brief(phase_path)
     phase_status = phase_status_from_brief(phase_path)
     print(f"execution_contract: {execution_contract_path.as_posix()}")
@@ -913,6 +1351,11 @@ def run_preflight(
     print(f"current_phase_name: {phase_name}")
     print(f"current_phase_status: {phase_status}")
     print(f"route_mode: {ROUTE_MODE}")
+    print(f"entry_route: {entry_route}")
+    print(
+        "continuation_contract_path: "
+        + (continuation_contract_path.as_posix() if continuation_contract_path else "none")
+    )
     print(f"route_guardrails: {', '.join(ROUTE_GUARDRAILS)}")
     print_role_launches(worker_launch, acceptor_launch, remediation_launch)
     if backend == "codex-cli":
@@ -947,6 +1390,8 @@ def build_parser() -> argparse.ArgumentParser:
     def add_common(target: argparse.ArgumentParser) -> None:
         target.add_argument("--execution-contract", required=True)
         target.add_argument("--parent-brief", required=True)
+        target.add_argument("--entry-route", default="continue")
+        target.add_argument("--continuation-contract", default=None)
         target.add_argument("--backend", choices=("simulate", "codex-cli"), default="simulate")
         target.add_argument("--profile", default="")
         target.add_argument("--codex-bin", default=None)
@@ -965,6 +1410,7 @@ def build_parser() -> argparse.ArgumentParser:
         target.add_argument("--remediation-config", action="append", default=[])
         target.add_argument("--ignore-glob", action="append", default=[])
         target.add_argument("--skip-clean-check", action="store_true")
+        target.add_argument("--mutation-lock-timeout-sec", type=float, default=5.0)
 
     preflight = subparsers.add_parser("preflight")
     add_common(preflight)
@@ -1024,12 +1470,31 @@ def main(argv: list[str] | None = None) -> int:
 
     execution_contract_path = resolve_path(repo_root, args.execution_contract)
     parent_path = resolve_path(repo_root, args.parent_brief)
+    continuation_contract_path = (
+        resolve_path(repo_root, args.continuation_contract) if args.continuation_contract else None
+    )
     artifact_root = resolve_path(repo_root, args.artifact_root)
     worker_prompt_path = resolve_path(repo_root, args.worker_prompt_file)
     acceptor_prompt_path = resolve_path(repo_root, args.acceptor_prompt_file)
     remediation_prompt_path = resolve_path(repo_root, args.remediation_prompt_file)
     ignore_globs = tuple([*DEFAULT_IGNORE_GLOBS, *list(args.ignore_glob)])
     worker_launch, acceptor_launch, remediation_launch = build_role_launches(args)
+    try:
+        entry_route = normalize_entry_route(str(getattr(args, "entry_route", "")))
+    except OrchestratorError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    try:
+        validate_entry_route_contract(
+            entry_route=entry_route,
+            continuation_contract_path=continuation_contract_path,
+            repo_root=repo_root,
+            execution_contract_path=execution_contract_path,
+            parent_path=parent_path,
+        )
+    except OrchestratorError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
 
     if args.command == "preflight":
         return run_preflight(
@@ -1043,6 +1508,8 @@ def main(argv: list[str] | None = None) -> int:
             codex_bin=args.codex_bin,
             ignore_globs=ignore_globs,
             skip_clean_check=bool(args.skip_clean_check),
+            entry_route=entry_route,
+            continuation_contract_path=continuation_contract_path,
         )
 
     try:
@@ -1063,6 +1530,9 @@ def main(argv: list[str] | None = None) -> int:
             max_remediation_cycles=max(int(args.max_remediation_cycles), 0),
             ignore_globs=ignore_globs,
             skip_clean_check=bool(args.skip_clean_check),
+            mutation_lock_timeout_sec=max(float(args.mutation_lock_timeout_sec), 0.0),
+            entry_route=entry_route,
+            continuation_contract_path=continuation_contract_path,
         )
     except OrchestratorError as exc:
         print(f"error: {exc}", file=sys.stderr)

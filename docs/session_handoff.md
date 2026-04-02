@@ -9,4 +9,4 @@ Updated: 2026-03-31 19:18 UTC
 ## Validation
 - `python scripts/validate_task_request_contract.py`
 - `python scripts/validate_session_handoff.py`
-- `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
+- `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`

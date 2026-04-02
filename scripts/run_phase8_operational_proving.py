@@ -76,6 +76,8 @@ def build_phase8_plan(
     enforce_session_check: bool,
     include_nightly_lane: bool,
     include_dashboard_refresh: bool,
+    gate_snapshot_mode: str = "changed-files",
+    gate_profile: str = "none",
     python_executable: str = sys.executable,
 ) -> list[Phase8Step]:
     loop_command = [
@@ -83,12 +85,22 @@ def build_phase8_plan(
         "scripts/run_loop_gate.py",
         "--mapping",
         mapping,
+        "--snapshot-mode",
+        gate_snapshot_mode,
+        "--profile",
+        gate_profile,
+        "--enforce-explicit-markers",
     ]
     pr_command = [
         python_executable,
         "scripts/run_pr_gate.py",
         "--mapping",
         mapping,
+        "--snapshot-mode",
+        gate_snapshot_mode,
+        "--profile",
+        gate_profile,
+        "--enforce-explicit-markers",
     ]
     if not enforce_session_check:
         loop_command.append("--skip-session-check")
@@ -115,6 +127,10 @@ def build_phase8_plan(
             "scripts/run_nightly_gate.py",
             "--mapping",
             mapping,
+            "--snapshot-mode",
+            gate_snapshot_mode,
+            "--profile",
+            gate_profile,
             *scope_args,
         ]
         plan.append(

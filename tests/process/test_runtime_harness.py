@@ -28,6 +28,12 @@ def test_task_session_cli_help_lists_lifecycle_commands() -> None:
     assert "end" in output
 
 
+def test_task_session_begin_help_includes_mode_flag() -> None:
+    result = _run([sys.executable, "scripts/task_session.py", "begin", "--help"])
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    assert "--mode" in result.stdout.lower()
+
+
 def test_context_router_cli_json_contract() -> None:
     result = _run(
         [

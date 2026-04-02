@@ -18,6 +18,7 @@ Every governed worker or remediation payload must include one `evidence_contract
 - `proof_class` must not be weaker than the phase brief's delivered proof class.
 - `surfaces` must cover every surface owned by the current phase.
 - `artifact_paths` and `checks` must both be non-empty for any phase that claims progress.
+- `checks` entries must be exact executed commands; placeholder tokens like `<path>` or `<phase-scoped-files>` are invalid evidence.
 - If the phase requires real bindings, `real_bindings` must be non-empty.
 
 ## Automatic Block Conditions

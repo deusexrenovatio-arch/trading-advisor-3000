@@ -5,6 +5,11 @@ import sys
 from pathlib import Path
 
 from compute_change_surface import compute_surface
+from gate_marker_contract import (
+    GateMarkerError,
+    includes_policy_critical_command,
+    resolve_gate_markers,
+)
 from gate_common import (
     collect_changed_files,
     is_non_trivial_diff,
@@ -20,6 +25,10 @@ NON_TRIVIAL_LOOP_VALIDATION_SCRIPTS = (
     "scripts/validate_task_request_contract.py",
     "scripts/validate_phase_planning_contract.py",
     "scripts/validate_session_handoff.py",
+    "scripts/validate_solution_intent.py",
+    "scripts/validate_critical_contour_closure.py",
+)
+POLICY_CRITICAL_LOOP_VALIDATION_SCRIPTS = (
     "scripts/validate_solution_intent.py",
     "scripts/validate_critical_contour_closure.py",
 )
@@ -85,6 +94,9 @@ def main() -> int:
     parser.add_argument("--head-ref", "--head", dest="head_ref", default=None)
     parser.add_argument("--stdin", action="store_true")
     parser.add_argument("--changed-files", nargs="*", default=[])
+    parser.add_argument("--snapshot-mode", default=None)
+    parser.add_argument("--profile", default=None)
+    parser.add_argument("--enforce-explicit-markers", action="store_true")
     parser.add_argument("--summary-file", default=None)
     parser.add_argument("--skip-session-check", action="store_true")
     args = parser.parse_args()
@@ -108,6 +120,33 @@ def main() -> int:
         changed_files=changed_files,
         docs_only=bool(surface.get("docs_only")),
     )
+    policy_critical = includes_policy_critical_command(
+        loop_commands,
+        critical_script_paths=POLICY_CRITICAL_LOOP_VALIDATION_SCRIPTS,
+    )
+    try:
+        markers = resolve_gate_markers(
+            gate_name="loop gate",
+            from_git=bool(args.from_git),
+            base_ref=args.base_ref,
+            head_ref=args.head_ref,
+            from_stdin=bool(args.stdin),
+            explicit_changed_files=list(args.changed_files),
+            snapshot_mode_raw=args.snapshot_mode,
+            profile_raw=args.profile,
+            policy_critical=policy_critical,
+            enforce_explicit_markers=bool(args.enforce_explicit_markers),
+            default_when_no_selector="contract-only",
+        )
+    except GateMarkerError as exc:
+        print(f"loop gate: FAILED ({exc})")
+        print(f"remediation: see {REMEDIATION_DOC}")
+        return 2
+    snapshot_mode = markers.snapshot_mode
+    profile = markers.profile
+    for message in markers.deprecation_messages:
+        print(message)
+
     commands = [
         scope_validate_command(
             command,
@@ -123,11 +162,13 @@ def main() -> int:
         gate_name="loop gate",
         surface_result=surface,
         commands=commands,
+        snapshot_mode=snapshot_mode,
+        profile=profile,
     )
     if code != 0:
         print(
             "loop gate: FAILED "
-            f"(command={failed_command})\n"
+            f"(command={failed_command} snapshot_mode={snapshot_mode} profile={profile})\n"
             f"remediation: see {REMEDIATION_DOC}"
         )
         return code
@@ -136,7 +177,9 @@ def main() -> int:
         "loop gate: OK "
         f"(primary_surface={surface['primary_surface']} "
         f"surfaces={','.join(surface['surfaces'])} "
-        f"non_trivial_validation={non_trivial_validation})"
+        f"policy_critical={policy_critical} "
+        f"non_trivial_validation={non_trivial_validation} "
+        f"snapshot_mode={snapshot_mode} profile={profile})"
     )
     return 0
 
