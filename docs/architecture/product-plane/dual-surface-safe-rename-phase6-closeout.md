@@ -10,7 +10,7 @@ Updated: 2026-04-02 14:45 UTC
 
 ## Final Inventory Snapshot
 
-- Artifact: `artifacts/rename-migration/phase6-inventory.json`
+- Artifact: `artifacts/rename-migration/phase6-inventory.md`
 - Summary:
   - Total legacy token matches: `5034`
   - Active matches: `138`

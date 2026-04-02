@@ -58,7 +58,6 @@ Updated: 2026-04-02 14:45 UTC
   - deleted `src/trading_advisor_3000/app/__init__.py`.
 - Legacy redirects retired from the prior docs compatibility subtree; minimal historical anchors retained for immutable planning references.
 - Final inventory snapshot generated:
-  - `artifacts/rename-migration/phase6-inventory.json`
   - `artifacts/rename-migration/phase6-inventory.md`
   - Active matches reduced from `382` (initial P6 baseline scan) to `138` at closeout.
 - Migration closeout report with residual debt section:
