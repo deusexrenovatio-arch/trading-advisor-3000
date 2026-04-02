@@ -1,0 +1,41 @@
+version: 1
+policy_id: moex-phase03-reconciliation-thresholds.v1
+as_of_utc: "2026-04-02T00:00:00Z"
+
+required_dimensions:
+  - close_drift_bps
+  - volume_drift_ratio
+  - missing_bars_ratio
+  - lag_class
+
+lag_class_seconds:
+  low: 300
+  medium: 1800
+
+close_drift_bps:
+  hard_by_asset_group:
+    commodity: 35.0
+    index: 25.0
+    default: 40.0
+
+volume_drift_ratio:
+  hard_by_timeframe:
+    5m: 0.35
+    15m: 0.30
+    1h: 0.25
+    4h: 0.22
+    1d: 0.20
+    1w: 0.18
+
+missing_bars_ratio:
+  hard_max: 0.08
+
+lag_class_mismatch_ratio:
+  hard_max: 0.20
+
+escalation:
+  require_alert_simulation: true
+  hard_violation_requires_incident: true
+  channels:
+    - ops-pager
+    - data-quality-slack
