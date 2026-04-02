@@ -40,7 +40,6 @@ Phase naming rule:
 - `docs/architecture/app/mcp-and-real-execution-rollout.md` - MCP Wave 1-3 rollout + staging-first real HTTP execution transport closure.
 - `docs/architecture/app/sidecar-wire-api-v1.md` - wire-level HTTP/JSON sidecar contract for staging-first real transport.
 - `docs/architecture/app/phase0-3-acceptance-verdict-2026-03-17.md` - architecture acceptance disposition (MVP vs full target closure).
-- `docs/architecture/app/moex-spark-deltalake-integration-tz.md` - scoped technical assignment for MOEX historical ingestion + Spark jobs + Delta Lake quality/resampling contour.
 
 ## Related checklists
 - `docs/checklists/app/phase0-acceptance-checklist.md`

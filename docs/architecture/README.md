@@ -17,7 +17,6 @@ This package documents architecture for both repository surfaces:
 - `docs/architecture/entities-v2.md`
 - `docs/architecture/architecture-map-v2.md`
 - `docs/architecture/governed-pipeline-hardening-technical-specification.md`
-- `docs/architecture/durable-governance-context-technical-specification.md`
 
 ## Product Plane architecture index
 - `docs/architecture/app/README.md`
