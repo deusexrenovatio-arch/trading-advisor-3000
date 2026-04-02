@@ -234,6 +234,7 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "src/trading_advisor_3000/app/config/",
             "src/trading_advisor_3000/app.py",
             "src/trading_advisor_3000/app_metadata.py",
+            "src/trading_advisor_3000/product_plane/",
             "src/trading_advisor_3000/app/runtime/",
             "src/trading_advisor_3000/app/execution/",
             "src/trading_advisor_3000/dagster_defs/",

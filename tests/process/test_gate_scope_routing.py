@@ -209,6 +209,23 @@ def test_scope_validate_command_uses_stdin_for_phase_planning_contract() -> None
     assert "docs/codex/contracts/f1-full-closure.execution-contract.md" in scoped.stdin_text
 
 
+def test_scope_validate_command_uses_stdin_for_legacy_namespace_growth() -> None:
+    scoped = scope_validate_command(
+        f"{sys.executable} scripts/validate_legacy_namespace_growth.py",
+        base_sha=None,
+        head_sha=None,
+        changed_files=[
+            "src/trading_advisor_3000/product_plane/runtime_bridge.py",
+            "docs/architecture/README.md",
+        ],
+    )
+
+    assert isinstance(scoped, CommandSpec)
+    assert "--stdin" in scoped.command
+    assert scoped.stdin_text is not None
+    assert "src/trading_advisor_3000/product_plane/runtime_bridge.py" in scoped.stdin_text
+
+
 def test_scope_validate_command_uses_stdin_for_surface_pr_matrix_runner() -> None:
     scoped = scope_validate_command(
         f"{sys.executable} scripts/run_surface_pr_matrix.py",

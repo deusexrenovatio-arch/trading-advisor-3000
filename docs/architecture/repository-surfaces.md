@@ -33,6 +33,11 @@ Use these exact terms in task notes and PRs:
 Migration specification reference:
 - `docs/architecture/dual-surface-safe-rename-migration-technical-specification.md`
 
+## Phase 2 Compatibility Bridge Status
+- Runtime namespace bridge: `src/trading_advisor_3000/product_plane/__init__.py` proxies to the current legacy app package namespace.
+- Docs namespace pointer: `docs/architecture/product-plane/README.md` points contributors to the current canonical docs root during bridge mode.
+- Guardrail validator: `scripts/validate_legacy_namespace_growth.py` blocks new legacy namespace references in changed files outside explicit migration allowlist paths.
+
 ## Controlled rename candidates (deferred)
 - `docs/architecture/app/` -> `docs/architecture/product-plane/`
 - `tests/app/` -> `tests/product-plane/`

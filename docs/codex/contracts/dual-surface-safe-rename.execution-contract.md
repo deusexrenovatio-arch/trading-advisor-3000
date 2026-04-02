@@ -1,6 +1,6 @@
 # Execution Contract
 
-Updated: 2026-04-02 14:10 UTC
+Updated: 2026-04-02 15:05 UTC
 
 ## Source Package
 
@@ -91,9 +91,9 @@ Updated: 2026-04-02 14:10 UTC
 - continue
 
 ## Next Allowed Unit Of Work
-- Execute P2 compatibility bridge only after P1 inventory artifacts and risk-wave ownership are accepted.
+- Execute P3 docs namespace cutover after compatibility bridge evidence and legacy-growth validator pass in loop/pr gates.
 
 ## Suggested Branch / PR
 
-- Branch: codex/dual-surface-rename-phase1
-- PR Title: Phase 1 legacy path inventory for dual-surface safe rename migration
+- Branch: codex/dual-surface-rename-phase3
+- PR Title: Phase 3 docs namespace cutover for dual-surface safe rename migration
