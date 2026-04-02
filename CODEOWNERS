@@ -30,8 +30,8 @@
 /product-plane/ @trading-advisor-3000/app-core
 /src/trading_advisor_3000/ @trading-advisor-3000/app-core
 /tests/ @trading-advisor-3000/qa
-/tests/app/ @trading-advisor-3000/app-core @trading-advisor-3000/qa
-/docs/architecture/app/ @trading-advisor-3000/app-core @trading-advisor-3000/architecture
+/tests/product-plane/ @trading-advisor-3000/app-core @trading-advisor-3000/qa
+/docs/architecture/product-plane/ @trading-advisor-3000/app-core @trading-advisor-3000/architecture
 /docs/checklists/app/ @trading-advisor-3000/app-core
 /docs/workflows/app/ @trading-advisor-3000/app-core
 /docs/runbooks/app/ @trading-advisor-3000/app-core

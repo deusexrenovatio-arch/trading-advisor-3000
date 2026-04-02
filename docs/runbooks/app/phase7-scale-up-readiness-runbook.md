@@ -8,11 +8,11 @@ Validate that expansion to new providers/adapters can be delivered without core 
 
 ## Validation Procedure
 1. Run phase-specific seam tests:
-   - `python -m pytest tests/app/unit/test_phase7_execution_adapter_catalog.py -q`
-   - `python -m pytest tests/app/unit/test_phase7_provider_extension_seams.py -q`
-   - `python -m pytest tests/app/unit/test_phase7_runtime_context_orchestration.py -q`
+   - `python -m pytest tests/product-plane/unit/test_phase7_execution_adapter_catalog.py -q`
+   - `python -m pytest tests/product-plane/unit/test_phase7_provider_extension_seams.py -q`
+   - `python -m pytest tests/product-plane/unit/test_phase7_runtime_context_orchestration.py -q`
 2. Run full app regression:
-   - `python -m pytest tests/app -q`
+   - `python -m pytest tests/product-plane -q`
 3. Run gates:
    - `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
    - `python scripts/run_pr_gate.py --from-git --git-ref HEAD --skip-session-check`

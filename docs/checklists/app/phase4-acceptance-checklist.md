@@ -22,10 +22,10 @@ Date: 2026-03-17
 - [x] PR gate green
 
 ## Evidence Commands
-- [x] `python -m pytest tests/app/unit/test_phase4_live_bridge.py -q`
-- [x] `python -m pytest tests/app/unit/test_phase4_broker_sync.py -q`
-- [x] `python -m pytest tests/app/unit/test_phase4_reconciliation.py -q`
-- [x] `python -m pytest tests/app/integration/test_phase4_live_execution_controlled.py -q`
-- [x] `python -m pytest tests/app -q`
+- [x] `python -m pytest tests/product-plane/unit/test_phase4_live_bridge.py -q`
+- [x] `python -m pytest tests/product-plane/unit/test_phase4_broker_sync.py -q`
+- [x] `python -m pytest tests/product-plane/unit/test_phase4_reconciliation.py -q`
+- [x] `python -m pytest tests/product-plane/integration/test_phase4_live_execution_controlled.py -q`
+- [x] `python -m pytest tests/product-plane -q`
 - [x] `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
 - [x] `python scripts/run_pr_gate.py --from-git --git-ref HEAD --skip-session-check`

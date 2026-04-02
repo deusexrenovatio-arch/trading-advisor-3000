@@ -26,7 +26,7 @@ Date: 2026-03-16
 - [x] Loop gate green
 
 ## Evidence Commands
-- [x] `python -m pytest tests/app/unit/test_phase2b_features.py -q`
-- [x] `python -m pytest tests/app/unit/test_phase2b_manifests.py -q`
-- [x] `python -m pytest tests/app/integration/test_phase2b_research_plane.py -q`
+- [x] `python -m pytest tests/product-plane/unit/test_phase2b_features.py -q`
+- [x] `python -m pytest tests/product-plane/unit/test_phase2b_manifests.py -q`
+- [x] `python -m pytest tests/product-plane/integration/test_phase2b_research_plane.py -q`
 - [x] `python scripts/run_loop_gate.py --from-git --git-ref HEAD`

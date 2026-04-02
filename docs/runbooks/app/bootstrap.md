@@ -16,7 +16,7 @@ python -m pip install -e .[dev]
 Run the minimum acceptance checks:
 
 ```bash
-python -m pytest tests/app -q
+python -m pytest tests/product-plane -q
 python scripts/run_loop_gate.py --from-git --git-ref HEAD
 python scripts/run_pr_gate.py --from-git --git-ref HEAD
 ```

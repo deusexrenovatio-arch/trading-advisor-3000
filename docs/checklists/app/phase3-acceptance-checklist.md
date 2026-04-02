@@ -28,9 +28,9 @@ Date: 2026-03-17
 - [x] PR gate green
 
 ## Evidence Commands
-- [x] `python -m pytest tests/app/unit/test_phase3_forward_engine.py -q`
-- [x] `python -m pytest tests/app/unit/test_phase3_analytics.py -q`
-- [x] `python -m pytest tests/app/integration/test_phase3_system_replay.py -q`
-- [x] `python -m pytest tests/app -q`
+- [x] `python -m pytest tests/product-plane/unit/test_phase3_forward_engine.py -q`
+- [x] `python -m pytest tests/product-plane/unit/test_phase3_analytics.py -q`
+- [x] `python -m pytest tests/product-plane/integration/test_phase3_system_replay.py -q`
+- [x] `python -m pytest tests/product-plane -q`
 - [x] `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
 - [x] `python scripts/run_pr_gate.py --from-git --git-ref HEAD --skip-session-check`

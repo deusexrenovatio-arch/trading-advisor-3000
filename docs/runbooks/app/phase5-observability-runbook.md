@@ -6,19 +6,19 @@ Operate and validate Phase 5 review analytics and observability:
 
 ## Preconditions
 - Phase 5 tests are green.
-- Replay fixtures are available (`tests/app/fixtures/research/canonical_bars_sample.jsonl`).
+- Replay fixtures are available (`tests/product-plane/fixtures/research/canonical_bars_sample.jsonl`).
 - Docker is running for local observability stack checks.
 
 ## Validation Procedure
 1. Run Phase 5 integration tests:
-   - `python -m pytest tests/app/integration/test_phase5_review_observability.py -q`
+   - `python -m pytest tests/product-plane/integration/test_phase5_review_observability.py -q`
 2. Run Phase 5 unit tests:
-   - `python -m pytest tests/app/unit/test_phase5_review_metrics.py -q`
-   - `python -m pytest tests/app/unit/test_phase5_latency_metrics.py -q`
-   - `python -m pytest tests/app/unit/test_phase5_observability_export.py -q`
-   - `python -m pytest tests/app/unit/test_phase5_observability_deployment.py -q`
+   - `python -m pytest tests/product-plane/unit/test_phase5_review_metrics.py -q`
+   - `python -m pytest tests/product-plane/unit/test_phase5_latency_metrics.py -q`
+   - `python -m pytest tests/product-plane/unit/test_phase5_observability_export.py -q`
+   - `python -m pytest tests/product-plane/unit/test_phase5_observability_deployment.py -q`
 3. Run full app regression:
-   - `python -m pytest tests/app -q`
+   - `python -m pytest tests/product-plane -q`
 
 ## Local Observability Smoke
 1. Ensure file-contract artifacts are present:
