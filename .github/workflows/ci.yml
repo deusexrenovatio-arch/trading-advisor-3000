@@ -71,9 +71,9 @@ jobs:
         run: |
           mkdir -p artifacts/ci
           if [[ -n "${{ steps.diff-range.outputs.base_ref }}" && -n "${{ steps.diff-range.outputs.head_ref }}" ]]; then
-            python scripts/run_loop_gate.py --skip-session-check --base-ref "${{ steps.diff-range.outputs.base_ref }}" --head-ref "${{ steps.diff-range.outputs.head_ref }}" --summary-file artifacts/ci/loop-gate-summary.md
+            python scripts/run_loop_gate.py --skip-session-check --base-ref "${{ steps.diff-range.outputs.base_ref }}" --head-ref "${{ steps.diff-range.outputs.head_ref }}" --snapshot-mode changed-files --profile none --summary-file artifacts/ci/loop-gate-summary.md
           else
-            python scripts/run_loop_gate.py --skip-session-check --from-git --git-ref HEAD --summary-file artifacts/ci/loop-gate-summary.md
+            python scripts/run_loop_gate.py --skip-session-check --from-git --git-ref HEAD --snapshot-mode changed-files --profile none --summary-file artifacts/ci/loop-gate-summary.md
           fi
 
       - name: Fast QA Matrix
@@ -160,9 +160,9 @@ jobs:
         shell: bash
         run: |
           if [[ -n "${{ steps.diff-range.outputs.base_ref }}" && -n "${{ steps.diff-range.outputs.head_ref }}" ]]; then
-            python scripts/run_pr_gate.py --skip-session-check --base-ref "${{ steps.diff-range.outputs.base_ref }}" --head-ref "${{ steps.diff-range.outputs.head_ref }}" --profile "${{ steps.pr-matrix.outputs.gate_profile }}" --summary-file artifacts/ci/pr-gate-summary.md
+            python scripts/run_pr_gate.py --skip-session-check --base-ref "${{ steps.diff-range.outputs.base_ref }}" --head-ref "${{ steps.diff-range.outputs.head_ref }}" --snapshot-mode changed-files --profile "${{ steps.pr-matrix.outputs.gate_profile }}" --summary-file artifacts/ci/pr-gate-summary.md
           else
-            python scripts/run_pr_gate.py --skip-session-check --from-git --git-ref HEAD --profile "${{ steps.pr-matrix.outputs.gate_profile }}" --summary-file artifacts/ci/pr-gate-summary.md
+            python scripts/run_pr_gate.py --skip-session-check --from-git --git-ref HEAD --snapshot-mode changed-files --profile "${{ steps.pr-matrix.outputs.gate_profile }}" --summary-file artifacts/ci/pr-gate-summary.md
           fi
 
       - name: MCP Governance Contract
