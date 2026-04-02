@@ -19,7 +19,7 @@
 | `src/trading_advisor_3000/` | application plane | product | low/medium |
 | `tests/process/` | shell process suite | shell | medium |
 | `tests/architecture/` | shell architecture suite | shell | medium |
-| `tests/app/` | application tests | product | low |
+| `tests/product-plane/` | application tests | product | low |
 
 ## 3. Рекомендуемая product structure
 
@@ -57,7 +57,7 @@ src/trading_advisor_3000/
   spark_jobs/
   migrations/
 
-tests/app/
+tests/product-plane/
   unit/
   contracts/
   integration/
@@ -113,7 +113,7 @@ deployment/
 
 ### Product ownership
 - `src/trading_advisor_3000/*`
-- `tests/app/*`
+- `tests/product-plane/*`
 - `docs/architecture/product-plane/*`
 - `docs/runbooks/app/*`
 - `deployment/*`
@@ -129,20 +129,20 @@ deployment/
 ## 7. Рекомендации по параллелизации
 
 ### Поток A — data/research
-- `src/trading_advisor_3000/app/data_plane/*`
-- `src/trading_advisor_3000/app/research/*`
+- `src/trading_advisor_3000/product_plane/data_plane/*`
+- `src/trading_advisor_3000/product_plane/research/*`
 
 ### Поток B — runtime/publishing
-- `src/trading_advisor_3000/app/runtime/*`
-- `src/trading_advisor_3000/app/interfaces/telegram/*`
+- `src/trading_advisor_3000/product_plane/runtime/*`
+- `src/trading_advisor_3000/product_plane/interfaces/telegram/*`
 
 ### Поток C — execution
-- `src/trading_advisor_3000/app/execution/*`
+- `src/trading_advisor_3000/product_plane/execution/*`
 - `deployment/stocksharp-sidecar/*`
 
 ### Поток D — docs/runbooks
 - `docs/architecture/product-plane/*`
 - `docs/runbooks/app/*`
-- `tests/app/e2e/*`
+- `tests/product-plane/e2e/*`
 
 Эти потоки можно вести параллельно после Phase 1 contracts freeze.

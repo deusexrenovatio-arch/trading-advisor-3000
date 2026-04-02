@@ -229,7 +229,6 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "docs/agent-contexts/CTX-ORCHESTRATION.md",
             "src/trading_advisor_3000/__init__.py",
             "src/trading_advisor_3000/__main__.py",
-            "src/trading_advisor_3000/app/__init__.py",
             "src/trading_advisor_3000/product_plane/__init__.py",
             "src/trading_advisor_3000/product_plane/common/",
             "src/trading_advisor_3000/product_plane/config/",

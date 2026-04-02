@@ -8,8 +8,8 @@ Close the review and observability slice on top of integrated replay:
 - local Grafana/Prometheus/Loki deployment profile for smoke validation.
 
 ## Deliverables
-- `src/trading_advisor_3000/app/runtime/analytics/review.py`
-- `src/trading_advisor_3000/app/runtime/analytics/system_replay.py` (extended exports and contracts)
+- `src/trading_advisor_3000/product_plane/runtime/analytics/review.py`
+- `src/trading_advisor_3000/product_plane/runtime/analytics/system_replay.py` (extended exports and contracts)
 - `deployment/docker/observability/docker-compose.observability.yml`
 - `deployment/docker/observability/prometheus/prometheus.yml`
 - `deployment/docker/observability/loki/loki-config.yml`
@@ -20,11 +20,11 @@ Close the review and observability slice on top of integrated replay:
 - `deployment/docker/observability/grafana/provisioning/datasources/datasources.yml`
 - `deployment/docker/observability/grafana/provisioning/dashboards/dashboards.yml`
 - `deployment/docker/observability/grafana/dashboards/ta3000-phase5-overview.json`
-- `tests/app/unit/test_phase5_review_metrics.py`
-- `tests/app/unit/test_phase5_latency_metrics.py`
-- `tests/app/unit/test_phase5_observability_export.py`
-- `tests/app/unit/test_phase5_observability_deployment.py`
-- `tests/app/integration/test_phase5_review_observability.py`
+- `tests/product-plane/unit/test_phase5_review_metrics.py`
+- `tests/product-plane/unit/test_phase5_latency_metrics.py`
+- `tests/product-plane/unit/test_phase5_observability_export.py`
+- `tests/product-plane/unit/test_phase5_observability_deployment.py`
+- `tests/product-plane/integration/test_phase5_review_observability.py`
 - `docs/runbooks/app/phase5-observability-runbook.md`
 
 ## Design Decisions
@@ -36,13 +36,13 @@ Close the review and observability slice on top of integrated replay:
 6. Local observability stack is provisioned as a standalone compose profile with file bridges (`metrics-file-exporter` and `promtail`) so Phase 5 file artifacts can be validated end-to-end without external metrics or log pipelines.
 
 ## Acceptance Commands
-- `python -m pytest tests/app/unit/test_phase5_review_metrics.py -q`
-- `python -m pytest tests/app/unit/test_phase5_latency_metrics.py -q`
-- `python -m pytest tests/app/unit/test_phase5_observability_export.py -q`
-- `python -m pytest tests/app/unit/test_phase5_observability_deployment.py -q`
-- `python -m pytest tests/app/integration/test_phase5_review_observability.py -q`
-- `python -m pytest tests/app/integration/test_phase3_system_replay.py -q`
-- `python -m pytest tests/app -q`
+- `python -m pytest tests/product-plane/unit/test_phase5_review_metrics.py -q`
+- `python -m pytest tests/product-plane/unit/test_phase5_latency_metrics.py -q`
+- `python -m pytest tests/product-plane/unit/test_phase5_observability_export.py -q`
+- `python -m pytest tests/product-plane/unit/test_phase5_observability_deployment.py -q`
+- `python -m pytest tests/product-plane/integration/test_phase5_review_observability.py -q`
+- `python -m pytest tests/product-plane/integration/test_phase3_system_replay.py -q`
+- `python -m pytest tests/product-plane -q`
 - `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
 - `python scripts/run_pr_gate.py --from-git --git-ref HEAD --skip-session-check`
 - `python scripts/run_nightly_gate.py --from-git --git-ref HEAD`

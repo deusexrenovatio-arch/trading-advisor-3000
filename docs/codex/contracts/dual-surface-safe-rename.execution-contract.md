@@ -1,6 +1,6 @@
 # Execution Contract
 
-Updated: 2026-04-02 14:20 UTC
+Updated: 2026-04-02 14:45 UTC
 
 ## Source Package
 
@@ -91,9 +91,9 @@ Updated: 2026-04-02 14:20 UTC
 - continue
 
 ## Next Allowed Unit Of Work
-- Execute P6 legacy cleanup and migration closure after target-only governance selector evidence and green loop/pr gates for phase-05.
+- No further phase is allowed under this module sequence; open a new governed module only if post-closeout remediation is explicitly approved.
 
 ## Suggested Branch / PR
 
-- Branch: codex/dual-surface-rename-phase5
-- PR Title: Phase 5 governance and CI selector cutover for dual-surface safe rename migration
+- Branch: codex/dual-surface-rename-phase6
+- PR Title: Phase 6 legacy cleanup and governed migration closure for dual-surface safe rename migration

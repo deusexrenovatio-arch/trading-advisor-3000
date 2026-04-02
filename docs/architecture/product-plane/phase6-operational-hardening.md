@@ -9,21 +9,21 @@ Close operational hardening for controlled live execution:
 - production-like local compose profile for operational smoke.
 
 ## Deliverables
-- `src/trading_advisor_3000/app/runtime/config/security.py`
-- `src/trading_advisor_3000/app/execution/adapters/live_bridge.py` (retry + secrets preflight)
-- `src/trading_advisor_3000/app/execution/adapters/stocksharp_sidecar_stub.py` (transient failure simulation)
-- `src/trading_advisor_3000/app/execution/broker_sync/controlled_live.py` (idempotent submission reuse + hardened cycle)
-- `src/trading_advisor_3000/app/execution/recovery/playbook.py`
-- `src/trading_advisor_3000/app/runtime/ops/profile_server.py`
+- `src/trading_advisor_3000/product_plane/runtime/config/security.py`
+- `src/trading_advisor_3000/product_plane/execution/adapters/live_bridge.py` (retry + secrets preflight)
+- `src/trading_advisor_3000/product_plane/execution/adapters/stocksharp_sidecar_stub.py` (transient failure simulation)
+- `src/trading_advisor_3000/product_plane/execution/broker_sync/controlled_live.py` (idempotent submission reuse + hardened cycle)
+- `src/trading_advisor_3000/product_plane/execution/recovery/playbook.py`
+- `src/trading_advisor_3000/product_plane/runtime/ops/profile_server.py`
 - `deployment/docker/production-like/docker-compose.production-like.yml`
 - `deployment/docker/production-like/prometheus/prometheus.yml`
 - `deployment/docker/production-like/.env.production-like.example`
 - `deployment/docker/production-like/README.md`
-- `tests/app/unit/test_phase6_live_bridge_hardening.py`
-- `tests/app/unit/test_phase6_recovery_and_idempotency.py`
-- `tests/app/unit/test_phase6_runtime_profile_ops.py`
-- `tests/app/unit/test_phase6_production_profile_deployment.py`
-- `tests/app/integration/test_phase6_operational_hardening.py`
+- `tests/product-plane/unit/test_phase6_live_bridge_hardening.py`
+- `tests/product-plane/unit/test_phase6_recovery_and_idempotency.py`
+- `tests/product-plane/unit/test_phase6_runtime_profile_ops.py`
+- `tests/product-plane/unit/test_phase6_production_profile_deployment.py`
+- `tests/product-plane/integration/test_phase6_operational_hardening.py`
 - `docs/runbooks/app/phase6-operational-hardening-runbook.md`
 
 ## Design Decisions
@@ -34,12 +34,12 @@ Close operational hardening for controlled live execution:
 5. Operational profile is observable by contract (`/health`, `/ready`, `/metrics`) and can be scraped by Prometheus in a production-like local topology.
 
 ## Acceptance Commands
-- `python -m pytest tests/app/unit/test_phase6_live_bridge_hardening.py -q`
-- `python -m pytest tests/app/unit/test_phase6_recovery_and_idempotency.py -q`
-- `python -m pytest tests/app/unit/test_phase6_runtime_profile_ops.py -q`
-- `python -m pytest tests/app/unit/test_phase6_production_profile_deployment.py -q`
-- `python -m pytest tests/app/integration/test_phase6_operational_hardening.py -q`
-- `python -m pytest tests/app -q`
+- `python -m pytest tests/product-plane/unit/test_phase6_live_bridge_hardening.py -q`
+- `python -m pytest tests/product-plane/unit/test_phase6_recovery_and_idempotency.py -q`
+- `python -m pytest tests/product-plane/unit/test_phase6_runtime_profile_ops.py -q`
+- `python -m pytest tests/product-plane/unit/test_phase6_production_profile_deployment.py -q`
+- `python -m pytest tests/product-plane/integration/test_phase6_operational_hardening.py -q`
+- `python -m pytest tests/product-plane -q`
 - `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
 - `python scripts/run_pr_gate.py --from-git --git-ref HEAD --skip-session-check`
 

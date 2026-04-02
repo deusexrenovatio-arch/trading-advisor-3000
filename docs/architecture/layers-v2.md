@@ -51,7 +51,7 @@ Contains validators and tests that protect shell contracts.
 - `scripts/validate_*.py`
 - `tests/process/*`
 - `tests/architecture/*`
-- `tests/app/*`
+- `tests/product-plane/*`
 
 ### Allowed dependencies
 - Reads L1-L3 definitions and verifies consistency.

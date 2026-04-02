@@ -8,12 +8,12 @@ Deliver a full replayable system slice:
 - first operational runbook for system replay.
 
 ## Deliverables
-- `src/trading_advisor_3000/app/research/forward/engine.py`
-- `src/trading_advisor_3000/app/runtime/analytics/outcomes.py`
-- `src/trading_advisor_3000/app/runtime/analytics/system_replay.py`
-- `tests/app/unit/test_phase3_forward_engine.py`
-- `tests/app/unit/test_phase3_analytics.py`
-- `tests/app/integration/test_phase3_system_replay.py`
+- `src/trading_advisor_3000/product_plane/research/forward/engine.py`
+- `src/trading_advisor_3000/product_plane/runtime/analytics/outcomes.py`
+- `src/trading_advisor_3000/product_plane/runtime/analytics/system_replay.py`
+- `tests/product-plane/unit/test_phase3_forward_engine.py`
+- `tests/product-plane/unit/test_phase3_analytics.py`
+- `tests/product-plane/integration/test_phase3_system_replay.py`
 - `docs/runbooks/app/phase3-system-replay-runbook.md`
 
 ## Design Decisions
@@ -24,10 +24,10 @@ Deliver a full replayable system slice:
 5. Evidence artifacts are written as deterministic JSONL outputs for repeatable acceptance runs.
 
 ## Acceptance Commands
-- `python -m pytest tests/app/unit/test_phase3_forward_engine.py -q`
-- `python -m pytest tests/app/unit/test_phase3_analytics.py -q`
-- `python -m pytest tests/app/integration/test_phase3_system_replay.py -q`
-- `python -m pytest tests/app -q`
+- `python -m pytest tests/product-plane/unit/test_phase3_forward_engine.py -q`
+- `python -m pytest tests/product-plane/unit/test_phase3_analytics.py -q`
+- `python -m pytest tests/product-plane/integration/test_phase3_system_replay.py -q`
+- `python -m pytest tests/product-plane -q`
 - `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
 - `python scripts/run_pr_gate.py --from-git --git-ref HEAD --skip-session-check`
 

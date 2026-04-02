@@ -1,4 +1,4 @@
-﻿# F1-E Real Broker Process Closure
+# F1-E Real Broker Process Closure
 
 ## Objective
 Move the release-blocking broker contour from planned to implemented for a governed staging-real profile using Finam-native session proof.
@@ -8,7 +8,7 @@ Move the release-blocking broker contour from planned to implemented for a gover
 1. Compiled sidecar process is built/tested/published in-repo (`deployment/stocksharp-sidecar`) and exercised through governed rollout.
 2. Connector + secrets requirements are versioned through:
    - `configs/broker_staging_connector_profile.v1.json`
-   - `src/trading_advisor_3000/app/contracts/schemas/broker_staging_connector_profile.v1.json`
+   - `src/trading_advisor_3000/product_plane/contracts/schemas/broker_staging_connector_profile.v1.json`
 3. Governed route remains:
    - `python scripts/run_f1e_real_broker_process.py --output-root artifacts/f1/phase05/real-broker-process ...`
 4. Finam-native preflight (`/v1/sessions/details`) is enforced as a prerequisite, not as lifecycle closure.
@@ -44,10 +44,10 @@ Fail-closed disprover evidence (still required, not closure by itself):
 - `artifacts/codex/orchestration/20260331T204848Z-f1-full-closure-phase-05/attempt-01/acceptance.json` (documents current blocked verdict and remaining lifecycle boundary gap)
 
 ## Contract Surfaces
-- `src/trading_advisor_3000/app/contracts/schemas/broker_staging_connector_profile.v1.json`
-- `src/trading_advisor_3000/app/contracts/schemas/staging_rollout_report.v1.json`
-- `src/trading_advisor_3000/app/contracts/schemas/runtime_operational_snapshot.v1.json`
-- `src/trading_advisor_3000/app/contracts/schemas/real_broker_process_report.v1.json`
+- `src/trading_advisor_3000/product_plane/contracts/schemas/broker_staging_connector_profile.v1.json`
+- `src/trading_advisor_3000/product_plane/contracts/schemas/staging_rollout_report.v1.json`
+- `src/trading_advisor_3000/product_plane/contracts/schemas/runtime_operational_snapshot.v1.json`
+- `src/trading_advisor_3000/product_plane/contracts/schemas/real_broker_process_report.v1.json`
 
 ## Non-Goals
 1. This is not a final production rollout claim.

@@ -40,7 +40,7 @@ flowchart TB
       AP3["research plane"]
       AP4["runtime plane"]
       AP5["execution plane"]
-      AP6["tests/app/* + app runbooks"]
+      AP6["tests/product-plane/* + app runbooks"]
       AP1 --> AP2 --> AP3 --> AP4 --> AP5 --> AP6
     end
 
@@ -127,7 +127,7 @@ flowchart LR
 
 Технологии:
 - Python,
-- internal backtest engine (`src/trading_advisor_3000/app/research/backtest/engine.py`),
+- internal backtest engine (`src/trading_advisor_3000/product_plane/research/backtest/engine.py`),
 - Delta,
 - Dagster.
 

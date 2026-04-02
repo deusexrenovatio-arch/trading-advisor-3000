@@ -121,3 +121,8 @@ items:
   mode: legacy-full
   status: in_progress
   started_at: '2026-04-02'
+- id: TASK-2026-04-02-PHASE-6-LEGACY-CLEANUP-AND-GOVERNED-MIGRATION-CL
+  path: docs/tasks/active/TASK-2026-04-02-phase-6-legacy-cleanup-and-governed-migration-cl.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-04-02'

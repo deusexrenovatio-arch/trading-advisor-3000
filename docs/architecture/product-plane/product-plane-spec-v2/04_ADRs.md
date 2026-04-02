@@ -82,7 +82,7 @@ vectorbt was historically allowed for P4-oriented research scenarios, but was ne
 
 ### Supersession note
 F1-B terminal-stack closure replaces this decision:
-- vectorbt removed by ADR and replaced by the internal backtest engine in `src/trading_advisor_3000/app/research/backtest/engine.py`;
+- vectorbt removed by ADR and replaced by the internal backtest engine in `src/trading_advisor_3000/product_plane/research/backtest/engine.py`;
 - the active stack truth-source is ADR-011 plus `docs/architecture/product-plane/product-plane-spec-v2/07_Tech_Stack_and_Open_Source.md` and `registry/stack_conformance.yaml`;
 - any future vectorbt reintroduction requires a new ADR and aligned runtime/test evidence while vectorbt stays removed under ADR-011.
 
@@ -196,10 +196,10 @@ Runtime reality already ships a custom Telegram publication engine, SQL-file mig
 - opentelemetry removed by ADR and replaced by prometheus loki observability path.
 
 ### Evidence anchors
-- Telegram runtime path: `src/trading_advisor_3000/app/runtime/publishing/telegram.py`, `tests/app/unit/test_phase2c_runtime_components.py`.
-- SQL migration runner: `scripts/apply_app_migrations.py`, `src/trading_advisor_3000/migrations/*.sql`, `tests/app/integration/test_phase2c_runtime_postgres_store.py`.
-- Internal backtest runtime: `src/trading_advisor_3000/app/research/backtest/engine.py`, `tests/app/integration/test_phase2b_research_plane.py`.
-- Observability runtime: `src/trading_advisor_3000/app/runtime/analytics/review.py`, `tests/app/integration/test_phase5_review_observability.py`.
+- Telegram runtime path: `src/trading_advisor_3000/product_plane/runtime/publishing/telegram.py`, `tests/product-plane/unit/test_phase2c_runtime_components.py`.
+- SQL migration runner: `scripts/apply_app_migrations.py`, `src/trading_advisor_3000/migrations/*.sql`, `tests/product-plane/integration/test_phase2c_runtime_postgres_store.py`.
+- Internal backtest runtime: `src/trading_advisor_3000/product_plane/research/backtest/engine.py`, `tests/product-plane/integration/test_phase2b_research_plane.py`.
+- Observability runtime: `src/trading_advisor_3000/product_plane/runtime/analytics/review.py`, `tests/product-plane/integration/test_phase5_review_observability.py`.
 
 ### Consequences
 - Replaceable stack claims stay honest and terminal for release blocking checks.

@@ -1,4 +1,4 @@
-﻿# StockSharp Sidecar (.NET) — Phase 08 Slice
+# StockSharp Sidecar (.NET) — Phase 08 Slice
 
 This directory now contains a real in-repo `.NET 8` sidecar project that implements the v1 wire contract used by the Python execution transport.
 
@@ -20,7 +20,7 @@ Implemented endpoints:
 - `GET /v1/stream/fills`
 - `POST /v1/admin/kill-switch`
 
-Contract reference: `docs/architecture/app/sidecar-wire-api-v1.md`.
+Contract reference: `docs/architecture/product-plane/sidecar-wire-api-v1.md`.
 
 ## Build / Test / Publish
 From repository root:

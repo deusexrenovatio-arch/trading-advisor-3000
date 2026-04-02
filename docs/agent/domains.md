@@ -26,11 +26,11 @@ Every change set and PR must declare exactly one surface class:
 
 | Surface | Owns | Guarded paths | Minimum check |
 | --- | --- | --- | --- |
-| `CTX-DATA` | data ingestion/canonical flows | `src/trading_advisor_3000/app/data_plane/*` | data-plane tests |
-| `CTX-RESEARCH` | research/analysis surfaces | `src/trading_advisor_3000/app/research/*` | research tests |
-| `CTX-ORCHESTRATION` | runtime/execution wiring | `src/trading_advisor_3000/app/__init__.py`, `app/common/*`, `app/config/*`, `app/runtime/*`, `app/execution/*` | orchestration tests |
-| `CTX-API-UI` | interface and API surfaces | `src/trading_advisor_3000/app/interfaces/*` | interface tests |
-| `CTX-DOMAIN` | residual domain internals | `src/trading_advisor_3000/app/domain/*` | domain tests |
+| `CTX-DATA` | data ingestion/canonical flows | `src/trading_advisor_3000/product_plane/data_plane/*` | data-plane tests |
+| `CTX-RESEARCH` | research/analysis surfaces | `src/trading_advisor_3000/product_plane/research/*` | research tests |
+| `CTX-ORCHESTRATION` | runtime/execution wiring | `src/trading_advisor_3000/product_plane/__init__.py`, `product_plane/common/*`, `product_plane/config/*`, `product_plane/runtime/*`, `product_plane/execution/*` | orchestration tests |
+| `CTX-API-UI` | interface and API surfaces | `src/trading_advisor_3000/product_plane/interfaces/*` | interface tests |
+| `CTX-DOMAIN` | residual domain internals | `src/trading_advisor_3000/product_plane/domain/*` | domain tests |
 
 ## High-risk policy
 Changes touching shell policy + shell runtime + durable shell state simultaneously are high-risk.

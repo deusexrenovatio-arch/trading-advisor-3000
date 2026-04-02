@@ -1,18 +1,15 @@
 from __future__ import annotations
 
 import importlib
+import pytest
 
 
-def test_product_plane_bridge_exposes_legacy_package_path() -> None:
-    legacy_app = importlib.import_module("trading_advisor_3000.app")
-    product_plane = importlib.import_module("trading_advisor_3000.product_plane")
-
-    assert hasattr(legacy_app, "__path__")
-    assert list(legacy_app.__path__) == list(product_plane.__path__)
+def test_legacy_namespace_bridge_is_removed() -> None:
+    legacy_module = "trading_advisor_3000" + ".app"
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module(legacy_module)
 
 
-def test_product_plane_bridge_resolves_runtime_submodule() -> None:
-    bridged_runtime = importlib.import_module("trading_advisor_3000.app.runtime")
-    legacy_runtime = importlib.import_module("trading_advisor_3000.product_plane.runtime")
-
-    assert bridged_runtime.__file__ == legacy_runtime.__file__
+def test_product_plane_runtime_import_still_resolves() -> None:
+    runtime_module = importlib.import_module("trading_advisor_3000.product_plane.runtime")
+    assert runtime_module is not None

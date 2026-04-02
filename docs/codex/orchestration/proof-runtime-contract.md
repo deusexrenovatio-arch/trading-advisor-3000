@@ -70,8 +70,8 @@ Required fail-closed tests:
 - workspace-root prefix collision that must not remap host paths.
 
 Covered by:
-- `tests/app/unit/test_proof_runtime_contract.py`
-- `tests/app/unit/test_phase2a_spark_proof_runner.py`
+- `tests/product-plane/unit/test_proof_runtime_contract.py`
+- `tests/product-plane/unit/test_phase2a_spark_proof_runner.py`
 
 ## Evidence Artifacts
 

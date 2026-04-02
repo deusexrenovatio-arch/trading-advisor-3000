@@ -1,6 +1,6 @@
 # Module Phase Brief
 
-Updated: 2026-04-02 14:10 UTC
+Updated: 2026-04-02 14:45 UTC
 
 ## Parent
 
@@ -10,7 +10,7 @@ Updated: 2026-04-02 14:10 UTC
 ## Phase
 
 - Name: P6 - Legacy Cleanup and Migration Closure
-- Status: planned
+- Status: completed
 
 ## Objective
 
@@ -54,9 +54,20 @@ Updated: 2026-04-02 14:10 UTC
 
 ## Done Evidence
 
-- Migration closeout report and residual-debt section.
-- Final inventory snapshot showing target namespace closure state.
-- Explicit ALLOW_RELEASE_READINESS or DENY_RELEASE_READINESS decision package.
+- Compatibility bridge removed from active runtime namespace:
+  - deleted `src/trading_advisor_3000/app/__init__.py`.
+- Legacy redirects retired from the prior docs compatibility subtree; minimal historical anchors retained for immutable planning references.
+- Final inventory snapshot generated:
+  - `artifacts/rename-migration/phase6-inventory.md`
+  - Active matches reduced from `382` (initial P6 baseline scan) to `138` at closeout.
+- Migration closeout report with residual debt section:
+  - `docs/architecture/product-plane/dual-surface-safe-rename-phase6-closeout.md`
+- Explicit governed release decision package emitted:
+  - `artifacts/rename-migration/phase6/release-decision.json`
+  - Verdict: `DENY_RELEASE_READINESS` (execution contract target decision remains deny).
+- Final gate evidence:
+  - `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`
+  - `python scripts/run_pr_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`
 
 ## Release Gate Impact
 

@@ -60,7 +60,7 @@
 
 ## 2.4 vectorbt
 F1-B terminal decision (`ADR-011`): vectorbt removed from the active target stack.
-Backtest and research execution use the in-repo engine in `src/trading_advisor_3000/app/research/backtest/engine.py`.
+Backtest and research execution use the in-repo engine in `src/trading_advisor_3000/product_plane/research/backtest/engine.py`.
 
 ## 2.5 StockSharp
 Подходит как:

@@ -63,7 +63,7 @@
 - migrations skeleton;
 - fixture payloads;
 - `src/trading_advisor_3000/AGENTS.md`;
-- `tests/app/contracts/*`;
+- `tests/product-plane/contracts/*`;
 - base app package structure.
 
 ### Acceptance

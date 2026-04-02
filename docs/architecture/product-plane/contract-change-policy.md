@@ -3,7 +3,7 @@
 ## Scope
 This policy governs every release-blocking public envelope listed in:
 
-- `src/trading_advisor_3000/app/contracts/schemas/release_blocking_contracts.v1.yaml`
+- `src/trading_advisor_3000/product_plane/contracts/schemas/release_blocking_contracts.v1.yaml`
 - `docs/architecture/product-plane/CONTRACT_SURFACES.md`
 
 ## Non-Negotiable Rule

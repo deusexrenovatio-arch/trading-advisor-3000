@@ -5,7 +5,7 @@
 
 ## Change surface
 - `src/trading_advisor_3000/*`
-- `tests/app/*`
+- `tests/product-plane/*`
 - `docs/architecture/product-plane/*`
 - `docs/checklists/app/*`
 - `docs/runbooks/app/*`
@@ -30,7 +30,7 @@
 - смешанные shell/product patch sets в этой фазе не используются.
 
 ## План проверки
-1. `python -m pytest tests/app -q`
+1. `python -m pytest tests/product-plane -q`
 2. `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
 3. `python scripts/run_pr_gate.py --from-git --git-ref HEAD`
 

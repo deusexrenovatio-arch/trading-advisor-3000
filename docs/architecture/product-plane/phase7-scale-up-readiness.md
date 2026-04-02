@@ -8,13 +8,13 @@ Prepare architecture and core contracts for expansion without blocking refactors
 - performance notes and prioritized backlog for next wave.
 
 ## Deliverables
-- `src/trading_advisor_3000/app/execution/adapters/catalog.py`
-- `src/trading_advisor_3000/app/execution/adapters/transport.py`
-- `src/trading_advisor_3000/app/data_plane/providers/registry.py`
-- `src/trading_advisor_3000/app/runtime/context/providers.py`
-- `tests/app/unit/test_phase7_execution_adapter_catalog.py`
-- `tests/app/unit/test_phase7_provider_extension_seams.py`
-- `tests/app/unit/test_phase7_runtime_context_orchestration.py`
+- `src/trading_advisor_3000/product_plane/execution/adapters/catalog.py`
+- `src/trading_advisor_3000/product_plane/execution/adapters/transport.py`
+- `src/trading_advisor_3000/product_plane/data_plane/providers/registry.py`
+- `src/trading_advisor_3000/product_plane/runtime/context/providers.py`
+- `tests/product-plane/unit/test_phase7_execution_adapter_catalog.py`
+- `tests/product-plane/unit/test_phase7_provider_extension_seams.py`
+- `tests/product-plane/unit/test_phase7_runtime_context_orchestration.py`
 - `docs/architecture/adr/0002-scale-up-extension-seams.md`
 - `docs/architecture/product-plane/phase7-scale-up-readiness.md`
 - `docs/checklists/app/phase7-acceptance-checklist.md`
@@ -37,10 +37,10 @@ Prepare architecture and core contracts for expansion without blocking refactors
 4. Add adapter capability matrix contract tests when second live adapter is onboarded.
 
 ## Acceptance Commands
-- `python -m pytest tests/app/unit/test_phase7_execution_adapter_catalog.py -q`
-- `python -m pytest tests/app/unit/test_phase7_provider_extension_seams.py -q`
-- `python -m pytest tests/app/unit/test_phase7_runtime_context_orchestration.py -q`
-- `python -m pytest tests/app -q`
+- `python -m pytest tests/product-plane/unit/test_phase7_execution_adapter_catalog.py -q`
+- `python -m pytest tests/product-plane/unit/test_phase7_provider_extension_seams.py -q`
+- `python -m pytest tests/product-plane/unit/test_phase7_runtime_context_orchestration.py -q`
+- `python -m pytest tests/product-plane -q`
 - `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
 - `python scripts/run_pr_gate.py --from-git --git-ref HEAD --skip-session-check`
 

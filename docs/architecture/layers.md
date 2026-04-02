@@ -20,7 +20,7 @@
 
 ## Layer 4: Application Plane
 - `src/trading_advisor_3000/*`
-- `tests/app/*`
+- `tests/product-plane/*`
 
 ## Layer 5: Verification
 - `tests/process/*`

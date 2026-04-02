@@ -6,18 +6,18 @@ Updated: 2026-03-16 16:36 UTC
 
 ## Task Request Contract
 - Objective: закрыть acceptance Phase 0 без смешивания продуктовой логики с shell governance.
-- In Scope: `src/trading_advisor_3000/*`, `tests/app/*`, `docs/architecture/app/*`, `docs/checklists/app/*`, `docs/runbooks/app/*`, `docs/workflows/app/*`, `deployment/*`.
+- In Scope: `src/trading_advisor_3000/*`, `tests/product-plane/*`, `docs/architecture/product-plane/*`, `docs/checklists/app/*`, `docs/runbooks/app/*`, `docs/workflows/app/*`, `deployment/*`.
 - Out of Scope: runtime/data/research/execution реализация, внешние интеграции, shell runtime refactoring.
 - Constraints: shell contracts не менять; loop/pr gates обязательны; изменения должны быть проверяемыми.
-- Done Evidence: зелёные `pytest tests/app`, `run_loop_gate.py`, `run_pr_gate.py`.
+- Done Evidence: зелёные `pytest tests/product-plane`, `run_loop_gate.py`, `run_pr_gate.py`.
 - Priority Rule: качество и безопасность выше скорости.
 
 ## Current Delta
-- Добавлен phase package `docs/architecture/app/product-plane-spec-v2/*`.
+- Добавлен phase package `docs/architecture/product-plane/product-plane-spec-v2/*`.
 - Добавлен product overlay `src/trading_advisor_3000/AGENTS.md`.
-- Создан skeleton product-plane каталогов в `src/trading_advisor_3000/app/*`, `tests/app/*`, `docs/*/app/*`, `deployment/*`.
-- Добавлены phase acceptance tests: `tests/app/test_phase0_acceptance.py`.
-- Оформлены `docs/architecture/app/phase0-plan.md` и `docs/checklists/app/phase0-acceptance-checklist.md`.
+- Создан skeleton product-plane каталогов в `src/trading_advisor_3000/product_plane/*`, `tests/product-plane/*`, `docs/*/app/*`, `deployment/*`.
+- Добавлены phase acceptance tests: `tests/product-plane/test_phase0_acceptance.py`.
+- Оформлены `docs/architecture/product-plane/phase0-plan.md` и `docs/checklists/app/phase0-acceptance-checklist.md`.
 
 ## First-Time-Right Report
 1. Confirmed coverage: все обязательные deliverables Phase 0 закрыты отдельным patch set.
@@ -49,7 +49,7 @@ Updated: 2026-03-16 16:36 UTC
 - Close task session and prepare PR summary.
 
 ## Validation
-- `python -m pytest tests/app -q` (7 passed)
+- `python -m pytest tests/product-plane -q` (7 passed)
 - `python scripts/run_loop_gate.py --from-git --git-ref HEAD` (OK)
 - `python scripts/run_pr_gate.py --from-git --git-ref HEAD` (OK)
 
