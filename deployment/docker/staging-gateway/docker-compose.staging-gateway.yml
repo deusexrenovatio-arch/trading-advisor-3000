@@ -5,7 +5,7 @@ services:
     image: python:3.12-slim
     container_name: ta3000-runtime-profile-staging
     working_dir: /workspace
-    command: ["python", "-m", "trading_advisor_3000.app.runtime.ops.profile_server"]
+    command: ["python", "-m", "trading_advisor_3000.product_plane.runtime.ops.profile_server"]
     environment:
       PYTHONPATH: /workspace/src
       TA3000_PROFILE_HOST: 0.0.0.0

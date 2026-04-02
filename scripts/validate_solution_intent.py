@@ -27,6 +27,21 @@ PLACEHOLDER_CLOSURE_VALUES = {
 }
 
 
+def _multi_contour_declaration_ok(declared: str, contour_ids: list[str]) -> bool:
+    normalized = normalize_text(declared)
+    if not normalized:
+        return False
+    expected = ",".join(sorted(contour_ids))
+    allowed = {
+        "multi",
+        "multi-contour",
+        "multiple",
+        expected,
+        f"multi:{expected}",
+    }
+    return normalized in allowed
+
+
 def run(
     path: Path,
     *,
@@ -59,19 +74,25 @@ def run(
             f"(critical_contours=0 changed_files={len(changed_files)})"
         )
         return 0
-    if len(matched) > 1:
-        contour_ids = ", ".join(contour.contour_id for contour in matched)
-        print("solution intent validation failed:")
-        print(f"- multiple critical contours triggered in one patch: {contour_ids}")
-        print("- remediation: split the patch or reduce the change surface to one contour")
-        return 1
-
-    contour = matched[0]
     if not path.exists():
         print(f"solution intent validation failed: missing {path.as_posix()}")
         return 1
     note_path, lines, pointer_mode = read_task_note(path)
     fields = extract_solution_intent(lines)
+    contour_ids = [contour.contour_id for contour in matched]
+    multi_contour = len(matched) > 1
+    contour_label = ", ".join(contour_ids)
+
+    if multi_contour and not _multi_contour_declaration_ok(fields.get("critical_contour", ""), contour_ids):
+        print("solution intent validation failed:")
+        print(f"- multiple critical contours triggered in one patch: {contour_label}")
+        print(
+            "- remediation: declare `Critical Contour: multi-contour` (or an explicit sorted contour id list) "
+            "in the Solution Intent block"
+        )
+        return 1
+
+    contour = matched[0]
 
     errors: list[str] = []
     for field_name in REQUIRED_INTENT_FIELDS:
@@ -86,7 +107,7 @@ def run(
 
     if solution_class and solution_class not in SOLUTION_CLASSES:
         errors.append(f"invalid Solution Class: {fields.get('solution_class', '').strip()}")
-    if critical_contour and critical_contour != contour.contour_id:
+    if not multi_contour and critical_contour and critical_contour != contour.contour_id:
         errors.append(
             f"Critical Contour mismatch: declared `{fields.get('critical_contour', '').strip()}` "
             f"but diff matches `{contour.contour_id}`"
@@ -108,7 +129,7 @@ def run(
 
     print(
         "solution intent validation: OK "
-        f"(contour={contour.contour_id} solution_class={solution_class} "
+        f"(contour={contour_label} solution_class={solution_class} "
         f"source={note_path.as_posix()} pointer_mode={pointer_mode})"
     )
     return 0

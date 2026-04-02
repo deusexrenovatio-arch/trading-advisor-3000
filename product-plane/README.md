@@ -4,7 +4,7 @@ Use this hub when the task is about application/runtime capabilities.
 
 ## Primary paths
 - `src/trading_advisor_3000/*`
-- `tests/app/*`
+- `tests/product-plane/*`
 - `docs/architecture/product-plane/*`
 - `docs/runbooks/app/*`
 - `docs/checklists/app/*`

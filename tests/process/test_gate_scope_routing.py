@@ -232,15 +232,15 @@ def test_scope_validate_command_uses_stdin_for_surface_pr_matrix_runner() -> Non
         base_sha=None,
         head_sha=None,
         changed_files=[
-            "src/trading_advisor_3000/app/runtime/bootstrap.py",
-            "tests/app/unit/test_phase6_fastapi_smoke.py",
+            "src/trading_advisor_3000/product_plane/runtime/bootstrap.py",
+            "tests/product-plane/unit/test_phase6_fastapi_smoke.py",
         ],
     )
 
     assert isinstance(scoped, CommandSpec)
     assert "--stdin" in scoped.command
     assert scoped.stdin_text is not None
-    assert "src/trading_advisor_3000/app/runtime/bootstrap.py" in scoped.stdin_text
+    assert "src/trading_advisor_3000/product_plane/runtime/bootstrap.py" in scoped.stdin_text
 
 
 def test_loop_gate_handles_large_scope_from_stdin() -> None:

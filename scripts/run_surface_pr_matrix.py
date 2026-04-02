@@ -22,19 +22,19 @@ class PrSurfaceMatrixPlan:
 
 
 RUNTIME_CHECKS = (
-    "python -m pytest tests/app/unit/test_phase6_fastapi_smoke.py -q",
-    "python -m pytest tests/app/unit/test_phase6_runtime_durable_bootstrap.py -q",
-    "python -m pytest tests/app/unit/test_real_execution_http_transport.py -q",
+    "python -m pytest tests/product-plane/unit/test_phase6_fastapi_smoke.py -q",
+    "python -m pytest tests/product-plane/unit/test_phase6_runtime_durable_bootstrap.py -q",
+    "python -m pytest tests/product-plane/unit/test_real_execution_http_transport.py -q",
     "python -m pytest tests/process/test_run_f1d_sidecar_immutable_evidence.py -q",
 )
 
 DATA_CHECKS = (
-    "python -m pytest tests/app/unit/test_phase2a_spark_proof_runner.py -q",
-    "python -m pytest tests/app/unit/test_phase2a_spark_runtime_dirs.py -q",
-    "python -m pytest tests/app/integration/test_phase2a_data_plane.py -q",
-    "python -m pytest tests/app/integration/test_phase2a_dagster_execution.py -q",
-    "python -m pytest tests/app/integration/test_phase2a_spark_execution.py -q",
-    "python -m pytest tests/app/integration/test_phase2b_research_plane.py -q",
+    "python -m pytest tests/product-plane/unit/test_phase2a_spark_proof_runner.py -q",
+    "python -m pytest tests/product-plane/unit/test_phase2a_spark_runtime_dirs.py -q",
+    "python -m pytest tests/product-plane/integration/test_phase2a_data_plane.py -q",
+    "python -m pytest tests/product-plane/integration/test_phase2a_dagster_execution.py -q",
+    "python -m pytest tests/product-plane/integration/test_phase2a_spark_execution.py -q",
+    "python -m pytest tests/product-plane/integration/test_phase2b_research_plane.py -q",
 )
 
 

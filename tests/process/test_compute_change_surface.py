@@ -93,7 +93,7 @@ def test_stack_validator_wiring_for_architecture_docs_changes() -> None:
 
 def test_runtime_surface_routes_to_surface_pr_matrix_runner() -> None:
     result = compute_surface(
-        ["src/trading_advisor_3000/app/runtime/bootstrap.py"],
+        ["src/trading_advisor_3000/product_plane/runtime/bootstrap.py"],
         mapping_path=ROOT / "configs" / "change_surface_mapping.yaml",
     )
     assert result["primary_surface"] == "app-runtime"
@@ -106,7 +106,7 @@ def test_runtime_surface_routes_to_surface_pr_matrix_runner() -> None:
 
 def test_data_surface_routes_to_surface_pr_matrix_runner() -> None:
     result = compute_surface(
-        ["src/trading_advisor_3000/app/data_plane/pipeline.py"],
+        ["src/trading_advisor_3000/product_plane/data_plane/pipeline.py"],
         mapping_path=ROOT / "configs" / "change_surface_mapping.yaml",
     )
     assert result["primary_surface"] == "app-data"

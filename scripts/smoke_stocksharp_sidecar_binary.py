@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import argparse
 import json
@@ -17,8 +17,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from trading_advisor_3000.app.contracts import Mode, OrderIntent
-from trading_advisor_3000.app.execution.adapters import (
+from trading_advisor_3000.product_plane.contracts import Mode, OrderIntent
+from trading_advisor_3000.product_plane.execution.adapters import (
     SidecarTransportRetryableError,
     StockSharpHTTPTransport,
     StockSharpHTTPTransportConfig,

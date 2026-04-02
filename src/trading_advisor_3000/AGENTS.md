@@ -16,7 +16,7 @@ Root shell policy остаётся источником истины.
 
 ## Scope и границы
 - Product code размещается в `src/trading_advisor_3000/*`.
-- Product tests размещаются в `tests/app/*`.
+- Product tests размещаются в `tests/product-plane/*`.
 - Product docs размещаются в `docs/architecture/product-plane/*`, `docs/runbooks/app/*`, `docs/workflows/app/*`, `docs/checklists/app/*`.
 - Deployment artifacts размещаются в `deployment/*`.
 

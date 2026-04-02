@@ -33,7 +33,7 @@ from run_f1e_real_broker_process import (  # noqa: E402
 
 def _profile_fixture() -> dict[str, object]:
     payload = json.loads(
-        (ROOT / "tests" / "app" / "fixtures" / "contracts" / "broker_staging_connector_profile.v1.json").read_text(
+        (ROOT / "tests" / "product-plane" / "fixtures" / "contracts" / "broker_staging_connector_profile.v1.json").read_text(
             encoding="utf-8"
         )
     )

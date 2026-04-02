@@ -22,6 +22,21 @@ def _contains_any(text: str, markers: tuple[str, ...]) -> bool:
     return any(marker in normalized for marker in markers)
 
 
+def _multi_contour_declaration_ok(declared: str, contour_ids: list[str]) -> bool:
+    normalized = normalize_text(declared)
+    if not normalized:
+        return False
+    expected = ",".join(sorted(contour_ids))
+    allowed = {
+        "multi",
+        "multi-contour",
+        "multiple",
+        expected,
+        f"multi:{expected}",
+    }
+    return normalized in allowed
+
+
 def run(
     path: Path,
     *,
@@ -54,19 +69,39 @@ def run(
             f"(critical_contours=0 changed_files={len(changed_files)})"
         )
         return 0
-    if len(matched) > 1:
-        contour_ids = ", ".join(contour.contour_id for contour in matched)
-        print("critical contour closure validation failed:")
-        print(f"- multiple critical contours triggered in one patch: {contour_ids}")
-        print("- remediation: split the patch or reduce the change surface to one contour")
-        return 1
-
-    contour = matched[0]
     if not path.exists():
         print(f"critical contour closure validation failed: missing {path.as_posix()}")
         return 1
     note_path, lines, pointer_mode = read_task_note(path)
     fields = extract_solution_intent(lines)
+    contour_ids = [contour.contour_id for contour in matched]
+    multi_contour = len(matched) > 1
+    contour_label = ", ".join(contour_ids)
+    contour = matched[0]
+
+    if multi_contour and not _multi_contour_declaration_ok(fields.get("critical_contour", ""), contour_ids):
+        print("critical contour closure validation failed:")
+        print(f"- multiple critical contours triggered in one patch: {contour_label}")
+        print(
+            "- remediation: declare `Critical Contour: multi-contour` (or an explicit sorted contour id list) "
+            "in the Solution Intent block"
+        )
+        return 1
+
+    if multi_contour:
+        all_required_markers = tuple(
+            marker for item in matched for marker in item.required_evidence_markers
+        )
+        all_forbidden_markers = tuple(
+            marker for item in matched for marker in item.forbidden_shortcut_markers
+        )
+        all_staged_markers = tuple(
+            marker for item in matched for marker in item.allowed_staged_markers
+        )
+    else:
+        all_required_markers = contour.required_evidence_markers
+        all_forbidden_markers = contour.forbidden_shortcut_markers
+        all_staged_markers = contour.allowed_staged_markers
 
     solution_class = normalize_text(fields.get("solution_class", ""))
     closure_evidence = normalize_text(fields.get("closure_evidence", ""))
@@ -85,35 +120,68 @@ def run(
             break
 
     if solution_class == "target":
-        if not _contains_any(closure_evidence, contour.required_evidence_markers):
+        if multi_contour:
+            missing_required = [
+                item.contour_id
+                for item in matched
+                if not _contains_any(closure_evidence, item.required_evidence_markers)
+            ]
+            if missing_required:
+                errors.append(
+                    "target claim does not cite required contour evidence for: "
+                    + ", ".join(missing_required)
+                )
+        elif not _contains_any(closure_evidence, all_required_markers):
             errors.append(
-                f"target claim for `{contour.contour_id}` does not cite required contour evidence"
+                f"target claim for `{contour_label}` does not cite required contour evidence"
             )
         if shortcut_waiver not in {"", "none"}:
             errors.append("target claim cannot carry a Shortcut Waiver")
     elif solution_class == "staged":
-        if not _contains_any(note_text, contour.allowed_staged_markers):
-            errors.append(
-                f"staged claim for `{contour.contour_id}` must use explicit staged wording"
-            )
-        if not _contains_any(closure_evidence, contour.required_evidence_markers):
-            errors.append(
-                f"staged claim for `{contour.contour_id}` still needs contour evidence markers"
-            )
+        if multi_contour:
+            missing_staged_markers = [
+                item.contour_id
+                for item in matched
+                if not _contains_any(note_text, item.allowed_staged_markers)
+            ]
+            if missing_staged_markers:
+                errors.append(
+                    "staged claim must use explicit staged wording for: "
+                    + ", ".join(missing_staged_markers)
+                )
+            missing_required = [
+                item.contour_id
+                for item in matched
+                if not _contains_any(closure_evidence, item.required_evidence_markers)
+            ]
+            if missing_required:
+                errors.append(
+                    "staged claim still needs contour evidence markers for: "
+                    + ", ".join(missing_required)
+                )
+        else:
+            if not _contains_any(note_text, all_staged_markers):
+                errors.append(
+                    f"staged claim for `{contour_label}` must use explicit staged wording"
+                )
+            if not _contains_any(closure_evidence, all_required_markers):
+                errors.append(
+                    f"staged claim for `{contour_label}` still needs contour evidence markers"
+                )
     elif solution_class == "fallback":
         if shortcut_waiver in {"", "none"}:
             errors.append("fallback claim requires a non-empty Shortcut Waiver")
 
-    if _contains_any(closure_evidence, contour.forbidden_shortcut_markers):
+    if _contains_any(closure_evidence, all_forbidden_markers):
         errors.append(
-            f"closure evidence for `{contour.contour_id}` contains a forbidden shortcut marker"
+            f"closure evidence for `{contour_label}` contains a forbidden shortcut marker"
         )
 
     if declared_shortcuts and declared_shortcuts != ["none"]:
         unknown_shortcuts = [
             item
             for item in declared_shortcuts
-            if not any(item in marker or marker in item for marker in contour.forbidden_shortcut_markers)
+            if not any(item in marker or marker in item for marker in all_forbidden_markers)
         ]
         if unknown_shortcuts:
             errors.append(
@@ -133,7 +201,7 @@ def run(
 
     print(
         "critical contour closure validation: OK "
-        f"(contour={contour.contour_id} solution_class={solution_class} "
+        f"(contour={contour_label} solution_class={solution_class} "
         f"source={note_path.as_posix()} pointer_mode={pointer_mode})"
     )
     return 0

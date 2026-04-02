@@ -1,0 +1,300 @@
+version: 1
+change_policy_ref: docs/architecture/app/contract-change-policy.md
+compatibility_classes:
+  strict:
+    allowed_changes:
+      - docs clarification only
+      - additive optional field with schema+fixture+tests in one patch
+    requires_major_version_bump:
+      - remove required field
+      - rename or type change of existing field
+      - narrower enum or tighter validation on existing field
+  additive:
+    allowed_changes:
+      - add optional metadata fields
+      - widen enum with backward-safe value
+    requires_major_version_bump:
+      - remove existing field
+      - change meaning of existing field
+runtime_api_inventory_scope_decision:
+  decision_id: F1-C-RUNTIME-API-INVENTORY-SCOPE-V1
+  status: approved
+  rationale: release-blocking runtime API inventory covers execution-control and readiness envelopes; read-only projection endpoints are governed by underlying DTO contracts and explicit exclusion rationale.
+  exclusions:
+    - path: /runtime/signal-events
+      reason: response is a read-only projection of `signal_event.v1` records already covered by the core market/signal/execution contract boundary.
+      covered_by_contracts:
+        - signal_event
+    - path: /runtime/strategy-registry
+      reason: response is an operator-facing strategy inventory projection and not a release-blocking execution handshake envelope.
+      covered_by_contracts:
+        - runtime_bootstrap_config
+        - runtime_operational_snapshot
+release_blocking_boundaries:
+  - boundary_id: core_market_signal_execution
+    release_blocking: true
+    contracts:
+      - contract_id: canonical_bar
+        schema: canonical_bar.v1.json
+        fixture: canonical_bar.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase1_contracts.py
+      - contract_id: signal_candidate
+        schema: signal_candidate.v1.json
+        fixture: signal_candidate.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase1_contracts.py
+      - contract_id: runtime_signal
+        schema: runtime_signal.v1.json
+        fixture: runtime_signal.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase1_contracts.py
+      - contract_id: signal_event
+        schema: signal_event.v1.json
+        fixture: signal_event.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase1_contracts.py
+      - contract_id: decision_publication
+        schema: decision_publication.v1.json
+        fixture: decision_publication.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase1_contracts.py
+      - contract_id: order_intent
+        schema: order_intent.v1.json
+        fixture: order_intent.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase1_contracts.py
+      - contract_id: broker_order
+        schema: broker_order.v1.json
+        fixture: broker_order.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase2d_execution_contracts.py
+      - contract_id: broker_fill
+        schema: broker_fill.v1.json
+        fixture: broker_fill.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase2d_execution_contracts.py
+      - contract_id: broker_event
+        schema: broker_event.v1.json
+        fixture: broker_event.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase2d_execution_contracts.py
+      - contract_id: position_snapshot
+        schema: position_snapshot.v1.json
+        fixture: position_snapshot.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase1_contracts.py
+      - contract_id: risk_snapshot
+        schema: risk_snapshot.v1.json
+        fixture: risk_snapshot.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase2d_execution_contracts.py
+
+  - boundary_id: runtime_api
+    release_blocking: true
+    contracts:
+      - contract_id: runtime_api_health_response
+        schema: runtime_api_health_response.v1.json
+        fixture: runtime_api_health_response.v1.json
+        compatibility: additive
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase3_contract_freeze.py
+      - contract_id: runtime_api_ready_response
+        schema: runtime_api_ready_response.v1.json
+        fixture: runtime_api_ready_response.v1.json
+        compatibility: additive
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase3_contract_freeze.py
+      - contract_id: runtime_api_replay_candidates_request
+        schema: runtime_api_replay_candidates_request.v1.json
+        fixture: runtime_api_replay_candidates_request.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase3_contract_freeze.py
+      - contract_id: runtime_api_replay_candidates_response
+        schema: runtime_api_replay_candidates_response.v1.json
+        fixture: runtime_api_replay_candidates_response.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase3_contract_freeze.py
+      - contract_id: runtime_api_close_signal_request
+        schema: runtime_api_close_signal_request.v1.json
+        fixture: runtime_api_close_signal_request.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase3_contract_freeze.py
+      - contract_id: runtime_api_close_signal_response
+        schema: runtime_api_close_signal_response.v1.json
+        fixture: runtime_api_close_signal_response.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase3_contract_freeze.py
+      - contract_id: runtime_api_cancel_signal_request
+        schema: runtime_api_cancel_signal_request.v1.json
+        fixture: runtime_api_cancel_signal_request.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase3_contract_freeze.py
+      - contract_id: runtime_api_cancel_signal_response
+        schema: runtime_api_cancel_signal_response.v1.json
+        fixture: runtime_api_cancel_signal_response.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase3_contract_freeze.py
+
+  - boundary_id: telegram_publication_path
+    release_blocking: true
+    contracts:
+      - contract_id: telegram_operation
+        schema: telegram_operation.v1.json
+        fixture: telegram_operation.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase3_contract_freeze.py
+
+  - boundary_id: sidecar_http_wire
+    release_blocking: true
+    contracts:
+      - contract_id: sidecar_submit_intent_request
+        schema: sidecar_submit_intent_request.v1.json
+        fixture: sidecar_submit_intent_request.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase3_contract_freeze.py
+      - contract_id: sidecar_submit_intent_response
+        schema: sidecar_submit_intent_response.v1.json
+        fixture: sidecar_submit_intent_response.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase3_contract_freeze.py
+      - contract_id: sidecar_cancel_intent_request
+        schema: sidecar_cancel_intent_request.v1.json
+        fixture: sidecar_cancel_intent_request.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase3_contract_freeze.py
+      - contract_id: sidecar_cancel_intent_response
+        schema: sidecar_cancel_intent_response.v1.json
+        fixture: sidecar_cancel_intent_response.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase3_contract_freeze.py
+      - contract_id: sidecar_replace_intent_request
+        schema: sidecar_replace_intent_request.v1.json
+        fixture: sidecar_replace_intent_request.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase3_contract_freeze.py
+      - contract_id: sidecar_replace_intent_response
+        schema: sidecar_replace_intent_response.v1.json
+        fixture: sidecar_replace_intent_response.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase3_contract_freeze.py
+      - contract_id: sidecar_updates_stream_response
+        schema: sidecar_updates_stream_response.v1.json
+        fixture: sidecar_updates_stream_response.v1.json
+        compatibility: additive
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase3_contract_freeze.py
+      - contract_id: sidecar_fills_stream_response
+        schema: sidecar_fills_stream_response.v1.json
+        fixture: sidecar_fills_stream_response.v1.json
+        compatibility: additive
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase3_contract_freeze.py
+      - contract_id: sidecar_health_response
+        schema: sidecar_health_response.v1.json
+        fixture: sidecar_health_response.v1.json
+        compatibility: additive
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase3_contract_freeze.py
+      - contract_id: sidecar_ready_response
+        schema: sidecar_ready_response.v1.json
+        fixture: sidecar_ready_response.v1.json
+        compatibility: additive
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase3_contract_freeze.py
+      - contract_id: sidecar_metrics_response
+        schema: sidecar_metrics_response.v1.json
+        fixture: sidecar_metrics_response.v1.json
+        compatibility: additive
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase3_contract_freeze.py
+      - contract_id: sidecar_kill_switch_request
+        schema: sidecar_kill_switch_request.v1.json
+        fixture: sidecar_kill_switch_request.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase3_contract_freeze.py
+      - contract_id: sidecar_kill_switch_response
+        schema: sidecar_kill_switch_response.v1.json
+        fixture: sidecar_kill_switch_response.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase3_contract_freeze.py
+      - contract_id: sidecar_error_response
+        schema: sidecar_error_response.v1.json
+        fixture: sidecar_error_response.v1.json
+        compatibility: additive
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase3_contract_freeze.py
+
+  - boundary_id: runtime_configuration
+    release_blocking: true
+    contracts:
+      - contract_id: runtime_bootstrap_config
+        schema: runtime_bootstrap_config.v1.json
+        fixture: runtime_bootstrap_config.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase3_contract_freeze.py
+
+  - boundary_id: persistence_and_migrations
+    release_blocking: true
+    contracts:
+      - contract_id: runtime_signal_store_persistence_manifest
+        schema: runtime_signal_store_persistence_manifest.v1.json
+        fixture: runtime_signal_store_persistence_manifest.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase3_contract_freeze.py
+
+  - boundary_id: rollout_and_connectivity
+    release_blocking: true
+    contracts:
+      - contract_id: broker_staging_connector_profile
+        schema: broker_staging_connector_profile.v1.json
+        fixture: broker_staging_connector_profile.v1.json
+        compatibility: strict
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase5_real_broker_process_contracts.py
+      - contract_id: staging_rollout_report
+        schema: staging_rollout_report.v1.json
+        fixture: staging_rollout_report.v1.json
+        compatibility: additive
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase3_contract_freeze.py
+      - contract_id: runtime_operational_snapshot
+        schema: runtime_operational_snapshot.v1.json
+        fixture: runtime_operational_snapshot.v1.json
+        compatibility: additive
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase3_contract_freeze.py
+      - contract_id: real_broker_process_report
+        schema: real_broker_process_report.v1.json
+        fixture: real_broker_process_report.v1.json
+        compatibility: additive
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_phase5_real_broker_process_contracts.py

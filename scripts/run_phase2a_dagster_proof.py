@@ -7,7 +7,7 @@ from pathlib import Path
 from trading_advisor_3000.dagster_defs import materialize_phase2a_assets
 
 
-DEFAULT_FIXTURE = Path("tests/app/fixtures/data_plane/raw_backfill_sample.jsonl")
+DEFAULT_FIXTURE = Path("tests/product-plane/fixtures/data_plane/raw_backfill_sample.jsonl")
 DEFAULT_OUTPUT_DIR = Path(".tmp/phase2a-dagster-proof")
 
 

@@ -1,6 +1,6 @@
 # Module Phase Brief
 
-Updated: 2026-04-02 14:10 UTC
+Updated: 2026-04-02 14:00 UTC
 
 ## Parent
 
@@ -10,7 +10,7 @@ Updated: 2026-04-02 14:10 UTC
 ## Phase
 
 - Name: P4 - Runtime and Test Namespace Cutover
-- Status: planned
+- Status: completed
 
 ## Objective
 
@@ -52,9 +52,22 @@ Updated: 2026-04-02 14:10 UTC
 
 ## Done Evidence
 
-- Runtime and tests namespace cutover patch with selector updates.
-- Regression bundle for process, architecture, and product-plane tests.
-- Verified rollback diff that can restore legacy namespaces if needed.
+- Physical runtime cutover completed: `src/trading_advisor_3000/app/` -> `src/trading_advisor_3000/product_plane/`.
+- Physical test cutover completed: `tests/app/` -> `tests/product-plane/`.
+- Legacy import compatibility preserved via bridge at `src/trading_advisor_3000/app/__init__.py`.
+- Runtime/test selector updates landed across governance and validation surfaces:
+  - `configs/change_surface_mapping.yaml`
+  - `configs/critical_contours.yaml`
+  - `scripts/context_router.py`
+  - `scripts/run_surface_pr_matrix.py`
+  - `registry/stack_conformance.yaml`
+- Critical contour validation now supports explicit multi-contour intent for coordinated high-risk namespace cutovers:
+  - `scripts/validate_solution_intent.py`
+  - `scripts/validate_critical_contour_closure.py`
+  - `tests/process/test_critical_contours.py`
+- Regression evidence:
+  - `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`
+  - `python scripts/run_pr_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`
 
 ## Release Gate Impact
 

@@ -30,7 +30,7 @@ except ImportError:  # pragma: no cover - script execution fallback
 from trading_advisor_3000.spark_jobs import DEFAULT_SPARK_MASTER, run_canonical_bars_spark_job
 
 
-DEFAULT_FIXTURE = Path("tests/app/fixtures/data_plane/raw_backfill_sample.jsonl")
+DEFAULT_FIXTURE = Path("tests/product-plane/fixtures/data_plane/raw_backfill_sample.jsonl")
 DEFAULT_OUTPUT_DIR = Path(".tmp/phase2a-spark-proof")
 DEFAULT_DOCKER_IMAGE = "ta3000-phase-proof:latest"
 DEFAULT_DOCKERFILE = Path("deployment/docker/phase-proofs/Dockerfile")

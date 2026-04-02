@@ -83,7 +83,7 @@ def test_critical_contour_config_has_two_pilot_entries() -> None:
     contours = load_critical_contours(ROOT / "configs" / "critical_contours.yaml")
     contour_ids = [item.contour_id for item in contours]
     assert contour_ids == ["data-integration-closure", "runtime-publication-closure"]
-    assert "tests/app/fixtures/data_plane/" in contours[0].trigger_paths
+    assert "tests/product-plane/fixtures/data_plane/" in contours[0].trigger_paths
 
 
 def test_validate_solution_intent_requires_fields_for_critical_contour(tmp_path: Path) -> None:
@@ -91,7 +91,7 @@ def test_validate_solution_intent_requires_fields_for_critical_contour(tmp_path:
     code = run_solution_intent(
         handoff_path,
         config_path=ROOT / "configs" / "critical_contours.yaml",
-        changed_files_override=["src/trading_advisor_3000/app/data_plane/pipeline.py"],
+        changed_files_override=["src/trading_advisor_3000/product_plane/data_plane/pipeline.py"],
     )
     assert code == 1
 
@@ -111,7 +111,7 @@ def test_validate_solution_intent_rejects_empty_required_values(tmp_path: Path) 
     code = run_solution_intent(
         handoff_path,
         config_path=ROOT / "configs" / "critical_contours.yaml",
-        changed_files_override=["src/trading_advisor_3000/app/data_plane/pipeline.py"],
+        changed_files_override=["src/trading_advisor_3000/product_plane/data_plane/pipeline.py"],
     )
     assert code == 1
 
@@ -126,6 +126,29 @@ def test_validate_solution_intent_allows_docs_only_change_without_addendum(tmp_p
     assert code == 0
 
 
+def test_validate_solution_intent_allows_multi_contour_with_explicit_declaration(tmp_path: Path) -> None:
+    handoff_path = _write_handoff_pair(
+        tmp_path,
+        solution_intent_block=(
+            "## Solution Intent\n"
+            "- Solution Class: target\n"
+            "- Critical Contour: multi-contour\n"
+            "- Forbidden Shortcuts: fixture path, synthetic publication\n"
+            "- Closure Evidence: integration test evidence confirms canonical dataset + downstream research handoff and runtime output reaches durable store publication contour via end-to-end publication.\n"
+            "- Shortcut Waiver: none\n"
+        ),
+    )
+    code = run_solution_intent(
+        handoff_path,
+        config_path=ROOT / "configs" / "critical_contours.yaml",
+        changed_files_override=[
+            "src/trading_advisor_3000/product_plane/data_plane/pipeline.py",
+            "src/trading_advisor_3000/product_plane/runtime/pipeline.py",
+        ],
+    )
+    assert code == 0
+
+
 def test_validate_critical_contour_closure_blocks_target_with_fixture_evidence(tmp_path: Path) -> None:
     handoff_path = _write_handoff_pair(
         tmp_path,
@@ -134,7 +157,7 @@ def test_validate_critical_contour_closure_blocks_target_with_fixture_evidence(t
             "- Solution Class: target\n"
             "- Critical Contour: data-integration-closure\n"
             "- Forbidden Shortcuts: fixture path, sample artifact\n"
-            "- Closure Evidence: integration test uses tests/app/fixtures/data_plane/mock.json as canonical dataset proof.\n"
+            "- Closure Evidence: integration test uses tests/product-plane/fixtures/data_plane/mock.json as canonical dataset proof.\n"
             "- Shortcut Waiver: none\n"
             "- Design Checkpoint: chosen path=real contour closure; why_not_shortcut=future shape preserved; future_shape=downstream research handoff.\n"
         ),
@@ -142,7 +165,7 @@ def test_validate_critical_contour_closure_blocks_target_with_fixture_evidence(t
     code = run_closure_validation(
         handoff_path,
         config_path=ROOT / "configs" / "critical_contours.yaml",
-        changed_files_override=["src/trading_advisor_3000/app/data_plane/pipeline.py"],
+        changed_files_override=["src/trading_advisor_3000/product_plane/data_plane/pipeline.py"],
     )
     assert code == 1
 
@@ -162,7 +185,7 @@ def test_validate_critical_contour_closure_rejects_empty_required_values(tmp_pat
     code = run_closure_validation(
         handoff_path,
         config_path=ROOT / "configs" / "critical_contours.yaml",
-        changed_files_override=["src/trading_advisor_3000/app/runtime/runtime_service.py"],
+        changed_files_override=["src/trading_advisor_3000/product_plane/runtime/runtime_service.py"],
     )
     assert code == 1
 
@@ -183,13 +206,36 @@ def test_validate_critical_contour_closure_allows_staged_claim_with_explicit_wor
     code = run_closure_validation(
         handoff_path,
         config_path=ROOT / "configs" / "critical_contours.yaml",
-        changed_files_override=["src/trading_advisor_3000/app/runtime/runtime_service.py"],
+        changed_files_override=["src/trading_advisor_3000/product_plane/runtime/runtime_service.py"],
+    )
+    assert code == 0
+
+
+def test_validate_critical_contour_closure_allows_multi_contour_target_evidence(tmp_path: Path) -> None:
+    handoff_path = _write_handoff_pair(
+        tmp_path,
+        solution_intent_block=(
+            "## Solution Intent\n"
+            "- Solution Class: target\n"
+            "- Critical Contour: multi-contour\n"
+            "- Forbidden Shortcuts: fixture path, synthetic publication\n"
+            "- Closure Evidence: integration test confirms canonical dataset and downstream research handoff; runtime output reaches durable store publication contour with end-to-end publication evidence.\n"
+            "- Shortcut Waiver: none\n"
+        ),
+    )
+    code = run_closure_validation(
+        handoff_path,
+        config_path=ROOT / "configs" / "critical_contours.yaml",
+        changed_files_override=[
+            "src/trading_advisor_3000/product_plane/data_plane/pipeline.py",
+            "src/trading_advisor_3000/product_plane/runtime/pipeline.py",
+        ],
     )
     assert code == 0
 
 
 def test_context_router_adds_critical_contour_policy_signals() -> None:
-    result = route_files(["src/trading_advisor_3000/app/data_plane/pipeline.py"])
+    result = route_files(["src/trading_advisor_3000/product_plane/data_plane/pipeline.py"])
     context_ids = [entry["id"] for entry in result["contexts"]]
     assert "data-integration-closure" in result["critical_contours"]
     assert "CTX-ARCHITECTURE" in context_ids
@@ -199,7 +245,7 @@ def test_context_router_adds_critical_contour_policy_signals() -> None:
 def test_loop_gate_non_trivial_policy_includes_critical_contour_validators() -> None:
     commands, require_contract_validation = _apply_non_trivial_loop_policy(
         ["python scripts/validate_docs_links.py --roots AGENTS.md docs"],
-        changed_files=["src/trading_advisor_3000/app/runtime/runtime_service.py"],
+        changed_files=["src/trading_advisor_3000/product_plane/runtime/runtime_service.py"],
         docs_only=False,
     )
     rendered = "\n".join(commands)
