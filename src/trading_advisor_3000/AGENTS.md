@@ -10,14 +10,14 @@ Root shell policy остаётся источником истины.
 4. `docs/agent/checks.md`
 5. `docs/agent/runtime.md`
 6. `docs/DEV_WORKFLOW.md`
-7. `docs/architecture/app/product-plane-spec-v2/TECHNICAL_REQUIREMENTS.md`
-8. `docs/architecture/app/product-plane-spec-v2/00_AI_Shell_Alignment.md`
-9. `docs/architecture/app/product-plane-spec-v2/06_Phases_and_Acceptance_Gates.md`
+7. `docs/architecture/product-plane/product-plane-spec-v2/TECHNICAL_REQUIREMENTS.md`
+8. `docs/architecture/product-plane/product-plane-spec-v2/00_AI_Shell_Alignment.md`
+9. `docs/architecture/product-plane/product-plane-spec-v2/06_Phases_and_Acceptance_Gates.md`
 
 ## Scope и границы
 - Product code размещается в `src/trading_advisor_3000/*`.
 - Product tests размещаются в `tests/app/*`.
-- Product docs размещаются в `docs/architecture/app/*`, `docs/runbooks/app/*`, `docs/workflows/app/*`, `docs/checklists/app/*`.
+- Product docs размещаются в `docs/architecture/product-plane/*`, `docs/runbooks/app/*`, `docs/workflows/app/*`, `docs/checklists/app/*`.
 - Deployment artifacts размещаются в `deployment/*`.
 
 ## Запреты

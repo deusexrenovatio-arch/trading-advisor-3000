@@ -5,14 +5,14 @@ Use this hub when the task is about application/runtime capabilities.
 ## Primary paths
 - `src/trading_advisor_3000/*`
 - `tests/app/*`
-- `docs/architecture/app/*`
+- `docs/architecture/product-plane/*`
 - `docs/runbooks/app/*`
 - `docs/checklists/app/*`
 - `deployment/*`
 
 ## First docs to open
-1. `docs/architecture/app/STATUS.md`
-2. `docs/architecture/app/CONTRACT_SURFACES.md`
+1. `docs/architecture/product-plane/STATUS.md`
+2. `docs/architecture/product-plane/CONTRACT_SURFACES.md`
 3. `docs/runbooks/app/bootstrap.md`
 4. `docs/architecture/repository-surfaces.md`
 

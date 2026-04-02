@@ -1,18 +1,18 @@
 version: 1
 
 truth_sources:
-  status_doc: docs/architecture/app/STATUS.md
-  spec_doc: docs/architecture/app/product-plane-spec-v2/07_Tech_Stack_and_Open_Source.md
+  status_doc: docs/architecture/product-plane/STATUS.md
+  spec_doc: docs/architecture/product-plane/product-plane-spec-v2/07_Tech_Stack_and_Open_Source.md
   pyproject: pyproject.toml
 
 closure_claim_guard:
   documents:
-    - docs/architecture/app/README.md
-    - docs/architecture/app/stack-conformance-baseline.md
-    - docs/architecture/app/STATUS.md
+    - docs/architecture/product-plane/README.md
+    - docs/architecture/product-plane/stack-conformance-baseline.md
+    - docs/architecture/product-plane/STATUS.md
   document_globs:
     - docs/checklists/app/*.md
-    - docs/architecture/app/phase*-acceptance-*.md
+    - docs/architecture/product-plane/phase*-acceptance-*.md
   forbidden_terms:
     - full DoD
     - full acceptance
@@ -28,7 +28,7 @@ surface_claims:
     runtime_proof:
       files_all:
         - src/trading_advisor_3000/app/__init__.py
-        - docs/architecture/app/README.md
+        - docs/architecture/product-plane/README.md
       tests_any:
         - tests/app/test_app_plane_metadata.py
 
@@ -109,7 +109,7 @@ surface_claims:
       files_all:
         - scripts/run_f1e_real_broker_process.py
         - docs/runbooks/app/f1e-real-broker-process-runbook.md
-        - docs/architecture/app/f1e-real-broker-process-closure.md
+        - docs/architecture/product-plane/f1e-real-broker-process-closure.md
         - src/trading_advisor_3000/app/contracts/schemas/real_broker_process_report.v1.json
       tests_any:
         - tests/process/test_run_f1e_real_broker_process.py
@@ -121,7 +121,7 @@ surface_claims:
     claim: implemented
     runtime_proof:
       files_all:
-        - docs/architecture/app/CONTRACT_SURFACES.md
+        - docs/architecture/product-plane/CONTRACT_SURFACES.md
       tests_any:
         - tests/app/contracts/test_phase1_contracts.py
 
@@ -184,7 +184,7 @@ technology_claims:
     replacement:
       adr_required_when_removed: true
       adr_paths_any:
-        - docs/architecture/app/product-plane-spec-v2/04_ADRs.md
+        - docs/architecture/product-plane/product-plane-spec-v2/04_ADRs.md
       adr_markers_any:
         - ADR-011
 
@@ -196,7 +196,7 @@ technology_claims:
     replacement:
       adr_required_when_removed: true
       adr_paths_any:
-        - docs/architecture/app/product-plane-spec-v2/04_ADRs.md
+        - docs/architecture/product-plane/product-plane-spec-v2/04_ADRs.md
       adr_markers_any:
         - ADR-011
 
@@ -219,7 +219,7 @@ technology_claims:
     replacement:
       adr_required_when_removed: true
       adr_paths_any:
-        - docs/architecture/app/product-plane-spec-v2/04_ADRs.md
+        - docs/architecture/product-plane/product-plane-spec-v2/04_ADRs.md
       adr_markers_any:
         - ADR-011
 
@@ -245,7 +245,7 @@ technology_claims:
     replacement:
       adr_required_when_removed: true
       adr_paths_any:
-        - docs/architecture/app/product-plane-spec-v2/04_ADRs.md
+        - docs/architecture/product-plane/product-plane-spec-v2/04_ADRs.md
       adr_markers_any:
         - ADR-011
 
@@ -257,7 +257,7 @@ technology_claims:
     replacement:
       adr_required_when_removed: true
       adr_paths_any:
-        - docs/architecture/app/product-plane-spec-v2/04_ADRs.md
+        - docs/architecture/product-plane/product-plane-spec-v2/04_ADRs.md
       adr_markers_any:
         - ADR-011
 
@@ -269,7 +269,7 @@ technology_claims:
     replacement:
       adr_required_when_removed: true
       adr_paths_any:
-        - docs/architecture/app/product-plane-spec-v2/04_ADRs.md
+        - docs/architecture/product-plane/product-plane-spec-v2/04_ADRs.md
       adr_markers_any:
         - ADR-011
 

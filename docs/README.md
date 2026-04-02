@@ -17,7 +17,7 @@ This repository has two coordinated documentation surfaces:
 Then choose one route:
 - Shell-focused route: `shell/README.md`
 - Product-focused route: `product-plane/README.md`
-- Mixed route: both hubs + `docs/architecture/app/STATUS.md`
+- Mixed route: both hubs + `docs/architecture/product-plane/STATUS.md`
 
 ## Current phase
 - Target scope: Phase 0 through Phase 8 shell baseline, with landed product-plane slices under app paths.
@@ -31,5 +31,5 @@ Then choose one route:
 - `docs/workflows/` - workflow playbooks.
 - `docs/runbooks/` - remediation and operational guides.
 - `docs/architecture/` - cross-surface architecture package.
-- `docs/architecture/app/` - product-plane status, contract surfaces, and app phase specs.
+- `docs/architecture/product-plane/` - product-plane status, contract surfaces, and app phase specs.
 - `docs/tasks/` - active/archive lifecycle artifacts.

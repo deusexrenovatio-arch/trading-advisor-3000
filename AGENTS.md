@@ -37,8 +37,8 @@ Business and trading logic remain out of scope for shell control-plane surfaces.
 - `docs/workflows/README.md`
 - `docs/runbooks/README.md`
 - `docs/architecture/README.md`
-- `docs/architecture/app/STATUS.md`
-- `docs/architecture/app/CONTRACT_SURFACES.md`
+- `docs/architecture/product-plane/STATUS.md`
+- `docs/architecture/product-plane/CONTRACT_SURFACES.md`
 - `docs/runbooks/app/bootstrap.md`
 
 ### Cold (do not load by default)

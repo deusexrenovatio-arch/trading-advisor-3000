@@ -9,8 +9,8 @@
 6. `docs/architecture/repository-surfaces.md`
 
 If the task touches the product plane, also read:
-1. `docs/architecture/app/STATUS.md`
-2. `docs/architecture/app/CONTRACT_SURFACES.md`
+1. `docs/architecture/product-plane/STATUS.md`
+2. `docs/architecture/product-plane/CONTRACT_SURFACES.md`
 
 ## Startup checklist
 1. Confirm the task change surface: `shell`, `product-plane`, or `mixed`.
