@@ -1,6 +1,6 @@
 # Execution Contract
 
-Updated: 2026-04-02 15:05 UTC
+Updated: 2026-04-02 13:33 UTC
 
 ## Source Package
 
@@ -91,7 +91,7 @@ Updated: 2026-04-02 15:05 UTC
 - continue
 
 ## Next Allowed Unit Of Work
-- Execute P3 docs namespace cutover after compatibility bridge evidence and legacy-growth validator pass in loop/pr gates.
+- Execute P4 runtime and test namespace cutover after docs namespace cutover evidence and green loop/pr gates for phase-03.
 
 ## Suggested Branch / PR
 

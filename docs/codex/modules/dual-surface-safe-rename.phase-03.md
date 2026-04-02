@@ -1,6 +1,6 @@
 # Module Phase Brief
 
-Updated: 2026-04-02 14:10 UTC
+Updated: 2026-04-02 13:33 UTC
 
 ## Parent
 
@@ -10,7 +10,7 @@ Updated: 2026-04-02 14:10 UTC
 ## Phase
 
 - Name: P3 - Low-Risk Physical Rename for Docs
-- Status: planned
+- Status: completed
 
 ## Objective
 
@@ -32,6 +32,7 @@ Updated: 2026-04-02 14:10 UTC
 
 - ARCH-DOCS
 - GOV-DOCS
+- GOV-RUNTIME
 
 ## Constraints
 
@@ -51,9 +52,23 @@ Updated: 2026-04-02 14:10 UTC
 
 ## Done Evidence
 
-- Updated docs subtree and architecture index references.
-- Docs-link validation report for the phase PR.
-- Review note confirming docs-first namespace clarity.
+- Physical docs root moved to `docs/architecture/product-plane/` with architecture files preserved and relinked.
+- Legacy compatibility stubs landed under `docs/architecture/app/**` with canonical path pointers to the new docs root.
+- Navigation hubs updated to canonical docs namespace:
+  - `AGENTS.md`
+  - `README.md`
+  - `docs/README.md`
+  - `docs/agent/entrypoint.md`
+  - `docs/architecture/README.md`
+  - `docs/architecture/repository-surfaces.md`
+  - `product-plane/README.md`
+  - `src/trading_advisor_3000/AGENTS.md`
+- Stack conformance truth-source registry remapped to canonical docs namespace in `registry/stack_conformance.yaml`.
+- Validation and gate evidence captured in the phase PR:
+  - `python scripts/validate_docs_links.py --roots AGENTS.md docs`
+  - `python scripts/validate_phase_planning_contract.py --changed-files ...`
+  - `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`
+  - `python scripts/run_pr_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`
 
 ## Release Gate Impact
 

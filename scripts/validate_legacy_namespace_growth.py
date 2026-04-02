@@ -50,6 +50,8 @@ def _run_git(repo_root: Path, args: list[str]) -> subprocess.CompletedProcess[st
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
 
 
@@ -124,7 +126,8 @@ def _collect_added_lines_for_file(
         patch_args.append("HEAD")
     patch_args.extend(["--", normalized])
     completed = _run_git(repo_root, patch_args)
-    added_rows = extract_added_lines_from_patch(completed.stdout if completed.returncode == 0 else "")
+    patch_stdout = completed.stdout or ""
+    added_rows = extract_added_lines_from_patch(patch_stdout if completed.returncode == 0 else "")
     if added_rows:
         return added_rows
 

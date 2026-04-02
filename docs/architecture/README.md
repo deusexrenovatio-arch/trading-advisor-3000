@@ -20,11 +20,10 @@ This package documents architecture for both repository surfaces:
 - `docs/architecture/dual-surface-safe-rename-migration-technical-specification.md`
 
 ## Product Plane architecture index
-- `docs/architecture/product-plane/README.md` (phase-2 compatibility pointer)
-- `docs/architecture/app/README.md`
-- `docs/architecture/app/STATUS.md`
-- `docs/architecture/app/CONTRACT_SURFACES.md`
-- `docs/architecture/app/product-plane-spec-v2/README.md`
+- `docs/architecture/product-plane/README.md`
+- `docs/architecture/product-plane/STATUS.md`
+- `docs/architecture/product-plane/CONTRACT_SURFACES.md`
+- `docs/architecture/product-plane/product-plane-spec-v2/README.md`
 
 ## Shared references
 - `docs/architecture/glossary.md`
