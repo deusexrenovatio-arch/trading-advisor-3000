@@ -26,13 +26,18 @@ def _raw_row(
     close_value: float,
     volume: int,
     open_interest: int | None = None,
+    instrument_id: str = "FUT_BR",
+    contract_id: str = "BRM6@MOEX",
+    source_timeframe: str = "1m",
+    source_interval: int = 1,
+    candle_minutes: int = 1,
 ) -> dict[str, object]:
-    ts_close = ts_open + timedelta(minutes=1)
+    ts_close = ts_open + timedelta(minutes=candle_minutes)
     return {
-        "internal_id": "FUT_BR",
-        "finam_symbol": "BRM6@MOEX",
-        "timeframe": "1m",
-        "source_interval": 1,
+        "internal_id": instrument_id,
+        "finam_symbol": contract_id,
+        "timeframe": source_timeframe,
+        "source_interval": source_interval,
         "ts_open": _iso(ts_open),
         "ts_close": _iso(ts_close),
         "open": open_value,
@@ -45,8 +50,8 @@ def _raw_row(
         "ingested_at_utc": _iso(ts_open + timedelta(minutes=2)),
         "provenance_json": {
             "source_provider": "moex_iss",
-            "source_interval": 1,
-            "source_timeframe": "1m",
+            "source_interval": source_interval,
+            "source_timeframe": source_timeframe,
             "run_id": "phase01-pass1",
             "discovery_url": "https://iss.moex.com/iss/engines/futures/markets/forts/boards/RFUD/securities/BRM6/candleborders.json",
         },
@@ -132,6 +137,57 @@ def test_phase02_qc_fails_when_provenance_is_incomplete() -> None:
     assert qc_report["status"] == "FAIL"
     assert qc_report["publish_decision"] == "blocked"
     assert "provenance_completeness" in qc_report["failed_gates"]
+
+
+def test_phase02_mixed_coverage_skips_incompatible_frames_without_failing() -> None:
+    start = datetime(2026, 4, 2, 10, 0, tzinfo=UTC)
+    minute_rows = [
+        _raw_row(
+            ts_open=start + timedelta(minutes=index),
+            open_value=100.0 + index,
+            high_value=101.0 + index,
+            low_value=99.0 + index,
+            close_value=100.5 + index,
+            volume=10 + index,
+            instrument_id="FUT_BR",
+            contract_id="BRM6@MOEX",
+            source_timeframe="1m",
+            source_interval=1,
+            candle_minutes=1,
+        )
+        for index in range(12)
+    ]
+    daily_rows = [
+        _raw_row(
+            ts_open=datetime(2026, 3, 28, 21, 0, tzinfo=UTC) + timedelta(days=index),
+            open_value=200.0 + index,
+            high_value=205.0 + index,
+            low_value=195.0 + index,
+            close_value=202.0 + index,
+            volume=200 + index,
+            instrument_id="FUT_WHEAT",
+            contract_id="W4J6@MOEX",
+            source_timeframe="1d",
+            source_interval=24,
+            candle_minutes=24 * 60,
+        )
+        for index in range(3)
+    ]
+
+    bars, provenance = build_phase02_canonical_outputs(
+        raw_rows=[*minute_rows, *daily_rows],
+        build_run_id="phase02-mixed",
+        built_at_utc="2026-04-03T00:00:00Z",
+    )
+
+    assert bars
+    assert provenance
+    wheat_timeframes = {
+        item.timeframe.value
+        for item in bars
+        if item.instrument_id == "FUT_WHEAT" and item.contract_id == "W4J6@MOEX"
+    }
+    assert wheat_timeframes == {"1d", "1w"}
 
 
 def test_phase02_contract_compatibility_detects_schema_drift(tmp_path: Path) -> None:
