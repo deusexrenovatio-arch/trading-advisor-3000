@@ -151,14 +151,17 @@ def _normalize_source_interval(
             f"raw row[{row_index}] unsupported source timeframe `{source_timeframe}`; "
             f"allowed={', '.join(sorted(SOURCE_MINUTES_BY_LABEL))}"
         )
+    expected_minutes = SOURCE_MINUTES_BY_LABEL[source_timeframe]
 
     if source_interval_raw is None:
-        return SOURCE_MINUTES_BY_LABEL[source_timeframe]
+        return expected_minutes
     if isinstance(source_interval_raw, bool) or not isinstance(source_interval_raw, int):
         raise ValueError(f"raw row[{row_index}] `source_interval` must be integer or null")
     if source_interval_raw <= 0:
         raise ValueError(f"raw row[{row_index}] `source_interval` must be > 0")
-    return int(source_interval_raw)
+    # MOEX source_interval encoding is not uniform across frames (e.g. 1d=24, 1w=7).
+    # Keep deterministic resampling by using canonical minutes derived from source_timeframe.
+    return expected_minutes
 
 
 @dataclass(frozen=True)
@@ -216,6 +219,24 @@ class CanonicalProvenance:
             "open_interest_imputed": self.open_interest_imputed,
             "build_run_id": self.build_run_id,
             "built_at_utc": self.built_at_utc,
+        }
+
+
+@dataclass(frozen=True)
+class ResamplingSkip:
+    contract_id: str
+    instrument_id: str
+    timeframe: str
+    target_minutes: int
+    available_intervals: tuple[int, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "contract_id": self.contract_id,
+            "instrument_id": self.instrument_id,
+            "timeframe": self.timeframe,
+            "target_minutes": self.target_minutes,
+            "available_intervals": list(self.available_intervals),
         }
 
 
@@ -302,15 +323,12 @@ def _select_source_interval(
     *,
     available_intervals: set[int],
     target_minutes: int,
-) -> int:
+) -> int | None:
     if target_minutes in available_intervals:
         return target_minutes
     compatible = sorted(item for item in available_intervals if target_minutes % item == 0)
     if not compatible:
-        raise ValueError(
-            f"cannot build target timeframe `{target_minutes}m`: "
-            f"no compatible source interval in {sorted(available_intervals)}"
-        )
+        return None
     # Prefer the coarsest compatible interval to reduce noise and keep rollups deterministic.
     return compatible[-1]
 
@@ -331,13 +349,18 @@ def _resample_rows_for_target(
     timeframe: Timeframe,
     build_run_id: str,
     built_at_utc: str,
+    source_interval_override: int | None = None,
 ) -> tuple[list[CanonicalBar], list[CanonicalProvenance]]:
     target_minutes = TARGET_MINUTES_BY_TIMEFRAME[timeframe]
-    available_intervals = {item.source_interval for item in rows}
-    source_interval = _select_source_interval(
-        available_intervals=available_intervals,
-        target_minutes=target_minutes,
-    )
+    source_interval = source_interval_override
+    if source_interval is None:
+        available_intervals = {item.source_interval for item in rows}
+        source_interval = _select_source_interval(
+            available_intervals=available_intervals,
+            target_minutes=target_minutes,
+        )
+    if source_interval is None:
+        return [], []
     source_rows = [item for item in rows if item.source_interval == source_interval]
     if not source_rows:
         return [], []
@@ -394,24 +417,43 @@ def _resample_rows_for_target(
     return canonical_rows, provenance_rows
 
 
-def build_phase02_canonical_outputs(
+def _build_phase02_canonical_outputs_with_diagnostics(
     *,
     raw_rows: list[dict[str, object]],
     build_run_id: str,
     built_at_utc: str,
-) -> tuple[list[CanonicalBar], list[CanonicalProvenance]]:
+) -> tuple[list[CanonicalBar], list[CanonicalProvenance], list[ResamplingSkip]]:
     normalized_rows = _normalize_raw_rows(raw_rows)
     grouped_rows = _group_by_contract(normalized_rows)
     canonical_rows: list[CanonicalBar] = []
     provenance_rows: list[CanonicalProvenance] = []
+    resampling_skips: list[ResamplingSkip] = []
 
-    for _, rows in sorted(grouped_rows.items()):
+    for (contract_id, instrument_id), rows in sorted(grouped_rows.items()):
+        available_intervals = {item.source_interval for item in rows}
         for timeframe in TARGET_TIMEFRAMES:
+            target_minutes = TARGET_MINUTES_BY_TIMEFRAME[timeframe]
+            source_interval = _select_source_interval(
+                available_intervals=available_intervals,
+                target_minutes=target_minutes,
+            )
+            if source_interval is None:
+                resampling_skips.append(
+                    ResamplingSkip(
+                        contract_id=contract_id,
+                        instrument_id=instrument_id,
+                        timeframe=timeframe.value,
+                        target_minutes=target_minutes,
+                        available_intervals=tuple(sorted(available_intervals)),
+                    )
+                )
+                continue
             bars, provenance = _resample_rows_for_target(
                 rows,
                 timeframe=timeframe,
                 build_run_id=build_run_id,
                 built_at_utc=built_at_utc,
+                source_interval_override=source_interval,
             )
             canonical_rows.extend(bars)
             provenance_rows.extend(provenance)
@@ -424,13 +466,20 @@ def build_phase02_canonical_outputs(
         provenance_rows,
         key=lambda item: (item.contract_id, item.instrument_id, item.timeframe, item.ts),
     )
+    return canonical_rows, provenance_rows, resampling_skips
 
-    if canonical_rows:
-        available_timeframes = {item.timeframe for item in canonical_rows}
-        missing = sorted(item.value for item in TARGET_TIMEFRAMES if item not in available_timeframes)
-        if missing:
-            missing_text = ", ".join(missing)
-            raise ValueError(f"resampling output is missing target timeframe(s): {missing_text}")
+
+def build_phase02_canonical_outputs(
+    *,
+    raw_rows: list[dict[str, object]],
+    build_run_id: str,
+    built_at_utc: str,
+) -> tuple[list[CanonicalBar], list[CanonicalProvenance]]:
+    canonical_rows, provenance_rows, _ = _build_phase02_canonical_outputs_with_diagnostics(
+        raw_rows=raw_rows,
+        build_run_id=build_run_id,
+        built_at_utc=built_at_utc,
+    )
     return canonical_rows, provenance_rows
 
 
@@ -445,6 +494,18 @@ def _sample_errors(values: list[str], *, limit: int = 10) -> list[str]:
         if len(unique) >= limit:
             break
     return unique
+
+
+def _summarize_resampling_skips(skips: list[ResamplingSkip]) -> dict[str, object]:
+    by_timeframe: dict[str, int] = {}
+    for item in skips:
+        by_timeframe[item.timeframe] = by_timeframe.get(item.timeframe, 0) + 1
+    samples = [item.to_dict() for item in skips[:20]]
+    return {
+        "count": len(skips),
+        "by_timeframe": dict(sorted(by_timeframe.items())),
+        "samples": samples,
+    }
 
 
 def run_qc_gates(
@@ -740,7 +801,7 @@ def run_phase02_canonical(
 
     raw_rows = read_delta_table_rows(raw_table_path)
     built_at_utc = _utc_now_iso()
-    canonical_rows, provenance_rows = build_phase02_canonical_outputs(
+    canonical_rows, provenance_rows, resampling_skips = _build_phase02_canonical_outputs_with_diagnostics(
         raw_rows=raw_rows,
         build_run_id=run_id,
         built_at_utc=built_at_utc,
@@ -811,6 +872,7 @@ def run_phase02_canonical(
         "canonical_rows": len(canonical_rows),
         "provenance_rows": len(provenance_rows),
         "target_timeframes": [item.value for item in TARGET_TIMEFRAMES],
+        "resampling_skips": _summarize_resampling_skips(resampling_skips),
         "output_paths": output_paths,
         "artifact_paths": {
             "canonical_snapshot": canonical_snapshot_path.as_posix(),
