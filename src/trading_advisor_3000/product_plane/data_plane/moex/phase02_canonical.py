@@ -684,9 +684,14 @@ def run_contract_compatibility_check(
 
 
 def run_runtime_decoupling_check(*, repo_root: Path) -> dict[str, object]:
-    runtime_root = repo_root / "src" / "trading_advisor_3000" / "app" / "runtime"
-    if not runtime_root.exists():
-        raise FileNotFoundError(f"runtime root not found: {runtime_root.as_posix()}")
+    candidate_runtime_roots = (
+        repo_root / "src" / "trading_advisor_3000" / "product_plane" / "runtime",
+        repo_root / "src" / "trading_advisor_3000" / "app" / "runtime",
+    )
+    runtime_root = next((path for path in candidate_runtime_roots if path.exists()), None)
+    if runtime_root is None:
+        checked = ", ".join(path.as_posix() for path in candidate_runtime_roots)
+        raise FileNotFoundError(f"runtime root not found; checked: {checked}")
 
     forbidden_tokens = (
         "pyspark",
