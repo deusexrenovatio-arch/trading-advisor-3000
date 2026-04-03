@@ -273,3 +273,23 @@ def test_phase02_runtime_decoupling_check_fails_when_runtime_imports_spark(tmp_p
     assert report["status"] == "FAIL"
     assert report["violations"]
 
+
+def test_phase02_runtime_decoupling_prefers_product_plane_runtime(tmp_path: Path) -> None:
+    runtime_file = (
+        tmp_path
+        / "src"
+        / "trading_advisor_3000"
+        / "product_plane"
+        / "runtime"
+        / "spark_bridge.py"
+    )
+    runtime_file.parent.mkdir(parents=True, exist_ok=True)
+    runtime_file.write_text(
+        "from pyspark.sql import SparkSession\n",
+        encoding="utf-8",
+    )
+    report = run_runtime_decoupling_check(repo_root=tmp_path)
+    assert report["status"] == "FAIL"
+    assert report["runtime_root"].endswith("/src/trading_advisor_3000/product_plane/runtime")
+    assert report["violations"]
+
