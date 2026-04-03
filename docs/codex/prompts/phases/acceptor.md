@@ -17,8 +17,10 @@ Read first:
 13. `docs/checklists/phase-evidence-contract.md`
 14. `.cursor/skills/phase-acceptance-governor/SKILL.md`
 15. `.cursor/skills/architecture-review/SKILL.md`
-16. `.cursor/skills/testing-suite/SKILL.md`
-17. `.cursor/skills/docs-sync/SKILL.md`
+16. `.cursor/skills/code-reviewer/SKILL.md`
+17. `.cursor/skills/testing-suite/SKILL.md`
+18. `.cursor/skills/docs-sync/SKILL.md`
+19. `.cursor/skills/verification-before-completion/SKILL.md`
 
 Review rules:
 
@@ -49,8 +51,10 @@ Review rules:
 - Apply the intent of:
   - `.cursor/skills/phase-acceptance-governor/SKILL.md`
   - `.cursor/skills/architecture-review/SKILL.md`
+  - `.cursor/skills/code-reviewer/SKILL.md`
   - `.cursor/skills/testing-suite/SKILL.md`
   - `.cursor/skills/docs-sync/SKILL.md`
+  - `.cursor/skills/verification-before-completion/SKILL.md`
 - Return `PASS` only if the phase objective, constraints, and done evidence are satisfied enough to unlock the next phase.
 - Return `BLOCKED` if the same phase must continue through remediation.
 - Return `BLOCKED` if the worker report contains any non-empty:
@@ -66,5 +70,5 @@ Review rules:
 Return a short human summary and finish with this exact marker block:
 
 BEGIN_PHASE_ACCEPTANCE_JSON
-{"verdict":"PASS|BLOCKED","summary":"...","route_signal":"acceptance:governed-phase-route","used_skills":["phase-acceptance-governor","architecture-review","testing-suite","docs-sync"],"blockers":[{"id":"B1","title":"...","why":"...","remediation":"..."}],"rerun_checks":["..."],"evidence_gaps":[],"prohibited_findings":[]}
+{"verdict":"PASS|BLOCKED","summary":"...","route_signal":"acceptance:governed-phase-route","used_skills":["phase-acceptance-governor","architecture-review","code-reviewer","testing-suite","docs-sync","verification-before-completion"],"blockers":[{"id":"B1","title":"...","why":"...","remediation":"..."}],"rerun_checks":["..."],"evidence_gaps":[],"prohibited_findings":[]}
 END_PHASE_ACCEPTANCE_JSON

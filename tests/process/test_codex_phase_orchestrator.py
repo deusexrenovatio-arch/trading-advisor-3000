@@ -28,6 +28,7 @@ def _write_acceptor_skills(repo: Path) -> None:
     skills = {
         "phase-acceptance-governor": "---\nname: phase-acceptance-governor\ndescription: test\nclassification: KEEP_CORE\nwave: WAVE_1\nstatus: ACTIVE\nowner_surface: CTX-OPS\nrouting_triggers:\n  - acceptance\n---\n# phase acceptance governor\n",
         "architecture-review": "---\nname: architecture-review\ndescription: test\nclassification: KEEP_CORE\nwave: WAVE_1\nstatus: ACTIVE\nowner_surface: CTX-ARCHITECTURE\nrouting_triggers:\n  - architecture\n---\n# architecture review\n",
+        "code-reviewer": "---\nname: code-reviewer\ndescription: test\nclassification: KEEP_CORE\nwave: WAVE_1\nstatus: ACTIVE\nowner_surface: CTX-OPS\nrouting_triggers:\n  - review\n---\n# code reviewer\n",
         "testing-suite": "---\nname: testing-suite\ndescription: test\nclassification: KEEP_CORE\nwave: WAVE_1\nstatus: ACTIVE\nowner_surface: CTX-OPS\nrouting_triggers:\n  - tests\n---\n# testing suite\n",
         "docs-sync": "---\nname: docs-sync\ndescription: test\nclassification: KEEP_CORE\nwave: WAVE_1\nstatus: ACTIVE\nowner_surface: CTX-OPS\nrouting_triggers:\n  - docs\n---\n# docs sync\n",
         "verification-before-completion": "---\nname: verification-before-completion\ndescription: test\nclassification: KEEP_CORE\nwave: WAVE_1\nstatus: ACTIVE\nowner_surface: CTX-OPS\nrouting_triggers:\n  - verification before completion\n---\n# verification before completion\n",
@@ -347,8 +348,10 @@ def test_orchestrator_emits_attempt_bound_release_decision_for_release_decision_
             "used_skills": [
                 "phase-acceptance-governor",
                 "architecture-review",
+                "code-reviewer",
                 "testing-suite",
                 "docs-sync",
+                "verification-before-completion",
             ],
             "blockers": [
                 {
@@ -444,8 +447,10 @@ def test_orchestrator_release_decision_closeout_fails_without_phase_scoped_route
             "used_skills": [
                 "phase-acceptance-governor",
                 "architecture-review",
+                "code-reviewer",
                 "testing-suite",
                 "docs-sync",
+                "verification-before-completion",
             ],
             "blockers": [],
             "rerun_checks": [],
@@ -587,6 +592,7 @@ def test_skip_clean_check_uses_worker_files_for_changed_files_snapshot(monkeypat
             "used_skills": [
                 "phase-acceptance-governor",
                 "architecture-review",
+                "code-reviewer",
                 "testing-suite",
                 "docs-sync",
                 "verification-before-completion",
@@ -815,6 +821,7 @@ def test_orchestrator_auto_blocks_missing_worker_evidence_contract(tmp_path: Pat
             "used_skills": [
                 "phase-acceptance-governor",
                 "architecture-review",
+                "code-reviewer",
                 "testing-suite",
                 "docs-sync",
                 "verification-before-completion",
@@ -883,6 +890,7 @@ def test_orchestrator_auto_blocks_weaker_worker_evidence_proof_class(tmp_path: P
             "used_skills": [
                 "phase-acceptance-governor",
                 "architecture-review",
+                "code-reviewer",
                 "testing-suite",
                 "docs-sync",
                 "verification-before-completion",

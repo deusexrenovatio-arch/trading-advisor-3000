@@ -34,6 +34,7 @@
 ## Intake Routing
 - When the request is intake-phase and pre-code flow shaping (`intake`, `workflow map`, `failure branches`, `handoff contracts`), load:
   - `workflow-architect` (primary)
+- Governed package intake (`docs/codex/prompts/entry/from_package.md`) must always bind `workflow-architect` as a required intake lens.
 - Co-load conditionally:
   - `business-analyst` for requirement decomposition and acceptance framing
   - `architecture-review` when intake decisions affect boundaries or dependency direction
@@ -50,7 +51,7 @@
 
 ## Acceptance Routing
 - When a task involves phase acceptance, acceptor flows, unblock decisions, or explicit guardrails against fallbacks/skips, load `phase-acceptance-governor` first.
-- Co-load `architecture-review`, `testing-suite`, and `docs-sync` when acceptance covers architecture fit, executed tests, and documentation closure.
+- Co-load `architecture-review`, `code-reviewer`, `testing-suite`, and `docs-sync` when acceptance covers architecture fit, implementation risk, executed tests, and documentation closure.
 - Co-load `verification-before-completion` whenever completion claims must be fail-closed on executable evidence.
 
 ## Pipeline Routing

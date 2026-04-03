@@ -9,9 +9,10 @@ Read first:
 5. `docs/agent/runtime.md`
 6. `docs/DEV_WORKFLOW.md`
 7. `docs/session_handoff.md`
-8. the package manifest
-9. the suggested primary document from the package
-10. supporting documents only as needed
+8. `.cursor/skills/workflow-architect/SKILL.md`
+9. the package manifest
+10. the suggested primary document from the package
+11. supporting documents only as needed
 
 Execution preferences:
 
@@ -24,6 +25,7 @@ Execution preferences:
 - Do not rely on silent assumptions; if package ambiguity materially changes execution, surface one compact clarification block or classify the package as repairable.
 - Keep `docs/session_handoff.md` as a lightweight pointer shim.
 - Use canonical gate names only.
+- Treat `.cursor/skills/workflow-architect/SKILL.md` as mandatory for intake flow mapping and handoff contract shaping.
 - If the selected source document declares an explicit phase/module rollout, first materialize the canonical execution contract and phase briefs under `docs/codex/contracts/` and `docs/codex/modules/`.
 - If `Suggested phase compiler artifact` is not `NONE`, treat it as the deterministic phase IR for the suggested primary document.
 - Do not merge, rename, reorder, or soften source phases when a deterministic phase IR is present.
@@ -49,4 +51,5 @@ Extracted package root: <ABSOLUTE_OR_REPO_RELATIVE_PATH>
 Package manifest path: <ABSOLUTE_OR_REPO_RELATIVE_PATH>
 Suggested primary document: <ABSOLUTE_OR_REPO_RELATIVE_PATH_OR_NONE>
 Suggested phase compiler artifact: <ABSOLUTE_OR_REPO_RELATIVE_PATH_OR_NONE>
+Required intake skills: <COMMA_SEPARATED_SKILL_PATHS_OR_NONE>
 Mode hint: <auto|plan-only|implement-only|continue|repair>

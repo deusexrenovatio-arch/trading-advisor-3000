@@ -12,6 +12,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from codex_from_package import (  # noqa: E402
+    build_prompt,
     choose_latest_package,
     collect_document_candidates,
     extract_docx_title,
@@ -93,3 +94,19 @@ def test_extract_docx_title_reads_first_text(tmp_path: Path) -> None:
         )
 
     assert extract_docx_title(docx) == "Primary Specification"
+
+
+def test_build_prompt_includes_required_intake_skill_binding(tmp_path: Path) -> None:
+    prompt_path = tmp_path / "from_package.md"
+    prompt_path.write_text("Use the package-intake flow for this repository.", encoding="utf-8")
+    prompt = build_prompt(
+        prompt_path=prompt_path,
+        package_path=tmp_path / "spec.zip",
+        extracted_root=tmp_path / "extracted",
+        manifest_path=tmp_path / "manifest.md",
+        suggested_primary=None,
+        suggested_phase_compiler_artifact=None,
+        mode="auto",
+    )
+
+    assert "Required intake skills: .cursor/skills/workflow-architect/SKILL.md" in prompt
