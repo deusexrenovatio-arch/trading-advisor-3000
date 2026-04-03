@@ -24,6 +24,7 @@ DEFAULT_ARTIFACT_ROOT = Path("artifacts/codex/package-intake")
 DEFAULT_OUTPUT = Path("artifacts/codex/from-package-last-message.txt")
 ALLOWED_MODES = {"auto", "plan-only", "implement-only", "continue", "repair"}
 SUPPORTED_DOC_EXTENSIONS = {".md", ".txt", ".rst", ".docx", ".pdf"}
+INTAKE_REQUIRED_SKILLS = ("workflow-architect",)
 POSITIVE_HINTS = (
     ("technical_requirements", 140, "filename looks like technical requirements"),
     ("requirements", 120, "filename looks like requirements"),
@@ -337,6 +338,9 @@ def build_prompt(
     base = prompt_path.read_text(encoding="utf-8").rstrip()
     primary_line = suggested_primary if suggested_primary else "NONE"
     compiler_line = suggested_phase_compiler_artifact if suggested_phase_compiler_artifact else "NONE"
+    required_intake_skills = ", ".join(
+        f".cursor/skills/{skill_id}/SKILL.md" for skill_id in INTAKE_REQUIRED_SKILLS
+    )
     return (
         f"{base}\n\n"
         f"Package zip path: {package_path.as_posix()}\n"
@@ -344,6 +348,7 @@ def build_prompt(
         f"Package manifest path: {manifest_path.as_posix()}\n"
         f"Suggested primary document: {primary_line}\n"
         f"Suggested phase compiler artifact: {compiler_line}\n"
+        f"Required intake skills: {required_intake_skills}\n"
         f"Mode hint: {mode}\n"
     )
 

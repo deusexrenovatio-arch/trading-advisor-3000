@@ -13,6 +13,15 @@
 4. Prefer integration into an existing skill when overlap is high; add new skills only for missing, non-trivial capabilities.
 5. When multiple skills match, pick the smallest set that covers intent.
 
+## Code Review Routing
+- When the request is review-focused (`review`, `PR review`, `find risks`, `actionable findings`), load:
+  - `code-reviewer` (primary)
+- Co-load conditionally:
+  - `architecture-review` when boundary or dependency direction risk is present
+  - `testing-suite` when changed-path test adequacy is unclear
+  - `secrets-and-config-hardening` for secret or configuration risk
+  - `dependency-and-license-audit` when dependency updates are in scope
+
 ## Worker Coding Routing
 - When the active phase is implementation and the request is code-writing focused, load:
   - `code-implementation-worker` (primary)
@@ -22,9 +31,27 @@
   - `testing-suite` for primary changed-path coverage only
 - Do not auto-load intake-oriented or acceptance-only skills for worker coding by default.
 
+## Intake Routing
+- When the request is intake-phase and pre-code flow shaping (`intake`, `workflow map`, `failure branches`, `handoff contracts`), load:
+  - `workflow-architect` (primary)
+- Governed package intake (`docs/codex/prompts/entry/from_package.md`) must always bind `workflow-architect` as a required intake lens.
+- Co-load conditionally:
+  - `business-analyst` for requirement decomposition and acceptance framing
+  - `architecture-review` when intake decisions affect boundaries or dependency direction
+  - `agents-orchestrator` when intake map is being translated into a governed execution pipeline
+
+## Data Routing
+- When changes touch data pipeline surfaces or the request is ETL/ELT/data reliability focused, load:
+  - `data-engineer` (primary)
+- Co-load conditionally:
+  - `source-onboarding` for source onboarding and canonical mapping
+  - `registry-first` when schemas/contracts are changed
+  - `validate-crosslayer` when pipeline changes cross service or layer boundaries
+  - `testing-suite` for changed-path data checks
+
 ## Acceptance Routing
 - When a task involves phase acceptance, acceptor flows, unblock decisions, or explicit guardrails against fallbacks/skips, load `phase-acceptance-governor` first.
-- Co-load `architecture-review`, `testing-suite`, and `docs-sync` when acceptance covers architecture fit, executed tests, and documentation closure.
+- Co-load `architecture-review`, `code-reviewer`, `testing-suite`, and `docs-sync` when acceptance covers architecture fit, implementation risk, executed tests, and documentation closure.
 - Co-load `verification-before-completion` whenever completion claims must be fail-closed on executable evidence.
 
 ## Pipeline Routing
@@ -35,6 +62,10 @@
 - Use this set for both lane design and failing-check remediation so CI changes remain policy-aligned and reviewable.
 
 ## Orchestration Routing
+- When the request is to design or run multi-role execution flow with retries/escalation and phase gates, load:
+  - `agents-orchestrator`
+  - `ai-agent-architect`
+  - `phase-acceptance-governor`
 - When changes touch governed orchestration surfaces:
   - `scripts/codex_phase_orchestrator.py`
   - `scripts/codex_phase_policy.py`

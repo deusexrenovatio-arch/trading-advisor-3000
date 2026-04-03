@@ -29,6 +29,7 @@ ALLOWED_WAVES = {"WAVE_1", "WAVE_2", "WAVE_3"}
 ALLOWED_STATUSES = {"ACTIVE", "PAUSED", "DEFERRED"}
 
 KEEP_CORE_BASELINE = {
+    "agents-orchestrator",
     "ai-agent-architect",
     "ai-change-explainer",
     "archctl-policy-authoring",
@@ -39,6 +40,8 @@ KEEP_CORE_BASELINE = {
     "codeowners-from-registry",
     "commit-and-pr-hygiene",
     "composition-contracts",
+    "code-reviewer",
+    "data-engineer",
     "dependency-and-license-audit",
     "docs-sync",
     "golden-tests-and-fixtures",
@@ -61,6 +64,7 @@ KEEP_CORE_BASELINE = {
     "testing-suite",
     "validate-crosslayer",
     "verification-before-completion",
+    "workflow-architect",
 }
 DOMAIN_TOKEN_RE = re.compile(
     r"\b(trading|moex|futures|arbitrage|geopolitics|intraday|spread|commodity-news)\b",

@@ -14,6 +14,7 @@ ACCEPTANCE_END = "END_PHASE_ACCEPTANCE_JSON"
 REQUIRED_ACCEPTANCE_SKILLS = (
     "phase-acceptance-governor",
     "architecture-review",
+    "code-reviewer",
     "testing-suite",
     "docs-sync",
     "verification-before-completion",
@@ -24,7 +25,7 @@ ROUTE_GUARDRAILS = (
     "no skipped required checks",
     "no silent fallbacks",
     "no deferred critical work",
-    "acceptance requires architecture, test, and docs closure",
+    "acceptance requires architecture, code review, test, and docs closure",
     "completion claims require executable evidence before unlock",
 )
 PLACEHOLDER_TOKEN_RE = re.compile(r"<[^>\n]+>")
