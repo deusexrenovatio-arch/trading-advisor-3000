@@ -389,19 +389,35 @@ def _is_futures_contract_secid(value: str) -> bool:
     return value[-2] in FUTURES_MONTH_CODES and value[-1].isdigit()
 
 
+def _normalize_snapshot_trade_date(*, candidate: date, end_date: date) -> date:
+    normalized = candidate
+    while normalized.weekday() >= 5:
+        normalized += timedelta(days=1)
+    if normalized > end_date:
+        normalized = candidate
+        while normalized.weekday() >= 5:
+            normalized -= timedelta(days=1)
+    return normalized
+
+
 def _iter_snapshot_dates(*, start_date: date, end_date: date, step_days: int) -> list[date]:
     if step_days <= 0:
         raise ValueError("contract discovery step_days must be positive integer")
     if end_date < start_date:
         return []
-    snapshots: list[date] = []
+    candidates: list[date] = []
     current = start_date
     while current <= end_date:
-        snapshots.append(current)
+        candidates.append(current)
         current += timedelta(days=step_days)
-    if snapshots and snapshots[-1] != end_date:
-        snapshots.append(end_date)
-    return snapshots
+    if not candidates or candidates[-1] != end_date:
+        candidates.append(end_date)
+
+    snapshots = {
+        _normalize_snapshot_trade_date(candidate=item, end_date=end_date)
+        for item in candidates
+    }
+    return sorted(snapshots)
 
 
 def _discover_contract_secids(
@@ -514,6 +530,13 @@ def discover_coverage(
             row.internal_id: [row.moex_secid]
             for row in active_mappings
         }
+    if expand_contract_chain and bootstrap_window_days >= 365:
+        expanded_contracts = sum(max(len(secids) - 1, 0) for secids in secids_by_internal.values())
+        if expanded_contracts == 0:
+            raise RuntimeError(
+                "contract chain expansion returned only seed contracts for long-window backfill; "
+                "verify discovery snapshots resolve to trading days and asset_codes match MOEX ASSETCODE values"
+            )
 
     for mapping in active_mappings:
         secids = secids_by_internal.get(mapping.internal_id) or [mapping.moex_secid]
