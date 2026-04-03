@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
-from trading_advisor_3000.product_plane.data_plane.moex.foundation import discover_coverage, load_mapping_registry, load_universe
+from trading_advisor_3000.product_plane.data_plane.moex.foundation import (
+    _iter_snapshot_dates,
+    discover_coverage,
+    load_mapping_registry,
+    load_universe,
+)
 from trading_advisor_3000.product_plane.data_plane.moex.iss_client import CandleBorder, select_interval_borders
 
 
@@ -28,6 +34,16 @@ class _CoverageClient:
             )
             for interval in required_intervals
         }
+
+
+class _NoExpansionClient:
+    def fetch_history_board_securities(self, **kwargs):  # noqa: ANN003 - test stub signature is intentionally loose
+        del kwargs
+        return []
+
+    def fetch_candleborders(self, **kwargs):  # noqa: ANN003 - fail if seed-only guard is bypassed
+        del kwargs
+        raise AssertionError("fetch_candleborders should not be called when chain expansion guard blocks")
 
 
 def test_select_interval_borders_extracts_required_intervals() -> None:
@@ -87,3 +103,34 @@ def test_discover_coverage_tracks_native_source_identity() -> None:
     assert by_key[("FUT_BR", 60)].requested_target_timeframes == "1h,4h"
     assert by_key[("FUT_BR", 24)].requested_target_timeframes == "1d"
     assert by_key[("FUT_BR", 7)].requested_target_timeframes == "1w"
+
+
+def test_iter_snapshot_dates_normalizes_weekend_series_to_trade_days() -> None:
+    snapshots = _iter_snapshot_dates(
+        start_date=date(2022, 4, 3),
+        end_date=date(2022, 5, 1),
+        step_days=14,
+    )
+    assert snapshots == [date(2022, 4, 4), date(2022, 4, 18), date(2022, 4, 29)]
+    assert all(item.weekday() < 5 for item in snapshots)
+
+
+def test_discover_coverage_fail_closed_when_long_backfill_has_no_chain_expansion() -> None:
+    universe = load_universe(Path("configs/moex_phase01/universe/moex-futures-priority.v1.yaml"))
+    mappings = load_mapping_registry(Path("configs/moex_phase01/instrument_mapping_registry.v1.yaml"))
+    try:
+        discover_coverage(
+            client=_NoExpansionClient(),
+            universe=universe,
+            mappings=mappings,
+            timeframes={"5m", "1h", "1d"},
+            discovered_at_utc="2026-04-03T00:00:00Z",
+            ingest_till_utc="2026-04-03T00:00:00Z",
+            bootstrap_window_days=1461,
+            expand_contract_chain=True,
+            contract_discovery_step_days=14,
+        )
+    except RuntimeError as exc:
+        assert "only seed contracts" in str(exc)
+    else:
+        raise AssertionError("expected long-window backfill to fail closed when contract chain does not expand")

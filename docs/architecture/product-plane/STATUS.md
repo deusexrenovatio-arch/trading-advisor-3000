@@ -31,3 +31,9 @@ It supersedes older phase-closure claims when they disagree.
 1. Accept scaffold/runtime claims only to the level evidenced by code, migrations, tests, and runbooks.
 2. Do not treat staging gateway or sidecar stubs as proof of real broker execution closure.
 3. Do not treat shell `S8` operational proving as product `P7` scale-up closure.
+
+## Live Decision Data Policy (Strict)
+1. Historical and batch datasets (including MOEX phase contours, canonical bars, and nightly backfill outputs) are not a valid source for intraday live decision-making.
+2. Intraday (`within-day`) trading decisions must be taken only from broker live data delivered through the real execution boundary (`StockSharp -> QUIK -> broker/Finam`).
+3. Before publishing or acting on any live signal, broker connectivity and live market state must be confirmed through the broker path; MOEX historical snapshots may be used only for research/backfill/analytics context.
+4. If broker live data is unavailable, stale, or not confirmed, live decision publication must remain fail-closed.
