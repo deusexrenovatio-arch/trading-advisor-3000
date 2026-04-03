@@ -34,6 +34,7 @@ KEEP_CORE_BASELINE = {
     "archctl-policy-authoring",
     "architecture-review",
     "business-analyst",
+    "code-implementation-worker",
     "ci-bootstrap",
     "codeowners-from-registry",
     "commit-and-pr-hygiene",

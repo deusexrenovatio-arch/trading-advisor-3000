@@ -25,6 +25,7 @@ Generated catalog must not be edited manually.
 ## Add Flow
 1. Create a new skill folder with a metadata-complete descriptor file.
 2. Ensure class policy allows runtime inclusion (`KEEP_CORE` for baseline).
+3. If baseline runtime set changed, update `scripts/validate_skills.py` (`KEEP_CORE_BASELINE`) in the same patch.
 3. Regenerate catalog.
 4. Update routing policy only if routing/class rules changed.
 5. Run strict validators and skill tests.
@@ -54,6 +55,7 @@ Generated catalog must not be edited manually.
 4. Relevant tests for sync/validation/decision/precommit are green.
 5. If the skill affects phase acceptance or unblock policy, the workflow doc explicitly records that no silent fallback/skip/assumption path may pass through runtime review.
 6. If orchestration required skills changed, `tests/process/test_codex_phase_orchestrator.py` must stay green.
+7. When `scripts/validate_skills.py` baseline rules are modified, this workflow file is updated in the same change set.
 
 ## Remediation Path
 1. If catalog drift: run sync script and commit generated file.

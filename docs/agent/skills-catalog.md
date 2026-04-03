@@ -3,14 +3,15 @@
 <!-- generated-by: scripts/sync_skills_catalog.py -->
 <!-- source-of-truth: .cursor/skills/*/SKILL.md -->
 <!-- generated-contract: do not edit manually; run python scripts/sync_skills_catalog.py -->
-<!-- catalog-sha256: f36dd8d3d650e2569d99bf695765483f10dc4a311e31e0a04df57a0f2f97be9c -->
+<!-- catalog-sha256: ed7675c940f6ae71261676ce84ed622a65ac81cffd6d06d3287e89daecb3fa98 -->
 
 | skill_id | classification | wave | status | scope | owner_surface | routing_triggers | source | hot_context_policy |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `ai-agent-architect` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | agent delivery planning and execution boundaries | `CTX-OPS` | agent; orchestration; pipeline; plan; strategy | `local_runtime` | `cold-by-default` |
 | `ai-change-explainer` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | change explanation and PR narrative quality | `CTX-OPS` | change summary; pr narrative; diff explanation; impact report | `local_runtime` | `cold-by-default` |
-| `architecture-review` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | architecture boundary review and dependency control | `CTX-ARCHITECTURE` | architecture; boundaries; dependencies; module review | `local_runtime` | `cold-by-default` |
+| `architecture-review` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | dual-surface architecture boundary review, dependency direction, and adapter boundary control | `CTX-ARCHITECTURE` | architecture; boundaries; dependencies; module review | `local_runtime` | `cold-by-default` |
 | `business-analyst` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | requirements framing and acceptance decomposition | `CTX-OPS` | requirements; scope; acceptance; traceability; stakeholder | `local_runtime` | `cold-by-default` |
+| `code-implementation-worker` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | worker-stage code implementation and primary quality guardrails | `CTX-OPS` | write code; implement; worker; first-pass quality; code practices; performance | `local_runtime` | `cold-by-default` |
 | `composition-contracts` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | interface composition and contract ownership | `CTX-CONTRACTS` | composition; contract; ownership; resolver mapping | `local_runtime` | `cold-by-default` |
 | `docs-sync` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | docs-as-source-of-truth synchronization | `CTX-OPS` | documentation; sync docs; docs as code; policy docs | `local_runtime` | `cold-by-default` |
 | `golden-tests-and-fixtures` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | golden fixtures and deterministic regression protection | `CTX-OPS` | golden tests; fixtures; regression protection; deterministic tests | `local_runtime` | `cold-by-default` |
