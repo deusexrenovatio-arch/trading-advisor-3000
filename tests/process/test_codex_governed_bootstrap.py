@@ -53,6 +53,8 @@ def test_bootstrap_reuses_active_session_and_forwards_to_governed_entry(
     assert "continue" in forwarded
     assert "--execution-contract" in forwarded
     assert "--parent-brief" in forwarded
+    timeout_index = forwarded.index("--mutation-lock-timeout-sec")
+    assert forwarded[timeout_index + 1] == str(max(float(bootstrap.DEFAULT_MUTATION_LOCK_TIMEOUT_SEC), 0.0))
     state = json.loads((tmp_path / ".runlogs/codex-governed-entry/bootstrap-state.json").read_text(encoding="utf-8"))
     assert state["session_action"] == "reused"
 

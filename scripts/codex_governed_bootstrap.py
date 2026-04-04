@@ -25,7 +25,12 @@ from task_session import (
     load_session_lock,
     normalize_session_mode,
 )
-from repo_mutation_lock import RepoMutationLockError, repo_mutation_lock
+from repo_mutation_lock import (
+    DEFAULT_MUTATION_LOCK_TIMEOUT_ENV,
+    DEFAULT_MUTATION_LOCK_TIMEOUT_SEC,
+    RepoMutationLockError,
+    repo_mutation_lock,
+)
 
 
 DEFAULT_BOOTSTRAP_STATE = Path(".runlogs/codex-governed-entry/bootstrap-state.json")
@@ -98,7 +103,7 @@ def write_bootstrap_state(
     payload: dict[str, Any],
     *,
     repo_root: Path | None = None,
-    mutation_lock_timeout_sec: float = 5.0,
+    mutation_lock_timeout_sec: float = DEFAULT_MUTATION_LOCK_TIMEOUT_SEC,
 ) -> None:
     if repo_root is None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -153,7 +158,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-remediation-cycles", type=int, default=2)
     parser.add_argument("--codex-bin", default=None)
     parser.add_argument("--skip-clean-check", action="store_true")
-    parser.add_argument("--mutation-lock-timeout-sec", type=float, default=5.0)
+    parser.add_argument(
+        "--mutation-lock-timeout-sec",
+        type=float,
+        default=DEFAULT_MUTATION_LOCK_TIMEOUT_SEC,
+        help=(
+            "timeout in seconds while waiting for governed repo mutation lock "
+            f"(env override: {DEFAULT_MUTATION_LOCK_TIMEOUT_ENV})."
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser
 

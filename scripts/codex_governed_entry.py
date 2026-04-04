@@ -15,7 +15,12 @@ from typing import Any
 
 from codex_from_package import choose_latest_package, main as package_main
 from codex_phase_orchestrator import main as orchestrator_main
-from repo_mutation_lock import RepoMutationLockError, repo_mutation_lock
+from repo_mutation_lock import (
+    DEFAULT_MUTATION_LOCK_TIMEOUT_ENV,
+    DEFAULT_MUTATION_LOCK_TIMEOUT_SEC,
+    RepoMutationLockError,
+    repo_mutation_lock,
+)
 
 
 DEFAULT_INBOX = Path("docs/codex/packages/inbox")
@@ -298,7 +303,7 @@ def build_stacked_followup_contract(
     new_base_ref: str,
     carry_surfaces: list[str],
     temporary_downgrade_surfaces: list[str],
-    mutation_lock_timeout_sec: float = 5.0,
+    mutation_lock_timeout_sec: float = DEFAULT_MUTATION_LOCK_TIMEOUT_SEC,
 ) -> Path:
     if decision.module is None:
         raise GovernedEntryError("stacked-followup route requires a module context")
@@ -457,7 +462,7 @@ def write_route_state(
     session_mode: str = LEGACY_SESSION_MODE,
     snapshot_mode: str = DEFAULT_SNAPSHOT_MODE,
     profile: str = "none",
-    mutation_lock_timeout_sec: float = 5.0,
+    mutation_lock_timeout_sec: float = DEFAULT_MUTATION_LOCK_TIMEOUT_SEC,
 ) -> None:
     phase_brief = decision.module.current_phase.as_posix() if decision.module is not None else None
     payload: dict[str, Any] = {
@@ -698,7 +703,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-remediation-cycles", type=int, default=2)
     parser.add_argument("--codex-bin", default=None)
     parser.add_argument("--skip-clean-check", action="store_true")
-    parser.add_argument("--mutation-lock-timeout-sec", type=float, default=5.0)
+    parser.add_argument(
+        "--mutation-lock-timeout-sec",
+        type=float,
+        default=DEFAULT_MUTATION_LOCK_TIMEOUT_SEC,
+        help=(
+            "timeout in seconds while waiting for governed repo mutation lock "
+            f"(env override: {DEFAULT_MUTATION_LOCK_TIMEOUT_ENV})."
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser
 

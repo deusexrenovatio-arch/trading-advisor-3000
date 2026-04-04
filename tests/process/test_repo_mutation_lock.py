@@ -13,7 +13,10 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from repo_mutation_lock import (  # noqa: E402
+    DEFAULT_MUTATION_LOCK_TIMEOUT_ENV,
+    DEFAULT_MUTATION_LOCK_TIMEOUT_SEC,
     RepoMutationLockError,
+    _resolve_default_timeout_sec,
     acquire_repo_mutation_lock,
     repo_mutation_lock,
 )
@@ -73,3 +76,15 @@ def test_repo_mutation_lock_fails_closed_on_git_index_lock(tmp_path: Path) -> No
         )
 
     assert index_lock.exists(), "index.lock must remain untouched by governed lock helper"
+
+
+def test_repo_mutation_lock_default_timeout_honors_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(DEFAULT_MUTATION_LOCK_TIMEOUT_ENV, "45")
+    assert _resolve_default_timeout_sec() == 45.0
+
+
+def test_repo_mutation_lock_default_timeout_falls_back_on_invalid_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(DEFAULT_MUTATION_LOCK_TIMEOUT_ENV, "not-a-number")
+    assert _resolve_default_timeout_sec() == DEFAULT_MUTATION_LOCK_TIMEOUT_SEC
