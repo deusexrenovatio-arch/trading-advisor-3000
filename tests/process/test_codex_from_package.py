@@ -21,6 +21,7 @@ from codex_from_package import (  # noqa: E402
     evaluate_intake_gate_from_text,
     evaluate_intake_gate_payload,
     extract_docx_title,
+    lane_model_override,
     safe_extract_zip,
 )
 
@@ -294,3 +295,8 @@ def test_build_prompt_includes_required_technical_intake_skill_binding(tmp_path:
     )
 
     assert "Required technical intake skills: .cursor/skills/workflow-architect/SKILL.md" in prompt
+
+
+def test_lane_model_override_sets_technical_intake_to_gpt_5_3_codex() -> None:
+    assert lane_model_override("technical_intake") == "gpt-5.3-codex"
+    assert lane_model_override("product_intake") is None
