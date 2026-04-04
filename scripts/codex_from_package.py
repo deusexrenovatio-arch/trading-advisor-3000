@@ -35,6 +35,7 @@ PRODUCT_INTAKE_END = "END_PRODUCT_INTAKE_JSON"
 INTAKE_BLOCKED_EXIT = 3
 BLOCKER_SEVERITIES = ("P0", "P1", "P2")
 BLOCKER_SCALES = ("S", "M", "L", "XL")
+INTAKE_REQUIRED_SKILLS = ("workflow-architect",)
 POSITIVE_HINTS = (
     ("technical_requirements", 140, "filename looks like technical requirements"),
     ("requirements", 120, "filename looks like requirements"),
@@ -621,6 +622,9 @@ def build_prompt(
     primary_line = suggested_primary if suggested_primary else "NONE"
     compiler_line = suggested_phase_compiler_artifact if suggested_phase_compiler_artifact else "NONE"
     phase_ids_line = ",".join(suggested_phase_ids) if suggested_phase_ids else "NONE"
+    required_intake_skills = ", ".join(
+        f".cursor/skills/{skill_id}/SKILL.md" for skill_id in INTAKE_REQUIRED_SKILLS
+    )
     return (
         f"{base}\n\n"
         f"Package zip path: {package_path.as_posix()}\n"
@@ -629,6 +633,7 @@ def build_prompt(
         f"Suggested primary document: {primary_line}\n"
         f"Suggested phase compiler artifact: {compiler_line}\n"
         f"Suggested phase ids: {phase_ids_line}\n"
+        f"Required intake skills: {required_intake_skills}\n"
         f"Mode hint: {mode}\n"
     )
 

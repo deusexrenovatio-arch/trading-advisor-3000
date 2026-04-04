@@ -864,6 +864,7 @@ def simulate_acceptance_payload(scenario: str, attempt: int) -> dict[str, Any]:
         "used_skills": [
             "phase-acceptance-governor",
             "architecture-review",
+            "code-reviewer",
             "testing-suite",
             "docs-sync",
             "verification-before-completion",

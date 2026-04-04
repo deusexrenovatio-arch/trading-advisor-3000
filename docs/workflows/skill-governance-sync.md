@@ -22,13 +22,23 @@ Generated catalog must not be edited manually.
 - `python scripts/skill_update_decision.py --strict --from-git --git-ref HEAD`
 - `python scripts/skill_precommit_gate.py --from-git --git-ref HEAD`
 
+## Skillkit-Assisted Intake
+When importing skills from external repositories:
+1. Use `skillkit` to discover and transform candidate skills.
+2. Treat transformed output as input draft, not production-ready runtime text.
+3. Normalize imported content to repository policy:
+   - metadata-complete frontmatter;
+   - dual-surface constraints;
+   - no domain leakage into baseline shell skills.
+4. Revalidate routing triggers and owner surface before runtime inclusion.
+
 ## Add Flow
 1. Create a new skill folder with a metadata-complete descriptor file.
 2. Ensure class policy allows runtime inclusion (`KEEP_CORE` for baseline).
 3. If baseline runtime set changed, update `scripts/validate_skills.py` (`KEEP_CORE_BASELINE`) in the same patch.
-3. Regenerate catalog.
-4. Update routing policy only if routing/class rules changed.
-5. Run strict validators and skill tests.
+4. Regenerate catalog.
+5. Update routing policy only if routing/class rules changed.
+6. Run strict validators and skill tests.
 
 ## Update Flow
 1. Edit existing skill metadata/content.
@@ -40,6 +50,12 @@ Generated catalog must not be edited manually.
 7. If process contract changed, update this workflow doc.
 8. When a runtime skill becomes part of a hard unblock decision, document the acceptance/governance effect here explicitly so strict review can see why the runtime skill matters.
 9. Run strict decision + precommit gate.
+
+## Baseline Contract Note
+If `scripts/validate_skills.py` baseline set changes:
+1. This workflow file must be updated in the same change set.
+2. Routing policy must reflect any new runtime activation behavior.
+3. Catalog sync output must be regenerated and committed.
 
 ## Remove/Rename Flow
 1. Apply remove or rename in `.cursor/skills`.

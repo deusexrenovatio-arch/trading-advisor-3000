@@ -69,6 +69,7 @@ ORCHESTRATION_REVIEW_PREFIXES: tuple[str, ...] = (
 )
 ORCHESTRATION_REVIEW_LENSES: tuple[str, ...] = (
     "phase-acceptance-governor",
+    "code-reviewer",
     "verification-before-completion",
     "testing-suite",
 )

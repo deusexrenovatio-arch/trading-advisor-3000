@@ -25,6 +25,7 @@ def _acceptance_payload() -> AcceptanceResult:
         used_skills=[
             "phase-acceptance-governor",
             "architecture-review",
+            "code-reviewer",
             "testing-suite",
             "docs-sync",
             "verification-before-completion",

@@ -35,8 +35,10 @@ The operator wants automatic progression only after an independent acceptance pa
 - Hard review lens skill: `.cursor/skills/phase-acceptance-governor/SKILL.md`
 - Companion skills:
   - `.cursor/skills/architecture-review/SKILL.md`
+  - `.cursor/skills/code-reviewer/SKILL.md`
   - `.cursor/skills/testing-suite/SKILL.md`
   - `.cursor/skills/docs-sync/SKILL.md`
+  - `.cursor/skills/verification-before-completion/SKILL.md`
 
 Acceptance is fail-closed.
 `PASS` is not allowed when unresolved quality debt is only being "recorded".
