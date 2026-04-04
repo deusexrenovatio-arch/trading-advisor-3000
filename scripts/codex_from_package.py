@@ -271,7 +271,7 @@ def build_intake_lane_prompt(*, base_prompt: str, lane: str) -> str:
         lane_scope = (
             "- lane: technical_intake\n"
             "- focus: architecture fit, implementation feasibility, delivery risks, technical blockers\n"
-            "- required lenses: architecture-review, business-analyst, tz-oss-scout\n"
+            "- required lenses: workflow-architect, architecture-review, business-analyst, tz-oss-scout\n"
         )
     else:
         lane_scope = (
@@ -633,7 +633,7 @@ def build_prompt(
         f"Suggested primary document: {primary_line}\n"
         f"Suggested phase compiler artifact: {compiler_line}\n"
         f"Suggested phase ids: {phase_ids_line}\n"
-        f"Required intake skills: {required_intake_skills}\n"
+        f"Required technical intake skills: {required_intake_skills}\n"
         f"Mode hint: {mode}\n"
     )
 

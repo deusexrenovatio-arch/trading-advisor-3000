@@ -71,7 +71,7 @@ Execution preferences:
   - `Suggested additional skills` (if any);
   - `Why needed` (one-line per suggestion).
 - Runtime lanes:
-  - `technical_intake` lane returns only one tagged JSON block with `BEGIN_TECHNICAL_INTAKE_JSON` / `END_TECHNICAL_INTAKE_JSON`;
+  - `technical_intake` lane returns only one tagged JSON block with `BEGIN_TECHNICAL_INTAKE_JSON` / `END_TECHNICAL_INTAKE_JSON` and must apply `.cursor/skills/workflow-architect/SKILL.md` as lane binding;
   - `product_intake` lane returns only one tagged JSON block with `BEGIN_PRODUCT_INTAKE_JSON` / `END_PRODUCT_INTAKE_JSON`;
   - `materialization` lane consumes lane artifacts and writes canonical docs; it does not emit lane-gate JSON tags.
 - Each lane payload must include:
@@ -88,5 +88,5 @@ Package manifest path: <ABSOLUTE_OR_REPO_RELATIVE_PATH>
 Suggested primary document: <ABSOLUTE_OR_REPO_RELATIVE_PATH_OR_NONE>
 Suggested phase compiler artifact: <ABSOLUTE_OR_REPO_RELATIVE_PATH_OR_NONE>
 Suggested phase ids: <CSV_PHASE_IDS_OR_NONE>
-Required intake skills: <COMMA_SEPARATED_SKILL_PATHS_OR_NONE>
+Required technical intake skills: <COMMA_SEPARATED_SKILL_PATHS_OR_NONE>
 Mode hint: <auto|plan-only|implement-only|continue|repair>

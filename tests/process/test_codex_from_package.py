@@ -129,8 +129,10 @@ def test_build_intake_lane_prompt_embeds_lane_tags() -> None:
     assert "BEGIN_TECHNICAL_INTAKE_JSON" in technical_prompt
     assert "END_TECHNICAL_INTAKE_JSON" in technical_prompt
     assert "Do not modify repository files in this lane pass." in technical_prompt
+    assert "workflow-architect" in technical_prompt
     assert "BEGIN_PRODUCT_INTAKE_JSON" in product_prompt
     assert "END_PRODUCT_INTAKE_JSON" in product_prompt
+    assert "workflow-architect" not in product_prompt
 
 
 def test_extract_lane_payload_from_text_supports_plain_lane_object() -> None:
@@ -277,7 +279,7 @@ END_INTAKE_GATE_JSON
     gate = evaluate_intake_gate_from_text(text)
     assert gate["combined_gate"]["decision"] == "PASS"
 
-def test_build_prompt_includes_required_intake_skill_binding(tmp_path: Path) -> None:
+def test_build_prompt_includes_required_technical_intake_skill_binding(tmp_path: Path) -> None:
     prompt_path = tmp_path / "from_package.md"
     prompt_path.write_text("Use the package-intake flow for this repository.", encoding="utf-8")
     prompt = build_prompt(
@@ -291,4 +293,4 @@ def test_build_prompt_includes_required_intake_skill_binding(tmp_path: Path) -> 
         mode="auto",
     )
 
-    assert "Required intake skills: .cursor/skills/workflow-architect/SKILL.md" in prompt
+    assert "Required technical intake skills: .cursor/skills/workflow-architect/SKILL.md" in prompt
