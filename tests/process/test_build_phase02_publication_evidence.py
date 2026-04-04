@@ -60,6 +60,8 @@ def test_build_evidence_marks_live_real_ready_when_bindings_and_probes_are_green
 
 def test_build_evidence_is_unready_without_channel_binding(monkeypatch) -> None:
     monkeypatch.setenv("TA3000_TELEGRAM_BOT_TOKEN", "token")
+    monkeypatch.delenv("TA3000_TELEGRAM_CHANNEL", raising=False)
+    monkeypatch.delenv("TA3000_TELEGRAM_CHAT_ID", raising=False)
 
     def _fake_probe(token: str, method: str, *, params=None):  # type: ignore[no-untyped-def]
         if method == "getMe":

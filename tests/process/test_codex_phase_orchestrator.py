@@ -26,12 +26,14 @@ def _launch(model: str) -> RoleLaunchConfig:
 
 def _write_acceptor_skills(repo: Path) -> None:
     skills = {
+        "code-implementation-worker": "---\nname: code-implementation-worker\ndescription: test\nclassification: KEEP_CORE\nwave: WAVE_1\nstatus: ACTIVE\nowner_surface: CTX-IMPLEMENTATION\nrouting_triggers:\n  - coding\n---\n# code implementation worker\n",
         "phase-acceptance-governor": "---\nname: phase-acceptance-governor\ndescription: test\nclassification: KEEP_CORE\nwave: WAVE_1\nstatus: ACTIVE\nowner_surface: CTX-OPS\nrouting_triggers:\n  - acceptance\n---\n# phase acceptance governor\n",
         "architecture-review": "---\nname: architecture-review\ndescription: test\nclassification: KEEP_CORE\nwave: WAVE_1\nstatus: ACTIVE\nowner_surface: CTX-ARCHITECTURE\nrouting_triggers:\n  - architecture\n---\n# architecture review\n",
         "code-reviewer": "---\nname: code-reviewer\ndescription: test\nclassification: KEEP_CORE\nwave: WAVE_1\nstatus: ACTIVE\nowner_surface: CTX-OPS\nrouting_triggers:\n  - review\n---\n# code reviewer\n",
         "testing-suite": "---\nname: testing-suite\ndescription: test\nclassification: KEEP_CORE\nwave: WAVE_1\nstatus: ACTIVE\nowner_surface: CTX-OPS\nrouting_triggers:\n  - tests\n---\n# testing suite\n",
         "docs-sync": "---\nname: docs-sync\ndescription: test\nclassification: KEEP_CORE\nwave: WAVE_1\nstatus: ACTIVE\nowner_surface: CTX-OPS\nrouting_triggers:\n  - docs\n---\n# docs sync\n",
         "verification-before-completion": "---\nname: verification-before-completion\ndescription: test\nclassification: KEEP_CORE\nwave: WAVE_1\nstatus: ACTIVE\nowner_surface: CTX-OPS\nrouting_triggers:\n  - verification before completion\n---\n# verification before completion\n",
+        "repeated-issue-review": "---\nname: repeated-issue-review\ndescription: test\nclassification: KEEP_CORE\nwave: WAVE_1\nstatus: ACTIVE\nowner_surface: CTX-OPS\nrouting_triggers:\n  - remediation\n---\n# repeated issue review\n",
     }
     for skill_id, text in skills.items():
         _write(repo / ".cursor/skills" / skill_id / "SKILL.md", text)
@@ -236,7 +238,12 @@ def test_orchestrator_pass_advances_next_phase(tmp_path: Path) -> None:
     assert payload["attempts_total"] == 1
     assert payload["route_mode"] == "governed-phase-orchestration"
     assert payload["attempts"][0]["acceptor_used_skills"][0] == "phase-acceptance-governor"
+    assert payload["role_skill_bindings"]["worker"][0]["skill_id"] == "code-implementation-worker"
+    assert payload["role_skill_bindings"]["remediation"][0]["skill_id"] == "code-implementation-worker"
+    assert payload["role_skill_bindings"]["remediation"][1]["skill_id"] == "repeated-issue-review"
     assert payload["role_skill_bindings"]["acceptor"][0]["skill_id"] == "phase-acceptance-governor"
+    worker_bound = json.loads((state_path.parent / "attempt-01/worker-bound-skills.json").read_text(encoding="utf-8"))
+    assert worker_bound["bindings"][0]["skill_id"] == "code-implementation-worker"
 
 
 def test_orchestrator_block_then_pass_uses_remediation_loop(tmp_path: Path) -> None:
@@ -266,6 +273,11 @@ def test_orchestrator_block_then_pass_uses_remediation_loop(tmp_path: Path) -> N
     assert payload["attempts"][0]["verdict"] == "BLOCKED"
     assert payload["attempts"][1]["verdict"] == "PASS"
     assert any("unlock next phase" in item for item in payload["route_trace"])
+    remediation_bound = json.loads((state_path.parent / "attempt-02/remediation-bound-skills.json").read_text(encoding="utf-8"))
+    assert [item["skill_id"] for item in remediation_bound["bindings"]] == [
+        "code-implementation-worker",
+        "repeated-issue-review",
+    ]
 
 
 def test_orchestrator_blocked_keeps_same_phase_locked(tmp_path: Path) -> None:

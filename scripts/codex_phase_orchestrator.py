@@ -24,6 +24,8 @@ from codex_phase_policy import (
     DEFAULT_WORKER_MODEL,
     PhaseEvidenceRequirement,
     REQUIRED_ACCEPTANCE_SKILLS,
+    REQUIRED_REMEDIATION_SKILLS,
+    REQUIRED_WORKER_SKILLS,
     ROUTE_GUARDRAILS,
     ROUTE_MODE,
     SkillBinding,
@@ -687,9 +689,9 @@ def resolve_skill_binding(repo_root: Path, skill_id: str) -> SkillBinding:
 
 def resolve_role_skill_bindings(repo_root: Path) -> dict[str, list[SkillBinding]]:
     return {
-        "worker": [],
+        "worker": [resolve_skill_binding(repo_root, skill_id) for skill_id in REQUIRED_WORKER_SKILLS],
         "acceptor": [resolve_skill_binding(repo_root, skill_id) for skill_id in REQUIRED_ACCEPTANCE_SKILLS],
-        "remediation": [],
+        "remediation": [resolve_skill_binding(repo_root, skill_id) for skill_id in REQUIRED_REMEDIATION_SKILLS],
     }
 
 
@@ -735,6 +737,7 @@ def build_worker_prompt(
     phase_path: Path,
     attempt: int,
     remediation_blockers_path: Path | None,
+    skill_bindings: list[SkillBinding],
     entry_route: str = "continue",
     continuation_contract_path: Path | None = None,
 ) -> str:
@@ -745,6 +748,7 @@ def build_worker_prompt(
         f"{base}\n\n"
         "Route Guardrails:\n"
         f"{route_guardrail_text()}\n\n"
+        f"{render_bound_skills_text(skill_bindings)}\n\n"
         f"Execution Contract: {execution_contract_path.as_posix()}\n"
         f"Module Parent Brief: {parent_path.as_posix()}\n"
         f"Phase Brief: {phase_path.as_posix()}\n"
@@ -1061,11 +1065,16 @@ def orchestrate_current_phase(
             phase_path=phase_path,
             attempt=attempt,
             remediation_blockers_path=blockers_path,
+            skill_bindings=role_skill_bindings[kind],
             entry_route=entry_route,
             continuation_contract_path=continuation_contract_path,
         )
         worker_prompt_file = attempt_dir / f"{kind}-prompt.md"
         worker_last_message = attempt_dir / f"{kind}-last-message.txt"
+        write_json(
+            attempt_dir / f"{kind}-bound-skills.json",
+            {"bindings": [asdict(binding) for binding in role_skill_bindings[kind]]},
+        )
         worker_payload = run_role(
             role=kind,
             backend=backend,
