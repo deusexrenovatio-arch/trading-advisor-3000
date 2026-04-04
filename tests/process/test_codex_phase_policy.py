@@ -27,6 +27,7 @@ def _acceptance_payload() -> AcceptanceResult:
             "architecture-review",
             "testing-suite",
             "docs-sync",
+            "verification-before-completion",
         ],
         blockers=[],
         rerun_checks=[],

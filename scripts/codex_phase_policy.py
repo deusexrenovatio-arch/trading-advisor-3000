@@ -11,6 +11,13 @@ WORKER_BEGIN = "BEGIN_PHASE_WORKER_JSON"
 WORKER_END = "END_PHASE_WORKER_JSON"
 ACCEPTANCE_BEGIN = "BEGIN_PHASE_ACCEPTANCE_JSON"
 ACCEPTANCE_END = "END_PHASE_ACCEPTANCE_JSON"
+REQUIRED_WORKER_SKILLS = (
+    "code-implementation-worker",
+)
+REQUIRED_REMEDIATION_SKILLS = (
+    "code-implementation-worker",
+    "repeated-issue-review",
+)
 REQUIRED_ACCEPTANCE_SKILLS = (
     "phase-acceptance-governor",
     "architecture-review",

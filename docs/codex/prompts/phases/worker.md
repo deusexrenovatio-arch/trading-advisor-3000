@@ -14,6 +14,7 @@ Read first:
 10. the current phase brief
 11. `docs/codex/orchestration/acceptance-contract.md`
 12. `docs/checklists/phase-evidence-contract.md`
+13. `.cursor/skills/code-implementation-worker/SKILL.md`
 
 Rules:
 
@@ -26,6 +27,7 @@ Rules:
 - Do not silently introduce assumptions, fallback paths, skipped checks, or deferred critical work.
 - If any assumption, skip, fallback, or deferral exists, report it explicitly. Acceptance will treat it as a blocker.
 - Include the bounded `evidence_contract` object from `docs/checklists/phase-evidence-contract.md`.
+- Apply the intent of `.cursor/skills/code-implementation-worker/SKILL.md` for implementation discipline and execution quality.
 - Do not emit a final release-decision package from worker scope; for `release_decision` phases, only acceptance-owned closeout may emit final `ALLOW_RELEASE_READINESS` or `DENY_RELEASE_READINESS`.
 - Keep `evidence_contract` minimal and concrete:
   - `surfaces`
