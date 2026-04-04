@@ -110,6 +110,9 @@ Example:
 ## Enforcement Upgrade / Serialization (H4)
 - Governed state writes now use a repo mutation lock with retry semantics.
 - If `.git/index.lock` is present, governed writers fail closed and require explicit retry after active git writes finish.
+- Default governed mutation lock timeout is `30s`.
+  - Runtime override: `TA3000_MUTATION_LOCK_TIMEOUT_SEC=<seconds>`
+  - Per-run override: `--mutation-lock-timeout-sec <seconds>`
 - Mutation lock events are written to:
   - `.runlogs/codex-governed-entry/repo-mutation-events.jsonl`
 - Explicit release decision package emission:

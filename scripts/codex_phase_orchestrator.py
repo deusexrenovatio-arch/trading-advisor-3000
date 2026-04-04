@@ -43,7 +43,12 @@ from codex_phase_policy import (
     route_guardrail_text,
     state_payload,
 )
-from repo_mutation_lock import RepoMutationLockError, repo_mutation_lock
+from repo_mutation_lock import (
+    DEFAULT_MUTATION_LOCK_TIMEOUT_ENV,
+    DEFAULT_MUTATION_LOCK_TIMEOUT_SEC,
+    RepoMutationLockError,
+    repo_mutation_lock,
+)
 
 
 DEFAULT_ARTIFACT_ROOT = Path("artifacts/codex/orchestration")
@@ -291,7 +296,7 @@ def update_parent_and_contract_after_pass(
     parent_path: Path,
     execution_contract_path: Path,
     current_phase_path: Path,
-    mutation_lock_timeout_sec: float = 5.0,
+    mutation_lock_timeout_sec: float = DEFAULT_MUTATION_LOCK_TIMEOUT_SEC,
 ) -> None:
     next_phase = next_phase_after(parent_path, current_phase_path)
     if next_phase is None:
@@ -335,7 +340,7 @@ def update_phase_status(
     status: str,
     *,
     repo_root: Path,
-    mutation_lock_timeout_sec: float = 5.0,
+    mutation_lock_timeout_sec: float = DEFAULT_MUTATION_LOCK_TIMEOUT_SEC,
 ) -> None:
     set_bullet_value(
         path,
@@ -1014,7 +1019,7 @@ def orchestrate_current_phase(
     max_remediation_cycles: int,
     ignore_globs: tuple[str, ...],
     skip_clean_check: bool,
-    mutation_lock_timeout_sec: float = 5.0,
+    mutation_lock_timeout_sec: float = DEFAULT_MUTATION_LOCK_TIMEOUT_SEC,
     entry_route: str = "continue",
     continuation_contract_path: Path | None = None,
 ) -> tuple[int, Path]:
@@ -1420,7 +1425,15 @@ def build_parser() -> argparse.ArgumentParser:
         target.add_argument("--remediation-config", action="append", default=[])
         target.add_argument("--ignore-glob", action="append", default=[])
         target.add_argument("--skip-clean-check", action="store_true")
-        target.add_argument("--mutation-lock-timeout-sec", type=float, default=5.0)
+        target.add_argument(
+            "--mutation-lock-timeout-sec",
+            type=float,
+            default=DEFAULT_MUTATION_LOCK_TIMEOUT_SEC,
+            help=(
+                "timeout in seconds while waiting for governed repo mutation lock "
+                f"(env override: {DEFAULT_MUTATION_LOCK_TIMEOUT_ENV})."
+            ),
+        )
 
     preflight = subparsers.add_parser("preflight")
     add_common(preflight)

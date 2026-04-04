@@ -13,6 +13,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from codex_governed_entry import (  # noqa: E402
+    DEFAULT_MUTATION_LOCK_TIMEOUT_SEC,
     DEFAULT_ROUTE_STATE,
     GovernedEntryError,
     decide_route,
@@ -372,6 +373,10 @@ def test_continue_route_forwards_profile_to_orchestrator(monkeypatch, tmp_path: 
     assert code == 0
     assert len(calls) == 2
     assert any("--profile" in call and "ops" in call for call in calls)
+    expected_timeout = str(max(float(DEFAULT_MUTATION_LOCK_TIMEOUT_SEC), 0.0))
+    for call in calls:
+        timeout_index = call.index("--mutation-lock-timeout-sec")
+        assert call[timeout_index + 1] == expected_timeout
 
 
 def test_main_stacked_followup_writes_continuation_contract(monkeypatch, tmp_path: Path) -> None:

@@ -13,6 +13,21 @@ from typing import Any, Iterator
 
 DEFAULT_REPO_LOCK_RELATIVE = Path(".runlogs/codex-governed-entry/repo-mutation.lock")
 DEFAULT_EVENT_LOG_RELATIVE = Path(".runlogs/codex-governed-entry/repo-mutation-events.jsonl")
+DEFAULT_MUTATION_LOCK_TIMEOUT_ENV = "TA3000_MUTATION_LOCK_TIMEOUT_SEC"
+_FALLBACK_MUTATION_LOCK_TIMEOUT_SEC = 30.0
+
+
+def _resolve_default_timeout_sec() -> float:
+    raw = str(os.getenv(DEFAULT_MUTATION_LOCK_TIMEOUT_ENV, "")).strip()
+    if not raw:
+        return _FALLBACK_MUTATION_LOCK_TIMEOUT_SEC
+    try:
+        return max(float(raw), 0.0)
+    except ValueError:
+        return _FALLBACK_MUTATION_LOCK_TIMEOUT_SEC
+
+
+DEFAULT_MUTATION_LOCK_TIMEOUT_SEC = _resolve_default_timeout_sec()
 
 
 class RepoMutationLockError(RuntimeError):
@@ -114,7 +129,7 @@ def acquire_repo_mutation_lock(
     *,
     repo_root: Path,
     owner: str,
-    timeout_sec: float = 5.0,
+    timeout_sec: float = DEFAULT_MUTATION_LOCK_TIMEOUT_SEC,
     poll_interval_sec: float = 0.25,
     lock_path: Path = DEFAULT_REPO_LOCK_RELATIVE,
     event_log_path: Path = DEFAULT_EVENT_LOG_RELATIVE,
@@ -221,7 +236,7 @@ def repo_mutation_lock(
     *,
     repo_root: Path,
     owner: str,
-    timeout_sec: float = 5.0,
+    timeout_sec: float = DEFAULT_MUTATION_LOCK_TIMEOUT_SEC,
     poll_interval_sec: float = 0.25,
     lock_path: Path = DEFAULT_REPO_LOCK_RELATIVE,
     event_log_path: Path = DEFAULT_EVENT_LOG_RELATIVE,

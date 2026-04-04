@@ -77,6 +77,9 @@ Use this runbook when a governance gate fails.
 - Symptom: governed write fails because repo mutation lock is held.
 - Inspect lock evidence:
   - `.runlogs/codex-governed-entry/repo-mutation-events.jsonl`
+- Default wait timeout is `30s`; override when needed:
+  - env: `TA3000_MUTATION_LOCK_TIMEOUT_SEC=60`
+  - flag: `--mutation-lock-timeout-sec 60`
 - If `.git/index.lock` exists, do not delete it blindly.
   - Confirm active git write process ended.
   - Retry governed command after index lock is naturally released.
