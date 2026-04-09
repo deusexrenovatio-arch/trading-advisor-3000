@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import html
 import json
 import re
@@ -32,6 +31,11 @@ TECHNICAL_INTAKE_BEGIN = "BEGIN_TECHNICAL_INTAKE_JSON"
 TECHNICAL_INTAKE_END = "END_TECHNICAL_INTAKE_JSON"
 PRODUCT_INTAKE_BEGIN = "BEGIN_PRODUCT_INTAKE_JSON"
 PRODUCT_INTAKE_END = "END_PRODUCT_INTAKE_JSON"
+INTAKE_HUMAN_SUMMARY_BEGIN = "BEGIN_INTAKE_HUMAN_SUMMARY"
+INTAKE_HUMAN_SUMMARY_END = "END_INTAKE_HUMAN_SUMMARY"
+MATERIALIZATION_RESULT_BEGIN = "BEGIN_MATERIALIZATION_RESULT_JSON"
+MATERIALIZATION_RESULT_END = "END_MATERIALIZATION_RESULT_JSON"
+LANE_SEQUENCE = ("product_intake", "technical_intake")
 INTAKE_BLOCKED_EXIT = 3
 BLOCKER_SEVERITIES = ("P0", "P1", "P2")
 BLOCKER_SCALES = ("S", "M", "L", "XL")
@@ -125,6 +129,57 @@ def _normalize_blockers(raw_blockers: Any, *, lane: str) -> list[dict[str, str]]
     return normalized
 
 
+def _normalize_digest_list(raw: Any, *, lane: str, field: str) -> list[str]:
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError(f"{lane}.{field} must be an array")
+    normalized: list[str] = []
+    for idx, item in enumerate(raw, start=1):
+        text = str(item).strip()
+        if not text:
+            raise ValueError(f"{lane}.{field}[{idx}] must be a non-empty string")
+        if text not in normalized:
+            normalized.append(text)
+    return normalized
+
+
+def _normalize_structural_recommendations(raw: Any, *, lane: str) -> list[dict[str, str]]:
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError(f"{lane}.structural_recommendations must be an array")
+    normalized: list[dict[str, str]] = []
+    allowed_priority = {"CRITICAL", "HIGH", "MEDIUM", "LOW"}
+    for idx, item in enumerate(raw, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(f"{lane}.structural_recommendations[{idx}] must be an object")
+        title = str(item.get("title", "")).strip()
+        why = str(item.get("why", "")).strip()
+        proposal = str(item.get("proposal", item.get("suggested_change", ""))).strip()
+        impact_on_tz = str(item.get("impact_on_tz", "")).strip()
+        priority = str(item.get("priority", "MEDIUM")).strip().upper()
+        if priority not in allowed_priority:
+            raise ValueError(
+                f"{lane}.structural_recommendations[{idx}].priority must be one of {sorted(allowed_priority)}"
+            )
+        if not title:
+            raise ValueError(f"{lane}.structural_recommendations[{idx}].title is required")
+        if not why:
+            raise ValueError(f"{lane}.structural_recommendations[{idx}].why is required")
+        normalized.append(
+            {
+                "id": str(item.get("id", f"{lane.upper()}-SR-{idx:02d}")).strip(),
+                "priority": priority,
+                "title": title,
+                "why": why,
+                "proposal": proposal,
+                "impact_on_tz": impact_on_tz,
+            }
+        )
+    return normalized
+
+
 def _normalize_lane(payload: dict[str, Any], lane: str) -> dict[str, Any]:
     lane_payload = payload.get(lane)
     if not isinstance(lane_payload, dict):
@@ -137,14 +192,37 @@ def _normalize_lane(payload: dict[str, Any], lane: str) -> dict[str, Any]:
     created_docs = [str(item).strip() for item in created_docs_raw if str(item).strip()]
     blockers = _normalize_blockers(lane_payload.get("blockers"), lane=lane)
     review_summary = str(lane_payload.get("review_summary", "")).strip()
+    goals_digest = _normalize_digest_list(lane_payload.get("goals_digest"), lane=lane, field="goals_digest")
+    acceptance_criteria_digest = _normalize_digest_list(
+        lane_payload.get("acceptance_criteria_digest"),
+        lane=lane,
+        field="acceptance_criteria_digest",
+    )
+    structural_recommendations_provided = "structural_recommendations" in lane_payload
+    structural_recommendations = _normalize_structural_recommendations(
+        lane_payload.get("structural_recommendations"),
+        lane=lane,
+    )
     return {
         "created_docs": created_docs,
         "review_summary": review_summary,
+        "goals_digest": goals_digest,
+        "acceptance_criteria_digest": acceptance_criteria_digest,
+        "structural_recommendations_provided": structural_recommendations_provided,
+        "structural_recommendations": structural_recommendations,
         "blockers": blockers,
     }
 
 
-def _auto_blockers_for_lane(*, lane: str, created_docs: list[str], review_summary: str) -> list[dict[str, str]]:
+def _auto_blockers_for_lane(
+    *,
+    lane: str,
+    created_docs: list[str],
+    review_summary: str,
+    goals_digest: list[str],
+    acceptance_criteria_digest: list[str],
+    structural_recommendations_provided: bool,
+) -> list[dict[str, str]]:
     auto: list[dict[str, str]] = []
     if not created_docs:
         auto.append(
@@ -166,6 +244,39 @@ def _auto_blockers_for_lane(*, lane: str, created_docs: list[str], review_summar
                 "title": "Review summary is missing",
                 "why": "Intake must include explicit review findings and closure status.",
                 "required_action": "Add a concise review summary with accepted risks and unresolved findings.",
+            }
+        )
+    if not goals_digest:
+        auto.append(
+            {
+                "id": f"AUTO-{lane.upper()}-GOALS",
+                "severity": "P1",
+                "scale": "M",
+                "title": "Goals digest is missing",
+                "why": "Intake output must include a concise goals digest extracted from source requirements.",
+                "required_action": "Add `goals_digest` with explicit user/business objectives.",
+            }
+        )
+    if not acceptance_criteria_digest:
+        auto.append(
+            {
+                "id": f"AUTO-{lane.upper()}-ACCEPTANCE",
+                "severity": "P1",
+                "scale": "M",
+                "title": "Acceptance criteria digest is missing",
+                "why": "Intake output must include acceptance criteria so downstream phases preserve source DoD.",
+                "required_action": "Add `acceptance_criteria_digest` with measurable acceptance checks.",
+            }
+        )
+    if not structural_recommendations_provided:
+        auto.append(
+            {
+                "id": f"AUTO-{lane.upper()}-STRUCTURE",
+                "severity": "P1",
+                "scale": "M",
+                "title": "Structural recommendations section is missing",
+                "why": "Intake must explicitly report structural improvements/critical changes or provide an empty list.",
+                "required_action": "Add `structural_recommendations` as an array (can be empty when no changes are needed).",
             }
         )
     return auto
@@ -193,11 +304,17 @@ def evaluate_intake_gate_payload(payload: dict[str, Any]) -> dict[str, Any]:
         lane="technical_intake",
         created_docs=technical["created_docs"],
         review_summary=technical["review_summary"],
+        goals_digest=technical["goals_digest"],
+        acceptance_criteria_digest=technical["acceptance_criteria_digest"],
+        structural_recommendations_provided=bool(technical["structural_recommendations_provided"]),
     )
     product_blockers = list(product["blockers"]) + _auto_blockers_for_lane(
         lane="product_intake",
         created_docs=product["created_docs"],
         review_summary=product["review_summary"],
+        goals_digest=product["goals_digest"],
+        acceptance_criteria_digest=product["acceptance_criteria_digest"],
+        structural_recommendations_provided=bool(product["structural_recommendations_provided"]),
     )
     all_blockers = technical_blockers + product_blockers
     severity = _severity_counts(all_blockers)
@@ -210,12 +327,18 @@ def evaluate_intake_gate_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "technical_intake": {
             "created_docs": technical["created_docs"],
             "review_summary": technical["review_summary"],
+            "goals_digest": technical["goals_digest"],
+            "acceptance_criteria_digest": technical["acceptance_criteria_digest"],
+            "structural_recommendations": technical["structural_recommendations"],
             "blockers": technical_blockers,
             "severity_counts": _severity_counts(technical_blockers),
         },
         "product_intake": {
             "created_docs": product["created_docs"],
             "review_summary": product["review_summary"],
+            "goals_digest": product["goals_digest"],
+            "acceptance_criteria_digest": product["acceptance_criteria_digest"],
+            "structural_recommendations": product["structural_recommendations"],
             "blockers": product_blockers,
             "severity_counts": _severity_counts(product_blockers),
         },
@@ -247,14 +370,111 @@ def render_intake_gate_markdown(gate: dict[str, Any]) -> str:
         "## Technical Intake",
         f"- Created Docs: {len(gate['technical_intake']['created_docs'])}",
         f"- Review Summary Present: {'yes' if gate['technical_intake']['review_summary'] else 'no'}",
+        f"- Goals Digest Items: {len(gate['technical_intake']['goals_digest'])}",
+        f"- Acceptance Criteria Items: {len(gate['technical_intake']['acceptance_criteria_digest'])}",
+        f"- Structural Recommendations: {len(gate['technical_intake']['structural_recommendations'])}",
         f"- Blockers: {len(gate['technical_intake']['blockers'])}",
         "",
         "## Product Intake",
         f"- Created Docs: {len(gate['product_intake']['created_docs'])}",
         f"- Review Summary Present: {'yes' if gate['product_intake']['review_summary'] else 'no'}",
+        f"- Goals Digest Items: {len(gate['product_intake']['goals_digest'])}",
+        f"- Acceptance Criteria Items: {len(gate['product_intake']['acceptance_criteria_digest'])}",
+        f"- Structural Recommendations: {len(gate['product_intake']['structural_recommendations'])}",
         f"- Blockers: {len(gate['product_intake']['blockers'])}",
         "",
     ]
+    return "\n".join(lines)
+
+
+def _dedupe_strings(items: list[str]) -> list[str]:
+    out: list[str] = []
+    for item in items:
+        text = str(item).strip()
+        if text and text not in out:
+            out.append(text)
+    return out
+
+
+def build_intake_human_summary(gate: dict[str, Any]) -> dict[str, Any]:
+    technical = gate.get("technical_intake", {})
+    product = gate.get("product_intake", {})
+    goals = _dedupe_strings(
+        [*list(product.get("goals_digest", [])), *list(technical.get("goals_digest", []))]
+        if isinstance(product, dict) and isinstance(technical, dict)
+        else []
+    )
+    acceptance = _dedupe_strings(
+        [
+            *list(product.get("acceptance_criteria_digest", [])),
+            *list(technical.get("acceptance_criteria_digest", [])),
+        ]
+        if isinstance(product, dict) and isinstance(technical, dict)
+        else []
+    )
+    structural_recommendations: list[dict[str, Any]] = []
+    for lane_name in ("technical_intake", "product_intake"):
+        lane_payload = gate.get(lane_name, {})
+        if not isinstance(lane_payload, dict):
+            continue
+        items = lane_payload.get("structural_recommendations", [])
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            candidate = {"lane": lane_name, **item}
+            if candidate not in structural_recommendations:
+                structural_recommendations.append(candidate)
+    decision = str(gate.get("combined_gate", {}).get("decision", "UNKNOWN")).strip().upper()
+    return {
+        "schema_version": 1,
+        "gate_decision": decision,
+        "goals_digest": goals,
+        "acceptance_criteria_digest": acceptance,
+        "structural_recommendations": structural_recommendations,
+    }
+
+
+def render_intake_human_summary_markdown(summary: dict[str, Any]) -> str:
+    goals = summary.get("goals_digest", []) if isinstance(summary, dict) else []
+    acceptance = summary.get("acceptance_criteria_digest", []) if isinstance(summary, dict) else []
+    structural = summary.get("structural_recommendations", []) if isinstance(summary, dict) else []
+    lines = [
+        "# Intake Human Summary",
+        "",
+        f"- Gate Decision: {summary.get('gate_decision', 'UNKNOWN')}",
+        "",
+        "## Goals Digest",
+    ]
+    if isinstance(goals, list) and goals:
+        lines.extend([f"- {item}" for item in goals])
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Acceptance Criteria Digest"])
+    if isinstance(acceptance, list) and acceptance:
+        lines.extend([f"- {item}" for item in acceptance])
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Structural Recommendations"])
+    if isinstance(structural, list) and structural:
+        for item in structural:
+            if not isinstance(item, dict):
+                continue
+            lane = str(item.get("lane", "unknown")).strip()
+            priority = str(item.get("priority", "MEDIUM")).strip()
+            title = str(item.get("title", "")).strip()
+            proposal = str(item.get("proposal", "")).strip()
+            impact = str(item.get("impact_on_tz", "")).strip()
+            line = f"- [{lane}] ({priority}) {title}"
+            if proposal:
+                line += f"; proposal: {proposal}"
+            if impact:
+                line += f"; impact_on_tz: {impact}"
+            lines.append(line)
+    else:
+        lines.append("- none")
+    lines.append("")
     return "\n".join(lines)
 
 
@@ -266,7 +486,7 @@ def lane_tags(lane: str) -> tuple[str, str]:
     raise ValueError(f"unsupported intake lane: {lane}")
 
 
-def build_intake_lane_prompt(*, base_prompt: str, lane: str) -> str:
+def build_intake_lane_prompt(*, runtime_context: str, policy_prompt_path: Path, lane: str) -> str:
     begin, end = lane_tags(lane)
     if lane == "technical_intake":
         lane_scope = (
@@ -274,16 +494,31 @@ def build_intake_lane_prompt(*, base_prompt: str, lane: str) -> str:
             "- focus: architecture fit, implementation feasibility, delivery risks, technical blockers\n"
             "- required lenses: workflow-architect, architecture-review, business-analyst, tz-oss-scout\n"
         )
+        lane_goal = (
+            "Review architecture feasibility, delivery risks, and technical blockers without rewriting "
+            "or softening source requirements."
+        )
     else:
         lane_scope = (
             "- lane: product_intake\n"
             "- focus: product value, user impact, business viability, value-risk blockers\n"
             "- required lenses: product-owner, business-analyst, tz-oss-scout\n"
         )
+        lane_goal = (
+            "Review product completeness, value risks, and business blockers without rewriting "
+            "or softening source requirements."
+        )
     return (
-        f"{base_prompt}\n\n"
+        f"{runtime_context}\n\n"
+        "Intake Policy Reference:\n"
+        f"- Read and obey: {policy_prompt_path.as_posix()}\n\n"
+        "Section Goals:\n"
+        "- Part 1 (Context): use Runtime Package Context to lock boundaries and deterministic phase ids.\n"
+        f"- Part 2 (Lane Review): {lane_goal}\n"
+        "- Part 3 (Output Contract): return strict tagged JSON for fail-closed gate evaluation.\n\n"
         "Intake Runtime Mode:\n"
-        "- You are running a lane-only intake pass in parallel with another lane.\n"
+        "- You are running a lane-only intake pass in a sequential governed gate.\n"
+        "- Gate order is product_intake -> technical_intake -> materialization.\n"
         "- Do not modify repository files in this lane pass.\n"
         "- Provide only lane analysis and blocker classification.\n"
         f"{lane_scope}"
@@ -292,6 +527,18 @@ def build_intake_lane_prompt(*, base_prompt: str, lane: str) -> str:
         "{\n"
         '  "created_docs": ["docs/codex/contracts/<slug>.execution-contract.md"],\n'
         '  "review_summary": "Concise lane review summary.",\n'
+        '  "goals_digest": ["Lossless goal from source requirements"],\n'
+        '  "acceptance_criteria_digest": ["Measurable acceptance criterion from source requirements"],\n'
+        '  "structural_recommendations": [\n'
+        "    {\n"
+        '      "id": "SR-001",\n'
+        '      "priority": "CRITICAL|HIGH|MEDIUM|LOW",\n'
+        '      "title": "Potential structural improvement or critical change",\n'
+        '      "why": "Why this matters for target goals and quality",\n'
+        '      "proposal": "What should be changed/expanded in the source TZ",\n'
+        '      "impact_on_tz": "Expected impact on requirements/architecture/plan"\n'
+        "    }\n"
+        "  ],\n"
         '  "blockers": [\n'
         "    {\n"
         '      "id": "LANE-001",\n'
@@ -318,32 +565,384 @@ def extract_lane_payload_from_text(text: str, *, lane: str) -> dict[str, Any]:
     return {
         "created_docs": list(normalized["created_docs"]),
         "review_summary": str(normalized["review_summary"]),
+        "goals_digest": list(normalized["goals_digest"]),
+        "acceptance_criteria_digest": list(normalized["acceptance_criteria_digest"]),
+        "structural_recommendations": [dict(item) for item in normalized["structural_recommendations"]],
         "blockers": [dict(item) for item in normalized["blockers"]],
     }
 
 
+def build_intake_handoff(
+    *,
+    package_path: Path,
+    extracted_root: Path,
+    manifest_path: Path,
+    suggested_primary: str | None,
+    suggested_phase_compiler_artifact: str | None,
+    suggested_phase_ids: list[str],
+    lane_payloads: dict[str, dict[str, Any]],
+    intake_gate: dict[str, Any],
+    intake_human_summary: dict[str, Any],
+) -> dict[str, Any]:
+    blocking_items: list[dict[str, Any]] = []
+    for lane in LANE_SEQUENCE:
+        lane_gate = intake_gate.get(lane, {})
+        if not isinstance(lane_gate, dict):
+            continue
+        blockers = lane_gate.get("blockers", [])
+        if not isinstance(blockers, list):
+            continue
+        for item in blockers:
+            if not isinstance(item, dict):
+                continue
+            severity = str(item.get("severity", "")).strip().upper()
+            if severity not in {"P0", "P1"}:
+                continue
+            blocking_items.append({"lane": lane, **item})
+
+    docs_targets: list[str] = []
+    for lane in LANE_SEQUENCE:
+        lane_payload = lane_payloads.get(lane, {})
+        if not isinstance(lane_payload, dict):
+            continue
+        for path in lane_payload.get("created_docs", []):
+            text = str(path).strip()
+            if text and text not in docs_targets:
+                docs_targets.append(text)
+
+    lane_reviews: dict[str, dict[str, Any]] = {}
+    for lane in LANE_SEQUENCE:
+        lane_payload = lane_payloads.get(lane, {})
+        if not isinstance(lane_payload, dict):
+            continue
+        lane_reviews[lane] = {
+            "review_summary": str(lane_payload.get("review_summary", "")).strip(),
+            "blockers_total": len(list(lane_payload.get("blockers", []))),
+        }
+
+    def infer_module_slug() -> str | None:
+        for item in docs_targets:
+            contract_match = re.search(r"docs/codex/contracts/([^/]+)\.execution-contract\.md$", item)
+            if contract_match:
+                return contract_match.group(1)
+            parent_match = re.search(r"docs/codex/modules/([^/]+)\.parent\.md$", item)
+            if parent_match:
+                return parent_match.group(1)
+        return None
+
+    def normalize_phase_token(raw_phase_id: str) -> str:
+        token = str(raw_phase_id).strip().lower()
+        if token.startswith("phase-"):
+            token = token[6:]
+        token = token.strip()
+        if token.isdigit():
+            return token.zfill(2)
+        cleaned = re.sub(r"[^a-z0-9]+", "-", token).strip("-")
+        return cleaned or "xx"
+
+    module_slug = infer_module_slug()
+    contract_path = (
+        f"docs/codex/contracts/{module_slug}.execution-contract.md"
+        if module_slug
+        else "docs/codex/contracts/<module-slug>.execution-contract.md"
+    )
+    parent_path = (
+        f"docs/codex/modules/{module_slug}.parent.md"
+        if module_slug
+        else "docs/codex/modules/<module-slug>.parent.md"
+    )
+    phase_paths = [
+        (
+            f"docs/codex/modules/{module_slug}.phase-{normalize_phase_token(phase_id)}.md"
+            if module_slug
+            else f"docs/codex/modules/<module-slug>.phase-{normalize_phase_token(phase_id)}.md"
+        )
+        for phase_id in suggested_phase_ids
+    ]
+    materialization_documents: list[dict[str, Any]] = [
+        {
+            "type": "execution_contract",
+            "path": contract_path,
+            "constraints": [
+                "Preserve source goals and acceptance criteria losslessly; do not reinterpret or downgrade.",
+                "Keep deterministic source phase ids/order exactly as provided.",
+                "Keep fail-closed gate language; unresolved gaps must stay blockers.",
+            ],
+            "expected_result": "Execution contract is refreshed and ready for governed phase continuation.",
+        },
+        {
+            "type": "module_parent_brief",
+            "path": parent_path,
+            "constraints": [
+                "Next phase pointer must align with deterministic phase order.",
+                "Do not skip, merge, or reorder phases.",
+                "Keep references consistent with contract and phase briefs.",
+            ],
+            "expected_result": "Parent brief is refreshed with correct next phase sequencing and links.",
+        },
+    ]
+    for phase_path in phase_paths:
+        materialization_documents.append(
+            {
+                "type": "module_phase_brief",
+                "path": phase_path,
+                "constraints": [
+                    "Scope remains limited to this phase id only.",
+                    "Objective, acceptance gate, disprover logic, and DoD stay explicit and testable.",
+                    "No cross-phase drift, no hidden deferred critical work.",
+                    "All mandatory phase-brief sections from `phase_brief_mandatory_sections` must be present and fully populated.",
+                ],
+                "expected_result": "Phase brief is refreshed and execution-ready for worker/acceptor handoff.",
+            }
+        )
+    extra_targets = [item for item in docs_targets if item not in {contract_path, parent_path, *phase_paths}]
+    for extra_path in extra_targets:
+        materialization_documents.append(
+            {
+                "type": "lane_declared_document",
+                "path": extra_path,
+                "constraints": [
+                    "Preserve source requirement semantics and boundary constraints.",
+                    "Keep document internally consistent with execution contract and parent/phase briefs.",
+                ],
+                "expected_result": "Document is refreshed without requirement drift.",
+            }
+        )
+
+    required_outcomes = [
+        "Canonical docs are refreshed under docs/codex/contracts and docs/codex/modules.",
+        "Deterministic phase mapping is preserved exactly.",
+        "Any unresolved blocker is explicitly reported; no silent fallback.",
+        "Every module_phase_brief includes all mandatory sections required for downstream worker/acceptor execution.",
+    ]
+    phase_brief_mandatory_sections = [
+        {
+            "id": "traceability_map",
+            "title": "Traceability Map",
+            "requirement": "Map each phase objective and acceptance criterion to exact source TZ/supporting document references.",
+        },
+        {
+            "id": "non_goals_and_scope_limits",
+            "title": "Non-Goals / Scope Limits",
+            "requirement": "Explicitly list what this phase must not change, reinterpret, or implement.",
+        },
+        {
+            "id": "assumptions_and_open_questions",
+            "title": "Assumptions and Open Questions",
+            "requirement": "Capture unresolved ambiguities with owner and required resolution action.",
+        },
+        {
+            "id": "phase_dependencies_and_preconditions",
+            "title": "Dependencies and Preconditions",
+            "requirement": "List required inputs from previous phases and blockers for starting this phase.",
+        },
+        {
+            "id": "acceptance_evidence_contract",
+            "title": "Acceptance Evidence Contract",
+            "requirement": "Define concrete evidence artifacts/checks required to prove each acceptance criterion.",
+        },
+        {
+            "id": "cross_doc_conflict_resolution",
+            "title": "Cross-Document Conflict Resolution",
+            "requirement": "Define how to resolve contradictions between primary TZ and supporting documents.",
+        },
+        {
+            "id": "source_versioning_baseline",
+            "title": "Source Versioning Baseline",
+            "requirement": "Record source document versions/commit references used for this phase to prevent context drift.",
+        },
+        {
+            "id": "risk_and_rollback_triggers",
+            "title": "Risk and Rollback Triggers",
+            "requirement": "Describe critical risks, rollback triggers, and escalation conditions for this phase.",
+        },
+    ]
+
+    return {
+        "schema_version": 1,
+        "gate_decision": str(intake_gate.get("combined_gate", {}).get("decision", "")).strip().upper() or "UNKNOWN",
+        "runtime_context": {
+            "package_zip_path": package_path.as_posix(),
+            "extracted_package_root": extracted_root.as_posix(),
+            "manifest_path": manifest_path.as_posix(),
+            "suggested_primary_document": suggested_primary,
+            "suggested_phase_compiler_artifact": suggested_phase_compiler_artifact,
+            "suggested_phase_ids": list(suggested_phase_ids),
+        },
+        "goals_digest": list(intake_human_summary.get("goals_digest", [])),
+        "acceptance_criteria_digest": list(intake_human_summary.get("acceptance_criteria_digest", [])),
+        "structural_recommendations": list(intake_human_summary.get("structural_recommendations", [])),
+        "materialization_targets": {"docs_to_refresh": docs_targets},
+        "materialization_requirements": {
+            "documents": materialization_documents,
+            "required_outcomes": required_outcomes,
+            "phase_brief_mandatory_sections": phase_brief_mandatory_sections,
+        },
+        "lane_reviews": lane_reviews,
+        "blocking_items": blocking_items,
+    }
+
+
+def render_intake_handoff_markdown(handoff: dict[str, Any]) -> str:
+    runtime = handoff.get("runtime_context", {}) if isinstance(handoff, dict) else {}
+    lines = [
+        "# Intake Handoff",
+        "",
+        f"- Gate Decision: {handoff.get('gate_decision', 'UNKNOWN')}",
+        f"- Package: {runtime.get('package_zip_path', 'NONE')}",
+        f"- Suggested Primary: {runtime.get('suggested_primary_document', 'NONE')}",
+        f"- Suggested Phase IDs: {','.join(runtime.get('suggested_phase_ids', [])) if runtime.get('suggested_phase_ids') else 'NONE'}",
+        "",
+        "## Materialization Targets",
+    ]
+    targets = handoff.get("materialization_targets", {}).get("docs_to_refresh", [])
+    if isinstance(targets, list) and targets:
+        lines.extend([f"- {item}" for item in targets])
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Blocking Items (P0/P1)"])
+    blockers = handoff.get("blocking_items", [])
+    if isinstance(blockers, list) and blockers:
+        for item in blockers:
+            if not isinstance(item, dict):
+                continue
+            lines.append(
+                f"- {item.get('lane')}: {item.get('id')} [{item.get('severity')}] {item.get('title')}"
+            )
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Structural Recommendations"])
+    structural = handoff.get("structural_recommendations", [])
+    if isinstance(structural, list) and structural:
+        for item in structural:
+            if not isinstance(item, dict):
+                continue
+            lines.append(
+                f"- [{item.get('lane', 'unknown')}] ({item.get('priority', 'MEDIUM')}) {item.get('title', '')}"
+            )
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Materialization Requirements"])
+    requirements = handoff.get("materialization_requirements", {})
+    documents = requirements.get("documents", []) if isinstance(requirements, dict) else []
+    if isinstance(documents, list) and documents:
+        for item in documents:
+            if not isinstance(item, dict):
+                continue
+            lines.append(f"- {item.get('type')}: {item.get('path')}")
+    else:
+        lines.append("- none")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def render_materialization_requirements_prompt(handoff: dict[str, Any]) -> str:
+    requirements = handoff.get("materialization_requirements", {}) if isinstance(handoff, dict) else {}
+    documents = requirements.get("documents", []) if isinstance(requirements, dict) else []
+    outcomes = requirements.get("required_outcomes", []) if isinstance(requirements, dict) else []
+    mandatory_sections = (
+        requirements.get("phase_brief_mandatory_sections", []) if isinstance(requirements, dict) else []
+    )
+    lines = ["Required Documents, Constraints, Expected Results:"]
+    if isinstance(documents, list) and documents:
+        for idx, item in enumerate(documents, start=1):
+            if not isinstance(item, dict):
+                continue
+            lines.append(f"- Document {idx}: {item.get('path')}")
+            lines.append(f"  Type: {item.get('type')}")
+            constraints = item.get("constraints", [])
+            if isinstance(constraints, list) and constraints:
+                lines.append("  Constraints:")
+                for constraint in constraints:
+                    lines.append(f"  - {constraint}")
+            else:
+                lines.append("  Constraints: none")
+            lines.append(f"  Expected result: {item.get('expected_result', 'N/A')}")
+    else:
+        lines.append("- none")
+    lines.append("")
+    lines.append("Mandatory phase brief sections (required in every module_phase_brief):")
+    if isinstance(mandatory_sections, list) and mandatory_sections:
+        for item in mandatory_sections:
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("title", "")).strip()
+            requirement = str(item.get("requirement", "")).strip()
+            lines.append(f"- {title}")
+            if requirement:
+                lines.append(f"  - {requirement}")
+    else:
+        lines.append("- none")
+    lines.append("")
+    lines.append("Required final outcomes:")
+    if isinstance(outcomes, list) and outcomes:
+        for item in outcomes:
+            lines.append(f"- {item}")
+    else:
+        lines.append("- none")
+    return "\n".join(lines)
+
+
+def render_structural_recommendations_prompt(handoff: dict[str, Any]) -> str:
+    structural = handoff.get("structural_recommendations", []) if isinstance(handoff, dict) else []
+    lines = ["Structural recommendations and critical TZ changes to preserve:"]
+    if isinstance(structural, list) and structural:
+        for item in structural:
+            if not isinstance(item, dict):
+                continue
+            lane = str(item.get("lane", "unknown")).strip()
+            priority = str(item.get("priority", "MEDIUM")).strip().upper()
+            title = str(item.get("title", "")).strip()
+            why = str(item.get("why", "")).strip()
+            proposal = str(item.get("proposal", "")).strip()
+            impact = str(item.get("impact_on_tz", "")).strip()
+            lines.append(f"- [{lane}] ({priority}) {title}")
+            if why:
+                lines.append(f"  why: {why}")
+            if proposal:
+                lines.append(f"  proposal: {proposal}")
+            if impact:
+                lines.append(f"  impact_on_tz: {impact}")
+    else:
+        lines.append("- none")
+    return "\n".join(lines)
+
+
 def build_materialization_prompt(
     *,
-    base_prompt: str,
-    technical_lane_payload: dict[str, Any],
-    product_lane_payload: dict[str, Any],
-    intake_gate: dict[str, Any],
+    runtime_context: str,
+    policy_prompt_path: Path,
+    intake_handoff_path: Path,
     intake_gate_path: Path,
+    intake_handoff: dict[str, Any],
 ) -> str:
+    requirements_block = render_materialization_requirements_prompt(intake_handoff)
+    structural_block = render_structural_recommendations_prompt(intake_handoff)
     return (
-        f"{base_prompt}\n\n"
-        "Intake Runtime Mode:\n"
-        "- You are running materialization after parallel lane gate PASS.\n"
+        f"{runtime_context}\n\n"
+        "Intake Policy Reference:\n"
+        f"- Read and obey: {policy_prompt_path.as_posix()}\n\n"
+        "Section Goals:\n"
+        "- Part 1 (Input Validation): use intake handoff and gate artifacts as immutable sources.\n"
+        "- Part 2 (Materialization): refresh required canonical docs without requirement drift.\n"
+        "- Part 3 (Output Contract): return machine-parseable result with explicit residual blockers.\n\n"
+        "Materialization Runtime Mode:\n"
+        "- You are running materialization after sequential lane gate PASS.\n"
         "- Materialize/refresh canonical intake documentation now.\n"
         "- Preserve deterministic phase mapping from the source phase IR.\n"
         "- Do not invent extra phases or reorder source phases.\n"
-        f"- Intake gate artifact (PASS): {intake_gate_path.as_posix()}\n\n"
-        "Lane Inputs (technical_intake):\n"
-        f"{json.dumps(technical_lane_payload, ensure_ascii=False, indent=2)}\n\n"
-        "Lane Inputs (product_intake):\n"
-        f"{json.dumps(product_lane_payload, ensure_ascii=False, indent=2)}\n\n"
-        "Merged Intake Gate:\n"
-        f"{json.dumps(intake_gate, ensure_ascii=False, indent=2)}\n"
+        "- Use intake handoff as the single source of truth for goals, acceptance criteria, blockers, and structural recommendations.\n"
+        f"- Intake handoff JSON: {intake_handoff_path.as_posix()}\n"
+        f"- Intake gate JSON: {intake_gate_path.as_posix()}\n\n"
+        f"{requirements_block}\n\n"
+        f"{structural_block}\n\n"
+        "Expected output:\n"
+        "- Update/refresh every required document listed above.\n"
+        "- Return a short human summary.\n"
+        "- Finish with exactly one tagged JSON block:\n"
+        f"{MATERIALIZATION_RESULT_BEGIN}\n"
+        '{"status":"DONE","updated_docs":["docs/codex/contracts/<slug>.execution-contract.md"],"notes":"what changed","residual_blockers":[]}\n'
+        f"{MATERIALIZATION_RESULT_END}\n"
     )
 
 
@@ -625,7 +1224,6 @@ def build_prompt(
     suggested_phase_ids: list[str],
     mode: str,
 ) -> str:
-    base = prompt_path.read_text(encoding="utf-8").rstrip()
     primary_line = suggested_primary if suggested_primary else "NONE"
     compiler_line = suggested_phase_compiler_artifact if suggested_phase_compiler_artifact else "NONE"
     phase_ids_line = ",".join(suggested_phase_ids) if suggested_phase_ids else "NONE"
@@ -633,15 +1231,15 @@ def build_prompt(
         f".cursor/skills/{skill_id}/SKILL.md" for skill_id in INTAKE_REQUIRED_SKILLS
     )
     return (
-        f"{base}\n\n"
-        f"Package zip path: {package_path.as_posix()}\n"
-        f"Extracted package root: {extracted_root.as_posix()}\n"
-        f"Package manifest path: {manifest_path.as_posix()}\n"
-        f"Suggested primary document: {primary_line}\n"
-        f"Suggested phase compiler artifact: {compiler_line}\n"
-        f"Suggested phase ids: {phase_ids_line}\n"
-        f"Required technical intake skills: {required_intake_skills}\n"
-        f"Mode hint: {mode}\n"
+        "Runtime Package Context:\n"
+        f"- Package zip path: {package_path.as_posix()}\n"
+        f"- Extracted package root: {extracted_root.as_posix()}\n"
+        f"- Package manifest path: {manifest_path.as_posix()}\n"
+        f"- Suggested primary document: {primary_line}\n"
+        f"- Suggested phase compiler artifact: {compiler_line}\n"
+        f"- Suggested phase ids: {phase_ids_line}\n"
+        f"- Required technical intake skills: {required_intake_skills}\n"
+        f"- Mode hint: {mode}\n"
     )
 
 
@@ -680,6 +1278,7 @@ def run_codex(
         cmd,
         input=prompt,
         text=True,
+        encoding="utf-8",
         cwd=repo_root,
         check=False,
     )
@@ -724,6 +1323,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--dry-run",
         action="store_true",
         help="Prepare the package intake artifacts but do not invoke Codex.",
+    )
+    parser.add_argument(
+        "--acceptance-only",
+        action="store_true",
+        help="Run only sequential intake acceptance gates (product + technical) and skip materialization.",
     )
     return parser.parse_args(argv)
 
@@ -822,7 +1426,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     output_path = resolve_path(repo_root, args.output_last_message)
-    base_prompt = build_prompt(
+    runtime_context = build_prompt(
         prompt_path=prompt_path,
         package_path=package_path,
         extracted_root=extracted_root,
@@ -835,39 +1439,35 @@ def main(argv: list[str] | None = None) -> int:
         mode=args.mode,
     )
     lane_outputs = {
-        "technical_intake": run_root / "technical-intake-last-message.txt",
         "product_intake": run_root / "product-intake-last-message.txt",
+        "technical_intake": run_root / "technical-intake-last-message.txt",
     }
     lane_prompts = {
-        lane: build_intake_lane_prompt(base_prompt=base_prompt, lane=lane)
+        lane: build_intake_lane_prompt(
+            runtime_context=runtime_context,
+            policy_prompt_path=prompt_path,
+            lane=lane,
+        )
         for lane in lane_outputs
     }
     lane_exit_codes: dict[str, int] = {}
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        futures = {
-            executor.submit(
-                run_codex,
-                repo_root=repo_root,
-                prompt=lane_prompts[lane],
-                profile=args.profile,
-                output_path=lane_outputs[lane],
-                model=lane_model_override(lane),
-            ): lane
-            for lane in lane_outputs
-        }
-        for future in as_completed(futures):
-            lane = futures[future]
-            lane_exit_codes[lane] = int(future.result())
-
-    for lane, code in lane_exit_codes.items():
-        print(f"{lane} exit code: {code}")
-    failed_lanes = [lane for lane, code in lane_exit_codes.items() if code != 0]
-    if failed_lanes:
-        print(f"error: intake lane execution failed: {', '.join(sorted(failed_lanes))}", file=sys.stderr)
-        return lane_exit_codes[failed_lanes[0]]
+    for lane in LANE_SEQUENCE:
+        print(f"running intake lane: {lane}")
+        lane_exit_codes[lane] = run_codex(
+            repo_root=repo_root,
+            prompt=lane_prompts[lane],
+            profile=args.profile,
+            output_path=lane_outputs[lane],
+            model=lane_model_override(lane),
+        )
+        print(f"{lane} exit code: {lane_exit_codes[lane]}")
+        if lane_exit_codes[lane] != 0:
+            print(f"error: intake lane execution failed: {lane}", file=sys.stderr)
+            return lane_exit_codes[lane]
 
     lane_payloads: dict[str, dict[str, Any]] = {}
-    for lane, lane_output in lane_outputs.items():
+    for lane in LANE_SEQUENCE:
+        lane_output = lane_outputs[lane]
         if not lane_output.exists():
             print(f"error: missing lane output artifact for {lane}: {lane_output.as_posix()}", file=sys.stderr)
             return INTAKE_BLOCKED_EXIT
@@ -892,19 +1492,55 @@ def main(argv: list[str] | None = None) -> int:
     intake_gate_md = run_root / "intake-gate.md"
     intake_gate_json.write_text(json.dumps(intake_gate, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     intake_gate_md.write_text(render_intake_gate_markdown(intake_gate), encoding="utf-8")
+    intake_human_summary = build_intake_human_summary(intake_gate)
+    intake_human_summary_json = run_root / "intake-human-summary.json"
+    intake_human_summary_md = run_root / "intake-human-summary.md"
+    intake_human_summary_md_text = render_intake_human_summary_markdown(intake_human_summary)
+    intake_human_summary_json.write_text(
+        json.dumps(intake_human_summary, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    intake_human_summary_md.write_text(intake_human_summary_md_text, encoding="utf-8")
+    intake_handoff = build_intake_handoff(
+        package_path=package_path,
+        extracted_root=extracted_root,
+        manifest_path=manifest_path,
+        suggested_primary=suggested_primary,
+        suggested_phase_compiler_artifact=(
+            suggested_phase_compiler_artifact.as_posix() if suggested_phase_compiler_artifact else None
+        ),
+        suggested_phase_ids=suggested_phase_ids,
+        lane_payloads=lane_payloads,
+        intake_gate=intake_gate,
+        intake_human_summary=intake_human_summary,
+    )
+    intake_handoff_json = run_root / "intake-handoff.json"
+    intake_handoff_md = run_root / "intake-handoff.md"
+    intake_handoff_json.write_text(json.dumps(intake_handoff, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    intake_handoff_md.write_text(render_intake_handoff_markdown(intake_handoff), encoding="utf-8")
     print(f"intake gate artifact: {intake_gate_json.as_posix()}")
     print(f"intake gate report: {intake_gate_md.as_posix()}")
+    print(f"intake human summary artifact: {intake_human_summary_json.as_posix()}")
+    print(f"intake human summary report: {intake_human_summary_md.as_posix()}")
+    print(f"intake handoff artifact: {intake_handoff_json.as_posix()}")
+    print(f"intake handoff report: {intake_handoff_md.as_posix()}")
     print(f"intake gate decision: {intake_gate['combined_gate']['decision']}")
+    print(INTAKE_HUMAN_SUMMARY_BEGIN)
+    print(intake_human_summary_md_text.rstrip())
+    print(INTAKE_HUMAN_SUMMARY_END)
     if intake_gate["combined_gate"]["decision"] != "PASS":
         print("intake gate blocked: resolve P0/P1 blockers and rerun package intake")
         return INTAKE_BLOCKED_EXIT
+    if args.acceptance_only:
+        print("acceptance-only mode: materialization skipped after PASS")
+        return 0
 
     materialization_prompt = build_materialization_prompt(
-        base_prompt=base_prompt,
-        technical_lane_payload=lane_payloads["technical_intake"],
-        product_lane_payload=lane_payloads["product_intake"],
-        intake_gate=intake_gate,
+        runtime_context=runtime_context,
+        policy_prompt_path=prompt_path,
+        intake_handoff_path=intake_handoff_json,
         intake_gate_path=intake_gate_json,
+        intake_handoff=intake_handoff,
     )
     materialization_exit_code = run_codex(
         repo_root=repo_root,
