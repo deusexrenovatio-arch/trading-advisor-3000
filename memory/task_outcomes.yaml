@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-03-25'
+updated_at: '2026-04-09'
 items:
 - task_id: TASK-2026-03-16-BASELINE-SEED
   closed_at: '2026-03-16T10:00:00Z'
@@ -584,6 +584,128 @@ items:
   incident_signature: none
   improvement_action: workflow
   improvement_artifact: artifacts/codex/plan-tech-continue-rerun/orchestration/20260325T141713Z-plan-tech-phase-04/state.json
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-04-09-HARDEN-PR-REVIEW-CONTRACT-AND-INTAKE-POLICY-ENFO
+  closed_at: '2026-04-09T11:10:05Z'
+  branch: main
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_first_time
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: workflow
+  improvement_artifact: docs/codex/prompts/phases/acceptor.md + scripts/codex_phase_policy.py
+    + scripts/codex_from_package.py
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-04-09-ADD-COMPACT-INLINE-PROMPT-CAPSULES-FOR-INTAKE-AN
+  closed_at: '2026-04-09T11:30:12Z'
+  branch: main
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_first_time
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: workflow
+  improvement_artifact: scripts/codex_from_package.py + scripts/codex_phase_orchestrator.py
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-04-09-PIN-GOVERNED-FLOW-MODELS-EXPLICITLY-AND-ADD-REME
+  closed_at: '2026-04-09T11:37:38Z'
+  branch: main
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_first_time
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: workflow
+  improvement_artifact: scripts/codex_from_package.py + scripts/codex_phase_orchestrator.py
+    + docs/codex/orchestration/README.md
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-04-09-PREPARE-CURRENT-GOVERNED-FLOW-CHANGES-FOR-PR-INT
+  closed_at: '2026-04-09T12:02:57Z'
+  branch: main
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_first_time
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: workflow
+  improvement_artifact: docs/tasks/archive + validated publish branch plan
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-04-09-COMMIT-AND-PUBLISH-GOVERNED-PROMPT-MODEL-POLICY-
+  closed_at: '2026-04-09T12:03:52Z'
+  branch: codex/governed-prompt-model-policy
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_first_time
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: workflow
+  improvement_artifact: validated feature branch and PR-oriented publish path
   linked_plan_id: null
   linked_memory_id: null
   outcome_status: completed

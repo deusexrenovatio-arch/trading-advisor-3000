@@ -46,7 +46,16 @@ INTAKE_BLOCKED_EXIT = 3
 BLOCKER_SEVERITIES = ("P0", "P1", "P2")
 BLOCKER_SCALES = ("S", "M", "L", "XL")
 INTAKE_REQUIRED_SKILLS = ("workflow-architect",)
+PRODUCT_INTAKE_MODEL = "gpt-5.4"
+WORKFLOW_MAP_REQUIRED_FIELDS = (
+    "workflow_name",
+    "actors",
+    "happy_path",
+    "failure_branches",
+    "handoff_contracts",
+)
 TECHNICAL_INTAKE_MODEL = "gpt-5.3-codex"
+MATERIALIZATION_MODEL = "gpt-5.3-codex"
 POSITIVE_HINTS = (
     ("technical_requirements", 140, "filename looks like technical requirements"),
     ("requirements", 120, "filename looks like requirements"),
@@ -165,6 +174,32 @@ def _normalize_string_list(raw: Any, *, field: str) -> list[str]:
     return normalized
 
 
+def _normalize_workflow_map(raw: Any, *, lane: str) -> dict[str, Any]:
+    if raw is None:
+        return {
+            "workflow_name": "",
+            "actors": [],
+            "happy_path": [],
+            "failure_branches": [],
+            "handoff_contracts": [],
+        }
+    if not isinstance(raw, dict):
+        raise ValueError(f"{lane}.workflow_map must be an object")
+    return {
+        "workflow_name": str(raw.get("workflow_name", "")).strip(),
+        "actors": _normalize_string_list(raw.get("actors"), field=f"{lane}.workflow_map.actors"),
+        "happy_path": _normalize_string_list(raw.get("happy_path"), field=f"{lane}.workflow_map.happy_path"),
+        "failure_branches": _normalize_string_list(
+            raw.get("failure_branches"),
+            field=f"{lane}.workflow_map.failure_branches",
+        ),
+        "handoff_contracts": _normalize_string_list(
+            raw.get("handoff_contracts"),
+            field=f"{lane}.workflow_map.handoff_contracts",
+        ),
+    }
+
+
 def _normalize_structural_recommendations(raw: Any, *, lane: str) -> list[dict[str, str]]:
     if raw is None:
         return []
@@ -219,6 +254,8 @@ def _normalize_lane(payload: dict[str, Any], lane: str) -> dict[str, Any]:
         lane=lane,
         field="acceptance_criteria_digest",
     )
+    workflow_map_provided = "workflow_map" in lane_payload
+    workflow_map = _normalize_workflow_map(lane_payload.get("workflow_map"), lane=lane)
     structural_recommendations_provided = "structural_recommendations" in lane_payload
     structural_recommendations = _normalize_structural_recommendations(
         lane_payload.get("structural_recommendations"),
@@ -229,6 +266,8 @@ def _normalize_lane(payload: dict[str, Any], lane: str) -> dict[str, Any]:
         "review_summary": review_summary,
         "goals_digest": goals_digest,
         "acceptance_criteria_digest": acceptance_criteria_digest,
+        "workflow_map_provided": workflow_map_provided,
+        "workflow_map": workflow_map,
         "structural_recommendations_provided": structural_recommendations_provided,
         "structural_recommendations": structural_recommendations,
         "blockers": blockers,
@@ -242,6 +281,8 @@ def _auto_blockers_for_lane(
     review_summary: str,
     goals_digest: list[str],
     acceptance_criteria_digest: list[str],
+    workflow_map_provided: bool,
+    workflow_map: dict[str, Any],
     structural_recommendations_provided: bool,
 ) -> list[dict[str, str]]:
     auto: list[dict[str, str]] = []
@@ -289,6 +330,37 @@ def _auto_blockers_for_lane(
                 "required_action": "Add `acceptance_criteria_digest` with measurable acceptance checks.",
             }
         )
+    if not workflow_map_provided:
+        auto.append(
+            {
+                "id": f"AUTO-{lane.upper()}-WORKFLOW",
+                "severity": "P1",
+                "scale": "M",
+                "title": "Workflow map is missing",
+                "why": "Intake must make the workflow, failure branches, and handoff contracts explicit before materialization.",
+                "required_action": "Add `workflow_map` with actors, happy path, failure branches, and handoff contracts.",
+            }
+        )
+    else:
+        missing_fields: list[str] = []
+        if not str(workflow_map.get("workflow_name", "")).strip():
+            missing_fields.append("workflow_name")
+        for field_name in WORKFLOW_MAP_REQUIRED_FIELDS[1:]:
+            items = workflow_map.get(field_name, [])
+            if not isinstance(items, list) or not items:
+                missing_fields.append(field_name)
+        if missing_fields:
+            auto.append(
+                {
+                    "id": f"AUTO-{lane.upper()}-WORKFLOW-COVERAGE",
+                    "severity": "P1",
+                    "scale": "M",
+                    "title": "Workflow map is incomplete",
+                    "why": "Intake workflow design is missing required branches or handoff details: "
+                    + ", ".join(missing_fields),
+                    "required_action": "Fill every required `workflow_map` section before the gate can pass.",
+                }
+            )
     if not structural_recommendations_provided:
         auto.append(
             {
@@ -327,6 +399,8 @@ def evaluate_intake_gate_payload(payload: dict[str, Any]) -> dict[str, Any]:
         review_summary=technical["review_summary"],
         goals_digest=technical["goals_digest"],
         acceptance_criteria_digest=technical["acceptance_criteria_digest"],
+        workflow_map_provided=bool(technical["workflow_map_provided"]),
+        workflow_map=dict(technical["workflow_map"]),
         structural_recommendations_provided=bool(technical["structural_recommendations_provided"]),
     )
     product_blockers = list(product["blockers"]) + _auto_blockers_for_lane(
@@ -335,6 +409,8 @@ def evaluate_intake_gate_payload(payload: dict[str, Any]) -> dict[str, Any]:
         review_summary=product["review_summary"],
         goals_digest=product["goals_digest"],
         acceptance_criteria_digest=product["acceptance_criteria_digest"],
+        workflow_map_provided=bool(product["workflow_map_provided"]),
+        workflow_map=dict(product["workflow_map"]),
         structural_recommendations_provided=bool(product["structural_recommendations_provided"]),
     )
     all_blockers = technical_blockers + product_blockers
@@ -350,6 +426,7 @@ def evaluate_intake_gate_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "review_summary": technical["review_summary"],
             "goals_digest": technical["goals_digest"],
             "acceptance_criteria_digest": technical["acceptance_criteria_digest"],
+            "workflow_map": technical["workflow_map"],
             "structural_recommendations": technical["structural_recommendations"],
             "blockers": technical_blockers,
             "severity_counts": _severity_counts(technical_blockers),
@@ -359,6 +436,7 @@ def evaluate_intake_gate_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "review_summary": product["review_summary"],
             "goals_digest": product["goals_digest"],
             "acceptance_criteria_digest": product["acceptance_criteria_digest"],
+            "workflow_map": product["workflow_map"],
             "structural_recommendations": product["structural_recommendations"],
             "blockers": product_blockers,
             "severity_counts": _severity_counts(product_blockers),
@@ -393,6 +471,7 @@ def render_intake_gate_markdown(gate: dict[str, Any]) -> str:
         f"- Review Summary Present: {'yes' if gate['technical_intake']['review_summary'] else 'no'}",
         f"- Goals Digest Items: {len(gate['technical_intake']['goals_digest'])}",
         f"- Acceptance Criteria Items: {len(gate['technical_intake']['acceptance_criteria_digest'])}",
+        f"- Workflow Map Present: {'yes' if gate['technical_intake']['workflow_map'].get('workflow_name') else 'no'}",
         f"- Structural Recommendations: {len(gate['technical_intake']['structural_recommendations'])}",
         f"- Blockers: {len(gate['technical_intake']['blockers'])}",
         "",
@@ -401,6 +480,7 @@ def render_intake_gate_markdown(gate: dict[str, Any]) -> str:
         f"- Review Summary Present: {'yes' if gate['product_intake']['review_summary'] else 'no'}",
         f"- Goals Digest Items: {len(gate['product_intake']['goals_digest'])}",
         f"- Acceptance Criteria Items: {len(gate['product_intake']['acceptance_criteria_digest'])}",
+        f"- Workflow Map Present: {'yes' if gate['product_intake']['workflow_map'].get('workflow_name') else 'no'}",
         f"- Structural Recommendations: {len(gate['product_intake']['structural_recommendations'])}",
         f"- Blockers: {len(gate['product_intake']['blockers'])}",
         "",
@@ -507,6 +587,17 @@ def lane_tags(lane: str) -> tuple[str, str]:
     raise ValueError(f"unsupported intake lane: {lane}")
 
 
+def render_compact_intake_capsule() -> str:
+    return (
+        "Hard Intake Capsule:\n"
+        "- Preserve source objectives and acceptance logic losslessly.\n"
+        "- Do not reorder deterministic source phases or invent replacement phases.\n"
+        "- If preservation is unsafe, return blockers instead of optimistic assumptions.\n"
+        "- `workflow_map` is mandatory: workflow_name, actors, happy_path, failure_branches, handoff_contracts.\n"
+        "- `structural_recommendations` must be present even when empty.\n"
+    )
+
+
 def build_intake_lane_prompt(*, runtime_context: str, policy_prompt_path: Path, lane: str) -> str:
     begin, end = lane_tags(lane)
     if lane == "technical_intake":
@@ -523,7 +614,7 @@ def build_intake_lane_prompt(*, runtime_context: str, policy_prompt_path: Path, 
         lane_scope = (
             "- lane: product_intake\n"
             "- focus: product value, user impact, business viability, value-risk blockers\n"
-            "- required lenses: product-owner, business-analyst, tz-oss-scout\n"
+            "- required lenses: workflow-architect, product-owner, business-analyst, tz-oss-scout\n"
         )
         lane_goal = (
             "Review product completeness, value risks, and business blockers without rewriting "
@@ -533,6 +624,7 @@ def build_intake_lane_prompt(*, runtime_context: str, policy_prompt_path: Path, 
         f"{runtime_context}\n\n"
         "Intake Policy Reference:\n"
         f"- Read and obey: {policy_prompt_path.as_posix()}\n\n"
+        f"{render_compact_intake_capsule()}\n"
         "Section Goals:\n"
         "- Part 1 (Context): use Runtime Package Context to lock boundaries and deterministic phase ids.\n"
         f"- Part 2 (Lane Review): {lane_goal}\n"
@@ -550,6 +642,13 @@ def build_intake_lane_prompt(*, runtime_context: str, policy_prompt_path: Path, 
         '  "review_summary": "Concise lane review summary.",\n'
         '  "goals_digest": ["Lossless goal from source requirements"],\n'
         '  "acceptance_criteria_digest": ["Measurable acceptance criterion from source requirements"],\n'
+        '  "workflow_map": {\n'
+        '    "workflow_name": "Short workflow name",\n'
+        '    "actors": ["operator", "worker"],\n'
+        '    "happy_path": ["step 1", "step 2"],\n'
+        '    "failure_branches": ["timeout -> block", "missing input -> block"],\n'
+        '    "handoff_contracts": ["worker -> acceptor evidence contract"]\n'
+        "  },\n"
         '  "structural_recommendations": [\n'
         "    {\n"
         '      "id": "SR-001",\n'
@@ -588,6 +687,7 @@ def extract_lane_payload_from_text(text: str, *, lane: str) -> dict[str, Any]:
         "review_summary": str(normalized["review_summary"]),
         "goals_digest": list(normalized["goals_digest"]),
         "acceptance_criteria_digest": list(normalized["acceptance_criteria_digest"]),
+        "workflow_map": dict(normalized["workflow_map"]),
         "structural_recommendations": [dict(item) for item in normalized["structural_recommendations"]],
         "blockers": [dict(item) for item in normalized["blockers"]],
     }
@@ -821,6 +921,9 @@ def build_intake_handoff(
         lane_reviews[lane] = {
             "review_summary": str(lane_payload.get("review_summary", "")).strip(),
             "blockers_total": len(list(lane_payload.get("blockers", []))),
+            "workflow_map": dict(lane_payload.get("workflow_map", {}))
+            if isinstance(lane_payload.get("workflow_map"), dict)
+            else {},
         }
 
     def infer_module_slug() -> str | None:
@@ -1051,6 +1154,21 @@ def render_intake_handoff_markdown(handoff: dict[str, Any]) -> str:
             )
     else:
         lines.append("- none")
+    lines.extend(["", "## Lane Workflow Maps"])
+    lane_reviews = handoff.get("lane_reviews", {})
+    if isinstance(lane_reviews, dict) and lane_reviews:
+        for lane_name in LANE_SEQUENCE:
+            lane_payload = lane_reviews.get(lane_name, {})
+            if not isinstance(lane_payload, dict):
+                continue
+            workflow_map = lane_payload.get("workflow_map", {})
+            if not isinstance(workflow_map, dict):
+                workflow_map = {}
+            lines.append(
+                f"- {lane_name}: {workflow_map.get('workflow_name', '').strip() or 'missing workflow name'}"
+            )
+    else:
+        lines.append("- none")
     lines.extend(["", "## Materialization Requirements"])
     requirements = handoff.get("materialization_requirements", {})
     documents = requirements.get("documents", []) if isinstance(requirements, dict) else []
@@ -1204,6 +1322,38 @@ def render_structural_recommendations_prompt(handoff: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def render_workflow_maps_prompt(handoff: dict[str, Any]) -> str:
+    lane_reviews = handoff.get("lane_reviews", {}) if isinstance(handoff, dict) else {}
+    lines = ["Workflow maps and handoff contracts to preserve:"]
+    if isinstance(lane_reviews, dict) and lane_reviews:
+        for lane_name in LANE_SEQUENCE:
+            lane_payload = lane_reviews.get(lane_name, {})
+            if not isinstance(lane_payload, dict):
+                continue
+            workflow_map = lane_payload.get("workflow_map", {})
+            if not isinstance(workflow_map, dict):
+                continue
+            lines.append(
+                f"- [{lane_name}] {str(workflow_map.get('workflow_name', '')).strip() or 'missing workflow name'}"
+            )
+            for field_name, label in (
+                ("actors", "actors"),
+                ("happy_path", "happy_path"),
+                ("failure_branches", "failure_branches"),
+                ("handoff_contracts", "handoff_contracts"),
+            ):
+                items = workflow_map.get(field_name, [])
+                if isinstance(items, list) and items:
+                    lines.append(f"  {label}:")
+                    for item in items:
+                        lines.append(f"  - {item}")
+                else:
+                    lines.append(f"  {label}: none")
+    else:
+        lines.append("- none")
+    return "\n".join(lines)
+
+
 def build_materialization_prompt(
     *,
     runtime_context: str,
@@ -1213,6 +1363,7 @@ def build_materialization_prompt(
     intake_handoff: dict[str, Any],
 ) -> str:
     requirements_block = render_materialization_requirements_prompt(intake_handoff)
+    workflow_block = render_workflow_maps_prompt(intake_handoff)
     structural_block = render_structural_recommendations_prompt(intake_handoff)
     return (
         f"{runtime_context}\n\n"
@@ -1233,6 +1384,7 @@ def build_materialization_prompt(
         f"- Intake handoff JSON: {intake_handoff_path.as_posix()}\n"
         f"- Intake gate JSON: {intake_gate_path.as_posix()}\n\n"
         f"{requirements_block}\n\n"
+        f"{workflow_block}\n\n"
         f"{structural_block}\n\n"
         "Expected output:\n"
         "- Update/refresh every required document listed above.\n"
@@ -1245,9 +1397,15 @@ def build_materialization_prompt(
 
 
 def lane_model_override(lane: str) -> str | None:
+    if lane == "product_intake":
+        return PRODUCT_INTAKE_MODEL
     if lane == "technical_intake":
         return TECHNICAL_INTAKE_MODEL
     return None
+
+
+def materialization_model_override() -> str:
+    return MATERIALIZATION_MODEL
 
 
 def utc_now() -> datetime:
@@ -1845,6 +2003,7 @@ def main(argv: list[str] | None = None) -> int:
         prompt=materialization_prompt,
         profile=args.profile,
         output_path=output_path,
+        model=materialization_model_override(),
     )
     if materialization_exit_code != 0:
         return materialization_exit_code

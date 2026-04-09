@@ -27,6 +27,8 @@ The acceptor must block the phase when any of these are true:
 6. The bounded worker evidence contract is missing, incomplete, or weaker than the phase brief requires.
 7. Documentation drift remains in any required layer.
 8. The solution is a local patch-up instead of a sound architectural fit.
+9. An operational exception remains only as a note, workaround, or host/environment caveat.
+10. A recurrence risk is identified without an explicit prevention check or contract-level closure.
 
 ## Required Acceptance Dimensions
 Every phase verdict must cover all of these:
@@ -67,6 +69,11 @@ Every phase verdict must cover all of these:
 - The phase objective is fully closed.
 - Done evidence is real, not narrative-only.
 
+8. Recurrence / Operational Readiness
+- Repeated blocker classes are either removed at the root or kept blocked with explicit prevention work.
+- Host/environment exceptions, bypasses, or manual workarounds are not accepted as passive notes.
+- The review must name the most likely next follow-up PR risk and either close it or keep the phase blocked.
+
 ## PASS Criteria
 Return `PASS` only when the current phase is closed enough to unlock the next phase with no open blockers in the dimensions above.
 
@@ -91,5 +98,8 @@ The phase must not pass with any of the following:
 - `later`
 - `future phase`
 - `good enough`
+- `workaround`
+- `env issue`
+- `ops exception`
 
 unless the phrase is used only to describe a blocker that keeps the phase blocked.

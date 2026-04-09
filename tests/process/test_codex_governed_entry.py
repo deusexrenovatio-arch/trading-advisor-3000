@@ -363,6 +363,10 @@ def test_continue_route_forwards_profile_to_orchestrator(monkeypatch, tmp_path: 
             "simulate",
             "--profile",
             "ops",
+            "--openspace-learning-mode",
+            "soft",
+            "--openspace-learning-command",
+            "python scripts/skill_update_decision.py --format json",
             "--max-remediation-cycles",
             "0",
         ],
@@ -377,6 +381,10 @@ def test_continue_route_forwards_profile_to_orchestrator(monkeypatch, tmp_path: 
     for call in calls:
         timeout_index = call.index("--mutation-lock-timeout-sec")
         assert call[timeout_index + 1] == expected_timeout
+        mode_index = call.index("--openspace-learning-mode")
+        assert call[mode_index + 1] == "soft"
+        command_index = call.index("--openspace-learning-command")
+        assert call[command_index + 1] == "python scripts/skill_update_decision.py --format json"
 
 
 def test_main_stacked_followup_writes_continuation_contract(monkeypatch, tmp_path: Path) -> None:

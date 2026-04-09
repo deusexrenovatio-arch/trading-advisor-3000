@@ -623,6 +623,8 @@ def run_continue_route(
     mutation_lock_timeout_sec: float,
     codex_bin: str | None,
     max_remediation_cycles: int,
+    openspace_learning_mode: str,
+    openspace_learning_command: str,
 ) -> int:
     if decision.module is None:
         raise GovernedEntryError("continue route requires a module context")
@@ -643,6 +645,8 @@ def run_continue_route(
         acceptor_model,
         "--remediation-model",
         remediation_model or worker_model,
+        "--openspace-learning-mode",
+        openspace_learning_mode,
         "--mutation-lock-timeout-sec",
         str(max(mutation_lock_timeout_sec, 0.0)),
     ]
@@ -652,6 +656,8 @@ def run_continue_route(
         common.extend(["--profile", profile])
     if codex_bin:
         common.extend(["--codex-bin", codex_bin])
+    if openspace_learning_command.strip():
+        common.extend(["--openspace-learning-command", openspace_learning_command])
     if skip_clean_check:
         common.append("--skip-clean-check")
 
@@ -701,6 +707,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--acceptor-model", default="gpt-5.4")
     parser.add_argument("--remediation-model", default="")
     parser.add_argument("--max-remediation-cycles", type=int, default=2)
+    parser.add_argument("--openspace-learning-mode", choices=("off", "soft", "strict"), default="off")
+    parser.add_argument("--openspace-learning-command", default="")
     parser.add_argument("--codex-bin", default=None)
     parser.add_argument("--skip-clean-check", action="store_true")
     parser.add_argument(
@@ -853,6 +861,8 @@ def main(argv: list[str] | None = None) -> int:
         mutation_lock_timeout_sec=max(float(args.mutation_lock_timeout_sec), 0.0),
         codex_bin=args.codex_bin,
         max_remediation_cycles=args.max_remediation_cycles,
+        openspace_learning_mode=str(args.openspace_learning_mode or "off").strip().lower(),
+        openspace_learning_command=str(args.openspace_learning_command or ""),
     )
 
 

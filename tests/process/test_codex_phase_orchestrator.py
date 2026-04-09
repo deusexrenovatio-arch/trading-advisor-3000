@@ -10,6 +10,7 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
+from codex_phase_orchestrator import build_acceptor_prompt  # noqa: E402
 from codex_phase_orchestrator import orchestrate_current_phase  # noqa: E402
 from codex_phase_orchestrator import OrchestratorError  # noqa: E402
 from codex_phase_policy import RoleLaunchConfig  # noqa: E402
@@ -303,6 +304,39 @@ def test_orchestrator_blocked_keeps_same_phase_locked(tmp_path: Path) -> None:
     assert payload["route_trace"][-1] == "phase remains locked"
 
 
+def test_orchestrator_escalates_second_remediation_attempt_to_gpt54(tmp_path: Path) -> None:
+    contract, parent = _module_fixture(tmp_path)
+    code, state_path = orchestrate_current_phase(
+        repo_root=tmp_path,
+        execution_contract_path=contract,
+        parent_path=parent,
+        worker_prompt_path=tmp_path / "docs/codex/prompts/phases/worker.md",
+        acceptor_prompt_path=tmp_path / "docs/codex/prompts/phases/acceptor.md",
+        remediation_prompt_path=tmp_path / "docs/codex/prompts/phases/remediation.md",
+        artifact_root=tmp_path / "artifacts/codex/orchestration",
+        backend="simulate",
+        worker_launch=_launch("gpt-5.3-codex"),
+        acceptor_launch=_launch("gpt-5.4"),
+        remediation_launch=_launch("gpt-5.3-codex"),
+        codex_bin=None,
+        simulate_scenario="blocked",
+        max_remediation_cycles=2,
+        ignore_globs=(),
+        skip_clean_check=True,
+    )
+
+    assert code == 3
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert payload["attempts_total"] == 3
+    assert payload["attempts"][0]["execution_model"] == "gpt-5.3-codex"
+    assert payload["attempts"][1]["execution_model"] == "gpt-5.3-codex"
+    assert payload["attempts"][2]["execution_model"] == "gpt-5.4"
+    route_report = (
+        tmp_path / "artifacts/codex/orchestration" / payload["run_id"] / "route-report.md"
+    ).read_text(encoding="utf-8")
+    assert "attempt 3: remediation -> BLOCKED (model=gpt-5.4;" in route_report
+
+
 def test_orchestrator_emits_attempt_bound_release_decision_for_release_decision_phase(
     tmp_path: Path,
     monkeypatch,
@@ -354,8 +388,10 @@ def test_orchestrator_emits_attempt_bound_release_decision_for_release_decision_
             "used_skills": [
                 "phase-acceptance-governor",
                 "architecture-review",
+                "code-reviewer",
                 "testing-suite",
                 "docs-sync",
+                "verification-before-completion",
             ],
             "blockers": [
                 {
@@ -368,6 +404,8 @@ def test_orchestrator_emits_attempt_bound_release_decision_for_release_decision_
             "rerun_checks": [],
             "evidence_gaps": [],
             "prohibited_findings": [],
+            "recurrence_risks": [],
+            "operational_exceptions": [],
         }
 
     monkeypatch.setattr("codex_phase_orchestrator.run_role", fake_run_role)
@@ -451,13 +489,17 @@ def test_orchestrator_release_decision_closeout_fails_without_phase_scoped_route
             "used_skills": [
                 "phase-acceptance-governor",
                 "architecture-review",
+                "code-reviewer",
                 "testing-suite",
                 "docs-sync",
+                "verification-before-completion",
             ],
             "blockers": [],
             "rerun_checks": [],
             "evidence_gaps": [],
             "prohibited_findings": [],
+            "recurrence_risks": [],
+            "operational_exceptions": [],
         }
 
     monkeypatch.setattr("codex_phase_orchestrator.run_role", fake_run_role)
@@ -561,6 +603,106 @@ def test_orchestrator_auto_blocks_acceptance_evidence_gaps(tmp_path: Path) -> No
     assert "acceptor: model=gpt-5.4" in route_report
 
 
+def test_build_acceptor_prompt_includes_compact_acceptance_capsule(tmp_path: Path) -> None:
+    template = tmp_path / "acceptor.md"
+    _write(template, "acceptor prompt\n")
+    prompt = build_acceptor_prompt(
+        template_path=template,
+        execution_contract_path=tmp_path / "docs/codex/contracts/demo.execution-contract.md",
+        parent_path=tmp_path / "docs/codex/modules/demo.parent.md",
+        phase_path=tmp_path / "docs/codex/modules/demo.phase-01.md",
+        worker_report_path=tmp_path / "artifacts/codex/orchestration/run/attempt-01/worker-report.json",
+        changed_files_path=tmp_path / "artifacts/codex/orchestration/run/attempt-01/changed-files.json",
+        attempt=1,
+    )
+
+    assert "Hard Acceptance Capsule" in prompt
+    assert "follow-up PR risk" in prompt
+    assert "code-reviewer" in prompt
+    assert "Execution Contract:" in prompt
+
+
+def test_orchestrator_auto_blocks_acceptance_recurrence_risk(tmp_path: Path, monkeypatch) -> None:
+    contract, parent = _module_fixture(tmp_path)
+
+    def fake_run_role(**kwargs: object) -> dict[str, object]:
+        role = kwargs["role"]
+        if role in {"worker", "remediation"}:
+            return {
+                "status": "DONE",
+                "summary": "Worker completed the requested phase changes.",
+                "route_signal": f"{role}:phase-only",
+                "files_touched": ["src/example.py"],
+                "checks_run": ["python scripts/run_loop_gate.py --from-git --git-ref HEAD"],
+                "remaining_risks": [],
+                "assumptions": [],
+                "skips": [],
+                "fallbacks": [],
+                "deferred_work": [],
+                "evidence_contract": {
+                    "surfaces": ["demo_surface"],
+                    "proof_class": "integration",
+                    "artifact_paths": ["artifacts/demo-proof.json"],
+                    "checks": ["python scripts/run_loop_gate.py --from-git --git-ref HEAD"],
+                    "real_bindings": [],
+                },
+            }
+        return {
+            "verdict": "PASS",
+            "summary": "Acceptor found a likely follow-up PR risk that still needs prevention.",
+            "route_signal": "acceptance:governed-phase-route",
+            "used_skills": [
+                "phase-acceptance-governor",
+                "architecture-review",
+                "code-reviewer",
+                "testing-suite",
+                "docs-sync",
+                "verification-before-completion",
+            ],
+            "blockers": [],
+            "rerun_checks": [],
+            "evidence_gaps": [],
+            "prohibited_findings": [],
+            "recurrence_risks": ["Legacy compatibility fallback would likely return in the next follow-up PR."],
+            "operational_exceptions": [],
+        }
+
+    monkeypatch.setattr("codex_phase_orchestrator.run_role", fake_run_role)
+
+    code, state_path = orchestrate_current_phase(
+        repo_root=tmp_path,
+        execution_contract_path=contract,
+        parent_path=parent,
+        worker_prompt_path=tmp_path / "docs/codex/prompts/phases/worker.md",
+        acceptor_prompt_path=tmp_path / "docs/codex/prompts/phases/acceptor.md",
+        remediation_prompt_path=tmp_path / "docs/codex/prompts/phases/remediation.md",
+        artifact_root=tmp_path / "artifacts/codex/orchestration",
+        backend="simulate",
+        worker_launch=_launch("gpt-5.3-codex"),
+        acceptor_launch=_launch("gpt-5.4"),
+        remediation_launch=_launch("gpt-5.3-codex"),
+        codex_bin=None,
+        simulate_scenario="pass",
+        max_remediation_cycles=0,
+        ignore_globs=(),
+        skip_clean_check=True,
+    )
+
+    assert code == 3
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert payload["attempts"][0]["policy_blockers_total"] >= 1
+    acceptance_payload = json.loads(
+        (
+            tmp_path
+            / "artifacts/codex/orchestration"
+            / payload["run_id"]
+            / "attempt-01"
+            / "acceptance.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert acceptance_payload["recurrence_risks"]
+
+
 def test_orchestrator_auto_blocks_worker_documentation_edits(tmp_path: Path, monkeypatch) -> None:
     contract, parent = _module_fixture(tmp_path)
 
@@ -593,6 +735,7 @@ def test_orchestrator_auto_blocks_worker_documentation_edits(tmp_path: Path, mon
             "used_skills": [
                 "phase-acceptance-governor",
                 "architecture-review",
+                "code-reviewer",
                 "testing-suite",
                 "docs-sync",
                 "verification-before-completion",
@@ -601,6 +744,8 @@ def test_orchestrator_auto_blocks_worker_documentation_edits(tmp_path: Path, mon
             "rerun_checks": [],
             "evidence_gaps": [],
             "prohibited_findings": [],
+            "recurrence_risks": [],
+            "operational_exceptions": [],
         }
 
     monkeypatch.setattr("codex_phase_orchestrator.run_role", fake_run_role)
@@ -661,6 +806,7 @@ def test_skip_clean_check_uses_worker_files_for_changed_files_snapshot(monkeypat
             "used_skills": [
                 "phase-acceptance-governor",
                 "architecture-review",
+                "code-reviewer",
                 "testing-suite",
                 "docs-sync",
                 "verification-before-completion",
@@ -669,6 +815,8 @@ def test_skip_clean_check_uses_worker_files_for_changed_files_snapshot(monkeypat
             "rerun_checks": [],
             "evidence_gaps": [],
             "prohibited_findings": [],
+            "recurrence_risks": [],
+            "operational_exceptions": [],
         }
 
     monkeypatch.setattr("codex_phase_orchestrator.run_role", fake_run_role)
@@ -874,6 +1022,7 @@ def test_orchestrator_auto_blocks_missing_worker_evidence_contract(tmp_path: Pat
             "used_skills": [
                 "phase-acceptance-governor",
                 "architecture-review",
+                "code-reviewer",
                 "testing-suite",
                 "docs-sync",
                 "verification-before-completion",
@@ -882,6 +1031,8 @@ def test_orchestrator_auto_blocks_missing_worker_evidence_contract(tmp_path: Pat
             "rerun_checks": [],
             "evidence_gaps": [],
             "prohibited_findings": [],
+            "recurrence_risks": [],
+            "operational_exceptions": [],
         }
 
     monkeypatch.setattr("codex_phase_orchestrator.run_role", fake_run_role)
@@ -942,6 +1093,7 @@ def test_orchestrator_auto_blocks_weaker_worker_evidence_proof_class(tmp_path: P
             "used_skills": [
                 "phase-acceptance-governor",
                 "architecture-review",
+                "code-reviewer",
                 "testing-suite",
                 "docs-sync",
                 "verification-before-completion",
@@ -950,6 +1102,8 @@ def test_orchestrator_auto_blocks_weaker_worker_evidence_proof_class(tmp_path: P
             "rerun_checks": [],
             "evidence_gaps": [],
             "prohibited_findings": [],
+            "recurrence_risks": [],
+            "operational_exceptions": [],
         }
 
     monkeypatch.setattr("codex_phase_orchestrator.run_role", fake_run_role)
@@ -976,3 +1130,109 @@ def test_orchestrator_auto_blocks_weaker_worker_evidence_proof_class(tmp_path: P
     assert code == 3
     payload = json.loads(state_path.read_text(encoding="utf-8"))
     assert payload["attempts"][0]["policy_blockers_total"] >= 1
+
+
+def test_orchestrator_soft_learning_mode_does_not_block_when_hook_fails(tmp_path: Path, monkeypatch) -> None:
+    contract, parent = _module_fixture(tmp_path)
+
+    def fake_learning_hook(**kwargs: object) -> dict[str, object]:
+        return {
+            "route_signal": "orchestrator:openspace-learning",
+            "attempt": kwargs.get("attempt"),
+            "attempt_kind": kwargs.get("kind"),
+            "mode": kwargs.get("mode"),
+            "status": "failed",
+            "decision_status": "",
+            "recommendation": "",
+            "error": "simulated hook failure",
+            "changed_files_count": len(kwargs.get("changed_files") or []),
+            "command": ["python", "scripts/skill_update_decision.py"],
+        }
+
+    monkeypatch.setattr("codex_phase_orchestrator.run_openspace_learning_hook", fake_learning_hook)
+
+    code, state_path = orchestrate_current_phase(
+        repo_root=tmp_path,
+        execution_contract_path=contract,
+        parent_path=parent,
+        worker_prompt_path=tmp_path / "docs/codex/prompts/phases/worker.md",
+        acceptor_prompt_path=tmp_path / "docs/codex/prompts/phases/acceptor.md",
+        remediation_prompt_path=tmp_path / "docs/codex/prompts/phases/remediation.md",
+        artifact_root=tmp_path / "artifacts/codex/orchestration",
+        backend="simulate",
+        worker_launch=_launch("gpt-5.3-codex"),
+        acceptor_launch=_launch("gpt-5.4"),
+        remediation_launch=_launch("gpt-5.3-codex"),
+        codex_bin=None,
+        simulate_scenario="pass",
+        max_remediation_cycles=0,
+        ignore_globs=(),
+        skip_clean_check=True,
+        openspace_learning_mode="soft",
+    )
+
+    assert code == 0
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert payload["final_status"] == "accepted"
+    assert payload["attempts"][0]["openspace_learning_status"] == "failed"
+    attempt_dir = tmp_path / "artifacts/codex/orchestration" / payload["run_id"] / "attempt-01"
+    report = json.loads((attempt_dir / "openspace-learning-report.json").read_text(encoding="utf-8"))
+    assert report["status"] == "failed"
+    changed_files_payload = json.loads((attempt_dir / "changed-files.json").read_text(encoding="utf-8"))
+    assert any("openspace-learning-report.json" in item for item in changed_files_payload["changed_files"])
+
+
+def test_orchestrator_strict_learning_mode_blocks_when_hook_fails(tmp_path: Path, monkeypatch) -> None:
+    contract, parent = _module_fixture(tmp_path)
+
+    def fake_learning_hook(**kwargs: object) -> dict[str, object]:
+        return {
+            "route_signal": "orchestrator:openspace-learning",
+            "attempt": kwargs.get("attempt"),
+            "attempt_kind": kwargs.get("kind"),
+            "mode": kwargs.get("mode"),
+            "status": "failed",
+            "decision_status": "",
+            "recommendation": "",
+            "error": "simulated hook failure",
+            "changed_files_count": len(kwargs.get("changed_files") or []),
+            "command": ["python", "scripts/skill_update_decision.py"],
+        }
+
+    monkeypatch.setattr("codex_phase_orchestrator.run_openspace_learning_hook", fake_learning_hook)
+
+    code, state_path = orchestrate_current_phase(
+        repo_root=tmp_path,
+        execution_contract_path=contract,
+        parent_path=parent,
+        worker_prompt_path=tmp_path / "docs/codex/prompts/phases/worker.md",
+        acceptor_prompt_path=tmp_path / "docs/codex/prompts/phases/acceptor.md",
+        remediation_prompt_path=tmp_path / "docs/codex/prompts/phases/remediation.md",
+        artifact_root=tmp_path / "artifacts/codex/orchestration",
+        backend="simulate",
+        worker_launch=_launch("gpt-5.3-codex"),
+        acceptor_launch=_launch("gpt-5.4"),
+        remediation_launch=_launch("gpt-5.3-codex"),
+        codex_bin=None,
+        simulate_scenario="pass",
+        max_remediation_cycles=0,
+        ignore_globs=(),
+        skip_clean_check=True,
+        openspace_learning_mode="strict",
+    )
+
+    assert code == 3
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert payload["final_status"] == "blocked"
+    assert payload["attempts"][0]["policy_blockers_total"] >= 1
+    assert payload["attempts"][0]["openspace_learning_status"] == "failed"
+    acceptance_payload = json.loads(
+        (
+            tmp_path
+            / "artifacts/codex/orchestration"
+            / payload["run_id"]
+            / "attempt-01"
+            / "acceptance.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert any("learning hook" in item["why"].lower() for item in acceptance_payload["policy_blockers"])

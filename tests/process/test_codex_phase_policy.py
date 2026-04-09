@@ -35,6 +35,8 @@ def _acceptance_payload() -> AcceptanceResult:
         evidence_gaps=[],
         prohibited_findings=[],
         policy_blockers=[],
+        recurrence_risks=[],
+        operational_exceptions=[],
     )
 
 
@@ -215,6 +217,80 @@ def test_policy_blocks_worker_documentation_edits() -> None:
     assert any("modify documentation files directly" in blocker.why for blocker in result.policy_blockers)
 
 
+def test_policy_blocks_missing_required_acceptor_review_lens() -> None:
+    worker = WorkerReport(
+        status="DONE",
+        summary="Worker completed the phase cleanly.",
+        route_signal="worker:phase-only",
+        files_touched=["src/example.py"],
+        checks_run=["python -m pytest tests/process/test_codex_phase_policy.py -q"],
+        remaining_risks=[],
+        assumptions=[],
+        skips=[],
+        fallbacks=[],
+        deferred_work=[],
+        evidence_contract={
+            "surfaces": ["demo_surface"],
+            "proof_class": "integration",
+            "artifact_paths": ["artifacts/demo-proof.json"],
+            "checks": ["python -m pytest tests/process/test_codex_phase_policy.py -q"],
+            "real_bindings": [],
+        },
+    )
+    acceptance = _acceptance_payload()
+    acceptance.used_skills = [
+        "phase-acceptance-governor",
+        "architecture-review",
+        "testing-suite",
+        "docs-sync",
+        "verification-before-completion",
+    ]
+    phase_requirement = PhaseEvidenceRequirement(
+        owned_surfaces=["demo_surface"],
+        delivered_proof_class="integration",
+        requires_real_bindings=False,
+    )
+
+    result = apply_acceptance_policy(worker=worker, acceptance=acceptance, phase_requirement=phase_requirement)
+    assert result.verdict == "BLOCKED"
+    assert any("missing required review lenses" in blocker.why for blocker in result.policy_blockers)
+
+
+def test_policy_blocks_acceptance_recurrence_risk_and_operational_exception() -> None:
+    worker = WorkerReport(
+        status="DONE",
+        summary="Worker completed the phase cleanly.",
+        route_signal="worker:phase-only",
+        files_touched=["src/example.py"],
+        checks_run=["python -m pytest tests/process/test_codex_phase_policy.py -q"],
+        remaining_risks=[],
+        assumptions=[],
+        skips=[],
+        fallbacks=[],
+        deferred_work=[],
+        evidence_contract={
+            "surfaces": ["demo_surface"],
+            "proof_class": "integration",
+            "artifact_paths": ["artifacts/demo-proof.json"],
+            "checks": ["python -m pytest tests/process/test_codex_phase_policy.py -q"],
+            "real_bindings": [],
+        },
+    )
+    acceptance = _acceptance_payload()
+    acceptance.recurrence_risks = ["The current patch would likely produce a follow-up PR around legacy path fallback."]
+    acceptance.operational_exceptions = ["Tests only pass when the host temp directory is writable via manual cleanup."]
+    phase_requirement = PhaseEvidenceRequirement(
+        owned_surfaces=["demo_surface"],
+        delivered_proof_class="integration",
+        requires_real_bindings=False,
+    )
+
+    result = apply_acceptance_policy(worker=worker, acceptance=acceptance, phase_requirement=phase_requirement)
+    assert result.verdict == "BLOCKED"
+    assert any("recurrence path" in blocker.remediation.lower() for blocker in result.policy_blockers)
+    assert any("operational exception" in blocker.title.lower() for blocker in result.policy_blockers)
+
+
 def test_policy_blocks_remediation_doc_edits_without_documentation_context() -> None:
     worker = WorkerReport(
         status="DONE",
@@ -286,3 +362,120 @@ def test_policy_allows_remediation_doc_edits_with_full_documentation_context() -
     result = apply_acceptance_policy(worker=worker, acceptance=_acceptance_payload(), phase_requirement=phase_requirement)
     assert result.verdict == "PASS"
     assert not any("documentation_context" in blocker.why for blocker in result.policy_blockers)
+
+
+def test_policy_strict_learning_mode_blocks_missing_report() -> None:
+    worker = WorkerReport(
+        status="DONE",
+        summary="Worker completed the phase cleanly.",
+        route_signal="worker:phase-only",
+        files_touched=["src/example.py"],
+        checks_run=["python -m pytest tests/process/test_codex_phase_policy.py -q"],
+        remaining_risks=[],
+        assumptions=[],
+        skips=[],
+        fallbacks=[],
+        deferred_work=[],
+        evidence_contract={
+            "surfaces": ["demo_surface"],
+            "proof_class": "integration",
+            "artifact_paths": ["artifacts/demo-proof.json"],
+            "checks": ["python -m pytest tests/process/test_codex_phase_policy.py -q"],
+            "real_bindings": [],
+        },
+    )
+    phase_requirement = PhaseEvidenceRequirement(
+        owned_surfaces=["demo_surface"],
+        delivered_proof_class="integration",
+        requires_real_bindings=False,
+    )
+    result = apply_acceptance_policy(
+        worker=worker,
+        acceptance=_acceptance_payload(),
+        phase_requirement=phase_requirement,
+        learning_mode="strict",
+        openspace_learning_report=None,
+    )
+    assert result.verdict == "BLOCKED"
+    assert any("learning report" in blocker.why.lower() for blocker in result.policy_blockers)
+
+
+def test_policy_soft_learning_mode_does_not_block_failed_report() -> None:
+    worker = WorkerReport(
+        status="DONE",
+        summary="Worker completed the phase cleanly.",
+        route_signal="worker:phase-only",
+        files_touched=["src/example.py"],
+        checks_run=["python -m pytest tests/process/test_codex_phase_policy.py -q"],
+        remaining_risks=[],
+        assumptions=[],
+        skips=[],
+        fallbacks=[],
+        deferred_work=[],
+        evidence_contract={
+            "surfaces": ["demo_surface"],
+            "proof_class": "integration",
+            "artifact_paths": ["artifacts/demo-proof.json"],
+            "checks": ["python -m pytest tests/process/test_codex_phase_policy.py -q"],
+            "real_bindings": [],
+        },
+    )
+    phase_requirement = PhaseEvidenceRequirement(
+        owned_surfaces=["demo_surface"],
+        delivered_proof_class="integration",
+        requires_real_bindings=False,
+    )
+    result = apply_acceptance_policy(
+        worker=worker,
+        acceptance=_acceptance_payload(),
+        phase_requirement=phase_requirement,
+        learning_mode="soft",
+        openspace_learning_report={
+            "status": "failed",
+            "decision_status": "update_required",
+            "recommendation": "Update governance docs.",
+            "error": "command exited with code 1",
+        },
+    )
+    assert result.verdict == "PASS"
+    assert not any("learning" in blocker.title.lower() for blocker in result.policy_blockers)
+
+
+def test_policy_strict_learning_mode_blocks_update_required_decision() -> None:
+    worker = WorkerReport(
+        status="DONE",
+        summary="Worker completed the phase cleanly.",
+        route_signal="worker:phase-only",
+        files_touched=["src/example.py"],
+        checks_run=["python -m pytest tests/process/test_codex_phase_policy.py -q"],
+        remaining_risks=[],
+        assumptions=[],
+        skips=[],
+        fallbacks=[],
+        deferred_work=[],
+        evidence_contract={
+            "surfaces": ["demo_surface"],
+            "proof_class": "integration",
+            "artifact_paths": ["artifacts/demo-proof.json"],
+            "checks": ["python -m pytest tests/process/test_codex_phase_policy.py -q"],
+            "real_bindings": [],
+        },
+    )
+    phase_requirement = PhaseEvidenceRequirement(
+        owned_surfaces=["demo_surface"],
+        delivered_proof_class="integration",
+        requires_real_bindings=False,
+    )
+    result = apply_acceptance_policy(
+        worker=worker,
+        acceptance=_acceptance_payload(),
+        phase_requirement=phase_requirement,
+        learning_mode="strict",
+        openspace_learning_report={
+            "status": "ok",
+            "decision_status": "update_required",
+            "recommendation": "Update docs/workflows/skill-governance-sync.md",
+        },
+    )
+    assert result.verdict == "BLOCKED"
+    assert any("decision_status=update_required" in blocker.why for blocker in result.policy_blockers)

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import re
 from typing import Any
 
 
 DEFAULT_WORKER_MODEL = "gpt-5.3-codex"
 DEFAULT_ACCEPTOR_MODEL = "gpt-5.4"
+DEFAULT_REMEDIATION_MODEL = DEFAULT_WORKER_MODEL
+ESCALATED_REMEDIATION_MODEL = DEFAULT_ACCEPTOR_MODEL
+REMEDIATION_ESCALATION_ATTEMPT = 3
 WORKER_BEGIN = "BEGIN_PHASE_WORKER_JSON"
 WORKER_END = "END_PHASE_WORKER_JSON"
 ACCEPTANCE_BEGIN = "BEGIN_PHASE_ACCEPTANCE_JSON"
@@ -17,8 +20,17 @@ ROUTE_GUARDRAILS = (
     "no skipped required checks",
     "no silent fallbacks",
     "no deferred critical work",
+    "no unresolved recurrence risk",
+    "no unresolved operational exceptions",
     "acceptance requires architecture, test, and docs closure",
     "completion claims require executable evidence before unlock",
+)
+REQUIRED_ACCEPTOR_SKILLS = (
+    "phase-acceptance-governor",
+    "code-reviewer",
+    "testing-suite",
+    "docs-sync",
+    "verification-before-completion",
 )
 PLACEHOLDER_TOKEN_RE = re.compile(r"<[^>\n]+>")
 DOC_CONTEXT_REQUIRED_FIELDS = (
@@ -27,6 +39,8 @@ DOC_CONTEXT_REQUIRED_FIELDS = (
     "preserved_goals",
     "preserved_acceptance_criteria",
 )
+LEARNING_MODES = ("off", "soft", "strict")
+LEARNING_BLOCKING_DECISION_STATUSES = {"blocked", "update_required"}
 
 
 @dataclass
@@ -84,13 +98,16 @@ class AcceptanceResult:
     rerun_checks: list[str]
     evidence_gaps: list[str]
     prohibited_findings: list[str]
-    policy_blockers: list[AcceptanceBlocker]
+    policy_blockers: list[AcceptanceBlocker] = field(default_factory=list)
+    recurrence_risks: list[str] = field(default_factory=list)
+    operational_exceptions: list[str] = field(default_factory=list)
 
 
 @dataclass
 class AttemptRecord:
     attempt: int
     kind: str
+    execution_model: str
     worker_summary: str
     worker_route_signal: str
     worker_report_path: str
@@ -102,6 +119,9 @@ class AttemptRecord:
     verdict: str
     blockers_total: int
     policy_blockers_total: int
+    openspace_learning_mode: str = "off"
+    openspace_learning_status: str = "disabled"
+    openspace_learning_report_path: str = ""
 
 
 def normalize_string_list(value: Any) -> list[str]:
@@ -166,6 +186,10 @@ def normalize_acceptance_payload(payload: dict[str, Any]) -> AcceptanceResult:
     used_skills = normalize_string_list(payload.get("used_skills", []))
     if not used_skills:
         raise ValueError("acceptance payload missing required `used_skills`")
+    if "recurrence_risks" not in payload:
+        raise ValueError("acceptance payload missing required `recurrence_risks`")
+    if "operational_exceptions" not in payload:
+        raise ValueError("acceptance payload missing required `operational_exceptions`")
     return AcceptanceResult(
         verdict=verdict,
         summary=str(payload.get("summary", "")).strip() or "No summary provided.",
@@ -176,6 +200,8 @@ def normalize_acceptance_payload(payload: dict[str, Any]) -> AcceptanceResult:
         evidence_gaps=normalize_string_list(payload.get("evidence_gaps", [])),
         prohibited_findings=normalize_string_list(payload.get("prohibited_findings", [])),
         policy_blockers=[],
+        recurrence_risks=normalize_string_list(payload.get("recurrence_risks", [])),
+        operational_exceptions=normalize_string_list(payload.get("operational_exceptions", [])),
     )
 
 
@@ -191,6 +217,10 @@ def make_policy_blocker(kind: str, index: int, detail: str) -> AcceptanceBlocker
         "PASS_WITH_BLOCKERS": "Acceptance declared PASS despite blockers",
         "WORKER_DOC_EDIT": "Worker edited documentation surface directly",
         "DOC_CONTEXT_GAP": "Documentation context coverage is incomplete",
+        "REVIEW_LENS_GAP": "Acceptance review lens set is incomplete",
+        "RECURRENCE_RISK": "Recurrence risk remains unresolved",
+        "OPERATIONAL_EXCEPTION": "Operational exception remains unresolved",
+        "LEARNING_HOOK": "OpenSpace learning evidence is not compliant",
     }
     remediations = {
         "ASSUMPTION": "Replace the assumption with implemented behavior or stop and update the phase contract explicitly before rerun.",
@@ -202,6 +232,10 @@ def make_policy_blocker(kind: str, index: int, detail: str) -> AcceptanceBlocker
         "PASS_WITH_BLOCKERS": "Do not pass the phase while blockers remain; rerun acceptance with a consistent verdict.",
         "WORKER_DOC_EDIT": "Move documentation edits into remediation and rerun acceptance with a phase-scoped docs handoff.",
         "DOC_CONTEXT_GAP": "Provide full original/materialized docs context and explicit goal-preservation evidence in remediation output.",
+        "REVIEW_LENS_GAP": "Add the missing acceptance review lenses and rerun with an explicit adversarial review payload.",
+        "RECURRENCE_RISK": "Close the recurrence path with a prevention check or keep the phase blocked.",
+        "OPERATIONAL_EXCEPTION": "Resolve the operational exception or turn it into an explicit blocker instead of a note/workaround.",
+        "LEARNING_HOOK": "Generate a valid OpenSpace learning report for this attempt and rerun acceptance.",
     }
     return AcceptanceBlocker(
         id=f"P-{normalized_kind}-{index}",
@@ -209,6 +243,13 @@ def make_policy_blocker(kind: str, index: int, detail: str) -> AcceptanceBlocker
         why=detail,
         remediation=remediations.get(normalized_kind, "Resolve the policy blocker before rerun."),
     )
+
+
+def _normalize_learning_mode(raw: str) -> str:
+    value = str(raw or "off").strip().lower()
+    if value not in LEARNING_MODES:
+        raise ValueError(f"learning mode must be one of {', '.join(LEARNING_MODES)}, got {raw!r}")
+    return value
 
 
 def _proof_rank(value: str) -> int:
@@ -307,8 +348,22 @@ def apply_acceptance_policy(
     worker: WorkerReport,
     acceptance: AcceptanceResult,
     phase_requirement: PhaseEvidenceRequirement | None = None,
+    learning_mode: str = "off",
+    openspace_learning_report: dict[str, Any] | None = None,
 ) -> AcceptanceResult:
+    normalized_learning_mode = _normalize_learning_mode(learning_mode)
     policy_blockers: list[AcceptanceBlocker] = []
+    missing_acceptor_skills = [
+        skill_id for skill_id in REQUIRED_ACCEPTOR_SKILLS if skill_id not in acceptance.used_skills
+    ]
+    if missing_acceptor_skills:
+        policy_blockers.append(
+            make_policy_blocker(
+                "review_lens_gap",
+                1,
+                "Acceptance payload is missing required review lenses: " + ", ".join(missing_acceptor_skills),
+            )
+        )
     for idx, item in enumerate(worker.assumptions, start=1):
         policy_blockers.append(make_policy_blocker("assumption", idx, item))
     for idx, item in enumerate(worker.skips, start=1):
@@ -321,6 +376,10 @@ def apply_acceptance_policy(
         policy_blockers.append(make_policy_blocker("evidence_gap", idx, item))
     for idx, item in enumerate(acceptance.prohibited_findings, start=1):
         policy_blockers.append(make_policy_blocker("prohibited_finding", idx, item))
+    for idx, item in enumerate(acceptance.recurrence_risks, start=1):
+        policy_blockers.append(make_policy_blocker("recurrence_risk", idx, item))
+    for idx, item in enumerate(acceptance.operational_exceptions, start=1):
+        policy_blockers.append(make_policy_blocker("operational_exception", idx, item))
 
     evidence = _parse_worker_evidence_contract(worker.evidence_contract)
     all_checks = normalize_string_list([*worker.checks_run, *evidence["checks"]])
@@ -478,6 +537,57 @@ def apply_acceptance_policy(
             )
         )
 
+    if normalized_learning_mode == "strict":
+        if not isinstance(openspace_learning_report, dict):
+            policy_blockers.append(
+                make_policy_blocker(
+                    "learning_hook",
+                    len(policy_blockers) + 1,
+                    "Strict learning mode requires an OpenSpace learning report, but the report is missing.",
+                )
+            )
+        else:
+            learning_status = str(openspace_learning_report.get("status", "")).strip().lower()
+            decision_status = str(openspace_learning_report.get("decision_status", "")).strip().lower()
+            recommendation = str(openspace_learning_report.get("recommendation", "")).strip()
+            if learning_status != "ok":
+                detail = (
+                    "OpenSpace learning hook did not complete successfully in strict mode "
+                    f"(status={learning_status or 'missing'})."
+                )
+                error = str(openspace_learning_report.get("error", "")).strip()
+                if error:
+                    detail += f" error={error}"
+                policy_blockers.append(
+                    make_policy_blocker(
+                        "learning_hook",
+                        len(policy_blockers) + 1,
+                        detail,
+                    )
+                )
+            elif not decision_status:
+                policy_blockers.append(
+                    make_policy_blocker(
+                        "learning_hook",
+                        len(policy_blockers) + 1,
+                        "OpenSpace learning report is missing `decision_status` in strict mode.",
+                    )
+                )
+            elif decision_status in LEARNING_BLOCKING_DECISION_STATUSES:
+                detail = (
+                    "OpenSpace learning report requires governance updates "
+                    f"(decision_status={decision_status})."
+                )
+                if recommendation:
+                    detail += f" recommendation={recommendation}"
+                policy_blockers.append(
+                    make_policy_blocker(
+                        "learning_hook",
+                        len(policy_blockers) + 1,
+                        detail,
+                    )
+                )
+
     final_blockers = [*acceptance.blockers, *policy_blockers]
     final_verdict = "PASS" if acceptance.verdict == "PASS" and not final_blockers else "BLOCKED"
     summary = acceptance.summary
@@ -496,6 +606,8 @@ def apply_acceptance_policy(
         evidence_gaps=acceptance.evidence_gaps,
         prohibited_findings=acceptance.prohibited_findings,
         policy_blockers=policy_blockers,
+        recurrence_risks=acceptance.recurrence_risks,
+        operational_exceptions=acceptance.operational_exceptions,
     )
 
 
@@ -528,6 +640,18 @@ def render_acceptance_markdown(result: AcceptanceResult) -> str:
         lines.append("- none")
     else:
         for item in result.prohibited_findings:
+            lines.append(f"- {item}")
+    lines.extend(["", "## Recurrence Risks"])
+    if not result.recurrence_risks:
+        lines.append("- none")
+    else:
+        for item in result.recurrence_risks:
+            lines.append(f"- {item}")
+    lines.extend(["", "## Operational Exceptions"])
+    if not result.operational_exceptions:
+        lines.append("- none")
+    else:
+        for item in result.operational_exceptions:
             lines.append(f"- {item}")
     lines.extend(["", "## Policy Blockers"])
     if not result.policy_blockers:
@@ -670,10 +794,11 @@ def render_route_report(payload: dict[str, Any]) -> str:
                 continue
             lines.append(
                 "- attempt {attempt}: {kind} -> {verdict} "
-                "(worker_route={worker_route}; acceptor_route={acceptor_route}; policy_blockers={policy})".format(
+                "(model={model}; worker_route={worker_route}; acceptor_route={acceptor_route}; policy_blockers={policy})".format(
                     attempt=item.get("attempt"),
                     kind=item.get("kind"),
                     verdict=item.get("verdict"),
+                    model=item.get("execution_model", "default"),
                     worker_route=item.get("worker_route_signal", "unknown"),
                     acceptor_route=item.get("acceptor_route_signal", "unknown"),
                     policy=item.get("policy_blockers_total", 0),

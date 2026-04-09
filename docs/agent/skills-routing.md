@@ -24,7 +24,8 @@
 
 ## Acceptance Routing
 - When a task involves phase acceptance, acceptor flows, unblock decisions, or explicit guardrails against fallbacks/skips, load `phase-acceptance-governor` first.
-- Co-load `architecture-review`, `testing-suite`, and `docs-sync` when acceptance covers architecture fit, executed tests, and documentation closure.
+- Co-load `code-reviewer`, `architecture-review`, `testing-suite`, and `docs-sync` when acceptance covers adversarial review, architecture fit, executed tests, and documentation closure.
+- Co-load `repeated-issue-review` when the phase shows repeated blockers, operational exceptions, or recurrence-risk that must close before `PASS`.
 - Co-load `verification-before-completion` whenever completion claims must be fail-closed on executable evidence.
 
 ## Pipeline Routing
@@ -41,6 +42,7 @@
   - `docs/codex/prompts/phases/**`
   load:
   - `phase-acceptance-governor`
+  - `code-reviewer`
   - `verification-before-completion`
   - `testing-suite`
 - Orchestration acceptance is considered incomplete if completion-verification evidence is missing.

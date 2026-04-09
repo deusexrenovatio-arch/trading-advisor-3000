@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-03-25'
+updated_at: '2026-04-09'
 items:
 - id: TASK-2026-03-16-SHELL-BOOTSTRAP
   path: docs/tasks/archive/TASK-2026-03-16-shell-bootstrap.md
@@ -133,3 +133,33 @@ items:
   status: completed
   started_at: '2026-03-25'
   completed_at: '2026-03-25'
+- id: TASK-2026-04-09-HARDEN-PR-REVIEW-CONTRACT-AND-INTAKE-POLICY-ENFO
+  path: docs/tasks/archive/TASK-2026-04-09-harden-pr-review-contract-and-intake-policy-enfo.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-09'
+  completed_at: '2026-04-09'
+- id: TASK-2026-04-09-ADD-COMPACT-INLINE-PROMPT-CAPSULES-FOR-INTAKE-AN
+  path: docs/tasks/archive/TASK-2026-04-09-add-compact-inline-prompt-capsules-for-intake-an.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-09'
+  completed_at: '2026-04-09'
+- id: TASK-2026-04-09-PIN-GOVERNED-FLOW-MODELS-EXPLICITLY-AND-ADD-REME
+  path: docs/tasks/archive/TASK-2026-04-09-pin-governed-flow-models-explicitly-and-add-reme.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-09'
+  completed_at: '2026-04-09'
+- id: TASK-2026-04-09-PREPARE-CURRENT-GOVERNED-FLOW-CHANGES-FOR-PR-INT
+  path: docs/tasks/archive/TASK-2026-04-09-prepare-current-governed-flow-changes-for-pr-int.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-09'
+  completed_at: '2026-04-09'
+- id: TASK-2026-04-09-COMMIT-AND-PUBLISH-GOVERNED-PROMPT-MODEL-POLICY-
+  path: docs/tasks/archive/TASK-2026-04-09-commit-and-publish-governed-prompt-model-policy-.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-09'
+  completed_at: '2026-04-09'
