@@ -17,8 +17,16 @@ Read first:
 13. `.cursor/skills/repeated-issue-review/SKILL.md`
 14. `.cursor/skills/docs-sync/SKILL.md`
 15. `.cursor/skills/verification-before-completion/SKILL.md`
+16. `.cursor/skills/testing-suite/SKILL.md`
 
 Rules:
+
+- Remediation skill set is phase-specific. Use remediation lenses:
+  - `repeated-issue-review`
+  - `docs-sync`
+  - `verification-before-completion`
+  - `testing-suite`
+- Add extra lenses only when blocker category requires them.
 
 - Stay inside the current phase.
 - Fix only the blockers plus the minimum supporting edits needed to resolve them.

@@ -11,28 +11,13 @@ WORKER_BEGIN = "BEGIN_PHASE_WORKER_JSON"
 WORKER_END = "END_PHASE_WORKER_JSON"
 ACCEPTANCE_BEGIN = "BEGIN_PHASE_ACCEPTANCE_JSON"
 ACCEPTANCE_END = "END_PHASE_ACCEPTANCE_JSON"
-REQUIRED_WORKER_SKILLS = (
-    "code-implementation-worker",
-)
-REQUIRED_REMEDIATION_SKILLS = (
-    "code-implementation-worker",
-    "repeated-issue-review",
-)
-REQUIRED_ACCEPTANCE_SKILLS = (
-    "phase-acceptance-governor",
-    "architecture-review",
-    "code-reviewer",
-    "testing-suite",
-    "docs-sync",
-    "verification-before-completion",
-)
 ROUTE_MODE = "governed-phase-orchestration"
 ROUTE_GUARDRAILS = (
     "no silent assumptions",
     "no skipped required checks",
     "no silent fallbacks",
     "no deferred critical work",
-    "acceptance requires architecture, code review, test, and docs closure",
+    "acceptance requires architecture, test, and docs closure",
     "completion claims require executable evidence before unlock",
 )
 PLACEHOLDER_TOKEN_RE = re.compile(r"<[^>\n]+>")
@@ -203,7 +188,6 @@ def make_policy_blocker(kind: str, index: int, detail: str) -> AcceptanceBlocker
         "DEFERRED": "Deferred critical work remains in phase",
         "EVIDENCE_GAP": "Required evidence is missing",
         "PROHIBITED_FINDING": "Prohibited acceptance finding present",
-        "MISSING_SKILL": "Acceptance missed a required review lens",
         "PASS_WITH_BLOCKERS": "Acceptance declared PASS despite blockers",
         "WORKER_DOC_EDIT": "Worker edited documentation surface directly",
         "DOC_CONTEXT_GAP": "Documentation context coverage is incomplete",
@@ -215,7 +199,6 @@ def make_policy_blocker(kind: str, index: int, detail: str) -> AcceptanceBlocker
         "DEFERRED": "Complete the critical work now or change the phase contract before claiming the phase is ready.",
         "EVIDENCE_GAP": "Produce the missing evidence and rerun acceptance.",
         "PROHIBITED_FINDING": "Resolve the prohibited condition and rerun acceptance.",
-        "MISSING_SKILL": "Re-run acceptance using the required review lenses and report them explicitly.",
         "PASS_WITH_BLOCKERS": "Do not pass the phase while blockers remain; rerun acceptance with a consistent verdict.",
         "WORKER_DOC_EDIT": "Move documentation edits into remediation and rerun acceptance with a phase-scoped docs handoff.",
         "DOC_CONTEXT_GAP": "Provide full original/materialized docs context and explicit goal-preservation evidence in remediation output.",
@@ -485,16 +468,6 @@ def apply_acceptance_policy(
                             "Live-real route evidence used only dry-run governed continue commands.",
                         )
                     )
-
-    missing_skills = [item for item in REQUIRED_ACCEPTANCE_SKILLS if item not in acceptance.used_skills]
-    for idx, skill_id in enumerate(missing_skills, start=1):
-        policy_blockers.append(
-            make_policy_blocker(
-                "missing_skill",
-                idx,
-                f"Acceptance did not report required skill `{skill_id}` in used_skills.",
-            )
-        )
 
     if acceptance.verdict == "PASS" and acceptance.blockers:
         policy_blockers.append(

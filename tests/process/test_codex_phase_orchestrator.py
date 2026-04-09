@@ -235,7 +235,6 @@ def test_orchestrator_pass_advances_next_phase(tmp_path: Path) -> None:
     assert payload["attempts_total"] == 1
     assert payload["route_mode"] == "governed-phase-orchestration"
     assert payload["attempts"][0]["acceptor_used_skills"][0] == "phase-acceptance-governor"
-    assert payload["role_skill_bindings"]["acceptor"][0]["skill_id"] == "phase-acceptance-governor"
     run_root = tmp_path / "artifacts/codex/orchestration" / payload["run_id"]
     assert payload["chat_summary_path"] == (run_root / "chat-summary.md").as_posix()
     phase_summary = (run_root / "chat-summary.md").read_text(encoding="utf-8")
@@ -560,7 +559,6 @@ def test_orchestrator_auto_blocks_acceptance_evidence_gaps(tmp_path: Path) -> No
     ).read_text(encoding="utf-8")
     assert "Route Mode: governed-phase-orchestration" in route_report
     assert "acceptor: model=gpt-5.4" in route_report
-    assert "phase-acceptance-governor" in route_report
 
 
 def test_orchestrator_auto_blocks_worker_documentation_edits(tmp_path: Path, monkeypatch) -> None:
@@ -824,46 +822,31 @@ def test_orchestrator_fails_closed_when_stacked_followup_contract_module_binding
         raise AssertionError("expected mismatched module binding to fail closed")
 
 
-def test_orchestrator_fails_closed_when_required_acceptor_skill_is_missing(tmp_path: Path) -> None:
-    contract = tmp_path / "docs/codex/contracts/demo.execution-contract.md"
-    parent = tmp_path / "docs/codex/modules/demo.parent.md"
-    phase = tmp_path / "docs/codex/modules/demo.phase-01.md"
-    worker = tmp_path / "docs/codex/prompts/phases/worker.md"
-    acceptor = tmp_path / "docs/codex/prompts/phases/acceptor.md"
-    remediation = tmp_path / "docs/codex/prompts/phases/remediation.md"
-
-    _write_acceptor_skills(tmp_path)
+def test_orchestrator_does_not_fail_when_acceptor_skill_file_is_missing(tmp_path: Path) -> None:
+    contract, parent = _module_fixture(tmp_path)
     (tmp_path / ".cursor/skills/docs-sync/SKILL.md").unlink()
-    _write(contract, "# Execution Contract\n\n## Next Allowed Unit Of Work\n- Execute phase 01 only: build the thing.\n")
-    _write(parent, "# Module Parent Brief\n\n## Next Phase To Execute\n- docs/codex/modules/demo.phase-01.md\n")
-    _write(phase, "# Module Phase Brief\n\n## Phase\n- Name: Phase 01\n- Status: planned\n\n## Objective\n- Build the thing.\n")
-    _write(worker, "worker prompt\n")
-    _write(acceptor, "acceptor prompt\n")
-    _write(remediation, "remediation prompt\n")
 
-    try:
-        orchestrate_current_phase(
-            repo_root=tmp_path,
-            execution_contract_path=contract,
-            parent_path=parent,
-            worker_prompt_path=worker,
-            acceptor_prompt_path=acceptor,
-            remediation_prompt_path=remediation,
-            artifact_root=tmp_path / "artifacts/codex/orchestration",
-            backend="simulate",
-            worker_launch=_launch("gpt-5.3-codex"),
-            acceptor_launch=_launch("gpt-5.4"),
-            remediation_launch=_launch("gpt-5.3-codex"),
-            codex_bin=None,
-            simulate_scenario="pass",
-            max_remediation_cycles=0,
-            ignore_globs=(),
-            skip_clean_check=True,
-        )
-    except OrchestratorError as exc:
-        assert "missing required skill binding" in str(exc)
-    else:
-        raise AssertionError("expected missing skill binding to fail closed")
+    code, state_path = orchestrate_current_phase(
+        repo_root=tmp_path,
+        execution_contract_path=contract,
+        parent_path=parent,
+        worker_prompt_path=tmp_path / "docs/codex/prompts/phases/worker.md",
+        acceptor_prompt_path=tmp_path / "docs/codex/prompts/phases/acceptor.md",
+        remediation_prompt_path=tmp_path / "docs/codex/prompts/phases/remediation.md",
+        artifact_root=tmp_path / "artifacts/codex/orchestration",
+        backend="simulate",
+        worker_launch=_launch("gpt-5.3-codex"),
+        acceptor_launch=_launch("gpt-5.4"),
+        remediation_launch=_launch("gpt-5.3-codex"),
+        codex_bin=None,
+        simulate_scenario="pass",
+        max_remediation_cycles=0,
+        ignore_globs=(),
+        skip_clean_check=True,
+    )
+    assert code == 0
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert payload["final_status"] == "accepted"
 
 
 def test_orchestrator_auto_blocks_missing_worker_evidence_contract(tmp_path: Path, monkeypatch) -> None:

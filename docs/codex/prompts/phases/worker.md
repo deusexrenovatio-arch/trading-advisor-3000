@@ -14,14 +14,24 @@ Read first:
 10. the current phase brief
 11. `docs/codex/orchestration/acceptance-contract.md`
 12. `docs/checklists/phase-evidence-contract.md`
-13. `.cursor/skills/registry-first/SKILL.md`
-14. `.cursor/skills/architecture-review/SKILL.md`
-15. `.cursor/skills/testing-suite/SKILL.md`
-16. `.cursor/skills/verification-before-completion/SKILL.md`
-17. `.cursor/skills/patch-series-splitter/SKILL.md`
-18. `.cursor/skills/commit-and-pr-hygiene/SKILL.md`
+13. `.cursor/skills/code-implementation-worker/SKILL.md`
+14. `.cursor/skills/registry-first/SKILL.md`
+15. `.cursor/skills/architecture-review/SKILL.md`
+16. `.cursor/skills/testing-suite/SKILL.md`
+17. `.cursor/skills/verification-before-completion/SKILL.md`
+18. `.cursor/skills/patch-series-splitter/SKILL.md`
+19. `.cursor/skills/commit-and-pr-hygiene/SKILL.md`
 
 Rules:
+
+- Worker skill set is phase-specific. Use worker lenses only:
+  - `code-implementation-worker`
+  - `registry-first`
+  - `architecture-review`
+  - `testing-suite`
+  - `verification-before-completion`
+  - `patch-series-splitter`
+  - `commit-and-pr-hygiene`
 
 - Implement only the current phase.
 - Do not open the next phase.
