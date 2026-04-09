@@ -23,6 +23,8 @@ from codex_from_package import (  # noqa: E402
     evaluate_intake_gate_payload,
     extract_materialization_result_from_text,
     extract_docx_title,
+    lane_model_override,
+    materialization_model_override,
     render_intake_human_summary_markdown,
     safe_extract_zip,
 )
@@ -125,6 +127,7 @@ def test_intake_gate_blocks_when_required_digests_are_missing() -> None:
     product_titles = [item["title"] for item in gate["product_intake"]["blockers"]]
     assert "Goals digest is missing" in technical_titles
     assert "Acceptance criteria digest is missing" in technical_titles
+    assert "Workflow map is missing" in technical_titles
     assert "Structural recommendations section is missing" in technical_titles
     assert "Goals digest is missing" in product_titles
 
@@ -137,6 +140,13 @@ def test_intake_human_summary_merges_structural_recommendations() -> None:
                 "review_summary": "Technical lane reviewed architecture fit.",
                 "goals_digest": ["Preserve route integrity"],
                 "acceptance_criteria_digest": ["All required checks are executable"],
+                "workflow_map": {
+                    "workflow_name": "Technical intake gate",
+                    "actors": ["operator", "technical_intake"],
+                    "happy_path": ["Read source requirements", "Map technical constraints"],
+                    "failure_branches": ["Architecture drift -> block", "Missing constraint -> block"],
+                    "handoff_contracts": ["technical_intake -> intake_gate findings package"],
+                },
                 "structural_recommendations": [
                     {
                         "id": "TECH-SR-001",
@@ -157,6 +167,13 @@ def test_intake_human_summary_merges_structural_recommendations() -> None:
                     "All required checks are executable",
                     "Intake output includes explicit goals and acceptance criteria digest",
                 ],
+                "workflow_map": {
+                    "workflow_name": "Product intake gate",
+                    "actors": ["operator", "product_intake"],
+                    "happy_path": ["Map user value", "Map acceptance cases"],
+                    "failure_branches": ["Value drift -> block", "Owner gap -> block"],
+                    "handoff_contracts": ["product_intake -> intake_gate value findings package"],
+                },
                 "structural_recommendations": [
                     {
                         "id": "PROD-SR-001",
@@ -192,6 +209,13 @@ def test_intake_handoff_is_compact_and_materialization_uses_handoff_path(tmp_pat
                 "review_summary": "Technical lane reviewed architecture fit.",
                 "goals_digest": ["Keep gate deterministic"],
                 "acceptance_criteria_digest": ["Selector parity remains strict"],
+                "workflow_map": {
+                    "workflow_name": "Technical lane",
+                    "actors": ["operator", "technical_intake"],
+                    "happy_path": ["Parse spec", "Produce contract targets"],
+                    "failure_branches": ["Compatibility gap -> block"],
+                    "handoff_contracts": ["technical_intake -> materialization contract set"],
+                },
                 "structural_recommendations": [
                     {
                         "id": "TECH-SR-001",
@@ -209,6 +233,13 @@ def test_intake_handoff_is_compact_and_materialization_uses_handoff_path(tmp_pat
                 "review_summary": "Product lane reviewed value fit.",
                 "goals_digest": ["Keep gate deterministic"],
                 "acceptance_criteria_digest": ["Selector parity remains strict"],
+                "workflow_map": {
+                    "workflow_name": "Product lane",
+                    "actors": ["operator", "product_intake"],
+                    "happy_path": ["Map value", "Map acceptance"],
+                    "failure_branches": ["Owner mapping missing -> block"],
+                    "handoff_contracts": ["product_intake -> materialization value constraints"],
+                },
                 "structural_recommendations": [],
                 "blockers": [
                     {
@@ -259,6 +290,7 @@ def test_intake_handoff_is_compact_and_materialization_uses_handoff_path(tmp_pat
     assert context_contract["materialized_documents"]
     assert context_contract["must_preserve"]["goals_digest"]
     assert context_contract["must_preserve"]["acceptance_criteria_digest"]
+    assert handoff["lane_reviews"]["technical_intake"]["workflow_map"]["workflow_name"] == "Technical lane"
 
     runtime_context = build_prompt(
         prompt_path=tmp_path / "from_package.md",
@@ -281,6 +313,7 @@ def test_intake_handoff_is_compact_and_materialization_uses_handoff_path(tmp_pat
     assert "Lane Inputs (technical_intake)" not in materialization_prompt
     assert "BEGIN_MATERIALIZATION_RESULT_JSON" in materialization_prompt
     assert "Required Documents, Constraints, Expected Results" in materialization_prompt
+    assert "Workflow maps and handoff contracts to preserve" in materialization_prompt
     assert "Documentation context contract (mandatory for drift prevention)" in materialization_prompt
     assert "Mandatory phase brief sections" in materialization_prompt
     assert "Traceability Map" in materialization_prompt
@@ -305,9 +338,18 @@ def test_lane_prompt_is_compact_and_policy_referenced_once(tmp_path: Path) -> No
         lane="technical_intake",
     )
     assert "Intake Policy Reference" in prompt
+    assert "Hard Intake Capsule" in prompt
+    assert "Preserve source objectives and acceptance logic losslessly." in prompt
     assert "BEGIN_TECHNICAL_INTAKE_JSON" in prompt
+    assert '"workflow_map"' in prompt
     assert "Lossless transfer contract" not in prompt
     assert "Section Goals" in prompt
+
+
+def test_intake_and_materialization_models_are_pinned_explicitly() -> None:
+    assert lane_model_override("product_intake") == "gpt-5.4"
+    assert lane_model_override("technical_intake") == "gpt-5.3-codex"
+    assert materialization_model_override() == "gpt-5.3-codex"
 
 
 def test_extract_materialization_result_from_text_requires_done_status() -> None:

@@ -25,6 +25,8 @@ The operator wants automatic progression only after an independent acceptance pa
   - skipped checks,
   - fallback paths,
   - deferred critical work,
+  - recurrence risks,
+  - operational exceptions,
   - evidence gaps,
   - prohibited findings.
 
@@ -119,7 +121,13 @@ For each run, the orchestrator writes under `artifacts/codex/orchestration/<run-
 
 - worker: `gpt-5.3-codex`
 - acceptor: `gpt-5.4`
-- remediation: defaults to the worker model unless overridden
+- remediation: `gpt-5.3-codex` by default; escalate to `gpt-5.4` on the second remediation attempt unless explicitly overridden
+
+## Current package-intake model policy
+
+- `product_intake`: `gpt-5.4`
+- `technical_intake`: `gpt-5.3-codex`
+- `materialization`: `gpt-5.3-codex`
 
 Role-specific model and profile overrides are available directly on the runner CLI.
 
@@ -155,6 +163,11 @@ Acceptor findings should be emitted in a structured shape per lens:
 - `blast_radius` (`local`, `cross-surface`);
 - `summary`;
 - `required_evidence`.
+
+In addition, the acceptance payload must report:
+
+- `recurrence_risks`: explicit follow-up risks that would likely recreate the same blocker class;
+- `operational_exceptions`: host/env/manual-workaround exceptions that still affect truthful closure.
 
 `architecture-review` is removed from the acceptor default lens set in this vNext design.
 Product-value evaluation is embedded into acceptance output instead of a separate product gate.

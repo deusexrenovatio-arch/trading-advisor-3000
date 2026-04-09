@@ -44,4 +44,4 @@ Acceptance must block when any of these are true:
 ## Enforcement
 - Worker and remediation prompts must require `evidence_contract`.
 - The orchestrator acceptance policy must block on the automatic block conditions above.
-- Human acceptance still reviews the evidence for correctness, but no longer carries the whole burden of checking that evidence exists in the first place.
+- Human acceptance still reviews the evidence for correctness, recurrence risk, and unresolved operational exceptions, but no longer carries the whole burden of checking that evidence exists in the first place.

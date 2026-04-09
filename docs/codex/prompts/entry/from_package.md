@@ -46,8 +46,9 @@ Mandatory intake output contract (fail-closed):
 
 - Preserve source goals as a concise `goals_digest`.
 - Preserve source acceptance logic as `acceptance_criteria_digest`.
+- Provide `workflow_map` with explicit `workflow_name`, `actors`, `happy_path`, `failure_branches`, and `handoff_contracts`.
 - Provide `structural_recommendations` as an explicit list of critical structural improvements/changes (`id`, `priority`, `title`, `why`, `proposal`, `impact_on_tz`), or an explicit empty list when none are needed.
-- If any of the three items above cannot be produced with confidence, return blockers instead of optimistic assumptions.
+- If any of the four items above cannot be produced with confidence, return blockers instead of optimistic assumptions.
 
 Materialization policy:
 

@@ -17,15 +17,17 @@ Read first:
 13. `docs/checklists/phase-evidence-contract.md`
 14. `.cursor/skills/phase-acceptance-governor/SKILL.md`
 15. `.cursor/skills/architecture-review/SKILL.md`
-16. `.cursor/skills/testing-suite/SKILL.md`
-17. `.cursor/skills/docs-sync/SKILL.md`
-18. `.cursor/skills/verification-before-completion/SKILL.md`
+16. `.cursor/skills/code-reviewer/SKILL.md`
+17. `.cursor/skills/testing-suite/SKILL.md`
+18. `.cursor/skills/docs-sync/SKILL.md`
+19. `.cursor/skills/verification-before-completion/SKILL.md`
 
 Review rules:
 
 - Acceptor skill set is phase-specific. Use acceptor lenses only:
   - `phase-acceptance-governor`
   - `architecture-review`
+  - `code-reviewer`
   - `testing-suite`
   - `docs-sync`
   - `verification-before-completion`
@@ -36,6 +38,10 @@ Review rules:
   - the phase stayed inside the governed route,
   - the worker did not silently bypass acceptance expectations,
   - no silent assumptions, skipped checks, fallbacks, or deferred critical work remain.
+- Treat adversarial PR-style review as mandatory:
+  - name the most likely next follow-up PR risk on the changed contour,
+  - block if the current patch only moves the problem into a note or workaround,
+  - use `code-reviewer` to test correctness, maintainability, and test adequacy under hostile reading.
 - Treat architecture correctness as mandatory:
   - boundary integrity,
   - dependency direction,
@@ -53,6 +59,10 @@ Review rules:
   - required docs must be updated,
   - instructions must match the actual implementation,
   - no stale or misleading operator guidance.
+- Treat recurrence and operational readiness as mandatory:
+  - if the blocker class has already reappeared, require a prevention check or keep the phase blocked,
+  - if host/env/manual exceptions still shape the truthful outcome, report them in `operational_exceptions`,
+  - if a likely next follow-up PR remains, report it in `recurrence_risks` and keep the phase blocked.
 - If documentation files were changed in remediation:
   - verify `documentation_context.source_documents` is present and complete,
   - verify `documentation_context.materialized_documents` includes execution contract + module briefs context,
@@ -61,8 +71,10 @@ Review rules:
 - Apply the intent of:
   - `.cursor/skills/phase-acceptance-governor/SKILL.md`
   - `.cursor/skills/architecture-review/SKILL.md`
+  - `.cursor/skills/code-reviewer/SKILL.md`
   - `.cursor/skills/testing-suite/SKILL.md`
   - `.cursor/skills/docs-sync/SKILL.md`
+  - `.cursor/skills/verification-before-completion/SKILL.md`
 - Return `PASS` only if the phase objective, constraints, and done evidence are satisfied enough to unlock the next phase.
 - Return `BLOCKED` if the same phase must continue through remediation.
 - Return `BLOCKED` if the worker report contains any non-empty:
@@ -70,6 +82,8 @@ Review rules:
   - `skips`
   - `fallbacks`
   - `deferred_work`
+- Return `BLOCKED` if `recurrence_risks` is non-empty.
+- Return `BLOCKED` if `operational_exceptions` is non-empty.
 - Return `BLOCKED` if evidence is missing, tests were not actually run, or required docs remain stale.
 - Return `BLOCKED` if remediation changed docs without full original + materialized docs context in `documentation_context`.
 - Return `BLOCKED` if goals or acceptance criteria were degraded during docs remediation.
@@ -80,5 +94,5 @@ Review rules:
 Return a short human summary and finish with this exact marker block:
 
 BEGIN_PHASE_ACCEPTANCE_JSON
-{"verdict":"PASS|BLOCKED","summary":"...","route_signal":"acceptance:governed-phase-route","used_skills":["phase-acceptance-governor","architecture-review","testing-suite","docs-sync"],"blockers":[{"id":"B1","title":"...","why":"...","remediation":"..."}],"rerun_checks":["..."],"evidence_gaps":[],"prohibited_findings":[]}
+{"verdict":"PASS|BLOCKED","summary":"...","route_signal":"acceptance:governed-phase-route","used_skills":["phase-acceptance-governor","architecture-review","code-reviewer","testing-suite","docs-sync","verification-before-completion"],"blockers":[{"id":"B1","title":"...","why":"...","remediation":"..."}],"rerun_checks":["..."],"evidence_gaps":[],"prohibited_findings":[],"recurrence_risks":[],"operational_exceptions":[]}
 END_PHASE_ACCEPTANCE_JSON

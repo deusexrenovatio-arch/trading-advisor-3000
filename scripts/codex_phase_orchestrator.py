@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -20,8 +21,11 @@ from codex_phase_policy import (
     ACCEPTANCE_END,
     AcceptanceBlocker,
     DEFAULT_ACCEPTOR_MODEL,
+    DEFAULT_REMEDIATION_MODEL,
     DEFAULT_WORKER_MODEL,
+    ESCALATED_REMEDIATION_MODEL,
     PhaseEvidenceRequirement,
+    REMEDIATION_ESCALATION_ATTEMPT,
     ROUTE_GUARDRAILS,
     ROUTE_MODE,
     SkillBinding,
@@ -54,6 +58,9 @@ DEFAULT_REMEDIATION_PROMPT = Path("docs/codex/prompts/phases/remediation.md")
 STACKED_FOLLOWUP_ROUTE = "stacked-followup"
 PHASE_HUMAN_SUMMARY_BEGIN = "BEGIN_PHASE_HUMAN_SUMMARY"
 PHASE_HUMAN_SUMMARY_END = "END_PHASE_HUMAN_SUMMARY"
+OPENSPACE_LEARNING_MODES = ("off", "soft", "strict")
+DEFAULT_OPENSPACE_LEARNING_MODE = "off"
+DEFAULT_OPENSPACE_LEARNING_COMMAND = ""
 DEFAULT_IGNORE_GLOBS = (
     ".runlogs/**",
     "artifacts/**",
@@ -700,6 +707,130 @@ def resolve_role_skill_bindings(repo_root: Path) -> dict[str, list[SkillBinding]
     }
 
 
+def normalize_openspace_learning_mode(raw: str) -> str:
+    value = str(raw or DEFAULT_OPENSPACE_LEARNING_MODE).strip().lower()
+    if value not in OPENSPACE_LEARNING_MODES:
+        raise OrchestratorError(
+            "unknown OpenSpace learning mode; expected one of " + "|".join(OPENSPACE_LEARNING_MODES)
+        )
+    return value
+
+
+def _repo_relative_path_or_abs(repo_root: Path, target: Path) -> str:
+    resolved_target = target.resolve()
+    resolved_root = repo_root.resolve()
+    try:
+        return resolved_target.relative_to(resolved_root).as_posix()
+    except ValueError:
+        return resolved_target.as_posix()
+
+
+def run_openspace_learning_hook(
+    *,
+    repo_root: Path,
+    attempt: int,
+    kind: str,
+    mode: str,
+    changed_files: list[str],
+    command: str,
+) -> dict[str, Any]:
+    normalized_mode = normalize_openspace_learning_mode(mode)
+    report: dict[str, Any] = {
+        "route_signal": "orchestrator:openspace-learning",
+        "attempt": attempt,
+        "attempt_kind": kind,
+        "mode": normalized_mode,
+        "status": "disabled",
+        "decision_status": "",
+        "recommendation": "",
+        "error": "",
+        "changed_files_count": len(changed_files),
+        "command": [],
+    }
+    if normalized_mode == "off":
+        return report
+
+    command_args: list[str]
+    custom_command = str(command or "").strip()
+    if custom_command:
+        command_args = shlex.split(custom_command, posix=False)
+    else:
+        script_path = Path(__file__).resolve().with_name("skill_update_decision.py")
+        command_args = [sys.executable, script_path.as_posix(), "--format", "json"]
+        if changed_files:
+            command_args.extend(["--changed-files", *changed_files])
+    report["command"] = command_args
+
+    try:
+        completed = subprocess.run(
+            command_args,
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        report["status"] = "failed"
+        report["error"] = str(exc)
+        return report
+
+    stdout = (completed.stdout or "").strip()
+    stderr = (completed.stderr or "").strip()
+    if completed.returncode != 0:
+        report["status"] = "failed"
+        report["error"] = stderr or stdout or f"command exited with code {completed.returncode}"
+        return report
+
+    try:
+        payload = json.loads(stdout) if stdout else {}
+    except json.JSONDecodeError as exc:
+        report["status"] = "failed"
+        report["error"] = f"hook output is not valid JSON: {exc}"
+        return report
+
+    if not isinstance(payload, dict):
+        report["status"] = "failed"
+        report["error"] = "hook output must be a JSON object"
+        return report
+
+    report["status"] = "ok"
+    report["decision_status"] = str(payload.get("status", "")).strip().lower()
+    report["recommendation"] = str(payload.get("recommendation", "")).strip()
+    return report
+
+
+def attach_openspace_learning_evidence(
+    *,
+    worker_report: WorkerReport,
+    report_path_text: str,
+    learning_mode: str,
+    learning_status: str,
+) -> None:
+    if report_path_text and report_path_text not in worker_report.files_touched:
+        worker_report.files_touched.append(report_path_text)
+    check_line = (
+        "openspace-learning "
+        f"--mode {learning_mode} "
+        f"--status {learning_status or 'unknown'} "
+        f"--report {report_path_text}"
+    )
+    if check_line not in worker_report.checks_run:
+        worker_report.checks_run.append(check_line)
+
+    if not isinstance(worker_report.evidence_contract, dict):
+        worker_report.evidence_contract = {}
+    evidence = dict(worker_report.evidence_contract)
+    artifacts = normalize_string_list(evidence.get("artifact_paths", []))
+    checks = normalize_string_list(evidence.get("checks", []))
+    if report_path_text and report_path_text not in artifacts:
+        artifacts.append(report_path_text)
+    if check_line not in checks:
+        checks.append(check_line)
+    evidence["artifact_paths"] = artifacts
+    evidence["checks"] = checks
+    worker_report.evidence_contract = evidence
+
+
 def tagged_json(text: str, begin: str, end: str) -> dict[str, Any]:
     start = text.rfind(begin)
     stop = text.rfind(end)
@@ -748,6 +879,16 @@ def build_worker_prompt(
     )
 
 
+def render_compact_acceptance_capsule() -> str:
+    return (
+        "Hard Acceptance Capsule:\n"
+        "- PASS requires no unresolved blockers, evidence gaps, recurrence risks, or operational exceptions.\n"
+        "- Apply adversarial PR review: name the most likely follow-up PR risk on the changed contour.\n"
+        "- Block if the current patch only moves the issue into a note, workaround, or host/env caveat.\n"
+        "- Use `code-reviewer` together with architecture, test, docs, and completion-verification lenses.\n"
+    )
+
+
 def build_acceptor_prompt(
     *,
     template_path: Path,
@@ -763,12 +904,30 @@ def build_acceptor_prompt(
         f"{base}\n\n"
         "Route Guardrails:\n"
         f"{route_guardrail_text()}\n\n"
+        f"{render_compact_acceptance_capsule()}\n"
         f"Execution Contract: {execution_contract_path.as_posix()}\n"
         f"Module Parent Brief: {parent_path.as_posix()}\n"
         f"Phase Brief: {phase_path.as_posix()}\n"
         f"Worker Report: {worker_report_path.as_posix()}\n"
         f"Changed Files Snapshot: {changed_files_path.as_posix()}\n"
         f"Attempt Number: {attempt}\n"
+    )
+
+
+def remediation_launch_for_attempt(
+    *,
+    remediation_launch: RoleLaunchConfig,
+    attempt: int,
+) -> RoleLaunchConfig:
+    if attempt < REMEDIATION_ESCALATION_ATTEMPT:
+        return remediation_launch
+    model = str(remediation_launch.model or "").strip()
+    if model and model != DEFAULT_REMEDIATION_MODEL:
+        return remediation_launch
+    return RoleLaunchConfig(
+        profile=remediation_launch.profile,
+        model=ESCALATED_REMEDIATION_MODEL,
+        config_overrides=remediation_launch.config_overrides,
     )
 
 
@@ -851,6 +1010,7 @@ def simulate_acceptance_payload(scenario: str, attempt: int) -> dict[str, Any]:
         "used_skills": [
             "phase-acceptance-governor",
             "architecture-review",
+            "code-reviewer",
             "testing-suite",
             "docs-sync",
             "verification-before-completion",
@@ -859,6 +1019,8 @@ def simulate_acceptance_payload(scenario: str, attempt: int) -> dict[str, Any]:
         "rerun_checks": [],
         "evidence_gaps": [],
         "prohibited_findings": [],
+        "recurrence_risks": [],
+        "operational_exceptions": [],
     }
     if scenario == "pass":
         payload.update({"verdict": "PASS", "summary": "Simulated acceptance pass."})
@@ -1000,12 +1162,18 @@ def render_attempt_human_summary(
         f"- Phase Brief: {phase_path.as_posix()}",
         f"- Attempt: {attempt_record.attempt}",
         f"- Attempt Kind: {attempt_record.kind}",
+        f"- Execution Model: {attempt_record.execution_model or 'default'}",
         f"- Verdict: {attempt_record.verdict}",
         f"- Worker Summary: {_single_line(attempt_record.worker_summary)}",
         f"- Worker Route Signal: {attempt_record.worker_route_signal}",
         f"- Acceptor Route Signal: {attempt_record.acceptor_route_signal}",
         f"- Blockers Total: {attempt_record.blockers_total}",
         f"- Policy Blockers: {attempt_record.policy_blockers_total}",
+        (
+            f"- OpenSpace Learning: mode={attempt_record.openspace_learning_mode}; "
+            f"status={attempt_record.openspace_learning_status}"
+        ),
+        f"- OpenSpace Learning Report: {attempt_record.openspace_learning_report_path or 'none'}",
         f"- Acceptance Report: {attempt_record.acceptance_md_path}",
         f"- Next Action: {status_line}",
         "",
@@ -1068,7 +1236,10 @@ def orchestrate_current_phase(
     mutation_lock_timeout_sec: float = DEFAULT_MUTATION_LOCK_TIMEOUT_SEC,
     entry_route: str = "continue",
     continuation_contract_path: Path | None = None,
+    openspace_learning_mode: str = DEFAULT_OPENSPACE_LEARNING_MODE,
+    openspace_learning_command: str = DEFAULT_OPENSPACE_LEARNING_COMMAND,
 ) -> tuple[int, Path]:
+    normalized_learning_mode = normalize_openspace_learning_mode(openspace_learning_mode)
     phase_path = resolve_current_phase(repo_root, parent_path)
     if phase_status_from_brief(phase_path) == "completed":
         raise OrchestratorError(f"phase already completed: {phase_path.as_posix()}")
@@ -1114,7 +1285,11 @@ def orchestrate_current_phase(
         attempt_dir.mkdir(parents=True, exist_ok=True)
 
         worker_template = worker_prompt_path if kind == "worker" else remediation_prompt_path
-        worker_launch_cfg = worker_launch if kind == "worker" else remediation_launch
+        worker_launch_cfg = (
+            worker_launch
+            if kind == "worker"
+            else remediation_launch_for_attempt(remediation_launch=remediation_launch, attempt=attempt)
+        )
         worker_prompt = build_worker_prompt(
             template_path=worker_template,
             execution_contract_path=execution_contract_path,
@@ -1144,6 +1319,33 @@ def orchestrate_current_phase(
             worker_report = normalize_worker_payload(worker_payload)
         except ValueError as exc:
             raise OrchestratorError(str(exc)) from exc
+        openspace_learning_report: dict[str, Any] | None = None
+        openspace_learning_report_path: Path | None = None
+        base_changed_files = merged_changed_files(
+            repo_root=repo_root,
+            ignore_globs=ignore_globs,
+            worker_report=worker_report,
+            skip_clean_check=bool(skip_clean_check),
+        )
+        if normalized_learning_mode != "off":
+            openspace_learning_report = run_openspace_learning_hook(
+                repo_root=repo_root,
+                attempt=attempt,
+                kind=kind,
+                mode=normalized_learning_mode,
+                changed_files=base_changed_files,
+                command=openspace_learning_command,
+            )
+            openspace_learning_report_path = attempt_dir / "openspace-learning-report.json"
+            write_json(openspace_learning_report_path, openspace_learning_report)
+            report_path_text = _repo_relative_path_or_abs(repo_root, openspace_learning_report_path)
+            attach_openspace_learning_evidence(
+                worker_report=worker_report,
+                report_path_text=report_path_text,
+                learning_mode=normalized_learning_mode,
+                learning_status=str(openspace_learning_report.get("status", "")).strip().lower(),
+            )
+
         worker_report_path = attempt_dir / f"{kind}-report.json"
         write_json(worker_report_path, asdict(worker_report))
 
@@ -1186,6 +1388,8 @@ def orchestrate_current_phase(
                 worker=worker_report,
                 acceptance=normalize_acceptance_payload(acceptance_payload),
                 phase_requirement=current_phase_evidence_requirement,
+                learning_mode=normalized_learning_mode,
+                openspace_learning_report=openspace_learning_report,
             )
         except ValueError as exc:
             raise OrchestratorError(str(exc)) from exc
@@ -1203,6 +1407,8 @@ def orchestrate_current_phase(
                 "rerun_checks": acceptance.rerun_checks,
                 "evidence_gaps": acceptance.evidence_gaps,
                 "prohibited_findings": acceptance.prohibited_findings,
+                "recurrence_risks": acceptance.recurrence_risks,
+                "operational_exceptions": acceptance.operational_exceptions,
                 "policy_blockers": [asdict(item) for item in acceptance.policy_blockers],
             }
             write_json(acceptance_json_path, initial_acceptance_payload)
@@ -1245,8 +1451,14 @@ def orchestrate_current_phase(
             "rerun_checks": acceptance.rerun_checks,
             "evidence_gaps": acceptance.evidence_gaps,
             "prohibited_findings": acceptance.prohibited_findings,
+            "recurrence_risks": acceptance.recurrence_risks,
+            "operational_exceptions": acceptance.operational_exceptions,
             "policy_blockers": [asdict(item) for item in acceptance.policy_blockers],
         }
+        if openspace_learning_report is not None:
+            acceptance_payload_doc["openspace_learning_report"] = openspace_learning_report
+        if openspace_learning_report_path is not None:
+            acceptance_payload_doc["openspace_learning_report_path"] = openspace_learning_report_path.as_posix()
         if release_decision_path is not None and release_decision_path.exists():
             acceptance_payload_doc["release_decision_path"] = release_decision_path.as_posix()
         write_json(acceptance_json_path, acceptance_payload_doc)
@@ -1257,6 +1469,7 @@ def orchestrate_current_phase(
             AttemptRecord(
                 attempt=attempt,
                 kind=kind,
+                execution_model=worker_launch_cfg.model or "default",
                 worker_summary=worker_report.summary,
                 worker_route_signal=worker_report.route_signal,
                 worker_report_path=worker_report_path.as_posix(),
@@ -1268,6 +1481,15 @@ def orchestrate_current_phase(
                 verdict=acceptance.verdict,
                 blockers_total=len(acceptance.blockers),
                 policy_blockers_total=len(acceptance.policy_blockers),
+                openspace_learning_mode=normalized_learning_mode,
+                openspace_learning_status=(
+                    str(openspace_learning_report.get("status", "")).strip().lower()
+                    if isinstance(openspace_learning_report, dict)
+                    else "disabled"
+                ),
+                openspace_learning_report_path=(
+                    openspace_learning_report_path.as_posix() if openspace_learning_report_path else ""
+                ),
             )
         )
         attempt_chat_summary_path = attempt_dir / "chat-summary.md"
@@ -1484,10 +1706,16 @@ def build_parser() -> argparse.ArgumentParser:
         target.add_argument("--remediation-profile", default="")
         target.add_argument("--worker-model", default=DEFAULT_WORKER_MODEL)
         target.add_argument("--acceptor-model", default=DEFAULT_ACCEPTOR_MODEL)
-        target.add_argument("--remediation-model", default="")
+        target.add_argument("--remediation-model", default=DEFAULT_REMEDIATION_MODEL)
         target.add_argument("--worker-config", action="append", default=[])
         target.add_argument("--acceptor-config", action="append", default=[])
         target.add_argument("--remediation-config", action="append", default=[])
+        target.add_argument(
+            "--openspace-learning-mode",
+            choices=OPENSPACE_LEARNING_MODES,
+            default=DEFAULT_OPENSPACE_LEARNING_MODE,
+        )
+        target.add_argument("--openspace-learning-command", default=DEFAULT_OPENSPACE_LEARNING_COMMAND)
         target.add_argument("--ignore-glob", action="append", default=[])
         target.add_argument("--skip-clean-check", action="store_true")
         target.add_argument(
@@ -1621,6 +1849,10 @@ def main(argv: list[str] | None = None) -> int:
             mutation_lock_timeout_sec=max(float(args.mutation_lock_timeout_sec), 0.0),
             entry_route=entry_route,
             continuation_contract_path=continuation_contract_path,
+            openspace_learning_mode=str(getattr(args, "openspace_learning_mode", DEFAULT_OPENSPACE_LEARNING_MODE)),
+            openspace_learning_command=str(
+                getattr(args, "openspace_learning_command", DEFAULT_OPENSPACE_LEARNING_COMMAND) or ""
+            ),
         )
     except OrchestratorError as exc:
         print(f"error: {exc}", file=sys.stderr)
