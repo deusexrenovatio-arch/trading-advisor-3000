@@ -163,3 +163,9 @@ items:
   status: completed
   started_at: '2026-04-09'
   completed_at: '2026-04-09'
+- id: TASK-2026-04-09-PUSH-FEATURE-BRANCH-AND-OPEN-PR-FOR-GOVERNED-PRO
+  path: docs/tasks/archive/TASK-2026-04-09-push-feature-branch-and-open-pr-for-governed-pro.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-09'
+  completed_at: '2026-04-09'
