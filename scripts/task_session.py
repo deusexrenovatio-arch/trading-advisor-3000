@@ -21,6 +21,10 @@ TASK_INDEX_ARCHIVE = Path("docs/tasks/archive/index.yaml")
 TERMINAL_OUTCOME_STATUSES = {"completed", "partial", "blocked"}
 LEGACY_SESSION_MODE = "legacy-full"
 TRACKED_SESSION_MODE = "tracked_session"
+BRANCH_SHARED_SESSION_BINDING = "branch-shared"
+WORKTREE_STRICT_SESSION_BINDING = "worktree-strict"
+DEFAULT_SESSION_BINDING = BRANCH_SHARED_SESSION_BINDING
+DEFAULT_SESSION_BINDING_ENV = "TA3000_SESSION_BINDING"
 
 
 def _now() -> datetime:
@@ -68,6 +72,23 @@ def normalize_session_mode(raw: str) -> str:
     )
 
 
+def normalize_session_binding(raw: str) -> str:
+    value = str(raw or "").strip().lower()
+    if value in {"", "branch", "branch-shared", "shared", "relaxed"}:
+        return BRANCH_SHARED_SESSION_BINDING
+    if value in {"worktree", "strict", "worktree-strict"}:
+        return WORKTREE_STRICT_SESSION_BINDING
+    raise ValueError("unknown session binding; expected one of branch-shared|worktree-strict")
+
+
+def resolve_default_session_binding() -> str:
+    raw = str(os.environ.get(DEFAULT_SESSION_BINDING_ENV, DEFAULT_SESSION_BINDING)).strip()
+    try:
+        return normalize_session_binding(raw)
+    except ValueError:
+        return DEFAULT_SESSION_BINDING
+
+
 def get_repo_root() -> Path:
     completed = _run(["git", "rev-parse", "--show-toplevel"])
     if completed.returncode != 0 or not completed.stdout.strip():
@@ -112,13 +133,20 @@ def build_session_id() -> str:
     return f"TS-{_now().strftime('%Y%m%dT%H%M%SZ')}-{os.urandom(4).hex()}"
 
 
-def create_session_lock(*, repo_root: Path, ttl_hours: int, session_mode: str) -> dict[str, Any]:
+def create_session_lock(
+    *,
+    repo_root: Path,
+    ttl_hours: int,
+    session_mode: str,
+    session_binding: str,
+) -> dict[str, Any]:
     started_at = _now()
     return {
         "session_id": build_session_id(),
         "worktree": str(repo_root),
         "branch": get_current_branch(repo_root),
         "session_mode": session_mode,
+        "session_binding": session_binding,
         "started_at": _iso(started_at),
         "expires_at": _iso(started_at + timedelta(hours=max(ttl_hours, 1))),
     }
@@ -130,6 +158,7 @@ def evaluate_session_lock(payload: dict[str, Any], *, repo_root: Path) -> tuple[
     worktree = str(payload.get("worktree", "")).strip()
     branch = str(payload.get("branch", "")).strip()
     session_mode_raw = str(payload.get("session_mode", "")).strip()
+    session_binding_raw = str(payload.get("session_binding", "")).strip()
     started_at = _parse_iso(str(payload.get("started_at", "")).strip())
     expires_at = _parse_iso(str(payload.get("expires_at", "")).strip())
     session_id = str(payload.get("session_id", "")).strip()
@@ -140,16 +169,31 @@ def evaluate_session_lock(payload: dict[str, Any], *, repo_root: Path) -> tuple[
             normalize_session_mode(session_mode_raw)
         except ValueError:
             return False, f"session lock has unknown session_mode `{session_mode_raw}`"
+    if session_binding_raw:
+        try:
+            session_binding = normalize_session_binding(session_binding_raw)
+        except ValueError:
+            return False, f"session lock has unknown session_binding `{session_binding_raw}`"
+    else:
+        session_binding = resolve_default_session_binding()
     current_branch = get_current_branch(repo_root)
     current_worktree = str(repo_root)
     if os.name == "nt":
         same_worktree = current_worktree.casefold() == worktree.casefold()
     else:
         same_worktree = current_worktree == worktree
-    if not same_worktree or current_branch != branch:
+    branch_matches = current_branch == branch
+    if not branch_matches:
         return False, (
             "session mismatch "
-            f"(expected worktree={worktree} branch={branch}, current worktree={current_worktree} branch={current_branch})"
+            f"(binding={session_binding} expected worktree={worktree} branch={branch}, "
+            f"current worktree={current_worktree} branch={current_branch})"
+        )
+    if session_binding == WORKTREE_STRICT_SESSION_BINDING and not same_worktree:
+        return False, (
+            "session mismatch "
+            f"(binding={session_binding} expected worktree={worktree} branch={branch}, "
+            f"current worktree={current_worktree} branch={current_branch})"
         )
     if _now() > expires_at:
         return False, f"session expired at {payload['expires_at']}"
@@ -395,6 +439,7 @@ def begin_session(
     ttl_hours: int,
     session_handoff_path: Path,
     mode: str,
+    binding: str = DEFAULT_SESSION_BINDING,
     lock_path: Path | None = None,
 ) -> int:
     if not request.strip():
@@ -405,6 +450,11 @@ def begin_session(
         session_mode = normalize_session_mode(mode)
     except ValueError as exc:
         print(f"task session: begin requires a valid --mode ({exc})")
+        return 2
+    try:
+        session_binding = normalize_session_binding(binding)
+    except ValueError as exc:
+        print(f"task session: begin requires a valid --binding ({exc})")
         return 2
 
     repo_root = get_repo_root()
@@ -431,7 +481,12 @@ def begin_session(
         mode=session_mode,
     )
 
-    payload = create_session_lock(repo_root=repo_root, ttl_hours=ttl_hours, session_mode=session_mode)
+    payload = create_session_lock(
+        repo_root=repo_root,
+        ttl_hours=ttl_hours,
+        session_mode=session_mode,
+        session_binding=session_binding,
+    )
     write_session_lock(session_lock_path, payload)
 
     route = _route_begin_context(request=request.strip(), handoff_path=session_handoff_path)
@@ -440,6 +495,7 @@ def begin_session(
     print(f"  task_id: {task_id}")
     print(f"  task_note: {note_rel}")
     print(f"  session_mode: {session_mode}")
+    print(f"  session_binding: {session_binding}")
     print(f"  primary_context: {route.get('primary_context') or 'unknown'}")
     print("  next_gate: python scripts/run_loop_gate.py --from-git --git-ref HEAD")
     for note in list(route.get("recommendations", []))[:3]:
@@ -467,7 +523,14 @@ def session_status(*, lock_path: Path | None = None, quiet: bool = False) -> int
         session_mode = normalize_session_mode(session_mode_raw)
     except ValueError:
         session_mode = session_mode_raw
+    session_binding_raw = str(payload.get("session_binding", DEFAULT_SESSION_BINDING)).strip()
+    try:
+        session_binding = normalize_session_binding(session_binding_raw)
+    except ValueError:
+        session_binding = session_binding_raw
     print(f"  session_mode: {session_mode}")
+    print(f"  session_binding: {session_binding}")
+    print(f"  session_lock_path: {session_lock_path}")
     print(f"  started_at: {payload['started_at']}")
     print(f"  expires_at: {payload['expires_at']}")
     return 0
@@ -557,6 +620,7 @@ def build_parser() -> argparse.ArgumentParser:
     begin.add_argument("--request", required=True)
     begin.add_argument("--ttl-hours", type=int, default=DEFAULT_SESSION_TTL_HOURS)
     begin.add_argument("--mode", default=LEGACY_SESSION_MODE)
+    begin.add_argument("--binding", default=DEFAULT_SESSION_BINDING)
     begin.add_argument("--session-handoff-path", default="docs/session_handoff.md")
     begin.add_argument("--lock-path", default=None)
 
@@ -579,6 +643,7 @@ def main() -> int:
             request=args.request,
             ttl_hours=args.ttl_hours,
             mode=args.mode,
+            binding=args.binding,
             session_handoff_path=Path(args.session_handoff_path),
             lock_path=Path(args.lock_path) if args.lock_path else None,
         )

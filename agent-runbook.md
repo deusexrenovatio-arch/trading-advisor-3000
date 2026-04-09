@@ -14,7 +14,7 @@ Primary source-of-truth for multi-worktree policy:
 5. Keep `docs/session_handoff.md` as pointer-shim and maintain active task note.
 
 ## Parallel Work Rules
-1. Separate worktrees or branches for unrelated tasks.
+1. Default to one primary worktree; add extra worktrees only when branch isolation is insufficient.
 2. No shared mutable temporary artifacts across tasks.
 3. If a policy check fails twice, pause feature work and remediate process first.
 4. Use canonical gate order: loop -> PR -> nightly.
