@@ -12,16 +12,16 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from codex_from_package import (  # noqa: E402
+    build_intake_handoff,
+    build_intake_human_summary,
     build_intake_lane_prompt,
     build_materialization_prompt,
     build_prompt,
     choose_latest_package,
     collect_document_candidates,
-    extract_lane_payload_from_text,
-    evaluate_intake_gate_from_text,
     evaluate_intake_gate_payload,
     extract_docx_title,
-    lane_model_override,
+    render_intake_human_summary_markdown,
     safe_extract_zip,
 )
 
@@ -102,201 +102,201 @@ def test_extract_docx_title_reads_first_text(tmp_path: Path) -> None:
     assert extract_docx_title(docx) == "Primary Specification"
 
 
-def test_build_prompt_includes_suggested_phase_ids_line(tmp_path: Path) -> None:
-    prompt_file = tmp_path / "from_package.md"
-    prompt_file.write_text("base prompt", encoding="utf-8")
-    package = tmp_path / "incoming.zip"
-    extracted = tmp_path / "extracted"
-    manifest = tmp_path / "manifest.md"
-
-    prompt = build_prompt(
-        prompt_path=prompt_file,
-        package_path=package,
-        extracted_root=extracted,
-        manifest_path=manifest,
-        suggested_primary=(extracted / "spec.md").as_posix(),
-        suggested_phase_compiler_artifact=(tmp_path / "suggested-phase-plan.json").as_posix(),
-        suggested_phase_ids=["F1-A", "F1-B"],
-        mode="plan-only",
+def test_intake_gate_blocks_when_required_digests_are_missing() -> None:
+    gate = evaluate_intake_gate_payload(
+        {
+            "technical_intake": {
+                "created_docs": ["docs/codex/contracts/demo.execution-contract.md"],
+                "review_summary": "Technical lane checked architecture assumptions.",
+                "blockers": [],
+            },
+            "product_intake": {
+                "created_docs": ["docs/codex/modules/demo.parent.md"],
+                "review_summary": "Product lane checked user value assumptions.",
+                "blockers": [],
+            },
+            "combined_gate": {"decision": "PASS"},
+        }
     )
-
-    assert "Suggested phase ids: F1-A,F1-B" in prompt
-
-
-def test_build_intake_lane_prompt_embeds_lane_tags() -> None:
-    technical_prompt = build_intake_lane_prompt(base_prompt="base", lane="technical_intake")
-    product_prompt = build_intake_lane_prompt(base_prompt="base", lane="product_intake")
-
-    assert "BEGIN_TECHNICAL_INTAKE_JSON" in technical_prompt
-    assert "END_TECHNICAL_INTAKE_JSON" in technical_prompt
-    assert "Do not modify repository files in this lane pass." in technical_prompt
-    assert "workflow-architect" in technical_prompt
-    assert "BEGIN_PRODUCT_INTAKE_JSON" in product_prompt
-    assert "END_PRODUCT_INTAKE_JSON" in product_prompt
-    assert "workflow-architect" not in product_prompt
-
-
-def test_extract_lane_payload_from_text_supports_plain_lane_object() -> None:
-    text = """
-BEGIN_TECHNICAL_INTAKE_JSON
-{
-  "created_docs": ["docs/codex/contracts/demo.execution-contract.md"],
-  "review_summary": "Technical review complete.",
-  "blockers": []
-}
-END_TECHNICAL_INTAKE_JSON
-"""
-    payload = extract_lane_payload_from_text(text, lane="technical_intake")
-    assert payload["created_docs"] == ["docs/codex/contracts/demo.execution-contract.md"]
-    assert payload["review_summary"] == "Technical review complete."
-
-
-def test_build_materialization_prompt_contains_lane_inputs_and_gate_path(tmp_path: Path) -> None:
-    gate_path = tmp_path / "intake-gate.json"
-    prompt = build_materialization_prompt(
-        base_prompt="base",
-        technical_lane_payload={
-            "created_docs": ["docs/codex/contracts/demo.execution-contract.md"],
-            "review_summary": "tech",
-            "blockers": [],
-        },
-        product_lane_payload={
-            "created_docs": ["docs/codex/modules/demo.parent.md"],
-            "review_summary": "product",
-            "blockers": [],
-        },
-        intake_gate={"combined_gate": {"decision": "PASS"}},
-        intake_gate_path=gate_path,
-    )
-
-    assert "Intake Runtime Mode:" in prompt
-    assert gate_path.as_posix() in prompt
-    assert '"review_summary": "tech"' in prompt
-    assert '"review_summary": "product"' in prompt
-
-
-def test_evaluate_intake_gate_payload_passes_without_p0_p1_blockers() -> None:
-    payload = {
-        "technical_intake": {
-            "created_docs": ["docs/codex/contracts/demo.execution-contract.md"],
-            "review_summary": "Architecture review passed with minor notes.",
-            "blockers": [
-                {
-                    "id": "T-1",
-                    "severity": "P2",
-                    "scale": "S",
-                    "title": "Minor docs gap",
-                    "why": "One optional note is missing.",
-                    "required_action": "Add optional note later.",
-                }
-            ],
-        },
-        "product_intake": {
-            "created_docs": ["docs/codex/modules/demo.parent.md"],
-            "review_summary": "Value proposition is acceptable for this phase.",
-            "blockers": [],
-        },
-        "combined_gate": {"decision": "PASS"},
-    }
-
-    gate = evaluate_intake_gate_payload(payload)
-    assert gate["combined_gate"]["decision"] == "PASS"
-    assert gate["combined_gate"]["blocking_total"] == 0
-
-
-def test_evaluate_intake_gate_payload_blocks_when_p0_or_p1_present() -> None:
-    payload = {
-        "technical_intake": {
-            "created_docs": ["docs/codex/contracts/demo.execution-contract.md"],
-            "review_summary": "Architecture mismatch detected.",
-            "blockers": [
-                {
-                    "id": "T-ARCH-01",
-                    "severity": "P0",
-                    "scale": "L",
-                    "title": "Architecture conflict",
-                    "why": "Proposed integration violates current app boundaries.",
-                    "required_action": "Rework integration boundaries.",
-                }
-            ],
-        },
-        "product_intake": {
-            "created_docs": ["docs/codex/modules/demo.parent.md"],
-            "review_summary": "Value unclear until architecture issue is resolved.",
-            "blockers": [],
-        },
-        "combined_gate": {"decision": "PASS"},
-    }
-
-    gate = evaluate_intake_gate_payload(payload)
     assert gate["combined_gate"]["decision"] == "BLOCKED"
-    assert gate["combined_gate"]["blocking_total"] == 1
-    assert gate["combined_gate"]["max_problem_scale"] == "L"
+    technical_titles = [item["title"] for item in gate["technical_intake"]["blockers"]]
+    product_titles = [item["title"] for item in gate["product_intake"]["blockers"]]
+    assert "Goals digest is missing" in technical_titles
+    assert "Acceptance criteria digest is missing" in technical_titles
+    assert "Structural recommendations section is missing" in technical_titles
+    assert "Goals digest is missing" in product_titles
 
 
-def test_evaluate_intake_gate_payload_autoblocks_missing_docs_and_review() -> None:
-    payload = {
-        "technical_intake": {
-            "created_docs": [],
-            "review_summary": "",
-            "blockers": [],
-        },
-        "product_intake": {
-            "created_docs": ["docs/codex/modules/demo.parent.md"],
-            "review_summary": "Product review drafted.",
-            "blockers": [],
-        },
-        "combined_gate": {"decision": "PASS"},
-    }
-
-    gate = evaluate_intake_gate_payload(payload)
-    assert gate["combined_gate"]["decision"] == "BLOCKED"
-    assert gate["combined_gate"]["severity_counts"]["P0"] >= 1
-    assert any(
-        item["id"] == "AUTO-TECHNICAL_INTAKE-DOCS"
-        for item in gate["technical_intake"]["blockers"]
+def test_intake_human_summary_merges_structural_recommendations() -> None:
+    gate = evaluate_intake_gate_payload(
+        {
+            "technical_intake": {
+                "created_docs": ["docs/codex/contracts/demo.execution-contract.md"],
+                "review_summary": "Technical lane reviewed architecture fit.",
+                "goals_digest": ["Preserve route integrity"],
+                "acceptance_criteria_digest": ["All required checks are executable"],
+                "structural_recommendations": [
+                    {
+                        "id": "TECH-SR-001",
+                        "priority": "HIGH",
+                        "title": "Split migration and runtime cutover",
+                        "why": "Reduce rollback blast radius during rollout.",
+                        "proposal": "Introduce explicit migration phase before cutover phase.",
+                        "impact_on_tz": "Adds explicit checkpoint and acceptance gate.",
+                    }
+                ],
+                "blockers": [],
+            },
+            "product_intake": {
+                "created_docs": ["docs/codex/modules/demo.parent.md"],
+                "review_summary": "Product lane reviewed value and acceptance alignment.",
+                "goals_digest": ["Preserve route integrity", "Expose human summaries in chat"],
+                "acceptance_criteria_digest": [
+                    "All required checks are executable",
+                    "Intake output includes explicit goals and acceptance criteria digest",
+                ],
+                "structural_recommendations": [
+                    {
+                        "id": "PROD-SR-001",
+                        "priority": "CRITICAL",
+                        "title": "Promote KPI section to mandatory input",
+                        "why": "Execution criteria currently allow value drift.",
+                        "proposal": "Add explicit KPI and baseline metric fields in source TZ.",
+                        "impact_on_tz": "Changes mandatory intake checklist and acceptance flow.",
+                    }
+                ],
+                "blockers": [],
+            },
+            "combined_gate": {"decision": "PASS"},
+        }
     )
-
-
-def test_evaluate_intake_gate_from_text_parses_tagged_json() -> None:
-    text = """
-Intro narrative.
-BEGIN_INTAKE_GATE_JSON
-{
-  "technical_intake": {
-    "created_docs": ["docs/codex/contracts/demo.execution-contract.md"],
-    "review_summary": "ok",
-    "blockers": []
-  },
-  "product_intake": {
-    "created_docs": ["docs/codex/modules/demo.parent.md"],
-    "review_summary": "ok",
-    "blockers": []
-  },
-  "combined_gate": {"decision": "PASS"}
-}
-END_INTAKE_GATE_JSON
-"""
-    gate = evaluate_intake_gate_from_text(text)
     assert gate["combined_gate"]["decision"] == "PASS"
+    summary = build_intake_human_summary(gate)
+    assert summary["gate_decision"] == "PASS"
+    assert len(summary["structural_recommendations"]) == 2
+    titles = [item["title"] for item in summary["structural_recommendations"]]
+    assert "Split migration and runtime cutover" in titles
+    assert "Promote KPI section to mandatory input" in titles
+    markdown = render_intake_human_summary_markdown(summary)
+    assert "Structural Recommendations" in markdown
+    assert "Expose human summaries in chat" in markdown
 
-def test_build_prompt_includes_required_technical_intake_skill_binding(tmp_path: Path) -> None:
-    prompt_path = tmp_path / "from_package.md"
-    prompt_path.write_text("Use the package-intake flow for this repository.", encoding="utf-8")
-    prompt = build_prompt(
-        prompt_path=prompt_path,
+
+def test_intake_handoff_is_compact_and_materialization_uses_handoff_path(tmp_path: Path) -> None:
+    gate = evaluate_intake_gate_payload(
+        {
+            "technical_intake": {
+                "created_docs": ["docs/codex/contracts/demo.execution-contract.md"],
+                "review_summary": "Technical lane reviewed architecture fit.",
+                "goals_digest": ["Keep gate deterministic"],
+                "acceptance_criteria_digest": ["Selector parity remains strict"],
+                "structural_recommendations": [
+                    {
+                        "id": "TECH-SR-001",
+                        "priority": "MEDIUM",
+                        "title": "Add compatibility matrix",
+                        "why": "Implicit compatibility assumptions are risky.",
+                        "proposal": "Document matrix in execution contract.",
+                        "impact_on_tz": "Expands technical constraints section.",
+                    }
+                ],
+                "blockers": [],
+            },
+            "product_intake": {
+                "created_docs": ["docs/codex/modules/demo.parent.md"],
+                "review_summary": "Product lane reviewed value fit.",
+                "goals_digest": ["Keep gate deterministic"],
+                "acceptance_criteria_digest": ["Selector parity remains strict"],
+                "structural_recommendations": [],
+                "blockers": [
+                    {
+                        "id": "LANE-001",
+                        "severity": "P1",
+                        "scale": "S",
+                        "title": "Need owner mapping",
+                        "why": "Owner mapping is incomplete",
+                        "required_action": "Provide owner mapping",
+                    }
+                ],
+            },
+            "combined_gate": {"decision": "PASS"},
+        }
+    )
+    summary = build_intake_human_summary(gate)
+    lane_payloads = {
+        "technical_intake": gate["technical_intake"],
+        "product_intake": gate["product_intake"],
+    }
+    handoff = build_intake_handoff(
         package_path=tmp_path / "spec.zip",
         extracted_root=tmp_path / "extracted",
         manifest_path=tmp_path / "manifest.md",
-        suggested_primary=None,
-        suggested_phase_compiler_artifact=None,
-        suggested_phase_ids=[],
+        suggested_primary=(tmp_path / "extracted/spec.md").as_posix(),
+        suggested_phase_compiler_artifact=(tmp_path / "suggested-phase-plan.json").as_posix(),
+        suggested_phase_ids=["phase-01"],
+        lane_payloads=lane_payloads,
+        intake_gate=gate,
+        intake_human_summary=summary,
+    )
+    assert handoff["gate_decision"] == "BLOCKED"
+    assert sorted(handoff["materialization_targets"]["docs_to_refresh"]) == sorted(
+        [
+            "docs/codex/contracts/demo.execution-contract.md",
+            "docs/codex/modules/demo.parent.md",
+        ]
+    )
+    assert handoff["blocking_items"][0]["severity"] == "P1"
+    requirements = handoff["materialization_requirements"]
+    assert requirements["documents"][0]["type"] == "execution_contract"
+    assert requirements["documents"][1]["type"] == "module_parent_brief"
+    assert any(item["type"] == "module_phase_brief" for item in requirements["documents"])
+    assert requirements["required_outcomes"]
+    assert requirements["phase_brief_mandatory_sections"]
+
+    runtime_context = build_prompt(
+        prompt_path=tmp_path / "from_package.md",
+        package_path=tmp_path / "spec.zip",
+        extracted_root=tmp_path / "extracted",
+        manifest_path=tmp_path / "manifest.md",
+        suggested_primary=(tmp_path / "extracted/spec.md").as_posix(),
+        suggested_phase_compiler_artifact=(tmp_path / "suggested-phase-plan.json").as_posix(),
+        suggested_phase_ids=["phase-01"],
         mode="auto",
     )
+    materialization_prompt = build_materialization_prompt(
+        runtime_context=runtime_context,
+        policy_prompt_path=tmp_path / "from_package.md",
+        intake_handoff_path=tmp_path / "intake-handoff.json",
+        intake_gate_path=tmp_path / "intake-gate.json",
+        intake_handoff=handoff,
+    )
+    assert "Intake handoff JSON" in materialization_prompt
+    assert "Lane Inputs (technical_intake)" not in materialization_prompt
+    assert "BEGIN_MATERIALIZATION_RESULT_JSON" in materialization_prompt
+    assert "Required Documents, Constraints, Expected Results" in materialization_prompt
+    assert "Mandatory phase brief sections" in materialization_prompt
+    assert "Traceability Map" in materialization_prompt
+    assert "Structural recommendations and critical TZ changes to preserve" in materialization_prompt
+    assert "Section Goals" in materialization_prompt
 
-    assert "Required technical intake skills: .cursor/skills/workflow-architect/SKILL.md" in prompt
 
-
-def test_lane_model_override_sets_technical_intake_to_gpt_5_3_codex() -> None:
-    assert lane_model_override("technical_intake") == "gpt-5.3-codex"
-    assert lane_model_override("product_intake") is None
+def test_lane_prompt_is_compact_and_policy_referenced_once(tmp_path: Path) -> None:
+    runtime_context = build_prompt(
+        prompt_path=tmp_path / "from_package.md",
+        package_path=tmp_path / "spec.zip",
+        extracted_root=tmp_path / "extracted",
+        manifest_path=tmp_path / "manifest.md",
+        suggested_primary=(tmp_path / "extracted/spec.md").as_posix(),
+        suggested_phase_compiler_artifact=(tmp_path / "suggested-phase-plan.json").as_posix(),
+        suggested_phase_ids=["0", "1", "2"],
+        mode="auto",
+    )
+    prompt = build_intake_lane_prompt(
+        runtime_context=runtime_context,
+        policy_prompt_path=tmp_path / "from_package.md",
+        lane="technical_intake",
+    )
+    assert "Intake Policy Reference" in prompt
+    assert "BEGIN_TECHNICAL_INTAKE_JSON" in prompt
+    assert "Lossless transfer contract" not in prompt
+    assert "Section Goals" in prompt
