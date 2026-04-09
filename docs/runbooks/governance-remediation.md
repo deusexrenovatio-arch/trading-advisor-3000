@@ -3,7 +3,9 @@
 Use this runbook when a governance gate fails.
 
 ## `python scripts/task_session.py begin --request "<request>"`
-- Start session in the real worktree/branch you are using.
+- Start session in the real branch you are using.
+- Default binding is branch-shared; use strict mode only when required:
+  - `python scripts/task_session.py begin --request "<request>" --binding worktree-strict`
 - If session is already active, inspect with `python scripts/task_session.py status`.
 
 ## `python scripts/run_loop_gate.py --snapshot-mode changed-files --profile none`
