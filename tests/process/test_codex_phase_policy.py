@@ -182,3 +182,107 @@ def test_policy_blocks_live_real_dry_run_continue_route() -> None:
     result = apply_acceptance_policy(worker=worker, acceptance=_acceptance_payload(), phase_requirement=phase_requirement)
     assert result.verdict == "BLOCKED"
     assert any("only dry-run governed continue commands" in blocker.why for blocker in result.policy_blockers)
+
+
+def test_policy_blocks_worker_documentation_edits() -> None:
+    worker = WorkerReport(
+        status="DONE",
+        summary="Worker edited docs directly.",
+        route_signal="worker:phase-only",
+        files_touched=["docs/codex/modules/demo.phase-01.md"],
+        checks_run=["python -m pytest tests/process/test_codex_phase_policy.py -q"],
+        remaining_risks=[],
+        assumptions=[],
+        skips=[],
+        fallbacks=[],
+        deferred_work=[],
+        evidence_contract={
+            "surfaces": ["demo_surface"],
+            "proof_class": "integration",
+            "artifact_paths": ["artifacts/demo-proof.json"],
+            "checks": ["python -m pytest tests/process/test_codex_phase_policy.py -q"],
+            "real_bindings": [],
+        },
+    )
+    phase_requirement = PhaseEvidenceRequirement(
+        owned_surfaces=["demo_surface"],
+        delivered_proof_class="integration",
+        requires_real_bindings=False,
+    )
+
+    result = apply_acceptance_policy(worker=worker, acceptance=_acceptance_payload(), phase_requirement=phase_requirement)
+    assert result.verdict == "BLOCKED"
+    assert any("modify documentation files directly" in blocker.why for blocker in result.policy_blockers)
+
+
+def test_policy_blocks_remediation_doc_edits_without_documentation_context() -> None:
+    worker = WorkerReport(
+        status="DONE",
+        summary="Remediation changed docs without context contract.",
+        route_signal="remediation:phase-only",
+        files_touched=["docs/codex/modules/demo.phase-01.md"],
+        checks_run=["python -m pytest tests/process/test_codex_phase_policy.py -q"],
+        remaining_risks=[],
+        assumptions=[],
+        skips=[],
+        fallbacks=[],
+        deferred_work=[],
+        evidence_contract={
+            "surfaces": ["demo_surface"],
+            "proof_class": "doc",
+            "artifact_paths": ["docs/codex/modules/demo.phase-01.md"],
+            "checks": ["python -m pytest tests/process/test_codex_phase_policy.py -q"],
+            "real_bindings": [],
+        },
+    )
+    phase_requirement = PhaseEvidenceRequirement(
+        owned_surfaces=["demo_surface"],
+        delivered_proof_class="doc",
+        requires_real_bindings=False,
+    )
+
+    result = apply_acceptance_policy(worker=worker, acceptance=_acceptance_payload(), phase_requirement=phase_requirement)
+    assert result.verdict == "BLOCKED"
+    assert any("documentation_context is incomplete" in blocker.why for blocker in result.policy_blockers)
+
+
+def test_policy_allows_remediation_doc_edits_with_full_documentation_context() -> None:
+    worker = WorkerReport(
+        status="DONE",
+        summary="Remediation changed docs with full context coverage.",
+        route_signal="remediation:phase-only",
+        files_touched=["docs/codex/modules/demo.phase-01.md"],
+        checks_run=["python -m pytest tests/process/test_codex_phase_policy.py -q"],
+        remaining_risks=[],
+        assumptions=[],
+        skips=[],
+        fallbacks=[],
+        deferred_work=[],
+        evidence_contract={
+            "surfaces": ["demo_surface"],
+            "proof_class": "doc",
+            "artifact_paths": ["docs/codex/modules/demo.phase-01.md"],
+            "checks": ["python -m pytest tests/process/test_codex_phase_policy.py -q"],
+            "real_bindings": [],
+        },
+        documentation_context={
+            "source_documents": ["docs/codex/packages/extracted/spec.md"],
+            "materialized_documents": [
+                "docs/codex/contracts/demo.execution-contract.md",
+                "docs/codex/modules/demo.parent.md",
+                "docs/codex/modules/demo.phase-01.md",
+            ],
+            "preserved_goals": ["Preserve source goals without reinterpretation."],
+            "preserved_acceptance_criteria": ["DoD stays measurable and unchanged."],
+            "unresolved_conflicts": [],
+        },
+    )
+    phase_requirement = PhaseEvidenceRequirement(
+        owned_surfaces=["demo_surface"],
+        delivered_proof_class="doc",
+        requires_real_bindings=False,
+    )
+
+    result = apply_acceptance_policy(worker=worker, acceptance=_acceptance_payload(), phase_requirement=phase_requirement)
+    assert result.verdict == "PASS"
+    assert not any("documentation_context" in blocker.why for blocker in result.policy_blockers)

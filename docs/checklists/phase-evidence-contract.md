@@ -20,6 +20,11 @@ Every governed worker or remediation payload must include one `evidence_contract
 - `artifact_paths` and `checks` must both be non-empty for any phase that claims progress.
 - `checks` entries must be exact executed commands; placeholder tokens like `<path>` or `<phase-scoped-files>` are invalid evidence.
 - If the phase requires real bindings, `real_bindings` must be non-empty.
+- If remediation edits documentation files, payload must include `documentation_context` with:
+  - `source_documents`,
+  - `materialized_documents`,
+  - `preserved_goals`,
+  - `preserved_acceptance_criteria`.
 
 ## Automatic Block Conditions
 Acceptance must block when any of these are true:

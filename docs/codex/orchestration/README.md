@@ -18,6 +18,8 @@ The operator wants automatic progression only after an independent acceptance pa
 - The acceptor cannot unlock the next phase unless it returns `PASS`.
 - The worker cannot advance the parent brief on its own.
 - Remediation attempts stay inside the same phase until acceptance passes or the retry limit is reached.
+- Worker attempts cannot edit documentation surfaces; docs edits are remediation-only.
+- Docs remediation must carry full source + materialized context and explicit goal/acceptance preservation evidence.
 - The orchestrator itself will still force `BLOCKED` if the payload reports:
   - assumptions,
   - skipped checks,
@@ -120,6 +122,77 @@ For each run, the orchestrator writes under `artifacts/codex/orchestration/<run-
 - remediation: defaults to the worker model unless overridden
 
 Role-specific model and profile overrides are available directly on the runner CLI.
+
+## Draft vNext routing (planned, not yet enforced)
+
+This section records the current working agreement for the next orchestration revision.
+It is a target-state contract and is not fully wired into the runtime yet.
+
+### Intake phase split
+
+Intake is treated as a full phase with its own `PASS` / `BLOCKED` gate.
+
+- `INTAKE_TECH` (codex exec stream):
+  - purpose: architecture fit and OSS fit evaluation for incoming requirements;
+  - core skills: `architecture-review`, `tz-oss-scout`;
+  - expected model policy: `gpt-5.4` with `xhigh` reasoning.
+- `INTAKE_PRODUCT` (codex exec stream):
+  - purpose: use cases, acceptance test cases, and product value framing;
+  - core skills: `business-analyst`, `product-owner`;
+  - expected model policy: `gpt-5.4` with `xhigh` reasoning.
+- `INTAKE_GATE` (codex exec stream):
+  - purpose: merge both intake reports and return `PASS` / `BLOCKED`;
+  - may return `BLOCKED` when architecture concerns remain open, OSS fit is weak, or product value is not justified enough;
+  - on `BLOCKED`, operator input is required before phase execution continues.
+
+### Acceptance findings contract (vNext)
+
+Acceptor findings should be emitted in a structured shape per lens:
+
+- `lens` (for example: route-integrity, test-evidence, docs-coverage, product-value);
+- `severity` (`P0`, `P1`, `P2`);
+- `size` (`S`, `M`, `L`, `XL`);
+- `blast_radius` (`local`, `cross-surface`);
+- `summary`;
+- `required_evidence`.
+
+`architecture-review` is removed from the acceptor default lens set in this vNext design.
+Product-value evaluation is embedded into acceptance output instead of a separate product gate.
+
+### Worker vs remediation routing rule (vNext)
+
+Route to worker when all blockers are small/local:
+
+- no `P0`;
+- change size is only `S` or `M`;
+- blast radius is `local`.
+
+Route to remediation when risk/volume is high:
+
+- any `P0`; or
+- any `L` / `XL`; or
+- any `cross-surface` blocker; or
+- repeated blocker after one worker retry.
+
+### Worker skills (vNext baseline)
+
+- `testing-suite`
+- `docs-sync`
+- `verification-before-completion`
+- plus phase-specific/domain skills required by the active phase brief
+
+### Remediation skills (vNext baseline)
+
+- `repeated-issue-review`
+- `testing-suite`
+- `docs-sync`
+- `verification-before-completion`
+- plus the exact skills needed by blocker category (for example security, data, integration, CI)
+
+### Reasoning effort policy (vNext)
+
+Target policy is `xhigh` reasoning effort for all governed codex exec streams:
+intake-tech, intake-product, intake-gate, worker, acceptor, and remediation.
 
 ## Main entrypoint
 

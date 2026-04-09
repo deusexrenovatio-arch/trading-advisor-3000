@@ -56,6 +56,7 @@ Every phase verdict must cover all of these:
 - Operator docs are current.
 - Relevant test-case or user-case docs are current.
 - Architecture/governance docs are current when the change surface affects them.
+- If docs were changed in remediation, the report must include full source + materialized documentation context and explicit goal/acceptance-preservation evidence.
 
 6. Architecture Fit
 - Boundaries stay intact.

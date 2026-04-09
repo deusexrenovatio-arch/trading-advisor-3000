@@ -35,6 +35,12 @@ INTAKE_HUMAN_SUMMARY_BEGIN = "BEGIN_INTAKE_HUMAN_SUMMARY"
 INTAKE_HUMAN_SUMMARY_END = "END_INTAKE_HUMAN_SUMMARY"
 MATERIALIZATION_RESULT_BEGIN = "BEGIN_MATERIALIZATION_RESULT_JSON"
 MATERIALIZATION_RESULT_END = "END_MATERIALIZATION_RESULT_JSON"
+MATERIALIZATION_CONTEXT_REQUIRED_FIELDS = (
+    "source_documents",
+    "materialized_documents",
+    "preserved_goals",
+    "preserved_acceptance_criteria",
+)
 LANE_SEQUENCE = ("product_intake", "technical_intake")
 INTAKE_BLOCKED_EXIT = 3
 BLOCKER_SEVERITIES = ("P0", "P1", "P2")
@@ -139,6 +145,21 @@ def _normalize_digest_list(raw: Any, *, lane: str, field: str) -> list[str]:
         text = str(item).strip()
         if not text:
             raise ValueError(f"{lane}.{field}[{idx}] must be a non-empty string")
+        if text not in normalized:
+            normalized.append(text)
+    return normalized
+
+
+def _normalize_string_list(raw: Any, *, field: str) -> list[str]:
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError(f"{field} must be an array")
+    normalized: list[str] = []
+    for idx, item in enumerate(raw, start=1):
+        text = str(item).strip()
+        if not text:
+            raise ValueError(f"{field}[{idx}] must be a non-empty string")
         if text not in normalized:
             normalized.append(text)
     return normalized
@@ -572,6 +593,188 @@ def extract_lane_payload_from_text(text: str, *, lane: str) -> dict[str, Any]:
     }
 
 
+def extract_materialization_result_from_text(text: str) -> dict[str, Any]:
+    payload = extract_tagged_json(text, begin=MATERIALIZATION_RESULT_BEGIN, end=MATERIALIZATION_RESULT_END)
+    status = str(payload.get("status", "")).strip().upper()
+    if status != "DONE":
+        raise ValueError(f"materialization status must be DONE, got {status!r}")
+    context_coverage_raw = payload.get("context_coverage")
+    if context_coverage_raw is None:
+        context_coverage_raw = {}
+    if not isinstance(context_coverage_raw, dict):
+        raise ValueError("materialization context_coverage must be an object when present")
+    context_coverage = {
+        "source_documents": _normalize_string_list(
+            context_coverage_raw.get("source_documents"),
+            field="materialization.context_coverage.source_documents",
+        ),
+        "materialized_documents": _normalize_string_list(
+            context_coverage_raw.get("materialized_documents"),
+            field="materialization.context_coverage.materialized_documents",
+        ),
+        "preserved_goals": _normalize_string_list(
+            context_coverage_raw.get("preserved_goals"),
+            field="materialization.context_coverage.preserved_goals",
+        ),
+        "preserved_acceptance_criteria": _normalize_string_list(
+            context_coverage_raw.get("preserved_acceptance_criteria"),
+            field="materialization.context_coverage.preserved_acceptance_criteria",
+        ),
+    }
+    return {
+        "status": status,
+        "updated_docs": _normalize_string_list(payload.get("updated_docs"), field="materialization.updated_docs"),
+        "notes": str(payload.get("notes", "")).strip(),
+        "residual_blockers": _normalize_string_list(
+            payload.get("residual_blockers"),
+            field="materialization.residual_blockers",
+        ),
+        "context_coverage": context_coverage,
+    }
+
+
+def evaluate_materialization_result(*, result: dict[str, Any], handoff: dict[str, Any]) -> dict[str, Any]:
+    required_documents_payload = (
+        handoff.get("materialization_requirements", {}).get("documents", [])
+        if isinstance(handoff, dict)
+        else []
+    )
+    required_documents: list[str] = []
+    if isinstance(required_documents_payload, list):
+        for item in required_documents_payload:
+            if not isinstance(item, dict):
+                continue
+            path = str(item.get("path", "")).strip()
+            if path and path not in required_documents:
+                required_documents.append(path)
+
+    updated_docs = _normalize_string_list(result.get("updated_docs"), field="materialization.updated_docs")
+    residual_blockers = _normalize_string_list(
+        result.get("residual_blockers"),
+        field="materialization.residual_blockers",
+    )
+    auto_blockers: list[str] = []
+    missing_updated_docs = [path for path in required_documents if path not in updated_docs]
+    if missing_updated_docs:
+        auto_blockers.append(
+            "Missing required updated_docs entries: " + ", ".join(missing_updated_docs)
+        )
+
+    documentation_context_contract = (
+        handoff.get("documentation_context_contract", {}) if isinstance(handoff, dict) else {}
+    )
+    must_preserve = (
+        documentation_context_contract.get("must_preserve", {})
+        if isinstance(documentation_context_contract, dict)
+        else {}
+    )
+    required_source_documents = (
+        documentation_context_contract.get("source_documents", [])
+        if isinstance(documentation_context_contract, dict)
+        else []
+    )
+    required_materialized_documents = (
+        documentation_context_contract.get("materialized_documents", [])
+        if isinstance(documentation_context_contract, dict)
+        else []
+    )
+    required_goals = must_preserve.get("goals_digest", []) if isinstance(must_preserve, dict) else []
+    required_acceptance = (
+        must_preserve.get("acceptance_criteria_digest", []) if isinstance(must_preserve, dict) else []
+    )
+    context_coverage = result.get("context_coverage", {}) if isinstance(result, dict) else {}
+    if not isinstance(context_coverage, dict):
+        context_coverage = {}
+    coverage_source = _normalize_string_list(
+        context_coverage.get("source_documents"),
+        field="materialization.context_coverage.source_documents",
+    )
+    coverage_materialized = _normalize_string_list(
+        context_coverage.get("materialized_documents"),
+        field="materialization.context_coverage.materialized_documents",
+    )
+    coverage_goals = _normalize_string_list(
+        context_coverage.get("preserved_goals"),
+        field="materialization.context_coverage.preserved_goals",
+    )
+    coverage_acceptance = _normalize_string_list(
+        context_coverage.get("preserved_acceptance_criteria"),
+        field="materialization.context_coverage.preserved_acceptance_criteria",
+    )
+
+    for field_name in MATERIALIZATION_CONTEXT_REQUIRED_FIELDS:
+        if not context_coverage.get(field_name):
+            auto_blockers.append(f"Missing context_coverage field: {field_name}")
+    missing_context_source = [item for item in required_source_documents if item not in coverage_source]
+    if missing_context_source:
+        auto_blockers.append(
+            "context_coverage.source_documents is missing required references: "
+            + ", ".join(missing_context_source)
+        )
+    missing_context_materialized = [
+        item for item in required_materialized_documents if item not in coverage_materialized
+    ]
+    if missing_context_materialized:
+        auto_blockers.append(
+            "context_coverage.materialized_documents is missing required references: "
+            + ", ".join(missing_context_materialized)
+        )
+    missing_context_goals = [item for item in required_goals if item not in coverage_goals]
+    if missing_context_goals:
+        auto_blockers.append(
+            "context_coverage.preserved_goals is missing required items: "
+            + ", ".join(missing_context_goals)
+        )
+    missing_context_acceptance = [
+        item for item in required_acceptance if item not in coverage_acceptance
+    ]
+    if missing_context_acceptance:
+        auto_blockers.append(
+            "context_coverage.preserved_acceptance_criteria is missing required items: "
+            + ", ".join(missing_context_acceptance)
+        )
+
+    combined_blockers = [*residual_blockers, *auto_blockers]
+    return {
+        "status": "DONE",
+        "decision": "PASS" if not combined_blockers else "BLOCKED",
+        "updated_docs": updated_docs,
+        "notes": str(result.get("notes", "")).strip(),
+        "residual_blockers": residual_blockers,
+        "auto_blockers": auto_blockers,
+        "combined_blockers": combined_blockers,
+        "context_coverage": {
+            "source_documents": coverage_source,
+            "materialized_documents": coverage_materialized,
+            "preserved_goals": coverage_goals,
+            "preserved_acceptance_criteria": coverage_acceptance,
+        },
+    }
+
+
+def render_materialization_result_markdown(result: dict[str, Any]) -> str:
+    lines = [
+        "# Materialization Result",
+        "",
+        f"- Decision: {result.get('decision', 'UNKNOWN')}",
+        f"- Updated Docs: {len(result.get('updated_docs', []))}",
+        f"- Residual Blockers: {len(result.get('residual_blockers', []))}",
+        f"- Auto Blockers: {len(result.get('auto_blockers', []))}",
+    ]
+    notes = str(result.get("notes", "")).strip()
+    if notes:
+        lines.append(f"- Notes: {notes}")
+    lines.extend(["", "## Combined Blockers"])
+    blockers = result.get("combined_blockers", [])
+    if isinstance(blockers, list) and blockers:
+        for item in blockers:
+            lines.append(f"- {item}")
+    else:
+        lines.append("- none")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def build_intake_handoff(
     *,
     package_path: Path,
@@ -714,6 +917,8 @@ def build_intake_handoff(
         "Deterministic phase mapping is preserved exactly.",
         "Any unresolved blocker is explicitly reported; no silent fallback.",
         "Every module_phase_brief includes all mandatory sections required for downstream worker/acceptor execution.",
+        "Materialization output preserves source goals and acceptance criteria without degradation.",
+        "Full documentation context is used: source/original docs + materialized docs.",
     ]
     phase_brief_mandatory_sections = [
         {
@@ -757,6 +962,29 @@ def build_intake_handoff(
             "requirement": "Describe critical risks, rollback triggers, and escalation conditions for this phase.",
         },
     ]
+    source_documents_context = [
+        item
+        for item in [
+            suggested_primary,
+            suggested_phase_compiler_artifact,
+            manifest_path.as_posix(),
+        ]
+        if item
+    ]
+    materialized_documents_context = [contract_path, parent_path, *phase_paths, *extra_targets]
+    documentation_context_contract = {
+        "source_documents": source_documents_context,
+        "materialized_documents": materialized_documents_context,
+        "must_preserve": {
+            "goals_digest": list(intake_human_summary.get("goals_digest", [])),
+            "acceptance_criteria_digest": list(intake_human_summary.get("acceptance_criteria_digest", [])),
+        },
+        "guardrails": [
+            "Do not degrade or reinterpret source goals/acceptance criteria.",
+            "Resolve source-vs-materialized conflicts explicitly; never silently choose one side.",
+            "If conflict cannot be resolved safely, emit blocker instead of best-effort rewrite.",
+        ],
+    }
 
     return {
         "schema_version": 1,
@@ -778,6 +1006,7 @@ def build_intake_handoff(
             "required_outcomes": required_outcomes,
             "phase_brief_mandatory_sections": phase_brief_mandatory_sections,
         },
+        "documentation_context_contract": documentation_context_contract,
         "lane_reviews": lane_reviews,
         "blocking_items": blocking_items,
     }
@@ -832,6 +1061,26 @@ def render_intake_handoff_markdown(handoff: dict[str, Any]) -> str:
             lines.append(f"- {item.get('type')}: {item.get('path')}")
     else:
         lines.append("- none")
+    lines.extend(["", "## Documentation Context Contract"])
+    documentation_context = handoff.get("documentation_context_contract", {})
+    source_documents = (
+        documentation_context.get("source_documents", []) if isinstance(documentation_context, dict) else []
+    )
+    materialized_documents = (
+        documentation_context.get("materialized_documents", []) if isinstance(documentation_context, dict) else []
+    )
+    lines.append("- Source Documents:")
+    if isinstance(source_documents, list) and source_documents:
+        for item in source_documents:
+            lines.append(f"  - {item}")
+    else:
+        lines.append("  - none")
+    lines.append("- Materialized Documents:")
+    if isinstance(materialized_documents, list) and materialized_documents:
+        for item in materialized_documents:
+            lines.append(f"  - {item}")
+    else:
+        lines.append("  - none")
     lines.append("")
     return "\n".join(lines)
 
@@ -842,6 +1091,9 @@ def render_materialization_requirements_prompt(handoff: dict[str, Any]) -> str:
     outcomes = requirements.get("required_outcomes", []) if isinstance(requirements, dict) else []
     mandatory_sections = (
         requirements.get("phase_brief_mandatory_sections", []) if isinstance(requirements, dict) else []
+    )
+    documentation_context = (
+        handoff.get("documentation_context_contract", {}) if isinstance(handoff, dict) else {}
     )
     lines = ["Required Documents, Constraints, Expected Results:"]
     if isinstance(documents, list) and documents:
@@ -880,6 +1132,50 @@ def render_materialization_requirements_prompt(handoff: dict[str, Any]) -> str:
             lines.append(f"- {item}")
     else:
         lines.append("- none")
+    lines.append("")
+    lines.append("Documentation context contract (mandatory for drift prevention):")
+    source_documents = (
+        documentation_context.get("source_documents", []) if isinstance(documentation_context, dict) else []
+    )
+    materialized_documents = (
+        documentation_context.get("materialized_documents", []) if isinstance(documentation_context, dict) else []
+    )
+    must_preserve = documentation_context.get("must_preserve", {}) if isinstance(documentation_context, dict) else {}
+    guardrails = documentation_context.get("guardrails", []) if isinstance(documentation_context, dict) else []
+    lines.append("- Source/original documents:")
+    if isinstance(source_documents, list) and source_documents:
+        for item in source_documents:
+            lines.append(f"  - {item}")
+    else:
+        lines.append("  - none")
+    lines.append("- Materialized documents:")
+    if isinstance(materialized_documents, list) and materialized_documents:
+        for item in materialized_documents:
+            lines.append(f"  - {item}")
+    else:
+        lines.append("  - none")
+    goals_digest = must_preserve.get("goals_digest", []) if isinstance(must_preserve, dict) else []
+    acceptance_digest = (
+        must_preserve.get("acceptance_criteria_digest", []) if isinstance(must_preserve, dict) else []
+    )
+    lines.append("- Must preserve goals digest:")
+    if isinstance(goals_digest, list) and goals_digest:
+        for item in goals_digest:
+            lines.append(f"  - {item}")
+    else:
+        lines.append("  - none")
+    lines.append("- Must preserve acceptance criteria digest:")
+    if isinstance(acceptance_digest, list) and acceptance_digest:
+        for item in acceptance_digest:
+            lines.append(f"  - {item}")
+    else:
+        lines.append("  - none")
+    lines.append("- Context guardrails:")
+    if isinstance(guardrails, list) and guardrails:
+        for item in guardrails:
+            lines.append(f"  - {item}")
+    else:
+        lines.append("  - none")
     return "\n".join(lines)
 
 
@@ -932,6 +1228,8 @@ def build_materialization_prompt(
         "- Preserve deterministic phase mapping from the source phase IR.\n"
         "- Do not invent extra phases or reorder source phases.\n"
         "- Use intake handoff as the single source of truth for goals, acceptance criteria, blockers, and structural recommendations.\n"
+        "- Pull full context from both source/original docs and materialized docs before editing.\n"
+        "- If goal/acceptance preservation cannot be proven, report residual blockers (do not soften requirements).\n"
         f"- Intake handoff JSON: {intake_handoff_path.as_posix()}\n"
         f"- Intake gate JSON: {intake_gate_path.as_posix()}\n\n"
         f"{requirements_block}\n\n"
@@ -941,7 +1239,7 @@ def build_materialization_prompt(
         "- Return a short human summary.\n"
         "- Finish with exactly one tagged JSON block:\n"
         f"{MATERIALIZATION_RESULT_BEGIN}\n"
-        '{"status":"DONE","updated_docs":["docs/codex/contracts/<slug>.execution-contract.md"],"notes":"what changed","residual_blockers":[]}\n'
+        '{"status":"DONE","updated_docs":["docs/codex/contracts/<slug>.execution-contract.md"],"notes":"what changed","residual_blockers":[],"context_coverage":{"source_documents":["..."],"materialized_documents":["docs/codex/contracts/<slug>.execution-contract.md","docs/codex/modules/<slug>.parent.md"],"preserved_goals":["..."],"preserved_acceptance_criteria":["..."]}}\n'
         f"{MATERIALIZATION_RESULT_END}\n"
     )
 
@@ -1556,7 +1854,34 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return INTAKE_BLOCKED_EXIT
+    try:
+        materialization_text = output_path.read_text(encoding="utf-8")
+        materialization_result_raw = extract_materialization_result_from_text(materialization_text)
+        materialization_result = evaluate_materialization_result(
+            result=materialization_result_raw,
+            handoff=intake_handoff,
+        )
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        print(f"error: invalid materialization result payload: {exc}", file=sys.stderr)
+        return INTAKE_BLOCKED_EXIT
+
+    materialization_result_json = run_root / "materialization-result.json"
+    materialization_result_md = run_root / "materialization-result.md"
+    materialization_result_json.write_text(
+        json.dumps(materialization_result, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    materialization_result_md.write_text(
+        render_materialization_result_markdown(materialization_result),
+        encoding="utf-8",
+    )
     print(f"materialization output: {output_path.as_posix()}")
+    print(f"materialization result artifact: {materialization_result_json.as_posix()}")
+    print(f"materialization result report: {materialization_result_md.as_posix()}")
+    print(f"materialization decision: {materialization_result['decision']}")
+    if materialization_result["decision"] != "PASS":
+        print("materialization blocked: resolve blockers and rerun package intake")
+        return INTAKE_BLOCKED_EXIT
     return 0
 
 

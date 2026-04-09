@@ -36,6 +36,12 @@ ROUTE_GUARDRAILS = (
     "completion claims require executable evidence before unlock",
 )
 PLACEHOLDER_TOKEN_RE = re.compile(r"<[^>\n]+>")
+DOC_CONTEXT_REQUIRED_FIELDS = (
+    "source_documents",
+    "materialized_documents",
+    "preserved_goals",
+    "preserved_acceptance_criteria",
+)
 
 
 @dataclass
@@ -64,7 +70,8 @@ class WorkerReport:
     skips: list[str]
     fallbacks: list[str]
     deferred_work: list[str]
-    evidence_contract: dict[str, Any] | None
+    evidence_contract: dict[str, Any] | None = None
+    documentation_context: dict[str, Any] | None = None
 
 
 @dataclass
@@ -133,6 +140,9 @@ def normalize_worker_payload(payload: dict[str, Any]) -> WorkerReport:
     evidence_contract = payload.get("evidence_contract")
     if evidence_contract is not None and not isinstance(evidence_contract, dict):
         raise ValueError("worker payload `evidence_contract` must be an object when present")
+    documentation_context = payload.get("documentation_context")
+    if documentation_context is not None and not isinstance(documentation_context, dict):
+        raise ValueError("worker payload `documentation_context` must be an object when present")
     return WorkerReport(
         status=status,
         summary=str(payload.get("summary", "")).strip() or "No summary provided.",
@@ -145,6 +155,7 @@ def normalize_worker_payload(payload: dict[str, Any]) -> WorkerReport:
         fallbacks=normalize_string_list(payload.get("fallbacks", [])),
         deferred_work=normalize_string_list(payload.get("deferred_work", [])),
         evidence_contract=evidence_contract if isinstance(evidence_contract, dict) else None,
+        documentation_context=documentation_context if isinstance(documentation_context, dict) else None,
     )
 
 
@@ -194,6 +205,8 @@ def make_policy_blocker(kind: str, index: int, detail: str) -> AcceptanceBlocker
         "PROHIBITED_FINDING": "Prohibited acceptance finding present",
         "MISSING_SKILL": "Acceptance missed a required review lens",
         "PASS_WITH_BLOCKERS": "Acceptance declared PASS despite blockers",
+        "WORKER_DOC_EDIT": "Worker edited documentation surface directly",
+        "DOC_CONTEXT_GAP": "Documentation context coverage is incomplete",
     }
     remediations = {
         "ASSUMPTION": "Replace the assumption with implemented behavior or stop and update the phase contract explicitly before rerun.",
@@ -204,6 +217,8 @@ def make_policy_blocker(kind: str, index: int, detail: str) -> AcceptanceBlocker
         "PROHIBITED_FINDING": "Resolve the prohibited condition and rerun acceptance.",
         "MISSING_SKILL": "Re-run acceptance using the required review lenses and report them explicitly.",
         "PASS_WITH_BLOCKERS": "Do not pass the phase while blockers remain; rerun acceptance with a consistent verdict.",
+        "WORKER_DOC_EDIT": "Move documentation edits into remediation and rerun acceptance with a phase-scoped docs handoff.",
+        "DOC_CONTEXT_GAP": "Provide full original/materialized docs context and explicit goal-preservation evidence in remediation output.",
     }
     return AcceptanceBlocker(
         id=f"P-{normalized_kind}-{index}",
@@ -267,6 +282,44 @@ def _is_continue_route_command(text: str) -> bool:
     return "codex_governed_entry.py" in normalized and "--route continue" in normalized
 
 
+def _is_documentation_path(text: str) -> bool:
+    normalized = (text or "").strip().lower().replace("\\", "/")
+    if not normalized:
+        return False
+    if normalized.startswith("artifacts/") or normalized.startswith(".runlogs/"):
+        return False
+    if normalized.startswith("docs/"):
+        return True
+    filename = normalized.rsplit("/", 1)[-1]
+    if filename in {"readme.md", "agents.md"}:
+        return True
+    return normalized.endswith(".md") or normalized.endswith(".rst") or normalized.endswith(".txt")
+
+
+def _parse_documentation_context(value: dict[str, Any] | None) -> dict[str, list[str]]:
+    if not isinstance(value, dict):
+        return {
+            "source_documents": [],
+            "materialized_documents": [],
+            "preserved_goals": [],
+            "preserved_acceptance_criteria": [],
+            "unresolved_conflicts": [],
+        }
+    return {
+        "source_documents": normalize_string_list(
+            value.get("source_documents") or value.get("original_documents") or []
+        ),
+        "materialized_documents": normalize_string_list(value.get("materialized_documents") or []),
+        "preserved_goals": normalize_string_list(
+            value.get("preserved_goals") or value.get("goals_digest") or []
+        ),
+        "preserved_acceptance_criteria": normalize_string_list(
+            value.get("preserved_acceptance_criteria") or value.get("acceptance_criteria_digest") or []
+        ),
+        "unresolved_conflicts": normalize_string_list(value.get("unresolved_conflicts") or []),
+    }
+
+
 def apply_acceptance_policy(
     worker: WorkerReport,
     acceptance: AcceptanceResult,
@@ -312,6 +365,62 @@ def apply_acceptance_policy(
                 "Worker/remediation evidence includes release-decision emission before acceptance-owned closeout.",
             )
         )
+
+    route_signal = worker.route_signal.strip().lower()
+    worker_docs_edits = [item for item in worker.files_touched if _is_documentation_path(item)]
+    if route_signal.startswith("worker:") and worker_docs_edits:
+        policy_blockers.append(
+            make_policy_blocker(
+                "worker_doc_edit",
+                len(policy_blockers) + 1,
+                "Worker phase attempted to modify documentation files directly: "
+                + ", ".join(worker_docs_edits),
+            )
+        )
+    if route_signal.startswith("remediation:") and worker_docs_edits:
+        doc_context = _parse_documentation_context(worker.documentation_context)
+        missing_doc_context_fields = [field for field in DOC_CONTEXT_REQUIRED_FIELDS if not doc_context[field]]
+        if missing_doc_context_fields:
+            policy_blockers.append(
+                make_policy_blocker(
+                    "doc_context_gap",
+                    len(policy_blockers) + 1,
+                    "Remediation changed documentation but documentation_context is incomplete; missing: "
+                    + ", ".join(missing_doc_context_fields),
+                )
+            )
+        placeholder_doc_context = [
+            item
+            for field in DOC_CONTEXT_REQUIRED_FIELDS
+            for item in doc_context[field]
+            if _has_placeholder_token(item)
+        ]
+        if placeholder_doc_context:
+            policy_blockers.append(
+                make_policy_blocker(
+                    "doc_context_gap",
+                    len(policy_blockers) + 1,
+                    "documentation_context must not contain placeholder tokens: "
+                    + ", ".join(placeholder_doc_context),
+                )
+            )
+        materialized_docs = [item.lower().replace("\\", "/") for item in doc_context["materialized_documents"]]
+        has_contract_context = any(item.startswith("docs/codex/contracts/") for item in materialized_docs)
+        has_module_context = any(item.startswith("docs/codex/modules/") for item in materialized_docs)
+        if not has_contract_context or not has_module_context:
+            missing_context = []
+            if not has_contract_context:
+                missing_context.append("docs/codex/contracts/*")
+            if not has_module_context:
+                missing_context.append("docs/codex/modules/*")
+            policy_blockers.append(
+                make_policy_blocker(
+                    "doc_context_gap",
+                    len(policy_blockers) + 1,
+                    "Remediation documentation_context.materialized_documents is incomplete; expected coverage for "
+                    + ", ".join(missing_context),
+                )
+            )
 
     if phase_requirement and phase_requirement.owned_surfaces:
         if worker.evidence_contract is None:
