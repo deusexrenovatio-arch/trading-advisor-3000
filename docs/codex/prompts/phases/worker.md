@@ -15,8 +15,23 @@ Read first:
 11. `docs/codex/orchestration/acceptance-contract.md`
 12. `docs/checklists/phase-evidence-contract.md`
 13. `.cursor/skills/code-implementation-worker/SKILL.md`
+14. `.cursor/skills/registry-first/SKILL.md`
+15. `.cursor/skills/architecture-review/SKILL.md`
+16. `.cursor/skills/testing-suite/SKILL.md`
+17. `.cursor/skills/verification-before-completion/SKILL.md`
+18. `.cursor/skills/patch-series-splitter/SKILL.md`
+19. `.cursor/skills/commit-and-pr-hygiene/SKILL.md`
 
 Rules:
+
+- Worker skill set is phase-specific. Use worker lenses only:
+  - `code-implementation-worker`
+  - `registry-first`
+  - `architecture-review`
+  - `testing-suite`
+  - `verification-before-completion`
+  - `patch-series-splitter`
+  - `commit-and-pr-hygiene`
 
 - Implement only the current phase.
 - Do not open the next phase.
@@ -24,10 +39,16 @@ Rules:
 - If a remediation blockers file is present, address only those blockers plus the minimum required supporting fixes.
 - Run only the checks that match the current phase.
 - Keep the patch reviewable and phase-scoped.
+- Do not change documentation files from worker scope.
+- Documentation paths are forbidden in worker scope: `docs/**`, `README.md`, `AGENTS.md`, `**/*.md`, `**/*.rst`, `**/*.txt`.
+- If phase execution requires documentation changes, do not edit docs from worker; report a blocker and required remediation handoff.
+- If docs remediation is required, include explicit handoff notes with:
+  - source/original docs that must be preserved,
+  - materialized docs that must be re-validated,
+  - goals/acceptance criteria that must remain unchanged.
 - Do not silently introduce assumptions, fallback paths, skipped checks, or deferred critical work.
 - If any assumption, skip, fallback, or deferral exists, report it explicitly. Acceptance will treat it as a blocker.
 - Include the bounded `evidence_contract` object from `docs/checklists/phase-evidence-contract.md`.
-- Apply the intent of `.cursor/skills/code-implementation-worker/SKILL.md` for implementation discipline and execution quality.
 - Do not emit a final release-decision package from worker scope; for `release_decision` phases, only acceptance-owned closeout may emit final `ALLOW_RELEASE_READINESS` or `DENY_RELEASE_READINESS`.
 - Keep `evidence_contract` minimal and concrete:
   - `surfaces`
@@ -37,6 +58,7 @@ Rules:
   - `real_bindings`
 - `evidence_contract.checks` must contain exact executed commands (no placeholders like `<...>`).
 - Make the route explicit so the operator can see that the governed phase route is in use.
+- `files_touched` must not include documentation files.
 
 Return a short human summary and finish with this exact marker block:
 

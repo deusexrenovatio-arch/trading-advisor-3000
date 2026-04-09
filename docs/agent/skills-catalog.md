@@ -3,14 +3,14 @@
 <!-- generated-by: scripts/sync_skills_catalog.py -->
 <!-- source-of-truth: .cursor/skills/*/SKILL.md -->
 <!-- generated-contract: do not edit manually; run python scripts/sync_skills_catalog.py -->
-<!-- catalog-sha256: a82f3f009aa7484b1f8af37473795af5d9b2fbf49ddf47f2f23d82fbe53ba655 -->
+<!-- catalog-sha256: a41d48ab89027fa78d0a2bca077ce0d01b9f47f4015fe5afcb55fd2b977385df -->
 
 | skill_id | classification | wave | status | scope | owner_surface | routing_triggers | source | hot_context_policy |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `agents-orchestrator` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | multi-agent orchestration policy, handoffs, and governed progression | `CTX-OPS` | orchestrator; orchestration; multi-agent pipeline; dev qa loop; phase gate; handoff | `local_runtime` | `cold-by-default` |
 | `ai-agent-architect` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | agent delivery planning and execution boundaries | `CTX-OPS` | agent; orchestration; pipeline; plan; strategy | `local_runtime` | `cold-by-default` |
 | `ai-change-explainer` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | change explanation and PR narrative quality | `CTX-OPS` | change summary; pr narrative; diff explanation; impact report | `local_runtime` | `cold-by-default` |
-| `architecture-review` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | dual-surface architecture boundary review, trade-off framing, and adapter boundary control | `CTX-ARCHITECTURE` | architecture; boundaries; dependencies; module review; adr; trade-off | `local_runtime` | `cold-by-default` |
+| `architecture-review` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | dual-surface architecture boundary review, dependency direction, and adapter boundary control | `CTX-ARCHITECTURE` | architecture; boundaries; dependencies; module review | `local_runtime` | `cold-by-default` |
 | `business-analyst` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | requirements framing and acceptance decomposition | `CTX-OPS` | requirements; scope; acceptance; traceability; stakeholder | `local_runtime` | `cold-by-default` |
 | `code-implementation-worker` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | worker-stage code implementation and primary quality guardrails | `CTX-OPS` | write code; implement; worker; first-pass quality; code practices; performance | `local_runtime` | `cold-by-default` |
 | `code-reviewer` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | code review quality and actionable risk triage | `CTX-OPS` | code review; review pr; review feedback; security review; performance review | `local_runtime` | `cold-by-default` |

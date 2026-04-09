@@ -17,12 +17,18 @@ Read first:
 13. `docs/checklists/phase-evidence-contract.md`
 14. `.cursor/skills/phase-acceptance-governor/SKILL.md`
 15. `.cursor/skills/architecture-review/SKILL.md`
-16. `.cursor/skills/code-reviewer/SKILL.md`
-17. `.cursor/skills/testing-suite/SKILL.md`
-18. `.cursor/skills/docs-sync/SKILL.md`
-19. `.cursor/skills/verification-before-completion/SKILL.md`
+16. `.cursor/skills/testing-suite/SKILL.md`
+17. `.cursor/skills/docs-sync/SKILL.md`
+18. `.cursor/skills/verification-before-completion/SKILL.md`
 
 Review rules:
+
+- Acceptor skill set is phase-specific. Use acceptor lenses only:
+  - `phase-acceptance-governor`
+  - `architecture-review`
+  - `testing-suite`
+  - `docs-sync`
+  - `verification-before-completion`
 
 - Judge only the current phase.
 - Focus on correctness, policy integrity, phase completion, and missing evidence.
@@ -47,14 +53,16 @@ Review rules:
   - required docs must be updated,
   - instructions must match the actual implementation,
   - no stale or misleading operator guidance.
+- If documentation files were changed in remediation:
+  - verify `documentation_context.source_documents` is present and complete,
+  - verify `documentation_context.materialized_documents` includes execution contract + module briefs context,
+  - verify `documentation_context.preserved_goals` and `documentation_context.preserved_acceptance_criteria` prove no goal/DoD degradation.
 - Apply the hard-block policy from `.cursor/skills/phase-acceptance-governor/SKILL.md`.
 - Apply the intent of:
   - `.cursor/skills/phase-acceptance-governor/SKILL.md`
   - `.cursor/skills/architecture-review/SKILL.md`
-  - `.cursor/skills/code-reviewer/SKILL.md`
   - `.cursor/skills/testing-suite/SKILL.md`
   - `.cursor/skills/docs-sync/SKILL.md`
-  - `.cursor/skills/verification-before-completion/SKILL.md`
 - Return `PASS` only if the phase objective, constraints, and done evidence are satisfied enough to unlock the next phase.
 - Return `BLOCKED` if the same phase must continue through remediation.
 - Return `BLOCKED` if the worker report contains any non-empty:
@@ -63,6 +71,8 @@ Review rules:
   - `fallbacks`
   - `deferred_work`
 - Return `BLOCKED` if evidence is missing, tests were not actually run, or required docs remain stale.
+- Return `BLOCKED` if remediation changed docs without full original + materialized docs context in `documentation_context`.
+- Return `BLOCKED` if goals or acceptance criteria were degraded during docs remediation.
 - Return `BLOCKED` if worker evidence uses placeholder commands (`<...>`), emits a release-decision package from worker/remediation scope, or uses only `--dry-run` governed continue checks for live-real claims.
 - For `release_decision` phases, final `ALLOW_RELEASE_READINESS` / `DENY_RELEASE_READINESS` emission is acceptance-owned closeout and must bind to this attempt's acceptance artifact; worker/remediation emission is always invalid.
 - Ignore style-only feedback unless it hides a phase blocker.
@@ -70,5 +80,5 @@ Review rules:
 Return a short human summary and finish with this exact marker block:
 
 BEGIN_PHASE_ACCEPTANCE_JSON
-{"verdict":"PASS|BLOCKED","summary":"...","route_signal":"acceptance:governed-phase-route","used_skills":["phase-acceptance-governor","architecture-review","code-reviewer","testing-suite","docs-sync","verification-before-completion"],"blockers":[{"id":"B1","title":"...","why":"...","remediation":"..."}],"rerun_checks":["..."],"evidence_gaps":[],"prohibited_findings":[]}
+{"verdict":"PASS|BLOCKED","summary":"...","route_signal":"acceptance:governed-phase-route","used_skills":["phase-acceptance-governor","architecture-review","testing-suite","docs-sync"],"blockers":[{"id":"B1","title":"...","why":"...","remediation":"..."}],"rerun_checks":["..."],"evidence_gaps":[],"prohibited_findings":[]}
 END_PHASE_ACCEPTANCE_JSON

@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import shutil
@@ -23,9 +22,6 @@ from codex_phase_policy import (
     DEFAULT_ACCEPTOR_MODEL,
     DEFAULT_WORKER_MODEL,
     PhaseEvidenceRequirement,
-    REQUIRED_ACCEPTANCE_SKILLS,
-    REQUIRED_REMEDIATION_SKILLS,
-    REQUIRED_WORKER_SKILLS,
     ROUTE_GUARDRAILS,
     ROUTE_MODE,
     SkillBinding,
@@ -56,6 +52,8 @@ DEFAULT_WORKER_PROMPT = Path("docs/codex/prompts/phases/worker.md")
 DEFAULT_ACCEPTOR_PROMPT = Path("docs/codex/prompts/phases/acceptor.md")
 DEFAULT_REMEDIATION_PROMPT = Path("docs/codex/prompts/phases/remediation.md")
 STACKED_FOLLOWUP_ROUTE = "stacked-followup"
+PHASE_HUMAN_SUMMARY_BEGIN = "BEGIN_PHASE_HUMAN_SUMMARY"
+PHASE_HUMAN_SUMMARY_END = "END_PHASE_HUMAN_SUMMARY"
 DEFAULT_IGNORE_GLOBS = (
     ".runlogs/**",
     "artifacts/**",
@@ -266,6 +264,23 @@ def phase_sequence(parent_path: Path) -> list[Path]:
     if not phase_paths:
         raise OrchestratorError(f"no phase briefs found for {slug}")
     return phase_paths
+
+
+def module_materialized_context_documents(
+    *,
+    execution_contract_path: Path,
+    parent_path: Path,
+    current_phase_path: Path,
+) -> list[str]:
+    docs: list[str] = []
+    for path in [execution_contract_path, parent_path, *phase_sequence(parent_path)]:
+        text = path.as_posix()
+        if text not in docs:
+            docs.append(text)
+    current = current_phase_path.as_posix()
+    if current not in docs:
+        docs.append(current)
+    return docs
 
 
 def resolve_current_phase(repo_root: Path, parent_path: Path) -> Path:
@@ -676,47 +691,13 @@ def emit_acceptance_owned_release_decision(
         )
 
 
-def sha256_text(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-def resolve_skill_binding(repo_root: Path, skill_id: str) -> SkillBinding:
-    skill_path = (repo_root / ".cursor" / "skills" / skill_id / "SKILL.md").resolve()
-    if not skill_path.exists():
-        raise OrchestratorError(f"missing required skill binding: {skill_id} ({skill_path.as_posix()})")
-    text = read_text(skill_path)
-    return SkillBinding(
-        skill_id=skill_id,
-        path=skill_path.as_posix(),
-        sha256=sha256_text(text),
-    )
-
-
 def resolve_role_skill_bindings(repo_root: Path) -> dict[str, list[SkillBinding]]:
+    del repo_root
     return {
-        "worker": [resolve_skill_binding(repo_root, skill_id) for skill_id in REQUIRED_WORKER_SKILLS],
-        "acceptor": [resolve_skill_binding(repo_root, skill_id) for skill_id in REQUIRED_ACCEPTANCE_SKILLS],
-        "remediation": [resolve_skill_binding(repo_root, skill_id) for skill_id in REQUIRED_REMEDIATION_SKILLS],
+        "worker": [],
+        "acceptor": [],
+        "remediation": [],
     }
-
-
-def render_bound_skills_text(bindings: list[SkillBinding]) -> str:
-    if not bindings:
-        return "Bound Skill Artifacts:\n- none"
-    lines = ["Bound Skill Artifacts:"]
-    for binding in bindings:
-        skill_text = read_text(Path(binding.path)).rstrip()
-        lines.extend(
-            [
-                f"- Skill: {binding.skill_id}",
-                f"  Path: {binding.path}",
-                f"  SHA256: {binding.sha256}",
-                f"BEGIN_BOUND_SKILL::{binding.skill_id}",
-                skill_text,
-                f"END_BOUND_SKILL::{binding.skill_id}",
-            ]
-        )
-    return "\n".join(lines)
 
 
 def tagged_json(text: str, begin: str, end: str) -> dict[str, Any]:
@@ -742,18 +723,21 @@ def build_worker_prompt(
     phase_path: Path,
     attempt: int,
     remediation_blockers_path: Path | None,
-    skill_bindings: list[SkillBinding],
+    module_materialized_docs: list[str] | None = None,
     entry_route: str = "continue",
     continuation_contract_path: Path | None = None,
 ) -> str:
     base = read_text(template_path).rstrip()
     blockers = remediation_blockers_path.as_posix() if remediation_blockers_path else "NONE"
     continuation_contract = continuation_contract_path.as_posix() if continuation_contract_path else "NONE"
+    materialized_docs = module_materialized_docs or []
+    materialized_docs_block = "\n".join(f"- {item}" for item in materialized_docs) if materialized_docs else "- none"
     return (
         f"{base}\n\n"
         "Route Guardrails:\n"
         f"{route_guardrail_text()}\n\n"
-        f"{render_bound_skills_text(skill_bindings)}\n\n"
+        "Module Materialized Documentation Context:\n"
+        f"{materialized_docs_block}\n\n"
         f"Execution Contract: {execution_contract_path.as_posix()}\n"
         f"Module Parent Brief: {parent_path.as_posix()}\n"
         f"Phase Brief: {phase_path.as_posix()}\n"
@@ -773,14 +757,12 @@ def build_acceptor_prompt(
     worker_report_path: Path,
     changed_files_path: Path,
     attempt: int,
-    skill_bindings: list[SkillBinding],
 ) -> str:
     base = read_text(template_path).rstrip()
     return (
         f"{base}\n\n"
         "Route Guardrails:\n"
         f"{route_guardrail_text()}\n\n"
-        f"{render_bound_skills_text(skill_bindings)}\n\n"
         f"Execution Contract: {execution_contract_path.as_posix()}\n"
         f"Module Parent Brief: {parent_path.as_posix()}\n"
         f"Phase Brief: {phase_path.as_posix()}\n"
@@ -869,7 +851,6 @@ def simulate_acceptance_payload(scenario: str, attempt: int) -> dict[str, Any]:
         "used_skills": [
             "phase-acceptance-governor",
             "architecture-review",
-            "code-reviewer",
             "testing-suite",
             "docs-sync",
             "verification-before-completion",
@@ -1001,6 +982,71 @@ def write_state_and_route_report(*, state_path: Path, route_report_path: Path, p
     route_report_path.write_text(render_route_report(payload), encoding="utf-8")
 
 
+def _single_line(text: str) -> str:
+    return " ".join(str(text or "").split())
+
+
+def render_attempt_human_summary(
+    *,
+    phase_name: str,
+    phase_path: Path,
+    attempt_record: AttemptRecord,
+) -> str:
+    status_line = "Proceed to next phase gate." if attempt_record.verdict == "PASS" else "Continue remediation in this phase."
+    lines = [
+        "# Phase Attempt Human Summary",
+        "",
+        f"- Phase: {phase_name}",
+        f"- Phase Brief: {phase_path.as_posix()}",
+        f"- Attempt: {attempt_record.attempt}",
+        f"- Attempt Kind: {attempt_record.kind}",
+        f"- Verdict: {attempt_record.verdict}",
+        f"- Worker Summary: {_single_line(attempt_record.worker_summary)}",
+        f"- Worker Route Signal: {attempt_record.worker_route_signal}",
+        f"- Acceptor Route Signal: {attempt_record.acceptor_route_signal}",
+        f"- Blockers Total: {attempt_record.blockers_total}",
+        f"- Policy Blockers: {attempt_record.policy_blockers_total}",
+        f"- Acceptance Report: {attempt_record.acceptance_md_path}",
+        f"- Next Action: {status_line}",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def render_phase_human_summary(
+    *,
+    phase_name: str,
+    phase_path: Path,
+    attempts: list[AttemptRecord],
+    final_status: str,
+    next_phase: str,
+) -> str:
+    lines = [
+        "# Phase Human Summary",
+        "",
+        f"- Phase: {phase_name}",
+        f"- Phase Brief: {phase_path.as_posix()}",
+        f"- Final Status: {final_status}",
+        f"- Attempts: {len(attempts)}",
+    ]
+    if final_status == "accepted":
+        lines.append(f"- Next Phase Unlocked: {next_phase}")
+    else:
+        lines.append("- Next Phase Unlocked: no (phase remains blocked)")
+    lines.extend(["", "## Attempt Outcomes"])
+    if not attempts:
+        lines.append("- none")
+    else:
+        for item in attempts:
+            lines.append(
+                f"- Attempt {item.attempt} ({item.kind}): {item.verdict}; "
+                f"blockers={item.blockers_total}; policy_blockers={item.policy_blockers_total}; "
+                f"worker_summary={_single_line(item.worker_summary)}"
+            )
+    lines.append("")
+    return "\n".join(lines)
+
+
 def orchestrate_current_phase(
     *,
     repo_root: Path,
@@ -1041,6 +1087,7 @@ def orchestrate_current_phase(
     run_root.mkdir(parents=True, exist_ok=True)
     state_path = run_root / "state.json"
     route_report_path = run_root / "route-report.md"
+    phase_chat_summary_path = run_root / "chat-summary.md"
     attempt_records: list[AttemptRecord] = []
     role_configs = {
         "worker": worker_launch,
@@ -1050,6 +1097,11 @@ def orchestrate_current_phase(
     role_skill_bindings = resolve_role_skill_bindings(repo_root)
     current_phase_evidence_requirement = phase_evidence_requirement(phase_path)
     current_phase_accepted_state = phase_accepted_state_label(phase_path)
+    current_module_materialized_docs = module_materialized_context_documents(
+        execution_contract_path=execution_contract_path,
+        parent_path=parent_path,
+        current_phase_path=phase_path,
+    )
 
     final_code = 3
     final_status = "blocked"
@@ -1070,16 +1122,12 @@ def orchestrate_current_phase(
             phase_path=phase_path,
             attempt=attempt,
             remediation_blockers_path=blockers_path,
-            skill_bindings=role_skill_bindings[kind],
+            module_materialized_docs=current_module_materialized_docs,
             entry_route=entry_route,
             continuation_contract_path=continuation_contract_path,
         )
         worker_prompt_file = attempt_dir / f"{kind}-prompt.md"
         worker_last_message = attempt_dir / f"{kind}-last-message.txt"
-        write_json(
-            attempt_dir / f"{kind}-bound-skills.json",
-            {"bindings": [asdict(binding) for binding in role_skill_bindings[kind]]},
-        )
         worker_payload = run_role(
             role=kind,
             backend=backend,
@@ -1118,14 +1166,9 @@ def orchestrate_current_phase(
             worker_report_path=worker_report_path,
             changed_files_path=changed_files_path,
             attempt=attempt,
-            skill_bindings=role_skill_bindings["acceptor"],
         )
         acceptor_prompt_file = attempt_dir / "acceptor-prompt.md"
         acceptor_last_message = attempt_dir / "acceptor-last-message.txt"
-        write_json(
-            attempt_dir / "acceptor-bound-skills.json",
-            {"bindings": [asdict(binding) for binding in role_skill_bindings["acceptor"]]},
-        )
         acceptance_payload = run_role(
             role="acceptor",
             backend=backend,
@@ -1227,6 +1270,15 @@ def orchestrate_current_phase(
                 policy_blockers_total=len(acceptance.policy_blockers),
             )
         )
+        attempt_chat_summary_path = attempt_dir / "chat-summary.md"
+        attempt_chat_summary_path.write_text(
+            render_attempt_human_summary(
+                phase_name=phase_name_from_brief(phase_path),
+                phase_path=phase_path,
+                attempt_record=attempt_records[-1],
+            ),
+            encoding="utf-8",
+        )
 
         interim_state = state_payload(
             run_id=run_root.name,
@@ -1246,6 +1298,8 @@ def orchestrate_current_phase(
             continuation_contract_path.as_posix() if continuation_contract_path else None
         )
         interim_state["current_attempt"] = attempt
+        interim_state["chat_summary_path"] = phase_chat_summary_path.as_posix()
+        interim_state["latest_attempt_chat_summary_path"] = attempt_chat_summary_path.as_posix()
         write_state_and_route_report(
             state_path=state_path,
             route_report_path=route_report_path,
@@ -1298,6 +1352,17 @@ def orchestrate_current_phase(
     final_state["continuation_contract_path"] = (
         continuation_contract_path.as_posix() if continuation_contract_path else None
     )
+    phase_chat_summary_path.write_text(
+        render_phase_human_summary(
+            phase_name=phase_name_from_brief(phase_path),
+            phase_path=phase_path,
+            attempts=attempt_records,
+            final_status=final_status,
+            next_phase=parent_next_phase(parent_path),
+        ),
+        encoding="utf-8",
+    )
+    final_state["chat_summary_path"] = phase_chat_summary_path.as_posix()
     write_state_and_route_report(
         state_path=state_path,
         route_report_path=route_report_path,
@@ -1562,6 +1627,17 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     print(f"state_file: {state_path.as_posix()}")
+    try:
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return code
+    summary_path_raw = payload.get("chat_summary_path")
+    if isinstance(summary_path_raw, str) and summary_path_raw.strip():
+        summary_path = resolve_path(repo_root, summary_path_raw)
+        if summary_path.exists():
+            print(PHASE_HUMAN_SUMMARY_BEGIN)
+            print(read_text(summary_path).rstrip())
+            print(PHASE_HUMAN_SUMMARY_END)
     return code
 
 

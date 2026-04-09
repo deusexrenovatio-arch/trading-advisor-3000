@@ -26,14 +26,11 @@ def _launch(model: str) -> RoleLaunchConfig:
 
 def _write_acceptor_skills(repo: Path) -> None:
     skills = {
-        "code-implementation-worker": "---\nname: code-implementation-worker\ndescription: test\nclassification: KEEP_CORE\nwave: WAVE_1\nstatus: ACTIVE\nowner_surface: CTX-IMPLEMENTATION\nrouting_triggers:\n  - coding\n---\n# code implementation worker\n",
         "phase-acceptance-governor": "---\nname: phase-acceptance-governor\ndescription: test\nclassification: KEEP_CORE\nwave: WAVE_1\nstatus: ACTIVE\nowner_surface: CTX-OPS\nrouting_triggers:\n  - acceptance\n---\n# phase acceptance governor\n",
         "architecture-review": "---\nname: architecture-review\ndescription: test\nclassification: KEEP_CORE\nwave: WAVE_1\nstatus: ACTIVE\nowner_surface: CTX-ARCHITECTURE\nrouting_triggers:\n  - architecture\n---\n# architecture review\n",
-        "code-reviewer": "---\nname: code-reviewer\ndescription: test\nclassification: KEEP_CORE\nwave: WAVE_1\nstatus: ACTIVE\nowner_surface: CTX-OPS\nrouting_triggers:\n  - review\n---\n# code reviewer\n",
         "testing-suite": "---\nname: testing-suite\ndescription: test\nclassification: KEEP_CORE\nwave: WAVE_1\nstatus: ACTIVE\nowner_surface: CTX-OPS\nrouting_triggers:\n  - tests\n---\n# testing suite\n",
         "docs-sync": "---\nname: docs-sync\ndescription: test\nclassification: KEEP_CORE\nwave: WAVE_1\nstatus: ACTIVE\nowner_surface: CTX-OPS\nrouting_triggers:\n  - docs\n---\n# docs sync\n",
         "verification-before-completion": "---\nname: verification-before-completion\ndescription: test\nclassification: KEEP_CORE\nwave: WAVE_1\nstatus: ACTIVE\nowner_surface: CTX-OPS\nrouting_triggers:\n  - verification before completion\n---\n# verification before completion\n",
-        "repeated-issue-review": "---\nname: repeated-issue-review\ndescription: test\nclassification: KEEP_CORE\nwave: WAVE_1\nstatus: ACTIVE\nowner_surface: CTX-OPS\nrouting_triggers:\n  - remediation\n---\n# repeated issue review\n",
     }
     for skill_id, text in skills.items():
         _write(repo / ".cursor/skills" / skill_id / "SKILL.md", text)
@@ -238,12 +235,14 @@ def test_orchestrator_pass_advances_next_phase(tmp_path: Path) -> None:
     assert payload["attempts_total"] == 1
     assert payload["route_mode"] == "governed-phase-orchestration"
     assert payload["attempts"][0]["acceptor_used_skills"][0] == "phase-acceptance-governor"
-    assert payload["role_skill_bindings"]["worker"][0]["skill_id"] == "code-implementation-worker"
-    assert payload["role_skill_bindings"]["remediation"][0]["skill_id"] == "code-implementation-worker"
-    assert payload["role_skill_bindings"]["remediation"][1]["skill_id"] == "repeated-issue-review"
-    assert payload["role_skill_bindings"]["acceptor"][0]["skill_id"] == "phase-acceptance-governor"
-    worker_bound = json.loads((state_path.parent / "attempt-01/worker-bound-skills.json").read_text(encoding="utf-8"))
-    assert worker_bound["bindings"][0]["skill_id"] == "code-implementation-worker"
+    run_root = tmp_path / "artifacts/codex/orchestration" / payload["run_id"]
+    assert payload["chat_summary_path"] == (run_root / "chat-summary.md").as_posix()
+    phase_summary = (run_root / "chat-summary.md").read_text(encoding="utf-8")
+    attempt_summary = (run_root / "attempt-01" / "chat-summary.md").read_text(encoding="utf-8")
+    assert "Final Status: accepted" in phase_summary
+    assert "Attempt 1 (worker): PASS" in phase_summary
+    assert "Attempt Kind: worker" in attempt_summary
+    assert "Verdict: PASS" in attempt_summary
 
 
 def test_orchestrator_block_then_pass_uses_remediation_loop(tmp_path: Path) -> None:
@@ -273,11 +272,6 @@ def test_orchestrator_block_then_pass_uses_remediation_loop(tmp_path: Path) -> N
     assert payload["attempts"][0]["verdict"] == "BLOCKED"
     assert payload["attempts"][1]["verdict"] == "PASS"
     assert any("unlock next phase" in item for item in payload["route_trace"])
-    remediation_bound = json.loads((state_path.parent / "attempt-02/remediation-bound-skills.json").read_text(encoding="utf-8"))
-    assert [item["skill_id"] for item in remediation_bound["bindings"]] == [
-        "code-implementation-worker",
-        "repeated-issue-review",
-    ]
 
 
 def test_orchestrator_blocked_keeps_same_phase_locked(tmp_path: Path) -> None:
@@ -360,10 +354,8 @@ def test_orchestrator_emits_attempt_bound_release_decision_for_release_decision_
             "used_skills": [
                 "phase-acceptance-governor",
                 "architecture-review",
-                "code-reviewer",
                 "testing-suite",
                 "docs-sync",
-                "verification-before-completion",
             ],
             "blockers": [
                 {
@@ -459,10 +451,8 @@ def test_orchestrator_release_decision_closeout_fails_without_phase_scoped_route
             "used_skills": [
                 "phase-acceptance-governor",
                 "architecture-review",
-                "code-reviewer",
                 "testing-suite",
                 "docs-sync",
-                "verification-before-completion",
             ],
             "blockers": [],
             "rerun_checks": [],
@@ -569,7 +559,74 @@ def test_orchestrator_auto_blocks_acceptance_evidence_gaps(tmp_path: Path) -> No
     ).read_text(encoding="utf-8")
     assert "Route Mode: governed-phase-orchestration" in route_report
     assert "acceptor: model=gpt-5.4" in route_report
-    assert "phase-acceptance-governor" in route_report
+
+
+def test_orchestrator_auto_blocks_worker_documentation_edits(tmp_path: Path, monkeypatch) -> None:
+    contract, parent = _module_fixture(tmp_path)
+
+    def fake_run_role(**kwargs: object) -> dict[str, object]:
+        role = kwargs["role"]
+        if role in {"worker", "remediation"}:
+            return {
+                "status": "DONE",
+                "summary": "Worker changed docs directly.",
+                "route_signal": f"{role}:phase-only",
+                "files_touched": ["docs/codex/modules/demo.phase-01.md"],
+                "checks_run": ["python scripts/run_loop_gate.py --from-git --git-ref HEAD"],
+                "remaining_risks": [],
+                "assumptions": [],
+                "skips": [],
+                "fallbacks": [],
+                "deferred_work": [],
+                "evidence_contract": {
+                    "surfaces": ["demo_surface"],
+                    "proof_class": "integration",
+                    "artifact_paths": ["artifacts/demo-proof.json"],
+                    "checks": ["python scripts/run_loop_gate.py --from-git --git-ref HEAD"],
+                    "real_bindings": [],
+                },
+            }
+        return {
+            "verdict": "PASS",
+            "summary": "Acceptor would pass.",
+            "route_signal": "acceptance:governed-phase-route",
+            "used_skills": [
+                "phase-acceptance-governor",
+                "architecture-review",
+                "testing-suite",
+                "docs-sync",
+                "verification-before-completion",
+            ],
+            "blockers": [],
+            "rerun_checks": [],
+            "evidence_gaps": [],
+            "prohibited_findings": [],
+        }
+
+    monkeypatch.setattr("codex_phase_orchestrator.run_role", fake_run_role)
+
+    code, state_path = orchestrate_current_phase(
+        repo_root=tmp_path,
+        execution_contract_path=contract,
+        parent_path=parent,
+        worker_prompt_path=tmp_path / "docs/codex/prompts/phases/worker.md",
+        acceptor_prompt_path=tmp_path / "docs/codex/prompts/phases/acceptor.md",
+        remediation_prompt_path=tmp_path / "docs/codex/prompts/phases/remediation.md",
+        artifact_root=tmp_path / "artifacts/codex/orchestration",
+        backend="simulate",
+        worker_launch=_launch("gpt-5.3-codex"),
+        acceptor_launch=_launch("gpt-5.4"),
+        remediation_launch=_launch("gpt-5.3-codex"),
+        codex_bin=None,
+        simulate_scenario="pass",
+        max_remediation_cycles=0,
+        ignore_globs=(),
+        skip_clean_check=True,
+    )
+
+    assert code == 3
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert payload["attempts"][0]["policy_blockers_total"] >= 1
 
 
 def test_skip_clean_check_uses_worker_files_for_changed_files_snapshot(monkeypatch, tmp_path: Path) -> None:
@@ -582,7 +639,7 @@ def test_skip_clean_check_uses_worker_files_for_changed_files_snapshot(monkeypat
                 "status": "DONE",
                 "summary": "Synthetic worker output.",
                 "route_signal": f"{role}:phase-only",
-                "files_touched": ["docs/example.md", "scripts/example.py"],
+                "files_touched": ["src/example.py", "scripts/example.py"],
                 "checks_run": [],
                 "remaining_risks": [],
                 "assumptions": [],
@@ -604,7 +661,6 @@ def test_skip_clean_check_uses_worker_files_for_changed_files_snapshot(monkeypat
             "used_skills": [
                 "phase-acceptance-governor",
                 "architecture-review",
-                "code-reviewer",
                 "testing-suite",
                 "docs-sync",
                 "verification-before-completion",
@@ -647,7 +703,7 @@ def test_skip_clean_check_uses_worker_files_for_changed_files_snapshot(monkeypat
             / "changed-files.json"
         ).read_text(encoding="utf-8")
     )
-    assert changed_files_payload["changed_files"] == ["docs/example.md", "scripts/example.py"]
+    assert changed_files_payload["changed_files"] == ["src/example.py", "scripts/example.py"]
 
 
 def test_orchestrator_binds_stacked_followup_contract_into_worker_prompt_and_state(
@@ -766,46 +822,31 @@ def test_orchestrator_fails_closed_when_stacked_followup_contract_module_binding
         raise AssertionError("expected mismatched module binding to fail closed")
 
 
-def test_orchestrator_fails_closed_when_required_acceptor_skill_is_missing(tmp_path: Path) -> None:
-    contract = tmp_path / "docs/codex/contracts/demo.execution-contract.md"
-    parent = tmp_path / "docs/codex/modules/demo.parent.md"
-    phase = tmp_path / "docs/codex/modules/demo.phase-01.md"
-    worker = tmp_path / "docs/codex/prompts/phases/worker.md"
-    acceptor = tmp_path / "docs/codex/prompts/phases/acceptor.md"
-    remediation = tmp_path / "docs/codex/prompts/phases/remediation.md"
-
-    _write_acceptor_skills(tmp_path)
+def test_orchestrator_does_not_fail_when_acceptor_skill_file_is_missing(tmp_path: Path) -> None:
+    contract, parent = _module_fixture(tmp_path)
     (tmp_path / ".cursor/skills/docs-sync/SKILL.md").unlink()
-    _write(contract, "# Execution Contract\n\n## Next Allowed Unit Of Work\n- Execute phase 01 only: build the thing.\n")
-    _write(parent, "# Module Parent Brief\n\n## Next Phase To Execute\n- docs/codex/modules/demo.phase-01.md\n")
-    _write(phase, "# Module Phase Brief\n\n## Phase\n- Name: Phase 01\n- Status: planned\n\n## Objective\n- Build the thing.\n")
-    _write(worker, "worker prompt\n")
-    _write(acceptor, "acceptor prompt\n")
-    _write(remediation, "remediation prompt\n")
 
-    try:
-        orchestrate_current_phase(
-            repo_root=tmp_path,
-            execution_contract_path=contract,
-            parent_path=parent,
-            worker_prompt_path=worker,
-            acceptor_prompt_path=acceptor,
-            remediation_prompt_path=remediation,
-            artifact_root=tmp_path / "artifacts/codex/orchestration",
-            backend="simulate",
-            worker_launch=_launch("gpt-5.3-codex"),
-            acceptor_launch=_launch("gpt-5.4"),
-            remediation_launch=_launch("gpt-5.3-codex"),
-            codex_bin=None,
-            simulate_scenario="pass",
-            max_remediation_cycles=0,
-            ignore_globs=(),
-            skip_clean_check=True,
-        )
-    except OrchestratorError as exc:
-        assert "missing required skill binding" in str(exc)
-    else:
-        raise AssertionError("expected missing skill binding to fail closed")
+    code, state_path = orchestrate_current_phase(
+        repo_root=tmp_path,
+        execution_contract_path=contract,
+        parent_path=parent,
+        worker_prompt_path=tmp_path / "docs/codex/prompts/phases/worker.md",
+        acceptor_prompt_path=tmp_path / "docs/codex/prompts/phases/acceptor.md",
+        remediation_prompt_path=tmp_path / "docs/codex/prompts/phases/remediation.md",
+        artifact_root=tmp_path / "artifacts/codex/orchestration",
+        backend="simulate",
+        worker_launch=_launch("gpt-5.3-codex"),
+        acceptor_launch=_launch("gpt-5.4"),
+        remediation_launch=_launch("gpt-5.3-codex"),
+        codex_bin=None,
+        simulate_scenario="pass",
+        max_remediation_cycles=0,
+        ignore_globs=(),
+        skip_clean_check=True,
+    )
+    assert code == 0
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert payload["final_status"] == "accepted"
 
 
 def test_orchestrator_auto_blocks_missing_worker_evidence_contract(tmp_path: Path, monkeypatch) -> None:
@@ -818,7 +859,7 @@ def test_orchestrator_auto_blocks_missing_worker_evidence_contract(tmp_path: Pat
                 "status": "DONE",
                 "summary": "Worker without evidence contract.",
                 "route_signal": f"{role}:phase-only",
-                "files_touched": ["docs/example.md"],
+                "files_touched": ["src/example.py"],
                 "checks_run": ["python scripts/run_loop_gate.py --from-git --git-ref HEAD"],
                 "remaining_risks": [],
                 "assumptions": [],
@@ -833,7 +874,6 @@ def test_orchestrator_auto_blocks_missing_worker_evidence_contract(tmp_path: Pat
             "used_skills": [
                 "phase-acceptance-governor",
                 "architecture-review",
-                "code-reviewer",
                 "testing-suite",
                 "docs-sync",
                 "verification-before-completion",
@@ -880,7 +920,7 @@ def test_orchestrator_auto_blocks_weaker_worker_evidence_proof_class(tmp_path: P
                 "status": "DONE",
                 "summary": "Worker with weak evidence contract.",
                 "route_signal": f"{role}:phase-only",
-                "files_touched": ["docs/example.md"],
+                "files_touched": ["src/example.py"],
                 "checks_run": ["python scripts/run_loop_gate.py --from-git --git-ref HEAD"],
                 "remaining_risks": [],
                 "assumptions": [],
@@ -902,7 +942,6 @@ def test_orchestrator_auto_blocks_weaker_worker_evidence_proof_class(tmp_path: P
             "used_skills": [
                 "phase-acceptance-governor",
                 "architecture-review",
-                "code-reviewer",
                 "testing-suite",
                 "docs-sync",
                 "verification-before-completion",

@@ -19,7 +19,9 @@ from codex_from_package import (  # noqa: E402
     build_prompt,
     choose_latest_package,
     collect_document_candidates,
+    evaluate_materialization_result,
     evaluate_intake_gate_payload,
+    extract_materialization_result_from_text,
     extract_docx_title,
     render_intake_human_summary_markdown,
     safe_extract_zip,
@@ -252,6 +254,11 @@ def test_intake_handoff_is_compact_and_materialization_uses_handoff_path(tmp_pat
     assert any(item["type"] == "module_phase_brief" for item in requirements["documents"])
     assert requirements["required_outcomes"]
     assert requirements["phase_brief_mandatory_sections"]
+    context_contract = handoff["documentation_context_contract"]
+    assert context_contract["source_documents"]
+    assert context_contract["materialized_documents"]
+    assert context_contract["must_preserve"]["goals_digest"]
+    assert context_contract["must_preserve"]["acceptance_criteria_digest"]
 
     runtime_context = build_prompt(
         prompt_path=tmp_path / "from_package.md",
@@ -274,6 +281,7 @@ def test_intake_handoff_is_compact_and_materialization_uses_handoff_path(tmp_pat
     assert "Lane Inputs (technical_intake)" not in materialization_prompt
     assert "BEGIN_MATERIALIZATION_RESULT_JSON" in materialization_prompt
     assert "Required Documents, Constraints, Expected Results" in materialization_prompt
+    assert "Documentation context contract (mandatory for drift prevention)" in materialization_prompt
     assert "Mandatory phase brief sections" in materialization_prompt
     assert "Traceability Map" in materialization_prompt
     assert "Structural recommendations and critical TZ changes to preserve" in materialization_prompt
@@ -300,3 +308,103 @@ def test_lane_prompt_is_compact_and_policy_referenced_once(tmp_path: Path) -> No
     assert "BEGIN_TECHNICAL_INTAKE_JSON" in prompt
     assert "Lossless transfer contract" not in prompt
     assert "Section Goals" in prompt
+
+
+def test_extract_materialization_result_from_text_requires_done_status() -> None:
+    text = (
+        "materialization output\n"
+        "BEGIN_MATERIALIZATION_RESULT_JSON\n"
+        '{"status":"BLOCKED","updated_docs":[],"notes":"n/a","residual_blockers":[],"context_coverage":{'
+        '"source_documents":["a"],"materialized_documents":["b"],"preserved_goals":["g"],"preserved_acceptance_criteria":["c"]}}\n'
+        "END_MATERIALIZATION_RESULT_JSON\n"
+    )
+    try:
+        extract_materialization_result_from_text(text)
+    except ValueError as exc:
+        assert "status must be DONE" in str(exc)
+    else:
+        raise AssertionError("expected invalid status to fail")
+
+
+def test_evaluate_materialization_result_blocks_on_missing_context_coverage(tmp_path: Path) -> None:
+    handoff = {
+        "materialization_requirements": {
+            "documents": [
+                {"path": "docs/codex/contracts/demo.execution-contract.md"},
+                {"path": "docs/codex/modules/demo.parent.md"},
+            ]
+        },
+        "documentation_context_contract": {
+            "source_documents": [(tmp_path / "extracted/spec.md").as_posix()],
+            "materialized_documents": [
+                "docs/codex/contracts/demo.execution-contract.md",
+                "docs/codex/modules/demo.parent.md",
+            ],
+            "must_preserve": {
+                "goals_digest": ["Preserve goals"],
+                "acceptance_criteria_digest": ["Preserve acceptance"],
+            },
+        },
+    }
+    result = evaluate_materialization_result(
+        result={
+            "status": "DONE",
+            "updated_docs": ["docs/codex/contracts/demo.execution-contract.md"],
+            "notes": "partial refresh",
+            "residual_blockers": [],
+            "context_coverage": {
+                "source_documents": [],
+                "materialized_documents": [],
+                "preserved_goals": [],
+                "preserved_acceptance_criteria": [],
+            },
+        },
+        handoff=handoff,
+    )
+    assert result["decision"] == "BLOCKED"
+    assert result["combined_blockers"]
+
+
+def test_evaluate_materialization_result_passes_with_full_context() -> None:
+    handoff = {
+        "materialization_requirements": {
+            "documents": [
+                {"path": "docs/codex/contracts/demo.execution-contract.md"},
+                {"path": "docs/codex/modules/demo.parent.md"},
+            ]
+        },
+        "documentation_context_contract": {
+            "source_documents": ["docs/codex/packages/extracted/spec.md"],
+            "materialized_documents": [
+                "docs/codex/contracts/demo.execution-contract.md",
+                "docs/codex/modules/demo.parent.md",
+            ],
+            "must_preserve": {
+                "goals_digest": ["Preserve goals"],
+                "acceptance_criteria_digest": ["Preserve acceptance"],
+            },
+        },
+    }
+    result = evaluate_materialization_result(
+        result={
+            "status": "DONE",
+            "updated_docs": [
+                "docs/codex/contracts/demo.execution-contract.md",
+                "docs/codex/modules/demo.parent.md",
+            ],
+            "notes": "all docs refreshed",
+            "residual_blockers": [],
+            "context_coverage": {
+                "source_documents": ["docs/codex/packages/extracted/spec.md"],
+                "materialized_documents": [
+                    "docs/codex/contracts/demo.execution-contract.md",
+                    "docs/codex/modules/demo.parent.md",
+                ],
+                "preserved_goals": ["Preserve goals"],
+                "preserved_acceptance_criteria": ["Preserve acceptance"],
+            },
+        },
+        handoff=handoff,
+    )
+    assert result["decision"] == "PASS"
+    assert result["combined_blockers"] == []
