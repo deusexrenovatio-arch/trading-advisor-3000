@@ -49,6 +49,15 @@ Rules:
 - Do not silently introduce assumptions, fallback paths, skipped checks, or deferred critical work.
 - If any assumption, skip, fallback, or deferral exists, report it explicitly. Acceptance will treat it as a blocker.
 - Include the bounded `evidence_contract` object from `docs/checklists/phase-evidence-contract.md`.
+- Before returning the final JSON, do one bounded self-review of the phase result.
+  Score your own result quality separately from orchestration friction.
+  Use:
+  - `requirements_alignment`
+  - `documentation_quality`
+  - `implementation_quality`
+  - `testing_quality`
+- If your self-review finds a weak result, improve once before emitting the final payload instead of passing obvious quality debt downstream.
+- Self-score is informative only; it does not unlock the next phase and does not replace acceptance.
 - Do not emit a final release-decision package from worker scope; for `release_decision` phases, only acceptance-owned closeout may emit final `ALLOW_RELEASE_READINESS` or `DENY_RELEASE_READINESS`.
 - Keep `evidence_contract` minimal and concrete:
   - `surfaces`
@@ -63,5 +72,5 @@ Rules:
 Return a short human summary and finish with this exact marker block:
 
 BEGIN_PHASE_WORKER_JSON
-{"status":"DONE","summary":"...","route_signal":"worker:phase-only","files_touched":["..."],"checks_run":["..."],"remaining_risks":["..."],"assumptions":[],"skips":[],"fallbacks":[],"deferred_work":[],"evidence_contract":{"surfaces":["..."],"proof_class":"doc|schema|unit|integration|staging-real|live-real","artifact_paths":["..."],"checks":["..."],"real_bindings":["..."]}}
+{"status":"DONE","summary":"...","route_signal":"worker:phase-only","files_touched":["..."],"checks_run":["..."],"remaining_risks":["..."],"assumptions":[],"skips":[],"fallbacks":[],"deferred_work":[],"worker_self_quality":{"requirements_alignment":{"score":0,"summary":"..."},"documentation_quality":{"score":0,"summary":"..."},"implementation_quality":{"score":0,"summary":"..."},"testing_quality":{"score":0,"summary":"..."},"strengths":["..."],"gaps":["..."]},"evidence_contract":{"surfaces":["..."],"proof_class":"doc|schema|unit|integration|staging-real|live-real","artifact_paths":["..."],"checks":["..."],"real_bindings":["..."]}}
 END_PHASE_WORKER_JSON

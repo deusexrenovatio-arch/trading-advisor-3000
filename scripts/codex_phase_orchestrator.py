@@ -45,6 +45,7 @@ from repo_mutation_lock import (
     RepoMutationLockError,
     repo_mutation_lock,
 )
+from orchestration_quality import attach_quality_summaries
 
 
 DEFAULT_ARTIFACT_ROOT = Path("artifacts/codex/orchestration")
@@ -832,6 +833,27 @@ def simulate_worker_payload(scenario: str, attempt: int, kind: str) -> dict[str,
         "skips": [],
         "fallbacks": [],
         "deferred_work": [],
+        "worker_self_quality": {
+            "requirements_alignment": {
+                "score": 87,
+                "summary": "The worker believes the phase result stays close to the requested objective.",
+            },
+            "documentation_quality": {
+                "score": 84,
+                "summary": "Any non-doc outputs are explained clearly enough for downstream handoff.",
+            },
+            "implementation_quality": {
+                "score": 86,
+                "summary": "Implementation quality looks solid from the worker's own lens.",
+            },
+            "testing_quality": {
+                "score": 82,
+                "summary": "Executed checks look sufficient from the worker's perspective.",
+            },
+            "strengths": ["The worker sees the current phase result as coherent and phase-scoped."],
+            "gaps": [],
+            "scored_by": "worker-self-review",
+        },
         "evidence_contract": {
             "surfaces": ["demo_surface"],
             "proof_class": "integration",
@@ -840,8 +862,51 @@ def simulate_worker_payload(scenario: str, attempt: int, kind: str) -> dict[str,
             "real_bindings": [],
         },
     }
+    if scenario == "blocked":
+        payload["worker_self_quality"] = {
+            "requirements_alignment": {
+                "score": 75,
+                "summary": "The worker believes most of the requested outcome is there, but some closure is still shaky.",
+            },
+            "documentation_quality": {
+                "score": 72,
+                "summary": "The handoff is serviceable but not especially strong.",
+            },
+            "implementation_quality": {
+                "score": 74,
+                "summary": "Implementation looks close, though some phase risk remains.",
+            },
+            "testing_quality": {
+                "score": 70,
+                "summary": "The worker sees test evidence as acceptable but not decisive.",
+            },
+            "strengths": ["A substantial part of the phase is implemented."],
+            "gaps": ["The result may still be weaker than acceptance expects."],
+            "scored_by": "worker-self-review",
+        }
     if scenario == "pass-with-shortcut":
         payload["fallbacks"] = ["Used a weaker fallback path without explicit phase-contract approval."]
+        payload["worker_self_quality"] = {
+            "requirements_alignment": {
+                "score": 79,
+                "summary": "The worker sees the target outcome as mostly satisfied despite a shortcut.",
+            },
+            "documentation_quality": {
+                "score": 76,
+                "summary": "Handoff documentation is adequate but built on a weaker route choice.",
+            },
+            "implementation_quality": {
+                "score": 78,
+                "summary": "Implementation seems good to the worker, though a fallback path remains.",
+            },
+            "testing_quality": {
+                "score": 75,
+                "summary": "Tests seem sufficient to the worker but do not fully offset the shortcut.",
+            },
+            "strengths": ["The visible result appears close to acceptable."],
+            "gaps": ["A shortcut still lowers true confidence."],
+            "scored_by": "worker-self-review",
+        }
     return payload
 
 
@@ -859,6 +924,29 @@ def simulate_acceptance_payload(scenario: str, attempt: int) -> dict[str, Any]:
         "rerun_checks": [],
         "evidence_gaps": [],
         "prohibited_findings": [],
+        "result_quality": {
+            "requirements_alignment": {
+                "score": 90,
+                "summary": "The phase output matches the scoped objective and contract constraints.",
+            },
+            "documentation_quality": {
+                "score": 88,
+                "summary": "Documentation and operator-facing notes are aligned with the changed behavior.",
+            },
+            "implementation_quality": {
+                "score": 89,
+                "summary": "Implementation choices fit the intended boundary and avoid obvious shortcut debt.",
+            },
+            "testing_quality": {
+                "score": 86,
+                "summary": "Relevant checks were executed and cover the changed path well enough for this phase.",
+            },
+            "strengths": [
+                "Phase objective is clearly closed against the current brief.",
+                "Evidence is concrete enough to support an acceptance decision.",
+            ],
+            "gaps": [],
+        },
     }
     if scenario == "pass":
         payload.update({"verdict": "PASS", "summary": "Simulated acceptance pass."})
@@ -877,6 +965,29 @@ def simulate_acceptance_payload(scenario: str, attempt: int) -> dict[str, Any]:
                     }
                 ],
                 "rerun_checks": ["python scripts/run_loop_gate.py --from-git --git-ref HEAD"],
+                "result_quality": {
+                    "requirements_alignment": {
+                        "score": 72,
+                        "summary": "The main phase intent is partially met, but acceptance blockers still leave closure incomplete.",
+                    },
+                    "documentation_quality": {
+                        "score": 70,
+                        "summary": "Documentation is directionally aligned but not strong enough to offset the blocker set.",
+                    },
+                    "implementation_quality": {
+                        "score": 68,
+                        "summary": "Implementation is plausible, but the unresolved blocker reduces confidence in the result.",
+                    },
+                    "testing_quality": {
+                        "score": 64,
+                        "summary": "Current test evidence is not strong enough for unlock.",
+                    },
+                    "strengths": ["The phase has a salvageable implementation baseline."],
+                    "gaps": [
+                        "Acceptance blocker remains unresolved.",
+                        "Evidence needs another rerun before this phase can be considered high quality.",
+                    ],
+                },
             }
         )
         return payload
@@ -885,7 +996,32 @@ def simulate_acceptance_payload(scenario: str, attempt: int) -> dict[str, Any]:
             return simulate_acceptance_payload("blocked", attempt)
         return simulate_acceptance_payload("pass", attempt)
     if scenario == "pass-with-shortcut":
-        payload.update({"verdict": "PASS", "summary": "Simulated acceptor would pass without policy enforcement."})
+        payload.update(
+            {
+                "verdict": "PASS",
+                "summary": "Simulated acceptor would pass without policy enforcement.",
+                "result_quality": {
+                    "requirements_alignment": {
+                        "score": 78,
+                        "summary": "The intended task outcome is mostly there, but the fallback lowers confidence in faithful execution.",
+                    },
+                    "documentation_quality": {
+                        "score": 80,
+                        "summary": "Documentation is clear enough, though it sits on top of a weaker route decision.",
+                    },
+                    "implementation_quality": {
+                        "score": 71,
+                        "summary": "Implementation works superficially, but a shortcut path makes it less trustworthy.",
+                    },
+                    "testing_quality": {
+                        "score": 76,
+                        "summary": "Checks exist, but their value is diluted by the silent fallback.",
+                    },
+                    "strengths": ["The output is close to acceptable on the surface."],
+                    "gaps": ["A fallback path still undermines true result quality."],
+                },
+            }
+        )
         return payload
     if scenario == "pass-with-evidence-gap":
         payload.update(
@@ -893,6 +1029,26 @@ def simulate_acceptance_payload(scenario: str, attempt: int) -> dict[str, Any]:
                 "verdict": "PASS",
                 "summary": "Simulated acceptor found the phase acceptable.",
                 "evidence_gaps": ["No executed-check evidence was provided for the required negative path."],
+                "result_quality": {
+                    "requirements_alignment": {
+                        "score": 84,
+                        "summary": "The phase objective appears aligned with the request.",
+                    },
+                    "documentation_quality": {
+                        "score": 83,
+                        "summary": "Documentation is mostly coherent with the visible output.",
+                    },
+                    "implementation_quality": {
+                        "score": 82,
+                        "summary": "Implementation quality looks solid from the changed surface itself.",
+                    },
+                    "testing_quality": {
+                        "score": 60,
+                        "summary": "Testing quality is weakened by missing executed-check evidence.",
+                    },
+                    "strengths": ["The visible result is coherent and likely close to the target."],
+                    "gaps": ["Testing evidence is incomplete, so the result-quality claim is not fully secure."],
+                },
             }
         )
         return payload
@@ -977,9 +1133,16 @@ def default_run_dir(artifact_root: Path, phase_path: Path) -> Path:
     return artifact_root / name
 
 
-def write_state_and_route_report(*, state_path: Path, route_report_path: Path, payload: dict[str, Any]) -> None:
-    write_json(state_path, payload)
-    route_report_path.write_text(render_route_report(payload), encoding="utf-8")
+def write_state_and_route_report(
+    *,
+    state_path: Path,
+    route_report_path: Path,
+    payload: dict[str, Any],
+    repo_root: Path,
+) -> None:
+    enriched_payload = attach_quality_summaries(payload, repo_root=repo_root)
+    write_json(state_path, enriched_payload)
+    route_report_path.write_text(render_route_report(enriched_payload), encoding="utf-8")
 
 
 def _single_line(text: str) -> str:
@@ -1205,6 +1368,8 @@ def orchestrate_current_phase(
                 "prohibited_findings": acceptance.prohibited_findings,
                 "policy_blockers": [asdict(item) for item in acceptance.policy_blockers],
             }
+            if acceptance.result_quality is not None:
+                initial_acceptance_payload["result_quality"] = asdict(acceptance.result_quality)
             write_json(acceptance_json_path, initial_acceptance_payload)
             try:
                 emit_acceptance_owned_release_decision(
@@ -1247,6 +1412,8 @@ def orchestrate_current_phase(
             "prohibited_findings": acceptance.prohibited_findings,
             "policy_blockers": [asdict(item) for item in acceptance.policy_blockers],
         }
+        if acceptance.result_quality is not None:
+            acceptance_payload_doc["result_quality"] = asdict(acceptance.result_quality)
         if release_decision_path is not None and release_decision_path.exists():
             acceptance_payload_doc["release_decision_path"] = release_decision_path.as_posix()
         write_json(acceptance_json_path, acceptance_payload_doc)
@@ -1304,6 +1471,7 @@ def orchestrate_current_phase(
             state_path=state_path,
             route_report_path=route_report_path,
             payload=interim_state,
+            repo_root=repo_root,
         )
 
         if acceptance.verdict == "PASS":
@@ -1367,6 +1535,7 @@ def orchestrate_current_phase(
         state_path=state_path,
         route_report_path=route_report_path,
         payload=final_state,
+        repo_root=repo_root,
     )
     return final_code, state_path
 

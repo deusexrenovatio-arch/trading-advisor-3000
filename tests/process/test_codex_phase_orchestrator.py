@@ -235,14 +235,29 @@ def test_orchestrator_pass_advances_next_phase(tmp_path: Path) -> None:
     assert payload["attempts_total"] == 1
     assert payload["route_mode"] == "governed-phase-orchestration"
     assert payload["attempts"][0]["acceptor_used_skills"][0] == "phase-acceptance-governor"
+    assert payload["result_quality_summary"]["status"] == "scored"
+    assert payload["result_quality_summary"]["overall_score"] == 88
+    assert payload["worker_self_quality_summary"]["status"] == "scored"
+    assert payload["worker_self_quality_summary"]["overall_score"] == 85
+    assert payload["worker_acceptor_delta_summary"]["status"] == "scored"
+    assert payload["worker_acceptor_delta_summary"]["signed_delta"] == -3
+    assert payload["orchestration_quality_summary"]["orchestration_score"] == 100
+    assert payload["orchestration_quality_summary"]["score_label"] == "excellent"
     run_root = tmp_path / "artifacts/codex/orchestration" / payload["run_id"]
     assert payload["chat_summary_path"] == (run_root / "chat-summary.md").as_posix()
     phase_summary = (run_root / "chat-summary.md").read_text(encoding="utf-8")
     attempt_summary = (run_root / "attempt-01" / "chat-summary.md").read_text(encoding="utf-8")
+    route_report = (run_root / "route-report.md").read_text(encoding="utf-8")
     assert "Final Status: accepted" in phase_summary
     assert "Attempt 1 (worker): PASS" in phase_summary
     assert "Attempt Kind: worker" in attempt_summary
     assert "Verdict: PASS" in attempt_summary
+    assert "## Result Quality Summary" in route_report
+    assert "Overall Score: 88 (strong)" in route_report
+    assert "## Worker Self Quality Summary" in route_report
+    assert "## Worker-Acceptor Delta" in route_report
+    assert "## Orchestration Quality Summary" in route_report
+    assert "Orchestration Score: 100 (excellent)" in route_report
 
 
 def test_orchestrator_block_then_pass_uses_remediation_loop(tmp_path: Path) -> None:
@@ -271,6 +286,13 @@ def test_orchestrator_block_then_pass_uses_remediation_loop(tmp_path: Path) -> N
     assert payload["attempts_total"] == 2
     assert payload["attempts"][0]["verdict"] == "BLOCKED"
     assert payload["attempts"][1]["verdict"] == "PASS"
+    assert payload["result_quality_summary"]["status"] == "scored"
+    assert payload["result_quality_summary"]["overall_score"] == 88
+    assert payload["worker_self_quality_summary"]["overall_score"] == 85
+    assert payload["worker_acceptor_delta_summary"]["signed_delta"] == -3
+    assert payload["orchestration_quality_summary"]["orchestration_score"] < 100
+    assert payload["orchestration_quality_summary"]["remediation_attempts"] == 1
+    assert payload["orchestration_quality_summary"]["quality_expansion_points"]
     assert any("unlock next phase" in item for item in payload["route_trace"])
 
 
@@ -300,6 +322,12 @@ def test_orchestrator_blocked_keeps_same_phase_locked(tmp_path: Path) -> None:
     payload = json.loads(state_path.read_text(encoding="utf-8"))
     assert payload["final_status"] == "blocked"
     assert payload["attempts_total"] == 2
+    assert payload["result_quality_summary"]["status"] == "scored"
+    assert payload["result_quality_summary"]["overall_score"] == 68
+    assert payload["worker_self_quality_summary"]["overall_score"] == 73
+    assert payload["worker_acceptor_delta_summary"]["signed_delta"] == 5
+    assert payload["orchestration_quality_summary"]["orchestration_score"] < 70
+    assert payload["orchestration_quality_summary"]["score_label"] in {"watch", "fragile", "critical"}
     assert payload["route_trace"][-1] == "phase remains locked"
 
 

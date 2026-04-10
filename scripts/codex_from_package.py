@@ -16,6 +16,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from intake_quality import (
+    build_intake_gate_quality_summary,
+    intake_quality_to_dict,
+    normalize_intake_quality_payload,
+    unscored_intake_quality_summary,
+)
 from phase_tz_compiler import compile_phase_plan, phase_plan_payload
 
 
@@ -224,6 +230,11 @@ def _normalize_lane(payload: dict[str, Any], lane: str) -> dict[str, Any]:
         lane_payload.get("structural_recommendations"),
         lane=lane,
     )
+    intake_quality = normalize_intake_quality_payload(
+        lane_payload.get("intake_quality")
+        if lane_payload.get("intake_quality") is not None
+        else lane_payload.get("intake_quality_summary")
+    )
     return {
         "created_docs": created_docs,
         "review_summary": review_summary,
@@ -232,6 +243,7 @@ def _normalize_lane(payload: dict[str, Any], lane: str) -> dict[str, Any]:
         "structural_recommendations_provided": structural_recommendations_provided,
         "structural_recommendations": structural_recommendations,
         "blockers": blockers,
+        "intake_quality": intake_quality,
     }
 
 
@@ -353,6 +365,10 @@ def evaluate_intake_gate_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "structural_recommendations": technical["structural_recommendations"],
             "blockers": technical_blockers,
             "severity_counts": _severity_counts(technical_blockers),
+            "intake_quality_summary": intake_quality_to_dict(technical["intake_quality"])
+            or intake_quality_to_dict(
+                unscored_intake_quality_summary("Technical intake lane did not provide intake_quality.")
+            ),
         },
         "product_intake": {
             "created_docs": product["created_docs"],
@@ -362,6 +378,10 @@ def evaluate_intake_gate_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "structural_recommendations": product["structural_recommendations"],
             "blockers": product_blockers,
             "severity_counts": _severity_counts(product_blockers),
+            "intake_quality_summary": intake_quality_to_dict(product["intake_quality"])
+            or intake_quality_to_dict(
+                unscored_intake_quality_summary("Product intake lane did not provide intake_quality.")
+            ),
         },
         "combined_gate": {
             "decision": decision,
@@ -369,6 +389,11 @@ def evaluate_intake_gate_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "severity_counts": severity,
             "max_problem_scale": _max_scale([item for item in all_blockers if item["severity"] in {"P0", "P1"}]),
             "reported_decision": str(payload.get("combined_gate", {}).get("decision", "")).strip().upper(),
+            "intake_quality_summary": build_intake_gate_quality_summary(
+                technical=technical["intake_quality"],
+                product=product["intake_quality"],
+                severity_counts=severity,
+            ),
         },
     }
 
@@ -395,6 +420,7 @@ def render_intake_gate_markdown(gate: dict[str, Any]) -> str:
         f"- Acceptance Criteria Items: {len(gate['technical_intake']['acceptance_criteria_digest'])}",
         f"- Structural Recommendations: {len(gate['technical_intake']['structural_recommendations'])}",
         f"- Blockers: {len(gate['technical_intake']['blockers'])}",
+        f"- Intake Quality Score: {gate['technical_intake'].get('intake_quality_summary', {}).get('overall_score', 'unscored')}",
         "",
         "## Product Intake",
         f"- Created Docs: {len(gate['product_intake']['created_docs'])}",
@@ -403,6 +429,11 @@ def render_intake_gate_markdown(gate: dict[str, Any]) -> str:
         f"- Acceptance Criteria Items: {len(gate['product_intake']['acceptance_criteria_digest'])}",
         f"- Structural Recommendations: {len(gate['product_intake']['structural_recommendations'])}",
         f"- Blockers: {len(gate['product_intake']['blockers'])}",
+        f"- Intake Quality Score: {gate['product_intake'].get('intake_quality_summary', {}).get('overall_score', 'unscored')}",
+        "",
+        "## Intake Quality Gate",
+        f"- Gate Score: {combined.get('intake_quality_summary', {}).get('intake_gate_score', 'unscored')}",
+        f"- Gate Score Label: {combined.get('intake_quality_summary', {}).get('score_label', 'unscored')}",
         "",
     ]
     return "\n".join(lines)
@@ -550,6 +581,14 @@ def build_intake_lane_prompt(*, runtime_context: str, policy_prompt_path: Path, 
         '  "review_summary": "Concise lane review summary.",\n'
         '  "goals_digest": ["Lossless goal from source requirements"],\n'
         '  "acceptance_criteria_digest": ["Measurable acceptance criterion from source requirements"],\n'
+        '  "intake_quality": {\n'
+        '    "scope_clarity": {"score": 0, "summary": "How clear and bounded the source scope is."},\n'
+        '    "ambiguity_resolution": {"score": 0, "summary": "How well ambiguities and open questions were surfaced."},\n'
+        '    "workflow_quality": {"score": 0, "summary": "How strong the workflow map, branches, and handoff thinking are."},\n'
+        '    "acceptance_readiness": {"score": 0, "summary": "How ready the package is for governed implementation without requirement drift."},\n'
+        '    "strengths": ["Strongest intake-quality points"],\n'
+        '    "gaps": ["Most important readiness gaps to fix next"]\n'
+        "  },\n"
         '  "structural_recommendations": [\n'
         "    {\n"
         '      "id": "SR-001",\n'
@@ -588,6 +627,10 @@ def extract_lane_payload_from_text(text: str, *, lane: str) -> dict[str, Any]:
         "review_summary": str(normalized["review_summary"]),
         "goals_digest": list(normalized["goals_digest"]),
         "acceptance_criteria_digest": list(normalized["acceptance_criteria_digest"]),
+        "intake_quality_summary": intake_quality_to_dict(normalized["intake_quality"])
+        or intake_quality_to_dict(
+            unscored_intake_quality_summary(f"{lane} did not provide intake_quality.")
+        ),
         "structural_recommendations": [dict(item) for item in normalized["structural_recommendations"]],
         "blockers": [dict(item) for item in normalized["blockers"]],
     }
@@ -818,9 +861,20 @@ def build_intake_handoff(
         lane_payload = lane_payloads.get(lane, {})
         if not isinstance(lane_payload, dict):
             continue
+        lane_quality_summary = lane_payload.get("intake_quality_summary", {})
         lane_reviews[lane] = {
             "review_summary": str(lane_payload.get("review_summary", "")).strip(),
             "blockers_total": len(list(lane_payload.get("blockers", []))),
+            "intake_quality_score": (
+                lane_quality_summary.get("overall_score")
+                if isinstance(lane_quality_summary, dict)
+                else None
+            ),
+            "intake_quality_label": (
+                lane_quality_summary.get("score_label")
+                if isinstance(lane_quality_summary, dict)
+                else "unscored"
+            ),
         }
 
     def infer_module_slug() -> str | None:
@@ -1000,6 +1054,7 @@ def build_intake_handoff(
         "goals_digest": list(intake_human_summary.get("goals_digest", [])),
         "acceptance_criteria_digest": list(intake_human_summary.get("acceptance_criteria_digest", [])),
         "structural_recommendations": list(intake_human_summary.get("structural_recommendations", [])),
+        "intake_quality_summary": dict(intake_gate.get("combined_gate", {}).get("intake_quality_summary", {})),
         "materialization_targets": {"docs_to_refresh": docs_targets},
         "materialization_requirements": {
             "documents": materialization_documents,
@@ -1022,8 +1077,24 @@ def render_intake_handoff_markdown(handoff: dict[str, Any]) -> str:
         f"- Suggested Primary: {runtime.get('suggested_primary_document', 'NONE')}",
         f"- Suggested Phase IDs: {','.join(runtime.get('suggested_phase_ids', [])) if runtime.get('suggested_phase_ids') else 'NONE'}",
         "",
-        "## Materialization Targets",
+        "## Intake Quality",
     ]
+    intake_quality_summary = handoff.get("intake_quality_summary", {})
+    if isinstance(intake_quality_summary, dict) and intake_quality_summary:
+        lines.append(
+            f"- Gate Score: {intake_quality_summary.get('intake_gate_score', 'unscored')} "
+            f"({intake_quality_summary.get('score_label', 'unscored')})"
+        )
+        lines.append(
+            f"- Technical vs Product: {intake_quality_summary.get('technical_intake_score', 'n/a')} "
+            f"vs {intake_quality_summary.get('product_intake_score', 'n/a')}"
+        )
+        lines.append(f"- Lane Delta: {intake_quality_summary.get('lane_score_delta', 'n/a')}")
+    else:
+        lines.append("- unscored")
+    lines.extend(["", 
+        "## Materialization Targets",
+    ])
     targets = handoff.get("materialization_targets", {}).get("docs_to_refresh", [])
     if isinstance(targets, list) and targets:
         lines.extend([f"- {item}" for item in targets])
