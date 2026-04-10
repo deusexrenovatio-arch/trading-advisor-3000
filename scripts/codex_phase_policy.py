@@ -4,6 +4,12 @@ from dataclasses import asdict, dataclass
 import re
 from typing import Any
 
+from result_quality import (
+    ResultQualitySummary,
+    normalize_result_quality_payload,
+    result_quality_to_dict,
+)
+
 
 DEFAULT_WORKER_MODEL = "gpt-5.3-codex"
 DEFAULT_ACCEPTOR_MODEL = "gpt-5.4"
@@ -55,6 +61,7 @@ class WorkerReport:
     skips: list[str]
     fallbacks: list[str]
     deferred_work: list[str]
+    worker_self_quality: ResultQualitySummary | None = None
     evidence_contract: dict[str, Any] | None = None
     documentation_context: dict[str, Any] | None = None
 
@@ -85,6 +92,7 @@ class AcceptanceResult:
     evidence_gaps: list[str]
     prohibited_findings: list[str]
     policy_blockers: list[AcceptanceBlocker]
+    result_quality: ResultQualitySummary | None = None
 
 
 @dataclass
@@ -128,6 +136,7 @@ def normalize_worker_payload(payload: dict[str, Any]) -> WorkerReport:
     documentation_context = payload.get("documentation_context")
     if documentation_context is not None and not isinstance(documentation_context, dict):
         raise ValueError("worker payload `documentation_context` must be an object when present")
+    worker_self_quality = normalize_result_quality_payload(payload.get("worker_self_quality"))
     return WorkerReport(
         status=status,
         summary=str(payload.get("summary", "")).strip() or "No summary provided.",
@@ -139,6 +148,7 @@ def normalize_worker_payload(payload: dict[str, Any]) -> WorkerReport:
         skips=normalize_string_list(payload.get("skips", [])),
         fallbacks=normalize_string_list(payload.get("fallbacks", [])),
         deferred_work=normalize_string_list(payload.get("deferred_work", [])),
+        worker_self_quality=worker_self_quality,
         evidence_contract=evidence_contract if isinstance(evidence_contract, dict) else None,
         documentation_context=documentation_context if isinstance(documentation_context, dict) else None,
     )
@@ -176,6 +186,7 @@ def normalize_acceptance_payload(payload: dict[str, Any]) -> AcceptanceResult:
         evidence_gaps=normalize_string_list(payload.get("evidence_gaps", [])),
         prohibited_findings=normalize_string_list(payload.get("prohibited_findings", [])),
         policy_blockers=[],
+        result_quality=normalize_result_quality_payload(payload.get("result_quality")),
     )
 
 
@@ -496,6 +507,7 @@ def apply_acceptance_policy(
         evidence_gaps=acceptance.evidence_gaps,
         prohibited_findings=acceptance.prohibited_findings,
         policy_blockers=policy_blockers,
+        result_quality=acceptance.result_quality,
     )
 
 
@@ -537,6 +549,46 @@ def render_acceptance_markdown(result: AcceptanceResult) -> str:
             lines.append(f"- {blocker.id}: {blocker.title}")
             lines.append(f"  why: {blocker.why}")
             lines.append(f"  remediation: {blocker.remediation}")
+    lines.extend(["", "## Result Quality"])
+    result_quality = result_quality_to_dict(result.result_quality)
+    if not isinstance(result_quality, dict) or result_quality.get("status") != "scored":
+        reason = ""
+        if isinstance(result_quality, dict):
+            reason = str(result_quality.get("reason", "")).strip()
+        lines.append(f"- unscored{': ' + reason if reason else ''}")
+    else:
+        lines.append(
+            f"- Overall Score: {result_quality.get('overall_score')} ({result_quality.get('score_label')})"
+        )
+        lines.append(f"- Scored By: {result_quality.get('scored_by')}")
+        dimensions = result_quality.get("dimensions", {})
+        if isinstance(dimensions, dict):
+            for dimension_name in (
+                "requirements_alignment",
+                "documentation_quality",
+                "implementation_quality",
+                "testing_quality",
+            ):
+                dimension = dimensions.get(dimension_name, {})
+                if not isinstance(dimension, dict):
+                    continue
+                lines.append(
+                    f"- {dimension_name}: score={dimension.get('score')} summary={dimension.get('summary')}"
+                )
+        strengths = result_quality.get("strengths", [])
+        lines.append("- Strengths:")
+        if isinstance(strengths, list) and strengths:
+            for item in strengths:
+                lines.append(f"  - {item}")
+        else:
+            lines.append("  - none")
+        gaps = result_quality.get("gaps", [])
+        lines.append("- Gaps:")
+        if isinstance(gaps, list) and gaps:
+            for item in gaps:
+                lines.append(f"  - {item}")
+        else:
+            lines.append("  - none")
     lines.extend(["", "## Rerun Checks"])
     if not result.rerun_checks:
         lines.append("- none")
@@ -653,6 +705,103 @@ def render_route_report(payload: dict[str, Any]) -> str:
                 )
         if not has_any:
             lines.append("- none")
+
+    result_quality_summary = payload.get("result_quality_summary", {})
+    if isinstance(result_quality_summary, dict) and result_quality_summary:
+        lines.extend(["", "## Result Quality Summary"])
+        if result_quality_summary.get("status") != "scored":
+            reason = str(result_quality_summary.get("reason", "")).strip()
+            lines.append(f"- Status: unscored{'; ' + reason if reason else ''}")
+        else:
+            lines.append(
+                f"- Overall Score: {result_quality_summary.get('overall_score')} "
+                f"({result_quality_summary.get('score_label', 'unscored')})"
+            )
+            lines.append(f"- Scored By: {result_quality_summary.get('scored_by', 'unknown')}")
+            dimensions = result_quality_summary.get("dimensions", {})
+            if isinstance(dimensions, dict):
+                for dimension_name in (
+                    "requirements_alignment",
+                    "documentation_quality",
+                    "implementation_quality",
+                    "testing_quality",
+                ):
+                    dimension = dimensions.get(dimension_name, {})
+                    if not isinstance(dimension, dict):
+                        continue
+                    lines.append(
+                        f"- {dimension_name}: score={dimension.get('score')} summary={dimension.get('summary')}"
+                    )
+
+    worker_self_quality_summary = payload.get("worker_self_quality_summary", {})
+    if isinstance(worker_self_quality_summary, dict) and worker_self_quality_summary:
+        lines.extend(["", "## Worker Self Quality Summary"])
+        if worker_self_quality_summary.get("status") != "scored":
+            reason = str(worker_self_quality_summary.get("reason", "")).strip()
+            lines.append(f"- Status: unscored{'; ' + reason if reason else ''}")
+        else:
+            lines.append(
+                f"- Overall Score: {worker_self_quality_summary.get('overall_score')} "
+                f"({worker_self_quality_summary.get('score_label', 'unscored')})"
+            )
+            lines.append(f"- Scored By: {worker_self_quality_summary.get('scored_by', 'unknown')}")
+
+    worker_acceptor_delta_summary = payload.get("worker_acceptor_delta_summary", {})
+    if isinstance(worker_acceptor_delta_summary, dict) and worker_acceptor_delta_summary:
+        lines.extend(["", "## Worker-Acceptor Delta"])
+        lines.append(f"- Status: {worker_acceptor_delta_summary.get('status', 'unknown')}")
+        if worker_acceptor_delta_summary.get("status") == "scored":
+            lines.append(
+                f"- Worker vs Acceptor: {worker_acceptor_delta_summary.get('worker_self_score')} "
+                f"vs {worker_acceptor_delta_summary.get('acceptor_result_score')}"
+            )
+            lines.append(
+                f"- Signed Delta: {worker_acceptor_delta_summary.get('signed_delta')} "
+                f"(absolute={worker_acceptor_delta_summary.get('absolute_delta')})"
+            )
+            lines.append(f"- Calibration: {worker_acceptor_delta_summary.get('calibration', 'unknown')}")
+        else:
+            reason = str(worker_acceptor_delta_summary.get("reason", "")).strip()
+            if reason:
+                lines.append(f"- Reason: {reason}")
+
+    orchestration_quality_summary = payload.get("orchestration_quality_summary", {})
+    if isinstance(orchestration_quality_summary, dict) and orchestration_quality_summary:
+        component_scores = orchestration_quality_summary.get("component_scores", {})
+        top_categories = orchestration_quality_summary.get("top_blocker_categories", [])
+        lines.extend(["", "## Orchestration Quality Summary"])
+        lines.append(
+            f"- Orchestration Score: {orchestration_quality_summary.get('orchestration_score', 'unknown')} "
+            f"({orchestration_quality_summary.get('score_label', 'unscored')})"
+        )
+        if isinstance(component_scores, dict):
+            lines.append(
+                "- Component Scores: progression={progression}, evidence={evidence}, policy={policy}".format(
+                    progression=component_scores.get("progression", "unknown"),
+                    evidence=component_scores.get("evidence", "unknown"),
+                    policy=component_scores.get("policy", "unknown"),
+                )
+            )
+        lines.append(
+            "- Attempts: {attempts}; remediation={remediation}; final_status={status}".format(
+                attempts=orchestration_quality_summary.get("attempts_total", 0),
+                remediation=orchestration_quality_summary.get("remediation_attempts", 0),
+                status=orchestration_quality_summary.get("final_status", "unknown"),
+            )
+        )
+        if isinstance(top_categories, list) and top_categories:
+            summary = ", ".join(
+                f"{item.get('category')}:{item.get('count')}"
+                for item in top_categories[:3]
+                if isinstance(item, dict)
+            )
+            if summary:
+                lines.append(f"- Dominant Categories: {summary}")
+        expansion_points = orchestration_quality_summary.get("quality_expansion_points", [])
+        if isinstance(expansion_points, list) and expansion_points:
+            lines.append("- Expansion Points:")
+            for item in expansion_points[:3]:
+                lines.append(f"  - {item}")
 
     lines.extend(["", "## Route Trace"])
     route_trace = payload.get("route_trace", [])

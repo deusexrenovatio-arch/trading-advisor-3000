@@ -53,6 +53,13 @@ Review rules:
   - required docs must be updated,
   - instructions must match the actual implementation,
   - no stale or misleading operator guidance.
+- Score result quality separately from orchestration quality:
+  - `requirements_alignment`: how faithfully the phase result matches the scoped request/TZ and phase objective,
+  - `documentation_quality`: clarity and correctness of docs/operator guidance produced by the phase,
+  - `implementation_quality`: quality of the implemented solution shape/code outcome for this phase,
+  - `testing_quality`: quality and sufficiency of executed test evidence for this phase.
+- Orchestration quality is computed later by Python from attempts/remediation/blockers.
+  Do not mix retry-count or remediation friction into `result_quality`.
 - If documentation files were changed in remediation:
   - verify `documentation_context.source_documents` is present and complete,
   - verify `documentation_context.materialized_documents` includes execution contract + module briefs context,
@@ -80,5 +87,5 @@ Review rules:
 Return a short human summary and finish with this exact marker block:
 
 BEGIN_PHASE_ACCEPTANCE_JSON
-{"verdict":"PASS|BLOCKED","summary":"...","route_signal":"acceptance:governed-phase-route","used_skills":["phase-acceptance-governor","architecture-review","testing-suite","docs-sync"],"blockers":[{"id":"B1","title":"...","why":"...","remediation":"..."}],"rerun_checks":["..."],"evidence_gaps":[],"prohibited_findings":[]}
+{"verdict":"PASS|BLOCKED","summary":"...","route_signal":"acceptance:governed-phase-route","used_skills":["phase-acceptance-governor","architecture-review","testing-suite","docs-sync"],"blockers":[{"id":"B1","title":"...","why":"...","remediation":"..."}],"rerun_checks":["..."],"evidence_gaps":[],"prohibited_findings":[],"result_quality":{"requirements_alignment":{"score":0,"summary":"..."},"documentation_quality":{"score":0,"summary":"..."},"implementation_quality":{"score":0,"summary":"..."},"testing_quality":{"score":0,"summary":"..."},"strengths":["..."],"gaps":["..."]}}
 END_PHASE_ACCEPTANCE_JSON

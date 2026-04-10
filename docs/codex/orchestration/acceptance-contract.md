@@ -16,6 +16,19 @@ It is the hard unblock decision for phase progression.
   - `checks`
   - `real_bindings`
 
+## Quality Split
+- `result quality` is the acceptor-owned evaluation of the phase output itself.
+- `orchestration quality` is the Python-owned evaluation of how the governed route behaved.
+
+The acceptor must score result quality independently of retry friction.
+Required result-quality dimensions:
+1. `requirements_alignment`
+2. `documentation_quality`
+3. `implementation_quality`
+4. `testing_quality`
+
+Retry count, remediation count, blocker recurrence, and route friction belong only to orchestration quality.
+
 ## Hard Rules
 The acceptor must block the phase when any of these are true:
 

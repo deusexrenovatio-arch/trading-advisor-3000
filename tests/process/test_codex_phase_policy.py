@@ -14,6 +14,8 @@ from codex_phase_policy import (  # noqa: E402
     PhaseEvidenceRequirement,
     WorkerReport,
     apply_acceptance_policy,
+    normalize_acceptance_payload,
+    render_acceptance_markdown,
 )
 
 
@@ -286,3 +288,49 @@ def test_policy_allows_remediation_doc_edits_with_full_documentation_context() -
     result = apply_acceptance_policy(worker=worker, acceptance=_acceptance_payload(), phase_requirement=phase_requirement)
     assert result.verdict == "PASS"
     assert not any("documentation_context" in blocker.why for blocker in result.policy_blockers)
+
+
+def test_acceptance_payload_normalizes_result_quality_and_renders_markdown() -> None:
+    acceptance = normalize_acceptance_payload(
+        {
+            "verdict": "PASS",
+            "summary": "Acceptor scored a strong phase result.",
+            "route_signal": "acceptance:governed-phase-route",
+            "used_skills": [
+                "phase-acceptance-governor",
+                "architecture-review",
+                "testing-suite",
+                "docs-sync",
+            ],
+            "blockers": [],
+            "rerun_checks": [],
+            "evidence_gaps": [],
+            "prohibited_findings": [],
+            "result_quality": {
+                "requirements_alignment": {
+                    "score": 91,
+                    "summary": "The phase output matches the scoped requirement closely.",
+                },
+                "documentation_quality": {
+                    "score": 88,
+                    "summary": "Documentation quality is strong and operator-safe.",
+                },
+                "implementation_quality": {
+                    "score": 86,
+                    "summary": "Implementation quality is solid for the current boundary.",
+                },
+                "testing_quality": {
+                    "score": 82,
+                    "summary": "Testing quality is good with minor headroom left.",
+                },
+                "strengths": ["Strong requirements fit."],
+                "gaps": ["Negative-path evidence could still be deeper."],
+            },
+        }
+    )
+
+    assert acceptance.result_quality is not None
+    assert acceptance.result_quality.overall_score == 87
+    markdown = render_acceptance_markdown(acceptance)
+    assert "## Result Quality" in markdown
+    assert "Overall Score: 87 (strong)" in markdown

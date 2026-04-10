@@ -9,6 +9,7 @@ from typing import Any
 from agent_process_telemetry import compute_process_rollup, load_task_outcomes
 from critical_contours import SOLUTION_CLASSES, extract_solution_intent, normalize_text
 from harness_baseline_metrics import build_metrics
+from orchestration_quality import compute_orchestration_rollup
 
 PILOT_OBSERVATION_WINDOW_START = date(2026, 3, 25)
 PILOT_OBSERVATION_WINDOW_MIN_DAYS = 7
@@ -160,6 +161,7 @@ def _build_dashboard_payload(
     memory_path: Path,
     task_outcomes_path: Path,
     task_notes_root: Path,
+    orchestration_artifact_root: Path,
     pilot_observation_start: date,
 ) -> dict[str, Any]:
     baseline = build_metrics(
@@ -168,6 +170,10 @@ def _build_dashboard_payload(
         task_outcomes_path=task_outcomes_path,
     )
     process_rollup = compute_process_rollup(load_task_outcomes(task_outcomes_path))
+    orchestration_rollup = compute_orchestration_rollup(
+        artifact_root=orchestration_artifact_root,
+        repo_root=Path.cwd(),
+    )
     pilot_observation = _pilot_observation_counters(task_notes_root, pilot_start=pilot_observation_start)
     loop = baseline.get("dev_loop_baseline", {})
     plans = baseline.get("plans", {})
@@ -179,6 +185,16 @@ def _build_dashboard_payload(
         int(memory.get("decisions", 0)) > 0 or int(memory.get("patterns", 0)) > 0
     )
     has_process_signal = int(process_rollup.get("completed_tasks_count", 0)) > 0
+    has_orchestration_signal = int(orchestration_rollup.get("window_runs_count", 0)) > 0
+    orchestration_healthy = (
+        has_orchestration_signal
+        and float(orchestration_rollup.get("average_orchestration_score", 0.0)) >= 80.0
+        and float(orchestration_rollup.get("first_pass_acceptance_rate", 0.0)) >= 0.5
+        and int(orchestration_rollup.get("blocked_runs", 0)) <= max(
+            int(orchestration_rollup.get("window_runs_count", 0)) // 3,
+            1,
+        )
+    )
 
     sections = {
         "lifecycle": {
@@ -197,6 +213,10 @@ def _build_dashboard_payload(
             "process_completed_tasks": process_rollup.get("completed_tasks_count", 0),
             "process_window_tasks": process_rollup.get("window_tasks_count", 0),
             "burn_in_complete": process_rollup.get("burn_in_complete", False),
+        },
+        "orchestration_quality": {
+            "status": _health_label(orchestration_healthy),
+            **orchestration_rollup,
         },
         "pilot_observation": pilot_observation,
     }
@@ -225,8 +245,17 @@ def _render_markdown(payload: dict[str, Any]) -> str:
     lifecycle = sections.get("lifecycle", {})
     state = sections.get("state", {})
     quality = sections.get("quality", {})
+    orchestration = sections.get("orchestration_quality", {})
     observation = sections.get("pilot_observation", {})
     staged_vs_target = observation.get("staged_vs_target_declarations", {})
+    top_orchestration_categories = orchestration.get("top_blocker_categories", [])
+    top_orchestration_text = "none"
+    if isinstance(top_orchestration_categories, list) and top_orchestration_categories:
+        top_orchestration_text = ", ".join(
+            f"{item.get('category')}:{item.get('count')}"
+            for item in top_orchestration_categories[:2]
+            if isinstance(item, dict)
+        ) or "none"
     lines.append(
         "| lifecycle | "
         f"{lifecycle.get('status', 'yellow')} | "
@@ -246,6 +275,16 @@ def _render_markdown(payload: dict[str, Any]) -> str:
         f"completed_tasks={quality.get('process_completed_tasks', 0)}, "
         f"window_tasks={quality.get('process_window_tasks', 0)}, "
         f"burn_in={quality.get('burn_in_complete', False)} |"
+    )
+    lines.append(
+        "| orchestration_quality | "
+        f"{orchestration.get('status', 'yellow')} | "
+        f"window_runs={orchestration.get('window_runs_count', 0)}, "
+        f"avg_score={float(orchestration.get('average_orchestration_score', 0.0)):.2f}, "
+        f"avg_delta={float(orchestration.get('average_worker_acceptor_absolute_delta', 0.0)):.2f}, "
+        f"first_pass={float(orchestration.get('first_pass_acceptance_rate', 0.0)):.2f}, "
+        f"remediation={float(orchestration.get('remediation_rate', 0.0)):.2f}, "
+        f"top={top_orchestration_text} |"
     )
     lines.append(
         "| pilot_observation | "
@@ -268,6 +307,7 @@ def run(
     memory_path: Path,
     task_outcomes_path: Path,
     task_notes_root: Path,
+    orchestration_artifact_root: Path,
     pilot_observation_start: date,
     output_json: Path,
     output_md: Path,
@@ -277,6 +317,7 @@ def run(
         memory_path=memory_path,
         task_outcomes_path=task_outcomes_path,
         task_notes_root=task_notes_root,
+        orchestration_artifact_root=orchestration_artifact_root,
         pilot_observation_start=pilot_observation_start,
     )
 
@@ -295,6 +336,7 @@ def main() -> None:
     parser.add_argument("--memory", default="memory/agent_memory.yaml")
     parser.add_argument("--task-outcomes", default="memory/task_outcomes.yaml")
     parser.add_argument("--task-notes-root", default="docs/tasks")
+    parser.add_argument("--orchestration-artifact-root", default="artifacts/codex/orchestration")
     parser.add_argument("--pilot-observation-start", default=PILOT_OBSERVATION_WINDOW_START.isoformat())
     parser.add_argument("--output-json", default="artifacts/governance-dashboard.json")
     parser.add_argument("--output-md", default="artifacts/governance-dashboard.md")
@@ -309,6 +351,7 @@ def main() -> None:
             memory_path=Path(args.memory),
             task_outcomes_path=Path(args.task_outcomes),
             task_notes_root=Path(args.task_notes_root),
+            orchestration_artifact_root=Path(args.orchestration_artifact_root),
             pilot_observation_start=pilot_observation_start,
             output_json=Path(args.output_json),
             output_md=Path(args.output_md),

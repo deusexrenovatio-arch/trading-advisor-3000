@@ -21,6 +21,7 @@ from codex_from_package import (  # noqa: E402
     collect_document_candidates,
     evaluate_materialization_result,
     evaluate_intake_gate_payload,
+    extract_lane_payload_from_text,
     extract_materialization_result_from_text,
     extract_docx_title,
     render_intake_human_summary_markdown,
@@ -127,6 +128,35 @@ def test_intake_gate_blocks_when_required_digests_are_missing() -> None:
     assert "Acceptance criteria digest is missing" in technical_titles
     assert "Structural recommendations section is missing" in technical_titles
     assert "Goals digest is missing" in product_titles
+    assert gate["combined_gate"]["intake_quality_summary"]["status"] == "unscored"
+
+
+def test_extract_lane_payload_normalizes_intake_quality_summary() -> None:
+    text = (
+        "lane output\n"
+        "BEGIN_TECHNICAL_INTAKE_JSON\n"
+        "{\n"
+        '  "created_docs": ["docs/codex/contracts/demo.execution-contract.md"],\n'
+        '  "review_summary": "Technical lane summary.",\n'
+        '  "goals_digest": ["Preserve delivery scope"],\n'
+        '  "acceptance_criteria_digest": ["Acceptance remains measurable"],\n'
+        '  "intake_quality": {\n'
+        '    "scope_clarity": {"score": 90, "summary": "Scope is clear."},\n'
+        '    "ambiguity_resolution": {"score": 84, "summary": "Ambiguities are surfaced."},\n'
+        '    "workflow_quality": {"score": 88, "summary": "Workflow branches are mapped."},\n'
+        '    "acceptance_readiness": {"score": 86, "summary": "Package is ready for governed implementation."},\n'
+        '    "strengths": ["Good technical framing"],\n'
+        '    "gaps": ["Need one more dependency clarification"]\n'
+        "  },\n"
+        '  "structural_recommendations": [],\n'
+        '  "blockers": []\n'
+        "}\n"
+        "END_TECHNICAL_INTAKE_JSON\n"
+    )
+    payload = extract_lane_payload_from_text(text, lane="technical_intake")
+    assert payload["intake_quality_summary"]["status"] == "scored"
+    assert payload["intake_quality_summary"]["overall_score"] == 87
+    assert payload["intake_quality_summary"]["score_label"] == "strong"
 
 
 def test_intake_human_summary_merges_structural_recommendations() -> None:
@@ -173,6 +203,7 @@ def test_intake_human_summary_merges_structural_recommendations() -> None:
         }
     )
     assert gate["combined_gate"]["decision"] == "PASS"
+    assert gate["combined_gate"]["intake_quality_summary"]["status"] == "unscored"
     summary = build_intake_human_summary(gate)
     assert summary["gate_decision"] == "PASS"
     assert len(summary["structural_recommendations"]) == 2
@@ -306,6 +337,7 @@ def test_lane_prompt_is_compact_and_policy_referenced_once(tmp_path: Path) -> No
     )
     assert "Intake Policy Reference" in prompt
     assert "BEGIN_TECHNICAL_INTAKE_JSON" in prompt
+    assert '"intake_quality"' in prompt
     assert "Lossless transfer contract" not in prompt
     assert "Section Goals" in prompt
 

@@ -62,6 +62,37 @@ def _write_task_note(
     )
 
 
+def _write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _write_orchestration_run(
+    artifact_root: Path,
+    *,
+    run_id: str,
+    updated_at: str,
+    attempts: list[dict],
+    final_status: str,
+) -> None:
+    _write_json(
+        artifact_root / run_id / "state.json",
+        {
+            "run_id": run_id,
+            "updated_at": updated_at,
+            "backend": "simulate",
+            "route_mode": "governed-phase-orchestration",
+            "phase_brief": "docs/codex/modules/demo.phase-01.md",
+            "phase_name": "Phase 01",
+            "phase_status": "completed" if final_status == "accepted" else "blocked",
+            "attempts": attempts,
+            "attempts_total": len(attempts),
+            "final_status": final_status,
+            "next_phase": "docs/codex/modules/demo.phase-02.md",
+        },
+    )
+
+
 def test_harness_baseline_metrics_report(tmp_path: Path) -> None:
     output = tmp_path / "harness-baseline.json"
     result = _run(
@@ -96,6 +127,11 @@ def test_governance_dashboard_report(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
     payload = json.loads(output_json.read_text(encoding="utf-8"))
     assert payload["overall_status"] in {"green", "yellow"}
+    orchestration = payload["sections"]["orchestration_quality"]
+    assert "average_orchestration_score" in orchestration
+    assert "average_worker_acceptor_absolute_delta" in orchestration
+    assert "top_blocker_categories" in orchestration
+    assert "quality_expansion_points" in orchestration
     observation = payload["sections"]["pilot_observation"]
     assert "critical_tasks_with_explicit_solution_class" in observation
     assert "blocked_shortcut_claims" in observation
@@ -105,9 +141,126 @@ def test_governance_dashboard_report(tmp_path: Path) -> None:
     assert {"staged", "target"} <= set(observation["staged_vs_target_declarations"].keys())
     assert output_md.exists()
     markdown = output_md.read_text(encoding="utf-8")
+    assert "| orchestration_quality |" in markdown
+    assert "avg_score=" in markdown
     assert "| pilot_observation |" in markdown
     assert "critical_tasks_with_explicit_solution_class=" in markdown
     assert "observation_window_status=" in markdown
+
+
+def test_governance_dashboard_includes_orchestration_quality_rollup(tmp_path: Path) -> None:
+    artifact_root = tmp_path / "orchestration"
+
+    pass_acceptance = artifact_root / "run-a/attempt-01/acceptance.json"
+    _write_json(
+        pass_acceptance,
+        {
+            "verdict": "PASS",
+            "summary": "Accepted cleanly.",
+            "route_signal": "acceptance:attempt-01",
+            "used_skills": ["phase-acceptance-governor"],
+            "blockers": [],
+            "rerun_checks": [],
+            "evidence_gaps": [],
+            "prohibited_findings": [],
+            "policy_blockers": [],
+        },
+    )
+    _write_orchestration_run(
+        artifact_root,
+        run_id="run-a",
+        updated_at="2026-04-10T10:00:00Z",
+        attempts=[
+            {
+                "attempt": 1,
+                "kind": "worker",
+                "worker_summary": "worker pass",
+                "worker_route_signal": "worker:attempt-01",
+                "worker_report_path": (pass_acceptance.parent / "worker-report.json").as_posix(),
+                "changed_files_path": (pass_acceptance.parent / "changed-files.txt").as_posix(),
+                "acceptance_json_path": pass_acceptance.as_posix(),
+                "acceptance_md_path": pass_acceptance.with_suffix(".md").as_posix(),
+                "acceptor_route_signal": "acceptance:attempt-01",
+                "acceptor_used_skills": ["phase-acceptance-governor"],
+                "verdict": "PASS",
+                "blockers_total": 0,
+                "policy_blockers_total": 0,
+            }
+        ],
+        final_status="accepted",
+    )
+
+    blocked_acceptance = artifact_root / "run-b/attempt-01/acceptance.json"
+    blocker = {
+        "id": "P-EVIDENCE_GAP-1",
+        "title": "Required evidence is missing",
+        "why": "Integration proof is missing.",
+        "remediation": "Run the missing checks.",
+    }
+    _write_json(
+        blocked_acceptance,
+        {
+            "verdict": "BLOCKED",
+            "summary": "Blocked pending evidence.",
+            "route_signal": "acceptance:attempt-01",
+            "used_skills": ["phase-acceptance-governor"],
+            "blockers": [blocker],
+            "rerun_checks": [],
+            "evidence_gaps": ["Integration proof is missing."],
+            "prohibited_findings": [],
+            "policy_blockers": [blocker],
+        },
+    )
+    _write_orchestration_run(
+        artifact_root,
+        run_id="run-b",
+        updated_at="2026-04-10T10:05:00Z",
+        attempts=[
+            {
+                "attempt": 1,
+                "kind": "worker",
+                "worker_summary": "worker blocked",
+                "worker_route_signal": "worker:attempt-01",
+                "worker_report_path": (blocked_acceptance.parent / "worker-report.json").as_posix(),
+                "changed_files_path": (blocked_acceptance.parent / "changed-files.txt").as_posix(),
+                "acceptance_json_path": blocked_acceptance.as_posix(),
+                "acceptance_md_path": blocked_acceptance.with_suffix(".md").as_posix(),
+                "acceptor_route_signal": "acceptance:attempt-01",
+                "acceptor_used_skills": ["phase-acceptance-governor"],
+                "verdict": "BLOCKED",
+                "blockers_total": 1,
+                "policy_blockers_total": 1,
+            }
+        ],
+        final_status="blocked",
+    )
+
+    output_json = tmp_path / "dashboard-orchestration.json"
+    output_md = tmp_path / "dashboard-orchestration.md"
+    result = _run(
+        [
+            sys.executable,
+            "scripts/build_governance_dashboard.py",
+            "--task-notes-root",
+            str(tmp_path / "no-notes"),
+            "--orchestration-artifact-root",
+            str(artifact_root),
+            "--output-json",
+            str(output_json),
+            "--output-md",
+            str(output_md),
+        ]
+    )
+
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    payload = json.loads(output_json.read_text(encoding="utf-8"))
+    orchestration = payload["sections"]["orchestration_quality"]
+    assert orchestration["runs_total"] == 2
+    assert orchestration["window_runs_count"] == 2
+    assert orchestration["blocked_runs"] == 1
+    assert orchestration["average_orchestration_score"] < 100.0
+    assert any(item["category"] == "evidence_gap" for item in orchestration["top_blocker_categories"])
+    assert orchestration["quality_expansion_points"]
 
 
 def test_governance_dashboard_pilot_observation_semantics(tmp_path: Path) -> None:

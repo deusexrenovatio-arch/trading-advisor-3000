@@ -115,6 +115,29 @@ For each run, the orchestrator writes under `artifacts/codex/orchestration/<run-
 - acceptance json
 - acceptance markdown report
 
+`state.json` now carries two separate quality layers:
+- `result_quality_summary`
+  - acceptor-owned evaluation of the phase result itself;
+  - phase-level scores for requirements alignment, documentation quality, implementation quality, and testing quality.
+- `worker_self_quality_summary`
+  - worker-owned self-review of the same phase result before handoff;
+  - useful for bounded self-improvement and later calibration against acceptance.
+- `worker_acceptor_delta_summary`
+  - Python-derived comparison between worker self-score and acceptor result score;
+  - shows whether the worker is aligned, overconfident, or underconfident.
+- `orchestration_quality_summary`
+  - Python-derived evaluation of the governed route behavior;
+  - attempt/remediation/policy/evidence friction, dominant blocker categories, and expansion points.
+
+The governance dashboard rolls up only orchestration quality analytics across runs,
+so repeated blocker classes and first-pass acceptance drift become visible without mixing them
+with the acceptor's judgment about the phase output itself.
+
+Package-intake artifacts now carry a separate intake-quality layer as well:
+- each lane may emit `intake_quality_summary`;
+- the formal Python gate derives `intake_gate_quality_summary` from lane scores plus blocker pressure;
+- intake quality informs readiness and handoff clarity, but does not replace the formal blocker gate.
+
 ## Role defaults
 
 - worker: `gpt-5.3-codex`
