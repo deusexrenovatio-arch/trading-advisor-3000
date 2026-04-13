@@ -40,6 +40,8 @@ def test_backtest_store_contract_contains_stage5_artifacts() -> None:
         "research_backtest_runs",
         "research_strategy_stats",
         "research_trade_records",
+        "research_order_records",
+        "research_drawdown_records",
     } == set(contract)
     stats_columns = set(contract["research_strategy_stats"]["columns"])
     assert {
@@ -58,3 +60,5 @@ def test_backtest_store_contract_contains_stage5_artifacts() -> None:
         "fees_total",
         "slippage_total",
     } <= stats_columns
+    assert {"order_id", "action", "notional"} <= set(contract["research_order_records"]["columns"])
+    assert {"drawdown_id", "drawdown_pct", "status"} <= set(contract["research_drawdown_records"]["columns"])

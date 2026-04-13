@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 from trading_advisor_3000.product_plane.research.backtests import RankingPolicy, default_ranking_policy, rank_backtest_results
+from trading_advisor_3000.product_plane.research.backtests.projection import (
+    CandidateProjectionRequest,
+    _select_rows,
+    supported_selection_policies,
+)
 
 
 def _run_row(
@@ -174,3 +179,126 @@ def test_ranking_orders_robust_parameter_sets_and_marks_weak_ones() -> None:
     assert weak["worst_max_drawdown"] > policy.max_drawdown_cap
     stable = next(row for row in ranking_rows if row["params_hash"] == "PA")
     assert stable["parameter_stability_score"] >= 0.5
+
+
+def test_metric_order_really_changes_ranking_priority() -> None:
+    run_rows = [
+        _run_row(run_id="RUN-R-1", params_hash="PA", params_json={"fast_window": 10}, window_id="wf-01"),
+        _run_row(run_id="RUN-R-2", params_hash="PB", params_json={"fast_window": 20}, window_id="wf-01"),
+    ]
+    stat_rows = [
+        _stat_row(run_id="RUN-R-1", params_hash="PA", window_id="wf-01", total_return=0.14, sharpe=1.0, profit_factor=1.05, max_drawdown=0.16, trade_count=3),
+        _stat_row(run_id="RUN-R-2", params_hash="PB", window_id="wf-01", total_return=0.09, sharpe=1.0, profit_factor=1.90, max_drawdown=0.10, trade_count=3),
+    ]
+    trade_rows = [
+        _trade_row(run_id="RUN-R-1", trade_id="TRD-R1", pnl=70.0),
+        _trade_row(run_id="RUN-R-2", trade_id="TRD-R2", pnl=60.0),
+    ]
+    return_first = RankingPolicy(
+        policy_id="return-first",
+        metric_order=("total_return", "profit_factor", "max_drawdown"),
+        min_trade_count=1,
+        max_drawdown_cap=0.5,
+        min_positive_fold_ratio=0.0,
+        min_parameter_stability=0.0,
+        min_slippage_score=0.0,
+    )
+    pf_first = RankingPolicy(
+        policy_id="pf-first",
+        metric_order=("profit_factor", "total_return", "max_drawdown"),
+        min_trade_count=1,
+        max_drawdown_cap=0.5,
+        min_positive_fold_ratio=0.0,
+        min_parameter_stability=0.0,
+        min_slippage_score=0.0,
+    )
+
+    return_ranked = rank_backtest_results(
+        batch_rows=[{"backtest_batch_id": "BTBATCH-STAGE6"}],
+        run_rows=run_rows,
+        stat_rows=stat_rows,
+        trade_rows=trade_rows,
+        policy=return_first,
+    )["ranking_rows"]
+    pf_ranked = rank_backtest_results(
+        batch_rows=[{"backtest_batch_id": "BTBATCH-STAGE6"}],
+        run_rows=run_rows,
+        stat_rows=stat_rows,
+        trade_rows=trade_rows,
+        policy=pf_first,
+    )["ranking_rows"]
+
+    top_return = min(return_ranked, key=lambda row: row["selected_rank"])
+    top_pf = min(pf_ranked, key=lambda row: row["selected_rank"])
+    assert top_return["params_hash"] == "PA"
+    assert top_pf["params_hash"] == "PB"
+    assert top_return["policy_metric_order_json"] != top_pf["policy_metric_order_json"]
+
+
+def test_projection_selection_policy_really_changes_selected_rows() -> None:
+    rows = [
+        {
+            "ranking_policy_id": "robust_oos_v1",
+            "policy_pass": 1,
+            "robust_score": 0.80,
+            "policy_metric_score": 0.60,
+            "selected_rank": 1,
+            "strategy_family": "ma_cross",
+            "representative_backtest_run_id": "RUN-A",
+            "dataset_version": "dataset-v5",
+            "contract_id": "BR-6.26",
+            "timeframe": "15m",
+        },
+        {
+            "ranking_policy_id": "robust_oos_v1",
+            "policy_pass": 1,
+            "robust_score": 0.66,
+            "policy_metric_score": 0.92,
+            "selected_rank": 2,
+            "strategy_family": "breakout",
+            "representative_backtest_run_id": "RUN-B",
+            "dataset_version": "dataset-v5",
+            "contract_id": "BR-6.26",
+            "timeframe": "15m",
+        },
+        {
+            "ranking_policy_id": "robust_oos_v1",
+            "policy_pass": 1,
+            "robust_score": 0.64,
+            "policy_metric_score": 0.58,
+            "selected_rank": 3,
+            "strategy_family": "ma_cross",
+            "representative_backtest_run_id": "RUN-C",
+            "dataset_version": "dataset-v5",
+            "contract_id": "BR-6.26",
+            "timeframe": "15m",
+        },
+    ]
+
+    robust_selected = _select_rows(
+        rows,
+        request=CandidateProjectionRequest(selection_policy="top_robust_per_series"),
+    )
+    policy_selected = _select_rows(
+        rows,
+        request=CandidateProjectionRequest(selection_policy="top_policy_per_series"),
+    )
+    family_selected = _select_rows(
+        rows,
+        request=CandidateProjectionRequest(selection_policy="top_by_family_per_series", max_candidates_per_partition=2),
+    )
+    all_selected = _select_rows(
+        rows,
+        request=CandidateProjectionRequest(selection_policy="all_policy_pass"),
+    )
+
+    assert supported_selection_policies() == (
+        "top_robust_per_series",
+        "top_policy_per_series",
+        "top_by_family_per_series",
+        "all_policy_pass",
+    )
+    assert [row["representative_backtest_run_id"] for row in robust_selected] == ["RUN-A"]
+    assert [row["representative_backtest_run_id"] for row in policy_selected] == ["RUN-B"]
+    assert {row["strategy_family"] for row in family_selected} == {"ma_cross", "breakout"}
+    assert len(all_selected) == 3

@@ -249,14 +249,20 @@ def test_vectorbt_batch_runner_materializes_signal_and_order_func_artifacts(tmp_
     run_rows = read_delta_table_rows(Path(str(report["output_paths"]["research_backtest_runs"])))
     stats_rows = read_delta_table_rows(Path(str(report["output_paths"]["research_strategy_stats"])))
     trade_rows = read_delta_table_rows(Path(str(report["output_paths"]["research_trade_records"])))
+    order_rows = read_delta_table_rows(Path(str(report["output_paths"]["research_order_records"])))
+    drawdown_rows = read_delta_table_rows(Path(str(report["output_paths"]["research_drawdown_records"])))
 
     assert run_rows
     assert stats_rows
     assert trade_rows
+    assert order_rows
+    assert drawdown_rows
     assert {"signals", "order_func"} <= {row["execution_mode"] for row in run_rows}
     assert all(row["trade_count"] >= 0 for row in run_rows)
     assert all("total_return" in row for row in stats_rows)
     assert all(row["direction"] in {"long", "short"} for row in trade_rows)
+    assert all(row["action"] in {"buy", "sell"} for row in order_rows)
+    assert all("drawdown_pct" in row for row in drawdown_rows)
     for path_text in report["output_paths"].values():
         assert (Path(path_text) / "_delta_log").exists()
 
@@ -488,6 +494,8 @@ def test_stage6_ranking_and_projection_build_runtime_compatible_candidates(tmp_p
         output_dir=output_dir,
         request=CandidateProjectionRequest(
             ranking_policy_id="stage6-selection-v1",
+            selection_policy="top_by_family_per_series",
+            max_candidates_per_partition=2,
             min_robust_score=0.0,
             decision_lag_bars_max=12,
         ),
@@ -501,7 +509,10 @@ def test_stage6_ranking_and_projection_build_runtime_compatible_candidates(tmp_p
     assert candidate_rows
     assert any(row["robust_score"] >= 0.0 for row in ranking_rows)
     assert all("feature_snapshot_json" in row for row in candidate_rows)
+    assert all(row["selection_policy"] == "top_by_family_per_series" for row in candidate_rows)
     for payload in projection_report["candidate_contracts"]:
         contract = DecisionCandidate.from_dict(payload)
         assert contract.to_dict() == payload
     assert backtest_report["trade_rows"]
+    assert backtest_report["order_rows"]
+    assert backtest_report["drawdown_rows"]
