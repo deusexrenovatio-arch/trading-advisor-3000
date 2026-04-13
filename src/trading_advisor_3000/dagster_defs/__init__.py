@@ -15,10 +15,14 @@ from .phase2b_assets import (
     PHASE2B_ASSETS,
     assert_phase2b_definitions_executable,
     build_phase2b_definitions,
+    materialize_phase2b_backtest_assets,
     materialize_phase2b_bootstrap_assets,
+    materialize_phase2b_projection_assets,
     phase2b_asset_specs,
+    phase2b_backtest_job,
     phase2b_bootstrap_job,
     phase2b_definitions,
+    phase2b_projection_job,
 )
 
 __all__ = [
@@ -34,8 +38,12 @@ __all__ = [
     "PHASE2B_ASSETS",
     "assert_phase2b_definitions_executable",
     "build_phase2b_definitions",
+    "materialize_phase2b_backtest_assets",
     "materialize_phase2b_bootstrap_assets",
+    "materialize_phase2b_projection_assets",
     "phase2b_asset_specs",
+    "phase2b_backtest_job",
     "phase2b_bootstrap_job",
     "phase2b_definitions",
+    "phase2b_projection_job",
 ]
