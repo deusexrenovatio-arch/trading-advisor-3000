@@ -1,8 +1,204 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from pathlib import Path
+
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows, write_delta_table_rows
+
+
+def _feature_frame_columns() -> dict[str, str]:
+    return {
+        "dataset_version": "string",
+        "indicator_set_version": "string",
+        "feature_set_version": "string",
+        "profile_version": "string",
+        "contract_id": "string",
+        "instrument_id": "string",
+        "timeframe": "string",
+        "ts": "timestamp",
+        "trend_state_fast_slow_code": "int",
+        "trend_strength": "double",
+        "ma_stack_state_code": "int",
+        "regime_state_code": "int",
+        "rolling_high_20": "double",
+        "rolling_low_20": "double",
+        "opening_range_high": "double",
+        "opening_range_low": "double",
+        "swing_high_10": "double",
+        "swing_low_10": "double",
+        "session_vwap": "double",
+        "distance_to_session_vwap": "double",
+        "distance_to_rolling_high_20": "double",
+        "distance_to_rolling_low_20": "double",
+        "bb_width_20_2": "double",
+        "kc_width_20_1_5": "double",
+        "squeeze_on_code": "int",
+        "breakout_ready_state_code": "int",
+        "rvol_20": "double",
+        "volume_zscore_20": "double",
+        "above_below_vwma_code": "int",
+        "session_volume_state_code": "int",
+        "htf_ma_relation_code": "int",
+        "htf_trend_state_code": "int",
+        "htf_adx_14": "double",
+        "htf_rsi_14": "double",
+        "source_bars_hash": "string",
+        "source_indicators_hash": "string",
+        "row_count": "int",
+        "warmup_span": "int",
+        "null_warmup_span": "int",
+        "created_at": "timestamp",
+    }
+
+
+@dataclass(frozen=True)
+class FeatureFramePartitionKey:
+    dataset_version: str
+    indicator_set_version: str
+    feature_set_version: str
+    timeframe: str
+    instrument_id: str
+    contract_id: str | None = None
+
+    def partition_path(self) -> str:
+        contract_token = self.contract_id or "continuous-front"
+        return (
+            f"dataset_version={self.dataset_version}/"
+            f"indicator_set_version={self.indicator_set_version}/"
+            f"feature_set_version={self.feature_set_version}/"
+            f"instrument_id={self.instrument_id}/"
+            f"contract_id={contract_token}/"
+            f"timeframe={self.timeframe}"
+        )
+
+    def matches_row(self, row: dict[str, object]) -> bool:
+        if str(row.get("dataset_version")) != self.dataset_version:
+            return False
+        if str(row.get("indicator_set_version")) != self.indicator_set_version:
+            return False
+        if str(row.get("feature_set_version")) != self.feature_set_version:
+            return False
+        if str(row.get("instrument_id")) != self.instrument_id:
+            return False
+        if str(row.get("timeframe")) != self.timeframe:
+            return False
+        if self.contract_id is None:
+            return True
+        return str(row.get("contract_id")) == self.contract_id
+
+
+@dataclass(frozen=True)
+class FeatureFrameRow:
+    dataset_version: str
+    indicator_set_version: str
+    feature_set_version: str
+    profile_version: str
+    contract_id: str
+    instrument_id: str
+    timeframe: str
+    ts: str
+    values: dict[str, float | int | None]
+    source_bars_hash: str
+    source_indicators_hash: str
+    row_count: int
+    warmup_span: int
+    null_warmup_span: int
+    created_at: str
+
+    def partition_key(self, *, series_mode: str) -> FeatureFramePartitionKey:
+        return FeatureFramePartitionKey(
+            dataset_version=self.dataset_version,
+            indicator_set_version=self.indicator_set_version,
+            feature_set_version=self.feature_set_version,
+            timeframe=self.timeframe,
+            instrument_id=self.instrument_id,
+            contract_id=None if series_mode == "continuous_front" else self.contract_id,
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "dataset_version": self.dataset_version,
+            "indicator_set_version": self.indicator_set_version,
+            "feature_set_version": self.feature_set_version,
+            "profile_version": self.profile_version,
+            "contract_id": self.contract_id,
+            "instrument_id": self.instrument_id,
+            "timeframe": self.timeframe,
+            "ts": self.ts,
+            **self.values,
+            "source_bars_hash": self.source_bars_hash,
+            "source_indicators_hash": self.source_indicators_hash,
+            "row_count": self.row_count,
+            "warmup_span": self.warmup_span,
+            "null_warmup_span": self.null_warmup_span,
+            "created_at": self.created_at,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, object]) -> "FeatureFrameRow":
+        reserved = {
+            "dataset_version",
+            "indicator_set_version",
+            "feature_set_version",
+            "profile_version",
+            "contract_id",
+            "instrument_id",
+            "timeframe",
+            "ts",
+            "source_bars_hash",
+            "source_indicators_hash",
+            "row_count",
+            "warmup_span",
+            "null_warmup_span",
+            "created_at",
+        }
+        value_types = _feature_frame_columns()
+        values: dict[str, float | int | None] = {}
+        for key, value in payload.items():
+            if key in reserved:
+                continue
+            if value is None:
+                values[key] = None
+                continue
+            if value_types.get(key) == "int":
+                values[key] = int(value)
+                continue
+            values[key] = float(value)
+        return cls(
+            dataset_version=str(payload["dataset_version"]),
+            indicator_set_version=str(payload["indicator_set_version"]),
+            feature_set_version=str(payload["feature_set_version"]),
+            profile_version=str(payload["profile_version"]),
+            contract_id=str(payload["contract_id"]),
+            instrument_id=str(payload["instrument_id"]),
+            timeframe=str(payload["timeframe"]),
+            ts=str(payload["ts"]),
+            values=values,
+            source_bars_hash=str(payload["source_bars_hash"]),
+            source_indicators_hash=str(payload["source_indicators_hash"]),
+            row_count=int(payload["row_count"]),
+            warmup_span=int(payload["warmup_span"]),
+            null_warmup_span=int(payload["null_warmup_span"]),
+            created_at=str(payload["created_at"]),
+        )
+
 
 def phase2b_feature_store_contract() -> dict[str, dict[str, object]]:
     return {
+        "research_feature_frames": {
+            "format": "delta",
+            "partition_by": [
+                "dataset_version",
+                "indicator_set_version",
+                "feature_set_version",
+                "instrument_id",
+                "timeframe",
+            ],
+            "constraints": [
+                "unique(dataset_version, indicator_set_version, feature_set_version, contract_id, timeframe, ts)"
+            ],
+            "columns": _feature_frame_columns(),
+        },
         "feature_snapshots": {
             "format": "delta",
             "partition_by": ["contract_id", "timeframe", "feature_set_version"],
@@ -79,3 +275,43 @@ def phase2b_feature_store_contract() -> dict[str, dict[str, object]]:
             },
         },
     }
+
+
+def write_feature_frames(
+    *,
+    output_dir: Path,
+    rows: list[FeatureFrameRow],
+    replace_partitions: tuple[FeatureFramePartitionKey, ...],
+) -> dict[str, str]:
+    contract = phase2b_feature_store_contract()
+    path = output_dir / "research_feature_frames.delta"
+    existing_rows = read_delta_table_rows(path) if (path / "_delta_log").exists() else []
+    preserved_rows = [
+        row
+        for row in existing_rows
+        if not any(partition.matches_row(row) for partition in replace_partitions)
+    ]
+    write_delta_table_rows(
+        table_path=path,
+        rows=[*preserved_rows, *[row.to_dict() for row in rows]],
+        columns=contract["research_feature_frames"]["columns"],
+    )
+    return {"research_feature_frames": path.as_posix()}
+
+
+def load_feature_frames(
+    *,
+    output_dir: Path,
+    dataset_version: str,
+    indicator_set_version: str,
+    feature_set_version: str,
+) -> list[FeatureFrameRow]:
+    path = output_dir / "research_feature_frames.delta"
+    rows = read_delta_table_rows(path)
+    return [
+        FeatureFrameRow.from_dict(row)
+        for row in rows
+        if row.get("dataset_version") == dataset_version
+        and row.get("indicator_set_version") == indicator_set_version
+        and row.get("feature_set_version") == feature_set_version
+    ]

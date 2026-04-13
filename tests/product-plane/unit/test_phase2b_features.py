@@ -48,7 +48,7 @@ def test_point_in_time_features_do_not_use_future_bar() -> None:
 
 def test_feature_store_contract_contains_research_delta_tables() -> None:
     manifest = phase2b_feature_store_contract()
-    assert {"feature_snapshots", "research_backtest_runs", "research_signal_candidates"} <= set(manifest)
+    assert {"research_feature_frames", "feature_snapshots", "research_backtest_runs", "research_signal_candidates"} <= set(manifest)
     assert all(item["format"] == "delta" for item in manifest.values())
 
 
