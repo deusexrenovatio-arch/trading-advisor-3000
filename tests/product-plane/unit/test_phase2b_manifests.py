@@ -1,44 +1,73 @@
 from __future__ import annotations
 
-from trading_advisor_3000.product_plane.research.ids import candidate_id
-from trading_advisor_3000.product_plane.research.features import phase2b_feature_store_contract
 from trading_advisor_3000.dagster_defs import phase2b_asset_specs
-from trading_advisor_3000.spark_jobs import (
-    build_research_sql_plan,
-    default_research_spec,
-    spark_candidate_id_expr,
-)
+from trading_advisor_3000.product_plane.research.datasets import phase2_research_dataset_store_contract
+from trading_advisor_3000.product_plane.research.features import phase2b_feature_store_contract
+from trading_advisor_3000.product_plane.research.ids import candidate_id
+from trading_advisor_3000.product_plane.research.indicators import build_indicator_profile_registry, phase3_indicator_store_contract
+from trading_advisor_3000.spark_jobs import build_research_sql_plan, default_research_spec, spark_candidate_id_expr
 
 
 def test_phase2b_dagster_asset_specs_declared() -> None:
     specs = {spec.key: spec for spec in phase2b_asset_specs()}
     keys = set(specs)
-    assert keys == {"feature_snapshots", "research_backtest_runs", "research_signal_candidates"}
-    assert set(specs["research_signal_candidates"].inputs) == {
-        "feature_snapshots_delta",
-        "research_backtest_runs_delta",
+    assert {
+        "research_datasets",
+        "research_bar_views",
+        "research_indicator_frames",
+        "research_feature_frames",
+        "feature_snapshots",
+        "research_backtest_runs",
+        "research_signal_candidates",
+    } == keys
+    assert set(specs["research_datasets"].inputs) == {
+        "canonical_bars_delta",
+        "canonical_session_calendar_delta",
+        "canonical_roll_map_delta",
+    }
+    assert set(specs["research_indicator_frames"].inputs) == {
+        "research_datasets_delta",
+        "research_bar_views_delta",
+    }
+    assert set(specs["research_feature_frames"].inputs) == {
+        "research_datasets_delta",
+        "research_bar_views_delta",
+        "research_indicator_frames_delta",
     }
 
 
-def test_phase2b_contract_lineage_is_consistent_across_manifest_and_spark() -> None:
-    manifest = phase2b_feature_store_contract()
-    candidate_columns = set(manifest["research_signal_candidates"]["columns"])
-    required_columns = {
-        "candidate_id",
-        "backtest_run_id",
-        "strategy_version_id",
-        "contract_id",
-        "timeframe",
-        "ts_signal",
-        "side",
-        "entry_ref",
-        "stop_ref",
-        "target_ref",
-        "score",
-    }
-    assert required_columns <= candidate_columns
-    assert {"window_id", "estimated_commission", "estimated_slippage"} <= candidate_columns
-    assert "research_strategy_metrics" in manifest
+def test_phase2b_contract_lineage_is_consistent_across_dataset_indicator_and_spark_layers() -> None:
+    dataset_manifest = phase2_research_dataset_store_contract()
+    indicator_manifest = phase3_indicator_store_contract()
+    feature_manifest = phase2b_feature_store_contract()
+
+    assert {"research_datasets", "research_bar_views"} == set(dataset_manifest)
+    assert "research_indicator_frames" in indicator_manifest
+    assert "research_feature_frames" in feature_manifest
+    indicator_columns = set(indicator_manifest["research_indicator_frames"]["columns"])
+    feature_columns = set(feature_manifest["research_feature_frames"]["columns"])
+    assert {
+        "dataset_version",
+        "indicator_set_version",
+        "profile_version",
+        "source_bars_hash",
+        "row_count",
+        "warmup_span",
+        "null_warmup_span",
+    } <= indicator_columns
+
+    registry = build_indicator_profile_registry()
+    assert registry.versions() == ("core_v1", "core_intraday_v1", "core_swing_v1")
+    assert set(registry.get("core_v1").expected_output_columns()) <= indicator_columns
+    assert {
+        "dataset_version",
+        "indicator_set_version",
+        "feature_set_version",
+        "profile_version",
+        "source_bars_hash",
+        "source_indicators_hash",
+    } <= feature_columns
+    assert "research_strategy_metrics" in feature_manifest
 
     spec = default_research_spec()
     sql = build_research_sql_plan(spec)
