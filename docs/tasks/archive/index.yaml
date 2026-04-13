@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-03-25'
+updated_at: '2026-04-13'
 items:
 - id: TASK-2026-03-16-SHELL-BOOTSTRAP
   path: docs/tasks/archive/TASK-2026-03-16-shell-bootstrap.md
@@ -133,3 +133,45 @@ items:
   status: completed
   started_at: '2026-03-25'
   completed_at: '2026-03-25'
+- id: TASK-2026-04-13-TAKE-PHASE-1-OF-THE-VECTORBT-PANDAS-TA-RESEARCH-
+  path: docs/tasks/archive/TASK-2026-04-13-take-phase-1-of-the-vectorbt-pandas-ta-research-.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-13'
+  completed_at: '2026-04-13'
+- id: TASK-2026-04-13-MAKE-THE-VECTORIZED-RESEARCH-CONTOUR-MANDATORY-I
+  path: docs/tasks/archive/TASK-2026-04-13-make-the-vectorized-research-contour-mandatory-i.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-13'
+  completed_at: '2026-04-13'
+- id: TASK-2026-04-13-CONTINUE-WITH-STAGE-2-OF-THE-VECTORBT-PANDAS-TA-
+  path: docs/tasks/archive/TASK-2026-04-13-continue-with-stage-2-of-the-vectorbt-pandas-ta-.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-13'
+  completed_at: '2026-04-13'
+- id: TASK-2026-04-13-CONTINUE-WITH-STAGE-3-OF-THE-VECTORBT-PANDAS-TA-
+  path: docs/tasks/archive/TASK-2026-04-13-continue-with-stage-3-of-the-vectorbt-pandas-ta-.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-13'
+  completed_at: '2026-04-13'
+- id: TASK-2026-04-13-REMEDIATE-STAGE-3-INDICATOR-LAYER-GAPS-REAL-PROF
+  path: docs/tasks/archive/TASK-2026-04-13-remediate-stage-3-indicator-layer-gaps-real-prof.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-13'
+  completed_at: '2026-04-13'
+- id: TASK-2026-04-13-CLOSE-THE-REMAINING-STAGE-3-GAP-BY-WIRING-INDICA
+  path: docs/tasks/archive/TASK-2026-04-13-close-the-remaining-stage-3-gap-by-wiring-indica.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-13'
+  completed_at: '2026-04-13'
+- id: TASK-2026-04-13-IMPLEMENT-PHASE-4-DERIVED-FEATURE-LAYER-FOR-THE-
+  path: docs/tasks/archive/TASK-2026-04-13-implement-phase-4-derived-feature-layer-for-the-.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-13'
+  completed_at: '2026-04-13'
