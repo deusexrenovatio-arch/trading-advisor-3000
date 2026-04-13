@@ -27,6 +27,12 @@ Required result-quality dimensions:
 3. `implementation_quality`
 4. `testing_quality`
 
+For `requirements_alignment`, acceptance must evaluate more than local artifact completion:
+- current phase objective,
+- module objective,
+- execution-contract objective,
+- selected primary source and supporting source documents named by the execution contract, when they materially affect meaning or closure.
+
 Retry count, remediation count, blocker recurrence, and route friction belong only to orchestration quality.
 
 ## Hard Rules
@@ -40,6 +46,7 @@ The acceptor must block the phase when any of these are true:
 6. The bounded worker evidence contract is missing, incomplete, or weaker than the phase brief requires.
 7. Documentation drift remains in any required layer.
 8. The solution is a local patch-up instead of a sound architectural fit.
+9. The solution matches the letter of the phase artifacts but materially misses the intended meaning of the current phase, module objective, execution contract, or source TZ/supporting documents.
 
 ## Required Acceptance Dimensions
 Every phase verdict must cover all of these:
@@ -76,7 +83,12 @@ Every phase verdict must cover all of these:
 - Dependency direction remains acceptable.
 - The result scales as part of the intended system shape.
 
-7. Traceability
+7. Intent Alignment
+- The implementation satisfies the real requested outcome, not only the literal checklist shape.
+- Phase closure is consistent with the spirit and semantics of the phase brief, module brief, and execution contract.
+- When the execution contract names a primary source and supporting documents, acceptance uses them as the source-intent baseline whenever the phase could otherwise pass by narrow local interpretation.
+
+8. Traceability
 - The phase objective is fully closed.
 - Done evidence is real, not narrative-only.
 

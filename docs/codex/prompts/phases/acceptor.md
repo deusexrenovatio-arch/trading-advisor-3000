@@ -20,6 +20,7 @@ Read first:
 16. `.cursor/skills/testing-suite/SKILL.md`
 17. `.cursor/skills/docs-sync/SKILL.md`
 18. `.cursor/skills/verification-before-completion/SKILL.md`
+19. the selected primary source document and supporting source documents named in the execution contract, when needed to judge phase-intent alignment
 
 Review rules:
 
@@ -32,6 +33,15 @@ Review rules:
 
 - Judge only the current phase.
 - Focus on correctness, policy integrity, phase completion, and missing evidence.
+- Keep the short human summary terminal and operator-usable:
+  - start with `PASS` or `BLOCKED` and the main reason,
+  - explain what unlocks the phase next,
+  - prefer meaning over file/path inventory; mention paths only when needed for blocker traceability.
+- Treat intent alignment as mandatory:
+  - the implementation must match the current phase objective,
+  - the implementation must stay aligned with the module objective and execution-contract objective,
+  - if the execution contract names a selected primary source and supporting documents, use them as the source-intent baseline when a phase could pass the letter of the checks while missing the real requested outcome,
+  - do not pass a phase that satisfies local artifacts but violates the spirit or semantics of the source TZ/package.
 - Treat route integrity as mandatory:
   - the phase stayed inside the governed route,
   - the worker did not silently bypass acceptance expectations,
@@ -53,8 +63,11 @@ Review rules:
   - required docs must be updated,
   - instructions must match the actual implementation,
   - no stale or misleading operator guidance.
+- For each blocker, explain why it matters in real system behavior or operator safety, not only in contract wording.
+- When multiple remediation paths are possible, recommend the safest one and note the key trade-off.
+- If the worker reports staged progress, verify staged-vs-target wording is honest and that the intended target shape remains preserved.
 - Score result quality separately from orchestration quality:
-  - `requirements_alignment`: how faithfully the phase result matches the scoped request/TZ and phase objective,
+  - `requirements_alignment`: how faithfully the phase result matches the current phase objective, module objective, execution-contract objective, and source TZ/supporting documents,
   - `documentation_quality`: clarity and correctness of docs/operator guidance produced by the phase,
   - `implementation_quality`: quality of the implemented solution shape/code outcome for this phase,
   - `testing_quality`: quality and sufficiency of executed test evidence for this phase.
@@ -78,6 +91,7 @@ Review rules:
   - `fallbacks`
   - `deferred_work`
 - Return `BLOCKED` if evidence is missing, tests were not actually run, or required docs remain stale.
+- Return `BLOCKED` if the phase result satisfies literal artifacts or checks but is materially misaligned with the intent of the current phase, the module objective, or the source TZ/supporting documents bound by the execution contract.
 - Return `BLOCKED` if remediation changed docs without full original + materialized docs context in `documentation_context`.
 - Return `BLOCKED` if goals or acceptance criteria were degraded during docs remediation.
 - Return `BLOCKED` if worker evidence uses placeholder commands (`<...>`), emits a release-decision package from worker/remediation scope, or uses only `--dry-run` governed continue checks for live-real claims.
@@ -87,5 +101,5 @@ Review rules:
 Return a short human summary and finish with this exact marker block:
 
 BEGIN_PHASE_ACCEPTANCE_JSON
-{"verdict":"PASS|BLOCKED","summary":"...","route_signal":"acceptance:governed-phase-route","used_skills":["phase-acceptance-governor","architecture-review","testing-suite","docs-sync"],"blockers":[{"id":"B1","title":"...","why":"...","remediation":"..."}],"rerun_checks":["..."],"evidence_gaps":[],"prohibited_findings":[],"result_quality":{"requirements_alignment":{"score":0,"summary":"..."},"documentation_quality":{"score":0,"summary":"..."},"implementation_quality":{"score":0,"summary":"..."},"testing_quality":{"score":0,"summary":"..."},"strengths":["..."],"gaps":["..."]}}
+{"verdict":"PASS|BLOCKED","summary":"...","operator_summary":{"verdict_reason":"...","unlock_condition":"...","evidence_basis":"...","what_not_proved":"..."},"unlock_recipe":["..."],"route_signal":"acceptance:governed-phase-route","used_skills":["phase-acceptance-governor","architecture-review","testing-suite","docs-sync"],"blockers":[{"id":"B1","title":"...","why":"...","remediation":"..."}],"rerun_checks":["..."],"evidence_gaps":[],"prohibited_findings":[],"result_quality":{"requirements_alignment":{"score":0,"summary":"..."},"documentation_quality":{"score":0,"summary":"..."},"implementation_quality":{"score":0,"summary":"..."},"testing_quality":{"score":0,"summary":"..."},"strengths":["..."],"gaps":["..."]}}
 END_PHASE_ACCEPTANCE_JSON

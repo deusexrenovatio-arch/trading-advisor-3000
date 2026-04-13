@@ -49,6 +49,16 @@ Rules:
 - Do not silently introduce assumptions, fallback paths, skipped checks, or deferred critical work.
 - If any assumption, skip, fallback, or deferral exists, report it explicitly. Acceptance will treat it as a blocker.
 - Include the bounded `evidence_contract` object from `docs/checklists/phase-evidence-contract.md`.
+- Keep the short human summary operator-first and low-noise:
+  - start with the phase goal and the terminal status for this attempt,
+  - state the chosen path, why it is not a shortcut, and what target shape stays preserved,
+  - mention the evidence basis and remaining unlock risk,
+  - avoid dumping file names unless they are required to explain a blocker.
+- For non-trivial implementation choices:
+  - compare at least two viable options before choosing one,
+  - prefer correctness, target architecture fit, stronger evidence, and reversibility over the smallest diff or fastest patch,
+  - if the result is `staged` rather than target, say so explicitly.
+- If the phase simplifies the system or consolidates state, say what becomes the source of truth and which duplicate or temporary layer remains or is removed.
 - Before returning the final JSON, do one bounded self-review of the phase result.
   Score your own result quality separately from orchestration friction.
   Use:
@@ -72,5 +82,5 @@ Rules:
 Return a short human summary and finish with this exact marker block:
 
 BEGIN_PHASE_WORKER_JSON
-{"status":"DONE","summary":"...","route_signal":"worker:phase-only","files_touched":["..."],"checks_run":["..."],"remaining_risks":["..."],"assumptions":[],"skips":[],"fallbacks":[],"deferred_work":[],"worker_self_quality":{"requirements_alignment":{"score":0,"summary":"..."},"documentation_quality":{"score":0,"summary":"..."},"implementation_quality":{"score":0,"summary":"..."},"testing_quality":{"score":0,"summary":"..."},"strengths":["..."],"gaps":["..."]},"evidence_contract":{"surfaces":["..."],"proof_class":"doc|schema|unit|integration|staging-real|live-real","artifact_paths":["..."],"checks":["..."],"real_bindings":["..."]}}
+{"status":"DONE","summary":"...","operator_summary":{"phase_goal":"...","chosen_path":"...","why_not_shortcut":"...","evidence_basis":"...","remaining_unlock_risk":"..."},"decision_rationale":{"alternatives_considered":["..."],"target_shape_preserved":"...","system_simplification":"..."},"route_signal":"worker:phase-only","files_touched":["..."],"checks_run":["..."],"remaining_risks":["..."],"assumptions":[],"skips":[],"fallbacks":[],"deferred_work":[],"worker_self_quality":{"requirements_alignment":{"score":0,"summary":"..."},"documentation_quality":{"score":0,"summary":"..."},"implementation_quality":{"score":0,"summary":"..."},"testing_quality":{"score":0,"summary":"..."},"strengths":["..."],"gaps":["..."]},"evidence_contract":{"surfaces":["..."],"proof_class":"doc|schema|unit|integration|staging-real|live-real","artifact_paths":["..."],"checks":["..."],"real_bindings":["..."]}}
 END_PHASE_WORKER_JSON
