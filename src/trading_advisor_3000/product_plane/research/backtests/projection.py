@@ -37,6 +37,15 @@ def _coerce_json(value: object) -> dict[str, object]:
     return {}
 
 
+def supported_selection_policies() -> tuple[str, ...]:
+    return (
+        "top_robust_per_series",
+        "top_policy_per_series",
+        "top_by_family_per_series",
+        "all_policy_pass",
+    )
+
+
 @dataclass(frozen=True)
 class CandidateProjectionRequest:
     backtest_run_id: str | None = None
@@ -50,6 +59,8 @@ class CandidateProjectionRequest:
     def __post_init__(self) -> None:
         if not self.selection_policy.strip():
             raise ValueError("selection_policy must be non-empty")
+        if self.selection_policy not in supported_selection_policies():
+            raise ValueError(f"unsupported selection_policy: {self.selection_policy}")
         if self.max_candidates_per_partition <= 0:
             raise ValueError("max_candidates_per_partition must be positive")
         if self.decision_lag_bars_max < 0:
@@ -212,26 +223,67 @@ def _select_rows(
     ]
     if request.backtest_run_id:
         filtered = [row for row in filtered if str(row.get("representative_backtest_run_id")) == request.backtest_run_id]
-    filtered.sort(
+    filtered = _sorted_rows(filtered, selection_policy=request.selection_policy)
+    if request.selection_policy == "all_policy_pass":
+        return filtered
+
+    selected: list[dict[str, object]] = []
+    counts: dict[tuple[str, str, str], int] = {}
+    family_counts: dict[tuple[str, str, str, str], int] = {}
+    for row in filtered:
+        series_key = (
+            str(row.get("dataset_version", "")),
+            str(row.get("contract_id", "")),
+            str(row.get("timeframe", "")),
+        )
+        current = counts.get(series_key, 0)
+        if current >= request.max_candidates_per_partition:
+            continue
+        if request.selection_policy == "top_by_family_per_series":
+            family_key = (
+                *series_key,
+                str(row.get("strategy_family", "")),
+            )
+            if family_counts.get(family_key, 0) >= 1:
+                continue
+            family_counts[family_key] = 1
+        counts[series_key] = current + 1
+        selected.append(row)
+    return selected
+
+
+def _sorted_rows(rows: list[dict[str, object]], *, selection_policy: str) -> list[dict[str, object]]:
+    if selection_policy == "top_policy_per_series":
+        return sorted(
+            rows,
+            key=lambda row: (
+                str(row.get("dataset_version", "")),
+                str(row.get("contract_id", "")),
+                str(row.get("timeframe", "")),
+                -float(row.get("policy_metric_score", 0.0) or 0.0),
+                int(row.get("selected_rank", 0)),
+                -float(row.get("robust_score", 0.0) or 0.0),
+            ),
+        )
+    if selection_policy == "top_by_family_per_series":
+        return sorted(
+            rows,
+            key=lambda row: (
+                str(row.get("dataset_version", "")),
+                str(row.get("contract_id", "")),
+                str(row.get("timeframe", "")),
+                str(row.get("strategy_family", "")),
+                int(row.get("selected_rank", 0)),
+                -float(row.get("robust_score", 0.0) or 0.0),
+            ),
+        )
+    return sorted(
+        rows,
         key=lambda row: (
             str(row.get("dataset_version", "")),
             str(row.get("contract_id", "")),
             str(row.get("timeframe", "")),
             int(row.get("selected_rank", 0)),
             -float(row.get("robust_score", 0.0) or 0.0),
-        )
+        ),
     )
-    selected: list[dict[str, object]] = []
-    counts: dict[tuple[str, str, str], int] = {}
-    for row in filtered:
-        key = (
-            str(row.get("dataset_version", "")),
-            str(row.get("contract_id", "")),
-            str(row.get("timeframe", "")),
-        )
-        current = counts.get(key, 0)
-        if current >= request.max_candidates_per_partition:
-            continue
-        counts[key] = current + 1
-        selected.append(row)
-    return selected

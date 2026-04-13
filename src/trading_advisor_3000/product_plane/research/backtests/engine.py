@@ -539,8 +539,105 @@ def _trade_rows(
                 "return": float(trade["return"]),
                 "fees_total": float(trade["entry_fees"]) + float(trade["exit_fees"]),
                 "duration_bars": duration_bars,
+              }
+              )
+    return rows
+
+
+def _order_rows(
+    *,
+    portfolio: vbt.Portfolio,
+    run_row: dict[str, object],
+    series: ResearchSeriesFrame,
+) -> list[dict[str, object]]:
+    records = portfolio.orders.records
+    if records.empty:
+        return []
+    rows: list[dict[str, object]] = []
+    index = list(series.frame.index)
+    for _, order in records.iterrows():
+        bar_index = int(order["idx"])
+        ts = pd.Timestamp(index[bar_index]).isoformat().replace("+00:00", "Z")
+        action = "buy" if int(order["side"]) == 0 else "sell"
+        size = float(order["size"])
+        price = float(order["price"])
+        rows.append(
+            {
+                "backtest_run_id": run_row["backtest_run_id"],
+                "backtest_batch_id": run_row["backtest_batch_id"],
+                "strategy_version": run_row["strategy_version"],
+                "strategy_family": run_row["strategy_family"],
+                "dataset_version": run_row["dataset_version"],
+                "indicator_set_version": run_row["indicator_set_version"],
+                "feature_set_version": run_row["feature_set_version"],
+                "contract_id": run_row["contract_id"],
+                "instrument_id": run_row["instrument_id"],
+                "timeframe": run_row["timeframe"],
+                "window_id": run_row["window_id"],
+                "order_id": f"{run_row['backtest_run_id']}-ORD-{int(order['id']):04d}",
+                "bar_index": bar_index,
+                "ts": ts,
+                "action": action,
+                "size": size,
+                "price": price,
+                "fees": float(order["fees"]),
+                "notional": abs(size * price),
             }
-            )
+        )
+    return rows
+
+
+def _drawdown_rows(
+    *,
+    portfolio: vbt.Portfolio,
+    run_row: dict[str, object],
+    series: ResearchSeriesFrame,
+) -> list[dict[str, object]]:
+    records = portfolio.drawdowns.records
+    if records.empty:
+        return []
+    rows: list[dict[str, object]] = []
+    index = list(series.frame.index)
+    for _, record in records.iterrows():
+        peak_idx = int(record["peak_idx"])
+        start_idx = int(record["start_idx"])
+        valley_idx = int(record["valley_idx"])
+        end_idx = int(record["end_idx"])
+        peak_val = float(record["peak_val"])
+        valley_val = float(record["valley_val"])
+        end_val = float(record["end_val"])
+        drawdown_pct = ((peak_val - valley_val) / peak_val) if peak_val > 0.0 else 0.0
+        recovery_pct = ((end_val - valley_val) / peak_val) if peak_val > 0.0 else 0.0
+        status_code = int(record["status"])
+        status = "active" if end_idx >= len(index) - 1 and end_val < peak_val else "recovered"
+        rows.append(
+            {
+                "backtest_run_id": run_row["backtest_run_id"],
+                "backtest_batch_id": run_row["backtest_batch_id"],
+                "strategy_version": run_row["strategy_version"],
+                "strategy_family": run_row["strategy_family"],
+                "dataset_version": run_row["dataset_version"],
+                "indicator_set_version": run_row["indicator_set_version"],
+                "feature_set_version": run_row["feature_set_version"],
+                "contract_id": run_row["contract_id"],
+                "instrument_id": run_row["instrument_id"],
+                "timeframe": run_row["timeframe"],
+                "window_id": run_row["window_id"],
+                "drawdown_id": f"{run_row['backtest_run_id']}-DD-{int(record['id']):04d}",
+                "peak_ts": pd.Timestamp(index[peak_idx]).isoformat().replace("+00:00", "Z"),
+                "start_ts": pd.Timestamp(index[start_idx]).isoformat().replace("+00:00", "Z"),
+                "valley_ts": pd.Timestamp(index[valley_idx]).isoformat().replace("+00:00", "Z"),
+                "end_ts": pd.Timestamp(index[end_idx]).isoformat().replace("+00:00", "Z"),
+                "peak_value": peak_val,
+                "valley_value": valley_val,
+                "end_value": end_val,
+                "drawdown_pct": drawdown_pct,
+                "recovery_pct": recovery_pct,
+                "duration_bars": max(0, end_idx - start_idx),
+                "status_code": status_code,
+                "status": status,
+            }
+        )
     return rows
 
 
@@ -635,37 +732,51 @@ def run_backtest_series(
     run_rows: list[dict[str, object]] = []
     stat_rows: list[dict[str, object]] = []
     trade_rows: list[dict[str, object]] = []
+    order_rows: list[dict[str, object]] = []
+    drawdown_rows: list[dict[str, object]] = []
 
     for window_id, window_frame in _window_frames(series.frame, window_count=config.window_count, split_windows=split_windows):
         portfolio = _run_portfolio(window_frame, strategy_spec, params, config)
+        window_series = ResearchSeriesFrame(
+            contract_id=series.contract_id,
+            instrument_id=series.instrument_id,
+            timeframe=series.timeframe,
+            frame=window_frame,
+        )
+        run_row_seed = {
+            "backtest_run_id": _run_id(
+                batch_id=backtest_batch_id,
+                strategy_version=strategy_spec.version,
+                contract_id=series.contract_id,
+                timeframe=series.timeframe,
+                window_id=window_id,
+                params_hash=params_hash,
+            ),
+            "backtest_batch_id": backtest_batch_id,
+            "strategy_version": strategy_spec.version,
+            "strategy_family": strategy_spec.family,
+            "dataset_version": dataset_version,
+            "indicator_set_version": indicator_set_version,
+            "feature_set_version": feature_set_version,
+            "contract_id": series.contract_id,
+            "instrument_id": series.instrument_id,
+            "timeframe": series.timeframe,
+            "window_id": window_id,
+        }
         trade_records = _trade_rows(
             portfolio=portfolio,
-            run_row={
-                "backtest_run_id": _run_id(
-                    batch_id=backtest_batch_id,
-                    strategy_version=strategy_spec.version,
-                    contract_id=series.contract_id,
-                    timeframe=series.timeframe,
-                    window_id=window_id,
-                    params_hash=params_hash,
-                ),
-                "backtest_batch_id": backtest_batch_id,
-                "strategy_version": strategy_spec.version,
-                "strategy_family": strategy_spec.family,
-                "dataset_version": dataset_version,
-                "indicator_set_version": indicator_set_version,
-                "feature_set_version": feature_set_version,
-                "contract_id": series.contract_id,
-                "instrument_id": series.instrument_id,
-                "timeframe": series.timeframe,
-                "window_id": window_id,
-            },
-            series=ResearchSeriesFrame(
-                contract_id=series.contract_id,
-                instrument_id=series.instrument_id,
-                timeframe=series.timeframe,
-                frame=window_frame,
-            ),
+            run_row=run_row_seed,
+            series=window_series,
+        )
+        order_records = _order_rows(
+            portfolio=portfolio,
+            run_row=run_row_seed,
+            series=window_series,
+        )
+        drawdown_records = _drawdown_rows(
+            portfolio=portfolio,
+            run_row=run_row_seed,
+            series=window_series,
         )
         orders = portfolio.orders.records
         slippage_rate = config.slippage_bps / 10_000.0
@@ -711,7 +822,7 @@ def run_backtest_series(
             "fees_total": fees_total,
             "slippage_total": slippage_total,
             "created_at": created_at,
-        }
+          }
         run_row = {
             "backtest_run_id": stats_row["backtest_run_id"],
             "backtest_batch_id": backtest_batch_id,
@@ -738,9 +849,13 @@ def run_backtest_series(
         run_rows.append(run_row)
         stat_rows.append(stats_row)
         trade_rows.extend(trade_records)
+        order_rows.extend(order_records)
+        drawdown_rows.extend(drawdown_records)
 
     return {
         "run_rows": run_rows,
         "stat_rows": stat_rows,
         "trade_rows": trade_rows,
+        "order_rows": order_rows,
+        "drawdown_rows": drawdown_rows,
     }

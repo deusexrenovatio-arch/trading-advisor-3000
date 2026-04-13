@@ -135,6 +135,61 @@ def phase5_backtest_store_contract() -> dict[str, dict[str, object]]:
                 "duration_bars": "int",
             },
         },
+        "research_order_records": {
+            "format": "delta",
+            "partition_by": ["dataset_version", "strategy_version", "timeframe"],
+            "columns": {
+                "backtest_run_id": "string",
+                "backtest_batch_id": "string",
+                "strategy_version": "string",
+                "strategy_family": "string",
+                "dataset_version": "string",
+                "indicator_set_version": "string",
+                "feature_set_version": "string",
+                "contract_id": "string",
+                "instrument_id": "string",
+                "timeframe": "string",
+                "window_id": "string",
+                "order_id": "string",
+                "bar_index": "int",
+                "ts": "timestamp",
+                "action": "string",
+                "size": "double",
+                "price": "double",
+                "fees": "double",
+                "notional": "double",
+            },
+        },
+        "research_drawdown_records": {
+            "format": "delta",
+            "partition_by": ["dataset_version", "strategy_version", "timeframe"],
+            "columns": {
+                "backtest_run_id": "string",
+                "backtest_batch_id": "string",
+                "strategy_version": "string",
+                "strategy_family": "string",
+                "dataset_version": "string",
+                "indicator_set_version": "string",
+                "feature_set_version": "string",
+                "contract_id": "string",
+                "instrument_id": "string",
+                "timeframe": "string",
+                "window_id": "string",
+                "drawdown_id": "string",
+                "peak_ts": "timestamp",
+                "start_ts": "timestamp",
+                "valley_ts": "timestamp",
+                "end_ts": "timestamp",
+                "peak_value": "double",
+                "valley_value": "double",
+                "end_value": "double",
+                "drawdown_pct": "double",
+                "recovery_pct": "double",
+                "duration_bars": "int",
+                "status_code": "int",
+                "status": "string",
+            },
+        },
     }
 
 
@@ -159,6 +214,9 @@ def phase6_results_store_contract() -> dict[str, dict[str, object]]:
                 "timeframe": "string",
                 "params_hash": "string",
                 "params_json": "json",
+                "policy_metric_order_json": "json",
+                "policy_metric_vector_json": "json",
+                "policy_metric_score": "double",
                 "fold_count": "int",
                 "window_ids_json": "json",
                 "trade_count_total": "int",
@@ -228,6 +286,8 @@ def write_backtest_artifacts(
     run_rows: list[dict[str, object]],
     stat_rows: list[dict[str, object]],
     trade_rows: list[dict[str, object]],
+    order_rows: list[dict[str, object]] | None = None,
+    drawdown_rows: list[dict[str, object]] | None = None,
 ) -> dict[str, str]:
     contract = phase5_backtest_store_contract()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -235,6 +295,10 @@ def write_backtest_artifacts(
     run_path = output_dir / "research_backtest_runs.delta"
     stats_path = output_dir / "research_strategy_stats.delta"
     trades_path = output_dir / "research_trade_records.delta"
+    orders_path = output_dir / "research_order_records.delta"
+    drawdowns_path = output_dir / "research_drawdown_records.delta"
+    order_rows = order_rows or []
+    drawdown_rows = drawdown_rows or []
 
     write_delta_table_rows(
         table_path=batch_path,
@@ -256,11 +320,23 @@ def write_backtest_artifacts(
         rows=trade_rows,
         columns=contract["research_trade_records"]["columns"],
     )
+    write_delta_table_rows(
+        table_path=orders_path,
+        rows=order_rows,
+        columns=contract["research_order_records"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=drawdowns_path,
+        rows=drawdown_rows,
+        columns=contract["research_drawdown_records"]["columns"],
+    )
     return {
         "research_backtest_batches": batch_path.as_posix(),
         "research_backtest_runs": run_path.as_posix(),
         "research_strategy_stats": stats_path.as_posix(),
         "research_trade_records": trades_path.as_posix(),
+        "research_order_records": orders_path.as_posix(),
+        "research_drawdown_records": drawdowns_path.as_posix(),
     }
 
 
@@ -299,6 +375,8 @@ def load_backtest_artifacts(output_dir: Path) -> dict[str, list[dict[str, object
         "research_backtest_runs": _read_if_present(output_dir / "research_backtest_runs.delta"),
         "research_strategy_stats": _read_if_present(output_dir / "research_strategy_stats.delta"),
         "research_trade_records": _read_if_present(output_dir / "research_trade_records.delta"),
+        "research_order_records": _read_if_present(output_dir / "research_order_records.delta"),
+        "research_drawdown_records": _read_if_present(output_dir / "research_drawdown_records.delta"),
         "research_strategy_rankings": _read_if_present(output_dir / "research_strategy_rankings.delta"),
         "research_signal_candidates": _read_if_present(output_dir / "research_signal_candidates.delta"),
     }

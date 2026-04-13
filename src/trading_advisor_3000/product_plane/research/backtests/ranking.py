@@ -6,7 +6,7 @@ import math
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from statistics import mean, median
+from statistics import mean
 
 import pandas as pd
 
@@ -76,6 +76,47 @@ def _trade_stress(rows: list[dict[str, object]], *, extra_slippage_bps: float) -
     return stressed_pnl, _clip_unit(gross_pnl / max(gross_pnl + extra_cost, 1e-9))
 
 
+def _metric_value(metric_name: str, payload: dict[str, float]) -> float:
+    return float(payload.get(metric_name, 0.0))
+
+
+def _policy_metric_components(
+    *,
+    metric_lookup: dict[str, float],
+    policy: RankingPolicy,
+) -> tuple[float, dict[str, float]]:
+    ordered_scores: dict[str, float] = {}
+    weighted_sum = 0.0
+    total_weight = 0.0
+    metric_count = len(policy.metric_order)
+    for index, metric_name in enumerate(policy.metric_order):
+        score = _score_metric(metric_name, _metric_value(metric_name, metric_lookup), drawdown_cap=policy.max_drawdown_cap)
+        ordered_scores[metric_name] = score
+        weight = float(metric_count - index)
+        weighted_sum += weight * score
+        total_weight += weight
+    combined = weighted_sum / total_weight if total_weight > 0.0 else 0.0
+    return combined, ordered_scores
+
+
+def _metric_sort_tuple(
+    *,
+    metric_lookup: dict[str, float],
+    metric_order: tuple[str, ...],
+    drawdown_cap: float,
+) -> tuple[float, ...]:
+    return tuple(
+        _score_metric(metric_name, _metric_value(metric_name, metric_lookup), drawdown_cap=drawdown_cap)
+        for metric_name in metric_order
+    )
+
+
+def _row_policy_vector(row: dict[str, object]) -> tuple[float, ...]:
+    order = tuple(str(item) for item in row.get("policy_metric_order_json", ()))
+    vector = _coerce_json(row.get("policy_metric_vector_json"))
+    return tuple(float(vector.get(metric_name, 0.0) or 0.0) for metric_name in order)
+
+
 @dataclass(frozen=True)
 class RankingPolicy:
     policy_id: str
@@ -135,7 +176,6 @@ def rank_backtest_results(
 
     run_frame = pd.DataFrame(run_rows)
     stat_frame = pd.DataFrame(stat_rows)
-    trade_frame = pd.DataFrame(trade_rows)
     run_frame["params_dict"] = run_frame["params_json"].map(_coerce_json)
     stat_frame["params_dict"] = stat_frame["params_hash"].map(
         {
@@ -175,10 +215,6 @@ def rank_backtest_results(
             & (run_frame["timeframe"] == first["timeframe"])
             & (run_frame["params_hash"] == params_hash)
         ]
-        params_dict = _coerce_json(matching_runs.iloc[0]["params_json"]) if not matching_runs.empty else {}
-        representative_row = group.sort_values("total_return", ascending=False).iloc[0]
-        representative_run_id = str(representative_row["backtest_run_id"])
-
         stressed_runs = [
             _trade_stress(trades_by_run.get(str(run_id), []), extra_slippage_bps=resolved_policy.stress_slippage_bps)
             for run_id in group["backtest_run_id"].tolist()
@@ -204,6 +240,29 @@ def rank_backtest_results(
             "win_rate": float(group["win_rate"].mean()),
             "max_drawdown": float(group["max_drawdown"].max()),
         }
+        params_dict = _coerce_json(matching_runs.iloc[0]["params_json"]) if not matching_runs.empty else {}
+        policy_metric_score, policy_metric_vector = _policy_metric_components(
+            metric_lookup=metric_lookup,
+            policy=resolved_policy,
+        )
+        representative_row = max(
+            group.to_dict(orient="records"),
+            key=lambda item: _metric_sort_tuple(
+                metric_lookup={
+                    "total_return": float(item.get("total_return", 0.0) or 0.0),
+                    "annualized_return": float(item.get("annualized_return", 0.0) or 0.0),
+                    "sharpe": float(item.get("sharpe", 0.0) or 0.0),
+                    "sortino": float(item.get("sortino", 0.0) or 0.0),
+                    "calmar": float(item.get("calmar", 0.0) or 0.0),
+                    "profit_factor": float(item.get("profit_factor", 0.0) or 0.0),
+                    "win_rate": float(item.get("win_rate", 0.0) or 0.0),
+                    "max_drawdown": float(item.get("max_drawdown", 0.0) or 0.0),
+                },
+                metric_order=resolved_policy.metric_order,
+                drawdown_cap=resolved_policy.max_drawdown_cap,
+            ),
+        )
+        representative_run_id = str(representative_row["backtest_run_id"])
         preferred_metric_score = mean(
             _score_metric(metric_name, metric_lookup.get(metric_name, 0.0), drawdown_cap=resolved_policy.max_drawdown_cap)
             for metric_name in strategy_spec.ranking_metadata.preferred_metrics
@@ -226,6 +285,9 @@ def rank_backtest_results(
                 "timeframe": str(first["timeframe"]),
                 "params_hash": params_hash,
                 "params_json": params_dict,
+                "policy_metric_order_json": tuple(resolved_policy.metric_order),
+                "policy_metric_vector_json": policy_metric_vector,
+                "policy_metric_score": policy_metric_score,
                 "fold_count": int(len(group)),
                 "window_ids_json": tuple(str(value) for value in group["window_id"].tolist()),
                 "trade_count_total": int(group["trade_count"].sum()),
@@ -312,7 +374,7 @@ def _apply_policy_scores(rows: list[dict[str, object]], *, policy: RankingPolicy
         )
         out_of_sample_pass = (
             not policy.require_out_of_sample_pass
-            or (float(row["mean_total_return"]) > 0.0 and float(row["preferred_metric_score"]) >= 0.55)
+            or (float(row["mean_total_return"]) > 0.0 and float(row["policy_metric_score"]) >= 0.55)
         )
         policy_pass = (
             out_of_sample_pass
@@ -323,12 +385,13 @@ def _apply_policy_scores(rows: list[dict[str, object]], *, policy: RankingPolicy
             and float(row["parameter_stability_score"]) >= policy.min_parameter_stability
         )
         robust_score = (
-            0.35 * float(row["preferred_metric_score"])
+            0.30 * float(row["policy_metric_score"])
+            + 0.20 * float(row["preferred_metric_score"])
             + 0.20 * float(row["fold_consistency_score"])
             + 0.15 * float(row["slippage_sensitivity_score"])
             + 0.10 * float(row["parameter_stability_score"])
-            + 0.10 * trade_count_score
-            + 0.10 * drawdown_score
+            + 0.03 * trade_count_score
+            + 0.02 * drawdown_score
         )
         row["robust_score"] = round(robust_score, 6)
         row["out_of_sample_pass"] = 1 if out_of_sample_pass else 0
@@ -363,6 +426,8 @@ def _assign_partition_ranks(rows: list[dict[str, object]]) -> None:
             group_rows,
             key=lambda item: (
                 int(item["policy_pass"]),
+                _row_policy_vector(item),
+                float(item["policy_metric_score"]),
                 float(item["robust_score"]),
                 float(item["preferred_metric_score"]),
                 float(item["mean_total_return"]),

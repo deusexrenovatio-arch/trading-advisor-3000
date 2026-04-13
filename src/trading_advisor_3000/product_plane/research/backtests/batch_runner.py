@@ -118,6 +118,8 @@ def run_backtest_batch(
     all_run_rows: list[dict[str, object]] = []
     all_stat_rows: list[dict[str, object]] = []
     all_trade_rows: list[dict[str, object]] = []
+    all_order_rows: list[dict[str, object]] = []
+    all_drawdown_rows: list[dict[str, object]] = []
     total_combinations = 0
 
     for strategy_version in request.strategy_versions:
@@ -144,6 +146,8 @@ def run_backtest_batch(
                         all_run_rows.extend(result["run_rows"])
                         all_stat_rows.extend(result["stat_rows"])
                         all_trade_rows.extend(result["trade_rows"])
+                        all_order_rows.extend(result["order_rows"])
+                        all_drawdown_rows.extend(result["drawdown_rows"])
 
     batch_row = {
         "backtest_batch_id": batch_id,
@@ -166,12 +170,16 @@ def run_backtest_batch(
         run_rows=all_run_rows,
         stat_rows=all_stat_rows,
         trade_rows=all_trade_rows,
+        order_rows=all_order_rows,
+        drawdown_rows=all_drawdown_rows,
     )
     return {
         "backtest_batch": batch_row,
         "run_rows": all_run_rows,
         "stat_rows": all_stat_rows,
         "trade_rows": all_trade_rows,
+        "order_rows": all_order_rows,
+        "drawdown_rows": all_drawdown_rows,
         "cache_id": cache_id,
         "cache_hit": cache_hit,
         "delta_manifest": phase5_backtest_store_contract(),
