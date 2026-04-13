@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from trading_advisor_3000.dagster_defs import materialize_phase2b_bootstrap_assets
+from trading_advisor_3000.dagster_defs import (
+    materialize_phase2b_backtest_assets,
+    materialize_phase2b_bootstrap_assets,
+    materialize_phase2b_projection_assets,
+)
 from trading_advisor_3000.product_plane.data_plane import run_sample_backfill
 from trading_advisor_3000.product_plane.data_plane.canonical import RollMapEntry, SessionCalendarEntry
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows
@@ -181,3 +185,58 @@ def test_phase2b_dagster_bootstrap_matches_direct_materialization(tmp_path: Path
     assert len(direct_feature_rows) == len(dagster_feature_rows)
     assert [row["ts"] for row in direct_feature_rows] == [row["ts"] for row in dagster_feature_rows]
     assert [row["profile_version"] for row in direct_feature_rows] == [row["profile_version"] for row in dagster_feature_rows]
+
+
+def test_phase2b_dagster_backtest_and_projection_jobs_materialize_research_flow(tmp_path: Path) -> None:
+    canonical_dir = tmp_path / "canonical-stage7"
+    run_sample_backfill(
+        source_path=RAW_FIXTURE,
+        output_dir=canonical_dir,
+        whitelist_contracts={"BR-6.26", "Si-6.26"},
+    )
+
+    dagster_dir = tmp_path / "dagster-stage7"
+    backtest_report = materialize_phase2b_backtest_assets(
+        canonical_output_dir=canonical_dir,
+        research_output_dir=dagster_dir,
+        dataset_version="dagster-stage7-v1",
+        timeframes=("15m",),
+        strategy_versions=("ma-cross-v1",),
+        combination_count=1,
+        backtest_timeframe="15m",
+    )
+    assert backtest_report["success"] is True
+    assert set(backtest_report["selected_assets"]) == {
+        "research_backtest_batches",
+        "research_backtest_runs",
+        "research_strategy_stats",
+        "research_trade_records",
+        "research_order_records",
+        "research_drawdown_records",
+        "research_strategy_rankings",
+    }
+    assert "research_datasets" in backtest_report["materialized_assets"]
+    assert "research_strategy_rankings" in backtest_report["materialized_assets"]
+    assert (Path(backtest_report["output_paths"]["research_backtest_batches"]) / "_delta_log").exists()
+    assert (Path(backtest_report["output_paths"]["research_strategy_rankings"]) / "_delta_log").exists()
+    assert read_delta_table_rows(Path(backtest_report["output_paths"]["research_backtest_runs"]))
+    assert read_delta_table_rows(Path(backtest_report["output_paths"]["research_strategy_rankings"]))
+
+    projection_report = materialize_phase2b_projection_assets(
+        canonical_output_dir=canonical_dir,
+        research_output_dir=dagster_dir,
+        dataset_version="dagster-stage7-v1",
+        timeframes=("15m",),
+        strategy_versions=("ma-cross-v1",),
+        combination_count=1,
+        backtest_timeframe="15m",
+        selection_policy="all_policy_pass",
+        min_robust_score=0.0,
+        decision_lag_bars_max=4,
+    )
+    assert projection_report["success"] is True
+    assert set(projection_report["selected_assets"]) == {"research_signal_candidates"}
+    assert "research_signal_candidates" in projection_report["materialized_assets"]
+    assert (Path(projection_report["output_paths"]["research_signal_candidates"]) / "_delta_log").exists()
+    candidate_rows = read_delta_table_rows(Path(projection_report["output_paths"]["research_signal_candidates"]))
+    assert isinstance(candidate_rows, list)

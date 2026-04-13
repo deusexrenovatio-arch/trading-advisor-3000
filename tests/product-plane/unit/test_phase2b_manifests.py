@@ -16,8 +16,13 @@ def test_phase2b_dagster_asset_specs_declared() -> None:
         "research_bar_views",
         "research_indicator_frames",
         "research_feature_frames",
-        "feature_snapshots",
+        "research_backtest_batches",
         "research_backtest_runs",
+        "research_strategy_stats",
+        "research_trade_records",
+        "research_order_records",
+        "research_drawdown_records",
+        "research_strategy_rankings",
         "research_signal_candidates",
     } == keys
     assert set(specs["research_datasets"].inputs) == {
@@ -33,6 +38,21 @@ def test_phase2b_dagster_asset_specs_declared() -> None:
         "research_datasets_delta",
         "research_bar_views_delta",
         "research_indicator_frames_delta",
+    }
+    assert set(specs["research_backtest_batches"].inputs) == {
+        "research_datasets_delta",
+        "research_indicator_frames_delta",
+        "research_feature_frames_delta",
+    }
+    assert set(specs["research_strategy_rankings"].inputs) == {
+        "research_backtest_batches_delta",
+        "research_strategy_stats_delta",
+        "research_trade_records_delta",
+    }
+    assert set(specs["research_signal_candidates"].inputs) == {
+        "research_datasets_delta",
+        "research_feature_frames_delta",
+        "research_strategy_rankings_delta",
     }
 
 
