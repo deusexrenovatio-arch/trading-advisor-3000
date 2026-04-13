@@ -3,8 +3,17 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from trading_advisor_3000.product_plane.contracts import DecisionCandidate
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows, write_delta_table_rows
-from trading_advisor_3000.product_plane.research.backtests import BacktestBatchRequest, BacktestEngineConfig, run_backtest_batch
+from trading_advisor_3000.product_plane.research.backtests import (
+    BacktestBatchRequest,
+    BacktestEngineConfig,
+    CandidateProjectionRequest,
+    RankingPolicy,
+    project_runtime_candidates,
+    rank_backtest_results,
+    run_backtest_batch,
+)
 from trading_advisor_3000.product_plane.research.datasets import ResearchBarView, ResearchDatasetManifest, phase2_research_dataset_store_contract
 from trading_advisor_3000.product_plane.research.features import FeatureFrameRow, phase2b_feature_store_contract
 from trading_advisor_3000.product_plane.research.indicators import IndicatorFrameRow, phase3_indicator_store_contract
@@ -432,3 +441,67 @@ def test_vectorbt_batch_runner_handles_100_combinations_with_batching_and_cache(
     assert second["cache_hit"] is True
     assert len(first["run_rows"]) == 100
     assert len(second["run_rows"]) == 100
+
+
+def test_stage6_ranking_and_projection_build_runtime_compatible_candidates(tmp_path: Path) -> None:
+    materialized_dir = _write_materialized_layers(tmp_path / "materialized-stage6")
+    output_dir = tmp_path / "backtests-stage6"
+    backtest_report = run_backtest_batch(
+        dataset_output_dir=materialized_dir,
+        indicator_output_dir=materialized_dir,
+        feature_output_dir=materialized_dir,
+        output_dir=output_dir,
+        request=BacktestBatchRequest(
+            dataset_version="dataset-v5",
+            indicator_set_version="indicators-v1",
+            feature_set_version="features-v1",
+            strategy_versions=("ma-cross-v1", "breakout-v1"),
+            combination_count=3,
+            param_batch_size=2,
+            series_batch_size=1,
+            timeframe="15m",
+        ),
+        engine_config=BacktestEngineConfig(window_count=2, fees_bps=5.0, slippage_bps=2.0),
+    )
+    policy = RankingPolicy(
+        policy_id="stage6-selection-v1",
+        metric_order=("total_return", "profit_factor", "max_drawdown"),
+        min_trade_count=1,
+        max_drawdown_cap=0.8,
+        min_positive_fold_ratio=0.0,
+        min_parameter_stability=0.0,
+        min_slippage_score=0.0,
+    )
+
+    ranking_report = rank_backtest_results(
+        backtest_output_dir=output_dir,
+        policy=policy,
+    )
+    assert ranking_report["ranking_rows"]
+    assert any(row["selected_rank"] >= 1 for row in ranking_report["ranking_rows"])
+    assert any(row["policy_pass"] == 1 for row in ranking_report["ranking_rows"])
+
+    projection_report = project_runtime_candidates(
+        dataset_output_dir=materialized_dir,
+        indicator_output_dir=materialized_dir,
+        feature_output_dir=materialized_dir,
+        output_dir=output_dir,
+        request=CandidateProjectionRequest(
+            ranking_policy_id="stage6-selection-v1",
+            min_robust_score=0.0,
+            decision_lag_bars_max=12,
+        ),
+        ranking_rows=ranking_report["ranking_rows"],
+    )
+
+    assert projection_report["candidate_rows"]
+    ranking_rows = read_delta_table_rows(Path(str(ranking_report["output_paths"]["research_strategy_rankings"])))
+    candidate_rows = read_delta_table_rows(Path(str(projection_report["output_paths"]["research_signal_candidates"])))
+    assert ranking_rows
+    assert candidate_rows
+    assert any(row["robust_score"] >= 0.0 for row in ranking_rows)
+    assert all("feature_snapshot_json" in row for row in candidate_rows)
+    for payload in projection_report["candidate_contracts"]:
+        contract = DecisionCandidate.from_dict(payload)
+        assert contract.to_dict() == payload
+    assert backtest_report["trade_rows"]

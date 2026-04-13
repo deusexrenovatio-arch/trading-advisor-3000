@@ -1,0 +1,176 @@
+from __future__ import annotations
+
+from trading_advisor_3000.product_plane.research.backtests import RankingPolicy, default_ranking_policy, rank_backtest_results
+
+
+def _run_row(
+    *,
+    run_id: str,
+    params_hash: str,
+    params_json: dict[str, object],
+    window_id: str,
+) -> dict[str, object]:
+    return {
+        "backtest_run_id": run_id,
+        "backtest_batch_id": "BTBATCH-STAGE6",
+        "strategy_version": "ma-cross-v1",
+        "strategy_family": "ma_cross",
+        "dataset_version": "dataset-v5",
+        "indicator_set_version": "indicators-v1",
+        "feature_set_version": "features-v1",
+        "contract_id": "BR-6.26",
+        "instrument_id": "BR",
+        "timeframe": "15m",
+        "window_id": window_id,
+        "params_hash": params_hash,
+        "params_json": params_json,
+        "execution_mode": "signals",
+        "engine_name": "vectorbt",
+        "row_count": 12,
+        "trade_count": 2,
+        "started_at": "2026-03-16T09:00:00Z",
+        "finished_at": "2026-03-16T11:45:00Z",
+    }
+
+
+def _stat_row(
+    *,
+    run_id: str,
+    params_hash: str,
+    window_id: str,
+    total_return: float,
+    sharpe: float,
+    profit_factor: float,
+    max_drawdown: float,
+    trade_count: int,
+) -> dict[str, object]:
+    return {
+        "backtest_run_id": run_id,
+        "backtest_batch_id": "BTBATCH-STAGE6",
+        "strategy_version": "ma-cross-v1",
+        "strategy_family": "ma_cross",
+        "dataset_version": "dataset-v5",
+        "indicator_set_version": "indicators-v1",
+        "feature_set_version": "features-v1",
+        "contract_id": "BR-6.26",
+        "instrument_id": "BR",
+        "timeframe": "15m",
+        "window_id": window_id,
+        "params_hash": params_hash,
+        "total_return": total_return,
+        "annualized_return": total_return * 2.0,
+        "sharpe": sharpe,
+        "sortino": sharpe + 0.2,
+        "calmar": 1.1,
+        "max_drawdown": max_drawdown,
+        "win_rate": 0.6,
+        "profit_factor": profit_factor,
+        "expectancy": 0.1,
+        "trade_count": trade_count,
+        "exposure": 0.4,
+        "avg_trade_duration_bars": 3.0,
+        "fees_total": 2.0,
+        "slippage_total": 1.0,
+        "created_at": "2026-03-16T12:00:00Z",
+    }
+
+
+def _trade_row(
+    *,
+    run_id: str,
+    trade_id: str,
+    pnl: float,
+    entry_price: float = 100.0,
+    exit_price: float = 102.0,
+) -> dict[str, object]:
+    return {
+        "backtest_run_id": run_id,
+        "backtest_batch_id": "BTBATCH-STAGE6",
+        "strategy_version": "ma-cross-v1",
+        "strategy_family": "ma_cross",
+        "dataset_version": "dataset-v5",
+        "indicator_set_version": "indicators-v1",
+        "feature_set_version": "features-v1",
+        "contract_id": "BR-6.26",
+        "instrument_id": "BR",
+        "timeframe": "15m",
+        "window_id": "wf-01",
+        "trade_id": trade_id,
+        "position_id": 1,
+        "direction": "long",
+        "status": "closed",
+        "entry_ts": "2026-03-16T09:15:00Z",
+        "exit_ts": "2026-03-16T09:45:00Z",
+        "entry_price": entry_price,
+        "exit_price": exit_price,
+        "size": 1.0,
+        "pnl": pnl,
+        "return": pnl / entry_price,
+        "fees_total": 0.2,
+        "duration_bars": 2,
+    }
+
+
+def test_default_ranking_policy_is_declared_for_stage6() -> None:
+    policy = default_ranking_policy()
+    assert policy.policy_id == "robust_oos_v1"
+    assert policy.metric_order == ("total_return", "profit_factor", "max_drawdown")
+
+
+def test_ranking_orders_robust_parameter_sets_and_marks_weak_ones() -> None:
+    run_rows = [
+        _run_row(run_id="RUN-A-1", params_hash="PA", params_json={"fast_window": 10, "slow_window": 20}, window_id="wf-01"),
+        _run_row(run_id="RUN-A-2", params_hash="PA", params_json={"fast_window": 10, "slow_window": 20}, window_id="wf-02"),
+        _run_row(run_id="RUN-B-1", params_hash="PB", params_json={"fast_window": 20, "slow_window": 20}, window_id="wf-01"),
+        _run_row(run_id="RUN-B-2", params_hash="PB", params_json={"fast_window": 20, "slow_window": 20}, window_id="wf-02"),
+        _run_row(run_id="RUN-C-1", params_hash="PC", params_json={"fast_window": 10, "slow_window": 50}, window_id="wf-01"),
+        _run_row(run_id="RUN-C-2", params_hash="PC", params_json={"fast_window": 10, "slow_window": 50}, window_id="wf-02"),
+    ]
+    stat_rows = [
+        _stat_row(run_id="RUN-A-1", params_hash="PA", window_id="wf-01", total_return=0.12, sharpe=1.6, profit_factor=1.8, max_drawdown=0.10, trade_count=3),
+        _stat_row(run_id="RUN-A-2", params_hash="PA", window_id="wf-02", total_return=0.08, sharpe=1.4, profit_factor=1.7, max_drawdown=0.12, trade_count=4),
+        _stat_row(run_id="RUN-B-1", params_hash="PB", window_id="wf-01", total_return=-0.03, sharpe=0.4, profit_factor=0.9, max_drawdown=0.42, trade_count=1),
+        _stat_row(run_id="RUN-B-2", params_hash="PB", window_id="wf-02", total_return=0.01, sharpe=0.5, profit_factor=0.95, max_drawdown=0.39, trade_count=1),
+        _stat_row(run_id="RUN-C-1", params_hash="PC", window_id="wf-01", total_return=0.10, sharpe=1.3, profit_factor=1.5, max_drawdown=0.14, trade_count=3),
+        _stat_row(run_id="RUN-C-2", params_hash="PC", window_id="wf-02", total_return=0.07, sharpe=1.2, profit_factor=1.4, max_drawdown=0.16, trade_count=3),
+    ]
+    trade_rows = [
+        _trade_row(run_id="RUN-A-1", trade_id="TRD-A1", pnl=120.0),
+        _trade_row(run_id="RUN-A-1", trade_id="TRD-A2", pnl=80.0),
+        _trade_row(run_id="RUN-A-2", trade_id="TRD-A3", pnl=70.0),
+        _trade_row(run_id="RUN-A-2", trade_id="TRD-A4", pnl=65.0),
+        _trade_row(run_id="RUN-B-1", trade_id="TRD-B1", pnl=-40.0, entry_price=100.0, exit_price=99.2),
+        _trade_row(run_id="RUN-B-2", trade_id="TRD-B2", pnl=5.0, entry_price=100.0, exit_price=100.1),
+        _trade_row(run_id="RUN-C-1", trade_id="TRD-C1", pnl=90.0),
+        _trade_row(run_id="RUN-C-1", trade_id="TRD-C2", pnl=70.0),
+        _trade_row(run_id="RUN-C-2", trade_id="TRD-C3", pnl=60.0),
+        _trade_row(run_id="RUN-C-2", trade_id="TRD-C4", pnl=55.0),
+    ]
+    policy = RankingPolicy(
+        policy_id="stage6-test-policy",
+        metric_order=("total_return", "profit_factor", "max_drawdown"),
+        min_trade_count=2,
+        max_drawdown_cap=0.35,
+        min_positive_fold_ratio=0.5,
+        min_parameter_stability=0.0,
+        min_slippage_score=0.0,
+    )
+
+    report = rank_backtest_results(
+        batch_rows=[{"backtest_batch_id": "BTBATCH-STAGE6"}],
+        run_rows=run_rows,
+        stat_rows=stat_rows,
+        trade_rows=trade_rows,
+        policy=policy,
+    )
+
+    ranking_rows = sorted(report["ranking_rows"], key=lambda row: row["selected_rank"])
+    assert len(ranking_rows) == 3
+    assert ranking_rows[0]["params_hash"] == "PA"
+    assert ranking_rows[0]["policy_pass"] == 1
+    assert ranking_rows[0]["robust_score"] > ranking_rows[1]["robust_score"]
+    weak = next(row for row in ranking_rows if row["params_hash"] == "PB")
+    assert weak["policy_pass"] == 0
+    assert weak["worst_max_drawdown"] > policy.max_drawdown_cap
+    stable = next(row for row in ranking_rows if row["params_hash"] == "PA")
+    assert stable["parameter_stability_score"] >= 0.5
