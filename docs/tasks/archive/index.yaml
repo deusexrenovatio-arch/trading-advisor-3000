@@ -205,3 +205,15 @@ items:
   status: completed
   started_at: '2026-04-13'
   completed_at: '2026-04-13'
+- id: TASK-2026-04-13-PUBLISH-STAGE-6-SEMANTIC-REMEDIATION-COMMITS-TO-
+  path: docs/tasks/archive/TASK-2026-04-13-publish-stage-6-semantic-remediation-commits-to-.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-13'
+  completed_at: '2026-04-13'
+- id: TASK-2026-04-13-IMPLEMENT-STAGE-7-ORCHESTRATION-JOBS-FOR-THE-MAT
+  path: docs/tasks/archive/TASK-2026-04-13-implement-stage-7-orchestration-jobs-for-the-mat.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-13'
+  completed_at: '2026-04-13'
