@@ -187,3 +187,9 @@ items:
   status: completed
   started_at: '2026-04-13'
   completed_at: '2026-04-13'
+- id: TASK-2026-04-13-PUBLISH-STAGE-5-REMEDIATION-AS-CLEAN-COMMITS-PR-
+  path: docs/tasks/archive/TASK-2026-04-13-publish-stage-5-remediation-as-clean-commits-pr-.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-13'
+  completed_at: '2026-04-13'
