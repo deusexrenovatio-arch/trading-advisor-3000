@@ -175,3 +175,15 @@ items:
   status: completed
   started_at: '2026-04-13'
   completed_at: '2026-04-13'
+- id: TASK-2026-04-13-IMPLEMENT-STAGE-5-STRATEGY-SPECS-AND-VECTORBT-BA
+  path: docs/tasks/archive/TASK-2026-04-13-implement-stage-5-strategy-specs-and-vectorbt-ba.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-13'
+  completed_at: '2026-04-13'
+- id: TASK-2026-04-13-REMEDIATE-STAGE-5-SEMANTIC-GAPS-IN-VECTORBT-BACK
+  path: docs/tasks/archive/TASK-2026-04-13-remediate-stage-5-semantic-gaps-in-vectorbt-back.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-13'
+  completed_at: '2026-04-13'
