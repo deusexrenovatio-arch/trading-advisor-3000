@@ -193,3 +193,15 @@ items:
   status: completed
   started_at: '2026-04-13'
   completed_at: '2026-04-13'
+- id: TASK-2026-04-13-PUBLISH-COMPLETED-STAGE-6-RANKING-PROJECTION-COM
+  path: docs/tasks/archive/TASK-2026-04-13-publish-completed-stage-6-ranking-projection-com.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-13'
+  completed_at: '2026-04-13'
+- id: TASK-2026-04-13-REMEDIATE-STAGE-6-SEMANTIC-GAPS-MAKE-RANKING-POL
+  path: docs/tasks/archive/TASK-2026-04-13-remediate-stage-6-semantic-gaps-make-ranking-pol.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-13'
+  completed_at: '2026-04-13'

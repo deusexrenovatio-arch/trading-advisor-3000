@@ -852,3 +852,53 @@ items:
   intent_sources:
   - request
   - session_handoff
+- task_id: TASK-2026-04-13-PUBLISH-COMPLETED-STAGE-6-RANKING-PROJECTION-COM
+  closed_at: '2026-04-13T16:13:12Z'
+  branch: codex/research-phase1-4-materialized-plane
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_first_time
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: workflow
+  improvement_artifact: docs/tasks/archive/TASK-2026-04-13-publish-completed-stage-6-ranking-projection-com.md
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-04-13-REMEDIATE-STAGE-6-SEMANTIC-GAPS-MAKE-RANKING-POL
+  closed_at: '2026-04-13T16:23:33Z'
+  branch: codex/research-phase1-4-materialized-plane
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  - APP-PLANE
+  - CTX-RESEARCH
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_first_time
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: test
+  improvement_artifact: tests/product-plane/unit/test_research_ranking_projection.py
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
