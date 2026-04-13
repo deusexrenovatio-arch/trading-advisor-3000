@@ -11,6 +11,9 @@
 - Constraints: risk, policy, runtime, and time limits.
 - Done Evidence: exact commands and artifacts that prove completion.
 - Priority Rule: tie-breaker when requirements conflict.
+  Default if not otherwise stated: correctness and target architecture fit > evidence strength > operator clarity > speed or smallest diff.
+- Decision Framing: when tradeoffs are material, record the chosen path and at least one rejected viable alternative.
+- Simplification Goal: when the task consolidates state, contracts, or flows, record what should become the source of truth and which duplicate layer is expected to remain or be removed.
 
 ## Critical Contour Addendum
 When the diff matches `configs/critical_contours.yaml`, add `## Solution Intent` and record:
@@ -24,6 +27,7 @@ Keep the design checkpoint inline:
 - chosen path;
 - why it is not a shortcut;
 - what future shape stays preserved.
+- if the chosen path is simpler than target, name it as `staged` or `fallback`, not as target closure.
 
 ## Mandatory Repetition Control
 - Max Same-Path Attempts: cap before forced strategy reset.
@@ -37,6 +41,8 @@ Keep the design checkpoint inline:
 - Scope/out-of-scope contradiction.
 - No testable completion evidence.
 - No priority rule when tradeoffs exist.
+- Tradeoff exists but the chosen path or rejected alternative is not recorded.
+- Consolidation or simplification is implied but the intended source of truth is not identified.
 - Repetition control missing on repeated failures.
 
 ## Enforcement
