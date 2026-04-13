@@ -540,8 +540,82 @@ def _trade_rows(
                 "fees_total": float(trade["entry_fees"]) + float(trade["exit_fees"]),
                 "duration_bars": duration_bars,
             }
-        )
+            )
     return rows
+
+
+def project_series_candidate(
+    *,
+    series: ResearchSeriesFrame,
+    strategy_spec: StrategySpec,
+    params: dict[str, object],
+    config: BacktestEngineConfig,
+    dataset_version: str,
+    feature_set_version: str,
+    decision_lag_bars_max: int = 1,
+) -> dict[str, object] | None:
+    if decision_lag_bars_max < 0:
+        raise ValueError("decision_lag_bars_max must be non-negative")
+    frame = series.frame.copy()
+    signals = _strategy_signals(frame, strategy_spec, params, config)
+    close = _numeric(frame, "close")
+    long_entries = signals.get("entries")
+    short_entries = signals.get("short_entries")
+    if "direction_signal" in signals:
+        direction = pd.Series(signals["direction_signal"], index=frame.index).fillna(0).astype(int)
+        long_entries = direction > 0
+        short_entries = direction < 0
+    long_entries = pd.Series(False, index=frame.index) if long_entries is None else pd.Series(long_entries, index=frame.index).fillna(False)
+    short_entries = pd.Series(False, index=frame.index) if short_entries is None else pd.Series(short_entries, index=frame.index).fillna(False)
+    entry_candidates: list[tuple[int, str]] = []
+    entry_candidates.extend((idx, "long") for idx, active in enumerate(long_entries.tolist()) if bool(active))
+    entry_candidates.extend((idx, "short") for idx, active in enumerate(short_entries.tolist()) if bool(active))
+    if not entry_candidates:
+        return None
+
+    signal_index, side = max(entry_candidates, key=lambda item: item[0])
+    freshness_bars = (len(frame) - 1) - signal_index
+    if freshness_bars > decision_lag_bars_max:
+        return None
+
+    entry_price = float(close.iloc[signal_index])
+    if pd.isna(entry_price):
+        return None
+    sl_stop = pd.Series(signals.get("sl_stop"), index=frame.index)
+    tp_stop = pd.Series(signals.get("tp_stop"), index=frame.index)
+    stop_relative = float(sl_stop.iloc[signal_index]) if signal_index < len(sl_stop) and not pd.isna(sl_stop.iloc[signal_index]) else 0.0
+    target_relative = float(tp_stop.iloc[signal_index]) if signal_index < len(tp_stop) and not pd.isna(tp_stop.iloc[signal_index]) else 0.0
+
+    if side == "long":
+        stop_ref = entry_price * max(0.0, 1.0 - stop_relative)
+        target_ref = entry_price * (1.0 + target_relative)
+    else:
+        stop_ref = entry_price * (1.0 + stop_relative)
+        target_ref = entry_price * max(0.0, 1.0 - target_relative)
+
+    risk_distance = abs(entry_price - stop_ref)
+    reward_distance = abs(target_ref - entry_price)
+    if risk_distance <= 0.0 or reward_distance <= 0.0:
+        return None
+    risk_reward = reward_distance / max(risk_distance, 1e-9)
+    freshness_score = max(0.0, 1.0 - (freshness_bars / max(decision_lag_bars_max + 1, 1)))
+    signal_strength = max(0.0, min(1.0, 0.35 + (0.35 * min(risk_reward / 2.0, 1.0)) + (0.30 * freshness_score)))
+    ts_decision = str(frame["ts"].iloc[signal_index])
+    snapshot_id = "FSNAP-" + _stable_hash(
+        f"{dataset_version}|{feature_set_version}|{series.contract_id}|{series.timeframe}|{ts_decision}"
+    )
+    return {
+        "side": side,
+        "entry_ref": entry_price,
+        "stop_ref": stop_ref,
+        "target_ref": target_ref,
+        "ts_decision": ts_decision,
+        "signal_strength_score": signal_strength,
+        "feature_snapshot": {
+            "dataset_version": dataset_version,
+            "snapshot_id": snapshot_id,
+        },
+    }
 
 
 def run_backtest_series(
