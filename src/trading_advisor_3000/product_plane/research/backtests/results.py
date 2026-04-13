@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
+
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
 
 
 @dataclass(frozen=True)
 class BacktestBatchArtifact:
     backtest_batch_id: str
     dataset_version: str
+    indicator_set_version: str
+    feature_set_version: str
     strategy_catalog_version: str
     combination_count: int
 
@@ -20,3 +25,157 @@ class BacktestRunArtifact:
     indicator_set_version: str
     feature_set_version: str
 
+
+def phase5_backtest_store_contract() -> dict[str, dict[str, object]]:
+    return {
+        "research_backtest_batches": {
+            "format": "delta",
+            "partition_by": ["dataset_version", "strategy_catalog_version"],
+            "columns": {
+                "backtest_batch_id": "string",
+                "dataset_version": "string",
+                "indicator_set_version": "string",
+                "feature_set_version": "string",
+                "strategy_catalog_version": "string",
+                "engine_name": "string",
+                "param_batch_size": "int",
+                "series_batch_size": "int",
+                "combination_count": "int",
+                "series_count": "int",
+                "cache_id": "string",
+                "cache_hit": "int",
+                "created_at": "timestamp",
+            },
+        },
+        "research_backtest_runs": {
+            "format": "delta",
+            "partition_by": ["dataset_version", "strategy_version", "timeframe"],
+            "columns": {
+                "backtest_run_id": "string",
+                "backtest_batch_id": "string",
+                "strategy_version": "string",
+                "strategy_family": "string",
+                "dataset_version": "string",
+                "indicator_set_version": "string",
+                "feature_set_version": "string",
+                "contract_id": "string",
+                "instrument_id": "string",
+                "timeframe": "string",
+                "window_id": "string",
+                "params_hash": "string",
+                "params_json": "json",
+                "execution_mode": "string",
+                "engine_name": "string",
+                "row_count": "int",
+                "trade_count": "int",
+                "started_at": "timestamp",
+                "finished_at": "timestamp",
+            },
+        },
+        "research_strategy_stats": {
+            "format": "delta",
+            "partition_by": ["dataset_version", "strategy_version", "timeframe"],
+            "columns": {
+                "backtest_run_id": "string",
+                "backtest_batch_id": "string",
+                "strategy_version": "string",
+                "strategy_family": "string",
+                "dataset_version": "string",
+                "indicator_set_version": "string",
+                "feature_set_version": "string",
+                "contract_id": "string",
+                "instrument_id": "string",
+                "timeframe": "string",
+                "window_id": "string",
+                "params_hash": "string",
+                "total_return": "double",
+                "annualized_return": "double",
+                "sharpe": "double",
+                "sortino": "double",
+                "calmar": "double",
+                "max_drawdown": "double",
+                "win_rate": "double",
+                "profit_factor": "double",
+                "expectancy": "double",
+                "trade_count": "int",
+                "exposure": "double",
+                "avg_trade_duration_bars": "double",
+                "fees_total": "double",
+                "slippage_total": "double",
+                "created_at": "timestamp",
+            },
+        },
+        "research_trade_records": {
+            "format": "delta",
+            "partition_by": ["dataset_version", "strategy_version", "timeframe"],
+            "columns": {
+                "backtest_run_id": "string",
+                "backtest_batch_id": "string",
+                "strategy_version": "string",
+                "strategy_family": "string",
+                "dataset_version": "string",
+                "indicator_set_version": "string",
+                "feature_set_version": "string",
+                "contract_id": "string",
+                "instrument_id": "string",
+                "timeframe": "string",
+                "window_id": "string",
+                "trade_id": "string",
+                "position_id": "int",
+                "direction": "string",
+                "status": "string",
+                "entry_ts": "timestamp",
+                "exit_ts": "timestamp",
+                "entry_price": "double",
+                "exit_price": "double",
+                "size": "double",
+                "pnl": "double",
+                "return": "double",
+                "fees_total": "double",
+                "duration_bars": "int",
+            },
+        },
+    }
+
+
+def write_backtest_artifacts(
+    *,
+    output_dir: Path,
+    batch_rows: list[dict[str, object]],
+    run_rows: list[dict[str, object]],
+    stat_rows: list[dict[str, object]],
+    trade_rows: list[dict[str, object]],
+) -> dict[str, str]:
+    contract = phase5_backtest_store_contract()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    batch_path = output_dir / "research_backtest_batches.delta"
+    run_path = output_dir / "research_backtest_runs.delta"
+    stats_path = output_dir / "research_strategy_stats.delta"
+    trades_path = output_dir / "research_trade_records.delta"
+
+    write_delta_table_rows(
+        table_path=batch_path,
+        rows=batch_rows,
+        columns=contract["research_backtest_batches"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=run_path,
+        rows=run_rows,
+        columns=contract["research_backtest_runs"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=stats_path,
+        rows=stat_rows,
+        columns=contract["research_strategy_stats"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=trades_path,
+        rows=trade_rows,
+        columns=contract["research_trade_records"]["columns"],
+    )
+    return {
+        "research_backtest_batches": batch_path.as_posix(),
+        "research_backtest_runs": run_path.as_posix(),
+        "research_strategy_stats": stats_path.as_posix(),
+        "research_trade_records": trades_path.as_posix(),
+    }

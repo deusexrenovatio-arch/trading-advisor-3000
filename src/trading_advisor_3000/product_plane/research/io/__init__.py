@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from .cache import ResearchCacheKey
-from .loaders import ResearchSliceRequest
+from .cache import ResearchCacheKey, ResearchFrameCache
+from .loaders import ResearchSeriesFrame, ResearchSliceRequest, load_backtest_frames
 
-__all__ = ["ResearchCacheKey", "ResearchSliceRequest"]
+__all__ = [
+    "ResearchCacheKey",
+    "ResearchFrameCache",
+    "ResearchSeriesFrame",
+    "ResearchSliceRequest",
+    "load_backtest_frames",
+]
