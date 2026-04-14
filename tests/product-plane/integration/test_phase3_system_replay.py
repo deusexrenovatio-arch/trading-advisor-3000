@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from trading_advisor_3000.product_plane.contracts import CanonicalBar
@@ -8,13 +9,54 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_del
 from trading_advisor_3000.product_plane.runtime.analytics import run_system_shadow_replay
 
 
-ROOT = Path(__file__).resolve().parents[3]
-SOURCE_FIXTURE = ROOT / "tests" / "product-plane" / "fixtures" / "research" / "canonical_bars_sample.jsonl"
+def _instrument_map() -> dict[str, str]:
+    return {"BR-6.26": "BR", "Si-6.26": "Si"}
 
 
-def _load_bars(path: Path) -> list[CanonicalBar]:
-    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-    return [CanonicalBar.from_dict(row) for row in rows]
+def _build_bars(*, bars_per_contract: int = 72) -> list[CanonicalBar]:
+    start = datetime(2026, 3, 16, 9, 0, tzinfo=UTC)
+    specs = (
+        ("BR-6.26", "BR", 82.0, 0.22),
+        ("Si-6.26", "Si", 91_800.0, 55.0),
+    )
+    bars: list[CanonicalBar] = []
+    for contract_id, instrument_id, base_close, step in specs:
+        for index in range(bars_per_contract):
+            ts = (start + timedelta(minutes=15 * index)).isoformat().replace("+00:00", "Z")
+            if index < bars_per_contract // 3:
+                close = base_close + (index * step)
+            elif index < (2 * bars_per_contract) // 3:
+                close = base_close + ((bars_per_contract // 3) * step) - ((index - (bars_per_contract // 3)) * step * 1.15)
+            else:
+                close = (
+                    base_close
+                    + ((bars_per_contract // 3) * step)
+                    - ((bars_per_contract // 3) * step * 1.15)
+                    + ((index - ((2 * bars_per_contract) // 3)) * step * 1.35)
+                )
+            open_price = close - (0.35 * step)
+            high = max(open_price, close) + (0.75 * step)
+            low = min(open_price, close) - (0.85 * step)
+            volume = 1_000 + (index * 20) + (120 if index % 7 == 0 else 0)
+            if instrument_id == "Si":
+                volume += 300
+            bars.append(
+                CanonicalBar.from_dict(
+                    {
+                        "contract_id": contract_id,
+                        "instrument_id": instrument_id,
+                        "timeframe": "15m",
+                        "ts": ts,
+                        "open": round(open_price, 6),
+                        "high": round(high, 6),
+                        "low": round(low, 6),
+                        "close": round(close, 6),
+                        "volume": int(volume),
+                        "open_interest": 20_000 + index,
+                    }
+                )
+            )
+    return sorted(bars, key=lambda item: (item.contract_id, item.timeframe.value, item.ts))
 
 
 def _load_jsonl(path: Path) -> list[dict[str, object]]:
@@ -22,10 +64,10 @@ def _load_jsonl(path: Path) -> list[dict[str, object]]:
 
 
 def test_phase3_integrated_replay_produces_traceable_runtime_bound_outcomes(tmp_path: Path) -> None:
-    bars = _load_bars(SOURCE_FIXTURE)
+    bars = _build_bars()
     report = run_system_shadow_replay(
         bars=bars,
-        instrument_by_contract={"BR-6.26": "BR", "Si-6.26": "Si"},
+        instrument_by_contract=_instrument_map(),
         strategy_version_id="trend-follow-v1",
         dataset_version="bars-whitelist-v1",
         output_dir=tmp_path,
