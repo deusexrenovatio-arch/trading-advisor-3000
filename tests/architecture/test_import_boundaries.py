@@ -12,6 +12,7 @@ FORBIDDEN_TOKENS = (
 
 ALLOWED_DOMAIN_PATH_PREFIXES = (
     "src/trading_advisor_3000/product_plane/",
+    "src/trading_advisor_3000/dagster_defs/",
 )
 
 

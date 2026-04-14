@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+"""Legacy compatibility-only SQL candidate bridge.
+
+The primary research route is the materialized phase2b path under
+``trading_advisor_3000.product_plane.research``. This Spark SQL plan remains
+available only for compatibility and historical bridge scenarios.
+"""
+
 from dataclasses import dataclass
 
 

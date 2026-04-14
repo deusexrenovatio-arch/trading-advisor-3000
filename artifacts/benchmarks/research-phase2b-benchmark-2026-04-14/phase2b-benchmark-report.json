@@ -1,0 +1,79 @@
+{
+  "job_name": "phase2b_benchmark_cli",
+  "dataset": {
+    "scenario": "benchmark_small",
+    "dataset_version": "benchmark_small_v1",
+    "instrument_count": 6,
+    "bars_per_instrument": 96,
+    "materialized_bar_rows": 576,
+    "indicator_rows": 576,
+    "feature_rows": 576
+  },
+  "versions": {
+    "indicator_set_version": "indicators-v1",
+    "feature_set_version": "features-v1",
+    "strategy_catalog_version": "phase2b-benchmark-catalog-v1"
+  },
+  "cold_bootstrap": {
+    "duration_seconds": 0.379444
+  },
+  "cold_backtest": {
+    "duration_seconds": 3.75098,
+    "cache_hit": false,
+    "run_count": 60
+  },
+  "hot_backtest": {
+    "duration_seconds": 0.73396,
+    "cache_hit": true,
+    "run_count": 60
+  },
+  "scalability_runs": [
+    {
+      "combination_count": 10,
+      "duration_seconds": 0.816186,
+      "cache_hit": true,
+      "run_count": 60
+    },
+    {
+      "combination_count": 50,
+      "duration_seconds": 3.424359,
+      "cache_hit": true,
+      "run_count": 300
+    },
+    {
+      "combination_count": 100,
+      "duration_seconds": 6.968866,
+      "cache_hit": true,
+      "run_count": 600
+    },
+    {
+      "combination_count": 250,
+      "duration_seconds": 17.282333,
+      "cache_hit": true,
+      "run_count": 1500
+    }
+  ],
+  "thresholds": {
+    "no_recompute_indicators_features": true,
+    "hot_speedup_vs_cold_total": 5.627587,
+    "hot_ratio_vs_cold_total": 0.177696,
+    "hot_path_threshold_pass": true,
+    "param_100_completed": true
+  },
+  "cache_markers": [
+    "cold_backtest.cache_hit=false",
+    "hot_backtest.cache_hit=true",
+    "scale.10.cache_hit=true",
+    "scale.50.cache_hit=true",
+    "scale.100.cache_hit=true",
+    "scale.250.cache_hit=true"
+  ],
+  "artifacts": {
+    "cache_log": "D:/CodexHome/worktrees/6146/trading advisor 3000/artifacts/benchmarks/research-phase2b-benchmark-2026-04-14/cache-markers.log"
+  },
+  "runtime_profile": {
+    "python_version": "3.12.10",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "processor": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel"
+  }
+}

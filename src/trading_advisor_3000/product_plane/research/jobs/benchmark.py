@@ -1,0 +1,392 @@
+from __future__ import annotations
+
+import argparse
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from time import perf_counter
+
+from trading_advisor_3000.product_plane.contracts import CanonicalBar
+from trading_advisor_3000.product_plane.data_plane.canonical import RollMapEntry, SessionCalendarEntry
+from trading_advisor_3000.product_plane.research.backtests import BacktestBatchRequest, BacktestEngineConfig, run_backtest_batch
+from trading_advisor_3000.product_plane.research.datasets import ResearchDatasetManifest, materialize_research_dataset
+from trading_advisor_3000.product_plane.research.features import materialize_feature_frames
+from trading_advisor_3000.product_plane.research.indicators import materialize_indicator_frames
+from trading_advisor_3000.product_plane.research.io import ResearchFrameCache
+from trading_advisor_3000.product_plane.research.strategies import (
+    StrategyCatalog,
+    StrategyParameter,
+    StrategyRankingMetadata,
+    StrategyRegistry,
+    StrategyRiskPolicy,
+    StrategySpec,
+)
+
+from ._common import delta_row_count, delta_version_count, print_summary, runtime_profile, write_json, write_text
+
+
+def _benchmark_registry() -> StrategyRegistry:
+    spec = StrategySpec(
+        version="breakout-benchmark-v1",
+        family="breakout",
+        description="Benchmark-only breakout sweep over the materialized research plane.",
+        required_columns=(
+            "close",
+            "high",
+            "low",
+            "rolling_high_20",
+            "rolling_low_20",
+            "adx_14",
+            "atr_14",
+            "breakout_ready_state_code",
+            "trend_state_fast_slow_code",
+        ),
+        parameter_grid=(
+            StrategyParameter("breakout_window", (3, 4, 5, 6, 7)),
+            StrategyParameter("min_adx", (10, 12, 14, 16, 18, 20, 22, 24, 26, 28)),
+            StrategyParameter("entry_buffer_atr", (0.0, 0.25, 0.5, 0.75, 1.0)),
+        ),
+        signal_builder_key="breakout",
+        risk_policy=StrategyRiskPolicy(stop_atr_multiple=1.0, target_atr_multiple=2.0),
+        ranking_metadata=StrategyRankingMetadata(tags=("benchmark",)),
+    )
+    return StrategyRegistry(catalog=StrategyCatalog(version="phase2b-benchmark-catalog-v1", strategies=(spec,)))
+
+
+def _benchmark_context(
+    *,
+    instruments: int,
+    bars_per_instrument: int,
+) -> tuple[list[CanonicalBar], list[SessionCalendarEntry], list[RollMapEntry]]:
+    start = datetime(2026, 3, 16, 9, 0, tzinfo=UTC)
+    bars: list[CanonicalBar] = []
+    session_calendar: list[SessionCalendarEntry] = []
+    roll_map: list[RollMapEntry] = []
+
+    for instrument_index in range(instruments):
+        instrument_id = f"INST{instrument_index + 1:02d}"
+        contract_id = f"{instrument_id}-6.26"
+        base_close = 80.0 + (instrument_index * 7.5)
+        step = 0.18 + (instrument_index * 0.015)
+        for index in range(bars_per_instrument):
+            ts = (start + timedelta(minutes=15 * index)).isoformat().replace("+00:00", "Z")
+            if index < bars_per_instrument // 3:
+                close = base_close + (index * step)
+            elif index < (2 * bars_per_instrument) // 3:
+                close = base_close + ((bars_per_instrument // 3) * step) - ((index - (bars_per_instrument // 3)) * step * 1.1)
+            else:
+                close = (
+                    base_close
+                    + ((bars_per_instrument // 3) * step)
+                    - ((bars_per_instrument // 3) * step * 1.1)
+                    + ((index - ((2 * bars_per_instrument) // 3)) * step * 1.3)
+                )
+            open_price = close - (0.4 * step)
+            high = max(open_price, close) + (0.8 * step)
+            low = min(open_price, close) - (0.9 * step)
+            bars.append(
+                CanonicalBar.from_dict(
+                    {
+                        "contract_id": contract_id,
+                        "instrument_id": instrument_id,
+                        "timeframe": "15m",
+                        "ts": ts,
+                        "open": round(open_price, 6),
+                        "high": round(high, 6),
+                        "low": round(low, 6),
+                        "close": round(close, 6),
+                        "volume": 1_200 + (index * 12) + (instrument_index * 35),
+                        "open_interest": 15_000 + (instrument_index * 500) + index,
+                    }
+                )
+            )
+        session_dates = sorted(
+            {
+                (start + timedelta(minutes=15 * index)).date().isoformat()
+                for index in range(bars_per_instrument)
+            }
+        )
+        for session_date in session_dates:
+            session_calendar.append(
+                SessionCalendarEntry(
+                    instrument_id=instrument_id,
+                    timeframe="15m",
+                    session_date=session_date,
+                    session_open_ts=f"{session_date}T00:00:00Z",
+                    session_close_ts=f"{session_date}T23:45:00Z",
+                )
+            )
+            roll_map.append(
+                RollMapEntry(
+                    instrument_id=instrument_id,
+                    session_date=session_date,
+                    active_contract_id=contract_id,
+                    reason="benchmark_single_contract",
+                )
+            )
+    return bars, session_calendar, roll_map
+
+
+def _markdown_report(report: dict[str, object]) -> str:
+    lines = [
+        "# Phase2B Benchmark Report",
+        "",
+        "## Dataset",
+        f"- scenario: {report['dataset']['scenario']}",
+        f"- instruments: {report['dataset']['instrument_count']}",
+        f"- bars_per_instrument: {report['dataset']['bars_per_instrument']}",
+        f"- materialized_bar_rows: {report['dataset']['materialized_bar_rows']}",
+        "",
+        "## Timings",
+        f"- cold_bootstrap_seconds: {report['cold_bootstrap']['duration_seconds']}",
+        f"- cold_backtest_seconds: {report['cold_backtest']['duration_seconds']}",
+        f"- hot_backtest_seconds: {report['hot_backtest']['duration_seconds']}",
+        f"- hot_speedup_vs_cold_total: {report['thresholds']['hot_speedup_vs_cold_total']}",
+        "",
+        "## Thresholds",
+        f"- no_recompute_indicators_features: {report['thresholds']['no_recompute_indicators_features']}",
+        f"- hot_path_threshold_pass: {report['thresholds']['hot_path_threshold_pass']}",
+        f"- param_100_completed: {report['thresholds']['param_100_completed']}",
+        "",
+        "## Scalability",
+        "| combinations | duration_seconds | cache_hit | run_count |",
+        "| --- | --- | --- | --- |",
+    ]
+    for row in report["scalability_runs"]:
+        lines.append(
+            f"| {row['combination_count']} | {row['duration_seconds']} | {row['cache_hit']} | {row['run_count']} |"
+        )
+    lines.extend(["", "## Cache Markers", *[f"- {line}" for line in report["cache_markers"]]])
+    return "\n".join(lines) + "\n"
+
+
+def run_benchmark_job(
+    *,
+    output_dir: Path,
+    dataset_version: str = "benchmark_small_v1",
+    instruments: int = 6,
+    bars_per_instrument: int = 96,
+    combination_sizes: tuple[int, ...] = (10, 50, 100, 250),
+    param_batch_size: int = 25,
+    report_json: Path | None = None,
+    report_md: Path | None = None,
+) -> dict[str, object]:
+    materialized_dir = output_dir / "materialized"
+    backtests_dir = output_dir / "backtests"
+    cache_log_path = output_dir / "cache-markers.log"
+    bars, session_calendar, roll_map = _benchmark_context(
+        instruments=instruments,
+        bars_per_instrument=bars_per_instrument,
+    )
+    registry = _benchmark_registry()
+
+    bootstrap_started = perf_counter()
+    materialize_research_dataset(
+        manifest_seed=ResearchDatasetManifest(
+            dataset_version=dataset_version,
+            dataset_name="phase2b benchmark",
+            source_table="benchmark_synthetic_bars",
+            universe_id="benchmark-synthetic",
+            timeframes=("15m",),
+            base_timeframe="15m",
+            split_method="full",
+            warmup_bars=0,
+            code_version="phase2b-benchmark-job",
+        ),
+        bars=bars,
+        session_calendar=session_calendar,
+        roll_map=roll_map,
+        output_dir=materialized_dir,
+    )
+    materialize_indicator_frames(
+        dataset_output_dir=materialized_dir,
+        indicator_output_dir=materialized_dir,
+        dataset_version=dataset_version,
+        indicator_set_version="indicators-v1",
+        profile_version="core_v1",
+    )
+    materialize_feature_frames(
+        dataset_output_dir=materialized_dir,
+        indicator_output_dir=materialized_dir,
+        feature_output_dir=materialized_dir,
+        dataset_version=dataset_version,
+        indicator_set_version="indicators-v1",
+        feature_set_version="features-v1",
+        profile_version="core_v1",
+    )
+    cold_bootstrap_duration = round(perf_counter() - bootstrap_started, 6)
+
+    benchmark_count = min(combination_sizes)
+    cache = ResearchFrameCache()
+    request = BacktestBatchRequest(
+        dataset_version=dataset_version,
+        indicator_set_version="indicators-v1",
+        feature_set_version="features-v1",
+        strategy_versions=("breakout-benchmark-v1",),
+        combination_count=benchmark_count,
+        param_batch_size=param_batch_size,
+        series_batch_size=2,
+        timeframe="15m",
+    )
+    engine_config = BacktestEngineConfig(window_count=2)
+
+    cold_backtest_started = perf_counter()
+    cold_backtest = run_backtest_batch(
+        dataset_output_dir=materialized_dir,
+        indicator_output_dir=materialized_dir,
+        feature_output_dir=materialized_dir,
+        output_dir=backtests_dir / "cold",
+        request=request,
+        engine_config=engine_config,
+        strategy_registry=registry,
+        cache=cache,
+    )
+    cold_backtest_duration = round(perf_counter() - cold_backtest_started, 6)
+
+    indicator_versions_before_hot = delta_version_count(materialized_dir / "research_indicator_frames.delta")
+    feature_versions_before_hot = delta_version_count(materialized_dir / "research_feature_frames.delta")
+    hot_backtest_started = perf_counter()
+    hot_backtest = run_backtest_batch(
+        dataset_output_dir=materialized_dir,
+        indicator_output_dir=materialized_dir,
+        feature_output_dir=materialized_dir,
+        output_dir=backtests_dir / "hot",
+        request=request,
+        engine_config=engine_config,
+        strategy_registry=registry,
+        cache=cache,
+    )
+    hot_backtest_duration = round(perf_counter() - hot_backtest_started, 6)
+    indicator_versions_after_hot = delta_version_count(materialized_dir / "research_indicator_frames.delta")
+    feature_versions_after_hot = delta_version_count(materialized_dir / "research_feature_frames.delta")
+
+    scalability_runs: list[dict[str, object]] = []
+    for count in combination_sizes:
+        scale_started = perf_counter()
+        scale_report = run_backtest_batch(
+            dataset_output_dir=materialized_dir,
+            indicator_output_dir=materialized_dir,
+            feature_output_dir=materialized_dir,
+            output_dir=backtests_dir / f"scale-{count}",
+            request=BacktestBatchRequest(
+                dataset_version=dataset_version,
+                indicator_set_version="indicators-v1",
+                feature_set_version="features-v1",
+                strategy_versions=("breakout-benchmark-v1",),
+                combination_count=count,
+                param_batch_size=param_batch_size,
+                series_batch_size=2,
+                timeframe="15m",
+            ),
+            engine_config=engine_config,
+            strategy_registry=registry,
+            cache=cache,
+        )
+        scalability_runs.append(
+            {
+                "combination_count": count,
+                "duration_seconds": round(perf_counter() - scale_started, 6),
+                "cache_hit": bool(scale_report["cache_hit"]),
+                "run_count": len(scale_report["run_rows"]),
+            }
+        )
+
+    cold_total_duration = cold_bootstrap_duration + cold_backtest_duration
+    hot_speedup = round(cold_total_duration / max(hot_backtest_duration, 1e-9), 6)
+    hot_ratio = hot_backtest_duration / max(cold_total_duration, 1e-9)
+    thresholds = {
+        "no_recompute_indicators_features": (
+            indicator_versions_before_hot == indicator_versions_after_hot
+            and feature_versions_before_hot == feature_versions_after_hot
+        ),
+        "hot_speedup_vs_cold_total": hot_speedup,
+        "hot_ratio_vs_cold_total": round(hot_ratio, 6),
+        "hot_path_threshold_pass": (
+            indicator_versions_before_hot == indicator_versions_after_hot
+            and feature_versions_before_hot == feature_versions_after_hot
+            and (hot_speedup >= 3.0 or hot_ratio <= 0.30)
+        ),
+        "param_100_completed": any(
+            int(row["combination_count"]) >= 100 and int(row["run_count"]) >= 100 for row in scalability_runs
+        ),
+    }
+    cache_markers = [
+        f"cold_backtest.cache_hit={str(cold_backtest['cache_hit']).lower()}",
+        f"hot_backtest.cache_hit={str(hot_backtest['cache_hit']).lower()}",
+        *[f"scale.{row['combination_count']}.cache_hit={str(row['cache_hit']).lower()}" for row in scalability_runs],
+    ]
+    write_text(cache_log_path, "\n".join(cache_markers) + "\n")
+
+    payload = {
+        "job_name": "phase2b_benchmark_cli",
+        "dataset": {
+            "scenario": "benchmark_small",
+            "dataset_version": dataset_version,
+            "instrument_count": instruments,
+            "bars_per_instrument": bars_per_instrument,
+            "materialized_bar_rows": delta_row_count(materialized_dir / "research_bar_views.delta"),
+            "indicator_rows": delta_row_count(materialized_dir / "research_indicator_frames.delta"),
+            "feature_rows": delta_row_count(materialized_dir / "research_feature_frames.delta"),
+        },
+        "versions": {
+            "indicator_set_version": "indicators-v1",
+            "feature_set_version": "features-v1",
+            "strategy_catalog_version": registry.catalog.version,
+        },
+        "cold_bootstrap": {"duration_seconds": cold_bootstrap_duration},
+        "cold_backtest": {
+            "duration_seconds": cold_backtest_duration,
+            "cache_hit": bool(cold_backtest["cache_hit"]),
+            "run_count": len(cold_backtest["run_rows"]),
+        },
+        "hot_backtest": {
+            "duration_seconds": hot_backtest_duration,
+            "cache_hit": bool(hot_backtest["cache_hit"]),
+            "run_count": len(hot_backtest["run_rows"]),
+        },
+        "scalability_runs": scalability_runs,
+        "thresholds": thresholds,
+        "cache_markers": cache_markers,
+        "artifacts": {"cache_log": cache_log_path.as_posix()},
+        "runtime_profile": runtime_profile(),
+    }
+
+    json_path = report_json or (output_dir / "phase2b-benchmark-report.json")
+    md_path = report_md or (output_dir / "phase2b-benchmark-report.md")
+    write_json(json_path, payload)
+    write_text(md_path, _markdown_report(payload))
+    payload["artifacts"]["report_json"] = json_path.as_posix()
+    payload["artifacts"]["report_md"] = md_path.as_posix()
+    return payload
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run cold-vs-hot and param-scalability benchmark for phase2b.")
+    parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--dataset-version", default="benchmark_small_v1")
+    parser.add_argument("--instruments", type=int, default=6)
+    parser.add_argument("--bars-per-instrument", type=int, default=96)
+    parser.add_argument("--combination-sizes", nargs="+", type=int, default=[10, 50, 100, 250])
+    parser.add_argument("--param-batch-size", type=int, default=25)
+    parser.add_argument("--report-json")
+    parser.add_argument("--report-md")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _build_parser().parse_args(argv)
+    payload = run_benchmark_job(
+        output_dir=Path(args.output_dir).resolve(),
+        dataset_version=str(args.dataset_version),
+        instruments=int(args.instruments),
+        bars_per_instrument=int(args.bars_per_instrument),
+        combination_sizes=tuple(int(item) for item in args.combination_sizes),
+        param_batch_size=int(args.param_batch_size),
+        report_json=Path(args.report_json).resolve() if args.report_json else None,
+        report_md=Path(args.report_md).resolve() if args.report_md else None,
+    )
+    print_summary(payload)
+    return 0 if payload["thresholds"]["hot_path_threshold_pass"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

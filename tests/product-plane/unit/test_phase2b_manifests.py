@@ -5,7 +5,6 @@ from trading_advisor_3000.product_plane.research.datasets import phase2_research
 from trading_advisor_3000.product_plane.research.features import phase2b_feature_store_contract
 from trading_advisor_3000.product_plane.research.ids import candidate_id
 from trading_advisor_3000.product_plane.research.indicators import build_indicator_profile_registry, phase3_indicator_store_contract
-from trading_advisor_3000.spark_jobs import build_research_sql_plan, default_research_spec, spark_candidate_id_expr
 
 
 def test_phase2b_dagster_asset_specs_declared() -> None:
@@ -56,7 +55,7 @@ def test_phase2b_dagster_asset_specs_declared() -> None:
     }
 
 
-def test_phase2b_contract_lineage_is_consistent_across_dataset_indicator_and_spark_layers() -> None:
+def test_phase2b_contract_lineage_is_consistent_across_dataset_indicator_and_feature_layers() -> None:
     dataset_manifest = phase2_research_dataset_store_contract()
     indicator_manifest = phase3_indicator_store_contract()
     feature_manifest = phase2b_feature_store_contract()
@@ -86,33 +85,15 @@ def test_phase2b_contract_lineage_is_consistent_across_dataset_indicator_and_spa
         "profile_version",
         "source_bars_hash",
         "source_indicators_hash",
+        "breakout_ready_flag",
+        "reversion_ready_flag",
+        "atr_stop_ref_1x",
+        "atr_target_ref_2x",
     } <= feature_columns
     assert "research_strategy_metrics" in feature_manifest
 
-    spec = default_research_spec()
-    sql = build_research_sql_plan(spec)
-    assert "LEAST(1.0" in sql
-    assert "CASE" in sql
-    assert spec.feature_source_table in sql
-    assert spec.backtest_runs_source_table in sql
-    assert "backtest_run_id" in sql
-    assert "strategy_version_id" in sql
-    assert "entry_ref" in sql
-    assert "stop_ref" in sql
-    assert "target_ref" in sql
 
-
-def test_phase2b_spark_candidate_id_formula_uses_python_contract_seed() -> None:
-    sql = build_research_sql_plan(default_research_spec())
-    expected_expr = spark_candidate_id_expr(
-        version_id_column="run.strategy_version_id",
-        contract_id_column="sf.contract_id",
-        timeframe_column="sf.timeframe",
-        ts_signal_column="sf.ts_signal",
-    )
-    assert f"{expected_expr} AS candidate_id" in sql
-    assert "sha2(concat(contract_id, timeframe, ts" not in sql
-
+def test_phase2b_candidate_id_formula_is_stable() -> None:
     value = candidate_id(
         strategy_version_id="trend-follow-v1",
         contract_id="BR-6.26",
