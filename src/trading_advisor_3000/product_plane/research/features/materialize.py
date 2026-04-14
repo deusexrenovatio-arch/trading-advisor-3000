@@ -192,6 +192,29 @@ def _numeric(series: pd.Series) -> pd.Series:
     return pd.to_numeric(series, errors="coerce")
 
 
+def _reversion_signal(
+    distance_value: object,
+    rsi_value: object,
+    regime_value: object,
+    *,
+    distance_threshold: float,
+    long_rsi_max: float,
+    short_rsi_min: float,
+) -> int | None:
+    if pd.isna(distance_value) or pd.isna(rsi_value) or pd.isna(regime_value):
+        return None
+    regime_code = int(regime_value)
+    if regime_code not in {0, 2}:
+        return 0
+    distance = float(distance_value)
+    rsi = float(rsi_value)
+    if distance <= -distance_threshold and rsi <= long_rsi_max:
+        return 1
+    if distance >= distance_threshold and rsi >= short_rsi_min:
+        return -1
+    return 0
+
+
 def _compute_opening_range(frame: pd.DataFrame, *, opening_bars: int) -> dict[str, pd.Series]:
     highs: list[float | None] = []
     lows: list[float | None] = []
@@ -453,6 +476,15 @@ def _compute_spec(
             "breakout_ready_state_code": _int_code_series(breakout, index=frame.index),
         }, spec.output_columns
 
+    if spec.operation_key == "breakout_ready_flag":
+        flags: list[int | None] = []
+        for state_value in _numeric(frame["breakout_ready_state_code"]).tolist():
+            if pd.isna(state_value):
+                flags.append(None)
+            else:
+                flags.append(1 if int(state_value) != 0 else 0)
+        return {"breakout_ready_flag": _int_code_series(flags, index=frame.index)}, spec.output_columns
+
     if spec.operation_key == "volume_context":
         high_rvol = float(params["high_rvol_threshold"])
         low_rvol = float(params["low_rvol_threshold"])
@@ -489,6 +521,25 @@ def _compute_spec(
             "session_volume_state_code": _int_code_series(session_volume_state, index=frame.index),
         }, spec.output_columns
 
+    if spec.operation_key == "reversion_ready_flag":
+        flags: list[int | None] = []
+        for distance_value, rsi_value, regime_value in zip(
+            _numeric(frame["distance_to_session_vwap"]).tolist(),
+            _numeric(frame["rsi_14"]).tolist(),
+            _numeric(frame["regime_state_code"]).tolist(),
+            strict=True,
+        ):
+            signal = _reversion_signal(
+                distance_value,
+                rsi_value,
+                regime_value,
+                distance_threshold=float(params["entry_distance_atr"]),
+                long_rsi_max=float(params["long_rsi_max"]),
+                short_rsi_min=float(params["short_rsi_min"]),
+            )
+            flags.append(None if signal is None else 1 if signal != 0 else 0)
+        return {"reversion_ready_flag": _int_code_series(flags, index=frame.index)}, spec.output_columns
+
     if spec.operation_key == "regime_state":
         adx_threshold = float(params["adx_threshold"])
         trend_threshold = float(params["trend_strength_threshold"])
@@ -511,6 +562,59 @@ def _compute_spec(
             else:
                 codes.append(0)
         return {"regime_state_code": _int_code_series(codes, index=frame.index)}, spec.output_columns
+
+    if spec.operation_key == "atr_reference_levels":
+        stop_refs: list[float | None] = []
+        target_refs: list[float | None] = []
+        for close_value, atr_value, trend_value, breakout_value, distance_value, rsi_value, regime_value in zip(
+            _numeric(frame["close"]).tolist(),
+            _numeric(frame["atr_14"]).tolist(),
+            _numeric(frame["trend_state_fast_slow_code"]).tolist(),
+            _numeric(frame["breakout_ready_state_code"]).tolist(),
+            _numeric(frame["distance_to_session_vwap"]).tolist(),
+            _numeric(frame["rsi_14"]).tolist(),
+            _numeric(frame["regime_state_code"]).tolist(),
+            strict=True,
+        ):
+            if pd.isna(close_value) or pd.isna(atr_value) or float(atr_value) <= 0.0:
+                stop_refs.append(None)
+                target_refs.append(None)
+                continue
+
+            direction = 0
+            if not pd.isna(breakout_value) and int(breakout_value) != 0:
+                direction = 1 if int(breakout_value) > 0 else -1
+            else:
+                reversion_signal = _reversion_signal(
+                    distance_value,
+                    rsi_value,
+                    regime_value,
+                    distance_threshold=float(params["entry_distance_atr"]),
+                    long_rsi_max=float(params["long_rsi_max"]),
+                    short_rsi_min=float(params["short_rsi_min"]),
+                )
+                if reversion_signal is not None and reversion_signal != 0:
+                    direction = reversion_signal
+                elif not pd.isna(trend_value) and int(trend_value) != 0:
+                    direction = 1 if int(trend_value) > 0 else -1
+
+            if direction == 0:
+                stop_refs.append(None)
+                target_refs.append(None)
+                continue
+
+            close = float(close_value)
+            atr = float(atr_value)
+            if direction > 0:
+                stop_refs.append(close - atr)
+                target_refs.append(close + (2.0 * atr))
+            else:
+                stop_refs.append(close + atr)
+                target_refs.append(close - (2.0 * atr))
+        return {
+            "atr_stop_ref_1x": pd.Series(stop_refs, index=frame.index, dtype="object"),
+            "atr_target_ref_2x": pd.Series(target_refs, index=frame.index, dtype="object"),
+        }, spec.output_columns
 
     raise ValueError(f"unsupported feature operation: {spec.operation_key}")
 

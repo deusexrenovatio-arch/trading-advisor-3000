@@ -225,6 +225,15 @@ def core_v1_feature_profile() -> FeatureProfile:
                 warmup_bars=20,
             ),
             _spec(
+                feature_id="breakout_ready_flag",
+                category="labels",
+                operation_key="breakout_ready_flag",
+                parameters=(),
+                required_columns=("breakout_ready_state_code",),
+                output_columns=("breakout_ready_flag",),
+                warmup_bars=20,
+            ),
+            _spec(
                 feature_id="volume_context",
                 category="volume",
                 operation_key="volume_context",
@@ -251,6 +260,40 @@ def core_v1_feature_profile() -> FeatureProfile:
                 ),
                 required_columns=("trend_state_fast_slow_code", "trend_strength", "adx_14", "squeeze_on_code"),
                 output_columns=("regime_state_code",),
+                warmup_bars=20,
+            ),
+            _spec(
+                feature_id="reversion_ready_flag",
+                category="labels",
+                operation_key="reversion_ready_flag",
+                parameters=(
+                    _p("entry_distance_atr", 0.75),
+                    _p("long_rsi_max", 35.0),
+                    _p("short_rsi_min", 65.0),
+                ),
+                required_columns=("distance_to_session_vwap", "rsi_14", "regime_state_code"),
+                output_columns=("reversion_ready_flag",),
+                warmup_bars=20,
+            ),
+            _spec(
+                feature_id="atr_reference_levels",
+                category="references",
+                operation_key="atr_reference_levels",
+                parameters=(
+                    _p("entry_distance_atr", 0.75),
+                    _p("long_rsi_max", 35.0),
+                    _p("short_rsi_min", 65.0),
+                ),
+                required_columns=(
+                    "close",
+                    "atr_14",
+                    "trend_state_fast_slow_code",
+                    "breakout_ready_state_code",
+                    "distance_to_session_vwap",
+                    "rsi_14",
+                    "regime_state_code",
+                ),
+                output_columns=("atr_stop_ref_1x", "atr_target_ref_2x"),
                 warmup_bars=20,
             ),
             _spec(
@@ -290,8 +333,11 @@ def core_intraday_v1_feature_profile() -> FeatureProfile:
         "session_vwap",
         "level_distances",
         "volatility_context",
+        "breakout_ready_flag",
         "volume_context",
+        "reversion_ready_flag",
         "regime_state",
+        "atr_reference_levels",
         "mtf_overlay_1h_to_15m",
     }
     return FeatureProfile(
@@ -312,8 +358,11 @@ def core_swing_v1_feature_profile() -> FeatureProfile:
         "session_vwap",
         "level_distances",
         "volatility_context",
+        "breakout_ready_flag",
         "volume_context",
+        "reversion_ready_flag",
         "regime_state",
+        "atr_reference_levels",
     }
     return FeatureProfile(
         version="core_swing_v1",

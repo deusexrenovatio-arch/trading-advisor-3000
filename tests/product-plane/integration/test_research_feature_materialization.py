@@ -156,3 +156,7 @@ def test_feature_materialization_builds_versioned_feature_frames_and_reuses_unch
     assert tail.values["rvol_20"] is not None
     assert tail.values["htf_rsi_14"] is not None
     assert tail.values["htf_trend_state_code"] in {-1, 0, 1}
+    assert tail.values["breakout_ready_flag"] in {0, 1}
+    assert tail.values["reversion_ready_flag"] in {0, 1}
+    assert tail.values["atr_stop_ref_1x"] is not None
+    assert tail.values["atr_target_ref_2x"] is not None
