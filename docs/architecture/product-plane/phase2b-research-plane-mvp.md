@@ -1,5 +1,10 @@
 # Phase 2B - Research Plane MVP
 
+Historical note:
+- This page captures the original MVP closure context.
+- The current stable research-plane map lives in `docs/architecture/product-plane/research-plane-platform.md`.
+- The operational execution path lives in `docs/runbooks/app/research-plane-operations.md`.
+
 ## Goal
 Deliver a reproducible research baseline:
 - feature engine with point-in-time guarantees,

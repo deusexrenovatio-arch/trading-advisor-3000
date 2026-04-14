@@ -6,6 +6,7 @@ Read these first:
 - [trading-advisor-3000.md](docs/architecture/trading-advisor-3000.md) - canonical whole-repository orientation map.
 - [STATUS.md](docs/architecture/product-plane/STATUS.md) - current implemented reality and no-go zones.
 - [CONTRACT_SURFACES.md](docs/architecture/product-plane/CONTRACT_SURFACES.md) - current versioned boundary inventory.
+- [research-plane-platform.md](docs/architecture/product-plane/research-plane-platform.md) - stable map of the current research-plane primary path.
 - [contract-change-policy.md](docs/architecture/product-plane/contract-change-policy.md) - compatibility and versioning policy for release-blocking envelopes.
 - [approved-universe-v1.md](docs/architecture/product-plane/approved-universe-v1.md) - governed universe and promotion contract for medium-term multi-asset evaluation.
 - [moex-historical-route-decision.md](docs/architecture/product-plane/moex-historical-route-decision.md) - authoritative job ownership, reusable vs retired entrypoints, and one fixed historical data route.
@@ -33,6 +34,7 @@ Phase naming rule:
 - `docs/architecture/product-plane/phase1-contracts-and-scaffolding.md` - contracts freeze and scaffolding.
 - `docs/architecture/product-plane/phase2a-data-plane-mvp.md` - data plane MVP implementation and acceptance.
 - `docs/architecture/product-plane/phase2b-research-plane-mvp.md` - research plane MVP implementation and acceptance.
+- `docs/architecture/product-plane/research-plane-platform.md` - current stable research-plane architecture and primary-path semantics.
 - `docs/architecture/product-plane/phase2c-runtime-mvp.md` - runtime MVP implementation and acceptance.
 - `docs/architecture/product-plane/phase2d-execution-mvp.md` - execution MVP implementation and acceptance.
 - `docs/architecture/product-plane/phase3-shadow-forward-system-integration.md` - shadow-forward and integrated system replay.
