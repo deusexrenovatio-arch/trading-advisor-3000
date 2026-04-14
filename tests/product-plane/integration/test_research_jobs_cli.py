@@ -53,6 +53,8 @@ def test_research_jobs_cli_cover_bootstrap_backtest_and_projection(tmp_path: Pat
     assert bootstrap.returncode == 0, bootstrap.stderr
     bootstrap_payload = _load_json(bootstrap_report)
     assert bootstrap_payload["success"] is True
+    assert bootstrap_payload["contract_validation"]["status"] == "passed"
+    assert "research_feature_frames" in bootstrap_payload["contract_validation"]["validated_tables"]
     assert Path(str(bootstrap_payload["output_paths"]["research_feature_frames"])).exists()
 
     backtest_report = tmp_path / "backtest-report.json"
@@ -79,6 +81,8 @@ def test_research_jobs_cli_cover_bootstrap_backtest_and_projection(tmp_path: Pat
     assert backtest.returncode == 0, backtest.stderr
     backtest_payload = _load_json(backtest_report)
     assert backtest_payload["success"] is True
+    assert backtest_payload["contract_validation"]["status"] == "passed"
+    assert "research_strategy_rankings" in backtest_payload["contract_validation"]["validated_tables"]
     assert Path(str(backtest_payload["output_paths"]["research_backtest_runs"])).exists()
 
     projection_report = tmp_path / "projection-report.json"
@@ -111,4 +115,6 @@ def test_research_jobs_cli_cover_bootstrap_backtest_and_projection(tmp_path: Pat
     assert projection.returncode == 0, projection.stderr
     projection_payload = _load_json(projection_report)
     assert projection_payload["success"] is True
+    assert projection_payload["contract_validation"]["status"] == "passed"
+    assert "research_signal_candidates" in projection_payload["contract_validation"]["validated_tables"]
     assert Path(str(projection_payload["output_paths"]["research_signal_candidates"])).exists()

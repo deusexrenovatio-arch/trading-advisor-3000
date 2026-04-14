@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from datetime import UTC, datetime, timedelta
 
 from trading_advisor_3000.dagster_defs import (
     materialize_phase2b_backtest_assets,
@@ -9,7 +10,8 @@ from trading_advisor_3000.dagster_defs import (
 )
 from trading_advisor_3000.product_plane.data_plane import run_sample_backfill
 from trading_advisor_3000.product_plane.data_plane.canonical import RollMapEntry, SessionCalendarEntry
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows, write_delta_table_rows
+from trading_advisor_3000.product_plane.data_plane.schemas import phase2a_delta_schema_manifest
 from trading_advisor_3000.product_plane.research.datasets import (
     ResearchDatasetManifest,
     load_materialized_research_dataset,
@@ -46,6 +48,78 @@ def _load_canonical_context(output_dir: Path) -> tuple[list[CanonicalBar], list[
         for row in read_delta_table_rows(output_dir / "canonical_roll_map.delta")
     ]
     return bars, session_calendar, roll_map
+
+
+def _write_rich_stage7_canonical_context(output_dir: Path) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    schema_manifest = phase2a_delta_schema_manifest()
+    start = datetime(2026, 3, 16, 9, 0, tzinfo=UTC)
+    bars: list[dict[str, object]] = []
+    calendar: list[dict[str, object]] = []
+    roll_map: list[dict[str, object]] = []
+
+    for contract_id, instrument_id, base_close, step in (
+        ("BR-6.26", "BR", 82.0, 0.22),
+        ("Si-6.26", "Si", 91_800.0, 55.0),
+    ):
+        for index in range(60):
+            ts = (start + timedelta(minutes=15 * index)).isoformat().replace("+00:00", "Z")
+            if index < 20:
+                close = base_close + (index * step)
+            elif index < 40:
+                close = base_close + (20 * step) - ((index - 20) * step * 1.2)
+            else:
+                close = base_close + (20 * step) - (20 * step * 1.2) + ((index - 40) * step * 1.5)
+            open_price = close - (0.35 * step)
+            high = max(open_price, close) + (0.75 * step)
+            low = min(open_price, close) - (0.85 * step)
+            bars.append(
+                {
+                    "contract_id": contract_id,
+                    "instrument_id": instrument_id,
+                    "timeframe": "15m",
+                    "ts": ts,
+                    "open": round(open_price, 6),
+                    "high": round(high, 6),
+                    "low": round(low, 6),
+                    "close": round(close, 6),
+                    "volume": int(1_000 + index * 20 + (120 if index % 7 == 0 else 0)),
+                    "open_interest": 20_000 + index,
+                }
+            )
+        calendar.append(
+            {
+                "instrument_id": instrument_id,
+                "timeframe": "15m",
+                "session_date": "2026-03-16",
+                "session_open_ts": "2026-03-16T09:00:00Z",
+                "session_close_ts": "2026-03-16T23:45:00Z",
+            }
+        )
+        roll_map.append(
+            {
+                "instrument_id": instrument_id,
+                "session_date": "2026-03-16",
+                "active_contract_id": contract_id,
+                "reason": "stage7-rich-fixture",
+            }
+        )
+
+    write_delta_table_rows(
+        table_path=output_dir / "canonical_bars.delta",
+        rows=bars,
+        columns=schema_manifest["canonical_bars"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=output_dir / "canonical_session_calendar.delta",
+        rows=calendar,
+        columns=schema_manifest["canonical_session_calendar"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=output_dir / "canonical_roll_map.delta",
+        rows=roll_map,
+        columns=schema_manifest["canonical_roll_map"]["columns"],
+    )
 
 
 def test_phase2b_dagster_bootstrap_materializes_dataset_and_indicator_layers(tmp_path: Path) -> None:
@@ -189,11 +263,7 @@ def test_phase2b_dagster_bootstrap_matches_direct_materialization(tmp_path: Path
 
 def test_phase2b_dagster_backtest_and_projection_jobs_materialize_research_flow(tmp_path: Path) -> None:
     canonical_dir = tmp_path / "canonical-stage7"
-    run_sample_backfill(
-        source_path=RAW_FIXTURE,
-        output_dir=canonical_dir,
-        whitelist_contracts={"BR-6.26", "Si-6.26"},
-    )
+    _write_rich_stage7_canonical_context(canonical_dir)
 
     dagster_dir = tmp_path / "dagster-stage7"
     backtest_report = materialize_phase2b_backtest_assets(
@@ -202,8 +272,16 @@ def test_phase2b_dagster_backtest_and_projection_jobs_materialize_research_flow(
         dataset_version="dagster-stage7-v1",
         timeframes=("15m",),
         strategy_versions=("ma-cross-v1",),
-        combination_count=1,
+        combination_count=4,
+        param_batch_size=2,
+        series_batch_size=1,
         backtest_timeframe="15m",
+        require_out_of_sample_pass=False,
+        min_trade_count=1,
+        max_drawdown_cap=1.0,
+        min_positive_fold_ratio=0.0,
+        min_parameter_stability=0.0,
+        min_slippage_score=0.0,
     )
     assert backtest_report["success"] is True
     assert set(backtest_report["selected_assets"]) == {
@@ -217,6 +295,10 @@ def test_phase2b_dagster_backtest_and_projection_jobs_materialize_research_flow(
     }
     assert "research_datasets" in backtest_report["materialized_assets"]
     assert "research_strategy_rankings" in backtest_report["materialized_assets"]
+    assert backtest_report["rows_by_table"]["research_trade_records"] > 0
+    assert backtest_report["rows_by_table"]["research_order_records"] > 0
+    assert backtest_report["rows_by_table"]["research_drawdown_records"] > 0
+    assert backtest_report["rows_by_table"]["research_strategy_rankings"] > 0
     assert (Path(backtest_report["output_paths"]["research_backtest_batches"]) / "_delta_log").exists()
     assert (Path(backtest_report["output_paths"]["research_strategy_rankings"]) / "_delta_log").exists()
     assert read_delta_table_rows(Path(backtest_report["output_paths"]["research_backtest_runs"]))
@@ -228,15 +310,27 @@ def test_phase2b_dagster_backtest_and_projection_jobs_materialize_research_flow(
         dataset_version="dagster-stage7-v1",
         timeframes=("15m",),
         strategy_versions=("ma-cross-v1",),
-        combination_count=1,
+        combination_count=4,
+        param_batch_size=2,
+        series_batch_size=1,
         backtest_timeframe="15m",
         selection_policy="all_policy_pass",
         min_robust_score=0.0,
-        decision_lag_bars_max=4,
+        decision_lag_bars_max=25,
+        require_out_of_sample_pass=False,
+        min_trade_count=1,
+        max_drawdown_cap=1.0,
+        min_positive_fold_ratio=0.0,
+        min_parameter_stability=0.0,
+        min_slippage_score=0.0,
     )
     assert projection_report["success"] is True
     assert set(projection_report["selected_assets"]) == {"research_signal_candidates"}
     assert "research_signal_candidates" in projection_report["materialized_assets"]
+    assert projection_report["rows_by_table"]["research_signal_candidates"] > 0
     assert (Path(projection_report["output_paths"]["research_signal_candidates"]) / "_delta_log").exists()
     candidate_rows = read_delta_table_rows(Path(projection_report["output_paths"]["research_signal_candidates"]))
     assert isinstance(candidate_rows, list)
+    assert candidate_rows
+    assert all(float(row["confidence"]) > 0.0 for row in candidate_rows)
+    assert all(str(row["selection_policy"]) == "all_policy_pass" for row in candidate_rows)

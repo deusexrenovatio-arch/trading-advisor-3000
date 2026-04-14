@@ -36,7 +36,12 @@ Date: 2026-03-16
 - [x] Loop gate green
 
 ## Evidence Commands
-- [x] `python -m pytest tests/product-plane/unit/test_phase2b_features.py -q`
 - [x] `python -m pytest tests/product-plane/unit/test_phase2b_manifests.py -q`
+- [x] `python -m pytest tests/product-plane/unit/test_research_feature_layer.py -q`
+- [x] `python -m pytest tests/product-plane/unit/test_research_benchmark_artifacts.py -q`
+- [x] `python -m pytest tests/product-plane/unit/test_research_legacy_deprecation.py -q`
 - [x] `python -m pytest tests/product-plane/integration/test_phase2b_research_plane.py -q`
-- [x] `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
+- [x] `python -m pytest tests/product-plane/integration/test_phase2b_dagster_bootstrap.py -q`
+- [x] `python -m pytest tests/product-plane/integration/test_research_jobs_cli.py -q`
+- [x] `python -m pytest tests/product-plane/integration/test_research_benchmark_job.py -q`
+- [x] `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`

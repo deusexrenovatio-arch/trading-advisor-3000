@@ -6,7 +6,7 @@ from time import perf_counter
 
 from trading_advisor_3000.dagster_defs import materialize_phase2b_backtest_assets
 
-from ._common import print_summary, runtime_profile, write_json
+from ._common import print_summary, runtime_profile, validate_phase2b_contracts, write_json
 
 
 def run_backtest_job(
@@ -24,6 +24,13 @@ def run_backtest_job(
     param_batch_size: int = 25,
     series_batch_size: int = 4,
     backtest_timeframe: str = "",
+    require_out_of_sample_pass: bool = True,
+    min_trade_count: int = 4,
+    max_drawdown_cap: float = 0.35,
+    min_positive_fold_ratio: float = 0.5,
+    stress_slippage_bps: float = 7.5,
+    min_parameter_stability: float = 0.35,
+    min_slippage_score: float = 0.45,
     report_json: Path | None = None,
 ) -> dict[str, object]:
     started = perf_counter()
@@ -41,12 +48,25 @@ def run_backtest_job(
         param_batch_size=param_batch_size,
         series_batch_size=series_batch_size,
         backtest_timeframe=backtest_timeframe,
+        require_out_of_sample_pass=require_out_of_sample_pass,
+        min_trade_count=min_trade_count,
+        max_drawdown_cap=max_drawdown_cap,
+        min_positive_fold_ratio=min_positive_fold_ratio,
+        stress_slippage_bps=stress_slippage_bps,
+        min_parameter_stability=min_parameter_stability,
+        min_slippage_score=min_slippage_score,
     )
+    contract_validation = validate_phase2b_contracts(
+        output_paths=dict(report["output_paths"]),
+        materialized_assets=list(report["materialized_assets"]),
+        rows_by_table=dict(report.get("rows_by_table", {})),
+    )
+    success = bool(report["success"]) and contract_validation["status"] == "passed"
     payload = {
         "job_name": "phase2b_backtest_cli",
-        "success": bool(report["success"]),
+        "success": success,
         "duration_seconds": round(perf_counter() - started, 6),
-        "contract_validation": {"status": "passed" if report["success"] else "failed"},
+        "contract_validation": contract_validation,
         "input_versions": {
             "dataset_version": dataset_version,
             "timeframes": timeframes,
@@ -59,6 +79,13 @@ def run_backtest_job(
             "param_batch_size": param_batch_size,
             "series_batch_size": series_batch_size,
             "backtest_timeframe": backtest_timeframe,
+            "require_out_of_sample_pass": require_out_of_sample_pass,
+            "min_trade_count": min_trade_count,
+            "max_drawdown_cap": max_drawdown_cap,
+            "min_positive_fold_ratio": min_positive_fold_ratio,
+            "stress_slippage_bps": stress_slippage_bps,
+            "min_parameter_stability": min_parameter_stability,
+            "min_slippage_score": min_slippage_score,
         },
         "selected_assets": report["selected_assets"],
         "materialized_assets": report["materialized_assets"],
@@ -87,6 +114,13 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--param-batch-size", type=int, default=25)
     parser.add_argument("--series-batch-size", type=int, default=4)
     parser.add_argument("--backtest-timeframe", default="")
+    parser.add_argument("--require-out-of-sample-pass", choices=("true", "false"), default="true")
+    parser.add_argument("--min-trade-count", type=int, default=4)
+    parser.add_argument("--max-drawdown-cap", type=float, default=0.35)
+    parser.add_argument("--min-positive-fold-ratio", type=float, default=0.5)
+    parser.add_argument("--stress-slippage-bps", type=float, default=7.5)
+    parser.add_argument("--min-parameter-stability", type=float, default=0.35)
+    parser.add_argument("--min-slippage-score", type=float, default=0.45)
     parser.add_argument("--report-json")
     return parser
 
@@ -107,6 +141,13 @@ def main(argv: list[str] | None = None) -> int:
         param_batch_size=int(args.param_batch_size),
         series_batch_size=int(args.series_batch_size),
         backtest_timeframe=str(args.backtest_timeframe),
+        require_out_of_sample_pass=str(args.require_out_of_sample_pass).lower() == "true",
+        min_trade_count=int(args.min_trade_count),
+        max_drawdown_cap=float(args.max_drawdown_cap),
+        min_positive_fold_ratio=float(args.min_positive_fold_ratio),
+        stress_slippage_bps=float(args.stress_slippage_bps),
+        min_parameter_stability=float(args.min_parameter_stability),
+        min_slippage_score=float(args.min_slippage_score),
         report_json=Path(args.report_json).resolve() if args.report_json else None,
     )
     print_summary(payload)

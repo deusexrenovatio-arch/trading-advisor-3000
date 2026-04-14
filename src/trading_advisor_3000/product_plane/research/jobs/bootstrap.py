@@ -6,7 +6,7 @@ from time import perf_counter
 
 from trading_advisor_3000.dagster_defs import materialize_phase2b_bootstrap_assets
 
-from ._common import print_summary, runtime_profile, write_json
+from ._common import print_summary, runtime_profile, validate_phase2b_contracts, write_json
 
 
 def run_bootstrap_job(
@@ -32,11 +32,17 @@ def run_bootstrap_job(
         feature_set_version=feature_set_version,
         feature_profile_version=feature_profile_version,
     )
+    contract_validation = validate_phase2b_contracts(
+        output_paths=dict(report["output_paths"]),
+        materialized_assets=list(report["materialized_assets"]),
+        rows_by_table=dict(report.get("rows_by_table", {})),
+    )
+    success = bool(report["success"]) and contract_validation["status"] == "passed"
     payload = {
         "job_name": "phase2b_bootstrap_cli",
-        "success": bool(report["success"]),
+        "success": success,
         "duration_seconds": round(perf_counter() - started, 6),
-        "contract_validation": {"status": "passed" if report["success"] else "failed"},
+        "contract_validation": contract_validation,
         "input_versions": {
             "dataset_version": dataset_version,
             "timeframes": timeframes,

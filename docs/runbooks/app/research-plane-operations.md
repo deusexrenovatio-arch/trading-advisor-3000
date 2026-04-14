@@ -64,16 +64,22 @@ For bootstrap:
 - `rows_by_table`
 - `duration_seconds`
 - `contract_validation.status`
+- `contract_validation.validated_tables`
+- `contract_validation.warnings`
 
 For backtest:
 - `rows_by_table` for runs, stats, trades, orders, and drawdowns
 - `duration_seconds`
 - selected and materialized assets
+- `contract_validation.status`
+- whether any execution tables were materialized with `0 rows`
 
 For projection:
 - candidate table row count
 - selection policy and lag settings
 - output path for `research_signal_candidates`
+- `contract_validation.status`
+- zero-row warnings versus actual candidate rows
 
 For benchmark:
 - cold bootstrap time
@@ -90,6 +96,11 @@ A healthy run should show:
 - expected Delta tables present with `_delta_log`
 - no recompute of indicator and feature layers during hot benchmark rerun
 
+Important distinction:
+- `contract_validation.status=passed` means the produced Delta tables match the expected schema and reported row counts.
+- It does not automatically mean the semantic payload is useful.
+- If `rows_by_table` or `contract_validation.warnings` show `0 rows` for trade, ranking, or candidate outputs, treat that as a research/data issue, not as a green end-to-end proof.
+
 ## Failure Interpretation
 
 If bootstrap fails:
@@ -103,6 +114,7 @@ If backtest fails:
 If projection fails:
 - confirm rankings were produced;
 - confirm selection policy is not filtering everything out.
+- if rankings exist but candidates are `0`, check `decision_lag_bars_max`, current signal freshness, and whether the selected policy requires `policy_pass=1`.
 
 If benchmark fails threshold checks:
 - inspect `cache-markers.log`;
