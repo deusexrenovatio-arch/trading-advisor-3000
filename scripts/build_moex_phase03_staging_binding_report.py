@@ -16,9 +16,10 @@ if str(SRC) not in sys.path:
 from trading_advisor_3000.product_plane.data_plane.moex.phase03_staging_binding import (
     build_phase03_staging_binding_report,
 )
-
-
-DEFAULT_OUTPUT_ROOT = Path("artifacts/codex/moex-phase03-staging")
+from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
+    PHASE03_STAGING_STORAGE_DIRNAME,
+    resolve_external_root,
+)
 
 
 def _resolve(path: Path) -> Path:
@@ -47,7 +48,14 @@ def main() -> None:
         )
     )
     parser.add_argument("--dagster-url", required=True, help="Dagster base URL or GraphQL endpoint.")
-    parser.add_argument("--output-root", default=DEFAULT_OUTPUT_ROOT.as_posix())
+    parser.add_argument(
+        "--output-root",
+        default="",
+        help=(
+            "Absolute external output root for staging binding bundles. "
+            "Required unless TA3000_MOEX_HISTORICAL_DATA_ROOT is set."
+        ),
+    )
     parser.add_argument("--run-id", default="", help="Optional bundle id; defaults to current UTC timestamp.")
     parser.add_argument("--job-name", default="moex_historical_cutover_job")
     parser.add_argument("--dagster-binding", default="dagster://staging/moex-historical-cutover")
@@ -70,7 +78,13 @@ def main() -> None:
     args = parser.parse_args()
 
     bundle_id = args.run_id.strip() or _default_run_id()
-    output_dir = _resolve(Path(args.output_root)) / bundle_id
+    output_root = resolve_external_root(
+        args.output_root,
+        repo_root=ROOT,
+        field_name="--output-root",
+        default_subdir=PHASE03_STAGING_STORAGE_DIRNAME,
+    )
+    output_dir = output_root / bundle_id
 
     result = build_phase03_staging_binding_report(
         dagster_url=args.dagster_url,

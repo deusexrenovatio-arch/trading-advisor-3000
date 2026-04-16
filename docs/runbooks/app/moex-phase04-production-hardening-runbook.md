@@ -20,9 +20,9 @@ Route role:
 ## Preconditions
 1. Python env is ready: `python -m pip install -e .[dev]`.
 2. Prior route reports and governed acceptance closures exist:
-   - `artifacts/codex/moex-phase01/<run_id>/phase01-foundation-report.json` for raw ingest (legacy artifact filename)
-   - `artifacts/codex/moex-phase02/<run_id>/phase02-canonical-report.json` for canonicalization (legacy artifact filename)
-   - `artifacts/codex/moex-phase03/<run_id>/phase03-reconciliation-report.json` for reconciliation
+   - `$TA3000_MOEX_HISTORICAL_DATA_ROOT/moex-phase01/<run_id>/phase01-foundation-report.json` for raw ingest (legacy artifact filename)
+   - `$TA3000_MOEX_HISTORICAL_DATA_ROOT/moex-phase02/<run_id>/phase02-canonical-report.json` for canonicalization (legacy artifact filename)
+   - `$TA3000_MOEX_HISTORICAL_DATA_ROOT/moex-phase03/<run_id>/phase03-reconciliation-report.json` for reconciliation
    - `artifacts/codex/orchestration/<raw-ingest-route-run>/attempt-<n>/acceptance.json` with `verdict=PASS`
    - `artifacts/codex/orchestration/<canonicalization-route-run>/attempt-<n>/acceptance.json` with `verdict=PASS`
    - `artifacts/codex/orchestration/<reconciliation-route-run>/attempt-<n>/acceptance.json` with `verdict=PASS`
@@ -38,21 +38,23 @@ Route role:
 ## Execute Operations-Hardening Runner
 
 ```bash
+export TA3000_MOEX_HISTORICAL_DATA_ROOT=/absolute/path/outside/repo
+
 python scripts/run_moex_phase04_production_hardening.py \
-  --phase01-root artifacts/codex/moex-phase01 \
+  --phase01-root $TA3000_MOEX_HISTORICAL_DATA_ROOT/moex-phase01 \
   --phase01-run-id 20260402T090251Z \
   --phase01-acceptance-path artifacts/codex/orchestration/<raw-ingest-route-run>-moex-historical-route-consolidation-phase-01/attempt-<n>/acceptance.json \
-  --phase02-root artifacts/codex/moex-phase02 \
+  --phase02-root $TA3000_MOEX_HISTORICAL_DATA_ROOT/moex-phase02 \
   --phase02-run-id 20260402T124500Z \
   --phase02-acceptance-path artifacts/codex/orchestration/<canonicalization-route-run>-moex-historical-route-consolidation-phase-02/attempt-<n>/acceptance.json \
-  --phase03-root artifacts/codex/moex-phase03 \
+  --phase03-root $TA3000_MOEX_HISTORICAL_DATA_ROOT/moex-phase03 \
   --phase03-run-id 20260402T152500Z \
   --phase03-acceptance-path artifacts/codex/orchestration/<phase-03-route-run>-moex-historical-route-consolidation-phase-03/attempt-<n>/acceptance.json \
-  --scheduler-status-source-path artifacts/codex/moex-phase04-input/scheduler-status-20260402T172000Z.json \
-  --monitoring-evidence-source-path artifacts/codex/moex-phase04-input/monitoring-evidence-20260402T172000Z.json \
-  --recovery-drill-source-path artifacts/codex/moex-phase04-input/recovery-drill-20260402T172000Z.json \
-  --defects-source-path artifacts/codex/moex-phase04-input/defects-20260402T172000Z.json \
-  --output-root artifacts/codex/moex-phase04 \
+  --scheduler-status-source-path /absolute/path/outside/repo/moex-phase04-input/scheduler-status-20260402T172000Z.json \
+  --monitoring-evidence-source-path /absolute/path/outside/repo/moex-phase04-input/monitoring-evidence-20260402T172000Z.json \
+  --recovery-drill-source-path /absolute/path/outside/repo/moex-phase04-input/recovery-drill-20260402T172000Z.json \
+  --defects-source-path /absolute/path/outside/repo/moex-phase04-input/defects-20260402T172000Z.json \
+  --output-root /absolute/path/outside/repo/moex-phase04 \
   --run-id 20260402T172000Z \
   --route-signal remediation:phase-only
 ```
@@ -115,7 +117,7 @@ Triage flow:
 3. If rollback target and last healthy snapshot diverge, treat as hard failure and block release decision.
 
 ## Required Evidence Files
-Per run in `artifacts/codex/moex-phase04/<run_id>/`:
+Per run in `/absolute/path/outside/repo/moex-phase04/<run_id>/`:
 - `phase04-production-hardening-report.json`
 - `scheduler-config-snapshot.json`
 - `monitoring-dashboard-query-evidence.json`

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 import json
 from pathlib import Path
+import tempfile
 
 import pytest
 
@@ -17,6 +18,9 @@ from trading_advisor_3000.dagster_defs import (
 )
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
 from trading_advisor_3000.product_plane.data_plane.moex import build_raw_ingest_run_report_v2, run_phase03_dagster_cutover
+from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
+    MOEX_HISTORICAL_DATA_ROOT_ENV,
+)
 
 
 RAW_COLUMNS: dict[str, str] = {
@@ -36,6 +40,13 @@ RAW_COLUMNS: dict[str, str] = {
     "ingested_at_utc": "timestamp",
     "provenance_json": "json",
 }
+
+
+@pytest.fixture(autouse=True)
+def _external_data_root_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    external_root = Path(tempfile.gettempdir()) / "ta3000-moex-historical-tests-unit"
+    external_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv(MOEX_HISTORICAL_DATA_ROOT_ENV, external_root.as_posix())
 
 
 def _iso(dt: datetime) -> str:
@@ -143,7 +154,9 @@ def _write_staging_binding_report(tmp_path: Path) -> Path:
     return report_path
 
 
-def test_phase03_dagster_cutover_definitions_are_executable() -> None:
+def test_phase03_dagster_cutover_definitions_are_executable(
+    tmp_path: Path,
+) -> None:
     assert_moex_historical_definitions_executable()
     specs = {item.key: item for item in moex_historical_asset_specs()}
     assert set(specs) == {"moex_raw_ingest", "moex_canonical_refresh"}
@@ -168,6 +181,28 @@ def test_phase03_dagster_cutover_definitions_are_executable() -> None:
     run_request = run_requests[0]
     assert isinstance(run_request.run_config, dict)
     assert run_request.run_config.get("ops")
+
+
+def test_phase03_schedule_fails_closed_without_external_data_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(MOEX_HISTORICAL_DATA_ROOT_ENV, raising=False)
+    definitions = build_moex_historical_definitions()
+    repository = definitions.get_repository_def()
+    schedule_def = repository.get_schedule_def("moex_historical_nightly_schedule")
+    schedule_context = build_schedule_context(
+        instance=DagsterInstance.ephemeral(),
+        repository_def=repository,
+        scheduled_execution_time=datetime(2026, 4, 15, 2, 0, tzinfo=UTC),
+    )
+
+    with pytest.raises(Exception) as exc_info:
+        schedule_def.evaluate_tick(schedule_context)
+    detail = str(exc_info.value)
+    cause = getattr(exc_info.value, "__cause__", None)
+    if cause is not None:
+        detail += f" {cause}"
+    assert MOEX_HISTORICAL_DATA_ROOT_ENV in detail
 
 
 def test_phase03_canonical_refresh_is_blocked_when_raw_status_failed(tmp_path: Path) -> None:

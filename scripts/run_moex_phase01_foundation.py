@@ -13,13 +13,14 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from trading_advisor_3000.product_plane.data_plane.moex import run_phase01_foundation
+from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
+    PHASE01_STORAGE_DIRNAME,
+    resolve_external_root,
+)
 
 
 DEFAULT_MAPPING_REGISTRY = Path("configs/moex_phase01/instrument_mapping_registry.v1.yaml")
 DEFAULT_UNIVERSE = Path("configs/moex_phase01/universe/moex-futures-priority.v1.yaml")
-DEFAULT_OUTPUT_ROOT = Path("artifacts/codex/moex-phase01")
-
-
 def _repo_root() -> Path:
     return ROOT
 
@@ -53,7 +54,14 @@ def main() -> None:
     )
     parser.add_argument("--mapping-registry", default=DEFAULT_MAPPING_REGISTRY.as_posix())
     parser.add_argument("--universe", default=DEFAULT_UNIVERSE.as_posix())
-    parser.add_argument("--output-root", default=DEFAULT_OUTPUT_ROOT.as_posix())
+    parser.add_argument(
+        "--output-root",
+        default="",
+        help=(
+            "Absolute external root folder for phase-01 artifacts. "
+            "Required unless TA3000_MOEX_HISTORICAL_DATA_ROOT is set."
+        ),
+    )
     parser.add_argument("--run-id", default="")
     parser.add_argument("--timeframes", default="5m,15m,1h,4h,1d,1w")
     parser.add_argument("--bootstrap-window-days", type=int, default=1461)
@@ -87,7 +95,12 @@ def main() -> None:
 
     run_id = args.run_id.strip() or _default_run_id()
     ingest_till_utc = args.ingest_till_utc.strip() or _default_ingest_till_utc()
-    output_root = _resolve(Path(args.output_root))
+    output_root = resolve_external_root(
+        args.output_root,
+        repo_root=ROOT,
+        field_name="--output-root",
+        default_subdir=PHASE01_STORAGE_DIRNAME,
+    )
     output_dir = output_root / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
 

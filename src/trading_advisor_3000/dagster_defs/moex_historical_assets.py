@@ -4,7 +4,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import json
-import os
 from pathlib import Path
 import subprocess
 import sys
@@ -27,6 +26,13 @@ from dagster import (
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log
 from trading_advisor_3000.product_plane.data_plane.moex.foundation import run_phase01_foundation
 from trading_advisor_3000.product_plane.data_plane.moex.phase02_canonical import run_phase02_canonical
+from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
+    NIGHTLY_STORAGE_DIRNAME,
+    PHASE01_STORAGE_DIRNAME,
+    PHASE02_STORAGE_DIRNAME,
+    configured_moex_historical_data_root,
+    resolve_external_root,
+)
 
 
 PASS_LIKE_RAW_STATUSES = {"PASS", "PASS-NOOP"}
@@ -119,10 +125,7 @@ def moex_historical_asset_specs() -> list[AssetSpec]:
 
 
 def _route_artifact_root() -> Path:
-    dagster_home = os.environ.get("DAGSTER_HOME", "").strip()
-    if dagster_home:
-        return Path(dagster_home) / "artifacts" / "codex"
-    return REPO_ROOT / "artifacts" / "codex"
+    return configured_moex_historical_data_root(repo_root=REPO_ROOT)
 
 
 def _default_route_run_id(*, scheduled_execution_time: datetime | None = None) -> str:
@@ -140,9 +143,9 @@ def _build_nightly_schedule_run_config(context) -> dict[str, object]:
                 "config": {
                     "mapping_registry_path": DEFAULT_MAPPING_REGISTRY.as_posix(),
                     "universe_path": DEFAULT_UNIVERSE.as_posix(),
-                    "raw_ingest_root": (artifact_root / "moex-raw-ingest").as_posix(),
-                    "canonicalization_root": (artifact_root / "moex-canonicalization").as_posix(),
-                    "nightly_root": (artifact_root / "moex-dagster-nightly").as_posix(),
+                    "raw_ingest_root": (artifact_root / PHASE01_STORAGE_DIRNAME).as_posix(),
+                    "canonicalization_root": (artifact_root / PHASE02_STORAGE_DIRNAME).as_posix(),
+                    "nightly_root": (artifact_root / NIGHTLY_STORAGE_DIRNAME).as_posix(),
                     "timeframes": DEFAULT_TIMEFRAMES,
                     "workers": DEFAULT_WORKERS,
                     "batch_size": DEFAULT_BATCH_SIZE,
@@ -158,7 +161,7 @@ def _build_nightly_schedule_run_config(context) -> dict[str, object]:
             },
             "moex_canonical_refresh": {
                 "config": {
-                    "canonicalization_root": (artifact_root / "moex-canonicalization").as_posix(),
+                    "canonicalization_root": (artifact_root / PHASE02_STORAGE_DIRNAME).as_posix(),
                     "canonical_run_id": run_id,
                 }
             },
@@ -293,9 +296,24 @@ def build_moex_historical_dagster_binding_artifact() -> dict[str, object]:
 def _run_python_raw_ingest_route(op_config: dict[str, object]) -> dict[str, object]:
     mapping_registry_path = Path(_text_value(op_config, "mapping_registry_path")).resolve()
     universe_path = Path(_text_value(op_config, "universe_path")).resolve()
-    raw_ingest_root = Path(_text_value(op_config, "raw_ingest_root")).resolve()
-    canonicalization_root = Path(_text_value(op_config, "canonicalization_root")).resolve()
-    nightly_root = Path(_text_value(op_config, "nightly_root")).resolve()
+    raw_ingest_root = resolve_external_root(
+        _text_value(op_config, "raw_ingest_root"),
+        repo_root=REPO_ROOT,
+        field_name="raw_ingest_root",
+        default_subdir=PHASE01_STORAGE_DIRNAME,
+    )
+    canonicalization_root = resolve_external_root(
+        _text_value(op_config, "canonicalization_root"),
+        repo_root=REPO_ROOT,
+        field_name="canonicalization_root",
+        default_subdir=PHASE02_STORAGE_DIRNAME,
+    )
+    nightly_root = resolve_external_root(
+        _text_value(op_config, "nightly_root"),
+        repo_root=REPO_ROOT,
+        field_name="nightly_root",
+        default_subdir=NIGHTLY_STORAGE_DIRNAME,
+    )
     run_id = _text_value(op_config, "run_id", "canonical_run_id", "phase02_run_id")
     timeframes = _text_value(op_config, "timeframes") or DEFAULT_TIMEFRAMES
     workers = _int_value(op_config, "workers", default=DEFAULT_WORKERS)

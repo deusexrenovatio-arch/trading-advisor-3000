@@ -27,8 +27,8 @@ Alias-only payloads (for example `source_timestamp_utc`, `archived_at_utc`, or i
 ## Preconditions
 1. Python env is bootstrapped (`python -m pip install -e .[dev]`).
 2. Canonicalization artifacts exist with canonical bars and provenance:
-   - `artifacts/codex/moex-phase02/<run_id>/delta/canonical_bars.delta`
-   - `artifacts/codex/moex-phase02/<run_id>/delta/canonical_bar_provenance.delta`
+   - `$TA3000_MOEX_HISTORICAL_DATA_ROOT/moex-phase02/<run_id>/delta/canonical_bars.delta`
+   - `$TA3000_MOEX_HISTORICAL_DATA_ROOT/moex-phase02/<run_id>/delta/canonical_bar_provenance.delta`
 3. Finam archive snapshot source is prepared as `.json`, `.csv`, or Delta table.
 4. Threshold policy exists:
    - `configs/moex_phase03/reconciliation_thresholds.v1.yaml`
@@ -37,11 +37,13 @@ Alias-only payloads (for example `source_timestamp_utc`, `archived_at_utc`, or i
 Run from repository root:
 
 ```bash
+export TA3000_MOEX_HISTORICAL_DATA_ROOT=/absolute/path/outside/repo
+
 python scripts/run_moex_phase03_reconciliation.py \
-  --phase02-root artifacts/codex/moex-phase02 \
+  --phase02-root $TA3000_MOEX_HISTORICAL_DATA_ROOT/moex-phase02 \
   --phase02-run-id 20260402T124500Z \
-  --finam-archive-source-path artifacts/codex/moex-phase03-input/finam-archive-20260402.json \
-  --output-root artifacts/codex/moex-phase03 \
+  --finam-archive-source-path /absolute/path/outside/repo/moex-phase03-input/finam-archive-20260402.json \
+  --output-root $TA3000_MOEX_HISTORICAL_DATA_ROOT/moex-phase03 \
   --run-id 20260402T150000Z
 ```
 
@@ -49,16 +51,16 @@ Optional explicit canonical bindings:
 
 ```bash
 python scripts/run_moex_phase03_reconciliation.py \
-  --canonical-bars-path artifacts/codex/moex-phase02/<run_id>/delta/canonical_bars.delta \
-  --canonical-provenance-path artifacts/codex/moex-phase02/<run_id>/delta/canonical_bar_provenance.delta \
-  --finam-archive-source-path artifacts/codex/moex-phase03-input/finam-archive-20260402.json \
-  --output-root artifacts/codex/moex-phase03
+  --canonical-bars-path $TA3000_MOEX_HISTORICAL_DATA_ROOT/moex-phase02/<run_id>/delta/canonical_bars.delta \
+  --canonical-provenance-path $TA3000_MOEX_HISTORICAL_DATA_ROOT/moex-phase02/<run_id>/delta/canonical_bar_provenance.delta \
+  --finam-archive-source-path /absolute/path/outside/repo/moex-phase03-input/finam-archive-20260402.json \
+  --output-root $TA3000_MOEX_HISTORICAL_DATA_ROOT/moex-phase03
 ```
 
 The runner is fail-closed and exits non-zero when hard threshold gates block publish.
 
 ## Required Artifacts
-Per run folder (`artifacts/codex/moex-phase03/<run_id>/`):
+Per run folder (`$TA3000_MOEX_HISTORICAL_DATA_ROOT/moex-phase03/<run_id>/`):
 - `phase03-reconciliation-report.json`
 - `finam-archive-ingest-report.json`
 - `finam-archive-provenance.json`

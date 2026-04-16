@@ -3,10 +3,16 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 import json
 from pathlib import Path
+import tempfile
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows, write_delta_table_rows
 from trading_advisor_3000.product_plane.data_plane.moex import build_raw_ingest_run_report_v2, run_phase03_dagster_cutover
 from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contracts import read_technical_route_run_ledger
+from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
+    MOEX_HISTORICAL_DATA_ROOT_ENV,
+)
+
+import pytest
 
 
 RAW_COLUMNS: dict[str, str] = {
@@ -26,6 +32,13 @@ RAW_COLUMNS: dict[str, str] = {
     "ingested_at_utc": "timestamp",
     "provenance_json": "json",
 }
+
+
+@pytest.fixture(autouse=True)
+def _external_data_root_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    external_root = Path(tempfile.gettempdir()) / "ta3000-moex-historical-tests-integration"
+    external_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv(MOEX_HISTORICAL_DATA_ROOT_ENV, external_root.as_posix())
 
 
 def _iso(dt: datetime) -> str:

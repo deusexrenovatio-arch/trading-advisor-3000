@@ -37,13 +37,16 @@ from trading_advisor_3000.product_plane.data_plane.moex.foundation import (
 )
 from trading_advisor_3000.product_plane.data_plane.moex.iss_client import MoexISSClient
 from trading_advisor_3000.product_plane.data_plane.moex.phase02_canonical import run_phase02_canonical
+from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
+    NIGHTLY_STORAGE_DIRNAME,
+    PHASE01_STORAGE_DIRNAME,
+    PHASE02_STORAGE_DIRNAME,
+    resolve_external_root,
+)
 
 
 DEFAULT_MAPPING_REGISTRY = Path("configs/moex_phase01/instrument_mapping_registry.v1.yaml")
 DEFAULT_UNIVERSE = Path("configs/moex_phase01/universe/moex-futures-priority.v1.yaml")
-DEFAULT_PHASE01_ROOT = Path("artifacts/codex/moex-phase01")
-DEFAULT_PHASE02_ROOT = Path("artifacts/codex/moex-phase02")
-DEFAULT_OUTPUT_ROOT = Path("artifacts/codex/moex-nightly")
 DEFAULT_TIMEFRAMES = "5m,15m,1h,4h,1d,1w"
 DEFAULT_BATCH_SIZE = 250_000
 DEFAULT_EXECUTION_MODE = "sequential"
@@ -589,9 +592,30 @@ def main() -> None:
     )
     parser.add_argument("--mapping-registry", default=DEFAULT_MAPPING_REGISTRY.as_posix())
     parser.add_argument("--universe", default=DEFAULT_UNIVERSE.as_posix())
-    parser.add_argument("--phase01-root", default=DEFAULT_PHASE01_ROOT.as_posix())
-    parser.add_argument("--phase02-root", default=DEFAULT_PHASE02_ROOT.as_posix())
-    parser.add_argument("--output-root", default=DEFAULT_OUTPUT_ROOT.as_posix())
+    parser.add_argument(
+        "--phase01-root",
+        default="",
+        help=(
+            "Absolute external phase-01 artifact root. "
+            "Required unless TA3000_MOEX_HISTORICAL_DATA_ROOT is set."
+        ),
+    )
+    parser.add_argument(
+        "--phase02-root",
+        default="",
+        help=(
+            "Absolute external phase-02 artifact root. "
+            "Required unless TA3000_MOEX_HISTORICAL_DATA_ROOT is set."
+        ),
+    )
+    parser.add_argument(
+        "--output-root",
+        default="",
+        help=(
+            "Absolute external nightly route root. "
+            "Required unless TA3000_MOEX_HISTORICAL_DATA_ROOT is set."
+        ),
+    )
     parser.add_argument("--run-id", default="")
     parser.add_argument("--timeframes", default=DEFAULT_TIMEFRAMES)
     parser.add_argument("--workers", type=int, default=4)
@@ -646,9 +670,24 @@ def main() -> None:
 
     mapping_registry_path = _resolve(Path(args.mapping_registry))
     universe_path = _resolve(Path(args.universe))
-    phase01_root = _resolve(Path(args.phase01_root))
-    phase02_root = _resolve(Path(args.phase02_root))
-    output_root = _resolve(Path(args.output_root))
+    phase01_root = resolve_external_root(
+        args.phase01_root,
+        repo_root=ROOT,
+        field_name="--phase01-root",
+        default_subdir=PHASE01_STORAGE_DIRNAME,
+    )
+    phase02_root = resolve_external_root(
+        args.phase02_root,
+        repo_root=ROOT,
+        field_name="--phase02-root",
+        default_subdir=PHASE02_STORAGE_DIRNAME,
+    )
+    output_root = resolve_external_root(
+        args.output_root,
+        repo_root=ROOT,
+        field_name="--output-root",
+        default_subdir=NIGHTLY_STORAGE_DIRNAME,
+    )
 
     phase01_run_dir = phase01_root / run_id
     phase01_run_dir.mkdir(parents=True, exist_ok=True)

@@ -16,24 +16,26 @@ This runbook covers:
 ## Preconditions
 1. Python env is bootstrapped (`python -m pip install -e .[dev]`).
 2. Raw-ingest artifacts already exist with raw Delta output:
-   - `artifacts/codex/moex-phase01/<run_id>/delta/raw_moex_history.delta`
+   - `$TA3000_MOEX_HISTORICAL_DATA_ROOT/moex-phase01/<run_id>/delta/raw_moex_history.delta`
 3. `canonical_bar.v1` contract files are present in source tree.
 
 ## Execute Canonicalization Proof
 Run from repository root:
 
 ```bash
+export TA3000_MOEX_HISTORICAL_DATA_ROOT=/absolute/path/outside/repo
+
 python scripts/run_moex_phase02_canonical.py \
-  --phase01-root artifacts/codex/moex-phase01 \
-  --output-root artifacts/codex/moex-phase02
+  --phase01-root $TA3000_MOEX_HISTORICAL_DATA_ROOT/moex-phase01 \
+  --output-root $TA3000_MOEX_HISTORICAL_DATA_ROOT/moex-phase02
 ```
 
 Optional explicit source binding:
 
 ```bash
 python scripts/run_moex_phase02_canonical.py \
-  --raw-table-path artifacts/codex/moex-phase01/<run_id>/delta/raw_moex_history.delta \
-  --output-root artifacts/codex/moex-phase02 \
+  --raw-table-path $TA3000_MOEX_HISTORICAL_DATA_ROOT/moex-phase01/<run_id>/delta/raw_moex_history.delta \
+  --output-root $TA3000_MOEX_HISTORICAL_DATA_ROOT/moex-phase02 \
   --run-id 20260402T120000Z
 ```
 
@@ -44,7 +46,7 @@ Operator route note:
 - Python remains only the orchestration/report layer around Spark execution, not the resampling engine itself.
 
 ## Required Artifacts
-Per run folder (`artifacts/codex/moex-phase02/<run_id>/`):
+Per run folder (`$TA3000_MOEX_HISTORICAL_DATA_ROOT/moex-phase02/<run_id>/`):
 - `phase02-canonical-report.json`
 - `canonical-snapshot.json`
 - `resampling-snapshot.json`

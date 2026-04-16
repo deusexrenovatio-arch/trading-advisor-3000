@@ -14,15 +14,14 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from trading_advisor_3000.product_plane.data_plane.moex import run_phase02_canonical
+from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
+    PHASE01_STORAGE_DIRNAME,
+    PHASE02_STORAGE_DIRNAME,
+    resolve_external_file_path,
+    resolve_external_root,
+)
 
-
-DEFAULT_PHASE01_ROOT = Path("artifacts/codex/moex-phase01")
-DEFAULT_OUTPUT_ROOT = Path("artifacts/codex/moex-phase02")
 RUN_ID_PATTERN = re.compile(r"^\d{8}T\d{6}Z$")
-
-
-def _resolve(path: Path) -> Path:
-    return path if path.is_absolute() else (ROOT / path).resolve()
 
 
 def _default_run_id() -> str:
@@ -56,7 +55,11 @@ def _resolve_raw_table_path(
     phase01_run_id: str,
 ) -> tuple[Path, str]:
     if raw_table_path.strip():
-        path = _resolve(Path(raw_table_path.strip()))
+        path = resolve_external_file_path(
+            raw_table_path,
+            repo_root=ROOT,
+            field_name="--raw-table-path",
+        )
         return path, "explicit"
 
     run_dir = _pick_phase01_run_dir(phase01_root, phase01_run_id)
@@ -71,7 +74,11 @@ def _resolve_raw_ingest_report_path(
     phase01_run_id: str,
 ) -> tuple[Path, str]:
     if raw_ingest_report_path.strip():
-        path = _resolve(Path(raw_ingest_report_path.strip()))
+        path = resolve_external_file_path(
+            raw_ingest_report_path,
+            repo_root=ROOT,
+            field_name="--raw-ingest-report-path",
+        )
         return path, "explicit"
 
     run_dir = _pick_phase01_run_dir(phase01_root, phase01_run_id)
@@ -104,8 +111,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--phase01-root",
-        default=DEFAULT_PHASE01_ROOT.as_posix(),
-        help="Legacy raw-ingest artifact root used when --raw-table-path is omitted.",
+        default="",
+        help=(
+            "Absolute external phase-01 artifact root used when --raw-table-path is omitted. "
+            "Required unless TA3000_MOEX_HISTORICAL_DATA_ROOT is set."
+        ),
     )
     parser.add_argument(
         "--phase01-run-id",
@@ -119,8 +129,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--output-root",
-        default=DEFAULT_OUTPUT_ROOT.as_posix(),
-        help="Root folder for canonicalization run artifacts.",
+        default="",
+        help=(
+            "Absolute external root folder for canonicalization run artifacts. "
+            "Required unless TA3000_MOEX_HISTORICAL_DATA_ROOT is set."
+        ),
     )
     parser.add_argument(
         "--run-id",
@@ -136,7 +149,12 @@ def main() -> None:
     )
 
     run_id = args.run_id.strip() or _default_run_id()
-    phase01_root = _resolve(Path(args.phase01_root))
+    phase01_root = resolve_external_root(
+        args.phase01_root,
+        repo_root=ROOT,
+        field_name="--phase01-root",
+        default_subdir=PHASE01_STORAGE_DIRNAME,
+    )
     raw_table_path, raw_source = _resolve_raw_table_path(
         raw_table_path=args.raw_table_path,
         phase01_root=phase01_root,
@@ -152,7 +170,12 @@ def main() -> None:
         raise ValueError(
             f"canonicalization raw-ingest report must be JSON object: {raw_ingest_report_path.as_posix()}"
         )
-    output_root = _resolve(Path(args.output_root))
+    output_root = resolve_external_root(
+        args.output_root,
+        repo_root=ROOT,
+        field_name="--output-root",
+        default_subdir=PHASE02_STORAGE_DIRNAME,
+    )
     output_dir = output_root / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
 

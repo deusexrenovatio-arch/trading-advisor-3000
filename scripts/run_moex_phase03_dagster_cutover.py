@@ -13,13 +13,11 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from trading_advisor_3000.product_plane.data_plane.moex import run_phase03_dagster_cutover
-
-
-DEFAULT_OUTPUT_ROOT = Path("artifacts/codex/moex-phase03")
-
-
-def _resolve(path: Path) -> Path:
-    return path if path.is_absolute() else (ROOT / path).resolve()
+from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
+    PHASE03_STORAGE_DIRNAME,
+    resolve_external_file_path,
+    resolve_external_root,
+)
 
 
 def _default_run_id() -> str:
@@ -46,9 +44,16 @@ def main() -> None:
             "single-writer lease enforcement, repair/backfill reuse, recovery drill, and two nightly readiness cycles."
         )
     )
-    parser.add_argument("--raw-table-path", default="", help="Path to authoritative raw_moex_history.delta.")
-    parser.add_argument("--raw-ingest-report-path", default="", help="Path to raw_ingest_run_report.v2 json.")
-    parser.add_argument("--output-root", default=DEFAULT_OUTPUT_ROOT.as_posix(), help="Root folder for phase-03 artifacts.")
+    parser.add_argument("--raw-table-path", default="", help="Absolute external path to authoritative raw_moex_history.delta.")
+    parser.add_argument("--raw-ingest-report-path", default="", help="Absolute external path to raw_ingest_run_report.v2 json.")
+    parser.add_argument(
+        "--output-root",
+        default="",
+        help=(
+            "Absolute external root folder for phase-03 artifacts. "
+            "Required unless TA3000_MOEX_HISTORICAL_DATA_ROOT is set."
+        ),
+    )
     parser.add_argument("--run-id", default="", help="Optional run id; defaults to current UTC timestamp.")
     parser.add_argument(
         "--nightly-readiness-observed-at-utc",
@@ -90,13 +95,26 @@ def main() -> None:
         )
 
     run_id = args.run_id.strip() or _default_run_id()
-    output_root = _resolve(Path(args.output_root))
+    output_root = resolve_external_root(
+        args.output_root,
+        repo_root=ROOT,
+        field_name="--output-root",
+        default_subdir=PHASE03_STORAGE_DIRNAME,
+    )
     output_dir = output_root / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
 
     report = run_phase03_dagster_cutover(
-        raw_table_path=_resolve(Path(raw_table_raw)),
-        raw_ingest_report_path=_resolve(Path(raw_report_raw)),
+        raw_table_path=resolve_external_file_path(
+            raw_table_raw,
+            repo_root=ROOT,
+            field_name="--raw-table-path",
+        ),
+        raw_ingest_report_path=resolve_external_file_path(
+            raw_report_raw,
+            repo_root=ROOT,
+            field_name="--raw-ingest-report-path",
+        ),
         output_dir=output_dir,
         run_id=run_id,
         nightly_readiness_observed_at_utc=list(args.nightly_readiness_observed_at_utc),
@@ -105,7 +123,11 @@ def main() -> None:
         retry_max_attempts=int(args.retry_max_attempts),
         retry_backoff_seconds=_parse_backoff(args.retry_backoff_seconds),
         lease_timeout_sec=int(args.lease_timeout_sec),
-        staging_binding_report_path=_resolve(Path(staging_binding_raw)),
+        staging_binding_report_path=resolve_external_file_path(
+            staging_binding_raw,
+            repo_root=ROOT,
+            field_name="--staging-binding-report-path",
+        ),
         require_staging_real=True,
     )
 

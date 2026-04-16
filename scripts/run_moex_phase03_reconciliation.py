@@ -14,10 +14,13 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from trading_advisor_3000.product_plane.data_plane.moex import run_phase03_reconciliation
+from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
+    PHASE02_STORAGE_DIRNAME,
+    PHASE03_STORAGE_DIRNAME,
+    resolve_external_file_path,
+    resolve_external_root,
+)
 
-
-DEFAULT_PHASE02_ROOT = Path("artifacts/codex/moex-phase02")
-DEFAULT_OUTPUT_ROOT = Path("artifacts/codex/moex-phase03")
 DEFAULT_MAPPING_REGISTRY = Path("configs/moex_phase01/instrument_mapping_registry.v1.yaml")
 DEFAULT_THRESHOLD_POLICY = Path("configs/moex_phase03/reconciliation_thresholds.v1.yaml")
 RUN_ID_PATTERN = re.compile(r"^\d{8}T\d{6}Z$")
@@ -59,8 +62,16 @@ def _resolve_phase02_paths(
     phase02_run_id: str,
 ) -> tuple[Path, Path, str]:
     if canonical_bars_path.strip() and canonical_provenance_path.strip():
-        bars = _resolve(Path(canonical_bars_path.strip()))
-        provenance = _resolve(Path(canonical_provenance_path.strip()))
+        bars = resolve_external_file_path(
+            canonical_bars_path,
+            repo_root=ROOT,
+            field_name="--canonical-bars-path",
+        )
+        provenance = resolve_external_file_path(
+            canonical_provenance_path,
+            repo_root=ROOT,
+            field_name="--canonical-provenance-path",
+        )
         return bars, provenance, "explicit"
 
     run_dir = _pick_phase02_run_dir(phase02_root, phase02_run_id)
@@ -93,8 +104,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--phase02-root",
-        default=DEFAULT_PHASE02_ROOT.as_posix(),
-        help="Phase-02 artifact root used when explicit canonical paths are omitted.",
+        default="",
+        help=(
+            "Absolute external phase-02 artifact root used when explicit canonical paths are omitted. "
+            "Required unless TA3000_MOEX_HISTORICAL_DATA_ROOT is set."
+        ),
     )
     parser.add_argument(
         "--phase02-run-id",
@@ -113,8 +127,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--output-root",
-        default=DEFAULT_OUTPUT_ROOT.as_posix(),
-        help="Root folder for phase-03 reconciliation run artifacts.",
+        default="",
+        help=(
+            "Absolute external root folder for phase-03 reconciliation artifacts. "
+            "Required unless TA3000_MOEX_HISTORICAL_DATA_ROOT is set."
+        ),
     )
     parser.add_argument(
         "--run-id",
@@ -133,7 +150,12 @@ def main() -> None:
         raise SystemExit("phase-03 requires --finam-archive-source-path; no implicit synthetic fallback is allowed")
 
     run_id = args.run_id.strip() or _default_run_id()
-    phase02_root = _resolve(Path(args.phase02_root))
+    phase02_root = resolve_external_root(
+        args.phase02_root,
+        repo_root=ROOT,
+        field_name="--phase02-root",
+        default_subdir=PHASE02_STORAGE_DIRNAME,
+    )
     canonical_bars_path, canonical_provenance_path, source_resolution = _resolve_phase02_paths(
         canonical_bars_path=args.canonical_bars_path,
         canonical_provenance_path=args.canonical_provenance_path,
@@ -142,8 +164,17 @@ def main() -> None:
     )
     mapping_registry = _resolve(Path(args.mapping_registry))
     threshold_policy = _resolve(Path(args.threshold_policy))
-    finam_source = _resolve(Path(finam_source_raw))
-    output_root = _resolve(Path(args.output_root))
+    finam_source = resolve_external_file_path(
+        finam_source_raw,
+        repo_root=ROOT,
+        field_name="--finam-archive-source-path",
+    )
+    output_root = resolve_external_root(
+        args.output_root,
+        repo_root=ROOT,
+        field_name="--output-root",
+        default_subdir=PHASE03_STORAGE_DIRNAME,
+    )
     output_dir = output_root / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
 

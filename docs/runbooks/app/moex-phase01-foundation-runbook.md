@@ -25,8 +25,9 @@ This runbook covers:
 Run from repository root:
 
 ```bash
+export TA3000_MOEX_HISTORICAL_DATA_ROOT=/absolute/path/outside/repo
+
 python scripts/run_moex_phase01_foundation.py \
-  --output-root artifacts/codex/moex-phase01 \
   --timeframes 5m,15m,1h,4h,1d,1w \
   --bootstrap-window-days 1461 \
   --expand-contract-chain \
@@ -40,7 +41,7 @@ The runner executes two passes with the same `ingest_till_utc` and fails if reru
 `refresh_overlap_minutes` keeps small near-watermark refetches for corrections while avoiding full historical reloads on every rerun.
 
 ## Required Artifacts
-Per run folder (`artifacts/codex/moex-phase01/<run_id>/`):
+Per run folder (`$TA3000_MOEX_HISTORICAL_DATA_ROOT/moex-phase01/<run_id>/`):
 - `coverage-report.pass1.json`
 - `coverage-report.pass2.json`
 - `coverage-report.pass1.csv`

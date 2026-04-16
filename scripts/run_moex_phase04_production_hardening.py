@@ -14,14 +14,16 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from trading_advisor_3000.product_plane.data_plane.moex import run_phase04_production_hardening
+from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
+    PHASE01_STORAGE_DIRNAME,
+    PHASE02_STORAGE_DIRNAME,
+    PHASE03_STORAGE_DIRNAME,
+    resolve_external_file_path,
+    resolve_external_root,
+)
 
-
-DEFAULT_PHASE01_ROOT = Path("artifacts/codex/moex-phase01")
-DEFAULT_PHASE02_ROOT = Path("artifacts/codex/moex-phase02")
-DEFAULT_PHASE03_ROOT = Path("artifacts/codex/moex-phase03")
 DEFAULT_SCHEDULER_POLICY = Path("configs/moex_phase04/scheduler_jobs.v1.yaml")
 DEFAULT_MONITORING_POLICY = Path("configs/moex_phase04/monitoring_requirements.v1.yaml")
-DEFAULT_OUTPUT_ROOT = Path("artifacts/codex/moex-phase04")
 RUN_ID_PATTERN = re.compile(r"^\d{8}T\d{6}Z$")
 
 
@@ -57,7 +59,11 @@ def _resolve_phase_report_path(
     filename: str,
 ) -> tuple[Path, str]:
     if explicit_report_path.strip():
-        return _resolve(Path(explicit_report_path.strip())), "explicit"
+        return resolve_external_file_path(
+            explicit_report_path,
+            repo_root=ROOT,
+            field_name=f"explicit {filename}",
+        ), "explicit"
 
     run_dir = _pick_run_dir(root, run_id)
     return run_dir / filename, f"auto:{run_dir.name}"
@@ -67,7 +73,11 @@ def _require_source_path(raw: str, flag_name: str) -> Path:
     value = raw.strip()
     if not value:
         raise SystemExit(f"phase-04 requires `{flag_name}`; no implicit fallback is allowed")
-    path = _resolve(Path(value))
+    path = resolve_external_file_path(
+        value,
+        repo_root=ROOT,
+        field_name=flag_name,
+    )
     if not path.exists():
         raise FileNotFoundError(f"required source path does not exist: {path.as_posix()}")
     return path
@@ -82,17 +92,17 @@ def main() -> None:
     )
 
     parser.add_argument("--phase01-report-path", default="")
-    parser.add_argument("--phase01-root", default=DEFAULT_PHASE01_ROOT.as_posix())
+    parser.add_argument("--phase01-root", default="")
     parser.add_argument("--phase01-run-id", default="")
     parser.add_argument("--phase01-acceptance-path", default="")
 
     parser.add_argument("--phase02-report-path", default="")
-    parser.add_argument("--phase02-root", default=DEFAULT_PHASE02_ROOT.as_posix())
+    parser.add_argument("--phase02-root", default="")
     parser.add_argument("--phase02-run-id", default="")
     parser.add_argument("--phase02-acceptance-path", default="")
 
     parser.add_argument("--phase03-report-path", default="")
-    parser.add_argument("--phase03-root", default=DEFAULT_PHASE03_ROOT.as_posix())
+    parser.add_argument("--phase03-root", default="")
     parser.add_argument("--phase03-run-id", default="")
     parser.add_argument("--phase03-acceptance-path", default="")
 
@@ -103,7 +113,7 @@ def main() -> None:
     parser.add_argument("--recovery-drill-source-path", default="")
     parser.add_argument("--defects-source-path", default="")
 
-    parser.add_argument("--output-root", default=DEFAULT_OUTPUT_ROOT.as_posix())
+    parser.add_argument("--output-root", default="")
     parser.add_argument("--run-id", default="")
     parser.add_argument("--route-signal", default="worker:phase-only")
     args = parser.parse_args()
@@ -112,19 +122,34 @@ def main() -> None:
 
     phase01_path, phase01_resolution = _resolve_phase_report_path(
         explicit_report_path=args.phase01_report_path,
-        root=_resolve(Path(args.phase01_root)),
+        root=resolve_external_root(
+            args.phase01_root,
+            repo_root=ROOT,
+            field_name="--phase01-root",
+            default_subdir=PHASE01_STORAGE_DIRNAME,
+        ),
         run_id=args.phase01_run_id,
         filename="phase01-foundation-report.json",
     )
     phase02_path, phase02_resolution = _resolve_phase_report_path(
         explicit_report_path=args.phase02_report_path,
-        root=_resolve(Path(args.phase02_root)),
+        root=resolve_external_root(
+            args.phase02_root,
+            repo_root=ROOT,
+            field_name="--phase02-root",
+            default_subdir=PHASE02_STORAGE_DIRNAME,
+        ),
         run_id=args.phase02_run_id,
         filename="phase02-canonical-report.json",
     )
     phase03_path, phase03_resolution = _resolve_phase_report_path(
         explicit_report_path=args.phase03_report_path,
-        root=_resolve(Path(args.phase03_root)),
+        root=resolve_external_root(
+            args.phase03_root,
+            repo_root=ROOT,
+            field_name="--phase03-root",
+            default_subdir=PHASE03_STORAGE_DIRNAME,
+        ),
         run_id=args.phase03_run_id,
         filename="phase03-reconciliation-report.json",
     )
@@ -140,11 +165,24 @@ def main() -> None:
         "--monitoring-evidence-source-path",
     )
     recovery_drill_source_path = _require_source_path(args.recovery_drill_source_path, "--recovery-drill-source-path")
-    defects_source_path = _resolve(Path(args.defects_source_path.strip())) if args.defects_source_path.strip() else None
+    defects_source_path = (
+        resolve_external_file_path(
+            args.defects_source_path.strip(),
+            repo_root=ROOT,
+            field_name="--defects-source-path",
+        )
+        if args.defects_source_path.strip()
+        else None
+    )
     if defects_source_path is not None and not defects_source_path.exists():
         raise FileNotFoundError(f"defects source path does not exist: {defects_source_path.as_posix()}")
 
-    output_root = _resolve(Path(args.output_root))
+    output_root = resolve_external_root(
+        args.output_root,
+        repo_root=ROOT,
+        field_name="--output-root",
+        default_subdir="moex-phase04",
+    )
     output_dir = output_root / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
 

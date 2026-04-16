@@ -57,6 +57,8 @@ The artifact can be a JSON report file or a phase-scoped evidence directory, but
 Run from repository root:
 
 ```bash
+export TA3000_MOEX_HISTORICAL_DATA_ROOT=/absolute/path/outside/repo
+
 python scripts/build_moex_phase03_staging_binding_report.py \
   --dagster-url https://dagster-staging.example.internal \
   --token-env-var TA3000_DAGSTER_TOKEN \
@@ -71,7 +73,7 @@ python scripts/build_moex_phase03_staging_binding_report.py \
   --backfill-artifact-path staging-evidence/backfill.json \
   --recovery-artifact-path staging-evidence/recovery.json \
   --real-binding delta://TA3000-data/moex-baseline \
-  --output-root artifacts/codex/moex-phase03-staging \
+  --output-root $TA3000_MOEX_HISTORICAL_DATA_ROOT/moex-phase03-staging \
   --run-id 20260413T230000Z
 ```
 
@@ -92,12 +94,12 @@ After the staging binding report exists, rerun the canonical Phase-03 contour an
 ```bash
 python scripts/run_moex_phase03_dagster_cutover.py \
   --raw-table-path D:/TA3000-data/trading-advisor-3000-nightly/raw/moex/baseline-4y-current/raw_moex_history.delta \
-  --raw-ingest-report-path artifacts/codex/moex-phase01/<run_id>/raw-ingest-report.pass1.json \
-  --output-root artifacts/codex/moex-phase03 \
+  --raw-ingest-report-path $TA3000_MOEX_HISTORICAL_DATA_ROOT/moex-phase01/<run_id>/raw-ingest-report.pass1.json \
+  --output-root $TA3000_MOEX_HISTORICAL_DATA_ROOT/moex-phase03 \
   --run-id 20260413T231500Z \
   --nightly-readiness-observed-at-utc 2026-04-12T02:40:00Z \
   --nightly-readiness-observed-at-utc 2026-04-13T02:45:00Z \
-  --staging-binding-report-path artifacts/codex/moex-phase03-staging/20260413T230000Z/staging-binding-report.json
+  --staging-binding-report-path $TA3000_MOEX_HISTORICAL_DATA_ROOT/moex-phase03-staging/20260413T230000Z/staging-binding-report.json
 ```
 
 Expected result:
@@ -112,7 +114,7 @@ The acceptance rerun should now judge the real evidence package instead of block
 
 ## Output Bundle
 The staging bundle is written under:
-- `artifacts/codex/moex-phase03-staging/<run_id>/`
+- `$TA3000_MOEX_HISTORICAL_DATA_ROOT/moex-phase03-staging/<run_id>/`
 
 Expected files:
 - `staging-binding-report.json`
