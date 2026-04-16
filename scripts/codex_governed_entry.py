@@ -567,6 +567,7 @@ def run_package_route(
     decision: RouteDecision,
     mode: str,
     profile: str,
+    continue_after_intake: bool,
     inbox: Path,
     artifact_root: Path,
     output_last_message: Path,
@@ -586,9 +587,21 @@ def run_package_route(
         "--output-last-message",
         output_last_message.as_posix(),
     ]
+    if continue_after_intake:
+        args.append("--continue-after-intake")
     exit_code = int(package_main(args))
     if exit_code != 0:
         return exit_code
+
+    if not continue_after_intake:
+        print("package_route_outcome: intake_checkpoint_required")
+        print("next_governed_route: package")
+        print("reason: intake summary was emitted and materialization is paused until the operator continues explicitly")
+        print(
+            "resume_hint: python scripts/codex_governed_entry.py package --package-path "
+            f"{decision.package_path.as_posix()} --continue-after-intake"
+        )
+        return 0
 
     active_modules = discover_active_modules(repo_root)
     if len(active_modules) == 1:
@@ -696,6 +709,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--route-state-file", default=str(DEFAULT_ROUTE_STATE))
     parser.add_argument("--mode", default="auto")
     parser.add_argument("--profile", default="")
+    parser.add_argument(
+        "--continue-after-intake",
+        action="store_true",
+        help="Allow package materialization to start after the intake summary checkpoint.",
+    )
     parser.add_argument("--backend", choices=("simulate", "codex-cli"), default="codex-cli")
     parser.add_argument("--worker-model", default="gpt-5.3-codex")
     parser.add_argument("--acceptor-model", default="gpt-5.4")
@@ -834,6 +852,7 @@ def main(argv: list[str] | None = None) -> int:
             decision=decision,
             mode=args.mode,
             profile=profile,
+            continue_after_intake=bool(args.continue_after_intake),
             inbox=inbox,
             artifact_root=artifact_root / "package-intake",
             output_last_message=output_last_message,

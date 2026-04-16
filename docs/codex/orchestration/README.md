@@ -134,6 +134,10 @@ so repeated blocker classes and first-pass acceptance drift become visible witho
 with the acceptor's judgment about the phase output itself.
 
 Package-intake artifacts now carry a separate intake-quality layer as well:
+- default mode is `dual`: `product_intake` + `technical_intake` run as two review lenses before materialization;
+- lane findings are advisory by default and must be surfaced in summary/handoff instead of automatically hard-blocking intake;
+- hard block is reserved for governed handoff invariants, when the intake passes still cannot produce a safe materialization contract;
+- after the two intake passes, the runner emits a human summary checkpoint and pauses by default; materialization requires explicit `--continue-after-intake`;
 - each lane may emit `intake_quality_summary`;
 - the formal Python gate derives `intake_gate_quality_summary` from lane scores plus blocker pressure;
 - intake quality informs readiness and handoff clarity, but does not replace the formal blocker gate.

@@ -330,6 +330,25 @@ def _max_scale(blockers: list[dict[str, str]]) -> str:
     return strongest["scale"]
 
 
+def _invariant_blocker(
+    *,
+    blocker_id: str,
+    title: str,
+    why: str,
+    required_action: str,
+    severity: str = "P0",
+    scale: str = "L",
+) -> dict[str, str]:
+    return {
+        "id": blocker_id,
+        "severity": severity,
+        "scale": scale,
+        "title": title,
+        "why": why,
+        "required_action": required_action,
+    }
+
+
 def evaluate_intake_gate_payload(payload: dict[str, Any]) -> dict[str, Any]:
     technical = _normalize_lane(payload, "technical_intake")
     product = _normalize_lane(payload, "product_intake")
@@ -351,12 +370,13 @@ def evaluate_intake_gate_payload(payload: dict[str, Any]) -> dict[str, Any]:
     )
     all_blockers = technical_blockers + product_blockers
     severity = _severity_counts(all_blockers)
-    blocking_total = severity["P0"] + severity["P1"]
-    decision = "BLOCKED" if blocking_total > 0 else "PASS"
+    invariant_blockers = _intake_invariant_blockers(technical=technical, product=product)
+    blocking_total = len(invariant_blockers)
+    decision = "BLOCKED" if invariant_blockers else "PASS"
     return {
         "schema_version": 1,
         "gate_mode": "formal-intake-gate",
-        "formal_rule": "BLOCK when any P0/P1 blocker exists across technical_intake and product_intake.",
+        "formal_rule": "BLOCK only when the two intake passes still cannot produce a safe governed handoff for materialization.",
         "technical_intake": {
             "created_docs": technical["created_docs"],
             "review_summary": technical["review_summary"],
@@ -386,8 +406,11 @@ def evaluate_intake_gate_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "combined_gate": {
             "decision": decision,
             "blocking_total": blocking_total,
+            "advisory_findings_total": len(all_blockers),
+            "advisory_state": "findings-present" if all_blockers else "clear",
             "severity_counts": severity,
             "max_problem_scale": _max_scale([item for item in all_blockers if item["severity"] in {"P0", "P1"}]),
+            "invariant_blockers": invariant_blockers,
             "reported_decision": str(payload.get("combined_gate", {}).get("decision", "")).strip().upper(),
             "intake_quality_summary": build_intake_gate_quality_summary(
                 technical=technical["intake_quality"],
@@ -409,8 +432,10 @@ def render_intake_gate_markdown(gate: dict[str, Any]) -> str:
         "# Intake Gate",
         "",
         f"- Decision: {combined['decision']}",
-        f"- Blocking Total (P0/P1): {combined['blocking_total']}",
-        f"- Severity Counts: P0={combined['severity_counts']['P0']}, P1={combined['severity_counts']['P1']}, P2={combined['severity_counts']['P2']}",
+        f"- Hard Blocking Total: {combined['blocking_total']}",
+        f"- Advisory Findings Total: {combined.get('advisory_findings_total', 'unknown')}",
+        f"- Advisory State: {combined.get('advisory_state', 'unknown')}",
+        f"- Findings Severity Counts: P0={combined['severity_counts']['P0']}, P1={combined['severity_counts']['P1']}, P2={combined['severity_counts']['P2']}",
         f"- Max Problem Scale: {combined['max_problem_scale']}",
         "",
         "## Technical Intake",
@@ -435,7 +460,19 @@ def render_intake_gate_markdown(gate: dict[str, Any]) -> str:
         f"- Gate Score: {combined.get('intake_quality_summary', {}).get('intake_gate_score', 'unscored')}",
         f"- Gate Score Label: {combined.get('intake_quality_summary', {}).get('score_label', 'unscored')}",
         "",
+        "## Hard Blocks",
     ]
+    invariant_blockers = combined.get("invariant_blockers", [])
+    if isinstance(invariant_blockers, list) and invariant_blockers:
+        for item in invariant_blockers:
+            if not isinstance(item, dict):
+                continue
+            lines.append(
+                f"- {item.get('id', 'UNKNOWN')}: [{item.get('severity', 'P?')}] {item.get('title', '')}"
+            )
+    else:
+        lines.append("- none")
+    lines.append("")
     return "\n".join(lines)
 
 
@@ -446,6 +483,55 @@ def _dedupe_strings(items: list[str]) -> list[str]:
         if text and text not in out:
             out.append(text)
     return out
+
+
+def _intake_invariant_blockers(
+    *,
+    technical: dict[str, Any],
+    product: dict[str, Any],
+) -> list[dict[str, str]]:
+    created_docs = _dedupe_strings(
+        [*list(technical.get("created_docs", [])), *list(product.get("created_docs", []))]
+    )
+    goals_digest = _dedupe_strings(
+        [*list(product.get("goals_digest", [])), *list(technical.get("goals_digest", []))]
+    )
+    acceptance_digest = _dedupe_strings(
+        [
+            *list(product.get("acceptance_criteria_digest", [])),
+            *list(technical.get("acceptance_criteria_digest", [])),
+        ]
+    )
+
+    blockers: list[dict[str, str]] = []
+    if not created_docs:
+        blockers.append(
+            _invariant_blocker(
+                blocker_id="INTAKE-INVARIANT-DOCS",
+                title="No materialization targets were produced",
+                why="The two intake passes did not name any canonical docs to refresh, so governed materialization cannot proceed safely.",
+                required_action="Ensure intake outputs include the execution contract and module docs that must be materialized.",
+            )
+        )
+    if not goals_digest:
+        blockers.append(
+            _invariant_blocker(
+                blocker_id="INTAKE-INVARIANT-GOALS",
+                title="No goals digest survived intake",
+                why="The governed handoff would lose source intent because neither intake pass preserved a stable goals digest.",
+                required_action="Capture at least one lossless goals digest item from the source package before continuing.",
+            )
+        )
+    if not acceptance_digest:
+        blockers.append(
+            _invariant_blocker(
+                blocker_id="INTAKE-INVARIANT-ACCEPTANCE",
+                title="No acceptance digest survived intake",
+                why="The governed handoff would lose measurable acceptance criteria because neither intake pass preserved them.",
+                required_action="Capture at least one measurable acceptance criterion from the source package before continuing.",
+            )
+        )
+    return blockers
 
 
 def build_intake_human_summary(gate: dict[str, Any]) -> dict[str, Any]:
@@ -464,6 +550,20 @@ def build_intake_human_summary(gate: dict[str, Any]) -> dict[str, Any]:
         if isinstance(product, dict) and isinstance(technical, dict)
         else []
     )
+    findings: list[dict[str, Any]] = []
+    for lane_name in ("technical_intake", "product_intake"):
+        lane_payload = gate.get(lane_name, {})
+        if not isinstance(lane_payload, dict):
+            continue
+        lane_findings = lane_payload.get("blockers", [])
+        if not isinstance(lane_findings, list):
+            continue
+        for item in lane_findings:
+            if not isinstance(item, dict):
+                continue
+            candidate = {"lane": lane_name, **item}
+            if candidate not in findings:
+                findings.append(candidate)
     structural_recommendations: list[dict[str, Any]] = []
     for lane_name in ("technical_intake", "product_intake"):
         lane_payload = gate.get(lane_name, {})
@@ -482,9 +582,12 @@ def build_intake_human_summary(gate: dict[str, Any]) -> dict[str, Any]:
     return {
         "schema_version": 1,
         "gate_decision": decision,
+        "advisory_state": str(gate.get("combined_gate", {}).get("advisory_state", "unknown")).strip(),
         "goals_digest": goals,
         "acceptance_criteria_digest": acceptance,
         "structural_recommendations": structural_recommendations,
+        "findings": findings,
+        "invariant_blockers": list(gate.get("combined_gate", {}).get("invariant_blockers", [])),
     }
 
 
@@ -492,10 +595,13 @@ def render_intake_human_summary_markdown(summary: dict[str, Any]) -> str:
     goals = summary.get("goals_digest", []) if isinstance(summary, dict) else []
     acceptance = summary.get("acceptance_criteria_digest", []) if isinstance(summary, dict) else []
     structural = summary.get("structural_recommendations", []) if isinstance(summary, dict) else []
+    findings = summary.get("findings", []) if isinstance(summary, dict) else []
+    invariant_blockers = summary.get("invariant_blockers", []) if isinstance(summary, dict) else []
     lines = [
         "# Intake Human Summary",
         "",
         f"- Gate Decision: {summary.get('gate_decision', 'UNKNOWN')}",
+        f"- Advisory State: {summary.get('advisory_state', 'unknown')}",
         "",
         "## Goals Digest",
     ]
@@ -524,6 +630,26 @@ def render_intake_human_summary_markdown(summary: dict[str, Any]) -> str:
             if impact:
                 line += f"; impact_on_tz: {impact}"
             lines.append(line)
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Cross-View Findings"])
+    if isinstance(findings, list) and findings:
+        for item in findings:
+            if not isinstance(item, dict):
+                continue
+            lines.append(
+                f"- [{item.get('lane', 'unknown')}] [{item.get('severity', 'P?')}] {item.get('title', '')}"
+            )
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Hard Blocks"])
+    if isinstance(invariant_blockers, list) and invariant_blockers:
+        for item in invariant_blockers:
+            if not isinstance(item, dict):
+                continue
+            lines.append(
+                f"- {item.get('id', 'UNKNOWN')}: [{item.get('severity', 'P?')}] {item.get('title', '')}"
+            )
     else:
         lines.append("- none")
     lines.append("")
@@ -830,7 +956,7 @@ def build_intake_handoff(
     intake_gate: dict[str, Any],
     intake_human_summary: dict[str, Any],
 ) -> dict[str, Any]:
-    blocking_items: list[dict[str, Any]] = []
+    advisory_findings: list[dict[str, Any]] = []
     for lane in LANE_SEQUENCE:
         lane_gate = intake_gate.get(lane, {})
         if not isinstance(lane_gate, dict):
@@ -839,12 +965,15 @@ def build_intake_handoff(
         if not isinstance(blockers, list):
             continue
         for item in blockers:
-            if not isinstance(item, dict):
-                continue
-            severity = str(item.get("severity", "")).strip().upper()
-            if severity not in {"P0", "P1"}:
-                continue
-            blocking_items.append({"lane": lane, **item})
+            if isinstance(item, dict):
+                advisory_findings.append({"lane": lane, **item})
+
+    blocking_items: list[dict[str, Any]] = []
+    raw_invariant_blockers = intake_gate.get("combined_gate", {}).get("invariant_blockers", [])
+    if isinstance(raw_invariant_blockers, list):
+        for item in raw_invariant_blockers:
+            if isinstance(item, dict):
+                blocking_items.append(dict(item))
 
     docs_targets: list[str] = []
     for lane in LANE_SEQUENCE:
@@ -864,6 +993,7 @@ def build_intake_handoff(
         lane_quality_summary = lane_payload.get("intake_quality_summary", {})
         lane_reviews[lane] = {
             "review_summary": str(lane_payload.get("review_summary", "")).strip(),
+            "findings_total": len(list(lane_payload.get("blockers", []))),
             "blockers_total": len(list(lane_payload.get("blockers", []))),
             "intake_quality_score": (
                 lane_quality_summary.get("overall_score")
@@ -1043,6 +1173,7 @@ def build_intake_handoff(
     return {
         "schema_version": 1,
         "gate_decision": str(intake_gate.get("combined_gate", {}).get("decision", "")).strip().upper() or "UNKNOWN",
+        "advisory_state": str(intake_gate.get("combined_gate", {}).get("advisory_state", "")).strip() or "unknown",
         "runtime_context": {
             "package_zip_path": package_path.as_posix(),
             "extracted_package_root": extracted_root.as_posix(),
@@ -1063,6 +1194,7 @@ def build_intake_handoff(
         },
         "documentation_context_contract": documentation_context_contract,
         "lane_reviews": lane_reviews,
+        "advisory_findings": advisory_findings,
         "blocking_items": blocking_items,
     }
 
@@ -1073,6 +1205,7 @@ def render_intake_handoff_markdown(handoff: dict[str, Any]) -> str:
         "# Intake Handoff",
         "",
         f"- Gate Decision: {handoff.get('gate_decision', 'UNKNOWN')}",
+        f"- Advisory State: {handoff.get('advisory_state', 'unknown')}",
         f"- Package: {runtime.get('package_zip_path', 'NONE')}",
         f"- Suggested Primary: {runtime.get('suggested_primary_document', 'NONE')}",
         f"- Suggested Phase IDs: {','.join(runtime.get('suggested_phase_ids', [])) if runtime.get('suggested_phase_ids') else 'NONE'}",
@@ -1092,22 +1225,31 @@ def render_intake_handoff_markdown(handoff: dict[str, Any]) -> str:
         lines.append(f"- Lane Delta: {intake_quality_summary.get('lane_score_delta', 'n/a')}")
     else:
         lines.append("- unscored")
-    lines.extend(["", 
-        "## Materialization Targets",
-    ])
+    lines.extend(["", "## Advisory Findings"])
+    advisory_findings = handoff.get("advisory_findings", [])
+    if isinstance(advisory_findings, list) and advisory_findings:
+        for item in advisory_findings:
+            if not isinstance(item, dict):
+                continue
+            lines.append(
+                f"- {item.get('lane', 'unknown')}: {item.get('id')} [{item.get('severity')}] {item.get('title')}"
+            )
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Materialization Targets"])
     targets = handoff.get("materialization_targets", {}).get("docs_to_refresh", [])
     if isinstance(targets, list) and targets:
         lines.extend([f"- {item}" for item in targets])
     else:
         lines.append("- none")
-    lines.extend(["", "## Blocking Items (P0/P1)"])
+    lines.extend(["", "## Hard Blocks"])
     blockers = handoff.get("blocking_items", [])
     if isinstance(blockers, list) and blockers:
         for item in blockers:
             if not isinstance(item, dict):
                 continue
             lines.append(
-                f"- {item.get('lane')}: {item.get('id')} [{item.get('severity')}] {item.get('title')}"
+                f"- {item.get('id')}: [{item.get('severity')}] {item.get('title')}"
             )
     else:
         lines.append("- none")
@@ -1698,6 +1840,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Run only sequential intake acceptance gates (product + technical) and skip materialization.",
     )
+    parser.add_argument(
+        "--continue-after-intake",
+        action="store_true",
+        help="Explicitly allow materialization after the intake summary and human checkpoint.",
+    )
     return parser.parse_args(argv)
 
 
@@ -1898,10 +2045,25 @@ def main(argv: list[str] | None = None) -> int:
     print(intake_human_summary_md_text.rstrip())
     print(INTAKE_HUMAN_SUMMARY_END)
     if intake_gate["combined_gate"]["decision"] != "PASS":
-        print("intake gate blocked: resolve P0/P1 blockers and rerun package intake")
+        print("intake gate blocked: governed handoff invariants are incomplete and must be repaired before materialization")
         return INTAKE_BLOCKED_EXIT
+    advisory_findings_total = int(intake_gate["combined_gate"].get("advisory_findings_total", 0) or 0)
+    if advisory_findings_total:
+        print(
+            "intake findings noted: "
+            f"{advisory_findings_total} advisory findings will be carried into materialization and handoff"
+        )
     if args.acceptance_only:
-        print("acceptance-only mode: materialization skipped after PASS")
+        print(
+            "acceptance-only mode: materialization skipped after intake PASS"
+            + (" with advisory findings" if advisory_findings_total else "")
+        )
+        return 0
+    if not args.continue_after_intake:
+        print(
+            "intake checkpoint: summary emitted and materialization paused; "
+            "rerun with --continue-after-intake to proceed"
+        )
         return 0
 
     materialization_prompt = build_materialization_prompt(

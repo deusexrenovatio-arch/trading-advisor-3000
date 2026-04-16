@@ -244,7 +244,7 @@ def test_main_accepts_positional_package_route_in_plan_only_dry_run(
     assert payload["package_path"] == (tmp_path / "incoming.zip").resolve().as_posix()
 
 
-def test_package_route_prints_continue_hint_when_active_module_is_materialized(
+def test_package_route_stops_at_intake_checkpoint_by_default(
     monkeypatch, tmp_path: Path, capsys
 ) -> None:
     monkeypatch.setattr("codex_governed_entry.resolve_repo_root", lambda: tmp_path)
@@ -253,6 +253,42 @@ def test_package_route_prints_continue_hint_when_active_module_is_materialized(
     package.write_bytes(b"zip-placeholder")
 
     def fake_package_main(argv: list[str]) -> int:
+        assert "--continue-after-intake" not in argv
+        return 0
+
+    monkeypatch.setattr("codex_governed_entry.package_main", fake_package_main)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "codex_governed_entry.py",
+            "package",
+            "--package-path",
+            "incoming.zip",
+            "--route-state-file",
+            ".runlogs/test-route.json",
+        ],
+    )
+
+    code = main()
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "package_route_outcome: intake_checkpoint_required" in captured.out
+    assert "next_governed_route: package" in captured.out
+    assert "--continue-after-intake" in captured.out
+
+
+def test_package_route_allows_materialization_only_with_explicit_continue_after_intake(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    monkeypatch.setattr("codex_governed_entry.resolve_repo_root", lambda: tmp_path)
+
+    package = tmp_path / "incoming.zip"
+    package.write_bytes(b"zip-placeholder")
+
+    def fake_package_main(argv: list[str]) -> int:
+        assert "--continue-after-intake" in argv
         _phase_module(tmp_path, "demo")
         return 0
 
@@ -265,6 +301,7 @@ def test_package_route_prints_continue_hint_when_active_module_is_materialized(
             "package",
             "--package-path",
             "incoming.zip",
+            "--continue-after-intake",
             "--route-state-file",
             ".runlogs/test-route.json",
         ],
