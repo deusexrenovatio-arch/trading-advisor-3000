@@ -33,7 +33,7 @@ def _pick_phase01_run_dir(phase01_root: Path, requested_run_id: str) -> Path:
     if requested_run_id.strip():
         run_dir = phase01_root / requested_run_id.strip()
         if not run_dir.exists():
-            raise FileNotFoundError(f"phase-01 run directory not found: {run_dir.as_posix()}")
+            raise FileNotFoundError(f"raw-ingest run directory not found: {run_dir.as_posix()}")
         return run_dir
 
     candidates = [
@@ -43,7 +43,7 @@ def _pick_phase01_run_dir(phase01_root: Path, requested_run_id: str) -> Path:
     ]
     if not candidates:
         raise FileNotFoundError(
-            "cannot auto-resolve phase-01 run directory: no run folders matching "
+            "cannot auto-resolve raw-ingest run directory: no run folders matching "
             f"{RUN_ID_PATTERN.pattern} under {phase01_root.as_posix()}"
         )
     return sorted(candidates, key=lambda item: item.name)[-1]
@@ -64,32 +64,63 @@ def _resolve_raw_table_path(
     return path, f"phase01:{run_dir.name}"
 
 
+def _resolve_raw_ingest_report_path(
+    *,
+    raw_ingest_report_path: str,
+    phase01_root: Path,
+    phase01_run_id: str,
+) -> tuple[Path, str]:
+    if raw_ingest_report_path.strip():
+        path = _resolve(Path(raw_ingest_report_path.strip()))
+        return path, "explicit"
+
+    run_dir = _pick_phase01_run_dir(phase01_root, phase01_run_id)
+    candidates = (
+        run_dir / "raw-ingest-report.pass1.json",
+        run_dir / "raw-ingest-report.json",
+        run_dir / "raw-ingest-report.pass2.json",
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate, f"phase01:{run_dir.name}:{candidate.name}"
+    raise FileNotFoundError(
+        "canonicalization requires raw-ingest report; checked: "
+        + ", ".join(item.as_posix() for item in candidates)
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Run MOEX Phase-02 Canonical contour: deterministic resampling "
-            "(5m/15m/1h/4h/1d/1w), fail-closed QC, contract compatibility check, and runtime decoupling proof."
+            "Run MOEX Spark canonicalization contour as a legacy migration canonical rebuild/repair aid: "
+            "Spark resampling (5m/15m/1h/4h/1d/1w), fail-closed QC, contract compatibility check, "
+            "and runtime decoupling proof."
         )
     )
     parser.add_argument(
         "--raw-table-path",
         default="",
-        help="Path to phase-01 raw_moex_history.delta. If omitted, resolved from --phase01-root.",
+        help="Path to legacy raw-ingest raw_moex_history.delta. If omitted, resolved from --phase01-root.",
     )
     parser.add_argument(
         "--phase01-root",
         default=DEFAULT_PHASE01_ROOT.as_posix(),
-        help="Phase-01 artifact root used when --raw-table-path is omitted.",
+        help="Legacy raw-ingest artifact root used when --raw-table-path is omitted.",
     )
     parser.add_argument(
         "--phase01-run-id",
         default="",
-        help="Specific phase-01 run folder name (YYYYMMDDTHHMMSSZ). If omitted, latest run is used.",
+        help="Specific raw-ingest run folder name (YYYYMMDDTHHMMSSZ). If omitted, latest run is used.",
+    )
+    parser.add_argument(
+        "--raw-ingest-report-path",
+        default="",
+        help="Path to raw-ingest report JSON. If omitted, resolved from --phase01-root run folder.",
     )
     parser.add_argument(
         "--output-root",
         default=DEFAULT_OUTPUT_ROOT.as_posix(),
-        help="Root folder for phase-02 run artifacts.",
+        help="Root folder for canonicalization run artifacts.",
     )
     parser.add_argument(
         "--run-id",
@@ -98,6 +129,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    print(
+        "route-note: scripts/run_moex_phase02_canonical.py is a legacy Spark canonicalization rebuild/repair aid. "
+        "It is not the canonical operator-facing scheduled route after Dagster cutover.",
+        flush=True,
+    )
+
     run_id = args.run_id.strip() or _default_run_id()
     phase01_root = _resolve(Path(args.phase01_root))
     raw_table_path, raw_source = _resolve_raw_table_path(
@@ -105,6 +142,16 @@ def main() -> None:
         phase01_root=phase01_root,
         phase01_run_id=args.phase01_run_id,
     )
+    raw_ingest_report_path, raw_ingest_source = _resolve_raw_ingest_report_path(
+        raw_ingest_report_path=args.raw_ingest_report_path,
+        phase01_root=phase01_root,
+        phase01_run_id=args.phase01_run_id,
+    )
+    raw_ingest_report_payload = json.loads(raw_ingest_report_path.read_text(encoding="utf-8"))
+    if not isinstance(raw_ingest_report_payload, dict):
+        raise ValueError(
+            f"canonicalization raw-ingest report must be JSON object: {raw_ingest_report_path.as_posix()}"
+        )
     output_root = _resolve(Path(args.output_root))
     output_dir = output_root / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -113,16 +160,19 @@ def main() -> None:
         raw_table_path=raw_table_path,
         output_dir=output_dir,
         run_id=run_id,
+        raw_ingest_run_report=raw_ingest_report_payload,
         repo_root=ROOT,
     )
     report["raw_source_resolution"] = raw_source
+    report["raw_ingest_report_source_resolution"] = raw_ingest_source
+    report["raw_ingest_report_path"] = raw_ingest_report_path.as_posix()
 
     report_path = output_dir / "phase02-canonical-report.json"
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
     if report.get("publish_decision") != "publish":
-        raise SystemExit("phase-02 canonical contour blocked by fail-closed checks")
+        raise SystemExit("canonicalization contour blocked by fail-closed checks")
 
 
 if __name__ == "__main__":

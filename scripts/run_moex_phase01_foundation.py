@@ -46,7 +46,10 @@ def _default_ingest_till_utc() -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Run MOEX Phase-01 Foundation workflow with discovery + deterministic bootstrap ingest + idempotent rerun proof."
+        description=(
+            "Run MOEX raw-ingest workflow as a legacy migration artifact for bootstrap/repair evidence: "
+            "discovery + deterministic bootstrap ingest + idempotent rerun proof."
+        )
     )
     parser.add_argument("--mapping-registry", default=DEFAULT_MAPPING_REGISTRY.as_posix())
     parser.add_argument("--universe", default=DEFAULT_UNIVERSE.as_posix())
@@ -75,6 +78,12 @@ def main() -> None:
     )
     parser.add_argument("--ingest-till-utc", default="")
     args = parser.parse_args()
+
+    print(
+        "route-note: scripts/run_moex_phase01_foundation.py is a legacy raw-ingest bootstrap/repair aid. "
+        "It is not the canonical operator-facing scheduled route after Dagster cutover.",
+        flush=True,
+    )
 
     run_id = args.run_id.strip() or _default_run_id()
     ingest_till_utc = args.ingest_till_utc.strip() or _default_ingest_till_utc()
@@ -159,7 +168,7 @@ def main() -> None:
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
     if not idempotent:
-        raise SystemExit("phase-01 idempotency disprover failed: second run added new rows")
+        raise SystemExit("raw-ingest idempotency proof failed: second run added new rows")
 
 
 if __name__ == "__main__":

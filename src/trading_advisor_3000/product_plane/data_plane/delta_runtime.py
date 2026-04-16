@@ -9,6 +9,9 @@ import pyarrow as pa
 from deltalake import DeltaTable, write_deltalake
 
 
+DeltaReadFilters = list[tuple[str, str, object]] | list[list[tuple[str, str, object]]] | None
+
+
 def _arrow_type(type_name: str) -> pa.DataType:
     normalized = type_name.strip().lower()
     if normalized in {"string", "json", "timestamp", "date"}:
@@ -92,6 +95,7 @@ def write_delta_table_rows(
     table_path: Path,
     rows: list[dict[str, object]],
     columns: dict[str, str],
+    mode: str = "overwrite",
 ) -> None:
     table_path.parent.mkdir(parents=True, exist_ok=True)
     schema = _build_schema(columns)
@@ -103,14 +107,38 @@ def write_delta_table_rows(
         arrays = [pa.array([], type=field.type) for field in schema]
         arrow_table = pa.Table.from_arrays(arrays=arrays, schema=schema)
 
-    write_deltalake(str(table_path), arrow_table, mode="overwrite")
+    write_deltalake(str(table_path), arrow_table, mode=mode)
 
 
-def read_delta_table_rows(table_path: Path) -> list[dict[str, object]]:
+def append_delta_table_rows(
+    *,
+    table_path: Path,
+    rows: list[dict[str, object]],
+    columns: dict[str, str],
+) -> None:
+    if not rows:
+        return
+    mode = "append" if has_delta_log(table_path) else "overwrite"
+    write_delta_table_rows(table_path=table_path, rows=rows, columns=columns, mode=mode)
+
+
+def count_delta_table_rows(table_path: Path) -> int:
     if not has_delta_log(table_path):
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
     table = DeltaTable(str(table_path))
-    rows = table.to_pyarrow_table().to_pylist()
+    return int(table.to_pyarrow_dataset().count_rows())
+
+
+def read_delta_table_rows(
+    table_path: Path,
+    *,
+    columns: list[str] | None = None,
+    filters: DeltaReadFilters = None,
+) -> list[dict[str, object]]:
+    if not has_delta_log(table_path):
+        raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
+    table = DeltaTable(str(table_path))
+    rows = table.to_pyarrow_table(columns=columns, filters=filters).to_pylist()
     return [
         {str(key): _normalize_loaded_value(value) for key, value in row.items()}
         for row in rows

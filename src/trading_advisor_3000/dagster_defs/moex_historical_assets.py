@@ -1,0 +1,750 @@
+from __future__ import annotations
+
+from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import UTC, datetime
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+from uuid import uuid4
+
+from dagster import (
+    AssetSelection,
+    DagsterInstance,
+    DefaultScheduleStatus,
+    Definitions,
+    Field as DagsterField,
+    RetryPolicy,
+    ScheduleDefinition,
+    asset,
+    build_schedule_context,
+    define_asset_job,
+    materialize,
+)
+
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log
+from trading_advisor_3000.product_plane.data_plane.moex.foundation import run_phase01_foundation
+from trading_advisor_3000.product_plane.data_plane.moex.phase02_canonical import run_phase02_canonical
+
+
+PASS_LIKE_RAW_STATUSES = {"PASS", "PASS-NOOP"}
+REPO_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_MAPPING_REGISTRY = REPO_ROOT / "configs" / "moex_phase01" / "instrument_mapping_registry.v1.yaml"
+DEFAULT_UNIVERSE = REPO_ROOT / "configs" / "moex_phase01" / "universe" / "moex-futures-priority.v1.yaml"
+DEFAULT_TIMEFRAMES = "5m,15m,1h,4h,1d,1w"
+DEFAULT_WORKERS = 4
+DEFAULT_BATCH_SIZE = 250_000
+DEFAULT_EXECUTION_MODE = "parallel"
+DEFAULT_BOOTSTRAP_WINDOW_DAYS = 180
+DEFAULT_STABILITY_LAG_MINUTES = 20
+DEFAULT_CONTRACT_DISCOVERY_STEP_DAYS = 14
+DEFAULT_CONTRACT_DISCOVERY_LOOKBACK_DAYS = 180
+DEFAULT_REFRESH_OVERLAP_MINUTES = 180
+
+
+@dataclass(frozen=True)
+class AssetSpec:
+    key: str
+    description: str
+    inputs: tuple[str, ...]
+    outputs: tuple[str, ...]
+
+
+MOEX_HISTORICAL_ASSET_KEYS = (
+    "moex_raw_ingest",
+    "moex_canonical_refresh",
+)
+
+MOEX_HISTORICAL_DEPENDENCIES: dict[str, tuple[str, ...]] = {
+    "moex_raw_ingest": tuple(),
+    "moex_canonical_refresh": ("moex_raw_ingest",),
+}
+
+MOEX_HISTORICAL_OP_CONFIG_SCHEMA = {
+    "raw_table_path": DagsterField(str, is_required=False),
+    "raw_ingest_report_path": DagsterField(str, is_required=False),
+    "canonical_output_dir": DagsterField(str, is_required=False),
+    "canonical_run_id": DagsterField(str, is_required=False),
+    "phase02_output_dir": DagsterField(str, is_required=False),
+    "phase02_run_id": DagsterField(str, is_required=False),
+    "mapping_registry_path": DagsterField(str, is_required=False),
+    "universe_path": DagsterField(str, is_required=False),
+    "raw_ingest_root": DagsterField(str, is_required=False),
+    "canonicalization_root": DagsterField(str, is_required=False),
+    "nightly_root": DagsterField(str, is_required=False),
+    "timeframes": DagsterField(str, is_required=False),
+    "workers": DagsterField(int, is_required=False),
+    "batch_size": DagsterField(int, is_required=False),
+    "execution_mode": DagsterField(str, is_required=False),
+    "bootstrap_window_days": DagsterField(int, is_required=False),
+    "stability_lag_minutes": DagsterField(int, is_required=False),
+    "expand_contract_chain": DagsterField(bool, is_required=False),
+    "contract_discovery_step_days": DagsterField(int, is_required=False),
+    "contract_discovery_lookback_days": DagsterField(int, is_required=False),
+    "refresh_overlap_minutes": DagsterField(int, is_required=False),
+    "ingest_till_utc": DagsterField(str, is_required=False),
+    "run_id": DagsterField(str, is_required=False),
+}
+MOEX_HISTORICAL_CUTOVER_JOB_NAME = "moex_historical_cutover_job"
+MOEX_HISTORICAL_NIGHTLY_SCHEDULE_NAME = "moex_historical_nightly_schedule"
+MOEX_HISTORICAL_NIGHTLY_CRON = "0 2 * * *"
+MOEX_HISTORICAL_EXECUTION_TIMEZONE = "Europe/Moscow"
+MOEX_HISTORICAL_RETRY_POLICY = RetryPolicy(max_retries=3, delay=60)
+
+
+def moex_historical_asset_specs() -> list[AssetSpec]:
+    return [
+        AssetSpec(
+            key="moex_raw_ingest",
+            description=(
+                "Canonical raw-ingest owner node for MOEX historical refresh. "
+                "Runs the existing Python raw-ingest contour and emits the authoritative "
+                "raw table plus raw-ingest report for downstream canonicalization."
+            ),
+            inputs=("moex_iss", "mapping_registry", "universe"),
+            outputs=("raw_ingest_owner_payload",),
+        ),
+        AssetSpec(
+            key="moex_canonical_refresh",
+            description=(
+                "Spark canonicalization owner node for MOEX historical refresh. "
+                "Blocked unless raw-ingest status is PASS/PASS-NOOP."
+            ),
+            inputs=("raw_ingest_owner_payload",),
+            outputs=("canonicalization-report.json",),
+        ),
+    ]
+
+
+def _route_artifact_root() -> Path:
+    dagster_home = os.environ.get("DAGSTER_HOME", "").strip()
+    if dagster_home:
+        return Path(dagster_home) / "artifacts" / "codex"
+    return REPO_ROOT / "artifacts" / "codex"
+
+
+def _default_route_run_id(*, scheduled_execution_time: datetime | None = None) -> str:
+    anchor = scheduled_execution_time.astimezone(UTC) if scheduled_execution_time else datetime.now(tz=UTC)
+    return anchor.strftime("%Y%m%dT%H%M%SZ")
+
+
+def _build_nightly_schedule_run_config(context) -> dict[str, object]:
+    scheduled_execution_time = getattr(context, "scheduled_execution_time", None)
+    run_id = _default_route_run_id(scheduled_execution_time=scheduled_execution_time)
+    artifact_root = _route_artifact_root()
+    return {
+        "ops": {
+            "moex_raw_ingest": {
+                "config": {
+                    "mapping_registry_path": DEFAULT_MAPPING_REGISTRY.as_posix(),
+                    "universe_path": DEFAULT_UNIVERSE.as_posix(),
+                    "raw_ingest_root": (artifact_root / "moex-raw-ingest").as_posix(),
+                    "canonicalization_root": (artifact_root / "moex-canonicalization").as_posix(),
+                    "nightly_root": (artifact_root / "moex-dagster-nightly").as_posix(),
+                    "timeframes": DEFAULT_TIMEFRAMES,
+                    "workers": DEFAULT_WORKERS,
+                    "batch_size": DEFAULT_BATCH_SIZE,
+                    "execution_mode": DEFAULT_EXECUTION_MODE,
+                    "bootstrap_window_days": DEFAULT_BOOTSTRAP_WINDOW_DAYS,
+                    "stability_lag_minutes": DEFAULT_STABILITY_LAG_MINUTES,
+                    "expand_contract_chain": True,
+                    "contract_discovery_step_days": DEFAULT_CONTRACT_DISCOVERY_STEP_DAYS,
+                    "contract_discovery_lookback_days": DEFAULT_CONTRACT_DISCOVERY_LOOKBACK_DAYS,
+                    "refresh_overlap_minutes": DEFAULT_REFRESH_OVERLAP_MINUTES,
+                    "run_id": run_id,
+                }
+            },
+            "moex_canonical_refresh": {
+                "config": {
+                    "canonicalization_root": (artifact_root / "moex-canonicalization").as_posix(),
+                    "canonical_run_id": run_id,
+                }
+            },
+        }
+    }
+
+
+def _op_config_from_context(context) -> dict[str, object]:
+    execution_context = getattr(context, "op_execution_context", None)
+    op_config = getattr(execution_context, "op_config", None)
+    if not isinstance(op_config, dict):
+        op_config = getattr(context, "op_config", None)
+    if not isinstance(op_config, dict):
+        raise RuntimeError("moex historical asset context is missing op_config mapping")
+    return dict(op_config)
+
+
+def _text_value(op_config: dict[str, object], *keys: str) -> str:
+    for key in keys:
+        value = str(op_config.get(key, "")).strip()
+        if value:
+            return value
+    return ""
+
+
+def _int_value(op_config: dict[str, object], *keys: str, default: int) -> int:
+    for key in keys:
+        value = op_config.get(key)
+        if value is None or value == "":
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(f"moex historical asset op_config requires integer `{key}`") from exc
+    return default
+
+
+def _bool_value(op_config: dict[str, object], *keys: str, default: bool) -> bool:
+    for key in keys:
+        value = op_config.get(key)
+        if isinstance(value, bool):
+            return value
+        if value is None or value == "":
+            continue
+        lowered = str(value).strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+        raise RuntimeError(f"moex historical asset op_config requires boolean `{key}`")
+    return default
+
+
+def _read_raw_ingest_report(path: Path) -> dict[str, object]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"raw ingest report must be json object: {path.as_posix()}")
+    return payload
+
+
+def build_moex_historical_op_config(
+    *,
+    raw_table_path: Path,
+    raw_ingest_report_path: Path,
+    canonical_output_dir: Path,
+    canonical_run_id: str,
+) -> dict[str, str]:
+    return {
+        "raw_table_path": raw_table_path.resolve().as_posix(),
+        "raw_ingest_report_path": raw_ingest_report_path.resolve().as_posix(),
+        "canonical_output_dir": canonical_output_dir.resolve().as_posix(),
+        "canonical_run_id": str(canonical_run_id).strip(),
+        "phase02_output_dir": canonical_output_dir.resolve().as_posix(),
+        "phase02_run_id": str(canonical_run_id).strip(),
+    }
+
+
+def build_moex_historical_run_config(
+    *,
+    raw_table_path: Path,
+    raw_ingest_report_path: Path,
+    canonical_output_dir: Path,
+    canonical_run_id: str,
+) -> dict[str, object]:
+    op_config = build_moex_historical_op_config(
+        raw_table_path=raw_table_path,
+        raw_ingest_report_path=raw_ingest_report_path,
+        canonical_output_dir=canonical_output_dir,
+        canonical_run_id=canonical_run_id,
+    )
+    return {
+        "ops": {
+            "moex_raw_ingest": {"config": dict(op_config)},
+            "moex_canonical_refresh": {"config": dict(op_config)},
+        }
+    }
+
+
+def _merge_run_config(left: dict[str, object], right: dict[str, object]) -> dict[str, object]:
+    merged: dict[str, object] = dict(left)
+    for key, value in right.items():
+        current = merged.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            merged[key] = _merge_run_config(
+                {str(item_key): item_value for item_key, item_value in current.items()},
+                {str(item_key): item_value for item_key, item_value in value.items()},
+            )
+        else:
+            merged[key] = value
+    return merged
+
+
+def build_moex_historical_dagster_binding_artifact() -> dict[str, object]:
+    return {
+        "job": {
+            "name": MOEX_HISTORICAL_CUTOVER_JOB_NAME,
+            "asset_keys": list(MOEX_HISTORICAL_ASSET_KEYS),
+        },
+        "schedule": {
+            "name": MOEX_HISTORICAL_NIGHTLY_SCHEDULE_NAME,
+            "cron": MOEX_HISTORICAL_NIGHTLY_CRON,
+            "execution_timezone": MOEX_HISTORICAL_EXECUTION_TIMEZONE,
+            "default_status": DefaultScheduleStatus.STOPPED.value,
+        },
+        "retry_policy": {
+            "max_retries": MOEX_HISTORICAL_RETRY_POLICY.max_retries,
+            "delay": MOEX_HISTORICAL_RETRY_POLICY.delay,
+        },
+    }
+
+
+def _run_python_raw_ingest_route(op_config: dict[str, object]) -> dict[str, object]:
+    mapping_registry_path = Path(_text_value(op_config, "mapping_registry_path")).resolve()
+    universe_path = Path(_text_value(op_config, "universe_path")).resolve()
+    raw_ingest_root = Path(_text_value(op_config, "raw_ingest_root")).resolve()
+    canonicalization_root = Path(_text_value(op_config, "canonicalization_root")).resolve()
+    nightly_root = Path(_text_value(op_config, "nightly_root")).resolve()
+    run_id = _text_value(op_config, "run_id", "canonical_run_id", "phase02_run_id")
+    timeframes = _text_value(op_config, "timeframes") or DEFAULT_TIMEFRAMES
+    workers = _int_value(op_config, "workers", default=DEFAULT_WORKERS)
+    batch_size = _int_value(op_config, "batch_size", default=DEFAULT_BATCH_SIZE)
+    execution_mode = _text_value(op_config, "execution_mode") or DEFAULT_EXECUTION_MODE
+    bootstrap_window_days = _int_value(
+        op_config,
+        "bootstrap_window_days",
+        default=DEFAULT_BOOTSTRAP_WINDOW_DAYS,
+    )
+    stability_lag_minutes = _int_value(
+        op_config,
+        "stability_lag_minutes",
+        default=DEFAULT_STABILITY_LAG_MINUTES,
+    )
+    expand_contract_chain = _bool_value(
+        op_config,
+        "expand_contract_chain",
+        default=True,
+    )
+    contract_discovery_step_days = _int_value(
+        op_config,
+        "contract_discovery_step_days",
+        default=DEFAULT_CONTRACT_DISCOVERY_STEP_DAYS,
+    )
+    contract_discovery_lookback_days = _int_value(
+        op_config,
+        "contract_discovery_lookback_days",
+        default=DEFAULT_CONTRACT_DISCOVERY_LOOKBACK_DAYS,
+    )
+    refresh_overlap_minutes = _int_value(
+        op_config,
+        "refresh_overlap_minutes",
+        default=DEFAULT_REFRESH_OVERLAP_MINUTES,
+    )
+    ingest_till_utc = _text_value(op_config, "ingest_till_utc")
+
+    if not mapping_registry_path.exists():
+        raise RuntimeError(f"mapping registry path does not exist: {mapping_registry_path.as_posix()}")
+    if not universe_path.exists():
+        raise RuntimeError(f"universe path does not exist: {universe_path.as_posix()}")
+    if not run_id:
+        raise RuntimeError("moex historical scheduled route requires non-empty `run_id`")
+    if execution_mode not in {"sequential", "parallel"}:
+        raise RuntimeError("moex historical scheduled route requires `execution_mode` in {sequential, parallel}")
+
+    command = [
+        sys.executable,
+        (REPO_ROOT / "scripts" / "run_moex_nightly_backfill.py").as_posix(),
+        "--allow-legacy-route",
+        "--stop-after-raw-ingest",
+        "--mapping-registry",
+        mapping_registry_path.as_posix(),
+        "--universe",
+        universe_path.as_posix(),
+        "--phase01-root",
+        raw_ingest_root.as_posix(),
+        "--phase02-root",
+        canonicalization_root.as_posix(),
+        "--output-root",
+        nightly_root.as_posix(),
+        "--run-id",
+        run_id,
+        "--timeframes",
+        timeframes,
+        "--workers",
+        str(workers),
+        "--batch-size",
+        str(batch_size),
+        "--execution-mode",
+        execution_mode,
+        "--bootstrap-window-days",
+        str(bootstrap_window_days),
+        "--stability-lag-minutes",
+        str(stability_lag_minutes),
+        "--contract-discovery-step-days",
+        str(contract_discovery_step_days),
+        "--contract-discovery-lookback-days",
+        str(contract_discovery_lookback_days),
+        "--refresh-overlap-minutes",
+        str(refresh_overlap_minutes),
+    ]
+    command.append("--expand-contract-chain" if expand_contract_chain else "--no-expand-contract-chain")
+    if ingest_till_utc:
+        command.extend(["--ingest-till-utc", ingest_till_utc])
+
+    completed = subprocess.run(
+        command,
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout).strip()
+        raise RuntimeError(f"python raw-ingest route failed: {detail}")
+
+    route_report_path = nightly_root / run_id / "nightly-backfill-report.json"
+    if not route_report_path.exists():
+        raise RuntimeError(
+            "python raw-ingest route completed without nightly-backfill-report.json: "
+            f"{route_report_path.as_posix()}"
+        )
+    route_report = _read_raw_ingest_report(route_report_path)
+    raw_table_path = Path(str(route_report.get("raw_table_path", "")).strip()).resolve()
+    raw_ingest_report_path = Path(str(route_report.get("raw_ingest_report_path", "")).strip()).resolve()
+    raw_ingest_root = Path(str(route_report.get("raw_ingest_root", "")).strip()).resolve()
+    raw_ingest_run_report = _read_raw_ingest_report(raw_ingest_report_path)
+    raw_status = str(raw_ingest_run_report.get("status", "")).strip()
+    return {
+        "route_mode": "scheduled-script",
+        "run_id": run_id,
+        "raw_ingest_root": raw_ingest_root.as_posix(),
+        "canonicalization_root": (canonicalization_root / run_id).resolve().as_posix(),
+        "nightly_root": (nightly_root / run_id).resolve().as_posix(),
+        "raw_table_path": raw_table_path.as_posix(),
+        "raw_ingest_report_path": raw_ingest_report_path.as_posix(),
+        "raw_ingest_run_report": raw_ingest_run_report,
+        "raw_status": raw_status,
+        "raw_ingest_route_report_path": route_report_path.as_posix(),
+    }
+
+
+@asset(
+    group_name="moex_historical_cutover",
+    config_schema=MOEX_HISTORICAL_OP_CONFIG_SCHEMA,
+    retry_policy=MOEX_HISTORICAL_RETRY_POLICY,
+)
+def moex_raw_ingest(context) -> dict[str, object]:
+    op_config = _op_config_from_context(context)
+    raw_table_text = _text_value(op_config, "raw_table_path")
+    raw_report_text = _text_value(op_config, "raw_ingest_report_path")
+
+    if raw_table_text and raw_report_text:
+        raw_table_path = Path(raw_table_text).resolve()
+        raw_ingest_report_path = Path(raw_report_text).resolve()
+        if not has_delta_log(raw_table_path):
+            raise RuntimeError(f"raw table is missing `_delta_log`: {raw_table_path.as_posix()}")
+        if not raw_ingest_report_path.exists():
+            raise RuntimeError(f"raw ingest report path does not exist: {raw_ingest_report_path.as_posix()}")
+
+        raw_ingest_run_report = _read_raw_ingest_report(raw_ingest_report_path)
+        raw_status = str(raw_ingest_run_report.get("status", "")).strip()
+        return {
+            "route_mode": "explicit-artifacts",
+            "raw_table_path": raw_table_path.as_posix(),
+            "raw_ingest_report_path": raw_ingest_report_path.as_posix(),
+            "raw_ingest_run_report": raw_ingest_run_report,
+            "raw_status": raw_status,
+        }
+
+    return _run_python_raw_ingest_route(op_config)
+
+
+@asset(
+    group_name="moex_historical_cutover",
+    config_schema=MOEX_HISTORICAL_OP_CONFIG_SCHEMA,
+    retry_policy=MOEX_HISTORICAL_RETRY_POLICY,
+)
+def moex_canonical_refresh(context, moex_raw_ingest: dict[str, object]) -> dict[str, object]:
+    op_config = _op_config_from_context(context)
+    raw_report = moex_raw_ingest.get("raw_ingest_run_report")
+    if not isinstance(raw_report, dict):
+        raise RuntimeError("moex_raw_ingest output is missing `raw_ingest_run_report` payload")
+
+    raw_status = str(raw_report.get("status", "")).strip()
+    if raw_status not in PASS_LIKE_RAW_STATUSES:
+        raise RuntimeError(
+            "canonical refresh cannot start because raw-ingest status is not PASS/PASS-NOOP; "
+            f"got `{raw_status or 'EMPTY'}`"
+        )
+
+    raw_table_path = Path(str(moex_raw_ingest.get("raw_table_path", ""))).resolve()
+    output_dir_text = _text_value(
+        op_config,
+        "canonical_output_dir",
+        "phase02_output_dir",
+    )
+    if not output_dir_text:
+        output_dir_text = str(moex_raw_ingest.get("canonicalization_root", "")).strip()
+    run_id = _text_value(op_config, "canonical_run_id", "phase02_run_id")
+    if not run_id:
+        run_id = str(moex_raw_ingest.get("run_id", "")).strip()
+    if not output_dir_text:
+        raise RuntimeError("moex canonicalization step requires non-empty `canonical_output_dir`")
+    if not run_id:
+        raise RuntimeError("moex canonicalization step requires non-empty `canonical_run_id`")
+
+    output_dir = Path(output_dir_text).resolve()
+
+    report = run_phase02_canonical(
+        raw_table_path=raw_table_path,
+        output_dir=output_dir,
+        run_id=run_id,
+        raw_ingest_run_report=raw_report,
+    )
+    publish_decision = str(report.get("publish_decision", "")).strip().lower()
+    if publish_decision != "publish":
+        raise RuntimeError(
+            "canonicalization step finished in blocked state and cannot represent the canonical route: "
+            f"publish_decision={publish_decision or 'missing'}"
+        )
+    return report
+
+
+MOEX_HISTORICAL_ASSETS = (
+    moex_raw_ingest,
+    moex_canonical_refresh,
+)
+
+
+moex_historical_cutover_job = define_asset_job(
+    name=MOEX_HISTORICAL_CUTOVER_JOB_NAME,
+    selection=AssetSelection.groups("moex_historical_cutover"),
+    op_retry_policy=MOEX_HISTORICAL_RETRY_POLICY,
+)
+
+moex_historical_nightly_schedule = ScheduleDefinition(
+    name=MOEX_HISTORICAL_NIGHTLY_SCHEDULE_NAME,
+    job=moex_historical_cutover_job,
+    cron_schedule=MOEX_HISTORICAL_NIGHTLY_CRON,
+    run_config_fn=_build_nightly_schedule_run_config,
+    execution_timezone=MOEX_HISTORICAL_EXECUTION_TIMEZONE,
+    default_status=DefaultScheduleStatus.STOPPED,
+    description=(
+        "Canonical nightly Dagster schedule for the MOEX historical refresh route. "
+        "Dagster owns step ordering, Python owns raw ingest, and Spark owns canonicalization."
+    ),
+)
+
+
+moex_historical_definitions = Definitions(
+    assets=list(MOEX_HISTORICAL_ASSETS),
+    schedules=[moex_historical_nightly_schedule],
+    jobs=[moex_historical_cutover_job],
+)
+
+
+def assert_moex_historical_definitions_executable(definitions: Definitions | None = None) -> None:
+    defs = definitions or moex_historical_definitions
+    try:
+        repository = defs.get_repository_def()
+        job = repository.get_job(MOEX_HISTORICAL_CUTOVER_JOB_NAME)
+    except Exception as exc:
+        raise RuntimeError(
+            "moex historical Dagster definitions are metadata-only or incomplete: "
+            "missing executable `moex_historical_cutover_job`."
+        ) from exc
+
+    expected_nodes = set(MOEX_HISTORICAL_ASSET_KEYS)
+    actual_nodes = set(job.graph.node_dict.keys())
+    missing_nodes = sorted(expected_nodes - actual_nodes)
+    if missing_nodes:
+        missing_text = ", ".join(missing_nodes)
+        raise RuntimeError(
+            "moex historical Dagster definitions are metadata-only or incomplete: "
+            f"missing executable asset nodes: {missing_text}"
+        )
+
+
+def build_moex_historical_definitions() -> Definitions:
+    assert_moex_historical_definitions_executable(moex_historical_definitions)
+    return moex_historical_definitions
+
+
+def moex_historical_output_paths(output_dir: Path) -> dict[str, str]:
+    resolved = output_dir.resolve()
+    return {
+        "canonicalization_report": (resolved / "phase02-canonical-report.json").as_posix(),
+        "phase02_report": (resolved / "phase02-canonical-report.json").as_posix(),
+        "canonical_bars": (resolved / "delta" / "canonical_bars.delta").as_posix(),
+        "canonical_bar_provenance": (resolved / "delta" / "canonical_bar_provenance.delta").as_posix(),
+    }
+
+
+def execute_moex_historical_cutover_job(
+    *,
+    raw_table_path: Path,
+    raw_ingest_report_path: Path,
+    canonical_output_dir: Path | None = None,
+    canonical_run_id: str | None = None,
+    phase02_output_dir: Path | None = None,
+    phase02_run_id: str | None = None,
+    instance: DagsterInstance,
+    run_id: str,
+    extra_tags: dict[str, str] | None = None,
+    scheduled_execution_time: datetime | None = None,
+    raise_on_error: bool = False,
+) -> dict[str, object]:
+    resolved_canonical_output_dir = canonical_output_dir or phase02_output_dir
+    resolved_canonical_run_id = (canonical_run_id or phase02_run_id or "").strip()
+    if resolved_canonical_output_dir is None:
+        raise RuntimeError("execute_moex_historical_cutover_job requires canonical_output_dir")
+    if not resolved_canonical_run_id:
+        raise RuntimeError("execute_moex_historical_cutover_job requires canonical_run_id")
+
+    assert_moex_historical_definitions_executable()
+    definitions = build_moex_historical_definitions()
+    repository = definitions.get_repository_def()
+    job = repository.get_job(MOEX_HISTORICAL_CUTOVER_JOB_NAME)
+
+    run_config = build_moex_historical_run_config(
+        raw_table_path=raw_table_path,
+        raw_ingest_report_path=raw_ingest_report_path,
+        canonical_output_dir=resolved_canonical_output_dir,
+        canonical_run_id=resolved_canonical_run_id,
+    )
+    tags: dict[str, str] = dict(extra_tags or {})
+    schedule_payload: dict[str, object] | None = None
+
+    if scheduled_execution_time is not None:
+        schedule_context = build_schedule_context(
+            instance=instance,
+            scheduled_execution_time=scheduled_execution_time,
+            repository_def=repository,
+        )
+        execution_data = moex_historical_nightly_schedule.evaluate_tick(schedule_context)
+        run_requests = list(getattr(execution_data, "run_requests", []) or [])
+        if len(run_requests) != 1:
+            raise RuntimeError(
+                "moex historical nightly schedule must resolve exactly one run request for governed execution"
+            )
+        request = run_requests[0]
+        schedule_run_config = request.run_config if isinstance(request.run_config, dict) else {}
+        run_config = _merge_run_config(schedule_run_config, run_config)
+        tags = {
+            **{str(key): str(value) for key, value in dict(request.tags).items()},
+            **tags,
+        }
+        schedule_payload = {
+            "name": moex_historical_nightly_schedule.name,
+            "cron": MOEX_HISTORICAL_NIGHTLY_CRON,
+            "execution_timezone": MOEX_HISTORICAL_EXECUTION_TIMEZONE,
+            "scheduled_execution_time": scheduled_execution_time.isoformat(),
+        }
+
+    result = job.execute_in_process(
+        run_config=run_config,
+        instance=instance,
+        run_id=str(uuid4()),
+        raise_on_error=raise_on_error,
+        tags=tags,
+    )
+    output_paths = moex_historical_output_paths(resolved_canonical_output_dir)
+    phase02_report_path = Path(output_paths["phase02_report"])
+    if result.success and not phase02_report_path.exists():
+        raise RuntimeError(
+            "moex historical Dagster job reported success but the canonicalization report artifact is missing: "
+            f"{phase02_report_path.as_posix()}"
+        )
+
+    return {
+        "success": bool(result.success),
+        "dagster_run_id": result.run_id,
+        "logical_run_id": run_id,
+        "dagster_job_name": job.name,
+        "dagster_run_status": "SUCCESS" if result.success else "FAILURE",
+        "schedule": schedule_payload,
+        "tags": tags,
+        "materialized_assets": list(MOEX_HISTORICAL_ASSET_KEYS),
+        "output_paths": output_paths,
+        "phase02_report_exists": phase02_report_path.exists(),
+    }
+
+
+def _resolve_selected_assets(selection: Sequence[str] | None) -> list[str]:
+    if selection is None:
+        return list(MOEX_HISTORICAL_ASSET_KEYS)
+    normalized = sorted({item.strip() for item in selection if item.strip()})
+    if not normalized:
+        raise ValueError("selection must include at least one moex historical asset key")
+    unknown = [item for item in normalized if item not in MOEX_HISTORICAL_DEPENDENCIES]
+    if unknown:
+        unknown_text = ", ".join(sorted(unknown))
+        raise ValueError(f"unknown moex historical selection: {unknown_text}")
+    return normalized
+
+
+def _resolve_expected_materialization(selection: Sequence[str]) -> list[str]:
+    resolved: set[str] = set()
+
+    def _visit(asset_name: str) -> None:
+        if asset_name in resolved:
+            return
+        for dependency in MOEX_HISTORICAL_DEPENDENCIES.get(asset_name, tuple()):
+            _visit(dependency)
+        resolved.add(asset_name)
+
+    for asset_name in selection:
+        _visit(asset_name)
+    return [asset_name for asset_name in MOEX_HISTORICAL_ASSET_KEYS if asset_name in resolved]
+
+
+def materialize_moex_historical_assets(
+    *,
+    raw_table_path: Path,
+    raw_ingest_report_path: Path,
+    canonical_output_dir: Path | None = None,
+    canonical_run_id: str | None = None,
+    phase02_output_dir: Path | None = None,
+    phase02_run_id: str | None = None,
+    selection: Sequence[str] | None = None,
+    raise_on_error: bool = True,
+) -> dict[str, object]:
+    resolved_canonical_output_dir = canonical_output_dir or phase02_output_dir
+    resolved_canonical_run_id = (canonical_run_id or phase02_run_id or "").strip()
+    if resolved_canonical_output_dir is None:
+        raise RuntimeError("materialize_moex_historical_assets requires canonical_output_dir")
+    if not resolved_canonical_run_id:
+        raise RuntimeError("materialize_moex_historical_assets requires canonical_run_id")
+
+    assert_moex_historical_definitions_executable()
+    selected_assets = _resolve_selected_assets(selection)
+    expected_materialized_assets = _resolve_expected_materialization(selected_assets)
+    output_paths = moex_historical_output_paths(resolved_canonical_output_dir)
+
+    op_config = {
+        "raw_table_path": raw_table_path.resolve().as_posix(),
+        "raw_ingest_report_path": raw_ingest_report_path.resolve().as_posix(),
+        "canonical_output_dir": resolved_canonical_output_dir.resolve().as_posix(),
+        "canonical_run_id": resolved_canonical_run_id,
+        "phase02_output_dir": resolved_canonical_output_dir.resolve().as_posix(),
+        "phase02_run_id": resolved_canonical_run_id,
+    }
+
+    result = materialize(
+        assets=list(MOEX_HISTORICAL_ASSETS),
+        selection=expected_materialized_assets,
+        run_config={
+            "ops": {
+                "moex_raw_ingest": {"config": op_config},
+                "moex_canonical_refresh": {"config": op_config},
+            }
+        },
+        raise_on_error=raise_on_error,
+    )
+
+    report: dict[str, object] = {
+        "success": bool(result.success),
+        "selected_assets": selected_assets,
+        "materialized_assets": expected_materialized_assets,
+        "output_paths": output_paths,
+    }
+    phase02_report_path = Path(output_paths["phase02_report"])
+    if result.success and "moex_canonical_refresh" in expected_materialized_assets:
+        if not phase02_report_path.exists():
+            raise RuntimeError(
+                "moex canonical refresh reported success but canonicalization report artifact is missing: "
+                f"{phase02_report_path.as_posix()}"
+            )
+    report["phase02_report_exists"] = phase02_report_path.exists()
+    return report
