@@ -15,48 +15,48 @@
     "strategy_catalog_version": "phase2b-benchmark-catalog-v1"
   },
   "cold_bootstrap": {
-    "duration_seconds": 0.379444
+    "duration_seconds": 0.541712
   },
   "cold_backtest": {
-    "duration_seconds": 3.75098,
+    "duration_seconds": 4.823155,
     "cache_hit": false,
     "run_count": 60
   },
   "hot_backtest": {
-    "duration_seconds": 0.73396,
+    "duration_seconds": 0.939261,
     "cache_hit": true,
     "run_count": 60
   },
   "scalability_runs": [
     {
       "combination_count": 10,
-      "duration_seconds": 0.816186,
+      "duration_seconds": 0.782157,
       "cache_hit": true,
       "run_count": 60
     },
     {
       "combination_count": 50,
-      "duration_seconds": 3.424359,
+      "duration_seconds": 3.765329,
       "cache_hit": true,
       "run_count": 300
     },
     {
       "combination_count": 100,
-      "duration_seconds": 6.968866,
+      "duration_seconds": 7.753719,
       "cache_hit": true,
       "run_count": 600
     },
     {
       "combination_count": 250,
-      "duration_seconds": 17.282333,
+      "duration_seconds": 20.664886,
       "cache_hit": true,
       "run_count": 1500
     }
   ],
   "thresholds": {
     "no_recompute_indicators_features": true,
-    "hot_speedup_vs_cold_total": 5.627587,
-    "hot_ratio_vs_cold_total": 0.177696,
+    "hot_speedup_vs_cold_total": 5.711796,
+    "hot_ratio_vs_cold_total": 0.175076,
     "hot_path_threshold_pass": true,
     "param_100_completed": true
   },
@@ -69,7 +69,9 @@
     "scale.250.cache_hit=true"
   ],
   "artifacts": {
-    "cache_log": "D:/CodexHome/worktrees/6146/trading advisor 3000/artifacts/benchmarks/research-phase2b-benchmark-2026-04-14/cache-markers.log"
+    "cache_log": "cache-markers.log",
+    "report_json": "phase2b-benchmark-report.json",
+    "report_md": "phase2b-benchmark-report.md"
   },
   "runtime_profile": {
     "python_version": "3.12.10",

@@ -84,6 +84,8 @@ The benchmark job produces:
 - cold vs hot timings;
 - param-scalability timings and completion evidence.
 
+Package-level acceptance now also reads the committed benchmark artifact and checks that the recorded threshold verdicts stay true.
+
 Current committed evidence:
 - `artifacts/benchmarks/research-phase2b-benchmark-2026-04-14/phase2b-benchmark-report.json`
 - `artifacts/benchmarks/research-phase2b-benchmark-2026-04-14/phase2b-benchmark-report.md`
@@ -98,7 +100,8 @@ The following paths remain in the repository, but they are no longer the accepte
 Their status is:
 - compatibility only;
 - historical bridge only;
-- not used as acceptance truth for the current research platform.
+- not used as acceptance truth for the current research platform;
+- on a removal path, not a hidden second center of gravity.
 
 ## Operational Reading Rule
 

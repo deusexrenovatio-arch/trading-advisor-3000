@@ -7,10 +7,10 @@
 - materialized_bar_rows: 576
 
 ## Timings
-- cold_bootstrap_seconds: 0.379444
-- cold_backtest_seconds: 3.75098
-- hot_backtest_seconds: 0.73396
-- hot_speedup_vs_cold_total: 5.627587
+- cold_bootstrap_seconds: 0.541712
+- cold_backtest_seconds: 4.823155
+- hot_backtest_seconds: 0.939261
+- hot_speedup_vs_cold_total: 5.711796
 
 ## Thresholds
 - no_recompute_indicators_features: True
@@ -20,10 +20,10 @@
 ## Scalability
 | combinations | duration_seconds | cache_hit | run_count |
 | --- | --- | --- | --- |
-| 10 | 0.816186 | True | 60 |
-| 50 | 3.424359 | True | 300 |
-| 100 | 6.968866 | True | 600 |
-| 250 | 17.282333 | True | 1500 |
+| 10 | 0.782157 | True | 60 |
+| 50 | 3.765329 | True | 300 |
+| 100 | 7.753719 | True | 600 |
+| 250 | 20.664886 | True | 1500 |
 
 ## Cache Markers
 - cold_backtest.cache_hit=false

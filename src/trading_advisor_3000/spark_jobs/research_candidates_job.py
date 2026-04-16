@@ -8,6 +8,7 @@ available only for compatibility and historical bridge scenarios.
 """
 
 from dataclasses import dataclass
+import warnings
 
 
 def _version_col_name() -> str:
@@ -24,6 +25,11 @@ class ResearchSparkJobSpec:
 
 
 def default_research_spec() -> ResearchSparkJobSpec:
+    warnings.warn(
+        "default_research_spec is deprecated. The materialized phase2b research path is the primary route.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return ResearchSparkJobSpec(
         app_name="ta3000-phase2b-research-candidates",
         feature_source_table="feature_snapshots",
@@ -44,6 +50,11 @@ def spark_candidate_id_expr(
     timeframe_column: str,
     ts_signal_column: str,
 ) -> str:
+    warnings.warn(
+        "spark_candidate_id_expr is deprecated. The Spark candidate bridge is on a removal path.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     ts_expr = _spark_ts_iso_utc_expr(ts_column=ts_signal_column)
     return (
         "concat('CAND-', upper(substr(sha2(concat("
@@ -53,6 +64,11 @@ def spark_candidate_id_expr(
 
 
 def build_research_sql_plan(spec: ResearchSparkJobSpec | None = None) -> str:
+    warnings.warn(
+        "build_research_sql_plan is deprecated. The materialized phase2b research path is the accepted primary route.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     spec = spec or default_research_spec()
     version_col = _version_col_name()
     candidate_expr = spark_candidate_id_expr(

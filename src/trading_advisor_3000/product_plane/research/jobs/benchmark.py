@@ -346,7 +346,11 @@ def run_benchmark_job(
         "scalability_runs": scalability_runs,
         "thresholds": thresholds,
         "cache_markers": cache_markers,
-        "artifacts": {"cache_log": cache_log_path.as_posix()},
+        "artifacts": {
+            "cache_log": cache_log_path.name,
+            "report_json": "phase2b-benchmark-report.json",
+            "report_md": "phase2b-benchmark-report.md",
+        },
         "runtime_profile": runtime_profile(),
     }
 
@@ -354,8 +358,6 @@ def run_benchmark_job(
     md_path = report_md or (output_dir / "phase2b-benchmark-report.md")
     write_json(json_path, payload)
     write_text(md_path, _markdown_report(payload))
-    payload["artifacts"]["report_json"] = json_path.as_posix()
-    payload["artifacts"]["report_md"] = md_path.as_posix()
     return payload
 
 

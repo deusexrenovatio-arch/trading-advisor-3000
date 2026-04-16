@@ -14,6 +14,7 @@ It supersedes older phase-closure claims when they disagree.
 | --- | --- | --- | --- |
 | Product-plane landing in shell repo | implemented | Code/tests/docs are isolated under product-plane paths. | None at baseline scope. |
 | Data/research/runtime scaffolding | implemented | Contracts, fixtures, runtime/research/data modules, and test slices exist. | Full production hardening is not implied. |
+| Research plane primary path | implemented | Public research execution now routes through the materialized `phase2b` path with explicit bootstrap, vectorbt backtest, ranking, projection, benchmark evidence, and operational CLI entrypoints. | Legacy compatibility shims still exist during the removal window, but they are no longer accepted as a primary route. |
 | MOEX history foundation contour (Etap 1) | implemented | Versioned MOEX universe + mapping registry, fail-closed mapping validation, real candleborders discovery, and deterministic bootstrap ingest workflow with idempotent rerun check are implemented under phase-01 surfaces; raw ingest preserves native MOEX source granularity (`1m`/`1h`/`1d`/`1w`) and keeps runtime `5m`/`15m`/`1h`/`4h`/`1d`/`1w` as downstream resampling targets. Universe covers commodity and index futures families with multi-contract chain discovery for long-horizon backfill. | Reconciliation and release decision contours remain out of scope for this slice. |
 | MOEX canonical/resampling contour (Etap 2) | implemented | Phase-02 canonical runner builds contract-safe canonical_bar.v1 outputs for runtime `5m`/`15m`/`1h`/`4h`/`1d`/`1w` via deterministic aggregation, writes provenance into a separate technical table, and emits fail-closed QC/compatibility/runtime-decoupling artifacts. A successful 4-year raw+canonical baseline was pinned from run `20260409T162421Z`. | Cross-source reconciliation and release decision contours remain out of scope for this slice. |
 | MOEX cross-source reconciliation contour (Etap 3) | in_progress | Phase-03 reconciliation runner ingests Finam archive snapshots with latency metadata, compares MOEX/Finam overlap windows on close/volume/missing/lag-class dimensions, persists queryable drift metrics, and emits threshold-driven alert/escalation artifacts with fail-closed publish behavior. | Phase acceptance for this contour is not yet granted; phase-04 operations hardening and final release decision remain out of scope for this slice. |
@@ -32,6 +33,8 @@ It supersedes older phase-closure claims when they disagree.
 1. Accept scaffold/runtime claims only to the level evidenced by code, migrations, tests, and runbooks.
 2. Do not treat staging gateway or sidecar stubs as proof of real broker execution closure.
 3. Do not treat shell `S8` operational proving as product `P7` scale-up closure.
+4. Do not treat legacy research compatibility routes as alternative primary paths when judging the research plane.
+4. Do not treat legacy research compatibility routes as alternative primary paths when judging the research plane.
 
 ## Accepted MOEX Baseline Storage
 - Data root: `D:/TA3000-data/trading-advisor-3000-nightly`
