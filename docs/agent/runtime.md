@@ -31,12 +31,14 @@ Do not reintroduce shell-only wrapper flows as primary control paths.
 - `python scripts/codex_governed_bootstrap.py --request "<request>" --route auto`
 - `python scripts/codex_governed_entry.py auto`
 - `python scripts/codex_governed_entry.py package --package-path <zip>`
+- `python scripts/codex_governed_entry.py package --package-path <zip> --continue-after-intake`
 - `python scripts/codex_governed_entry.py continue --execution-contract <path> --parent-brief <path>`
 - `python scripts/codex_governed_entry.py --route stacked-followup --execution-contract <path> --parent-brief <path> --predecessor-ref <merged-ref> --source-branch <split-branch> --new-base-ref origin/main --carry-surface <surface>`
 
 ## Governed route policy
 - If the operator asks to take a package, continue a current module, or resume a governed phase, use `scripts/codex_governed_entry.py` first.
 - A plain chat response without the governed launcher does not count as a valid governed run.
+- Package intake now emits an intake summary checkpoint before materialization; materialization starts only when the operator reruns the package route with `--continue-after-intake`.
 - For `continue` and `stacked-followup`, the valid path is the orchestrator route:
   - `worker`
   - `acceptance`

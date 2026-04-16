@@ -128,7 +128,56 @@ def test_intake_gate_blocks_when_required_digests_are_missing() -> None:
     assert "Acceptance criteria digest is missing" in technical_titles
     assert "Structural recommendations section is missing" in technical_titles
     assert "Goals digest is missing" in product_titles
+    assert gate["combined_gate"]["blocking_total"] >= 2
+    assert gate["combined_gate"]["invariant_blockers"]
     assert gate["combined_gate"]["intake_quality_summary"]["status"] == "unscored"
+
+
+def test_intake_gate_keeps_cross_view_findings_advisory_when_handoff_is_still_viable() -> None:
+    gate = evaluate_intake_gate_payload(
+        {
+            "technical_intake": {
+                "created_docs": ["docs/codex/contracts/demo.execution-contract.md"],
+                "review_summary": "Technical lane summary.",
+                "goals_digest": ["Preserve delivery scope"],
+                "acceptance_criteria_digest": ["Acceptance remains measurable"],
+                "structural_recommendations": [],
+                "blockers": [
+                    {
+                        "id": "TECH-001",
+                        "severity": "P1",
+                        "scale": "M",
+                        "title": "Architecture risk needs review",
+                        "why": "Ownership split is still fuzzy.",
+                        "required_action": "Confirm responsibility boundary.",
+                    }
+                ],
+            },
+            "product_intake": {
+                "created_docs": ["docs/codex/modules/demo.parent.md"],
+                "review_summary": "Product lane summary.",
+                "goals_digest": ["Preserve delivery scope"],
+                "acceptance_criteria_digest": ["Acceptance remains measurable"],
+                "structural_recommendations": [],
+                "blockers": [
+                    {
+                        "id": "PROD-001",
+                        "severity": "P1",
+                        "scale": "S",
+                        "title": "Value framing needs review",
+                        "why": "KPI wording is still vague.",
+                        "required_action": "Clarify KPI wording.",
+                    }
+                ],
+            },
+            "combined_gate": {"decision": "PASS"},
+        }
+    )
+    assert gate["combined_gate"]["decision"] == "PASS"
+    assert gate["combined_gate"]["blocking_total"] == 0
+    assert gate["combined_gate"]["advisory_findings_total"] == 2
+    assert gate["combined_gate"]["advisory_state"] == "findings-present"
+    assert gate["combined_gate"]["invariant_blockers"] == []
 
 
 def test_extract_lane_payload_normalizes_intake_quality_summary() -> None:
@@ -206,12 +255,15 @@ def test_intake_human_summary_merges_structural_recommendations() -> None:
     assert gate["combined_gate"]["intake_quality_summary"]["status"] == "unscored"
     summary = build_intake_human_summary(gate)
     assert summary["gate_decision"] == "PASS"
+    assert summary["advisory_state"] == "clear"
     assert len(summary["structural_recommendations"]) == 2
     titles = [item["title"] for item in summary["structural_recommendations"]]
     assert "Split migration and runtime cutover" in titles
     assert "Promote KPI section to mandatory input" in titles
     markdown = render_intake_human_summary_markdown(summary)
     assert "Structural Recommendations" in markdown
+    assert "Cross-View Findings" in markdown
+    assert "Hard Blocks" in markdown
     assert "Expose human summaries in chat" in markdown
 
 
@@ -271,14 +323,16 @@ def test_intake_handoff_is_compact_and_materialization_uses_handoff_path(tmp_pat
         intake_gate=gate,
         intake_human_summary=summary,
     )
-    assert handoff["gate_decision"] == "BLOCKED"
+    assert handoff["gate_decision"] == "PASS"
+    assert handoff["advisory_state"] == "findings-present"
     assert sorted(handoff["materialization_targets"]["docs_to_refresh"]) == sorted(
         [
             "docs/codex/contracts/demo.execution-contract.md",
             "docs/codex/modules/demo.parent.md",
         ]
     )
-    assert handoff["blocking_items"][0]["severity"] == "P1"
+    assert handoff["blocking_items"] == []
+    assert handoff["advisory_findings"][0]["severity"] == "P1"
     requirements = handoff["materialization_requirements"]
     assert requirements["documents"][0]["type"] == "execution_contract"
     assert requirements["documents"][1]["type"] == "module_parent_brief"
