@@ -166,7 +166,9 @@ def _default_strategy_versions() -> tuple[str, ...]:
 def _phase2b_config_schema() -> dict[str, object]:
     return {
         "canonical_output_dir": str,
-        "research_output_dir": str,
+        "materialized_output_dir": str,
+        "results_output_dir": str,
+        "reuse_existing_materialization": bool,
         "dataset_version": str,
         "dataset_name": str,
         "universe_id": str,
@@ -177,6 +179,8 @@ def _phase2b_config_schema() -> dict[str, object]:
         "warmup_bars": int,
         "split_method": str,
         "series_mode": str,
+        "dataset_contract_ids": [str],
+        "dataset_instrument_ids": [str],
         "indicator_set_version": str,
         "indicator_profile_version": str,
         "feature_set_version": str,
@@ -220,22 +224,84 @@ def _canonical_table_path(config: dict[str, object], table_name: str) -> Path:
     return Path(str(_config_value(config, "canonical_output_dir"))).resolve() / f"{table_name}.delta"
 
 
-def _phase2b_output_paths(research_output_dir: Path) -> dict[str, str]:
-    resolved = research_output_dir.resolve()
+def _resolve_phase2b_output_dirs(
+    *,
+    research_output_dir: Path | None = None,
+    materialized_output_dir: Path | None = None,
+    results_output_dir: Path | None = None,
+) -> tuple[Path, Path]:
+    if research_output_dir is not None:
+        if materialized_output_dir is not None or results_output_dir is not None:
+            raise ValueError(
+                "research_output_dir is legacy debug-only and cannot be combined with materialized_output_dir/results_output_dir"
+            )
+        resolved_legacy = research_output_dir.resolve()
+        return resolved_legacy, resolved_legacy
+    if materialized_output_dir is None or results_output_dir is None:
+        raise ValueError(
+            "materialized_output_dir and results_output_dir are both required when research_output_dir is omitted"
+        )
+    return materialized_output_dir.resolve(), results_output_dir.resolve()
+
+
+def _phase2b_output_paths(*, materialized_output_dir: Path, results_output_dir: Path) -> dict[str, str]:
+    resolved_materialized = materialized_output_dir.resolve()
+    resolved_results = results_output_dir.resolve()
     return {
-        "research_datasets": (resolved / "research_datasets.delta").as_posix(),
-        "research_bar_views": (resolved / "research_bar_views.delta").as_posix(),
-        "research_indicator_frames": (resolved / "research_indicator_frames.delta").as_posix(),
-        "research_feature_frames": (resolved / "research_feature_frames.delta").as_posix(),
-        "research_backtest_batches": (resolved / "research_backtest_batches.delta").as_posix(),
-        "research_backtest_runs": (resolved / "research_backtest_runs.delta").as_posix(),
-        "research_strategy_stats": (resolved / "research_strategy_stats.delta").as_posix(),
-        "research_trade_records": (resolved / "research_trade_records.delta").as_posix(),
-        "research_order_records": (resolved / "research_order_records.delta").as_posix(),
-        "research_drawdown_records": (resolved / "research_drawdown_records.delta").as_posix(),
-        "research_strategy_rankings": (resolved / "research_strategy_rankings.delta").as_posix(),
-        "research_signal_candidates": (resolved / "research_signal_candidates.delta").as_posix(),
+        "research_datasets": (resolved_materialized / "research_datasets.delta").as_posix(),
+        "research_bar_views": (resolved_materialized / "research_bar_views.delta").as_posix(),
+        "research_indicator_frames": (resolved_materialized / "research_indicator_frames.delta").as_posix(),
+        "research_feature_frames": (resolved_materialized / "research_feature_frames.delta").as_posix(),
+        "research_backtest_batches": (resolved_results / "research_backtest_batches.delta").as_posix(),
+        "research_backtest_runs": (resolved_results / "research_backtest_runs.delta").as_posix(),
+        "research_strategy_stats": (resolved_results / "research_strategy_stats.delta").as_posix(),
+        "research_trade_records": (resolved_results / "research_trade_records.delta").as_posix(),
+        "research_order_records": (resolved_results / "research_order_records.delta").as_posix(),
+        "research_drawdown_records": (resolved_results / "research_drawdown_records.delta").as_posix(),
+        "research_strategy_rankings": (resolved_results / "research_strategy_rankings.delta").as_posix(),
+        "research_signal_candidates": (resolved_results / "research_signal_candidates.delta").as_posix(),
     }
+
+
+def _reuse_existing_materialization(config: dict[str, object]) -> bool:
+    return bool(_config_value(config, "reuse_existing_materialization", False))
+
+
+def _materialized_output_dir(config: dict[str, object]) -> Path:
+    return Path(str(_config_value(config, "materialized_output_dir"))).resolve()
+
+
+def _results_output_dir(config: dict[str, object]) -> Path:
+    return Path(str(_config_value(config, "results_output_dir"))).resolve()
+
+
+def _require_existing_bootstrap(
+    *,
+    materialized_output_dir: Path,
+    dataset_version: str,
+    indicator_set_version: str,
+    feature_set_version: str,
+) -> None:
+    dataset_path = materialized_output_dir / "research_datasets.delta"
+    bar_views_path = materialized_output_dir / "research_bar_views.delta"
+    indicator_path = materialized_output_dir / "research_indicator_frames.delta"
+    feature_path = materialized_output_dir / "research_feature_frames.delta"
+    for path in (dataset_path, bar_views_path, indicator_path, feature_path):
+        if not has_delta_log(path):
+            raise RuntimeError(f"missing reusable phase2b bootstrap table: {path.as_posix()}")
+
+    load_materialized_research_dataset(output_dir=materialized_output_dir, dataset_version=dataset_version)
+    reload_indicator_frames(
+        indicator_output_dir=materialized_output_dir,
+        dataset_version=dataset_version,
+        indicator_set_version=indicator_set_version,
+    )
+    reload_feature_frames(
+        feature_output_dir=materialized_output_dir,
+        dataset_version=dataset_version,
+        indicator_set_version=indicator_set_version,
+        feature_set_version=feature_set_version,
+    )
 
 
 def _load_canonical_context(config: dict[str, object]) -> tuple[list[CanonicalBar], list[SessionCalendarEntry], list[RollMapEntry]]:
@@ -246,7 +312,17 @@ def _load_canonical_context(config: dict[str, object]) -> tuple[list[CanonicalBa
         if not has_delta_log(path):
             raise RuntimeError(f"missing canonical delta table: {path.as_posix()}")
 
-    bars = [CanonicalBar.from_dict(row) for row in read_delta_table_rows(bars_path)]
+    contract_ids = {str(item) for item in _config_value(config, "dataset_contract_ids", [])}
+    instrument_ids = {str(item) for item in _config_value(config, "dataset_instrument_ids", [])}
+
+    bars = [
+        CanonicalBar.from_dict(row)
+        for row in read_delta_table_rows(bars_path)
+        if (
+            (not contract_ids or str(row.get("contract_id")) in contract_ids)
+            and (not instrument_ids or str(row.get("instrument_id")) in instrument_ids)
+        )
+    ]
     session_calendar = [
         SessionCalendarEntry(
             instrument_id=str(row["instrument_id"]),
@@ -256,6 +332,7 @@ def _load_canonical_context(config: dict[str, object]) -> tuple[list[CanonicalBa
             session_close_ts=str(row["session_close_ts"]),
         )
         for row in read_delta_table_rows(calendar_path)
+        if not instrument_ids or str(row.get("instrument_id")) in instrument_ids
     ]
     roll_map = [
         RollMapEntry(
@@ -265,6 +342,7 @@ def _load_canonical_context(config: dict[str, object]) -> tuple[list[CanonicalBa
             reason=str(row["reason"]),
         )
         for row in read_delta_table_rows(roll_map_path)
+        if not instrument_ids or str(row.get("instrument_id")) in instrument_ids
     ]
     return bars, session_calendar, roll_map
 
@@ -290,23 +368,50 @@ def _seed_manifest(config: dict[str, object]) -> ResearchDatasetManifest:
 @asset(group_name="phase2b", config_schema=_phase2b_config_schema())
 def research_datasets(context) -> dict[str, object]:
     config = dict(context.op_execution_context.op_config)
-    research_output_dir = Path(str(_config_value(config, "research_output_dir"))).resolve()
-    bars, session_calendar, roll_map = _load_canonical_context(config)
-    report = materialize_research_dataset(
-        manifest_seed=_seed_manifest(config),
-        bars=bars,
-        session_calendar=session_calendar,
-        roll_map=roll_map,
-        output_dir=research_output_dir,
-    )
+    materialized_output_dir = _materialized_output_dir(config)
+    results_output_dir = _results_output_dir(config)
+    dataset_version = str(_config_value(config, "dataset_version"))
+    indicator_set_version = str(_config_value(config, "indicator_set_version", "indicators-v1"))
+    feature_set_version = str(_config_value(config, "feature_set_version", "features-v1"))
+
+    if _reuse_existing_materialization(config):
+        _require_existing_bootstrap(
+            materialized_output_dir=materialized_output_dir,
+            dataset_version=dataset_version,
+            indicator_set_version=indicator_set_version,
+            feature_set_version=feature_set_version,
+        )
+        loaded = load_materialized_research_dataset(
+            output_dir=materialized_output_dir,
+            dataset_version=dataset_version,
+        )
+        report = {
+            "dataset_manifest": dict(loaded["dataset_manifest"]),
+            "bar_view_count": len(loaded["bar_views"]),
+            "output_paths": {
+                "research_datasets": (materialized_output_dir / "research_datasets.delta").as_posix(),
+                "research_bar_views": (materialized_output_dir / "research_bar_views.delta").as_posix(),
+            },
+        }
+    else:
+        bars, session_calendar, roll_map = _load_canonical_context(config)
+        report = materialize_research_dataset(
+            manifest_seed=_seed_manifest(config),
+            bars=bars,
+            session_calendar=session_calendar,
+            roll_map=roll_map,
+            output_dir=materialized_output_dir,
+        )
     strategy_versions = tuple(str(item) for item in _config_value(config, "strategy_versions", _default_strategy_versions()))
     return {
         "canonical_output_dir": Path(str(_config_value(config, "canonical_output_dir"))).resolve().as_posix(),
-        "research_output_dir": research_output_dir.as_posix(),
-        "dataset_version": str(_config_value(config, "dataset_version")),
-        "indicator_set_version": str(_config_value(config, "indicator_set_version", "indicators-v1")),
+        "materialized_output_dir": materialized_output_dir.as_posix(),
+        "results_output_dir": results_output_dir.as_posix(),
+        "reuse_existing_materialization": _reuse_existing_materialization(config),
+        "dataset_version": dataset_version,
+        "indicator_set_version": indicator_set_version,
         "indicator_profile_version": str(_config_value(config, "indicator_profile_version", "core_v1")),
-        "feature_set_version": str(_config_value(config, "feature_set_version", "features-v1")),
+        "feature_set_version": feature_set_version,
         "feature_profile_version": str(_config_value(config, "feature_profile_version", "core_v1")),
         "backtest_request": {
             "strategy_versions": strategy_versions,
@@ -342,7 +447,10 @@ def research_datasets(context) -> dict[str, object]:
         },
         "dataset_manifest": report["dataset_manifest"],
         "output_paths": {
-            **_phase2b_output_paths(research_output_dir),
+            **_phase2b_output_paths(
+                materialized_output_dir=materialized_output_dir,
+                results_output_dir=results_output_dir,
+            ),
             **report["output_paths"],
         },
         "delta_manifest": {
@@ -355,9 +463,9 @@ def research_datasets(context) -> dict[str, object]:
 
 @asset(group_name="phase2b")
 def research_bar_views(research_datasets: dict[str, object]) -> list[dict[str, object]]:
-    research_output_dir = Path(str(research_datasets["research_output_dir"]))
+    materialized_output_dir = Path(str(research_datasets["materialized_output_dir"]))
     loaded = load_materialized_research_dataset(
-        output_dir=research_output_dir,
+        output_dir=materialized_output_dir,
         dataset_version=str(research_datasets["dataset_version"]),
     )
     return [row.to_dict() for row in loaded["bar_views"]]
@@ -369,19 +477,20 @@ def research_indicator_frames(
     research_bar_views: list[dict[str, object]],
 ) -> list[dict[str, object]]:
     del research_bar_views
-    research_output_dir = Path(str(research_datasets["research_output_dir"]))
+    materialized_output_dir = Path(str(research_datasets["materialized_output_dir"]))
     dataset_version = str(research_datasets["dataset_version"])
     indicator_set_version = str(research_datasets["indicator_set_version"])
     profile_version = str(research_datasets["indicator_profile_version"])
-    materialize_indicator_frames(
-        dataset_output_dir=research_output_dir,
-        indicator_output_dir=research_output_dir,
-        dataset_version=dataset_version,
-        indicator_set_version=indicator_set_version,
-        profile_version=profile_version,
-    )
+    if not bool(research_datasets.get("reuse_existing_materialization")):
+        materialize_indicator_frames(
+            dataset_output_dir=materialized_output_dir,
+            indicator_output_dir=materialized_output_dir,
+            dataset_version=dataset_version,
+            indicator_set_version=indicator_set_version,
+            profile_version=profile_version,
+        )
     rows = reload_indicator_frames(
-        indicator_output_dir=research_output_dir,
+        indicator_output_dir=materialized_output_dir,
         dataset_version=dataset_version,
         indicator_set_version=indicator_set_version,
     )
@@ -396,22 +505,23 @@ def research_feature_frames(
 ) -> list[dict[str, object]]:
     del research_bar_views
     del research_indicator_frames
-    research_output_dir = Path(str(research_datasets["research_output_dir"]))
+    materialized_output_dir = Path(str(research_datasets["materialized_output_dir"]))
     dataset_version = str(research_datasets["dataset_version"])
     indicator_set_version = str(research_datasets["indicator_set_version"])
     feature_set_version = str(research_datasets["feature_set_version"])
     profile_version = str(research_datasets["feature_profile_version"])
-    materialize_feature_frames(
-        dataset_output_dir=research_output_dir,
-        indicator_output_dir=research_output_dir,
-        feature_output_dir=research_output_dir,
-        dataset_version=dataset_version,
-        indicator_set_version=indicator_set_version,
-        feature_set_version=feature_set_version,
-        profile_version=profile_version,
-    )
+    if not bool(research_datasets.get("reuse_existing_materialization")):
+        materialize_feature_frames(
+            dataset_output_dir=materialized_output_dir,
+            indicator_output_dir=materialized_output_dir,
+            feature_output_dir=materialized_output_dir,
+            dataset_version=dataset_version,
+            indicator_set_version=indicator_set_version,
+            feature_set_version=feature_set_version,
+            profile_version=profile_version,
+        )
     rows = reload_feature_frames(
-        feature_output_dir=research_output_dir,
+        feature_output_dir=materialized_output_dir,
         dataset_version=dataset_version,
         indicator_set_version=indicator_set_version,
         feature_set_version=feature_set_version,
@@ -479,18 +589,19 @@ def research_backtest_batches(
 ) -> dict[str, object]:
     del research_indicator_frames
     del research_feature_frames
-    research_output_dir = Path(str(research_datasets["research_output_dir"]))
+    materialized_output_dir = Path(str(research_datasets["materialized_output_dir"]))
+    results_output_dir = Path(str(research_datasets["results_output_dir"]))
     report = run_backtest_batch(
-        dataset_output_dir=research_output_dir,
-        indicator_output_dir=research_output_dir,
-        feature_output_dir=research_output_dir,
-        output_dir=research_output_dir,
+        dataset_output_dir=materialized_output_dir,
+        indicator_output_dir=materialized_output_dir,
+        feature_output_dir=materialized_output_dir,
+        output_dir=results_output_dir,
         request=_backtest_request_config(research_datasets),
         engine_config=_engine_config(research_datasets),
     )
     return {
         **report,
-        "research_output_dir": research_output_dir.as_posix(),
+        "results_output_dir": results_output_dir.as_posix(),
     }
 
 
@@ -529,10 +640,10 @@ def research_strategy_rankings(
     del research_backtest_batches
     del research_strategy_stats
     del research_trade_records
-    research_output_dir = Path(str(research_datasets["research_output_dir"]))
+    results_output_dir = Path(str(research_datasets["results_output_dir"]))
     report = rank_backtest_results(
-        backtest_output_dir=research_output_dir,
-        output_dir=research_output_dir,
+        backtest_output_dir=results_output_dir,
+        output_dir=results_output_dir,
         policy=_ranking_policy(research_datasets),
     )
     return [dict(row) for row in report["ranking_rows"]]
@@ -545,12 +656,13 @@ def research_signal_candidates(
     research_strategy_rankings: list[dict[str, object]],
 ) -> list[dict[str, object]]:
     del research_feature_frames
-    research_output_dir = Path(str(research_datasets["research_output_dir"]))
+    materialized_output_dir = Path(str(research_datasets["materialized_output_dir"]))
+    results_output_dir = Path(str(research_datasets["results_output_dir"]))
     report = project_runtime_candidates(
-        dataset_output_dir=research_output_dir,
-        indicator_output_dir=research_output_dir,
-        feature_output_dir=research_output_dir,
-        output_dir=research_output_dir,
+        dataset_output_dir=materialized_output_dir,
+        indicator_output_dir=materialized_output_dir,
+        feature_output_dir=materialized_output_dir,
+        output_dir=results_output_dir,
         request=_projection_request(research_datasets),
         ranking_rows=[dict(row) for row in research_strategy_rankings],
         config=_engine_config(research_datasets),
@@ -666,13 +778,26 @@ def _resolve_expected_materialization(selection: Sequence[str]) -> list[str]:
 def _phase2b_run_config(
     *,
     canonical_output_dir: Path,
-    research_output_dir: Path,
+    research_output_dir: Path | None = None,
+    materialized_output_dir: Path | None = None,
+    results_output_dir: Path | None = None,
     dataset_version: str,
+    dataset_name: str = "research-bootstrap",
+    universe_id: str = "moex-futures",
     timeframes: Sequence[str],
+    base_timeframe: str = "",
+    start_ts: str = "",
+    end_ts: str = "",
+    warmup_bars: int = 200,
+    split_method: str = "holdout",
+    series_mode: str = "contract",
+    dataset_contract_ids: Sequence[str] = (),
+    dataset_instrument_ids: Sequence[str] = (),
     indicator_set_version: str,
     indicator_profile_version: str,
     feature_set_version: str,
     feature_profile_version: str,
+    code_version: str = "dagster-phase2b-orchestration",
     strategy_versions: Sequence[str] | None = None,
     combination_count: int = 1,
     param_batch_size: int = 25,
@@ -697,27 +822,37 @@ def _phase2b_run_config(
     max_candidates_per_partition: int = 1,
     min_robust_score: float = 0.55,
     decision_lag_bars_max: int = 1,
+    reuse_existing_materialization: bool = False,
 ) -> dict[str, object]:
     resolved_strategy_versions = tuple(str(item) for item in (strategy_versions or _default_strategy_versions()))
     resolved_timeframes = [str(item) for item in timeframes]
+    resolved_materialized_output_dir, resolved_results_output_dir = _resolve_phase2b_output_dirs(
+        research_output_dir=research_output_dir,
+        materialized_output_dir=materialized_output_dir,
+        results_output_dir=results_output_dir,
+    )
     return {
         "canonical_output_dir": canonical_output_dir.resolve().as_posix(),
-        "research_output_dir": research_output_dir.resolve().as_posix(),
+        "materialized_output_dir": resolved_materialized_output_dir.as_posix(),
+        "results_output_dir": resolved_results_output_dir.as_posix(),
+        "reuse_existing_materialization": reuse_existing_materialization,
         "dataset_version": dataset_version,
-        "dataset_name": "research-bootstrap",
-        "universe_id": "moex-futures",
+        "dataset_name": dataset_name,
+        "universe_id": universe_id,
         "timeframes": resolved_timeframes,
-        "base_timeframe": resolved_timeframes[0] if resolved_timeframes else "15m",
-        "start_ts": "",
-        "end_ts": "",
-        "warmup_bars": 200,
-        "split_method": "holdout",
-        "series_mode": "contract",
+        "base_timeframe": base_timeframe or (resolved_timeframes[0] if resolved_timeframes else "15m"),
+        "start_ts": start_ts,
+        "end_ts": end_ts,
+        "warmup_bars": warmup_bars,
+        "split_method": split_method,
+        "series_mode": series_mode,
+        "dataset_contract_ids": [str(item) for item in dataset_contract_ids],
+        "dataset_instrument_ids": [str(item) for item in dataset_instrument_ids],
         "indicator_set_version": indicator_set_version,
         "indicator_profile_version": indicator_profile_version,
         "feature_set_version": feature_set_version,
         "feature_profile_version": feature_profile_version,
-        "code_version": "dagster-phase2b-orchestration",
+        "code_version": code_version,
         "strategy_versions": list(resolved_strategy_versions),
         "combination_count": combination_count,
         "param_batch_size": param_batch_size,
@@ -748,9 +883,21 @@ def _phase2b_run_config(
 def _materialize_phase2b_assets(
     *,
     canonical_output_dir: Path,
-    research_output_dir: Path,
+    research_output_dir: Path | None = None,
+    materialized_output_dir: Path | None = None,
+    results_output_dir: Path | None = None,
     dataset_version: str,
+    dataset_name: str = "research-bootstrap",
+    universe_id: str = "moex-futures",
     timeframes: Sequence[str],
+    base_timeframe: str = "",
+    start_ts: str = "",
+    end_ts: str = "",
+    warmup_bars: int = 200,
+    split_method: str = "holdout",
+    series_mode: str = "contract",
+    dataset_contract_ids: Sequence[str] = (),
+    dataset_instrument_ids: Sequence[str] = (),
     default_assets: Sequence[str],
     allowed_assets: Sequence[str],
     selection: Sequence[str] | None = None,
@@ -758,6 +905,7 @@ def _materialize_phase2b_assets(
     indicator_profile_version: str = "core_v1",
     feature_set_version: str = "features-v1",
     feature_profile_version: str = "core_v1",
+    code_version: str = "dagster-phase2b-orchestration",
     strategy_versions: Sequence[str] | None = None,
     combination_count: int = 1,
     param_batch_size: int = 25,
@@ -782,13 +930,21 @@ def _materialize_phase2b_assets(
     max_candidates_per_partition: int = 1,
     min_robust_score: float = 0.55,
     decision_lag_bars_max: int = 1,
+    reuse_existing_materialization: bool = False,
     raise_on_error: bool = True,
 ) -> dict[str, object]:
     assert_phase2b_definitions_executable()
     selected_assets = _resolve_selected_assets(selection, default_assets=default_assets, allowed_assets=allowed_assets)
     expected_materialized_assets = _resolve_expected_materialization(selected_assets)
-    research_output_dir = research_output_dir.resolve()
-    output_paths = _phase2b_output_paths(research_output_dir)
+    resolved_materialized_output_dir, resolved_results_output_dir = _resolve_phase2b_output_dirs(
+        research_output_dir=research_output_dir,
+        materialized_output_dir=materialized_output_dir,
+        results_output_dir=results_output_dir,
+    )
+    output_paths = _phase2b_output_paths(
+        materialized_output_dir=resolved_materialized_output_dir,
+        results_output_dir=resolved_results_output_dir,
+    )
 
     result = materialize(
         assets=list(PHASE2B_ASSETS),
@@ -798,13 +954,25 @@ def _materialize_phase2b_assets(
                 "research_datasets": {
                     "config": _phase2b_run_config(
                         canonical_output_dir=canonical_output_dir,
-                        research_output_dir=research_output_dir,
+                        materialized_output_dir=resolved_materialized_output_dir,
+                        results_output_dir=resolved_results_output_dir,
                         dataset_version=dataset_version,
+                        dataset_name=dataset_name,
+                        universe_id=universe_id,
                         timeframes=timeframes,
+                        base_timeframe=base_timeframe,
+                        start_ts=start_ts,
+                        end_ts=end_ts,
+                        warmup_bars=warmup_bars,
+                        split_method=split_method,
+                        series_mode=series_mode,
+                        dataset_contract_ids=dataset_contract_ids,
+                        dataset_instrument_ids=dataset_instrument_ids,
                         indicator_set_version=indicator_set_version,
                         indicator_profile_version=indicator_profile_version,
                         feature_set_version=feature_set_version,
                         feature_profile_version=feature_profile_version,
+                        code_version=code_version,
                         strategy_versions=strategy_versions,
                         combination_count=combination_count,
                         param_batch_size=param_batch_size,
@@ -829,6 +997,7 @@ def _materialize_phase2b_assets(
                         max_candidates_per_partition=max_candidates_per_partition,
                         min_robust_score=min_robust_score,
                         decision_lag_bars_max=decision_lag_bars_max,
+                        reuse_existing_materialization=reuse_existing_materialization,
                     )
                 }
             }
@@ -859,47 +1028,39 @@ def _materialize_phase2b_assets(
 def materialize_phase2b_bootstrap_assets(
     *,
     canonical_output_dir: Path,
-    research_output_dir: Path,
+    research_output_dir: Path | None = None,
+    materialized_output_dir: Path | None = None,
+    results_output_dir: Path | None = None,
     dataset_version: str,
+    dataset_name: str = "research-bootstrap",
+    universe_id: str = "moex-futures",
     timeframes: Sequence[str],
+    base_timeframe: str = "",
+    start_ts: str = "",
+    end_ts: str = "",
+    warmup_bars: int = 200,
+    split_method: str = "holdout",
+    series_mode: str = "contract",
+    dataset_contract_ids: Sequence[str] = (),
+    dataset_instrument_ids: Sequence[str] = (),
     indicator_set_version: str = "indicators-v1",
     indicator_profile_version: str = "core_v1",
     feature_set_version: str = "features-v1",
     feature_profile_version: str = "core_v1",
-    selection: Sequence[str] | None = None,
-    raise_on_error: bool = True,
-) -> dict[str, object]:
-    return _materialize_phase2b_assets(
-        canonical_output_dir=canonical_output_dir,
-        research_output_dir=research_output_dir,
-        dataset_version=dataset_version,
-        timeframes=timeframes,
-        default_assets=PHASE2B_BOOTSTRAP_ASSETS,
-        allowed_assets=PHASE2B_BOOTSTRAP_ASSETS,
-        selection=selection,
-        indicator_set_version=indicator_set_version,
-        indicator_profile_version=indicator_profile_version,
-        feature_set_version=feature_set_version,
-        feature_profile_version=feature_profile_version,
-        raise_on_error=raise_on_error,
-    )
-
-
-def materialize_phase2b_backtest_assets(
-    *,
-    canonical_output_dir: Path,
-    research_output_dir: Path,
-    dataset_version: str,
-    timeframes: Sequence[str],
-    indicator_set_version: str = "indicators-v1",
-    indicator_profile_version: str = "core_v1",
-    feature_set_version: str = "features-v1",
-    feature_profile_version: str = "core_v1",
+    code_version: str = "dagster-phase2b-orchestration",
     strategy_versions: Sequence[str] | None = None,
     combination_count: int = 1,
     param_batch_size: int = 25,
     series_batch_size: int = 4,
     backtest_timeframe: str = "",
+    backtest_contract_ids: Sequence[str] = (),
+    backtest_instrument_ids: Sequence[str] = (),
+    fees_bps: float = 0.0,
+    slippage_bps: float = 0.0,
+    allow_short: bool = True,
+    window_count: int = 1,
+    ranking_policy_id: str = "robust_oos_v1",
+    ranking_metric_order: Sequence[str] = ("total_return", "profit_factor", "max_drawdown"),
     require_out_of_sample_pass: bool = True,
     min_trade_count: int = 4,
     max_drawdown_cap: float = 0.35,
@@ -907,26 +1068,52 @@ def materialize_phase2b_backtest_assets(
     stress_slippage_bps: float = 7.5,
     min_parameter_stability: float = 0.35,
     min_slippage_score: float = 0.45,
+    selection_policy: str = "top_robust_per_series",
+    max_candidates_per_partition: int = 1,
+    min_robust_score: float = 0.55,
+    decision_lag_bars_max: int = 1,
+    reuse_existing_materialization: bool = False,
     selection: Sequence[str] | None = None,
     raise_on_error: bool = True,
 ) -> dict[str, object]:
     return _materialize_phase2b_assets(
         canonical_output_dir=canonical_output_dir,
         research_output_dir=research_output_dir,
+        materialized_output_dir=materialized_output_dir,
+        results_output_dir=results_output_dir,
         dataset_version=dataset_version,
+        dataset_name=dataset_name,
+        universe_id=universe_id,
         timeframes=timeframes,
-        default_assets=PHASE2B_BACKTEST_ASSETS,
-        allowed_assets=PHASE2B_BACKTEST_ASSETS,
+        base_timeframe=base_timeframe,
+        start_ts=start_ts,
+        end_ts=end_ts,
+        warmup_bars=warmup_bars,
+        split_method=split_method,
+        series_mode=series_mode,
+        dataset_contract_ids=dataset_contract_ids,
+        dataset_instrument_ids=dataset_instrument_ids,
+        default_assets=PHASE2B_BOOTSTRAP_ASSETS,
+        allowed_assets=PHASE2B_BOOTSTRAP_ASSETS,
         selection=selection,
         indicator_set_version=indicator_set_version,
         indicator_profile_version=indicator_profile_version,
         feature_set_version=feature_set_version,
         feature_profile_version=feature_profile_version,
+        code_version=code_version,
         strategy_versions=strategy_versions,
         combination_count=combination_count,
         param_batch_size=param_batch_size,
         series_batch_size=series_batch_size,
         backtest_timeframe=backtest_timeframe,
+        backtest_contract_ids=backtest_contract_ids,
+        backtest_instrument_ids=backtest_instrument_ids,
+        fees_bps=fees_bps,
+        slippage_bps=slippage_bps,
+        allow_short=allow_short,
+        window_count=window_count,
+        ranking_policy_id=ranking_policy_id,
+        ranking_metric_order=ranking_metric_order,
         require_out_of_sample_pass=require_out_of_sample_pass,
         min_trade_count=min_trade_count,
         max_drawdown_cap=max_drawdown_cap,
@@ -934,6 +1121,116 @@ def materialize_phase2b_backtest_assets(
         stress_slippage_bps=stress_slippage_bps,
         min_parameter_stability=min_parameter_stability,
         min_slippage_score=min_slippage_score,
+        selection_policy=selection_policy,
+        max_candidates_per_partition=max_candidates_per_partition,
+        min_robust_score=min_robust_score,
+        decision_lag_bars_max=decision_lag_bars_max,
+        reuse_existing_materialization=reuse_existing_materialization,
+        raise_on_error=raise_on_error,
+    )
+
+
+def materialize_phase2b_backtest_assets(
+    *,
+    canonical_output_dir: Path,
+    research_output_dir: Path | None = None,
+    materialized_output_dir: Path | None = None,
+    results_output_dir: Path | None = None,
+    dataset_version: str,
+    dataset_name: str = "research-bootstrap",
+    universe_id: str = "moex-futures",
+    timeframes: Sequence[str],
+    base_timeframe: str = "",
+    start_ts: str = "",
+    end_ts: str = "",
+    warmup_bars: int = 200,
+    split_method: str = "holdout",
+    series_mode: str = "contract",
+    dataset_contract_ids: Sequence[str] = (),
+    dataset_instrument_ids: Sequence[str] = (),
+    indicator_set_version: str = "indicators-v1",
+    indicator_profile_version: str = "core_v1",
+    feature_set_version: str = "features-v1",
+    feature_profile_version: str = "core_v1",
+    code_version: str = "dagster-phase2b-orchestration",
+    strategy_versions: Sequence[str] | None = None,
+    combination_count: int = 1,
+    param_batch_size: int = 25,
+    series_batch_size: int = 4,
+    backtest_timeframe: str = "",
+    backtest_contract_ids: Sequence[str] = (),
+    backtest_instrument_ids: Sequence[str] = (),
+    fees_bps: float = 0.0,
+    slippage_bps: float = 0.0,
+    allow_short: bool = True,
+    window_count: int = 1,
+    ranking_policy_id: str = "robust_oos_v1",
+    ranking_metric_order: Sequence[str] = ("total_return", "profit_factor", "max_drawdown"),
+    require_out_of_sample_pass: bool = True,
+    min_trade_count: int = 4,
+    max_drawdown_cap: float = 0.35,
+    min_positive_fold_ratio: float = 0.5,
+    stress_slippage_bps: float = 7.5,
+    min_parameter_stability: float = 0.35,
+    min_slippage_score: float = 0.45,
+    selection_policy: str = "top_robust_per_series",
+    max_candidates_per_partition: int = 1,
+    min_robust_score: float = 0.55,
+    decision_lag_bars_max: int = 1,
+    reuse_existing_materialization: bool = False,
+    selection: Sequence[str] | None = None,
+    raise_on_error: bool = True,
+) -> dict[str, object]:
+    return _materialize_phase2b_assets(
+        canonical_output_dir=canonical_output_dir,
+        research_output_dir=research_output_dir,
+        materialized_output_dir=materialized_output_dir,
+        results_output_dir=results_output_dir,
+        dataset_version=dataset_version,
+        dataset_name=dataset_name,
+        universe_id=universe_id,
+        timeframes=timeframes,
+        base_timeframe=base_timeframe,
+        start_ts=start_ts,
+        end_ts=end_ts,
+        warmup_bars=warmup_bars,
+        split_method=split_method,
+        series_mode=series_mode,
+        dataset_contract_ids=dataset_contract_ids,
+        dataset_instrument_ids=dataset_instrument_ids,
+        default_assets=PHASE2B_BACKTEST_ASSETS,
+        allowed_assets=PHASE2B_BACKTEST_ASSETS,
+        selection=selection,
+        indicator_set_version=indicator_set_version,
+        indicator_profile_version=indicator_profile_version,
+        feature_set_version=feature_set_version,
+        feature_profile_version=feature_profile_version,
+        code_version=code_version,
+        strategy_versions=strategy_versions,
+        combination_count=combination_count,
+        param_batch_size=param_batch_size,
+        series_batch_size=series_batch_size,
+        backtest_timeframe=backtest_timeframe,
+        backtest_contract_ids=backtest_contract_ids,
+        backtest_instrument_ids=backtest_instrument_ids,
+        fees_bps=fees_bps,
+        slippage_bps=slippage_bps,
+        allow_short=allow_short,
+        window_count=window_count,
+        ranking_policy_id=ranking_policy_id,
+        ranking_metric_order=ranking_metric_order,
+        require_out_of_sample_pass=require_out_of_sample_pass,
+        min_trade_count=min_trade_count,
+        max_drawdown_cap=max_drawdown_cap,
+        min_positive_fold_ratio=min_positive_fold_ratio,
+        stress_slippage_bps=stress_slippage_bps,
+        min_parameter_stability=min_parameter_stability,
+        min_slippage_score=min_slippage_score,
+        selection_policy=selection_policy,
+        max_candidates_per_partition=max_candidates_per_partition,
+        min_robust_score=min_robust_score,
+        decision_lag_bars_max=decision_lag_bars_max,
+        reuse_existing_materialization=reuse_existing_materialization,
         raise_on_error=raise_on_error,
     )
 
@@ -941,18 +1238,39 @@ def materialize_phase2b_backtest_assets(
 def materialize_phase2b_projection_assets(
     *,
     canonical_output_dir: Path,
-    research_output_dir: Path,
+    research_output_dir: Path | None = None,
+    materialized_output_dir: Path | None = None,
+    results_output_dir: Path | None = None,
     dataset_version: str,
+    dataset_name: str = "research-bootstrap",
+    universe_id: str = "moex-futures",
     timeframes: Sequence[str],
+    base_timeframe: str = "",
+    start_ts: str = "",
+    end_ts: str = "",
+    warmup_bars: int = 200,
+    split_method: str = "holdout",
+    series_mode: str = "contract",
+    dataset_contract_ids: Sequence[str] = (),
+    dataset_instrument_ids: Sequence[str] = (),
     indicator_set_version: str = "indicators-v1",
     indicator_profile_version: str = "core_v1",
     feature_set_version: str = "features-v1",
     feature_profile_version: str = "core_v1",
+    code_version: str = "dagster-phase2b-orchestration",
     strategy_versions: Sequence[str] | None = None,
     combination_count: int = 1,
     param_batch_size: int = 25,
     series_batch_size: int = 4,
     backtest_timeframe: str = "",
+    backtest_contract_ids: Sequence[str] = (),
+    backtest_instrument_ids: Sequence[str] = (),
+    fees_bps: float = 0.0,
+    slippage_bps: float = 0.0,
+    allow_short: bool = True,
+    window_count: int = 1,
+    ranking_policy_id: str = "robust_oos_v1",
+    ranking_metric_order: Sequence[str] = ("total_return", "profit_factor", "max_drawdown"),
     selection_policy: str = "top_robust_per_series",
     max_candidates_per_partition: int = 1,
     min_robust_score: float = 0.55,
@@ -964,14 +1282,27 @@ def materialize_phase2b_projection_assets(
     stress_slippage_bps: float = 7.5,
     min_parameter_stability: float = 0.35,
     min_slippage_score: float = 0.45,
+    reuse_existing_materialization: bool = False,
     selection: Sequence[str] | None = None,
     raise_on_error: bool = True,
 ) -> dict[str, object]:
     return _materialize_phase2b_assets(
         canonical_output_dir=canonical_output_dir,
         research_output_dir=research_output_dir,
+        materialized_output_dir=materialized_output_dir,
+        results_output_dir=results_output_dir,
         dataset_version=dataset_version,
+        dataset_name=dataset_name,
+        universe_id=universe_id,
         timeframes=timeframes,
+        base_timeframe=base_timeframe,
+        start_ts=start_ts,
+        end_ts=end_ts,
+        warmup_bars=warmup_bars,
+        split_method=split_method,
+        series_mode=series_mode,
+        dataset_contract_ids=dataset_contract_ids,
+        dataset_instrument_ids=dataset_instrument_ids,
         default_assets=PHASE2B_PROJECTION_ASSETS,
         allowed_assets=PHASE2B_PROJECTION_ASSETS,
         selection=selection,
@@ -979,11 +1310,20 @@ def materialize_phase2b_projection_assets(
         indicator_profile_version=indicator_profile_version,
         feature_set_version=feature_set_version,
         feature_profile_version=feature_profile_version,
+        code_version=code_version,
         strategy_versions=strategy_versions,
         combination_count=combination_count,
         param_batch_size=param_batch_size,
         series_batch_size=series_batch_size,
         backtest_timeframe=backtest_timeframe,
+        backtest_contract_ids=backtest_contract_ids,
+        backtest_instrument_ids=backtest_instrument_ids,
+        fees_bps=fees_bps,
+        slippage_bps=slippage_bps,
+        allow_short=allow_short,
+        window_count=window_count,
+        ranking_policy_id=ranking_policy_id,
+        ranking_metric_order=ranking_metric_order,
         selection_policy=selection_policy,
         max_candidates_per_partition=max_candidates_per_partition,
         min_robust_score=min_robust_score,
@@ -995,5 +1335,6 @@ def materialize_phase2b_projection_assets(
         stress_slippage_bps=stress_slippage_bps,
         min_parameter_stability=min_parameter_stability,
         min_slippage_score=min_slippage_score,
+        reuse_existing_materialization=reuse_existing_materialization,
         raise_on_error=raise_on_error,
     )
