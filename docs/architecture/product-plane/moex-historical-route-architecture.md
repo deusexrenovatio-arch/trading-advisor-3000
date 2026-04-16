@@ -1,4 +1,4 @@
-# MOEX Nightly V2 Architecture
+# MOEX Historical Route Architecture
 
 ## Purpose
 Define the target architecture for MOEX historical refresh after the 4-year baseline was pinned.
@@ -18,7 +18,7 @@ See also:
 
 ### What is currently wrong
 - The current nightly runner builds a fresh candidate run with `bootstrap_window_days=1461` instead of extending the retained baseline.
-- Dagster-owned orchestration is already implemented for the canonical cutover route, but governed staging-real acceptance evidence is still pending for full Phase-03 closure.
+- Dagster-owned orchestration is already implemented for the canonical route, but governed staging-real acceptance evidence is still pending for full Dagster-route closure.
 - Heavy canonical refresh currently runs through the current Python contour, while Spark exists only as a partial parallel contour and not as the active MOEX nightly compute path.
 - As a result, nightly is too expensive and too close to a "rebuild the world" model.
 
@@ -101,7 +101,7 @@ That decision fixes:
 - which jobs are allowed to own raw and canonical writes,
 - which existing entrypoints stay as manual-only routes,
 - which proof contours remain proof-only,
-- which legacy route is retired from normal operations.
+- which manual route is retired from normal operations.
 
 ## Target Storage Model
 
@@ -120,8 +120,8 @@ Data-root truth source:
 - Contents:
   - `canonical_bars.delta`
   - `canonical_bar_provenance.delta`
-  - `reports/nightly-backfill-report.json`
-  - `reports/phase02-canonical-report.json`
+  - `reports/route-refresh-report.json`
+  - `reports/canonical-refresh-report.json`
 
 ### C. Derived storage
 - Root: `D:/TA3000-data/trading-advisor-3000-nightly/derived/moex`
@@ -175,9 +175,9 @@ Dagster becomes the orchestrator for:
 - operational visibility
 - backfill and rerun management
 
-The Dagster route is now implemented as the canonical orchestration owner. The old Python scripts may still exist only as migration artifacts:
-- `scripts/run_moex_phase01_foundation.py`
-- `scripts/run_moex_phase02_canonical.py`
+The Dagster route is now implemented as the canonical orchestration owner. The manual Python tools may still exist only as bounded support entrypoints:
+- `scripts/run_moex_raw_ingest.py`
+- `scripts/run_moex_canonical_refresh.py`
 
 They are not the target-state operator-facing route under the active governed planning baseline.
 
@@ -289,7 +289,7 @@ It is not yet a fully landed first-class live broker market-data pipeline for qu
 
 ### Stage 3 - Dagster orchestration
 - Keep nightly scheduling, retries, and promotion gates in Dagster as the canonical route owner.
-- Keep direct Python scripts only as bounded migration/debug entrypoints; they are not the operator-facing default path.
+- Keep direct Python scripts only as bounded manual debug and repair entrypoints; they are not the operator-facing default path.
 
 ### Stage 4 - Promotion hardening
 - Read-only baseline outside promotion.

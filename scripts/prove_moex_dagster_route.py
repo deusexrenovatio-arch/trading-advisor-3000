@@ -14,7 +14,8 @@ if str(SRC) not in sys.path:
 
 from trading_advisor_3000.product_plane.data_plane.moex import run_phase03_dagster_cutover
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
-    PHASE03_STORAGE_DIRNAME,
+    DAGSTER_ROUTE_REPORT_FILENAME,
+    DAGSTER_ROUTE_STORAGE_DIRNAME,
     resolve_external_file_path,
     resolve_external_root,
 )
@@ -40,7 +41,7 @@ def _parse_backoff(raw: str) -> list[int]:
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Run MOEX Phase-03 Dagster Cutover contour: canonical route graph materialization, "
+            "Prove the MOEX Dagster route: canonical graph materialization, "
             "single-writer lease enforcement, repair/backfill reuse, recovery drill, and two nightly readiness cycles."
         )
     )
@@ -50,7 +51,7 @@ def main() -> None:
         "--output-root",
         default="",
         help=(
-            "Absolute external root folder for phase-03 artifacts. "
+            "Absolute external root folder for Dagster-route evidence artifacts. "
             "Required unless TA3000_MOEX_HISTORICAL_DATA_ROOT is set."
         ),
     )
@@ -70,7 +71,7 @@ def main() -> None:
         default="",
         help=(
             "Path to external staging Dagster binding evidence JSON. "
-            "Required for governed Phase-03 staging-real proof."
+            "Required for governed staging-real proof."
         ),
     )
     parser.add_argument("--route-signal", default="worker:phase-only")
@@ -79,18 +80,18 @@ def main() -> None:
     raw_table_raw = args.raw_table_path.strip()
     raw_report_raw = args.raw_ingest_report_path.strip()
     if not raw_table_raw:
-        raise SystemExit("phase-03 requires --raw-table-path")
+        raise SystemExit("dagster-route proof requires --raw-table-path")
     if not raw_report_raw:
-        raise SystemExit("phase-03 requires --raw-ingest-report-path")
+        raise SystemExit("dagster-route proof requires --raw-ingest-report-path")
     if len(args.nightly_readiness_observed_at_utc) != 2:
         raise SystemExit(
-            "phase-03 requires exactly two --nightly-readiness-observed-at-utc values "
+            "dagster-route proof requires exactly two --nightly-readiness-observed-at-utc values "
             "to prove consecutive governed nightly cycles"
         )
     staging_binding_raw = str(args.staging_binding_report_path).strip()
     if not staging_binding_raw:
         raise SystemExit(
-            "phase-03 governed cutover requires --staging-binding-report-path "
+            "Dagster-route staging proof requires --staging-binding-report-path "
             "to keep proof_class at staging-real"
         )
 
@@ -99,7 +100,7 @@ def main() -> None:
         args.output_root,
         repo_root=ROOT,
         field_name="--output-root",
-        default_subdir=PHASE03_STORAGE_DIRNAME,
+        default_subdir=DAGSTER_ROUTE_STORAGE_DIRNAME,
     )
     output_dir = output_root / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -131,11 +132,11 @@ def main() -> None:
         require_staging_real=True,
     )
 
-    report_path = output_dir / "phase03-dagster-cutover-report.json"
+    report_path = output_dir / DAGSTER_ROUTE_REPORT_FILENAME
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, ensure_ascii=False, indent=2))
     if report.get("status") != "PASS":
-        raise SystemExit("phase-03 dagster cutover contour blocked by fail-closed checks")
+        raise SystemExit("Dagster-route proof blocked by fail-closed checks")
 
 
 if __name__ == "__main__":

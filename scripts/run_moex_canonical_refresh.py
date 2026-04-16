@@ -15,8 +15,9 @@ if str(SRC) not in sys.path:
 
 from trading_advisor_3000.product_plane.data_plane.moex import run_phase02_canonical
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
-    PHASE01_STORAGE_DIRNAME,
-    PHASE02_STORAGE_DIRNAME,
+    CANONICAL_REFRESH_REPORT_FILENAME,
+    CANONICAL_REFRESH_STORAGE_DIRNAME,
+    RAW_INGEST_STORAGE_DIRNAME,
     resolve_external_file_path,
     resolve_external_root,
 )
@@ -28,22 +29,22 @@ def _default_run_id() -> str:
     return datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
-def _pick_phase01_run_dir(phase01_root: Path, requested_run_id: str) -> Path:
+def _pick_raw_ingest_run_dir(raw_ingest_root: Path, requested_run_id: str) -> Path:
     if requested_run_id.strip():
-        run_dir = phase01_root / requested_run_id.strip()
+        run_dir = raw_ingest_root / requested_run_id.strip()
         if not run_dir.exists():
             raise FileNotFoundError(f"raw-ingest run directory not found: {run_dir.as_posix()}")
         return run_dir
 
     candidates = [
         item
-        for item in phase01_root.iterdir()
+        for item in raw_ingest_root.iterdir()
         if item.is_dir() and RUN_ID_PATTERN.match(item.name)
     ]
     if not candidates:
         raise FileNotFoundError(
             "cannot auto-resolve raw-ingest run directory: no run folders matching "
-            f"{RUN_ID_PATTERN.pattern} under {phase01_root.as_posix()}"
+            f"{RUN_ID_PATTERN.pattern} under {raw_ingest_root.as_posix()}"
         )
     return sorted(candidates, key=lambda item: item.name)[-1]
 
@@ -51,8 +52,8 @@ def _pick_phase01_run_dir(phase01_root: Path, requested_run_id: str) -> Path:
 def _resolve_raw_table_path(
     *,
     raw_table_path: str,
-    phase01_root: Path,
-    phase01_run_id: str,
+    raw_ingest_root: Path,
+    raw_ingest_run_id: str,
 ) -> tuple[Path, str]:
     if raw_table_path.strip():
         path = resolve_external_file_path(
@@ -62,16 +63,16 @@ def _resolve_raw_table_path(
         )
         return path, "explicit"
 
-    run_dir = _pick_phase01_run_dir(phase01_root, phase01_run_id)
+    run_dir = _pick_raw_ingest_run_dir(raw_ingest_root, raw_ingest_run_id)
     path = run_dir / "delta" / "raw_moex_history.delta"
-    return path, f"phase01:{run_dir.name}"
+    return path, f"raw-ingest:{run_dir.name}"
 
 
 def _resolve_raw_ingest_report_path(
     *,
     raw_ingest_report_path: str,
-    phase01_root: Path,
-    phase01_run_id: str,
+    raw_ingest_root: Path,
+    raw_ingest_run_id: str,
 ) -> tuple[Path, str]:
     if raw_ingest_report_path.strip():
         path = resolve_external_file_path(
@@ -81,7 +82,7 @@ def _resolve_raw_ingest_report_path(
         )
         return path, "explicit"
 
-    run_dir = _pick_phase01_run_dir(phase01_root, phase01_run_id)
+    run_dir = _pick_raw_ingest_run_dir(raw_ingest_root, raw_ingest_run_id)
     candidates = (
         run_dir / "raw-ingest-report.pass1.json",
         run_dir / "raw-ingest-report.json",
@@ -89,7 +90,7 @@ def _resolve_raw_ingest_report_path(
     )
     for candidate in candidates:
         if candidate.exists():
-            return candidate, f"phase01:{run_dir.name}:{candidate.name}"
+            return candidate, f"raw-ingest:{run_dir.name}:{candidate.name}"
     raise FileNotFoundError(
         "canonicalization requires raw-ingest report; checked: "
         + ", ".join(item.as_posix() for item in candidates)
@@ -99,7 +100,7 @@ def _resolve_raw_ingest_report_path(
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Run MOEX Spark canonicalization contour as a legacy migration canonical rebuild/repair aid: "
+            "Run the MOEX Spark canonical refresh tool: "
             "Spark resampling (5m/15m/1h/4h/1d/1w), fail-closed QC, contract compatibility check, "
             "and runtime decoupling proof."
         )
@@ -107,18 +108,18 @@ def main() -> None:
     parser.add_argument(
         "--raw-table-path",
         default="",
-        help="Path to legacy raw-ingest raw_moex_history.delta. If omitted, resolved from --phase01-root.",
+        help="Path to raw-ingest raw_moex_history.delta. If omitted, resolved from --raw-ingest-root.",
     )
     parser.add_argument(
-        "--phase01-root",
+        "--raw-ingest-root",
         default="",
         help=(
-            "Absolute external phase-01 artifact root used when --raw-table-path is omitted. "
+            "Absolute external raw-ingest artifact root used when --raw-table-path is omitted. "
             "Required unless TA3000_MOEX_HISTORICAL_DATA_ROOT is set."
         ),
     )
     parser.add_argument(
-        "--phase01-run-id",
+        "--raw-ingest-run-id",
         default="",
         help="Specific raw-ingest run folder name (YYYYMMDDTHHMMSSZ). If omitted, latest run is used.",
     )
@@ -131,7 +132,7 @@ def main() -> None:
         "--output-root",
         default="",
         help=(
-            "Absolute external root folder for canonicalization run artifacts. "
+            "Absolute external root folder for canonical-refresh run artifacts. "
             "Required unless TA3000_MOEX_HISTORICAL_DATA_ROOT is set."
         ),
     )
@@ -143,27 +144,27 @@ def main() -> None:
     args = parser.parse_args()
 
     print(
-        "route-note: scripts/run_moex_phase02_canonical.py is a legacy Spark canonicalization rebuild/repair aid. "
-        "It is not the canonical operator-facing scheduled route after Dagster cutover.",
+        "route-note: scripts/run_moex_canonical_refresh.py is the manual Spark canonical-refresh tool. "
+        "Dagster owns scheduled route ordering; use this command for targeted refresh or evidence capture.",
         flush=True,
     )
 
     run_id = args.run_id.strip() or _default_run_id()
-    phase01_root = resolve_external_root(
-        args.phase01_root,
+    raw_ingest_root = resolve_external_root(
+        args.raw_ingest_root,
         repo_root=ROOT,
-        field_name="--phase01-root",
-        default_subdir=PHASE01_STORAGE_DIRNAME,
+        field_name="--raw-ingest-root",
+        default_subdir=RAW_INGEST_STORAGE_DIRNAME,
     )
     raw_table_path, raw_source = _resolve_raw_table_path(
         raw_table_path=args.raw_table_path,
-        phase01_root=phase01_root,
-        phase01_run_id=args.phase01_run_id,
+        raw_ingest_root=raw_ingest_root,
+        raw_ingest_run_id=args.raw_ingest_run_id,
     )
     raw_ingest_report_path, raw_ingest_source = _resolve_raw_ingest_report_path(
         raw_ingest_report_path=args.raw_ingest_report_path,
-        phase01_root=phase01_root,
-        phase01_run_id=args.phase01_run_id,
+        raw_ingest_root=raw_ingest_root,
+        raw_ingest_run_id=args.raw_ingest_run_id,
     )
     raw_ingest_report_payload = json.loads(raw_ingest_report_path.read_text(encoding="utf-8"))
     if not isinstance(raw_ingest_report_payload, dict):
@@ -174,7 +175,7 @@ def main() -> None:
         args.output_root,
         repo_root=ROOT,
         field_name="--output-root",
-        default_subdir=PHASE02_STORAGE_DIRNAME,
+        default_subdir=CANONICAL_REFRESH_STORAGE_DIRNAME,
     )
     output_dir = output_root / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -190,12 +191,12 @@ def main() -> None:
     report["raw_ingest_report_source_resolution"] = raw_ingest_source
     report["raw_ingest_report_path"] = raw_ingest_report_path.as_posix()
 
-    report_path = output_dir / "phase02-canonical-report.json"
+    report_path = output_dir / CANONICAL_REFRESH_REPORT_FILENAME
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
     if report.get("publish_decision") != "publish":
-        raise SystemExit("canonicalization contour blocked by fail-closed checks")
+        raise SystemExit("canonical refresh blocked by fail-closed checks")
 
 
 if __name__ == "__main__":

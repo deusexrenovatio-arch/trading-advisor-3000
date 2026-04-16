@@ -10,7 +10,7 @@ Read these first:
 - [approved-universe-v1.md](docs/architecture/product-plane/approved-universe-v1.md) - governed universe and promotion contract for medium-term multi-asset evaluation.
 - [moex-historical-route-decision.md](docs/architecture/product-plane/moex-historical-route-decision.md) - authoritative job ownership, reusable vs retired entrypoints, and one fixed historical data route.
 - [moex-baseline-storage-runbook.md](docs/runbooks/app/moex-baseline-storage-runbook.md) - authoritative MOEX data-root layout for raw, canonical, and derived storage.
-- [moex-nightly-v2-architecture.md](docs/architecture/product-plane/moex-nightly-v2-architecture.md) - target-shape migration architecture; active operator route truth stays in [moex-historical-route-decision.md](docs/architecture/product-plane/moex-historical-route-decision.md).
+- [moex-historical-route-architecture.md](docs/architecture/product-plane/moex-historical-route-architecture.md) - target-shape route architecture; active operator route truth stays in [moex-historical-route-decision.md](docs/architecture/product-plane/moex-historical-route-decision.md).
 
 Repository naming note:
 - Use `product-plane` as the canonical term in docs and PR text.

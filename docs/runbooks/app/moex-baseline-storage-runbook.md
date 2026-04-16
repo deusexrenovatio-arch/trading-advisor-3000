@@ -17,9 +17,9 @@ As of `2026-04-10`, the accepted pinned run is:
 
 ## Promotion Rule
 Only a run with:
-- `nightly-backfill-report.json` status `PASS`
-- phase-02 `publish_decision = publish`
-- stable phase-01 and phase-02 Delta outputs
+- `route-refresh-report.json` status `PASS`
+- canonical-refresh `publish_decision = publish`
+- stable raw-ingest and canonical-refresh Delta outputs
 
 may be promoted into the data-root baseline layout.
 
@@ -40,8 +40,8 @@ Raw root:
 Canonical root:
 - `baseline-manifest.json`
 - `README.md`
-- `reports/nightly-backfill-report.json`
-- `reports/phase02-canonical-report.json`
+- `reports/route-refresh-report.json`
+- `reports/canonical-refresh-report.json`
 - `canonical_bars.delta`
 - `canonical_bar_provenance.delta`
 
@@ -57,7 +57,7 @@ Downstream readers must use these stable data-root paths:
 - `D:/TA3000-data/trading-advisor-3000-nightly/canonical/moex/baseline-4y-current/canonical_bars.delta`
 - `D:/TA3000-data/trading-advisor-3000-nightly/canonical/moex/baseline-4y-current/canonical_bar_provenance.delta`
 
-Do not bind research, reconciliation, or later refresh jobs to the newest `moex-phase01`, `moex-phase02`, or `moex-nightly` run folder by default.
+Do not bind research, reconciliation, or later refresh jobs to the newest `moex-raw-ingest`, `moex-canonical-refresh`, or `moex-route-refresh` run folder by default.
 
 ## Derived Data Rule
 All downstream computed layers must stay under the same data root:

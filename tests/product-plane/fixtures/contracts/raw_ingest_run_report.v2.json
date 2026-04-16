@@ -29,8 +29,8 @@
   "watermark_by_key": {
     "BR-6.26|1m|BRM6": "2026-04-01T10:19:59Z"
   },
-  "raw_table_path": "artifacts/codex/moex-phase01/phase01-pass1/delta/raw_moex_history.delta",
-  "raw_ingest_progress_path": "artifacts/codex/moex-phase01/phase01-pass1/raw-ingest-progress.jsonl",
-  "raw_ingest_error_path": "artifacts/codex/moex-phase01/phase01-pass1/raw-ingest-errors.jsonl",
-  "raw_ingest_error_latest_path": "artifacts/codex/moex-phase01/phase01-pass1/raw-ingest-error.latest.json"
+  "raw_table_path": "artifacts/codex/moex-raw-ingest/phase01-pass1/delta/raw_moex_history.delta",
+  "raw_ingest_progress_path": "artifacts/codex/moex-raw-ingest/phase01-pass1/raw-ingest-progress.jsonl",
+  "raw_ingest_error_path": "artifacts/codex/moex-raw-ingest/phase01-pass1/raw-ingest-errors.jsonl",
+  "raw_ingest_error_latest_path": "artifacts/codex/moex-raw-ingest/phase01-pass1/raw-ingest-error.latest.json"
 }

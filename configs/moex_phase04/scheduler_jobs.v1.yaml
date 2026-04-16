@@ -17,7 +17,7 @@ jobs:
       mode: parallel_sharded
       worker_count: 4
       shard_strategy: round_robin_active_universe
-      entrypoint: scripts/run_moex_nightly_backfill.py
+      entrypoint: scripts/run_moex_route_refresh.py
       expected_completion_local: "06:00"
     retry:
       max_attempts: 4

@@ -1652,5 +1652,5 @@ def run_phase02_canonical(
         ).as_posix()
         report["spark_execution_report"] = spark_execution_report
 
-    _json_write(output_dir / "phase02-canonical-report.json", report)
+    _json_write(output_dir / "canonical-refresh-report.json", report)
     return report

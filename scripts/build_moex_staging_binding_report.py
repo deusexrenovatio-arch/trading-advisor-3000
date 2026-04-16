@@ -17,7 +17,7 @@ from trading_advisor_3000.product_plane.data_plane.moex.phase03_staging_binding 
     build_phase03_staging_binding_report,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
-    PHASE03_STAGING_STORAGE_DIRNAME,
+    STAGING_BINDING_STORAGE_DIRNAME,
     resolve_external_root,
 )
 
@@ -43,8 +43,8 @@ def _read_token(env_var_name: str) -> str | None:
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Build the external staging Dagster binding report for MOEX Phase-03 cutover "
-            "from real Dagster run ids and phase-scoped evidence artifacts."
+            "Build the external staging Dagster binding report for the MOEX historical route "
+            "from real Dagster run ids and route-scoped evidence artifacts."
         )
     )
     parser.add_argument("--dagster-url", required=True, help="Dagster base URL or GraphQL endpoint.")
@@ -82,7 +82,7 @@ def main() -> None:
         args.output_root,
         repo_root=ROOT,
         field_name="--output-root",
-        default_subdir=PHASE03_STAGING_STORAGE_DIRNAME,
+        default_subdir=STAGING_BINDING_STORAGE_DIRNAME,
     )
     output_dir = output_root / bundle_id
 

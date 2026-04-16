@@ -14,7 +14,8 @@ if str(SRC) not in sys.path:
 
 from trading_advisor_3000.product_plane.data_plane.moex import run_phase01_foundation
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
-    PHASE01_STORAGE_DIRNAME,
+    RAW_INGEST_STORAGE_DIRNAME,
+    RAW_INGEST_SUMMARY_REPORT_FILENAME,
     resolve_external_root,
 )
 
@@ -48,7 +49,7 @@ def _default_ingest_till_utc() -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Run MOEX raw-ingest workflow as a legacy migration artifact for bootstrap/repair evidence: "
+            "Run the MOEX raw-ingest tool for bootstrap, repair, and idempotent evidence capture: "
             "discovery + deterministic bootstrap ingest + idempotent rerun proof."
         )
     )
@@ -58,7 +59,7 @@ def main() -> None:
         "--output-root",
         default="",
         help=(
-            "Absolute external root folder for phase-01 artifacts. "
+            "Absolute external root folder for raw-ingest artifacts. "
             "Required unless TA3000_MOEX_HISTORICAL_DATA_ROOT is set."
         ),
     )
@@ -88,8 +89,8 @@ def main() -> None:
     args = parser.parse_args()
 
     print(
-        "route-note: scripts/run_moex_phase01_foundation.py is a legacy raw-ingest bootstrap/repair aid. "
-        "It is not the canonical operator-facing scheduled route after Dagster cutover.",
+        "route-note: scripts/run_moex_raw_ingest.py is the manual raw-ingest tool. "
+        "Dagster owns scheduled route ordering; use this command for bootstrap, repair, or evidence capture.",
         flush=True,
     )
 
@@ -99,7 +100,7 @@ def main() -> None:
         args.output_root,
         repo_root=ROOT,
         field_name="--output-root",
-        default_subdir=PHASE01_STORAGE_DIRNAME,
+        default_subdir=RAW_INGEST_STORAGE_DIRNAME,
     )
     output_dir = output_root / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -176,7 +177,7 @@ def main() -> None:
         },
         "real_bindings": pass2.real_bindings,
     }
-    summary_path = output_dir / "phase01-foundation-report.json"
+    summary_path = output_dir / RAW_INGEST_SUMMARY_REPORT_FILENAME
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 

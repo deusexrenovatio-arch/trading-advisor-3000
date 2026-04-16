@@ -5,11 +5,24 @@ from pathlib import Path
 
 
 MOEX_HISTORICAL_DATA_ROOT_ENV = "TA3000_MOEX_HISTORICAL_DATA_ROOT"
-PHASE01_STORAGE_DIRNAME = "moex-phase01"
-PHASE02_STORAGE_DIRNAME = "moex-phase02"
-NIGHTLY_STORAGE_DIRNAME = "moex-nightly"
-PHASE03_STORAGE_DIRNAME = "moex-phase03"
-PHASE03_STAGING_STORAGE_DIRNAME = "moex-phase03-staging"
+RAW_INGEST_STORAGE_DIRNAME = "moex-raw-ingest"
+CANONICAL_REFRESH_STORAGE_DIRNAME = "moex-canonical-refresh"
+ROUTE_REFRESH_STORAGE_DIRNAME = "moex-route-refresh"
+DAGSTER_ROUTE_STORAGE_DIRNAME = "moex-dagster-route"
+RECONCILIATION_STORAGE_DIRNAME = "moex-reconciliation"
+STAGING_BINDING_STORAGE_DIRNAME = "moex-staging-binding"
+OPERATIONS_READINESS_STORAGE_DIRNAME = "moex-operations-readiness"
+
+RAW_INGEST_SUMMARY_REPORT_FILENAME = "raw-ingest-summary-report.json"
+CANONICAL_REFRESH_REPORT_FILENAME = "canonical-refresh-report.json"
+ROUTE_REFRESH_REPORT_FILENAME = "route-refresh-report.json"
+DAGSTER_ROUTE_REPORT_FILENAME = "dagster-route-report.json"
+STAGING_BINDING_REPORT_FILENAME = "staging-binding-report.json"
+RECONCILIATION_REPORT_FILENAME = "reconciliation-report.json"
+OPERATIONS_READINESS_REPORT_FILENAME = "operations-readiness-report.json"
+RAW_INGEST_ACCEPTANCE_FILENAME = "raw-ingest-acceptance.json"
+CANONICAL_REFRESH_ACCEPTANCE_FILENAME = "canonical-refresh-acceptance.json"
+RECONCILIATION_ACCEPTANCE_FILENAME = "reconciliation-acceptance.json"
 
 
 def _ensure_external_path(*, path: Path, repo_root: Path, field_name: str) -> Path:

@@ -15,9 +15,18 @@ if str(SRC) not in sys.path:
 
 from trading_advisor_3000.product_plane.data_plane.moex import run_phase04_production_hardening
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
-    PHASE01_STORAGE_DIRNAME,
-    PHASE02_STORAGE_DIRNAME,
-    PHASE03_STORAGE_DIRNAME,
+    CANONICAL_REFRESH_ACCEPTANCE_FILENAME,
+    CANONICAL_REFRESH_REPORT_FILENAME,
+    CANONICAL_REFRESH_STORAGE_DIRNAME,
+    DAGSTER_ROUTE_STORAGE_DIRNAME,
+    OPERATIONS_READINESS_REPORT_FILENAME,
+    OPERATIONS_READINESS_STORAGE_DIRNAME,
+    RAW_INGEST_ACCEPTANCE_FILENAME,
+    RAW_INGEST_STORAGE_DIRNAME,
+    RAW_INGEST_SUMMARY_REPORT_FILENAME,
+    RECONCILIATION_STORAGE_DIRNAME,
+    RECONCILIATION_ACCEPTANCE_FILENAME,
+    RECONCILIATION_REPORT_FILENAME,
     resolve_external_file_path,
     resolve_external_root,
 )
@@ -72,7 +81,7 @@ def _resolve_phase_report_path(
 def _require_source_path(raw: str, flag_name: str) -> Path:
     value = raw.strip()
     if not value:
-        raise SystemExit(f"phase-04 requires `{flag_name}`; no implicit fallback is allowed")
+        raise SystemExit(f"operations-readiness requires `{flag_name}`; no implicit source default is allowed")
     path = resolve_external_file_path(
         value,
         repo_root=ROOT,
@@ -86,25 +95,25 @@ def _require_source_path(raw: str, flag_name: str) -> Path:
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Run MOEX Phase-04 Production Hardening contour: scheduler observability proof, "
+            "Verify MOEX operations readiness: scheduler observability proof, "
             "recovery replay validation, monitoring evidence checks, and release decision bundle."
         )
     )
 
-    parser.add_argument("--phase01-report-path", default="")
-    parser.add_argument("--phase01-root", default="")
-    parser.add_argument("--phase01-run-id", default="")
-    parser.add_argument("--phase01-acceptance-path", default="")
+    parser.add_argument("--raw-ingest-report-path", default="")
+    parser.add_argument("--raw-ingest-root", default="")
+    parser.add_argument("--raw-ingest-run-id", default="")
+    parser.add_argument("--raw-ingest-acceptance-path", default="")
 
-    parser.add_argument("--phase02-report-path", default="")
-    parser.add_argument("--phase02-root", default="")
-    parser.add_argument("--phase02-run-id", default="")
-    parser.add_argument("--phase02-acceptance-path", default="")
+    parser.add_argument("--canonical-report-path", default="")
+    parser.add_argument("--canonical-root", default="")
+    parser.add_argument("--canonical-run-id", default="")
+    parser.add_argument("--canonical-acceptance-path", default="")
 
-    parser.add_argument("--phase03-report-path", default="")
-    parser.add_argument("--phase03-root", default="")
-    parser.add_argument("--phase03-run-id", default="")
-    parser.add_argument("--phase03-acceptance-path", default="")
+    parser.add_argument("--reconciliation-report-path", default="")
+    parser.add_argument("--reconciliation-root", default="")
+    parser.add_argument("--reconciliation-run-id", default="")
+    parser.add_argument("--reconciliation-acceptance-path", default="")
 
     parser.add_argument("--scheduler-policy", default=DEFAULT_SCHEDULER_POLICY.as_posix())
     parser.add_argument("--monitoring-policy", default=DEFAULT_MONITORING_POLICY.as_posix())
@@ -121,41 +130,50 @@ def main() -> None:
     run_id = args.run_id.strip() or _default_run_id()
 
     phase01_path, phase01_resolution = _resolve_phase_report_path(
-        explicit_report_path=args.phase01_report_path,
+        explicit_report_path=args.raw_ingest_report_path,
         root=resolve_external_root(
-            args.phase01_root,
+            args.raw_ingest_root,
             repo_root=ROOT,
-            field_name="--phase01-root",
-            default_subdir=PHASE01_STORAGE_DIRNAME,
+            field_name="--raw-ingest-root",
+            default_subdir=RAW_INGEST_STORAGE_DIRNAME,
         ),
-        run_id=args.phase01_run_id,
-        filename="phase01-foundation-report.json",
+        run_id=args.raw_ingest_run_id,
+        filename=RAW_INGEST_SUMMARY_REPORT_FILENAME,
     )
     phase02_path, phase02_resolution = _resolve_phase_report_path(
-        explicit_report_path=args.phase02_report_path,
+        explicit_report_path=args.canonical_report_path,
         root=resolve_external_root(
-            args.phase02_root,
+            args.canonical_root,
             repo_root=ROOT,
-            field_name="--phase02-root",
-            default_subdir=PHASE02_STORAGE_DIRNAME,
+            field_name="--canonical-root",
+            default_subdir=CANONICAL_REFRESH_STORAGE_DIRNAME,
         ),
-        run_id=args.phase02_run_id,
-        filename="phase02-canonical-report.json",
+        run_id=args.canonical_run_id,
+        filename=CANONICAL_REFRESH_REPORT_FILENAME,
     )
     phase03_path, phase03_resolution = _resolve_phase_report_path(
-        explicit_report_path=args.phase03_report_path,
+        explicit_report_path=args.reconciliation_report_path,
         root=resolve_external_root(
-            args.phase03_root,
+            args.reconciliation_root,
             repo_root=ROOT,
-            field_name="--phase03-root",
-            default_subdir=PHASE03_STORAGE_DIRNAME,
+            field_name="--reconciliation-root",
+            default_subdir=RECONCILIATION_STORAGE_DIRNAME,
         ),
-        run_id=args.phase03_run_id,
-        filename="phase03-reconciliation-report.json",
+        run_id=args.reconciliation_run_id,
+        filename=RECONCILIATION_REPORT_FILENAME,
     )
-    phase01_acceptance_path = _require_source_path(args.phase01_acceptance_path, "--phase01-acceptance-path")
-    phase02_acceptance_path = _require_source_path(args.phase02_acceptance_path, "--phase02-acceptance-path")
-    phase03_acceptance_path = _require_source_path(args.phase03_acceptance_path, "--phase03-acceptance-path")
+    phase01_acceptance_path = _require_source_path(
+        args.raw_ingest_acceptance_path,
+        "--raw-ingest-acceptance-path",
+    )
+    phase02_acceptance_path = _require_source_path(
+        args.canonical_acceptance_path,
+        "--canonical-acceptance-path",
+    )
+    phase03_acceptance_path = _require_source_path(
+        args.reconciliation_acceptance_path,
+        "--reconciliation-acceptance-path",
+    )
 
     scheduler_policy_path = _resolve(Path(args.scheduler_policy))
     monitoring_policy_path = _resolve(Path(args.monitoring_policy))
@@ -181,7 +199,7 @@ def main() -> None:
         args.output_root,
         repo_root=ROOT,
         field_name="--output-root",
-        default_subdir="moex-phase04",
+        default_subdir=OPERATIONS_READINESS_STORAGE_DIRNAME,
     )
     output_dir = output_root / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -203,18 +221,18 @@ def main() -> None:
         run_id=run_id,
         route_signal=args.route_signal,
     )
-    report["phase_report_resolution"] = {
-        "phase01": phase01_resolution,
-        "phase02": phase02_resolution,
-        "phase03": phase03_resolution,
+    report["report_resolution"] = {
+        "raw_ingest": phase01_resolution,
+        "canonical_refresh": phase02_resolution,
+        "reconciliation": phase03_resolution,
     }
 
-    report_path = output_dir / "phase04-production-hardening-report.json"
+    report_path = output_dir / OPERATIONS_READINESS_REPORT_FILENAME
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
     if report.get("status") != "PASS":
-        raise SystemExit("phase-04 production hardening contour blocked by fail-closed checks")
+        raise SystemExit("operations-readiness verification blocked by fail-closed checks")
 
 
 if __name__ == "__main__":

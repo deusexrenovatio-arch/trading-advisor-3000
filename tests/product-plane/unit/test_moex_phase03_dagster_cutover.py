@@ -139,9 +139,9 @@ def _write_staging_binding_report(tmp_path: Path) -> Path:
             "recovery": "phase03-staging-recovery-1",
         },
         "artifact_paths": [
-            "artifacts/codex/moex-phase03-staging/nightly-1.json",
-            "artifacts/codex/moex-phase03-staging/nightly-2.json",
-            "artifacts/codex/moex-phase03-staging/recovery.json",
+            "artifacts/codex/moex-staging-binding/nightly-1.json",
+            "artifacts/codex/moex-staging-binding/nightly-2.json",
+            "artifacts/codex/moex-staging-binding/recovery.json",
         ],
         "real_bindings": [
             "dagster://staging/moex-historical-cutover",
@@ -272,7 +272,7 @@ def test_phase03_cutover_rejects_non_consecutive_local_nightly_cycles(tmp_path: 
 
 def test_phase03_cutover_rejects_non_canonical_schedule_cron(tmp_path: Path) -> None:
     raw_table_path, raw_report_path = _write_raw_table_and_report(tmp_path, run_id="phase03-schedule-drift")
-    with pytest.raises(ValueError, match="canonical route requires Dagster nightly cron"):
+    with pytest.raises(ValueError, match="Dagster-route proof requires Dagster nightly cron"):
         run_phase03_dagster_cutover(
             raw_table_path=raw_table_path,
             raw_ingest_report_path=raw_report_path,
@@ -288,7 +288,7 @@ def test_phase03_cutover_rejects_non_canonical_schedule_cron(tmp_path: Path) -> 
 
 def test_phase03_cutover_rejects_retry_max_attempts_drift(tmp_path: Path) -> None:
     raw_table_path, raw_report_path = _write_raw_table_and_report(tmp_path, run_id="phase03-retry-attempts-drift")
-    with pytest.raises(ValueError, match="canonical route requires `retry_max_attempts=3`"):
+    with pytest.raises(ValueError, match="Dagster-route proof requires `retry_max_attempts=3`"):
         run_phase03_dagster_cutover(
             raw_table_path=raw_table_path,
             raw_ingest_report_path=raw_report_path,
@@ -306,7 +306,7 @@ def test_phase03_cutover_rejects_retry_backoff_drift(tmp_path: Path) -> None:
     raw_table_path, raw_report_path = _write_raw_table_and_report(tmp_path, run_id="phase03-retry-backoff-drift")
     with pytest.raises(
         ValueError,
-        match=r"canonical route requires `retry_backoff_seconds=\[60, 300, 900\]`",
+        match=r"Dagster-route proof requires `retry_backoff_seconds=\[60, 300, 900\]`",
     ):
         run_phase03_dagster_cutover(
             raw_table_path=raw_table_path,

@@ -132,7 +132,7 @@ class MoexISSClient:
         history_board_max_retries: int | None = None,
         history_board_retry_backoff_seconds: float | None = None,
         retry_jitter_ratio: float = DEFAULT_RETRY_JITTER_RATIO,
-        user_agent: str = "trading-advisor-3000/moex-phase01-foundation",
+        user_agent: str = "trading-advisor-3000/moex-raw-ingest",
         candle_chunk_days_by_interval: dict[int, int] | None = None,
         request_event_hook: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:

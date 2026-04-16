@@ -27,10 +27,12 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delt
 from trading_advisor_3000.product_plane.data_plane.moex.foundation import run_phase01_foundation
 from trading_advisor_3000.product_plane.data_plane.moex.phase02_canonical import run_phase02_canonical
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
-    NIGHTLY_STORAGE_DIRNAME,
-    PHASE01_STORAGE_DIRNAME,
-    PHASE02_STORAGE_DIRNAME,
+    CANONICAL_REFRESH_REPORT_FILENAME,
+    CANONICAL_REFRESH_STORAGE_DIRNAME,
     configured_moex_historical_data_root,
+    RAW_INGEST_STORAGE_DIRNAME,
+    ROUTE_REFRESH_REPORT_FILENAME,
+    ROUTE_REFRESH_STORAGE_DIRNAME,
     resolve_external_root,
 )
 
@@ -73,13 +75,11 @@ MOEX_HISTORICAL_OP_CONFIG_SCHEMA = {
     "raw_ingest_report_path": DagsterField(str, is_required=False),
     "canonical_output_dir": DagsterField(str, is_required=False),
     "canonical_run_id": DagsterField(str, is_required=False),
-    "phase02_output_dir": DagsterField(str, is_required=False),
-    "phase02_run_id": DagsterField(str, is_required=False),
     "mapping_registry_path": DagsterField(str, is_required=False),
     "universe_path": DagsterField(str, is_required=False),
     "raw_ingest_root": DagsterField(str, is_required=False),
     "canonicalization_root": DagsterField(str, is_required=False),
-    "nightly_root": DagsterField(str, is_required=False),
+    "route_refresh_root": DagsterField(str, is_required=False),
     "timeframes": DagsterField(str, is_required=False),
     "workers": DagsterField(int, is_required=False),
     "batch_size": DagsterField(int, is_required=False),
@@ -143,9 +143,9 @@ def _build_nightly_schedule_run_config(context) -> dict[str, object]:
                 "config": {
                     "mapping_registry_path": DEFAULT_MAPPING_REGISTRY.as_posix(),
                     "universe_path": DEFAULT_UNIVERSE.as_posix(),
-                    "raw_ingest_root": (artifact_root / PHASE01_STORAGE_DIRNAME).as_posix(),
-                    "canonicalization_root": (artifact_root / PHASE02_STORAGE_DIRNAME).as_posix(),
-                    "nightly_root": (artifact_root / NIGHTLY_STORAGE_DIRNAME).as_posix(),
+                    "raw_ingest_root": (artifact_root / RAW_INGEST_STORAGE_DIRNAME).as_posix(),
+                    "canonicalization_root": (artifact_root / CANONICAL_REFRESH_STORAGE_DIRNAME).as_posix(),
+                    "route_refresh_root": (artifact_root / ROUTE_REFRESH_STORAGE_DIRNAME).as_posix(),
                     "timeframes": DEFAULT_TIMEFRAMES,
                     "workers": DEFAULT_WORKERS,
                     "batch_size": DEFAULT_BATCH_SIZE,
@@ -161,7 +161,7 @@ def _build_nightly_schedule_run_config(context) -> dict[str, object]:
             },
             "moex_canonical_refresh": {
                 "config": {
-                    "canonicalization_root": (artifact_root / PHASE02_STORAGE_DIRNAME).as_posix(),
+                    "canonicalization_root": (artifact_root / CANONICAL_REFRESH_STORAGE_DIRNAME).as_posix(),
                     "canonical_run_id": run_id,
                 }
             },
@@ -234,8 +234,6 @@ def build_moex_historical_op_config(
         "raw_ingest_report_path": raw_ingest_report_path.resolve().as_posix(),
         "canonical_output_dir": canonical_output_dir.resolve().as_posix(),
         "canonical_run_id": str(canonical_run_id).strip(),
-        "phase02_output_dir": canonical_output_dir.resolve().as_posix(),
-        "phase02_run_id": str(canonical_run_id).strip(),
     }
 
 
@@ -300,21 +298,21 @@ def _run_python_raw_ingest_route(op_config: dict[str, object]) -> dict[str, obje
         _text_value(op_config, "raw_ingest_root"),
         repo_root=REPO_ROOT,
         field_name="raw_ingest_root",
-        default_subdir=PHASE01_STORAGE_DIRNAME,
+        default_subdir=RAW_INGEST_STORAGE_DIRNAME,
     )
     canonicalization_root = resolve_external_root(
         _text_value(op_config, "canonicalization_root"),
         repo_root=REPO_ROOT,
         field_name="canonicalization_root",
-        default_subdir=PHASE02_STORAGE_DIRNAME,
+        default_subdir=CANONICAL_REFRESH_STORAGE_DIRNAME,
     )
-    nightly_root = resolve_external_root(
-        _text_value(op_config, "nightly_root"),
+    route_refresh_root = resolve_external_root(
+        _text_value(op_config, "route_refresh_root"),
         repo_root=REPO_ROOT,
-        field_name="nightly_root",
-        default_subdir=NIGHTLY_STORAGE_DIRNAME,
+        field_name="route_refresh_root",
+        default_subdir=ROUTE_REFRESH_STORAGE_DIRNAME,
     )
-    run_id = _text_value(op_config, "run_id", "canonical_run_id", "phase02_run_id")
+    run_id = _text_value(op_config, "run_id", "canonical_run_id")
     timeframes = _text_value(op_config, "timeframes") or DEFAULT_TIMEFRAMES
     workers = _int_value(op_config, "workers", default=DEFAULT_WORKERS)
     batch_size = _int_value(op_config, "batch_size", default=DEFAULT_BATCH_SIZE)
@@ -362,19 +360,19 @@ def _run_python_raw_ingest_route(op_config: dict[str, object]) -> dict[str, obje
 
     command = [
         sys.executable,
-        (REPO_ROOT / "scripts" / "run_moex_nightly_backfill.py").as_posix(),
-        "--allow-legacy-route",
+        (REPO_ROOT / "scripts" / "run_moex_route_refresh.py").as_posix(),
+        "--allow-manual-route",
         "--stop-after-raw-ingest",
         "--mapping-registry",
         mapping_registry_path.as_posix(),
         "--universe",
         universe_path.as_posix(),
-        "--phase01-root",
+        "--raw-ingest-root",
         raw_ingest_root.as_posix(),
-        "--phase02-root",
+        "--canonical-root",
         canonicalization_root.as_posix(),
-        "--output-root",
-        nightly_root.as_posix(),
+        "--route-root",
+        route_refresh_root.as_posix(),
         "--run-id",
         run_id,
         "--timeframes",
@@ -411,10 +409,10 @@ def _run_python_raw_ingest_route(op_config: dict[str, object]) -> dict[str, obje
         detail = (completed.stderr or completed.stdout).strip()
         raise RuntimeError(f"python raw-ingest route failed: {detail}")
 
-    route_report_path = nightly_root / run_id / "nightly-backfill-report.json"
+    route_report_path = route_refresh_root / run_id / ROUTE_REFRESH_REPORT_FILENAME
     if not route_report_path.exists():
         raise RuntimeError(
-            "python raw-ingest route completed without nightly-backfill-report.json: "
+            "python raw-ingest route completed without route-refresh-report.json: "
             f"{route_report_path.as_posix()}"
         )
     route_report = _read_raw_ingest_report(route_report_path)
@@ -428,7 +426,7 @@ def _run_python_raw_ingest_route(op_config: dict[str, object]) -> dict[str, obje
         "run_id": run_id,
         "raw_ingest_root": raw_ingest_root.as_posix(),
         "canonicalization_root": (canonicalization_root / run_id).resolve().as_posix(),
-        "nightly_root": (nightly_root / run_id).resolve().as_posix(),
+        "route_refresh_root": (route_refresh_root / run_id).resolve().as_posix(),
         "raw_table_path": raw_table_path.as_posix(),
         "raw_ingest_report_path": raw_ingest_report_path.as_posix(),
         "raw_ingest_run_report": raw_ingest_run_report,
@@ -490,17 +488,16 @@ def moex_canonical_refresh(context, moex_raw_ingest: dict[str, object]) -> dict[
     output_dir_text = _text_value(
         op_config,
         "canonical_output_dir",
-        "phase02_output_dir",
     )
     if not output_dir_text:
         output_dir_text = str(moex_raw_ingest.get("canonicalization_root", "")).strip()
-    run_id = _text_value(op_config, "canonical_run_id", "phase02_run_id")
+    run_id = _text_value(op_config, "canonical_run_id")
     if not run_id:
         run_id = str(moex_raw_ingest.get("run_id", "")).strip()
     if not output_dir_text:
-        raise RuntimeError("moex canonicalization step requires non-empty `canonical_output_dir`")
+        raise RuntimeError("moex canonical refresh step requires non-empty `canonical_output_dir`")
     if not run_id:
-        raise RuntimeError("moex canonicalization step requires non-empty `canonical_run_id`")
+        raise RuntimeError("moex canonical refresh step requires non-empty `canonical_run_id`")
 
     output_dir = Path(output_dir_text).resolve()
 
@@ -513,7 +510,7 @@ def moex_canonical_refresh(context, moex_raw_ingest: dict[str, object]) -> dict[
     publish_decision = str(report.get("publish_decision", "")).strip().lower()
     if publish_decision != "publish":
         raise RuntimeError(
-            "canonicalization step finished in blocked state and cannot represent the canonical route: "
+            "canonical refresh step finished in blocked state and cannot represent the canonical route: "
             f"publish_decision={publish_decision or 'missing'}"
         )
     return report
@@ -540,7 +537,7 @@ moex_historical_nightly_schedule = ScheduleDefinition(
     default_status=DefaultScheduleStatus.STOPPED,
     description=(
         "Canonical nightly Dagster schedule for the MOEX historical refresh route. "
-        "Dagster owns step ordering, Python owns raw ingest, and Spark owns canonicalization."
+        "Dagster owns step ordering, Python owns raw ingest, and Spark owns canonical refresh."
     ),
 )
 
@@ -582,8 +579,7 @@ def build_moex_historical_definitions() -> Definitions:
 def moex_historical_output_paths(output_dir: Path) -> dict[str, str]:
     resolved = output_dir.resolve()
     return {
-        "canonicalization_report": (resolved / "phase02-canonical-report.json").as_posix(),
-        "phase02_report": (resolved / "phase02-canonical-report.json").as_posix(),
+        "canonical_report": (resolved / CANONICAL_REFRESH_REPORT_FILENAME).as_posix(),
         "canonical_bars": (resolved / "delta" / "canonical_bars.delta").as_posix(),
         "canonical_bar_provenance": (resolved / "delta" / "canonical_bar_provenance.delta").as_posix(),
     }
@@ -593,20 +589,15 @@ def execute_moex_historical_cutover_job(
     *,
     raw_table_path: Path,
     raw_ingest_report_path: Path,
-    canonical_output_dir: Path | None = None,
-    canonical_run_id: str | None = None,
-    phase02_output_dir: Path | None = None,
-    phase02_run_id: str | None = None,
+    canonical_output_dir: Path,
+    canonical_run_id: str,
     instance: DagsterInstance,
     run_id: str,
     extra_tags: dict[str, str] | None = None,
     scheduled_execution_time: datetime | None = None,
     raise_on_error: bool = False,
 ) -> dict[str, object]:
-    resolved_canonical_output_dir = canonical_output_dir or phase02_output_dir
-    resolved_canonical_run_id = (canonical_run_id or phase02_run_id or "").strip()
-    if resolved_canonical_output_dir is None:
-        raise RuntimeError("execute_moex_historical_cutover_job requires canonical_output_dir")
+    resolved_canonical_run_id = canonical_run_id.strip()
     if not resolved_canonical_run_id:
         raise RuntimeError("execute_moex_historical_cutover_job requires canonical_run_id")
 
@@ -618,7 +609,7 @@ def execute_moex_historical_cutover_job(
     run_config = build_moex_historical_run_config(
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_ingest_report_path,
-        canonical_output_dir=resolved_canonical_output_dir,
+        canonical_output_dir=canonical_output_dir,
         canonical_run_id=resolved_canonical_run_id,
     )
     tags: dict[str, str] = dict(extra_tags or {})
@@ -657,12 +648,12 @@ def execute_moex_historical_cutover_job(
         raise_on_error=raise_on_error,
         tags=tags,
     )
-    output_paths = moex_historical_output_paths(resolved_canonical_output_dir)
-    phase02_report_path = Path(output_paths["phase02_report"])
-    if result.success and not phase02_report_path.exists():
+    output_paths = moex_historical_output_paths(canonical_output_dir)
+    canonical_report_path = Path(output_paths["canonical_report"])
+    if result.success and not canonical_report_path.exists():
         raise RuntimeError(
-            "moex historical Dagster job reported success but the canonicalization report artifact is missing: "
-            f"{phase02_report_path.as_posix()}"
+            "moex historical Dagster job reported success but the canonical refresh report artifact is missing: "
+            f"{canonical_report_path.as_posix()}"
         )
 
     return {
@@ -675,7 +666,7 @@ def execute_moex_historical_cutover_job(
         "tags": tags,
         "materialized_assets": list(MOEX_HISTORICAL_ASSET_KEYS),
         "output_paths": output_paths,
-        "phase02_report_exists": phase02_report_path.exists(),
+        "canonical_report_exists": canonical_report_path.exists(),
     }
 
 
@@ -711,32 +702,25 @@ def materialize_moex_historical_assets(
     *,
     raw_table_path: Path,
     raw_ingest_report_path: Path,
-    canonical_output_dir: Path | None = None,
-    canonical_run_id: str | None = None,
-    phase02_output_dir: Path | None = None,
-    phase02_run_id: str | None = None,
+    canonical_output_dir: Path,
+    canonical_run_id: str,
     selection: Sequence[str] | None = None,
     raise_on_error: bool = True,
 ) -> dict[str, object]:
-    resolved_canonical_output_dir = canonical_output_dir or phase02_output_dir
-    resolved_canonical_run_id = (canonical_run_id or phase02_run_id or "").strip()
-    if resolved_canonical_output_dir is None:
-        raise RuntimeError("materialize_moex_historical_assets requires canonical_output_dir")
+    resolved_canonical_run_id = canonical_run_id.strip()
     if not resolved_canonical_run_id:
         raise RuntimeError("materialize_moex_historical_assets requires canonical_run_id")
 
     assert_moex_historical_definitions_executable()
     selected_assets = _resolve_selected_assets(selection)
     expected_materialized_assets = _resolve_expected_materialization(selected_assets)
-    output_paths = moex_historical_output_paths(resolved_canonical_output_dir)
+    output_paths = moex_historical_output_paths(canonical_output_dir)
 
     op_config = {
         "raw_table_path": raw_table_path.resolve().as_posix(),
         "raw_ingest_report_path": raw_ingest_report_path.resolve().as_posix(),
-        "canonical_output_dir": resolved_canonical_output_dir.resolve().as_posix(),
+        "canonical_output_dir": canonical_output_dir.resolve().as_posix(),
         "canonical_run_id": resolved_canonical_run_id,
-        "phase02_output_dir": resolved_canonical_output_dir.resolve().as_posix(),
-        "phase02_run_id": resolved_canonical_run_id,
     }
 
     result = materialize(
@@ -757,12 +741,12 @@ def materialize_moex_historical_assets(
         "materialized_assets": expected_materialized_assets,
         "output_paths": output_paths,
     }
-    phase02_report_path = Path(output_paths["phase02_report"])
+    canonical_report_path = Path(output_paths["canonical_report"])
     if result.success and "moex_canonical_refresh" in expected_materialized_assets:
-        if not phase02_report_path.exists():
+        if not canonical_report_path.exists():
             raise RuntimeError(
-                "moex canonical refresh reported success but canonicalization report artifact is missing: "
-                f"{phase02_report_path.as_posix()}"
+                "moex canonical refresh reported success but canonical report artifact is missing: "
+                f"{canonical_report_path.as_posix()}"
             )
-    report["phase02_report_exists"] = phase02_report_path.exists()
+    report["canonical_report_exists"] = canonical_report_path.exists()
     return report

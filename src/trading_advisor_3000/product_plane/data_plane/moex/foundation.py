@@ -919,7 +919,7 @@ def ingest_moex_bootstrap_window(
                     }
                 )
             _safe_progress_print(
-                "[moex-phase01] "
+                "[moex-raw-ingest] "
                 f"{run_id} {item.internal_id} {item.moex_secid} {item.source_timeframe} "
                 f"src={item_source_rows} inc={item_incremental_rows} "
                 f"dedup={item_deduplicated_rows} stale={item_stale_rows} "

@@ -11,9 +11,9 @@ Product runtime and operational runbooks live in this directory.
 - `docs/runbooks/app/phase8-operational-proving-runbook.md` - consolidated lane proving, fail-closed evidence, and triage workflow.
 - `docs/runbooks/app/mcp-wave-rollout-runbook.md` - Wave 1-3 MCP rollout with base-profile `mempalace`, preflight checks, and incident recovery.
 - `docs/runbooks/app/real-execution-transport-runbook.md` - staging-first real HTTP transport rollout and incident handling.
-- `docs/runbooks/app/moex-phase01-foundation-runbook.md` - MOEX foundation contour (mapping, coverage discovery, bootstrap ingest, idempotent rerun proof).
-- `docs/runbooks/app/moex-phase02-canonical-runbook.md` - MOEX canonical contour (deterministic resampling, fail-closed QC, contract/runtime compatibility).
-- `docs/runbooks/app/moex-phase03-dagster-cutover-runbook.md` - MOEX Dagster cutover contour (real staging evidence collection, binding report generation, and governed rerun path).
+- `docs/runbooks/app/moex-raw-ingest-runbook.md` - MOEX raw-ingest step (mapping, coverage discovery, bootstrap ingest, idempotent rerun proof).
+- `docs/runbooks/app/moex-canonical-refresh-runbook.md` - MOEX canonical-refresh step (deterministic resampling, fail-closed QC, contract/runtime compatibility).
+- `docs/runbooks/app/moex-dagster-route-runbook.md` - MOEX Dagster-route proof (real staging evidence collection, binding report generation, and governed rerun path).
 - `docs/runbooks/app/moex-baseline-storage-runbook.md` - authoritative MOEX data-root layout, promotion flow, and retention policy for raw/canonical/derived storage.
-- `docs/runbooks/app/moex-phase03-reconciliation-runbook.md` - MOEX reconciliation contour (Finam archive ingest, overlap drift metrics, threshold-driven alert/escalation evidence).
-- `docs/runbooks/app/moex-phase04-production-hardening-runbook.md` - MOEX production hardening contour (scheduler observability, recovery replay, monitoring evidence, release decision bundle).
+- `docs/runbooks/app/moex-reconciliation-runbook.md` - MOEX reconciliation contour (Finam archive ingest, overlap drift metrics, threshold-driven alert/escalation evidence).
+- `docs/runbooks/app/moex-operations-readiness-runbook.md` - MOEX operations readiness (scheduler observability, recovery replay, monitoring evidence, release decision bundle).

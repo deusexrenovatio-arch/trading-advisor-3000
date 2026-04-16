@@ -188,7 +188,7 @@ def _readiness_gate(*, observed_at_utc: str) -> dict[str, object]:
 def _validate_nightly_cycle_sequence(*, first_observed_utc: datetime, second_observed_utc: datetime) -> None:
     if second_observed_utc <= first_observed_utc:
         raise ValueError(
-            "phase-03 requires two nightly readiness timestamps in strictly increasing order"
+            "Dagster-route proof requires two nightly readiness timestamps in strictly increasing order"
         )
 
     local_zone = ZoneInfo(READINESS_TIMEZONE)
@@ -196,7 +196,7 @@ def _validate_nightly_cycle_sequence(*, first_observed_utc: datetime, second_obs
     second_local_date = second_observed_utc.astimezone(local_zone).date()
     if second_local_date != first_local_date + timedelta(days=1):
         raise ValueError(
-            "phase-03 requires two consecutive nightly cycles; "
+            "Dagster-route proof requires two consecutive nightly cycles; "
             "nightly readiness timestamps must map to adjacent local dates in Europe/Moscow"
         )
 
@@ -266,19 +266,19 @@ def _validate_cutover_runtime_contract(
     normalized_schedule_cron = schedule_cron.strip()
     if normalized_schedule_cron != MOEX_HISTORICAL_NIGHTLY_CRON:
         raise ValueError(
-            "phase-03 canonical route requires Dagster nightly cron "
+            "Dagster-route proof requires Dagster nightly cron "
             f"`{MOEX_HISTORICAL_NIGHTLY_CRON}`, got `{normalized_schedule_cron or 'EMPTY'}`"
         )
     if retry_max_attempts != int(MOEX_HISTORICAL_RETRY_POLICY.max_retries or 0):
         raise ValueError(
-            "phase-03 canonical route requires "
+            "Dagster-route proof requires "
             f"`retry_max_attempts={MOEX_HISTORICAL_RETRY_POLICY.max_retries}`, "
             f"got `{retry_max_attempts}`"
         )
     canonical_backoff = list(CANONICAL_RETRY_BACKOFF_SECONDS)
     if retry_backoff_seconds != canonical_backoff:
         raise ValueError(
-            "phase-03 canonical route requires "
+            "Dagster-route proof requires "
             f"`retry_backoff_seconds={canonical_backoff}`, got `{retry_backoff_seconds}`"
         )
 
@@ -297,7 +297,7 @@ def _run_single_writer_probe(
         ledger_table_path=ledger_table_path,
         route_id=CANONICAL_ROUTE_ID,
         holder_id=holder_a,
-        owner_job="dagster-moex-nightly",
+        owner_job="dagster-moex-route",
         requested_at_utc=requested_at_utc,
         ttl_seconds=lease_timeout_sec,
         run_id="phase03-single-writer-probe-A",
@@ -308,7 +308,7 @@ def _run_single_writer_probe(
         ledger_table_path=ledger_table_path,
         route_id=CANONICAL_ROUTE_ID,
         holder_id=holder_b,
-        owner_job="dagster-moex-nightly",
+        owner_job="dagster-moex-route",
         requested_at_utc=requested_at_utc,
         ttl_seconds=lease_timeout_sec,
         run_id="phase03-single-writer-probe-B",
@@ -437,8 +437,8 @@ def _run_route_cycle(
     materialization = execute_moex_historical_cutover_job(
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_ingest_report_path,
-        phase02_output_dir=cycle_output_dir,
-        phase02_run_id=cycle.run_id,
+        canonical_output_dir=cycle_output_dir,
+        canonical_run_id=cycle.run_id,
         instance=dagster_instance,
         run_id=cycle.run_id,
         extra_tags={
@@ -506,7 +506,7 @@ def _run_recovery_drill(
         ledger_table_path=ledger_table_path,
         route_id=CANONICAL_ROUTE_ID,
         holder_id="dagster-nightly-owner",
-        owner_job="dagster-moex-nightly",
+        owner_job="dagster-moex-route",
         requested_at_utc=request_time.isoformat().replace("+00:00", "Z"),
         ttl_seconds=lease_timeout_sec,
         run_id=f"{run_id}-recovery-initial",
@@ -559,8 +559,8 @@ def _run_recovery_drill(
     materialization = execute_moex_historical_cutover_job(
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_ingest_report_path,
-        phase02_output_dir=output_dir / "recovery" / replay_run_id,
-        phase02_run_id=replay_run_id,
+        canonical_output_dir=output_dir / "recovery" / replay_run_id,
+        canonical_run_id=replay_run_id,
         instance=dagster_instance,
         run_id=replay_run_id,
         extra_tags={
@@ -650,7 +650,7 @@ def run_phase03_dagster_cutover(
     require_staging_real: bool = False,
 ) -> dict[str, object]:
     if len(nightly_readiness_observed_at_utc) != 2:
-        raise ValueError("phase-03 requires exactly two nightly readiness timestamps")
+        raise ValueError("Dagster-route proof requires exactly two nightly readiness timestamps")
     if not run_id.strip():
         raise ValueError("`run_id` must be non-empty")
     normalized_route_signal = route_signal.strip()
@@ -667,7 +667,7 @@ def run_phase03_dagster_cutover(
     raw_status = _read_raw_status(raw_ingest_report_resolved)
     if raw_status not in PASS_LIKE_STATUSES:
         raise ValueError(
-            "phase-03 cutover requires raw-ingest PASS/PASS-NOOP before canonical route launch; "
+            "Dagster-route proof requires raw-ingest PASS/PASS-NOOP before canonical route launch; "
             f"got `{raw_status or 'EMPTY'}`"
         )
 
@@ -876,11 +876,11 @@ def run_phase03_dagster_cutover(
         materialization = cycle_report.get("materialization")
         if not isinstance(materialization, dict):
             continue
-        phase02_report_path = Path(str(materialization.get("output_paths", {}).get("phase02_report", "")))
-        if not phase02_report_path.exists():
+        canonical_report_path = Path(str(materialization.get("output_paths", {}).get("canonical_report", "")))
+        if not canonical_report_path.exists():
             continue
-        phase02_report = _json_load(phase02_report_path)
-        for item in phase02_report.get("real_bindings", []):
+        canonical_report = _json_load(canonical_report_path)
+        for item in canonical_report.get("real_bindings", []):
             if isinstance(item, str) and item.strip():
                 real_bindings.add(item.strip())
 
@@ -922,5 +922,5 @@ def run_phase03_dagster_cutover(
         "real_bindings": sorted(real_bindings),
         "generated_at_utc": _utc_now_iso(),
     }
-    _json_write(output_dir / "phase03-dagster-cutover-report.json", report)
+    _json_write(output_dir / "dagster-route-report.json", report)
     return report

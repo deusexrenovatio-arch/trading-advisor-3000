@@ -141,10 +141,10 @@ def test_phase03_dagster_cutover_materializes_route_and_emits_recovery_artifacts
         assert materialization["success"] is True
         assert str(materialization["dagster_job_name"]) == "moex_historical_cutover_job"
         assert str(materialization["dagster_run_id"]).strip()
-        phase02_report_path = Path(str(materialization["output_paths"]["phase02_report"]))
-        assert phase02_report_path.exists()
-        phase02_payload = json.loads(phase02_report_path.read_text(encoding="utf-8"))
-        assert phase02_payload["publish_decision"] == "publish"
+        canonical_report_path = Path(str(materialization["output_paths"]["canonical_report"]))
+        assert canonical_report_path.exists()
+        canonical_payload = json.loads(canonical_report_path.read_text(encoding="utf-8"))
+        assert canonical_payload["publish_decision"] == "publish"
         bars_path = Path(str(materialization["output_paths"]["canonical_bars"]))
         assert bars_path.exists()
         bars = read_delta_table_rows(bars_path)

@@ -38,9 +38,12 @@ from trading_advisor_3000.product_plane.data_plane.moex.foundation import (
 from trading_advisor_3000.product_plane.data_plane.moex.iss_client import MoexISSClient
 from trading_advisor_3000.product_plane.data_plane.moex.phase02_canonical import run_phase02_canonical
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
-    NIGHTLY_STORAGE_DIRNAME,
-    PHASE01_STORAGE_DIRNAME,
-    PHASE02_STORAGE_DIRNAME,
+    CANONICAL_REFRESH_REPORT_FILENAME,
+    CANONICAL_REFRESH_STORAGE_DIRNAME,
+    RAW_INGEST_STORAGE_DIRNAME,
+    RAW_INGEST_SUMMARY_REPORT_FILENAME,
+    ROUTE_REFRESH_REPORT_FILENAME,
+    ROUTE_REFRESH_STORAGE_DIRNAME,
     resolve_external_root,
 )
 
@@ -51,8 +54,8 @@ DEFAULT_TIMEFRAMES = "5m,15m,1h,4h,1d,1w"
 DEFAULT_BATCH_SIZE = 250_000
 DEFAULT_EXECUTION_MODE = "sequential"
 DEFAULT_CONTRACT_DISCOVERY_LOOKBACK_DAYS = 180
-LEGACY_ROUTE_ACK_ENV = "TA3000_ALLOW_LEGACY_MOEX_NIGHTLY"
-LEGACY_ROUTE_DECISION_DOC = "docs/architecture/product-plane/moex-historical-route-decision.md"
+MANUAL_ROUTE_ACK_ENV = "TA3000_ALLOW_MANUAL_MOEX_ROUTE"
+ROUTE_DECISION_DOC = "docs/architecture/product-plane/moex-historical-route-decision.md"
 
 
 def _resolve(path: Path) -> Path:
@@ -68,14 +71,14 @@ def _default_ingest_till_utc() -> str:
     return now.isoformat().replace("+00:00", "Z")
 
 
-def _assert_legacy_route_enabled(*, allow_legacy_route: bool) -> None:
-    if allow_legacy_route or os.environ.get(LEGACY_ROUTE_ACK_ENV, "").strip() == "1":
+def _assert_manual_route_enabled(*, allow_manual_route: bool) -> None:
+    if allow_manual_route or os.environ.get(MANUAL_ROUTE_ACK_ENV, "").strip() == "1":
         return
     raise SystemExit(
-        "scripts/run_moex_nightly_backfill.py is a retired legacy full-snapshot route and is blocked by default. "
-        "Use the sanctioned historical route decision in "
-        f"{LEGACY_ROUTE_DECISION_DOC} and the manual raw-ingest/canonicalization runbooks for bootstrap or repair. "
-        f"If you intentionally need a forensic legacy rerun, pass --allow-legacy-route or set {LEGACY_ROUTE_ACK_ENV}=1."
+        "scripts/run_moex_route_refresh.py runs the manual MOEX route refresh and is blocked by default. "
+        "Dagster owns the scheduled route; use the route decision in "
+        f"{ROUTE_DECISION_DOC} and the raw-ingest/canonical-refresh runbooks for manual recovery work. "
+        f"If you intentionally need a manual full-route rerun, pass --allow-manual-route or set {MANUAL_ROUTE_ACK_ENV}=1."
     )
 
 
@@ -150,7 +153,7 @@ def _load_cached_shard_success(output_dir: Path) -> dict[str, object] | None:
 def _write_shard_universe(path: Path, symbols: list[Any], shard_id: str) -> Path:
     payload = {
         "version": 1,
-        "source": "moex-nightly-sharded",
+        "source": "moex-route-refresh-sharded",
         "shard_id": shard_id,
         "symbols": [_symbol_to_payload(item) for item in symbols],
     }
@@ -586,33 +589,33 @@ def _build_jobs(
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Legacy full-snapshot MOEX nightly contour. This script is retained only for explicit forensic reruns "
-            "and is not the canonical historical refresh route."
+            "Run the manual MOEX route refresh: sharded raw ingest followed by canonical refresh. "
+            "Dagster owns the scheduled route; use this script only for manual recovery or forensic reruns."
         )
     )
     parser.add_argument("--mapping-registry", default=DEFAULT_MAPPING_REGISTRY.as_posix())
     parser.add_argument("--universe", default=DEFAULT_UNIVERSE.as_posix())
     parser.add_argument(
-        "--phase01-root",
+        "--raw-ingest-root",
         default="",
         help=(
-            "Absolute external phase-01 artifact root. "
+            "Absolute external raw-ingest artifact root. "
             "Required unless TA3000_MOEX_HISTORICAL_DATA_ROOT is set."
         ),
     )
     parser.add_argument(
-        "--phase02-root",
+        "--canonical-root",
         default="",
         help=(
-            "Absolute external phase-02 artifact root. "
+            "Absolute external canonical-refresh artifact root. "
             "Required unless TA3000_MOEX_HISTORICAL_DATA_ROOT is set."
         ),
     )
     parser.add_argument(
-        "--output-root",
+        "--route-root",
         default="",
         help=(
-            "Absolute external nightly route root. "
+            "Absolute external manual route-refresh root. "
             "Required unless TA3000_MOEX_HISTORICAL_DATA_ROOT is set."
         ),
     )
@@ -628,15 +631,15 @@ def main() -> None:
         action="store_true",
         help=(
             "Execute only the sharded raw ingest refresh slice and stop before canonicalization. "
-            "Use this when Dagster owns step ordering and canonicalization runs as a separate route step."
+            "Use this when Dagster owns step ordering and canonical refresh runs as a separate route step."
         ),
     )
     parser.add_argument(
-        "--allow-legacy-route",
+        "--allow-manual-route",
         action="store_true",
         help=(
-            "Explicitly acknowledge execution of the retired full-snapshot route. "
-            "Use only for diagnostics or historical forensic reruns."
+            "Explicitly acknowledge execution of the manual full-route refresh. "
+            "Use only for diagnostics, repair, or forensic reruns."
         ),
     )
     parser.add_argument(
@@ -651,7 +654,7 @@ def main() -> None:
         default=0,
         help=(
             "Optional shared discovery lookback window for scheduled refresh. "
-            "When <= 0, the route falls back to bootstrap-window-days."
+            "When <= 0, the route reuses bootstrap-window-days."
         ),
     )
     parser.add_argument("--refresh-overlap-minutes", type=int, default=180)
@@ -662,7 +665,7 @@ def main() -> None:
         raise SystemExit("workers must be > 0")
     if args.batch_size <= 0:
         raise SystemExit("batch-size must be > 0")
-    _assert_legacy_route_enabled(allow_legacy_route=bool(args.allow_legacy_route))
+    _assert_manual_route_enabled(allow_manual_route=bool(args.allow_manual_route))
 
     run_id = args.run_id.strip() or _default_run_id()
     ingest_till_utc = args.ingest_till_utc.strip() or _default_ingest_till_utc()
@@ -670,32 +673,32 @@ def main() -> None:
 
     mapping_registry_path = _resolve(Path(args.mapping_registry))
     universe_path = _resolve(Path(args.universe))
-    phase01_root = resolve_external_root(
-        args.phase01_root,
+    raw_ingest_root = resolve_external_root(
+        args.raw_ingest_root,
         repo_root=ROOT,
-        field_name="--phase01-root",
-        default_subdir=PHASE01_STORAGE_DIRNAME,
+        field_name="--raw-ingest-root",
+        default_subdir=RAW_INGEST_STORAGE_DIRNAME,
     )
-    phase02_root = resolve_external_root(
-        args.phase02_root,
+    canonical_root = resolve_external_root(
+        args.canonical_root,
         repo_root=ROOT,
-        field_name="--phase02-root",
-        default_subdir=PHASE02_STORAGE_DIRNAME,
+        field_name="--canonical-root",
+        default_subdir=CANONICAL_REFRESH_STORAGE_DIRNAME,
     )
-    output_root = resolve_external_root(
-        args.output_root,
+    route_root = resolve_external_root(
+        args.route_root,
         repo_root=ROOT,
-        field_name="--output-root",
-        default_subdir=NIGHTLY_STORAGE_DIRNAME,
+        field_name="--route-root",
+        default_subdir=ROUTE_REFRESH_STORAGE_DIRNAME,
     )
 
-    phase01_run_dir = phase01_root / run_id
-    phase01_run_dir.mkdir(parents=True, exist_ok=True)
-    phase02_run_dir = phase02_root / run_id
-    phase02_run_dir.mkdir(parents=True, exist_ok=True)
-    nightly_run_dir = output_root / run_id
-    nightly_run_dir.mkdir(parents=True, exist_ok=True)
-    shards_dir = nightly_run_dir / "shards"
+    raw_ingest_run_dir = raw_ingest_root / run_id
+    raw_ingest_run_dir.mkdir(parents=True, exist_ok=True)
+    canonical_run_dir = canonical_root / run_id
+    canonical_run_dir.mkdir(parents=True, exist_ok=True)
+    route_run_dir = route_root / run_id
+    route_run_dir.mkdir(parents=True, exist_ok=True)
+    shards_dir = route_run_dir / "shards"
     shards_dir.mkdir(parents=True, exist_ok=True)
 
     universe = load_universe(universe_path)
@@ -711,8 +714,8 @@ def main() -> None:
         if int(args.contract_discovery_lookback_days) > 0
         else int(args.bootstrap_window_days)
     )
-    shared_request_log_path = phase01_run_dir / "moex-request-log.jsonl"
-    shared_request_latest_path = phase01_run_dir / "moex-request.latest.json"
+    shared_request_log_path = raw_ingest_run_dir / "moex-request-log.jsonl"
+    shared_request_latest_path = raw_ingest_run_dir / "moex-request.latest.json"
     shared_client = MoexISSClient(
         request_event_hook=lambda payload: _append_progress_event(
             jsonl_path=shared_request_log_path,
@@ -734,7 +737,7 @@ def main() -> None:
             contract_discovery_step_days=int(args.contract_discovery_step_days),
             contract_discovery_lookback_days=contract_discovery_lookback_days,
         )
-        coverage_json, coverage_csv = _write_coverage_artifacts(coverage, output_dir=phase01_run_dir)
+        coverage_json, coverage_csv = _write_coverage_artifacts(coverage, output_dir=raw_ingest_run_dir)
     except Exception as exc:  # noqa: BLE001 - discovery must emit a durable route failure report
         report = {
             "run_id": run_id,
@@ -747,15 +750,15 @@ def main() -> None:
             "moex_request_log_path": shared_request_log_path.as_posix(),
             "moex_request_latest_path": shared_request_latest_path.as_posix(),
         }
-        report_path = nightly_run_dir / "nightly-backfill-report.json"
+        report_path = route_run_dir / ROUTE_REFRESH_REPORT_FILENAME
         report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         _safe_progress_print(json.dumps(report, ensure_ascii=False, indent=2))
-        raise SystemExit("nightly backfill failed during shared contract discovery") from exc
+        raise SystemExit("route refresh failed during shared contract discovery") from exc
 
     shards = _split_symbols(active_symbols, args.workers)
     jobs = _build_jobs(
         run_id=run_id,
-        phase01_run_dir=phase01_run_dir,
+        phase01_run_dir=raw_ingest_run_dir,
         shards_dir=shards_dir,
         shards=shards,
         coverage=coverage,
@@ -770,7 +773,7 @@ def main() -> None:
     )
 
     shard_results: list[dict[str, object]] = []
-    progress_path = nightly_run_dir / "nightly-progress.jsonl"
+    progress_path = route_run_dir / "route-progress.jsonl"
     if args.execution_mode == "parallel":
         with ProcessPoolExecutor(max_workers=len(jobs)) as executor:
             future_by_shard = {executor.submit(_run_shard_job, job): job["shard_id"] for job in jobs}
@@ -787,7 +790,7 @@ def main() -> None:
                 }
                 _append_jsonl_event(progress_path, progress_payload)
                 _safe_progress_print(
-                    "[moex-nightly] "
+                    "[moex-route-refresh] "
                     f"{run_id} shard={progress_payload['shard_id']} "
                     f"status={progress_payload['status']} mode={args.execution_mode}"
                 )
@@ -807,7 +810,7 @@ def main() -> None:
             }
             _append_jsonl_event(progress_path, progress_payload)
             _safe_progress_print(
-                "[moex-nightly] "
+                "[moex-route-refresh] "
                 f"{run_id} shard={progress_payload['shard_id']} "
                 f"status={progress_payload['status']} "
                 f"step={index}/{len(jobs)} mode={args.execution_mode}"
@@ -822,13 +825,13 @@ def main() -> None:
             "reason": "one or more shard workers failed",
             "failed_shards": failed_shards,
         }
-        report_path = nightly_run_dir / "nightly-backfill-report.json"
+        report_path = route_run_dir / ROUTE_REFRESH_REPORT_FILENAME
         report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         _safe_progress_print(json.dumps(report, ensure_ascii=False, indent=2))
-        raise SystemExit("nightly backfill failed: at least one shard worker returned FAIL")
+        raise SystemExit("route refresh failed: at least one shard worker returned FAIL")
 
     coverage_rows = len(coverage)
-    consolidated_raw_path = phase01_run_dir / "delta" / "raw_moex_history.delta"
+    consolidated_raw_path = raw_ingest_run_dir / "delta" / "raw_moex_history.delta"
     merged_shards = _merge_raw_tables(
         shard_reports=shard_results,
         target_raw_path=consolidated_raw_path,
@@ -846,8 +849,8 @@ def main() -> None:
         target_path=shared_request_log_path,
         latest_path=shared_request_latest_path,
     )
-    raw_ingest_progress_path = phase01_run_dir / "raw-ingest-progress.jsonl"
-    raw_ingest_progress_latest_path = phase01_run_dir / "raw-ingest-progress.latest.json"
+    raw_ingest_progress_path = raw_ingest_run_dir / "raw-ingest-progress.jsonl"
+    raw_ingest_progress_latest_path = raw_ingest_run_dir / "raw-ingest-progress.latest.json"
     merged_progress_event_count = _merge_jsonl_artifacts(
         source_paths=[
             Path(str(item["report"].get("raw_ingest_progress_path", "")))
@@ -862,8 +865,8 @@ def main() -> None:
             "reported_at_utc": datetime.now(tz=UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         },
     )
-    raw_ingest_error_path = phase01_run_dir / "raw-ingest-errors.jsonl"
-    raw_ingest_error_latest_path = phase01_run_dir / "raw-ingest-error.latest.json"
+    raw_ingest_error_path = raw_ingest_run_dir / "raw-ingest-errors.jsonl"
+    raw_ingest_error_latest_path = raw_ingest_run_dir / "raw-ingest-error.latest.json"
     merged_error_event_count = _merge_jsonl_artifacts(
         source_paths=[
             Path(str(item["report"].get("raw_ingest_error_path", "")))
@@ -924,17 +927,17 @@ def main() -> None:
         raw_ingest_error_latest_path=raw_ingest_error_latest_path.as_posix(),
         changed_windows=changed_windows,
     )
-    raw_ingest_report_path = phase01_run_dir / "raw-ingest-report.json"
+    raw_ingest_report_path = raw_ingest_run_dir / "raw-ingest-report.json"
     raw_ingest_report_path.write_text(
         json.dumps(raw_ingest_report_payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
 
-    phase01_report = {
+    raw_ingest_summary = {
         "run_id": run_id,
         "route_signal": "worker:phase-only",
         "proof_class": "staging-real",
-        "mode": f"{args.execution_mode}-sharded-nightly",
+        "mode": f"{args.execution_mode}-sharded-route-refresh",
         "ingest_till_utc": ingest_till_utc,
         "timeframes": sorted(timeframes),
         "execution_mode": args.execution_mode,
@@ -973,8 +976,11 @@ def main() -> None:
         "shards": shard_results,
         "real_bindings": sorted(real_bindings),
     }
-    phase01_report_path = phase01_run_dir / "phase01-foundation-report.json"
-    phase01_report_path.write_text(json.dumps(phase01_report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    raw_ingest_summary_path = raw_ingest_run_dir / RAW_INGEST_SUMMARY_REPORT_FILENAME
+    raw_ingest_summary_path.write_text(
+        json.dumps(raw_ingest_summary, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
     if args.stop_after_raw_ingest:
         report = {
@@ -987,8 +993,8 @@ def main() -> None:
             "execution_mode": args.execution_mode,
             "raw_ingest_report_path": raw_ingest_report_path.as_posix(),
             "raw_table_path": consolidated_raw_path.as_posix(),
-            "raw_ingest_root": phase01_run_dir.as_posix(),
-            "nightly_progress_path": progress_path.as_posix(),
+            "raw_ingest_root": raw_ingest_run_dir.as_posix(),
+            "route_progress_path": progress_path.as_posix(),
             "raw_ingest_summary": {
                 "coverage_rows": coverage_rows,
                 "source_rows": source_rows,
@@ -1000,39 +1006,39 @@ def main() -> None:
                 "contract_discovery_lookback_days": contract_discovery_lookback_days,
             },
             "artifacts": {
-                "raw_ingest_root": phase01_run_dir.as_posix(),
+                "raw_ingest_root": raw_ingest_run_dir.as_posix(),
                 "raw_ingest_report": raw_ingest_report_path.as_posix(),
-                "raw_ingest_summary_report": phase01_report_path.as_posix(),
+                "raw_ingest_summary_report": raw_ingest_summary_path.as_posix(),
                 "raw_table": consolidated_raw_path.as_posix(),
-                "nightly_root": nightly_run_dir.as_posix(),
+                "route_root": route_run_dir.as_posix(),
             },
         }
-        report_path = nightly_run_dir / "nightly-backfill-report.json"
+        report_path = route_run_dir / ROUTE_REFRESH_REPORT_FILENAME
         report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         _safe_progress_print(json.dumps(report, ensure_ascii=False, indent=2))
         return
 
     canonical_report = run_phase02_canonical(
         raw_table_path=consolidated_raw_path,
-        output_dir=phase02_run_dir,
+        output_dir=canonical_run_dir,
         run_id=run_id,
         raw_ingest_run_report=raw_ingest_report_payload,
         repo_root=ROOT,
     )
 
-    nightly_status = "PASS" if str(canonical_report.get("publish_decision")) == "publish" else "BLOCKED"
+    route_status = "PASS" if str(canonical_report.get("publish_decision")) == "publish" else "BLOCKED"
     report = {
         "run_id": run_id,
-        "status": nightly_status,
-        "phase01_run_id": run_id,
-        "phase02_run_id": run_id,
+        "status": route_status,
+        "raw_ingest_run_id": run_id,
+        "canonical_run_id": run_id,
         "workers_requested": int(args.workers),
         "workers_started": len(jobs),
         "execution_mode": args.execution_mode,
-        "phase01_report_path": phase01_report_path.as_posix(),
-        "phase02_report_path": (phase02_run_dir / "phase02-canonical-report.json").as_posix(),
-        "nightly_progress_path": progress_path.as_posix(),
-        "phase01_summary": {
+        "raw_ingest_summary_report_path": raw_ingest_summary_path.as_posix(),
+        "canonical_report_path": (canonical_run_dir / CANONICAL_REFRESH_REPORT_FILENAME).as_posix(),
+        "route_progress_path": progress_path.as_posix(),
+        "raw_ingest_summary": {
             "coverage_rows": coverage_rows,
             "source_rows": source_rows,
             "incremental_rows": incremental_rows,
@@ -1049,17 +1055,17 @@ def main() -> None:
             "target_timeframes": canonical_report.get("target_timeframes"),
         },
         "artifacts": {
-            "phase01_root": phase01_run_dir.as_posix(),
-            "phase02_root": phase02_run_dir.as_posix(),
-            "nightly_root": nightly_run_dir.as_posix(),
+            "raw_ingest_root": raw_ingest_run_dir.as_posix(),
+            "canonical_root": canonical_run_dir.as_posix(),
+            "route_root": route_run_dir.as_posix(),
         },
     }
-    report_path = nightly_run_dir / "nightly-backfill-report.json"
+    report_path = route_run_dir / ROUTE_REFRESH_REPORT_FILENAME
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     _safe_progress_print(json.dumps(report, ensure_ascii=False, indent=2))
 
-    if nightly_status != "PASS":
-        raise SystemExit("nightly backfill blocked: canonicalization publish_decision is not publish")
+    if route_status != "PASS":
+        raise SystemExit("route refresh blocked: canonical refresh publish_decision is not publish")
 
 
 if __name__ == "__main__":
