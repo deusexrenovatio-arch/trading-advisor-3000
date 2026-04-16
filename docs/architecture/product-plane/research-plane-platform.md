@@ -26,21 +26,31 @@ What this means in practice:
 
 ## Stable Entry Points
 
-### Public API
+### Supported Operational Route
+- `python -m trading_advisor_3000.product_plane.research.jobs.run_campaign --config <campaign.yaml>`
+
+This is the only supported user-facing route.
+It is a thin Product Plane launcher that validates a machine-readable campaign config, writes immutable run artifacts, and dispatches only into the Dagster `phase2b` contour.
+
+Campaign contracts:
+- `research_campaign.v1.json`
+- `research_run_summary.v1.json`
+
+### Programmatic Compatibility Route
 - `trading_advisor_3000.product_plane.research.run_research_from_bars(...)`
 
-This entrypoint now goes through the materialized `phase2b` pipeline and then emits compatibility artifacts for downstream consumers that still expect the older surface.
+This API remains available for programmatic compatibility, but it is not the supported operational route for research campaigns.
 
-### CLI Jobs
+### Internal / Debug Only
 - `python -m trading_advisor_3000.product_plane.research.jobs.bootstrap`
 - `python -m trading_advisor_3000.product_plane.research.jobs.backtest`
 - `python -m trading_advisor_3000.product_plane.research.jobs.project_candidates`
 - `python -m trading_advisor_3000.product_plane.research.jobs.benchmark`
-
-### Dagster Jobs
 - `phase2b_bootstrap_job`
 - `phase2b_backtest_job`
 - `phase2b_projection_job`
+
+These remain execution/debug surfaces, not the canonical front door.
 
 ## What Is Materialized
 
@@ -61,6 +71,15 @@ Backtest layer:
 
 Projection layer:
 - `research_signal_candidates`
+
+## Storage Model
+
+Research storage is split into two layers:
+- reusable materialized outputs under `<materialized_root>/<materialization_key>/`
+- immutable run artifacts under `<runs_root>/<campaign_name>/<run_id>/`
+
+Committed example configs should prefer external-first roots under `D:/TA3000-data`.
+Worktree-local roots are allowed only when a config explicitly asks for them.
 
 ## Derived Feature Helper Semantics
 

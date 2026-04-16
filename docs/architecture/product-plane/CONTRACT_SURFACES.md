@@ -20,7 +20,6 @@ This document tracks release-blocking boundary contracts that are versioned in c
 | Runtime configuration envelope | `runtime_bootstrap_config.v1` | implemented | Runtime bootstrap profile/backend/channel envelope is versioned and tested. |
 | Persistence + migration boundary | `runtime_signal_store_persistence_manifest.v1` + runtime signal/event/publication DTO schemas | implemented | Signal-store table and migration-tracking boundary are versioned and test-enforced. |
 | External rollout/connectivity envelopes | `broker_staging_connector_profile.v1`, `staging_rollout_report.v1`, `runtime_operational_snapshot.v1`, `real_broker_process_report.v1` | implemented | Rollout profile, Finam session/secrets contract, operational snapshot, and governed broker proof report are versioned with compatibility class rules. |
-
 ## Runtime API Inventory Scope Decision
 - Decision ID: `F1-C-RUNTIME-API-INVENTORY-SCOPE-V1`
 - Source: `src/trading_advisor_3000/product_plane/contracts/schemas/release_blocking_contracts.v1.yaml`
@@ -35,6 +34,12 @@ Compatibility classes and upgrade rules are defined in:
 - `docs/architecture/product-plane/contract-change-policy.md`
 
 Any public payload change is invalid unless schema, fixture, and tests are updated together.
+
+## Internal Product Plane Orchestration Contracts
+
+The following contracts are versioned and test-covered, but they are not part of the release-blocking runtime boundary inventory:
+- `research_campaign.v1`
+- `research_run_summary.v1`
 
 ## DB Mapping Baseline
 - `runtime_signal.v1` maps to `signal.active_signals`

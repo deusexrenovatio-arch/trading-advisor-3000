@@ -6,10 +6,12 @@ Date: 2026-03-16
 - [x] Public `run_research_from_bars(...)` now routes through the materialized phase2b path
 - [x] Legacy Spark candidate SQL path is compatibility-only and no longer part of acceptance truth
 - [x] Derived feature layer materializes helper labels and ATR reference outputs
-- [x] Separate CLI jobs exist for bootstrap, backtest, projection, and benchmark
+- [x] Canonical operational route is `python -m trading_advisor_3000.product_plane.research.jobs.run_campaign --config <campaign.yaml>`
+- [x] Low-level bootstrap/backtest/projection jobs remain internal/debug-only implementation surfaces
 - [x] Benchmark artifacts now exist as committed JSON, markdown, and cache-marker evidence
 - Stable references:
   `docs/architecture/product-plane/research-plane-platform.md`
+  `docs/runbooks/app/research-campaign-route.md`
   `docs/runbooks/app/research-plane-operations.md`
 
 ## Acceptance Disposition (updated 2026-03-17)
