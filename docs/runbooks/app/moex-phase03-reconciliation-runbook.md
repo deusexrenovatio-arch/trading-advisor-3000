@@ -9,6 +9,11 @@ This runbook covers:
 - versioned threshold policy and escalation simulation artifacts,
 - persisted reconciliation metrics table for replay/query use.
 
+Route role:
+- This is a legacy migration artifact for reconciliation proof and local diagnostics.
+- It is not the target-state scheduled historical route and it is not the canonical operator-facing path after route consolidation.
+- The active governed module is `moex-historical-route-consolidation`; this runbook remains bounded migration evidence inside that module only.
+
 ## Mandatory Finam Metadata (Fail-Closed)
 Each Finam snapshot row must provide explicit non-empty fields:
 - `source_ts_utc`
@@ -21,7 +26,7 @@ Alias-only payloads (for example `source_timestamp_utc`, `archived_at_utc`, or i
 
 ## Preconditions
 1. Python env is bootstrapped (`python -m pip install -e .[dev]`).
-2. Phase-02 artifacts exist with canonical bars and provenance:
+2. Canonicalization artifacts exist with canonical bars and provenance:
    - `artifacts/codex/moex-phase02/<run_id>/delta/canonical_bars.delta`
    - `artifacts/codex/moex-phase02/<run_id>/delta/canonical_bar_provenance.delta`
 3. Finam archive snapshot source is prepared as `.json`, `.csv`, or Delta table.
@@ -75,3 +80,4 @@ Treat Phase-03 as blocked when any condition appears:
 - Threshold changes are policy-controlled via `reconciliation_thresholds.v1.yaml`; change versioning must stay explicit.
 - `allow-degraded-publish` is opt-in and must be accompanied by incident/escalation evidence (no warning-only silent downgrade).
 - This runbook proves only reconciliation contour closure and does not claim phase-04 operations hardening or final release readiness.
+- Under the active route-consolidation planning truth, this script is retained only as a migration artifact until final cleanup and must not be presented as the steady-state operator route.
