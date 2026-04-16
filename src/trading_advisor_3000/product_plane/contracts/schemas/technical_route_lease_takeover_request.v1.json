@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/technical_route_lease_takeover_request.v1.json",
+  "title": "TechnicalRouteLeaseTakeoverRequestV1",
+  "type": "object",
+  "required": [
+    "contract_version",
+    "route_id",
+    "lease_scope",
+    "holder_id",
+    "owner_job",
+    "requested_at_utc",
+    "ttl_seconds",
+    "expected_lease_version",
+    "previous_lease_token",
+    "run_id",
+    "retry_of_run_id",
+    "changed_windows_hash",
+    "metadata"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "technical_route_lease_takeover_request.v1"
+    },
+    "route_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "lease_scope": {
+      "const": "authoritative_store_route"
+    },
+    "holder_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "owner_job": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requested_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ttl_seconds": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "expected_lease_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "previous_lease_token": {
+      "type": ["string", "null"]
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "retry_of_run_id": {
+      "type": ["string", "null"]
+    },
+    "changed_windows_hash": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "metadata": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

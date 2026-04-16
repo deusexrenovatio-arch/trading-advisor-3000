@@ -1,0 +1,27 @@
+{
+  "contract_version": "parity_manifest.v1",
+  "run_id": "phase01-parity-window",
+  "generated_at_utc": "2026-04-01T10:26:00Z",
+  "status": "PASS",
+  "window_policy_id": "fixed-proof-window.v1",
+  "raw_ingest_report_contract": "raw_ingest_run_report.v2",
+  "raw_ingest_run_id": "phase01-pass1",
+  "window_count": 1,
+  "changed_windows": [
+    {
+      "internal_id": "BR-6.26",
+      "source_timeframe": "1m",
+      "source_interval": 1,
+      "moex_secid": "BRM6",
+      "window_start_utc": "2026-04-01T10:00:00Z",
+      "window_end_utc": "2026-04-01T10:19:59Z",
+      "incremental_rows": 2
+    }
+  ],
+  "changed_windows_hash_sha256": "1cf970cb9e4c7540f94381f54d1ff43f867ba5e56560418210fc2c50bccc9f0e",
+  "deterministic_rules": {
+    "sort_order": "internal_id|source_timeframe|moex_secid|source_interval|window_start_utc|window_end_utc",
+    "hash_rule": "sha256(canonical-json(changed_windows))",
+    "pass_noop_rule": "window_count == 0"
+  }
+}

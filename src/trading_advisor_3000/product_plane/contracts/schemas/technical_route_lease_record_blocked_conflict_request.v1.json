@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/technical_route_lease_record_blocked_conflict_request.v1.json",
+  "title": "TechnicalRouteLeaseRecordBlockedConflictRequestV1",
+  "type": "object",
+  "required": [
+    "contract_version",
+    "route_id",
+    "lease_scope",
+    "holder_id",
+    "owner_job",
+    "requested_at_utc",
+    "reason_code",
+    "blocking_holder_id",
+    "blocking_lease_token",
+    "expected_lease_version",
+    "run_id",
+    "changed_windows_hash",
+    "metadata"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "technical_route_lease_record_blocked_conflict_request.v1"
+    },
+    "route_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "lease_scope": {
+      "const": "authoritative_store_route"
+    },
+    "holder_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "owner_job": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requested_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reason_code": {
+      "type": "string",
+      "minLength": 1
+    },
+    "blocking_holder_id": {
+      "type": ["string", "null"]
+    },
+    "blocking_lease_token": {
+      "type": ["string", "null"]
+    },
+    "expected_lease_version": {
+      "type": ["integer", "null"],
+      "minimum": 1
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "changed_windows_hash": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "metadata": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}
