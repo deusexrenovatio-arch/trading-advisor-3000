@@ -122,8 +122,6 @@ MOEX_HISTORICAL_CUTOVER_JOB_NAME = "moex_historical_cutover_job"
 MOEX_BASELINE_UPDATE_JOB_NAME = "moex_baseline_update_job"
 MOEX_BASELINE_DAILY_SCHEDULE_NAME = "moex_baseline_daily_update_schedule"
 MOEX_BASELINE_DAILY_CRON = "0 2 * * *"
-MOEX_HISTORICAL_NIGHTLY_SCHEDULE_NAME = MOEX_BASELINE_DAILY_SCHEDULE_NAME
-MOEX_HISTORICAL_NIGHTLY_CRON = MOEX_BASELINE_DAILY_CRON
 MOEX_HISTORICAL_EXECUTION_TIMEZONE = "Europe/Moscow"
 MOEX_HISTORICAL_RETRY_POLICY = RetryPolicy(max_retries=3, delay=60)
 
@@ -733,7 +731,7 @@ moex_historical_cutover_job = define_asset_job(
 moex_historical_cutover_preview_schedule = ScheduleDefinition(
     name="moex_historical_cutover_preview_schedule",
     job=moex_historical_cutover_job,
-    cron_schedule=MOEX_HISTORICAL_NIGHTLY_CRON,
+    cron_schedule=MOEX_BASELINE_DAILY_CRON,
     run_config_fn=_build_nightly_schedule_run_config,
     execution_timezone=MOEX_HISTORICAL_EXECUTION_TIMEZONE,
     default_status=DefaultScheduleStatus.STOPPED,
@@ -849,7 +847,7 @@ def execute_moex_historical_cutover_job(
         }
         schedule_payload = {
             "name": moex_historical_cutover_preview_schedule.name,
-            "cron": MOEX_HISTORICAL_NIGHTLY_CRON,
+            "cron": MOEX_BASELINE_DAILY_CRON,
             "execution_timezone": MOEX_HISTORICAL_EXECUTION_TIMEZONE,
             "scheduled_execution_time": scheduled_execution_time.isoformat(),
         }

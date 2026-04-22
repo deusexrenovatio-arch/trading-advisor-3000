@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 import json
 from pathlib import Path
-import tempfile
 
 import pytest
 
@@ -44,7 +43,7 @@ RAW_COLUMNS: dict[str, str] = {
 
 @pytest.fixture(autouse=True)
 def _external_data_root_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    external_root = Path(tempfile.gettempdir()) / "ta3000-moex-historical-tests-unit"
+    external_root = Path.cwd().resolve().parent / ".ta3000-moex-historical-tests-unit"
     external_root.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv(MOEX_HISTORICAL_DATA_ROOT_ENV, external_root.as_posix())
 
@@ -274,7 +273,7 @@ def test_phase03_cutover_rejects_non_consecutive_local_nightly_cycles(tmp_path: 
 
 def test_phase03_cutover_rejects_non_canonical_schedule_cron(tmp_path: Path) -> None:
     raw_table_path, raw_report_path = _write_raw_table_and_report(tmp_path, run_id="phase03-schedule-drift")
-    with pytest.raises(ValueError, match="Dagster-route proof requires Dagster nightly cron"):
+    with pytest.raises(ValueError, match="Dagster-route proof requires baseline daily cron"):
         run_phase03_dagster_cutover(
             raw_table_path=raw_table_path,
             raw_ingest_report_path=raw_report_path,

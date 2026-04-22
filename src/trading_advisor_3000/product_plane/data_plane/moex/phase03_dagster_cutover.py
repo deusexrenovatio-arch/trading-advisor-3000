@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from dagster import DagsterInstance
 
 from trading_advisor_3000.dagster_defs.moex_historical_assets import (
-    MOEX_HISTORICAL_NIGHTLY_CRON,
+    MOEX_BASELINE_DAILY_CRON,
     MOEX_HISTORICAL_RETRY_POLICY,
     build_moex_historical_dagster_binding_artifact,
     assert_moex_historical_definitions_executable,
@@ -264,10 +264,10 @@ def _validate_cutover_runtime_contract(
     retry_backoff_seconds: list[int],
 ) -> None:
     normalized_schedule_cron = schedule_cron.strip()
-    if normalized_schedule_cron != MOEX_HISTORICAL_NIGHTLY_CRON:
+    if normalized_schedule_cron != MOEX_BASELINE_DAILY_CRON:
         raise ValueError(
-            "Dagster-route proof requires Dagster nightly cron "
-            f"`{MOEX_HISTORICAL_NIGHTLY_CRON}`, got `{normalized_schedule_cron or 'EMPTY'}`"
+            "Dagster-route proof requires baseline daily cron "
+            f"`{MOEX_BASELINE_DAILY_CRON}`, got `{normalized_schedule_cron or 'EMPTY'}`"
         )
     if retry_max_attempts != int(MOEX_HISTORICAL_RETRY_POLICY.max_retries or 0):
         raise ValueError(
