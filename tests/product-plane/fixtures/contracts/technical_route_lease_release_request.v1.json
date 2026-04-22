@@ -1,0 +1,14 @@
+{
+  "contract_version": "technical_route_lease_release_request.v1",
+  "route_id": "moex_historical_route",
+  "lease_scope": "authoritative_store_route",
+  "holder_id": "dagster-nightly",
+  "owner_job": "dagster-moex-historical-nightly",
+  "lease_token": "lease-1f27d71643aa4ff18e0ca478f0ab8f12",
+  "requested_at_utc": "2026-04-01T10:10:00Z",
+  "run_id": "phase01-pass1",
+  "changed_windows_hash": "1cf970cb9e4c7540f94381f54d1ff43f867ba5e56560418210fc2c50bccc9f0e",
+  "metadata": {
+    "reason": "canonical-stage-start"
+  }
+}

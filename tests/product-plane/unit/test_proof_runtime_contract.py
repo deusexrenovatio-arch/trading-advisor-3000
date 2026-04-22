@@ -64,3 +64,18 @@ def test_container_to_host_path_rejects_prefix_only_workspace_collisions(tmp_pat
     mapped = container_to_host_path(runtime_outside_path, repo_root=repo_root)
 
     assert mapped == runtime_outside_path
+
+
+def test_path_round_trip_supports_explicit_external_mount(tmp_path: Path) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    data_root = (tmp_path / "data-root").resolve()
+    artifact_path = data_root / "moex-baseline-update" / "spark.json"
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact_path.write_text("{}\n", encoding="utf-8")
+    mounts = [(data_root, "/ta3000-data/moex-historical")]
+
+    container_path = host_to_container_path(artifact_path, repo_root=repo_root, extra_roots=mounts)
+    assert container_path == "/ta3000-data/moex-historical/moex-baseline-update/spark.json"
+
+    host_path = Path(container_to_host_path(container_path, repo_root=repo_root, extra_roots=mounts))
+    assert host_path == artifact_path.resolve()

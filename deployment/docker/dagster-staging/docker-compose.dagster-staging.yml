@@ -1,0 +1,78 @@
+services:
+  dagster-webserver:
+    build:
+      context: ../../..
+      dockerfile: deployment/docker/dagster-staging/Dockerfile
+    image: ta3000-dagster-staging:latest
+    container_name: ta3000-dagster-webserver
+    working_dir: /workspace
+    command:
+      - dagster-webserver
+      - -m
+      - trading_advisor_3000.dagster_defs
+      - -a
+      - moex_historical_definitions
+      - -h
+      - 0.0.0.0
+      - -p
+      - "3000"
+      - -d
+      - /workspace
+    environment:
+      DAGSTER_HOME: /opt/dagster/dagster_home
+      PYTHONPATH: /workspace/src
+      TA3000_MOEX_HISTORICAL_DATA_ROOT: /ta3000-data/moex-historical
+      TA3000_MOEX_CANONICALIZATION_SPARK_PROFILE: local
+    ports:
+      - "${TA3000_DAGSTER_PORT:-3000}:3000"
+    volumes:
+      - dagster-home:/opt/dagster/dagster_home
+      - "${TA3000_MOEX_HISTORICAL_DATA_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-nightly}:/ta3000-data/moex-historical"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:3000/server_info', timeout=2).status == 200 else 1)"
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - ta3000-dagster-staging
+
+  dagster-daemon:
+    image: ta3000-dagster-staging:latest
+    container_name: ta3000-dagster-daemon
+    working_dir: /workspace
+    command:
+      - dagster-daemon
+      - run
+      - -m
+      - trading_advisor_3000.dagster_defs
+      - -a
+      - moex_historical_definitions
+      - -d
+      - /workspace
+    environment:
+      DAGSTER_HOME: /opt/dagster/dagster_home
+      PYTHONPATH: /workspace/src
+      TA3000_MOEX_HISTORICAL_DATA_ROOT: /ta3000-data/moex-historical
+      TA3000_MOEX_CANONICALIZATION_SPARK_PROFILE: local
+    volumes:
+      - dagster-home:/opt/dagster/dagster_home
+      - "${TA3000_MOEX_HISTORICAL_DATA_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-nightly}:/ta3000-data/moex-historical"
+    depends_on:
+      dagster-webserver:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - ta3000-dagster-staging
+
+volumes:
+  dagster-home:
+
+networks:
+  ta3000-dagster-staging:
+    driver: bridge

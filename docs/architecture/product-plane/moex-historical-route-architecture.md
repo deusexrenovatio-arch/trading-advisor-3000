@@ -1,4 +1,4 @@
-# MOEX Nightly V2 Architecture
+# MOEX Historical Route Architecture
 
 ## Purpose
 Define the target architecture for MOEX historical refresh after the 4-year baseline was pinned.
@@ -10,17 +10,15 @@ See also:
 
 ## Current Reality
 
-### What is already good
+### What is real now
 - A successful 4-year baseline is pinned in the data-root layout:
   - raw: `D:/TA3000-data/trading-advisor-3000-nightly/raw/moex/baseline-4y-current`
   - canonical: `D:/TA3000-data/trading-advisor-3000-nightly/canonical/moex/baseline-4y-current`
-- Phase-01 foundation now has request-level logs, item-level failure artifacts, chunked MOEX fetch windows, and shard-level failure visibility.
-
-### What is currently wrong
-- The current nightly runner builds a fresh candidate run with `bootstrap_window_days=1461` instead of extending the retained baseline.
-- Dagster-owned orchestration is already implemented for the canonical cutover route, but governed staging-real acceptance evidence is still pending for full Phase-03 closure.
-- Heavy canonical refresh currently runs through the current Python contour, while Spark exists only as a partial parallel contour and not as the active MOEX nightly compute path.
-- As a result, nightly is too expensive and too close to a "rebuild the world" model.
+- The active scheduled route is the baseline updater:
+  - job: `moex_baseline_update_job`
+  - schedule: `moex_baseline_daily_update_schedule`
+- The updater reads the baseline raw watermark, fetches a bounded daily window, appends/merges raw rows into the stable raw baseline, and Spark-refreshes only changed canonical windows into the stable canonical baseline.
+- The previous candidate-refresh schedule `moex_historical_nightly_schedule` is not registered in active definitions.
 
 ## Design Principles
 1. There should be one obvious directional flow of historical data.
@@ -32,7 +30,7 @@ See also:
 
 ## Target DFD
 
-### Nightly Historical Refresh DFD
+### Daily Baseline Update DFD
 
 This DFD is intentionally optimized for operator clarity.
 Internal substeps such as contract-chain discovery, request chunking, overlap handling, and detailed QC remain implementation details inside the jobs rather than top-level architecture nodes.
@@ -40,14 +38,14 @@ Internal substeps such as contract-chain discovery, request chunking, overlap ha
 ```mermaid
 flowchart LR
     E1["E1 MOEX ISS"]
-    E2["E2 Dagster schedule / sensor"]
+    E2["E2 Dagster daily schedule"]
 
     P1("P1 MOEX raw ingest job<br/>Python")
     P2("P2 Canonical bars job<br/>Spark")
 
     D1[("D1 Authoritative raw delta")]
     D2[("D2 Authoritative canonical delta")]
-    D3[("D3 Refresh ledger / job evidence<br/>optional but recommended")]
+    D3[("D3 Baseline update evidence<br/>reports + pending windows")]
 
     E2 -->|"refresh window + run parameters"| P1
     E1 -->|"coverage + candles"| P1
@@ -101,7 +99,7 @@ That decision fixes:
 - which jobs are allowed to own raw and canonical writes,
 - which existing entrypoints stay as manual-only routes,
 - which proof contours remain proof-only,
-- which legacy route is retired from normal operations.
+- which manual route is retired from normal operations.
 
 ## Target Storage Model
 
@@ -120,8 +118,8 @@ Data-root truth source:
 - Contents:
   - `canonical_bars.delta`
   - `canonical_bar_provenance.delta`
-  - `reports/nightly-backfill-report.json`
-  - `reports/phase02-canonical-report.json`
+  - `reports/route-refresh-report.json`
+  - `reports/canonical-refresh-report.json`
 
 ### C. Derived storage
 - Root: `D:/TA3000-data/trading-advisor-3000-nightly/derived/moex`
@@ -130,16 +128,13 @@ Data-root truth source:
   - `features/`
   - `indicators/`
 
-### D. Technical ledger
-- Optional as a separate store, but recommended.
+### D. Baseline update evidence
+- Root: `D:/TA3000-data/trading-advisor-3000-nightly/moex-baseline-update`
 - Role:
   - keep refresh window metadata
   - record job evidence
+  - preserve pending changed windows if canonical refresh fails after raw update
   - support replay / recovery / audit
-- This may be implemented as:
-  - a small Delta technical table,
-  - or a JSON/Delta run ledger,
-  - or Delta commit metadata if that proves sufficient.
 
 ## Target Compute / Orchestration Split
 
@@ -151,13 +146,13 @@ Python remains responsible for MOEX-specific ingest behavior:
 - timeout / disconnect retries
 - source request logs
 - watermark calculation
-- raw delta append into candidate raw layer
+- raw delta append into the authoritative raw baseline
 
 This is the right place for source-aware logic because Spark is a bad fit for external HTTP retry choreography.
 
 ### Spark responsibility
 Spark becomes the heavy compute engine for:
-- canonical refresh from baseline raw + candidate raw
+- canonical refresh from authoritative baseline raw
 - deterministic resampling
 - provenance rebuild for touched windows
 - compact / optimize / maintenance jobs
@@ -171,21 +166,31 @@ Dagster becomes the orchestrator for:
 - asset graph
 - retries
 - quality checks
-- promotion gating
+- baseline update gating
 - operational visibility
 - backfill and rerun management
 
-The Dagster route is now implemented as the canonical orchestration owner. The old Python scripts may still exist only as migration artifacts:
-- `scripts/run_moex_phase01_foundation.py`
-- `scripts/run_moex_phase02_canonical.py`
+The Dagster route is now implemented as the canonical baseline update owner. The manual Python tools may still exist only as bounded support entrypoints:
+- `scripts/run_moex_raw_ingest.py`
+- `scripts/run_moex_canonical_refresh.py`
+- `scripts/run_moex_baseline_update.py`
 
 They are not the target-state operator-facing route under the active governed planning baseline.
 
 ## Target Job Set
 
-The optimized nightly contour should expose only two operator-facing data jobs.
+The optimized route exposes one scheduled baseline update job with two internal data steps.
 
-### Job 1. `moex_raw_ingest`
+### Scheduled job. `moex_baseline_update_job`
+- Engine: Dagster asset job
+- Schedule: `moex_baseline_daily_update_schedule`
+- Default window:
+  - `refresh_window_days=7`
+  - `contract_discovery_lookback_days=45`
+  - `refresh_overlap_minutes=180`
+  - `max_changed_window_days=10`
+
+### Internal step 1. `moex_raw_ingest`
 - Engine: Python
 - Inputs:
   - MOEX ISS
@@ -196,7 +201,7 @@ The optimized nightly contour should expose only two operator-facing data jobs.
   - touched-window manifest
   - ingest evidence
 
-### Job 2. `moex_canonical_refresh`
+### Internal step 2. `moex_canonical_refresh`
 - Engine: Spark
 - Inputs:
   - authoritative raw delta
@@ -209,8 +214,9 @@ The optimized nightly contour should expose only two operator-facing data jobs.
 ### Orchestration control
 - Dagster is responsible for:
   - deciding the refresh window
-  - launching Job 1 and Job 2 in order
-  - blocking Job 2 if Job 1 fails validation
+  - launching raw ingest and canonical refresh in order
+  - blocking canonical refresh if raw ingest fails validation
+  - preserving pending changed windows if canonical refresh fails after raw update
   - recording run status and retry behavior
 
 ## Incremental Refresh Model
@@ -272,37 +278,11 @@ This is currently an execution-state path:
 
 It is not yet a fully landed first-class live broker market-data pipeline for quotes/orderbook/bars in the same degree of closure.
 
-## Migration Plan
-
-### Stage 0 - Baseline freeze
-- Keep the pinned data-root baseline layout authoritative.
-- No more full-horizon nightly rebuilds as the default refresh path.
-
-### Stage 1 - Candidate raw delta
-- Introduce a candidate raw root and refresh manifest.
-- Compute delta from baseline watermark instead of from an empty run folder.
-- Keep Python for source fetch and diagnostics.
-
-### Stage 2 - Spark canonical refresh
-- Refactor phase-02 refresh into a Spark-driven candidate canonical job.
-- Scope recompute to touched windows and contracts only.
-
-### Stage 3 - Dagster orchestration
-- Keep nightly scheduling, retries, and promotion gates in Dagster as the canonical route owner.
-- Keep direct Python scripts only as bounded migration/debug entrypoints; they are not the operator-facing default path.
-
-### Stage 4 - Promotion hardening
-- Read-only baseline outside promotion.
-- Promotion manifest, rollback pointer, and retention policy.
-
-### Stage 5 - Live broker market-data closure
-- Separate execution-state sync from live market-data feed ingestion.
-- Define explicit broker market-data contracts if the runtime is expected to consume them directly.
-
-## Acceptance Conditions For Nightly V2
-1. Default nightly reads raw watermark and does not request a full 4-year horizon.
+## Acceptance Conditions For Daily Baseline Update
+1. Default schedule reads raw watermark and does not request a full 4-year horizon.
 2. Raw ingest writes only delta plus bounded overlap.
 3. Canonical refresh is scoped to touched windows.
 4. Canonical refresh starts only after raw ingest validation passes.
-5. Raw and canonical stores remain long-lived authoritative stores rather than per-run full snapshots.
-6. Dagster is the canonical schedule/orchestration layer for the refresh contour.
+5. Raw and canonical stores remain long-lived authoritative stores, not per-run full snapshots.
+6. If canonical refresh fails after raw update, changed windows remain pending and must be retried on the next run.
+7. Dagster is the canonical schedule/orchestration layer for the baseline updater.

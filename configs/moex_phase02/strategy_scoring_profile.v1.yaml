@@ -1,0 +1,20 @@
+profile_version: strategy-scoring-profile.v1
+capital_rub: 1000000
+research_timeframes:
+  - 15m
+  - 1h
+  - 4h
+  - 1d
+  - 1w
+strategy_families:
+  - trend-following
+  - mean-reversion
+  - breakout-volatility
+criteria:
+  min_annual_return_pct: 30.0
+  max_negative_months_4y: 0
+  min_active_assets_count: 2
+  min_signals_per_week: 2.0
+  require_repeatable: true
+  min_sharpe_ratio: 1.2
+  max_drawdown_pct: 25.0

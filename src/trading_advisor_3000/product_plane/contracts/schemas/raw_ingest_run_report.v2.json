@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/raw_ingest_run_report.v2.json",
+  "title": "RawIngestRunReportV2",
+  "type": "object",
+  "required": [
+    "contract_version",
+    "run_id",
+    "generated_at_utc",
+    "ingest_till_utc",
+    "status",
+    "status_semantics",
+    "source_rows",
+    "incremental_rows",
+    "deduplicated_rows",
+    "stale_rows",
+    "changed_windows",
+    "changed_windows_hash_sha256",
+    "watermark_by_key",
+    "raw_table_path",
+    "raw_ingest_progress_path",
+    "raw_ingest_error_path",
+    "raw_ingest_error_latest_path"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "raw_ingest_run_report.v2"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ingest_till_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["PASS", "PASS-NOOP", "BLOCKED", "FAILED"]
+    },
+    "status_semantics": {
+      "type": "object",
+      "required": ["pass_condition", "pass_noop_condition", "blocked_condition", "failed_condition"],
+      "properties": {
+        "pass_condition": {"type": "string", "minLength": 1},
+        "pass_noop_condition": {"type": "string", "minLength": 1},
+        "blocked_condition": {"type": "string", "minLength": 1},
+        "failed_condition": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "source_rows": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "incremental_rows": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "deduplicated_rows": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "stale_rows": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "changed_windows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "internal_id",
+          "source_timeframe",
+          "source_interval",
+          "moex_secid",
+          "window_start_utc",
+          "window_end_utc",
+          "incremental_rows"
+        ],
+        "properties": {
+          "internal_id": {"type": "string", "minLength": 1},
+          "source_timeframe": {"type": "string", "minLength": 1},
+          "source_interval": {"type": "integer", "minimum": 0},
+          "moex_secid": {"type": "string", "minLength": 1},
+          "window_start_utc": {"type": "string", "minLength": 1},
+          "window_end_utc": {"type": "string", "minLength": 1},
+          "incremental_rows": {"type": "integer", "minimum": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "changed_windows_hash_sha256": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "watermark_by_key": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "raw_table_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "raw_ingest_progress_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "raw_ingest_error_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "raw_ingest_error_latest_path": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

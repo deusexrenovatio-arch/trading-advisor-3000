@@ -17,7 +17,10 @@ jobs:
       mode: parallel_sharded
       worker_count: 4
       shard_strategy: round_robin_active_universe
-      entrypoint: scripts/run_moex_nightly_backfill.py
+      entrypoint: scripts/run_moex_baseline_update.py
+      refresh_window_days: 7
+      contract_discovery_lookback_days: 45
+      max_changed_window_days: 10
       expected_completion_local: "06:00"
     retry:
       max_attempts: 4
