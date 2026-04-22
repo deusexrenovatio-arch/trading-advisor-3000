@@ -84,6 +84,44 @@ def test_phase02_qc_fails_when_duplicate_bar_key_is_present() -> None:
     assert "unique_bar_key" in qc_report["failed_gates"]
 
 
+def test_phase02_qc_monotonicity_is_independent_of_physical_row_order() -> None:
+    later = CanonicalBar(
+        contract_id="BRM6@MOEX",
+        instrument_id="FUT_BR",
+        timeframe=Timeframe.M5,
+        ts="2026-04-02T10:05:00Z",
+        open=101.0,
+        high=102.0,
+        low=100.0,
+        close=101.5,
+        volume=100,
+        open_interest=0,
+    )
+    earlier = CanonicalBar(
+        contract_id="BRM6@MOEX",
+        instrument_id="FUT_BR",
+        timeframe=Timeframe.M5,
+        ts="2026-04-02T10:00:00Z",
+        open=100.0,
+        high=101.0,
+        low=99.0,
+        close=100.5,
+        volume=90,
+        open_interest=0,
+    )
+
+    qc_report = run_qc_gates(
+        bars=[later, earlier],
+        provenance_rows=[
+            _provenance(timeframe="5m", ts="2026-04-02T10:05:00Z"),
+            _provenance(timeframe="5m", ts="2026-04-02T10:00:00Z"),
+        ],
+        run_id="phase02-qc-row-order",
+    )
+
+    assert qc_report["status"] == "PASS"
+
+
 def test_phase02_contract_compatibility_detects_schema_drift(tmp_path: Path) -> None:
     schema_path = (
         tmp_path

@@ -12,7 +12,7 @@ from .foundation import (
     _append_progress_event,
     _write_coverage_artifacts,
     discover_coverage,
-    ingest_moex_bootstrap_window,
+    ingest_moex_baseline_window,
     load_mapping_registry,
     load_universe,
     validate_mapping_registry,
@@ -171,13 +171,13 @@ def run_moex_baseline_update(
     )
     coverage_json, coverage_csv = _write_coverage_artifacts(coverage, output_dir=run_dir)
 
-    raw_report = ingest_moex_bootstrap_window(
+    raw_report = ingest_moex_baseline_window(
         client=client,
         coverage=coverage,
         table_path=raw_table_path,
         run_id=run_id,
         ingest_till_utc=ingest_till_utc,
-        bootstrap_window_days=refresh_window_days,
+        refresh_window_days=refresh_window_days,
         stability_lag_minutes=stability_lag_minutes,
         refresh_overlap_minutes=refresh_overlap_minutes,
         progress_path=run_dir / "raw-ingest-progress.jsonl",

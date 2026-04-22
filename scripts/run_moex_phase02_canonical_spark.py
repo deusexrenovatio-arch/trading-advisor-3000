@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -42,6 +43,8 @@ from trading_advisor_3000.spark_jobs.moex_canonicalization_job import run_moex_c
 DEFAULT_DOCKER_IMAGE = "ta3000-phase-proof:latest"
 DEFAULT_DOCKERFILE = Path("deployment/docker/phase-proofs/Dockerfile")
 DEFAULT_DOCKER_RUNTIME_ROOT = "/tmp/ta3000-phase-proof"
+DEFAULT_DOCKER_DATA_ROOT = "/ta3000-data/moex-historical"
+MOEX_HISTORICAL_DATA_ROOT_ENV = "TA3000_MOEX_HISTORICAL_DATA_ROOT"
 
 
 def _repo_root() -> Path:
@@ -52,12 +55,27 @@ def _resolve_repo_path(path: Path) -> Path:
     return resolve_repo_path(path, repo_root=_repo_root())
 
 
+def _external_mount_roots() -> list[tuple[Path, str]]:
+    raw_root = os.environ.get(MOEX_HISTORICAL_DATA_ROOT_ENV, "").strip()
+    if not raw_root:
+        return []
+    return [(Path(raw_root).expanduser().resolve(), DEFAULT_DOCKER_DATA_ROOT)]
+
+
 def _container_path(path: Path) -> str:
-    return host_to_container_path(path, repo_root=_repo_root().resolve())
+    return host_to_container_path(
+        path,
+        repo_root=_repo_root().resolve(),
+        extra_roots=_external_mount_roots(),
+    )
 
 
 def _hostify_container_path(value: str) -> str:
-    return container_to_host_path(value, repo_root=_repo_root().resolve())
+    return container_to_host_path(
+        value,
+        repo_root=_repo_root().resolve(),
+        extra_roots=_external_mount_roots(),
+    )
 
 
 def _ensure_docker_image(image: str, dockerfile: Path) -> None:
@@ -177,17 +195,30 @@ def _run_in_docker(
         f"HOME={runtime_root}",
         "-e",
         f"TA3000_SPARK_RUNTIME_ROOT={runtime_root}",
-        image,
-        *_docker_exec_args(
-            normalized_source_jsonl=normalized_source_jsonl,
-            selected_source_intervals_jsonl=selected_source_intervals_jsonl,
-            output_dir=output_dir,
-            run_id=run_id,
-            built_at_utc=built_at_utc,
-            spark_master=spark_master,
-            output_json=output_json,
-        ),
     ]
+    for host_root, container_root in _external_mount_roots():
+        command.extend(
+            [
+                "-v",
+                f"{host_root}:{container_root}",
+                "-e",
+                f"{MOEX_HISTORICAL_DATA_ROOT_ENV}={container_root}",
+            ]
+        )
+    command.extend(
+        [
+            image,
+            *_docker_exec_args(
+                normalized_source_jsonl=normalized_source_jsonl,
+                selected_source_intervals_jsonl=selected_source_intervals_jsonl,
+                output_dir=output_dir,
+                run_id=run_id,
+                built_at_utc=built_at_utc,
+                spark_master=spark_master,
+                output_json=output_json,
+            ),
+        ]
+    )
 
     completed = subprocess.run(
         command,

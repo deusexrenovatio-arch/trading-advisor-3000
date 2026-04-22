@@ -12,6 +12,7 @@ from trading_advisor_3000.product_plane.data_plane.moex import build_raw_ingest_
 RAW_COLUMNS: dict[str, str] = {
     "internal_id": "string",
     "finam_symbol": "string",
+    "moex_secid": "string",
     "timeframe": "string",
     "source_interval": "int",
     "ts_open": "timestamp",
@@ -42,6 +43,7 @@ def _raw_rows(*, with_source_provider: bool) -> list[dict[str, object]]:
             {
                 "internal_id": "FUT_BR",
                 "finam_symbol": "BRM6@MOEX",
+                "moex_secid": "BRM6",
                 "timeframe": "1m",
                 "source_interval": 1,
                 "ts_open": _iso(ts_open),
@@ -76,6 +78,7 @@ def _raw_rows_with_daily_only_contract(*, with_source_provider: bool) -> list[di
             {
                 "internal_id": "FUT_WHEAT",
                 "finam_symbol": "W4J6@MOEX",
+                "moex_secid": "W4J6",
                 "timeframe": "1d",
                 "source_interval": 24,
                 "ts_open": _iso(ts_open),

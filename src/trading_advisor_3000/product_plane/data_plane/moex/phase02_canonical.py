@@ -90,6 +90,7 @@ PROVENANCE_COLUMNS: dict[str, str] = {
 RAW_SCOPE_COLUMNS: tuple[str, ...] = (
     "internal_id",
     "finam_symbol",
+    "moex_secid",
     "timeframe",
     "source_interval",
     "ts_open",
@@ -456,7 +457,11 @@ def run_qc_gates(
         else:
             provenance_by_key[key] = row
 
-    for bar in bars:
+    ordered_bars = sorted(
+        bars,
+        key=lambda item: (item.contract_id, item.instrument_id, item.timeframe.value, item.ts),
+    )
+    for bar in ordered_bars:
         key = (bar.contract_id, bar.timeframe.value, bar.ts)
         if key in seen_keys:
             unique_errors.append(f"duplicate key: {bar.contract_id}/{bar.timeframe.value}/{bar.ts}")
@@ -1586,8 +1591,14 @@ def run_phase02_canonical(
                         )
 
     if scoped_merge:
-        canonical_rows = list(scoped_canonical_rows)
-        provenance_rows = list(scoped_provenance_rows)
+        canonical_rows = sorted(
+            scoped_canonical_rows,
+            key=lambda item: (item.contract_id, item.instrument_id, item.timeframe.value, item.ts),
+        )
+        provenance_rows = sorted(
+            scoped_provenance_rows,
+            key=lambda item: (item.contract_id, item.instrument_id, item.timeframe, item.ts),
+        )
     else:
         canonical_rows = _merge_scoped_canonical_rows(
             existing_rows=existing_canonical_rows,
@@ -1688,8 +1699,8 @@ def run_phase02_canonical(
         _apply_scoped_delete_insert(
             bars_path=bars_path,
             provenance_path=provenance_path,
-            scoped_bars=scoped_canonical_rows,
-            scoped_provenance=scoped_provenance_rows,
+            scoped_bars=canonical_rows,
+            scoped_provenance=provenance_rows,
             affected_keys=affected_keys,
         )
     elif mutation_required:

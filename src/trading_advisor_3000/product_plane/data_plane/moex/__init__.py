@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from .foundation import (
         DiscoveryRecord,
         FoundationRunReport,
+        ingest_moex_baseline_window,
         ingest_moex_bootstrap_window,
         load_mapping_registry,
         load_universe,
@@ -54,6 +55,7 @@ _MODULE_EXPORTS = {
     "build_phase03_staging_binding_report": (".phase03_staging_binding", "build_phase03_staging_binding_report"),
     "build_raw_ingest_run_report_v2": (".historical_route_contracts", "build_raw_ingest_run_report_v2"),
     "heartbeat_technical_route_lease": (".historical_route_contracts", "heartbeat_technical_route_lease"),
+    "ingest_moex_baseline_window": (".foundation", "ingest_moex_baseline_window"),
     "ingest_moex_bootstrap_window": (".foundation", "ingest_moex_bootstrap_window"),
     "ingest_finam_archive_snapshots": (".phase03_reconciliation", "ingest_finam_archive_snapshots"),
     "load_mapping_registry": (".foundation", "load_mapping_registry"),

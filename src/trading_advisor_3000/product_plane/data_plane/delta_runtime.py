@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 import json
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -141,6 +142,27 @@ def count_delta_table_rows(table_path: Path) -> int:
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
     table = DeltaTable(str(table_path))
     return int(table.to_pyarrow_dataset().count_rows())
+
+
+def iter_delta_table_row_batches(
+    table_path: Path,
+    *,
+    columns: list[str] | None = None,
+    batch_size: int = 65_536,
+) -> Iterator[list[dict[str, object]]]:
+    if not has_delta_log(table_path):
+        raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
+    if batch_size <= 0:
+        raise ValueError("batch_size must be > 0")
+    table = DeltaTable(str(table_path))
+    dataset = table.to_pyarrow_dataset()
+    for batch in dataset.to_batches(columns=columns, batch_size=batch_size):
+        rows = batch.to_pylist()
+        yield [
+            {str(key): _normalize_loaded_value(value) for key, value in row.items()}
+            for row in rows
+            if isinstance(row, dict)
+        ]
 
 
 def read_delta_table_rows(
