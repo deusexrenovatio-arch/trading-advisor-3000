@@ -24,12 +24,17 @@ from dagster import (
 )
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log
-from trading_advisor_3000.product_plane.data_plane.moex.foundation import run_phase01_foundation
+from trading_advisor_3000.product_plane.data_plane.moex.baseline_update import run_moex_baseline_update
 from trading_advisor_3000.product_plane.data_plane.moex.phase02_canonical import run_phase02_canonical
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
+    BASELINE_UPDATE_STORAGE_DIRNAME,
+    CANONICAL_BASELINE_BARS_FILENAME,
+    CANONICAL_BASELINE_PROVENANCE_FILENAME,
+    CANONICAL_BASELINE_ROOT_RELATIVE_PATH,
     CANONICAL_REFRESH_REPORT_FILENAME,
     CANONICAL_REFRESH_STORAGE_DIRNAME,
     configured_moex_historical_data_root,
+    RAW_BASELINE_TABLE_RELATIVE_PATH,
     RAW_INGEST_STORAGE_DIRNAME,
     ROUTE_REFRESH_REPORT_FILENAME,
     ROUTE_REFRESH_STORAGE_DIRNAME,
@@ -45,11 +50,13 @@ DEFAULT_TIMEFRAMES = "5m,15m,1h,4h,1d,1w"
 DEFAULT_WORKERS = 4
 DEFAULT_BATCH_SIZE = 250_000
 DEFAULT_EXECUTION_MODE = "parallel"
-DEFAULT_BOOTSTRAP_WINDOW_DAYS = 180
+DEFAULT_DAILY_REFRESH_WINDOW_DAYS = 7
+DEFAULT_BOOTSTRAP_WINDOW_DAYS = DEFAULT_DAILY_REFRESH_WINDOW_DAYS
 DEFAULT_STABILITY_LAG_MINUTES = 20
 DEFAULT_CONTRACT_DISCOVERY_STEP_DAYS = 14
-DEFAULT_CONTRACT_DISCOVERY_LOOKBACK_DAYS = 180
+DEFAULT_CONTRACT_DISCOVERY_LOOKBACK_DAYS = 45
 DEFAULT_REFRESH_OVERLAP_MINUTES = 180
+DEFAULT_MAX_CHANGED_WINDOW_DAYS = 10
 
 
 @dataclass(frozen=True)
@@ -93,15 +100,45 @@ MOEX_HISTORICAL_OP_CONFIG_SCHEMA = {
     "ingest_till_utc": DagsterField(str, is_required=False),
     "run_id": DagsterField(str, is_required=False),
 }
+MOEX_BASELINE_UPDATE_OP_CONFIG_SCHEMA = {
+    "mapping_registry_path": DagsterField(str, is_required=False),
+    "universe_path": DagsterField(str, is_required=False),
+    "raw_table_path": DagsterField(str, is_required=False),
+    "canonical_bars_path": DagsterField(str, is_required=False),
+    "canonical_provenance_path": DagsterField(str, is_required=False),
+    "evidence_root": DagsterField(str, is_required=False),
+    "timeframes": DagsterField(str, is_required=False),
+    "refresh_window_days": DagsterField(int, is_required=False),
+    "contract_discovery_lookback_days": DagsterField(int, is_required=False),
+    "contract_discovery_step_days": DagsterField(int, is_required=False),
+    "refresh_overlap_minutes": DagsterField(int, is_required=False),
+    "max_changed_window_days": DagsterField(int, is_required=False),
+    "stability_lag_minutes": DagsterField(int, is_required=False),
+    "expand_contract_chain": DagsterField(bool, is_required=False),
+    "ingest_till_utc": DagsterField(str, is_required=False),
+    "run_id": DagsterField(str, is_required=False),
+}
 MOEX_HISTORICAL_CUTOVER_JOB_NAME = "moex_historical_cutover_job"
-MOEX_HISTORICAL_NIGHTLY_SCHEDULE_NAME = "moex_historical_nightly_schedule"
-MOEX_HISTORICAL_NIGHTLY_CRON = "0 2 * * *"
+MOEX_BASELINE_UPDATE_JOB_NAME = "moex_baseline_update_job"
+MOEX_BASELINE_DAILY_SCHEDULE_NAME = "moex_baseline_daily_update_schedule"
+MOEX_BASELINE_DAILY_CRON = "0 2 * * *"
+MOEX_HISTORICAL_NIGHTLY_SCHEDULE_NAME = MOEX_BASELINE_DAILY_SCHEDULE_NAME
+MOEX_HISTORICAL_NIGHTLY_CRON = MOEX_BASELINE_DAILY_CRON
 MOEX_HISTORICAL_EXECUTION_TIMEZONE = "Europe/Moscow"
 MOEX_HISTORICAL_RETRY_POLICY = RetryPolicy(max_retries=3, delay=60)
 
 
 def moex_historical_asset_specs() -> list[AssetSpec]:
     return [
+        AssetSpec(
+            key="moex_baseline_update",
+            description=(
+                "Daily baseline updater for MOEX historical data. "
+                "Appends/merges fresh raw bars into the stable raw baseline and Spark-refreshes only changed canonical windows."
+            ),
+            inputs=("moex_iss", "mapping_registry", "universe", "baseline_raw", "baseline_canonical"),
+            outputs=("baseline-update-report.json",),
+        ),
         AssetSpec(
             key="moex_raw_ingest",
             description=(
@@ -163,6 +200,59 @@ def _build_nightly_schedule_run_config(context) -> dict[str, object]:
                 "config": {
                     "canonicalization_root": (artifact_root / CANONICAL_REFRESH_STORAGE_DIRNAME).as_posix(),
                     "canonical_run_id": run_id,
+                }
+            },
+        }
+    }
+
+
+def _split_timeframes(raw: str) -> set[str]:
+    values = {item.strip() for item in raw.split(",") if item.strip()}
+    if not values:
+        raise RuntimeError("moex baseline update requires at least one timeframe")
+    return values
+
+
+def _baseline_paths_from_root(root: Path) -> dict[str, Path]:
+    canonical_root = root / CANONICAL_BASELINE_ROOT_RELATIVE_PATH
+    return {
+        "raw_table_path": root / RAW_BASELINE_TABLE_RELATIVE_PATH,
+        "canonical_bars_path": canonical_root / CANONICAL_BASELINE_BARS_FILENAME,
+        "canonical_provenance_path": canonical_root / CANONICAL_BASELINE_PROVENANCE_FILENAME,
+        "evidence_root": root / BASELINE_UPDATE_STORAGE_DIRNAME,
+    }
+
+
+def _build_baseline_daily_schedule_run_config(context) -> dict[str, object]:
+    scheduled_execution_time = getattr(context, "scheduled_execution_time", None)
+    run_id = _default_route_run_id(scheduled_execution_time=scheduled_execution_time)
+    ingest_till_utc = (
+        scheduled_execution_time.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        if scheduled_execution_time is not None
+        else datetime.now(tz=UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    )
+    artifact_root = _route_artifact_root()
+    paths = _baseline_paths_from_root(artifact_root)
+    return {
+        "ops": {
+            "moex_baseline_update": {
+                "config": {
+                    "mapping_registry_path": DEFAULT_MAPPING_REGISTRY.as_posix(),
+                    "universe_path": DEFAULT_UNIVERSE.as_posix(),
+                    "raw_table_path": paths["raw_table_path"].as_posix(),
+                    "canonical_bars_path": paths["canonical_bars_path"].as_posix(),
+                    "canonical_provenance_path": paths["canonical_provenance_path"].as_posix(),
+                    "evidence_root": paths["evidence_root"].as_posix(),
+                    "timeframes": DEFAULT_TIMEFRAMES,
+                    "refresh_window_days": DEFAULT_DAILY_REFRESH_WINDOW_DAYS,
+                    "contract_discovery_lookback_days": DEFAULT_CONTRACT_DISCOVERY_LOOKBACK_DAYS,
+                    "contract_discovery_step_days": DEFAULT_CONTRACT_DISCOVERY_STEP_DAYS,
+                    "refresh_overlap_minutes": DEFAULT_REFRESH_OVERLAP_MINUTES,
+                    "max_changed_window_days": DEFAULT_MAX_CHANGED_WINDOW_DAYS,
+                    "stability_lag_minutes": DEFAULT_STABILITY_LAG_MINUTES,
+                    "expand_contract_chain": True,
+                    "ingest_till_utc": ingest_till_utc,
+                    "run_id": run_id,
                 }
             },
         }
@@ -275,14 +365,14 @@ def _merge_run_config(left: dict[str, object], right: dict[str, object]) -> dict
 def build_moex_historical_dagster_binding_artifact() -> dict[str, object]:
     return {
         "job": {
-            "name": MOEX_HISTORICAL_CUTOVER_JOB_NAME,
-            "asset_keys": list(MOEX_HISTORICAL_ASSET_KEYS),
+            "name": MOEX_BASELINE_UPDATE_JOB_NAME,
+            "asset_keys": ["moex_baseline_update"],
         },
         "schedule": {
-            "name": MOEX_HISTORICAL_NIGHTLY_SCHEDULE_NAME,
-            "cron": MOEX_HISTORICAL_NIGHTLY_CRON,
+            "name": MOEX_BASELINE_DAILY_SCHEDULE_NAME,
+            "cron": MOEX_BASELINE_DAILY_CRON,
             "execution_timezone": MOEX_HISTORICAL_EXECUTION_TIMEZONE,
-            "default_status": DefaultScheduleStatus.STOPPED.value,
+            "default_status": DefaultScheduleStatus.RUNNING.value,
         },
         "retry_policy": {
             "max_retries": MOEX_HISTORICAL_RETRY_POLICY.max_retries,
@@ -436,6 +526,101 @@ def _run_python_raw_ingest_route(op_config: dict[str, object]) -> dict[str, obje
 
 
 @asset(
+    group_name="moex_baseline_update",
+    config_schema=MOEX_BASELINE_UPDATE_OP_CONFIG_SCHEMA,
+    retry_policy=MOEX_HISTORICAL_RETRY_POLICY,
+)
+def moex_baseline_update(context) -> dict[str, object]:
+    op_config = _op_config_from_context(context)
+    artifact_root = _route_artifact_root()
+    default_paths = _baseline_paths_from_root(artifact_root)
+
+    mapping_registry_path = Path(
+        _text_value(op_config, "mapping_registry_path") or DEFAULT_MAPPING_REGISTRY.as_posix()
+    ).resolve()
+    universe_path = Path(_text_value(op_config, "universe_path") or DEFAULT_UNIVERSE.as_posix()).resolve()
+    raw_table_path = Path(
+        _text_value(op_config, "raw_table_path") or default_paths["raw_table_path"].as_posix()
+    ).resolve()
+    canonical_bars_path = Path(
+        _text_value(op_config, "canonical_bars_path") or default_paths["canonical_bars_path"].as_posix()
+    ).resolve()
+    canonical_provenance_path = Path(
+        _text_value(op_config, "canonical_provenance_path")
+        or default_paths["canonical_provenance_path"].as_posix()
+    ).resolve()
+    evidence_root = Path(
+        _text_value(op_config, "evidence_root") or default_paths["evidence_root"].as_posix()
+    ).resolve()
+    run_id = _text_value(op_config, "run_id", "canonical_run_id") or _default_route_run_id()
+    ingest_till_utc = _text_value(op_config, "ingest_till_utc") or datetime.now(tz=UTC).replace(
+        microsecond=0
+    ).isoformat().replace("+00:00", "Z")
+
+    report = run_moex_baseline_update(
+        mapping_registry_path=mapping_registry_path,
+        universe_path=universe_path,
+        raw_table_path=raw_table_path,
+        canonical_bars_path=canonical_bars_path,
+        canonical_provenance_path=canonical_provenance_path,
+        evidence_dir=evidence_root,
+        run_id=run_id,
+        timeframes=_split_timeframes(_text_value(op_config, "timeframes") or DEFAULT_TIMEFRAMES),
+        ingest_till_utc=ingest_till_utc,
+        refresh_window_days=_int_value(
+            op_config,
+            "refresh_window_days",
+            default=DEFAULT_DAILY_REFRESH_WINDOW_DAYS,
+        ),
+        contract_discovery_lookback_days=_int_value(
+            op_config,
+            "contract_discovery_lookback_days",
+            default=DEFAULT_CONTRACT_DISCOVERY_LOOKBACK_DAYS,
+        ),
+        contract_discovery_step_days=_int_value(
+            op_config,
+            "contract_discovery_step_days",
+            default=DEFAULT_CONTRACT_DISCOVERY_STEP_DAYS,
+        ),
+        refresh_overlap_minutes=_int_value(
+            op_config,
+            "refresh_overlap_minutes",
+            default=DEFAULT_REFRESH_OVERLAP_MINUTES,
+        ),
+        max_changed_window_days=_int_value(
+            op_config,
+            "max_changed_window_days",
+            default=DEFAULT_MAX_CHANGED_WINDOW_DAYS,
+        ),
+        stability_lag_minutes=_int_value(
+            op_config,
+            "stability_lag_minutes",
+            default=DEFAULT_STABILITY_LAG_MINUTES,
+        ),
+        expand_contract_chain=_bool_value(op_config, "expand_contract_chain", default=True),
+        repo_root=REPO_ROOT,
+    )
+    if str(report.get("publish_decision", "")).strip() != "publish":
+        raise RuntimeError("moex baseline update did not publish")
+    context.add_output_metadata(
+        {
+            "mode": "baseline_update",
+            "source_rows": int(report.get("source_rows", 0) or 0),
+            "incremental_rows": int(report.get("incremental_rows", 0) or 0),
+            "current_changed_windows": int(report.get("current_changed_windows", 0) or 0),
+            "effective_changed_windows": int(report.get("effective_changed_windows", 0) or 0),
+            "scoped_canonical_rows": int(
+                dict(report.get("canonical_report", {}) or {}).get("scoped_canonical_rows", 0) or 0
+            ),
+            "canonical_rows": int(dict(report.get("canonical_report", {}) or {}).get("canonical_rows", 0) or 0),
+            "raw_table_path": str(report.get("raw_table_path", "")),
+            "canonical_bars_path": str(report.get("canonical_bars_path", "")),
+        }
+    )
+    return report
+
+
+@asset(
     group_name="moex_historical_cutover",
     config_schema=MOEX_HISTORICAL_OP_CONFIG_SCHEMA,
     retry_policy=MOEX_HISTORICAL_RETRY_POLICY,
@@ -513,14 +698,31 @@ def moex_canonical_refresh(context, moex_raw_ingest: dict[str, object]) -> dict[
             "canonical refresh step finished in blocked state and cannot represent the canonical route: "
             f"publish_decision={publish_decision or 'missing'}"
         )
+    context.add_output_metadata(
+        {
+            "source_rows": int(report.get("source_rows", 0) or 0),
+            "scoped_source_rows": int(report.get("scoped_source_rows", 0) or 0),
+            "changed_windows_count": int(report.get("changed_windows_count", 0) or 0),
+            "scoped_canonical_rows": int(report.get("scoped_canonical_rows", 0) or 0),
+            "canonical_rows": int(report.get("canonical_rows", 0) or 0),
+            "mutation_applied": bool(report.get("mutation_applied", False)),
+        }
+    )
     return report
 
 
 MOEX_HISTORICAL_ASSETS = (
+    moex_baseline_update,
     moex_raw_ingest,
     moex_canonical_refresh,
 )
 
+
+moex_baseline_update_job = define_asset_job(
+    name=MOEX_BASELINE_UPDATE_JOB_NAME,
+    selection=AssetSelection.groups("moex_baseline_update"),
+    op_retry_policy=MOEX_HISTORICAL_RETRY_POLICY,
+)
 
 moex_historical_cutover_job = define_asset_job(
     name=MOEX_HISTORICAL_CUTOVER_JOB_NAME,
@@ -528,24 +730,34 @@ moex_historical_cutover_job = define_asset_job(
     op_retry_policy=MOEX_HISTORICAL_RETRY_POLICY,
 )
 
-moex_historical_nightly_schedule = ScheduleDefinition(
-    name=MOEX_HISTORICAL_NIGHTLY_SCHEDULE_NAME,
+moex_historical_cutover_preview_schedule = ScheduleDefinition(
+    name="moex_historical_cutover_preview_schedule",
     job=moex_historical_cutover_job,
     cron_schedule=MOEX_HISTORICAL_NIGHTLY_CRON,
     run_config_fn=_build_nightly_schedule_run_config,
     execution_timezone=MOEX_HISTORICAL_EXECUTION_TIMEZONE,
     default_status=DefaultScheduleStatus.STOPPED,
+    description="Manual proof-only schedule definition for cutover tests; not registered as an active nightly schedule.",
+)
+
+moex_baseline_daily_update_schedule = ScheduleDefinition(
+    name=MOEX_BASELINE_DAILY_SCHEDULE_NAME,
+    job=moex_baseline_update_job,
+    cron_schedule=MOEX_BASELINE_DAILY_CRON,
+    run_config_fn=_build_baseline_daily_schedule_run_config,
+    execution_timezone=MOEX_HISTORICAL_EXECUTION_TIMEZONE,
+    default_status=DefaultScheduleStatus.RUNNING,
     description=(
-        "Canonical nightly Dagster schedule for the MOEX historical refresh route. "
-        "Dagster owns step ordering, Python owns raw ingest, and Spark owns canonical refresh."
+        "Daily Dagster schedule for the MOEX baseline updater. "
+        "It appends/merges fresh raw MOEX data into the stable baseline and Spark-refreshes only changed canonical windows."
     ),
 )
 
 
 moex_historical_definitions = Definitions(
     assets=list(MOEX_HISTORICAL_ASSETS),
-    schedules=[moex_historical_nightly_schedule],
-    jobs=[moex_historical_cutover_job],
+    schedules=[moex_baseline_daily_update_schedule],
+    jobs=[moex_baseline_update_job, moex_historical_cutover_job],
 )
 
 
@@ -553,11 +765,12 @@ def assert_moex_historical_definitions_executable(definitions: Definitions | Non
     defs = definitions or moex_historical_definitions
     try:
         repository = defs.get_repository_def()
+        repository.get_job(MOEX_BASELINE_UPDATE_JOB_NAME)
         job = repository.get_job(MOEX_HISTORICAL_CUTOVER_JOB_NAME)
     except Exception as exc:
         raise RuntimeError(
             "moex historical Dagster definitions are metadata-only or incomplete: "
-            "missing executable `moex_historical_cutover_job`."
+            "missing executable baseline update or cutover job."
         ) from exc
 
     expected_nodes = set(MOEX_HISTORICAL_ASSET_KEYS)
@@ -621,7 +834,7 @@ def execute_moex_historical_cutover_job(
             scheduled_execution_time=scheduled_execution_time,
             repository_def=repository,
         )
-        execution_data = moex_historical_nightly_schedule.evaluate_tick(schedule_context)
+        execution_data = moex_historical_cutover_preview_schedule.evaluate_tick(schedule_context)
         run_requests = list(getattr(execution_data, "run_requests", []) or [])
         if len(run_requests) != 1:
             raise RuntimeError(
@@ -635,7 +848,7 @@ def execute_moex_historical_cutover_job(
             **tags,
         }
         schedule_payload = {
-            "name": moex_historical_nightly_schedule.name,
+            "name": moex_historical_cutover_preview_schedule.name,
             "cron": MOEX_HISTORICAL_NIGHTLY_CRON,
             "execution_timezone": MOEX_HISTORICAL_EXECUTION_TIMEZONE,
             "scheduled_execution_time": scheduled_execution_time.isoformat(),

@@ -122,6 +122,20 @@ def append_delta_table_rows(
     write_delta_table_rows(table_path=table_path, rows=rows, columns=columns, mode=mode)
 
 
+def delete_delta_table_rows(
+    *,
+    table_path: Path,
+    predicate: str,
+) -> None:
+    if not has_delta_log(table_path):
+        return
+    normalized_predicate = str(predicate).strip()
+    if not normalized_predicate:
+        raise ValueError("delta delete predicate must be non-empty")
+    table = DeltaTable(str(table_path))
+    table.delete(normalized_predicate)
+
+
 def count_delta_table_rows(table_path: Path) -> int:
     if not has_delta_log(table_path):
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")

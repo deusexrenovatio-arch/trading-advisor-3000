@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
+    from .baseline_update import run_moex_baseline_update
     from .foundation import (
         DiscoveryRecord,
         FoundationRunReport,
@@ -44,6 +45,7 @@ if TYPE_CHECKING:
 
 
 _MODULE_EXPORTS = {
+    "run_moex_baseline_update": (".baseline_update", "run_moex_baseline_update"),
     "DiscoveryRecord": (".foundation", "DiscoveryRecord"),
     "FoundationRunReport": (".foundation", "FoundationRunReport"),
     "MoexISSClient": (".iss_client", "MoexISSClient"),

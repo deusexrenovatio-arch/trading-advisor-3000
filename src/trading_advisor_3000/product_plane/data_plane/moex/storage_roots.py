@@ -9,6 +9,7 @@ RAW_INGEST_STORAGE_DIRNAME = "moex-raw-ingest"
 CANONICAL_REFRESH_STORAGE_DIRNAME = "moex-canonical-refresh"
 ROUTE_REFRESH_STORAGE_DIRNAME = "moex-route-refresh"
 DAGSTER_ROUTE_STORAGE_DIRNAME = "moex-dagster-route"
+BASELINE_UPDATE_STORAGE_DIRNAME = "moex-baseline-update"
 RECONCILIATION_STORAGE_DIRNAME = "moex-reconciliation"
 STAGING_BINDING_STORAGE_DIRNAME = "moex-staging-binding"
 OPERATIONS_READINESS_STORAGE_DIRNAME = "moex-operations-readiness"
@@ -23,6 +24,11 @@ OPERATIONS_READINESS_REPORT_FILENAME = "operations-readiness-report.json"
 RAW_INGEST_ACCEPTANCE_FILENAME = "raw-ingest-acceptance.json"
 CANONICAL_REFRESH_ACCEPTANCE_FILENAME = "canonical-refresh-acceptance.json"
 RECONCILIATION_ACCEPTANCE_FILENAME = "reconciliation-acceptance.json"
+
+RAW_BASELINE_TABLE_RELATIVE_PATH = Path("raw") / "moex" / "baseline-4y-current" / "raw_moex_history.delta"
+CANONICAL_BASELINE_ROOT_RELATIVE_PATH = Path("canonical") / "moex" / "baseline-4y-current"
+CANONICAL_BASELINE_BARS_FILENAME = "canonical_bars.delta"
+CANONICAL_BASELINE_PROVENANCE_FILENAME = "canonical_bar_provenance.delta"
 
 
 def _ensure_external_path(*, path: Path, repo_root: Path, field_name: str) -> Path:

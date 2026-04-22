@@ -69,9 +69,9 @@ It may be used only for explicit forensic reruns and is blocked by default.
 Do not use that script as the normal overnight historical refresh path.
 
 The authoritative routing decision is:
-- scheduled ownership: `Dagster -> Python raw ingest -> Spark canonical refresh`
-- scheduled raw-ingest mode: shared contract discovery once per run, then shard-only candle ingest
-- scheduled refresh horizon: bounded rolling window (`bootstrap_window_days=180`, `contract_discovery_lookback_days=180`) instead of nightly full-history replay
+- scheduled ownership: `moex_baseline_update_job`
+- scheduled flow: `Dagster -> Python raw ingest into baseline raw -> Spark canonical refresh into baseline canonical`
+- scheduled refresh horizon: bounded daily window (`refresh_window_days=7`, `contract_discovery_lookback_days=45`, `max_changed_window_days=10`) instead of full-history replay
 - manual step tools only: `scripts/run_moex_raw_ingest.py` and `scripts/run_moex_canonical_refresh.py`
 
 Reference:

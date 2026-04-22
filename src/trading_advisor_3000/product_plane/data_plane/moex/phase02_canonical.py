@@ -12,7 +12,9 @@ from typing import Any
 
 from trading_advisor_3000.product_plane.contracts import CanonicalBar, Timeframe
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    append_delta_table_rows,
     count_delta_table_rows,
+    delete_delta_table_rows,
     has_delta_log,
     read_delta_table_rows,
     write_delta_table_rows,
@@ -111,6 +113,8 @@ RAW_INTERVAL_PROJECTION_COLUMNS: tuple[str, ...] = (
 
 STATUS_PASS = "PASS"
 STATUS_BLOCKED = "BLOCKED"
+CANONICAL_MERGE_FULL_OVERWRITE = "full_overwrite"
+CANONICAL_MERGE_SCOPED_DELETE_INSERT = "scoped_delete_insert"
 
 
 def _utc_now_iso() -> str:
@@ -1218,6 +1222,80 @@ def _merge_scoped_provenance_rows(
     )
 
 
+def _sql_quote(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _build_canonical_delete_predicate(affected_keys: set[tuple[str, str, str, str]]) -> str:
+    if not affected_keys:
+        return ""
+    ranges: dict[tuple[str, str, str], list[str]] = {}
+    for contract_id, instrument_id, timeframe, ts in affected_keys:
+        ranges.setdefault((contract_id, instrument_id, timeframe), []).append(ts)
+
+    clauses: list[str] = []
+    for (contract_id, instrument_id, timeframe), timestamps in sorted(ranges.items()):
+        start_ts = min(timestamps)
+        end_ts = max(timestamps)
+        clauses.append(
+            "("
+            f"contract_id = {_sql_quote(contract_id)} AND "
+            f"instrument_id = {_sql_quote(instrument_id)} AND "
+            f"timeframe = {_sql_quote(timeframe)} AND "
+            f"ts >= {_sql_quote(start_ts)} AND "
+            f"ts <= {_sql_quote(end_ts)}"
+            ")"
+        )
+    return " OR ".join(clauses)
+
+
+def _validate_changed_window_width(
+    *,
+    changed_windows: list[ChangedWindowScope],
+    max_changed_window_days: int | None,
+) -> None:
+    if max_changed_window_days is None:
+        return
+    if max_changed_window_days <= 0:
+        raise ValueError("`max_changed_window_days` must be > 0")
+    max_seconds = max_changed_window_days * 24 * 60 * 60
+    for window in changed_windows:
+        start = _parse_iso_utc(window.window_start_utc)
+        end = _parse_iso_utc(window.window_end_utc)
+        width_seconds = (end - start).total_seconds()
+        if width_seconds > max_seconds:
+            raise ValueError(
+                "canonical refresh window is wider than allowed for baseline update: "
+                f"{window.internal_id}/{window.source_timeframe}/{window.moex_secid} "
+                f"{window.window_start_utc}->{window.window_end_utc} "
+                f"width_days={width_seconds / 86400:.2f} max_days={max_changed_window_days}"
+            )
+
+
+def _apply_scoped_delete_insert(
+    *,
+    bars_path: Path,
+    provenance_path: Path,
+    scoped_bars: list[CanonicalBar],
+    scoped_provenance: list[CanonicalProvenance],
+    affected_keys: set[tuple[str, str, str, str]],
+) -> None:
+    predicate = _build_canonical_delete_predicate(affected_keys)
+    if predicate:
+        delete_delta_table_rows(table_path=bars_path, predicate=predicate)
+        delete_delta_table_rows(table_path=provenance_path, predicate=predicate)
+    append_delta_table_rows(
+        table_path=bars_path,
+        rows=[item.to_dict() for item in scoped_bars],
+        columns=CANONICAL_BAR_COLUMNS,
+    )
+    append_delta_table_rows(
+        table_path=provenance_path,
+        rows=[item.to_dict() for item in scoped_provenance],
+        columns=PROVENANCE_COLUMNS,
+    )
+
+
 def _rows_equal(
     *,
     left: list[dict[str, object]],
@@ -1372,23 +1450,41 @@ def run_phase02_canonical(
     run_id: str,
     raw_ingest_run_report: dict[str, object],
     repo_root: Path | None = None,
+    canonical_bars_path: Path | None = None,
+    canonical_provenance_path: Path | None = None,
+    canonical_merge_strategy: str = CANONICAL_MERGE_FULL_OVERWRITE,
+    max_changed_window_days: int | None = None,
 ) -> dict[str, object]:
     if not isinstance(raw_ingest_run_report, dict):
         raise ValueError("`raw_ingest_run_report` must be object")
     repo_root = repo_root.resolve() if repo_root else Path(__file__).resolve().parents[5]
     if not has_delta_log(raw_table_path):
         raise FileNotFoundError(f"phase-02 raw source table missing `_delta_log`: {raw_table_path.as_posix()}")
+    if canonical_merge_strategy not in {
+        CANONICAL_MERGE_FULL_OVERWRITE,
+        CANONICAL_MERGE_SCOPED_DELETE_INSERT,
+    }:
+        raise ValueError(
+            "`canonical_merge_strategy` must be one of "
+            f"{CANONICAL_MERGE_FULL_OVERWRITE}|{CANONICAL_MERGE_SCOPED_DELETE_INSERT}"
+        )
 
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    bars_path = output_dir / "delta" / "canonical_bars.delta"
-    provenance_path = output_dir / "delta" / "canonical_bar_provenance.delta"
+    bars_path = (canonical_bars_path or (output_dir / "delta" / "canonical_bars.delta")).resolve()
+    provenance_path = (
+        canonical_provenance_path or (output_dir / "delta" / "canonical_bar_provenance.delta")
+    ).resolve()
 
     changed_windows_raw = raw_ingest_run_report.get("changed_windows", [])
     if not isinstance(changed_windows_raw, (list, tuple)):
         raise ValueError("`raw_ingest_run_report.changed_windows` must be list-like")
     normalized_changed_windows = normalize_changed_windows(list(changed_windows_raw))
     changed_window_scope = _prepare_changed_window_scope(normalized_changed_windows)
+    _validate_changed_window_width(
+        changed_windows=changed_window_scope,
+        max_changed_window_days=max_changed_window_days,
+    )
 
     changed_window_set_manifest = build_parity_manifest_v1(
         run_id=run_id,
@@ -1447,15 +1543,16 @@ def run_phase02_canonical(
         selected_source_intervals=selected_source_intervals,
     )
 
+    scoped_merge = canonical_merge_strategy == CANONICAL_MERGE_SCOPED_DELETE_INSERT
     existing_canonical_rows: list[CanonicalBar] = []
-    if has_delta_log(bars_path):
+    if has_delta_log(bars_path) and not scoped_merge:
         for row_index, payload in enumerate(read_delta_table_rows(bars_path)):
             if not isinstance(payload, dict):
                 continue
             existing_canonical_rows.append(CanonicalBar.from_dict(dict(payload)))
 
     existing_provenance_rows: list[CanonicalProvenance] = []
-    if has_delta_log(provenance_path):
+    if has_delta_log(provenance_path) and not scoped_merge:
         for row_index, payload in enumerate(read_delta_table_rows(provenance_path)):
             if not isinstance(payload, dict):
                 continue
@@ -1488,16 +1585,20 @@ def run_phase02_canonical(
                             _canonical_provenance_from_dict_lenient(dict(payload), row_index=row_index)
                         )
 
-    canonical_rows = _merge_scoped_canonical_rows(
-        existing_rows=existing_canonical_rows,
-        scoped_rows=scoped_canonical_rows,
-        affected_keys=affected_keys,
-    )
-    provenance_rows = _merge_scoped_provenance_rows(
-        existing_rows=existing_provenance_rows,
-        scoped_rows=scoped_provenance_rows,
-        affected_keys=affected_keys,
-    )
+    if scoped_merge:
+        canonical_rows = list(scoped_canonical_rows)
+        provenance_rows = list(scoped_provenance_rows)
+    else:
+        canonical_rows = _merge_scoped_canonical_rows(
+            existing_rows=existing_canonical_rows,
+            scoped_rows=scoped_canonical_rows,
+            affected_keys=affected_keys,
+        )
+        provenance_rows = _merge_scoped_provenance_rows(
+            existing_rows=existing_provenance_rows,
+            scoped_rows=scoped_provenance_rows,
+            affected_keys=affected_keys,
+        )
 
     raw_parity_report = _build_raw_parity_report(
         run_id=run_id,
@@ -1571,16 +1672,27 @@ def run_phase02_canonical(
         )
     ]
 
-    mutation_required = (
-        publish_allowed
-        and bool(changed_window_scope)
-        and (
-            not _rows_equal(left=existing_canonical_payload, right=canonical_rows_payload)
-            or not _rows_equal(left=existing_provenance_payload, right=provenance_rows_payload)
+    if scoped_merge:
+        mutation_required = publish_allowed and bool(changed_window_scope) and bool(scoped_canonical_rows)
+    else:
+        mutation_required = (
+            publish_allowed
+            and bool(changed_window_scope)
+            and (
+                not _rows_equal(left=existing_canonical_payload, right=canonical_rows_payload)
+                or not _rows_equal(left=existing_provenance_payload, right=provenance_rows_payload)
+            )
         )
-    )
 
-    if mutation_required:
+    if mutation_required and scoped_merge:
+        _apply_scoped_delete_insert(
+            bars_path=bars_path,
+            provenance_path=provenance_path,
+            scoped_bars=scoped_canonical_rows,
+            scoped_provenance=scoped_provenance_rows,
+            affected_keys=affected_keys,
+        )
+    elif mutation_required:
         write_delta_table_rows(
             table_path=bars_path,
             rows=canonical_rows_payload,
@@ -1617,10 +1729,16 @@ def run_phase02_canonical(
         "scoped_source_rows": len(scoped_raw_rows),
         "changed_windows_count": len(changed_window_scope),
         "changed_windows_hash_sha256": changed_window_set_manifest["changed_windows_hash_sha256"],
+        "canonical_merge_strategy": canonical_merge_strategy,
+        "max_changed_window_days": max_changed_window_days,
         "affected_key_count": len(affected_keys),
         "mutation_applied": mutation_required,
-        "canonical_rows": len(canonical_rows),
-        "provenance_rows": len(provenance_rows),
+        "canonical_rows": count_delta_table_rows(bars_path) if has_delta_log(bars_path) else len(canonical_rows),
+        "provenance_rows": (
+            count_delta_table_rows(provenance_path)
+            if has_delta_log(provenance_path)
+            else len(provenance_rows)
+        ),
         "scoped_canonical_rows": len(scoped_canonical_rows),
         "target_timeframes": [item.value for item in TARGET_TIMEFRAMES],
         "resampling_skips": _summarize_resampling_skips(resampling_skips),

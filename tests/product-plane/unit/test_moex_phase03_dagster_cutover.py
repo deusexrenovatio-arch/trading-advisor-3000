@@ -159,17 +159,19 @@ def test_phase03_dagster_cutover_definitions_are_executable(
 ) -> None:
     assert_moex_historical_definitions_executable()
     specs = {item.key: item for item in moex_historical_asset_specs()}
-    assert set(specs) == {"moex_raw_ingest", "moex_canonical_refresh"}
+    assert set(specs) == {"moex_baseline_update", "moex_raw_ingest", "moex_canonical_refresh"}
     assert specs["moex_canonical_refresh"].inputs == ("raw_ingest_owner_payload",)
     definitions = build_moex_historical_definitions()
     repository = definitions.get_repository_def()
     schedule_names = {schedule_def.name for schedule_def in repository.schedule_defs}
-    assert "moex_historical_nightly_schedule" in schedule_names
+    assert "moex_baseline_daily_update_schedule" in schedule_names
+    assert "moex_historical_nightly_schedule" not in schedule_names
     binding = build_moex_historical_dagster_binding_artifact()
     assert binding["schedule"]["cron"] == "0 2 * * *"
+    assert binding["job"]["name"] == "moex_baseline_update_job"
     assert binding["retry_policy"]["max_retries"] == 3
 
-    schedule_def = repository.get_schedule_def("moex_historical_nightly_schedule")
+    schedule_def = repository.get_schedule_def("moex_baseline_daily_update_schedule")
     schedule_context = build_schedule_context(
         instance=DagsterInstance.ephemeral(),
         repository_def=repository,
@@ -189,7 +191,7 @@ def test_phase03_schedule_fails_closed_without_external_data_root(
     monkeypatch.delenv(MOEX_HISTORICAL_DATA_ROOT_ENV, raising=False)
     definitions = build_moex_historical_definitions()
     repository = definitions.get_repository_def()
-    schedule_def = repository.get_schedule_def("moex_historical_nightly_schedule")
+    schedule_def = repository.get_schedule_def("moex_baseline_daily_update_schedule")
     schedule_context = build_schedule_context(
         instance=DagsterInstance.ephemeral(),
         repository_def=repository,

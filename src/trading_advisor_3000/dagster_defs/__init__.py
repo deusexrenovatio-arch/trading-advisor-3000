@@ -12,6 +12,8 @@ from .phase2a_assets import (
     phase2a_output_paths,
 )
 from .moex_historical_assets import (
+    MOEX_BASELINE_DAILY_SCHEDULE_NAME,
+    MOEX_BASELINE_UPDATE_JOB_NAME,
     MOEX_HISTORICAL_ASSETS,
     MOEX_HISTORICAL_CUTOVER_JOB_NAME,
     MOEX_HISTORICAL_NIGHTLY_SCHEDULE_NAME,
@@ -21,10 +23,13 @@ from .moex_historical_assets import (
     build_moex_historical_run_config,
     execute_moex_historical_cutover_job,
     materialize_moex_historical_assets,
+    moex_baseline_daily_update_schedule,
+    moex_baseline_update,
+    moex_baseline_update_job,
     moex_historical_asset_specs,
     moex_historical_cutover_job,
+    moex_historical_cutover_preview_schedule,
     moex_historical_definitions,
-    moex_historical_nightly_schedule,
     moex_historical_output_paths,
 )
 
@@ -57,6 +62,8 @@ except (ImportError, ModuleNotFoundError) as exc:
 
 __all__ = [
     "AssetSpec",
+    "MOEX_BASELINE_DAILY_SCHEDULE_NAME",
+    "MOEX_BASELINE_UPDATE_JOB_NAME",
     "PHASE2A_ASSETS",
     "MOEX_HISTORICAL_ASSETS",
     "MOEX_HISTORICAL_CUTOVER_JOB_NAME",
@@ -70,10 +77,13 @@ __all__ = [
     "execute_moex_historical_cutover_job",
     "materialize_moex_historical_assets",
     "materialize_phase2a_assets",
+    "moex_baseline_daily_update_schedule",
+    "moex_baseline_update",
+    "moex_baseline_update_job",
     "moex_historical_asset_specs",
     "moex_historical_cutover_job",
+    "moex_historical_cutover_preview_schedule",
     "moex_historical_definitions",
-    "moex_historical_nightly_schedule",
     "moex_historical_output_paths",
     "phase2a_asset_specs",
     "phase2a_definitions",

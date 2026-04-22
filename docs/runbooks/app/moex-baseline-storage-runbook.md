@@ -25,6 +25,22 @@ may be promoted into the data-root baseline layout.
 
 Later refresh attempts are non-authoritative until they are explicitly re-pinned.
 
+## Daily Baseline Update Rule
+After the baseline is pinned, routine updates must use the baseline updater, not per-run candidate folders:
+
+```bash
+export TA3000_MOEX_HISTORICAL_DATA_ROOT=D:/TA3000-data/trading-advisor-3000-nightly
+
+python scripts/run_moex_baseline_update.py \
+  --refresh-window-days 7 \
+  --contract-discovery-lookback-days 45 \
+  --refresh-overlap-minutes 180 \
+  --max-changed-window-days 10
+```
+
+The same code path is used by Dagster job `moex_baseline_update_job` and schedule `moex_baseline_daily_update_schedule`.
+The updater writes directly to the stable raw/canonical baseline paths and stores evidence under `moex-baseline-update/<run_id>/`.
+
 ## Pin Command
 Run from repository root:
 

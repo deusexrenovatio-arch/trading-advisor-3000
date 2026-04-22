@@ -151,7 +151,7 @@ def test_phase03_dagster_cutover_materializes_route_and_emits_recovery_artifacts
         assert bars
         if cycle["mode"] == "nightly":
             assert materialization["schedule"] is not None
-            assert materialization["schedule"]["name"] == "moex_historical_nightly_schedule"
+            assert materialization["schedule"]["name"] == "moex_historical_cutover_preview_schedule"
         else:
             assert materialization["schedule"] is None
 
