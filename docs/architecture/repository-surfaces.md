@@ -20,6 +20,7 @@ Use these exact terms in task notes and PRs:
 | `plans/*`, `memory/*` | shell | durable process state |
 | `docs/checklists/*`, `docs/workflows/*`, `docs/runbooks/*` | shell | governance contracts and operations |
 | `src/trading_advisor_3000/*` | product-plane | application runtime, contracts, and modules |
+| `src/trading_advisor_3000/dagster_defs/*`, `src/trading_advisor_3000/spark_jobs/*` | product-plane | data-plane execution definitions and Spark jobs; domain tokens are allowed here because these modules are product execution surfaces |
 | `tests/product-plane/*` | product-plane | product tests |
 | `docs/architecture/product-plane/*`, `docs/runbooks/app/*`, `docs/checklists/app/*`, `docs/workflows/app/*` | product-plane | product architecture and operational evidence |
 | `deployment/*` | product-plane | deploy and transport surfaces |
