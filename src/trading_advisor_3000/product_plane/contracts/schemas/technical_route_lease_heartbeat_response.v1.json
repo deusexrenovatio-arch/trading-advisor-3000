@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/technical_route_lease_heartbeat_response.v1.json",
+  "title": "TechnicalRouteLeaseHeartbeatResponseV1",
+  "type": "object",
+  "required": [
+    "contract_version",
+    "status",
+    "reason_code",
+    "route_id",
+    "lease_scope",
+    "lease_state",
+    "lease_backend",
+    "lease_version",
+    "holder_id",
+    "owner_job",
+    "requested_at_utc",
+    "heartbeat_at_utc",
+    "lease_token",
+    "expires_at_utc",
+    "released_at_utc",
+    "event_sequence",
+    "blocking_holder_id",
+    "blocking_lease_token",
+    "previous_lease_owner",
+    "retry_of_run_id",
+    "ledger_entry"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "technical_route_lease_heartbeat_response.v1"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["PASS", "PASS-NOOP", "BLOCKED", "FAILED"]
+    },
+    "reason_code": {
+      "type": "string",
+      "minLength": 1
+    },
+    "route_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "lease_scope": {
+      "const": "authoritative_store_route"
+    },
+    "lease_state": {
+      "type": "string",
+      "enum": [
+        "ACQUIRED",
+        "HEARTBEATING",
+        "RELEASED",
+        "EXPIRED",
+        "TAKEN_OVER",
+        "BLOCKED_CONFLICT"
+      ]
+    },
+    "lease_backend": {
+      "const": "delta-ledger-cas"
+    },
+    "lease_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "holder_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "owner_job": {
+      "type": ["string", "null"]
+    },
+    "requested_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "heartbeat_at_utc": {
+      "type": ["string", "null"]
+    },
+    "lease_token": {
+      "type": ["string", "null"]
+    },
+    "expires_at_utc": {
+      "type": ["string", "null"]
+    },
+    "released_at_utc": {
+      "type": ["string", "null"]
+    },
+    "event_sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "blocking_holder_id": {
+      "type": ["string", "null"]
+    },
+    "blocking_lease_token": {
+      "type": ["string", "null"]
+    },
+    "previous_lease_owner": {
+      "type": ["string", "null"]
+    },
+    "retry_of_run_id": {
+      "type": ["string", "null"]
+    },
+    "ledger_entry": {
+      "type": "object",
+      "required": [
+        "ledger_version",
+        "event_sequence",
+        "route_id",
+        "event_kind",
+        "status",
+        "lease_scope",
+        "lease_state",
+        "lease_backend",
+        "lease_version",
+        "holder_id"
+      ],
+      "properties": {
+        "ledger_version": {"const": "technical_route_run_ledger.v1"},
+        "event_sequence": {"type": "integer", "minimum": 1},
+        "route_id": {"type": "string", "minLength": 1},
+        "event_kind": {"const": "LEASE_HEARTBEAT"},
+        "status": {"type": "string", "enum": ["PASS", "PASS-NOOP", "BLOCKED", "FAILED"]},
+        "lease_scope": {"const": "authoritative_store_route"},
+        "lease_state": {"type": "string"},
+        "lease_backend": {"const": "delta-ledger-cas"},
+        "lease_version": {"type": "integer", "minimum": 1},
+        "holder_id": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

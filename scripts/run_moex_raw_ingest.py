@@ -13,13 +13,15 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from trading_advisor_3000.product_plane.data_plane.moex import run_phase01_foundation
+from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
+    RAW_INGEST_STORAGE_DIRNAME,
+    RAW_INGEST_SUMMARY_REPORT_FILENAME,
+    resolve_external_root,
+)
 
 
 DEFAULT_MAPPING_REGISTRY = Path("configs/moex_phase01/instrument_mapping_registry.v1.yaml")
 DEFAULT_UNIVERSE = Path("configs/moex_phase01/universe/moex-futures-priority.v1.yaml")
-DEFAULT_OUTPUT_ROOT = Path("artifacts/codex/moex-phase01")
-
-
 def _repo_root() -> Path:
     return ROOT
 
@@ -46,11 +48,21 @@ def _default_ingest_till_utc() -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Run MOEX Phase-01 Foundation workflow with discovery + deterministic bootstrap ingest + idempotent rerun proof."
+        description=(
+            "Run the MOEX raw-ingest tool for bootstrap, repair, and idempotent evidence capture: "
+            "discovery + deterministic bootstrap ingest + idempotent rerun proof."
+        )
     )
     parser.add_argument("--mapping-registry", default=DEFAULT_MAPPING_REGISTRY.as_posix())
     parser.add_argument("--universe", default=DEFAULT_UNIVERSE.as_posix())
-    parser.add_argument("--output-root", default=DEFAULT_OUTPUT_ROOT.as_posix())
+    parser.add_argument(
+        "--output-root",
+        default="",
+        help=(
+            "Absolute external root folder for raw-ingest artifacts. "
+            "Required unless TA3000_MOEX_HISTORICAL_DATA_ROOT is set."
+        ),
+    )
     parser.add_argument("--run-id", default="")
     parser.add_argument("--timeframes", default="5m,15m,1h,4h,1d,1w")
     parser.add_argument("--bootstrap-window-days", type=int, default=1461)
@@ -76,9 +88,20 @@ def main() -> None:
     parser.add_argument("--ingest-till-utc", default="")
     args = parser.parse_args()
 
+    print(
+        "route-note: scripts/run_moex_raw_ingest.py is the manual raw-ingest tool. "
+        "Dagster owns scheduled route ordering; use this command for bootstrap, repair, or evidence capture.",
+        flush=True,
+    )
+
     run_id = args.run_id.strip() or _default_run_id()
     ingest_till_utc = args.ingest_till_utc.strip() or _default_ingest_till_utc()
-    output_root = _resolve(Path(args.output_root))
+    output_root = resolve_external_root(
+        args.output_root,
+        repo_root=ROOT,
+        field_name="--output-root",
+        default_subdir=RAW_INGEST_STORAGE_DIRNAME,
+    )
     output_dir = output_root / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -154,12 +177,12 @@ def main() -> None:
         },
         "real_bindings": pass2.real_bindings,
     }
-    summary_path = output_dir / "phase01-foundation-report.json"
+    summary_path = output_dir / RAW_INGEST_SUMMARY_REPORT_FILENAME
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
     if not idempotent:
-        raise SystemExit("phase-01 idempotency disprover failed: second run added new rows")
+        raise SystemExit("raw-ingest idempotency proof failed: second run added new rows")
 
 
 if __name__ == "__main__":

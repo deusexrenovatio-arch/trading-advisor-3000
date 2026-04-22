@@ -1,5 +1,5 @@
 version: 1
-policy_id: moex-phase03-reconciliation-thresholds.v1
+policy_id: moex-reconciliation-thresholds.v1
 as_of_utc: "2026-04-02T00:00:00Z"
 
 required_dimensions:

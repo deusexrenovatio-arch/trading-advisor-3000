@@ -1150,15 +1150,15 @@ def run_phase04_production_hardening(
         "failed_gates": failed_gates,
         "unresolved_p1_p2_defects": unresolved_p1_p2,
         "checklist_status": checklist_status,
-        "phase_reports": {
-            "phase01": phase01_report_path.resolve().as_posix(),
-            "phase02": phase02_report_path.resolve().as_posix(),
-            "phase03": phase03_report_path.resolve().as_posix(),
+        "upstream_reports": {
+            "raw_ingest": phase01_report_path.resolve().as_posix(),
+            "canonical_refresh": phase02_report_path.resolve().as_posix(),
+            "reconciliation": phase03_report_path.resolve().as_posix(),
         },
-        "phase_acceptance_artifacts": {
-            "phase01": phase01_acceptance_path.resolve().as_posix(),
-            "phase02": phase02_acceptance_path.resolve().as_posix(),
-            "phase03": phase03_acceptance_path.resolve().as_posix(),
+        "upstream_acceptance_artifacts": {
+            "raw_ingest": phase01_acceptance_path.resolve().as_posix(),
+            "canonical_refresh": phase02_acceptance_path.resolve().as_posix(),
+            "reconciliation": phase03_acceptance_path.resolve().as_posix(),
         },
         "operations_evidence": {
             "scheduler_snapshot": scheduler_snapshot_path.as_posix(),
@@ -1206,12 +1206,12 @@ def run_phase04_production_hardening(
         "unresolved_p1_p2_defects": unresolved_p1_p2,
         "defects_report": defects_report,
         "input_paths": {
-            "phase01_report": phase01_report_path.resolve().as_posix(),
-            "phase02_report": phase02_report_path.resolve().as_posix(),
-            "phase03_report": phase03_report_path.resolve().as_posix(),
-            "phase01_acceptance": phase01_acceptance_path.resolve().as_posix(),
-            "phase02_acceptance": phase02_acceptance_path.resolve().as_posix(),
-            "phase03_acceptance": phase03_acceptance_path.resolve().as_posix(),
+            "raw_ingest_report": phase01_report_path.resolve().as_posix(),
+            "canonical_refresh_report": phase02_report_path.resolve().as_posix(),
+            "reconciliation_report": phase03_report_path.resolve().as_posix(),
+            "raw_ingest_acceptance": phase01_acceptance_path.resolve().as_posix(),
+            "canonical_refresh_acceptance": phase02_acceptance_path.resolve().as_posix(),
+            "reconciliation_acceptance": phase03_acceptance_path.resolve().as_posix(),
             "scheduler_policy": scheduler_policy_path.resolve().as_posix(),
             "scheduler_status_source": scheduler_status_source_path.resolve().as_posix(),
             "monitoring_policy": monitoring_policy_path.resolve().as_posix(),
@@ -1230,5 +1230,5 @@ def run_phase04_production_hardening(
         "real_bindings": real_bindings,
     }
 
-    _json_write(output_dir / "phase04-production-hardening-report.json", report)
+    _json_write(output_dir / "operations-readiness-report.json", report)
     return report

@@ -1,4 +1,4 @@
-﻿# Product Plane Status
+# Product Plane Status
 
 This document is the current truth source for implemented product-plane reality.
 It supersedes older phase-closure claims when they disagree.
@@ -15,11 +15,11 @@ It supersedes older phase-closure claims when they disagree.
 | Product-plane landing in shell repo | implemented | Code/tests/docs are isolated under product-plane paths. | None at baseline scope. |
 | Data/research/runtime scaffolding | implemented | Contracts, fixtures, runtime/research/data modules, and test slices exist. | Full production hardening is not implied. |
 | Research plane primary path | implemented | Public research execution now routes through the materialized `phase2b` path with explicit bootstrap, vectorbt backtest, ranking, projection, benchmark evidence, and operational CLI entrypoints. | Legacy compatibility shims still exist during the removal window, but they are no longer accepted as a primary route. |
-| MOEX history foundation contour (Etap 1) | implemented | Versioned MOEX universe + mapping registry, fail-closed mapping validation, real candleborders discovery, and deterministic bootstrap ingest workflow with idempotent rerun check are implemented under phase-01 surfaces; raw ingest preserves native MOEX source granularity (`1m`/`1h`/`1d`/`1w`) and keeps runtime `5m`/`15m`/`1h`/`4h`/`1d`/`1w` as downstream resampling targets. Universe covers commodity and index futures families with multi-contract chain discovery for long-horizon backfill. | Reconciliation and release decision contours remain out of scope for this slice. |
-| MOEX canonical/resampling contour (Etap 2) | implemented | Phase-02 canonical runner builds contract-safe canonical_bar.v1 outputs for runtime `5m`/`15m`/`1h`/`4h`/`1d`/`1w` via deterministic aggregation, writes provenance into a separate technical table, and emits fail-closed QC/compatibility/runtime-decoupling artifacts. A successful 4-year raw+canonical baseline was pinned from run `20260409T162421Z`. | Cross-source reconciliation and release decision contours remain out of scope for this slice. |
-| MOEX cross-source reconciliation contour (Etap 3) | in_progress | Phase-03 reconciliation runner ingests Finam archive snapshots with latency metadata, compares MOEX/Finam overlap windows on close/volume/missing/lag-class dimensions, persists queryable drift metrics, and emits threshold-driven alert/escalation artifacts with fail-closed publish behavior. | Phase acceptance for this contour is not yet granted; phase-04 operations hardening and final release decision remain out of scope for this slice. |
-| MOEX operations hardening contour (Etap 4) | in_progress | Phase-04 production hardening runner validates scheduler observability, monitoring signal coverage, recovery replay/rollback safety, and emits release decision bundle artifacts with fail-closed Gate A-D + P1/P2 checks. Night profile is set to 21:00 local backfill start with sharded worker mode for morning canonical readiness. | Live-real acceptance verdict is still external; the contour remains blocked until production evidence is accepted without blockers. |
-| MOEX historical route consolidation planning truth | in_progress | The active governed planning baseline is the `moex-historical-route-consolidation` contract/module pair: one operator-facing route, fixed `06:00 Europe/Moscow` morning publish target, no separate trust-gate in this module, and deterministic Phase 01-04 migration. Phase-01 contract materialization and the CAS lease API are landed; Phase-02 route code consumes `raw_ingest_run_report.v2`, scopes canonical recompute to governed `changed_windows`, emits parity artifacts, and preserves machine-safe `PASS-NOOP`; Phase-03 runtime surfaces now include a canonical Dagster cutover job, nightly schedule binding, retry policy, single-writer ledger enforcement, recovery/nightly-cycle proof artifacts, and an explicit staging evidence collection path that builds the external Dagster binding report consumed by the canonical runner. | Final governed acceptance of Dagster-only operating ownership, later Phase 04 cleanup closure, and removal of remaining legacy migration guidance are not landed yet. |
+| MOEX raw-ingest contour | implemented | Versioned MOEX universe + mapping registry, fail-closed mapping validation, real candleborders discovery, and deterministic raw-ingest workflow with idempotent rerun check are implemented under the raw-ingest surfaces; raw ingest preserves native MOEX source granularity (`1m`/`10m`/`1h`/`1d`/`1w`) and keeps runtime `5m`/`15m`/`1h`/`4h`/`1d`/`1w` as downstream resampling targets. Universe covers commodity and index futures families with multi-contract chain discovery for long-horizon backfill. | Reconciliation and release decision contours remain out of scope for this slice. |
+| MOEX canonical-refresh contour | in_progress | The canonical-refresh runner builds contract-safe `canonical_bar.v1` outputs for runtime `5m`/`15m`/`1h`/`4h`/`1d`/`1w` via deterministic aggregation, writes provenance into a separate technical table, and emits fail-closed QC/compatibility/runtime-decoupling artifacts. | Cross-source reconciliation and release decision contours remain out of scope for this slice. |
+| MOEX reconciliation contour | in_progress | The reconciliation runner ingests Finam archive snapshots with latency metadata, compares MOEX/Finam overlap windows on close/volume/missing/lag-class dimensions, persists queryable drift metrics, and emits threshold-driven alert/escalation artifacts with fail-closed publish behavior. | Acceptance for this contour is not yet granted; operations readiness and the final release decision remain out of scope for this slice. |
+| MOEX operations-readiness contour | in_progress | The operations-readiness runner validates scheduler observability, monitoring signal coverage, recovery replay/rollback safety, and emits release decision bundle artifacts with fail-closed Gate A-D + P1/P2 checks. Night profile is set to 21:00 local backfill start with sharded worker mode for morning canonical readiness. | Live-real acceptance verdict is still external; the contour remains blocked until production evidence is accepted without blockers. |
+| MOEX historical route consolidation planning truth | in_progress | The active governed planning baseline is the `moex-historical-route-consolidation` contract/module pair. Target route ownership is `Dagster -> Python raw ingest -> Spark canonical refresh`; main now includes the baseline update/cutover Dagster job surfaces, schedule binding, retry policy, and single-writer proof path. | Final governed acceptance of Dagster-only operating ownership, later cleanup closure, and removal of remaining legacy migration guidance are not landed yet. |
 | Runtime signal lifecycle | implemented | Candidate replay, publication lifecycle, close/cancel/expire flow, and signal-event history exist. | Multi-worker operational hardening is still future work. |
 | Durable runtime state | implemented | Runtime bootstrap now wires `staging/production` profiles to `PostgresSignalStore` and blocks non-durable fallbacks; restart proof is covered through the env bootstrap path. | HA topology, replication, and multi-region runtime recovery are not claimed. |
 | Service/API runtime surface | implemented | FastAPI ASGI runtime entrypoint boots through the same profile-aware durable runtime bootstrap and has smoke coverage for `/health` and `/ready`. | This is not yet a full production API perimeter (authn/z, rate limiting, external gateway hardening). |
@@ -34,14 +34,13 @@ It supersedes older phase-closure claims when they disagree.
 2. Do not treat staging gateway or sidecar stubs as proof of real broker execution closure.
 3. Do not treat shell `S8` operational proving as product `P7` scale-up closure.
 4. Do not treat legacy research compatibility routes as alternative primary paths when judging the research plane.
-4. Do not treat legacy research compatibility routes as alternative primary paths when judging the research plane.
 
 ## Accepted MOEX Baseline Storage
 - Data root: `D:/TA3000-data/trading-advisor-3000-nightly`
 - Authoritative canonical root: `D:/TA3000-data/trading-advisor-3000-nightly/canonical/moex/baseline-4y-current`
 - Authoritative raw root: `D:/TA3000-data/trading-advisor-3000-nightly/raw/moex/baseline-4y-current`
 - Accepted pinned run: `20260409T162421Z`
-- Downstream consumers must resolve raw and canonical Delta tables from the stable data-root baseline paths, not from the latest `moex-phase01/02/nightly` rerun folders.
+- Downstream consumers must resolve raw and canonical Delta tables from the stable data-root baseline paths, not from the latest route rerun folders.
 - Later reruns may be useful for refresh attempts, but they are non-authoritative until explicitly pinned into the data-root baseline layout.
 - Layout truth source: `docs/runbooks/app/moex-baseline-storage-runbook.md`
 
@@ -59,10 +58,9 @@ It supersedes older phase-closure claims when they disagree.
 - `5m` is excluded from the current medium-term promotion profile.
 - Approved instrument universe is defined in `docs/architecture/product-plane/approved-universe-v1.md`.
 - Promotion runs must use at least 3 instruments from the approved universe and pin the canonical baseline root + universe version in evidence artifacts.
+
 ## Live Decision Data Policy (Strict)
 1. Historical and batch datasets (including MOEX phase contours, canonical bars, and nightly backfill outputs) are not a valid source for intraday live decision-making.
 2. Intraday (`within-day`) trading decisions must be taken only from broker live data delivered through the real execution boundary (`StockSharp -> QUIK -> broker/Finam`).
 3. Before publishing or acting on any live signal, broker connectivity and live market state must be confirmed through the broker path; MOEX historical snapshots may be used only for research/backfill/analytics context.
 4. If broker live data is unavailable, stale, or not confirmed, live decision publication must remain fail-closed.
-
-

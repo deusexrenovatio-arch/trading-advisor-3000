@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/technical_route_run_ledger.v1.json",
+  "title": "TechnicalRouteRunLedgerV1",
+  "type": "object",
+  "required": [
+    "ledger_version",
+    "event_sequence",
+    "route_id",
+    "event_kind",
+    "status",
+    "status_reason",
+    "lease_scope",
+    "lease_state",
+    "lease_backend",
+    "lease_version",
+    "holder_id",
+    "owner_job",
+    "lease_token",
+    "expected_lease_token",
+    "requested_at_utc",
+    "heartbeat_at_utc",
+    "expires_at_utc",
+    "released_at_utc",
+    "blocking_holder_id",
+    "blocking_lease_token",
+    "previous_lease_owner",
+    "ttl_seconds",
+    "lease_timeout_sec",
+    "run_id",
+    "retry_of_run_id",
+    "changed_windows_hash",
+    "metadata_json"
+  ],
+  "properties": {
+    "ledger_version": {
+      "const": "technical_route_run_ledger.v1"
+    },
+    "event_sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "route_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "event_kind": {
+      "type": "string",
+      "enum": [
+        "LEASE_ACQUIRE",
+        "LEASE_HEARTBEAT",
+        "LEASE_TAKEOVER",
+        "LEASE_RELEASE",
+        "LEASE_CONFLICT_BLOCKED"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["PASS", "PASS-NOOP", "BLOCKED", "FAILED"]
+    },
+    "status_reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "lease_scope": {
+      "const": "authoritative_store_route"
+    },
+    "lease_state": {
+      "type": "string",
+      "enum": [
+        "ACQUIRED",
+        "HEARTBEATING",
+        "RELEASED",
+        "EXPIRED",
+        "TAKEN_OVER",
+        "BLOCKED_CONFLICT"
+      ]
+    },
+    "lease_backend": {
+      "const": "delta-ledger-cas"
+    },
+    "lease_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "holder_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "owner_job": {
+      "type": ["string", "null"]
+    },
+    "lease_token": {
+      "type": ["string", "null"]
+    },
+    "expected_lease_token": {
+      "type": ["string", "null"]
+    },
+    "requested_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "heartbeat_at_utc": {
+      "type": ["string", "null"]
+    },
+    "expires_at_utc": {
+      "type": ["string", "null"]
+    },
+    "released_at_utc": {
+      "type": ["string", "null"]
+    },
+    "blocking_holder_id": {
+      "type": ["string", "null"]
+    },
+    "blocking_lease_token": {
+      "type": ["string", "null"]
+    },
+    "previous_lease_owner": {
+      "type": ["string", "null"]
+    },
+    "ttl_seconds": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "lease_timeout_sec": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "run_id": {
+      "type": ["string", "null"]
+    },
+    "retry_of_run_id": {
+      "type": ["string", "null"]
+    },
+    "changed_windows_hash": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "metadata_json": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

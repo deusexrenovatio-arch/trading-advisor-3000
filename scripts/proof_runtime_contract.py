@@ -6,6 +6,7 @@ from pathlib import Path, PurePosixPath
 
 
 DEFAULT_WORKSPACE_ROOT = "/workspace"
+PathMount = tuple[Path, str]
 
 
 def resolve_repo_path(path: Path, *, repo_root: Path) -> Path:
@@ -33,22 +34,62 @@ def _is_within_runtime_workspace(*, normalized_path: str, runtime_workspace: str
     return normalized_path == runtime_workspace or normalized_path.startswith(f"{runtime_workspace}/")
 
 
-def host_to_container_path(path: Path, *, repo_root: Path, workspace_root: str = DEFAULT_WORKSPACE_ROOT) -> str:
+def _normalize_path_mounts(extra_roots: list[PathMount] | tuple[PathMount, ...] | None) -> list[tuple[Path, PurePosixPath]]:
+    mounts: list[tuple[Path, PurePosixPath]] = []
+    for host_root, container_root in extra_roots or []:
+        normalized_container_root = PurePosixPath(
+            normalize_runtime_root(container_root, field_name="container mount root")
+        )
+        mounts.append((Path(host_root).resolve(), normalized_container_root))
+    return mounts
+
+
+def host_to_container_path(
+    path: Path,
+    *,
+    repo_root: Path,
+    workspace_root: str = DEFAULT_WORKSPACE_ROOT,
+    extra_roots: list[PathMount] | tuple[PathMount, ...] | None = None,
+) -> str:
     runtime_workspace = PurePosixPath(normalize_runtime_root(workspace_root, field_name="workspace root"))
     resolved = resolve_repo_path(path, repo_root=repo_root)
     try:
         relative = resolved.relative_to(repo_root.resolve())
-    except ValueError as exc:
-        raise RuntimeError(f"path must stay inside repo for docker proof: {resolved.as_posix()}") from exc
+    except ValueError:
+        for host_root, container_root in _normalize_path_mounts(extra_roots):
+            try:
+                relative = resolved.relative_to(host_root)
+            except ValueError:
+                continue
+            return container_root.joinpath(*relative.parts).as_posix()
+        raise RuntimeError(f"path must stay inside repo or an explicit docker mount: {resolved.as_posix()}")
     return runtime_workspace.joinpath(*relative.parts).as_posix()
 
 
-def container_to_host_path(value: str, *, repo_root: Path, workspace_root: str = DEFAULT_WORKSPACE_ROOT) -> str:
+def container_to_host_path(
+    value: str,
+    *,
+    repo_root: Path,
+    workspace_root: str = DEFAULT_WORKSPACE_ROOT,
+    extra_roots: list[PathMount] | tuple[PathMount, ...] | None = None,
+) -> str:
     runtime_workspace = normalize_runtime_root(workspace_root, field_name="workspace root")
     normalized = str(value).strip().replace("\\", "/")
     while "//" in normalized:
         normalized = normalized.replace("//", "/")
     if not _is_within_runtime_workspace(normalized_path=normalized, runtime_workspace=runtime_workspace):
+        for host_root, container_root in _normalize_path_mounts(extra_roots):
+            container_root_text = container_root.as_posix()
+            if not _is_within_runtime_workspace(normalized_path=normalized, runtime_workspace=container_root_text):
+                continue
+            if container_root_text == "/":
+                suffix = normalized.lstrip("/")
+            else:
+                suffix = normalized[len(container_root_text) :].lstrip("/")
+            if not suffix:
+                return host_root.resolve().as_posix()
+            parts = tuple(part for part in suffix.split("/") if part)
+            return (host_root.resolve() / Path(*parts)).resolve().as_posix()
         return value
     if runtime_workspace == "/":
         suffix = normalized.lstrip("/")

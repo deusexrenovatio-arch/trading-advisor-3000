@@ -28,6 +28,14 @@ Updated: 2026-04-02 08:19 UTC
 
 - Intake normalization only: all four phases are initialized as `planned`; no implementation closure is claimed by this patch.
 
+## Supersession Status
+
+- As of 2026-04-11, this parent brief is historical planning evidence only.
+- Active governed continuation for MOEX historical routing now lives in:
+  - `docs/codex/modules/moex-historical-route-consolidation.parent.md`
+- Earlier Etap 1 and Etap 2 artifacts remain valid implementation and evidence context.
+- Earlier Etap 3 reconciliation expectations are no longer part of the active route-consolidation planning baseline.
+
 ## Global Constraints
 
 - Preserve source decision boundary: Finam remains live decision contour, MOEX is historical/backfill contour.
