@@ -4,6 +4,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypeVar
 
 from trading_advisor_3000.product_plane.research.datasets import load_materialized_research_dataset
 from trading_advisor_3000.product_plane.research.io.cache import ResearchFrameCache
@@ -14,11 +15,14 @@ from .engine import BacktestEngineConfig, run_backtest_series
 from .results import phase5_backtest_store_contract, write_backtest_artifacts
 
 
+T = TypeVar("T")
+
+
 def _stable_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12].upper()
 
 
-def _chunked[T](items: list[T], chunk_size: int) -> tuple[tuple[T, ...], ...]:
+def _chunked(items: list[T], chunk_size: int) -> tuple[tuple[T, ...], ...]:
     return tuple(
         tuple(items[index : index + chunk_size])
         for index in range(0, len(items), chunk_size)
