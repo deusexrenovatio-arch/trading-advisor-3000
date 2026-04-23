@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/research_campaign.v1.json",
+  "title": "ResearchCampaignV1",
+  "type": "object",
+  "required": [
+    "campaign_name",
+    "target_stage",
+    "canonical_output_dir",
+    "materialized_root",
+    "runs_root",
+    "dataset",
+    "profiles",
+    "strategy_space",
+    "backtest",
+    "ranking_policy",
+    "projection_policy",
+    "execution"
+  ],
+  "properties": {
+    "campaign_name": {"type": "string", "minLength": 1},
+    "target_stage": {"type": "string", "enum": ["data_prep", "backtest", "projection"]},
+    "canonical_output_dir": {"type": "string", "minLength": 1},
+    "materialized_root": {"type": "string", "minLength": 1},
+    "runs_root": {"type": "string", "minLength": 1},
+    "dataset": {
+      "type": "object",
+      "required": [
+        "dataset_version",
+        "dataset_name",
+        "universe_id",
+        "series_mode",
+        "timeframes",
+        "base_timeframe",
+        "start_ts",
+        "end_ts",
+        "warmup_bars",
+        "split_method",
+        "contract_ids",
+        "instrument_ids"
+      ],
+      "properties": {
+        "dataset_version": {"type": "string", "minLength": 1},
+        "dataset_name": {"type": "string", "minLength": 1},
+        "universe_id": {"type": "string", "minLength": 1},
+        "series_mode": {"type": "string", "enum": ["contract", "continuous_front"]},
+        "timeframes": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "base_timeframe": {"type": "string", "minLength": 1},
+        "start_ts": {"type": ["string", "null"]},
+        "end_ts": {"type": ["string", "null"]},
+        "warmup_bars": {"type": "integer", "minimum": 0},
+        "split_method": {"type": "string", "enum": ["full", "holdout", "walk_forward"]},
+        "contract_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "instrument_ids": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      },
+      "additionalProperties": false
+    },
+    "profiles": {
+      "type": "object",
+      "required": [
+        "indicator_set_version",
+        "indicator_profile_version",
+        "feature_set_version",
+        "feature_profile_version"
+      ],
+      "properties": {
+        "indicator_set_version": {"type": "string", "minLength": 1},
+        "indicator_profile_version": {"type": "string", "minLength": 1},
+        "feature_set_version": {"type": "string", "minLength": 1},
+        "feature_profile_version": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "strategy_space": {
+      "type": "object",
+      "required": [
+        "family_keys",
+        "template_ids",
+        "include_instance_ids",
+        "exclude_manifest_hashes",
+        "materialize_instances",
+        "max_instance_count",
+        "search_space_overrides"
+      ],
+      "properties": {
+        "family_keys": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "template_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "include_instance_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "exclude_manifest_hashes": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "materialize_instances": {"type": "boolean"},
+        "max_instance_count": {"type": "integer", "exclusiveMinimum": 0},
+        "search_space_overrides": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "backtest": {
+      "type": "object",
+      "required": [
+        "param_batch_size",
+        "series_batch_size",
+        "backtest_timeframe",
+        "fees_bps",
+        "slippage_bps",
+        "allow_short",
+        "window_count"
+      ],
+      "properties": {
+        "param_batch_size": {"type": "integer", "exclusiveMinimum": 0},
+        "series_batch_size": {"type": "integer", "exclusiveMinimum": 0},
+        "backtest_timeframe": {"type": "string", "minLength": 1},
+        "fees_bps": {"type": "number", "minimum": 0},
+        "slippage_bps": {"type": "number", "minimum": 0},
+        "allow_short": {"type": "boolean"},
+        "window_count": {"type": "integer", "exclusiveMinimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "ranking_policy": {
+      "type": "object",
+      "required": [
+        "policy_id",
+        "metric_order",
+        "require_out_of_sample_pass",
+        "min_trade_count",
+        "max_drawdown_cap",
+        "min_positive_fold_ratio",
+        "stress_slippage_bps",
+        "min_parameter_stability",
+        "min_slippage_score"
+      ],
+      "properties": {
+        "policy_id": {"type": "string", "minLength": 1},
+        "metric_order": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "require_out_of_sample_pass": {"type": "boolean"},
+        "min_trade_count": {"type": "integer", "exclusiveMinimum": 0},
+        "max_drawdown_cap": {"type": "number", "minimum": 0},
+        "min_positive_fold_ratio": {"type": "number", "minimum": 0, "maximum": 1},
+        "stress_slippage_bps": {"type": "number", "minimum": 0},
+        "min_parameter_stability": {"type": "number", "minimum": 0, "maximum": 1},
+        "min_slippage_score": {"type": "number", "minimum": 0, "maximum": 1}
+      },
+      "additionalProperties": false
+    },
+    "projection_policy": {
+      "type": "object",
+      "required": [
+        "selection_policy",
+        "max_candidates_per_partition",
+        "min_robust_score",
+        "decision_lag_bars_max"
+      ],
+      "properties": {
+        "selection_policy": {"type": "string", "minLength": 1},
+        "max_candidates_per_partition": {"type": "integer", "exclusiveMinimum": 0},
+        "min_robust_score": {"type": "number", "minimum": 0, "maximum": 1},
+        "decision_lag_bars_max": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "execution": {
+      "type": "object",
+      "required": ["force_rematerialize", "raise_on_error"],
+      "properties": {
+        "force_rematerialize": {"type": "boolean"},
+        "raise_on_error": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

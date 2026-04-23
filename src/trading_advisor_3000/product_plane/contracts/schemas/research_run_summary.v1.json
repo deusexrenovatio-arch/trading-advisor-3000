@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/research_run_summary.v1.json",
+  "title": "ResearchRunSummaryV1",
+  "type": "object",
+  "required": [
+    "run_id",
+    "campaign_id",
+    "campaign_run_id",
+    "campaign_name",
+    "target_stage",
+    "status",
+    "canonical_output_dir",
+    "registry_root",
+    "materialization_key",
+    "strategy_space_id",
+    "materialized_root",
+    "run_root",
+    "dataset_version",
+    "config_fingerprint",
+    "executed_steps",
+    "reused_steps",
+    "durations",
+    "rows_by_table",
+    "output_paths",
+    "dagster_selected_assets",
+    "dagster_materialized_assets",
+    "warnings",
+    "error"
+  ],
+  "properties": {
+    "run_id": {"type": "string", "minLength": 1},
+    "campaign_id": {"type": "string"},
+    "campaign_run_id": {"type": "string"},
+    "campaign_name": {"type": "string", "minLength": 1},
+    "target_stage": {"type": "string", "minLength": 1},
+    "status": {"type": "string", "enum": ["queued", "running", "success", "failed", "blocked"]},
+    "canonical_output_dir": {"type": "string"},
+    "registry_root": {"type": "string"},
+    "materialization_key": {"type": "string"},
+    "strategy_space_id": {"type": "string"},
+    "materialized_root": {"type": "string"},
+    "run_root": {"type": "string"},
+    "dataset_version": {"type": "string"},
+    "config_fingerprint": {"type": "string"},
+    "executed_steps": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "reused_steps": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "durations": {
+      "type": "object",
+      "properties": {
+        "total_seconds": {"type": "number", "minimum": 0}
+      },
+      "additionalProperties": {"type": "number", "minimum": 0}
+    },
+    "rows_by_table": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "output_paths": {
+      "type": "object",
+      "additionalProperties": {"type": "string"}
+    },
+    "dagster_selected_assets": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "dagster_materialized_assets": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "error": {
+      "type": ["object", "null"],
+      "required": ["type", "message"],
+      "properties": {
+        "type": {"type": "string", "minLength": 1},
+        "message": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "result_digest": {
+      "type": ["object", "null"],
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

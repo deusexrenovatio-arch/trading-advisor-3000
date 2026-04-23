@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from trading_advisor_3000.product_plane.runtime.analytics.review import build_latency_metrics
 
@@ -11,7 +11,7 @@ def _opened_event(signal_id: str, ts: str) -> dict[str, object]:
         "event_type": "signal_opened",
         "reason_code": "candidate_created",
         "payload_json": {
-            "strategy_version_id": "trend-follow-v1",
+            "strategy_version_id": "ma-cross-v1",
             "contract_id": "BR-6.26",
             "mode": "shadow",
             "side": "long",
@@ -95,3 +95,4 @@ def test_phase5_latency_metrics_non_happy_path_statuses() -> None:
     status_by_signal = {item.signal_id: item.latency_status for item in rows}
     assert status_by_signal["SIG-LAT-2"] == "missing_activation"
     assert status_by_signal["SIG-LAT-3"] == "clock_skew"
+

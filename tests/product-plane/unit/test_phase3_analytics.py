@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from trading_advisor_3000.product_plane.contracts import Mode, PositionSnapshot
 from trading_advisor_3000.product_plane.contracts import (
@@ -30,7 +30,7 @@ def test_build_signal_outcomes_uses_events_fills_positions() -> None:
             "event_type": "signal_opened",
             "reason_code": "candidate_created",
             "payload_json": {
-                "strategy_version_id": "trend-follow-v1",
+                "strategy_version_id": "ma-cross-v1",
                 "contract_id": "BR-6.26",
                 "mode": "shadow",
                 "side": "long",
@@ -106,3 +106,4 @@ def test_build_signal_outcomes_uses_events_fills_positions() -> None:
     assert payload["close_reason"] == "closed_profit"
     assert payload["mode"] == "shadow"
     assert payload["pnl_r"] == 2.0
+

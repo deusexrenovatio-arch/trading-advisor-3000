@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import shutil
 import socket
@@ -32,7 +32,7 @@ def _candidate(*, ts_decision: str = "2026-03-18T10:16:00Z") -> DecisionCandidat
         signal_id="SIG-20260318-0001",
         contract_id="BR-6.26",
         timeframe=Timeframe.M15,
-        strategy_version_id="trend-follow-v1",
+        strategy_version_id="ma-cross-v1",
         mode=Mode.SHADOW,
         side=TradeSide.LONG,
         entry_ref=82.45,
@@ -152,7 +152,7 @@ def _build_api(*, dsn: str) -> RuntimeAPI:
     stack = bootstrap.runtime_stack
     stack.strategy_registry.register(
         StrategyVersion(
-            strategy_version_id="trend-follow-v1",
+            strategy_version_id="ma-cross-v1",
             status="active",
             allowed_contracts=frozenset({"BR-6.26"}),
             allowed_timeframes=frozenset({Timeframe.M15}),
@@ -196,3 +196,4 @@ def test_phase2c_postgres_signal_store_survives_restart_and_reuses_publication_s
 
         assert {"signal_opened", "signal_activated", "signal_closed"} <= third_events
         assert [item.status.value for item in third_publications] == ["published", "closed"]
+

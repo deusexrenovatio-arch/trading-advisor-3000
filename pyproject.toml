@@ -9,6 +9,8 @@ description = "Trading Advisor 3000 shell and product-plane scaffolding"
 requires-python = ">=3.11"
 dependencies = [
   "PyYAML>=6,<7",
+  "vectorbt>=0.28.5,<0.29",
+  "pandas-ta-classic>=0.4.47,<0.5",
 ]
 
 [project.optional-dependencies]

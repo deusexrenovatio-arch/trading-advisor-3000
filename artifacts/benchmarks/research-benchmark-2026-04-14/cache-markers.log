@@ -1,0 +1,6 @@
+cold_backtest.cache_hit=false
+hot_backtest.cache_hit=true
+scale.10.cache_hit=true
+scale.50.cache_hit=true
+scale.100.cache_hit=true
+scale.250.cache_hit=true

@@ -4,6 +4,13 @@ import argparse
 import json
 from pathlib import Path
 import subprocess
+import sys
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
 
 try:
     from scripts.proof_runtime_contract import (
@@ -42,7 +49,7 @@ def _parse_contracts(value: str) -> set[str]:
 
 
 def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[1]
+    return ROOT
 
 
 def _resolve_repo_path(path: Path) -> Path:
@@ -65,7 +72,7 @@ def _ensure_docker_image(image: str, dockerfile: Path) -> None:
         text=True,
         check=False,
     )
-    if inspect.returncode == 0:
+    if inspect.returncode == 0 and _docker_image_healthcheck(image):
         return
     completed = subprocess.run(
         ["docker", "build", "-f", str(dockerfile), "-t", image, "."],
@@ -75,6 +82,17 @@ def _ensure_docker_image(image: str, dockerfile: Path) -> None:
     )
     if completed.returncode != 0:
         raise RuntimeError(f"docker build failed for Spark proof image `{image}`")
+
+
+def _docker_image_healthcheck(image: str) -> bool:
+    completed = subprocess.run(
+        ["docker", "run", "--rm", image, "python", "-c", "import yaml"],
+        cwd=_repo_root(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return completed.returncode == 0
 
 
 def _docker_host_owner() -> str:

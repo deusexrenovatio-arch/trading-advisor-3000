@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from trading_advisor_3000.product_plane.contracts import (
     DecisionCandidate,
@@ -29,7 +29,7 @@ def _candidate(*, signal_id: str) -> DecisionCandidate:
         signal_id=signal_id,
         contract_id="BR-6.26",
         timeframe=Timeframe.M15,
-        strategy_version_id="trend-follow-v1",
+        strategy_version_id="ma-cross-v1",
         mode=Mode.SHADOW,
         side=TradeSide.LONG,
         entry_ref=82.45,
@@ -48,7 +48,7 @@ def test_phase7_runtime_pipeline_uses_context_provider_registry_in_replay_path()
     stack = build_runtime_stack(telegram_channel="@ta3000_signals")
     stack.strategy_registry.register(
         StrategyVersion(
-            strategy_version_id="trend-follow-v1",
+            strategy_version_id="ma-cross-v1",
             status="active",
             allowed_contracts=frozenset({"BR-6.26"}),
             allowed_timeframes=frozenset({Timeframe.M15}),
@@ -80,7 +80,7 @@ def test_phase7_runtime_pipeline_handles_missing_context_providers_without_rejec
     stack = build_runtime_stack(telegram_channel="@ta3000_signals")
     stack.strategy_registry.register(
         StrategyVersion(
-            strategy_version_id="trend-follow-v1",
+            strategy_version_id="ma-cross-v1",
             status="active",
             allowed_contracts=frozenset({"BR-6.26"}),
             allowed_timeframes=frozenset({Timeframe.M15}),
@@ -98,3 +98,4 @@ def test_phase7_runtime_pipeline_handles_missing_context_providers_without_rejec
     assert report["signals_with_context"] == 0
     assert report["context_slices_by_kind"] == {}
     assert context_events == []
+

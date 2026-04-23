@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from trading_advisor_3000.product_plane.contracts import (
     CanonicalBar,
@@ -31,7 +31,7 @@ def _candidate(*, signal_id: str, side: TradeSide, ts_decision: str) -> Decision
         signal_id=signal_id,
         contract_id="BR-6.26",
         timeframe=Timeframe.M15,
-        strategy_version_id="trend-follow-v1",
+        strategy_version_id="ma-cross-v1",
         mode=Mode.SHADOW,
         side=side,
         entry_ref=100.0,
@@ -86,3 +86,4 @@ def test_forward_engine_marks_no_forward_window_without_future_bars() -> None:
     assert observation.pnl_r == 0.0
     assert observation.mfe_r == 0.0
     assert observation.mae_r == 0.0
+
