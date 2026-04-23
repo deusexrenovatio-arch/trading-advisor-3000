@@ -9,9 +9,10 @@ from typing import Any
 from deltalake import DeltaTable
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log, read_delta_table_rows
+from trading_advisor_3000.product_plane.research.registry_store import research_registry_store_contract
 from trading_advisor_3000.product_plane.research.backtests import phase5_backtest_store_contract, phase6_results_store_contract
 from trading_advisor_3000.product_plane.research.datasets import phase2_research_dataset_store_contract
-from trading_advisor_3000.product_plane.research.features import phase2b_feature_store_contract
+from trading_advisor_3000.product_plane.research.features import research_feature_store_contract
 from trading_advisor_3000.product_plane.research.indicators import phase3_indicator_store_contract
 
 
@@ -60,23 +61,33 @@ def print_summary(report: dict[str, Any]) -> None:
     print(json.dumps(jsonable(report), ensure_ascii=False))
 
 
-def phase2b_contract_manifest() -> dict[str, dict[str, object]]:
+def research_contract_manifest() -> dict[str, dict[str, object]]:
     return {
+        **{
+            table_name: research_registry_store_contract()[table_name]
+            for table_name in (
+                "research_strategy_families",
+                "research_strategy_templates",
+                "research_strategy_template_modules",
+                "research_strategy_instances",
+                "research_strategy_instance_modules",
+            )
+        },
         **phase2_research_dataset_store_contract(),
         **phase3_indicator_store_contract(),
-        **phase2b_feature_store_contract(),
+        **research_feature_store_contract(),
         **phase5_backtest_store_contract(),
         **phase6_results_store_contract(),
     }
 
 
-def validate_phase2b_contracts(
+def validate_research_contracts(
     *,
     output_paths: dict[str, object],
     materialized_assets: list[str],
     rows_by_table: dict[str, object],
 ) -> dict[str, object]:
-    manifest = phase2b_contract_manifest()
+    manifest = research_contract_manifest()
     validated_tables: list[str] = []
     warnings: list[str] = []
     errors: list[str] = []

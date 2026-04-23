@@ -6,7 +6,7 @@ from pathlib import Path
 
 from trading_advisor_3000.product_plane.contracts import DecisionCandidate, FeatureSnapshotRef, Mode, TradeSide
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
-from trading_advisor_3000.product_plane.research.features import FeatureSnapshot, phase2b_feature_store_contract
+from trading_advisor_3000.product_plane.research.features import FeatureSnapshot, research_feature_store_contract
 from trading_advisor_3000.product_plane.research.ids import candidate_id
 from trading_advisor_3000.product_plane.research.strategies import evaluate_strategy
 
@@ -86,7 +86,7 @@ def run_backtest(
     if slippage_bps < 0:
         raise ValueError("slippage_bps must be non-negative")
 
-    delta_manifest = phase2b_feature_store_contract()
+    delta_manifest = research_feature_store_contract()
     ordered = sorted(snapshots, key=lambda item: (item.contract_id, item.timeframe.value, item.ts))
     backtest_run_id = _build_run_id(
         strategy_version_id=strategy_version_id,

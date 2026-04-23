@@ -7,9 +7,7 @@ from .forward import ForwardObservation, build_forward_observations, candidate_i
 def run_research_from_bars(*args: object, **kwargs: object) -> dict[str, object]:
     """Public research entrypoint over the materialized research plane.
 
-    The legacy snapshot-centric implementation now lives under
-    ``trading_advisor_3000.product_plane.research.compat`` and is no longer
-    the primary path.
+    This entrypoint always routes through the materialized research path.
     """
     from .pipeline import run_research_from_bars as _run_research_from_bars
 

@@ -7,7 +7,7 @@ Run and validate the integrated shadow-forward replay path:
 ## Preconditions
 - Python environment with project dependencies is active.
 - Source bars fixture exists (for example `tests/product-plane/fixtures/research/canonical_bars_sample.jsonl`).
-- Strategy version used for replay is supported by sample strategy catalog (for MVP: `trend-follow-v1`).
+- Strategy version used for replay is supported by the reference strategy set (for MVP: `trend-follow-v1`).
 
 ## Replay Procedure
 1. Run the integrated replay acceptance test:

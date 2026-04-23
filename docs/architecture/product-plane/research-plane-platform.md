@@ -4,7 +4,7 @@
 This page is the stable map of the current research platform.
 
 It replaces the old mental model where research was mostly a snapshot-centric path with a candidate table at the end.
-The primary route is now a materialized, versioned pipeline with explicit bootstrap, backtest, ranking, and projection stages.
+The primary route is now a materialized, versioned pipeline with explicit data-prep, strategy-registry, backtest, ranking, and projection stages.
 
 ## Primary Path
 
@@ -13,16 +13,53 @@ canonical data
   -> research_datasets / research_bar_views
   -> research_indicator_frames
   -> research_feature_frames
+  -> strategy registry refresh, when strategy inventory changes or a campaign needs instances
+  -> research_strategy_families / research_strategy_templates / research_strategy_template_modules
+  -> research_strategy_instances / research_strategy_instance_modules
   -> research_backtest_batches / runs / stats / trades / orders / drawdowns
-  -> research_strategy_rankings
+  -> research_strategy_rankings / research_run_findings
   -> research_signal_candidates
+  -> research_run_stats_index / research_rankings_index / research_strategy_notes
   -> runtime
 ```
 
 What this means in practice:
 - expensive indicator and feature work is moved out of the hot backtest loop;
+- `research_data_prep_job` is the product data-prep contour and is triggered after the canonical MOEX baseline update succeeds;
+- strategy registry refresh is intentionally separate from data prep, so strategy inventory changes do not masquerade as canonical data freshness work;
+- strategy templates and concrete strategy instances live in Delta registry tables instead of Python-only catalog state;
 - repeated research runs reuse the materialized layer and in-process cache;
+- successful campaign runs publish global run-stat/ranking indices and strategy notes from the canonical registry root;
 - runtime consumes projected candidates instead of knowing research internals.
+
+## Strategy Registry Layer
+
+The canonical strategy registry layer in Delta includes:
+- `research_strategy_families`
+- `research_strategy_templates`
+- `research_strategy_template_modules`
+- `research_strategy_instances`
+- `research_strategy_instance_modules`
+- `research_campaigns`
+- `research_campaign_runs`
+- `research_run_stats_index`
+- `research_rankings_index`
+- `research_strategy_notes`
+
+Frozen Stage 2 adapter inventory (must stay exactly five until a governed source amendment):
+1. `ma_cross` -> `python_adapter:trading_advisor_3000.product_plane.research.strategies.families.ma_cross.ma_cross_family_adapter`
+2. `breakout` -> `python_adapter:trading_advisor_3000.product_plane.research.strategies.families.breakout.breakout_family_adapter`
+3. `mean_reversion` -> `python_adapter:trading_advisor_3000.product_plane.research.strategies.families.mean_reversion.mean_reversion_family_adapter`
+4. `mtf_pullback` -> `python_adapter:trading_advisor_3000.product_plane.research.strategies.families.mtf_pullback.mtf_pullback_family_adapter`
+5. `squeeze_release` -> `python_adapter:trading_advisor_3000.product_plane.research.strategies.families.squeeze_release.squeeze_release_family_adapter`
+
+Provenance policy for template rows:
+1. `author_source` and `source_ref` are mandatory provenance fields in Stage 2 generated template manifests.
+2. `python_adapter` rows are compiler outputs only and must include the adapter import-path `source_ref`.
+3. `repo_seed` rows are the canonical override source when both sources describe the same template identity (`family_key`, `template_key`, `template_version`); `python_adapter` rows remain traceability evidence and do not silently overwrite seeded canonical rows.
+4. `StrategySpec` and `StrategyCatalog` remain execution adapters only and are not a supported canonical storage route.
+
+This policy keeps inventory/provenance semantics stable while campaign routing runs through `strategy_space`.
 
 ## Stable Entry Points
 
@@ -30,35 +67,44 @@ What this means in practice:
 - `python -m trading_advisor_3000.product_plane.research.jobs.run_campaign --config <campaign.yaml>`
 
 This is the only supported user-facing route.
-It is a thin Product Plane launcher that validates a machine-readable campaign config, writes immutable run artifacts, and dispatches only into the Dagster `phase2b` contour.
+It is a thin Product Plane launcher that validates a machine-readable campaign config, writes immutable run artifacts, and dispatches only into the Dagster research contour.
 
 Campaign contracts:
 - `research_campaign.v1.json`
 - `research_run_summary.v1.json`
 
-### Programmatic Compatibility Route
+### Programmatic API
 - `trading_advisor_3000.product_plane.research.run_research_from_bars(...)`
 
-This API remains available for programmatic compatibility, but it is not the supported operational route for research campaigns.
+This API remains as a thin programmatic adapter over the materialized research path.
+It is not an independent operator route for research campaigns.
 
-### Internal / Debug Only
-- `python -m trading_advisor_3000.product_plane.research.jobs.bootstrap`
-- `python -m trading_advisor_3000.product_plane.research.jobs.backtest`
-- `python -m trading_advisor_3000.product_plane.research.jobs.project_candidates`
-- `python -m trading_advisor_3000.product_plane.research.jobs.benchmark`
-- `phase2b_bootstrap_job`
-- `phase2b_backtest_job`
-- `phase2b_projection_job`
+### Scheduled Freshness Contour
+- `research_data_prep_job`
+- `research_data_prep_after_moex_sensor`
 
-These remain execution/debug surfaces, not the canonical front door.
+Scheduled freshness stays Dagster-owned and follows `moex_baseline_update_job`.
+Strategy registry refresh stays campaign-driven instead of exposing a second operator CLI route.
 
 ## What Is Materialized
 
-Bootstrap layer:
+Research data prep layer:
 - `research_datasets`
 - `research_bar_views`
 - `research_indicator_frames`
 - `research_feature_frames`
+
+Strategy registry layer (Stage 2 pre-cutover):
+- `research_strategy_families`
+- `research_strategy_templates`
+- `research_strategy_template_modules`
+- `research_strategy_instances`
+- `research_strategy_instance_modules`
+- `research_campaigns`
+- `research_campaign_runs`
+- `research_run_stats_index`
+- `research_rankings_index`
+- `research_strategy_notes`
 
 Backtest layer:
 - `research_backtest_batches`
@@ -71,6 +117,7 @@ Backtest layer:
 
 Projection layer:
 - `research_signal_candidates`
+- `research_run_findings`
 
 ## Storage Model
 
@@ -106,21 +153,14 @@ The benchmark job produces:
 Package-level acceptance now also reads the committed benchmark artifact and checks that the recorded threshold verdicts stay true.
 
 Current committed evidence:
-- `artifacts/benchmarks/research-phase2b-benchmark-2026-04-14/phase2b-benchmark-report.json`
-- `artifacts/benchmarks/research-phase2b-benchmark-2026-04-14/phase2b-benchmark-report.md`
-- `artifacts/benchmarks/research-phase2b-benchmark-2026-04-14/cache-markers.log`
+- `artifacts/benchmarks/research-benchmark-2026-04-14/research-benchmark-report.json`
+- `artifacts/benchmarks/research-benchmark-2026-04-14/research-benchmark-report.md`
+- `artifacts/benchmarks/research-benchmark-2026-04-14/cache-markers.log`
 
 ## Legacy Status
 
-The following paths remain in the repository, but they are no longer the accepted primary route:
-- `trading_advisor_3000.product_plane.research.compat.legacy_pipeline`
-- `trading_advisor_3000.spark_jobs.research_candidates_job`
-
-Their status is:
-- compatibility only;
-- historical bridge only;
-- not used as acceptance truth for the current research platform;
-- on a removal path, not a hidden second center of gravity.
+The old snapshot-centric compatibility bridge and Spark candidate bridge are retired from the active branch.
+They are not part of the accepted research route, not used as acceptance truth, and no longer represent a supported fallback path.
 
 ## Operational Reading Rule
 

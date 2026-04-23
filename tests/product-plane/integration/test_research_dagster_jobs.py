@@ -1,12 +1,20 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 from datetime import UTC, datetime, timedelta
 
 from trading_advisor_3000.dagster_defs import (
-    materialize_phase2b_backtest_assets,
-    materialize_phase2b_bootstrap_assets,
-    materialize_phase2b_projection_assets,
+    RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME,
+    RESEARCH_DATA_PREP_ASSETS,
+    RESEARCH_DATA_PREP_JOB_NAME,
+    STRATEGY_REGISTRY_REFRESH_ASSETS,
+    STRATEGY_REGISTRY_REFRESH_JOB_NAME,
+    build_research_definitions,
+    build_research_data_prep_run_config,
+    materialize_research_backtest_assets,
+    materialize_research_data_prep_assets,
+    materialize_research_projection_assets,
+    materialize_strategy_registry_refresh_assets,
 )
 from trading_advisor_3000.product_plane.data_plane import run_sample_backfill
 from trading_advisor_3000.product_plane.data_plane.canonical import RollMapEntry, SessionCalendarEntry
@@ -19,6 +27,8 @@ from trading_advisor_3000.product_plane.research.datasets import (
 )
 from trading_advisor_3000.product_plane.research.features import materialize_feature_frames, reload_feature_frames
 from trading_advisor_3000.product_plane.research.indicators import materialize_indicator_frames, reload_indicator_frames
+from trading_advisor_3000.product_plane.research.registry_store import research_registry_root
+from trading_advisor_3000.product_plane.research.strategies.compiler_bridge import REQUIRED_STG02_ADAPTER_KEYS
 from trading_advisor_3000.product_plane.contracts import CanonicalBar
 
 
@@ -122,7 +132,7 @@ def _write_rich_stage7_canonical_context(output_dir: Path) -> None:
     )
 
 
-def test_phase2b_dagster_bootstrap_materializes_dataset_and_indicator_layers(tmp_path: Path) -> None:
+def test_research_data_prep_materializes_dataset_indicator_and_feature_layers_only(tmp_path: Path) -> None:
     canonical_dir = tmp_path / "canonical"
     run_sample_backfill(
         source_path=RAW_FIXTURE,
@@ -130,8 +140,8 @@ def test_phase2b_dagster_bootstrap_materializes_dataset_and_indicator_layers(tmp
         whitelist_contracts={"BR-6.26", "Si-6.26"},
     )
 
-    dagster_dir = tmp_path / "dagster-phase2b"
-    dagster_report = materialize_phase2b_bootstrap_assets(
+    dagster_dir = tmp_path / "dagster-research-data-prep"
+    dagster_report = materialize_research_data_prep_assets(
         canonical_output_dir=canonical_dir,
         research_output_dir=dagster_dir,
         dataset_version="dagster-dataset-v1",
@@ -140,18 +150,9 @@ def test_phase2b_dagster_bootstrap_materializes_dataset_and_indicator_layers(tmp
         indicator_profile_version="core_v1",
     )
     assert dagster_report["success"] is True
-    assert set(dagster_report["selected_assets"]) == {
-        "research_datasets",
-        "research_bar_views",
-        "research_indicator_frames",
-        "research_feature_frames",
-    }
-    assert set(dagster_report["materialized_assets"]) == {
-        "research_datasets",
-        "research_bar_views",
-        "research_indicator_frames",
-        "research_feature_frames",
-    }
+    assert set(dagster_report["selected_assets"]) == set(RESEARCH_DATA_PREP_ASSETS)
+    assert set(dagster_report["materialized_assets"]) == set(RESEARCH_DATA_PREP_ASSETS)
+    assert "research_strategy_families" not in dagster_report["rows_by_table"]
 
     loaded_dataset = load_materialized_research_dataset(output_dir=dagster_dir, dataset_version="dagster-dataset-v1")
     loaded_indicators = reload_indicator_frames(
@@ -173,7 +174,67 @@ def test_phase2b_dagster_bootstrap_materializes_dataset_and_indicator_layers(tmp
     assert all(row.profile_version == "core_v1" for row in loaded_features)
 
 
-def test_phase2b_dagster_bootstrap_matches_direct_materialization(tmp_path: Path) -> None:
+def test_strategy_registry_refresh_is_separate_from_research_data_prep(tmp_path: Path) -> None:
+    canonical_dir = tmp_path / "canonical-strategy"
+    run_sample_backfill(
+        source_path=RAW_FIXTURE,
+        output_dir=canonical_dir,
+        whitelist_contracts={"BR-6.26", "Si-6.26"},
+    )
+
+    dagster_dir = tmp_path / "dagster-strategy"
+    materialize_research_data_prep_assets(
+        canonical_output_dir=canonical_dir,
+        research_output_dir=dagster_dir,
+        dataset_version="dagster-strategy-v1",
+        timeframes=("15m",),
+        indicator_set_version="indicators-v1",
+        indicator_profile_version="core_v1",
+    )
+    registry_report = materialize_strategy_registry_refresh_assets(
+        canonical_output_dir=canonical_dir,
+        research_output_dir=dagster_dir,
+        dataset_version="dagster-strategy-v1",
+        timeframes=("15m",),
+        indicator_set_version="indicators-v1",
+        indicator_profile_version="core_v1",
+    )
+
+    assert registry_report["success"] is True
+    assert set(registry_report["selected_assets"]) == set(STRATEGY_REGISTRY_REFRESH_ASSETS)
+    assert set(STRATEGY_REGISTRY_REFRESH_ASSETS).issubset(set(registry_report["materialized_assets"]))
+    assert "research_feature_frames" not in registry_report["materialized_assets"]
+    assert registry_report["rows_by_table"]["research_strategy_families"] == len(REQUIRED_STG02_ADAPTER_KEYS)
+    assert registry_report["rows_by_table"]["research_strategy_templates"] == len(REQUIRED_STG02_ADAPTER_KEYS)
+    assert registry_report["rows_by_table"]["research_strategy_template_modules"] >= len(REQUIRED_STG02_ADAPTER_KEYS)
+    registry_root = research_registry_root(canonical_output_dir=canonical_dir)
+    family_rows = read_delta_table_rows(registry_root / "research_strategy_families.delta")
+    assert {str(row["family_key"]) for row in family_rows} == set(REQUIRED_STG02_ADAPTER_KEYS)
+
+
+def test_research_definitions_expose_product_jobs_and_moex_success_sensor(tmp_path: Path) -> None:
+    definitions = build_research_definitions()
+    repository = definitions.get_repository_def()
+    data_prep_job = repository.get_job(RESEARCH_DATA_PREP_JOB_NAME)
+    strategy_job = repository.get_job(STRATEGY_REGISTRY_REFRESH_JOB_NAME)
+
+    assert set(data_prep_job.graph.node_dict) == set(RESEARCH_DATA_PREP_ASSETS)
+    assert set(strategy_job.graph.node_dict) == {"research_datasets", *STRATEGY_REGISTRY_REFRESH_ASSETS}
+    assert RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME in {sensor.name for sensor in repository.sensor_defs}
+
+    run_config = build_research_data_prep_run_config(
+        canonical_output_dir=tmp_path / "canonical",
+        materialized_output_dir=tmp_path / "materialized",
+        results_output_dir=tmp_path / "results",
+        dataset_version="sensor-data-v1",
+        timeframes=("15m",),
+    )
+    op_config = run_config["ops"]["research_datasets"]["config"]
+    assert op_config["dataset_version"] == "sensor-data-v1"
+    assert op_config["timeframes"] == ["15m"]
+
+
+def test_research_data_prep_matches_direct_materialization(tmp_path: Path) -> None:
     canonical_dir = tmp_path / "canonical-direct"
     run_sample_backfill(
         source_path=RAW_FIXTURE,
@@ -219,7 +280,7 @@ def test_phase2b_dagster_bootstrap_matches_direct_materialization(tmp_path: Path
     )
 
     dagster_dir = tmp_path / "dagster"
-    materialize_phase2b_bootstrap_assets(
+    materialize_research_data_prep_assets(
         canonical_output_dir=canonical_dir,
         research_output_dir=dagster_dir,
         dataset_version="same-dataset-v1",
@@ -261,17 +322,25 @@ def test_phase2b_dagster_bootstrap_matches_direct_materialization(tmp_path: Path
     assert [row["profile_version"] for row in direct_feature_rows] == [row["profile_version"] for row in dagster_feature_rows]
 
 
-def test_phase2b_dagster_backtest_and_projection_jobs_materialize_research_flow(tmp_path: Path) -> None:
+def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_path: Path) -> None:
     canonical_dir = tmp_path / "canonical-stage7"
     _write_rich_stage7_canonical_context(canonical_dir)
 
     dagster_dir = tmp_path / "dagster-stage7"
-    backtest_report = materialize_phase2b_backtest_assets(
+    backtest_report = materialize_research_backtest_assets(
         canonical_output_dir=canonical_dir,
         research_output_dir=dagster_dir,
         dataset_version="dagster-stage7-v1",
         timeframes=("15m",),
-        strategy_versions=("ma-cross-v1",),
+        strategy_space={
+            "family_keys": ["ma_cross"],
+            "template_ids": [],
+            "include_instance_ids": [],
+            "exclude_manifest_hashes": [],
+            "materialize_instances": True,
+            "max_instance_count": 64,
+            "search_space_overrides": {},
+        },
         combination_count=4,
         param_batch_size=2,
         series_batch_size=1,
@@ -304,12 +373,20 @@ def test_phase2b_dagster_backtest_and_projection_jobs_materialize_research_flow(
     assert read_delta_table_rows(Path(backtest_report["output_paths"]["research_backtest_runs"]))
     assert read_delta_table_rows(Path(backtest_report["output_paths"]["research_strategy_rankings"]))
 
-    projection_report = materialize_phase2b_projection_assets(
+    projection_report = materialize_research_projection_assets(
         canonical_output_dir=canonical_dir,
         research_output_dir=dagster_dir,
         dataset_version="dagster-stage7-v1",
         timeframes=("15m",),
-        strategy_versions=("ma-cross-v1",),
+        strategy_space={
+            "family_keys": ["ma_cross"],
+            "template_ids": [],
+            "include_instance_ids": [],
+            "exclude_manifest_hashes": [],
+            "materialize_instances": True,
+            "max_instance_count": 64,
+            "search_space_overrides": {},
+        },
         combination_count=4,
         param_batch_size=2,
         series_batch_size=1,
@@ -332,5 +409,6 @@ def test_phase2b_dagster_backtest_and_projection_jobs_materialize_research_flow(
     candidate_rows = read_delta_table_rows(Path(projection_report["output_paths"]["research_signal_candidates"]))
     assert isinstance(candidate_rows, list)
     assert candidate_rows
-    assert all(float(row["confidence"]) > 0.0 for row in candidate_rows)
-    assert all(str(row["selection_policy"]) == "all_policy_pass" for row in candidate_rows)
+    assert all(float(row["score"]) > 0.0 for row in candidate_rows)
+    assert all(str(row["campaign_run_id"]).startswith("crun_") for row in candidate_rows)
+

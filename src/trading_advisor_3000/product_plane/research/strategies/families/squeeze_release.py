@@ -6,10 +6,12 @@ from trading_advisor_3000.product_plane.research.strategies.spec import (
     StrategyRiskPolicy,
     StrategySpec,
 )
+from trading_advisor_3000.product_plane.research.strategies.adapter_contracts import StrategyFamilyAdapter
+from trading_advisor_3000.product_plane.research.strategies.template_compiler import build_strategy_family_adapter
 
 
-def squeeze_release_strategy_spec() -> StrategySpec:
-    return StrategySpec(
+def squeeze_release_family_adapter() -> StrategyFamilyAdapter:
+    strategy_spec = StrategySpec(
         version="squeeze-release-v1",
         family="squeeze_release",
         description="Event-driven squeeze release strategy executed through vectorbt order callbacks.",
@@ -27,3 +29,22 @@ def squeeze_release_strategy_spec() -> StrategySpec:
             tags=("volatility", "order-func"),
         ),
     )
+    return build_strategy_family_adapter(
+        adapter_key="squeeze_release",
+        adapter_version="v1",
+        source_ref=(
+            "python_adapter:"
+            "trading_advisor_3000.product_plane.research.strategies.families.squeeze_release."
+            "squeeze_release_family_adapter"
+        ),
+        hypothesis_family="volatility_release",
+        strategy_spec=strategy_spec,
+        template_key="squeeze_release_core",
+        template_title="Squeeze Release Core",
+        regime_module_key="feature.squeeze_on_code",
+        module_versions={"entry": "v1", "regime_filter": "v1", "risk_exit": "v1"},
+    )
+
+
+def squeeze_release_strategy_spec() -> StrategySpec:
+    return squeeze_release_family_adapter().strategy_spec

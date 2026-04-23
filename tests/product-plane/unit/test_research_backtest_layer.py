@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from trading_advisor_3000.product_plane.research.backtests import BacktestBatchRequest, phase5_backtest_store_contract
+from trading_advisor_3000.product_plane.research.backtests import BacktestBatchRequest, BacktestStrategyInstance, phase5_backtest_store_contract
 from trading_advisor_3000.product_plane.research.strategies import build_phase1_strategy_registry
 
 
@@ -21,10 +21,33 @@ def test_strategy_registry_exposes_stage5_parameter_combinations_and_execution_m
 
 def test_backtest_batch_request_id_is_deterministic_with_batch_sizes() -> None:
     request = BacktestBatchRequest(
+        campaign_run_id="crun_test",
+        strategy_space_id="sspace_test",
         dataset_version="dataset-v5",
         indicator_set_version="indicators-v1",
         feature_set_version="features-v1",
-        strategy_versions=("ma-cross-v1", "squeeze-release-v1"),
+        strategy_instances=(
+            BacktestStrategyInstance(
+                strategy_instance_id="sinst_a",
+                strategy_template_id="stpl_a",
+                family_id="sfam_ma_cross",
+                family_key="ma_cross",
+                strategy_version_label="ma-cross-v1",
+                execution_mode="signals",
+                parameter_values={"fast_window": 10, "slow_window": 20},
+                manifest_hash="sha256:a",
+            ),
+            BacktestStrategyInstance(
+                strategy_instance_id="sinst_b",
+                strategy_template_id="stpl_b",
+                family_id="sfam_squeeze_release",
+                family_key="squeeze_release",
+                strategy_version_label="squeeze-release-v1",
+                execution_mode="order_func",
+                parameter_values={"release_confirmation": 2},
+                manifest_hash="sha256:b",
+            ),
+        ),
         combination_count=3,
         param_batch_size=2,
         series_batch_size=1,
@@ -56,9 +79,9 @@ def test_backtest_store_contract_contains_stage5_artifacts() -> None:
         "expectancy",
         "trade_count",
         "exposure",
-        "avg_trade_duration_bars",
-        "fees_total",
+        "avg_holding_bars",
+        "commission_total",
         "slippage_total",
     } <= stats_columns
-    assert {"order_id", "action", "notional"} <= set(contract["research_order_records"]["columns"])
-    assert {"drawdown_id", "drawdown_pct", "status"} <= set(contract["research_drawdown_records"]["columns"])
+    assert {"order_id", "side", "fill_qty"} <= set(contract["research_order_records"]["columns"])
+    assert {"ts", "drawdown_pct", "status"} <= set(contract["research_drawdown_records"]["columns"])

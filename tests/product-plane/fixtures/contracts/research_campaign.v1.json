@@ -2,7 +2,7 @@
   "campaign_name": "fut_br_base_15m_explore",
   "target_stage": "projection",
   "canonical_output_dir": "D:/TA3000-data/canonical/moex-futures",
-  "materialized_root": "D:/TA3000-data/research/materialized/phase2b",
+  "materialized_root": "D:/TA3000-data/research/materialized/current",
   "runs_root": "D:/TA3000-data/research/runs",
   "dataset": {
     "dataset_version": "moex_futures_br_15m_2021_2026_v1",
@@ -24,9 +24,16 @@
     "feature_set_version": "features-v1",
     "feature_profile_version": "core_v1"
   },
+  "strategy_space": {
+    "family_keys": ["ma_cross"],
+    "template_ids": [],
+    "include_instance_ids": [],
+    "exclude_manifest_hashes": [],
+    "materialize_instances": true,
+    "max_instance_count": 64,
+    "search_space_overrides": {}
+  },
   "backtest": {
-    "strategy_versions": ["ma-cross-v1"],
-    "combination_count": 25,
     "param_batch_size": 25,
     "series_batch_size": 4,
     "backtest_timeframe": "15m",

@@ -1,5 +1,5 @@
-{
-  "job_name": "phase2b_benchmark_cli",
+﻿{
+  "job_name": "research_benchmark_cli",
   "dataset": {
     "scenario": "benchmark_small",
     "dataset_version": "benchmark_small_v1",
@@ -12,7 +12,7 @@
   "versions": {
     "indicator_set_version": "indicators-v1",
     "feature_set_version": "features-v1",
-    "strategy_catalog_version": "phase2b-benchmark-catalog-v1"
+    "strategy_catalog_version": "research-benchmark-catalog-v1"
   },
   "cold_bootstrap": {
     "duration_seconds": 0.541712
@@ -70,8 +70,8 @@
   ],
   "artifacts": {
     "cache_log": "cache-markers.log",
-    "report_json": "phase2b-benchmark-report.json",
-    "report_md": "phase2b-benchmark-report.md"
+    "report_json": "research-benchmark-report.json",
+    "report_md": "research-benchmark-report.md"
   },
   "runtime_profile": {
     "python_version": "3.12.10",
@@ -79,3 +79,4 @@
     "processor": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel"
   }
 }
+

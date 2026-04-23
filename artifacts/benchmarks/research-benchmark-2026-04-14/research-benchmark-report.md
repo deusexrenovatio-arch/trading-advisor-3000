@@ -1,4 +1,4 @@
-# Phase2B Benchmark Report
+﻿# Research Benchmark Report
 
 ## Dataset
 - scenario: benchmark_small
@@ -32,3 +32,4 @@
 - scale.50.cache_hit=true
 - scale.100.cache_hit=true
 - scale.250.cache_hit=true
+

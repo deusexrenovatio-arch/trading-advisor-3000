@@ -1,20 +1,27 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
-from trading_advisor_3000.dagster_defs import phase2b_asset_specs
+from trading_advisor_3000.dagster_defs import research_asset_specs
+from trading_advisor_3000.dagster_defs import research_assets
 from trading_advisor_3000.product_plane.research.datasets import phase2_research_dataset_store_contract
-from trading_advisor_3000.product_plane.research.features import phase2b_feature_store_contract
+from trading_advisor_3000.product_plane.research.features import research_feature_store_contract
 from trading_advisor_3000.product_plane.research.ids import candidate_id
 from trading_advisor_3000.product_plane.research.indicators import build_indicator_profile_registry, phase3_indicator_store_contract
+from trading_advisor_3000.product_plane.research.strategies.families import phase_stg02_family_adapters
 
 
-def test_phase2b_dagster_asset_specs_declared() -> None:
-    specs = {spec.key: spec for spec in phase2b_asset_specs()}
+def test_research_dagster_asset_specs_declared() -> None:
+    specs = {spec.key: spec for spec in research_asset_specs()}
     keys = set(specs)
     assert {
         "research_datasets",
         "research_bar_views",
         "research_indicator_frames",
         "research_feature_frames",
+        "research_strategy_families",
+        "research_strategy_templates",
+        "research_strategy_template_modules",
+        "research_strategy_instances",
+        "research_strategy_instance_modules",
         "research_backtest_batches",
         "research_backtest_runs",
         "research_strategy_stats",
@@ -38,10 +45,16 @@ def test_phase2b_dagster_asset_specs_declared() -> None:
         "research_bar_views_delta",
         "research_indicator_frames_delta",
     }
+    assert set(specs["research_strategy_families"].inputs) == {"research_datasets_delta"}
+    assert set(specs["research_strategy_templates"].inputs) == {"research_strategy_families_delta"}
+    assert set(specs["research_strategy_template_modules"].inputs) == {"research_strategy_templates_delta"}
+    assert set(specs["research_strategy_instances"].inputs) == {"research_strategy_template_modules_delta"}
+    assert set(specs["research_strategy_instance_modules"].inputs) == {"research_strategy_instances_delta"}
     assert set(specs["research_backtest_batches"].inputs) == {
         "research_datasets_delta",
         "research_indicator_frames_delta",
         "research_feature_frames_delta",
+        "research_strategy_instance_modules_delta",
     }
     assert set(specs["research_strategy_rankings"].inputs) == {
         "research_backtest_batches_delta",
@@ -55,10 +68,10 @@ def test_phase2b_dagster_asset_specs_declared() -> None:
     }
 
 
-def test_phase2b_contract_lineage_is_consistent_across_dataset_indicator_and_feature_layers() -> None:
+def test_research_contract_lineage_is_consistent_across_dataset_indicator_and_feature_layers() -> None:
     dataset_manifest = phase2_research_dataset_store_contract()
     indicator_manifest = phase3_indicator_store_contract()
-    feature_manifest = phase2b_feature_store_contract()
+    feature_manifest = research_feature_store_contract()
 
     assert {"research_datasets", "research_bar_views"} == set(dataset_manifest)
     assert "research_indicator_frames" in indicator_manifest
@@ -90,14 +103,29 @@ def test_phase2b_contract_lineage_is_consistent_across_dataset_indicator_and_fea
         "atr_stop_ref_1x",
         "atr_target_ref_2x",
     } <= feature_columns
-    assert "research_strategy_metrics" in feature_manifest
+    assert "research_strategy_metrics" not in feature_manifest
 
 
-def test_phase2b_candidate_id_formula_is_stable() -> None:
+def test_research_candidate_id_formula_is_stable() -> None:
     value = candidate_id(
-        strategy_version_id="trend-follow-v1",
+        strategy_instance_id="sinst_trend_follow",
         contract_id="BR-6.26",
         timeframe="15m",
         ts_signal="2026-03-16T10:15:00Z",
     )
-    assert value == "CAND-C82902612C14"
+    assert value == candidate_id(
+        strategy_instance_id="sinst_trend_follow",
+        contract_id="BR-6.26",
+        timeframe="15m",
+        ts_signal="2026-03-16T10:15:00Z",
+    )
+    assert value.startswith("CAND-")
+
+
+def test_research_default_strategy_space_follows_frozen_stg02_adapter_inventory() -> None:
+    default_strategy_space = research_assets._default_strategy_space()
+    assert tuple(default_strategy_space["family_keys"]) == tuple(
+        adapter.family_manifest.family_key for adapter in phase_stg02_family_adapters()
+    )
+    assert default_strategy_space["materialize_instances"] is True
+

@@ -91,10 +91,9 @@ def project_runtime_candidates(
     contracts: list[dict[str, object]] = []
 
     for ranking_row in selected_rows:
-        params = _coerce_json(ranking_row.get("params_json"))
         dataset_version = str(ranking_row["dataset_version"])
-        indicator_set_version = str(ranking_row["indicator_set_version"])
-        feature_set_version = str(ranking_row["feature_set_version"])
+        indicator_set_version = str(ranking_row.get("indicator_set_version", ""))
+        feature_set_version = str(ranking_row.get("feature_set_version", ""))
         contract_id = str(ranking_row["contract_id"])
         instrument_id = str(ranking_row["instrument_id"])
         timeframe = str(ranking_row["timeframe"])
@@ -116,7 +115,8 @@ def project_runtime_candidates(
         if not series_frames:
             continue
 
-        strategy_spec = registry.get(str(ranking_row["strategy_version"]))
+        strategy_spec = registry.get(str(ranking_row["strategy_version_label"]))
+        params = _coerce_json(_coerce_json(ranking_row.get("rank_reason_json")).get("parameter_values", {}))
         projection = project_series_candidate(
             series=series_frames[0],
             strategy_spec=strategy_spec,
@@ -130,15 +130,14 @@ def project_runtime_candidates(
             continue
 
         feature_snapshot = FeatureSnapshotRef.from_dict(projection["feature_snapshot"])
-        confidence = _clip_unit((0.65 * float(ranking_row["robust_score"])) + (0.35 * float(projection["signal_strength_score"])))
+        confidence = _clip_unit((0.65 * float(ranking_row["score_total"])) + (0.35 * float(projection["signal_strength_score"])))
         signal_id = "SIG-" + _stable_hash(
             "|".join(
                 (
-                    str(ranking_row["strategy_version"]),
+                    str(ranking_row["strategy_instance_id"]),
                     contract_id,
                     timeframe,
                     str(projection["ts_decision"]),
-                    str(ranking_row["params_hash"]),
                 )
             )
         )
@@ -146,7 +145,7 @@ def project_runtime_candidates(
             signal_id=signal_id,
             contract_id=contract_id,
             timeframe=Timeframe(timeframe),
-            strategy_version_id=str(ranking_row["strategy_version"]),
+            strategy_version_id=str(ranking_row["strategy_version_label"]),
             mode=Mode.SHADOW,
             side=TradeSide(str(projection["side"])),
             entry_ref=float(projection["entry_ref"]),
@@ -160,36 +159,31 @@ def project_runtime_candidates(
         projected_rows.append(
             {
                 "candidate_id": candidate_id(
-                    strategy_version_id=candidate_contract.strategy_version_id,
+                    strategy_instance_id=str(ranking_row["strategy_instance_id"]),
                     contract_id=candidate_contract.contract_id,
                     timeframe=candidate_contract.timeframe.value,
                     ts_signal=candidate_contract.ts_decision,
                 ),
+                "campaign_run_id": str(ranking_row["campaign_run_id"]),
+                "ranking_id": str(ranking_row["ranking_id"]),
+                "backtest_run_id": str(ranking_row["backtest_run_id"]),
+                "strategy_instance_id": str(ranking_row["strategy_instance_id"]),
+                "strategy_template_id": str(ranking_row["strategy_template_id"]),
+                "family_id": str(ranking_row["family_id"]),
+                "family_key": str(ranking_row["family_key"]),
                 "signal_id": candidate_contract.signal_id,
-                "backtest_batch_id": str(ranking_row["backtest_batch_id"]),
-                "ranking_policy_id": request.ranking_policy_id,
-                "selection_policy": request.selection_policy,
-                "selected_rank": int(ranking_row["selected_rank"]),
-                "source_backtest_run_id": str(ranking_row["representative_backtest_run_id"]),
-                "strategy_version_id": candidate_contract.strategy_version_id,
-                "strategy_family": str(ranking_row["strategy_family"]),
-                "dataset_version": dataset_version,
-                "indicator_set_version": indicator_set_version,
-                "feature_set_version": feature_set_version,
                 "contract_id": contract_id,
                 "instrument_id": instrument_id,
                 "timeframe": timeframe,
-                "mode": candidate_contract.mode.value,
+                "ts_signal": candidate_contract.ts_decision,
                 "side": candidate_contract.side.value,
                 "entry_ref": candidate_contract.entry_ref,
                 "stop_ref": candidate_contract.stop_ref,
                 "target_ref": candidate_contract.target_ref,
-                "confidence": candidate_contract.confidence,
-                "ts_decision": candidate_contract.ts_decision,
-                "params_hash": str(ranking_row["params_hash"]),
-                "params_json": params,
-                "robust_score": float(ranking_row["robust_score"]),
-                "signal_strength_score": float(projection["signal_strength_score"]),
+                "score": candidate_contract.confidence,
+                "estimated_commission": 0.0,
+                "estimated_slippage": 0.0,
+                "window_id": str(ranking_row.get("window_ids_json", ["wf-01"])[0]) if ranking_row.get("window_ids_json") else "wf-01",
                 "feature_snapshot_json": candidate_contract.feature_snapshot.to_dict(),
                 "created_at": _created_at(),
             }
@@ -218,11 +212,15 @@ def _select_rows(
         row
         for row in ranking_rows
         if str(row.get("ranking_policy_id")) == request.ranking_policy_id
-        and int(row.get("policy_pass", 0)) == 1
-        and float(row.get("robust_score", 0.0) or 0.0) >= request.min_robust_score
+        and bool(row.get("qualifies_for_projection", row.get("policy_pass", False)))
+        and float(row.get("score_total", row.get("robust_score", 0.0)) or 0.0) >= request.min_robust_score
     ]
     if request.backtest_run_id:
-        filtered = [row for row in filtered if str(row.get("representative_backtest_run_id")) == request.backtest_run_id]
+        filtered = [
+            row
+            for row in filtered
+            if str(row.get("backtest_run_id", row.get("representative_backtest_run_id", ""))) == request.backtest_run_id
+        ]
     filtered = _sorted_rows(filtered, selection_policy=request.selection_policy)
     if request.selection_policy == "all_policy_pass":
         return filtered
@@ -240,10 +238,7 @@ def _select_rows(
         if current >= request.max_candidates_per_partition:
             continue
         if request.selection_policy == "top_by_family_per_series":
-            family_key = (
-                *series_key,
-                str(row.get("strategy_family", "")),
-            )
+            family_key = (*series_key, str(row.get("family_key", row.get("strategy_family", ""))))
             if family_counts.get(family_key, 0) >= 1:
                 continue
             family_counts[family_key] = 1
@@ -260,9 +255,9 @@ def _sorted_rows(rows: list[dict[str, object]], *, selection_policy: str) -> lis
                 str(row.get("dataset_version", "")),
                 str(row.get("contract_id", "")),
                 str(row.get("timeframe", "")),
-                -float(row.get("policy_metric_score", 0.0) or 0.0),
-                int(row.get("selected_rank", 0)),
-                -float(row.get("robust_score", 0.0) or 0.0),
+                -float(row.get("objective_score", row.get("policy_metric_score", 0.0)) or 0.0),
+                int(row.get("rank", row.get("selected_rank", 0))),
+                -float(row.get("score_total", row.get("robust_score", 0.0)) or 0.0),
             ),
         )
     if selection_policy == "top_by_family_per_series":
@@ -272,9 +267,9 @@ def _sorted_rows(rows: list[dict[str, object]], *, selection_policy: str) -> lis
                 str(row.get("dataset_version", "")),
                 str(row.get("contract_id", "")),
                 str(row.get("timeframe", "")),
-                str(row.get("strategy_family", "")),
-                int(row.get("selected_rank", 0)),
-                -float(row.get("robust_score", 0.0) or 0.0),
+                str(row.get("family_key", row.get("strategy_family", ""))),
+                int(row.get("rank", row.get("selected_rank", 0))),
+                -float(row.get("score_total", row.get("robust_score", 0.0)) or 0.0),
             ),
         )
     return sorted(
@@ -283,7 +278,7 @@ def _sorted_rows(rows: list[dict[str, object]], *, selection_policy: str) -> lis
             str(row.get("dataset_version", "")),
             str(row.get("contract_id", "")),
             str(row.get("timeframe", "")),
-            int(row.get("selected_rank", 0)),
-            -float(row.get("robust_score", 0.0) or 0.0),
+            int(row.get("rank", row.get("selected_rank", 0))),
+            -float(row.get("score_total", row.get("robust_score", 0.0)) or 0.0),
         ),
     )

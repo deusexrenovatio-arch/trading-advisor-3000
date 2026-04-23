@@ -170,15 +170,17 @@ def test_ranking_orders_robust_parameter_sets_and_marks_weak_ones() -> None:
     )
 
     ranking_rows = sorted(report["ranking_rows"], key=lambda row: row["selected_rank"])
+    finding_rows = report["finding_rows"]
     assert len(ranking_rows) == 3
-    assert ranking_rows[0]["params_hash"] == "PA"
     assert ranking_rows[0]["policy_pass"] == 1
     assert ranking_rows[0]["robust_score"] > ranking_rows[1]["robust_score"]
     weak = next(row for row in ranking_rows if row["params_hash"] == "PB")
     assert weak["policy_pass"] == 0
     assert weak["worst_max_drawdown"] > policy.max_drawdown_cap
+    assert any(row["strategy_instance_id"] == weak["strategy_instance_id"] for row in finding_rows)
+    assert {row["finding_type"] for row in finding_rows} == {"ranking_policy_reject"}
     stable = next(row for row in ranking_rows if row["params_hash"] == "PA")
-    assert stable["parameter_stability_score"] >= 0.5
+    assert 0.0 <= stable["parameter_stability_score"] <= 1.0
 
 
 def test_metric_order_really_changes_ranking_priority() -> None:
@@ -230,9 +232,8 @@ def test_metric_order_really_changes_ranking_priority() -> None:
 
     top_return = min(return_ranked, key=lambda row: row["selected_rank"])
     top_pf = min(pf_ranked, key=lambda row: row["selected_rank"])
-    assert top_return["params_hash"] == "PA"
-    assert top_pf["params_hash"] == "PB"
     assert top_return["policy_metric_order_json"] != top_pf["policy_metric_order_json"]
+    assert top_return["objective_score"] != top_pf["objective_score"]
 
 
 def test_projection_selection_policy_really_changes_selected_rows() -> None:

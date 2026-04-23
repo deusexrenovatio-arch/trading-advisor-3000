@@ -1,11 +1,11 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from trading_advisor_3000.product_plane.research.datasets import ResearchBarView
 from trading_advisor_3000.product_plane.research.features import (
     build_feature_frames,
     build_feature_profile_registry,
     phase1_feature_profile,
-    phase2b_feature_store_contract,
+    research_feature_store_contract,
 )
 from trading_advisor_3000.product_plane.research.indicators import IndicatorFrameRow
 
@@ -116,7 +116,7 @@ def test_feature_registry_exposes_versioned_profiles_and_stage4_columns() -> Non
 
 
 def test_feature_store_contract_contains_stage4_lineage_columns() -> None:
-    contract = phase2b_feature_store_contract()
+    contract = research_feature_store_contract()
     columns = contract["research_feature_frames"]["columns"]
     assert {
         "dataset_version",
@@ -196,3 +196,4 @@ def test_feature_mtf_overlay_is_available_only_after_higher_timeframe_close() ->
     assert ltf_rows[3].values["htf_rsi_14"] == 58.0
     assert ltf_rows[3].values["htf_trend_state_code"] == 1
     assert ltf_rows[7].values["htf_rsi_14"] == 61.0
+

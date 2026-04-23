@@ -15,7 +15,7 @@ from .store import (
     FeatureFramePartitionKey,
     FeatureFrameRow,
     load_feature_frames,
-    phase2b_feature_store_contract,
+    research_feature_store_contract,
     write_feature_frames,
 )
 
@@ -658,7 +658,7 @@ def _null_warmup_span(payload_rows: list[dict[str, object]], output_columns: tup
 def _feature_value(output_column: str, value: object) -> float | int | None:
     if value is None or pd.isna(value):
         return None
-    value_type = phase2b_feature_store_contract()["research_feature_frames"]["columns"][output_column]
+    value_type = research_feature_store_contract()["research_feature_frames"]["columns"][output_column]
     if value_type == "int":
         return int(value)
     return float(value)
@@ -907,7 +907,7 @@ def materialize_feature_frames(
         "reused_partition_count": reused_partitions,
         "deleted_partition_count": len(stale_partitions),
         "output_paths": output_paths,
-        "delta_manifest": phase2b_feature_store_contract(),
+        "delta_manifest": research_feature_store_contract(),
     }
 
 

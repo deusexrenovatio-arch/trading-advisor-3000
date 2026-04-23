@@ -4,6 +4,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -13,6 +14,9 @@ from vectorbt.portfolio import enums, nb
 
 from trading_advisor_3000.product_plane.research.io.loaders import ResearchSeriesFrame
 from trading_advisor_3000.product_plane.research.strategies import StrategySpec
+
+if TYPE_CHECKING:
+    from .batch_runner import BacktestStrategyInstance
 
 
 @dataclass(frozen=True)
@@ -481,13 +485,12 @@ def _param_hash(params: dict[str, object]) -> str:
 def _run_id(
     *,
     batch_id: str,
-    strategy_version: str,
+    strategy_instance_id: str,
     contract_id: str,
     timeframe: str,
     window_id: str,
-    params_hash: str,
 ) -> str:
-    return "BTRUN-" + _stable_hash(f"{batch_id}|{strategy_version}|{contract_id}|{timeframe}|{window_id}|{params_hash}")
+    return "BTRUN-" + _stable_hash(f"{batch_id}|{strategy_instance_id}|{contract_id}|{timeframe}|{window_id}")
 
 
 def _trade_rows(
@@ -516,29 +519,30 @@ def _trade_rows(
         rows.append(
             {
                 "backtest_run_id": run_row["backtest_run_id"],
-                "backtest_batch_id": run_row["backtest_batch_id"],
-                "strategy_version": run_row["strategy_version"],
-                "strategy_family": run_row["strategy_family"],
-                "dataset_version": run_row["dataset_version"],
-                "indicator_set_version": run_row["indicator_set_version"],
-                "feature_set_version": run_row["feature_set_version"],
+                "campaign_run_id": run_row["campaign_run_id"],
+                "strategy_instance_id": run_row["strategy_instance_id"],
+                "strategy_template_id": run_row["strategy_template_id"],
+                "family_id": run_row["family_id"],
+                "family_key": run_row["family_key"],
                 "contract_id": run_row["contract_id"],
                 "instrument_id": run_row["instrument_id"],
                 "timeframe": run_row["timeframe"],
                 "window_id": run_row["window_id"],
                 "trade_id": f"{run_row['backtest_run_id']}-TRD-{int(trade['id']):04d}",
-                "position_id": int(trade["parent_id"]),
-                "direction": direction,
+                "side": direction,
                 "status": status,
                 "entry_ts": entry_ts,
                 "exit_ts": exit_ts,
                 "entry_price": float(trade["entry_price"]),
                 "exit_price": float(trade["exit_price"]),
-                "size": float(trade["size"]),
-                "pnl": float(trade["pnl"]),
-                "return": float(trade["return"]),
-                "fees_total": float(trade["entry_fees"]) + float(trade["exit_fees"]),
-                "duration_bars": duration_bars,
+                "qty": abs(float(trade["size"])),
+                "gross_pnl": float(trade["pnl"]),
+                "net_pnl": float(trade["pnl"]) - (float(trade["entry_fees"]) + float(trade["exit_fees"])),
+                "commission": float(trade["entry_fees"]) + float(trade["exit_fees"]),
+                "slippage": 0.0,
+                "holding_bars": duration_bars,
+                "stop_ref": run_row["stop_ref"],
+                "target_ref": run_row["target_ref"],
               }
               )
     return rows
@@ -564,24 +568,24 @@ def _order_rows(
         rows.append(
             {
                 "backtest_run_id": run_row["backtest_run_id"],
-                "backtest_batch_id": run_row["backtest_batch_id"],
-                "strategy_version": run_row["strategy_version"],
-                "strategy_family": run_row["strategy_family"],
-                "dataset_version": run_row["dataset_version"],
-                "indicator_set_version": run_row["indicator_set_version"],
-                "feature_set_version": run_row["feature_set_version"],
+                "campaign_run_id": run_row["campaign_run_id"],
+                "strategy_instance_id": run_row["strategy_instance_id"],
+                "family_key": run_row["family_key"],
                 "contract_id": run_row["contract_id"],
                 "instrument_id": run_row["instrument_id"],
                 "timeframe": run_row["timeframe"],
                 "window_id": run_row["window_id"],
                 "order_id": f"{run_row['backtest_run_id']}-ORD-{int(order['id']):04d}",
-                "bar_index": bar_index,
                 "ts": ts,
-                "action": action,
-                "size": size,
+                "side": action,
+                "order_type": "market",
                 "price": price,
-                "fees": float(order["fees"]),
-                "notional": abs(size * price),
+                "qty": abs(size),
+                "fill_price": price,
+                "fill_qty": abs(size),
+                "commission": float(order["fees"]),
+                "slippage": 0.0,
+                "status": "filled",
             }
         )
     return rows
@@ -613,27 +617,16 @@ def _drawdown_rows(
         rows.append(
             {
                 "backtest_run_id": run_row["backtest_run_id"],
-                "backtest_batch_id": run_row["backtest_batch_id"],
-                "strategy_version": run_row["strategy_version"],
-                "strategy_family": run_row["strategy_family"],
-                "dataset_version": run_row["dataset_version"],
-                "indicator_set_version": run_row["indicator_set_version"],
-                "feature_set_version": run_row["feature_set_version"],
-                "contract_id": run_row["contract_id"],
-                "instrument_id": run_row["instrument_id"],
+                "campaign_run_id": run_row["campaign_run_id"],
+                "strategy_instance_id": run_row["strategy_instance_id"],
+                "family_key": run_row["family_key"],
                 "timeframe": run_row["timeframe"],
+                "ts": pd.Timestamp(index[valley_idx]).isoformat().replace("+00:00", "Z"),
+                "equity": valley_val,
+                "drawdown": peak_val - valley_val,
+                "peak_equity": peak_val,
                 "window_id": run_row["window_id"],
-                "drawdown_id": f"{run_row['backtest_run_id']}-DD-{int(record['id']):04d}",
-                "peak_ts": pd.Timestamp(index[peak_idx]).isoformat().replace("+00:00", "Z"),
-                "start_ts": pd.Timestamp(index[start_idx]).isoformat().replace("+00:00", "Z"),
-                "valley_ts": pd.Timestamp(index[valley_idx]).isoformat().replace("+00:00", "Z"),
-                "end_ts": pd.Timestamp(index[end_idx]).isoformat().replace("+00:00", "Z"),
-                "peak_value": peak_val,
-                "valley_value": valley_val,
-                "end_value": end_val,
                 "drawdown_pct": drawdown_pct,
-                "recovery_pct": recovery_pct,
-                "duration_bars": max(0, end_idx - start_idx),
                 "status_code": status_code,
                 "status": status,
             }
@@ -719,14 +712,17 @@ def run_backtest_series(
     *,
     series: ResearchSeriesFrame,
     strategy_spec: StrategySpec,
-    params: dict[str, object],
+    strategy_instance: "BacktestStrategyInstance",
     config: BacktestEngineConfig,
     backtest_batch_id: str,
+    campaign_run_id: str,
+    strategy_space_id: str,
     dataset_version: str,
     indicator_set_version: str,
     feature_set_version: str,
     split_windows: tuple[dict[str, object], ...] | None = None,
 ) -> dict[str, list[dict[str, object]]]:
+    params = dict(strategy_instance.parameter_values)
     params_hash = _param_hash(params)
     created_at = _created_at()
     run_rows: list[dict[str, object]] = []
@@ -746,15 +742,19 @@ def run_backtest_series(
         run_row_seed = {
             "backtest_run_id": _run_id(
                 batch_id=backtest_batch_id,
-                strategy_version=strategy_spec.version,
+                strategy_instance_id=strategy_instance.strategy_instance_id,
                 contract_id=series.contract_id,
                 timeframe=series.timeframe,
                 window_id=window_id,
-                params_hash=params_hash,
             ),
             "backtest_batch_id": backtest_batch_id,
-            "strategy_version": strategy_spec.version,
-            "strategy_family": strategy_spec.family,
+            "campaign_run_id": campaign_run_id,
+            "strategy_space_id": strategy_space_id,
+            "strategy_instance_id": strategy_instance.strategy_instance_id,
+            "strategy_template_id": strategy_instance.strategy_template_id,
+            "family_id": strategy_instance.family_id,
+            "family_key": strategy_instance.family_key,
+            "strategy_version_label": strategy_instance.strategy_version_label,
             "dataset_version": dataset_version,
             "indicator_set_version": indicator_set_version,
             "feature_set_version": feature_set_version,
@@ -762,7 +762,20 @@ def run_backtest_series(
             "instrument_id": series.instrument_id,
             "timeframe": series.timeframe,
             "window_id": window_id,
+            "stop_ref": 0.0,
+            "target_ref": 0.0,
         }
+        signal_projection = project_series_candidate(
+            series=window_series,
+            strategy_spec=strategy_spec,
+            params=params,
+            config=config,
+            dataset_version=dataset_version,
+            feature_set_version=feature_set_version,
+            decision_lag_bars_max=max(len(window_frame), 1),
+        )
+        run_row_seed["stop_ref"] = float(signal_projection["stop_ref"]) if signal_projection is not None else 0.0
+        run_row_seed["target_ref"] = float(signal_projection["target_ref"]) if signal_projection is not None else 0.0
         trade_records = _trade_rows(
             portfolio=portfolio,
             run_row=run_row_seed,
@@ -784,26 +797,37 @@ def run_backtest_series(
         fees_total = float(orders["fees"].sum()) if not orders.empty else 0.0
         exposure = _scalar(portfolio.gross_exposure().max())
         total_return = _scalar(portfolio.total_return())
+        avg_holding_bars = (
+            sum(float(row["holding_bars"]) for row in trade_records) / len(trade_records)
+            if trade_records else 0.0
+        )
+        turnover = sum(
+            abs(float(row["qty"])) * (abs(float(row["entry_price"])) + abs(float(row["exit_price"])))
+            for row in trade_records
+        )
+        avg_trade = (
+            sum(float(row["net_pnl"]) for row in trade_records) / len(trade_records)
+            if trade_records else 0.0
+        )
         stats_row = {
             "backtest_run_id": _run_id(
                 batch_id=backtest_batch_id,
-                strategy_version=strategy_spec.version,
+                strategy_instance_id=strategy_instance.strategy_instance_id,
                 contract_id=series.contract_id,
                 timeframe=series.timeframe,
                 window_id=window_id,
-                params_hash=params_hash,
             ),
-            "backtest_batch_id": backtest_batch_id,
-            "strategy_version": strategy_spec.version,
-            "strategy_family": strategy_spec.family,
+            "campaign_run_id": campaign_run_id,
+            "strategy_instance_id": strategy_instance.strategy_instance_id,
+            "strategy_template_id": strategy_instance.strategy_template_id,
+            "family_id": strategy_instance.family_id,
+            "family_key": strategy_instance.family_key,
+            "strategy_version_label": strategy_instance.strategy_version_label,
             "dataset_version": dataset_version,
-            "indicator_set_version": indicator_set_version,
-            "feature_set_version": feature_set_version,
             "contract_id": series.contract_id,
             "instrument_id": series.instrument_id,
             "timeframe": series.timeframe,
             "window_id": window_id,
-            "params_hash": params_hash,
             "total_return": total_return,
             "annualized_return": _annualized_return(total_return, periods=len(window_frame), timeframe=series.timeframe),
             "sharpe": _scalar(portfolio.sharpe_ratio()),
@@ -813,21 +837,25 @@ def run_backtest_series(
             "win_rate": _scalar(portfolio.trades.win_rate()),
             "profit_factor": _scalar(portfolio.trades.profit_factor()),
             "expectancy": _scalar(portfolio.trades.expectancy()),
+            "avg_trade": avg_trade,
+            "avg_holding_bars": avg_holding_bars,
+            "turnover": turnover,
             "trade_count": len(trade_records),
             "exposure": exposure,
-            "avg_trade_duration_bars": (
-                sum(float(row["duration_bars"]) for row in trade_records) / len(trade_records)
-                if trade_records else 0.0
-            ),
-            "fees_total": fees_total,
+            "commission_total": fees_total,
             "slippage_total": slippage_total,
+            "status": "completed",
             "created_at": created_at,
           }
         run_row = {
             "backtest_run_id": stats_row["backtest_run_id"],
             "backtest_batch_id": backtest_batch_id,
-            "strategy_version": strategy_spec.version,
-            "strategy_family": strategy_spec.family,
+            "campaign_run_id": campaign_run_id,
+            "strategy_instance_id": strategy_instance.strategy_instance_id,
+            "strategy_template_id": strategy_instance.strategy_template_id,
+            "family_id": strategy_instance.family_id,
+            "family_key": strategy_instance.family_key,
+            "strategy_version_label": strategy_instance.strategy_version_label,
             "dataset_version": dataset_version,
             "indicator_set_version": indicator_set_version,
             "feature_set_version": feature_set_version,
@@ -835,12 +863,13 @@ def run_backtest_series(
             "instrument_id": series.instrument_id,
             "timeframe": series.timeframe,
             "window_id": window_id,
-            "params_hash": params_hash,
-            "params_json": params,
+            "validation_split_id": window_id,
+            "parameter_values_json": params,
             "execution_mode": strategy_spec.execution_mode,
             "engine_name": config.engine_name,
             "row_count": len(window_frame),
             "trade_count": len(trade_records),
+            "status": "completed",
             "started_at": str(window_frame["ts"].iloc[0]),
             "finished_at": str(window_frame["ts"].iloc[-1]),
         }

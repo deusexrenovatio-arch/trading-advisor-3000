@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
@@ -72,7 +72,7 @@ def test_phase5_replay_exports_review_and_observability_artifacts(tmp_path: Path
     report = run_system_shadow_replay(
         bars=bars,
         instrument_by_contract=_instrument_map(),
-        strategy_version_id="trend-follow-v1",
+        strategy_version_id="ma-cross-v1",
         dataset_version="bars-whitelist-v1",
         output_dir=tmp_path,
         telegram_channel="@ta3000_signals",
@@ -119,7 +119,7 @@ def test_phase5_non_happy_latency_status_is_visible_in_metrics_and_logs(tmp_path
     report = run_system_shadow_replay(
         bars=bars,
         instrument_by_contract=_instrument_map(),
-        strategy_version_id="trend-follow-v1",
+        strategy_version_id="ma-cross-v1",
         dataset_version="bars-whitelist-v1",
         output_dir=tmp_path,
         telegram_channel="@ta3000_signals",
@@ -155,3 +155,4 @@ def test_phase5_non_happy_latency_status_is_visible_in_metrics_and_logs(tmp_path
         and row.get("status") == "missing_activation"
         for row in loki_lines
     )
+

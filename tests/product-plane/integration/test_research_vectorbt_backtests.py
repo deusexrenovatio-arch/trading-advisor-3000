@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -10,16 +10,17 @@ from trading_advisor_3000.product_plane.research.backtests import (
     BacktestEngineConfig,
     CandidateProjectionRequest,
     RankingPolicy,
+    build_ephemeral_strategy_space,
     project_runtime_candidates,
     rank_backtest_results,
     run_backtest_batch,
 )
 from trading_advisor_3000.product_plane.research.datasets import ResearchBarView, ResearchDatasetManifest, phase2_research_dataset_store_contract
-from trading_advisor_3000.product_plane.research.features import FeatureFrameRow, phase2b_feature_store_contract
+from trading_advisor_3000.product_plane.research.features import FeatureFrameRow, research_feature_store_contract
 from trading_advisor_3000.product_plane.research.indicators import IndicatorFrameRow, phase3_indicator_store_contract
 from trading_advisor_3000.product_plane.research.io import ResearchFrameCache
 from trading_advisor_3000.product_plane.research.strategies.catalog import StrategyCatalog
-from trading_advisor_3000.product_plane.research.strategies.registry import StrategyRegistry
+from trading_advisor_3000.product_plane.research.strategies.registry import StrategyRegistry, build_phase1_strategy_registry
 from trading_advisor_3000.product_plane.research.strategies.spec import (
     StrategyParameter,
     StrategyRankingMetadata,
@@ -190,7 +191,7 @@ def _write_materialized_layers(
     )
     dataset_contract = phase2_research_dataset_store_contract()
     indicator_contract = phase3_indicator_store_contract()
-    feature_contract = phase2b_feature_store_contract()
+    feature_contract = research_feature_store_contract()
     write_delta_table_rows(
         table_path=root / "research_datasets.delta",
         rows=[dataset_manifest.to_dict()],
@@ -218,6 +219,38 @@ def _custom_registry(*specs: StrategySpec) -> StrategyRegistry:
     return StrategyRegistry(catalog=StrategyCatalog(version="stage5-test-catalog", strategies=tuple(specs)))
 
 
+def _backtest_request(
+    *,
+    strategy_labels: tuple[str, ...],
+    combinations_per_strategy: int,
+    registry: StrategyRegistry | None = None,
+    dataset_version: str = "dataset-v5",
+    indicator_set_version: str = "indicators-v1",
+    feature_set_version: str = "features-v1",
+    timeframe: str = "15m",
+    param_batch_size: int = 25,
+    series_batch_size: int = 4,
+) -> BacktestBatchRequest:
+    resolved_registry = registry or build_phase1_strategy_registry()
+    strategy_space = build_ephemeral_strategy_space(
+        strategy_registry=resolved_registry,
+        strategy_version_labels=strategy_labels,
+        instances_per_strategy=combinations_per_strategy,
+    )
+    return BacktestBatchRequest(
+        campaign_run_id="crun_stage5_test",
+        strategy_space_id=strategy_space.strategy_space_id,
+        dataset_version=dataset_version,
+        indicator_set_version=indicator_set_version,
+        feature_set_version=feature_set_version,
+        strategy_instances=strategy_space.strategy_instances,
+        combination_count=len(strategy_space.strategy_instances),
+        param_batch_size=param_batch_size,
+        series_batch_size=series_batch_size,
+        timeframe=timeframe,
+    )
+
+
 def test_vectorbt_batch_runner_materializes_signal_and_order_func_artifacts(tmp_path: Path) -> None:
     materialized_dir = _write_materialized_layers(tmp_path / "materialized")
     output_dir = tmp_path / "backtests"
@@ -226,15 +259,11 @@ def test_vectorbt_batch_runner_materializes_signal_and_order_func_artifacts(tmp_
         indicator_output_dir=materialized_dir,
         feature_output_dir=materialized_dir,
         output_dir=output_dir,
-        request=BacktestBatchRequest(
-            dataset_version="dataset-v5",
-            indicator_set_version="indicators-v1",
-            feature_set_version="features-v1",
-            strategy_versions=("ma-cross-v1", "squeeze-release-v1"),
-            combination_count=2,
+        request=_backtest_request(
+            strategy_labels=("ma-cross-v1", "squeeze-release-v1"),
+            combinations_per_strategy=2,
             param_batch_size=1,
             series_batch_size=1,
-            timeframe="15m",
         ),
         engine_config=BacktestEngineConfig(
             fees_bps=5.0,
@@ -260,8 +289,8 @@ def test_vectorbt_batch_runner_materializes_signal_and_order_func_artifacts(tmp_
     assert {"signals", "order_func"} <= {row["execution_mode"] for row in run_rows}
     assert all(row["trade_count"] >= 0 for row in run_rows)
     assert all("total_return" in row for row in stats_rows)
-    assert all(row["direction"] in {"long", "short"} for row in trade_rows)
-    assert all(row["action"] in {"buy", "sell"} for row in order_rows)
+    assert all(row["side"] in {"long", "short"} for row in trade_rows)
+    assert all(row["side"] in {"buy", "sell"} for row in order_rows)
     assert all("drawdown_pct" in row for row in drawdown_rows)
     for path_text in report["output_paths"].values():
         assert (Path(path_text) / "_delta_log").exists()
@@ -270,15 +299,11 @@ def test_vectorbt_batch_runner_materializes_signal_and_order_func_artifacts(tmp_
 def test_vectorbt_batch_runner_is_reproducible_and_uses_hot_cache(tmp_path: Path) -> None:
     materialized_dir = _write_materialized_layers(tmp_path / "materialized-cache")
     cache = ResearchFrameCache()
-    request = BacktestBatchRequest(
-        dataset_version="dataset-v5",
-        indicator_set_version="indicators-v1",
-        feature_set_version="features-v1",
-        strategy_versions=("ma-cross-v1",),
-        combination_count=2,
+    request = _backtest_request(
+        strategy_labels=("ma-cross-v1",),
+        combinations_per_strategy=2,
         param_batch_size=2,
         series_batch_size=1,
-        timeframe="15m",
     )
     first = run_backtest_batch(
         dataset_output_dir=materialized_dir,
@@ -336,13 +361,10 @@ def test_vectorbt_batch_runner_respects_dataset_windows_and_short_only_direction
         indicator_output_dir=materialized_dir,
         feature_output_dir=materialized_dir,
         output_dir=tmp_path / "backtests-wf",
-        request=BacktestBatchRequest(
-            dataset_version="dataset-v5",
-            indicator_set_version="indicators-v1",
-            feature_set_version="features-v1",
-            strategy_versions=("ma-cross-short-only-v1",),
-            combination_count=1,
-            timeframe="15m",
+        request=_backtest_request(
+            strategy_labels=("ma-cross-short-only-v1",),
+            combinations_per_strategy=1,
+            registry=_custom_registry(short_only_spec),
         ),
         engine_config=BacktestEngineConfig(allow_short=True, window_count=99),
         strategy_registry=_custom_registry(short_only_spec),
@@ -350,7 +372,7 @@ def test_vectorbt_batch_runner_respects_dataset_windows_and_short_only_direction
 
     assert {row["window_id"] for row in report["run_rows"]} == {"wf-01", "wf-02"}
     assert report["trade_rows"]
-    assert {row["direction"] for row in report["trade_rows"]} == {"short"}
+    assert {row["side"] for row in report["trade_rows"]} == {"short"}
 
 
 def test_vectorbt_batch_runner_parameters_and_risk_policy_change_execution(tmp_path: Path) -> None:
@@ -375,20 +397,18 @@ def test_vectorbt_batch_runner_parameters_and_risk_policy_change_execution(tmp_p
         indicator_output_dir=materialized_dir,
         feature_output_dir=materialized_dir,
         output_dir=tmp_path / "backtests-param-effects",
-        request=BacktestBatchRequest(
-            dataset_version="dataset-v5",
-            indicator_set_version="indicators-v1",
-            feature_set_version="features-v1",
-            strategy_versions=("breakout-param-v1",),
-            combination_count=2,
-            timeframe="15m",
+        request=_backtest_request(
+            strategy_labels=("breakout-param-v1",),
+            combinations_per_strategy=2,
+            registry=_custom_registry(breakout_spec),
         ),
         engine_config=BacktestEngineConfig(allow_short=True),
         strategy_registry=_custom_registry(breakout_spec),
     )
 
-    breakout_stats = [row for row in report["stat_rows"] if row["strategy_version"] == "breakout-param-v1"]
-    assert len({row["params_hash"] for row in breakout_stats}) == 2
+    breakout_runs = [row for row in report["run_rows"] if row["strategy_version_label"] == "breakout-param-v1"]
+    breakout_stats = [row for row in report["stat_rows"] if row["strategy_version_label"] == "breakout-param-v1"]
+    assert len({str(row["parameter_values_json"]) for row in breakout_runs}) == 2
     assert len({row["trade_count"] for row in breakout_stats}) > 1 or len({row["total_return"] for row in breakout_stats}) > 1
 
 
@@ -409,15 +429,12 @@ def test_vectorbt_batch_runner_handles_100_combinations_with_batching_and_cache(
         risk_policy=StrategyRiskPolicy(stop_atr_multiple=1.0, target_atr_multiple=2.0),
         ranking_metadata=StrategyRankingMetadata(tags=("benchmark",)),
     )
-    request = BacktestBatchRequest(
-        dataset_version="dataset-v5",
-        indicator_set_version="indicators-v1",
-        feature_set_version="features-v1",
-        strategy_versions=("breakout-benchmark-v1",),
-        combination_count=100,
+    request = _backtest_request(
+        strategy_labels=("breakout-benchmark-v1",),
+        combinations_per_strategy=100,
+        registry=_custom_registry(benchmark_spec),
         param_batch_size=10,
         series_batch_size=1,
-        timeframe="15m",
     )
 
     first = run_backtest_batch(
@@ -457,15 +474,11 @@ def test_stage6_ranking_and_projection_build_runtime_compatible_candidates(tmp_p
         indicator_output_dir=materialized_dir,
         feature_output_dir=materialized_dir,
         output_dir=output_dir,
-        request=BacktestBatchRequest(
-            dataset_version="dataset-v5",
-            indicator_set_version="indicators-v1",
-            feature_set_version="features-v1",
-            strategy_versions=("ma-cross-v1", "breakout-v1"),
-            combination_count=3,
+        request=_backtest_request(
+            strategy_labels=("ma-cross-v1", "breakout-v1"),
+            combinations_per_strategy=3,
             param_batch_size=2,
             series_batch_size=1,
-            timeframe="15m",
         ),
         engine_config=BacktestEngineConfig(window_count=2, fees_bps=5.0, slippage_bps=2.0),
     )
@@ -507,12 +520,13 @@ def test_stage6_ranking_and_projection_build_runtime_compatible_candidates(tmp_p
     candidate_rows = read_delta_table_rows(Path(str(projection_report["output_paths"]["research_signal_candidates"])))
     assert ranking_rows
     assert candidate_rows
-    assert any(row["robust_score"] >= 0.0 for row in ranking_rows)
+    assert any(row["score_total"] >= 0.0 for row in ranking_rows)
     assert all("feature_snapshot_json" in row for row in candidate_rows)
-    assert all(row["selection_policy"] == "top_by_family_per_series" for row in candidate_rows)
+    assert all(float(row["score"]) >= 0.0 for row in candidate_rows)
     for payload in projection_report["candidate_contracts"]:
         contract = DecisionCandidate.from_dict(payload)
         assert contract.to_dict() == payload
     assert backtest_report["trade_rows"]
     assert backtest_report["order_rows"]
     assert backtest_report["drawdown_rows"]
+

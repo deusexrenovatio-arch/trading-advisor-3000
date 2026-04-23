@@ -28,6 +28,8 @@ def _chunked[T](items: list[T], chunk_size: int) -> tuple[tuple[T, ...], ...]:
 def _manifest_split_windows(dataset_manifest: dict[str, object]) -> tuple[dict[str, object], ...]:
     raw = dataset_manifest.get("split_params_json")
     if isinstance(raw, str) and raw.strip():
+        import json
+
         payload = json.loads(raw)
     elif isinstance(raw, dict):
         payload = raw
@@ -37,12 +39,56 @@ def _manifest_split_windows(dataset_manifest: dict[str, object]) -> tuple[dict[s
     return tuple(item for item in windows if isinstance(item, dict))
 
 
+def _manifest_hash(payload: dict[str, object]) -> str:
+    normalized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True)
+class BacktestStrategyInstance:
+    strategy_instance_id: str
+    strategy_template_id: str
+    family_id: str
+    family_key: str
+    strategy_version_label: str
+    execution_mode: str
+    parameter_values: dict[str, object]
+    manifest_hash: str
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "strategy_instance_id",
+            "strategy_template_id",
+            "family_id",
+            "family_key",
+            "strategy_version_label",
+            "execution_mode",
+            "manifest_hash",
+        ):
+            if not str(getattr(self, field_name)).strip():
+                raise ValueError(f"{field_name} must be non-empty")
+
+
+@dataclass(frozen=True)
+class EphemeralStrategySpace:
+    strategy_space_id: str
+    strategy_instances: tuple[BacktestStrategyInstance, ...]
+
+    def __post_init__(self) -> None:
+        if not self.strategy_space_id.strip():
+            raise ValueError("strategy_space_id must not be empty")
+        if not self.strategy_instances:
+            raise ValueError("strategy_instances must not be empty")
+
+
 @dataclass(frozen=True)
 class BacktestBatchRequest:
+    campaign_run_id: str
+    strategy_space_id: str
     dataset_version: str
     indicator_set_version: str
     feature_set_version: str
-    strategy_versions: tuple[str, ...]
+    strategy_instances: tuple[BacktestStrategyInstance, ...]
     combination_count: int
     param_batch_size: int = 25
     series_batch_size: int = 4
@@ -51,8 +97,12 @@ class BacktestBatchRequest:
     instrument_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        if not self.strategy_versions:
-            raise ValueError("strategy_versions must not be empty")
+        if not self.campaign_run_id.strip():
+            raise ValueError("campaign_run_id must not be empty")
+        if not self.strategy_space_id.strip():
+            raise ValueError("strategy_space_id must not be empty")
+        if not self.strategy_instances:
+            raise ValueError("strategy_instances must not be empty")
         if self.combination_count <= 0:
             raise ValueError("combination_count must be positive")
         if self.param_batch_size <= 0:
@@ -63,10 +113,12 @@ class BacktestBatchRequest:
     def batch_id(self) -> str:
         payload = "|".join(
             (
+                self.campaign_run_id,
+                self.strategy_space_id,
                 self.dataset_version,
                 self.indicator_set_version,
                 self.feature_set_version,
-                *self.strategy_versions,
+                *[instance.strategy_instance_id for instance in self.strategy_instances],
                 str(self.combination_count),
                 str(self.param_batch_size),
                 str(self.series_batch_size),
@@ -76,6 +128,59 @@ class BacktestBatchRequest:
             )
         )
         return "BTBATCH-" + _stable_hash(payload)
+
+
+def build_ephemeral_strategy_space(
+    *,
+    strategy_version_labels: tuple[str, ...],
+    instances_per_strategy: int,
+    strategy_registry: StrategyRegistry | None = None,
+) -> EphemeralStrategySpace:
+    registry = strategy_registry or build_phase1_strategy_registry()
+    if not strategy_version_labels:
+        raise ValueError("strategy_version_labels must not be empty")
+    if instances_per_strategy <= 0:
+        raise ValueError("instances_per_strategy must be positive")
+
+    strategy_instances: list[BacktestStrategyInstance] = []
+    for strategy_version_label in strategy_version_labels:
+        strategy_spec = registry.get(strategy_version_label)
+        family_id = "sfam_" + _stable_hash(strategy_spec.family)
+        strategy_template_id = "stpl_" + _stable_hash(
+            f"{strategy_spec.family}|{strategy_spec.version}|{strategy_spec.execution_mode}"
+        )
+        parameter_sets = registry.parameter_combinations(strategy_version_label)[:instances_per_strategy]
+        for parameter_values in parameter_sets:
+            manifest_payload = {
+                "strategy_version_label": strategy_spec.version,
+                "family_key": strategy_spec.family,
+                "execution_mode": strategy_spec.execution_mode,
+                "parameter_values": parameter_values,
+            }
+            manifest_hash = _manifest_hash(manifest_payload)
+            strategy_instances.append(
+                BacktestStrategyInstance(
+                    strategy_instance_id=f"sinst_{manifest_hash}",
+                    strategy_template_id=strategy_template_id,
+                    family_id=family_id,
+                    family_key=strategy_spec.family,
+                    strategy_version_label=strategy_spec.version,
+                    execution_mode=strategy_spec.execution_mode,
+                    parameter_values=dict(parameter_values),
+                    manifest_hash=manifest_hash,
+                )
+            )
+
+    if not strategy_instances:
+        raise ValueError("ephemeral strategy space resolved to 0 strategy instances")
+
+    strategy_space_id = "sspace_" + _stable_hash(
+        "|".join(instance.strategy_instance_id for instance in strategy_instances)
+    )
+    return EphemeralStrategySpace(
+        strategy_space_id=strategy_space_id,
+        strategy_instances=tuple(strategy_instances),
+    )
 
 
 def run_backtest_batch(
@@ -120,41 +225,43 @@ def run_backtest_batch(
     all_trade_rows: list[dict[str, object]] = []
     all_order_rows: list[dict[str, object]] = []
     all_drawdown_rows: list[dict[str, object]] = []
-    total_combinations = 0
+    total_combinations = len(request.strategy_instances)
 
-    for strategy_version in request.strategy_versions:
-        strategy_spec = registry.get(strategy_version)
-        combinations = list(strategy_spec.parameter_combinations())[: request.combination_count]
-        total_combinations += len(combinations)
+    for instance_chunk in _chunked(list(request.strategy_instances), request.param_batch_size):
+        if not instance_chunk:
+            continue
         for series_chunk in _chunked(selected_series, request.series_batch_size):
             if not series_chunk:
                 continue
-            for param_chunk in _chunked(combinations, request.param_batch_size):
-                for series in series_chunk:
-                    for params in param_chunk:
-                        result = run_backtest_series(
-                            series=series,
-                            strategy_spec=strategy_spec,
-                            params=params,
-                            config=engine_config,
-                            backtest_batch_id=batch_id,
-                            dataset_version=request.dataset_version,
-                            indicator_set_version=request.indicator_set_version,
-                            feature_set_version=request.feature_set_version,
-                            split_windows=split_windows,
-                        )
-                        all_run_rows.extend(result["run_rows"])
-                        all_stat_rows.extend(result["stat_rows"])
-                        all_trade_rows.extend(result["trade_rows"])
-                        all_order_rows.extend(result["order_rows"])
-                        all_drawdown_rows.extend(result["drawdown_rows"])
+            for series in series_chunk:
+                for strategy_instance in instance_chunk:
+                    strategy_spec = registry.get(strategy_instance.strategy_version_label)
+                    result = run_backtest_series(
+                        series=series,
+                        strategy_spec=strategy_spec,
+                        strategy_instance=strategy_instance,
+                        config=engine_config,
+                        backtest_batch_id=batch_id,
+                        campaign_run_id=request.campaign_run_id,
+                        strategy_space_id=request.strategy_space_id,
+                        dataset_version=request.dataset_version,
+                        indicator_set_version=request.indicator_set_version,
+                        feature_set_version=request.feature_set_version,
+                        split_windows=split_windows,
+                    )
+                    all_run_rows.extend(result["run_rows"])
+                    all_stat_rows.extend(result["stat_rows"])
+                    all_trade_rows.extend(result["trade_rows"])
+                    all_order_rows.extend(result["order_rows"])
+                    all_drawdown_rows.extend(result["drawdown_rows"])
 
     batch_row = {
         "backtest_batch_id": batch_id,
+        "campaign_run_id": request.campaign_run_id,
+        "strategy_space_id": request.strategy_space_id,
         "dataset_version": request.dataset_version,
         "indicator_set_version": request.indicator_set_version,
         "feature_set_version": request.feature_set_version,
-        "strategy_catalog_version": registry.catalog_version(),
         "engine_name": engine_config.engine_name,
         "param_batch_size": request.param_batch_size,
         "series_batch_size": request.series_batch_size,

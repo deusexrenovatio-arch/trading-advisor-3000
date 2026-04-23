@@ -18,7 +18,7 @@ Use this hub when the task is about application/runtime capabilities.
 5. `docs/architecture/repository-surfaces.md`
 
 ## Research Plane
-The stable research path is now the materialized `phase2b` contour:
+The stable research path is now the materialized research contour:
 
 `canonical data -> research materialization -> vectorbt backtests -> ranking -> candidate projection -> runtime`
 
@@ -33,9 +33,8 @@ Use these documents when the task touches research:
 - `docs/checklists/app/phase2b-acceptance-checklist.md`
 
 Historical note:
-- The old snapshot-centric `run_research_from_bars(...)` design is no longer the primary implementation.
-- The Spark SQL candidate bridge remains compatibility-only and is not the accepted primary route.
-- Low-level bootstrap/backtest/projection jobs remain internal/debug-only and are not the supported front door.
+- `run_research_from_bars(...)` remains only as a thin programmatic adapter over the materialized research route.
+- Operator-facing execution stays on `run_campaign`, while scheduled freshness remains Dagster-owned through `research_data_prep_job`.
 
 ## Boundary reminder
 Product-plane changes must not weaken shell governance contracts.

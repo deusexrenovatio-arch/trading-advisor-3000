@@ -71,9 +71,16 @@ def _campaign_payload(
             "feature_set_version": "features-v1",
             "feature_profile_version": feature_profile_version,
         },
+        "strategy_space": {
+            "family_keys": ["ma_cross"],
+            "template_ids": [],
+            "include_instance_ids": [],
+            "exclude_manifest_hashes": [],
+            "materialize_instances": True,
+            "max_instance_count": 64,
+            "search_space_overrides": {},
+        },
         "backtest": {
-            "strategy_versions": ["ma-cross-v1"],
-            "combination_count": 1,
             "param_batch_size": 25,
             "series_batch_size": 4,
             "backtest_timeframe": "15m",
@@ -106,7 +113,7 @@ def _campaign_payload(
     }
 
 
-def test_bootstrap_campaign_module_executes_and_writes_summary(tmp_path: Path) -> None:
+def test_data_prep_campaign_module_executes_research_data_prep_and_writes_summary(tmp_path: Path) -> None:
     canonical_dir = tmp_path / "canonical"
     _seed_canonical(canonical_dir)
 
@@ -117,8 +124,8 @@ def test_bootstrap_campaign_module_executes_and_writes_summary(tmp_path: Path) -
             canonical_dir,
             tmp_path / "materialized",
             tmp_path / "runs",
-            campaign_name="bootstrap-route",
-            target_stage="bootstrap",
+            campaign_name="data-prep-route",
+            target_stage="data_prep",
         ),
     )
 
@@ -141,11 +148,21 @@ def test_bootstrap_campaign_module_executes_and_writes_summary(tmp_path: Path) -
     run_root = Path(str(payload["run_root"]))
 
     assert payload["status"] == "success"
+    for table_name in (
+        "research_datasets",
+        "research_bar_views",
+        "research_indicator_frames",
+        "research_feature_frames",
+    ):
+        assert table_name in payload["rows_by_table"]
+        assert Path(str(payload["output_paths"][table_name])).exists()
+    assert "research_strategy_families" not in payload["rows_by_table"]
     assert (run_root / "run-summary.json").exists()
     assert _load_json(run_root / "status.json")["status"] == "success"
+    assert payload["executed_steps"] == ["research_data_prep"]
 
 
-def test_bootstrap_campaign_dispatches_through_dagster_helper_boundary(
+def test_data_prep_campaign_dispatches_through_research_data_prep_boundary(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -156,15 +173,15 @@ def test_bootstrap_campaign_dispatches_through_dagster_helper_boundary(
         canonical_dir,
         tmp_path / "materialized",
         tmp_path / "runs",
-        campaign_name="bootstrap-dispatch",
-        target_stage="bootstrap",
+        campaign_name="data-prep-dispatch",
+        target_stage="data_prep",
     )
     config_path = tmp_path / "campaign.yaml"
     _write_campaign(config_path, payload)
 
     calls: list[dict[str, object]] = []
 
-    def _bootstrap(**kwargs: object) -> dict[str, object]:
+    def _data_prep(**kwargs: object) -> dict[str, object]:
         calls.append(dict(kwargs))
         materialized_root = Path(str(kwargs["materialized_output_dir"]))
         results_root = Path(str(kwargs["results_output_dir"]))
@@ -179,10 +196,10 @@ def test_bootstrap_campaign_dispatches_through_dagster_helper_boundary(
             "rows_by_table": {"research_datasets": 1},
         }
 
-    monkeypatch.setattr(campaigns, "materialize_phase2b_bootstrap_assets", _bootstrap)
+    monkeypatch.setattr(campaigns, "materialize_research_data_prep_assets", _data_prep)
     monkeypatch.setattr(
         campaigns,
-        "validate_phase2b_contracts",
+        "validate_research_contracts",
         lambda **_: {
             "status": "passed",
             "validated_tables": [],
@@ -226,7 +243,7 @@ def test_backtest_campaign_reuses_existing_compatible_materialized_layer(tmp_pat
     assert first["materialized_root"] == second["materialized_root"]
     assert first["run_root"] != second["run_root"]
     assert first["reused_steps"] == []
-    assert second["reused_steps"] == ["bootstrap"]
+    assert second["reused_steps"] == ["research_data_prep"]
 
 
 def test_changed_profile_version_forces_new_materialization_root(tmp_path: Path) -> None:
@@ -291,31 +308,24 @@ def test_projection_campaign_emits_ranking_and_candidate_summaries(tmp_path: Pat
 
     assert summary["status"] == "success"
     assert "ranking_top_rows" in digest
-    assert "policy_pass_count" in digest
-    assert "positive_return_count" in digest
+    assert "projection_qualified_count" in digest
     assert "candidate_count" in digest
     assert "candidate_rows_by_strategy" in digest
     assert "candidate_rows_by_timeframe" in digest
 
 
-def test_official_research_runbooks_only_support_campaign_runner_route() -> None:
+def test_research_runbooks_publish_only_campaign_runner_route() -> None:
     expected_command = "python -m trading_advisor_3000.product_plane.research.jobs.run_campaign"
-    internal_marker = "internal/debug-only"
+    extra_module_marker = "trading_advisor_3000.product_plane.research.jobs."
 
     route_text = RUNBOOK_ROUTE.read_text(encoding="utf-8")
     operations_text = RUNBOOK_OPERATIONS.read_text(encoding="utf-8")
 
     assert expected_command in route_text
     assert expected_command in operations_text
-    assert internal_marker in route_text.lower()
-    assert internal_marker in operations_text.lower()
-
-    route_supported_section = route_text.split("## Internal / Debug Only", maxsplit=1)[0]
-    operations_supported_section = operations_text.split("## Internal / Debug Only", maxsplit=1)[0]
-    for legacy_route in (
-        "trading_advisor_3000.product_plane.research.jobs.bootstrap",
-        "trading_advisor_3000.product_plane.research.jobs.backtest",
-        "trading_advisor_3000.product_plane.research.jobs.project_candidates",
-    ):
-        assert legacy_route not in route_supported_section
-        assert legacy_route not in operations_supported_section
+    assert "## Route Boundary" in route_text
+    assert "## Operational Boundary" in operations_text
+    assert extra_module_marker not in route_text.replace(expected_command, "")
+    assert extra_module_marker not in operations_text.replace(expected_command, "")
+    assert "trading_advisor_3000.product_plane.research.run_research_from_bars" not in route_text
+    assert "trading_advisor_3000.product_plane.research.run_research_from_bars" not in operations_text

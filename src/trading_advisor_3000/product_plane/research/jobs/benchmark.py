@@ -7,7 +7,12 @@ from time import perf_counter
 
 from trading_advisor_3000.product_plane.contracts import CanonicalBar
 from trading_advisor_3000.product_plane.data_plane.canonical import RollMapEntry, SessionCalendarEntry
-from trading_advisor_3000.product_plane.research.backtests import BacktestBatchRequest, BacktestEngineConfig, run_backtest_batch
+from trading_advisor_3000.product_plane.research.backtests import (
+    BacktestBatchRequest,
+    BacktestEngineConfig,
+    build_ephemeral_strategy_space,
+    run_backtest_batch,
+)
 from trading_advisor_3000.product_plane.research.datasets import ResearchDatasetManifest, materialize_research_dataset
 from trading_advisor_3000.product_plane.research.features import materialize_feature_frames
 from trading_advisor_3000.product_plane.research.indicators import materialize_indicator_frames
@@ -49,7 +54,7 @@ def _benchmark_registry() -> StrategyRegistry:
         risk_policy=StrategyRiskPolicy(stop_atr_multiple=1.0, target_atr_multiple=2.0),
         ranking_metadata=StrategyRankingMetadata(tags=("benchmark",)),
     )
-    return StrategyRegistry(catalog=StrategyCatalog(version="phase2b-benchmark-catalog-v1", strategies=(spec,)))
+    return StrategyRegistry(catalog=StrategyCatalog(version="research-benchmark-catalog-v1", strategies=(spec,)))
 
 
 def _benchmark_context(
@@ -128,7 +133,7 @@ def _benchmark_context(
 
 def _markdown_report(report: dict[str, object]) -> str:
     lines = [
-        "# Phase2B Benchmark Report",
+        "# Research Benchmark Report",
         "",
         "## Dataset",
         f"- scenario: {report['dataset']['scenario']}",
@@ -183,14 +188,14 @@ def run_benchmark_job(
     materialize_research_dataset(
         manifest_seed=ResearchDatasetManifest(
             dataset_version=dataset_version,
-            dataset_name="phase2b benchmark",
+            dataset_name="research benchmark",
             source_table="benchmark_synthetic_bars",
             universe_id="benchmark-synthetic",
             timeframes=("15m",),
             base_timeframe="15m",
             split_method="full",
             warmup_bars=0,
-            code_version="phase2b-benchmark-job",
+            code_version="research-benchmark-job",
         ),
         bars=bars,
         session_calendar=session_calendar,
@@ -217,12 +222,19 @@ def run_benchmark_job(
 
     benchmark_count = min(combination_sizes)
     cache = ResearchFrameCache()
+    benchmark_strategy_space = build_ephemeral_strategy_space(
+        strategy_registry=registry,
+        strategy_version_labels=("breakout-benchmark-v1",),
+        instances_per_strategy=benchmark_count,
+    )
     request = BacktestBatchRequest(
+        campaign_run_id="crun_benchmark",
+        strategy_space_id=benchmark_strategy_space.strategy_space_id,
         dataset_version=dataset_version,
         indicator_set_version="indicators-v1",
         feature_set_version="features-v1",
-        strategy_versions=("breakout-benchmark-v1",),
-        combination_count=benchmark_count,
+        strategy_instances=benchmark_strategy_space.strategy_instances,
+        combination_count=len(benchmark_strategy_space.strategy_instances),
         param_batch_size=param_batch_size,
         series_batch_size=2,
         timeframe="15m",
@@ -261,6 +273,11 @@ def run_benchmark_job(
 
     scalability_runs: list[dict[str, object]] = []
     for count in combination_sizes:
+        scale_strategy_space = build_ephemeral_strategy_space(
+            strategy_registry=registry,
+            strategy_version_labels=("breakout-benchmark-v1",),
+            instances_per_strategy=count,
+        )
         scale_started = perf_counter()
         scale_report = run_backtest_batch(
             dataset_output_dir=materialized_dir,
@@ -268,11 +285,13 @@ def run_benchmark_job(
             feature_output_dir=materialized_dir,
             output_dir=backtests_dir / f"scale-{count}",
             request=BacktestBatchRequest(
+                campaign_run_id="crun_benchmark",
+                strategy_space_id=scale_strategy_space.strategy_space_id,
                 dataset_version=dataset_version,
                 indicator_set_version="indicators-v1",
                 feature_set_version="features-v1",
-                strategy_versions=("breakout-benchmark-v1",),
-                combination_count=count,
+                strategy_instances=scale_strategy_space.strategy_instances,
+                combination_count=len(scale_strategy_space.strategy_instances),
                 param_batch_size=param_batch_size,
                 series_batch_size=2,
                 timeframe="15m",
@@ -317,7 +336,7 @@ def run_benchmark_job(
     write_text(cache_log_path, "\n".join(cache_markers) + "\n")
 
     payload = {
-        "job_name": "phase2b_benchmark_cli",
+        "job_name": "research_benchmark_cli",
         "dataset": {
             "scenario": "benchmark_small",
             "dataset_version": dataset_version,
@@ -348,21 +367,21 @@ def run_benchmark_job(
         "cache_markers": cache_markers,
         "artifacts": {
             "cache_log": cache_log_path.name,
-            "report_json": "phase2b-benchmark-report.json",
-            "report_md": "phase2b-benchmark-report.md",
+            "report_json": "research-benchmark-report.json",
+            "report_md": "research-benchmark-report.md",
         },
         "runtime_profile": runtime_profile(),
     }
 
-    json_path = report_json or (output_dir / "phase2b-benchmark-report.json")
-    md_path = report_md or (output_dir / "phase2b-benchmark-report.md")
+    json_path = report_json or (output_dir / "research-benchmark-report.json")
+    md_path = report_md or (output_dir / "research-benchmark-report.md")
     write_json(json_path, payload)
     write_text(md_path, _markdown_report(payload))
     return payload
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run cold-vs-hot and param-scalability benchmark for phase2b.")
+    parser = argparse.ArgumentParser(description="Run cold-vs-hot and param-scalability benchmark for the materialized research route.")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--dataset-version", default="benchmark_small_v1")
     parser.add_argument("--instruments", type=int, default=6)

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
@@ -68,7 +68,7 @@ def test_phase3_integrated_replay_produces_traceable_runtime_bound_outcomes(tmp_
     report = run_system_shadow_replay(
         bars=bars,
         instrument_by_contract=_instrument_map(),
-        strategy_version_id="trend-follow-v1",
+        strategy_version_id="ma-cross-v1",
         dataset_version="bars-whitelist-v1",
         output_dir=tmp_path,
         telegram_channel="@ta3000_signals",
@@ -98,3 +98,4 @@ def test_phase3_integrated_replay_produces_traceable_runtime_bound_outcomes(tmp_
 
     for path_text in report["output_paths"].values():
         assert Path(path_text).exists()
+

@@ -11,7 +11,7 @@ python -m trading_advisor_3000.product_plane.research.jobs.run_campaign --config
 
 The runner is a thin Product Plane front door.
 It does not compute indicators, features, or backtests by itself.
-It validates a machine-readable campaign config, writes immutable run artifacts, and dispatches only into the Dagster `phase2b` contour.
+It validates a machine-readable campaign config, writes immutable run artifacts, and dispatches only into the Dagster research contour.
 
 ## Contracts
 
@@ -35,9 +35,13 @@ Each execution still gets a fresh `run_id` and a fresh immutable run folder.
 ## Stage Selection
 
 The route is selected strictly by `target_stage` in the campaign config:
-- `bootstrap` -> materialize reusable dataset, indicator, and feature layers
-- `backtest` -> reuse or rebuild bootstrap layer, then run backtests and rankings
+- `data_prep` -> materialize reusable research data prep only: dataset, bar view, indicator, and feature layers
+- `backtest` -> reuse or rebuild research data prep, refresh the strategy registry needed by the campaign, then run backtests and rankings
 - `projection` -> run the full route through candidate projection
+
+The scheduled freshness contour is `research_data_prep_job`.
+It is triggered after `moex_baseline_update_job` succeeds so materialized research data stays current with the canonical MOEX baseline.
+Strategy refresh is separate because strategy inventory changes are not the same decision as data freshness.
 
 ## Run Artifacts
 
@@ -54,14 +58,8 @@ Status transitions are:
 - `running`
 - terminal `success | failed | blocked`
 
-## Internal / Debug Only
+## Route Boundary
 
-These entrypoints remain in the repository for diagnostics and development, but they are internal/debug-only and not the supported operational route:
-- `python -m trading_advisor_3000.product_plane.research.jobs.bootstrap`
-- `python -m trading_advisor_3000.product_plane.research.jobs.backtest`
-- `python -m trading_advisor_3000.product_plane.research.jobs.project_candidates`
-- `python -m trading_advisor_3000.product_plane.research.jobs.benchmark`
-- `trading_advisor_3000.product_plane.research.run_research_from_bars(...)`
-
-Use them only when debugging or working on implementation details.
-Operational research campaigns should start from `run_campaign`.
+Operator-facing research execution starts and ends at `run_campaign`.
+Scheduled freshness remains Dagster-owned through `research_data_prep_job` after `moex_baseline_update_job`.
+Implementation modules and benchmark tooling may exist inside the repo, but they are not part of the committed operator path for research campaigns.

@@ -11,6 +11,7 @@
     "runs_root",
     "dataset",
     "profiles",
+    "strategy_space",
     "backtest",
     "ranking_policy",
     "projection_policy",
@@ -18,7 +19,7 @@
   ],
   "properties": {
     "campaign_name": {"type": "string", "minLength": 1},
-    "target_stage": {"type": "string", "enum": ["bootstrap", "backtest", "projection"]},
+    "target_stage": {"type": "string", "enum": ["data_prep", "backtest", "projection"]},
     "canonical_output_dir": {"type": "string", "minLength": 1},
     "materialized_root": {"type": "string", "minLength": 1},
     "runs_root": {"type": "string", "minLength": 1},
@@ -70,11 +71,39 @@
       },
       "additionalProperties": false
     },
+    "strategy_space": {
+      "type": "object",
+      "required": [
+        "family_keys",
+        "template_ids",
+        "include_instance_ids",
+        "exclude_manifest_hashes",
+        "materialize_instances",
+        "max_instance_count",
+        "search_space_overrides"
+      ],
+      "properties": {
+        "family_keys": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "template_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "include_instance_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "exclude_manifest_hashes": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "materialize_instances": {"type": "boolean"},
+        "max_instance_count": {"type": "integer", "exclusiveMinimum": 0},
+        "search_space_overrides": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "backtest": {
       "type": "object",
       "required": [
-        "strategy_versions",
-        "combination_count",
         "param_batch_size",
         "series_batch_size",
         "backtest_timeframe",
@@ -84,8 +113,6 @@
         "window_count"
       ],
       "properties": {
-        "strategy_versions": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
-        "combination_count": {"type": "integer", "exclusiveMinimum": 0},
         "param_batch_size": {"type": "integer", "exclusiveMinimum": 0},
         "series_batch_size": {"type": "integer", "exclusiveMinimum": 0},
         "backtest_timeframe": {"type": "string", "minLength": 1},

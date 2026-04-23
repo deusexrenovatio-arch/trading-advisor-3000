@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from trading_advisor_3000.product_plane.research import MissingResearchDependencyError, ensure_research_dependencies
-from trading_advisor_3000.product_plane.research.backtests import BacktestBatchRequest
+from trading_advisor_3000.product_plane.research.backtests import BacktestBatchRequest, build_ephemeral_strategy_space
 from trading_advisor_3000.product_plane.research.datasets import (
     ContinuousFrontPolicy,
     HoldoutSplitConfig,
@@ -67,7 +67,7 @@ def test_phase1_feature_profile_declares_cross_layer_feature_groups() -> None:
     profile = phase1_feature_profile()
     assert profile.version == "core_v1"
     grouped = profile.by_category()
-    assert {"trend", "levels", "volatility", "volume", "regime", "mtf"} == set(grouped)
+    assert {"trend", "levels", "volatility", "volume", "regime", "labels", "references", "mtf"} == set(grouped)
 
     output_columns = {column for spec in profile.features for column in spec.output_columns}
     assert {
@@ -78,9 +78,13 @@ def test_phase1_feature_profile_declares_cross_layer_feature_groups() -> None:
         "session_vwap",
         "squeeze_on_code",
         "breakout_ready_state_code",
+        "breakout_ready_flag",
         "rvol_20",
         "volume_zscore_20",
         "regime_state_code",
+        "reversion_ready_flag",
+        "atr_stop_ref_1x",
+        "atr_target_ref_2x",
         "htf_trend_state_code",
     } <= output_columns
 
@@ -127,12 +131,19 @@ def test_dataset_and_backtest_keys_are_deterministic() -> None:
     )
     assert partition.partition_path().endswith("contract_id=continuous-front/timeframe=15m")
 
+    strategy_space = build_ephemeral_strategy_space(
+        strategy_registry=build_phase1_strategy_registry(),
+        strategy_version_labels=("ma-cross-v1", "breakout-v1"),
+        instances_per_strategy=24,
+    )
     batch = BacktestBatchRequest(
+        campaign_run_id="crun_foundation_test",
+        strategy_space_id=strategy_space.strategy_space_id,
         dataset_version="dataset-v1",
         indicator_set_version="indicators-v1",
         feature_set_version="features-v1",
-        strategy_versions=("ma-cross-v1", "breakout-v1"),
-        combination_count=24,
+        strategy_instances=strategy_space.strategy_instances,
+        combination_count=len(strategy_space.strategy_instances),
     )
     assert batch.batch_id() == batch.batch_id()
 

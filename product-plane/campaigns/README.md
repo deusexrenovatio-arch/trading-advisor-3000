@@ -15,4 +15,5 @@ Rules:
 - reusable materialized outputs live under `materialized_root/<materialization_key>/`;
 - immutable per-run artifacts live under `runs_root/<campaign_name>/<run_id>/`.
 
-Low-level bootstrap/backtest/projection jobs remain available for diagnostics, but they are internal/debug-only and not the supported operational entrypoint.
+Committed configs should describe the full operator path through `run_campaign`.
+Implementation modules and benchmark tooling are intentionally outside this config contract.

@@ -26,7 +26,7 @@ _LAZY_EXPORTS = {
     "reload_feature_frames",
     "FeatureFramePartitionKey",
     "FeatureFrameRow",
-    "phase2b_feature_store_contract",
+    "research_feature_store_contract",
 }
 
 
@@ -35,7 +35,7 @@ def __getattr__(name: str) -> Any:
         from . import materialize as _materialize
 
         return getattr(_materialize, name)
-    if name in {"FeatureFramePartitionKey", "FeatureFrameRow", "phase2b_feature_store_contract"}:
+    if name in {"FeatureFramePartitionKey", "FeatureFrameRow", "research_feature_store_contract"}:
         from . import store as _store
 
         return getattr(_store, name)
@@ -66,6 +66,6 @@ __all__ = [
     "phase1_level_specs",
     "phase1_regime_specs",
     "phase1_trend_specs",
-    "phase2b_feature_store_contract",
+    "research_feature_store_contract",
     "reload_feature_frames",
 ]

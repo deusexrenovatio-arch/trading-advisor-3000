@@ -6,10 +6,12 @@ from trading_advisor_3000.product_plane.research.strategies.spec import (
     StrategyRiskPolicy,
     StrategySpec,
 )
+from trading_advisor_3000.product_plane.research.strategies.adapter_contracts import StrategyFamilyAdapter
+from trading_advisor_3000.product_plane.research.strategies.template_compiler import build_strategy_family_adapter
 
 
-def mtf_pullback_strategy_spec() -> StrategySpec:
-    return StrategySpec(
+def mtf_pullback_family_adapter() -> StrategyFamilyAdapter:
+    strategy_spec = StrategySpec(
         version="mtf-pullback-v1",
         family="mtf_pullback",
         description="Higher-timeframe pullback continuation strategy using MTF alignment overlays.",
@@ -35,3 +37,22 @@ def mtf_pullback_strategy_spec() -> StrategySpec:
             tags=("mtf", "signals"),
         ),
     )
+    return build_strategy_family_adapter(
+        adapter_key="mtf_pullback",
+        adapter_version="v1",
+        source_ref=(
+            "python_adapter:"
+            "trading_advisor_3000.product_plane.research.strategies.families.mtf_pullback."
+            "mtf_pullback_family_adapter"
+        ),
+        hypothesis_family="trend_continuation",
+        strategy_spec=strategy_spec,
+        template_key="mtf_pullback_core",
+        template_title="MTF Pullback Core",
+        regime_module_key="feature.htf_trend_state_code",
+        module_versions={"entry": "v2", "regime_filter": "v1", "risk_exit": "v1"},
+    )
+
+
+def mtf_pullback_strategy_spec() -> StrategySpec:
+    return mtf_pullback_family_adapter().strategy_spec

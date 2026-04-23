@@ -12,13 +12,14 @@ python -m trading_advisor_3000.product_plane.research.jobs.run_campaign --config
 ```
 
 This is the canonical Product Plane route.
-It validates `research_campaign.v1.json`, writes immutable run artifacts, and dispatches only into the Dagster `phase2b` contour.
+It validates `research_campaign.v1.json`, writes immutable run artifacts, and dispatches only into the Dagster research contour.
 
 ## How To Choose `target_stage`
 
-Use `bootstrap` when canonical data changed or indicator/feature definitions changed.
+Use `data_prep` when canonical data changed or indicator/feature definitions changed.
+This now means research data prep only: datasets, bar views, indicators, and features.
 
-Use `backtest` when the reusable materialized layer is ready and you want strategy execution plus ranking outputs.
+Use `backtest` when the reusable materialized layer is ready and you want strategy registry refresh, strategy execution, and ranking outputs.
 
 Use `projection` when ranked research results should become runtime candidates.
 
@@ -32,11 +33,16 @@ Storage is split on purpose:
 
 ## What To Inspect
 
-For `bootstrap`:
+For `data_prep`:
 - `rows_by_table`
 - `durations.total_seconds`
 - `dagster_materialized_assets`
 - `warnings`
+
+For scheduled freshness:
+- `research_data_prep_job` should run after `moex_baseline_update_job` succeeds
+- `research_data_prep_after_moex_sensor` is the Dagster handoff from canonical MOEX refresh to research data prep
+- `strategy_registry_refresh_job` remains separate and should be run when strategy inventory or campaign strategy-space inputs change
 
 For `backtest`:
 - `rows_by_table` for runs, stats, trades, orders, and drawdowns
@@ -75,7 +81,7 @@ Important distinction:
 
 ## Failure Interpretation
 
-If bootstrap fails:
+If data prep fails:
 - treat the materialized layer as invalid;
 - do not proceed to backtest or projection.
 
@@ -88,10 +94,8 @@ If projection fails:
 - confirm selection policy is not filtering everything out.
 - if rankings exist but candidates are `0`, check `decision_lag_bars_max`, current signal freshness, and whether the selected policy requires `policy_pass=1`.
 
-## Internal / Debug Only
+## Operational Boundary
 
-The following entrypoints remain available, but they are internal/debug-only and not the supported route:
-- `python -m trading_advisor_3000.product_plane.research.jobs.bootstrap`
-- `python -m trading_advisor_3000.product_plane.research.jobs.backtest`
-- `python -m trading_advisor_3000.product_plane.research.jobs.project_candidates`
-- `python -m trading_advisor_3000.product_plane.research.jobs.benchmark`
+Use `run_campaign` for operator-driven research runs.
+Use `research_data_prep_job` plus `research_data_prep_after_moex_sensor` for scheduled freshness after MOEX canonical refresh.
+Do not treat implementation modules or benchmark tooling as separate supported run paths.

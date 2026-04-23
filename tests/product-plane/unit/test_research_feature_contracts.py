@@ -1,7 +1,7 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from trading_advisor_3000.product_plane.contracts import CanonicalBar, Timeframe
-from trading_advisor_3000.product_plane.research.features import build_feature_snapshots, phase2b_feature_store_contract
+from trading_advisor_3000.product_plane.research.features import build_feature_snapshots, research_feature_store_contract
 from trading_advisor_3000.product_plane.research.strategies import sample_strategy_ids
 
 
@@ -47,10 +47,11 @@ def test_point_in_time_features_do_not_use_future_bar() -> None:
 
 
 def test_feature_store_contract_contains_research_delta_tables() -> None:
-    manifest = phase2b_feature_store_contract()
+    manifest = research_feature_store_contract()
     assert {"research_feature_frames", "feature_snapshots", "research_backtest_runs", "research_signal_candidates"} <= set(manifest)
     assert all(item["format"] == "delta" for item in manifest.values())
 
 
 def test_sample_strategies_are_declared() -> None:
-    assert sample_strategy_ids() == ("mean-revert-v1", "trend-follow-v1")
+    assert sample_strategy_ids() == ("ma-cross-v1", "mean-reversion-v1")
+

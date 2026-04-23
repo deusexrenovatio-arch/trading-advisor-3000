@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import traceback
 from datetime import UTC, datetime
 from pathlib import Path
@@ -11,16 +12,27 @@ from typing import Any
 import yaml
 
 from trading_advisor_3000.dagster_defs import (
-    materialize_phase2b_backtest_assets,
-    materialize_phase2b_bootstrap_assets,
-    materialize_phase2b_projection_assets,
+    materialize_research_data_prep_assets,
+    materialize_research_backtest_assets,
+    materialize_research_projection_assets,
 )
 from trading_advisor_3000.product_plane.contracts.schema_validation import (
     load_schema,
     validate_schema,
 )
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log, read_delta_table_rows
-from trading_advisor_3000.product_plane.research.jobs._common import validate_phase2b_contracts, write_json
+from trading_advisor_3000.product_plane.research.jobs._common import validate_research_contracts, write_json
+from trading_advisor_3000.product_plane.research.registry_store import (
+    append_rankings_index,
+    append_run_stats_index,
+    build_campaign_id,
+    build_campaign_run_id,
+    registry_output_paths,
+    research_registry_root,
+    write_campaign_definition,
+    write_campaign_run,
+    write_strategy_note,
+)
 
 
 CAMPAIGN_SCHEMA = Path("src/trading_advisor_3000/product_plane/contracts/schemas/research_campaign.v1.json")
@@ -38,16 +50,41 @@ TIMEFRAME_ORDER = {
     "1w": 10080,
 }
 TARGET_STEPS = {
-    "bootstrap": ("bootstrap",),
-    "backtest": ("bootstrap", "backtest", "ranking"),
-    "projection": ("bootstrap", "backtest", "ranking", "projection"),
+    "data_prep": ("research_data_prep",),
+    "backtest": ("research_data_prep", "strategy_registry_refresh", "backtest", "ranking"),
+    "projection": ("research_data_prep", "strategy_registry_refresh", "backtest", "ranking", "projection"),
 }
-BOOTSTRAP_TABLES = (
+DATA_PREP_TABLES = (
     "research_datasets",
     "research_bar_views",
     "research_indicator_frames",
     "research_feature_frames",
 )
+RESEARCH_DATA_PREP_KWARGS = {
+    "canonical_output_dir",
+    "materialized_output_dir",
+    "results_output_dir",
+    "campaign_id",
+    "campaign_run_id",
+    "dataset_version",
+    "dataset_name",
+    "universe_id",
+    "timeframes",
+    "base_timeframe",
+    "start_ts",
+    "end_ts",
+    "warmup_bars",
+    "split_method",
+    "series_mode",
+    "dataset_contract_ids",
+    "dataset_instrument_ids",
+    "indicator_set_version",
+    "indicator_profile_version",
+    "feature_set_version",
+    "feature_profile_version",
+    "code_version",
+    "reuse_existing_materialization",
+}
 
 
 class CampaignBlockedError(RuntimeError):
@@ -86,12 +123,13 @@ def normalize_campaign_config(*, repo_root: Path, raw: dict[str, Any]) -> dict[s
 
     normalized = {
         "campaign_name": _normalized_non_empty(raw["campaign_name"]),
-        "target_stage": _normalized_enum(raw["target_stage"], {"bootstrap", "backtest", "projection"}, field="target_stage"),
+        "target_stage": _normalized_enum(raw["target_stage"], {"data_prep", "backtest", "projection"}, field="target_stage"),
         "canonical_output_dir": resolve_path(repo_root=repo_root, raw=str(raw["canonical_output_dir"])).as_posix(),
         "materialized_root": resolve_path(repo_root=repo_root, raw=str(raw["materialized_root"])).as_posix(),
         "runs_root": resolve_path(repo_root=repo_root, raw=str(raw["runs_root"])).as_posix(),
         "dataset": _normalize_dataset(payload=_expect_dict(raw, "dataset")),
         "profiles": _normalize_profiles(_expect_dict(raw, "profiles")),
+        "strategy_space": _normalize_strategy_space(_expect_dict(raw, "strategy_space")),
         "backtest": _normalize_backtest(_expect_dict(raw, "backtest")),
         "ranking_policy": _normalize_ranking_policy(_expect_dict(raw, "ranking_policy")),
         "projection_policy": _normalize_projection_policy(_expect_dict(raw, "projection_policy")),
@@ -157,7 +195,8 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
     )
     warnings.extend(provisional_warnings)
     _write_status(run_root / "status.json", run_id=run_id, campaign_name=campaign_name, status="queued")
-    results_root = run_root / "results"
+    final_results_root = run_root / "results"
+    staging_results_root = run_root / "results-staging"
 
     if raw_config_error is not None:
         stderr_lines.append(raw_config_traceback)
@@ -166,7 +205,7 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
             run_id=run_id,
             resolved_config_path=resolved_config_path,
             raw_config=raw_config,
-            results_root=results_root,
+            results_root=final_results_root,
             error=raw_config_error,
             repo_root=repo_root,
         )
@@ -195,7 +234,7 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
             run_id=run_id,
             resolved_config_path=resolved_config_path,
             raw_config=raw_config,
-            results_root=results_root,
+            results_root=final_results_root,
             error=exc,
             repo_root=repo_root,
         )
@@ -217,60 +256,137 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
 
     campaign_name = str(normalized_config["campaign_name"])
     config_fingerprint = build_config_fingerprint(normalized_config)
+    campaign_id = build_campaign_id(config_fingerprint=config_fingerprint)
+    campaign_run_id = build_campaign_run_id(campaign_id=campaign_id, run_id=run_id)
     materialization_key = build_materialization_key(normalized_config)
     materialized_root = Path(str(normalized_config["materialized_root"])) / materialization_key
+    registry_root = research_registry_root(canonical_output_dir=Path(str(normalized_config["canonical_output_dir"])))
     materialization_exists = _has_reusable_materialization(materialized_root)
     reuse_existing_materialization = materialization_exists and not bool(normalized_config["execution"]["force_rematerialize"])
     write_json(
         run_root / "campaign.lock.json",
         {
             "run_id": run_id,
+            "campaign_id": campaign_id,
+            "campaign_run_id": campaign_run_id,
             "config_path": resolved_config_path.as_posix(),
             "config_fingerprint": config_fingerprint,
             "materialization_key": materialization_key,
+            "registry_root": registry_root.as_posix(),
             "materialized_output_dir": materialized_root.as_posix(),
-            "results_output_dir": results_root.as_posix(),
+            "results_output_dir": final_results_root.as_posix(),
+            "staging_results_output_dir": staging_results_root.as_posix(),
             "reuse_existing_materialization": reuse_existing_materialization,
             "campaign": normalized_config,
             "created_at": utc_now_iso(),
         },
     )
     _write_status(run_root / "status.json", run_id=run_id, campaign_name=campaign_name, status="running")
+    write_campaign_definition(
+        registry_root=registry_root,
+        campaign_id=campaign_id,
+        campaign_name=campaign_name,
+        target_stage=str(normalized_config["target_stage"]),
+        config_fingerprint=config_fingerprint,
+        dataset_version=str(normalized_config["dataset"]["dataset_version"]),
+        indicator_set_version=str(normalized_config["profiles"]["indicator_set_version"]),
+        indicator_profile_version=str(normalized_config["profiles"]["indicator_profile_version"]),
+        feature_set_version=str(normalized_config["profiles"]["feature_set_version"]),
+        feature_profile_version=str(normalized_config["profiles"]["feature_profile_version"]),
+        strategy_space=dict(normalized_config["strategy_space"]),
+        backtest_policy=dict(normalized_config["backtest"]),
+        ranking_policy=dict(normalized_config["ranking_policy"]),
+        projection_policy=dict(normalized_config["projection_policy"]),
+        execution_policy=dict(normalized_config["execution"]),
+        campaign_config=normalized_config,
+    )
 
     warnings: list[str] = []
     if reuse_existing_materialization:
-        warnings.append("materialized phase2b bootstrap layer reused from matching materialization_key")
+        warnings.append("materialized research data prep layer reused from matching materialization_key")
 
     stage = str(normalized_config["target_stage"])
     stage_steps = list(TARGET_STEPS[stage])
-    reused_steps = ["bootstrap"] if reuse_existing_materialization else []
+    reused_steps = ["research_data_prep"] if reuse_existing_materialization else []
     executed_steps = [step for step in stage_steps if step not in reused_steps]
-    if stage == "bootstrap" and reuse_existing_materialization:
+    if stage == "data_prep" and reuse_existing_materialization:
         executed_steps = []
 
     try:
         report = _dispatch_campaign(
             normalized_config=normalized_config,
             materialized_root=materialized_root,
-            results_root=results_root,
+            results_root=staging_results_root,
             reuse_existing_materialization=reuse_existing_materialization,
+            campaign_id=campaign_id,
+            campaign_run_id=campaign_run_id,
         )
-        contract_validation = validate_phase2b_contracts(
+        contract_validation = validate_research_contracts(
             output_paths=dict(report["output_paths"]),
             materialized_assets=list(report["materialized_assets"]),
             rows_by_table=dict(report.get("rows_by_table", {})),
         )
         warnings.extend(list(contract_validation.get("warnings", [])))
         if contract_validation["status"] != "passed":
-            raise CampaignBlockedError("; ".join(contract_validation["errors"]) or "phase2b contract validation failed")
+            raise CampaignBlockedError("; ".join(contract_validation["errors"]) or "research contract validation failed")
 
+        published_output_paths = _publish_staged_results(
+            staging_results_root=staging_results_root,
+            final_results_root=final_results_root,
+            output_paths=dict(report["output_paths"]),
+        )
+        registry_paths = registry_output_paths(registry_root=registry_root)
+        index_paths = _publish_global_indices(registry_root=registry_root, results_root=final_results_root)
+        result_digest = _build_result_digest(target_stage=stage, results_root=final_results_root)
+        success_run_record = {
+            "registry_root": registry_root,
+            "campaign_run_id": campaign_run_id,
+            "campaign_id": campaign_id,
+            "campaign_name": campaign_name,
+            "target_stage": stage,
+            "config_fingerprint": config_fingerprint,
+            "strategy_space_id": str(report.get("strategy_space_id", "")),
+            "materialization_key": materialization_key,
+            "materialized_output_dir": materialized_root.as_posix(),
+            "results_output_dir": final_results_root.as_posix(),
+            "reuse_existing_materialization": reuse_existing_materialization,
+            "executed_steps": executed_steps,
+            "reused_steps": reused_steps,
+            "rows_by_table": dict(report.get("rows_by_table", {})),
+            "output_paths": {**published_output_paths, **registry_paths, **index_paths},
+            "warnings": warnings,
+            "started_at": utc_now_iso(),
+            "finished_at": utc_now_iso(),
+            "result_digest": result_digest,
+        }
+        write_campaign_run(**success_run_record, status="publishing")
+        write_strategy_note(
+            registry_root=registry_root,
+            entity_type="campaign_run",
+            entity_id=campaign_run_id,
+            note_kind="verdict",
+            summary=f"campaign run {campaign_name} completed successfully",
+            source="system",
+            tags=("campaign", stage, "success"),
+        )
+        _write_publish_commit(
+            final_results_root=final_results_root,
+            campaign_run_id=campaign_run_id,
+            published_output_paths=published_output_paths,
+            registry_output_paths={**registry_paths, **index_paths},
+        )
+        write_campaign_run(**success_run_record, status="success")
         summary = _build_terminal_summary(
             repo_root=repo_root,
             run_id=run_id,
+            campaign_id=campaign_id,
+            campaign_run_id=campaign_run_id,
             campaign_name=campaign_name,
             target_stage=stage,
             canonical_output_dir=str(normalized_config["canonical_output_dir"]),
+            registry_root=registry_root.as_posix(),
             materialization_key=materialization_key,
+            strategy_space_id=str(report.get("strategy_space_id", "")),
             materialized_root=materialized_root.as_posix(),
             run_root=run_root.as_posix(),
             dataset_version=str(normalized_config["dataset"]["dataset_version"]),
@@ -279,27 +395,63 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
             reused_steps=reused_steps,
             durations={"total_seconds": round(perf_counter() - started, 6)},
             rows_by_table=dict(report.get("rows_by_table", {})),
-            output_paths=dict(report["output_paths"]),
+            output_paths={**published_output_paths, **registry_paths, **index_paths},
             dagster_selected_assets=list(report["selected_assets"]),
             dagster_materialized_assets=list(report["materialized_assets"]),
             warnings=warnings,
             status="success",
             error=None,
-            result_digest=_build_result_digest(target_stage=stage, results_root=results_root),
+            result_digest=result_digest,
         )
-        write_json(run_root / "artifacts-index.json", _build_artifacts_index(report["output_paths"], report.get("rows_by_table", {})))
+        write_json(
+            run_root / "artifacts-index.json",
+            _build_artifacts_index({**published_output_paths, **registry_paths, **index_paths}, report.get("rows_by_table", {})),
+        )
         _write_logs(run_root=run_root, stdout_lines=stdout_lines, stderr_lines=stderr_lines)
         _write_terminal_artifacts(run_root=run_root, summary=summary)
         _write_status(run_root / "status.json", run_id=run_id, campaign_name=campaign_name, status="success")
         return summary
     except CampaignBlockedError as exc:
         stderr_lines.append(traceback.format_exc())
+        _quarantine_uncommitted_results(final_results_root=final_results_root, run_root=run_root)
+        _record_failed_campaign_run(
+            registry_root=registry_root,
+            campaign_run_id=campaign_run_id,
+            campaign_id=campaign_id,
+            campaign_name=campaign_name,
+            target_stage=stage,
+            config_fingerprint=config_fingerprint,
+            strategy_space_id=str(report.get("strategy_space_id", "")) if "report" in locals() else "",
+            materialization_key=materialization_key,
+            materialized_root=materialized_root,
+            final_results_root=final_results_root,
+            reuse_existing_materialization=reuse_existing_materialization,
+            executed_steps=executed_steps,
+            reused_steps=reused_steps,
+            warnings=warnings,
+            status="blocked",
+            exc=exc,
+        )
+        write_strategy_note(
+            registry_root=registry_root,
+            entity_type="campaign_run",
+            entity_id=campaign_run_id,
+            note_kind="finding",
+            severity="error",
+            summary=str(exc),
+            source="system",
+            tags=("campaign", stage, "blocked"),
+        )
         summary = _build_failure_summary(
             repo_root=repo_root,
             run_id=run_id,
+            campaign_id=campaign_id,
+            campaign_run_id=campaign_run_id,
+            registry_root=registry_root,
             campaign_name=campaign_name,
             normalized_config=normalized_config,
             materialization_key=materialization_key,
+            strategy_space_id=str(report.get("strategy_space_id", "")) if "report" in locals() else "",
             materialized_root=materialized_root,
             run_root=run_root,
             executed_steps=executed_steps,
@@ -315,12 +467,45 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
         return summary
     except Exception as exc:  # noqa: BLE001
         stderr_lines.append(traceback.format_exc())
+        _quarantine_uncommitted_results(final_results_root=final_results_root, run_root=run_root)
+        _record_failed_campaign_run(
+            registry_root=registry_root,
+            campaign_run_id=campaign_run_id,
+            campaign_id=campaign_id,
+            campaign_name=campaign_name,
+            target_stage=stage,
+            config_fingerprint=config_fingerprint,
+            strategy_space_id=str(report.get("strategy_space_id", "")) if "report" in locals() else "",
+            materialization_key=materialization_key,
+            materialized_root=materialized_root,
+            final_results_root=final_results_root,
+            reuse_existing_materialization=reuse_existing_materialization,
+            executed_steps=executed_steps,
+            reused_steps=reused_steps,
+            warnings=warnings,
+            status="failed",
+            exc=exc,
+        )
+        write_strategy_note(
+            registry_root=registry_root,
+            entity_type="campaign_run",
+            entity_id=campaign_run_id,
+            note_kind="finding",
+            severity="critical",
+            summary=str(exc),
+            source="system",
+            tags=("campaign", stage, "failed"),
+        )
         summary = _build_failure_summary(
             repo_root=repo_root,
             run_id=run_id,
+            campaign_id=campaign_id,
+            campaign_run_id=campaign_run_id,
+            registry_root=registry_root,
             campaign_name=campaign_name,
             normalized_config=normalized_config,
             materialization_key=materialization_key,
+            strategy_space_id=str(report.get("strategy_space_id", "")) if "report" in locals() else "",
             materialized_root=materialized_root,
             run_root=run_root,
             executed_steps=executed_steps,
@@ -351,10 +536,14 @@ def _build_prevalidation_failure_summary(
     return _build_terminal_summary(
         repo_root=repo_root,
         run_id=run_id,
+        campaign_id="",
+        campaign_run_id="",
         campaign_name=campaign_name,
         target_stage=_raw_target_stage(raw_config),
         canonical_output_dir=_resolved_optional_path(repo_root=repo_root, raw=raw_config.get("canonical_output_dir")),
+        registry_root="",
         materialization_key="",
+        strategy_space_id="",
         materialized_root=_resolved_optional_path(repo_root=repo_root, raw=raw_config.get("materialized_root")),
         run_root=run_root.as_posix(),
         dataset_version=_raw_dataset_version(raw_config),
@@ -379,21 +568,26 @@ def _dispatch_campaign(
     materialized_root: Path,
     results_root: Path,
     reuse_existing_materialization: bool,
+    campaign_id: str,
+    campaign_run_id: str,
 ) -> dict[str, Any]:
     common = _dagster_common_kwargs(
         normalized_config=normalized_config,
         materialized_root=materialized_root,
         results_root=results_root,
         reuse_existing_materialization=reuse_existing_materialization,
+        campaign_id=campaign_id,
+        campaign_run_id=campaign_run_id,
     )
     stage = str(normalized_config["target_stage"])
     raise_on_error = bool(normalized_config["execution"]["raise_on_error"])
-    if stage == "bootstrap":
-        return materialize_phase2b_bootstrap_assets(**common, raise_on_error=raise_on_error)
+    if stage == "data_prep":
+        data_prep = {key: value for key, value in common.items() if key in RESEARCH_DATA_PREP_KWARGS}
+        return materialize_research_data_prep_assets(**data_prep, raise_on_error=raise_on_error)
     if stage == "backtest":
-        return materialize_phase2b_backtest_assets(**common, raise_on_error=raise_on_error)
+        return materialize_research_backtest_assets(**common, raise_on_error=raise_on_error)
     if stage == "projection":
-        return materialize_phase2b_projection_assets(**common, raise_on_error=raise_on_error)
+        return materialize_research_projection_assets(**common, raise_on_error=raise_on_error)
     raise CampaignBlockedError(f"unsupported target_stage `{stage}`")
 
 
@@ -403,6 +597,8 @@ def _dagster_common_kwargs(
     materialized_root: Path,
     results_root: Path,
     reuse_existing_materialization: bool,
+    campaign_id: str,
+    campaign_run_id: str,
 ) -> dict[str, Any]:
     dataset = dict(normalized_config["dataset"])
     profiles = dict(normalized_config["profiles"])
@@ -413,6 +609,8 @@ def _dagster_common_kwargs(
         "canonical_output_dir": Path(str(normalized_config["canonical_output_dir"])),
         "materialized_output_dir": materialized_root,
         "results_output_dir": results_root,
+        "campaign_id": campaign_id,
+        "campaign_run_id": campaign_run_id,
         "dataset_version": str(dataset["dataset_version"]),
         "dataset_name": str(dataset["dataset_name"]),
         "universe_id": str(dataset["universe_id"]),
@@ -430,8 +628,7 @@ def _dagster_common_kwargs(
         "feature_set_version": str(profiles["feature_set_version"]),
         "feature_profile_version": str(profiles["feature_profile_version"]),
         "code_version": "product-plane-run-campaign",
-        "strategy_versions": tuple(str(item) for item in backtest["strategy_versions"]),
-        "combination_count": int(backtest["combination_count"]),
+        "strategy_space": dict(normalized_config["strategy_space"]),
         "param_batch_size": int(backtest["param_batch_size"]),
         "series_batch_size": int(backtest["series_batch_size"]),
         "backtest_timeframe": str(backtest["backtest_timeframe"]),
@@ -462,10 +659,14 @@ def _build_terminal_summary(
     *,
     repo_root: Path,
     run_id: str,
+    campaign_id: str,
+    campaign_run_id: str,
     campaign_name: str,
     target_stage: str,
     canonical_output_dir: str,
+    registry_root: str,
     materialization_key: str,
+    strategy_space_id: str,
     materialized_root: str,
     run_root: str,
     dataset_version: str,
@@ -484,11 +685,15 @@ def _build_terminal_summary(
 ) -> dict[str, Any]:
     summary = {
         "run_id": run_id,
+        "campaign_id": campaign_id,
+        "campaign_run_id": campaign_run_id,
         "campaign_name": campaign_name,
         "target_stage": target_stage,
         "status": status,
         "canonical_output_dir": canonical_output_dir,
+        "registry_root": registry_root,
         "materialization_key": materialization_key,
+        "strategy_space_id": strategy_space_id,
         "materialized_root": materialized_root,
         "run_root": run_root,
         "dataset_version": dataset_version,
@@ -512,9 +717,13 @@ def _build_failure_summary(
     *,
     repo_root: Path,
     run_id: str,
+    campaign_id: str,
+    campaign_run_id: str,
+    registry_root: Path,
     campaign_name: str,
     normalized_config: dict[str, Any],
     materialization_key: str,
+    strategy_space_id: str,
     materialized_root: Path,
     run_root: Path,
     executed_steps: list[str],
@@ -527,10 +736,14 @@ def _build_failure_summary(
     return _build_terminal_summary(
         repo_root=repo_root,
         run_id=run_id,
+        campaign_id=campaign_id,
+        campaign_run_id=campaign_run_id,
         campaign_name=campaign_name,
         target_stage=str(normalized_config["target_stage"]),
         canonical_output_dir=str(normalized_config["canonical_output_dir"]),
+        registry_root=registry_root.as_posix(),
         materialization_key=materialization_key,
+        strategy_space_id=strategy_space_id,
         materialized_root=materialized_root.as_posix(),
         run_root=run_root.as_posix(),
         dataset_version=str(normalized_config["dataset"]["dataset_version"]),
@@ -578,7 +791,7 @@ def _write_prevalidation_lock(
 
 
 def _build_result_digest(*, target_stage: str, results_root: Path) -> dict[str, Any] | None:
-    if target_stage == "bootstrap":
+    if target_stage == "data_prep":
         return None
 
     ranking_path = results_root / "research_strategy_rankings.delta"
@@ -586,26 +799,24 @@ def _build_result_digest(*, target_stage: str, results_root: Path) -> dict[str, 
     ranking_sorted = sorted(
         ranking_rows,
         key=lambda row: (
-            int(row.get("policy_pass", 0)),
-            float(row.get("robust_score", 0.0) or 0.0),
-            float(row.get("mean_total_return", 0.0) or 0.0),
+            float(row.get("score_total", 0.0) or 0.0),
+            float(row.get("objective_score", 0.0) or 0.0),
+            -int(row.get("rank", 0)),
         ),
         reverse=True,
     )
     digest: dict[str, Any] = {
-        "policy_pass_count": sum(int(row.get("policy_pass", 0)) for row in ranking_rows),
-        "positive_return_count": sum(
-            1 for row in ranking_rows if float(row.get("mean_total_return", 0.0) or 0.0) > 0.0
-        ),
+        "projection_qualified_count": sum(1 for row in ranking_rows if bool(row.get("qualifies_for_projection", False))),
         "ranking_top_rows": [
             {
-                "strategy_version": str(row.get("strategy_version", "")),
+                "strategy_instance_id": str(row.get("strategy_instance_id", "")),
+                "family_key": str(row.get("family_key", "")),
                 "contract_id": str(row.get("contract_id", "")),
                 "timeframe": str(row.get("timeframe", "")),
-                "selected_rank": int(row.get("selected_rank", 0)),
-                "robust_score": round(float(row.get("robust_score", 0.0) or 0.0), 6),
-                "mean_total_return": round(float(row.get("mean_total_return", 0.0) or 0.0), 6),
-                "trade_count_total": int(row.get("trade_count_total", 0)),
+                "rank": int(row.get("rank", 0)),
+                "score_total": round(float(row.get("score_total", 0.0) or 0.0), 6),
+                "objective_score": round(float(row.get("objective_score", 0.0) or 0.0), 6),
+                "qualifies_for_projection": bool(row.get("qualifies_for_projection", False)),
             }
             for row in ranking_sorted[:5]
         ],
@@ -616,7 +827,7 @@ def _build_result_digest(*, target_stage: str, results_root: Path) -> dict[str, 
         by_strategy: dict[str, int] = {}
         by_timeframe: dict[str, int] = {}
         for row in candidate_rows:
-            strategy = str(row.get("strategy_version_id", ""))
+            strategy = str(row.get("strategy_instance_id", ""))
             timeframe = str(row.get("timeframe", ""))
             by_strategy[strategy] = by_strategy.get(strategy, 0) + 1
             by_timeframe[timeframe] = by_timeframe.get(timeframe, 0) + 1
@@ -624,6 +835,171 @@ def _build_result_digest(*, target_stage: str, results_root: Path) -> dict[str, 
         digest["candidate_rows_by_strategy"] = dict(sorted(by_strategy.items()))
         digest["candidate_rows_by_timeframe"] = dict(sorted(by_timeframe.items()))
     return digest
+
+
+def _publish_staged_results(
+    *,
+    staging_results_root: Path,
+    final_results_root: Path,
+    output_paths: dict[str, object],
+) -> dict[str, str]:
+    final_results_root.mkdir(parents=True, exist_ok=True)
+    published_paths: dict[str, str] = {}
+    resolved_staging_root = staging_results_root.resolve()
+    for table_name, raw_path in output_paths.items():
+        source = Path(str(raw_path))
+        if not source.exists():
+            continue
+        try:
+            source.resolve().relative_to(resolved_staging_root)
+        except ValueError:
+            published_paths[table_name] = source.as_posix()
+            continue
+        target = final_results_root / source.name
+        if target.exists():
+            shutil.rmtree(target)
+        shutil.move(source.as_posix(), target.as_posix())
+        published_paths[table_name] = target.as_posix()
+    return published_paths
+
+
+def _write_publish_commit(
+    *,
+    final_results_root: Path,
+    campaign_run_id: str,
+    published_output_paths: dict[str, str],
+    registry_output_paths: dict[str, str],
+) -> None:
+    write_json(
+        final_results_root / "publish-commit.json",
+        {
+            "campaign_run_id": campaign_run_id,
+            "published_at": utc_now_iso(),
+            "tables": sorted(published_output_paths),
+            "registry_tables": sorted(registry_output_paths),
+        },
+    )
+
+
+def _quarantine_uncommitted_results(*, final_results_root: Path, run_root: Path) -> None:
+    if not final_results_root.exists() or (final_results_root / "publish-commit.json").exists():
+        return
+    quarantine_root = run_root / "results-quarantine"
+    if quarantine_root.exists():
+        shutil.rmtree(quarantine_root)
+    shutil.move(final_results_root.as_posix(), quarantine_root.as_posix())
+
+
+def _record_failed_campaign_run(
+    *,
+    registry_root: Path,
+    campaign_run_id: str,
+    campaign_id: str,
+    campaign_name: str,
+    target_stage: str,
+    config_fingerprint: str,
+    strategy_space_id: str,
+    materialization_key: str,
+    materialized_root: Path,
+    final_results_root: Path,
+    reuse_existing_materialization: bool,
+    executed_steps: list[str],
+    reused_steps: list[str],
+    warnings: list[str],
+    status: str,
+    exc: Exception,
+) -> None:
+    try:
+        write_campaign_run(
+            registry_root=registry_root,
+            campaign_run_id=campaign_run_id,
+            campaign_id=campaign_id,
+            campaign_name=campaign_name,
+            target_stage=target_stage,
+            config_fingerprint=config_fingerprint,
+            strategy_space_id=strategy_space_id,
+            materialization_key=materialization_key,
+            materialized_output_dir=materialized_root.as_posix(),
+            results_output_dir=final_results_root.as_posix(),
+            reuse_existing_materialization=reuse_existing_materialization,
+            executed_steps=executed_steps,
+            reused_steps=reused_steps,
+            rows_by_table={},
+            output_paths={},
+            warnings=warnings,
+            status=status,
+            started_at=utc_now_iso(),
+            finished_at=utc_now_iso(),
+            result_digest={"error": str(exc)},
+        )
+    except Exception:  # noqa: BLE001
+        return
+
+
+def _publish_global_indices(*, registry_root: Path, results_root: Path) -> dict[str, str]:
+    stats_path = results_root / "research_strategy_stats.delta"
+    ranking_path = results_root / "research_strategy_rankings.delta"
+    if has_delta_log(stats_path):
+        append_run_stats_index(
+            registry_root=registry_root,
+            rows=[
+                {
+                    "campaign_run_id": row["campaign_run_id"],
+                    "backtest_run_id": row["backtest_run_id"],
+                    "strategy_instance_id": row["strategy_instance_id"],
+                    "strategy_template_id": row["strategy_template_id"],
+                    "family_id": row["family_id"],
+                    "family_key": row["family_key"],
+                    "dataset_version": row["dataset_version"],
+                    "instrument_id": row["instrument_id"],
+                    "contract_id": row["contract_id"],
+                    "timeframe": row["timeframe"],
+                    "window_id": row["window_id"],
+                    "total_return": row["total_return"],
+                    "sharpe": row["sharpe"],
+                    "sortino": row["sortino"],
+                    "calmar": row["calmar"],
+                    "max_drawdown": row["max_drawdown"],
+                    "profit_factor": row["profit_factor"],
+                    "win_rate": row["win_rate"],
+                    "trade_count": row["trade_count"],
+                    "turnover": row["turnover"],
+                    "commission_total": row["commission_total"],
+                    "slippage_total": row["slippage_total"],
+                    "status": row["status"],
+                    "created_at": row["created_at"],
+                }
+                for row in read_delta_table_rows(stats_path)
+            ],
+        )
+    if has_delta_log(ranking_path):
+        append_rankings_index(
+            registry_root=registry_root,
+            rows=[
+                {
+                    "campaign_run_id": row["campaign_run_id"],
+                    "ranking_id": row["ranking_id"],
+                    "strategy_instance_id": row["strategy_instance_id"],
+                    "backtest_run_id": row["backtest_run_id"],
+                    "family_id": row["family_id"],
+                    "family_key": row["family_key"],
+                    "dataset_version": row["dataset_version"],
+                    "timeframe": row["timeframe"],
+                    "rank": row["rank"],
+                    "objective_score": row["objective_score"],
+                    "score_total": row["score_total"],
+                    "qualifies_for_projection": row["qualifies_for_projection"],
+                    "ranking_policy_version": row["ranking_policy_id"],
+                    "rank_reason_json": row["rank_reason_json"],
+                    "created_at": row["created_at"],
+                }
+                for row in read_delta_table_rows(ranking_path)
+            ],
+        )
+    return {
+        "research_run_stats_index": (registry_root / "research_run_stats_index.delta").as_posix(),
+        "research_rankings_index": (registry_root / "research_rankings_index.delta").as_posix(),
+    }
 
 
 def _build_artifacts_index(output_paths: dict[str, Any], rows_by_table: dict[str, Any]) -> dict[str, Any]:
@@ -657,9 +1033,9 @@ def _prepare_provisional_run_root(
 ) -> tuple[Path, str, list[str]]:
     warnings: list[str] = []
     campaign_name = _raw_campaign_name(raw_config)
-    runs_root = _provisional_runs_root(repo_root=repo_root, raw_config=raw_config)
+    runs_root = _blocked_runs_root(repo_root=repo_root, raw_config=raw_config)
     if runs_root == (repo_root / "artifacts" / "research-campaign-invalid").resolve():
-        warnings.append("runs_root missing or invalid; blocked evidence stored under repo-local fallback root")
+        warnings.append("runs_root missing or invalid; blocked evidence stored under repo-local blocked root")
     run_root = runs_root / campaign_name / run_id
     run_root.mkdir(parents=True, exist_ok=False)
     (run_root / "logs").mkdir(parents=True, exist_ok=True)
@@ -722,10 +1098,35 @@ def _normalize_profiles(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _normalize_strategy_space(payload: dict[str, Any]) -> dict[str, Any]:
+    search_space_overrides = payload.get("search_space_overrides", {})
+    if not isinstance(search_space_overrides, dict):
+        raise CampaignBlockedError("strategy_space.search_space_overrides must be an object")
+    normalized_overrides: dict[str, dict[str, list[object]]] = {}
+    for selector, raw_override in search_space_overrides.items():
+        if not isinstance(raw_override, dict):
+            raise CampaignBlockedError("strategy_space.search_space_overrides entries must be objects")
+        normalized_overrides[str(selector)] = {
+            str(param): list(values if isinstance(values, list) else [values])
+            for param, values in raw_override.items()
+        }
+    family_keys = _sorted_unique_strings(payload["family_keys"])
+    template_ids = _sorted_unique_strings(payload["template_ids"])
+    if not family_keys and not template_ids:
+        raise CampaignBlockedError("strategy_space must include family_keys or template_ids")
+    return {
+        "family_keys": family_keys,
+        "template_ids": template_ids,
+        "include_instance_ids": _sorted_unique_strings(payload["include_instance_ids"]),
+        "exclude_manifest_hashes": _sorted_unique_strings(payload["exclude_manifest_hashes"]),
+        "materialize_instances": bool(payload["materialize_instances"]),
+        "max_instance_count": _normalized_positive_int(payload["max_instance_count"], field="strategy_space.max_instance_count"),
+        "search_space_overrides": normalized_overrides,
+    }
+
+
 def _normalize_backtest(payload: dict[str, Any]) -> dict[str, Any]:
     return {
-        "strategy_versions": _sorted_unique_strings(payload["strategy_versions"]),
-        "combination_count": _normalized_positive_int(payload["combination_count"], field="backtest.combination_count"),
         "param_batch_size": _normalized_positive_int(payload["param_batch_size"], field="backtest.param_batch_size"),
         "series_batch_size": _normalized_positive_int(payload["series_batch_size"], field="backtest.series_batch_size"),
         "backtest_timeframe": _normalized_non_empty(payload["backtest_timeframe"]),
@@ -796,7 +1197,7 @@ def _raw_campaign_name(raw_config: dict[str, Any]) -> str:
     return candidate.replace("\\", "_").replace("/", "_")
 
 
-def _provisional_runs_root(*, repo_root: Path, raw_config: dict[str, Any]) -> Path:
+def _blocked_runs_root(*, repo_root: Path, raw_config: dict[str, Any]) -> Path:
     raw = raw_config.get("runs_root")
     if isinstance(raw, str) and raw.strip():
         try:
@@ -901,7 +1302,7 @@ def _stable_hash(payload: object) -> str:
 
 
 def _has_reusable_materialization(materialized_root: Path) -> bool:
-    return all(has_delta_log(materialized_root / f"{table_name}.delta") for table_name in BOOTSTRAP_TABLES)
+    return all(has_delta_log(materialized_root / f"{table_name}.delta") for table_name in DATA_PREP_TABLES)
 
 
 def _dir_size(path: Path) -> int:

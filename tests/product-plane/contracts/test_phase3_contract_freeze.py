@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import re
@@ -167,7 +167,7 @@ def _active_candidate(*, signal_id: str, ts_decision: str) -> DecisionCandidate:
         signal_id=signal_id,
         contract_id="BR-6.26",
         timeframe=Timeframe.M15,
-        strategy_version_id="trend-follow-v1",
+        strategy_version_id="ma-cross-v1",
         mode=Mode.SHADOW,
         side=TradeSide.LONG,
         entry_ref=82.45,
@@ -186,7 +186,7 @@ def _runtime_api() -> RuntimeAPI:
     stack = build_runtime_stack(telegram_channel="@ta3000_signals")
     stack.strategy_registry.register(
         StrategyVersion(
-            strategy_version_id="trend-follow-v1",
+            strategy_version_id="ma-cross-v1",
             status="active",
             allowed_contracts=frozenset({"BR-6.26"}),
             allowed_timeframes=frozenset({Timeframe.M15}),
@@ -418,4 +418,5 @@ def test_phase3_disprover_payload_mutation_without_contract_update_fails() -> No
 
     with pytest.raises(AssertionError):
         _assert_schema_valid(schema, payload)
+
 

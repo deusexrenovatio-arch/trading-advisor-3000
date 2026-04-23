@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from trading_advisor_3000.product_plane.runtime.analytics.review import (
     build_instrument_metrics_dashboard,
@@ -14,7 +14,7 @@ def _outcome(
     pnl_r: float,
     mfe_r: float,
     mae_r: float,
-    strategy_version_id: str = "trend-follow-v1",
+    strategy_version_id: str = "ma-cross-v1",
     contract_id: str = "BR-6.26",
     mode: str = "shadow",
 ) -> dict[str, object]:
@@ -87,3 +87,4 @@ def test_phase5_dashboards_ignore_non_closed_or_invalid_closed_ts_outcomes() -> 
     assert len(instrument_rows) == 1
     assert instrument_rows[0].trade_date == "2026-03-17"
     assert instrument_rows[0].signals_count == 1
+

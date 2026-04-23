@@ -187,7 +187,7 @@ class FeatureFrameRow:
         )
 
 
-def phase2b_feature_store_contract() -> dict[str, dict[str, object]]:
+def research_feature_store_contract() -> dict[str, dict[str, object]]:
     return {
         "research_feature_frames": {
             "format": "delta",
@@ -224,60 +224,6 @@ def phase2b_feature_store_contract() -> dict[str, dict[str, object]]:
                 "features_json": "json",
             },
         },
-        "research_backtest_runs": {
-            "format": "delta",
-            "partition_by": ["strategy_version_id", "dataset_version"],
-            "columns": {
-                "backtest_run_id": "string",
-                "strategy_version_id": "string",
-                "dataset_version": "string",
-                "started_at": "timestamp",
-                "finished_at": "timestamp",
-                "status": "string",
-                "params_hash": "string",
-                "candidate_count": "bigint",
-                "walk_forward_windows": "int",
-                "commission_total": "double",
-                "slippage_total": "double",
-                "session_filtered_out": "bigint",
-            },
-        },
-        "research_signal_candidates": {
-            "format": "delta",
-            "partition_by": ["strategy_version_id", "contract_id", "timeframe"],
-            "columns": {
-                "candidate_id": "string",
-                "backtest_run_id": "string",
-                "strategy_version_id": "string",
-                "contract_id": "string",
-                "timeframe": "string",
-                "ts_signal": "timestamp",
-                "side": "string",
-                "entry_ref": "double",
-                "stop_ref": "double",
-                "target_ref": "double",
-                "score": "double",
-                "window_id": "string",
-                "estimated_commission": "double",
-                "estimated_slippage": "double",
-            },
-        },
-        "research_strategy_metrics": {
-            "format": "delta",
-            "partition_by": ["walk_forward_windows"],
-            "columns": {
-                "walk_forward_windows": "int",
-                "session_hours_utc": "array<int>",
-                "session_filtered_out": "bigint",
-                "candidate_count": "bigint",
-                "long_count": "bigint",
-                "short_count": "bigint",
-                "avg_score": "double",
-                "avg_risk_reward": "double",
-                "commission_total": "double",
-                "slippage_total": "double",
-            },
-        },
     }
 
 
@@ -287,7 +233,7 @@ def write_feature_frames(
     rows: list[FeatureFrameRow],
     replace_partitions: tuple[FeatureFramePartitionKey, ...],
 ) -> dict[str, str]:
-    contract = phase2b_feature_store_contract()
+    contract = research_feature_store_contract()
     path = output_dir / "research_feature_frames.delta"
     existing_rows = read_delta_table_rows(path) if (path / "_delta_log").exists() else []
     preserved_rows = [

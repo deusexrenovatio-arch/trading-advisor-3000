@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -58,21 +58,21 @@ def _build_bars(*, bars_per_contract: int = 72) -> list[CanonicalBar]:
     return sorted(bars, key=lambda item: (item.contract_id, item.timeframe.value, item.ts))
 
 
-def test_phase2b_backtest_is_reproducible_and_writes_outputs(tmp_path: Path) -> None:
+def test_materialized_research_backtest_is_reproducible_and_writes_outputs(tmp_path: Path) -> None:
     bars = _build_bars()
     instrument_map = _instrument_map()
 
     run_a = run_research_from_bars(
         bars=bars,
         instrument_by_contract=instrument_map,
-        strategy_version_id="trend-follow-v1",
+        strategy_version_id="ma-cross-v1",
         dataset_version="bars-whitelist-v1",
         output_dir=tmp_path / "run-a",
     )
     run_b = run_research_from_bars(
         bars=bars,
         instrument_by_contract=instrument_map,
-        strategy_version_id="trend-follow-v1",
+        strategy_version_id="ma-cross-v1",
         dataset_version="bars-whitelist-v1",
         output_dir=tmp_path / "run-b",
     )
@@ -80,7 +80,7 @@ def test_phase2b_backtest_is_reproducible_and_writes_outputs(tmp_path: Path) -> 
     assert run_a["backtest_run"]["backtest_run_id"] == run_b["backtest_run"]["backtest_run_id"]
     assert run_a["signal_contract_rows"] == run_b["signal_contract_rows"]
     assert run_a["delta_manifest"]["feature_snapshots"]["format"] == "delta"
-    assert run_a["primary_path"] == "materialized_phase2b"
+    assert run_a["primary_path"] == "materialized_research"
 
     for path_text in run_a["output_paths"].values():
         path = Path(path_text)
@@ -93,12 +93,12 @@ def test_phase2b_backtest_is_reproducible_and_writes_outputs(tmp_path: Path) -> 
         assert contract.to_dict() == row
 
 
-def test_phase2b_backtest_supports_walk_forward_costs_and_strategy_metrics(tmp_path: Path) -> None:
+def test_materialized_research_backtest_supports_walk_forward_costs_and_strategy_metrics(tmp_path: Path) -> None:
     bars = _build_bars()
     report = run_research_from_bars(
         bars=bars,
         instrument_by_contract=_instrument_map(),
-        strategy_version_id="trend-follow-v1",
+        strategy_version_id="ma-cross-v1",
         dataset_version="bars-whitelist-v1",
         output_dir=tmp_path / "run-wf",
         backtest_config={
@@ -121,3 +121,5 @@ def test_phase2b_backtest_supports_walk_forward_costs_and_strategy_metrics(tmp_p
     assert all("window_id" in row for row in candidate_rows)
     assert all("estimated_commission" in row for row in candidate_rows)
     assert all("estimated_slippage" in row for row in candidate_rows)
+
+

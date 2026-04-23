@@ -198,7 +198,7 @@ Runtime reality already ships a custom Telegram publication engine, SQL-file mig
 ### Evidence anchors
 - Telegram runtime path: `src/trading_advisor_3000/product_plane/runtime/publishing/telegram.py`, `tests/product-plane/unit/test_phase2c_runtime_components.py`.
 - SQL migration runner: `scripts/apply_app_migrations.py`, `src/trading_advisor_3000/migrations/*.sql`, `tests/product-plane/integration/test_phase2c_runtime_postgres_store.py`.
-- Internal backtest runtime: `src/trading_advisor_3000/product_plane/research/backtest/engine.py`, `tests/product-plane/integration/test_phase2b_research_plane.py`.
+- Internal backtest runtime: `src/trading_advisor_3000/product_plane/research/backtest/engine.py`, `tests/product-plane/integration/test_materialized_research_plane.py`.
 - Observability runtime: `src/trading_advisor_3000/product_plane/runtime/analytics/review.py`, `tests/product-plane/integration/test_phase5_review_observability.py`.
 
 ### Consequences

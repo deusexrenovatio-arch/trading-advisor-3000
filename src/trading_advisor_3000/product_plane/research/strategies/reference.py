@@ -31,18 +31,18 @@ def _mean_reversion(snapshot: FeatureSnapshot) -> TradeSide:
     return TradeSide.FLAT
 
 
-_SAMPLE_STRATEGIES: dict[str, Callable[[FeatureSnapshot], TradeSide]] = {
-    "trend-follow-v1": _momentum_breakout,
-    "mean-revert-v1": _mean_reversion,
+_REFERENCE_STRATEGIES: dict[str, Callable[[FeatureSnapshot], TradeSide]] = {
+    "ma-cross-v1": _momentum_breakout,
+    "mean-reversion-v1": _mean_reversion,
 }
 
 
-def sample_strategy_ids() -> tuple[str, ...]:
-    return tuple(sorted(_SAMPLE_STRATEGIES))
+def supported_strategy_ids() -> tuple[str, ...]:
+    return tuple(sorted(_REFERENCE_STRATEGIES))
 
 
 def evaluate_strategy(*, strategy_version_id: str, snapshot: FeatureSnapshot) -> TradeSide:
-    strategy = _SAMPLE_STRATEGIES.get(strategy_version_id)
+    strategy = _REFERENCE_STRATEGIES.get(strategy_version_id)
     if strategy is None:
         raise ValueError(f"unsupported strategy_version_id: {strategy_version_id}")
     return strategy(snapshot)
