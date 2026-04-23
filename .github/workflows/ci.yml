@@ -20,6 +20,9 @@ on:
         required: false
         default: "false"
 
+env:
+  GITHUB_TOKEN: ${{ github.token }}
+
 # Hosted CI is opt-in to avoid false-red checks in repos where GitHub-hosted
 # runners are not available (for example billing/spending disabled).
 # Set repository variable AI_SHELL_ENABLE_HOSTED_CI=1 to enable lane execution.
