@@ -1,0 +1,21 @@
+{
+  "candidate_projection_id": "CP-9E2A4B7C10D1",
+  "candidate_id": "CAND-C82902612C14",
+  "backtest_run_id": "BTRUN-A1F3E8D22AA1",
+  "strategy_version_id": "trend-follow-v1",
+  "strategy_family": "trend-following",
+  "contract_id": "BR-9.26",
+  "instrument_id": "BR",
+  "timeframe": "1d",
+  "ts_signal": "2026-03-16T00:00:00Z",
+  "side": "long",
+  "entry_ref": 83.4,
+  "stop_ref": 81.9,
+  "target_ref": 86.4,
+  "score": 0.72,
+  "window_id": "wf-1",
+  "estimated_commission": 0.25,
+  "estimated_slippage": 0.12,
+  "capital_rub": 1000000,
+  "reproducibility_fingerprint": "RFP-20260411-0001"
+}

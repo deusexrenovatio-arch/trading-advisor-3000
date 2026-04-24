@@ -1,0 +1,26 @@
+{
+  "scorecard_id": "SC-A82B1134D211",
+  "strategy_version_id": "trend-follow-v1",
+  "strategy_family": "trend-following",
+  "profile_version": "strategy-scoring-profile.v1",
+  "capital_rub": 1000000,
+  "annual_return_pct": 41.8,
+  "sharpe_ratio": 1.56,
+  "max_drawdown_pct": 18.4,
+  "negative_months_4y": 0,
+  "signals_per_week": 2.4,
+  "active_assets_count": 3,
+  "repeatable": true,
+  "criteria": {
+    "stability_pass": true,
+    "return_pass": true,
+    "diversification_pass": true,
+    "frequency_pass": true,
+    "repeatability_pass": true,
+    "sharpe_pass": true,
+    "risk_pass": true
+  },
+  "verdict": "PASS",
+  "blocked_reasons": [],
+  "generated_at": "2026-04-11T12:00:00Z"
+}
