@@ -31,33 +31,32 @@ from .moex_historical_assets import (
     moex_historical_definitions,
     moex_historical_output_paths,
 )
-
-_PHASE2B_EXPORTS: tuple[str, ...] = ()
-try:
-    from .phase2b_assets import (
-        PHASE2B_GOVERNED_ASSETS,
-        assert_phase2b_definitions_executable,
-        build_phase2b_definitions,
-        materialize_phase2b_assets,
-        phase2b_asset_specs,
-        phase2b_governed_definitions,
-        phase2b_governed_materialization_job,
-        phase2b_output_paths,
-    )
-
-    _PHASE2B_EXPORTS = (
-        "PHASE2B_GOVERNED_ASSETS",
-        "assert_phase2b_definitions_executable",
-        "build_phase2b_definitions",
-        "materialize_phase2b_assets",
-        "phase2b_asset_specs",
-        "phase2b_governed_definitions",
-        "phase2b_governed_materialization_job",
-        "phase2b_output_paths",
-    )
-except (ImportError, ModuleNotFoundError) as exc:
-    if isinstance(exc, ModuleNotFoundError) and exc.name != "trading_advisor_3000.product_plane.research.scoring":
-        raise
+from .research_assets import (
+    RESEARCH_ASSETS,
+    RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME,
+    RESEARCH_DATA_PREP_ASSETS,
+    RESEARCH_BACKTEST_ASSETS,
+    RESEARCH_BACKTEST_JOB_NAME,
+    RESEARCH_DATA_PREP_JOB_NAME,
+    RESEARCH_PROJECTION_ASSETS,
+    RESEARCH_PROJECTION_JOB_NAME,
+    STRATEGY_REGISTRY_REFRESH_ASSETS,
+    STRATEGY_REGISTRY_REFRESH_JOB_NAME,
+    assert_research_definitions_executable,
+    build_research_definitions,
+    build_research_data_prep_run_config,
+    materialize_research_backtest_assets,
+    materialize_research_data_prep_assets,
+    materialize_research_projection_assets,
+    materialize_strategy_registry_refresh_assets,
+    research_asset_specs,
+    research_backtest_job,
+    research_data_prep_after_moex_sensor,
+    research_data_prep_job,
+    research_definitions,
+    research_projection_job,
+    strategy_registry_refresh_job,
+)
 
 __all__ = [
     "AssetSpec",
@@ -87,5 +86,28 @@ __all__ = [
     "phase2a_definitions",
     "phase2a_materialization_job",
     "phase2a_output_paths",
+    "RESEARCH_ASSETS",
+    "RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME",
+    "RESEARCH_DATA_PREP_ASSETS",
+    "RESEARCH_BACKTEST_ASSETS",
+    "RESEARCH_BACKTEST_JOB_NAME",
+    "RESEARCH_DATA_PREP_JOB_NAME",
+    "RESEARCH_PROJECTION_ASSETS",
+    "RESEARCH_PROJECTION_JOB_NAME",
+    "STRATEGY_REGISTRY_REFRESH_ASSETS",
+    "STRATEGY_REGISTRY_REFRESH_JOB_NAME",
+    "assert_research_definitions_executable",
+    "build_research_definitions",
+    "build_research_data_prep_run_config",
+    "materialize_research_backtest_assets",
+    "materialize_research_data_prep_assets",
+    "materialize_research_projection_assets",
+    "materialize_strategy_registry_refresh_assets",
+    "research_asset_specs",
+    "research_backtest_job",
+    "research_data_prep_after_moex_sensor",
+    "research_data_prep_job",
+    "research_definitions",
+    "research_projection_job",
+    "strategy_registry_refresh_job",
 ]
-__all__.extend(_PHASE2B_EXPORTS)
