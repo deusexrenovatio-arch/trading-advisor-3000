@@ -13,7 +13,7 @@ REQUIRED_HARNESS_FILES = (
     "scripts/measure_dev_loop.py",
     "scripts/harness_baseline_metrics.py",
     "scripts/build_governance_dashboard.py",
-    "scripts/run_phase8_operational_proving.py",
+    "scripts/run_shell_delivery_operational_proving.py",
     "scripts/skill_update_decision.py",
     "scripts/skill_precommit_gate.py",
     "scripts/sync_architecture_map.py",
@@ -31,7 +31,7 @@ def test_required_harness_files_exist() -> None:
         assert (ROOT / rel).exists(), f"missing harness file: {rel}"
 
 
-def test_phase8_dashboard_lane_scripts_are_registered_in_mapping() -> None:
+def test_shell_delivery_dashboard_lane_scripts_are_registered_in_mapping() -> None:
     mapping_text = (ROOT / "configs/change_surface_mapping.yaml").read_text(encoding="utf-8")
     assert "build_governance_dashboard.py" in mapping_text
     assert "harness_baseline_metrics.py" in mapping_text

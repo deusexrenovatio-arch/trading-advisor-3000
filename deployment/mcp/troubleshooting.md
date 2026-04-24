@@ -10,13 +10,24 @@ Actions:
 2. Re-run `python scripts/validate_mcp_config.py`.
 3. Re-run `python scripts/mcp_preflight_smoke.py --profile <profile> --strict-env-check`.
 
+## 1a. MemPalace module or palace config missing
+Symptoms:
+- base profile probe fails on `mempalace`;
+- `py -3.11 -m mempalace.mcp_server --help` or `py -3.11 -m mempalace status` fails locally.
+
+Actions:
+1. Verify the Python 3.11 MemPalace install on the host.
+2. Verify `~/.mempalace/config.json` points to a valid palace path.
+3. Re-run `py -3.11 -m mempalace status`.
+4. Re-run `python scripts/mcp_preflight_smoke.py --profile base --strict-env-check --probe-commands`.
+
 ## 2. Server command not found
 Symptoms:
 - preflight reports `command not found in PATH`.
 
 Actions:
-1. Install required runtime (`docker`, `npx`, `uvx`).
-2. Verify command path from shell (`docker --version`, `npx --version`, `uvx --version`).
+1. Install required runtime (`docker`, `npx`, `uvx`, `py`).
+2. Verify command path from shell (`docker --version`, `npx --version`, `uvx --version`, `py --version`).
 3. On Windows, prefer executable wrappers such as `npx.cmd` and `uvx.exe` if PowerShell execution policy blocks `.ps1`.
 4. Re-run profile smoke.
 

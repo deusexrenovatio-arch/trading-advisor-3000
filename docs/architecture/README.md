@@ -4,9 +4,12 @@ This package documents architecture for both repository surfaces:
 - Delivery Shell architecture (governance/control-plane concerns)
 - Product Plane architecture (application/runtime concerns)
 
+Use `docs/architecture/trading-advisor-3000.md` as the single entry map when you
+need a coherent whole-system view before reading the more specific documents.
+
 ## Start map
-- `docs/architecture/repository-surfaces.md`
 - `docs/architecture/trading-advisor-3000.md`
+- `docs/architecture/repository-surfaces.md`
 - `docs/architecture/layers-v2.md`
 - `docs/architecture/modules.md`
 

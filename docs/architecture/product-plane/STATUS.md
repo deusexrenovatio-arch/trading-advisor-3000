@@ -3,10 +3,10 @@
 This document is the current truth source for implemented product-plane reality.
 It supersedes older phase-closure claims when they disagree.
 
-## Phase Namespaces
-- `S0-S8` = shell delivery/governance phases.
-- `P0-P7` = product capability phases from the product-plane spec.
-- [phase8-ci-pilot-operational-proving.md](docs/architecture/product-plane/phase8-ci-pilot-operational-proving.md) is a delivery/evidence overlay, not proof that product capability phases are closed.
+## Naming Rule
+- Active surfaces use capability names, not phase labels.
+- Historical phase shorthand may remain only when provenance would otherwise be lost.
+- [shell-delivery-operational-proving.md](docs/architecture/product-plane/shell-delivery-operational-proving.md) is a delivery/evidence overlay, not proof that product capability slices are closed.
 
 ## Current Capability Status
 
@@ -60,7 +60,7 @@ It supersedes older phase-closure claims when they disagree.
 - Promotion runs must use at least 3 instruments from the approved universe and pin the canonical baseline root + universe version in evidence artifacts.
 
 ## Live Decision Data Policy (Strict)
-1. Historical and batch datasets (including MOEX phase contours, canonical bars, and nightly backfill outputs) are not a valid source for intraday live decision-making.
+1. Historical and batch datasets (including MOEX ingest, canonicalization, reconciliation outputs, canonical bars, and nightly backfill outputs) are not a valid source for intraday live decision-making.
 2. Intraday (`within-day`) trading decisions must be taken only from broker live data delivered through the real execution boundary (`StockSharp -> QUIK -> broker/Finam`).
 3. Before publishing or acting on any live signal, broker connectivity and live market state must be confirmed through the broker path; MOEX historical snapshots may be used only for research/backfill/analytics context.
 4. If broker live data is unavailable, stale, or not confirmed, live decision publication must remain fail-closed.

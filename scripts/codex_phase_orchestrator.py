@@ -19,8 +19,6 @@ from codex_phase_policy import (
     ACCEPTANCE_BEGIN,
     ACCEPTANCE_END,
     AcceptanceBlocker,
-    DEFAULT_ACCEPTOR_MODEL,
-    DEFAULT_WORKER_MODEL,
     PhaseEvidenceRequirement,
     ROUTE_GUARDRAILS,
     ROUTE_MODE,
@@ -1651,8 +1649,8 @@ def build_parser() -> argparse.ArgumentParser:
         target.add_argument("--worker-profile", default="")
         target.add_argument("--acceptor-profile", default="")
         target.add_argument("--remediation-profile", default="")
-        target.add_argument("--worker-model", default=DEFAULT_WORKER_MODEL)
-        target.add_argument("--acceptor-model", default=DEFAULT_ACCEPTOR_MODEL)
+        target.add_argument("--worker-model", default="")
+        target.add_argument("--acceptor-model", default="")
         target.add_argument("--remediation-model", default="")
         target.add_argument("--worker-config", action="append", default=[])
         target.add_argument("--acceptor-config", action="append", default=[])
@@ -1704,7 +1702,7 @@ def build_role_launches(args: argparse.Namespace) -> tuple[RoleLaunchConfig, Rol
     )
     remediation_launch = RoleLaunchConfig(
         profile=str(getattr(args, "remediation_profile", "") or "").strip() or shared_profile,
-        model=str(getattr(args, "remediation_model", "") or "").strip() or worker_launch.model,
+        model=str(getattr(args, "remediation_model", "") or "").strip(),
         config_overrides=tuple(
             str(item).strip() for item in getattr(args, "remediation_config", []) if str(item).strip()
         ),

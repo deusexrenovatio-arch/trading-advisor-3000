@@ -16,19 +16,48 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List
 
-import chromadb
-from mempalace.general_extractor import extract_memories
-from mempalace.normalize import normalize
-
-
 DEFAULT_PALACE = "D:/mempalace/palace"
-DEFAULT_SESSIONS = str(Path.home() / ".codex" / "sessions")
 DEFAULT_STATE = "D:/mempalace/hook_state/codex_chat_sync_state.json"
 DEFAULT_COLLECTION = "mempalace_drawers"
 DEFAULT_WING = "codex_chats"
 
 CONVO_EXTENSIONS = {".jsonl"}
 MIN_CONTENT_CHARS = 30
+
+
+def candidate_sessions_dirs() -> List[Path]:
+    candidates: List[Path] = []
+
+    env_override = os.environ.get("MEMPAL_CONVO_DIR")
+    if env_override:
+        candidates.append(Path(env_override).expanduser())
+
+    codex_home = os.environ.get("CODEX_HOME")
+    if codex_home:
+        candidates.append(Path(codex_home).expanduser() / "sessions")
+
+    candidates.append(Path.home() / ".codex" / "sessions")
+
+    unique: List[Path] = []
+    seen = set()
+    for candidate in candidates:
+        normalized = str(candidate)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        unique.append(candidate)
+    return unique
+
+
+def resolve_sessions_dir(explicit: str | None = None) -> Path:
+    if explicit:
+        return Path(explicit).expanduser()
+
+    candidates = candidate_sessions_dirs()
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
 
 
 def _iter_convo_files(root: Path) -> Iterable[Path]:
@@ -109,6 +138,10 @@ def sync(
     collection_name: str,
     wing: str,
 ) -> Dict:
+    import chromadb
+    from mempalace.general_extractor import extract_memories
+    from mempalace.normalize import normalize
+
     state = _load_state(state_file)
     files_state = state.setdefault("files", {})
 
@@ -241,8 +274,8 @@ def main() -> int:
     parser.add_argument("--palace", default=DEFAULT_PALACE, help=f"Palace path (default: {DEFAULT_PALACE})")
     parser.add_argument(
         "--sessions",
-        default=DEFAULT_SESSIONS,
-        help=f"Codex sessions root (default: {DEFAULT_SESSIONS})",
+        default=None,
+        help="Codex sessions root. Defaults to MEMPAL_CONVO_DIR, then CODEX_HOME/sessions, then ~/.codex/sessions",
     )
     parser.add_argument(
         "--state-file",
@@ -255,7 +288,7 @@ def main() -> int:
 
     summary = sync(
         palace_path=Path(args.palace),
-        sessions_dir=Path(args.sessions),
+        sessions_dir=resolve_sessions_dir(args.sessions),
         state_file=Path(args.state_file),
         collection_name=args.collection,
         wing=args.wing,

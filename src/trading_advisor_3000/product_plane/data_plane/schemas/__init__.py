@@ -1,5 +1,5 @@
 from __future__ import annotations
 
-from .delta import phase2a_delta_schema_manifest
+from .delta import historical_data_delta_schema_manifest
 
-__all__ = ["phase2a_delta_schema_manifest"]
+__all__ = ["historical_data_delta_schema_manifest"]

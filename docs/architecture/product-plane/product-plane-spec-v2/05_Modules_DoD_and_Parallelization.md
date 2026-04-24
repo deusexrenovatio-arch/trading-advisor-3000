@@ -22,7 +22,7 @@
 
 ## 2. DoD по модулям
 
-## M0. Phase 0 / shell alignment
+## M0. Bootstrap / shell alignment
 ### DoD
 - подтверждён baseline shell;
 - подтверждено, merged/backported ли PR-hardening;
@@ -214,8 +214,8 @@
 
 ## 4. Последовательность запуска треков
 
-1. Phase 0 — shell alignment
-2. Phase 1 — contracts + repo scaffold
-3. Phase 2 — Track A/B/C/D can start in parallel with controlled dependencies
-4. Phase 3 — integration and system replay
-5. Phase 4 — paper/live hardening
+1. Bootstrap - shell alignment
+2. Contracts and scaffolding - repo scaffold + boundary freeze
+3. Capability bootstrap - Track A/B/C/D can start in parallel with controlled dependencies
+4. Shadow replay - integration and system replay
+5. Live execution hardening - paper/live hardening

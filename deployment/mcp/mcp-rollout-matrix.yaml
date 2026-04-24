@@ -28,6 +28,22 @@ servers:
       mode: "http_reachability"
       args: []
 
+  mempalace:
+    wave: "wave1"
+    owner: "platform"
+    auth_model: "local_mempalace_config"
+    required_env: []
+    limitations:
+      - "Local palace only"
+      - "Requires MemPalace to be installed and configured on the host"
+    expected_health_probe:
+      mode: "cli_module_help"
+      args:
+        - "-3.11"
+        - "-m"
+        - "mempalace.mcp_server"
+        - "--help"
+
   docker:
     wave: "wave2"
     owner: "platform"

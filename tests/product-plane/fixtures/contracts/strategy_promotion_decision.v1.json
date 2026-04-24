@@ -1,0 +1,12 @@
+{
+  "decision_id": "PROMO-7AA31365C90F",
+  "scorecard_id": "SC-A82B1134D211",
+  "strategy_version_id": "trend-follow-v1",
+  "profile_version": "strategy-scoring-profile.v1",
+  "verdict": "PASS",
+  "promotion_state": "PROMOTED",
+  "blocked_reasons": [],
+  "effective_from": "2026-04-11T12:00:00Z",
+  "capital_rub": 1000000,
+  "reproducibility_fingerprint": "RFP-20260411-0001"
+}

@@ -16,10 +16,10 @@ if ([string]::IsNullOrWhiteSpace($DotnetExecutable)) {
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
 
 if ([string]::IsNullOrWhiteSpace($PublishDir)) {
-    $PublishDir = Join-Path $repoRoot "artifacts\phase8\stocksharp-sidecar\publish"
+    $PublishDir = Join-Path $repoRoot "artifacts\dotnet-sidecar\stocksharp-sidecar\publish"
 }
 if ([string]::IsNullOrWhiteSpace($SmokeOutput)) {
-    $SmokeOutput = Join-Path $repoRoot "artifacts\phase8\stocksharp-sidecar\python-smoke.json"
+    $SmokeOutput = Join-Path $repoRoot "artifacts\dotnet-sidecar\stocksharp-sidecar\python-smoke.json"
 }
 
 & (Join-Path $PSScriptRoot "build.ps1") -Configuration $Configuration -DotnetExecutable $DotnetExecutable

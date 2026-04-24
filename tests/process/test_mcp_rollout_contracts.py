@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import threading
+import tomllib
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -15,7 +16,7 @@ if str(SCRIPTS) not in sys.path:
 if str(DEPLOYMENT_MCP) not in sys.path:
     sys.path.insert(0, str(DEPLOYMENT_MCP))
 
-from bootstrap_mcp_config import merge_home_config_data  # noqa: E402
+from bootstrap_mcp_config import _dump_toml_document, merge_home_config_data  # noqa: E402
 from mcp_preflight_smoke import run_preflight  # noqa: E402
 from validate_mcp_config import validate as validate_mcp_config  # noqa: E402
 from validate_no_tracked_secrets import validate as validate_no_tracked_secrets  # noqa: E402
@@ -30,7 +31,7 @@ def test_mcp_config_contract_passes_for_repository_template() -> None:
     )
     assert errors == []
     assert report["errors_total"] == 0
-    assert len(report["required_server_ids"]) == 6
+    assert len(report["required_server_ids"]) == 7
 
 
 def test_mcp_config_validation_fails_when_required_server_is_missing(tmp_path: Path) -> None:
@@ -329,6 +330,34 @@ def test_merge_home_config_data_preserves_existing_user_settings() -> None:
     assert merged["windows"]["sandbox"] == "elevated"
     assert merged["mcp_servers"]["github"]["args"] == ["run", "--rm", "github-mcp"]
     assert merged["mcp_servers"]["openai_docs"]["url"] == "https://developers.openai.com/mcp"
+
+
+def test_dump_toml_document_round_trips_complex_user_config_shapes() -> None:
+    document = {
+        "model": "gpt-5.4",
+        "plugins": {
+            "github@openai-curated": {
+                "enabled": True,
+            }
+        },
+        "skills": {
+            "config": [
+                {
+                    "path": "D:/CodexHome/skills/demo",
+                    "enabled": True,
+                }
+            ]
+        },
+        "projects": {
+            r"D:\trading advisor 3000": {
+                "trust_level": "trusted",
+            }
+        },
+    }
+
+    payload = _dump_toml_document(document)
+
+    assert tomllib.loads(payload) == document
 
 
 def test_tracked_secret_validator_detects_hardcoded_token_pattern(tmp_path: Path) -> None:

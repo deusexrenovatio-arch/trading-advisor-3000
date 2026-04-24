@@ -12,13 +12,13 @@ from trading_advisor_3000.product_plane.research import (
 )
 from trading_advisor_3000.product_plane.runtime.analytics.outcomes import (
     build_signal_outcomes,
-    phase3_outcome_store_contract,
+    shadow_replay_outcome_store_contract,
 )
 from trading_advisor_3000.product_plane.runtime.analytics.review import (
     build_loki_event_lines,
-    build_phase5_review_report,
+    build_review_observability_report,
     export_prometheus_metrics,
-    phase5_review_store_contract,
+    review_observability_store_contract,
 )
 from trading_advisor_3000.product_plane.runtime.config import StrategyVersion
 from trading_advisor_3000.product_plane.runtime.pipeline import build_runtime_stack
@@ -174,18 +174,18 @@ def run_system_shadow_replay(
         broker_fills=[item.to_dict() for item in paper_broker.list_broker_fills()],
         positions=[item.to_dict() for item in paper_broker.list_position_snapshots()],
     )
-    phase5_report = build_phase5_review_report(
+    review_report = build_review_observability_report(
         outcomes=[item.to_dict() for item in outcomes],
         signal_events=runtime_api.list_signal_events(),
     )
-    prometheus_metrics = export_prometheus_metrics(phase5_report)
-    loki_lines = build_loki_event_lines(phase5_report)
+    prometheus_metrics = export_prometheus_metrics(review_report)
+    loki_lines = build_loki_event_lines(review_report)
 
     forward_rows = [item.to_dict() for item in forward_observations]
     outcome_rows = [item.to_dict() for item in outcomes]
-    strategy_rows = [item.to_dict() for item in phase5_report.strategy_dashboard]
-    instrument_rows = [item.to_dict() for item in phase5_report.instrument_dashboard]
-    latency_rows = [item.to_dict() for item in phase5_report.latency_metrics]
+    strategy_rows = [item.to_dict() for item in review_report.strategy_dashboard]
+    instrument_rows = [item.to_dict() for item in review_report.instrument_dashboard]
+    latency_rows = [item.to_dict() for item in review_report.latency_metrics]
     forward_path = output_dir / "research.forward_observations.sample.jsonl"
     outcomes_path = output_dir / "analytics.signal_outcomes.sample.jsonl"
     strategy_metrics_path = output_dir / "analytics.strategy_metrics_daily.sample.jsonl"
@@ -211,7 +211,7 @@ def run_system_shadow_replay(
         "analytics_outcomes": len(outcomes),
         "runtime_signal_ids": runtime_signal_ids,
         "runtime_payload": runtime_payload,
-        "phase5_report": phase5_report.to_dict(),
+        "review_report": review_report.to_dict(),
         "signal_events": runtime_api.list_signal_events(),
         "broker_fills": [item.to_dict() for item in paper_broker.list_broker_fills()],
         "positions": [item.to_dict() for item in paper_broker.list_position_snapshots()],
@@ -234,7 +234,7 @@ def run_system_shadow_replay(
         },
         "delta_manifest": {
             **research_report["delta_manifest"],
-            **phase3_outcome_store_contract(),
-            **phase5_review_store_contract(),
+            **shadow_replay_outcome_store_contract(),
+            **review_observability_store_contract(),
         },
     }

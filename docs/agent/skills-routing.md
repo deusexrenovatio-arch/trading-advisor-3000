@@ -13,6 +13,21 @@
 4. Prefer integration into an existing skill when overlap is high; add new skills only for missing, non-trivial capabilities.
 5. When multiple skills match, pick the smallest set that covers intent.
 
+## Architecture Orientation Routing
+- When a task asks for the architecture map, system shape, module boundaries, or
+  shell/product ownership, open:
+  - `docs/architecture/trading-advisor-3000.md`
+  - `docs/architecture/repository-surfaces.md`
+- When implementation status matters, also open:
+  - `docs/architecture/product-plane/STATUS.md`
+- Route `architecture-review` first for design and boundary questions.
+- Co-load `docs-sync` when the architecture docs themselves need to be corrected
+  or synchronized.
+- Co-load `module-scaffold` when the task creates a new module or moves a module
+  between architectural zones.
+- Co-load `validate-crosslayer` when the task crosses shell/product boundaries or
+  multiple product-plane layers.
+
 ## Worker Coding Routing
 - When the active phase is implementation and the request is code-writing focused, load:
   - `code-implementation-worker` (primary)

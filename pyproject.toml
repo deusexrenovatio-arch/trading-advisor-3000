@@ -23,6 +23,10 @@ data-proof = [
   "pyarrow>=17,<22",
   "deltalake>=0.21,<1",
   "dagster>=1.8,<2",
+  "dagster-webserver>=1.8,<2",
+  "pandas>=2.2,<3",
+  "pandas-ta-classic>=0.3,<1",
+  "vectorbt>=0.26,<1",
   "pyspark>=3.5,<4",
   "delta-spark>=3.3,<4",
   "jdk4py>=17,<22",
@@ -41,6 +45,10 @@ dev = [
   "pyarrow>=17,<22",
   "deltalake>=0.21,<1",
   "dagster>=1.8,<2",
+  "dagster-webserver>=1.8,<2",
+  "pandas>=2.2,<3",
+  "pandas-ta-classic>=0.3,<1",
+  "vectorbt>=0.26,<1",
   "pyspark>=3.5,<4",
   "delta-spark>=3.3,<4",
   "jdk4py>=17,<22",
@@ -54,3 +62,6 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "--basetemp=.tmp/pytest"

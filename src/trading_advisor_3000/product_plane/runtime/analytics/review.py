@@ -197,7 +197,7 @@ class LatencyMetricRow:
 
 
 @dataclass(frozen=True)
-class Phase5ReviewReport:
+class ReviewObservabilityReport:
     strategy_dashboard: list[StrategyMetricsRow]
     instrument_dashboard: list[InstrumentMetricsRow]
     latency_metrics: list[LatencyMetricRow]
@@ -212,7 +212,7 @@ class Phase5ReviewReport:
         }
 
 
-def phase5_review_store_contract() -> dict[str, dict[str, object]]:
+def review_observability_store_contract() -> dict[str, dict[str, object]]:
     return {
         "analytics_strategy_metrics_daily": {
             "format": "delta",
@@ -499,11 +499,11 @@ def build_latency_metrics(signal_events: list[dict[str, object]]) -> list[Latenc
     return rows
 
 
-def build_phase5_review_report(
+def build_review_observability_report(
     *,
     outcomes: list[SignalOutcome | dict[str, object]],
     signal_events: list[dict[str, object]],
-) -> Phase5ReviewReport:
+) -> ReviewObservabilityReport:
     strategy_dashboard = build_strategy_metrics_dashboard(outcomes)
     instrument_dashboard = build_instrument_metrics_dashboard(outcomes)
     latency_metrics = build_latency_metrics(signal_events)
@@ -526,7 +526,7 @@ def build_phase5_review_report(
         "decision_to_close_p50_ms": _percentile(close_latencies, 0.50),
         "decision_to_close_p95_ms": _percentile(close_latencies, 0.95),
     }
-    return Phase5ReviewReport(
+    return ReviewObservabilityReport(
         strategy_dashboard=strategy_dashboard,
         instrument_dashboard=instrument_dashboard,
         latency_metrics=latency_metrics,
@@ -538,7 +538,7 @@ def _escape_label(value: str) -> str:
     return value.replace("\\", "\\\\").replace("\"", "\\\"")
 
 
-def export_prometheus_metrics(report: Phase5ReviewReport) -> str:
+def export_prometheus_metrics(report: ReviewObservabilityReport) -> str:
     lines: list[str] = []
 
     lines.append("# HELP ta3000_strategy_signals_total Signals count by strategy/day/mode.")
@@ -594,7 +594,7 @@ def export_prometheus_metrics(report: Phase5ReviewReport) -> str:
     return "\n".join(lines) + "\n"
 
 
-def build_loki_event_lines(report: Phase5ReviewReport) -> list[str]:
+def build_loki_event_lines(report: ReviewObservabilityReport) -> list[str]:
     lines: list[str] = []
     for row in report.latency_metrics:
         payload = {

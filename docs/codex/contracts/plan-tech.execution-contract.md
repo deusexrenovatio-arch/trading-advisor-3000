@@ -24,6 +24,24 @@ Updated: 2026-03-25 13:55 UTC
 
 - Complete PLAN_tech through explicit governed module-phase orchestration instead of a single package-derived implementation run.
 
+## Release Target Contract
+
+- Target Decision: DENY_RELEASE_READINESS
+- Target Environment: shell governance pilot for critical-contour anti-shortcut enforcement, limited to configured pilot contours and local gate execution
+- Forbidden Proof Substitutes: docs-only for enforced gate behavior, unchecked phase closure, manual chat-only continuation, silent fallback, synthetic closure evidence
+- Release-Ready Proof Class: staging-real
+
+## Mandatory Real Contours
+
+- critical_contour_gate_enforcement: changed-file loop/pr gate execution must exercise configured pilot contours and fail closed on shortcut closure claims.
+
+## Release Surface Matrix
+
+- Surface: anti_shortcut_policy_contour | Owner Phase: Policy and Critical Contour Foundations | Required Proof Class: doc | Must Reach: policy_and_solution_class_contract_defined
+- Surface: critical_contour_gate_enforcement | Owner Phase: Validator and Gate Enforcement | Required Proof Class: staging-real | Must Reach: fail_closed_validator_and_gate_execution
+- Surface: pilot_passport_routing_contour | Owner Phase: Routing and Pilot Passports | Required Proof Class: doc | Must Reach: routing_and_passport_contracts_defined
+- Surface: observation_expansion_contour | Owner Phase: Observation Counters and Expansion Criteria | Required Proof Class: doc | Must Reach: expansion_decision_contract_defined
+
 ## In Scope
 
 - One canonical execution contract and module parent brief under `docs/codex/`.
@@ -40,7 +58,7 @@ Updated: 2026-03-25 13:55 UTC
 ## Constraints
 
 - Keep the anti-shortcut discipline limited to critical contours.
-- Preserve loop/pr/nightly and Phase 8 proving as the main harness.
+- Preserve loop/pr/nightly and Shell delivery proving as the main harness.
 - Do not add a new mandatory lane or manual approval ceremony.
 - Keep shell control-plane files domain-free.
 - Use the governed launcher for continuation instead of manual chat continuation.

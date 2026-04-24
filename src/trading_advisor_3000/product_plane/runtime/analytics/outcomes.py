@@ -33,7 +33,7 @@ class SignalOutcome:
         }
 
 
-def phase3_outcome_store_contract() -> dict[str, dict[str, object]]:
+def shadow_replay_outcome_store_contract() -> dict[str, dict[str, object]]:
     return {
         "research_forward_observations": {
             "format": "delta",

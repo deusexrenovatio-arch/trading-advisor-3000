@@ -333,6 +333,45 @@ def test_bootstrap_forwards_explicit_profile_when_requested(
     assert forwarded[profile_index + 1] == "deep"
 
 
+def test_bootstrap_omits_model_flags_when_not_explicitly_requested(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(bootstrap, "resolve_repo_root", lambda: tmp_path)
+    monkeypatch.setattr(
+        bootstrap,
+        "ensure_active_session",
+        lambda repo_root, request, session_mode: {"action": "reused", "message": "ok", "payload": {}},
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_entry(argv: list[str]) -> int:
+        captured["argv"] = list(argv)
+        return 0
+
+    monkeypatch.setattr(bootstrap, "governed_entry_main", fake_entry)
+
+    code = bootstrap.main(
+        [
+            "--request",
+            "continue without model overrides",
+            "--route",
+            "continue",
+            "--execution-contract",
+            "docs/codex/contracts/demo.execution-contract.md",
+            "--parent-brief",
+            "docs/codex/modules/demo.parent.md",
+            "--dry-run",
+        ]
+    )
+
+    assert code == 0
+    forwarded = captured["argv"]
+    assert "--worker-model" not in forwarded
+    assert "--acceptor-model" not in forwarded
+    assert "--remediation-model" not in forwarded
+
+
 def test_bootstrap_forwards_stacked_followup_contract_arguments(
     monkeypatch, tmp_path: Path
 ) -> None:

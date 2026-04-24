@@ -145,9 +145,9 @@ def _run_smoke(base_url: str) -> dict[str, object]:
             api_prefix="v1",
         )
     )
-    intent = _intent("INT-PHASE8-COMPILED-1")
-    second_intent = _intent("INT-PHASE8-COMPILED-2")
-    blocked_intent = _intent("INT-PHASE8-COMPILED-BLOCKED")
+    intent = _intent("INT-DOTNET-SIDECAR-COMPILED-1")
+    second_intent = _intent("INT-DOTNET-SIDECAR-COMPILED-2")
+    blocked_intent = _intent("INT-DOTNET-SIDECAR-COMPILED-BLOCKED")
 
     metrics_before_status, metrics_before = _http_text(
         url=f"{base_url.rstrip('/')}/metrics",

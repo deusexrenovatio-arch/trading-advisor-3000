@@ -2,7 +2,7 @@
 
 ## Goal
 Close two implementation gaps outside next-wave scope:
-1. Full MCP rollout Wave 1-3 with governance gates and operational package.
+1. Full MCP rollout Wave 1-3 with governance gates, operational package, and local `mempalace` inclusion in the base profile.
 2. Real execution transport path via HTTP sidecar gateway for staging-first proving.
 
 ## Deliverables
@@ -18,11 +18,12 @@ Close two implementation gaps outside next-wave scope:
 
 ## Design Decisions
 1. MCP rollout is project-scoped and fail-closed: static contract checks + tracked secret scan are mandatory governance checks.
-2. Runtime MCP smoke remains explicit operator command, while CI validates deterministic static contract.
-3. Real transport is an adapter transport implementation; trading DTOs remain unchanged.
-4. Sidecar streams use cursor semantics, while bridge keeps incremental drain and reconciliation compatibility.
-5. Env-only secrets are temporary but guarded by redaction, startup policy, and optional secret-age enforcement.
-6. Staging rollout is forced through connectivity -> canary -> controlled batch with kill-switch.
+2. `mempalace` is part of the official repo MCP contract, but its palace path stays host-local through the MemPalace install/config instead of a machine path in repo files.
+3. Runtime MCP smoke remains explicit operator command, while CI validates deterministic static contract.
+4. Real transport is an adapter transport implementation; trading DTOs remain unchanged.
+5. Sidecar streams use cursor semantics, while bridge keeps incremental drain and reconciliation compatibility.
+6. Env-only secrets are temporary but guarded by redaction, startup policy, and optional secret-age enforcement.
+7. Staging rollout is forced through connectivity -> canary -> controlled batch with kill-switch.
 
 ## Out of Scope
 - fundamentals/news external providers onboarding;

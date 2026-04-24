@@ -8,7 +8,7 @@ from trading_advisor_3000.product_plane.contracts import DecisionCandidate, Feat
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
 from trading_advisor_3000.product_plane.research.features import FeatureSnapshot, research_feature_store_contract
 from trading_advisor_3000.product_plane.research.ids import candidate_id
-from trading_advisor_3000.product_plane.research.strategies import evaluate_strategy
+from trading_advisor_3000.product_plane.research.strategies import evaluate_strategy, strategy_family_of
 
 
 def _stable_hash(text: str) -> str:
@@ -32,9 +32,7 @@ def _refs(*, snapshot: FeatureSnapshot, side: TradeSide) -> tuple[float, float, 
 
 
 def _signal_id(*, strategy_version_id: str, snapshot: FeatureSnapshot) -> str:
-    return "SIG-" + _stable_hash(
-        f"{strategy_version_id}|{snapshot.snapshot_id}|{snapshot.contract_id}|{snapshot.ts}"
-    )
+    return "SIG-" + _stable_hash(f"{strategy_version_id}|{snapshot.snapshot_id}|{snapshot.contract_id}|{snapshot.ts}")
 
 
 def _build_run_id(
@@ -68,6 +66,15 @@ def _window_id(*, index: int, total: int, windows: int) -> str:
     window_size = max(1, math.ceil(total / effective_windows))
     return f"wf-{(index // window_size) + 1}"
 
+
+def _projection_id(*, candidate_id_value: str, backtest_run_id: str) -> str:
+    return "CP-" + _stable_hash(f"{candidate_id_value}|{backtest_run_id}")
+
+
+def _reproducibility_fingerprint(*, backtest_run_id: str, params_hash: str, capital_rub: int) -> str:
+    return "RFP-" + _stable_hash(f"{backtest_run_id}|{params_hash}|{capital_rub}")
+
+
 def run_backtest(
     snapshots: list[FeatureSnapshot],
     *,
@@ -78,6 +85,7 @@ def run_backtest(
     commission_per_trade: float = 0.0,
     slippage_bps: float = 0.0,
     session_hours_utc: tuple[int, int] | None = None,
+    capital_rub: int = 1_000_000,
 ) -> dict[str, object]:
     if walk_forward_windows <= 0:
         raise ValueError("walk_forward_windows must be positive")
@@ -85,6 +93,8 @@ def run_backtest(
         raise ValueError("commission_per_trade must be non-negative")
     if slippage_bps < 0:
         raise ValueError("slippage_bps must be non-negative")
+    if capital_rub <= 0:
+        raise ValueError("capital_rub must be positive")
 
     delta_manifest = research_feature_store_contract()
     ordered = sorted(snapshots, key=lambda item: (item.contract_id, item.timeframe.value, item.ts))
@@ -95,14 +105,22 @@ def run_backtest(
     )
     started_at = ordered[0].ts if ordered else "1970-01-01T00:00:00Z"
     finished_at = ordered[-1].ts if ordered else started_at
-    params_hash = _stable_hash(f"{strategy_version_id}|{dataset_version}|v1")
+    params_hash = _stable_hash(f"{strategy_version_id}|{dataset_version}|v2")
+    strategy_family = strategy_family_of(strategy_version_id)
 
     signal_contracts: list[DecisionCandidate] = []
     research_rows: list[dict[str, object]] = []
+    projection_rows: list[dict[str, object]] = []
     session_filtered_out = 0
     commission_total = 0.0
     slippage_total = 0.0
     rr_values: list[float] = []
+
+    reproducibility_fingerprint = _reproducibility_fingerprint(
+        backtest_run_id=backtest_run_id,
+        params_hash=params_hash,
+        capital_rub=capital_rub,
+    )
 
     for index, snapshot in enumerate(ordered):
         side = evaluate_strategy(strategy_version_id=strategy_version_id, snapshot=snapshot)
@@ -150,17 +168,44 @@ def run_backtest(
             ),
         )
         signal_contracts.append(signal_contract)
-        research_rows.append(
+
+        candidate_id_value = candidate_id(
+            strategy_version_id=strategy_version_id,
+            contract_id=snapshot.contract_id,
+            timeframe=snapshot.timeframe.value,
+            ts_signal=snapshot.ts,
+        )
+
+        research_row = {
+            "candidate_id": candidate_id_value,
+            "backtest_run_id": backtest_run_id,
+            "strategy_version_id": strategy_version_id,
+            "contract_id": snapshot.contract_id,
+            "timeframe": snapshot.timeframe.value,
+            "ts_signal": snapshot.ts,
+            "side": side.value,
+            "entry_ref": entry_ref,
+            "stop_ref": stop_ref,
+            "target_ref": target_ref,
+            "score": confidence,
+            "window_id": window_id,
+            "estimated_commission": commission_per_trade,
+            "estimated_slippage": abs(slippage_abs),
+        }
+        research_rows.append(research_row)
+
+        projection_rows.append(
             {
-                "candidate_id": candidate_id(
-                    strategy_version_id=strategy_version_id,
-                    contract_id=snapshot.contract_id,
-                    timeframe=snapshot.timeframe.value,
-                    ts_signal=snapshot.ts,
+                "candidate_projection_id": _projection_id(
+                    candidate_id_value=candidate_id_value,
+                    backtest_run_id=backtest_run_id,
                 ),
+                "candidate_id": candidate_id_value,
                 "backtest_run_id": backtest_run_id,
                 "strategy_version_id": strategy_version_id,
+                "strategy_family": strategy_family,
                 "contract_id": snapshot.contract_id,
+                "instrument_id": snapshot.instrument_id,
                 "timeframe": snapshot.timeframe.value,
                 "ts_signal": snapshot.ts,
                 "side": side.value,
@@ -171,6 +216,8 @@ def run_backtest(
                 "window_id": window_id,
                 "estimated_commission": commission_per_trade,
                 "estimated_slippage": abs(slippage_abs),
+                "capital_rub": capital_rub,
+                "reproducibility_fingerprint": reproducibility_fingerprint,
             }
         )
 
@@ -207,7 +254,9 @@ def run_backtest(
         output_dir.mkdir(parents=True, exist_ok=True)
         run_path = output_dir / "research.backtest_runs.delta"
         candidate_path = output_dir / "research.signal_candidates.delta"
+        projection_path = output_dir / "research.runtime_candidate_projection.delta"
         snapshot_path = output_dir / "feature.snapshots.delta"
+        gold_snapshot_path = output_dir / "gold.feature_snapshot.delta"
         strategy_metrics_path = output_dir / "research.strategy_metrics.delta"
 
         write_delta_table_rows(
@@ -216,14 +265,25 @@ def run_backtest(
             columns=delta_manifest["research_backtest_runs"]["columns"],
         )
         write_delta_table_rows(
+            table_path=projection_path,
+            rows=projection_rows,
+            columns=delta_manifest["research_runtime_candidate_projection"]["columns"],
+        )
+        write_delta_table_rows(
             table_path=candidate_path,
             rows=research_rows,
             columns=delta_manifest["research_signal_candidates"]["columns"],
         )
+        snapshot_rows = [snapshot.to_dict() for snapshot in ordered]
         write_delta_table_rows(
             table_path=snapshot_path,
-            rows=[snapshot.to_dict() for snapshot in ordered],
+            rows=snapshot_rows,
             columns=delta_manifest["feature_snapshots"]["columns"],
+        )
+        write_delta_table_rows(
+            table_path=gold_snapshot_path,
+            rows=snapshot_rows,
+            columns=delta_manifest["gold_feature_snapshot"]["columns"],
         )
         write_delta_table_rows(
             table_path=strategy_metrics_path,
@@ -232,8 +292,10 @@ def run_backtest(
         )
         output_paths = {
             "backtest_runs": run_path.as_posix(),
+            "candidate_projection": projection_path.as_posix(),
             "signal_candidates": candidate_path.as_posix(),
             "feature_snapshots": snapshot_path.as_posix(),
+            "gold_feature_snapshot": gold_snapshot_path.as_posix(),
             "strategy_metrics": strategy_metrics_path.as_posix(),
         }
 
@@ -242,6 +304,7 @@ def run_backtest(
         "strategy_metrics": strategy_metrics,
         "signal_contracts": [contract.to_dict() for contract in signal_contracts],
         "research_candidates": research_rows,
+        "candidate_projection": projection_rows,
         "output_paths": output_paths,
         "delta_manifest": delta_manifest,
     }

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "phase": "F1-E - Real Broker Process Closure",
   "phase_brief": "docs/codex/modules/f1-full-closure.phase-05.md",
-  "route_signal": "worker:phase-only",
+  "route_signal": "worker:capability-only",
   "proof_class": "staging-real",
   "generated_at": "2026-03-31T12:00:00Z",
   "run_id": "20260331T120000Z-sample123456",

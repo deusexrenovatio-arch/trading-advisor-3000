@@ -59,7 +59,7 @@ Docker/host path exchange proof runners must use `scripts/proof_runtime_contract
 - host ownership normalization wrapper for docker-run artifacts.
 
 Current adopter:
-- `scripts/run_phase2a_spark_proof.py`
+- `scripts/run_historical_data_spark_proof.py`
 
 ## Negative-Path Contract
 
@@ -71,7 +71,7 @@ Required fail-closed tests:
 
 Covered by:
 - `tests/product-plane/unit/test_proof_runtime_contract.py`
-- `tests/product-plane/unit/test_phase2a_spark_proof_runner.py`
+- `tests/product-plane/unit/test_historical_data_spark_proof_runner.py`
 
 ## Evidence Artifacts
 

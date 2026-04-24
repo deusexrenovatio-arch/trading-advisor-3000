@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/strategy_scorecard.v1.json",
+  "title": "StrategyScorecardV1",
+  "type": "object",
+  "required": [
+    "scorecard_id",
+    "strategy_version_id",
+    "strategy_family",
+    "profile_version",
+    "capital_rub",
+    "annual_return_pct",
+    "sharpe_ratio",
+    "max_drawdown_pct",
+    "negative_months_4y",
+    "signals_per_week",
+    "active_assets_count",
+    "repeatable",
+    "criteria",
+    "verdict",
+    "blocked_reasons",
+    "generated_at"
+  ],
+  "properties": {
+    "scorecard_id": {"type": "string", "minLength": 1},
+    "strategy_version_id": {"type": "string", "minLength": 1},
+    "strategy_family": {
+      "type": "string",
+      "enum": ["trend-following", "mean-reversion", "breakout-volatility"]
+    },
+    "profile_version": {"type": "string", "minLength": 1},
+    "capital_rub": {"type": "integer", "minimum": 1},
+    "annual_return_pct": {"type": "number"},
+    "sharpe_ratio": {"type": "number"},
+    "max_drawdown_pct": {"type": "number", "minimum": 0},
+    "negative_months_4y": {"type": "integer", "minimum": 0},
+    "signals_per_week": {"type": "number", "minimum": 0},
+    "active_assets_count": {"type": "integer", "minimum": 0},
+    "repeatable": {"type": "boolean"},
+    "criteria": {
+      "type": "object",
+      "required": [
+        "stability_pass",
+        "return_pass",
+        "diversification_pass",
+        "frequency_pass",
+        "repeatability_pass",
+        "sharpe_pass",
+        "risk_pass"
+      ],
+      "properties": {
+        "stability_pass": {"type": "boolean"},
+        "return_pass": {"type": "boolean"},
+        "diversification_pass": {"type": "boolean"},
+        "frequency_pass": {"type": "boolean"},
+        "repeatability_pass": {"type": "boolean"},
+        "sharpe_pass": {"type": "boolean"},
+        "risk_pass": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "verdict": {"type": "string", "enum": ["PASS", "BLOCKED"]},
+    "blocked_reasons": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "generated_at": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

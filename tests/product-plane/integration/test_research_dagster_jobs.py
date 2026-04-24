@@ -19,7 +19,7 @@ from trading_advisor_3000.dagster_defs import (
 from trading_advisor_3000.product_plane.data_plane import run_sample_backfill
 from trading_advisor_3000.product_plane.data_plane.canonical import RollMapEntry, SessionCalendarEntry
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows, write_delta_table_rows
-from trading_advisor_3000.product_plane.data_plane.schemas import phase2a_delta_schema_manifest
+from trading_advisor_3000.product_plane.data_plane.schemas import historical_data_delta_schema_manifest
 from trading_advisor_3000.product_plane.research.datasets import (
     ResearchDatasetManifest,
     load_materialized_research_dataset,
@@ -62,7 +62,7 @@ def _load_canonical_context(output_dir: Path) -> tuple[list[CanonicalBar], list[
 
 def _write_rich_stage7_canonical_context(output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
-    schema_manifest = phase2a_delta_schema_manifest()
+    schema_manifest = historical_data_delta_schema_manifest()
     start = datetime(2026, 3, 16, 9, 0, tzinfo=UTC)
     bars: list[dict[str, object]] = []
     calendar: list[dict[str, object]] = []

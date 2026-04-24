@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-03-25'
+updated_at: '2026-04-24'
 items:
 - task_id: TASK-2026-03-16-BASELINE-SEED
   closed_at: '2026-03-16T10:00:00Z'
@@ -584,6 +584,217 @@ items:
   incident_signature: none
   improvement_action: workflow
   improvement_artifact: artifacts/codex/plan-tech-continue-rerun/orchestration/20260325T141713Z-plan-tech-phase-04/state.json
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-04-13-CONTINUE-GOVERNED-REMEDIATION-FOR-MOEX-HISTORICA
+  closed_at: '2026-04-13T12:52:40Z'
+  branch: main
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - governed Phase 01 remediation
+  - docs supersession closure
+  - deterministic pytest temp-root policy
+  - and accepted Phase 01 handoff-contract contour
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: workflow_gap
+  incident_signature: moex-phase01-acceptance-docs-and-temp-policy
+  improvement_action: workflow
+  improvement_artifact: artifacts/codex/orchestration/20260413T123156Z-moex-historical-route-consolidation-phase-01/acceptance.json
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-04-13-SYNC-REPO-MCP-TEMPLATE-INTO-USER-CODEX-CONFIG-BY
+  closed_at: '2026-04-13T13:15:14Z'
+  branch: codex/intake-human-checkpoint
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  - MCP bootstrap hardening
+  - repo-local config sync
+  - and user-level config merge
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: workflow_gap
+  incident_signature: none
+  improvement_action: test
+  improvement_artifact: tests/process/test_mcp_rollout_contracts.py
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-04-13-PROMOTE-MEMPALACE-INTO-THE-OFFICIAL-REPOSITORY-M
+  closed_at: '2026-04-13T13:29:27Z'
+  branch: codex/intake-human-checkpoint
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  - MCP contract hardening
+  - base-profile mempalace rollout
+  - and Codex config sync
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: workflow_gap
+  incident_signature: none
+  improvement_action: docs
+  improvement_artifact: docs/runbooks/app/mcp-wave-rollout-runbook.md
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-04-13-CONTINUE-GOVERNED-MODULE-FOR-MOEX-HISTORICAL-ROU-1
+  closed_at: '2026-04-13T14:12:40Z'
+  branch: codex/intake-human-checkpoint
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - Phase 02 parity contour
+  - canonical raw/canonical route surfaces
+  - staging-real PASS and PASS-NOOP evidence
+  - and accepted governed continuation
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: workflow_gap
+  incident_signature: moex-phase02-parity-contour-closure
+  improvement_action: workflow
+  improvement_artifact: artifacts/codex/orchestration/20260413T134832Z-moex-historical-route-consolidation-phase-02/acceptance.json
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-04-14-CONTINUE-GOVERNED-MODULE-FOR-MOEX-HISTORICAL-ROU
+  closed_at: '2026-04-14T06:40:13Z'
+  branch: codex/intake-human-checkpoint
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - Phase 03 Dagster cutover contour
+  - canonical route ownership
+  - governed nightly and recovery evidence
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: partial_outcome
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: workflow
+  improvement_artifact: '`artifacts/codex/orchestration/20260414T053907Z-moex-historical-route-consolidation-phase-03/route-report.md`'
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: blocked
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-04-24-TASK
+  closed_at: '2026-04-24T08:00:47Z'
+  branch: codex/intake-human-checkpoint
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - local-codex-config
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_first_time
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: none
+  improvement_artifact: none
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-04-24-PROJECT-LEVEL-GOVERNED-FLOW-DEFAULTS
+  closed_at: '2026-04-24T08:13:00Z'
+  branch: codex/intake-human-checkpoint
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - shell-config
+  - governed-runtime
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_first_time
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: none
+  improvement_artifact: none
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-04-24-INTEGRATE-DUAL-SURFACE-SAFE-RENAME-CLOSEOUT-AND-
+  closed_at: '2026-04-24T10:49:54Z'
+  branch: main
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  - GOV-DOCS
+  - GOV-RUNTIME
+  - ARCH-DOCS
+  - PROCESS-STATE
+  route_match: expanded
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: workflow_gap
+  incident_signature: none
+  improvement_action: validator
+  improvement_artifact: scripts/validate_product_surface_naming.py
   linked_plan_id: null
   linked_memory_id: null
   outcome_status: completed

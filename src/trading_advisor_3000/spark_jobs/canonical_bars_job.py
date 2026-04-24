@@ -17,7 +17,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     has_delta_log,
     read_delta_table_rows,
 )
-from trading_advisor_3000.product_plane.data_plane.schemas import phase2a_delta_schema_manifest
+from trading_advisor_3000.product_plane.data_plane.schemas import historical_data_delta_schema_manifest
 
 
 DEFAULT_SPARK_MASTER = "local[2]"
@@ -37,7 +37,7 @@ class SparkJobSpec:
 
 def default_spec() -> SparkJobSpec:
     return SparkJobSpec(
-        app_name="ta3000-phase2a-canonical-bars",
+        app_name="ta3000-historical-data-canonical-bars",
         source_table="raw_market_backfill",
         target_bars_table="canonical_bars",
         target_instruments_table="canonical_instruments",
@@ -262,7 +262,7 @@ def run_canonical_bars_spark_job(
     spark_session_factory: Callable[[str, str], object] | None = None,
 ) -> dict[str, object]:
     spec = spec or default_spec()
-    manifest = phase2a_delta_schema_manifest()
+    manifest = historical_data_delta_schema_manifest()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     spark_session_factory = spark_session_factory or _create_spark_session

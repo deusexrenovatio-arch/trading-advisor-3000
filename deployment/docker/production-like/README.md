@@ -1,4 +1,4 @@
-# Phase 6 Production-like Profile
+# Operational Hardening Production-like Profile
 
 This profile provides a local operational hardening environment for live-path preflight:
 - runtime operational profile endpoint (`/health`, `/ready`, `/metrics`),

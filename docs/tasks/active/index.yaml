@@ -126,3 +126,43 @@ items:
   mode: legacy-full
   status: in_progress
   started_at: '2026-04-02'
+- id: TASK-2026-04-09-BUILD-FULL-4-YEAR-MOEX-RAW-FOUNDATION-AND-CANONI
+  path: docs/tasks/active/TASK-2026-04-09-build-full-4-year-moex-raw-foundation-and-canoni.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-04-09'
+- id: TASK-2026-04-10-DESIGN-MOEX-NIGHTLY-V2-ARCHITECTURE
+  path: docs/tasks/active/TASK-2026-04-10-design-moex-nightly-v2-architecture.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-04-10'
+- id: TASK-2026-04-10-TAKE-PLAN-MOEX-SPARK-DAGSTER-MD-INTO-GOVERNED-PA
+  path: docs/tasks/active/TASK-2026-04-10-take-plan-moex-spark-dagster-md-into-governed-pa.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-04-10'
+- id: TASK-2026-04-11-TAKE-UPDATED-PLAN-MOEX-SPARK-DAGSTER-MD-INTO-GOV
+  path: docs/tasks/active/TASK-2026-04-11-take-updated-plan-moex-spark-dagster-md-into-gov.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-04-11'
+- id: TASK-2026-04-13-CONTINUE-GOVERNED-MODULE-FOR-MOEX-HISTORICAL-ROU
+  path: docs/tasks/active/TASK-2026-04-13-continue-governed-module-for-moex-historical-rou.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-04-13'
+- id: TASK-2026-04-13-CONTINUE-GOVERNED-MODULE-FOR-MOEX-HISTORICAL-ROU-1
+  path: docs/tasks/active/TASK-2026-04-13-continue-governed-module-for-moex-historical-rou-1.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-04-13'
+- id: TASK-2026-04-14-PUBLISH-MOEX-DATA-ROOT-TRUTH-SYNC-PR
+  path: docs/tasks/active/TASK-2026-04-14-publish-moex-data-root-truth-sync-pr.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-04-14'
+- id: TASK-2026-04-16-PUBLISH-PR-FOR-INTAKE-HUMAN-CHECKPOINT-CHANGES
+  path: docs/tasks/active/TASK-2026-04-16-publish-pr-for-intake-human-checkpoint-changes.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-04-16'

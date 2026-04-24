@@ -32,7 +32,7 @@ Business and trading logic remain out of scope for shell control-plane surfaces.
 - `product-plane/README.md`
 - `docs/README.md`
 - `docs/architecture/repository-surfaces.md`
-- `docs/planning/phase0-phase1-bootstrap.md`
+- `docs/planning/bootstrap-and-foundations.md`
 - `docs/checklists/README.md`
 - `docs/workflows/README.md`
 - `docs/runbooks/README.md`

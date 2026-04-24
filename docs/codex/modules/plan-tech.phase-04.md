@@ -43,6 +43,23 @@ Updated: 2026-03-25 13:55 UTC
 - Expand contour coverage only after the pilot shows acceptable noise levels.
 - Preserve the repository's existing reporting lanes instead of creating a new analytics subsystem.
 
+## Release Gate Impact
+
+- Surface transition: observation_expansion_contour from pilot-only enforcement to explicit expansion criteria.
+- Minimum proof class: doc
+- Accepted state label: prep_closed
+
+## Release Surface Ownership
+
+- Owned surfaces: observation_expansion_contour
+- Delivered proof class: doc
+- Required real bindings: none
+- Target downgrade is forbidden: yes
+
+## What This Phase Does Not Prove
+
+- This phase does not prove release readiness; it only defines observation counters and expansion criteria for future contour widening.
+
 ## Observation Window
 
 - Pilot window start: `2026-03-25` (the governed Phase 04 continuation start date).

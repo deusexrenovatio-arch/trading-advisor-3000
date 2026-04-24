@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/strategy_candidate_projection.v1.json",
+  "title": "StrategyCandidateProjectionV1",
+  "type": "object",
+  "required": [
+    "candidate_projection_id",
+    "candidate_id",
+    "backtest_run_id",
+    "strategy_version_id",
+    "strategy_family",
+    "contract_id",
+    "instrument_id",
+    "timeframe",
+    "ts_signal",
+    "side",
+    "entry_ref",
+    "stop_ref",
+    "target_ref",
+    "score",
+    "window_id",
+    "estimated_commission",
+    "estimated_slippage",
+    "capital_rub",
+    "reproducibility_fingerprint"
+  ],
+  "properties": {
+    "candidate_projection_id": {"type": "string", "minLength": 1},
+    "candidate_id": {"type": "string", "minLength": 1},
+    "backtest_run_id": {"type": "string", "minLength": 1},
+    "strategy_version_id": {"type": "string", "minLength": 1},
+    "strategy_family": {
+      "type": "string",
+      "enum": ["trend-following", "mean-reversion", "breakout-volatility"]
+    },
+    "contract_id": {"type": "string", "minLength": 1},
+    "instrument_id": {"type": "string", "minLength": 1},
+    "timeframe": {"type": "string", "enum": ["15m", "1h", "4h", "1d", "1w"]},
+    "ts_signal": {"type": "string", "minLength": 1},
+    "side": {"type": "string", "enum": ["long", "short"]},
+    "entry_ref": {"type": "number"},
+    "stop_ref": {"type": "number"},
+    "target_ref": {"type": "number"},
+    "score": {"type": "number", "minimum": 0, "maximum": 1},
+    "window_id": {"type": "string", "minLength": 1},
+    "estimated_commission": {"type": "number", "minimum": 0},
+    "estimated_slippage": {"type": "number", "minimum": 0},
+    "capital_rub": {"type": "integer", "minimum": 1},
+    "reproducibility_fingerprint": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

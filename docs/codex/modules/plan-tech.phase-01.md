@@ -41,6 +41,23 @@ Updated: 2026-03-25 13:55 UTC
 - Avoid new approval flow or ADR/waiver registry.
 - Only critical contours get the extra required fields.
 
+## Release Gate Impact
+
+- Surface transition: anti_shortcut_policy_contour from absent to policy-defined.
+- Minimum proof class: doc
+- Accepted state label: prep_closed
+
+## Release Surface Ownership
+
+- Owned surfaces: anti_shortcut_policy_contour
+- Delivered proof class: doc
+- Required real bindings: none
+- Target downgrade is forbidden: yes
+
+## What This Phase Does Not Prove
+
+- This phase does not prove release readiness; it only defines the shell policy contract for later enforced checks.
+
 ## Done Evidence
 
 - A short policy document exists and names the three solution classes plus forbidden shortcut patterns.

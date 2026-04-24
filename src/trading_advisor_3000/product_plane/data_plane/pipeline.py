@@ -5,7 +5,7 @@ from pathlib import Path
 from .canonical import build_canonical_dataset, run_data_quality_checks
 from .delta_runtime import has_delta_log, read_delta_table_rows, write_delta_table_rows
 from .ingestion import ingest_raw_backfill
-from .schemas import phase2a_delta_schema_manifest
+from .schemas import historical_data_delta_schema_manifest
 
 
 def run_sample_backfill(
@@ -14,7 +14,7 @@ def run_sample_backfill(
     output_dir: Path,
     whitelist_contracts: set[str],
 ) -> dict[str, object]:
-    delta_schema_manifest = phase2a_delta_schema_manifest()
+    delta_schema_manifest = historical_data_delta_schema_manifest()
     output_dir.mkdir(parents=True, exist_ok=True)
     raw_output_path = output_dir / "raw_market_backfill.delta"
     existing_raw_rows = read_delta_table_rows(raw_output_path) if has_delta_log(raw_output_path) else []

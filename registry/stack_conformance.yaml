@@ -12,7 +12,7 @@ closure_claim_guard:
     - docs/architecture/product-plane/STATUS.md
   document_globs:
     - docs/checklists/app/*.md
-    - docs/architecture/product-plane/phase*-acceptance-*.md
+    - docs/architecture/product-plane/*acceptance-verdict*.md
   forbidden_terms:
     - full DoD
     - full acceptance
@@ -41,9 +41,9 @@ surface_claims:
         - src/trading_advisor_3000/product_plane/research/__init__.py
         - src/trading_advisor_3000/product_plane/runtime/__init__.py
       tests_any:
-        - tests/product-plane/integration/test_phase2a_data_plane.py
-        - tests/product-plane/integration/test_phase2b_research_plane.py
-        - tests/product-plane/integration/test_phase2c_runtime.py
+        - tests/product-plane/integration/test_historical_data_plane.py
+        - tests/product-plane/integration/test_research_plane.py
+        - tests/product-plane/integration/test_runtime_lifecycle.py
 
   - id: runtime_signal_lifecycle
     status_label: Runtime signal lifecycle
@@ -54,7 +54,7 @@ surface_claims:
         - src/trading_advisor_3000/product_plane/runtime/decision/engine.py
         - src/trading_advisor_3000/product_plane/runtime/signal_store/store.py
       tests_any:
-        - tests/product-plane/integration/test_phase2c_runtime.py
+        - tests/product-plane/integration/test_runtime_lifecycle.py
 
   - id: durable_runtime_state
     status_label: Durable runtime state
@@ -66,8 +66,8 @@ surface_claims:
       dependencies_any:
         - psycopg
       tests_any:
-        - tests/product-plane/integration/test_phase2c_runtime_postgres_store.py
-        - tests/product-plane/unit/test_phase6_runtime_durable_bootstrap.py
+        - tests/product-plane/integration/test_runtime_postgres_store.py
+        - tests/product-plane/unit/test_durable_runtime_bootstrap.py
 
   - id: service_api_runtime_surface
     status_label: Service/API runtime surface
@@ -78,7 +78,7 @@ surface_claims:
       dependencies_any:
         - fastapi
       tests_any:
-        - tests/product-plane/unit/test_phase6_fastapi_smoke.py
+        - tests/product-plane/unit/test_runtime_api_smoke.py
 
   - id: paper_execution_path
     status_label: Paper execution path
@@ -88,7 +88,7 @@ surface_claims:
         - src/trading_advisor_3000/product_plane/execution/intents/paper_broker.py
         - src/trading_advisor_3000/product_plane/execution/reconciliation/reconcile.py
       tests_any:
-        - tests/product-plane/integration/test_phase2d_execution.py
+        - tests/product-plane/integration/test_execution_flow.py
 
   - id: live_execution_transport_baseline
     status_label: Live execution transport baseline
@@ -100,7 +100,7 @@ surface_claims:
         - scripts/smoke_stocksharp_sidecar_binary.py
       tests_any:
         - tests/product-plane/unit/test_real_execution_http_transport.py
-        - tests/product-plane/unit/test_phase8_dotnet_sidecar_assets.py
+        - tests/product-plane/unit/test_dotnet_sidecar_assets.py
 
   - id: real_broker_process
     status_label: StockSharp/QUIK/Finam real broker process
@@ -113,7 +113,7 @@ surface_claims:
         - src/trading_advisor_3000/product_plane/contracts/schemas/real_broker_process_report.v1.json
       tests_any:
         - tests/process/test_run_f1e_real_broker_process.py
-        - tests/product-plane/contracts/test_phase5_real_broker_process_contracts.py
+        - tests/product-plane/contracts/test_real_broker_process_contracts.py
         - tests/product-plane/integration/test_real_execution_staging_rollout.py
 
   - id: contracts_freeze
@@ -123,7 +123,7 @@ surface_claims:
       files_all:
         - docs/architecture/product-plane/CONTRACT_SURFACES.md
       tests_any:
-        - tests/product-plane/contracts/test_phase1_contracts.py
+        - tests/product-plane/contracts/test_contract_scaffolding.py
 
   - id: production_readiness
     status_label: Production readiness / operational readiness
@@ -143,8 +143,8 @@ technology_claims:
         - src/trading_advisor_3000/product_plane/data_plane/pipeline.py
         - src/trading_advisor_3000/product_plane/research/backtest/engine.py
       tests_any:
-        - tests/product-plane/integration/test_phase2a_data_plane.py
-        - tests/product-plane/integration/test_phase2b_research_plane.py
+        - tests/product-plane/integration/test_historical_data_plane.py
+        - tests/product-plane/integration/test_research_plane.py
 
   - id: apache_spark
     display_name: Apache Spark
@@ -156,10 +156,10 @@ technology_claims:
         - delta-spark
       files_all:
         - src/trading_advisor_3000/spark_jobs/canonical_bars_job.py
-        - scripts/run_phase2a_spark_proof.py
+        - scripts/run_historical_data_spark_proof.py
         - deployment/docker/phase-proofs/Dockerfile
       tests_any:
-        - tests/product-plane/integration/test_phase2a_spark_execution.py
+        - tests/product-plane/integration/test_historical_data_spark_execution.py
 
   - id: dagster
     display_name: Dagster
@@ -170,11 +170,11 @@ technology_claims:
       dependencies_any:
         - dagster
       files_all:
-        - src/trading_advisor_3000/dagster_defs/phase2a_assets.py
-        - scripts/run_phase2a_dagster_proof.py
+        - src/trading_advisor_3000/dagster_defs/historical_data_proof_assets.py
+        - scripts/run_historical_data_dagster_proof.py
       tests_any:
-        - tests/product-plane/integration/test_phase2a_dagster_execution.py
-        - tests/product-plane/unit/test_phase2a_manifests.py
+        - tests/product-plane/integration/test_historical_data_dagster_execution.py
+        - tests/product-plane/unit/test_historical_data_manifests.py
 
   - id: polars
     display_name: Polars
@@ -213,15 +213,43 @@ technology_claims:
 
   - id: vectorbt
     display_name: vectorbt
-    claim: removed
+    claim: partial
     spec_markers_any:
       - "| vectorbt | backtest/research | chosen"
-    replacement:
-      adr_required_when_removed: true
+    runtime_proof:
+      dependencies_any:
+        - vectorbt
+      files_any:
+        - src/trading_advisor_3000/product_plane/research/backtest/engine.py
+        - src/trading_advisor_3000/dagster_defs/research_governed_assets.py
+      tests_any:
+        - tests/product-plane/integration/test_research_plane.py
+        - tests/product-plane/integration/test_research_governed_dagster_execution.py
+    governed_scope:
       adr_paths_any:
         - docs/architecture/product-plane/product-plane-spec-v2/04_ADRs.md
       adr_markers_any:
-        - ADR-011
+        - ADR-012
+      allowed_runtime_modes:
+        - research-materialization
+        - research-backtest
+      forbidden_runtime_modes:
+        - runtime-decision
+        - execution-live
+
+  - id: pandas_ta_classic
+    display_name: pandas-ta-classic
+    claim: partial
+    spec_markers_any:
+      - "pandas-ta-classic"
+    runtime_proof:
+      dependencies_any:
+        - pandas-ta-classic
+      files_any:
+        - src/trading_advisor_3000/product_plane/research/features/engine.py
+        - src/trading_advisor_3000/product_plane/research/features/store.py
+      tests_any:
+        - tests/product-plane/unit/test_research_features.py
 
   - id: fastapi
     display_name: FastAPI
@@ -235,7 +263,7 @@ technology_claims:
         - src/trading_advisor_3000/product_plane/interfaces/asgi.py
         - src/trading_advisor_3000/product_plane/interfaces/http_api.py
       tests_any:
-        - tests/product-plane/unit/test_phase6_fastapi_smoke.py
+        - tests/product-plane/unit/test_runtime_api_smoke.py
 
   - id: aiogram
     display_name: aiogram
@@ -286,7 +314,7 @@ technology_claims:
         - deployment/stocksharp-sidecar/scripts/prove.ps1
         - scripts/smoke_stocksharp_sidecar_binary.py
       tests_any:
-        - tests/product-plane/unit/test_phase8_dotnet_sidecar_assets.py
+        - tests/product-plane/unit/test_dotnet_sidecar_assets.py
 
   - id: stocksharp
     display_name: StockSharp

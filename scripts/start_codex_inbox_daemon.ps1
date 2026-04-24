@@ -6,9 +6,9 @@ param(
     [string]$Mode = "auto",
     [string]$Profile = "",
     [string]$Backend = "codex-cli",
-    [string]$WorkerModel = "gpt-5.3-codex",
-    [string]$AcceptorModel = "gpt-5.4",
-    [string]$RemediationModel = "gpt-5.3-codex"
+    [string]$WorkerModel = "",
+    [string]$AcceptorModel = "",
+    [string]$RemediationModel = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -34,11 +34,17 @@ $args = @(
     "-StabilitySeconds", $StabilitySeconds,
     "-Mode", $Mode,
     "-Profile", $Profile,
-    "-Backend", $Backend,
-    "-WorkerModel", $WorkerModel,
-    "-AcceptorModel", $AcceptorModel,
-    "-RemediationModel", $RemediationModel
+    "-Backend", $Backend
 )
+if ($WorkerModel -and $WorkerModel.Trim()) {
+    $args += @("-WorkerModel", $WorkerModel)
+}
+if ($AcceptorModel -and $AcceptorModel.Trim()) {
+    $args += @("-AcceptorModel", $AcceptorModel)
+}
+if ($RemediationModel -and $RemediationModel.Trim()) {
+    $args += @("-RemediationModel", $RemediationModel)
+}
 
 $proc = Start-Process -FilePath "powershell.exe" -ArgumentList $args -PassThru -WindowStyle Hidden
 $payload = @{

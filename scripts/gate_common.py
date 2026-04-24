@@ -136,6 +136,7 @@ def scope_validate_command(
         "scripts/validate_solution_intent.py",
         "scripts/validate_critical_contour_closure.py",
         "scripts/validate_legacy_namespace_growth.py",
+        "scripts/validate_product_surface_naming.py",
     )
     if not any(any(token.endswith(script_name) for token in normalized) for script_name in scoped_scripts):
         surface_matrix_script = "scripts/run_surface_pr_matrix.py"
@@ -155,14 +156,25 @@ def scope_validate_command(
         skill_precommit = "scripts/skill_precommit_gate.py"
         if not any(token.endswith(skill_precommit) for token in normalized):
             return command
-        if "--changed-files" in normalized:
+        if (
+            "--changed-files" in normalized
+            or "--stdin" in normalized
+            or "--base-ref" in normalized
+            or "--head-ref" in normalized
+        ):
             return command
         scoped_parts = list(parts)
-        if changed_files:
-            scoped_parts.append("--changed-files")
-            scoped_parts.extend(changed_files)
         if "--strict" not in normalized:
             scoped_parts.append("--strict")
+        if base_sha and head_sha:
+            scoped_parts.extend(["--base-ref", base_sha, "--head-ref", head_sha])
+            return _join_command(scoped_parts)
+        if changed_files:
+            scoped_parts.append("--stdin")
+            return CommandSpec(
+                command=_join_command(scoped_parts),
+                stdin_text=_stdin_payload(changed_files),
+            )
         return _join_command(scoped_parts)
 
     if "--base-sha" in normalized or "--changed-files" in normalized:

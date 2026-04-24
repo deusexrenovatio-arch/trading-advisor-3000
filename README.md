@@ -13,6 +13,7 @@ This repository operates with two explicit surfaces that are developed in one pl
 
 ## Fast navigation
 
+- Canonical architecture map: `docs/architecture/trading-advisor-3000.md`
 - Shell hub: `shell/README.md`
 - Product hub: `product-plane/README.md`
 - Boundary map: `docs/architecture/repository-surfaces.md`

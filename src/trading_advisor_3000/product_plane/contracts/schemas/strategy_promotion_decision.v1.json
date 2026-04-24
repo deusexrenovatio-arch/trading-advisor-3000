@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/strategy_promotion_decision.v1.json",
+  "title": "StrategyPromotionDecisionV1",
+  "type": "object",
+  "required": [
+    "decision_id",
+    "scorecard_id",
+    "strategy_version_id",
+    "profile_version",
+    "verdict",
+    "promotion_state",
+    "blocked_reasons",
+    "effective_from",
+    "capital_rub",
+    "reproducibility_fingerprint"
+  ],
+  "properties": {
+    "decision_id": {"type": "string", "minLength": 1},
+    "scorecard_id": {"type": "string", "minLength": 1},
+    "strategy_version_id": {"type": "string", "minLength": 1},
+    "profile_version": {"type": "string", "minLength": 1},
+    "verdict": {"type": "string", "enum": ["PASS", "BLOCKED"]},
+    "promotion_state": {"type": "string", "enum": ["PROMOTED", "REJECTED"]},
+    "blocked_reasons": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "effective_from": {"type": "string", "minLength": 1},
+    "capital_rub": {"type": "integer", "minimum": 1},
+    "reproducibility_fingerprint": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

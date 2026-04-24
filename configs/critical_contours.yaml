@@ -5,7 +5,7 @@ contours:
     summary: require real upstream-to-downstream closure for data ingestion and canonical handoff.
     trigger_paths:
       - src/trading_advisor_3000/product_plane/data_plane/
-      - tests/product-plane/integration/test_phase2a_data_plane.py
+      - tests/product-plane/integration/test_historical_data_plane.py
       - tests/product-plane/fixtures/data_plane/
     default_solution_class: target
     forbidden_shortcut_markers:
@@ -34,8 +34,8 @@ contours:
       - src/trading_advisor_3000/product_plane/runtime/
       - src/trading_advisor_3000/product_plane/execution/
       - src/trading_advisor_3000/product_plane/interfaces/
-      - tests/product-plane/integration/test_phase2c_runtime.py
-      - tests/product-plane/integration/test_phase2d_execution.py
+      - tests/product-plane/integration/test_runtime_lifecycle.py
+      - tests/product-plane/integration/test_execution_flow.py
     default_solution_class: target
     forbidden_shortcut_markers:
       - synthetic publication

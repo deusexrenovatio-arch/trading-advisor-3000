@@ -35,7 +35,7 @@ Fail-closed behavior:
 Governed no-override evidence command:
 
 ```bash
-python scripts/build_phase02_publication_evidence.py \
+python scripts/build_publication_lifecycle_evidence.py \
   --attempt "<run-id>/attempt-<NN>" \
   --output "artifacts/codex/orchestration/<run-id>/attempt-<NN>/publication-message-lifecycle-evidence.json" \
   --fail-if-not-live-real

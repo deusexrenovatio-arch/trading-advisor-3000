@@ -24,6 +24,7 @@ from codex_from_package import (  # noqa: E402
     extract_lane_payload_from_text,
     extract_materialization_result_from_text,
     extract_docx_title,
+    lane_model_override,
     render_intake_human_summary_markdown,
     safe_extract_zip,
 )
@@ -103,6 +104,12 @@ def test_extract_docx_title_reads_first_text(tmp_path: Path) -> None:
         )
 
     assert extract_docx_title(docx) == "Primary Specification"
+
+
+def test_lane_model_override_returns_none_for_all_intake_lanes() -> None:
+    assert lane_model_override("primary_intake") is None
+    assert lane_model_override("technical_intake") is None
+    assert lane_model_override("product_intake") is None
 
 
 def test_intake_gate_blocks_when_required_digests_are_missing() -> None:

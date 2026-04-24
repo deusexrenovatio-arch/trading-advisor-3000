@@ -7,13 +7,13 @@ require_trusted = true
 trusted_project_reason = "MCP servers can access repo metadata and local runtime surfaces."
 
 [profiles.base]
-servers = ["github", "openai_docs"]
+servers = ["github", "openai_docs", "mempalace"]
 
 [profiles.ops]
-servers = ["github", "openai_docs", "docker", "dagster"]
+servers = ["github", "openai_docs", "mempalace", "docker", "dagster"]
 
 [profiles.data_readonly]
-servers = ["github", "openai_docs", "docker", "dagster", "postgres_readonly", "duckdb"]
+servers = ["github", "openai_docs", "mempalace", "docker", "dagster", "postgres_readonly", "duckdb"]
 
 [mcp_servers.github]
 command = "docker"
@@ -25,6 +25,12 @@ health_probe_args = ["--help"]
 url = "https://developers.openai.com/mcp"
 required_env = []
 health_probe_args = []
+
+[mcp_servers.mempalace]
+command = "py"
+args = ["-3.11", "-m", "mempalace.mcp_server"]
+required_env = []
+health_probe_args = ["-3.11", "-m", "mempalace.mcp_server", "--help"]
 
 [mcp_servers.docker]
 command = "docker"

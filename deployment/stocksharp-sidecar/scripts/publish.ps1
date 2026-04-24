@@ -14,7 +14,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
 $project = (Resolve-Path (Join-Path $PSScriptRoot "..\src\TradingAdvisor3000.StockSharpSidecar\TradingAdvisor3000.StockSharpSidecar.csproj")).Path
 
 if ([string]::IsNullOrWhiteSpace($OutputDir)) {
-    $OutputDir = Join-Path $repoRoot "artifacts\phase8\stocksharp-sidecar\publish"
+    $OutputDir = Join-Path $repoRoot "artifacts\dotnet-sidecar\stocksharp-sidecar\publish"
 }
 
 Write-Host "[phase08] $DotnetExecutable publish $project -c $Configuration -o $OutputDir"
