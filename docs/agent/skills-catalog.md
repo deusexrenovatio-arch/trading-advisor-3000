@@ -3,23 +3,23 @@
 <!-- generated-by: scripts/sync_skills_catalog.py -->
 <!-- source-of-truth: .cursor/skills/*/SKILL.md -->
 <!-- generated-contract: do not edit manually; run python scripts/sync_skills_catalog.py -->
-<!-- catalog-sha256: a41d48ab89027fa78d0a2bca077ce0d01b9f47f4015fe5afcb55fd2b977385df -->
+<!-- catalog-sha256: 18d8a8dad1adc25bc095dbd59c35eabec6b88534a25378bfb13bf82c04e5398b -->
 
 | skill_id | classification | wave | status | scope | owner_surface | routing_triggers | source | hot_context_policy |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `agents-orchestrator` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | multi-agent orchestration policy, handoffs, and governed progression | `CTX-OPS` | orchestrator; orchestration; multi-agent pipeline; dev qa loop; phase gate; handoff | `local_runtime` | `cold-by-default` |
 | `ai-agent-architect` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | agent delivery planning and execution boundaries | `CTX-OPS` | agent; orchestration; pipeline; plan; strategy | `local_runtime` | `cold-by-default` |
 | `ai-change-explainer` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | change explanation and PR narrative quality | `CTX-OPS` | change summary; pr narrative; diff explanation; impact report | `local_runtime` | `cold-by-default` |
-| `architecture-review` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | dual-surface architecture boundary review, dependency direction, and adapter boundary control | `CTX-ARCHITECTURE` | architecture; boundaries; dependencies; module review | `local_runtime` | `cold-by-default` |
+| `architecture-review` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | dual-surface architecture review with canonical-map-first boundary checks | `CTX-ARCHITECTURE` | architecture; boundaries; dependencies; module review | `local_runtime` | `cold-by-default` |
 | `business-analyst` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | requirements framing and acceptance decomposition | `CTX-OPS` | requirements; scope; acceptance; traceability; stakeholder | `local_runtime` | `cold-by-default` |
 | `code-implementation-worker` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | worker-stage code implementation and primary quality guardrails | `CTX-OPS` | write code; implement; worker; first-pass quality; code practices; performance | `local_runtime` | `cold-by-default` |
 | `code-reviewer` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | code review quality and actionable risk triage | `CTX-OPS` | code review; review pr; review feedback; security review; performance review | `local_runtime` | `cold-by-default` |
 | `composition-contracts` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | interface composition and contract ownership | `CTX-CONTRACTS` | composition; contract; ownership; resolver mapping | `local_runtime` | `cold-by-default` |
-| `docs-sync` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | docs-as-source-of-truth synchronization | `CTX-OPS` | documentation; sync docs; docs as code; policy docs | `local_runtime` | `cold-by-default` |
+| `docs-sync` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | docs-as-source-of-truth synchronization with architecture entry-map alignment | `CTX-OPS` | documentation; sync docs; docs as code; policy docs | `local_runtime` | `cold-by-default` |
 | `golden-tests-and-fixtures` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | golden fixtures and deterministic regression protection | `CTX-OPS` | golden tests; fixtures; regression protection; deterministic tests | `local_runtime` | `cold-by-default` |
 | `incident-runbook` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | incident handling and remediation flow | `CTX-OPS` | incident; runbook; postmortem; remediation | `local_runtime` | `cold-by-default` |
 | `layer-diagnostics-debug` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | cross-layer diagnostics and root-cause reporting | `CTX-ARCHITECTURE` | layer diagnostics; debug path; cross-layer; visibility check | `local_runtime` | `cold-by-default` |
-| `module-scaffold` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | module initialization with governance defaults | `CTX-ARCHITECTURE` | module scaffold; new module; bounded context; scaffold | `local_runtime` | `cold-by-default` |
+| `module-scaffold` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | module initialization with architecture placement and governance defaults | `CTX-ARCHITECTURE` | module scaffold; new module; bounded context; scaffold | `local_runtime` | `cold-by-default` |
 | `parallel-worktree-flow` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | parallel worktree operations and branch isolation | `CTX-OPS` | worktree; parallel streams; branch isolation; integration branch | `local_runtime` | `cold-by-default` |
 | `patch-series-splitter` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | patch decomposition and change sequencing | `CTX-OPS` | patch series; split diff; ordered patches; review sequence | `local_runtime` | `cold-by-default` |
 | `phase-acceptance-governor` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | hard phase acceptance policy and evidence-based unblock rules | `CTX-OPS` | phase acceptance; acceptance gate; acceptor; fallback; skip checks; verification before completion | `local_runtime` | `cold-by-default` |
@@ -42,7 +42,7 @@
 | `dependency-and-license-audit` | `KEEP_CORE` | `WAVE_2` | `ACTIVE` | dependency risk and license governance | `CTX-OPS` | dependency audit; license audit; supply chain; vulnerability; dependency upgrade; security advisory | `local_runtime` | `cold-by-default` |
 | `github-actions-ops` | `KEEP_CORE` | `WAVE_2` | `ACTIVE` | github actions diagnostics and lane reliability | `CTX-OPS` | github actions; ci check failed; workflow yaml; actions debug | `local_runtime` | `cold-by-default` |
 | `secrets-and-config-hardening` | `KEEP_CORE` | `WAVE_2` | `ACTIVE` | secrets management and config safety controls | `CTX-CONTRACTS` | secrets; configuration; hardening; sensitive data | `local_runtime` | `cold-by-default` |
-| `validate-crosslayer` | `KEEP_CORE` | `WAVE_2` | `ACTIVE` | cross-layer consistency and boundary validation | `CTX-ARCHITECTURE` | crosslayer; boundary validation; consistency checks; layer contract | `local_runtime` | `cold-by-default` |
+| `validate-crosslayer` | `KEEP_CORE` | `WAVE_2` | `ACTIVE` | cross-layer consistency and boundary validation with implemented-reality checks | `CTX-ARCHITECTURE` | crosslayer; boundary validation; consistency checks; layer contract | `local_runtime` | `cold-by-default` |
 
 ## Generation
 - Generate: `python scripts/sync_skills_catalog.py`

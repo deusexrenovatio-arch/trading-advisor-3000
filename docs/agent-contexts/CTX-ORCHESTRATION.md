@@ -10,11 +10,11 @@ Runtime wiring, execution flow orchestration, and cross-subsystem coordination.
 - `src/trading_advisor_3000/product_plane/runtime/`
 - `src/trading_advisor_3000/product_plane/execution/`
 - `src/trading_advisor_3000/dagster_defs/`
-- `tests/product-plane/integration/test_phase2c_runtime.py`
-- `tests/product-plane/integration/test_phase2d_execution.py`
-- `tests/product-plane/integration/test_phase3_system_replay.py`
-- `tests/product-plane/integration/test_phase5_review_observability.py`
-- `tests/product-plane/integration/test_phase6_operational_hardening.py`
+- `tests/product-plane/integration/test_runtime_lifecycle.py`
+- `tests/product-plane/integration/test_execution_flow.py`
+- `tests/product-plane/integration/test_shadow_replay_system.py`
+- `tests/product-plane/integration/test_review_observability.py`
+- `tests/product-plane/integration/test_operational_hardening.py`
 
 ## Guarded Paths
 - `src/trading_advisor_3000/product_plane/contracts/`
@@ -23,4 +23,4 @@ Runtime wiring, execution flow orchestration, and cross-subsystem coordination.
 
 ## Minimum Checks
 - `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
-- `python -m pytest tests/product-plane/integration/test_phase2c_runtime.py -q`
+- `python -m pytest tests/product-plane/integration/test_runtime_lifecycle.py -q`

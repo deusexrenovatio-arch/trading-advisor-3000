@@ -58,7 +58,7 @@ Acceptance is fail-closed.
 
 - PR lane now resolves contour-aware profile/check plans through `scripts/run_surface_pr_matrix.py`.
 - Hosted CI emits contour/profile summary artifacts under `artifacts/ci/`.
-- Docker proof runtime normalization is shared through `scripts/proof_runtime_contract.py` and adopted by `scripts/run_phase2a_spark_proof.py`.
+- Docker proof runtime normalization is shared through `scripts/proof_runtime_contract.py` and adopted by `scripts/run_historical_data_spark_proof.py`.
 
 ## H3 stacked follow-up / recomposition status
 

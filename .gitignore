@@ -2,6 +2,7 @@
 *.py[cod]
 .pytest_cache/
 .tmp/
+.tmp_dagster_*/
 .tmp_openspace/
 .runlogs/
 .cursor/
@@ -9,7 +10,13 @@
 src/trading_advisor_3000.egg-info/
 deployment/stocksharp-sidecar/**/bin/
 deployment/stocksharp-sidecar/**/obj/
-artifacts/phase8/stocksharp-sidecar/publish/
+artifacts/dotnet-sidecar/stocksharp-sidecar/publish/
 docs/codex/packages/chat-intake-inbox/*.zip
 artifacts/codex/orchestration/
+artifacts/codex/moex-indicator-feature-refresh/
+artifacts/codex/moex-phase03/
+artifacts/codex/**/*.delta/
+artifacts/codex/**/*.parquet
+artifacts/codex/**/*.crc
+artifacts/codex/**/dagster-instance/
 

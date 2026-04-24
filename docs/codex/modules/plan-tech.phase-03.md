@@ -40,6 +40,23 @@ Updated: 2026-03-25 13:55 UTC
 - Make fallback declarations explicit when used.
 - Only require architecture comparison for target-critical contour work.
 
+## Release Gate Impact
+
+- Surface transition: pilot_passport_routing_contour from enforced validators to documented routing and acceptance passports.
+- Minimum proof class: doc
+- Accepted state label: prep_closed
+
+## Release Surface Ownership
+
+- Owned surfaces: pilot_passport_routing_contour
+- Delivered proof class: doc
+- Required real bindings: none
+- Target downgrade is forbidden: yes
+
+## What This Phase Does Not Prove
+
+- This phase does not prove release readiness; it defines routing and passport contracts for the pilot contours only.
+
 ## Done Evidence
 
 - Routing docs describe the critical contour behavior.

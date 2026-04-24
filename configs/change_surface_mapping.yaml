@@ -40,14 +40,17 @@ surfaces:
       - src/trading_advisor_3000/product_plane/config/
       - src/trading_advisor_3000/product_plane/common/
       - src/trading_advisor_3000/product_plane/contracts/
-      - tests/product-plane/unit/test_phase6_
+      - tests/product-plane/unit/test_runtime_
+      - tests/product-plane/unit/test_live_bridge_
+      - tests/product-plane/unit/test_production_profile_
+      - tests/product-plane/unit/test_recovery_and_idempotency.py
       - tests/product-plane/unit/test_real_execution_http_transport.py
       - tests/product-plane/unit/test_real_execution_runtime_profile_ops.py
       - tests/product-plane/unit/test_real_execution_staging_gateway_deployment.py
-      - tests/product-plane/integration/test_phase2c_
-      - tests/product-plane/integration/test_phase2d_
-      - tests/product-plane/integration/test_phase4_live_execution_controlled.py
-      - tests/product-plane/integration/test_phase6_operational_hardening.py
+      - tests/product-plane/integration/test_runtime_
+      - tests/product-plane/integration/test_execution_flow.py
+      - tests/product-plane/integration/test_controlled_live_execution.py
+      - tests/product-plane/integration/test_operational_hardening.py
       - tests/process/test_run_f1d_sidecar_immutable_evidence.py
       - tests/process/test_run_f1e_real_broker_process.py
       - scripts/run_f1d_sidecar_immutable_evidence.py
@@ -58,12 +61,12 @@ surfaces:
       - src/trading_advisor_3000/product_plane/research/
       - src/trading_advisor_3000/dagster_defs/
       - src/trading_advisor_3000/spark_jobs/
-      - tests/product-plane/unit/test_phase2a_
-      - tests/product-plane/unit/test_phase2b_
-      - tests/product-plane/integration/test_phase2a_
-      - tests/product-plane/integration/test_phase2b_
-      - scripts/run_phase2a_spark_proof.py
-      - scripts/run_phase2a_dagster_proof.py
+      - tests/product-plane/unit/test_historical_data_
+      - tests/product-plane/unit/test_research_
+      - tests/product-plane/integration/test_historical_data_
+      - tests/product-plane/integration/test_research_
+      - scripts/run_historical_data_spark_proof.py
+      - scripts/run_historical_data_dagster_proof.py
   app:
     prefixes:
       - src/trading_advisor_3000/
@@ -102,6 +105,7 @@ command_profiles:
     default:
       - "{python} scripts/validate_docs_links.py --roots AGENTS.md docs"
       - "{python} scripts/validate_legacy_namespace_growth.py"
+      - "{python} scripts/validate_product_surface_naming.py"
     contracts:
       - "{python} scripts/validate_stack_conformance.py"
       - "{python} scripts/validate_task_request_contract.py"
@@ -132,7 +136,7 @@ command_profiles:
     default:
       - "{python} scripts/run_loop_gate.py --skip-session-check"
       - "{python} scripts/validate_task_outcomes.py --require-terminal-outcome"
-      - "{python} -m pytest tests/process/test_phase1_governance_shell.py"
+      - "{python} -m pytest tests/process/test_governance_shell_baseline.py"
     contracts:
       - "{python} -m pytest tests/process/test_validate_plans_contract.py -q"
       - "{python} -m pytest tests/process/test_validate_task_request_contract.py -q"

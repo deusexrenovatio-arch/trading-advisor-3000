@@ -61,7 +61,7 @@ Updated: 2026-04-02 14:45 UTC
   - `artifacts/rename-migration/phase6-inventory.md`
   - Active matches reduced from `382` (initial P6 baseline scan) to `138` at closeout.
 - Migration closeout report with residual debt section:
-  - `docs/architecture/product-plane/dual-surface-safe-rename-phase6-closeout.md`
+  - `docs/architecture/product-plane/dual-surface-safe-rename-closeout.md`
 - Explicit governed release decision package emitted:
   - `artifacts/rename-migration/phase6/release-decision.json`
   - Verdict: `DENY_RELEASE_READINESS` (execution contract target decision remains deny).

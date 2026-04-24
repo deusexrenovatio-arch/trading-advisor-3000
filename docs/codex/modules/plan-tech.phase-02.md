@@ -41,6 +41,23 @@ Updated: 2026-03-25 13:55 UTC
 - Do not duplicate existing proving flow.
 - Keep tests focused on shortcut-pattern detection, not generic architecture theory.
 
+## Release Gate Impact
+
+- Surface transition: critical_contour_gate_enforcement from policy-defined to enforced in loop/pr validation.
+- Minimum proof class: staging-real
+- Accepted state label: real_contour_closed
+
+## Release Surface Ownership
+
+- Owned surfaces: critical_contour_gate_enforcement
+- Delivered proof class: staging-real
+- Required real bindings: changed-file loop/pr gate execution against configured pilot contour paths
+- Target downgrade is forbidden: yes
+
+## What This Phase Does Not Prove
+
+- This phase does not prove release readiness; it proves only pilot critical-contour gate enforcement for the shell governance route.
+
 ## Done Evidence
 
 - Both validators exist and are called by the existing checks and gates.

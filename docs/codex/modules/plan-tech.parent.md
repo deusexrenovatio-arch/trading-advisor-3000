@@ -33,7 +33,7 @@ Updated: 2026-03-25 13:55 UTC
 ## Global Constraints
 
 - Keep the anti-shortcut discipline limited to critical contours.
-- Preserve loop/pr/nightly and Phase 8 proving as the main harness.
+- Preserve loop/pr/nightly and Shell delivery proving as the main harness.
 - Do not add a new mandatory lane or approval ceremony.
 - Keep shell control-plane files free of product business logic.
 

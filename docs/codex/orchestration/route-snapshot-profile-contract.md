@@ -142,7 +142,7 @@ This phase is still `prep_closed` only; it does not claim real contour closure f
 - PR contour planner/executor: `scripts/run_surface_pr_matrix.py`;
 - CI artifacts include contour/profile plans and gate summaries under `artifacts/ci/`;
 - shared docker proof runtime contract utilities live in `scripts/proof_runtime_contract.py`;
-- `scripts/run_phase2a_spark_proof.py` now uses shared runtime-root/path/output guards.
+- `scripts/run_historical_data_spark_proof.py` now uses shared runtime-root/path/output guards.
 
 This update raises CI/proof behavior to `staging-real` for the owned contour only.
 
