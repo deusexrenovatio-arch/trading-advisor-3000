@@ -103,7 +103,7 @@ def test_research_contract_lineage_is_consistent_across_dataset_indicator_and_fe
         "atr_stop_ref_1x",
         "atr_target_ref_2x",
     } <= feature_columns
-    assert "research_strategy_metrics" not in feature_manifest
+    assert "research_strategy_metrics" in feature_manifest
 
 
 def test_research_candidate_id_formula_is_stable() -> None:
