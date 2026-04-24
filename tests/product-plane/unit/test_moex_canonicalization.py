@@ -1,0 +1,183 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from trading_advisor_3000.product_plane.contracts import CanonicalBar, Timeframe
+from trading_advisor_3000.product_plane.data_plane.moex.canonicalization import (
+    CanonicalProvenance,
+    run_contract_compatibility_check,
+    run_qc_gates,
+    run_runtime_decoupling_check,
+)
+
+
+def _provenance(**overrides: object) -> CanonicalProvenance:
+    payload: dict[str, object] = {
+        "contract_id": "BRM6@MOEX",
+        "instrument_id": "FUT_BR",
+        "timeframe": "15m",
+        "ts": "2026-04-02T10:00:00Z",
+        "source_provider": "moex_iss",
+        "source_timeframe": "1m",
+        "source_interval": 1,
+        "source_run_id": "raw-ingest-pass1",
+        "source_ingest_run_id": "raw-ingest-pass1",
+        "source_row_count": 15,
+        "source_ts_open_first": "2026-04-02T10:00:00Z",
+        "source_ts_close_last": "2026-04-02T10:15:00Z",
+        "open_interest_imputed": 1,
+        "build_run_id": "canonicalization-qc",
+        "built_at_utc": "2026-04-02T11:00:00Z",
+    }
+    payload.update(overrides)
+    return CanonicalProvenance(**payload)
+
+
+def test_canonicalization_qc_fails_when_provenance_is_incomplete() -> None:
+    bar = CanonicalBar(
+        contract_id="BRM6@MOEX",
+        instrument_id="FUT_BR",
+        timeframe=Timeframe.M15,
+        ts="2026-04-02T10:00:00Z",
+        open=100.0,
+        high=101.0,
+        low=99.0,
+        close=100.5,
+        volume=100,
+        open_interest=0,
+    )
+    qc_report = run_qc_gates(
+        bars=[bar],
+        provenance_rows=[_provenance(source_provider="")],
+        run_id="canonicalization-qc",
+    )
+    assert qc_report["status"] == "FAIL"
+    assert qc_report["publish_decision"] == "blocked"
+    assert "provenance_completeness" in qc_report["failed_gates"]
+
+
+def test_canonicalization_qc_fails_when_duplicate_bar_key_is_present() -> None:
+    bar = CanonicalBar(
+        contract_id="BRM6@MOEX",
+        instrument_id="FUT_BR",
+        timeframe=Timeframe.M15,
+        ts="2026-04-02T10:00:00Z",
+        open=100.0,
+        high=101.0,
+        low=99.0,
+        close=100.5,
+        volume=100,
+        open_interest=0,
+    )
+    qc_report = run_qc_gates(
+        bars=[bar, bar],
+        provenance_rows=[_provenance(), _provenance()],
+        run_id="canonicalization-qc-duplicate",
+    )
+    assert qc_report["status"] == "FAIL"
+    assert "unique_bar_key" in qc_report["failed_gates"]
+
+
+def test_canonicalization_contract_compatibility_detects_schema_drift(tmp_path: Path) -> None:
+    schema_path = (
+        tmp_path
+        / "src"
+        / "trading_advisor_3000"
+        / "product_plane"
+        / "contracts"
+        / "schemas"
+        / "canonical_bar.v1.json"
+    )
+    schema_path.parent.mkdir(parents=True, exist_ok=True)
+    schema_path.write_text(
+        json.dumps(
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "$id": "contracts/canonical_bar.v1.json",
+                "type": "object",
+                "required": [
+                    "contract_id",
+                    "instrument_id",
+                    "timeframe",
+                    "ts",
+                    "open",
+                    "high",
+                    "low",
+                    "close",
+                    "volume",
+                    "open_interest",
+                    "provider",
+                ],
+                "properties": {
+                    "contract_id": {"type": "string"},
+                    "instrument_id": {"type": "string"},
+                    "timeframe": {"type": "string", "enum": ["5m", "15m", "1h"]},
+                    "ts": {"type": "string"},
+                    "open": {"type": "number"},
+                    "high": {"type": "number"},
+                    "low": {"type": "number"},
+                    "close": {"type": "number"},
+                    "volume": {"type": "integer"},
+                    "open_interest": {"type": "integer"},
+                    "provider": {"type": "string"},
+                },
+                "additionalProperties": False,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    report = run_contract_compatibility_check(
+        bars=[
+            CanonicalBar(
+                contract_id="BRM6@MOEX",
+                instrument_id="FUT_BR",
+                timeframe=Timeframe.M5,
+                ts="2026-04-02T10:00:00Z",
+                open=100.0,
+                high=101.0,
+                low=99.0,
+                close=100.5,
+                volume=10,
+                open_interest=0,
+            )
+        ],
+        repo_root=tmp_path,
+    )
+    assert report["status"] == "FAIL"
+    assert any("required fields mismatch" in item for item in report["errors"])
+
+
+def test_canonicalization_runtime_decoupling_check_fails_when_runtime_imports_spark(tmp_path: Path) -> None:
+    runtime_file = tmp_path / "src" / "trading_advisor_3000" / "app" / "runtime" / "spark_bridge.py"
+    runtime_file.parent.mkdir(parents=True, exist_ok=True)
+    runtime_file.write_text(
+        "from pyspark.sql import SparkSession\n",
+        encoding="utf-8",
+    )
+    report = run_runtime_decoupling_check(repo_root=tmp_path)
+    assert report["status"] == "FAIL"
+    assert report["violations"]
+
+
+def test_canonicalization_runtime_decoupling_prefers_product_plane_runtime(tmp_path: Path) -> None:
+    runtime_file = (
+        tmp_path
+        / "src"
+        / "trading_advisor_3000"
+        / "product_plane"
+        / "runtime"
+        / "spark_bridge.py"
+    )
+    runtime_file.parent.mkdir(parents=True, exist_ok=True)
+    runtime_file.write_text(
+        "from pyspark.sql import SparkSession\n",
+        encoding="utf-8",
+    )
+    report = run_runtime_decoupling_check(repo_root=tmp_path)
+    assert report["status"] == "FAIL"
+    assert report["runtime_root"].endswith("/src/trading_advisor_3000/product_plane/runtime")
+    assert report["violations"]
