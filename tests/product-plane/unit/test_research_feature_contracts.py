@@ -53,5 +53,9 @@ def test_feature_store_contract_contains_research_delta_tables() -> None:
 
 
 def test_sample_strategies_are_declared() -> None:
-    assert sample_strategy_ids() == ("ma-cross-v1", "mean-reversion-v1")
+    assert sample_strategy_ids() == (
+        "breakout-volatility-v1",
+        "mean-revert-v1",
+        "trend-follow-v1",
+    )
 
