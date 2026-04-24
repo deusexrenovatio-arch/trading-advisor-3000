@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -12,6 +13,7 @@ import tomllib
 DEFAULT_SOURCE = Path("deployment/mcp/config.template.toml")
 DEFAULT_TARGET = Path(".codex/config.toml")
 DEFAULT_HOME_TARGET = Path.home() / ".codex" / "config.toml"
+_BARE_TOML_KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def _normalize_platform_commands(config_text: str) -> str:
@@ -49,14 +51,29 @@ def _load_toml_document(path: Path) -> dict[str, Any]:
     return tomllib.loads(path.read_text(encoding="utf-8-sig"))
 
 
+def _escape_toml_string(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _format_toml_key(key: str) -> str:
+    if _BARE_TOML_KEY_RE.fullmatch(key):
+        return key
+    return f'"{_escape_toml_string(key)}"'
+
+
 def _format_toml_value(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, str):
-        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-        return f'"{escaped}"'
+        return f'"{_escape_toml_string(value)}"'
     if isinstance(value, (int, float)):
         return str(value)
+    if isinstance(value, dict):
+        items = [
+            f"{_format_toml_key(str(key))} = {_format_toml_value(item)}"
+            for key, item in value.items()
+        ]
+        return "{ " + ", ".join(items) + " }"
     if isinstance(value, list):
         return "[" + ", ".join(_format_toml_value(item) for item in value) + "]"
     raise TypeError(f"unsupported TOML value type: {type(value).__name__}")
@@ -77,9 +94,9 @@ def _dump_toml_document(document: dict[str, Any]) -> str:
         if path and scalar_items:
             if lines and lines[-1] != "":
                 lines.append("")
-            lines.append(f"[{'.'.join(path)}]")
+            lines.append(f"[{'.'.join(_format_toml_key(part) for part in path)}]")
         for key, value in scalar_items:
-            lines.append(f"{key} = {_format_toml_value(value)}")
+            lines.append(f"{_format_toml_key(key)} = {_format_toml_value(value)}")
         for key, value in nested_items:
             emit_table([*path, key], value)
 

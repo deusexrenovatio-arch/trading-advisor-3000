@@ -1,4 +1,4 @@
-# StockSharp Sidecar (.NET) — Phase 08 Slice
+# StockSharp Sidecar (.NET) — Sidecar Slice
 
 This directory now contains a real in-repo `.NET 8` sidecar project that implements the v1 wire contract used by the Python execution transport.
 
@@ -6,7 +6,7 @@ This directory now contains a real in-repo `.NET 8` sidecar project that impleme
 - `TradingAdvisor3000.StockSharpSidecar.sln`
 - ASP.NET Core sidecar service in `src/TradingAdvisor3000.StockSharpSidecar/`
 - xUnit test project in `tests/TradingAdvisor3000.StockSharpSidecar.Tests/`
-- phase scripts for build/test/publish/prove in `scripts/`
+- build/test/publish/prove scripts in `scripts/`
 
 ## Wire Contract Scope
 Implemented endpoints:
@@ -45,7 +45,7 @@ Optional override when global `dotnet` is unavailable:
   - `connector_last_heartbeat`
 
 ## Compiled-Binary Python Smoke
-Run all phase checks in one command:
+Run the full sidecar proof chain in one command:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File deployment/stocksharp-sidecar/scripts/prove.ps1
@@ -58,7 +58,7 @@ This executes:
 4. `python scripts/smoke_stocksharp_sidecar_binary.py` against the compiled `.dll` (including `/metrics` and admin kill-switch behavior checks)
 
 Smoke output is written to:
-- `artifacts/phase8/stocksharp-sidecar/python-smoke.json`
+- `artifacts/dotnet-sidecar/stocksharp-sidecar/python-smoke.json`
 
 ## F1-D Immutable Evidence Chain
 To produce commit-linked immutable sidecar evidence with hash validation and disprovers:

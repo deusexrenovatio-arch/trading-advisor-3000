@@ -6,6 +6,7 @@ waves:
     servers:
       - github
       - openai_docs
+      - mempalace
   wave2:
     servers:
       - docker
@@ -19,16 +20,19 @@ profiles:
     servers:
       - github
       - openai_docs
+      - mempalace
   ops:
     servers:
       - github
       - openai_docs
+      - mempalace
       - docker
       - dagster
   data_readonly:
     servers:
       - github
       - openai_docs
+      - mempalace
       - docker
       - dagster
       - postgres_readonly
