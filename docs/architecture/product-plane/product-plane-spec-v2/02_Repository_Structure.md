@@ -145,4 +145,4 @@ deployment/
 - `docs/runbooks/app/*`
 - `tests/product-plane/e2e/*`
 
-Эти потоки можно вести параллельно после Phase 1 contracts freeze.
+Эти потоки можно вести параллельно после contracts-and-scaffolding freeze.

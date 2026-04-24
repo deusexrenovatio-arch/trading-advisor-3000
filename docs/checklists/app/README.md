@@ -2,18 +2,18 @@
 
 Product phase acceptance checklists.
 
-- `docs/checklists/app/phase0-acceptance-checklist.md`
-- `docs/checklists/app/phase1-acceptance-checklist.md`
-- `docs/checklists/app/phase2a-acceptance-checklist.md`
-- `docs/checklists/app/phase2b-acceptance-checklist.md`
-- `docs/checklists/app/phase2c-acceptance-checklist.md`
-- `docs/checklists/app/phase2d-acceptance-checklist.md`
-- `docs/checklists/app/phase3-acceptance-checklist.md`
-- `docs/checklists/app/phase4-acceptance-checklist.md`
-- `docs/checklists/app/phase5-acceptance-checklist.md`
-- `docs/checklists/app/phase6-acceptance-checklist.md`
-- `docs/checklists/app/phase7-acceptance-checklist.md`
-- `docs/checklists/app/phase8-acceptance-checklist.md`
+- `docs/checklists/app/product-plane-bootstrap-acceptance-checklist.md`
+- `docs/checklists/app/contracts-and-scaffolding-acceptance-checklist.md`
+- `docs/checklists/app/historical-data-plane-acceptance-checklist.md`
+- `docs/checklists/app/research-plane-acceptance-checklist.md`
+- `docs/checklists/app/runtime-lifecycle-acceptance-checklist.md`
+- `docs/checklists/app/execution-flow-acceptance-checklist.md`
+- `docs/checklists/app/shadow-replay-acceptance-checklist.md`
+- `docs/checklists/app/controlled-live-execution-acceptance-checklist.md`
+- `docs/checklists/app/review-observability-acceptance-checklist.md`
+- `docs/checklists/app/operational-hardening-acceptance-checklist.md`
+- `docs/checklists/app/scale-up-readiness-acceptance-checklist.md`
+- `docs/checklists/app/shell-delivery-operational-proving-acceptance-checklist.md`
 - `docs/checklists/app/mcp-and-real-execution-rollout-checklist.md`
 - `docs/checklists/app/data-integration-closure-passport.md`
 - `docs/checklists/app/runtime-publication-closure-passport.md`

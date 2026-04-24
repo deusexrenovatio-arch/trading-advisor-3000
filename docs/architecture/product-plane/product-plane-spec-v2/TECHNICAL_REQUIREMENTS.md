@@ -1,30 +1,30 @@
-# Техническое задание на разработку Trading Advisor 3000 product plane
+﻿# РўРµС…РЅРёС‡РµСЃРєРѕРµ Р·Р°РґР°РЅРёРµ РЅР° СЂР°Р·СЂР°Р±РѕС‚РєСѓ Trading Advisor 3000 product plane
 
-## 1. Назначение документа
+## 1. РќР°Р·РЅР°С‡РµРЅРёРµ РґРѕРєСѓРјРµРЅС‚Р°
 
-Этот документ фиксирует ТЗ на разработку **прикладной части** платформы сигналов по MOEX futures
-внутри уже существующего репозитория с **AI delivery shell**.
+Р­С‚РѕС‚ РґРѕРєСѓРјРµРЅС‚ С„РёРєСЃРёСЂСѓРµС‚ РўР— РЅР° СЂР°Р·СЂР°Р±РѕС‚РєСѓ **РїСЂРёРєР»Р°РґРЅРѕР№ С‡Р°СЃС‚Рё** РїР»Р°С‚С„РѕСЂРјС‹ СЃРёРіРЅР°Р»РѕРІ РїРѕ MOEX futures
+РІРЅСѓС‚СЂРё СѓР¶Рµ СЃСѓС‰РµСЃС‚РІСѓСЋС‰РµРіРѕ СЂРµРїРѕР·РёС‚РѕСЂРёСЏ СЃ **AI delivery shell**.
 
-Документ должен использоваться Codex'ом как основа для:
-- планирования фаз,
-- определения change surface,
-- реализации модулей,
-- проверки DoD,
-- прохождения phase gates,
-- согласованной работы с существующим AI control plane.
+Р”РѕРєСѓРјРµРЅС‚ РґРѕР»Р¶РµРЅ РёСЃРїРѕР»СЊР·РѕРІР°С‚СЊСЃСЏ Codex'РѕРј РєР°Рє РѕСЃРЅРѕРІР° РґР»СЏ:
+- РїР»Р°РЅРёСЂРѕРІР°РЅРёСЏ С„Р°Р·,
+- РѕРїСЂРµРґРµР»РµРЅРёСЏ change surface,
+- СЂРµР°Р»РёР·Р°С†РёРё РјРѕРґСѓР»РµР№,
+- РїСЂРѕРІРµСЂРєРё DoD,
+- РїСЂРѕС…РѕР¶РґРµРЅРёСЏ phase gates,
+- СЃРѕРіР»Р°СЃРѕРІР°РЅРЅРѕР№ СЂР°Р±РѕС‚С‹ СЃ СЃСѓС‰РµСЃС‚РІСѓСЋС‰РёРј AI control plane.
 
-## 2. Цель проекта
+## 2. Р¦РµР»СЊ РїСЂРѕРµРєС‚Р°
 
-Разработать модульную платформу для:
-- поиска и генерации rule-based сигналов по фьючерсам МосБиржи,
-- исторической и forward-валидации,
-- публикации и сопровождения сигналов в Telegram,
-- controlled paper/live execution через StockSharp sidecar -> QUIK -> Finam,
-- дальнейшего масштабирования на новые активы, новые data providers, fundamentals/news и portfolio orchestration.
+Р Р°Р·СЂР°Р±РѕС‚Р°С‚СЊ РјРѕРґСѓР»СЊРЅСѓСЋ РїР»Р°С‚С„РѕСЂРјСѓ РґР»СЏ:
+- РїРѕРёСЃРєР° Рё РіРµРЅРµСЂР°С†РёРё rule-based СЃРёРіРЅР°Р»РѕРІ РїРѕ С„СЊСЋС‡РµСЂСЃР°Рј РњРѕСЃР‘РёСЂР¶Рё,
+- РёСЃС‚РѕСЂРёС‡РµСЃРєРѕР№ Рё forward-РІР°Р»РёРґР°С†РёРё,
+- РїСѓР±Р»РёРєР°С†РёРё Рё СЃРѕРїСЂРѕРІРѕР¶РґРµРЅРёСЏ СЃРёРіРЅР°Р»РѕРІ РІ Telegram,
+- controlled paper/live execution С‡РµСЂРµР· StockSharp sidecar -> QUIK -> Finam,
+- РґР°Р»СЊРЅРµР№С€РµРіРѕ РјР°СЃС€С‚Р°Р±РёСЂРѕРІР°РЅРёСЏ РЅР° РЅРѕРІС‹Рµ Р°РєС‚РёРІС‹, РЅРѕРІС‹Рµ data providers, fundamentals/news Рё portfolio orchestration.
 
-## 3. Репозиторный контекст
+## 3. Р РµРїРѕР·РёС‚РѕСЂРЅС‹Р№ РєРѕРЅС‚РµРєСЃС‚
 
-В репозитории уже существует **AI delivery shell**:
+Р’ СЂРµРїРѕР·РёС‚РѕСЂРёРё СѓР¶Рµ СЃСѓС‰РµСЃС‚РІСѓРµС‚ **AI delivery shell**:
 - governance policy,
 - hot/warm/cold docs,
 - task lifecycle,
@@ -32,62 +32,62 @@
 - gate stack,
 - durable plans and memory.
 
-Следовательно:
+РЎР»РµРґРѕРІР°С‚РµР»СЊРЅРѕ:
 
-1. **Shell не переписывается** ради продуктовой логики.
-2. Product plane должен быть встроен как **новый слой приложения**, а не как новый независимый фреймворк.
-3. Любые изменения в `scripts/*`, root `configs/*`, `plans/*`, `memory/*`, `docs/agent/*` считаются shell-sensitive.
-4. Product code по умолчанию развивается в `src/trading_advisor_3000/*`, `tests/product-plane/*`, `docs/architecture/product-plane/*`, `docs/runbooks/app/*`, `deployment/*`.
+1. **Shell РЅРµ РїРµСЂРµРїРёСЃС‹РІР°РµС‚СЃСЏ** СЂР°РґРё РїСЂРѕРґСѓРєС‚РѕРІРѕР№ Р»РѕРіРёРєРё.
+2. Product plane РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РІСЃС‚СЂРѕРµРЅ РєР°Рє **РЅРѕРІС‹Р№ СЃР»РѕР№ РїСЂРёР»РѕР¶РµРЅРёСЏ**, Р° РЅРµ РєР°Рє РЅРѕРІС‹Р№ РЅРµР·Р°РІРёСЃРёРјС‹Р№ С„СЂРµР№РјРІРѕСЂРє.
+3. Р›СЋР±С‹Рµ РёР·РјРµРЅРµРЅРёСЏ РІ `scripts/*`, root `configs/*`, `plans/*`, `memory/*`, `docs/agent/*` СЃС‡РёС‚Р°СЋС‚СЃСЏ shell-sensitive.
+4. Product code РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ СЂР°Р·РІРёРІР°РµС‚СЃСЏ РІ `src/trading_advisor_3000/*`, `tests/product-plane/*`, `docs/architecture/product-plane/*`, `docs/runbooks/app/*`, `deployment/*`.
 
-## 4. Целевое состояние продукта
+## 4. Р¦РµР»РµРІРѕРµ СЃРѕСЃС‚РѕСЏРЅРёРµ РїСЂРѕРґСѓРєС‚Р°
 
 ### 4.1 MVP
 
-- Активы: фьючерсы MOEX на товары и индексы по whitelist.
-- Таймфреймы: `5m`, `15m`, `1h`.
-- Стратегии: 2 active + 1 shadow.
-- Режимы:
+- РђРєС‚РёРІС‹: С„СЊСЋС‡РµСЂСЃС‹ MOEX РЅР° С‚РѕРІР°СЂС‹ Рё РёРЅРґРµРєСЃС‹ РїРѕ whitelist.
+- РўР°Р№РјС„СЂРµР№РјС‹: `5m`, `15m`, `1h`.
+- РЎС‚СЂР°С‚РµРіРёРё: 2 active + 1 shadow.
+- Р РµР¶РёРјС‹:
   - advisory,
   - shadow-forward,
   - paper execution,
-  - live execution под feature flag.
-- Канал доставки: Telegram.
+  - live execution РїРѕРґ feature flag.
+- РљР°РЅР°Р» РґРѕСЃС‚Р°РІРєРё: Telegram.
 - Execution path: StockSharp sidecar -> QUIK -> Finam.
-- Исторические и аналитические таблицы: Delta Lake.
+- РСЃС‚РѕСЂРёС‡РµСЃРєРёРµ Рё Р°РЅР°Р»РёС‚РёС‡РµСЃРєРёРµ С‚Р°Р±Р»РёС†С‹: Delta Lake.
 - Runtime state: PostgreSQL.
-- Оркестрация: Dagster.
-- Тяжёлые пересчёты: Spark.
-- Быстрый локальный анализ: PyArrow + Delta Lake table reads.
-- Research/backtest: internal research/backtest engine (vectorbt removed by ADR-011).
+- РћСЂРєРµСЃС‚СЂР°С†РёСЏ: Dagster.
+- РўСЏР¶С‘Р»С‹Рµ РїРµСЂРµСЃС‡С‘С‚С‹: Spark.
+- Р‘С‹СЃС‚СЂС‹Р№ Р»РѕРєР°Р»СЊРЅС‹Р№ Р°РЅР°Р»РёР·: PyArrow + Delta Lake table reads.
+- Research/backtest: governed profile combines vectorbt (ADR-012, research-only) with the internal research/backtest engine; runtime/live execution remains independent from vectorbt internals.
 
 ### 4.2 Full / scale-up
 
-- Новые классы активов: акции, облигации, FX, ETF.
-- Новые data feeds: fundamentals, news/event feeds.
-- Graph/relatedness context между активами.
+- РќРѕРІС‹Рµ РєР»Р°СЃСЃС‹ Р°РєС‚РёРІРѕРІ: Р°РєС†РёРё, РѕР±Р»РёРіР°С†РёРё, FX, ETF.
+- РќРѕРІС‹Рµ data feeds: fundamentals, news/event feeds.
+- Graph/relatedness context РјРµР¶РґСѓ Р°РєС‚РёРІР°РјРё.
 - Portfolio/risk orchestration.
 - Multi-timeframe orchestration.
-- Дополнительные execution adapters.
-- Возможность перехода к direct Finam API или отдельному MOEX direct path.
+- Р”РѕРїРѕР»РЅРёС‚РµР»СЊРЅС‹Рµ execution adapters.
+- Р’РѕР·РјРѕР¶РЅРѕСЃС‚СЊ РїРµСЂРµС…РѕРґР° Рє direct Finam API РёР»Рё РѕС‚РґРµР»СЊРЅРѕРјСѓ MOEX direct path.
 
-## 5. Жёсткие архитектурные инварианты
+## 5. Р–С‘СЃС‚РєРёРµ Р°СЂС…РёС‚РµРєС‚СѓСЂРЅС‹Рµ РёРЅРІР°СЂРёР°РЅС‚С‹
 
-1. Верхнеуровневую DFD не менять.
-2. Data plane, research plane, runtime plane и execution plane держать раздельно.
-3. Research может использовать continuous series, live execution — только `contract_id`.
-4. StockSharp sidecar не содержит strategy logic.
-5. Broker/execution adapter — источник истины для live order/fill/position state.
-6. Runtime не должен зависеть от Spark.
-7. Strategy layer не должен зависеть от Telegram и StockSharp.
-8. Raw layer не читается напрямую strategy/runtime кодом.
-9. Все side effects идемпотентны.
-10. Для сигналов и исполнения хранить и snapshot, и event history.
-11. Shell governance остаётся главным процессным контуром.
-12. Product configs не добавлять в root `configs/`, пока не требуется изменение shell.
+1. Р’РµСЂС…РЅРµСѓСЂРѕРІРЅРµРІСѓСЋ DFD РЅРµ РјРµРЅСЏС‚СЊ.
+2. Data plane, research plane, runtime plane Рё execution plane РґРµСЂР¶Р°С‚СЊ СЂР°Р·РґРµР»СЊРЅРѕ.
+3. Research РјРѕР¶РµС‚ РёСЃРїРѕР»СЊР·РѕРІР°С‚СЊ continuous series, live execution вЂ” С‚РѕР»СЊРєРѕ `contract_id`.
+4. StockSharp sidecar РЅРµ СЃРѕРґРµСЂР¶РёС‚ strategy logic.
+5. Broker/execution adapter вЂ” РёСЃС‚РѕС‡РЅРёРє РёСЃС‚РёРЅС‹ РґР»СЏ live order/fill/position state.
+6. Runtime РЅРµ РґРѕР»Р¶РµРЅ Р·Р°РІРёСЃРµС‚СЊ РѕС‚ Spark.
+7. Strategy layer РЅРµ РґРѕР»Р¶РµРЅ Р·Р°РІРёСЃРµС‚СЊ РѕС‚ Telegram Рё StockSharp.
+8. Raw layer РЅРµ С‡РёС‚Р°РµС‚СЃСЏ РЅР°РїСЂСЏРјСѓСЋ strategy/runtime РєРѕРґРѕРј.
+9. Р’СЃРµ side effects РёРґРµРјРїРѕС‚РµРЅС‚РЅС‹.
+10. Р”Р»СЏ СЃРёРіРЅР°Р»РѕРІ Рё РёСЃРїРѕР»РЅРµРЅРёСЏ С…СЂР°РЅРёС‚СЊ Рё snapshot, Рё event history.
+11. Shell governance РѕСЃС‚Р°С‘С‚СЃСЏ РіР»Р°РІРЅС‹Рј РїСЂРѕС†РµСЃСЃРЅС‹Рј РєРѕРЅС‚СѓСЂРѕРј.
+12. Product configs РЅРµ РґРѕР±Р°РІР»СЏС‚СЊ РІ root `configs/`, РїРѕРєР° РЅРµ С‚СЂРµР±СѓРµС‚СЃСЏ РёР·РјРµРЅРµРЅРёРµ shell.
 
-## 6. Целевая архитектура
+## 6. Р¦РµР»РµРІР°СЏ Р°СЂС…РёС‚РµРєС‚СѓСЂР°
 
-### 6.1 Control plane (уже существует)
+### 6.1 Control plane (СѓР¶Рµ СЃСѓС‰РµСЃС‚РІСѓРµС‚)
 
 - `AGENTS.md`
 - `docs/agent/*`
@@ -100,7 +100,7 @@
 - `tests/process/*`
 - `tests/architecture/*`
 
-### 6.2 Application plane (разрабатывается по этому ТЗ)
+### 6.2 Application plane (СЂР°Р·СЂР°Р±Р°С‚С‹РІР°РµС‚СЃСЏ РїРѕ СЌС‚РѕРјСѓ РўР—)
 
 #### Data plane
 - `P1 Data Ingestion`
@@ -130,12 +130,14 @@
 - Finam account/execution transport
 - reconciliation / sync / broker event log
 
-## 7. Выбранный технологический стек
+## 7. Р’С‹Р±СЂР°РЅРЅС‹Р№ С‚РµС…РЅРѕР»РѕРіРёС‡РµСЃРєРёР№ СЃС‚РµРє
 
 - Python 3.12+
 - Delta Lake
 - Apache Spark
 - Dagster
+- vectorbt (governed research-only profile, ADR-012)
+- pandas-ta-classic (import namespace `pandas_ta_classic`, no fallback)
 - PostgreSQL
 - FastAPI
 - custom Bot API publication engine (aiogram removed by ADR-011)
@@ -146,68 +148,68 @@
 - .NET 8 sidecar
 - StockSharp
 
-## 8. Общие требования к реализации
+## 8. РћР±С‰РёРµ С‚СЂРµР±РѕРІР°РЅРёСЏ Рє СЂРµР°Р»РёР·Р°С†РёРё
 
-### 8.1 Кодовая организация
-- Product code живёт в `src/trading_advisor_3000/`.
-- Product tests живут в `tests/product-plane/`.
-- Product docs живут в `docs/architecture/product-plane/`, `docs/runbooks/app/`.
-- Sidecar deployment artifacts живут в `deployment/stocksharp-sidecar/`.
+### 8.1 РљРѕРґРѕРІР°СЏ РѕСЂРіР°РЅРёР·Р°С†РёСЏ
+- Product code Р¶РёРІС‘С‚ РІ `src/trading_advisor_3000/`.
+- Product tests Р¶РёРІСѓС‚ РІ `tests/product-plane/`.
+- Product docs Р¶РёРІСѓС‚ РІ `docs/architecture/product-plane/`, `docs/runbooks/app/`.
+- Sidecar deployment artifacts Р¶РёРІСѓС‚ РІ `deployment/stocksharp-sidecar/`.
 
-### 8.2 Контракты
-- Все ключевые DTO и события должны быть типизированы.
-- Версионируемые схемы и публичные интерфейсы оформляются как contracts.
-- Любое изменение contract surface требует:
+### 8.2 РљРѕРЅС‚СЂР°РєС‚С‹
+- Р’СЃРµ РєР»СЋС‡РµРІС‹Рµ DTO Рё СЃРѕР±С‹С‚РёСЏ РґРѕР»Р¶РЅС‹ Р±С‹С‚СЊ С‚РёРїРёР·РёСЂРѕРІР°РЅС‹.
+- Р’РµСЂСЃРёРѕРЅРёСЂСѓРµРјС‹Рµ СЃС…РµРјС‹ Рё РїСѓР±Р»РёС‡РЅС‹Рµ РёРЅС‚РµСЂС„РµР№СЃС‹ РѕС„РѕСЂРјР»СЏСЋС‚СЃСЏ РєР°Рє contracts.
+- Р›СЋР±РѕРµ РёР·РјРµРЅРµРЅРёРµ contract surface С‚СЂРµР±СѓРµС‚:
   - contract tests,
   - docs update,
-  - при необходимости ADR update.
+  - РїСЂРё РЅРµРѕР±С…РѕРґРёРјРѕСЃС‚Рё ADR update.
 
-### 8.3 Данные
-- Delta используется для исторических и аналитических таблиц.
-- PostgreSQL используется для живого состояния.
-- Runtime работает на нормализованных canonical bars.
-- `mode` обязателен для forward/paper/live сущностей.
+### 8.3 Р”Р°РЅРЅС‹Рµ
+- Delta РёСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ РґР»СЏ РёСЃС‚РѕСЂРёС‡РµСЃРєРёС… Рё Р°РЅР°Р»РёС‚РёС‡РµСЃРєРёС… С‚Р°Р±Р»РёС†.
+- PostgreSQL РёСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ РґР»СЏ Р¶РёРІРѕРіРѕ СЃРѕСЃС‚РѕСЏРЅРёСЏ.
+- Runtime СЂР°Р±РѕС‚Р°РµС‚ РЅР° РЅРѕСЂРјР°Р»РёР·РѕРІР°РЅРЅС‹С… canonical bars.
+- `mode` РѕР±СЏР·Р°С‚РµР»РµРЅ РґР»СЏ forward/paper/live СЃСѓС‰РЅРѕСЃС‚РµР№.
 
-### 8.4 Процесс
-- Каждая фаза изолирована и имеет свой gate.
-- Нельзя переходить к следующей фазе без закрытия acceptance текущей.
-- Любое изменение shell-sensitive paths выделяется в отдельный patch set.
+### 8.4 РџСЂРѕС†РµСЃСЃ
+- РљР°Р¶РґР°СЏ С„Р°Р·Р° РёР·РѕР»РёСЂРѕРІР°РЅР° Рё РёРјРµРµС‚ СЃРІРѕР№ gate.
+- РќРµР»СЊР·СЏ РїРµСЂРµС…РѕРґРёС‚СЊ Рє СЃР»РµРґСѓСЋС‰РµР№ С„Р°Р·Рµ Р±РµР· Р·Р°РєСЂС‹С‚РёСЏ acceptance С‚РµРєСѓС‰РµР№.
+- Р›СЋР±РѕРµ РёР·РјРµРЅРµРЅРёРµ shell-sensitive paths РІС‹РґРµР»СЏРµС‚СЃСЏ РІ РѕС‚РґРµР»СЊРЅС‹Р№ patch set.
 
-## 9. Целевые KPI MVP
+## 9. Р¦РµР»РµРІС‹Рµ KPI MVP
 
-### Продуктовые
-- 2–15 сигналов в неделю на активном whitelist.
-- Полный lifecycle Telegram: create/edit/close/cancel.
-- Shadow-forward и paper execution используют те же strategy contracts, что и runtime.
+### РџСЂРѕРґСѓРєС‚РѕРІС‹Рµ
+- 2вЂ“15 СЃРёРіРЅР°Р»РѕРІ РІ РЅРµРґРµР»СЋ РЅР° Р°РєС‚РёРІРЅРѕРј whitelist.
+- РџРѕР»РЅС‹Р№ lifecycle Telegram: create/edit/close/cancel.
+- Shadow-forward Рё paper execution РёСЃРїРѕР»СЊР·СѓСЋС‚ С‚Рµ Р¶Рµ strategy contracts, С‡С‚Рѕ Рё runtime.
 
-### Качественные
-- Полная трассировка: bar -> feature snapshot -> signal -> publication -> outcome.
-- Повторяемость backtest run на одном dataset version.
-- Отсутствие look-ahead и несогласованных live fills.
+### РљР°С‡РµСЃС‚РІРµРЅРЅС‹Рµ
+- РџРѕР»РЅР°СЏ С‚СЂР°СЃСЃРёСЂРѕРІРєР°: bar -> feature snapshot -> signal -> publication -> outcome.
+- РџРѕРІС‚РѕСЂСЏРµРјРѕСЃС‚СЊ backtest run РЅР° РѕРґРЅРѕРј dataset version.
+- РћС‚СЃСѓС‚СЃС‚РІРёРµ look-ahead Рё РЅРµСЃРѕРіР»Р°СЃРѕРІР°РЅРЅС‹С… live fills.
 
-### Архитектурные
-- Добавление новой стратегии без переписывания runtime ядра.
-- Добавление нового data provider без переписывания canonical contracts.
-- Добавление нового execution adapter без переписывания decision logic.
-- Масштабирование data plane без миграции runtime state layer.
+### РђСЂС…РёС‚РµРєС‚СѓСЂРЅС‹Рµ
+- Р”РѕР±Р°РІР»РµРЅРёРµ РЅРѕРІРѕР№ СЃС‚СЂР°С‚РµРіРёРё Р±РµР· РїРµСЂРµРїРёСЃС‹РІР°РЅРёСЏ runtime СЏРґСЂР°.
+- Р”РѕР±Р°РІР»РµРЅРёРµ РЅРѕРІРѕРіРѕ data provider Р±РµР· РїРµСЂРµРїРёСЃС‹РІР°РЅРёСЏ canonical contracts.
+- Р”РѕР±Р°РІР»РµРЅРёРµ РЅРѕРІРѕРіРѕ execution adapter Р±РµР· РїРµСЂРµРїРёСЃС‹РІР°РЅРёСЏ decision logic.
+- РњР°СЃС€С‚Р°Р±РёСЂРѕРІР°РЅРёРµ data plane Р±РµР· РјРёРіСЂР°С†РёРё runtime state layer.
 
-## 10. Основные deliverables
+## 10. РћСЃРЅРѕРІРЅС‹Рµ deliverables
 
-- product-plane monorepo structure внутри существующего repo,
-- contracts и migrations,
-- DFD/ERD и ADR package,
+- product-plane monorepo structure РІРЅСѓС‚СЂРё СЃСѓС‰РµСЃС‚РІСѓСЋС‰РµРіРѕ repo,
+- contracts Рё migrations,
+- DFD/ERD Рё ADR package,
 - Dagster definitions,
 - Spark jobs,
 - runtime services,
 - Telegram bot,
 - forward/paper/live execution contracts,
 - StockSharp sidecar contract,
-- tests/product-plane для unit/integration/e2e,
+- tests/product-plane РґР»СЏ unit/integration/e2e,
 - runbooks,
 - Codex/MCP integration docs,
-- фазные acceptance gates.
+- С„Р°Р·РЅС‹Рµ acceptance gates.
 
-## 11. Документы пакета
+## 11. Р”РѕРєСѓРјРµРЅС‚С‹ РїР°РєРµС‚Р°
 
 - `docs/architecture/product-plane/product-plane-spec-v2/00_AI_Shell_Alignment.md`
 - `docs/architecture/product-plane/product-plane-spec-v2/01_Architecture_Overview.md`
@@ -215,7 +217,7 @@
 - `docs/architecture/product-plane/product-plane-spec-v2/03_Data_Model_and_Flows.md`
 - `docs/architecture/product-plane/product-plane-spec-v2/04_ADRs.md`
 - `docs/architecture/product-plane/product-plane-spec-v2/05_Modules_DoD_and_Parallelization.md`
-- `docs/architecture/product-plane/product-plane-spec-v2/06_Phases_and_Acceptance_Gates.md`
+- `docs/architecture/product-plane/product-plane-spec-v2/06_Capability_Slices_and_Acceptance_Gates.md`
 - `docs/architecture/product-plane/product-plane-spec-v2/07_Tech_Stack_and_Open_Source.md`
 - `docs/architecture/product-plane/product-plane-spec-v2/08_Codex_AI_Shell_Integration.md`
 - `docs/architecture/product-plane/product-plane-spec-v2/09_Constraints_Risks_and_NFR.md`

@@ -1,15 +1,15 @@
-# Product Stack-Conformance Baseline
+﻿# Product Stack-Conformance Baseline
 
 ## Purpose
 Define a conservative baseline for what can be claimed today in product-plane architecture docs.
 
 This baseline is claim-control only.
-It does not replace implementation docs, checklists, or phase narratives.
+It does not replace implementation docs, checklists, or capability narratives.
 
 ## Truth Source Hierarchy
 1. [STATUS.md](docs/architecture/product-plane/STATUS.md) is the current truth source.
 2. [CONTRACT_SURFACES.md](docs/architecture/product-plane/CONTRACT_SURFACES.md) is the contract boundary inventory.
-3. Phase docs and checklists are evidence history and must not override `docs/architecture/product-plane/STATUS.md`.
+3. Capability docs and checklists are evidence history and must not override `docs/architecture/product-plane/STATUS.md`.
 
 ## Claim Classes
 | Class | Meaning | Minimum evidence | Prohibited interpretation |
@@ -22,11 +22,14 @@ It does not replace implementation docs, checklists, or phase narratives.
 ## Current Baseline (G0)
 - Product-plane production readiness remains `not accepted`.
 - Real broker process closure remains `planned`.
-- Delta Lake closure is `partial`: physical Delta runtime proof exists for the phase2 data/research slice only.
-- Apache Spark closure is `partial`: the phase2 canonical job is executable in a Docker/Linux proof profile, but full distributed orchestration remains open.
-- Dagster closure is `partial`: executable `Definitions` and local materialization proof exist for the phase2a canonical slice, while broader orchestration coverage remains open.
-- Durable runtime, service/API, Telegram adapter, replaceable-stack removals, and real sidecar closure are not part of this branch baseline and remain unresolved here.
+- Delta Lake closure is `partial`: physical Delta runtime proof exists for the historical-data and research slices only.
+- Apache Spark closure is `partial`: the canonicalization job is executable in a Docker/Linux proof profile, but full distributed orchestration remains open.
+- Dagster closure is `partial`: executable `Definitions` and local materialization proof exist for the historical-data proof slice, while broader orchestration coverage remains open.
+- Durable runtime, service/API, Telegram adapter, and real sidecar closure are not part of this branch baseline and remain unresolved here.
 - Live execution transport baseline remains `partial` on this branch and must not be described as real sidecar closure.
+- Vectorbt status is governed by ADR-012 as a bounded research-only contour (`planned` in stack conformance), not as runtime/live execution core.
+- Legal/commercial envelope for vectorbt is restricted to internal governed research use; external commercialization requires a dedicated legal/product decision.
+- Approved universe contract for strategy promotion is versioned in `docs/architecture/product-plane/approved-universe-v1.md` and is mandatory for multi-asset promotion evidence.
 - Shell proving artifacts do not equal product capability closure.
 
 ## Writer Rules
@@ -40,4 +43,4 @@ It does not replace implementation docs, checklists, or phase narratives.
   - status drift between registry and `docs/architecture/product-plane/STATUS.md`,
   - `implemented` claims without runtime/dependency/test proof,
   - forbidden full-closure wording while non-implemented surfaces remain,
-  - removed technologies still declared as chosen in the stack spec.
+  - stack/spec claim drift (including removed technologies declared as chosen or planned contours missing from spec).

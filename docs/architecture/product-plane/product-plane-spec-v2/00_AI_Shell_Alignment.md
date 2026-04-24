@@ -22,7 +22,7 @@
 - расширенная QA matrix для `tests/process/*` и `tests/architecture/*`;
 - explicit high-risk context routing через `CTX-CONTRACTS`;
 - значимые пути и high-risk paths в context coverage;
-- Phase 5–7 shell artifacts:
+- shell late-stage delivery artifacts:
   - dev loop metrics,
   - governance dashboard,
   - skill governance automation,
@@ -59,7 +59,7 @@ Product разрабатывается в изолированных путях:
 ### 3.5 `APP-PLANE` — umbrella surface для исторического/spec-level описания product code
 Пока shell surface taxonomy обсуждается на уровне product-plane spec и historical records, продуктовые изменения внутри `src/trading_advisor_3000/*` и `tests/product-plane/*` можно описывать через umbrella surface `APP-PLANE`.
 Это уже не placeholder-термин, а нейтральное имя для application/product plane.
-После стабилизации Phase 1 можно вынести отдельный governance patch на более точную product surface taxonomy:
+После стабилизации contracts-and-scaffolding можно вынести отдельный governance patch на более точную product surface taxonomy:
 - `APP-DATA`
 - `APP-RESEARCH`
 - `APP-RUNTIME`
@@ -73,13 +73,13 @@ Product разрабатывается в изолированных путях:
 Предпочтительный путь:
 1. merge/backport PR #1;
 2. зафиксировать shell hardening;
-3. стартовать product phases.
+3. стартовать product capability slices.
 
 ### Вариант B — product work parallel to PR #1
 Допустимо только если:
 - shell-sensitive changes не смешиваются с app changes;
 - команды используют те же acceptance assumptions, что описаны в PR;
-- Phase 0 явно фиксирует этот разрыв и закрывает его отдельным patch set.
+- Bootstrap явно фиксирует этот разрыв и закрывает его отдельным patch set.
 
 ## 5. Фаза 0 как обязательный мост
 

@@ -1,117 +1,115 @@
-# 04. ADRs
+﻿# 04. ADRs
 
-## ADR-001 — Monorepo split: control plane + application plane
+## ADR-001 вЂ” Monorepo split: control plane + application plane
 
-**Статус:** accepted
+**РЎС‚Р°С‚СѓСЃ:** accepted
 
-### Контекст
-Репозиторий уже является AI delivery shell.
+### РљРѕРЅС‚РµРєСЃС‚
+Р РµРїРѕР·РёС‚РѕСЂРёР№ СѓР¶Рµ СЏРІР»СЏРµС‚СЃСЏ AI delivery shell.
 
-### Решение
-Не строить второй независимый repo.
-Развивать product plane внутри текущего monorepo, но с чётким разделением по путям и ownership.
+### Р РµС€РµРЅРёРµ
+РќРµ СЃС‚СЂРѕРёС‚СЊ РІС‚РѕСЂРѕР№ РЅРµР·Р°РІРёСЃРёРјС‹Р№ repo.
+Р Р°Р·РІРёРІР°С‚СЊ product plane РІРЅСѓС‚СЂРё С‚РµРєСѓС‰РµРіРѕ monorepo, РЅРѕ СЃ С‡С‘С‚РєРёРј СЂР°Р·РґРµР»РµРЅРёРµРј РїРѕ РїСѓС‚СЏРј Рё ownership.
 
-### Последствия
-- shell governance остаётся единым;
-- продукт получает встроенный control plane;
-- требуется дисциплина по change surfaces.
-
----
-
-## ADR-002 — Delta Lake как долгоживущий storage contract
-
-**Статус:** accepted
-
-### Контекст
-Нужен формат данных, который не придётся быстро мигрировать.
-
-### Решение
-Использовать Delta Lake для исторических и аналитических таблиц.
-
-### Последствия
-- проще масштабировать data plane;
-- можно использовать Spark для тяжёлых джобов и PyArrow для локального dataframe/query анализа (Polars/DuckDB removed by ADR-011; this historical wording is superseded);
-- advanced Delta features включать только по мере необходимости.
+### РџРѕСЃР»РµРґСЃС‚РІРёСЏ
+- shell governance РѕСЃС‚Р°С‘С‚СЃСЏ РµРґРёРЅС‹Рј;
+- РїСЂРѕРґСѓРєС‚ РїРѕР»СѓС‡Р°РµС‚ РІСЃС‚СЂРѕРµРЅРЅС‹Р№ control plane;
+- С‚СЂРµР±СѓРµС‚СЃСЏ РґРёСЃС†РёРїР»РёРЅР° РїРѕ change surfaces.
 
 ---
 
-## ADR-003 — Spark scoped, runtime stays Python
+## ADR-002 вЂ” Delta Lake РєР°Рє РґРѕР»РіРѕР¶РёРІСѓС‰РёР№ storage contract
 
-**Статус:** accepted
+**РЎС‚Р°С‚СѓСЃ:** accepted
 
-### Контекст
-Нужен масштабируемый compute, но runtime должен быть управляемым и низко-фрикционным.
+### РљРѕРЅС‚РµРєСЃС‚
+РќСѓР¶РµРЅ С„РѕСЂРјР°С‚ РґР°РЅРЅС‹С…, РєРѕС‚РѕСЂС‹Р№ РЅРµ РїСЂРёРґС‘С‚СЃСЏ Р±С‹СЃС‚СЂРѕ РјРёРіСЂРёСЂРѕРІР°С‚СЊ.
 
-### Решение
-Spark используется для ingestion rebuild / heavy transforms / batch recompute.
-Runtime decisioning, signal lifecycle и publishing остаются Python services.
+### Р РµС€РµРЅРёРµ
+РСЃРїРѕР»СЊР·РѕРІР°С‚СЊ Delta Lake РґР»СЏ РёСЃС‚РѕСЂРёС‡РµСЃРєРёС… Рё Р°РЅР°Р»РёС‚РёС‡РµСЃРєРёС… С‚Р°Р±Р»РёС†.
 
-### Последствия
-- нет hard dependency runtime на Spark;
-- проще дебажить live flows;
-- меньше operational coupling.
-
----
-
-## ADR-004 — Dagster как orchestration layer
-
-**Статус:** accepted
-
-### Контекст
-Нужен оркестратор для data/research контуров.
-
-### Решение
-Использовать Dagster как основной orchestrator для assets, checks и schedules.
-
-### Последствия
-- хорошо ложится на D1–D5;
-- есть естественная интеграция с data quality;
-- необходимо держать runtime plane отдельно.
+### РџРѕСЃР»РµРґСЃС‚РІРёСЏ
+- РїСЂРѕС‰Рµ РјР°СЃС€С‚Р°Р±РёСЂРѕРІР°С‚СЊ data plane;
+- РјРѕР¶РЅРѕ РёСЃРїРѕР»СЊР·РѕРІР°С‚СЊ Spark РґР»СЏ С‚СЏР¶С‘Р»С‹С… РґР¶РѕР±РѕРІ Рё PyArrow РґР»СЏ Р»РѕРєР°Р»СЊРЅРѕРіРѕ dataframe/query Р°РЅР°Р»РёР·Р° (Polars/DuckDB removed by ADR-011; this historical wording is superseded);
+- advanced Delta features РІРєР»СЋС‡Р°С‚СЊ С‚РѕР»СЊРєРѕ РїРѕ РјРµСЂРµ РЅРµРѕР±С…РѕРґРёРјРѕСЃС‚Рё.
 
 ---
 
-## ADR-005 — vectorbt only for research/backtest (superseded by ADR-011)
+## ADR-003 вЂ” Spark scoped, runtime stays Python
 
-**Status:** superseded by ADR-011
+**РЎС‚Р°С‚СѓСЃ:** accepted
+
+### РљРѕРЅС‚РµРєСЃС‚
+РќСѓР¶РµРЅ РјР°СЃС€С‚Р°Р±РёСЂСѓРµРјС‹Р№ compute, РЅРѕ runtime РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ СѓРїСЂР°РІР»СЏРµРјС‹Рј Рё РЅРёР·РєРѕ-С„СЂРёРєС†РёРѕРЅРЅС‹Рј.
+
+### Р РµС€РµРЅРёРµ
+Spark РёСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ РґР»СЏ ingestion rebuild / heavy transforms / batch recompute.
+Runtime decisioning, signal lifecycle Рё publishing РѕСЃС‚Р°СЋС‚СЃСЏ Python services.
+
+### РџРѕСЃР»РµРґСЃС‚РІРёСЏ
+- РЅРµС‚ hard dependency runtime РЅР° Spark;
+- РїСЂРѕС‰Рµ РґРµР±Р°Р¶РёС‚СЊ live flows;
+- РјРµРЅСЊС€Рµ operational coupling.
+
+---
+
+## ADR-004 вЂ” Dagster РєР°Рє orchestration layer
+
+**РЎС‚Р°С‚СѓСЃ:** accepted
+
+### РљРѕРЅС‚РµРєСЃС‚
+РќСѓР¶РµРЅ РѕСЂРєРµСЃС‚СЂР°С‚РѕСЂ РґР»СЏ data/research РєРѕРЅС‚СѓСЂРѕРІ.
+
+### Р РµС€РµРЅРёРµ
+РСЃРїРѕР»СЊР·РѕРІР°С‚СЊ Dagster РєР°Рє РѕСЃРЅРѕРІРЅРѕР№ orchestrator РґР»СЏ assets, checks Рё schedules.
+
+### РџРѕСЃР»РµРґСЃС‚РІРёСЏ
+- С…РѕСЂРѕС€Рѕ Р»РѕР¶РёС‚СЃСЏ РЅР° D1вЂ“D5;
+- РµСЃС‚СЊ РµСЃС‚РµСЃС‚РІРµРЅРЅР°СЏ РёРЅС‚РµРіСЂР°С†РёСЏ СЃ data quality;
+- РЅРµРѕР±С…РѕРґРёРјРѕ РґРµСЂР¶Р°С‚СЊ runtime plane РѕС‚РґРµР»СЊРЅРѕ.
+
+---
+
+## ADR-005 - vectorbt only for research/backtest (historical)
+
+**Status:** superseded (historically by ADR-011, currently governed by ADR-012 scope amendment)
 
 ### Historical superseded context
 An earlier superseded design step considered vectorbt as the default research/backtest engine.
 
-### Historical superseded decision (no longer active target stack)
-vectorbt was historically allowed for P4-oriented research scenarios, but was never accepted as live-runtime core and is now removed by ADR-011.
+### Historical superseded decision
+vectorbt was historically allowed for P4-oriented research scenarios, but was never accepted as live-runtime core.
 
 ### Supersession note
-F1-B terminal-stack closure replaces this decision:
-- vectorbt removed by ADR and replaced by the internal backtest engine in `src/trading_advisor_3000/product_plane/research/backtest/engine.py`;
-- the active stack truth-source is ADR-011 plus `docs/architecture/product-plane/product-plane-spec-v2/07_Tech_Stack_and_Open_Source.md` and `registry/stack_conformance.yaml`;
-- any future vectorbt reintroduction requires a new ADR and aligned runtime/test evidence while vectorbt stays removed under ADR-011.
+- ADR-011 moved vectorbt to a removed terminal state for the F1-B cycle.
+- ADR-012 later reintroduced vectorbt in a bounded governed scope for research-only workloads.
+- Runtime/live execution remains decoupled from vectorbt internals and continues to use internal execution contours.
+
+---
+## ADR-006 вЂ” StockSharp sidecar РІРјРµСЃС‚Рѕ РїСЂСЏРјРѕРіРѕ РІСЃС‚СЂР°РёРІР°РЅРёСЏ broker logic РІ Python core
+
+**РЎС‚Р°С‚СѓСЃ:** accepted
+
+### РљРѕРЅС‚РµРєСЃС‚
+РќСѓР¶РЅР° РёРЅС‚РµРіСЂР°С†РёСЏ СЃ QUIK/Finam Р±РµР· РїРµСЂРµРїРёСЃС‹РІР°РЅРёСЏ execution stack СЃ РЅСѓР»СЏ.
+
+### Р РµС€РµРЅРёРµ
+РСЃРїРѕР»СЊР·РѕРІР°С‚СЊ StockSharp РєР°Рє РѕС‚РґРµР»СЊРЅС‹Р№ execution sidecar.
+Python core СЂР°Р±РѕС‚Р°РµС‚ С‡РµСЂРµР· transport-neutral execution contracts.
+
+### РџРѕСЃР»РµРґСЃС‚РІРёСЏ
+- РјРµРЅСЊС€Рµ СЂРёСЃРє РѕС€РёР±РѕРє РЅР° РЅРёР·РєРѕСѓСЂРѕРІРЅРµРІРѕРј execution path;
+- sidecar РјРѕР¶РЅРѕ Р·Р°РјРµРЅРёС‚СЊ РїРѕР·Р¶Рµ;
+- strategy logic РѕСЃС‚Р°С‘С‚СЃСЏ РІ Python.
 
 ---
 
-## ADR-006 — StockSharp sidecar вместо прямого встраивания broker logic в Python core
+## ADR-007 вЂ” Execution contracts transport-neutral
 
-**Статус:** accepted
+**РЎС‚Р°С‚СѓСЃ:** accepted
 
-### Контекст
-Нужна интеграция с QUIK/Finam без переписывания execution stack с нуля.
-
-### Решение
-Использовать StockSharp как отдельный execution sidecar.
-Python core работает через transport-neutral execution contracts.
-
-### Последствия
-- меньше риск ошибок на низкоуровневом execution path;
-- sidecar можно заменить позже;
-- strategy logic остаётся в Python.
-
----
-
-## ADR-007 — Execution contracts transport-neutral
-
-**Статус:** accepted
-
-### Решение
-Базовые сущности:
+### Р РµС€РµРЅРёРµ
+Р‘Р°Р·РѕРІС‹Рµ СЃСѓС‰РЅРѕСЃС‚Рё:
 - `OrderIntent`
 - `BrokerOrder`
 - `BrokerFill`
@@ -119,69 +117,69 @@ Python core работает через transport-neutral execution contracts.
 - `RiskSnapshot`
 - `BrokerEvent`
 
-не должны зависеть от конкретного брокера.
+РЅРµ РґРѕР»Р¶РЅС‹ Р·Р°РІРёСЃРµС‚СЊ РѕС‚ РєРѕРЅРєСЂРµС‚РЅРѕРіРѕ Р±СЂРѕРєРµСЂР°.
 
-### Последствия
-- можно поддержать paper/live и несколько adapters;
-- легче тестировать forward и reconciliation.
-
----
-
-## ADR-008 — Research/live split on contracts
-
-**Статус:** accepted
-
-### Решение
-Research может использовать continuous series.
-Live runtime и execution работают только на реальных торгуемых контрактах.
-
-### Последствия
-- меньше риск ошибочного live поведения;
-- требуется `roll_map`.
+### РџРѕСЃР»РµРґСЃС‚РІРёСЏ
+- РјРѕР¶РЅРѕ РїРѕРґРґРµСЂР¶Р°С‚СЊ paper/live Рё РЅРµСЃРєРѕР»СЊРєРѕ adapters;
+- Р»РµРіС‡Рµ С‚РµСЃС‚РёСЂРѕРІР°С‚СЊ forward Рё reconciliation.
 
 ---
 
-## ADR-009 — Product config outside shell high-risk root configs
+## ADR-008 вЂ” Research/live split on contracts
 
-**Статус:** accepted
+**РЎС‚Р°С‚СѓСЃ:** accepted
 
-### Контекст
-Root `configs/*` уже являются shell contracts.
+### Р РµС€РµРЅРёРµ
+Research РјРѕР¶РµС‚ РёСЃРїРѕР»СЊР·РѕРІР°С‚СЊ continuous series.
+Live runtime Рё execution СЂР°Р±РѕС‚Р°СЋС‚ С‚РѕР»СЊРєРѕ РЅР° СЂРµР°Р»СЊРЅС‹С… С‚РѕСЂРіСѓРµРјС‹С… РєРѕРЅС‚СЂР°РєС‚Р°С….
 
-### Решение
-Product runtime/config files по умолчанию размещать не в root `configs/`, а в:
+### РџРѕСЃР»РµРґСЃС‚РІРёСЏ
+- РјРµРЅСЊС€Рµ СЂРёСЃРє РѕС€РёР±РѕС‡РЅРѕРіРѕ live РїРѕРІРµРґРµРЅРёСЏ;
+- С‚СЂРµР±СѓРµС‚СЃСЏ `roll_map`.
+
+---
+
+## ADR-009 вЂ” Product config outside shell high-risk root configs
+
+**РЎС‚Р°С‚СѓСЃ:** accepted
+
+### РљРѕРЅС‚РµРєСЃС‚
+Root `configs/*` СѓР¶Рµ СЏРІР»СЏСЋС‚СЃСЏ shell contracts.
+
+### Р РµС€РµРЅРёРµ
+Product runtime/config files РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ СЂР°Р·РјРµС‰Р°С‚СЊ РЅРµ РІ root `configs/`, Р° РІ:
 - `src/trading_advisor_3000/config/*`,
 - `deployment/*`,
 - environment/secrets manager.
 
-### Последствия
-- меньше shell cross-contamination;
-- ниже риск ложных governance конфликтов.
+### РџРѕСЃР»РµРґСЃС‚РІРёСЏ
+- РјРµРЅСЊС€Рµ shell cross-contamination;
+- РЅРёР¶Рµ СЂРёСЃРє Р»РѕР¶РЅС‹С… governance РєРѕРЅС„Р»РёРєС‚РѕРІ.
 
 ---
 
-## ADR-010 — Phase-first delivery with shell gates
+## ADR-010 вЂ” Phase-first delivery with shell gates
 
-**Статус:** accepted
+**РЎС‚Р°С‚СѓСЃ:** accepted
 
-### Решение
-Каждая продуктовая фаза закрывается через:
+### Р РµС€РµРЅРёРµ
+РљР°Р¶РґР°СЏ РїСЂРѕРґСѓРєС‚РѕРІР°СЏ С„Р°Р·Р° Р·Р°РєСЂС‹РІР°РµС‚СЃСЏ С‡РµСЂРµР·:
 - task session,
 - loop gate,
 - product-specific tests,
 - PR gate.
 
-Nightly/dashboard lanes используются как hygiene/reporting layer, а не как замена фазной приёмке.
+Nightly/dashboard lanes РёСЃРїРѕР»СЊР·СѓСЋС‚СЃСЏ РєР°Рє hygiene/reporting layer, Р° РЅРµ РєР°Рє Р·Р°РјРµРЅР° С„Р°Р·РЅРѕР№ РїСЂРёС‘РјРєРµ.
 
-### Последствия
-- Codex получает чёткие stop/go критерии;
-- проще параллелить работу по фазам.
+### РџРѕСЃР»РµРґСЃС‚РІРёСЏ
+- Codex РїРѕР»СѓС‡Р°РµС‚ С‡С‘С‚РєРёРµ stop/go РєСЂРёС‚РµСЂРёРё;
+- РїСЂРѕС‰Рµ РїР°СЂР°Р»Р»РµР»РёС‚СЊ СЂР°Р±РѕС‚Сѓ РїРѕ С„Р°Р·Р°Рј.
 
 ---
 
-## ADR-011 — F1-B replaceable stack terminal decisions
+## ADR-011 вЂ” F1-B replaceable stack terminal decisions
 
-**Статус:** accepted
+**РЎС‚Р°С‚СѓСЃ:** accepted
 
 ### Context
 The F1-B closure phase requires one terminal state per replaceable technology with no `chosen but planned` ghosts.
@@ -191,7 +189,7 @@ Runtime reality already ships a custom Telegram publication engine, SQL-file mig
 - aiogram removed by ADR and replaced by custom Bot API engine (`TelegramPublicationEngine`).
 - polars removed by ADR and replaced by pyarrow local dataframe path.
 - duckdb removed by ADR and replaced by delta lake plus pyarrow local query path.
-- vectorbt removed by ADR and replaced by internal backtest engine.
+- vectorbt removed by ADR and replaced by internal backtest engine (later superseded in bounded scope by ADR-012).
 - alembic removed by ADR and replaced by sql migration runner.
 - opentelemetry removed by ADR and replaced by prometheus loki observability path.
 
@@ -204,3 +202,32 @@ Runtime reality already ships a custom Telegram publication engine, SQL-file mig
 ### Consequences
 - Replaceable stack claims stay honest and terminal for release blocking checks.
 - Future reintroduction of any removed technology must land as a new ADR plus runtime and test proof.
+
+---
+
+## ADR-012 - Governed vectorbt reintroduction (research-only envelope)
+
+**Status:** accepted
+
+### Date
+2026-04-10
+
+### Context
+Package intake for the vectorbt/pandas-ta-classic migration requires vectorbt for medium-term research throughput, while ADR-011 had previously removed vectorbt from the active stack.
+A strict legal/commercial envelope is required because vectorbt is distributed under a fair-code model (Apache-2.0 + Commons Clause).
+
+### Decision
+- Reintroduce `vectorbt` only for governed research-plane workloads (materialization, backtests, ranking evidence).
+- Keep runtime decisioning, publication, and live execution independent from vectorbt internals.
+- Treat reintroduction scope as bounded and non-default for commercial redistribution scenarios.
+- Pin governed compatibility envelope for this contour: Python 3.12.10, numpy 2.4.4, pandas 2.3.3, pyarrow 21.0.0, numba 0.65.0, vectorbt 0.28.5, pandas-ta-classic 0.4.47.
+
+### Legal/commercial envelope
+- Allowed: internal research, backtesting, and decision-support evidence generation inside the governed repo/process.
+- Not allowed by default: packaging vectorbt-driven engine internals as an external paid service or redistributable product component.
+- Escalation rule: any external commercialization path must pass a separate legal/product decision before release-readiness claims.
+
+### Consequences
+- ADR-011 remains valid for terminal removals except vectorbt, which is now governed by ADR-012 scope restrictions.
+- Stack-conformance truth sources must reflect `vectorbt` as a bounded governed contour (not runtime/live core).
+- Promotion evidence must remain reproducible and decoupled via runtime-compatible candidate projections.

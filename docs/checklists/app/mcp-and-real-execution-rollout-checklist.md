@@ -1,6 +1,6 @@
 # MCP + Real Execution Rollout Checklist
 
-Date: 2026-03-18
+Date: 2026-04-13
 
 ## Scope
 - [x] MCP rollout Wave 1-3 (project-scoped config, governance, preflight).
@@ -9,11 +9,12 @@ Date: 2026-03-18
 
 ## MCP Acceptance
 - [x] Server matrix + ownership/auth model is documented.
-- [x] Project-scoped config contract has required profiles (`base`, `ops`, `data_readonly`).
+- [x] Project-scoped config contract has required profiles (`base`, `ops`, `data_readonly`) with `mempalace` included in the base surface.
 - [x] Static config validation exists and is wired to gates.
 - [x] Tracked secret scan exists and is wired to gates.
 - [x] Runtime preflight smoke command supports negative scenarios.
 - [x] Deployment bundle includes troubleshooting, limitations, rollback.
+- [x] `mempalace` is documented as a local-memory MCP server that resolves palace path from host-level MemPalace config instead of a repo path.
 
 ## Real Execution Acceptance
 - [x] Bridge has HTTP/JSON sidecar transport with idempotency semantics.
@@ -31,5 +32,6 @@ Date: 2026-03-18
 - [x] `python -m pytest tests/product-plane/integration/test_real_execution_staging_rollout.py -q`
 - [x] `python scripts/validate_mcp_config.py`
 - [x] `python scripts/validate_no_tracked_secrets.py`
+- [x] `python scripts/mcp_preflight_smoke.py --profile base --strict-env-check --probe-commands`
 - [x] `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
 - [x] `python scripts/run_pr_gate.py --from-git --git-ref HEAD --skip-session-check`
