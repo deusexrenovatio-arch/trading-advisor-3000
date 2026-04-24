@@ -5,7 +5,7 @@ Fix one explicit operator-facing route for MOEX historical data so the repositor
 
 This document is the control point for:
 - which jobs are authoritative,
-- which jobs are legacy-only during migration,
+- which jobs are manual-only support tools,
 - which modules are reusable only as implementation patterns,
 - which routes are retired from normal operations.
 
@@ -16,9 +16,9 @@ If this document conflicts with older MOEX architecture narratives, this route-d
 - Active governed planning truth now lives in:
   - the `moex-historical-route-consolidation` execution contract
   - the `moex-historical-route-consolidation` parent module
-- Phase-01 contract freeze is now implemented in repo-side schemas and CAS lease surfaces; later phases remain responsible for parity, Dagster cutover, and cleanup.
-- Phase-02 route implementation now uses `raw_ingest_run_report.v2` as the canonical handoff boundary for changed-window scoped canonical recompute, parity manifests, and machine-safe `PASS-NOOP`.
-- Phase-03 runtime surfaces now bind the canonical route to a Dagster job plus nightly schedule/retry policy, while repair and backfill reuse that same cutover job instead of separate operator routes.
+- Repo-side schemas and CAS lease surfaces now freeze the route contract boundary.
+- `raw_ingest_run_report.v2` is the canonical handoff boundary for changed-window scoped canonical recompute, parity manifests, and machine-safe `PASS-NOOP`.
+- Runtime surfaces now bind the canonical route to a Dagster job plus nightly schedule and retry policy, while repair and backfill reuse that same job instead of separate operator routes.
 - The older `moex-spark-deltalake` governed module remains historical planning evidence only.
 - Reconciliation as an independent contour is not part of the active route-consolidation module.
 
@@ -31,9 +31,9 @@ This means:
 1. There is one orchestration owner.
 2. There is one raw writer.
 3. There is one canonical writer.
-4. Legacy full-snapshot reruns are no longer a normal operator route.
+4. Manual full-route reruns are no longer a normal operator route.
 5. Proof contours remain in the repo, but they are not allowed to compete with the MOEX route.
-6. After Dagster cutover lands, scheduled ownership belongs to the Dagster route; manual phase-01/phase-02 scripts remain bounded bootstrap or forensic repair aids, not the normal operator path.
+6. Scheduled ownership belongs to the Dagster route; the manual raw-ingest and canonical-refresh tools remain bounded bootstrap or forensic repair aids, not the normal operator path.
 
 ## Authoritative Responsibilities
 
@@ -66,9 +66,9 @@ This means:
 
 | Entry point | Decision | Role after cleanup |
 | --- | --- | --- |
-| `scripts/run_moex_phase01_foundation.py` | Retire through Phase 04 | Legacy migration artifact only; not part of the target-state operating route. |
-| `scripts/run_moex_phase02_canonical.py` | Retire through Phase 04 | Legacy migration artifact only; not part of the target-state operating route. |
-| `scripts/run_moex_nightly_backfill.py` | Retire from normal operations | Legacy full-snapshot route; blocked by default and allowed only by explicit acknowledgement for forensic reruns. |
+| `scripts/run_moex_raw_ingest.py` | Keep as manual-only support tool | Manual bootstrap and repair entrypoint; not part of the scheduled route. |
+| `scripts/run_moex_canonical_refresh.py` | Keep as manual-only support tool | Manual canonical refresh entrypoint; not part of the scheduled route. |
+| `scripts/run_moex_route_refresh.py` | Retire from normal operations | Manual full-route runner; blocked by default and allowed only by explicit acknowledgement for forensic reruns. |
 | `scripts/run_phase2a_dagster_proof.py` | Keep as proof-only until cleanup | Tested Dagster proof contour, not the canonical production-like route. |
 | `scripts/run_phase2a_spark_proof.py` | Keep as proof-only until cleanup | Tested Spark proof contour, not the canonical production-like route. |
 
@@ -95,12 +95,12 @@ Operators should see only one clear answer to "which route is responsible for hi
 2. Raw history ownership belongs to the Python raw ingest job.
 3. Canonical ownership belongs to the Spark canonical refresh job.
 4. Repair and backfill must reuse the same Dagster-owned cutover job and the same single-writer ledger discipline.
-5. Legacy scripts may exist physically during migration, but they are not the target-state operating route.
-6. Retired nightly full-snapshot reruns are not a normal operating path.
+5. Manual helper scripts are allowed only for bounded bootstrap, repair, or forensic use.
+6. Manual full-route reruns are not a normal operating path.
 
 ## Cleanup Rule
 To avoid accidental launches of the wrong contour:
 - active docs must point only to the authoritative route,
-- the legacy full-snapshot nightly script must stay blocked by default,
+- the manual full-route script must stay blocked by default,
 - proof contours must remain explicitly labeled as proof-only,
-- no runbook may present retired legacy or proof entrypoints as the normal overnight path.
+- no runbook may present manual-only or proof-only entrypoints as the normal overnight path.
