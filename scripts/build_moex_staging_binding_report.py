@@ -13,8 +13,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from trading_advisor_3000.product_plane.data_plane.moex.phase03_staging_binding import (
-    build_phase03_staging_binding_report,
+from trading_advisor_3000.product_plane.data_plane.moex.route_staging_binding import (
+    build_route_staging_binding_report,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     STAGING_BINDING_STORAGE_DIRNAME,
@@ -86,7 +86,7 @@ def main() -> None:
     )
     output_dir = output_root / bundle_id
 
-    result = build_phase03_staging_binding_report(
+    result = build_route_staging_binding_report(
         dagster_url=args.dagster_url,
         output_dir=output_dir,
         run_ids={

@@ -25,8 +25,8 @@ from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
 )
 
 
-DEFAULT_MAPPING_REGISTRY = Path("configs/moex_phase01/instrument_mapping_registry.v1.yaml")
-DEFAULT_UNIVERSE = Path("configs/moex_phase01/universe/moex-futures-priority.v1.yaml")
+DEFAULT_MAPPING_REGISTRY = Path("configs/moex_foundation/instrument_mapping_registry.v1.yaml")
+DEFAULT_UNIVERSE = Path("configs/moex_foundation/universe/moex-futures-priority.v1.yaml")
 DEFAULT_TIMEFRAMES = "5m,15m,1h,4h,1d,1w"
 
 

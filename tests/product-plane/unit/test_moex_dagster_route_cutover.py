@@ -16,7 +16,7 @@ from trading_advisor_3000.dagster_defs import (
     moex_historical_asset_specs,
 )
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
-from trading_advisor_3000.product_plane.data_plane.moex import build_raw_ingest_run_report_v2, run_phase03_dagster_cutover
+from trading_advisor_3000.product_plane.data_plane.moex import build_raw_ingest_run_report_v2, run_historical_dagster_cutover
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     MOEX_HISTORICAL_DATA_ROOT_ENV,
 )
@@ -153,7 +153,7 @@ def _write_staging_binding_report(tmp_path: Path) -> Path:
     return report_path
 
 
-def test_phase03_dagster_cutover_definitions_are_executable(
+def test_historical_dagster_cutover_definitions_are_executable(
     tmp_path: Path,
 ) -> None:
     assert_moex_historical_definitions_executable()
@@ -184,7 +184,7 @@ def test_phase03_dagster_cutover_definitions_are_executable(
     assert run_request.run_config.get("ops")
 
 
-def test_phase03_schedule_fails_closed_without_external_data_root(
+def test_dagster_route_schedule_fails_closed_without_external_data_root(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv(MOEX_HISTORICAL_DATA_ROOT_ENV, raising=False)
@@ -206,7 +206,7 @@ def test_phase03_schedule_fails_closed_without_external_data_root(
     assert MOEX_HISTORICAL_DATA_ROOT_ENV in detail
 
 
-def test_phase03_canonical_refresh_is_blocked_when_raw_status_failed(tmp_path: Path) -> None:
+def test_dagster_route_canonical_refresh_is_blocked_when_raw_status_failed(tmp_path: Path) -> None:
     raw_table_path, raw_report_path = _write_raw_table_and_report(tmp_path, run_id="phase03-raw-failed")
     payload = json.loads(raw_report_path.read_text(encoding="utf-8"))
     payload["status"] = "FAILED"
@@ -222,9 +222,9 @@ def test_phase03_canonical_refresh_is_blocked_when_raw_status_failed(tmp_path: P
     assert report["success"] is False
 
 
-def test_phase03_cutover_blocks_when_second_nightly_misses_morning_target(tmp_path: Path) -> None:
+def test_dagster_route_cutover_blocks_when_second_nightly_misses_morning_target(tmp_path: Path) -> None:
     raw_table_path, raw_report_path = _write_raw_table_and_report(tmp_path, run_id="phase03-nightly-target-blocked")
-    report = run_phase03_dagster_cutover(
+    report = run_historical_dagster_cutover(
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_report_path,
         output_dir=tmp_path / "phase03-cutover",
@@ -239,11 +239,11 @@ def test_phase03_cutover_blocks_when_second_nightly_misses_morning_target(tmp_pa
     assert any("morning readiness target missed" in reason for reason in report["reasons"])
 
 
-def test_phase03_cutover_rejects_non_increasing_nightly_sequence(tmp_path: Path) -> None:
+def test_dagster_route_cutover_rejects_non_increasing_nightly_sequence(tmp_path: Path) -> None:
     raw_table_path, raw_report_path = _write_raw_table_and_report(tmp_path, run_id="phase03-nightly-order")
 
     with pytest.raises(ValueError, match="strictly increasing order"):
-        run_phase03_dagster_cutover(
+        run_historical_dagster_cutover(
             raw_table_path=raw_table_path,
             raw_ingest_report_path=raw_report_path,
             output_dir=tmp_path / "phase03-cutover",
@@ -255,11 +255,11 @@ def test_phase03_cutover_rejects_non_increasing_nightly_sequence(tmp_path: Path)
         )
 
 
-def test_phase03_cutover_rejects_non_consecutive_local_nightly_cycles(tmp_path: Path) -> None:
+def test_dagster_route_cutover_rejects_non_consecutive_local_nightly_cycles(tmp_path: Path) -> None:
     raw_table_path, raw_report_path = _write_raw_table_and_report(tmp_path, run_id="phase03-nightly-gap")
 
     with pytest.raises(ValueError, match="two consecutive nightly cycles"):
-        run_phase03_dagster_cutover(
+        run_historical_dagster_cutover(
             raw_table_path=raw_table_path,
             raw_ingest_report_path=raw_report_path,
             output_dir=tmp_path / "phase03-cutover",
@@ -271,10 +271,10 @@ def test_phase03_cutover_rejects_non_consecutive_local_nightly_cycles(tmp_path: 
         )
 
 
-def test_phase03_cutover_rejects_non_canonical_schedule_cron(tmp_path: Path) -> None:
+def test_dagster_route_cutover_rejects_non_canonical_schedule_cron(tmp_path: Path) -> None:
     raw_table_path, raw_report_path = _write_raw_table_and_report(tmp_path, run_id="phase03-schedule-drift")
     with pytest.raises(ValueError, match="Dagster-route proof requires baseline daily cron"):
-        run_phase03_dagster_cutover(
+        run_historical_dagster_cutover(
             raw_table_path=raw_table_path,
             raw_ingest_report_path=raw_report_path,
             output_dir=tmp_path / "phase03-cutover",
@@ -287,10 +287,10 @@ def test_phase03_cutover_rejects_non_canonical_schedule_cron(tmp_path: Path) -> 
         )
 
 
-def test_phase03_cutover_rejects_retry_max_attempts_drift(tmp_path: Path) -> None:
+def test_dagster_route_cutover_rejects_retry_max_attempts_drift(tmp_path: Path) -> None:
     raw_table_path, raw_report_path = _write_raw_table_and_report(tmp_path, run_id="phase03-retry-attempts-drift")
     with pytest.raises(ValueError, match="Dagster-route proof requires `retry_max_attempts=3`"):
-        run_phase03_dagster_cutover(
+        run_historical_dagster_cutover(
             raw_table_path=raw_table_path,
             raw_ingest_report_path=raw_report_path,
             output_dir=tmp_path / "phase03-cutover",
@@ -303,13 +303,13 @@ def test_phase03_cutover_rejects_retry_max_attempts_drift(tmp_path: Path) -> Non
         )
 
 
-def test_phase03_cutover_rejects_retry_backoff_drift(tmp_path: Path) -> None:
+def test_dagster_route_cutover_rejects_retry_backoff_drift(tmp_path: Path) -> None:
     raw_table_path, raw_report_path = _write_raw_table_and_report(tmp_path, run_id="phase03-retry-backoff-drift")
     with pytest.raises(
         ValueError,
         match=r"Dagster-route proof requires `retry_backoff_seconds=\[60, 300, 900\]`",
     ):
-        run_phase03_dagster_cutover(
+        run_historical_dagster_cutover(
             raw_table_path=raw_table_path,
             raw_ingest_report_path=raw_report_path,
             output_dir=tmp_path / "phase03-cutover",
@@ -322,9 +322,9 @@ def test_phase03_cutover_rejects_retry_backoff_drift(tmp_path: Path) -> None:
         )
 
 
-def test_phase03_cutover_passes_with_two_nightly_cycles_and_recovery(tmp_path: Path) -> None:
+def test_dagster_route_cutover_passes_with_two_nightly_cycles_and_recovery(tmp_path: Path) -> None:
     raw_table_path, raw_report_path = _write_raw_table_and_report(tmp_path, run_id="phase03-cutover-pass")
-    report = run_phase03_dagster_cutover(
+    report = run_historical_dagster_cutover(
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_report_path,
         output_dir=tmp_path / "phase03-cutover",
@@ -347,9 +347,9 @@ def test_phase03_cutover_passes_with_two_nightly_cycles_and_recovery(tmp_path: P
         assert Path(path_text).exists()
 
 
-def test_phase03_cutover_blocks_when_staging_real_is_required_without_external_binding(tmp_path: Path) -> None:
+def test_dagster_route_cutover_blocks_when_staging_real_is_required_without_external_binding(tmp_path: Path) -> None:
     raw_table_path, raw_report_path = _write_raw_table_and_report(tmp_path, run_id="phase03-staging-required")
-    report = run_phase03_dagster_cutover(
+    report = run_historical_dagster_cutover(
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_report_path,
         output_dir=tmp_path / "phase03-cutover",
@@ -368,10 +368,10 @@ def test_phase03_cutover_blocks_when_staging_real_is_required_without_external_b
     )
 
 
-def test_phase03_cutover_promotes_to_staging_real_when_external_binding_report_is_provided(tmp_path: Path) -> None:
+def test_dagster_route_cutover_promotes_to_staging_real_when_external_binding_report_is_provided(tmp_path: Path) -> None:
     raw_table_path, raw_report_path = _write_raw_table_and_report(tmp_path, run_id="phase03-staging-binding")
     staging_binding_report_path = _write_staging_binding_report(tmp_path)
-    report = run_phase03_dagster_cutover(
+    report = run_historical_dagster_cutover(
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_report_path,
         output_dir=tmp_path / "phase03-cutover",
@@ -389,7 +389,7 @@ def test_phase03_cutover_promotes_to_staging_real_when_external_binding_report_i
     assert "dagster://staging/moex-historical-cutover" in report["real_bindings"]
 
 
-def test_phase03_cutover_rejects_localhost_staging_binding_report(tmp_path: Path) -> None:
+def test_dagster_route_cutover_rejects_localhost_staging_binding_report(tmp_path: Path) -> None:
     raw_table_path, raw_report_path = _write_raw_table_and_report(tmp_path, run_id="phase03-localhost-binding")
     staging_binding_report_path = _write_staging_binding_report(tmp_path)
     payload = json.loads(staging_binding_report_path.read_text(encoding="utf-8"))
@@ -400,7 +400,7 @@ def test_phase03_cutover_rejects_localhost_staging_binding_report(tmp_path: Path
     )
 
     with pytest.raises(ValueError, match="loopback or unspecified host|external staging Dagster host"):
-        run_phase03_dagster_cutover(
+        run_historical_dagster_cutover(
             raw_table_path=raw_table_path,
             raw_ingest_report_path=raw_report_path,
             output_dir=tmp_path / "phase03-cutover",

@@ -15,7 +15,7 @@ DEFAULT_DAGSTER_BINDING = "dagster://staging/moex-historical-cutover"
 DEFAULT_REAL_BINDINGS = ("delta-ledger-cas://technical-route-run-ledger",)
 _LOCAL_DAGSTER_HOSTS = {"localhost", "host.docker.internal"}
 RUN_SUMMARY_QUERY = """
-query Phase03RunSummary($runId: ID!) {
+query RouteRunSummary($runId: ID!) {
   runOrError(runId: $runId) {
     __typename
     ... on Run {
@@ -204,7 +204,7 @@ def fetch_dagster_run_summary(
     }
 
 
-def build_phase03_staging_binding_report(
+def build_route_staging_binding_report(
     *,
     dagster_url: str,
     output_dir: Path,

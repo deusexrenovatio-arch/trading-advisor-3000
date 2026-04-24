@@ -426,5 +426,5 @@ def build_indicator_profile_registry() -> IndicatorProfileRegistry:
     )
 
 
-def phase1_indicator_profile() -> IndicatorProfile:
+def default_indicator_profile() -> IndicatorProfile:
     return build_indicator_profile_registry().get("core_v1")

@@ -20,7 +20,7 @@ from .foundation import (
 )
 from .historical_route_contracts import STATUS_PASS, STATUS_PASS_NOOP, normalize_changed_windows
 from .iss_client import MoexISSClient
-from .phase02_canonical import CANONICAL_MERGE_SCOPED_DELETE_INSERT, run_phase02_canonical
+from .historical_canonical_route import CANONICAL_MERGE_SCOPED_DELETE_INSERT, run_historical_canonical_route
 
 
 BASELINE_UPDATE_REPORT_FILENAME = "baseline-update-report.json"
@@ -205,7 +205,7 @@ def run_moex_baseline_update(
     _write_json(canonical_input_report_path, canonical_raw_report)
 
     try:
-        canonical_report = run_phase02_canonical(
+        canonical_report = run_historical_canonical_route(
             raw_table_path=raw_table_path,
             output_dir=run_dir / "canonical-refresh",
             run_id=run_id,

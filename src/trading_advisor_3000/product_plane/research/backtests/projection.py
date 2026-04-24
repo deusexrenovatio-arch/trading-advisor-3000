@@ -9,10 +9,10 @@ from pathlib import Path
 from trading_advisor_3000.product_plane.contracts import DecisionCandidate, FeatureSnapshotRef, Mode, Timeframe, TradeSide
 from trading_advisor_3000.product_plane.research.ids import candidate_id
 from trading_advisor_3000.product_plane.research.io import ResearchFrameCache, ResearchSliceRequest, load_backtest_frames
-from trading_advisor_3000.product_plane.research.strategies import StrategyRegistry, build_phase1_strategy_registry
+from trading_advisor_3000.product_plane.research.strategies import StrategyRegistry, build_strategy_registry
 
 from .engine import BacktestEngineConfig, project_series_candidate
-from .results import load_backtest_artifacts, phase6_results_store_contract, write_stage6_artifacts
+from .results import load_backtest_artifacts, results_store_contract, write_stage6_artifacts
 
 
 def _stable_hash(text: str) -> str:
@@ -79,7 +79,7 @@ def project_runtime_candidates(
     cache: ResearchFrameCache | None = None,
     config: BacktestEngineConfig | None = None,
 ) -> dict[str, object]:
-    registry = strategy_registry or build_phase1_strategy_registry()
+    registry = strategy_registry or build_strategy_registry()
     engine_config = config or BacktestEngineConfig()
     if ranking_rows is None:
         ranking_rows = load_backtest_artifacts(output_dir)["research_strategy_rankings"]
@@ -198,7 +198,7 @@ def project_runtime_candidates(
         "projection_request": request,
         "candidate_rows": projected_rows,
         "candidate_contracts": contracts,
-        "delta_manifest": phase6_results_store_contract(),
+        "delta_manifest": results_store_contract(),
         "output_paths": output_paths,
     }
 

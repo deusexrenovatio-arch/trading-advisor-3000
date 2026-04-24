@@ -12,7 +12,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from trading_advisor_3000.product_plane.data_plane.moex import run_phase01_foundation
+from trading_advisor_3000.product_plane.data_plane.moex import run_moex_foundation
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     RAW_INGEST_STORAGE_DIRNAME,
     RAW_INGEST_SUMMARY_REPORT_FILENAME,
@@ -20,8 +20,8 @@ from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
 )
 
 
-DEFAULT_MAPPING_REGISTRY = Path("configs/moex_phase01/instrument_mapping_registry.v1.yaml")
-DEFAULT_UNIVERSE = Path("configs/moex_phase01/universe/moex-futures-priority.v1.yaml")
+DEFAULT_MAPPING_REGISTRY = Path("configs/moex_foundation/instrument_mapping_registry.v1.yaml")
+DEFAULT_UNIVERSE = Path("configs/moex_foundation/universe/moex-futures-priority.v1.yaml")
 def _repo_root() -> Path:
     return ROOT
 

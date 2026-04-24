@@ -13,8 +13,8 @@ from trading_advisor_3000.product_plane.research.backtests import (
     CandidateProjectionRequest,
     RankingPolicy,
     build_ephemeral_strategy_space,
-    phase5_backtest_store_contract,
-    phase6_results_store_contract,
+    backtest_store_contract,
+    results_store_contract,
     project_runtime_candidates,
     rank_backtest_results,
     run_backtest_batch,
@@ -22,12 +22,12 @@ from trading_advisor_3000.product_plane.research.backtests import (
 from trading_advisor_3000.product_plane.research.datasets import (
     ResearchDatasetManifest,
     materialize_research_dataset,
-    phase2_research_dataset_store_contract,
+    research_dataset_store_contract,
 )
 from trading_advisor_3000.product_plane.research.features import materialize_feature_frames, research_feature_store_contract
-from trading_advisor_3000.product_plane.research.indicators import materialize_indicator_frames, phase3_indicator_store_contract
+from trading_advisor_3000.product_plane.research.indicators import materialize_indicator_frames, indicator_store_contract
 from trading_advisor_3000.product_plane.research.io import ResearchFrameCache
-from trading_advisor_3000.product_plane.research.strategies import StrategyCatalog, StrategyRegistry, build_phase1_strategy_registry
+from trading_advisor_3000.product_plane.research.strategies import StrategyCatalog, StrategyRegistry, build_strategy_registry
 
 def _stable_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12].upper()
@@ -114,7 +114,7 @@ def _inline_canonical_context(bars: list[CanonicalBar]) -> tuple[list[SessionCal
 
 
 def _primary_strategy_registry(strategy_version_id: str) -> StrategyRegistry:
-    base_registry = build_phase1_strategy_registry()
+    base_registry = build_strategy_registry()
     base_spec = base_registry.get(strategy_version_id)
     primary_spec = replace(
         base_spec,
@@ -409,11 +409,11 @@ def run_research_from_bars(
         "strategy_metrics": strategy_metrics,
         "delta_manifest": {
             "feature_snapshots": research_feature_store_contract()["feature_snapshots"],
-            **phase2_research_dataset_store_contract(),
-            **phase3_indicator_store_contract(),
+            **research_dataset_store_contract(),
+            **indicator_store_contract(),
             **research_feature_store_contract(),
-            **phase5_backtest_store_contract(),
-            **phase6_results_store_contract(),
+            **backtest_store_contract(),
+            **results_store_contract(),
         },
         "output_paths": output_paths,
         "signal_contract_rows": candidate_contract_rows,

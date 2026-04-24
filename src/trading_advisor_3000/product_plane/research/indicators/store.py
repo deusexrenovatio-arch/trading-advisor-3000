@@ -118,7 +118,7 @@ class IndicatorFrameRow:
         )
 
 
-def phase3_indicator_store_contract() -> dict[str, dict[str, object]]:
+def indicator_store_contract() -> dict[str, dict[str, object]]:
     columns = {
         "dataset_version": "string",
         "indicator_set_version": "string",
@@ -189,7 +189,7 @@ def write_indicator_frames(
     rows: list[IndicatorFrameRow],
     replace_partitions: tuple[IndicatorFramePartitionKey, ...],
 ) -> dict[str, str]:
-    contract = phase3_indicator_store_contract()
+    contract = indicator_store_contract()
     path = output_dir / "research_indicator_frames.delta"
     existing_rows = read_delta_table_rows(path) if (path / "_delta_log").exists() else []
     preserved_rows = [

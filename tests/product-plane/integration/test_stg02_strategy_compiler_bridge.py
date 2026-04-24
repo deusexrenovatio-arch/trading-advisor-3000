@@ -107,9 +107,9 @@ def test_stg02_seed_generation_does_not_depend_on_strategy_catalog(monkeypatch: 
     import trading_advisor_3000.product_plane.research.strategies.catalog as catalog_module
 
     def _fail_if_called() -> object:
-        raise AssertionError("phase1_strategy_catalog must not be called by stg02 seed generation")
+        raise AssertionError("default_strategy_catalog must not be called by stg02 seed generation")
 
-    monkeypatch.setattr(catalog_module, "phase1_strategy_catalog", _fail_if_called)
+    monkeypatch.setattr(catalog_module, "default_strategy_catalog", _fail_if_called)
     report = materialize_strategy_template_seed_registry(registry_root=tmp_path)
     assert report["inventory"]["adapter_count"] == len(REQUIRED_STG02_ADAPTER_KEYS)
 

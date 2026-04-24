@@ -36,7 +36,7 @@ from trading_advisor_3000.product_plane.data_plane.moex.foundation import (
     validate_universe_mapping_alignment,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.iss_client import MoexISSClient
-from trading_advisor_3000.product_plane.data_plane.moex.phase02_canonical import run_phase02_canonical
+from trading_advisor_3000.product_plane.data_plane.moex.historical_canonical_route import run_historical_canonical_route
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     CANONICAL_REFRESH_REPORT_FILENAME,
     CANONICAL_REFRESH_STORAGE_DIRNAME,
@@ -48,8 +48,8 @@ from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
 )
 
 
-DEFAULT_MAPPING_REGISTRY = Path("configs/moex_phase01/instrument_mapping_registry.v1.yaml")
-DEFAULT_UNIVERSE = Path("configs/moex_phase01/universe/moex-futures-priority.v1.yaml")
+DEFAULT_MAPPING_REGISTRY = Path("configs/moex_foundation/instrument_mapping_registry.v1.yaml")
+DEFAULT_UNIVERSE = Path("configs/moex_foundation/universe/moex-futures-priority.v1.yaml")
 DEFAULT_TIMEFRAMES = "5m,15m,1h,4h,1d,1w"
 DEFAULT_BATCH_SIZE = 250_000
 DEFAULT_EXECUTION_MODE = "sequential"
@@ -1018,7 +1018,7 @@ def main() -> None:
         _safe_progress_print(json.dumps(report, ensure_ascii=False, indent=2))
         return
 
-    canonical_report = run_phase02_canonical(
+    canonical_report = run_historical_canonical_route(
         raw_table_path=consolidated_raw_path,
         output_dir=canonical_run_dir,
         run_id=run_id,

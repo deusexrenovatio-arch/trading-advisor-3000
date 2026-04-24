@@ -10,9 +10,9 @@ from statistics import mean
 
 import pandas as pd
 
-from trading_advisor_3000.product_plane.research.strategies import StrategyRegistry, build_phase1_strategy_registry
+from trading_advisor_3000.product_plane.research.strategies import StrategyRegistry, build_strategy_registry
 
-from .results import load_backtest_artifacts, phase6_results_store_contract, write_stage6_artifacts
+from .results import load_backtest_artifacts, results_store_contract, write_stage6_artifacts
 
 
 def _stable_hash(text: str) -> str:
@@ -145,7 +145,7 @@ def rank_backtest_results(
     strategy_registry: StrategyRegistry | None = None,
 ) -> dict[str, object]:
     resolved_policy = policy or default_ranking_policy()
-    registry = strategy_registry or build_phase1_strategy_registry()
+    registry = strategy_registry or build_strategy_registry()
     if backtest_output_dir is not None and any(rows is None for rows in (batch_rows, run_rows, stat_rows, trade_rows)):
         artifacts = load_backtest_artifacts(backtest_output_dir)
         batch_rows = batch_rows if batch_rows is not None else artifacts["research_backtest_batches"]
@@ -343,7 +343,7 @@ def rank_backtest_results(
         "ranking_policy": resolved_policy,
         "ranking_rows": grouped_rows,
         "finding_rows": finding_rows,
-        "delta_manifest": phase6_results_store_contract(),
+        "delta_manifest": results_store_contract(),
         "output_paths": output_paths,
     }
 

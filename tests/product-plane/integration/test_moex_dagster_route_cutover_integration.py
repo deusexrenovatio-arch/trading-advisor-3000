@@ -6,7 +6,7 @@ from pathlib import Path
 import tempfile
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows, write_delta_table_rows
-from trading_advisor_3000.product_plane.data_plane.moex import build_raw_ingest_run_report_v2, run_phase03_dagster_cutover
+from trading_advisor_3000.product_plane.data_plane.moex import build_raw_ingest_run_report_v2, run_historical_dagster_cutover
 from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contracts import read_technical_route_run_ledger
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     MOEX_HISTORICAL_DATA_ROOT_ENV,
@@ -45,7 +45,7 @@ def _iso(dt: datetime) -> str:
     return dt.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def _prepare_phase01_inputs(tmp_path: Path, *, run_id: str) -> tuple[Path, Path]:
+def _prepare_raw_route_inputs(tmp_path: Path, *, run_id: str) -> tuple[Path, Path]:
     start = datetime(2026, 4, 2, 10, 0, tzinfo=UTC)
     rows: list[dict[str, object]] = []
     for minute in range(24):
@@ -111,11 +111,11 @@ def _prepare_phase01_inputs(tmp_path: Path, *, run_id: str) -> tuple[Path, Path]
     return raw_table_path, raw_report_path
 
 
-def test_phase03_dagster_cutover_materializes_route_and_emits_recovery_artifacts(tmp_path: Path) -> None:
-    raw_table_path, raw_report_path = _prepare_phase01_inputs(tmp_path, run_id="phase03-int-raw")
+def test_historical_dagster_cutover_materializes_route_and_emits_recovery_artifacts(tmp_path: Path) -> None:
+    raw_table_path, raw_report_path = _prepare_raw_route_inputs(tmp_path, run_id="phase03-int-raw")
     output_dir = tmp_path / "phase03-cutover"
 
-    report = run_phase03_dagster_cutover(
+    report = run_historical_dagster_cutover(
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_report_path,
         output_dir=output_dir,

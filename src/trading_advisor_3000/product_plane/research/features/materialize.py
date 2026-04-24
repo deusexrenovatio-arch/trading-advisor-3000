@@ -10,7 +10,7 @@ import pandas as pd
 from trading_advisor_3000.product_plane.research.datasets import ResearchBarView, load_materialized_research_dataset
 from trading_advisor_3000.product_plane.research.indicators import IndicatorFrameRow, load_indicator_frames
 
-from .derived import FeatureProfile, FeatureProfileRegistry, FeatureSpec, build_feature_profile_registry, phase1_feature_profile
+from .derived import FeatureProfile, FeatureProfileRegistry, FeatureSpec, build_feature_profile_registry, default_feature_profile
 from .store import (
     FeatureFramePartitionKey,
     FeatureFrameRow,
@@ -770,7 +770,7 @@ def build_feature_frames(
     series_mode: str = "contract",
     profile: FeatureProfile | None = None,
 ) -> list[FeatureFrameRow]:
-    profile = profile or phase1_feature_profile()
+    profile = profile or default_feature_profile()
     grouped_bars = _group_bar_views(bar_views=bar_views, series_mode=series_mode)
     grouped_indicators = _group_indicator_rows(rows=indicator_rows, series_mode=series_mode)
 

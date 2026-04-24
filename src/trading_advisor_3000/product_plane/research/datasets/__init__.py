@@ -6,7 +6,7 @@ from .materialize import (
     build_research_dataset_manifest,
     load_materialized_research_dataset,
     materialize_research_dataset,
-    phase2_research_dataset_store_contract,
+    research_dataset_store_contract,
 )
 from .resample import ResamplePlan
 from .splitters import DatasetWindow, HoldoutSplitConfig, WalkForwardSplitConfig, build_holdout_window, build_walk_forward_windows
@@ -28,5 +28,5 @@ __all__ = [
     "build_walk_forward_windows",
     "load_materialized_research_dataset",
     "materialize_research_dataset",
-    "phase2_research_dataset_store_contract",
+    "research_dataset_store_contract",
 ]

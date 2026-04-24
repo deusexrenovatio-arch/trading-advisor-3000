@@ -22,7 +22,7 @@ from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     resolve_external_root,
 )
 
-DEFAULT_MAPPING_REGISTRY = Path("configs/moex_phase01/instrument_mapping_registry.v1.yaml")
+DEFAULT_MAPPING_REGISTRY = Path("configs/moex_foundation/instrument_mapping_registry.v1.yaml")
 DEFAULT_THRESHOLD_POLICY = Path("configs/moex_phase03/reconciliation_thresholds.v1.yaml")
 RUN_ID_PATTERN = re.compile(r"^\d{8}T\d{6}Z$")
 

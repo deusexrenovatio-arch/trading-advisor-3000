@@ -12,7 +12,7 @@ class StrategyCatalog:
     strategies: tuple[StrategySpec, ...]
 
 
-def phase1_strategy_catalog() -> StrategyCatalog:
+def default_strategy_catalog() -> StrategyCatalog:
     adapters = phase_stg02_family_adapters()
     return StrategyCatalog(
         version="research-strategy-catalog-v1",

@@ -13,9 +13,9 @@ from .registry import (
     core_intraday_v1_indicator_profile,
     core_swing_v1_indicator_profile,
     core_v1_indicator_profile,
-    phase1_indicator_profile,
+    default_indicator_profile,
 )
-from .store import IndicatorFramePartitionKey, IndicatorFrameRow, load_indicator_frames, phase3_indicator_store_contract
+from .store import IndicatorFramePartitionKey, IndicatorFrameRow, load_indicator_frames, indicator_store_contract
 
 __all__ = [
     "IndicatorParameter",
@@ -34,7 +34,7 @@ __all__ = [
     "indicator_column_name",
     "load_indicator_frames",
     "materialize_indicator_frames",
-    "phase1_indicator_profile",
-    "phase3_indicator_store_contract",
+    "default_indicator_profile",
+    "indicator_store_contract",
     "reload_indicator_frames",
 ]

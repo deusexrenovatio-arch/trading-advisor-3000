@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .catalog import StrategyCatalog, phase1_strategy_catalog
+from .catalog import StrategyCatalog, default_strategy_catalog
 from .spec import StrategySpec
 
 
@@ -26,5 +26,5 @@ class StrategyRegistry:
         return self.catalog.version
 
 
-def build_phase1_strategy_registry() -> StrategyRegistry:
-    return StrategyRegistry(catalog=phase1_strategy_catalog())
+def build_strategy_registry() -> StrategyRegistry:
+    return StrategyRegistry(catalog=default_strategy_catalog())

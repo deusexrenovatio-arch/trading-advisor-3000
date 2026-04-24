@@ -8,7 +8,7 @@ from trading_advisor_3000.product_plane.research.datasets import (
     ResearchDatasetManifest,
     build_research_bar_views,
     build_research_dataset_manifest,
-    phase2_research_dataset_store_contract,
+    research_dataset_store_contract,
 )
 
 
@@ -144,7 +144,7 @@ def test_continuous_front_uses_roll_map_across_contract_boundary() -> None:
 
 
 def test_dataset_store_contract_contains_required_stage2_fields() -> None:
-    contract = phase2_research_dataset_store_contract()
+    contract = research_dataset_store_contract()
     assert set(contract) == {"research_datasets", "research_bar_views"}
     dataset_columns = contract["research_datasets"]["columns"]
     bar_columns = contract["research_bar_views"]["columns"]

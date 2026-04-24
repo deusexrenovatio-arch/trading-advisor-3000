@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows
-from trading_advisor_3000.product_plane.data_plane.moex.foundation import load_mapping_registry, run_phase01_foundation
+from trading_advisor_3000.product_plane.data_plane.moex.foundation import load_mapping_registry, run_moex_foundation
 from trading_advisor_3000.product_plane.data_plane.moex.iss_client import CandleBorder, MoexCandle
 
 
@@ -136,9 +136,9 @@ class _OverlapRefreshClient:
         ]
 
 
-def test_phase01_foundation_ingest_is_idempotent_and_watermark_safe(tmp_path: Path) -> None:
-    mapping_registry = Path("configs/moex_phase01/instrument_mapping_registry.v1.yaml")
-    universe = Path("configs/moex_phase01/universe/moex-futures-priority.v1.yaml")
+def test_raw_route_foundation_ingest_is_idempotent_and_watermark_safe(tmp_path: Path) -> None:
+    mapping_registry = Path("configs/moex_foundation/instrument_mapping_registry.v1.yaml")
+    universe = Path("configs/moex_foundation/universe/moex-futures-priority.v1.yaml")
     client = _FakeMoexClient()
     active_internal_ids = {
         row.internal_id
@@ -147,7 +147,7 @@ def test_phase01_foundation_ingest_is_idempotent_and_watermark_safe(tmp_path: Pa
     }
     expected_rows = len(active_internal_ids) * 2
 
-    pass1 = run_phase01_foundation(
+    pass1 = run_moex_foundation(
         mapping_registry_path=mapping_registry,
         universe_path=universe,
         output_dir=tmp_path,
@@ -160,7 +160,7 @@ def test_phase01_foundation_ingest_is_idempotent_and_watermark_safe(tmp_path: Pa
     assert pass1.incremental_rows == expected_rows
     assert pass1.stale_rows == 0
 
-    pass2 = run_phase01_foundation(
+    pass2 = run_moex_foundation(
         mapping_registry_path=mapping_registry,
         universe_path=universe,
         output_dir=tmp_path,
@@ -197,9 +197,9 @@ def test_phase01_foundation_ingest_is_idempotent_and_watermark_safe(tmp_path: Pa
     assert len(progress_lines) == len(active_internal_ids) * 2
 
 
-def test_phase01_foundation_refresh_overlap_applies_near_watermark_corrections_without_duplicates(tmp_path: Path) -> None:
-    mapping_registry = Path("configs/moex_phase01/instrument_mapping_registry.v1.yaml")
-    universe = Path("configs/moex_phase01/universe/moex-futures-priority.v1.yaml")
+def test_raw_route_foundation_refresh_overlap_applies_near_watermark_corrections_without_duplicates(tmp_path: Path) -> None:
+    mapping_registry = Path("configs/moex_foundation/instrument_mapping_registry.v1.yaml")
+    universe = Path("configs/moex_foundation/universe/moex-futures-priority.v1.yaml")
     client = _OverlapRefreshClient()
     active_internal_ids = {
         row.internal_id
@@ -208,7 +208,7 @@ def test_phase01_foundation_refresh_overlap_applies_near_watermark_corrections_w
     }
     expected_rows = len(active_internal_ids) * 2
 
-    pass1 = run_phase01_foundation(
+    pass1 = run_moex_foundation(
         mapping_registry_path=mapping_registry,
         universe_path=universe,
         output_dir=tmp_path,
@@ -222,7 +222,7 @@ def test_phase01_foundation_refresh_overlap_applies_near_watermark_corrections_w
     assert pass1.incremental_rows == expected_rows
 
     client.corrected = True
-    pass2 = run_phase01_foundation(
+    pass2 = run_moex_foundation(
         mapping_registry_path=mapping_registry,
         universe_path=universe,
         output_dir=tmp_path,

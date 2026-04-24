@@ -8,16 +8,16 @@ from .providers import DataProviderRegistry, DataProviderSpec, default_data_prov
 
 if TYPE_CHECKING:
     from .moex import (
-        run_phase01_foundation,
-        run_phase02_canonical,
+        run_moex_foundation,
+        run_historical_canonical_route,
         run_phase03_reconciliation,
         run_phase04_production_hardening,
     )
 
 
 _MOEX_EXPORTS = {
-    "run_phase01_foundation",
-    "run_phase02_canonical",
+    "run_moex_foundation",
+    "run_historical_canonical_route",
     "run_phase03_reconciliation",
     "run_phase04_production_hardening",
 }

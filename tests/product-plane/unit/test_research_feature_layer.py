@@ -1,10 +1,10 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from trading_advisor_3000.product_plane.research.datasets import ResearchBarView
 from trading_advisor_3000.product_plane.research.features import (
     build_feature_frames,
     build_feature_profile_registry,
-    phase1_feature_profile,
+    default_feature_profile,
     research_feature_store_contract,
 )
 from trading_advisor_3000.product_plane.research.indicators import IndicatorFrameRow
@@ -186,7 +186,7 @@ def test_feature_mtf_overlay_is_available_only_after_higher_timeframe_close() ->
         bar_views=[*ltf_views, *htf_views],
         indicator_rows=indicator_rows,
         series_mode="contract",
-        profile=phase1_feature_profile(),
+        profile=default_feature_profile(),
     )
     ltf_rows = [row for row in rows if row.timeframe == "15m"]
 

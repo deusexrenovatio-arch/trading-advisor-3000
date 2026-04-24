@@ -30,7 +30,7 @@ def _coverage_record(*, internal_id: str, secid: str, source_interval: int, sour
 
 
 def test_build_jobs_scopes_shared_discovery_by_internal_id(tmp_path: Path) -> None:
-    universe = load_universe(Path("configs/moex_phase01/universe/moex-futures-priority.v1.yaml"))
+    universe = load_universe(Path("configs/moex_foundation/universe/moex-futures-priority.v1.yaml"))
     active_symbols = [item for item in universe if item.is_active][:2]
     assert len(active_symbols) == 2
 

@@ -9,7 +9,7 @@ class LabelFeatureSpec:
     description: str
 
 
-def phase1_label_specs() -> tuple[LabelFeatureSpec, ...]:
+def default_label_specs() -> tuple[LabelFeatureSpec, ...]:
     return (
         LabelFeatureSpec("breakout_ready_flag", "Marks bars that are eligible for breakout-family triggers."),
         LabelFeatureSpec("reversion_ready_flag", "Marks bars that are eligible for mean-reversion-family triggers."),

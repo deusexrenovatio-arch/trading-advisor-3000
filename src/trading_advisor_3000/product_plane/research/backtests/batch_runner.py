@@ -9,10 +9,10 @@ from typing import TypeVar
 from trading_advisor_3000.product_plane.research.datasets import load_materialized_research_dataset
 from trading_advisor_3000.product_plane.research.io.cache import ResearchFrameCache
 from trading_advisor_3000.product_plane.research.io.loaders import ResearchSliceRequest, load_backtest_frames
-from trading_advisor_3000.product_plane.research.strategies import StrategyRegistry, build_phase1_strategy_registry
+from trading_advisor_3000.product_plane.research.strategies import StrategyRegistry, build_strategy_registry
 
 from .engine import BacktestEngineConfig, run_backtest_series
-from .results import phase5_backtest_store_contract, write_backtest_artifacts
+from .results import backtest_store_contract, write_backtest_artifacts
 
 
 T = TypeVar("T")
@@ -140,7 +140,7 @@ def build_ephemeral_strategy_space(
     instances_per_strategy: int,
     strategy_registry: StrategyRegistry | None = None,
 ) -> EphemeralStrategySpace:
-    registry = strategy_registry or build_phase1_strategy_registry()
+    registry = strategy_registry or build_strategy_registry()
     if not strategy_version_labels:
         raise ValueError("strategy_version_labels must not be empty")
     if instances_per_strategy <= 0:
@@ -198,7 +198,7 @@ def run_backtest_batch(
     strategy_registry: StrategyRegistry | None = None,
     cache: ResearchFrameCache | None = None,
 ) -> dict[str, object]:
-    registry = strategy_registry or build_phase1_strategy_registry()
+    registry = strategy_registry or build_strategy_registry()
     engine_config = engine_config or BacktestEngineConfig()
     dataset_manifest = load_materialized_research_dataset(
         output_dir=dataset_output_dir,
@@ -293,6 +293,6 @@ def run_backtest_batch(
         "drawdown_rows": all_drawdown_rows,
         "cache_id": cache_id,
         "cache_hit": cache_hit,
-        "delta_manifest": phase5_backtest_store_contract(),
+        "delta_manifest": backtest_store_contract(),
         "output_paths": output_paths,
     }

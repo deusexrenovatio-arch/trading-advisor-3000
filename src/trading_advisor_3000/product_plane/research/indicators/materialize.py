@@ -14,13 +14,13 @@ from .registry import (
     IndicatorProfileRegistry,
     IndicatorSpec,
     build_indicator_profile_registry,
-    phase1_indicator_profile,
+    default_indicator_profile,
 )
 from .store import (
     IndicatorFramePartitionKey,
     IndicatorFrameRow,
     load_indicator_frames,
-    phase3_indicator_store_contract,
+    indicator_store_contract,
     write_indicator_frames,
 )
 
@@ -351,7 +351,7 @@ def build_indicator_frames(
     series_mode: str = "contract",
     profile: IndicatorProfile | None = None,
 ) -> list[IndicatorFrameRow]:
-    profile = profile or phase1_indicator_profile()
+    profile = profile or default_indicator_profile()
     grouped = _group_bar_views(
         dataset_version=dataset_version,
         indicator_set_version=indicator_set_version,
@@ -447,7 +447,7 @@ def materialize_indicator_frames(
         "deleted_partition_count": len(deleted_partitions),
         "profile_version": resolved_profile.version,
         "output_paths": output_paths,
-        "delta_manifest": phase3_indicator_store_contract(),
+        "delta_manifest": indicator_store_contract(),
     }
 
 

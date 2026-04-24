@@ -29,7 +29,7 @@ class BacktestRunArtifact:
     dataset_version: str
 
 
-def phase5_backtest_store_contract() -> dict[str, dict[str, object]]:
+def backtest_store_contract() -> dict[str, dict[str, object]]:
     return {
         "research_backtest_batches": {
             "format": "delta",
@@ -195,7 +195,7 @@ def phase5_backtest_store_contract() -> dict[str, dict[str, object]]:
     }
 
 
-def phase6_results_store_contract() -> dict[str, dict[str, object]]:
+def results_store_contract() -> dict[str, dict[str, object]]:
     return {
         "research_strategy_rankings": {
             "format": "delta",
@@ -283,7 +283,7 @@ def write_backtest_artifacts(
     order_rows: list[dict[str, object]] | None = None,
     drawdown_rows: list[dict[str, object]] | None = None,
 ) -> dict[str, str]:
-    contract = phase5_backtest_store_contract()
+    contract = backtest_store_contract()
     output_dir.mkdir(parents=True, exist_ok=True)
     batch_path = output_dir / "research_backtest_batches.delta"
     run_path = output_dir / "research_backtest_runs.delta"
@@ -317,7 +317,7 @@ def write_stage6_artifacts(
     candidate_rows: list[dict[str, object]] | None = None,
     finding_rows: list[dict[str, object]] | None = None,
 ) -> dict[str, str]:
-    contract = phase6_results_store_contract()
+    contract = results_store_contract()
     output_dir.mkdir(parents=True, exist_ok=True)
     ranking_path = output_dir / "research_strategy_rankings.delta"
     write_delta_table_rows(

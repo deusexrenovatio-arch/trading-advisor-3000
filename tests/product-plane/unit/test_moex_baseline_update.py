@@ -7,7 +7,7 @@ import pytest
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows, write_delta_table_rows
 from trading_advisor_3000.product_plane.data_plane.moex import baseline_update as baseline_module
-from trading_advisor_3000.product_plane.data_plane.moex.phase02_canonical import (
+from trading_advisor_3000.product_plane.data_plane.moex.historical_canonical_route import (
     CANONICAL_BAR_COLUMNS,
     CANONICAL_MERGE_SCOPED_DELETE_INSERT,
     PROVENANCE_COLUMNS,
@@ -89,7 +89,7 @@ def test_baseline_update_writes_to_stable_paths_and_scoped_canonical_refresh(
             "mutation_applied": True,
         }
 
-    monkeypatch.setattr(baseline_module, "run_phase02_canonical", _fake_canonical)
+    monkeypatch.setattr(baseline_module, "run_historical_canonical_route", _fake_canonical)
 
     report = baseline_module.run_moex_baseline_update(
         mapping_registry_path=tmp_path / "mapping.yaml",
@@ -137,7 +137,7 @@ def test_baseline_update_persists_pending_windows_when_canonical_refresh_fails(
     def _failing_canonical(**_kwargs):
         raise RuntimeError("spark failed")
 
-    monkeypatch.setattr(baseline_module, "run_phase02_canonical", _failing_canonical)
+    monkeypatch.setattr(baseline_module, "run_historical_canonical_route", _failing_canonical)
 
     with pytest.raises(RuntimeError, match="spark failed"):
         baseline_module.run_moex_baseline_update(

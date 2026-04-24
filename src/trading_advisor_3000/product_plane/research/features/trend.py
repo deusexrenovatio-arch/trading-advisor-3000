@@ -9,7 +9,7 @@ class TrendFeatureSpec:
     description: str
 
 
-def phase1_trend_specs() -> tuple[TrendFeatureSpec, ...]:
+def default_trend_specs() -> tuple[TrendFeatureSpec, ...]:
     return (
         TrendFeatureSpec("trend_state_code", "Primary trend direction state derived from stacked moving averages."),
         TrendFeatureSpec("trend_strength", "Continuous trend-strength score for ranking and gating."),

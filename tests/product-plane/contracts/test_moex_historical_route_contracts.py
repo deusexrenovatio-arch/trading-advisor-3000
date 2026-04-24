@@ -155,7 +155,7 @@ def _moex_handoff_contract_ids() -> set[str]:
     raise AssertionError("moex_historical_handoff_contracts boundary must exist")
 
 
-def test_phase01_manifest_registers_handoff_contract_boundary() -> None:
+def test_raw_route_manifest_registers_handoff_contract_boundary() -> None:
     contract_ids = _moex_handoff_contract_ids()
     expected = {
         "raw_ingest_run_report",
@@ -175,7 +175,7 @@ def test_phase01_manifest_registers_handoff_contract_boundary() -> None:
     assert expected <= contract_ids
 
 
-def test_phase01_schema_fixtures_validate() -> None:
+def test_raw_route_schema_fixtures_validate() -> None:
     pairs = {
         "raw_ingest_run_report.v2.json": "raw_ingest_run_report.v2.json",
         "parity_manifest.v1.json": "parity_manifest.v1.json",
@@ -198,7 +198,7 @@ def test_phase01_schema_fixtures_validate() -> None:
         assert schema["$id"] == f"contracts/{schema_name}"
 
 
-def test_phase01_raw_ingest_report_status_semantics_are_unambiguous() -> None:
+def test_raw_route_raw_ingest_report_status_semantics_are_unambiguous() -> None:
     changed_window = [
         {
             "internal_id": "BR-6.26",
@@ -269,7 +269,7 @@ def test_phase01_raw_ingest_report_status_semantics_are_unambiguous() -> None:
     assert "failed_condition" in pass_report["status_semantics"]
 
 
-def test_phase01_parity_manifest_is_deterministic_for_same_windows() -> None:
+def test_raw_route_parity_manifest_is_deterministic_for_same_windows() -> None:
     raw_report = _load_json(FIXTURES / "raw_ingest_run_report.v2.json")
     raw_report["changed_windows_hash_sha256"] = ""
     changed_windows_unsorted = [
@@ -310,7 +310,7 @@ def test_phase01_parity_manifest_is_deterministic_for_same_windows() -> None:
     assert manifest_a["status"] == "PASS"
 
 
-def test_phase01_parity_manifest_rejects_invalid_changed_windows_hash() -> None:
+def test_raw_route_parity_manifest_rejects_invalid_changed_windows_hash() -> None:
     raw_report = _load_json(FIXTURES / "raw_ingest_run_report.v2.json")
     raw_report["changed_windows_hash_sha256"] = "BAD-HASH"
 
@@ -325,7 +325,7 @@ def test_phase01_parity_manifest_rejects_invalid_changed_windows_hash() -> None:
         )
 
 
-def test_phase01_lease_conflict_is_blocked_and_single_writer_state_is_preserved(tmp_path: Path) -> None:
+def test_raw_route_lease_conflict_is_blocked_and_single_writer_state_is_preserved(tmp_path: Path) -> None:
     ledger = tmp_path / "technical-route-ledger.delta"
     acquire_a = acquire_technical_route_lease(
         ledger_table_path=ledger,
@@ -397,7 +397,7 @@ def test_phase01_lease_conflict_is_blocked_and_single_writer_state_is_preserved(
     assert statuses == ["PASS", "BLOCKED", "PASS-NOOP", "BLOCKED", "PASS", "PASS"]
 
 
-def test_phase01_cas_lease_state_machine_supports_heartbeat_takeover_and_conflict_record(tmp_path: Path) -> None:
+def test_raw_route_cas_lease_state_machine_supports_heartbeat_takeover_and_conflict_record(tmp_path: Path) -> None:
     ledger = tmp_path / "technical-route-ledger-cas.delta"
 
     acquire = acquire_technical_route_lease(
@@ -500,7 +500,7 @@ def test_phase01_cas_lease_state_machine_supports_heartbeat_takeover_and_conflic
     ]
 
 
-def test_phase01_lease_api_responses_match_contracts(tmp_path: Path) -> None:
+def test_raw_route_lease_api_responses_match_contracts(tmp_path: Path) -> None:
     acquire_schema = _load_json(SCHEMAS / "technical_route_lease_acquire_response.v1.json")
     heartbeat_schema = _load_json(SCHEMAS / "technical_route_lease_heartbeat_response.v1.json")
     takeover_schema = _load_json(SCHEMAS / "technical_route_lease_takeover_response.v1.json")
@@ -578,7 +578,7 @@ def test_phase01_lease_api_responses_match_contracts(tmp_path: Path) -> None:
     _assert_schema_valid(ledger_schema, conflict_record["ledger_entry"])
 
 
-def test_phase01_lease_api_rejects_invalid_changed_windows_hash(tmp_path: Path) -> None:
+def test_raw_route_lease_api_rejects_invalid_changed_windows_hash(tmp_path: Path) -> None:
     ledger = tmp_path / "technical-route-ledger-invalid-hash.delta"
 
     with pytest.raises(ValueError, match="`changed_windows_hash` must be 64-char lowercase sha256 hex"):

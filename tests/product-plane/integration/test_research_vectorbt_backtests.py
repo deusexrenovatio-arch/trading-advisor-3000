@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -15,12 +15,12 @@ from trading_advisor_3000.product_plane.research.backtests import (
     rank_backtest_results,
     run_backtest_batch,
 )
-from trading_advisor_3000.product_plane.research.datasets import ResearchBarView, ResearchDatasetManifest, phase2_research_dataset_store_contract
+from trading_advisor_3000.product_plane.research.datasets import ResearchBarView, ResearchDatasetManifest, research_dataset_store_contract
 from trading_advisor_3000.product_plane.research.features import FeatureFrameRow, research_feature_store_contract
-from trading_advisor_3000.product_plane.research.indicators import IndicatorFrameRow, phase3_indicator_store_contract
+from trading_advisor_3000.product_plane.research.indicators import IndicatorFrameRow, indicator_store_contract
 from trading_advisor_3000.product_plane.research.io import ResearchFrameCache
 from trading_advisor_3000.product_plane.research.strategies.catalog import StrategyCatalog
-from trading_advisor_3000.product_plane.research.strategies.registry import StrategyRegistry, build_phase1_strategy_registry
+from trading_advisor_3000.product_plane.research.strategies.registry import StrategyRegistry, build_strategy_registry
 from trading_advisor_3000.product_plane.research.strategies.spec import (
     StrategyParameter,
     StrategyRankingMetadata,
@@ -189,8 +189,8 @@ def _write_materialized_layers(
         code_version="test",
         split_params={"windows": split_windows or []},
     )
-    dataset_contract = phase2_research_dataset_store_contract()
-    indicator_contract = phase3_indicator_store_contract()
+    dataset_contract = research_dataset_store_contract()
+    indicator_contract = indicator_store_contract()
     feature_contract = research_feature_store_contract()
     write_delta_table_rows(
         table_path=root / "research_datasets.delta",
@@ -231,7 +231,7 @@ def _backtest_request(
     param_batch_size: int = 25,
     series_batch_size: int = 4,
 ) -> BacktestBatchRequest:
-    resolved_registry = registry or build_phase1_strategy_registry()
+    resolved_registry = registry or build_strategy_registry()
     strategy_space = build_ephemeral_strategy_space(
         strategy_registry=resolved_registry,
         strategy_version_labels=strategy_labels,

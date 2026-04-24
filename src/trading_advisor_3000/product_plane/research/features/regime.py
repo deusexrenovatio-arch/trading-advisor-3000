@@ -9,7 +9,7 @@ class RegimeFeatureSpec:
     description: str
 
 
-def phase1_regime_specs() -> tuple[RegimeFeatureSpec, ...]:
+def default_regime_specs() -> tuple[RegimeFeatureSpec, ...]:
     return (
         RegimeFeatureSpec("volatility_regime_code", "Categorical regime code driven by ATR/NATR and band width."),
         RegimeFeatureSpec("volume_regime_code", "Categorical regime code driven by RVOL and volume z-score."),

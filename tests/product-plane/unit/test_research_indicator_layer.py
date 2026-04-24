@@ -4,8 +4,8 @@ from trading_advisor_3000.product_plane.research.datasets import ResearchBarView
 from trading_advisor_3000.product_plane.research.indicators import (
     build_indicator_frames,
     build_indicator_profile_registry,
-    phase1_indicator_profile,
-    phase3_indicator_store_contract,
+    default_indicator_profile,
+    indicator_store_contract,
 )
 
 
@@ -51,7 +51,7 @@ def test_indicator_registry_exposes_versioned_profiles_and_richer_specs() -> Non
 
 
 def test_indicator_profile_covers_stage3_minimum_contract_columns() -> None:
-    profile = phase1_indicator_profile()
+    profile = default_indicator_profile()
     columns = {column for spec in profile.indicators for column in spec.output_columns}
     assert {
         "sma_10",
@@ -77,7 +77,7 @@ def test_indicator_profile_covers_stage3_minimum_contract_columns() -> None:
 
 
 def test_indicator_store_contract_contains_stage3_metadata_columns() -> None:
-    contract = phase3_indicator_store_contract()
+    contract = indicator_store_contract()
     columns = contract["research_indicator_frames"]["columns"]
     assert {
         "dataset_version",

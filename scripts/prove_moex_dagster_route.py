@@ -12,7 +12,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from trading_advisor_3000.product_plane.data_plane.moex import run_phase03_dagster_cutover
+from trading_advisor_3000.product_plane.data_plane.moex import run_historical_dagster_cutover
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     DAGSTER_ROUTE_REPORT_FILENAME,
     DAGSTER_ROUTE_STORAGE_DIRNAME,
@@ -105,7 +105,7 @@ def main() -> None:
     output_dir = output_root / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    report = run_phase03_dagster_cutover(
+    report = run_historical_dagster_cutover(
         raw_table_path=resolve_external_file_path(
             raw_table_raw,
             repo_root=ROOT,

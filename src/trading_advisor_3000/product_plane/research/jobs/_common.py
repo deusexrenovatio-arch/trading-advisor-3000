@@ -10,10 +10,10 @@ from deltalake import DeltaTable
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log, read_delta_table_rows
 from trading_advisor_3000.product_plane.research.registry_store import research_registry_store_contract
-from trading_advisor_3000.product_plane.research.backtests import phase5_backtest_store_contract, phase6_results_store_contract
-from trading_advisor_3000.product_plane.research.datasets import phase2_research_dataset_store_contract
+from trading_advisor_3000.product_plane.research.backtests import backtest_store_contract, results_store_contract
+from trading_advisor_3000.product_plane.research.datasets import research_dataset_store_contract
 from trading_advisor_3000.product_plane.research.features import research_feature_store_contract
-from trading_advisor_3000.product_plane.research.indicators import phase3_indicator_store_contract
+from trading_advisor_3000.product_plane.research.indicators import indicator_store_contract
 
 
 def jsonable(value: Any) -> Any:
@@ -73,11 +73,11 @@ def research_contract_manifest() -> dict[str, dict[str, object]]:
                 "research_strategy_instance_modules",
             )
         },
-        **phase2_research_dataset_store_contract(),
-        **phase3_indicator_store_contract(),
+        **research_dataset_store_contract(),
+        **indicator_store_contract(),
         **research_feature_store_contract(),
-        **phase5_backtest_store_contract(),
-        **phase6_results_store_contract(),
+        **backtest_store_contract(),
+        **results_store_contract(),
     }
 
 

@@ -8,9 +8,9 @@ import pytest
 from trading_advisor_3000.product_plane.contracts import CanonicalBar, Timeframe
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
 from trading_advisor_3000.product_plane.data_plane.moex.foundation import RAW_COLUMNS
-from trading_advisor_3000.product_plane.data_plane.moex.phase02_canonical import (
+from trading_advisor_3000.product_plane.data_plane.moex.historical_canonical_route import (
     CanonicalProvenance,
-    run_phase02_canonical,
+    run_historical_canonical_route,
     run_contract_compatibility_check,
     run_qc_gates,
     run_runtime_decoupling_check,
@@ -39,7 +39,7 @@ def _provenance(**overrides: object) -> CanonicalProvenance:
     return CanonicalProvenance(**payload)
 
 
-def test_phase02_qc_fails_when_provenance_is_incomplete() -> None:
+def test_canonical_route_qc_fails_when_provenance_is_incomplete() -> None:
     bar = CanonicalBar(
         contract_id="BRM6@MOEX",
         instrument_id="FUT_BR",
@@ -62,7 +62,7 @@ def test_phase02_qc_fails_when_provenance_is_incomplete() -> None:
     assert "provenance_completeness" in qc_report["failed_gates"]
 
 
-def test_phase02_qc_fails_when_duplicate_bar_key_is_present() -> None:
+def test_canonical_route_qc_fails_when_duplicate_bar_key_is_present() -> None:
     bar = CanonicalBar(
         contract_id="BRM6@MOEX",
         instrument_id="FUT_BR",
@@ -84,7 +84,7 @@ def test_phase02_qc_fails_when_duplicate_bar_key_is_present() -> None:
     assert "unique_bar_key" in qc_report["failed_gates"]
 
 
-def test_phase02_qc_monotonicity_is_independent_of_physical_row_order() -> None:
+def test_canonical_route_qc_monotonicity_is_independent_of_physical_row_order() -> None:
     later = CanonicalBar(
         contract_id="BRM6@MOEX",
         instrument_id="FUT_BR",
@@ -122,7 +122,7 @@ def test_phase02_qc_monotonicity_is_independent_of_physical_row_order() -> None:
     assert qc_report["status"] == "PASS"
 
 
-def test_phase02_contract_compatibility_detects_schema_drift(tmp_path: Path) -> None:
+def test_canonical_route_contract_compatibility_detects_schema_drift(tmp_path: Path) -> None:
     schema_path = (
         tmp_path
         / "src"
@@ -194,7 +194,7 @@ def test_phase02_contract_compatibility_detects_schema_drift(tmp_path: Path) -> 
     assert any("required fields mismatch" in item for item in report["errors"])
 
 
-def test_phase02_runtime_decoupling_check_fails_when_runtime_imports_spark(tmp_path: Path) -> None:
+def test_canonical_route_runtime_decoupling_check_fails_when_runtime_imports_spark(tmp_path: Path) -> None:
     runtime_file = tmp_path / "src" / "trading_advisor_3000" / "app" / "runtime" / "spark_bridge.py"
     runtime_file.parent.mkdir(parents=True, exist_ok=True)
     runtime_file.write_text(
@@ -206,7 +206,7 @@ def test_phase02_runtime_decoupling_check_fails_when_runtime_imports_spark(tmp_p
     assert report["violations"]
 
 
-def test_phase02_runtime_decoupling_prefers_product_plane_runtime(tmp_path: Path) -> None:
+def test_canonical_route_runtime_decoupling_prefers_product_plane_runtime(tmp_path: Path) -> None:
     runtime_file = (
         tmp_path
         / "src"
@@ -226,12 +226,12 @@ def test_phase02_runtime_decoupling_prefers_product_plane_runtime(tmp_path: Path
     assert report["violations"]
 
 
-def test_phase02_rejects_changed_window_wider_than_baseline_update_guard(tmp_path: Path) -> None:
+def test_canonical_route_rejects_changed_window_wider_than_baseline_update_guard(tmp_path: Path) -> None:
     raw_table_path = tmp_path / "raw_moex_history.delta"
     write_delta_table_rows(table_path=raw_table_path, rows=[], columns=RAW_COLUMNS)
 
     with pytest.raises(ValueError, match="wider than allowed for baseline update"):
-        run_phase02_canonical(
+        run_historical_canonical_route(
             raw_table_path=raw_table_path,
             output_dir=tmp_path / "canonical",
             run_id="wide-window",

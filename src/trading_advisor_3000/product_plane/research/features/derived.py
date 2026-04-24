@@ -381,5 +381,5 @@ def build_feature_profile_registry() -> FeatureProfileRegistry:
     )
 
 
-def phase1_feature_profile() -> FeatureProfile:
+def default_feature_profile() -> FeatureProfile:
     return core_v1_feature_profile()

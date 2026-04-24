@@ -16,7 +16,7 @@ from trading_advisor_3000.dagster_defs.moex_historical_assets import (
     execute_moex_historical_cutover_job,
     moex_historical_asset_specs,
 )
-from trading_advisor_3000.product_plane.data_plane.moex.phase03_staging_binding import (
+from trading_advisor_3000.product_plane.data_plane.moex.route_staging_binding import (
     validate_external_dagster_url,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contracts import (
@@ -300,7 +300,7 @@ def _run_single_writer_probe(
         owner_job="dagster-moex-route",
         requested_at_utc=requested_at_utc,
         ttl_seconds=lease_timeout_sec,
-        run_id="phase03-single-writer-probe-A",
+        run_id="dagster-route-single-writer-probe-A",
         changed_windows_hash=changed_windows_hash,
     )
 
@@ -311,7 +311,7 @@ def _run_single_writer_probe(
         owner_job="dagster-moex-route",
         requested_at_utc=requested_at_utc,
         ttl_seconds=lease_timeout_sec,
-        run_id="phase03-single-writer-probe-B",
+        run_id="dagster-route-single-writer-probe-B",
         changed_windows_hash=changed_windows_hash,
     )
 
@@ -323,7 +323,7 @@ def _run_single_writer_probe(
         requested_at_utc=(
             _parse_iso_utc(requested_at_utc, field_name="requested_at_utc") + timedelta(minutes=1)
         ).isoformat().replace("+00:00", "Z"),
-        run_id="phase03-single-writer-probe-A-release",
+        run_id="dagster-route-single-writer-probe-A-release",
         changed_windows_hash=changed_windows_hash,
     )
 
@@ -634,7 +634,7 @@ def _run_recovery_drill(
     }
 
 
-def run_phase03_dagster_cutover(
+def run_historical_dagster_cutover(
     *,
     raw_table_path: Path,
     raw_ingest_report_path: Path,

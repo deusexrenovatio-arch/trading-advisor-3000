@@ -973,7 +973,7 @@ def _run_spark_canonicalization(
 
     command = [
         sys.executable,
-        (repo_root / "scripts" / "run_moex_phase02_canonical_spark.py").as_posix(),
+        (repo_root / "scripts" / "run_moex_historical_canonical_route_spark.py").as_posix(),
         "--profile",
         _spark_profile(),
         "--normalized-source-jsonl",
@@ -1038,12 +1038,14 @@ def _build_scoped_raw_read_filters(
 ) -> list[list[tuple[str, str, object]]]:
     filters: list[list[tuple[str, str, object]]] = []
     for window in changed_windows:
+        window_start = _parse_iso_utc(window.window_start_utc)
+        window_end = _parse_iso_utc(window.window_end_utc)
         filters.append(
             [
                 ("internal_id", "=", window.internal_id),
                 ("timeframe", "=", window.source_timeframe),
-                ("ts_close", ">=", window.window_start_utc),
-                ("ts_close", "<=", window.window_end_utc),
+                ("ts_close", ">=", window_start),
+                ("ts_close", "<=", window_end),
             ]
         )
     return filters
@@ -1448,7 +1450,7 @@ def _status_for_publish_decision(*, publish_allowed: bool, changed_windows: list
     return STATUS_PASS
 
 
-def run_phase02_canonical(
+def run_historical_canonical_route(
     *,
     raw_table_path: Path,
     output_dir: Path,

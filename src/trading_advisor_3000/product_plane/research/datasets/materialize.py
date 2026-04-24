@@ -21,7 +21,7 @@ from .splitters import (
 from .views import ResearchBarView, build_research_bar_views
 
 
-def phase2_research_dataset_store_contract() -> dict[str, dict[str, object]]:
+def research_dataset_store_contract() -> dict[str, dict[str, object]]:
     return {
         "research_datasets": {
             "format": "delta",
@@ -215,7 +215,7 @@ def materialize_research_dataset(
     output_dir: Path,
     split_config: HoldoutSplitConfig | WalkForwardSplitConfig | None = None,
 ) -> dict[str, object]:
-    contract = phase2_research_dataset_store_contract()
+    contract = research_dataset_store_contract()
     output_dir.mkdir(parents=True, exist_ok=True)
     datasets_path = output_dir / "research_datasets.delta"
     bar_views_path = output_dir / "research_bar_views.delta"

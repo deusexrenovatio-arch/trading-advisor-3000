@@ -9,7 +9,7 @@ class LevelFeatureSpec:
     description: str
 
 
-def phase1_level_specs() -> tuple[LevelFeatureSpec, ...]:
+def default_level_specs() -> tuple[LevelFeatureSpec, ...]:
     return (
         LevelFeatureSpec("rolling_high_20", "Local rolling 20-bar high used for breakout and structure checks."),
         LevelFeatureSpec("rolling_low_20", "Local rolling 20-bar low used for breakout and structure checks."),

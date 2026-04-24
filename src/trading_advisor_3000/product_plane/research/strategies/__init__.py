@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .adapter_contracts import StrategyFamilyAdapter
-from .catalog import StrategyCatalog, phase1_strategy_catalog
+from .catalog import StrategyCatalog, default_strategy_catalog
 from .manifests import (
     StrategyFamilyManifest,
     StrategyInstanceIdentity,
@@ -15,7 +15,7 @@ from .manifests import (
     build_strategy_template_identity,
     canonical_manifest_json,
 )
-from .registry import StrategyRegistry, build_phase1_strategy_registry
+from .registry import StrategyRegistry, build_strategy_registry
 from .reference import evaluate_strategy, sample_strategy_ids, strategy_family_of, supported_strategy_ids
 from .spec import StrategyParameter, StrategyRankingMetadata, StrategyRiskPolicy, StrategySpec
 
@@ -35,12 +35,12 @@ __all__ = [
     "StrategyTemplateManifest",
     "StrategyTemplateModule",
     "build_strategy_family_id",
-    "build_phase1_strategy_registry",
+    "build_strategy_registry",
     "build_strategy_instance_identity",
     "build_strategy_template_identity",
     "canonical_manifest_json",
     "evaluate_strategy",
-    "phase1_strategy_catalog",
+    "default_strategy_catalog",
     "sample_strategy_ids",
     "strategy_family_of",
     "supported_strategy_ids",

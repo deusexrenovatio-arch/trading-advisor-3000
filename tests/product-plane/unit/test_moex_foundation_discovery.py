@@ -160,8 +160,8 @@ def test_discover_coverage_tracks_native_source_identity() -> None:
 
 
 def test_discover_coverage_respects_selected_universe_scope() -> None:
-    universe = load_universe(Path("configs/moex_phase01/universe/moex-futures-priority.v1.yaml"))
-    mappings = load_mapping_registry(Path("configs/moex_phase01/instrument_mapping_registry.v1.yaml"))
+    universe = load_universe(Path("configs/moex_foundation/universe/moex-futures-priority.v1.yaml"))
+    mappings = load_mapping_registry(Path("configs/moex_foundation/instrument_mapping_registry.v1.yaml"))
     scoped_universe = [row for row in universe if row.internal_id == "FUT_BR"]
     coverage = discover_coverage(
         client=_CoverageClient(),
@@ -179,8 +179,8 @@ def test_discover_coverage_respects_selected_universe_scope() -> None:
 
 
 def test_discover_coverage_uses_dedicated_contract_discovery_lookback_window() -> None:
-    universe = load_universe(Path("configs/moex_phase01/universe/moex-futures-priority.v1.yaml"))
-    mappings = load_mapping_registry(Path("configs/moex_phase01/instrument_mapping_registry.v1.yaml"))
+    universe = load_universe(Path("configs/moex_foundation/universe/moex-futures-priority.v1.yaml"))
+    mappings = load_mapping_registry(Path("configs/moex_foundation/instrument_mapping_registry.v1.yaml"))
     client = _DiscoveryLookbackClient()
 
     coverage = discover_coverage(

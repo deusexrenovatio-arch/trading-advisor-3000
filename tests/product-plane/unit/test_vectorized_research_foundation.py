@@ -19,13 +19,13 @@ from trading_advisor_3000.product_plane.research.datasets import (
     build_walk_forward_windows,
 )
 from trading_advisor_3000.product_plane.research.dependencies import PANDAS_TA_REQUIREMENT, resolve_research_dependency
-from trading_advisor_3000.product_plane.research.features import build_feature_profile_registry, phase1_feature_profile
+from trading_advisor_3000.product_plane.research.features import build_feature_profile_registry, core_v1_feature_profile
 from trading_advisor_3000.product_plane.research.indicators import (
     build_indicator_profile_registry,
     indicator_column_name,
-    phase1_indicator_profile,
+    core_v1_indicator_profile,
 )
-from trading_advisor_3000.product_plane.research.strategies import build_phase1_strategy_registry, phase1_strategy_catalog
+from trading_advisor_3000.product_plane.research.strategies import build_strategy_registry, default_strategy_catalog
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -43,8 +43,8 @@ def test_indicator_naming_normalizes_decimal_parameters() -> None:
     assert indicator_column_name("macd_signal", 12, 26, 9) == "macd_signal_12_26_9"
 
 
-def test_phase1_indicator_profile_covers_core_indicator_groups() -> None:
-    profile = phase1_indicator_profile()
+def test_vectorized_research_indicator_profile_covers_core_indicator_groups() -> None:
+    profile = core_v1_indicator_profile()
     assert profile.version == "core_v1"
     grouped = profile.by_category()
     assert set(grouped) == {"momentum", "oscillator", "trend", "volatility", "volume"}
@@ -63,8 +63,8 @@ def test_phase1_indicator_profile_covers_core_indicator_groups() -> None:
     assert registry.versions() == ("core_v1", "core_intraday_v1", "core_swing_v1")
 
 
-def test_phase1_feature_profile_declares_cross_layer_feature_groups() -> None:
-    profile = phase1_feature_profile()
+def test_vectorized_research_feature_profile_declares_cross_layer_feature_groups() -> None:
+    profile = core_v1_feature_profile()
     assert profile.version == "core_v1"
     grouped = profile.by_category()
     assert {"trend", "levels", "volatility", "volume", "regime", "labels", "references", "mtf"} == set(grouped)
@@ -92,8 +92,8 @@ def test_phase1_feature_profile_declares_cross_layer_feature_groups() -> None:
     assert registry.versions() == ("core_v1", "core_intraday_v1", "core_swing_v1")
 
 
-def test_phase1_strategy_catalog_declares_required_families_and_modes() -> None:
-    catalog = phase1_strategy_catalog()
+def test_vectorized_research_strategy_catalog_declares_required_families_and_modes() -> None:
+    catalog = default_strategy_catalog()
     assert catalog.version == "research-strategy-catalog-v1"
 
     strategies = {spec.family: spec for spec in catalog.strategies}
@@ -107,7 +107,7 @@ def test_phase1_strategy_catalog_declares_required_families_and_modes() -> None:
     assert strategies["squeeze_release"].execution_mode == "order_func"
     assert strategies["ma_cross"].execution_mode == "signals"
 
-    registry = build_phase1_strategy_registry()
+    registry = build_strategy_registry()
     assert registry.get("ma-cross-v1").family == "ma_cross"
     assert registry.strategy_versions() == tuple(spec.version for spec in catalog.strategies)
 
@@ -132,7 +132,7 @@ def test_dataset_and_backtest_keys_are_deterministic() -> None:
     assert partition.partition_path().endswith("contract_id=continuous-front/timeframe=15m")
 
     strategy_space = build_ephemeral_strategy_space(
-        strategy_registry=build_phase1_strategy_registry(),
+        strategy_registry=build_strategy_registry(),
         strategy_version_labels=("ma-cross-v1", "breakout-v1"),
         instances_per_strategy=24,
     )

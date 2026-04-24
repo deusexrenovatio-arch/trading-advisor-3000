@@ -1,11 +1,11 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from trading_advisor_3000.dagster_defs import research_asset_specs
 from trading_advisor_3000.dagster_defs import research_assets
-from trading_advisor_3000.product_plane.research.datasets import phase2_research_dataset_store_contract
+from trading_advisor_3000.product_plane.research.datasets import research_dataset_store_contract
 from trading_advisor_3000.product_plane.research.features import research_feature_store_contract
 from trading_advisor_3000.product_plane.research.ids import candidate_id
-from trading_advisor_3000.product_plane.research.indicators import build_indicator_profile_registry, phase3_indicator_store_contract
+from trading_advisor_3000.product_plane.research.indicators import build_indicator_profile_registry, indicator_store_contract
 from trading_advisor_3000.product_plane.research.strategies.families import phase_stg02_family_adapters
 
 
@@ -69,8 +69,8 @@ def test_research_dagster_asset_specs_declared() -> None:
 
 
 def test_research_contract_lineage_is_consistent_across_dataset_indicator_and_feature_layers() -> None:
-    dataset_manifest = phase2_research_dataset_store_contract()
-    indicator_manifest = phase3_indicator_store_contract()
+    dataset_manifest = research_dataset_store_contract()
+    indicator_manifest = indicator_store_contract()
     feature_manifest = research_feature_store_contract()
 
     assert {"research_datasets", "research_bar_views"} == set(dataset_manifest)

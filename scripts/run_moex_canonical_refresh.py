@@ -13,7 +13,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from trading_advisor_3000.product_plane.data_plane.moex import run_phase02_canonical
+from trading_advisor_3000.product_plane.data_plane.moex import run_historical_canonical_route
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     CANONICAL_REFRESH_REPORT_FILENAME,
     CANONICAL_REFRESH_STORAGE_DIRNAME,
@@ -180,7 +180,7 @@ def main() -> None:
     output_dir = output_root / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    report = run_phase02_canonical(
+    report = run_historical_canonical_route(
         raw_table_path=raw_table_path,
         output_dir=output_dir,
         run_id=run_id,

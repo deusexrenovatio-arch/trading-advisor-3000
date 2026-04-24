@@ -34,7 +34,7 @@ from trading_advisor_3000.product_plane.research.datasets import (
     ResearchDatasetManifest,
     load_materialized_research_dataset,
     materialize_research_dataset,
-    phase2_research_dataset_store_contract,
+    research_dataset_store_contract,
 )
 from trading_advisor_3000.product_plane.research.features import (
     materialize_feature_frames,
@@ -43,7 +43,7 @@ from trading_advisor_3000.product_plane.research.features import (
 )
 from trading_advisor_3000.product_plane.research.indicators import (
     materialize_indicator_frames,
-    phase3_indicator_store_contract,
+    indicator_store_contract,
     reload_indicator_frames,
 )
 from trading_advisor_3000.product_plane.research.registry_store import registry_output_paths, research_registry_root
@@ -575,8 +575,8 @@ def research_datasets(context) -> dict[str, object]:
             **report["output_paths"],
         },
         "delta_manifest": {
-            **phase2_research_dataset_store_contract(),
-            **phase3_indicator_store_contract(),
+            **research_dataset_store_contract(),
+            **indicator_store_contract(),
             **research_feature_store_contract(),
         },
     }

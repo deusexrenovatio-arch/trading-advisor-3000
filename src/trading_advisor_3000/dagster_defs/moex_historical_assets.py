@@ -25,7 +25,7 @@ from dagster import (
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log
 from trading_advisor_3000.product_plane.data_plane.moex.baseline_update import run_moex_baseline_update
-from trading_advisor_3000.product_plane.data_plane.moex.phase02_canonical import run_phase02_canonical
+from trading_advisor_3000.product_plane.data_plane.moex.historical_canonical_route import run_historical_canonical_route
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     BASELINE_UPDATE_STORAGE_DIRNAME,
     CANONICAL_BASELINE_BARS_FILENAME,
@@ -684,7 +684,7 @@ def moex_canonical_refresh(context, moex_raw_ingest: dict[str, object]) -> dict[
 
     output_dir = Path(output_dir_text).resolve()
 
-    report = run_phase02_canonical(
+    report = run_historical_canonical_route(
         raw_table_path=raw_table_path,
         output_dir=output_dir,
         run_id=run_id,

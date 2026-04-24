@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from trading_advisor_3000.product_plane.research.backtests import BacktestBatchRequest, BacktestStrategyInstance, phase5_backtest_store_contract
-from trading_advisor_3000.product_plane.research.strategies import build_phase1_strategy_registry
+from trading_advisor_3000.product_plane.research.backtests import BacktestBatchRequest, BacktestStrategyInstance, backtest_store_contract
+from trading_advisor_3000.product_plane.research.strategies import build_strategy_registry
 
 
 def test_strategy_registry_exposes_stage5_parameter_combinations_and_execution_modes() -> None:
-    registry = build_phase1_strategy_registry()
+    registry = build_strategy_registry()
     assert registry.catalog_version() == "research-strategy-catalog-v1"
 
     ma_cross = registry.get("ma-cross-v1")
@@ -57,7 +57,7 @@ def test_backtest_batch_request_id_is_deterministic_with_batch_sizes() -> None:
 
 
 def test_backtest_store_contract_contains_stage5_artifacts() -> None:
-    contract = phase5_backtest_store_contract()
+    contract = backtest_store_contract()
     assert {
         "research_backtest_batches",
         "research_backtest_runs",

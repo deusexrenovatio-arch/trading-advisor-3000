@@ -4,9 +4,9 @@ from datetime import UTC, datetime, timedelta
 import json
 from pathlib import Path
 
-from trading_advisor_3000.product_plane.data_plane.moex import phase02_canonical as phase02_module
+from trading_advisor_3000.product_plane.data_plane.moex import historical_canonical_route as phase02_module
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows, write_delta_table_rows
-from trading_advisor_3000.product_plane.data_plane.moex import build_raw_ingest_run_report_v2, run_phase02_canonical
+from trading_advisor_3000.product_plane.data_plane.moex import build_raw_ingest_run_report_v2, run_historical_canonical_route
 
 
 RAW_COLUMNS: dict[str, str] = {
@@ -176,12 +176,12 @@ def _build_raw_ingest_report_noop(*, run_id: str) -> dict[str, object]:
     )
 
 
-def test_phase02_canonical_generates_resampling_outputs_and_reports(tmp_path: Path) -> None:
+def test_historical_canonical_route_generates_resampling_outputs_and_reports(tmp_path: Path) -> None:
     raw_table_path = tmp_path / "phase01" / "delta" / "raw_moex_history.delta"
     rows = _raw_rows(with_source_provider=True)
     _write_raw_table(raw_table_path, rows)
 
-    report = run_phase02_canonical(
+    report = run_historical_canonical_route(
         raw_table_path=raw_table_path,
         output_dir=tmp_path / "phase02",
         run_id="phase02-int-pass",
@@ -221,12 +221,12 @@ def test_phase02_canonical_generates_resampling_outputs_and_reports(tmp_path: Pa
         assert Path(str(artifact_path)).exists()
 
 
-def test_phase02_canonical_is_fail_closed_when_qc_fails(tmp_path: Path) -> None:
+def test_historical_canonical_route_is_fail_closed_when_qc_fails(tmp_path: Path) -> None:
     raw_table_path = tmp_path / "phase01" / "delta" / "raw_moex_history.delta"
     rows = _raw_rows(with_source_provider=False)
     _write_raw_table(raw_table_path, rows)
 
-    report = run_phase02_canonical(
+    report = run_historical_canonical_route(
         raw_table_path=raw_table_path,
         output_dir=tmp_path / "phase02-blocked",
         run_id="phase02-int-fail",
@@ -245,12 +245,12 @@ def test_phase02_canonical_is_fail_closed_when_qc_fails(tmp_path: Path) -> None:
     assert payload["publish_decision"] == "blocked"
 
 
-def test_phase02_canonical_reports_skips_for_incompatible_daily_only_contract(tmp_path: Path) -> None:
+def test_historical_canonical_route_reports_skips_for_incompatible_daily_only_contract(tmp_path: Path) -> None:
     raw_table_path = tmp_path / "phase01" / "delta" / "raw_moex_history.delta"
     rows = _raw_rows_with_daily_only_contract(with_source_provider=True)
     _write_raw_table(raw_table_path, rows)
 
-    report = run_phase02_canonical(
+    report = run_historical_canonical_route(
         raw_table_path=raw_table_path,
         output_dir=tmp_path / "phase02-mixed",
         run_id="phase02-int-mixed",
@@ -264,13 +264,13 @@ def test_phase02_canonical_reports_skips_for_incompatible_daily_only_contract(tm
     assert "5m" in report["resampling_skips"]["by_timeframe"]
 
 
-def test_phase02_canonical_pass_noop_does_not_mutate_existing_tables(tmp_path: Path) -> None:
+def test_historical_canonical_route_pass_noop_does_not_mutate_existing_tables(tmp_path: Path) -> None:
     raw_table_path = tmp_path / "phase01" / "delta" / "raw_moex_history.delta"
     rows = _raw_rows(with_source_provider=True)
     _write_raw_table(raw_table_path, rows)
     output_dir = tmp_path / "phase02-noop"
 
-    first = run_phase02_canonical(
+    first = run_historical_canonical_route(
         raw_table_path=raw_table_path,
         output_dir=output_dir,
         run_id="phase02-int-first",
@@ -278,7 +278,7 @@ def test_phase02_canonical_pass_noop_does_not_mutate_existing_tables(tmp_path: P
     )
     bars_before = read_delta_table_rows(Path(str(first["output_paths"]["canonical_bars"])))
 
-    second = run_phase02_canonical(
+    second = run_historical_canonical_route(
         raw_table_path=raw_table_path,
         output_dir=output_dir,
         run_id="phase02-int-noop",
@@ -292,7 +292,7 @@ def test_phase02_canonical_pass_noop_does_not_mutate_existing_tables(tmp_path: P
     assert bars_before == bars_after
 
 
-def test_phase02_canonical_avoids_full_raw_table_read(tmp_path: Path, monkeypatch) -> None:
+def test_historical_canonical_route_avoids_full_raw_table_read(tmp_path: Path, monkeypatch) -> None:
     raw_table_path = tmp_path / "phase01" / "delta" / "raw_moex_history.delta"
     rows = _raw_rows_with_daily_only_contract(with_source_provider=True)
     _write_raw_table(raw_table_path, rows)
@@ -312,7 +312,7 @@ def test_phase02_canonical_avoids_full_raw_table_read(tmp_path: Path, monkeypatc
 
     monkeypatch.setattr(phase02_module, "read_delta_table_rows", guarded_read)
 
-    report = phase02_module.run_phase02_canonical(
+    report = phase02_module.run_historical_canonical_route(
         raw_table_path=raw_table_path,
         output_dir=tmp_path / "phase02-guarded",
         run_id="phase02-int-guarded",
@@ -324,13 +324,13 @@ def test_phase02_canonical_avoids_full_raw_table_read(tmp_path: Path, monkeypatc
     assert report["scoped_source_rows"] > 0
 
 
-def test_phase02_pass_noop_skips_raw_table_read_entirely(tmp_path: Path, monkeypatch) -> None:
+def test_canonical_route_pass_noop_skips_raw_table_read_entirely(tmp_path: Path, monkeypatch) -> None:
     raw_table_path = tmp_path / "phase01" / "delta" / "raw_moex_history.delta"
     rows = _raw_rows(with_source_provider=True)
     _write_raw_table(raw_table_path, rows)
     output_dir = tmp_path / "phase02-noop-skip-raw"
 
-    first = phase02_module.run_phase02_canonical(
+    first = phase02_module.run_historical_canonical_route(
         raw_table_path=raw_table_path,
         output_dir=output_dir,
         run_id="phase02-int-first-noop-guard",
@@ -353,7 +353,7 @@ def test_phase02_pass_noop_skips_raw_table_read_entirely(tmp_path: Path, monkeyp
 
     monkeypatch.setattr(phase02_module, "read_delta_table_rows", guarded_read)
 
-    second = phase02_module.run_phase02_canonical(
+    second = phase02_module.run_historical_canonical_route(
         raw_table_path=raw_table_path,
         output_dir=output_dir,
         run_id="phase02-int-noop-skip-raw",

@@ -12,7 +12,7 @@ if TYPE_CHECKING:
         ingest_moex_bootstrap_window,
         load_mapping_registry,
         load_universe,
-        run_phase01_foundation,
+        run_moex_foundation,
     )
     from .historical_route_contracts import (
         acquire_technical_route_lease,
@@ -25,9 +25,9 @@ if TYPE_CHECKING:
         takeover_technical_route_lease,
     )
     from .iss_client import MoexISSClient
-    from .phase02_canonical import (
+    from .historical_canonical_route import (
         run_contract_compatibility_check,
-        run_phase02_canonical,
+        run_historical_canonical_route,
         run_qc_gates,
         run_runtime_decoupling_check,
     )
@@ -36,8 +36,8 @@ if TYPE_CHECKING:
         load_phase03_threshold_policy,
         run_phase03_reconciliation,
     )
-    from .phase03_dagster_cutover import run_phase03_dagster_cutover
-    from .phase03_staging_binding import build_phase03_staging_binding_report
+    from .historical_dagster_cutover import run_historical_dagster_cutover
+    from .route_staging_binding import build_route_staging_binding_report
     from .phase04_operations import (
         load_phase04_monitoring_policy,
         load_phase04_scheduler_policy,
@@ -52,7 +52,7 @@ _MODULE_EXPORTS = {
     "MoexISSClient": (".iss_client", "MoexISSClient"),
     "acquire_technical_route_lease": (".historical_route_contracts", "acquire_technical_route_lease"),
     "build_parity_manifest_v1": (".historical_route_contracts", "build_parity_manifest_v1"),
-    "build_phase03_staging_binding_report": (".phase03_staging_binding", "build_phase03_staging_binding_report"),
+    "build_route_staging_binding_report": (".route_staging_binding", "build_route_staging_binding_report"),
     "build_raw_ingest_run_report_v2": (".historical_route_contracts", "build_raw_ingest_run_report_v2"),
     "heartbeat_technical_route_lease": (".historical_route_contracts", "heartbeat_technical_route_lease"),
     "ingest_moex_baseline_window": (".foundation", "ingest_moex_baseline_window"),
@@ -69,14 +69,14 @@ _MODULE_EXPORTS = {
     ),
     "read_technical_route_run_ledger": (".historical_route_contracts", "read_technical_route_run_ledger"),
     "release_technical_route_lease": (".historical_route_contracts", "release_technical_route_lease"),
-    "run_contract_compatibility_check": (".phase02_canonical", "run_contract_compatibility_check"),
-    "run_phase01_foundation": (".foundation", "run_phase01_foundation"),
-    "run_phase02_canonical": (".phase02_canonical", "run_phase02_canonical"),
-    "run_phase03_dagster_cutover": (".phase03_dagster_cutover", "run_phase03_dagster_cutover"),
+    "run_contract_compatibility_check": (".historical_canonical_route", "run_contract_compatibility_check"),
+    "run_moex_foundation": (".foundation", "run_moex_foundation"),
+    "run_historical_canonical_route": (".historical_canonical_route", "run_historical_canonical_route"),
+    "run_historical_dagster_cutover": (".historical_dagster_cutover", "run_historical_dagster_cutover"),
     "run_phase03_reconciliation": (".phase03_reconciliation", "run_phase03_reconciliation"),
     "run_phase04_production_hardening": (".phase04_operations", "run_phase04_production_hardening"),
-    "run_qc_gates": (".phase02_canonical", "run_qc_gates"),
-    "run_runtime_decoupling_check": (".phase02_canonical", "run_runtime_decoupling_check"),
+    "run_qc_gates": (".historical_canonical_route", "run_qc_gates"),
+    "run_runtime_decoupling_check": (".historical_canonical_route", "run_runtime_decoupling_check"),
     "takeover_technical_route_lease": (".historical_route_contracts", "takeover_technical_route_lease"),
 }
 
