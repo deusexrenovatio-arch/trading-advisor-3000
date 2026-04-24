@@ -71,7 +71,7 @@ def _write_acceptance_report(path: Path, *, verdict: str = "PASS") -> Path:
 
 def _write_phase_reports(base: Path) -> tuple[Path, Path, Path, Path, Path, Path]:
     phase01 = _write_json(
-        base / "phase01-foundation-report.json",
+        base / "raw-ingest-summary-report.json",
         {
             "run_id": "phase01",
             "idempotent_rerun": True,
@@ -80,7 +80,7 @@ def _write_phase_reports(base: Path) -> tuple[Path, Path, Path, Path, Path, Path
         },
     )
     phase02 = _write_json(
-        base / "phase02-canonical-report.json",
+        base / "canonical-refresh-report.json",
         {
             "run_id": "phase02",
             "status": "PASS",
@@ -89,7 +89,7 @@ def _write_phase_reports(base: Path) -> tuple[Path, Path, Path, Path, Path, Path
         },
     )
     phase03 = _write_json(
-        base / "phase03-reconciliation-report.json",
+        base / "reconciliation-report.json",
         {
             "run_id": "phase03",
             "status": "PASS",
@@ -508,7 +508,7 @@ def test_phase04_blocks_when_recovery_immutable_export_hash_mismatch(tmp_path: P
 def test_phase04_filters_template_real_bindings_from_prior_phases(tmp_path: Path) -> None:
     reports_dir = tmp_path / "reports"
     phase01 = _write_json(
-        reports_dir / "phase01-foundation-report.json",
+        reports_dir / "raw-ingest-summary-report.json",
         {
             "run_id": "phase01",
             "idempotent_rerun": True,
@@ -520,7 +520,7 @@ def test_phase04_filters_template_real_bindings_from_prior_phases(tmp_path: Path
         },
     )
     phase02 = _write_json(
-        reports_dir / "phase02-canonical-report.json",
+        reports_dir / "canonical-refresh-report.json",
         {
             "run_id": "phase02",
             "status": "PASS",
@@ -529,7 +529,7 @@ def test_phase04_filters_template_real_bindings_from_prior_phases(tmp_path: Path
         },
     )
     phase03 = _write_json(
-        reports_dir / "phase03-reconciliation-report.json",
+        reports_dir / "reconciliation-report.json",
         {
             "run_id": "phase03",
             "status": "PASS",
