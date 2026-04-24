@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 
@@ -13,7 +13,7 @@ def test_phase5_prometheus_and_loki_exports_are_built() -> None:
     outcomes = [
         {
             "signal_id": "SIG-OBS-1",
-            "strategy_version_id": "trend-follow-v1",
+            "strategy_version_id": "ma-cross-v1",
             "contract_id": "BR-6.26",
             "mode": "shadow",
             "opened_at": "2026-03-17T09:30:00Z",
@@ -32,7 +32,7 @@ def test_phase5_prometheus_and_loki_exports_are_built() -> None:
             "event_type": "signal_opened",
             "reason_code": "candidate_created",
             "payload_json": {
-                "strategy_version_id": "trend-follow-v1",
+                "strategy_version_id": "ma-cross-v1",
                 "contract_id": "BR-6.26",
                 "mode": "shadow",
             },
@@ -64,3 +64,4 @@ def test_phase5_prometheus_and_loki_exports_are_built() -> None:
     assert loki_lines
     parsed = [json.loads(item) for item in loki_lines]
     assert {row["stream"] for row in parsed} >= {"latency", "strategy_dashboard"}
+

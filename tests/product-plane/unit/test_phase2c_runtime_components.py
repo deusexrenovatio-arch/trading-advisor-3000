@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from trading_advisor_3000.product_plane.contracts import (
     DecisionCandidate,
@@ -19,7 +19,7 @@ def _candidate(*, signal_id: str = "SIG-20260316-0001") -> DecisionCandidate:
         signal_id=signal_id,
         contract_id="BR-6.26",
         timeframe=Timeframe.M15,
-        strategy_version_id="trend-follow-v1",
+        strategy_version_id="ma-cross-v1",
         mode=Mode.SHADOW,
         side=TradeSide.LONG,
         entry_ref=82.45,
@@ -38,7 +38,7 @@ def test_strategy_registry_requires_active_state() -> None:
     registry = StrategyRegistry()
     registry.register(
         StrategyVersion(
-            strategy_version_id="trend-follow-v1",
+            strategy_version_id="ma-cross-v1",
             status="draft",
             allowed_contracts=frozenset({"BR-6.26"}),
             allowed_timeframes=frozenset({Timeframe.M15}),
@@ -50,7 +50,7 @@ def test_strategy_registry_requires_active_state() -> None:
     assert not is_allowed
     assert reason == "strategy_not_active"
 
-    registry.activate("trend-follow-v1", activated_from="2026-03-16T09:05:00Z")
+    registry.activate("ma-cross-v1", activated_from="2026-03-16T09:05:00Z")
     is_allowed, reason = registry.allows(_candidate())
     assert is_allowed
     assert reason == "ok"
@@ -95,7 +95,7 @@ def test_runtime_engine_enforces_cooldown_and_blackout() -> None:
     registry = StrategyRegistry()
     registry.register(
         StrategyVersion(
-            strategy_version_id="trend-follow-v1",
+            strategy_version_id="ma-cross-v1",
             status="active",
             allowed_contracts=frozenset({"BR-6.26"}),
             allowed_timeframes=frozenset({Timeframe.M15}),
@@ -253,3 +253,4 @@ def test_telegram_publisher_raises_when_bot_api_call_fails() -> None:
     except TelegramApiError as exc:
         assert "sendMessage" in str(exc)
         assert exc.receipt.error_code == 403
+
