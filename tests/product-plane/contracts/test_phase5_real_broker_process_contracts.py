@@ -5,7 +5,7 @@ from pathlib import Path
 
 import yaml
 
-from tests.app.contracts.test_phase3_contract_freeze import _assert_schema_valid
+from trading_advisor_3000.product_plane.contracts.schema_validation import validate_schema
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -25,16 +25,16 @@ def _load_json(path: Path) -> dict[str, object]:
 def test_phase5_connector_profile_schema_and_fixture_match() -> None:
     schema = _load_json(SCHEMAS / "broker_staging_connector_profile.v1.json")
     fixture = _load_json(FIXTURES / "broker_staging_connector_profile.v1.json")
-    _assert_schema_valid(schema, fixture)
+    validate_schema(schema, fixture)
 
     config_payload = _load_json(CONFIG_PROFILE)
-    _assert_schema_valid(schema, config_payload)
+    validate_schema(schema, config_payload)
 
 
 def test_phase5_real_broker_report_schema_and_fixture_match() -> None:
     schema = _load_json(SCHEMAS / "real_broker_process_report.v1.json")
     fixture = _load_json(FIXTURES / "real_broker_process_report.v1.json")
-    _assert_schema_valid(schema, fixture)
+    validate_schema(schema, fixture)
 
 
 def test_phase5_release_blocking_manifest_references_new_contracts() -> None:
