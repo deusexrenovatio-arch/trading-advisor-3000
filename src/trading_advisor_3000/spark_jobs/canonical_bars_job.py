@@ -1,3 +1,10 @@
+"""Phase2a Spark proof job.
+
+This module remains useful as a tested Spark pattern, but it is not the
+authoritative MOEX historical refresh job. The accepted route is documented in
+docs/architecture/product-plane/moex-historical-route-decision.md.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -13,6 +13,7 @@ from .canonical_bars_job import (
     run_canonical_bars_spark_job,
     validate_spark_output_contract,
 )
+from .moex_canonicalization_job import run_moex_canonicalization_spark_job
 from .research_candidates_job import (
     ResearchSparkJobSpec,
     build_research_sql_plan,
@@ -31,6 +32,7 @@ __all__ = [
     "build_sql_plan",
     "default_spec",
     "run_canonical_bars_spark_job",
+    "run_moex_canonicalization_spark_job",
     "validate_spark_output_contract",
     "ResearchSparkJobSpec",
     "build_research_sql_plan",
