@@ -6,9 +6,9 @@ param(
     [string]$Mode = "auto",
     [string]$Profile = "",
     [string]$Backend = "codex-cli",
-    [string]$WorkerModel = "gpt-5.3-codex",
-    [string]$AcceptorModel = "gpt-5.4",
-    [string]$RemediationModel = "gpt-5.3-codex",
+    [string]$WorkerModel = "",
+    [string]$AcceptorModel = "",
+    [string]$RemediationModel = "",
     [switch]$Once
 )
 
@@ -106,13 +106,19 @@ function Invoke-PackageRun {
         "--route", "package",
         "--package-path", $PackagePath,
         "--mode", $Mode,
-        "--backend", $Backend,
-        "--worker-model", $WorkerModel,
-        "--acceptor-model", $AcceptorModel,
-        "--remediation-model", $RemediationModel
+        "--backend", $Backend
     )
     if ($Profile -and $Profile.Trim()) {
         $arguments += @("--profile", $Profile)
+    }
+    if ($WorkerModel -and $WorkerModel.Trim()) {
+        $arguments += @("--worker-model", $WorkerModel)
+    }
+    if ($AcceptorModel -and $AcceptorModel.Trim()) {
+        $arguments += @("--acceptor-model", $AcceptorModel)
+    }
+    if ($RemediationModel -and $RemediationModel.Trim()) {
+        $arguments += @("--remediation-model", $RemediationModel)
     }
 
     $previousPreference = $ErrorActionPreference

@@ -153,7 +153,7 @@ def classify_reference(rel_path: str, token: LegacyToken) -> Classification:
             path_zone=path_zone,
             group="ci-and-codeowners",
             risk="high",
-            wave="phase-05-governance-selector-cutover",
+            wave="governance-selector-cutover",
             cluster_id="governance-routing-selectors",
             wave_owner="process+platform",
         )
@@ -165,7 +165,7 @@ def classify_reference(rel_path: str, token: LegacyToken) -> Classification:
             path_zone=path_zone,
             group="scripts-validators",
             risk="high" if is_high_risk else "medium",
-            wave="phase-02-compatibility-bridge",
+            wave="compatibility-bridge",
             cluster_id=(
                 "validator-and-gate-paths"
                 if is_high_risk
@@ -179,7 +179,7 @@ def classify_reference(rel_path: str, token: LegacyToken) -> Classification:
             path_zone=path_zone,
             group="test-paths-fixtures",
             risk="medium",
-            wave="phase-04-runtime-test-cutover",
+            wave="runtime-test-cutover",
             cluster_id="test-namespace-dependencies",
             wave_owner="app-core+platform",
         )
@@ -189,7 +189,7 @@ def classify_reference(rel_path: str, token: LegacyToken) -> Classification:
             path_zone=path_zone,
             group="imports-code",
             risk="high",
-            wave="phase-04-runtime-test-cutover",
+            wave="runtime-test-cutover",
             cluster_id="runtime-namespace-dependencies",
             wave_owner="app-core+platform",
         )
@@ -199,7 +199,7 @@ def classify_reference(rel_path: str, token: LegacyToken) -> Classification:
             path_zone=path_zone,
             group="packaging-runbook",
             risk="medium",
-            wave="phase-02-compatibility-bridge",
+            wave="compatibility-bridge",
             cluster_id="packaging-and-release-references",
             wave_owner="platform",
         )
@@ -210,7 +210,7 @@ def classify_reference(rel_path: str, token: LegacyToken) -> Classification:
                 path_zone=path_zone,
                 group="packaging-runbook",
                 risk="medium",
-                wave="phase-02-compatibility-bridge",
+                wave="compatibility-bridge",
                 cluster_id="runbook-operational-references",
                 wave_owner="architecture+platform",
             )
@@ -219,7 +219,7 @@ def classify_reference(rel_path: str, token: LegacyToken) -> Classification:
                 path_zone=path_zone,
                 group="docs-links",
                 risk="low",
-                wave="phase-03-docs-subtree-rename",
+                wave="docs-subtree-rename",
                 cluster_id="docs-architecture-linkage",
                 wave_owner="architecture",
             )
@@ -227,7 +227,7 @@ def classify_reference(rel_path: str, token: LegacyToken) -> Classification:
             path_zone=path_zone,
             group="docs-links",
             risk="low",
-            wave="phase-03-docs-subtree-rename",
+            wave="docs-subtree-rename",
             cluster_id="documentation-linkage",
             wave_owner="architecture",
         )
@@ -237,7 +237,7 @@ def classify_reference(rel_path: str, token: LegacyToken) -> Classification:
             path_zone=path_zone,
             group="imports-code",
             risk="high",
-            wave="phase-04-runtime-test-cutover",
+            wave="runtime-test-cutover",
             cluster_id="runtime-namespace-dependencies",
             wave_owner="app-core+platform",
         )
@@ -246,7 +246,7 @@ def classify_reference(rel_path: str, token: LegacyToken) -> Classification:
             path_zone=path_zone,
             group="test-paths-fixtures",
             risk="medium",
-            wave="phase-04-runtime-test-cutover",
+            wave="runtime-test-cutover",
             cluster_id="test-namespace-dependencies",
             wave_owner="app-core+platform",
         )
@@ -254,7 +254,7 @@ def classify_reference(rel_path: str, token: LegacyToken) -> Classification:
         path_zone=path_zone,
         group="docs-links",
         risk="low",
-        wave="phase-03-docs-subtree-rename",
+        wave="docs-subtree-rename",
         cluster_id="documentation-linkage",
         wave_owner="architecture",
     )
@@ -373,7 +373,7 @@ def render_markdown(
 ) -> str:
     counts = summary["counts"]
     lines: list[str] = [
-        "# Dual-Surface Rename Phase 1 Inventory",
+        "# Dual-Surface Rename Reference Inventory",
         "",
         f"Generated: {utc_now_iso()}",
         "",
@@ -489,16 +489,16 @@ def run(*, repo_root: Path, output_json: Path, output_md: Path) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Build phase-1 inventory for the dual-surface safe rename migration."
+        description="Build reference inventory for the dual-surface safe rename migration."
     )
     parser.add_argument("--repo-root", default=".")
     parser.add_argument(
         "--output-json",
-        default="artifacts/rename-migration/phase-01/legacy-reference-inventory.json",
+        default="artifacts/rename-migration/reference-inventory/legacy-reference-inventory.json",
     )
     parser.add_argument(
         "--output-md",
-        default="artifacts/rename-migration/phase-01/legacy-reference-inventory.md",
+        default="artifacts/rename-migration/reference-inventory/legacy-reference-inventory.md",
     )
     args = parser.parse_args()
 

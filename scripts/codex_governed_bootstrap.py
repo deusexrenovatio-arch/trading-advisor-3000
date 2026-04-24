@@ -152,8 +152,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mode", default="auto")
     parser.add_argument("--profile", default="")
     parser.add_argument("--backend", choices=("simulate", "codex-cli"), default="codex-cli")
-    parser.add_argument("--worker-model", default="gpt-5.3-codex")
-    parser.add_argument("--acceptor-model", default="gpt-5.4")
+    parser.add_argument("--worker-model", default="")
+    parser.add_argument("--acceptor-model", default="")
     parser.add_argument("--remediation-model", default="")
     parser.add_argument("--max-remediation-cycles", type=int, default=2)
     parser.add_argument("--codex-bin", default=None)
@@ -230,17 +230,17 @@ def main(argv: list[str] | None = None) -> int:
         args.mode,
         "--backend",
         args.backend,
-        "--worker-model",
-        args.worker_model,
-        "--acceptor-model",
-        args.acceptor_model,
-        "--remediation-model",
-        args.remediation_model,
         "--max-remediation-cycles",
         str(max(args.max_remediation_cycles, 0)),
         "--mutation-lock-timeout-sec",
         str(max(float(args.mutation_lock_timeout_sec), 0.0)),
     ]
+    if args.worker_model.strip():
+        entry_args.extend(["--worker-model", args.worker_model])
+    if args.acceptor_model.strip():
+        entry_args.extend(["--acceptor-model", args.acceptor_model])
+    if args.remediation_model.strip():
+        entry_args.extend(["--remediation-model", args.remediation_model])
     if args.profile.strip():
         entry_args.extend(["--profile", args.profile])
     if args.package_path:

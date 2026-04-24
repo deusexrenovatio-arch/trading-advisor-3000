@@ -10,10 +10,10 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 
-from codex_from_package import choose_latest_package, main as package_main
 from codex_phase_orchestrator import main as orchestrator_main
 from repo_mutation_lock import (
     DEFAULT_MUTATION_LOCK_TIMEOUT_ENV,
@@ -38,6 +38,16 @@ STACKED_FOLLOWUP_ROUTE = "stacked-followup"
 
 class GovernedEntryError(RuntimeError):
     """Raised when the governed route cannot be chosen safely."""
+
+
+def choose_latest_package(inbox: Path) -> Path | None:
+    module = import_module("codex_from_package")
+    return module.choose_latest_package(inbox)
+
+
+def package_main(argv: list[str]) -> int:
+    module = import_module("codex_from_package")
+    return int(module.main(argv))
 
 
 @dataclass(frozen=True)
@@ -650,15 +660,15 @@ def run_continue_route(
         backend,
         "--artifact-root",
         artifact_root.as_posix(),
-        "--worker-model",
-        worker_model,
-        "--acceptor-model",
-        acceptor_model,
-        "--remediation-model",
-        remediation_model or worker_model,
         "--mutation-lock-timeout-sec",
         str(max(mutation_lock_timeout_sec, 0.0)),
     ]
+    if worker_model.strip():
+        common.extend(["--worker-model", worker_model])
+    if acceptor_model.strip():
+        common.extend(["--acceptor-model", acceptor_model])
+    if remediation_model.strip():
+        common.extend(["--remediation-model", remediation_model])
     if continuation_contract_path is not None:
         common.extend(["--continuation-contract", continuation_contract_path.as_posix()])
     if profile.strip():
@@ -715,8 +725,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Allow package materialization to start after the intake summary checkpoint.",
     )
     parser.add_argument("--backend", choices=("simulate", "codex-cli"), default="codex-cli")
-    parser.add_argument("--worker-model", default="gpt-5.3-codex")
-    parser.add_argument("--acceptor-model", default="gpt-5.4")
+    parser.add_argument("--worker-model", default="")
+    parser.add_argument("--acceptor-model", default="")
     parser.add_argument("--remediation-model", default="")
     parser.add_argument("--max-remediation-cycles", type=int, default=2)
     parser.add_argument("--codex-bin", default=None)
