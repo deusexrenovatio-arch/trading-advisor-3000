@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/parity_manifest.v1.json",
+  "title": "ParityManifestV1",
+  "type": "object",
+  "required": [
+    "contract_version",
+    "run_id",
+    "generated_at_utc",
+    "status",
+    "window_policy_id",
+    "raw_ingest_report_contract",
+    "raw_ingest_run_id",
+    "window_count",
+    "changed_windows",
+    "changed_windows_hash_sha256",
+    "deterministic_rules"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "parity_manifest.v1"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["PASS", "PASS-NOOP", "BLOCKED", "FAILED"]
+    },
+    "window_policy_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "raw_ingest_report_contract": {
+      "type": "string",
+      "minLength": 1
+    },
+    "raw_ingest_run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "window_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "changed_windows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "internal_id",
+          "source_timeframe",
+          "source_interval",
+          "moex_secid",
+          "window_start_utc",
+          "window_end_utc",
+          "incremental_rows"
+        ],
+        "properties": {
+          "internal_id": {"type": "string", "minLength": 1},
+          "source_timeframe": {"type": "string", "minLength": 1},
+          "source_interval": {"type": "integer", "minimum": 0},
+          "moex_secid": {"type": "string", "minLength": 1},
+          "window_start_utc": {"type": "string", "minLength": 1},
+          "window_end_utc": {"type": "string", "minLength": 1},
+          "incremental_rows": {"type": "integer", "minimum": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "changed_windows_hash_sha256": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "deterministic_rules": {
+      "type": "object",
+      "required": ["sort_order", "hash_rule", "pass_noop_rule"],
+      "properties": {
+        "sort_order": {"type": "string", "minLength": 1},
+        "hash_rule": {"type": "string", "minLength": 1},
+        "pass_noop_rule": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
