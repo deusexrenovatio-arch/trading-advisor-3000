@@ -181,7 +181,7 @@ def main() -> None:
     output_dir = output_root / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    report = run_phase03_reconciliation(
+    report = run_moex_reconciliation(
         canonical_bars_path=canonical_bars_path,
         canonical_provenance_path=canonical_provenance_path,
         finam_archive_source_path=finam_source,
