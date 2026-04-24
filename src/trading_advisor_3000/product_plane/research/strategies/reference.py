@@ -31,14 +31,53 @@ def _mean_reversion(snapshot: FeatureSnapshot) -> TradeSide:
     return TradeSide.FLAT
 
 
+def _breakout_volatility(snapshot: FeatureSnapshot) -> TradeSide:
+    breakout_state = str(snapshot.features_json.get("breakout_state", "inside"))
+    volume_pressure = float(snapshot.features_json.get("volume_pressure", snapshot.rvol))
+    supertrend_direction = float(snapshot.features_json.get("supertrend_direction", 0.0))
+    if breakout_state == "upper" and volume_pressure >= 1.0 and supertrend_direction >= 0.0:
+        return TradeSide.LONG
+    if breakout_state == "lower" and volume_pressure >= 1.0 and supertrend_direction <= 0.0:
+        return TradeSide.SHORT
+    return TradeSide.FLAT
+
+
 _REFERENCE_STRATEGIES: dict[str, Callable[[FeatureSnapshot], TradeSide]] = {
+    "breakout-volatility-v1": _breakout_volatility,
     "ma-cross-v1": _momentum_breakout,
+    "mean-revert-v1": _mean_reversion,
     "mean-reversion-v1": _mean_reversion,
+    "trend-follow-v1": _momentum_breakout,
 }
+
+_STRATEGY_FAMILY: dict[str, str] = {
+    "breakout-volatility-v1": "breakout-volatility",
+    "ma-cross-v1": "trend-following",
+    "mean-revert-v1": "mean-reversion",
+    "mean-reversion-v1": "mean-reversion",
+    "trend-follow-v1": "trend-following",
+}
+
+_SAMPLE_STRATEGY_IDS: tuple[str, ...] = (
+    "breakout-volatility-v1",
+    "mean-revert-v1",
+    "trend-follow-v1",
+)
 
 
 def supported_strategy_ids() -> tuple[str, ...]:
     return tuple(sorted(_REFERENCE_STRATEGIES))
+
+
+def sample_strategy_ids() -> tuple[str, ...]:
+    return _SAMPLE_STRATEGY_IDS
+
+
+def strategy_family_of(strategy_version_id: str) -> str:
+    family = _STRATEGY_FAMILY.get(strategy_version_id)
+    if family is None:
+        raise ValueError(f"unsupported strategy_version_id: {strategy_version_id}")
+    return family
 
 
 def evaluate_strategy(*, strategy_version_id: str, snapshot: FeatureSnapshot) -> TradeSide:
