@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -16,10 +17,12 @@ from codex_governed_entry import (  # noqa: E402
     DEFAULT_MUTATION_LOCK_TIMEOUT_SEC,
     DEFAULT_ROUTE_STATE,
     GovernedEntryError,
+    choose_latest_package,
     decide_route,
     discover_active_module,
     main,
     normalize_route_argv,
+    package_main,
     resolve_repo_root,
     write_route_state,
 )
@@ -414,6 +417,62 @@ def test_continue_route_forwards_profile_to_orchestrator(monkeypatch, tmp_path: 
     for call in calls:
         timeout_index = call.index("--mutation-lock-timeout-sec")
         assert call[timeout_index + 1] == expected_timeout
+
+
+def test_continue_route_omits_model_flags_when_not_explicitly_requested(monkeypatch, tmp_path: Path) -> None:
+    parent, _phase, contract = _phase_module(tmp_path, "demo")
+    monkeypatch.setattr("codex_governed_entry.resolve_repo_root", lambda: tmp_path)
+
+    calls: list[list[str]] = []
+
+    def fake_orchestrator(argv: list[str]) -> int:
+        calls.append(list(argv))
+        return 0
+
+    monkeypatch.setattr("codex_governed_entry.orchestrator_main", fake_orchestrator)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "codex_governed_entry.py",
+            "--route",
+            "continue",
+            "--execution-contract",
+            contract.as_posix(),
+            "--parent-brief",
+            parent.as_posix(),
+            "--backend",
+            "simulate",
+            "--max-remediation-cycles",
+            "0",
+        ],
+    )
+
+    code = main()
+
+    assert code == 0
+    assert len(calls) == 2
+    for call in calls:
+        assert "--worker-model" not in call
+        assert "--acceptor-model" not in call
+        assert "--remediation-model" not in call
+
+
+def test_lazy_package_import_wrappers_delegate_on_demand(monkeypatch, tmp_path: Path) -> None:
+    stub = types.ModuleType("codex_from_package")
+
+    def fake_choose_latest_package(inbox: Path) -> Path | None:
+        return inbox / "latest.zip"
+
+    def fake_main(argv: list[str]) -> int:
+        return 7
+
+    stub.choose_latest_package = fake_choose_latest_package  # type: ignore[attr-defined]
+    stub.main = fake_main  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "codex_from_package", stub)
+
+    assert choose_latest_package(tmp_path) == (tmp_path / "latest.zip")
+    assert package_main(["--route", "package"]) == 7
 
 
 def test_main_stacked_followup_writes_continuation_contract(monkeypatch, tmp_path: Path) -> None:

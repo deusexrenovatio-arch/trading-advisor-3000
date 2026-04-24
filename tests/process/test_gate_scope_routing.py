@@ -226,6 +226,23 @@ def test_scope_validate_command_uses_stdin_for_legacy_namespace_growth() -> None
     assert "src/trading_advisor_3000/product_plane/runtime_bridge.py" in scoped.stdin_text
 
 
+def test_scope_validate_command_uses_stdin_for_product_surface_naming() -> None:
+    scoped = scope_validate_command(
+        f"{sys.executable} scripts/validate_product_surface_naming.py",
+        base_sha=None,
+        head_sha=None,
+        changed_files=[
+            "docs/architecture/product-plane/historical-data-plane.md",
+            "docs/runbooks/app/moex-foundation-runbook.md",
+        ],
+    )
+
+    assert isinstance(scoped, CommandSpec)
+    assert "--stdin" in scoped.command
+    assert scoped.stdin_text is not None
+    assert "docs/architecture/product-plane/historical-data-plane.md" in scoped.stdin_text
+
+
 def test_scope_validate_command_uses_stdin_for_surface_pr_matrix_runner() -> None:
     scoped = scope_validate_command(
         f"{sys.executable} scripts/run_surface_pr_matrix.py",
@@ -233,7 +250,7 @@ def test_scope_validate_command_uses_stdin_for_surface_pr_matrix_runner() -> Non
         head_sha=None,
         changed_files=[
             "src/trading_advisor_3000/product_plane/runtime/bootstrap.py",
-            "tests/product-plane/unit/test_phase6_fastapi_smoke.py",
+            "tests/product-plane/unit/test_runtime_api_smoke.py",
         ],
     )
 
@@ -241,6 +258,40 @@ def test_scope_validate_command_uses_stdin_for_surface_pr_matrix_runner() -> Non
     assert "--stdin" in scoped.command
     assert scoped.stdin_text is not None
     assert "src/trading_advisor_3000/product_plane/runtime/bootstrap.py" in scoped.stdin_text
+
+
+def test_scope_validate_command_uses_stdin_for_skill_precommit_gate() -> None:
+    scoped = scope_validate_command(
+        f"{sys.executable} scripts/skill_precommit_gate.py --from-git --git-ref HEAD",
+        base_sha=None,
+        head_sha=None,
+        changed_files=[
+            "scripts/codex_governed_entry.py",
+            *[f"artifacts/codex/package-intake/{index}/manifest.md" for index in range(600)],
+        ],
+    )
+
+    assert isinstance(scoped, CommandSpec)
+    assert "--stdin" in scoped.command
+    assert "--changed-files" not in scoped.command
+    assert "--strict" in scoped.command
+    assert scoped.stdin_text is not None
+    assert "scripts/codex_governed_entry.py" in scoped.stdin_text
+
+
+def test_scope_validate_command_uses_base_refs_for_skill_precommit_gate() -> None:
+    scoped = scope_validate_command(
+        f"{sys.executable} scripts/skill_precommit_gate.py --from-git --git-ref HEAD",
+        base_sha="origin/main",
+        head_sha="HEAD",
+        changed_files=["scripts/codex_governed_entry.py"],
+    )
+
+    assert isinstance(scoped, str)
+    assert "--base-ref origin/main" in scoped
+    assert "--head-ref HEAD" in scoped
+    assert "--changed-files" not in scoped
+    assert "--strict" in scoped
 
 
 def test_loop_gate_handles_large_scope_from_stdin() -> None:

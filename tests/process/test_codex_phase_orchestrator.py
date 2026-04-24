@@ -10,6 +10,8 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
+from codex_phase_orchestrator import build_parser  # noqa: E402
+from codex_phase_orchestrator import build_role_launches  # noqa: E402
 from codex_phase_orchestrator import orchestrate_current_phase  # noqa: E402
 from codex_phase_orchestrator import OrchestratorError  # noqa: E402
 from codex_phase_policy import RoleLaunchConfig  # noqa: E402
@@ -22,6 +24,24 @@ def _write(path: Path, text: str) -> None:
 
 def _launch(model: str) -> RoleLaunchConfig:
     return RoleLaunchConfig(profile="", model=model, config_overrides=())
+
+
+def test_build_role_launches_leave_models_empty_when_not_explicitly_requested() -> None:
+    args = build_parser().parse_args(
+        [
+            "preflight",
+            "--execution-contract",
+            "docs/codex/contracts/demo.execution-contract.md",
+            "--parent-brief",
+            "docs/codex/modules/demo.parent.md",
+        ]
+    )
+
+    worker_launch, acceptor_launch, remediation_launch = build_role_launches(args)
+
+    assert worker_launch.model == ""
+    assert acceptor_launch.model == ""
+    assert remediation_launch.model == ""
 
 
 def _write_acceptor_skills(repo: Path) -> None:

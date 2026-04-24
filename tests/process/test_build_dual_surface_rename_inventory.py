@@ -22,21 +22,21 @@ def _token(token_id: str):
     return next(item for item in LEGACY_TOKENS if item.token_id == token_id)
 
 
-def test_classify_docs_link_as_low_risk_phase03() -> None:
+def test_classify_docs_link_as_low_risk_docs_subtree_rename() -> None:
     classified = classify_reference(
         "docs/architecture/repository-surfaces.md",
         _token("docs_architecture_app"),
     )
     assert classified.group == "docs-links"
     assert classified.risk == "low"
-    assert classified.wave == "phase-03-docs-subtree-rename"
+    assert classified.wave == "docs-subtree-rename"
 
 
-def test_classify_ci_and_codeowners_as_high_risk_phase05() -> None:
+def test_classify_ci_and_codeowners_as_high_risk_governance_selector_cutover() -> None:
     classified = classify_reference("CODEOWNERS", _token("src_product_app"))
     assert classified.path_zone == "ci-codeowners"
     assert classified.risk == "high"
-    assert classified.wave == "phase-05-governance-selector-cutover"
+    assert classified.wave == "governance-selector-cutover"
 
 
 def test_classify_scope_marks_historical_prefixes_excluded() -> None:
@@ -58,7 +58,7 @@ def test_summarize_records_aggregates_active_and_excluded_counts() -> None:
             path_zone="docs",
             group="docs-links",
             risk="low",
-            wave="phase-03-docs-subtree-rename",
+            wave="docs-subtree-rename",
             cluster_id="docs-architecture-linkage",
             wave_owner="architecture",
             line_excerpt="docs/architecture/app/",
@@ -72,7 +72,7 @@ def test_summarize_records_aggregates_active_and_excluded_counts() -> None:
             path_zone="scripts",
             group="scripts-validators",
             risk="high",
-            wave="phase-02-compatibility-bridge",
+            wave="compatibility-bridge",
             cluster_id="validator-and-script-paths",
             wave_owner="platform",
             line_excerpt="docs/architecture/app/",
@@ -86,7 +86,7 @@ def test_summarize_records_aggregates_active_and_excluded_counts() -> None:
             path_zone="other",
             group="test-paths-fixtures",
             risk="medium",
-            wave="phase-04-runtime-test-cutover",
+            wave="runtime-test-cutover",
             cluster_id="test-namespace-dependencies",
             wave_owner="app-core+platform",
             line_excerpt="tests/app/",
@@ -99,4 +99,4 @@ def test_summarize_records_aggregates_active_and_excluded_counts() -> None:
     assert summary["counts"]["excluded_references"] == 1
     assert summary["counts_by_risk"]["high"] == 1
     assert summary["counts_by_risk"]["low"] == 1
-    assert summary["counts_by_wave"]["phase-02-compatibility-bridge"] == 1
+    assert summary["counts_by_wave"]["compatibility-bridge"] == 1

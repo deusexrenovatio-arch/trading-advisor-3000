@@ -31,8 +31,8 @@ def test_runtime_contour_plan_uses_runtime_profile_without_data_stack() -> None:
     assert plan.gate_profile == "runtime-api"
     assert "runtime-api" in plan.dependency_profiles
     assert "data-proof" not in plan.dependency_profiles
-    assert any("test_phase6_fastapi_smoke.py" in command for command in plan.checks)
-    assert all("test_phase2a_spark_execution.py" not in command for command in plan.checks)
+    assert any("test_runtime_api_smoke.py" in command for command in plan.checks)
+    assert all("test_historical_data_spark_execution.py" not in command for command in plan.checks)
 
 
 def test_data_contour_plan_uses_data_proof_profile() -> None:
@@ -43,7 +43,7 @@ def test_data_contour_plan_uses_data_proof_profile() -> None:
     assert plan.contour == "data-proof"
     assert plan.gate_profile == "data-proof"
     assert "data-proof" in plan.dependency_profiles
-    assert any("test_phase2a_spark_execution.py" in command for command in plan.checks)
+    assert any("test_historical_data_spark_execution.py" in command for command in plan.checks)
 
 
 def test_mixed_contour_plan_uses_integration_profile() -> None:
@@ -59,8 +59,8 @@ def test_mixed_contour_plan_uses_integration_profile() -> None:
     assert plan.contour == "mixed-integration"
     assert plan.gate_profile == "integration"
     assert "data-proof" in plan.dependency_profiles
-    assert any("test_phase6_fastapi_smoke.py" in command for command in plan.checks)
-    assert any("test_phase2a_spark_execution.py" in command for command in plan.checks)
+    assert any("test_runtime_api_smoke.py" in command for command in plan.checks)
+    assert any("test_historical_data_spark_execution.py" in command for command in plan.checks)
 
 
 def test_governance_only_plan_requires_no_app_matrix_checks() -> None:
