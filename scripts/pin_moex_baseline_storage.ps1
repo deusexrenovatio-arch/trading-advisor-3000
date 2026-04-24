@@ -1,9 +1,9 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$RunId,
-    [string]$NightlyRoot = 'artifacts/codex/moex-nightly',
-    [string]$Phase01Root = 'artifacts/codex/moex-phase01',
-    [string]$Phase02Root = 'artifacts/codex/moex-phase02',
+    [string]$RouteRoot = 'artifacts/codex/moex-route-refresh',
+    [string]$RawIngestRoot = 'artifacts/codex/moex-raw-ingest',
+    [string]$CanonicalRoot = 'artifacts/codex/moex-canonical-refresh',
     [string]$DataRoot = 'D:\TA3000-data\trading-advisor-3000-nightly',
     [string]$BaselineId = 'moex-baseline-4y-current'
 )
@@ -64,42 +64,42 @@ function Replace-DirectoryWithMaterializedCopy {
     Move-Item -LiteralPath $tmpCopyPath -Destination $resolvedDestination
 }
 
-$resolvedNightlyRoot = Resolve-FullPath -PathValue $NightlyRoot
-$resolvedPhase01Root = Resolve-FullPath -PathValue $Phase01Root
-$resolvedPhase02Root = Resolve-FullPath -PathValue $Phase02Root
+$resolvedRouteRoot = Resolve-FullPath -PathValue $RouteRoot
+$resolvedRawIngestRoot = Resolve-FullPath -PathValue $RawIngestRoot
+$resolvedCanonicalRoot = Resolve-FullPath -PathValue $CanonicalRoot
 $resolvedDataRoot = Resolve-FullPath -PathValue $DataRoot
 $resolvedRawBaselineRoot = Join-Path $resolvedDataRoot "raw\moex\$BaselineId"
 $resolvedCanonicalBaselineRoot = Join-Path $resolvedDataRoot "canonical\moex\$BaselineId"
 $resolvedDerivedRoot = Join-Path $resolvedDataRoot 'derived\moex'
 
-$nightlyRunRoot = Join-Path $resolvedNightlyRoot $RunId
-$phase01RunRoot = Join-Path $resolvedPhase01Root $RunId
-$phase02RunRoot = Join-Path $resolvedPhase02Root $RunId
+$routeRunRoot = Join-Path $resolvedRouteRoot $RunId
+$rawIngestRunRoot = Join-Path $resolvedRawIngestRoot $RunId
+$canonicalRunRoot = Join-Path $resolvedCanonicalRoot $RunId
 
-$nightlyReportPath = Join-Path $nightlyRunRoot 'nightly-backfill-report.json'
-$phase01ReportPath = Join-Path $phase01RunRoot 'phase01-foundation-report.json'
-$phase02ReportPath = Join-Path $phase02RunRoot 'phase02-canonical-report.json'
-$rawTableSourcePath = Join-Path $phase01RunRoot 'delta\raw_moex_history.delta'
-$canonicalBarsSourcePath = Join-Path $phase02RunRoot 'delta\canonical_bars.delta'
-$canonicalProvenanceSourcePath = Join-Path $phase02RunRoot 'delta\canonical_bar_provenance.delta'
+$routeReportPath = Join-Path $routeRunRoot 'route-refresh-report.json'
+$rawIngestReportPath = Join-Path $rawIngestRunRoot 'raw-ingest-summary-report.json'
+$canonicalReportPath = Join-Path $canonicalRunRoot 'canonical-refresh-report.json'
+$rawTableSourcePath = Join-Path $rawIngestRunRoot 'delta\raw_moex_history.delta'
+$canonicalBarsSourcePath = Join-Path $canonicalRunRoot 'delta\canonical_bars.delta'
+$canonicalProvenanceSourcePath = Join-Path $canonicalRunRoot 'delta\canonical_bar_provenance.delta'
 
-Assert-PathExists -TargetPath $nightlyReportPath -Label 'nightly report'
-Assert-PathExists -TargetPath $phase01ReportPath -Label 'phase-01 report'
-Assert-PathExists -TargetPath $phase02ReportPath -Label 'phase-02 report'
+Assert-PathExists -TargetPath $routeReportPath -Label 'route refresh report'
+Assert-PathExists -TargetPath $rawIngestReportPath -Label 'raw-ingest report'
+Assert-PathExists -TargetPath $canonicalReportPath -Label 'canonical-refresh report'
 Assert-PathExists -TargetPath $rawTableSourcePath -Label 'raw table'
 Assert-PathExists -TargetPath $canonicalBarsSourcePath -Label 'canonical bars table'
 Assert-PathExists -TargetPath $canonicalProvenanceSourcePath -Label 'canonical provenance table'
 
-$nightlyReport = Get-Content -LiteralPath $nightlyReportPath -Raw | ConvertFrom-Json
-$phase01Report = Get-Content -LiteralPath $phase01ReportPath -Raw | ConvertFrom-Json
-$phase02Report = Get-Content -LiteralPath $phase02ReportPath -Raw | ConvertFrom-Json
+$routeReport = Get-Content -LiteralPath $routeReportPath -Raw | ConvertFrom-Json
+$rawIngestReport = Get-Content -LiteralPath $rawIngestReportPath -Raw | ConvertFrom-Json
+$canonicalReport = Get-Content -LiteralPath $canonicalReportPath -Raw | ConvertFrom-Json
 
-if ($nightlyReport.status -ne 'PASS') {
-    throw "cannot pin baseline from non-PASS nightly run: $RunId (status=$($nightlyReport.status))"
+if ($routeReport.status -ne 'PASS') {
+    throw "cannot pin baseline from non-PASS route refresh: $RunId (status=$($routeReport.status))"
 }
 
-if ($phase02Report.publish_decision -ne 'publish') {
-    throw "cannot pin baseline from non-publish phase-02 run: $RunId (publish_decision=$($phase02Report.publish_decision))"
+if ($canonicalReport.publish_decision -ne 'publish') {
+    throw "cannot pin baseline from non-publish canonical refresh: $RunId (publish_decision=$($canonicalReport.publish_decision))"
 }
 
 New-Item -ItemType Directory -Path $resolvedRawBaselineRoot -Force | Out-Null
@@ -119,8 +119,8 @@ Replace-DirectoryWithMaterializedCopy -DestinationPath $baselineRawPath -SourceP
 Replace-DirectoryWithMaterializedCopy -DestinationPath $baselineCanonicalBarsPath -SourcePath $canonicalBarsSourcePath
 Replace-DirectoryWithMaterializedCopy -DestinationPath $baselineCanonicalProvenancePath -SourcePath $canonicalProvenanceSourcePath
 
-Copy-Item -LiteralPath $nightlyReportPath -Destination (Join-Path $baselineReportsRoot 'nightly-backfill-report.json') -Force
-Copy-Item -LiteralPath $phase02ReportPath -Destination (Join-Path $baselineReportsRoot 'phase02-canonical-report.json') -Force
+Copy-Item -LiteralPath $routeReportPath -Destination (Join-Path $baselineReportsRoot 'route-refresh-report.json') -Force
+Copy-Item -LiteralPath $canonicalReportPath -Destination (Join-Path $baselineReportsRoot 'canonical-refresh-report.json') -Force
 
 $promotedAtUtc = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
 $manifest = [ordered]@{
@@ -144,39 +144,39 @@ $manifest = [ordered]@{
         indicators_root = (Join-Path $resolvedDerivedRoot 'indicators')
     }
     source_run_roots = [ordered]@{
-        nightly_root = $nightlyRunRoot
-        phase01_root = $phase01RunRoot
-        phase02_root = $phase02RunRoot
+        route_root = $routeRunRoot
+        raw_ingest_root = $rawIngestRunRoot
+        canonical_root = $canonicalRunRoot
     }
     baseline_paths = [ordered]@{
         raw_table = $baselineRawPath
         canonical_bars = $baselineCanonicalBarsPath
         canonical_bar_provenance = $baselineCanonicalProvenancePath
-        nightly_report = (Join-Path $baselineReportsRoot 'nightly-backfill-report.json')
-        phase02_report = (Join-Path $baselineReportsRoot 'phase02-canonical-report.json')
+        route_report = (Join-Path $baselineReportsRoot 'route-refresh-report.json')
+        canonical_report = (Join-Path $baselineReportsRoot 'canonical-refresh-report.json')
         manifest = (Join-Path $resolvedCanonicalBaselineRoot 'baseline-manifest.json')
         readme = (Join-Path $resolvedCanonicalBaselineRoot 'README.md')
     }
     source_artifacts = [ordered]@{
-        nightly_report = $nightlyReportPath
-        phase01_report = $phase01ReportPath
-        phase02_report = $phase02ReportPath
+        route_report = $routeReportPath
+        raw_ingest_report = $rawIngestReportPath
+        canonical_report = $canonicalReportPath
         raw_table_source = $rawTableSourcePath
         canonical_bars_source = $canonicalBarsSourcePath
         canonical_bar_provenance_source = $canonicalProvenanceSourcePath
     }
     source_retention_status = 'historical source run folders may be purged after baseline materialization because raw/canonical baseline paths are self-contained'
     summary = [ordered]@{
-        bootstrap_window_days = $phase01Report.bootstrap_window_days
-        source_rows = $nightlyReport.phase01_summary.source_rows
-        incremental_rows = $nightlyReport.phase01_summary.incremental_rows
-        deduplicated_rows = $nightlyReport.phase01_summary.deduplicated_rows
-        canonical_rows = $nightlyReport.canonical_summary.canonical_rows
-        source_timeframes = @($nightlyReport.phase01_summary.source_timeframes)
-        source_intervals = @($nightlyReport.phase01_summary.source_intervals)
-        target_timeframes = @($nightlyReport.canonical_summary.target_timeframes)
-        qc_status = $phase02Report.qc_report.status
-        publish_decision = $phase02Report.publish_decision
+        bootstrap_window_days = $rawIngestReport.bootstrap_window_days
+        source_rows = $routeReport.raw_ingest_summary.source_rows
+        incremental_rows = $routeReport.raw_ingest_summary.incremental_rows
+        deduplicated_rows = $routeReport.raw_ingest_summary.deduplicated_rows
+        canonical_rows = $routeReport.canonical_summary.canonical_rows
+        source_timeframes = @($routeReport.raw_ingest_summary.source_timeframes)
+        source_intervals = @($routeReport.raw_ingest_summary.source_intervals)
+        target_timeframes = @($routeReport.canonical_summary.target_timeframes)
+        qc_status = $canonicalReport.qc_report.status
+        publish_decision = $canonicalReport.publish_decision
     }
 }
 
@@ -205,9 +205,9 @@ $readmeLines = @(
     "- indicators: $(Join-Path $resolvedDerivedRoot 'indicators')",
     '',
     'Historical pinned source run roots:',
-    "- nightly: $nightlyRunRoot",
-    "- phase01: $phase01RunRoot",
-    "- phase02: $phase02RunRoot",
+    "- route refresh: $routeRunRoot",
+    "- raw ingest: $rawIngestRunRoot",
+    "- canonical refresh: $canonicalRunRoot",
     '',
     'Retention note:',
     'The stable baseline paths above are materialized inside the data root and do not depend on historical source run folders for reads.'
