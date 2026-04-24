@@ -230,6 +230,8 @@ def run_research_from_bars(
     dataset_version: str,
     output_dir: Path,
     backtest_config: dict[str, object] | None = None,
+    scoring_profile_path: Path | None = None,
+    repeatable: bool = True,
 ) -> dict[str, object]:
     """Primary public research entrypoint over the materialized research plane."""
     backtest_config = backtest_config or {}

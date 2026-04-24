@@ -16,7 +16,7 @@ from .manifests import (
     canonical_manifest_json,
 )
 from .registry import StrategyRegistry, build_phase1_strategy_registry
-from .reference import evaluate_strategy, supported_strategy_ids
+from .reference import evaluate_strategy, sample_strategy_ids, strategy_family_of, supported_strategy_ids
 from .spec import StrategyParameter, StrategyRankingMetadata, StrategyRiskPolicy, StrategySpec
 
 __all__ = [
@@ -41,5 +41,7 @@ __all__ = [
     "canonical_manifest_json",
     "evaluate_strategy",
     "phase1_strategy_catalog",
+    "sample_strategy_ids",
+    "strategy_family_of",
     "supported_strategy_ids",
 ]

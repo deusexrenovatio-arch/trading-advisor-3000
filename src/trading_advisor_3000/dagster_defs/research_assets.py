@@ -51,7 +51,7 @@ from trading_advisor_3000.product_plane.research.strategy_space import prepare_s
 from trading_advisor_3000.product_plane.research.strategies.families import phase_stg02_family_adapters
 
 from .moex_historical_assets import MOEX_BASELINE_UPDATE_JOB_NAME, moex_baseline_update_job
-from .phase2a_assets import AssetSpec
+from .historical_data_proof_assets import AssetSpec
 
 
 RESEARCH_DATA_PREP_JOB_NAME = "research_data_prep_job"
