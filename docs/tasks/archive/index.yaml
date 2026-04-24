@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-03-25'
+updated_at: '2026-04-24'
 items:
 - id: TASK-2026-03-16-SHELL-BOOTSTRAP
   path: docs/tasks/archive/TASK-2026-03-16-shell-bootstrap.md
@@ -133,3 +133,51 @@ items:
   status: completed
   started_at: '2026-03-25'
   completed_at: '2026-03-25'
+- id: TASK-2026-04-13-CONTINUE-GOVERNED-REMEDIATION-FOR-MOEX-HISTORICA
+  path: docs/tasks/archive/TASK-2026-04-13-continue-governed-remediation-for-moex-historica.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-13'
+  completed_at: '2026-04-13'
+- id: TASK-2026-04-13-SYNC-REPO-MCP-TEMPLATE-INTO-USER-CODEX-CONFIG-BY
+  path: docs/tasks/archive/TASK-2026-04-13-sync-repo-mcp-template-into-user-codex-config-by.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-13'
+  completed_at: '2026-04-13'
+- id: TASK-2026-04-13-PROMOTE-MEMPALACE-INTO-THE-OFFICIAL-REPOSITORY-M
+  path: docs/tasks/archive/TASK-2026-04-13-promote-mempalace-into-the-official-repository-m.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-13'
+  completed_at: '2026-04-13'
+- id: TASK-2026-04-13-CONTINUE-GOVERNED-MODULE-FOR-MOEX-HISTORICAL-ROU-1
+  path: docs/tasks/archive/TASK-2026-04-13-continue-governed-module-for-moex-historical-rou-1.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-13'
+  completed_at: '2026-04-13'
+- id: TASK-2026-04-14-CONTINUE-GOVERNED-MODULE-FOR-MOEX-HISTORICAL-ROU
+  path: docs/tasks/archive/TASK-2026-04-14-continue-governed-module-for-moex-historical-rou.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-14'
+  completed_at: '2026-04-14'
+- id: TASK-2026-04-24-TASK
+  path: docs/tasks/archive/TASK-2026-04-24-task.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-24'
+  completed_at: '2026-04-24'
+- id: TASK-2026-04-24-PROJECT-LEVEL-GOVERNED-FLOW-DEFAULTS
+  path: docs/tasks/archive/TASK-2026-04-24-project-level-governed-flow-defaults.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-24'
+  completed_at: '2026-04-24'
+- id: TASK-2026-04-24-INTEGRATE-DUAL-SURFACE-SAFE-RENAME-CLOSEOUT-AND-
+  path: docs/tasks/archive/TASK-2026-04-24-integrate-dual-surface-safe-rename-closeout-and-.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-24'
+  completed_at: '2026-04-24'

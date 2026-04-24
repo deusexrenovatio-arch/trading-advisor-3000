@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-04-01",
-  "overall_status": "green",
+  "generated_at": "2026-04-13",
+  "overall_status": "yellow",
   "sections": {
     "lifecycle": {
       "status": "green",
@@ -19,24 +19,151 @@
       "process_window_tasks": 20,
       "burn_in_complete": true
     },
+    "orchestration_quality": {
+      "status": "yellow",
+      "runs_total": 47,
+      "window_runs_count": 20,
+      "burn_in_complete": true,
+      "accepted_runs": 11,
+      "blocked_runs": 9,
+      "first_pass_acceptance_rate": 0.25,
+      "remediation_rate": 0.35,
+      "average_orchestration_score": 61.15,
+      "median_orchestration_score": 56.0,
+      "latest_orchestration_score": 39,
+      "latest_score_label": "critical",
+      "calibration_runs": 2,
+      "average_worker_acceptor_absolute_delta": 2.0,
+      "worker_overconfidence_rate": 0.0,
+      "worker_underconfidence_rate": 0.0,
+      "score_bands": {
+        "critical": 9,
+        "excellent": 5,
+        "fragile": 3,
+        "strong": 1,
+        "watch": 2
+      },
+      "top_blocker_categories": [
+        {
+          "category": "evidence_gap",
+          "count": 47,
+          "suggestion": "Tighten evidence contracts around exact commands, artifacts, and owned-surface coverage."
+        },
+        {
+          "category": "prohibited_finding",
+          "count": 21,
+          "suggestion": "Move prohibited conditions into preflight and worker guardrails so acceptance is not the first detector."
+        },
+        {
+          "category": "deferred",
+          "count": 8,
+          "suggestion": "Split critical work earlier so deferred closure does not survive into acceptance."
+        },
+        {
+          "category": "acceptance_blocker",
+          "count": 6,
+          "suggestion": "Make acceptor findings more structured so blocker classes can be routed earlier."
+        },
+        {
+          "category": "fallback",
+          "count": 3,
+          "suggestion": "Turn fallback paths into explicit contract decisions instead of allowing silent implementation shortcuts."
+        },
+        {
+          "category": "assumption",
+          "count": 1,
+          "suggestion": "Strengthen worker handoffs so unresolved assumptions are blocked before acceptance."
+        },
+        {
+          "category": "doc_context_gap",
+          "count": 1,
+          "suggestion": "Require full source and materialized documentation context whenever remediation edits docs."
+        }
+      ],
+      "quality_expansion_points": [
+        "First-pass acceptance is too low; strengthen worker handoff contracts and preflight checks.",
+        "Remediation is activating often; move recurring blocker classes into earlier route decisions.",
+        "Blocked final states are too frequent; escalate repeated blocker patterns sooner.",
+        "Tighten evidence contracts around exact commands, artifacts, and owned-surface coverage.",
+        "Move prohibited conditions into preflight and worker guardrails so acceptance is not the first detector.",
+        "Split critical work earlier so deferred closure does not survive into acceptance."
+      ],
+      "latest_run": {
+        "orchestration_score": 39,
+        "score_label": "critical",
+        "component_scores": {
+          "progression": 60,
+          "evidence": 44,
+          "policy": 0
+        },
+        "attempts_total": 1,
+        "blocked_attempts": 1,
+        "remediation_attempts": 0,
+        "first_pass_passed": false,
+        "final_status": "blocked",
+        "acceptance_blockers_total": 2,
+        "policy_blockers_total": 7,
+        "evidence_gaps_total": 1,
+        "prohibited_findings_total": 2,
+        "missing_acceptance_artifacts_total": 0,
+        "top_blocker_categories": [
+          {
+            "category": "deferred",
+            "count": 3,
+            "suggestion": "Split critical work earlier so deferred closure does not survive into acceptance."
+          },
+          {
+            "category": "evidence_gap",
+            "count": 2,
+            "suggestion": "Tighten evidence contracts around exact commands, artifacts, and owned-surface coverage."
+          },
+          {
+            "category": "prohibited_finding",
+            "count": 2,
+            "suggestion": "Move prohibited conditions into preflight and worker guardrails so acceptance is not the first detector."
+          },
+          {
+            "category": "doc_context_gap",
+            "count": 1,
+            "suggestion": "Require full source and materialized documentation context whenever remediation edits docs."
+          },
+          {
+            "category": "fallback",
+            "count": 1,
+            "suggestion": "Turn fallback paths into explicit contract decisions instead of allowing silent implementation shortcuts."
+          }
+        ],
+        "quality_expansion_points": [
+          "Escalate repeated blocker patterns earlier instead of spending the full retry budget on the same class.",
+          "Split critical work earlier so deferred closure does not survive into acceptance.",
+          "Tighten evidence contracts around exact commands, artifacts, and owned-surface coverage.",
+          "Move prohibited conditions into preflight and worker guardrails so acceptance is not the first detector."
+        ],
+        "score_rationale": [
+          "The phase remained blocked at the end of the governed cycle.",
+          "Acceptance recorded unresolved evidence gaps.",
+          "Orchestrator policy raised blockers that reduced result confidence."
+        ]
+      }
+    },
     "pilot_observation": {
       "status": "green",
-      "critical_tasks_with_explicit_solution_class": 11,
+      "critical_tasks_with_explicit_solution_class": 14,
       "blocked_shortcut_claims": 0,
       "staged_vs_target_declarations": {
         "staged": 4,
-        "target": 7
+        "target": 10
       },
       "observation_window_start": "2026-03-25",
-      "observation_window_days": 7,
+      "observation_window_days": 19,
       "observation_window_min_days": 7,
       "observation_window_max_days": 14,
-      "observation_window_status": "review_ready",
-      "task_notes_scanned": 50
+      "observation_window_status": "review_due",
+      "task_notes_scanned": 57
     }
   },
   "baseline_metrics": {
-    "generated_at": "2026-04-01",
+    "generated_at": "2026-04-13",
     "plans": {
       "total_items": 2,
       "active_items": 0,
@@ -61,7 +188,7 @@
       }
     },
     "dev_loop_baseline": {
-      "generated_at": "2026-04-01",
+      "generated_at": "2026-04-13",
       "task_outcomes_total": 23,
       "terminal_outcomes_total": 23,
       "outcomes_with_patch_timing": 2,
