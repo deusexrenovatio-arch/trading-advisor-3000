@@ -212,6 +212,7 @@ def test_phase3_manifest_covers_release_blocking_boundaries_and_policy() -> None
         "runtime_configuration",
         "persistence_and_migrations",
         "rollout_and_connectivity",
+        "moex_historical_handoff_contracts",
     }
     present_boundaries = {boundary_id for boundary_id, _ in rows}
     assert required_boundaries <= present_boundaries
@@ -417,3 +418,4 @@ def test_phase3_disprover_payload_mutation_without_contract_update_fails() -> No
 
     with pytest.raises(AssertionError):
         _assert_schema_valid(schema, payload)
+

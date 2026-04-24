@@ -1,0 +1,31 @@
+{
+  "ledger_version": "technical_route_run_ledger.v1",
+  "event_sequence": 1,
+  "route_id": "moex_historical_route",
+  "event_kind": "LEASE_ACQUIRE",
+  "status": "PASS",
+  "status_reason": "lease_acquired",
+  "lease_scope": "authoritative_store_route",
+  "lease_state": "ACQUIRED",
+  "lease_backend": "delta-ledger-cas",
+  "lease_version": 1,
+  "holder_id": "dagster-nightly",
+  "owner_job": "dagster-moex-historical-nightly",
+  "lease_token": "lease-1f27d71643aa4ff18e0ca478f0ab8f12",
+  "expected_lease_token": null,
+  "requested_at_utc": "2026-04-01T10:00:00Z",
+  "heartbeat_at_utc": "2026-04-01T10:00:00Z",
+  "expires_at_utc": "2026-04-01T10:15:00Z",
+  "released_at_utc": null,
+  "blocking_holder_id": null,
+  "blocking_lease_token": null,
+  "previous_lease_owner": null,
+  "ttl_seconds": 900,
+  "lease_timeout_sec": 900,
+  "run_id": "phase01-pass1",
+  "retry_of_run_id": null,
+  "changed_windows_hash": "1cf970cb9e4c7540f94381f54d1ff43f867ba5e56560418210fc2c50bccc9f0e",
+  "metadata_json": {
+    "route_owner": "dagster"
+  }
+}

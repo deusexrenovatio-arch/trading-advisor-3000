@@ -1,0 +1,36 @@
+{
+  "contract_version": "raw_ingest_run_report.v2",
+  "run_id": "phase01-pass1",
+  "generated_at_utc": "2026-04-01T10:25:00Z",
+  "ingest_till_utc": "2026-04-01T10:30:00Z",
+  "status": "PASS",
+  "status_semantics": {
+    "pass_condition": "incremental_rows > 0",
+    "pass_noop_condition": "incremental_rows == 0 and changed_windows == []",
+    "blocked_condition": "ingest failures must fail closed and are not downgraded to PASS statuses",
+    "failed_condition": "terminal ingest runtime failures produce FAILED and block canonical launch"
+  },
+  "source_rows": 3,
+  "incremental_rows": 2,
+  "deduplicated_rows": 0,
+  "stale_rows": 1,
+  "changed_windows": [
+    {
+      "internal_id": "BR-6.26",
+      "source_timeframe": "1m",
+      "source_interval": 1,
+      "moex_secid": "BRM6",
+      "window_start_utc": "2026-04-01T10:00:00Z",
+      "window_end_utc": "2026-04-01T10:19:59Z",
+      "incremental_rows": 2
+    }
+  ],
+  "changed_windows_hash_sha256": "1cf970cb9e4c7540f94381f54d1ff43f867ba5e56560418210fc2c50bccc9f0e",
+  "watermark_by_key": {
+    "BR-6.26|1m|BRM6": "2026-04-01T10:19:59Z"
+  },
+  "raw_table_path": "artifacts/codex/moex-raw-ingest/phase01-pass1/delta/raw_moex_history.delta",
+  "raw_ingest_progress_path": "artifacts/codex/moex-raw-ingest/phase01-pass1/raw-ingest-progress.jsonl",
+  "raw_ingest_error_path": "artifacts/codex/moex-raw-ingest/phase01-pass1/raw-ingest-errors.jsonl",
+  "raw_ingest_error_latest_path": "artifacts/codex/moex-raw-ingest/phase01-pass1/raw-ingest-error.latest.json"
+}
