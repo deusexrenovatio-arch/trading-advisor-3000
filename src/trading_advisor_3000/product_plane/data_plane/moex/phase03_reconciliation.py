@@ -1086,5 +1086,5 @@ def run_phase03_reconciliation(
         "artifacts_complete": artifacts_complete,
         "real_bindings": real_bindings,
     }
-    _json_write(output_dir / "phase03-reconciliation-report.json", report)
+    _json_write(output_dir / "reconciliation-report.json", report)
     return report
