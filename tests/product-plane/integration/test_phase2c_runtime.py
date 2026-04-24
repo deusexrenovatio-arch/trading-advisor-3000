@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from trading_advisor_3000.product_plane.contracts import (
     DecisionCandidate,
@@ -17,7 +17,7 @@ def _candidate(*, ts_decision: str = "2026-03-16T10:16:00Z") -> DecisionCandidat
         signal_id="SIG-20260316-0001",
         contract_id="BR-6.26",
         timeframe=Timeframe.M15,
-        strategy_version_id="trend-follow-v1",
+        strategy_version_id="ma-cross-v1",
         mode=Mode.SHADOW,
         side=TradeSide.LONG,
         entry_ref=82.45,
@@ -36,7 +36,7 @@ def test_phase2c_runtime_replay_lifecycle_and_idempotent_publication() -> None:
     stack = build_runtime_stack(telegram_channel="@ta3000_signals")
     stack.strategy_registry.register(
         StrategyVersion(
-            strategy_version_id="trend-follow-v1",
+            strategy_version_id="ma-cross-v1",
             status="active",
             allowed_contracts=frozenset({"BR-6.26"}),
             allowed_timeframes=frozenset({Timeframe.M15}),
@@ -79,7 +79,7 @@ def test_phase2c_runtime_supports_cancel_and_removes_active_signal() -> None:
     stack = build_runtime_stack(telegram_channel="@ta3000_signals")
     stack.strategy_registry.register(
         StrategyVersion(
-            strategy_version_id="trend-follow-v1",
+            strategy_version_id="ma-cross-v1",
             status="active",
             allowed_contracts=frozenset({"BR-6.26"}),
             allowed_timeframes=frozenset({Timeframe.M15}),
@@ -96,3 +96,4 @@ def test_phase2c_runtime_supports_cancel_and_removes_active_signal() -> None:
     )
     assert canceled["cancel_result"]["publication"]["status"] == "canceled"
     assert canceled["active_signals"] == []
+
