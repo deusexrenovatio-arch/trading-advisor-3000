@@ -6,12 +6,21 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 import re
+import traceback
 from typing import Any
 from zoneinfo import ZoneInfo
 
 import yaml
 
-from ..delta_runtime import has_delta_log, read_delta_table_rows, write_delta_table_rows
+from ..delta_runtime import (
+    append_delta_table_rows,
+    delete_delta_table_rows,
+    has_delta_log,
+    iter_delta_table_row_batches,
+    read_delta_table_rows,
+    write_delta_table_rows,
+)
+from .historical_route_contracts import build_raw_ingest_run_report_v2
 from .iss_client import MoexISSClient
 
 
@@ -19,7 +28,7 @@ MOEX_TIMEZONE = ZoneInfo("Europe/Moscow")
 ALLOWED_ASSET_GROUPS = {"commodity", "index"}
 SOURCE_INTERVAL_BY_TARGET_TIMEFRAME = {
     "5m": 1,
-    "15m": 10,
+    "15m": 1,
     "1h": 60,
     "4h": 60,
     "1d": 24,
@@ -38,6 +47,14 @@ DEFAULT_CONTRACT_DISCOVERY_STEP_DAYS = 14
 DEFAULT_REFRESH_OVERLAP_MINUTES = 180
 FUTURES_MONTH_CODES = frozenset("FGHJKMNQUVXZ")
 FUTURES_CONTRACT_SECID_RE = re.compile(r"^[A-Z0-9]{1,6}[FGHJKMNQUVXZ][0-9]$")
+TARGET_TIMEFRAME_ORDER = {
+    "5m": 5,
+    "15m": 15,
+    "1h": 60,
+    "4h": 240,
+    "1d": 1440,
+    "1w": 10080,
+}
 RAW_COLUMNS: dict[str, str] = {
     "internal_id": "string",
     "finam_symbol": "string",
@@ -60,10 +77,32 @@ RAW_COLUMNS: dict[str, str] = {
     "ingested_at_utc": "timestamp",
     "provenance_json": "json",
 }
+RAW_WATERMARK_COLUMNS = ["internal_id", "timeframe", "moex_secid", "ts_close"]
+RAW_SIGNATURE_COLUMNS = [
+    "internal_id",
+    "timeframe",
+    "source_interval",
+    "moex_secid",
+    "ts_open",
+    "ts_close",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+]
 
 
 def _utc_now_iso() -> str:
     return datetime.now(tz=UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _safe_progress_print(message: str) -> None:
+    try:
+        print(message, flush=True)
+    except OSError:
+        # Progress is already persisted to JSONL files; stdout must not be able to abort the run.
+        return
 
 
 def _require_text(value: Any, field: str) -> str:
@@ -105,6 +144,10 @@ def _source_timeframe_label(interval: int) -> str:
     return label
 
 
+def _sorted_target_timeframes(timeframes: set[str]) -> list[str]:
+    return sorted(timeframes, key=lambda item: (TARGET_TIMEFRAME_ORDER[item], item))
+
+
 def _signature_for_row(row: dict[str, Any]) -> str:
     fields = {
         "internal_id": row.get("internal_id"),
@@ -120,6 +163,26 @@ def _signature_for_row(row: dict[str, Any]) -> str:
         "source_interval": row.get("source_interval"),
     }
     return json.dumps(fields, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _raw_row_key(row: dict[str, Any]) -> tuple[str, str, int, str, str, str]:
+    source_interval_raw = row.get("source_interval", 0)
+    try:
+        source_interval = int(source_interval_raw)
+    except (TypeError, ValueError):
+        source_interval = 0
+    return (
+        str(row.get("internal_id", "")),
+        str(row.get("timeframe", "")),
+        source_interval,
+        str(row.get("moex_secid", "")),
+        str(row.get("ts_open", "")),
+        str(row.get("ts_close", "")),
+    )
+
+
+def _sorted_raw_rows(rows_by_key: dict[tuple[str, str, int, str, str, str], dict[str, Any]]) -> list[dict[str, Any]]:
+    return [rows_by_key[key] for key in sorted(rows_by_key)]
 
 
 @dataclass(frozen=True)
@@ -202,12 +265,18 @@ class FoundationRunReport:
     source_timeframe_set: list[str]
     expand_contract_chain: bool
     contract_discovery_step_days: int
+    contract_discovery_lookback_days: int
     refresh_overlap_minutes: int
     universe_size: int
     coverage_rows: int
     coverage_report_path: str
     coverage_table_path: str
+    moex_request_log_path: str
+    moex_request_latest_path: str
     raw_ingest_report_path: str
+    raw_ingest_progress_path: str
+    raw_ingest_error_path: str
+    raw_ingest_error_latest_path: str
     raw_table_path: str
     source_rows: int
     incremental_rows: int
@@ -225,12 +294,18 @@ class FoundationRunReport:
             "source_timeframe_set": self.source_timeframe_set,
             "expand_contract_chain": self.expand_contract_chain,
             "contract_discovery_step_days": self.contract_discovery_step_days,
+            "contract_discovery_lookback_days": self.contract_discovery_lookback_days,
             "refresh_overlap_minutes": self.refresh_overlap_minutes,
             "universe_size": self.universe_size,
             "coverage_rows": self.coverage_rows,
             "coverage_report_path": self.coverage_report_path,
             "coverage_table_path": self.coverage_table_path,
+            "moex_request_log_path": self.moex_request_log_path,
+            "moex_request_latest_path": self.moex_request_latest_path,
             "raw_ingest_report_path": self.raw_ingest_report_path,
+            "raw_ingest_progress_path": self.raw_ingest_progress_path,
+            "raw_ingest_error_path": self.raw_ingest_error_path,
+            "raw_ingest_error_latest_path": self.raw_ingest_error_latest_path,
             "raw_table_path": self.raw_table_path,
             "source_rows": self.source_rows,
             "incremental_rows": self.incremental_rows,
@@ -383,6 +458,14 @@ def validate_universe_mapping_alignment(universe: list[UniverseSymbol], mappings
             raise ValueError(f"active mapping mismatch for `{symbol.internal_id}`: moex_secid")
 
 
+def _select_active_mappings_for_universe(universe: list[UniverseSymbol], mappings: list[MappingRecord]) -> list[MappingRecord]:
+    active_universe_ids = {row.internal_id for row in universe if row.is_active}
+    return sorted(
+        (row for row in mappings if row.is_active and row.internal_id in active_universe_ids),
+        key=lambda item: item.internal_id,
+    )
+
+
 def _is_futures_contract_secid(value: str) -> bool:
     if not FUTURES_CONTRACT_SECID_RE.match(value):
         return False
@@ -426,11 +509,11 @@ def _discover_contract_secids(
     universe: list[UniverseSymbol],
     active_mappings: list[MappingRecord],
     ingest_till_utc: str,
-    bootstrap_window_days: int,
+    contract_discovery_lookback_days: int,
     contract_discovery_step_days: int,
 ) -> dict[str, list[str]]:
     ingest_till = _parse_iso_utc(ingest_till_utc)
-    window_start = ingest_till - timedelta(days=bootstrap_window_days)
+    window_start = ingest_till - timedelta(days=contract_discovery_lookback_days)
     if window_start > ingest_till:
         return {}
 
@@ -507,14 +590,25 @@ def discover_coverage(
     bootstrap_window_days: int,
     expand_contract_chain: bool,
     contract_discovery_step_days: int,
+    contract_discovery_lookback_days: int | None = None,
 ) -> list[DiscoveryRecord]:
-    required_intervals = {SOURCE_INTERVAL_BY_TARGET_TIMEFRAME[item] for item in sorted(timeframes)}
+    ordered_timeframes = _sorted_target_timeframes(timeframes)
+    required_intervals = {SOURCE_INTERVAL_BY_TARGET_TIMEFRAME[item] for item in ordered_timeframes}
     target_timeframes_by_interval: dict[int, list[str]] = {}
-    for target_timeframe in sorted(timeframes):
+    for target_timeframe in ordered_timeframes:
         source_interval = SOURCE_INTERVAL_BY_TARGET_TIMEFRAME[target_timeframe]
         target_timeframes_by_interval.setdefault(source_interval, []).append(target_timeframe)
     records: list[DiscoveryRecord] = []
-    active_mappings = sorted((row for row in mappings if row.is_active), key=lambda item: item.internal_id)
+    active_mappings = _select_active_mappings_for_universe(universe, mappings)
+    if not active_mappings:
+        raise ValueError("discover_coverage requires at least one active mapping for the selected universe")
+    effective_contract_discovery_lookback_days = (
+        bootstrap_window_days
+        if contract_discovery_lookback_days is None
+        else contract_discovery_lookback_days
+    )
+    if effective_contract_discovery_lookback_days <= 0:
+        raise ValueError("contract_discovery_lookback_days must be > 0")
     secids_by_internal: dict[str, list[str]]
     if expand_contract_chain:
         secids_by_internal = _discover_contract_secids(
@@ -522,7 +616,7 @@ def discover_coverage(
             universe=universe,
             active_mappings=active_mappings,
             ingest_till_utc=ingest_till_utc,
-            bootstrap_window_days=bootstrap_window_days,
+            contract_discovery_lookback_days=effective_contract_discovery_lookback_days,
             contract_discovery_step_days=contract_discovery_step_days,
         )
     else:
@@ -530,7 +624,7 @@ def discover_coverage(
             row.internal_id: [row.moex_secid]
             for row in active_mappings
         }
-    if expand_contract_chain and bootstrap_window_days >= 365:
+    if expand_contract_chain and effective_contract_discovery_lookback_days >= 365:
         expanded_contracts = sum(max(len(secids) - 1, 0) for secids in secids_by_internal.values())
         if expanded_contracts == 0:
             raise RuntimeError(
@@ -580,22 +674,415 @@ def discover_coverage(
                         ),
                     )
                 )
-    return records
+    return sorted(
+        records,
+        key=lambda row: (
+            row.internal_id,
+            row.source_interval,
+            row.coverage_begin_utc,
+            row.coverage_end_utc,
+            row.moex_secid,
+        ),
+    )
 
 
-def _compute_watermarks(rows: list[dict[str, Any]]) -> dict[tuple[str, str], str]:
-    watermarks: dict[tuple[str, str], str] = {}
+def _compute_watermarks(rows: list[dict[str, Any]]) -> dict[tuple[str, str, str], str]:
+    watermarks: dict[tuple[str, str, str], str] = {}
     for row in rows:
         internal_id = str(row.get("internal_id", ""))
         timeframe = str(row.get("timeframe", ""))
+        moex_secid = str(row.get("moex_secid", ""))
         ts_close = str(row.get("ts_close", ""))
-        if not internal_id or not timeframe or not ts_close:
+        if not internal_id or not timeframe or not moex_secid or not ts_close:
             continue
-        key = (internal_id, timeframe)
+        key = (internal_id, timeframe, moex_secid)
         current = watermarks.get(key)
         if current is None or ts_close > current:
             watermarks[key] = ts_close
     return watermarks
+
+
+def _watermark_key_for_discovery(row: DiscoveryRecord) -> tuple[str, str, str]:
+    return (row.internal_id, row.source_timeframe, row.moex_secid)
+
+
+def _compute_raw_watermarks_for_keys(
+    *,
+    table_path: Path,
+    keys: set[tuple[str, str, str]],
+) -> dict[tuple[str, str, str], str]:
+    if not keys or not has_delta_log(table_path):
+        return {}
+    watermarks: dict[tuple[str, str, str], str] = {}
+    for batch in iter_delta_table_row_batches(table_path, columns=RAW_WATERMARK_COLUMNS):
+        for row in batch:
+            internal_id = str(row.get("internal_id", ""))
+            timeframe = str(row.get("timeframe", ""))
+            moex_secid = str(row.get("moex_secid", ""))
+            ts_close = str(row.get("ts_close", ""))
+            if not internal_id or not timeframe or not moex_secid or not ts_close:
+                continue
+            key = (internal_id, timeframe, moex_secid)
+            if key not in keys:
+                continue
+            current = watermarks.get(key)
+            if current is None or ts_close > current:
+                watermarks[key] = ts_close
+    return watermarks
+
+
+def _raw_window_filters(
+    *,
+    item: DiscoveryRecord,
+    window_start: datetime,
+    window_end: datetime,
+) -> list[tuple[str, str, object]]:
+    return [
+        ("internal_id", "=", item.internal_id),
+        ("timeframe", "=", item.source_timeframe),
+        ("source_interval", "=", item.source_interval),
+        ("moex_secid", "=", item.moex_secid),
+        ("ts_close", ">=", _to_iso_utc(window_start)),
+        ("ts_close", "<=", _to_iso_utc(window_end)),
+    ]
+
+
+def _read_raw_signature_rows_for_window(
+    *,
+    table_path: Path,
+    item: DiscoveryRecord,
+    window_start: datetime,
+    window_end: datetime,
+) -> list[dict[str, Any]]:
+    if not has_delta_log(table_path):
+        return []
+    rows = read_delta_table_rows(
+        table_path,
+        columns=RAW_SIGNATURE_COLUMNS,
+        filters=_raw_window_filters(item=item, window_start=window_start, window_end=window_end),
+    )
+    return [dict(row) for row in rows if isinstance(row, dict)]
+
+
+def _delta_sql_quote(value: object) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _delete_raw_rows_by_close_time(
+    *,
+    table_path: Path,
+    keys: list[tuple[str, str, int, str, str]],
+    chunk_size: int = 200,
+) -> None:
+    if not keys:
+        return
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be > 0")
+    keys_by_scope: dict[tuple[str, str, int, str], set[str]] = {}
+    for internal_id, timeframe, source_interval, moex_secid, ts_close in keys:
+        keys_by_scope.setdefault((internal_id, timeframe, source_interval, moex_secid), set()).add(ts_close)
+
+    for (internal_id, timeframe, source_interval, moex_secid), close_values in sorted(keys_by_scope.items()):
+        ordered_close_values = sorted(close_values)
+        for batch_start in range(0, len(ordered_close_values), chunk_size):
+            batch_values = ordered_close_values[batch_start : batch_start + chunk_size]
+            quoted_values = ", ".join(_delta_sql_quote(value) for value in batch_values)
+            predicate = (
+                f"internal_id = {_delta_sql_quote(internal_id)} "
+                f"AND timeframe = {_delta_sql_quote(timeframe)} "
+                f"AND source_interval = {int(source_interval)} "
+                f"AND moex_secid = {_delta_sql_quote(moex_secid)} "
+                f"AND ts_close IN ({quoted_values})"
+            )
+            delete_delta_table_rows(table_path=table_path, predicate=predicate)
+
+
+def _append_progress_event(*, jsonl_path: Path, latest_path: Path, payload: dict[str, Any]) -> None:
+    jsonl_path.parent.mkdir(parents=True, exist_ok=True)
+    with jsonl_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    latest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def ingest_moex_baseline_window(
+    *,
+    client: MoexISSClient,
+    coverage: list[DiscoveryRecord],
+    table_path: Path,
+    run_id: str,
+    ingest_till_utc: str,
+    refresh_window_days: int,
+    stability_lag_minutes: int,
+    refresh_overlap_minutes: int,
+    progress_path: Path | None = None,
+    progress_latest_path: Path | None = None,
+    error_path: Path | None = None,
+    error_latest_path: Path | None = None,
+    append_batch_size: int = 2_000,
+) -> dict[str, Any]:
+    ingest_till = _parse_iso_utc(ingest_till_utc)
+    stable_till = ingest_till - timedelta(minutes=stability_lag_minutes)
+    if stable_till <= datetime(1970, 1, 1, tzinfo=UTC):
+        raise ValueError("stability_lag_minutes produced an invalid stable ingest cutoff")
+    if refresh_window_days <= 0:
+        raise ValueError("refresh_window_days must be > 0")
+    if refresh_overlap_minutes < 0:
+        raise ValueError("refresh_overlap_minutes must be >= 0")
+    if append_batch_size <= 0:
+        raise ValueError("append_batch_size must be > 0")
+
+    table_exists = has_delta_log(table_path)
+    watermarks = _compute_raw_watermarks_for_keys(
+        table_path=table_path,
+        keys={_watermark_key_for_discovery(item) for item in coverage},
+    )
+    source_rows = 0
+    deduplicated_rows = 0
+    stale_rows = 0
+    incremental_rows = 0
+    changed_windows: list[dict[str, Any]] = []
+    rows_to_append_by_key: dict[tuple[str, str, int, str, str, str], dict[str, Any]] = {}
+    corrected_close_keys: list[tuple[str, str, int, str, str]] = []
+    appended_batches = 0
+
+    ingest_marks = _utc_now_iso()
+    progress_jsonl = progress_path or (table_path.parent.parent / "raw-ingest-progress.jsonl")
+    progress_latest = progress_latest_path or (table_path.parent.parent / "raw-ingest-progress.latest.json")
+    error_jsonl = error_path or (table_path.parent.parent / "raw-ingest-errors.jsonl")
+    error_latest = error_latest_path or (table_path.parent.parent / "raw-ingest-error.latest.json")
+
+    for item in coverage:
+        coverage_begin = _parse_iso_utc(item.coverage_begin_utc)
+        coverage_end = _parse_iso_utc(item.coverage_end_utc)
+        window_end = min(coverage_end, stable_till)
+        window_start = max(coverage_begin, window_end - timedelta(days=refresh_window_days))
+        watermark_key = _watermark_key_for_discovery(item)
+        watermark_raw = watermarks.get(watermark_key)
+        if watermark_raw:
+            watermark_dt = _parse_iso_utc(watermark_raw)
+            if watermark_dt >= window_end:
+                continue
+            if refresh_overlap_minutes > 0:
+                overlap_start = watermark_dt - timedelta(minutes=refresh_overlap_minutes)
+                window_start = max(window_start, overlap_start)
+        if window_start > window_end:
+            continue
+
+        item_source_rows = 0
+        item_deduplicated_rows = 0
+        item_stale_rows = 0
+        item_incremental_rows = 0
+        item_overlap_corrected_rows = 0
+        item_latest_rows_by_key: dict[tuple[str, str, int, str, str, str], dict[str, Any]] = {}
+        item_latest_signatures_by_key: dict[tuple[str, str, int, str, str, str], str] = {}
+        try:
+            existing_window_rows = _read_raw_signature_rows_for_window(
+                table_path=table_path,
+                item=item,
+                window_start=window_start,
+                window_end=window_end,
+            )
+            baseline_signatures = {
+                _raw_row_key(row): _signature_for_row(row)
+                for row in existing_window_rows
+            }
+
+            iter_candles = getattr(client, "iter_candles", None)
+            if callable(iter_candles):
+                candles = iter_candles(
+                    engine=item.moex_engine,
+                    market=item.moex_market,
+                    board=item.moex_board,
+                    secid=item.moex_secid,
+                    interval=item.source_interval,
+                    date_from=window_start.date(),
+                    date_till=window_end.date(),
+                )
+            else:
+                candles = client.fetch_candles(
+                    engine=item.moex_engine,
+                    market=item.moex_market,
+                    board=item.moex_board,
+                    secid=item.moex_secid,
+                    interval=item.source_interval,
+                    date_from=window_start.date(),
+                    date_till=window_end.date(),
+                )
+
+            for candle in candles:
+                ts_open_dt = _parse_moex_datetime(candle.begin)
+                ts_close_dt = _parse_moex_datetime(candle.end)
+                if ts_close_dt < window_start or ts_close_dt > window_end:
+                    continue
+                source_rows += 1
+                item_source_rows += 1
+
+                row = {
+                    "internal_id": item.internal_id,
+                    "finam_symbol": item.finam_symbol,
+                    "moex_engine": item.moex_engine,
+                    "moex_market": item.moex_market,
+                    "moex_board": item.moex_board,
+                    "moex_secid": item.moex_secid,
+                    "asset_group": item.asset_group,
+                    "timeframe": item.source_timeframe,
+                    "source_interval": item.source_interval,
+                    "ts_open": _to_iso_utc(ts_open_dt),
+                    "ts_close": _to_iso_utc(ts_close_dt),
+                    "open": candle.open,
+                    "high": candle.high,
+                    "low": candle.low,
+                    "close": candle.close,
+                    "volume": candle.volume,
+                    "open_interest": None,
+                    "ingest_run_id": run_id,
+                    "ingested_at_utc": ingest_marks,
+                    "provenance_json": {
+                        "source_provider": "moex_iss",
+                        "source_interval": item.source_interval,
+                        "source_timeframe": item.source_timeframe,
+                        "requested_target_timeframes": item.requested_target_timeframes,
+                        "run_id": run_id,
+                        "window_start_utc": _to_iso_utc(window_start),
+                        "window_end_utc": _to_iso_utc(window_end),
+                        "stability_lag_minutes": stability_lag_minutes,
+                        "refresh_overlap_minutes": refresh_overlap_minutes,
+                        "discovery_url": item.discovery_url,
+                    },
+                }
+
+                row_key = _raw_row_key(row)
+                signature = _signature_for_row(row)
+                previous_signature = item_latest_signatures_by_key.get(row_key)
+                if previous_signature == signature:
+                    deduplicated_rows += 1
+                    item_deduplicated_rows += 1
+                    continue
+                item_latest_rows_by_key[row_key] = row
+                item_latest_signatures_by_key[row_key] = signature
+
+            watermark_dt = _parse_iso_utc(watermark_raw) if watermark_raw else None
+            for row_key, row in sorted(item_latest_rows_by_key.items()):
+                signature = item_latest_signatures_by_key[row_key]
+                ts_close_dt = _parse_iso_utc(str(row["ts_close"]))
+                within_refresh_overlap = False
+                if watermark_dt is not None and refresh_overlap_minutes > 0:
+                    overlap_start = watermark_dt - timedelta(minutes=refresh_overlap_minutes)
+                    within_refresh_overlap = overlap_start <= ts_close_dt <= watermark_dt
+
+                if watermark_dt is not None and ts_close_dt <= watermark_dt and not within_refresh_overlap:
+                    stale_rows += 1
+                    item_stale_rows += 1
+                    continue
+
+                baseline_signature = baseline_signatures.get(row_key)
+                if baseline_signature == signature:
+                    deduplicated_rows += 1
+                    item_deduplicated_rows += 1
+                    continue
+
+                incremental_rows += 1
+                item_incremental_rows += 1
+                rows_to_append_by_key[row_key] = row
+                if baseline_signature is not None:
+                    corrected_close_keys.append((row_key[0], row_key[1], row_key[2], row_key[3], row_key[5]))
+                    if watermark_dt is not None and ts_close_dt <= watermark_dt:
+                        item_overlap_corrected_rows += 1
+
+                ts_close_text = str(row["ts_close"])
+                current_watermark = watermarks.get(watermark_key)
+                if current_watermark is None or ts_close_text > current_watermark:
+                    watermarks[watermark_key] = ts_close_text
+
+            progress_payload = {
+                "run_id": run_id,
+                "internal_id": item.internal_id,
+                "moex_secid": item.moex_secid,
+                "source_timeframe": item.source_timeframe,
+                "source_interval": item.source_interval,
+                "window_start_utc": _to_iso_utc(window_start),
+                "window_end_utc": _to_iso_utc(window_end),
+                "source_rows": item_source_rows,
+                "incremental_rows": item_incremental_rows,
+                "deduplicated_rows": item_deduplicated_rows,
+                "stale_rows": item_stale_rows,
+                "overlap_corrected_rows": item_overlap_corrected_rows,
+                "appended_batches_total": appended_batches,
+                "processed_at_utc": _utc_now_iso(),
+            }
+            _append_progress_event(jsonl_path=progress_jsonl, latest_path=progress_latest, payload=progress_payload)
+            if item_incremental_rows > 0:
+                changed_windows.append(
+                    {
+                        "internal_id": item.internal_id,
+                        "source_timeframe": item.source_timeframe,
+                        "source_interval": item.source_interval,
+                        "moex_secid": item.moex_secid,
+                        "window_start_utc": _to_iso_utc(window_start),
+                        "window_end_utc": _to_iso_utc(window_end),
+                        "incremental_rows": item_incremental_rows,
+                    }
+                )
+            _safe_progress_print(
+                "[moex-baseline-raw-update] "
+                f"{run_id} {item.internal_id} {item.moex_secid} {item.source_timeframe} "
+                f"src={item_source_rows} inc={item_incremental_rows} "
+                f"dedup={item_deduplicated_rows} stale={item_stale_rows} "
+                f"overlap_fix={item_overlap_corrected_rows}"
+            )
+        except Exception as exc:
+            error_payload = {
+                "run_id": run_id,
+                "internal_id": item.internal_id,
+                "moex_secid": item.moex_secid,
+                "source_timeframe": item.source_timeframe,
+                "source_interval": item.source_interval,
+                "window_start_utc": _to_iso_utc(window_start),
+                "window_end_utc": _to_iso_utc(window_end),
+                "source_rows_before_error": item_source_rows,
+                "incremental_rows_before_error": item_incremental_rows,
+                "deduplicated_rows_before_error": item_deduplicated_rows,
+                "stale_rows_before_error": item_stale_rows,
+                "overlap_corrected_rows_before_error": item_overlap_corrected_rows,
+                "appended_batches_total": appended_batches,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+                "traceback": traceback.format_exc(),
+                "reported_at_utc": _utc_now_iso(),
+            }
+            _append_progress_event(jsonl_path=error_jsonl, latest_path=error_latest, payload=error_payload)
+            raise
+
+    rows_to_append = _sorted_raw_rows(rows_to_append_by_key)
+    if corrected_close_keys:
+        _delete_raw_rows_by_close_time(table_path=table_path, keys=corrected_close_keys)
+    if rows_to_append:
+        for batch_start in range(0, len(rows_to_append), append_batch_size):
+            append_delta_table_rows(
+                table_path=table_path,
+                rows=rows_to_append[batch_start : batch_start + append_batch_size],
+                columns=RAW_COLUMNS,
+            )
+            appended_batches += 1
+    elif not table_exists:
+        write_delta_table_rows(table_path=table_path, rows=[], columns=RAW_COLUMNS, mode="error")
+
+    if not has_delta_log(table_path):
+        write_delta_table_rows(table_path=table_path, rows=[], columns=RAW_COLUMNS, mode="error")
+    return build_raw_ingest_run_report_v2(
+        run_id=run_id,
+        ingest_till_utc=ingest_till_utc,
+        source_rows=source_rows,
+        incremental_rows=incremental_rows,
+        deduplicated_rows=deduplicated_rows,
+        stale_rows=stale_rows,
+        watermark_by_key={f"{key[0]}|{key[1]}|{key[2]}": value for key, value in sorted(watermarks.items())},
+        raw_table_path=table_path.as_posix(),
+        raw_ingest_progress_path=progress_jsonl.as_posix(),
+        raw_ingest_error_path=error_jsonl.as_posix(),
+        raw_ingest_error_latest_path=error_latest.as_posix(),
+        changed_windows=changed_windows,
+    )
 
 
 def ingest_moex_bootstrap_window(
@@ -608,27 +1095,50 @@ def ingest_moex_bootstrap_window(
     bootstrap_window_days: int,
     stability_lag_minutes: int,
     refresh_overlap_minutes: int,
+    progress_path: Path | None = None,
+    progress_latest_path: Path | None = None,
+    error_path: Path | None = None,
+    error_latest_path: Path | None = None,
+    append_batch_size: int = 2_000,
 ) -> dict[str, Any]:
     ingest_till = _parse_iso_utc(ingest_till_utc)
     stable_till = ingest_till - timedelta(minutes=stability_lag_minutes)
     if stable_till <= datetime(1970, 1, 1, tzinfo=UTC):
         raise ValueError("stability_lag_minutes produced an invalid stable ingest cutoff")
-    existing_rows = read_delta_table_rows(table_path) if has_delta_log(table_path) else []
-    rows = list(existing_rows)
+    if append_batch_size <= 0:
+        raise ValueError("append_batch_size must be > 0")
+    table_exists = has_delta_log(table_path)
+    existing_rows_payload = read_delta_table_rows(table_path) if table_exists else []
+    existing_rows: list[dict[str, Any]] = [dict(item) for item in existing_rows_payload if isinstance(item, dict)]
+    table_rows_by_key: dict[tuple[str, str, int, str, str, str], dict[str, Any]] = {}
+    for row in existing_rows:
+        table_rows_by_key[_raw_row_key(row)] = row
+    baseline_rows_by_key = dict(table_rows_by_key)
+    baseline_signatures = {key: _signature_for_row(row) for key, row in baseline_rows_by_key.items()}
+    current_signatures = dict(baseline_signatures)
+    changed_keys: set[tuple[str, str, int, str, str, str]] = set()
+    new_rows_by_key: dict[tuple[str, str, int, str, str, str], dict[str, Any]] = {}
+    corrected_rows_by_key: dict[tuple[str, str, int, str, str, str], dict[str, Any]] = {}
     source_rows = 0
     deduplicated_rows = 0
     stale_rows = 0
     incremental_rows = 0
-    watermarks = _compute_watermarks(existing_rows)
-    seen_signatures = {_signature_for_row(item) for item in existing_rows}
+    changed_windows: list[dict[str, Any]] = []
+    watermarks = _compute_watermarks(list(table_rows_by_key.values()))
+    appended_batches = 0
 
     ingest_marks = _utc_now_iso()
-    for item in sorted(coverage, key=lambda row: (row.internal_id, row.source_interval)):
+    progress_jsonl = progress_path or (table_path.parent.parent / "raw-ingest-progress.jsonl")
+    progress_latest = progress_latest_path or (table_path.parent.parent / "raw-ingest-progress.latest.json")
+    error_jsonl = error_path or (table_path.parent.parent / "raw-ingest-errors.jsonl")
+    error_latest = error_latest_path or (table_path.parent.parent / "raw-ingest-error.latest.json")
+
+    for item in coverage:
         coverage_begin = _parse_iso_utc(item.coverage_begin_utc)
         coverage_end = _parse_iso_utc(item.coverage_end_utc)
         window_end = min(coverage_end, stable_till)
         window_start = max(coverage_begin, window_end - timedelta(days=bootstrap_window_days))
-        watermark_key = (item.internal_id, item.source_timeframe)
+        watermark_key = (item.internal_id, item.source_timeframe, item.moex_secid)
         watermark_raw = watermarks.get(watermark_key)
         if watermark_raw:
             watermark_dt = _parse_iso_utc(watermark_raw)
@@ -640,80 +1150,236 @@ def ingest_moex_bootstrap_window(
         if window_start > window_end:
             continue
 
-        candles = client.fetch_candles(
-            engine=item.moex_engine,
-            market=item.moex_market,
-            board=item.moex_board,
-            secid=item.moex_secid,
-            interval=item.source_interval,
-            date_from=window_start.date(),
-            date_till=window_end.date(),
-        )
-        for candle in candles:
-            ts_open_dt = _parse_moex_datetime(candle.begin)
-            ts_close_dt = _parse_moex_datetime(candle.end)
-            if ts_close_dt < window_start or ts_close_dt > window_end:
-                continue
-            source_rows += 1
+        item_source_rows = 0
+        item_deduplicated_rows = 0
+        item_stale_rows = 0
+        item_incremental_rows = 0
+        item_overlap_corrected_rows = 0
+        item_changed_keys: set[tuple[str, str, int, str, str, str]] = set()
+        item_latest_rows_by_key: dict[tuple[str, str, int, str, str, str], dict[str, Any]] = {}
+        item_latest_signatures_by_key: dict[tuple[str, str, int, str, str, str], str] = {}
+        try:
+            iter_candles = getattr(client, "iter_candles", None)
+            if callable(iter_candles):
+                candles = iter_candles(
+                    engine=item.moex_engine,
+                    market=item.moex_market,
+                    board=item.moex_board,
+                    secid=item.moex_secid,
+                    interval=item.source_interval,
+                    date_from=window_start.date(),
+                    date_till=window_end.date(),
+                )
+            else:
+                candles = client.fetch_candles(
+                    engine=item.moex_engine,
+                    market=item.moex_market,
+                    board=item.moex_board,
+                    secid=item.moex_secid,
+                    interval=item.source_interval,
+                    date_from=window_start.date(),
+                    date_till=window_end.date(),
+                )
 
-            row = {
-                "internal_id": item.internal_id,
-                "finam_symbol": item.finam_symbol,
-                "moex_engine": item.moex_engine,
-                "moex_market": item.moex_market,
-                "moex_board": item.moex_board,
-                "moex_secid": item.moex_secid,
-                "asset_group": item.asset_group,
-                "timeframe": item.source_timeframe,
-                "source_interval": item.source_interval,
-                "ts_open": _to_iso_utc(ts_open_dt),
-                "ts_close": _to_iso_utc(ts_close_dt),
-                "open": candle.open,
-                "high": candle.high,
-                "low": candle.low,
-                "close": candle.close,
-                "volume": candle.volume,
-                "open_interest": None,
-                "ingest_run_id": run_id,
-                "ingested_at_utc": ingest_marks,
-                "provenance_json": {
-                    "source_provider": "moex_iss",
+            for candle in candles:
+                ts_open_dt = _parse_moex_datetime(candle.begin)
+                ts_close_dt = _parse_moex_datetime(candle.end)
+                if ts_close_dt < window_start or ts_close_dt > window_end:
+                    continue
+                source_rows += 1
+                item_source_rows += 1
+
+                row = {
+                    "internal_id": item.internal_id,
+                    "finam_symbol": item.finam_symbol,
+                    "moex_engine": item.moex_engine,
+                    "moex_market": item.moex_market,
+                    "moex_board": item.moex_board,
+                    "moex_secid": item.moex_secid,
+                    "asset_group": item.asset_group,
+                    "timeframe": item.source_timeframe,
                     "source_interval": item.source_interval,
-                    "source_timeframe": item.source_timeframe,
-                    "requested_target_timeframes": item.requested_target_timeframes,
-                    "run_id": run_id,
-                    "window_start_utc": _to_iso_utc(window_start),
-                    "window_end_utc": _to_iso_utc(window_end),
-                    "stability_lag_minutes": stability_lag_minutes,
-                    "refresh_overlap_minutes": refresh_overlap_minutes,
-                    "discovery_url": item.discovery_url,
-                },
+                    "ts_open": _to_iso_utc(ts_open_dt),
+                    "ts_close": _to_iso_utc(ts_close_dt),
+                    "open": candle.open,
+                    "high": candle.high,
+                    "low": candle.low,
+                    "close": candle.close,
+                    "volume": candle.volume,
+                    "open_interest": None,
+                    "ingest_run_id": run_id,
+                    "ingested_at_utc": ingest_marks,
+                    "provenance_json": {
+                        "source_provider": "moex_iss",
+                        "source_interval": item.source_interval,
+                        "source_timeframe": item.source_timeframe,
+                        "requested_target_timeframes": item.requested_target_timeframes,
+                        "run_id": run_id,
+                        "window_start_utc": _to_iso_utc(window_start),
+                        "window_end_utc": _to_iso_utc(window_end),
+                        "stability_lag_minutes": stability_lag_minutes,
+                        "refresh_overlap_minutes": refresh_overlap_minutes,
+                        "discovery_url": item.discovery_url,
+                    },
+                }
+
+                row_key = _raw_row_key(row)
+                signature = _signature_for_row(row)
+                previous_signature = item_latest_signatures_by_key.get(row_key)
+                if previous_signature == signature:
+                    deduplicated_rows += 1
+                    item_deduplicated_rows += 1
+                    continue
+                item_latest_rows_by_key[row_key] = row
+                item_latest_signatures_by_key[row_key] = signature
+
+            for row_key, row in sorted(item_latest_rows_by_key.items()):
+                signature = item_latest_signatures_by_key[row_key]
+                watermark = watermarks.get(watermark_key)
+                watermark_dt = _parse_iso_utc(watermark) if watermark else None
+                ts_close_dt = _parse_iso_utc(str(row["ts_close"]))
+                within_refresh_overlap = False
+                if watermark_dt is not None and refresh_overlap_minutes > 0:
+                    overlap_start = watermark_dt - timedelta(minutes=refresh_overlap_minutes)
+                    within_refresh_overlap = overlap_start <= ts_close_dt <= watermark_dt
+
+                if watermark_dt is not None and ts_close_dt <= watermark_dt and not within_refresh_overlap:
+                    stale_rows += 1
+                    item_stale_rows += 1
+                    continue
+
+                current_signature = current_signatures.get(row_key)
+                if current_signature == signature:
+                    deduplicated_rows += 1
+                    item_deduplicated_rows += 1
+                    continue
+
+                baseline_signature = baseline_signatures.get(row_key)
+                if baseline_signature == signature:
+                    if row_key in changed_keys:
+                        changed_keys.remove(row_key)
+                        incremental_rows -= 1
+                        if row_key in item_changed_keys:
+                            item_changed_keys.remove(row_key)
+                            item_incremental_rows -= 1
+                    corrected_rows_by_key.pop(row_key, None)
+                    new_rows_by_key.pop(row_key, None)
+                else:
+                    if row_key not in changed_keys:
+                        changed_keys.add(row_key)
+                        incremental_rows += 1
+                        item_incremental_rows += 1
+                        item_changed_keys.add(row_key)
+                    if baseline_signature is not None and watermark_dt is not None and ts_close_dt <= watermark_dt:
+                        item_overlap_corrected_rows += 1
+
+                table_rows_by_key[row_key] = row
+                current_signatures[row_key] = signature
+                if baseline_signature is None and baseline_signature != signature:
+                    new_rows_by_key[row_key] = row
+                elif baseline_signature is not None and baseline_signature != signature:
+                    corrected_rows_by_key[row_key] = row
+                    new_rows_by_key.pop(row_key, None)
+
+                watermark_updated = watermarks.get(watermark_key)
+                ts_close_text = str(row["ts_close"])
+                if watermark_updated is None or ts_close_text > watermark_updated:
+                    watermarks[watermark_key] = ts_close_text
+
+            progress_payload = {
+                "run_id": run_id,
+                "internal_id": item.internal_id,
+                "moex_secid": item.moex_secid,
+                "source_timeframe": item.source_timeframe,
+                "source_interval": item.source_interval,
+                "window_start_utc": _to_iso_utc(window_start),
+                "window_end_utc": _to_iso_utc(window_end),
+                "source_rows": item_source_rows,
+                "incremental_rows": item_incremental_rows,
+                "deduplicated_rows": item_deduplicated_rows,
+                "stale_rows": item_stale_rows,
+                "overlap_corrected_rows": item_overlap_corrected_rows,
+                "appended_batches_total": appended_batches,
+                "processed_at_utc": _utc_now_iso(),
             }
+            _append_progress_event(jsonl_path=progress_jsonl, latest_path=progress_latest, payload=progress_payload)
+            if item_incremental_rows > 0:
+                changed_windows.append(
+                    {
+                        "internal_id": item.internal_id,
+                        "source_timeframe": item.source_timeframe,
+                        "source_interval": item.source_interval,
+                        "moex_secid": item.moex_secid,
+                        "window_start_utc": _to_iso_utc(window_start),
+                        "window_end_utc": _to_iso_utc(window_end),
+                        "incremental_rows": item_incremental_rows,
+                    }
+                )
+            _safe_progress_print(
+                "[moex-raw-ingest] "
+                f"{run_id} {item.internal_id} {item.moex_secid} {item.source_timeframe} "
+                f"src={item_source_rows} inc={item_incremental_rows} "
+                f"dedup={item_deduplicated_rows} stale={item_stale_rows} "
+                f"overlap_fix={item_overlap_corrected_rows}"
+            )
+        except Exception as exc:
+            error_payload = {
+                "run_id": run_id,
+                "internal_id": item.internal_id,
+                "moex_secid": item.moex_secid,
+                "source_timeframe": item.source_timeframe,
+                "source_interval": item.source_interval,
+                "window_start_utc": _to_iso_utc(window_start),
+                "window_end_utc": _to_iso_utc(window_end),
+                "source_rows_before_error": item_source_rows,
+                "incremental_rows_before_error": item_incremental_rows,
+                "deduplicated_rows_before_error": item_deduplicated_rows,
+                "stale_rows_before_error": item_stale_rows,
+                "overlap_corrected_rows_before_error": item_overlap_corrected_rows,
+                "appended_batches_total": appended_batches,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+                "traceback": traceback.format_exc(),
+                "reported_at_utc": _utc_now_iso(),
+            }
+            _append_progress_event(jsonl_path=error_jsonl, latest_path=error_latest, payload=error_payload)
+            raise
 
-            signature = _signature_for_row(row)
-            if signature in seen_signatures:
-                deduplicated_rows += 1
-                continue
+    table_rows_sorted = _sorted_raw_rows(table_rows_by_key)
+    if corrected_rows_by_key:
+        write_delta_table_rows(table_path=table_path, rows=table_rows_sorted, columns=RAW_COLUMNS)
+        appended_batches += 1
+    else:
+        new_rows_sorted = _sorted_raw_rows(new_rows_by_key)
+        if not table_exists:
+            write_delta_table_rows(table_path=table_path, rows=table_rows_sorted, columns=RAW_COLUMNS, mode="error")
+            if table_rows_sorted:
+                appended_batches += 1
+        elif new_rows_sorted:
+            for batch_start in range(0, len(new_rows_sorted), append_batch_size):
+                append_delta_table_rows(
+                    table_path=table_path,
+                    rows=new_rows_sorted[batch_start : batch_start + append_batch_size],
+                    columns=RAW_COLUMNS,
+                )
+                appended_batches += 1
 
-            watermark = watermarks.get(watermark_key)
-            if watermark is not None and str(row["ts_close"]) <= watermark:
-                stale_rows += 1
-                continue
-
-            seen_signatures.add(signature)
-            watermarks[watermark_key] = str(row["ts_close"])
-            rows.append(row)
-            incremental_rows += 1
-
-    write_delta_table_rows(table_path=table_path, rows=rows, columns=RAW_COLUMNS)
-    return {
-        "source_rows": source_rows,
-        "incremental_rows": incremental_rows,
-        "deduplicated_rows": deduplicated_rows,
-        "stale_rows": stale_rows,
-        "watermark_by_key": {f"{key[0]}|{key[1]}": value for key, value in sorted(watermarks.items())},
-        "raw_table_path": table_path.as_posix(),
-    }
+    if not has_delta_log(table_path):
+        write_delta_table_rows(table_path=table_path, rows=[], columns=RAW_COLUMNS, mode="error")
+    return build_raw_ingest_run_report_v2(
+        run_id=run_id,
+        ingest_till_utc=ingest_till_utc,
+        source_rows=source_rows,
+        incremental_rows=incremental_rows,
+        deduplicated_rows=deduplicated_rows,
+        stale_rows=stale_rows,
+        watermark_by_key={f"{key[0]}|{key[1]}|{key[2]}": value for key, value in sorted(watermarks.items())},
+        raw_table_path=table_path.as_posix(),
+        raw_ingest_progress_path=progress_jsonl.as_posix(),
+        raw_ingest_error_path=error_jsonl.as_posix(),
+        raw_ingest_error_latest_path=error_latest.as_posix(),
+        changed_windows=changed_windows,
+    )
 
 
 def _write_coverage_artifacts(coverage: list[DiscoveryRecord], *, output_dir: Path) -> tuple[Path, Path]:
@@ -763,6 +1429,7 @@ def run_phase01_foundation(
     stability_lag_minutes: int = 20,
     expand_contract_chain: bool = False,
     contract_discovery_step_days: int = DEFAULT_CONTRACT_DISCOVERY_STEP_DAYS,
+    contract_discovery_lookback_days: int | None = None,
     refresh_overlap_minutes: int = DEFAULT_REFRESH_OVERLAP_MINUTES,
     client: MoexISSClient | None = None,
 ) -> FoundationRunReport:
@@ -778,6 +1445,8 @@ def run_phase01_foundation(
         raise ValueError("stability_lag_minutes must be >= 0")
     if contract_discovery_step_days <= 0:
         raise ValueError("contract_discovery_step_days must be > 0")
+    if contract_discovery_lookback_days is not None and contract_discovery_lookback_days <= 0:
+        raise ValueError("contract_discovery_lookback_days must be > 0")
     if refresh_overlap_minutes < 0:
         raise ValueError("refresh_overlap_minutes must be >= 0")
 
@@ -787,7 +1456,23 @@ def run_phase01_foundation(
     validate_universe_mapping_alignment(universe, mappings)
 
     discovered_at_utc = _utc_now_iso()
-    moex_client = client or MoexISSClient()
+    request_log_path = output_dir / "moex-request-log.jsonl"
+    request_latest_path = output_dir / "moex-request.latest.json"
+    if client is None:
+        moex_client = MoexISSClient(
+            request_event_hook=lambda payload: _append_progress_event(
+                jsonl_path=request_log_path,
+                latest_path=request_latest_path,
+                payload=payload,
+            )
+        )
+    else:
+        moex_client = client
+    effective_contract_discovery_lookback_days = (
+        bootstrap_window_days
+        if contract_discovery_lookback_days is None
+        else contract_discovery_lookback_days
+    )
     coverage = discover_coverage(
         client=moex_client,
         universe=universe,
@@ -798,6 +1483,7 @@ def run_phase01_foundation(
         bootstrap_window_days=bootstrap_window_days,
         expand_contract_chain=expand_contract_chain,
         contract_discovery_step_days=contract_discovery_step_days,
+        contract_discovery_lookback_days=effective_contract_discovery_lookback_days,
     )
     coverage_json, coverage_csv = _write_coverage_artifacts(coverage, output_dir=output_dir)
 
@@ -811,6 +1497,10 @@ def run_phase01_foundation(
         bootstrap_window_days=bootstrap_window_days,
         stability_lag_minutes=stability_lag_minutes,
         refresh_overlap_minutes=refresh_overlap_minutes,
+        progress_path=output_dir / "raw-ingest-progress.jsonl",
+        progress_latest_path=output_dir / "raw-ingest-progress.latest.json",
+        error_path=output_dir / "raw-ingest-errors.jsonl",
+        error_latest_path=output_dir / "raw-ingest-error.latest.json",
     )
     raw_ingest_report_path = output_dir / "raw-ingest-report.json"
     raw_ingest_report_path.write_text(json.dumps(ingest_report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -823,12 +1513,18 @@ def run_phase01_foundation(
         source_timeframe_set=sorted({row.source_timeframe for row in coverage}),
         expand_contract_chain=expand_contract_chain,
         contract_discovery_step_days=contract_discovery_step_days,
+        contract_discovery_lookback_days=effective_contract_discovery_lookback_days,
         refresh_overlap_minutes=refresh_overlap_minutes,
         universe_size=len([row for row in universe if row.is_active]),
         coverage_rows=len(coverage),
         coverage_report_path=coverage_json.as_posix(),
         coverage_table_path=coverage_csv.as_posix(),
+        moex_request_log_path=request_log_path.as_posix(),
+        moex_request_latest_path=request_latest_path.as_posix(),
         raw_ingest_report_path=raw_ingest_report_path.as_posix(),
+        raw_ingest_progress_path=str(ingest_report["raw_ingest_progress_path"]),
+        raw_ingest_error_path=str(ingest_report["raw_ingest_error_path"]),
+        raw_ingest_error_latest_path=str(ingest_report["raw_ingest_error_latest_path"]),
         raw_table_path=raw_table_path.as_posix(),
         source_rows=int(ingest_report["source_rows"]),
         incremental_rows=int(ingest_report["incremental_rows"]),
