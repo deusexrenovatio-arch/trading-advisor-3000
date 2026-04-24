@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 from pathlib import Path
 from typing import Any
 
@@ -15,8 +15,14 @@ DeltaReadFilters = list[tuple[str, str, object]] | list[list[tuple[str, str, obj
 
 def _arrow_type(type_name: str) -> pa.DataType:
     normalized = type_name.strip().lower()
-    if normalized in {"string", "json", "timestamp", "date"}:
+    if normalized in {"string", "json"}:
         return pa.string()
+    if normalized == "timestamp":
+        return pa.timestamp("us", tz="UTC")
+    if normalized == "date":
+        return pa.date32()
+    if normalized in {"bool", "boolean"}:
+        return pa.bool_()
     if normalized in {"double", "float"}:
         return pa.float64()
     if normalized in {"int", "integer"}:
@@ -35,12 +41,66 @@ def _arrow_type(type_name: str) -> pa.DataType:
     return pa.string()
 
 
+def _normalize_timestamp_value(value: Any, type_name: str) -> datetime:
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, date):
+        parsed = datetime.combine(value, time.min, tzinfo=timezone.utc)
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text:
+            raise TypeError(f"expected ISO timestamp for `{type_name}`")
+        normalized = text.replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError as exc:
+            raise TypeError(f"expected ISO timestamp for `{type_name}`") from exc
+    else:
+        raise TypeError(f"expected timestamp-compatible value for `{type_name}`")
+
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _normalize_date_value(value: Any, type_name: str) -> date:
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.date()
+        return value.astimezone(timezone.utc).date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            raise TypeError(f"expected ISO date for `{type_name}`")
+        try:
+            return date.fromisoformat(text)
+        except ValueError:
+            return _normalize_timestamp_value(text, type_name).date()
+    raise TypeError(f"expected date-compatible value for `{type_name}`")
+
+
 def _normalize_value(value: Any, type_name: str) -> Any:
     if value is None:
         return None
     normalized = type_name.strip().lower()
-    if normalized in {"string", "timestamp", "date"}:
+    if normalized == "string":
         return str(value)
+    if normalized == "timestamp":
+        return _normalize_timestamp_value(value, type_name)
+    if normalized == "date":
+        return _normalize_date_value(value, type_name)
+    if normalized in {"bool", "boolean"}:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return bool(value)
+        if isinstance(value, str):
+            text = value.strip().lower()
+            if text in {"true", "false"}:
+                return text == "true"
+        raise TypeError(f"expected bool-compatible value for `{type_name}`")
     if normalized == "json":
         if isinstance(value, str):
             return value
