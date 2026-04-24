@@ -34,7 +34,8 @@ DATA_CHECKS = (
     "python -m pytest tests/product-plane/integration/test_phase2a_data_plane.py -q",
     "python -m pytest tests/product-plane/integration/test_phase2a_dagster_execution.py -q",
     "python -m pytest tests/product-plane/integration/test_phase2a_spark_execution.py -q",
-    "python -m pytest tests/product-plane/integration/test_phase2b_research_plane.py -q",
+    "python -m pytest tests/product-plane/integration/test_materialized_research_plane.py -q",
+    "python -m pytest tests/product-plane/integration/test_research_dagster_jobs.py -q",
 )
 
 
