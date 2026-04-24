@@ -6,7 +6,7 @@ Updated: 2026-03-31 11:39 UTC
 
 ## Task Request Contract
 - Objective: make the in-scope replaceable technologies terminal and non-ambiguous across route state, ADR set, active architecture docs, registry enforcement, and tests.
-- In Scope: `docs/session_handoff.md`; one active F1-B task note; `docs/architecture/product-plane/product-plane-spec-v2/01_Architecture_Overview.md`; `docs/architecture/product-plane/product-plane-spec-v2/04_ADRs.md`; `docs/architecture/product-plane/product-plane-spec-v2/08_Codex_AI_Shell_Integration.md`; `registry/stack_conformance.yaml`; `scripts/validate_stack_conformance.py`; `tests/process/test_validate_stack_conformance.py`; `scripts/build_phase02_publication_evidence.py`; `tests/process/test_build_phase02_publication_evidence.py`; `src/trading_advisor_3000/product_plane/runtime/publishing/telegram.py`; `src/trading_advisor_3000/product_plane/runtime/pipeline.py`; `src/trading_advisor_3000/product_plane/runtime/bootstrap.py`; `tests/product-plane/unit/test_phase2c_runtime_components.py`; attempt-scoped publication evidence artifact under `artifacts/codex/orchestration/*/attempt-*/publication-message-lifecycle-evidence.json`.
+- In Scope: `docs/session_handoff.md`; one active F1-B task note; `docs/architecture/product-plane/product-plane-spec-v2/01_Architecture_Overview.md`; `docs/architecture/product-plane/product-plane-spec-v2/04_ADRs.md`; `docs/architecture/product-plane/product-plane-spec-v2/08_Codex_AI_Shell_Integration.md`; `registry/stack_conformance.yaml`; `scripts/validate_stack_conformance.py`; `tests/process/test_validate_stack_conformance.py`; `scripts/build_publication_lifecycle_evidence.py`; `tests/process/test_build_publication_lifecycle_evidence.py`; `src/trading_advisor_3000/product_plane/runtime/publishing/telegram.py`; `src/trading_advisor_3000/product_plane/runtime/pipeline.py`; `src/trading_advisor_3000/product_plane/runtime/bootstrap.py`; `tests/product-plane/unit/test_runtime_components.py`; attempt-scoped publication evidence artifact under `artifacts/codex/orchestration/*/attempt-*/publication-message-lifecycle-evidence.json`.
 - Out of Scope: phase-03 contracts-freeze expansion, broker-process closure, release-readiness verdict change, and any trading/business logic.
 - Constraints: keep patch phase-scoped; no silent assumptions/fallbacks/skips/deferrals; preserve pointer-shim handoff contract; keep docs and validator fail-closed.
 - Done Evidence: run phase checks for task contract/handoff, stack conformance, targeted runtime/research/observability tests, and canonical loop/pr gates.
@@ -59,19 +59,19 @@ Updated: 2026-03-31 11:39 UTC
 - Hand off to acceptance with the current attempt evidence bundle and keep scope locked to F1-B (do not open phase-03 in this worker route).
 
 ## Validation
-- `python scripts/build_phase02_publication_evidence.py --attempt "20260331T113542Z-f1-full-closure-phase-02/attempt-01" --output "artifacts/codex/orchestration/20260331T113542Z-f1-full-closure-phase-02/attempt-01/publication-message-lifecycle-evidence.json" --fail-if-not-live-real` (exit 1 observed: channel binding missing in env)
-- `python scripts/build_phase02_publication_evidence.py --attempt "20260331T113542Z-f1-full-closure-phase-02/attempt-01" --output "artifacts/codex/orchestration/20260331T113542Z-f1-full-closure-phase-02/attempt-01/publication-message-lifecycle-evidence.chat-186419048.json" --publication-channel "186419048" --fail-if-not-live-real`
+- `python scripts/build_publication_lifecycle_evidence.py --attempt "20260331T113542Z-f1-full-closure-phase-02/attempt-01" --output "artifacts/codex/orchestration/20260331T113542Z-f1-full-closure-phase-02/attempt-01/publication-message-lifecycle-evidence.json" --fail-if-not-live-real` (exit 1 observed: channel binding missing in env)
+- `python scripts/build_publication_lifecycle_evidence.py --attempt "20260331T113542Z-f1-full-closure-phase-02/attempt-01" --output "artifacts/codex/orchestration/20260331T113542Z-f1-full-closure-phase-02/attempt-01/publication-message-lifecycle-evidence.chat-186419048.json" --publication-channel "186419048" --fail-if-not-live-real`
 - `python scripts/validate_task_request_contract.py`
 - `python scripts/validate_session_handoff.py`
 - `python scripts/validate_stack_conformance.py`
 - `python -m pytest tests/process/test_validate_stack_conformance.py -q`
-- `python -m pytest tests/process/test_build_phase02_publication_evidence.py -q`
-- `python -m pytest tests/product-plane/integration/test_phase2a_data_plane.py -q`
-- `python -m pytest tests/product-plane/unit/test_phase2c_runtime_components.py -q`
-- `python -m pytest tests/product-plane/unit/test_phase6_runtime_durable_bootstrap.py -q`
-- `python -m pytest tests/product-plane/integration/test_phase2c_runtime_postgres_store.py -q`
-- `python -m pytest tests/product-plane/integration/test_phase2b_research_plane.py -q`
-- `python -m pytest tests/product-plane/integration/test_phase5_review_observability.py -q`
+- `python -m pytest tests/process/test_build_publication_lifecycle_evidence.py -q`
+- `python -m pytest tests/product-plane/integration/test_historical_data_plane.py -q`
+- `python -m pytest tests/product-plane/unit/test_runtime_components.py -q`
+- `python -m pytest tests/product-plane/unit/test_durable_runtime_bootstrap.py -q`
+- `python -m pytest tests/product-plane/integration/test_runtime_postgres_store.py -q`
+- `python -m pytest tests/product-plane/integration/test_research_plane.py -q`
+- `python -m pytest tests/product-plane/integration/test_review_observability.py -q`
 - `python scripts/sync_skills_catalog.py --check`
 - `python scripts/validate_skills.py --strict`
 - `python scripts/run_loop_gate.py --from-git --git-ref HEAD`

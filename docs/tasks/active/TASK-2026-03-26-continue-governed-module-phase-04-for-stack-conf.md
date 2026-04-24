@@ -6,7 +6,7 @@ Updated: 2026-03-26 17:10 UTC
 
 ## Task Request Contract
 - Objective: replace the current `Spark compute -> Python Delta write` path with a real Spark-side Delta materialization flow that is reproducible in Docker/Linux.
-- In Scope: `src/trading_advisor_3000/spark_jobs/*`, `scripts/run_phase2a_spark_proof.py`, Docker proof-environment files, phase-scoped Spark tests, and aligned architecture/runbook/checklist/registry updates for D2 only.
+- In Scope: `src/trading_advisor_3000/spark_jobs/*`, `scripts/run_historical_data_spark_proof.py`, Docker proof-environment files, phase-scoped Spark tests, and aligned architecture/runbook/checklist/registry updates for D2 only.
 - Out of Scope: Dagster execution closure, runtime default closure, Telegram/sidecar phases, and any release-proof work.
 - Constraints: no silent assumptions/skips/fallbacks/deferrals; keep the patch phase-scoped; Spark proof must no longer rely on host-side Python Delta writes after `collect()`.
 - Done Evidence: Docker/Linux proof script succeeds, Spark itself writes Delta outputs, output contract checks pass, phase-scoped Spark tests and loop/PR gates are green, and docs/checklists explicitly describe the Docker/Linux proof profile.
@@ -62,7 +62,7 @@ Updated: 2026-03-26 17:10 UTC
 - `python -m pytest tests/app/integration/test_phase2a_spark_execution.py -q`
 - `python -m pytest tests/app/integration/test_phase2a_data_plane.py -q`
 - `python -m pytest tests/app/unit/test_phase2a_manifests.py -q`
-- `python scripts/run_phase2a_spark_proof.py --output-json artifacts/phase2a-spark-proof.json`
+- `python scripts/run_historical_data_spark_proof.py --output-json artifacts/phase2a-spark-proof.json`
 - `python scripts/validate_stack_conformance.py`
 - `python -m pytest tests/process/test_validate_stack_conformance.py -q`
 - `python scripts/validate_docs_links.py --roots docs/architecture/app docs/runbooks/app docs/checklists/app`
