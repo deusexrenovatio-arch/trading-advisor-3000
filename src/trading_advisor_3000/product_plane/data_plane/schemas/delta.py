@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-def phase2a_delta_schema_manifest() -> dict[str, dict[str, object]]:
+def historical_data_delta_schema_manifest() -> dict[str, dict[str, object]]:
     return {
         "raw_market_backfill": {
             "format": "delta",

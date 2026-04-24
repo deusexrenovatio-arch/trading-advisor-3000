@@ -37,9 +37,9 @@ __all__ = [
     "DataProviderRegistry",
     "DataProviderSpec",
     "default_data_provider_registry",
-    "run_phase01_foundation",
-    "run_phase02_canonical",
-    "run_phase03_reconciliation",
-    "run_phase04_production_hardening",
+    "run_moex_foundation",
+    "run_moex_canonicalization",
+    "run_moex_reconciliation",
+    "run_moex_operational_hardening",
     "run_sample_backfill",
 ]
