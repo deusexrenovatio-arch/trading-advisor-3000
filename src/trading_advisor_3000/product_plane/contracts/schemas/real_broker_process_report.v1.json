@@ -5,8 +5,8 @@
   "type": "object",
   "required": [
     "schema_version",
-    "phase",
-    "phase_brief",
+    "capability",
+    "capability_brief",
     "route_signal",
     "proof_class",
     "generated_at",
@@ -21,17 +21,17 @@
       "type": "integer",
       "const": 1
     },
-    "phase": {
+    "capability": {
       "type": "string",
       "minLength": 1
     },
-    "phase_brief": {
+    "capability_brief": {
       "type": "string",
       "minLength": 1
     },
     "route_signal": {
       "type": "string",
-      "const": "worker:phase-only"
+      "const": "worker:capability-only"
     },
     "proof_class": {
       "type": "string",

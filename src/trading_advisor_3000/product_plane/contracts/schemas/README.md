@@ -1,6 +1,6 @@
 # Contracts Schemas
 
-JSON-schema snapshots for Phase 1 contract surface.
+JSON-schema snapshots for the contracts-and-scaffolding surface.
 
 - `src/trading_advisor_3000/product_plane/contracts/schemas/canonical_bar.v1.json`
 - `src/trading_advisor_3000/product_plane/contracts/schemas/signal_candidate.v1.json`
@@ -45,7 +45,11 @@ JSON-schema snapshots for Phase 1 contract surface.
 - `src/trading_advisor_3000/product_plane/contracts/schemas/research_campaign.v1.json`
 - `src/trading_advisor_3000/product_plane/contracts/schemas/research_run_summary.v1.json`
 
-Versioning rule: breaking changes create `v2` files; existing `v1` files remain immutable.
+- `src/trading_advisor_3000/product_plane/contracts/schemas/gold_feature_snapshot.v1.json`
+- `src/trading_advisor_3000/product_plane/contracts/schemas/strategy_candidate_projection.v1.json`
+- `src/trading_advisor_3000/product_plane/contracts/schemas/strategy_scorecard.v1.json`
+- `src/trading_advisor_3000/product_plane/contracts/schemas/strategy_promotion_decision.v1.json`
+Versioning rule: breaking changes create 2 files; existing 1 files remain immutable.
 
 Release-blocking compatibility matrix and coverage inventory:
 - `src/trading_advisor_3000/product_plane/contracts/schemas/release_blocking_contracts.v1.yaml`
