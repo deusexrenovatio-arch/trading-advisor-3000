@@ -50,7 +50,7 @@ Updated: 2026-04-14 05:40 UTC
 - Primary Rework Cause: none
 - Incident Signature: none
 - Improvement Action: tighten real-staging evidence handoff and keep local smoke paths fail-closed
-- Improvement Artifact: `artifacts/codex/orchestration/20260414T053907Z-moex-historical-route-consolidation-phase-03/route-report.md`
+- Improvement Artifact: local route report captured outside tracked docs; the durable blocker remains the real staging binding report described below.
 
 ## Blockers
 - Governed Phase 03 acceptance is now blocked on missing real staging evidence for the canonical Dagster owner path.
