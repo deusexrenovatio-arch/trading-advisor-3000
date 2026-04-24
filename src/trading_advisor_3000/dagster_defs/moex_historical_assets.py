@@ -926,6 +926,7 @@ def materialize_moex_historical_assets(
     selected_assets = _resolve_selected_assets(selection)
     expected_materialized_assets = _resolve_expected_materialization(selected_assets)
     output_paths = moex_historical_output_paths(canonical_output_dir)
+    canonical_report_path = Path(output_paths["canonical_report"])
 
     op_config = {
         "raw_table_path": raw_table_path.resolve().as_posix(),
@@ -933,6 +934,21 @@ def materialize_moex_historical_assets(
         "canonical_output_dir": canonical_output_dir.resolve().as_posix(),
         "canonical_run_id": resolved_canonical_run_id,
     }
+
+    raw_report = _read_raw_ingest_report(raw_ingest_report_path)
+    raw_status = str(raw_report.get("status", "")).strip()
+    if "moex_canonical_refresh" in expected_materialized_assets and raw_status not in PASS_LIKE_RAW_STATUSES:
+        return {
+            "success": False,
+            "selected_assets": selected_assets,
+            "materialized_assets": expected_materialized_assets,
+            "output_paths": output_paths,
+            "canonical_report_exists": canonical_report_path.exists(),
+            "failure_reason": (
+                "canonical refresh cannot start because raw-ingest status is not PASS/PASS-NOOP; "
+                f"got `{raw_status or 'EMPTY'}`"
+            ),
+        }
 
     result = materialize(
         assets=list(MOEX_HISTORICAL_ASSETS),
@@ -952,7 +968,6 @@ def materialize_moex_historical_assets(
         "materialized_assets": expected_materialized_assets,
         "output_paths": output_paths,
     }
-    canonical_report_path = Path(output_paths["canonical_report"])
     if result.success and "moex_canonical_refresh" in expected_materialized_assets:
         if not canonical_report_path.exists():
             raise RuntimeError(

@@ -147,6 +147,66 @@ def _normalize_loaded_value(value: Any) -> Any:
     return value
 
 
+def _normalize_filter_value_for_field(value: Any, field: pa.Field) -> Any:
+    if pa.types.is_timestamp(field.type):
+        return _normalize_timestamp_value(value, field.name)
+    if pa.types.is_date(field.type):
+        return _normalize_date_value(value, field.name)
+    return value
+
+
+def _normalize_filter_clause(
+    clause: tuple[str, str, object],
+    fields_by_name: dict[str, pa.Field],
+) -> tuple[str, str, object]:
+    if len(clause) != 3:
+        return clause
+    column_name, operator, value = clause
+    field = fields_by_name.get(str(column_name))
+    if field is None:
+        return clause
+    normalized_operator = str(operator).strip().lower()
+    if normalized_operator in {"in", "not in"} and isinstance(value, (list, tuple, set)):
+        return (
+            column_name,
+            operator,
+            [_normalize_filter_value_for_field(item, field) for item in value],
+        )
+    return column_name, operator, _normalize_filter_value_for_field(value, field)
+
+
+def _normalize_filters_for_schema(
+    filters: DeltaReadFilters,
+    schema: pa.Schema,
+) -> DeltaReadFilters:
+    if filters is None:
+        return None
+    fields_by_name = {field.name: field for field in schema}
+    if not filters:
+        return filters
+
+    first = filters[0]
+    if isinstance(first, tuple):
+        return [
+            _normalize_filter_clause(clause, fields_by_name)
+            for clause in filters
+            if isinstance(clause, tuple)
+        ]
+
+    normalized_groups: list[list[tuple[str, str, object]]] = []
+    for group in filters:
+        if not isinstance(group, list):
+            continue
+        normalized_groups.append(
+            [
+                _normalize_filter_clause(clause, fields_by_name)
+                for clause in group
+                if isinstance(clause, tuple)
+            ]
+        )
+    return normalized_groups
+
+
 def has_delta_log(path: Path) -> bool:
     return (path / "_delta_log").exists()
 
@@ -234,7 +294,8 @@ def read_delta_table_rows(
     if not has_delta_log(table_path):
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
     table = DeltaTable(str(table_path))
-    rows = table.to_pyarrow_table(columns=columns, filters=filters).to_pylist()
+    normalized_filters = _normalize_filters_for_schema(filters, table.to_pyarrow_dataset().schema)
+    rows = table.to_pyarrow_table(columns=columns, filters=normalized_filters).to_pylist()
     return [
         {str(key): _normalize_loaded_value(value) for key, value in row.items()}
         for row in rows
