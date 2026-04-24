@@ -12,7 +12,7 @@ Root shell policy остаётся источником истины.
 6. `docs/DEV_WORKFLOW.md`
 7. `docs/architecture/product-plane/product-plane-spec-v2/TECHNICAL_REQUIREMENTS.md`
 8. `docs/architecture/product-plane/product-plane-spec-v2/00_AI_Shell_Alignment.md`
-9. `docs/architecture/product-plane/product-plane-spec-v2/06_Phases_and_Acceptance_Gates.md`
+9. `docs/architecture/product-plane/product-plane-spec-v2/06_Capability_Slices_and_Acceptance_Gates.md`
 
 ## Scope и границы
 - Product code размещается в `src/trading_advisor_3000/*`.
@@ -27,7 +27,7 @@ Root shell policy остаётся источником истины.
 4. Не смешивать shell-sensitive и product patch set без явной необходимости.
 
 ## Фазная дисциплина
-- Phase 0: docs + структура + приёмка без продуктового runtime-кода.
+- Bootstrap: docs + структура + приёмка без продуктового runtime-кода.
 - Переход к следующей фазе допустим только после закрытия acceptance текущей.
 - Для high-risk изменений соблюдать порядок: `contracts/policy -> code -> docs`.
 
