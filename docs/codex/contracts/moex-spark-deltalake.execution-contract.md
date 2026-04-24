@@ -33,6 +33,15 @@ Updated: 2026-04-02 08:18 UTC
 - Suggested phase compiler artifact is `NONE`, so this run preserves the explicit source rollout (`Этап 1` through `Этап 4`) by manual phase normalization.
 - This intake patch is phase-planning only: it materializes the execution contract and module phase briefs and does not collapse multi-phase implementation into one package run.
 
+## Supersession Status
+
+- As of 2026-04-11, this contract is historical planning evidence only.
+- Active governed planning truth for MOEX historical routing now lives in:
+  - `docs/codex/contracts/moex-historical-route-consolidation.execution-contract.md`
+  - `docs/codex/modules/moex-historical-route-consolidation.parent.md`
+- Earlier Etap 1 and Etap 2 implementation evidence remains reusable migration context.
+- Earlier Etap 3 reconciliation scope and Etap 4 operating expectations no longer define the active route-consolidation planning baseline.
+
 ## Objective
 
 - Convert the MOEX + Spark + Delta package into a governed module path with explicit phase ownership, release-gate semantics, and fail-closed contour proof requirements.
@@ -106,4 +115,4 @@ Updated: 2026-04-02 08:18 UTC
 - continue
 
 ## Next Allowed Unit Of Work
-- All planned phases are accepted. Prepare closeout or a new module run.
+- Historical evidence only. Continue MOEX historical-route planning through `docs/codex/contracts/moex-historical-route-consolidation.execution-contract.md`.
