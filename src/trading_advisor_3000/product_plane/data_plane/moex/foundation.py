@@ -1417,7 +1417,7 @@ def _write_coverage_artifacts(coverage: list[DiscoveryRecord], *, output_dir: Pa
     return json_path, csv_path
 
 
-def run_phase01_foundation(
+def run_moex_foundation(
     *,
     mapping_registry_path: Path,
     universe_path: Path,
@@ -1507,7 +1507,7 @@ def run_phase01_foundation(
 
     return FoundationRunReport(
         run_id=run_id,
-        route_signal="worker:phase-only",
+        route_signal="worker:capability-only",
         timeframe_set=sorted(timeframes),
         source_interval_set=sorted({row.source_interval for row in coverage}),
         source_timeframe_set=sorted({row.source_timeframe for row in coverage}),
