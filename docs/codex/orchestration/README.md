@@ -144,9 +144,9 @@ Package-intake artifacts now carry a separate intake-quality layer as well:
 
 ## Role defaults
 
-- worker: `gpt-5.3-codex`
-- acceptor: `gpt-5.4`
-- remediation: defaults to the worker model unless overridden
+- worker: inherits the configured Codex model unless overridden
+- acceptor: inherits the configured Codex model unless overridden
+- remediation: inherits the configured Codex model unless overridden
 
 Role-specific model and profile overrides are available directly on the runner CLI.
 
@@ -162,11 +162,11 @@ Intake is treated as a full phase with its own `PASS` / `BLOCKED` gate.
 - `INTAKE_TECH` (codex exec stream):
   - purpose: architecture fit and OSS fit evaluation for incoming requirements;
   - core skills: `architecture-review`, `tz-oss-scout`;
-  - expected model policy: `gpt-5.4` with `xhigh` reasoning.
+  - expected model policy: inherit the configured Codex model; use `xhigh` reasoning through config/profile when required.
 - `INTAKE_PRODUCT` (codex exec stream):
   - purpose: use cases, acceptance test cases, and product value framing;
   - core skills: `business-analyst`, `product-owner`;
-  - expected model policy: `gpt-5.4` with `xhigh` reasoning.
+  - expected model policy: inherit the configured Codex model; use `xhigh` reasoning through config/profile when required.
 - `INTAKE_GATE` (codex exec stream):
   - purpose: merge both intake reports and return `PASS` / `BLOCKED`;
   - may return `BLOCKED` when architecture concerns remain open, OSS fit is weak, or product value is not justified enough;

@@ -1,5 +1,4 @@
 project_root_markers = [".git"]
-model = "gpt-5.4"
 
 [project]
 name = "trading-advisor-3000"

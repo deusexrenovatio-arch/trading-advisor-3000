@@ -298,7 +298,7 @@ def test_mcp_preflight_supports_url_transport_probe(tmp_path: Path) -> None:
 
 def test_merge_home_config_data_preserves_existing_user_settings() -> None:
     home_config = {
-        "model": "gpt-5.4",
+        "model": "user-selected-model",
         "personality": "friendly",
         "windows": {"sandbox": "elevated"},
         "mcp_servers": {
@@ -326,7 +326,7 @@ def test_merge_home_config_data_preserves_existing_user_settings() -> None:
         source_config=source_config,
     )
 
-    assert merged["model"] == "gpt-5.4"
+    assert merged["model"] == "user-selected-model"
     assert merged["windows"]["sandbox"] == "elevated"
     assert merged["mcp_servers"]["github"]["args"] == ["run", "--rm", "github-mcp"]
     assert merged["mcp_servers"]["openai_docs"]["url"] == "https://developers.openai.com/mcp"
@@ -334,7 +334,7 @@ def test_merge_home_config_data_preserves_existing_user_settings() -> None:
 
 def test_dump_toml_document_round_trips_complex_user_config_shapes() -> None:
     document = {
-        "model": "gpt-5.4",
+        "model": "user-selected-model",
         "plugins": {
             "github@openai-curated": {
                 "enabled": True,
