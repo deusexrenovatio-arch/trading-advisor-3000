@@ -14,8 +14,37 @@ def utc_now_iso() -> str:
     return datetime.now(tz=UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def research_registry_root(*, canonical_output_dir: Path) -> Path:
-    return canonical_output_dir.resolve() / "research-registry"
+def _research_root_from_canonical_output_dir(canonical_output_dir: Path) -> Path:
+    resolved = canonical_output_dir.resolve()
+    for candidate in (resolved, *resolved.parents):
+        if candidate.name.lower() == "canonical":
+            return candidate.parent / "research"
+    return resolved.parent / "research"
+
+
+def _research_root_from_materialized_root(materialized_root: Path) -> Path:
+    resolved = materialized_root.resolve()
+    for candidate in (resolved, *resolved.parents):
+        if candidate.name.lower() == "research":
+            return candidate
+    return resolved.parent / "research"
+
+
+def research_registry_root(
+    *,
+    canonical_output_dir: Path | None = None,
+    materialized_root: Path | None = None,
+    research_root: Path | None = None,
+) -> Path:
+    if research_root is not None:
+        resolved_research_root = research_root.resolve()
+    elif materialized_root is not None:
+        resolved_research_root = _research_root_from_materialized_root(materialized_root)
+    elif canonical_output_dir is not None:
+        resolved_research_root = _research_root_from_canonical_output_dir(canonical_output_dir)
+    else:
+        raise ValueError("research_registry_root requires canonical_output_dir, materialized_root, or research_root")
+    return resolved_research_root / "registry" / "current"
 
 
 def research_registry_store_contract() -> dict[str, dict[str, object]]:
@@ -33,6 +62,8 @@ def research_registry_store_contract() -> dict[str, dict[str, object]]:
                 "dataset_version": "string",
                 "indicator_set_version": "string",
                 "indicator_profile_version": "string",
+                "derived_indicator_set_version": "string",
+                "derived_indicator_profile_version": "string",
                 "feature_set_version": "string",
                 "feature_profile_version": "string",
                 "strategy_space_json": "json",
@@ -258,6 +289,8 @@ def write_campaign_definition(
     dataset_version: str,
     indicator_set_version: str,
     indicator_profile_version: str,
+    derived_indicator_set_version: str,
+    derived_indicator_profile_version: str,
     feature_set_version: str,
     feature_profile_version: str,
     strategy_space: dict[str, Any],
@@ -277,6 +310,8 @@ def write_campaign_definition(
         "dataset_version": dataset_version,
         "indicator_set_version": indicator_set_version,
         "indicator_profile_version": indicator_profile_version,
+        "derived_indicator_set_version": derived_indicator_set_version,
+        "derived_indicator_profile_version": derived_indicator_profile_version,
         "feature_set_version": feature_set_version,
         "feature_profile_version": feature_profile_version,
         "strategy_space_json": strategy_space,

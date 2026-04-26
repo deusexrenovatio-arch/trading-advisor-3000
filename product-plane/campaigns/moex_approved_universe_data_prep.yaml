@@ -1,25 +1,26 @@
-campaign_name: fut_br_base_15m_explore
-target_stage: projection
+campaign_name: moex_approved_universe_data_prep
+target_stage: data_prep
 canonical_output_dir: D:/TA3000-data/trading-advisor-3000-nightly/canonical/moex/baseline-4y-current
 materialized_root: D:/TA3000-data/trading-advisor-3000-nightly/research/gold/current
 runs_root: D:/TA3000-data/trading-advisor-3000-nightly/research/runs
 
 dataset:
-  dataset_version: moex_futures_br_15m_2021_2026_v1
-  dataset_name: moex_futures_br_base
-  universe_id: moex-futures
+  dataset_version: moex_approved_universe_current_v1
+  dataset_name: moex_approved_universe_current
+  universe_id: universe-v1
   series_mode: contract
   timeframes:
     - 15m
     - 1h
+    - 4h
+    - 1d
   base_timeframe: 15m
   start_ts: "2021-04-01T00:00:00Z"
   end_ts: "2026-03-31T23:59:59Z"
-  warmup_bars: 200
+  warmup_bars: 300
   split_method: holdout
   contract_ids: []
-  instrument_ids:
-    - BR
+  instrument_ids: []
 
 profiles:
   indicator_set_version: indicators-v1
@@ -32,11 +33,15 @@ profiles:
 strategy_space:
   family_keys:
     - ma_cross
+    - breakout
+    - mean_reversion
+    - mtf_pullback
+    - squeeze_release
   template_ids: []
   include_instance_ids: []
   exclude_manifest_hashes: []
   materialize_instances: true
-  max_instance_count: 256
+  max_instance_count: 5000
   search_space_overrides: {}
 
 backtest:

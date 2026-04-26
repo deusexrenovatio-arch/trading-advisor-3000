@@ -2,7 +2,7 @@
   "campaign_name": "fut_br_base_15m_explore",
   "target_stage": "projection",
   "canonical_output_dir": "D:/TA3000-data/canonical/moex-futures",
-  "materialized_root": "D:/TA3000-data/research/materialized/current",
+  "materialized_root": "D:/TA3000-data/research/gold/current",
   "runs_root": "D:/TA3000-data/research/runs",
   "dataset": {
     "dataset_version": "moex_futures_br_15m_2021_2026_v1",
@@ -21,6 +21,8 @@
   "profiles": {
     "indicator_set_version": "indicators-v1",
     "indicator_profile_version": "core_v1",
+    "derived_indicator_set_version": "derived-v1",
+    "derived_indicator_profile_version": "core_v1",
     "feature_set_version": "features-v1",
     "feature_profile_version": "core_v1"
   },

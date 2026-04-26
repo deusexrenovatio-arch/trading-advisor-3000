@@ -3,7 +3,7 @@ from __future__ import annotations
 from trading_advisor_3000.dagster_defs import research_asset_specs
 from trading_advisor_3000.dagster_defs import research_assets
 from trading_advisor_3000.product_plane.research.datasets import research_dataset_store_contract
-from trading_advisor_3000.product_plane.research.features import research_feature_store_contract
+from trading_advisor_3000.product_plane.research.derived_indicators import research_derived_indicator_store_contract
 from trading_advisor_3000.product_plane.research.ids import candidate_id
 from trading_advisor_3000.product_plane.research.indicators import build_indicator_profile_registry, indicator_store_contract
 from trading_advisor_3000.product_plane.research.strategies.families import phase_stg02_family_adapters
@@ -14,9 +14,10 @@ def test_research_dagster_asset_specs_declared() -> None:
     keys = set(specs)
     assert {
         "research_datasets",
+        "research_instrument_tree",
         "research_bar_views",
         "research_indicator_frames",
-        "research_feature_frames",
+        "research_derived_indicator_frames",
         "research_strategy_families",
         "research_strategy_templates",
         "research_strategy_template_modules",
@@ -36,11 +37,12 @@ def test_research_dagster_asset_specs_declared() -> None:
         "canonical_session_calendar_delta",
         "canonical_roll_map_delta",
     }
+    assert set(specs["research_instrument_tree"].inputs) == {"research_datasets_delta"}
     assert set(specs["research_indicator_frames"].inputs) == {
         "research_datasets_delta",
         "research_bar_views_delta",
     }
-    assert set(specs["research_feature_frames"].inputs) == {
+    assert set(specs["research_derived_indicator_frames"].inputs) == {
         "research_datasets_delta",
         "research_bar_views_delta",
         "research_indicator_frames_delta",
@@ -53,7 +55,7 @@ def test_research_dagster_asset_specs_declared() -> None:
     assert set(specs["research_backtest_batches"].inputs) == {
         "research_datasets_delta",
         "research_indicator_frames_delta",
-        "research_feature_frames_delta",
+        "research_derived_indicator_frames_delta",
         "research_strategy_instance_modules_delta",
     }
     assert set(specs["research_strategy_rankings"].inputs) == {
@@ -63,21 +65,21 @@ def test_research_dagster_asset_specs_declared() -> None:
     }
     assert set(specs["research_signal_candidates"].inputs) == {
         "research_datasets_delta",
-        "research_feature_frames_delta",
+        "research_derived_indicator_frames_delta",
         "research_strategy_rankings_delta",
     }
 
 
-def test_research_contract_lineage_is_consistent_across_dataset_indicator_and_feature_layers() -> None:
+def test_research_contract_lineage_is_consistent_across_dataset_indicator_and_derived_layers() -> None:
     dataset_manifest = research_dataset_store_contract()
     indicator_manifest = indicator_store_contract()
-    feature_manifest = research_feature_store_contract()
+    derived_manifest = research_derived_indicator_store_contract()
 
-    assert {"research_datasets", "research_bar_views"} == set(dataset_manifest)
+    assert {"research_datasets", "research_instrument_tree", "research_bar_views"} == set(dataset_manifest)
     assert "research_indicator_frames" in indicator_manifest
-    assert "research_feature_frames" in feature_manifest
+    assert "research_derived_indicator_frames" in derived_manifest
     indicator_columns = set(indicator_manifest["research_indicator_frames"]["columns"])
-    feature_columns = set(feature_manifest["research_feature_frames"]["columns"])
+    derived_columns = set(derived_manifest["research_derived_indicator_frames"]["columns"])
     assert {
         "dataset_version",
         "indicator_set_version",
@@ -94,16 +96,24 @@ def test_research_contract_lineage_is_consistent_across_dataset_indicator_and_fe
     assert {
         "dataset_version",
         "indicator_set_version",
-        "feature_set_version",
+        "derived_indicator_set_version",
         "profile_version",
         "source_bars_hash",
         "source_indicators_hash",
+        "distance_to_ema_20_atr",
+        "donchian_position_20",
+        "divergence_price_rsi_14_score",
+        "mtf_1h_to_15m_ema_20",
+        "mtf_1h_to_15m_ema_50",
+    } <= derived_columns
+    assert {
+        "volatility_regime_code",
+        "oscillator_pressure_code",
         "breakout_ready_flag",
         "reversion_ready_flag",
         "atr_stop_ref_1x",
         "atr_target_ref_2x",
-    } <= feature_columns
-    assert "research_strategy_metrics" in feature_manifest
+    }.isdisjoint(derived_columns)
 
 
 def test_research_candidate_id_formula_is_stable() -> None:
