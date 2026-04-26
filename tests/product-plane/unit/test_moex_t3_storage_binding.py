@@ -24,7 +24,6 @@ CANONICAL_COLUMNS: dict[str, str] = {
 def test_moex_t3_storage_resolves_authoritative_baseline_manifest(tmp_path: Path) -> None:
     data_root = tmp_path / "trading-advisor-3000-nightly"
     canonical_root = data_root / "canonical" / "moex" / "baseline-4y-current"
-    features_root = data_root / "derived" / "moex" / "features"
     indicators_root = data_root / "derived" / "moex" / "indicators"
     bars_path = canonical_root / "canonical_bars.delta"
     provenance_path = canonical_root / "canonical_bar_provenance.delta"
@@ -45,7 +44,6 @@ def test_moex_t3_storage_resolves_authoritative_baseline_manifest(tmp_path: Path
     }
     write_delta_table_rows(table_path=bars_path, rows=[row], columns=CANONICAL_COLUMNS)
     write_delta_table_rows(table_path=provenance_path, rows=[row], columns=CANONICAL_COLUMNS)
-    features_root.mkdir(parents=True)
     indicators_root.mkdir(parents=True)
 
     manifest_path = canonical_root / "baseline-manifest.json"
@@ -58,7 +56,6 @@ def test_moex_t3_storage_resolves_authoritative_baseline_manifest(tmp_path: Path
                 "storage_layout": {
                     "canonical_root": canonical_root.as_posix(),
                     "derived_root": (data_root / "derived" / "moex").as_posix(),
-                    "features_root": features_root.as_posix(),
                     "indicators_root": indicators_root.as_posix(),
                 },
                 "baseline_paths": {
@@ -79,6 +76,5 @@ def test_moex_t3_storage_resolves_authoritative_baseline_manifest(tmp_path: Path
     assert binding.canonical_bars_path == bars_path.resolve()
     assert binding.canonical_session_calendar_path == session_calendar_path.resolve()
     assert binding.canonical_roll_map_path == roll_map_path.resolve()
-    assert binding.features_root == features_root.resolve()
     assert binding.indicators_root == indicators_root.resolve()
     assert binding.to_dict()["source"] == "explicit-baseline-manifest"

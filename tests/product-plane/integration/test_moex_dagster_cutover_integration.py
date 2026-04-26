@@ -137,11 +137,7 @@ def test_dagster_cutover_dagster_cutover_materializes_route_and_emits_recovery_a
         bars = read_delta_table_rows(bars_path)
         assert bars
         indicator_path = Path(str(materialization["output_paths"]["technical_indicator_snapshot"]))
-        feature_path = Path(str(materialization["output_paths"]["feature_snapshots"]))
-        qc_report_path = Path(str(materialization["output_paths"]["indicator_feature_qc_report"]))
         assert (indicator_path / "_delta_log").exists()
-        assert (feature_path / "_delta_log").exists()
-        assert qc_report_path.exists()
         if cycle["mode"] == "nightly":
             assert materialization["schedule"] is not None
             assert materialization["schedule"]["name"] == "moex_historical_nightly_schedule"

@@ -1,9 +1,9 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from trading_advisor_3000.product_plane.contracts import (
     CanonicalBar,
     DecisionCandidate,
-    FeatureSnapshotRef,
+    IndicatorContextRef,
     Mode,
     Timeframe,
     TradeSide,
@@ -39,7 +39,7 @@ def _candidate(*, signal_id: str, side: TradeSide, ts_decision: str) -> Decision
         target_ref=102.0 if side == TradeSide.LONG else 98.0,
         confidence=0.7,
         ts_decision=ts_decision,
-        feature_snapshot=FeatureSnapshotRef(
+        indicator_context=IndicatorContextRef(
             dataset_version="bars-whitelist-v1",
             snapshot_id="FS-SHADOW-0001",
         ),

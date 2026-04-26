@@ -72,7 +72,7 @@ def _template_manifest() -> StrategyTemplateManifest:
             StrategyTemplateModule(
                 role="regime_filter",
                 alias="htf_trend",
-                module_key="feature.htf_trend_state",
+                module_key="indicator.htf_trend_state",
                 module_version="v1",
                 params={},
                 search_space=None,
@@ -101,7 +101,7 @@ def _template_manifest() -> StrategyTemplateManifest:
             "split_method": "walk_forward",
             "preferred_metrics": ["calmar", "sharpe", "total_return"],
         },
-        required_feature_columns=(
+        required_indicator_columns=(
             "ema_20",
             "ema_50",
             "atr_14",
@@ -141,10 +141,10 @@ def _instance_manifest(*, strategy_template_id: str, family_id: str) -> Strategy
             StrategyResolvedModule(
                 role="regime_filter",
                 alias="htf_trend",
-                module_key="feature.htf_trend_state",
+                module_key="indicator.htf_trend_state",
                 module_version="v1",
                 resolved_params={},
-                derived_feature_refs=("htf_trend_state_code",),
+                derived_indicator_refs=("htf_trend_state_code",),
             ),
             StrategyResolvedModule(
                 role="entry",
@@ -156,7 +156,7 @@ def _instance_manifest(*, strategy_template_id: str, family_id: str) -> Strategy
                     "confirmation_bars": 2,
                     "min_htf_rsi": 55,
                 },
-                derived_feature_refs=("ema_20", "ema_50", "atr_14"),
+                derived_indicator_refs=("ema_20", "ema_50", "atr_14"),
             ),
         ),
         risk_policy={
@@ -165,7 +165,7 @@ def _instance_manifest(*, strategy_template_id: str, family_id: str) -> Strategy
             "target_model": "atr",
             "target_atr_multiple": 2.2,
         },
-        required_feature_columns=(
+        required_indicator_columns=(
             "ema_20",
             "ema_50",
             "atr_14",
@@ -291,7 +291,7 @@ def test_template_identity_is_deterministic_and_cross_runtime_stable(tmp_path: P
             {
                 "alias": "htf_trend",
                 "enabled": True,
-                "module_key": "feature.htf_trend_state",
+                "module_key": "indicator.htf_trend_state",
                 "module_version": "v1",
                 "order_index": 0.0,
                 "params": {},
@@ -325,7 +325,7 @@ def test_template_identity_is_deterministic_and_cross_runtime_stable(tmp_path: P
             "preferred_metrics": ["calmar", "sharpe", "total_return"],
             "split_method": "walk_forward",
         },
-        "required_feature_columns": [
+        "required_indicator_columns": [
             "ema_20",
             "ema_50",
             "atr_14",
@@ -479,7 +479,7 @@ def test_instance_identity_is_stable_for_reordered_numeric_payloads() -> None:
             "stop_model": "atr",
             "stop_atr_multiple": 1.1000,
         },
-        required_feature_columns=instance.required_feature_columns,
+        required_indicator_columns=instance.required_indicator_columns,
         status="active",
     )
     variant_identity = build_strategy_instance_identity(variant)

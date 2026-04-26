@@ -19,7 +19,6 @@ from trading_advisor_3000.product_plane.research.datasets import (
     build_walk_forward_windows,
 )
 from trading_advisor_3000.product_plane.research.dependencies import PANDAS_TA_REQUIREMENT, resolve_research_dependency
-from trading_advisor_3000.product_plane.research.features import build_feature_profile_registry, core_v1_feature_profile
 from trading_advisor_3000.product_plane.research.indicators import (
     build_indicator_profile_registry,
     indicator_column_name,
@@ -61,35 +60,6 @@ def test_vectorized_research_indicator_profile_covers_core_indicator_groups() ->
     } <= all_columns
 
     registry = build_indicator_profile_registry()
-    assert registry.versions() == ("core_v1", "core_intraday_v1", "core_swing_v1")
-
-
-def test_vectorized_research_feature_profile_declares_cross_layer_feature_groups() -> None:
-    profile = core_v1_feature_profile()
-    assert profile.version == "core_v1"
-    grouped = profile.by_category()
-    assert {"trend", "levels", "volatility", "volume", "regime", "labels", "references", "mtf"} == set(grouped)
-
-    output_columns = {column for spec in profile.features for column in spec.output_columns}
-    assert {
-        "trend_state_fast_slow_code",
-        "trend_strength",
-        "ma_stack_state_code",
-        "rolling_high_20",
-        "session_vwap",
-        "squeeze_on_code",
-        "breakout_ready_state_code",
-        "breakout_ready_flag",
-        "rvol_20",
-        "volume_zscore_20",
-        "regime_state_code",
-        "reversion_ready_flag",
-        "atr_stop_ref_1x",
-        "atr_target_ref_2x",
-        "htf_trend_state_code",
-    } <= output_columns
-
-    registry = build_feature_profile_registry()
     assert registry.versions() == ("core_v1", "core_intraday_v1", "core_swing_v1")
 
 
@@ -142,7 +112,7 @@ def test_dataset_and_backtest_keys_are_deterministic() -> None:
         strategy_space_id=strategy_space.strategy_space_id,
         dataset_version="dataset-v1",
         indicator_set_version="indicators-v1",
-        feature_set_version="features-v1",
+        derived_indicator_set_version="derived-v1",
         strategy_instances=strategy_space.strategy_instances,
         combination_count=len(strategy_space.strategy_instances),
     )
