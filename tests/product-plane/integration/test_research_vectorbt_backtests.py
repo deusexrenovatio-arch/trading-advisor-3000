@@ -382,7 +382,7 @@ def test_vectorbt_batch_runner_parameters_and_risk_policy_change_execution(tmp_p
         parameter_grid=(
             StrategyParameter("breakout_window", (2, 8)),
             StrategyParameter("min_adx", (10,)),
-            StrategyParameter("entry_buffer_atr", (1.0,)),
+            StrategyParameter("entry_buffer_atr", (0.0,)),
         ),
         signal_builder_key="breakout",
         risk_policy=StrategyRiskPolicy(stop_atr_multiple=0.8, target_atr_multiple=1.6),
