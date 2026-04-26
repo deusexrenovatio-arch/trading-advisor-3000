@@ -4,7 +4,7 @@ from .enums import Mode, PublicationState, PublicationType, Timeframe, TradeSide
 from .execution import BrokerEvent, BrokerFill, BrokerOrder, OrderIntent, PositionSnapshot, RiskSnapshot
 from .market import CanonicalBar
 from .runtime import RuntimeSignal, SignalEvent
-from .signal import DecisionCandidate, DecisionPublication, FeatureSnapshotRef
+from .signal import DecisionCandidate, DecisionPublication, IndicatorContextRef
 
 __all__ = [
     "Mode",
@@ -21,7 +21,7 @@ __all__ = [
     "CanonicalBar",
     "RuntimeSignal",
     "SignalEvent",
-    "FeatureSnapshotRef",
+    "IndicatorContextRef",
     "DecisionCandidate",
     "DecisionPublication",
 ]

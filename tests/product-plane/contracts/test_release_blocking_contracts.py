@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import re
@@ -9,7 +9,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from trading_advisor_3000.product_plane.contracts import DecisionCandidate, FeatureSnapshotRef, Mode, Timeframe, TradeSide
+from trading_advisor_3000.product_plane.contracts import DecisionCandidate, IndicatorContextRef, Mode, Timeframe, TradeSide
 from trading_advisor_3000.product_plane.interfaces.api import RuntimeAPI
 from trading_advisor_3000.product_plane.interfaces.asgi import create_app
 from trading_advisor_3000.product_plane.runtime import build_runtime_stack, read_runtime_bootstrap_config
@@ -175,7 +175,7 @@ def _active_candidate(*, signal_id: str, ts_decision: str) -> DecisionCandidate:
         target_ref=83.95,
         confidence=0.77,
         ts_decision=ts_decision,
-        feature_snapshot=FeatureSnapshotRef(
+        indicator_context=IndicatorContextRef(
             dataset_version="bars-whitelist-v1",
             snapshot_id="FS-20260316-0001",
         ),
