@@ -14,7 +14,7 @@ from trading_advisor_3000.product_plane.research.backtests import (
     run_backtest_batch,
 )
 from trading_advisor_3000.product_plane.research.datasets import ResearchDatasetManifest, materialize_research_dataset
-from trading_advisor_3000.product_plane.research.features import materialize_feature_frames
+from trading_advisor_3000.product_plane.research.derived_indicators import materialize_derived_indicator_frames
 from trading_advisor_3000.product_plane.research.indicators import materialize_indicator_frames
 from trading_advisor_3000.product_plane.research.io import ResearchFrameCache
 from trading_advisor_3000.product_plane.research.strategies import (
@@ -38,12 +38,8 @@ def _benchmark_registry() -> StrategyRegistry:
             "close",
             "high",
             "low",
-            "rolling_high_20",
-            "rolling_low_20",
             "adx_14",
             "atr_14",
-            "breakout_ready_state_code",
-            "trend_state_fast_slow_code",
         ),
         parameter_grid=(
             StrategyParameter("breakout_window", (3, 4, 5, 6, 7)),
@@ -148,7 +144,7 @@ def _markdown_report(report: dict[str, object]) -> str:
         f"- hot_speedup_vs_cold_total: {report['thresholds']['hot_speedup_vs_cold_total']}",
         "",
         "## Thresholds",
-        f"- no_recompute_indicators_features: {report['thresholds']['no_recompute_indicators_features']}",
+        f"- no_recompute_indicators_derived: {report['thresholds']['no_recompute_indicators_derived']}",
         f"- hot_path_threshold_pass: {report['thresholds']['hot_path_threshold_pass']}",
         f"- param_100_completed: {report['thresholds']['param_100_completed']}",
         "",
@@ -209,13 +205,13 @@ def run_benchmark_job(
         indicator_set_version="indicators-v1",
         profile_version="core_v1",
     )
-    materialize_feature_frames(
+    materialize_derived_indicator_frames(
         dataset_output_dir=materialized_dir,
         indicator_output_dir=materialized_dir,
         feature_output_dir=materialized_dir,
         dataset_version=dataset_version,
         indicator_set_version="indicators-v1",
-        feature_set_version="features-v1",
+        derived_indicator_set_version="derived-v1",
         profile_version="core_v1",
     )
     cold_bootstrap_duration = round(perf_counter() - bootstrap_started, 6)
@@ -232,7 +228,7 @@ def run_benchmark_job(
         strategy_space_id=benchmark_strategy_space.strategy_space_id,
         dataset_version=dataset_version,
         indicator_set_version="indicators-v1",
-        feature_set_version="features-v1",
+        feature_set_version="",
         strategy_instances=benchmark_strategy_space.strategy_instances,
         combination_count=len(benchmark_strategy_space.strategy_instances),
         param_batch_size=param_batch_size,
@@ -255,7 +251,7 @@ def run_benchmark_job(
     cold_backtest_duration = round(perf_counter() - cold_backtest_started, 6)
 
     indicator_versions_before_hot = delta_version_count(materialized_dir / "research_indicator_frames.delta")
-    feature_versions_before_hot = delta_version_count(materialized_dir / "research_feature_frames.delta")
+    derived_versions_before_hot = delta_version_count(materialized_dir / "research_derived_indicator_frames.delta")
     hot_backtest_started = perf_counter()
     hot_backtest = run_backtest_batch(
         dataset_output_dir=materialized_dir,
@@ -269,7 +265,7 @@ def run_benchmark_job(
     )
     hot_backtest_duration = round(perf_counter() - hot_backtest_started, 6)
     indicator_versions_after_hot = delta_version_count(materialized_dir / "research_indicator_frames.delta")
-    feature_versions_after_hot = delta_version_count(materialized_dir / "research_feature_frames.delta")
+    derived_versions_after_hot = delta_version_count(materialized_dir / "research_derived_indicator_frames.delta")
 
     scalability_runs: list[dict[str, object]] = []
     for count in combination_sizes:
@@ -289,7 +285,7 @@ def run_benchmark_job(
                 strategy_space_id=scale_strategy_space.strategy_space_id,
                 dataset_version=dataset_version,
                 indicator_set_version="indicators-v1",
-                feature_set_version="features-v1",
+                feature_set_version="",
                 strategy_instances=scale_strategy_space.strategy_instances,
                 combination_count=len(scale_strategy_space.strategy_instances),
                 param_batch_size=param_batch_size,
@@ -313,15 +309,15 @@ def run_benchmark_job(
     hot_speedup = round(cold_total_duration / max(hot_backtest_duration, 1e-9), 6)
     hot_ratio = hot_backtest_duration / max(cold_total_duration, 1e-9)
     thresholds = {
-        "no_recompute_indicators_features": (
+        "no_recompute_indicators_derived": (
             indicator_versions_before_hot == indicator_versions_after_hot
-            and feature_versions_before_hot == feature_versions_after_hot
+            and derived_versions_before_hot == derived_versions_after_hot
         ),
         "hot_speedup_vs_cold_total": hot_speedup,
         "hot_ratio_vs_cold_total": round(hot_ratio, 6),
         "hot_path_threshold_pass": (
             indicator_versions_before_hot == indicator_versions_after_hot
-            and feature_versions_before_hot == feature_versions_after_hot
+            and derived_versions_before_hot == derived_versions_after_hot
             and (hot_speedup >= 3.0 or hot_ratio <= 0.30)
         ),
         "param_100_completed": any(
@@ -344,11 +340,11 @@ def run_benchmark_job(
             "bars_per_instrument": bars_per_instrument,
             "materialized_bar_rows": delta_row_count(materialized_dir / "research_bar_views.delta"),
             "indicator_rows": delta_row_count(materialized_dir / "research_indicator_frames.delta"),
-            "feature_rows": delta_row_count(materialized_dir / "research_feature_frames.delta"),
+            "derived_indicator_rows": delta_row_count(materialized_dir / "research_derived_indicator_frames.delta"),
         },
         "versions": {
             "indicator_set_version": "indicators-v1",
-            "feature_set_version": "features-v1",
+            "derived_indicator_set_version": "derived-v1",
             "strategy_catalog_version": registry.catalog.version,
         },
         "cold_bootstrap": {"duration_seconds": cold_bootstrap_duration},

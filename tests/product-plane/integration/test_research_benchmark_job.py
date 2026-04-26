@@ -16,7 +16,7 @@ def test_research_benchmark_job_emits_artifacts_and_threshold_evidence(tmp_path:
         param_batch_size=10,
     )
 
-    assert report["thresholds"]["no_recompute_indicators_features"] is True
+    assert report["thresholds"]["no_recompute_indicators_derived"] is True
     assert report["thresholds"]["param_100_completed"] is True
     assert float(report["thresholds"]["hot_speedup_vs_cold_total"]) > 1.0
     assert float(report["thresholds"]["hot_ratio_vs_cold_total"]) < 1.0
