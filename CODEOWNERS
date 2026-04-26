@@ -40,4 +40,4 @@
 # Automation and checks
 /scripts/ @trading-advisor-3000/platform
 /.github/workflows/ @trading-advisor-3000/platform
-/.cursor/skills/ @trading-advisor-3000/ai-governance
+/.codex/skills/ @trading-advisor-3000/app-core @trading-advisor-3000/ai-governance

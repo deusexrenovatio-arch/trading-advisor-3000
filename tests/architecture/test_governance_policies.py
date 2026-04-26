@@ -55,12 +55,13 @@ def test_validate_skills_passes() -> None:
 def test_skills_corpus_is_cold_by_default() -> None:
     text = (ROOT / ".cursorignore").read_text(encoding="utf-8")
     assert ".cursor/skills/**" in text
+    assert ".codex/skills/**" in text
 
 
 def test_skills_routing_declares_targeted_loading() -> None:
     text = (ROOT / "docs/agent/skills-routing.md").read_text(encoding="utf-8").lower()
     assert "cold-by-default" in text
-    assert "specific skill" in text
+    assert "repo-local skill" in text
 
 
 def test_autonomy_kpi_report_runs() -> None:

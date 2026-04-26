@@ -73,6 +73,7 @@ surfaces:
       - tests/product-plane/
   skills:
     prefixes:
+      - .codex/skills/
       - .cursor/skills/
       - docs/agent/skills-
       - docs/workflows/skill-governance-sync.md

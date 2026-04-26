@@ -10,10 +10,12 @@ from skill_update_decision import (
     CATALOG_FILE,
     ROUTING_DOC,
     SKILL_PREFIX,
+    SKILL_PREFIXES,
     WORKFLOW_DOC,
     _build_decision,
     _collect_name_status,
     _compute_metadata_drift,
+    _changed_active_skill_ids,
     _parse_git_skill_operations,
     _path_exists_in_git,
     _changed_skill_ids,
@@ -91,8 +93,8 @@ def main() -> None:
     if args.from_git and not args.base_ref and not args.head_ref:
         inferred_added: set[str] = set(operations.get("added", []))
         inferred_updated: set[str] = set(operations.get("updated", []))
-        for skill_id in changed_skill_ids:
-            rel = f".cursor/skills/{skill_id}/SKILL.md"
+        for skill_id in _changed_active_skill_ids(changed_files):
+            rel = f"{SKILL_PREFIX}{skill_id}/SKILL.md"
             if not _path_exists_in_git(baseline_ref, rel):
                 inferred_added.add(skill_id)
                 inferred_updated.discard(skill_id)
@@ -125,7 +127,9 @@ def main() -> None:
         raise SystemExit(1)
 
     normalized = {_normalize(path_text) for path_text in changed_files}
-    should_validate = any(marker.startswith(SKILL_PREFIX) for marker in normalized) or any(
+    should_validate = any(
+        any(marker.startswith(prefix) for prefix in SKILL_PREFIXES) for marker in normalized
+    ) or any(
         marker in {_normalize(str(CATALOG_FILE)), _normalize(ROUTING_DOC), _normalize(WORKFLOW_DOC)}
         for marker in normalized
     )

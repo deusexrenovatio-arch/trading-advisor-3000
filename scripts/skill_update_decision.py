@@ -13,7 +13,9 @@ from gate_common import collect_changed_files
 from sync_skills_catalog import CATALOG_FILE, SKILLS_ROOT, build_catalog_text, load_runtime_skills
 
 
-SKILL_PREFIX = ".cursor/skills/"
+SKILL_PREFIX = ".codex/skills/"
+LEGACY_SKILL_PREFIX = ".cursor/skills/"
+SKILL_PREFIXES = (SKILL_PREFIX, LEGACY_SKILL_PREFIX)
 ROUTING_DOC = "docs/agent/skills-routing.md"
 WORKFLOW_DOC = "docs/workflows/skill-governance-sync.md"
 SKILL_GOVERNANCE_PROCESS_FILES = {
@@ -71,18 +73,31 @@ def _normalize_triggers(value: Any) -> list[str]:
 
 def _skill_id_from_path(path_text: str) -> str | None:
     normalized = _normalize(path_text)
-    if not normalized.startswith(SKILL_PREFIX):
-        return None
-    parts = normalized.split("/")
-    if len(parts) < 3:
-        return None
-    skill_id = parts[2].strip()
-    return skill_id or None
+    for prefix in SKILL_PREFIXES:
+        if not normalized.startswith(prefix):
+            continue
+        parts = normalized.split("/")
+        if len(parts) < 4 or parts[3] != "skill.md":
+            return None
+        skill_id = parts[2].strip()
+        return skill_id or None
+    return None
 
 
 def _changed_skill_ids(changed_files: list[str]) -> list[str]:
     skill_ids: set[str] = set()
     for path_text in changed_files:
+        skill_id = _skill_id_from_path(path_text)
+        if skill_id:
+            skill_ids.add(skill_id)
+    return sorted(skill_ids)
+
+
+def _changed_active_skill_ids(changed_files: list[str]) -> list[str]:
+    skill_ids: set[str] = set()
+    for path_text in changed_files:
+        if not _normalize(path_text).startswith(SKILL_PREFIX):
+            continue
         skill_id = _skill_id_from_path(path_text)
         if skill_id:
             skill_ids.add(skill_id)
@@ -179,7 +194,7 @@ def _compute_metadata_drift(
     forbidden_non_baseline: list[str] = []
 
     for skill_id in changed_skill_ids:
-        rel = f".cursor/skills/{skill_id}/SKILL.md"
+        rel = f"{SKILL_PREFIX}{skill_id}/SKILL.md"
         current_path = Path(rel)
         current_fm = _load_frontmatter(current_path)
         old_text = _read_from_git(baseline_ref, rel)
@@ -372,8 +387,8 @@ def main() -> None:
     if args.from_git and not args.base_ref and not args.head_ref:
         inferred_added: set[str] = set(operations.get("added", []))
         inferred_updated: set[str] = set(operations.get("updated", []))
-        for skill_id in changed_skill_ids:
-            rel = f".cursor/skills/{skill_id}/SKILL.md"
+        for skill_id in _changed_active_skill_ids(changed_files):
+            rel = f"{SKILL_PREFIX}{skill_id}/SKILL.md"
             if not _path_exists_in_git(baseline_ref, rel):
                 inferred_added.add(skill_id)
                 inferred_updated.discard(skill_id)

@@ -238,7 +238,7 @@ Track A/B/C/D may start.
 ## 5. Особое правило по shell-sensitive фазам
 
 Если фаза затрагивает:
-- `.cursor/skills/*`,
+- `.codex/skills/*`,
 - `docs/agent/*`,
 - `scripts/*`,
 - root `configs/*`,

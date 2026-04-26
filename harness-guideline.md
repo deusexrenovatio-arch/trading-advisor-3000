@@ -12,7 +12,7 @@ Map governance principles to enforceable checks, owner surfaces, and CI lanes.
 | Session handoff pointer shim | `python scripts/validate_session_handoff.py` | process governance | loop / pr |
 | Durable state contract | `python scripts/validate_plans.py` + `python scripts/validate_agent_memory.py` + `python scripts/validate_task_outcomes.py` | plans + memory | loop / pr / nightly |
 | Process regression controls | `python scripts/validate_process_regressions.py` | outcomes telemetry | nightly |
-| Skills runtime governance | `python scripts/sync_skills_catalog.py --check` + `python scripts/validate_skills.py --strict` + `python scripts/skill_precommit_gate.py` | `.cursor/skills`, docs/agent skills | loop / pr |
+| Skills runtime governance | `python scripts/sync_skills_catalog.py --check` + `python scripts/validate_skills.py --strict` + `python scripts/skill_precommit_gate.py` | `.codex/skills`, docs/agent skills, legacy `.cursor/skills` cleanup | loop / pr |
 | Context coverage | `python scripts/validate_agent_contexts.py` + context tests | docs/agent-contexts + router | loop / pr / nightly |
 | Ownership routing coverage | `python scripts/validate_codeowners.py` | `CODEOWNERS` + configs | pr / nightly |
 | Architecture boundary policy | `python scripts/validate_architecture_policy.py` + architecture tests | docs/architecture + tests/architecture | loop / pr / nightly |

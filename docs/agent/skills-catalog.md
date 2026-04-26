@@ -1,48 +1,12 @@
 # Skills Catalog
 
 <!-- generated-by: scripts/sync_skills_catalog.py -->
-<!-- source-of-truth: .cursor/skills/*/SKILL.md -->
+<!-- source-of-truth: .codex/skills/*/SKILL.md -->
 <!-- generated-contract: do not edit manually; run python scripts/sync_skills_catalog.py -->
-<!-- catalog-sha256: 18d8a8dad1adc25bc095dbd59c35eabec6b88534a25378bfb13bf82c04e5398b -->
+<!-- catalog-sha256: 4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945 -->
 
 | skill_id | classification | wave | status | scope | owner_surface | routing_triggers | source | hot_context_policy |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `agents-orchestrator` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | multi-agent orchestration policy, handoffs, and governed progression | `CTX-OPS` | orchestrator; orchestration; multi-agent pipeline; dev qa loop; phase gate; handoff | `local_runtime` | `cold-by-default` |
-| `ai-agent-architect` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | agent delivery planning and execution boundaries | `CTX-OPS` | agent; orchestration; pipeline; plan; strategy | `local_runtime` | `cold-by-default` |
-| `ai-change-explainer` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | change explanation and PR narrative quality | `CTX-OPS` | change summary; pr narrative; diff explanation; impact report | `local_runtime` | `cold-by-default` |
-| `architecture-review` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | dual-surface architecture review with canonical-map-first boundary checks | `CTX-ARCHITECTURE` | architecture; boundaries; dependencies; module review | `local_runtime` | `cold-by-default` |
-| `business-analyst` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | requirements framing and acceptance decomposition | `CTX-OPS` | requirements; scope; acceptance; traceability; stakeholder | `local_runtime` | `cold-by-default` |
-| `code-implementation-worker` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | worker-stage code implementation and primary quality guardrails | `CTX-OPS` | write code; implement; worker; first-pass quality; code practices; performance | `local_runtime` | `cold-by-default` |
-| `code-reviewer` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | code review quality and actionable risk triage | `CTX-OPS` | code review; review pr; review feedback; security review; performance review | `local_runtime` | `cold-by-default` |
-| `composition-contracts` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | interface composition and contract ownership | `CTX-CONTRACTS` | composition; contract; ownership; resolver mapping | `local_runtime` | `cold-by-default` |
-| `docs-sync` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | docs-as-source-of-truth synchronization with architecture entry-map alignment | `CTX-OPS` | documentation; sync docs; docs as code; policy docs | `local_runtime` | `cold-by-default` |
-| `golden-tests-and-fixtures` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | golden fixtures and deterministic regression protection | `CTX-OPS` | golden tests; fixtures; regression protection; deterministic tests | `local_runtime` | `cold-by-default` |
-| `incident-runbook` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | incident handling and remediation flow | `CTX-OPS` | incident; runbook; postmortem; remediation | `local_runtime` | `cold-by-default` |
-| `layer-diagnostics-debug` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | cross-layer diagnostics and root-cause reporting | `CTX-ARCHITECTURE` | layer diagnostics; debug path; cross-layer; visibility check | `local_runtime` | `cold-by-default` |
-| `module-scaffold` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | module initialization with architecture placement and governance defaults | `CTX-ARCHITECTURE` | module scaffold; new module; bounded context; scaffold | `local_runtime` | `cold-by-default` |
-| `parallel-worktree-flow` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | parallel worktree operations and branch isolation | `CTX-OPS` | worktree; parallel streams; branch isolation; integration branch | `local_runtime` | `cold-by-default` |
-| `patch-series-splitter` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | patch decomposition and change sequencing | `CTX-OPS` | patch series; split diff; ordered patches; review sequence | `local_runtime` | `cold-by-default` |
-| `phase-acceptance-governor` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | hard phase acceptance policy and evidence-based unblock rules | `CTX-OPS` | phase acceptance; acceptance gate; acceptor; fallback; skip checks; verification before completion | `local_runtime` | `cold-by-default` |
-| `product-owner` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | value-based prioritization and roadmap sequencing | `CTX-OPS` | value; priorities; roadmap; mvp | `local_runtime` | `cold-by-default` |
-| `qa-test-engineer` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | quality planning and end-to-end verification | `CTX-OPS` | qa; test plan; regression; validation | `local_runtime` | `cold-by-default` |
-| `registry-first` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | registry-first governance for contract evolution | `CTX-CONTRACTS` | registry; schema; contract; catalog | `local_runtime` | `cold-by-default` |
-| `repeated-issue-review` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | repeat-failure analysis and prevention strategy | `CTX-OPS` | repeated issue; root cause; stability; full review; incident keeps returning | `local_runtime` | `cold-by-default` |
-| `risk-profile-gates` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | risk classification and gating rules | `CTX-CONTRACTS` | risk profile; risk gate; release gate; policy threshold | `local_runtime` | `cold-by-default` |
-| `skill-creator` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | skill authoring and lifecycle maintenance | `CTX-SKILLS` | create skill; update skill; skill design; skill authoring | `local_runtime` | `cold-by-default` |
-| `skill-installer` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | skill onboarding and local catalog installation | `CTX-SKILLS` | install skill; catalog install; skill onboarding; skill source | `local_runtime` | `cold-by-default` |
-| `source-onboarding` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | source onboarding with quality and provenance controls | `CTX-DATA` | source onboarding; ingestion; lineage; provenance | `local_runtime` | `cold-by-default` |
-| `testing-suite` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | test suite strategy and maintenance | `CTX-OPS` | tests; coverage; integration; contract tests; flaky tests; test anti-patterns | `local_runtime` | `cold-by-default` |
-| `verification-before-completion` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | completion verification and evidence quality control | `CTX-OPS` | verification before completion; done criteria; evidence gap; proof before closeout | `local_runtime` | `cold-by-default` |
-| `workflow-architect` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | intake workflow mapping, branch coverage, and handoff contract design | `CTX-OPS` | intake; workflow mapping; failure modes; handoff contract; pre-code flow; branch design | `local_runtime` | `cold-by-default` |
-| `archctl-policy-authoring` | `KEEP_CORE` | `WAVE_2` | `ACTIVE` | policy gate authoring and fitness rule design | `CTX-CONTRACTS` | policy gate; fitness rule; architecture policy; ci blocking | `local_runtime` | `cold-by-default` |
-| `ci-bootstrap` | `KEEP_CORE` | `WAVE_2` | `ACTIVE` | ci lane setup and gate wiring | `CTX-OPS` | ci; pipeline; merge gate; workflow; hosted runners; github actions; failing check | `local_runtime` | `cold-by-default` |
-| `codeowners-from-registry` | `KEEP_CORE` | `WAVE_2` | `ACTIVE` | ownership routing and review coverage | `CTX-CONTRACTS` | codeowners; ownership; review routing; owner mapping | `local_runtime` | `cold-by-default` |
-| `commit-and-pr-hygiene` | `KEEP_CORE` | `WAVE_2` | `ACTIVE` | commit hygiene and pull request structure | `CTX-OPS` | commit hygiene; pr hygiene; atomic changes; reviewability; pr checklist; split commits | `local_runtime` | `cold-by-default` |
-| `data-engineer` | `KEEP_CORE` | `WAVE_2` | `ACTIVE` | data pipeline design, reliability controls, and quality gating | `CTX-DATA` | data pipeline; etl; elt; spark; delta lake; duckdb; dbt; data quality | `local_runtime` | `cold-by-default` |
-| `dependency-and-license-audit` | `KEEP_CORE` | `WAVE_2` | `ACTIVE` | dependency risk and license governance | `CTX-OPS` | dependency audit; license audit; supply chain; vulnerability; dependency upgrade; security advisory | `local_runtime` | `cold-by-default` |
-| `github-actions-ops` | `KEEP_CORE` | `WAVE_2` | `ACTIVE` | github actions diagnostics and lane reliability | `CTX-OPS` | github actions; ci check failed; workflow yaml; actions debug | `local_runtime` | `cold-by-default` |
-| `secrets-and-config-hardening` | `KEEP_CORE` | `WAVE_2` | `ACTIVE` | secrets management and config safety controls | `CTX-CONTRACTS` | secrets; configuration; hardening; sensitive data | `local_runtime` | `cold-by-default` |
-| `validate-crosslayer` | `KEEP_CORE` | `WAVE_2` | `ACTIVE` | cross-layer consistency and boundary validation with implemented-reality checks | `CTX-ARCHITECTURE` | crosslayer; boundary validation; consistency checks; layer contract | `local_runtime` | `cold-by-default` |
 
 ## Generation
 - Generate: `python scripts/sync_skills_catalog.py`

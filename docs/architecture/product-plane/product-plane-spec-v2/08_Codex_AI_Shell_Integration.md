@@ -63,9 +63,9 @@ Root `AGENTS.md` остаётся shell-first.
 
 ## 5. Работа со skills
 
-Поскольку shell уже использует `.cursor/skills/*`, product skills нужно вводить через governance path:
+Поскольку ordinary-chat навыки живут в global Codex root, product-plane-specific skills нужно вводить через repo-local governance path:
 
-1. добавить skill directory;
+1. добавить child directory under `.codex/skills/` with a skill descriptor file;
 2. обновить `docs/agent/skills-catalog.md`;
 3. при необходимости обновить `docs/agent/skills-routing.md`;
 4. прогнать:

@@ -15,11 +15,11 @@ Read first:
 11. the changed-files snapshot
 12. `docs/codex/orchestration/acceptance-contract.md`
 13. `docs/checklists/phase-evidence-contract.md`
-14. `.cursor/skills/phase-acceptance-governor/SKILL.md`
-15. `.cursor/skills/architecture-review/SKILL.md`
-16. `.cursor/skills/testing-suite/SKILL.md`
-17. `.cursor/skills/docs-sync/SKILL.md`
-18. `.cursor/skills/verification-before-completion/SKILL.md`
+14. Global Codex skill `phase-acceptance-governor`
+15. Global Codex skill `architecture-review`
+16. Global Codex skill `testing-suite`
+17. Global Codex skill `docs-sync`
+18. Global Codex skill `verification-before-completion`
 19. the selected primary source document and supporting source documents named in the execution contract, when needed to judge phase-intent alignment
 
 Review rules:
@@ -77,12 +77,12 @@ Review rules:
   - verify `documentation_context.source_documents` is present and complete,
   - verify `documentation_context.materialized_documents` includes execution contract + module briefs context,
   - verify `documentation_context.preserved_goals` and `documentation_context.preserved_acceptance_criteria` prove no goal/DoD degradation.
-- Apply the hard-block policy from `.cursor/skills/phase-acceptance-governor/SKILL.md`.
+- Apply the hard-block policy from global Codex skill `phase-acceptance-governor`.
 - Apply the intent of:
-  - `.cursor/skills/phase-acceptance-governor/SKILL.md`
-  - `.cursor/skills/architecture-review/SKILL.md`
-  - `.cursor/skills/testing-suite/SKILL.md`
-  - `.cursor/skills/docs-sync/SKILL.md`
+  - global Codex skill `phase-acceptance-governor`
+  - global Codex skill `architecture-review`
+  - global Codex skill `testing-suite`
+  - global Codex skill `docs-sync`
 - Return `PASS` only if the phase objective, constraints, and done evidence are satisfied enough to unlock the next phase.
 - Return `BLOCKED` if the same phase must continue through remediation.
 - Return `BLOCKED` if the worker report contains any non-empty:

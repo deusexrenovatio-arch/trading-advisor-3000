@@ -14,13 +14,13 @@ Read first:
 10. the current phase brief
 11. `docs/codex/orchestration/acceptance-contract.md`
 12. `docs/checklists/phase-evidence-contract.md`
-13. `.cursor/skills/code-implementation-worker/SKILL.md`
-14. `.cursor/skills/registry-first/SKILL.md`
-15. `.cursor/skills/architecture-review/SKILL.md`
-16. `.cursor/skills/testing-suite/SKILL.md`
-17. `.cursor/skills/verification-before-completion/SKILL.md`
-18. `.cursor/skills/patch-series-splitter/SKILL.md`
-19. `.cursor/skills/commit-and-pr-hygiene/SKILL.md`
+13. Global Codex skill `code-implementation-worker`
+14. Global Codex skill `registry-first`
+15. Global Codex skill `architecture-review`
+16. Global Codex skill `testing-suite`
+17. Global Codex skill `verification-before-completion`
+18. Global Codex skill `patch-series-splitter`
+19. Global Codex skill `commit-and-pr-hygiene`
 
 Rules:
 

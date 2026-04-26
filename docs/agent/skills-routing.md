@@ -1,10 +1,19 @@
 # Skills Routing Policy
 
 ## Runtime Model
-- Primary runtime catalog: local skill descriptors under `.cursor/skills/*/`.
-- Mirror artifact: `docs/agent/skills-catalog.md` (generated only).
-- Hot-context policy: `.cursor/skills/**` stays cold-by-default.
-- Retrieval rule: open only targeted, specific skill files selected by routing triggers.
+- Ordinary-chat catalog: global Codex skills under `D:/CodexHome/skills`.
+- Repo-local catalog: local descriptors under `.codex/skills/*/`, only for TA3000-specific trading, product-plane data/research, or compute-runtime knowledge that should not affect other repositories.
+- Legacy Cursor catalog: `.cursor/skills/*/` is not an active skill location; tracked generic skills must not be added there.
+- Mirror artifact: `docs/agent/skills-catalog.md` is generated only from `.codex/skills/*/SKILL.md`.
+- Hot-context policy: repo-local skills stay cold-by-default.
+- Retrieval rule: use global skills first; open repo-local skill files only when a targeted, project-specific trigger requires them.
+
+## Ordinary Chat Guard
+1. Use `codex-skill-routing` for questions about skill selection, prompt routing, and missed-skill protection.
+2. Before substantial work, name the selected global skills briefly and why they apply.
+3. If a needed global skill is not present in current session metadata but exists under `D:/CodexHome/skills`, read its main instruction file directly and state the fallback.
+4. If a needed skill is generic, keep it in the global Codex skill root instead of adding it to this repo.
+5. If the task is genuinely TA3000-specific, open the repo-local skill narrowly and do not load the whole skill corpus.
 
 ## Generic-First Routing
 1. Start from generic process/architecture/testing/governance skills.
@@ -87,7 +96,7 @@
 
 | Class | Baseline runtime | Policy |
 | --- | --- | --- |
-| `KEEP_CORE` | allowed | baseline required |
+| `KEEP_CORE` | allowed | repo-local active skill |
 | `KEEP_OPTIONAL` | blocked | separate phase gate |
 | `DEFER_STACK` | blocked | stack activation gate |
 | `EXCLUDE_DOMAIN_INITIAL` | blocked | non-baseline by default |
@@ -95,10 +104,11 @@
 ## Lifecycle Rules
 
 ### Add Skill
-1. Create a new skill folder under `.cursor/skills/` with a metadata-complete descriptor file.
-2. Run `python scripts/sync_skills_catalog.py`.
-3. Update routing policy only if class policy or routing behavior changed.
-4. Run strict validators and skill tests.
+1. Create a new skill folder under `.codex/skills/` with a metadata-complete descriptor file.
+2. Confirm the skill is TA3000-specific and owned by a product-plane/data/research/compute surface; generic engineering skills belong under `D:/CodexHome/skills`.
+3. Run `python scripts/sync_skills_catalog.py`.
+4. Update routing policy only if class policy or routing behavior changed.
+5. Run strict validators and skill tests.
 
 ### Change Skill
 1. Edit skill metadata/body.

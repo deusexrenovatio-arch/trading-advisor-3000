@@ -12,7 +12,7 @@
 - task lifecycle через `scripts/task_session.py`
 - loop / PR / nightly gates
 - durable plans and memory
-- local `.cursor/skills/*`
+- repo-local `.codex/skills/*` for TA3000-specific product-plane skills
 - `src/trading_advisor_3000/*` как application plane внутри общего репозитория
 
 ## 2. Что добавляет PR #1 как целевое shell-hardening состояние

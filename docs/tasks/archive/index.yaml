@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-04-24'
+updated_at: '2026-04-26'
 items:
 - id: TASK-2026-03-16-SHELL-BOOTSTRAP
   path: docs/tasks/archive/TASK-2026-03-16-shell-bootstrap.md
@@ -181,3 +181,9 @@ items:
   status: completed
   started_at: '2026-04-24'
   completed_at: '2026-04-24'
+- id: TASK-2026-04-26-CLEAN-UP-LEGACY-CURSOR-SKILL-CATALOG-AND-ROUTE-R
+  path: docs/tasks/archive/TASK-2026-04-26-clean-up-legacy-cursor-skill-catalog-and-route-r.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-26'
+  completed_at: '2026-04-26'

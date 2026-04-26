@@ -41,8 +41,8 @@ It excludes trading-domain entities by design.
 - Key fields: gate name, surface, commands, pass/fail.
 
 ### SkillAsset
-- Runtime local skill descriptor under `.cursor/skills`.
-- Key fields: name, description, governance status, catalog synchronization state.
+- Runtime repo-local skill descriptor under `.codex/skills`.
+- Key fields: name, description, governance status, product-plane owner surface, catalog synchronization state.
 
 ### ArchitectureArtifact
 - Architecture source documents and generated map outputs.
@@ -51,4 +51,3 @@ It excludes trading-domain entities by design.
 ### GovernanceReport
 - Aggregated process telemetry and dashboard outputs.
 - Key fields: baseline metrics, KPI rollup, improvement actions.
-

@@ -11,8 +11,9 @@ from typing import Any
 import yaml
 
 
-SKILLS_ROOT = Path(".cursor/skills")
+SKILLS_ROOT = Path(".codex/skills")
 CATALOG_FILE = Path("docs/agent/skills-catalog.md")
+LOCAL_SKILL_SOURCE = "repo_local"
 REQUIRED_FRONTMATTER_FIELDS = (
     "name",
     "description",
@@ -124,7 +125,7 @@ def build_catalog_text(*, records: list[SkillRecord]) -> str:
             "scope": item.scope,
             "owner_surface": item.owner_surface,
             "routing_triggers": list(item.routing_triggers),
-            "source": "local_runtime",
+            "source": LOCAL_SKILL_SOURCE,
             "hot_context_policy": "cold-by-default",
         }
         for item in records
@@ -137,7 +138,7 @@ def build_catalog_text(*, records: list[SkillRecord]) -> str:
         "# Skills Catalog",
         "",
         CATALOG_MARKER,
-        "<!-- source-of-truth: .cursor/skills/*/SKILL.md -->",
+        f"<!-- source-of-truth: {SKILLS_ROOT.as_posix()}/*/SKILL.md -->",
         "<!-- generated-contract: do not edit manually; run python scripts/sync_skills_catalog.py -->",
         f"<!-- catalog-sha256: {digest} -->",
         "",
@@ -157,7 +158,7 @@ def build_catalog_text(*, records: list[SkillRecord]) -> str:
                     _markdown_escape(item.scope),
                     f"`{_markdown_escape(item.owner_surface)}`",
                     _markdown_escape(trigger_text),
-                    "`local_runtime`",
+                    f"`{LOCAL_SKILL_SOURCE}`",
                     "`cold-by-default`",
                 ]
             )
@@ -192,12 +193,12 @@ def run(*, skills_root: Path, catalog_file: Path, check_only: bool) -> int:
             print("skills catalog drift detected: generated output differs from tracked catalog")
             print("remediation: run `python scripts/sync_skills_catalog.py` and commit updated catalog")
             return 1
-        print(f"skills catalog sync: OK ({len(records)} skills)")
+        print(f"skills catalog sync: OK ({len(records)} repo-local skills)")
         return 0
 
     catalog_file.parent.mkdir(parents=True, exist_ok=True)
     catalog_file.write_text(rendered, encoding="utf-8")
-    print(f"skills catalog written: {catalog_file.as_posix()} ({len(records)} skills)")
+    print(f"skills catalog written: {catalog_file.as_posix()} ({len(records)} repo-local skills)")
     return 0
 
 

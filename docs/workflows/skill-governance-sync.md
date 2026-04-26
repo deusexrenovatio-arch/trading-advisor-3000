@@ -1,19 +1,20 @@
 # Skill Governance Sync Workflow
 
 ## Purpose
-Keep local runtime skills, generated catalog, routing policy, and governance validators in deterministic sync.
+Keep repo-local skills, generated catalog, routing policy, and governance validators in deterministic sync.
 
 ## Source of Truth
-1. Runtime catalog: local skill descriptors under `.cursor/skills/*/`.
+1. Repo-local catalog: TA3000-specific descriptors under `.codex/skills/*/`.
 2. Generated mirror: `docs/agent/skills-catalog.md`.
 3. Routing policy: `docs/agent/skills-routing.md`.
 4. Process workflow: `docs/workflows/skill-governance-sync.md`.
 
 Generated catalog must not be edited manually.
+Generic engineering skills are sourced from `D:/CodexHome/skills`, not from this repository.
 
 ## Cold-Context Rule
-- `.cursorignore` must keep `.cursor/skills/**`.
-- Load only targeted skill files selected by routing triggers.
+- `.cursorignore` must keep `.codex/skills/**` and legacy `.cursor/skills/**`.
+- Load repo-local skill files only for targeted TA3000/product-plane triggers.
 
 ## Required Commands
 - `python scripts/sync_skills_catalog.py`
@@ -23,9 +24,8 @@ Generated catalog must not be edited manually.
 - `python scripts/skill_precommit_gate.py --from-git --git-ref HEAD`
 
 ## Add Flow
-1. Create a new skill folder with a metadata-complete descriptor file.
-2. Ensure class policy allows runtime inclusion (`KEEP_CORE` for baseline).
-3. If baseline runtime set changed, update `scripts/validate_skills.py` (`KEEP_CORE_BASELINE`) in the same patch.
+1. Create a new child directory under `.codex/skills/` with a skill descriptor file.
+2. Confirm the skill is TA3000-specific and product-plane/data/research/compute scoped.
 3. Regenerate catalog.
 4. Update routing policy only if routing/class rules changed.
 5. Run strict validators and skill tests.
@@ -34,7 +34,7 @@ Generated catalog must not be edited manually.
 1. Edit existing skill metadata/content.
 2. If overlap is high, extend an existing skill before introducing a new runtime skill.
 3. Add a new runtime skill only when capability is materially missing and cannot stay maintainable as a subsection of an existing skill.
-4. For any new runtime skill, wire activation behavior into routing and, when relevant, orchestration/pipeline enforcement.
+4. For any new repo-local skill, wire activation behavior into routing only when a TA3000-specific trigger is required.
 5. Regenerate catalog.
 6. If routing metadata changed, update routing policy.
 7. If process contract changed, update this workflow doc.
@@ -42,7 +42,7 @@ Generated catalog must not be edited manually.
 9. Run strict decision + precommit gate.
 
 ## Remove/Rename Flow
-1. Apply remove or rename in `.cursor/skills`.
+1. Apply remove or rename in `.codex/skills`.
 2. Regenerate catalog immediately.
 3. Update routing policy if references or trigger policy changed.
 4. Update roadmap when class placement changed.
@@ -59,7 +59,7 @@ Generated catalog must not be edited manually.
 
 ## Remediation Path
 1. If catalog drift: run sync script and commit generated file.
-2. If runtime/catalog mismatch: fix skill metadata or catalog generation inputs.
+2. If repo-local/catalog mismatch: fix skill metadata or catalog generation inputs.
 3. If routing metadata drift: update `docs/agent/skills-routing.md`.
 4. If process contract drift: update this workflow doc.
 5. Re-run strict validators before gate rerun.

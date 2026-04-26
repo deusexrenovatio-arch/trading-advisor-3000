@@ -328,9 +328,10 @@ CONTEXTS: tuple[ContextSpec, ...] = (
     ),
     ContextSpec(
         context_id="CTX-SKILLS",
-        summary="Local runtime skills catalog and governance policy.",
+        summary="Repo-local product-plane skills catalog and governance policy.",
         owned_paths=(
             "docs/agent-contexts/CTX-SKILLS.md",
+            ".codex/skills/",
             ".cursor/skills/",
             "docs/agent/skills-catalog.md",
             "docs/agent/skills-routing.md",

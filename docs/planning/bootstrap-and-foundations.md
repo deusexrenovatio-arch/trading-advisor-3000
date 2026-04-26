@@ -54,7 +54,7 @@
 | `docs/agent/checks.md` | `ADAPT_CORE`; loop/pr/nightly checks matrix | `docs/agent/checks.md` |
 | `docs/agent/runtime.md` | `ADAPT_CORE`; Python entrypoints only | `docs/agent/runtime.md` |
 | `docs/agent/skills-routing.md` | `ADAPT_CORE`; generic-skill-first routing | `docs/agent/skills-routing.md` |
-| `docs/agent/skills-catalog.md` | `ADAPT_TEMPLATE`; seed catalog for Wave 1 generic skills | `docs/agent/skills-catalog.md` |
+| `docs/agent/skills-catalog.md` | `ADAPT_TEMPLATE`; generated repo-local skill catalog | `docs/agent/skills-catalog.md` |
 
 ## 3) Implementation backlog (Phase 0/1)
 

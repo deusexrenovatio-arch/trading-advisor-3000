@@ -18,7 +18,7 @@ def test_skill_precommit_gate_fails_when_catalog_not_updated() -> None:
             sys.executable,
             "scripts/skill_precommit_gate.py",
             "--changed-files",
-            ".cursor/skills/docs-sync/SKILL.md",
+            ".codex/skills/product-data-quality/SKILL.md",
         ]
     )
     assert result.returncode != 0
@@ -33,7 +33,7 @@ def test_skill_precommit_gate_passes_when_required_docs_present() -> None:
             sys.executable,
             "scripts/skill_precommit_gate.py",
             "--changed-files",
-            ".cursor/skills/docs-sync/SKILL.md",
+            ".codex/skills/product-data-quality/SKILL.md",
             "docs/agent/skills-catalog.md",
             "docs/agent/skills-routing.md",
         ]
