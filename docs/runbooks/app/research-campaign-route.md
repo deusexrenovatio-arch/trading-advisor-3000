@@ -26,22 +26,33 @@ Run output contract:
 Recommended committed configs should point to external-first storage under `D:/TA3000-data`.
 
 Storage split:
-- reusable materialized layer: `<materialized_root>/<materialization_key>/`
+- reusable gold layer: `<materialized_root>/`
 - immutable per-run artifacts: `<runs_root>/<campaign_name>/<run_id>/`
 
 The same compatible campaign can reuse a materialized layer.
+`materialization_key` is stored in `materialization.lock.json` and run metadata; it is not a physical folder segment.
 Each execution still gets a fresh `run_id` and a fresh immutable run folder.
 
 ## Stage Selection
 
 The route is selected strictly by `target_stage` in the campaign config:
-- `data_prep` -> materialize reusable research data prep only: dataset, bar view, indicator, and feature layers
+- `data_prep` -> materialize reusable research data prep only: dataset, instrument tree, bar view, base indicator, derived indicator, and curated feature layers
 - `backtest` -> reuse or rebuild research data prep, refresh the strategy registry needed by the campaign, then run backtests and rankings
 - `projection` -> run the full route through candidate projection
 
 The scheduled freshness contour is `research_data_prep_job`.
 It is triggered after `moex_baseline_update_job` succeeds so materialized research data stays current with the canonical MOEX baseline.
 Strategy refresh is separate because strategy inventory changes are not the same decision as data freshness.
+
+Accepted baseline defaults should resolve to:
+- canonical root: `D:/TA3000-data/trading-advisor-3000-nightly/canonical/moex/baseline-4y-current`
+- materialized root: `D:/TA3000-data/trading-advisor-3000-nightly/research/gold/current`
+- registry root: `D:/TA3000-data/trading-advisor-3000-nightly/research/registry/current`
+- runs root: `D:/TA3000-data/trading-advisor-3000-nightly/research/runs`
+
+The canonical root must include `canonical_bars.delta`, `canonical_bar_provenance.delta`,
+`canonical_session_calendar.delta`, and `canonical_roll_map.delta`.
+The MOEX canonical job owns all four tables; research data prep consumes them and then builds the reusable research layer.
 
 ## Run Artifacts
 
