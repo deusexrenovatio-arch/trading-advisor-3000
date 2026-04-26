@@ -25,7 +25,10 @@ from trading_advisor_3000.product_plane.research.datasets import (
     load_materialized_research_dataset,
     materialize_research_dataset,
 )
-from trading_advisor_3000.product_plane.research.features import materialize_feature_frames, reload_feature_frames
+from trading_advisor_3000.product_plane.research.derived_indicators import (
+    materialize_derived_indicator_frames,
+    reload_derived_indicator_frames,
+)
 from trading_advisor_3000.product_plane.research.indicators import materialize_indicator_frames, reload_indicator_frames
 from trading_advisor_3000.product_plane.research.registry_store import research_registry_root
 from trading_advisor_3000.product_plane.research.strategies.compiler_bridge import REQUIRED_STG02_ADAPTER_KEYS
@@ -132,7 +135,7 @@ def _write_rich_stage7_canonical_context(output_dir: Path) -> None:
     )
 
 
-def test_research_data_prep_materializes_dataset_indicator_and_feature_layers_only(tmp_path: Path) -> None:
+def test_research_data_prep_materializes_dataset_indicator_and_derived_layers_only(tmp_path: Path) -> None:
     canonical_dir = tmp_path / "canonical"
     run_sample_backfill(
         source_path=RAW_FIXTURE,
@@ -160,18 +163,20 @@ def test_research_data_prep_materializes_dataset_indicator_and_feature_layers_on
         dataset_version="dagster-dataset-v1",
         indicator_set_version="indicators-v1",
     )
-    loaded_features = reload_feature_frames(
-        feature_output_dir=dagster_dir,
+    loaded_derived = reload_derived_indicator_frames(
+        derived_indicator_output_dir=dagster_dir,
         dataset_version="dagster-dataset-v1",
         indicator_set_version="indicators-v1",
-        feature_set_version="features-v1",
+        derived_indicator_set_version="derived-v1",
     )
     assert loaded_dataset["dataset_manifest"]["dataset_version"] == "dagster-dataset-v1"
+    assert len(loaded_dataset["instrument_tree"]) == 2
+    assert {row["internal_id"] for row in loaded_dataset["instrument_tree"]} == {"FUT_BR", "FUT_SI"}
     assert len(loaded_dataset["bar_views"]) == 2
     assert len(loaded_indicators) == 2
-    assert len(loaded_features) == 2
+    assert len(loaded_derived) == 2
     assert all(row.profile_version == "core_v1" for row in loaded_indicators)
-    assert all(row.profile_version == "core_v1" for row in loaded_features)
+    assert all(row.profile_version == "core_v1" for row in loaded_derived)
 
 
 def test_strategy_registry_refresh_is_separate_from_research_data_prep(tmp_path: Path) -> None:
@@ -234,6 +239,34 @@ def test_research_definitions_expose_product_jobs_and_moex_success_sensor(tmp_pa
     assert op_config["timeframes"] == ["15m"]
 
 
+def test_research_data_prep_defaults_follow_moex_historical_data_root(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("TA3000_MOEX_HISTORICAL_DATA_ROOT", tmp_path.as_posix())
+    monkeypatch.delenv("TA3000_RESEARCH_DATA_PREP_CANONICAL_OUTPUT_DIR", raising=False)
+    monkeypatch.delenv("TA3000_RESEARCH_DATA_PREP_MATERIALIZED_OUTPUT_DIR", raising=False)
+    monkeypatch.delenv("TA3000_RESEARCH_DATA_PREP_RESULTS_OUTPUT_DIR", raising=False)
+
+    run_config = build_research_data_prep_run_config(
+        dataset_version="defaults-data-v1",
+    )
+    op_config = run_config["ops"]["research_datasets"]["config"]
+
+    assert Path(str(op_config["canonical_output_dir"])) == (
+        tmp_path / "canonical" / "moex" / "baseline-4y-current"
+    ).resolve()
+    assert Path(str(op_config["materialized_output_dir"])) == (
+        tmp_path / "research" / "gold" / "current"
+    ).resolve()
+    assert Path(str(op_config["results_output_dir"])) == (
+        tmp_path / "research" / "runs" / "data-prep"
+    ).resolve()
+    assert op_config["timeframes"] == ["15m", "1h", "4h", "1d"]
+    assert op_config["warmup_bars"] == 300
+    assert op_config["derived_indicator_set_version"] == "derived-v1"
+
+
 def test_research_data_prep_matches_direct_materialization(tmp_path: Path) -> None:
     canonical_dir = tmp_path / "canonical-direct"
     run_sample_backfill(
@@ -269,13 +302,13 @@ def test_research_data_prep_matches_direct_materialization(tmp_path: Path) -> No
         indicator_set_version="indicators-v1",
         profile_version="core_v1",
     )
-    materialize_feature_frames(
+    materialize_derived_indicator_frames(
         dataset_output_dir=direct_dir,
         indicator_output_dir=direct_dir,
-        feature_output_dir=direct_dir,
+        derived_indicator_output_dir=direct_dir,
         dataset_version="same-dataset-v1",
         indicator_set_version="indicators-v1",
-        feature_set_version="features-v1",
+        derived_indicator_set_version="derived-v1",
         profile_version="core_v1",
     )
 
@@ -293,22 +326,22 @@ def test_research_data_prep_matches_direct_materialization(tmp_path: Path) -> No
     dagster_dataset = load_materialized_research_dataset(output_dir=dagster_dir, dataset_version="same-dataset-v1")
     direct_indicator_rows = [row.to_dict() for row in reload_indicator_frames(indicator_output_dir=direct_dir, dataset_version="same-dataset-v1", indicator_set_version="indicators-v1")]
     dagster_indicator_rows = [row.to_dict() for row in reload_indicator_frames(indicator_output_dir=dagster_dir, dataset_version="same-dataset-v1", indicator_set_version="indicators-v1")]
-    direct_feature_rows = [
+    direct_derived_rows = [
         row.to_dict()
-        for row in reload_feature_frames(
-            feature_output_dir=direct_dir,
+        for row in reload_derived_indicator_frames(
+            derived_indicator_output_dir=direct_dir,
             dataset_version="same-dataset-v1",
             indicator_set_version="indicators-v1",
-            feature_set_version="features-v1",
+            derived_indicator_set_version="derived-v1",
         )
     ]
-    dagster_feature_rows = [
+    dagster_derived_rows = [
         row.to_dict()
-        for row in reload_feature_frames(
-            feature_output_dir=dagster_dir,
+        for row in reload_derived_indicator_frames(
+            derived_indicator_output_dir=dagster_dir,
             dataset_version="same-dataset-v1",
             indicator_set_version="indicators-v1",
-            feature_set_version="features-v1",
+            derived_indicator_set_version="derived-v1",
         )
     ]
 
@@ -317,9 +350,9 @@ def test_research_data_prep_matches_direct_materialization(tmp_path: Path) -> No
     assert len(direct_indicator_rows) == len(dagster_indicator_rows)
     assert [row["ts"] for row in direct_indicator_rows] == [row["ts"] for row in dagster_indicator_rows]
     assert [row["profile_version"] for row in direct_indicator_rows] == [row["profile_version"] for row in dagster_indicator_rows]
-    assert len(direct_feature_rows) == len(dagster_feature_rows)
-    assert [row["ts"] for row in direct_feature_rows] == [row["ts"] for row in dagster_feature_rows]
-    assert [row["profile_version"] for row in direct_feature_rows] == [row["profile_version"] for row in dagster_feature_rows]
+    assert len(direct_derived_rows) == len(dagster_derived_rows)
+    assert [row["ts"] for row in direct_derived_rows] == [row["ts"] for row in dagster_derived_rows]
+    assert [row["profile_version"] for row in direct_derived_rows] == [row["profile_version"] for row in dagster_derived_rows]
 
 
 def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_path: Path) -> None:

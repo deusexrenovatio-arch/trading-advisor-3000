@@ -35,9 +35,10 @@ def test_research_run_summary_schema_and_fixture_match() -> None:
 
 def test_research_campaign_example_yaml_matches_schema() -> None:
     schema = load_schema(SCHEMAS / "research_campaign.v1.json")
-    payload = yaml.safe_load((CAMPAIGNS / "fut_br_base_15m.explore.yaml").read_text(encoding="utf-8"))
-    assert isinstance(payload, dict)
-    validate_schema(schema, payload)
+    for path in sorted(CAMPAIGNS.glob("*.yaml")):
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+        assert isinstance(payload, dict), path
+        validate_schema(schema, payload)
 
 
 def test_research_contract_schema_snapshots_exist() -> None:

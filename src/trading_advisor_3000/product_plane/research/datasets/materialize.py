@@ -46,6 +46,29 @@ def research_dataset_store_contract() -> dict[str, dict[str, object]]:
                 "notes_json": "json",
             },
         },
+        "research_instrument_tree": {
+            "format": "delta",
+            "partition_by": ["dataset_version", "asset_group"],
+            "constraints": ["unique(dataset_version, instrument_id)"],
+            "columns": {
+                "dataset_version": "string",
+                "universe_id": "string",
+                "asset_class": "string",
+                "asset_group": "string",
+                "internal_id": "string",
+                "instrument_id": "string",
+                "source_instrument_id": "string",
+                "contract_ids_json": "json",
+                "active_contract_ids_json": "json",
+                "timeframes_json": "json",
+                "row_count": "bigint",
+                "first_ts": "timestamp",
+                "last_ts": "timestamp",
+                "source_bars_hash": "string",
+                "lineage_key": "string",
+                "created_at": "timestamp",
+            },
+        },
         "research_bar_views": {
             "format": "delta",
             "partition_by": ["dataset_version", "instrument_id", "timeframe"],
@@ -100,6 +123,110 @@ def _stable_hash_rows(rows: list[CanonicalBar]) -> str:
     ]
     normalized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16].upper()
+
+
+def _stable_hash_views(rows: list[ResearchBarView]) -> str:
+    payload = [
+        {
+            "contract_id": row.contract_id,
+            "instrument_id": row.instrument_id,
+            "timeframe": row.timeframe,
+            "ts": row.ts,
+            "open": row.open,
+            "high": row.high,
+            "low": row.low,
+            "close": row.close,
+            "volume": row.volume,
+            "open_interest": row.open_interest,
+            "active_contract_id": row.active_contract_id,
+        }
+        for row in rows
+    ]
+    normalized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16].upper()
+
+
+def _timeframe_sort_key(value: str) -> tuple[int, str]:
+    order = {
+        "1m": 1,
+        "5m": 5,
+        "10m": 10,
+        "15m": 15,
+        "30m": 30,
+        "1h": 60,
+        "4h": 240,
+        "1d": 1440,
+        "1w": 10080,
+    }
+    return order.get(value, 1_000_000), value
+
+
+def _instrument_metadata(instrument_id: str) -> dict[str, str]:
+    normalized = instrument_id.strip().upper()
+    bare = normalized[4:] if normalized.startswith("FUT_") else normalized
+    commodity = {"BR", "NG", "GOLD", "SILV", "PLD", "PLT", "WHEAT"}
+    index = {"RTS", "MIX", "MXI", "NASD", "SPYF", "RGBI"}
+    if bare in commodity:
+        asset_group = "commodity"
+    elif bare in index:
+        asset_group = "index"
+    else:
+        asset_group = "unknown"
+    return {
+        "asset_class": "futures",
+        "asset_group": asset_group,
+        "internal_id": normalized if normalized.startswith("FUT_") else f"FUT_{bare}",
+    }
+
+
+def build_research_instrument_tree(
+    *,
+    manifest: ResearchDatasetManifest,
+    selected_views: list[ResearchBarView],
+) -> list[dict[str, object]]:
+    created_at = _utc_now_iso()
+    grouped: dict[str, list[ResearchBarView]] = {}
+    for row in selected_views:
+        grouped.setdefault(row.instrument_id, []).append(row)
+
+    rows: list[dict[str, object]] = []
+    for instrument_id, instrument_rows in sorted(grouped.items()):
+        ordered = sorted(instrument_rows, key=lambda item: (item.timeframe, item.ts, item.contract_id))
+        metadata = _instrument_metadata(instrument_id)
+        contract_ids = sorted({row.contract_id for row in ordered})
+        active_contract_ids = sorted({row.active_contract_id for row in ordered if row.active_contract_id})
+        timeframes = sorted({row.timeframe for row in ordered}, key=_timeframe_sort_key)
+        lineage_key = hashlib.sha256(
+            "|".join(
+                [
+                    manifest.lineage_key(),
+                    str(metadata["internal_id"]),
+                    *contract_ids,
+                    *timeframes,
+                ]
+            ).encode("utf-8")
+        ).hexdigest()[:16].upper()
+        rows.append(
+            {
+                "dataset_version": manifest.dataset_version,
+                "universe_id": manifest.universe_id,
+                "asset_class": metadata["asset_class"],
+                "asset_group": metadata["asset_group"],
+                "internal_id": metadata["internal_id"],
+                "instrument_id": instrument_id,
+                "source_instrument_id": instrument_id,
+                "contract_ids_json": contract_ids,
+                "active_contract_ids_json": active_contract_ids,
+                "timeframes_json": timeframes,
+                "row_count": len(ordered),
+                "first_ts": min(row.ts for row in ordered),
+                "last_ts": max(row.ts for row in ordered),
+                "source_bars_hash": _stable_hash_views(ordered),
+                "lineage_key": lineage_key,
+                "created_at": created_at,
+            }
+        )
+    return rows
 
 
 def _build_split_payload(
@@ -218,6 +345,7 @@ def materialize_research_dataset(
     contract = research_dataset_store_contract()
     output_dir.mkdir(parents=True, exist_ok=True)
     datasets_path = output_dir / "research_datasets.delta"
+    instrument_tree_path = output_dir / "research_instrument_tree.delta"
     bar_views_path = output_dir / "research_bar_views.delta"
 
     selected_views = build_research_bar_views(
@@ -233,13 +361,26 @@ def materialize_research_dataset(
         selected_views=selected_views,
         split_config=split_config,
     )
+    instrument_tree_rows = build_research_instrument_tree(
+        manifest=manifest,
+        selected_views=selected_views,
+    )
 
     existing_manifests = read_delta_table_rows(datasets_path) if (datasets_path / "_delta_log").exists() else []
+    existing_instruments = read_delta_table_rows(instrument_tree_path) if (instrument_tree_path / "_delta_log").exists() else []
     existing_views = read_delta_table_rows(bar_views_path) if (bar_views_path / "_delta_log").exists() else []
     write_delta_table_rows(
         table_path=datasets_path,
         rows=[*[row for row in existing_manifests if row.get("dataset_version") != manifest.dataset_version], manifest.to_dict()],
         columns=contract["research_datasets"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=instrument_tree_path,
+        rows=[
+            *[row for row in existing_instruments if row.get("dataset_version") != manifest.dataset_version],
+            *instrument_tree_rows,
+        ],
+        columns=contract["research_instrument_tree"]["columns"],
     )
     write_delta_table_rows(
         table_path=bar_views_path,
@@ -251,9 +392,11 @@ def materialize_research_dataset(
     )
     return {
         "dataset_manifest": manifest.to_dict(),
+        "instrument_tree_count": len(instrument_tree_rows),
         "bar_view_count": len(selected_views),
         "output_paths": {
             "research_datasets": datasets_path.as_posix(),
+            "research_instrument_tree": instrument_tree_path.as_posix(),
             "research_bar_views": bar_views_path.as_posix(),
         },
         "delta_manifest": contract,
@@ -262,14 +405,21 @@ def materialize_research_dataset(
 
 def load_materialized_research_dataset(*, output_dir: Path, dataset_version: str) -> dict[str, object]:
     datasets_path = output_dir / "research_datasets.delta"
+    instrument_tree_path = output_dir / "research_instrument_tree.delta"
     bar_views_path = output_dir / "research_bar_views.delta"
     manifests = read_delta_table_rows(datasets_path)
+    instrument_rows = read_delta_table_rows(instrument_tree_path) if (instrument_tree_path / "_delta_log").exists() else []
     bar_view_rows = read_delta_table_rows(bar_views_path)
     manifest_rows = [row for row in manifests if row.get("dataset_version") == dataset_version]
     if not manifest_rows:
         raise KeyError(f"dataset_version not found: {dataset_version}")
     return {
         "dataset_manifest": manifest_rows[0],
+        "instrument_tree": [
+            row
+            for row in instrument_rows
+            if row.get("dataset_version") == dataset_version
+        ],
         "bar_views": [
             ResearchBarView.from_dict(row)
             for row in bar_view_rows

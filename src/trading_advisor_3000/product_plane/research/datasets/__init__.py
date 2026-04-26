@@ -3,6 +3,7 @@ from __future__ import annotations
 from .continuous import ContinuousFrontPolicy
 from .manifest import ResearchDatasetManifest
 from .materialize import (
+    build_research_instrument_tree,
     build_research_dataset_manifest,
     load_materialized_research_dataset,
     materialize_research_dataset,
@@ -23,6 +24,7 @@ __all__ = [
     "ResamplePlan",
     "WalkForwardSplitConfig",
     "build_holdout_window",
+    "build_research_instrument_tree",
     "build_research_bar_views",
     "build_research_dataset_manifest",
     "build_walk_forward_windows",
