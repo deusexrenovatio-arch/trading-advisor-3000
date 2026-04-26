@@ -202,12 +202,12 @@ CONTEXTS: tuple[ContextSpec, ...] = (
     ),
     ContextSpec(
         context_id="CTX-RESEARCH",
-        summary="Research and analysis surfaces for feature and experimental workflows.",
+        summary="Research and analysis surfaces for indicator-driven experimental workflows.",
         owned_paths=(
             "docs/agent-contexts/CTX-RESEARCH.md",
             "src/trading_advisor_3000/product_plane/research/",
             "src/trading_advisor_3000/spark_jobs/",
-            "src/trading_advisor_3000/dagster_defs/research_governed_assets.py",
+            "src/trading_advisor_3000/dagster_defs/research_assets.py",
             "tests/product-plane/integration/test_research_plane.py",
             "tests/product-plane/unit/test_research_",
             "tests/product-plane/fixtures/research/",
@@ -221,7 +221,7 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "python scripts/run_loop_gate.py --from-git --git-ref HEAD",
             "python -m pytest tests/product-plane/integration/test_research_plane.py -q",
         ),
-        intent_keywords=("research", "analysis", "features", "experiment", "backtest", "forward"),
+        intent_keywords=("research", "analysis", "indicators", "experiment", "backtest", "forward"),
     ),
     ContextSpec(
         context_id="CTX-ORCHESTRATION",
