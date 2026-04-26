@@ -104,7 +104,7 @@ Use this runbook when a governance gate fails.
 - Keep architecture map in mermaid format and ADR baseline present.
 
 ## `python scripts/skill_precommit_gate.py`
-- Use when changing `.cursor/skills/*`.
+- Use when changing `.codex/skills/*` or removing legacy `.cursor/skills/*`.
 - Update skill catalog/routing docs if gate reports `update_required`.
 
 ## Hosted CI not starting (billing/spending disabled)

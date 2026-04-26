@@ -34,13 +34,13 @@ The operator wants automatic progression only after an independent acceptance pa
 - Bounded worker evidence contract: `docs/checklists/phase-evidence-contract.md`
 - Route/snapshot/profile vocabulary (H0 declaration): `docs/codex/orchestration/route-snapshot-profile-contract.md`
 - CI/proof runtime contract (H2): `docs/codex/orchestration/proof-runtime-contract.md`
-- Hard review lens skill: `.cursor/skills/phase-acceptance-governor/SKILL.md`
+- Hard review lens skill: global Codex skill `phase-acceptance-governor`
 - Companion skills:
-  - `.cursor/skills/architecture-review/SKILL.md`
-  - `.cursor/skills/code-reviewer/SKILL.md`
-  - `.cursor/skills/testing-suite/SKILL.md`
-  - `.cursor/skills/docs-sync/SKILL.md`
-  - `.cursor/skills/verification-before-completion/SKILL.md`
+  - global Codex skill `architecture-review`
+  - global Codex skill `code-reviewer`
+  - global Codex skill `testing-suite`
+  - global Codex skill `docs-sync`
+  - global Codex skill `verification-before-completion`
 
 Acceptance is fail-closed.
 `PASS` is not allowed when unresolved quality debt is only being "recorded".

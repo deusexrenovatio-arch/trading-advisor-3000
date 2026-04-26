@@ -13,7 +13,7 @@ def _run(command: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
 
 
 def _write_skill(root: Path, skill_id: str) -> None:
-    skill_dir = root / ".cursor" / "skills" / skill_id
+    skill_dir = root / ".codex" / "skills" / skill_id
     skill_dir.mkdir(parents=True, exist_ok=True)
     (skill_dir / "SKILL.md").write_text(
         f"""---
@@ -22,7 +22,7 @@ description: Synthetic skill {skill_id}
 classification: KEEP_CORE
 wave: WAVE_1
 status: ACTIVE
-owner_surface: CTX-SKILLS
+owner_surface: CTX-DATA
 scope: synthetic scope
 routing_triggers:
   - "{skill_id}"
@@ -42,7 +42,7 @@ def test_sync_skills_catalog_generate_and_check(tmp_path: Path) -> None:
             sys.executable,
             str(ROOT / "scripts" / "sync_skills_catalog.py"),
             "--skills-root",
-            str(tmp_path / ".cursor" / "skills"),
+            str(tmp_path / ".codex" / "skills"),
             "--catalog-file",
             str(catalog),
         ],
@@ -58,7 +58,7 @@ def test_sync_skills_catalog_generate_and_check(tmp_path: Path) -> None:
             sys.executable,
             str(ROOT / "scripts" / "sync_skills_catalog.py"),
             "--skills-root",
-            str(tmp_path / ".cursor" / "skills"),
+            str(tmp_path / ".codex" / "skills"),
             "--catalog-file",
             str(catalog),
             "--check",
@@ -86,11 +86,11 @@ def test_sync_skills_catalog_detects_drift_after_remove_and_rename(tmp_path: Pat
     )
 
     # remove beta and rename alpha -> gamma without regenerating catalog
-    (tmp_path / ".cursor" / "skills" / "beta" / "SKILL.md").unlink()
-    (tmp_path / ".cursor" / "skills" / "beta").rmdir()
+    (tmp_path / ".codex" / "skills" / "beta" / "SKILL.md").unlink()
+    (tmp_path / ".codex" / "skills" / "beta").rmdir()
 
-    old_dir = tmp_path / ".cursor" / "skills" / "alpha"
-    new_dir = tmp_path / ".cursor" / "skills" / "gamma"
+    old_dir = tmp_path / ".codex" / "skills" / "alpha"
+    new_dir = tmp_path / ".codex" / "skills" / "gamma"
     old_dir.rename(new_dir)
     (new_dir / "SKILL.md").write_text(
         (new_dir / "SKILL.md").read_text(encoding="utf-8").replace("name: alpha", "name: gamma"),
@@ -102,7 +102,7 @@ def test_sync_skills_catalog_detects_drift_after_remove_and_rename(tmp_path: Pat
             sys.executable,
             str(ROOT / "scripts" / "sync_skills_catalog.py"),
             "--skills-root",
-            str(tmp_path / ".cursor" / "skills"),
+            str(tmp_path / ".codex" / "skills"),
             "--catalog-file",
             str(catalog),
             "--check",

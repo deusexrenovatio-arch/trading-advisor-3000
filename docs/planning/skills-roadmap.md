@@ -1,16 +1,17 @@
 # Skills Roadmap
 
 ## Purpose
-Track deferred and optional skill classes outside runtime catalog.
+Track deferred and optional repo-local skill classes outside the active catalog.
 
-Runtime source of truth is local `.cursor/skills/*`.
-`docs/agent/skills-catalog.md` is generated mirror and must not contain deferred items.
+Repo-local source of truth is `.codex/skills/*`.
+`docs/agent/skills-catalog.md` is the generated mirror and must not contain deferred items.
+Generic engineering skills belong in `D:/CodexHome/skills`, not in this roadmap.
 
 ## Class Policy
 
-| Class | Runtime in baseline shell | Rollout gate |
+| Class | Repo-local runtime | Rollout gate |
 | --- | --- | --- |
-| `KEEP_CORE` | yes | baseline |
+| `KEEP_CORE` | allowed only for TA3000/product-plane scoped skills | baseline |
 | `KEEP_OPTIONAL` | no | explicit phase approval |
 | `DEFER_STACK` | no | stack adoption proof |
 | `EXCLUDE_DOMAIN_INITIAL` | no | explicit non-baseline decision |
@@ -33,4 +34,4 @@ Runtime source of truth is local `.cursor/skills/*`.
 1. Source tree shows real target surface.
 2. Routing policy updated for new trigger class.
 3. Validator and tests added for lifecycle control.
-4. Generated catalog synced from local runtime skills.
+4. Generated catalog synced from repo-local runtime skills.

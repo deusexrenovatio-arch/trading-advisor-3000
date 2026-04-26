@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import re
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -23,53 +21,19 @@ GOVERNANCE_DOC = Path("docs/workflows/skill-governance-sync.md")
 ROUTING_DOC = Path("docs/agent/skills-routing.md")
 ROADMAP_DOC = Path("docs/planning/skills-roadmap.md")
 COLD_CONTEXT_FILE = Path(".cursorignore")
-COLD_SKILLS_PATTERN = ".cursor/skills/**"
+COLD_SKILLS_PATTERNS = (".cursor/skills/**", ".codex/skills/**")
 ALLOWED_CLASSIFICATIONS = {"KEEP_CORE", "KEEP_OPTIONAL", "DEFER_STACK", "EXCLUDE_DOMAIN_INITIAL"}
 ALLOWED_WAVES = {"WAVE_1", "WAVE_2", "WAVE_3"}
 ALLOWED_STATUSES = {"ACTIVE", "PAUSED", "DEFERRED"}
-
-KEEP_CORE_BASELINE = {
-    "agents-orchestrator",
-    "ai-agent-architect",
-    "ai-change-explainer",
-    "archctl-policy-authoring",
-    "architecture-review",
-    "business-analyst",
-    "code-implementation-worker",
-    "ci-bootstrap",
-    "codeowners-from-registry",
-    "commit-and-pr-hygiene",
-    "composition-contracts",
-    "code-reviewer",
-    "data-engineer",
-    "dependency-and-license-audit",
-    "docs-sync",
-    "golden-tests-and-fixtures",
-    "github-actions-ops",
-    "incident-runbook",
-    "layer-diagnostics-debug",
-    "module-scaffold",
-    "parallel-worktree-flow",
-    "patch-series-splitter",
-    "phase-acceptance-governor",
-    "product-owner",
-    "qa-test-engineer",
-    "registry-first",
-    "repeated-issue-review",
-    "risk-profile-gates",
-    "secrets-and-config-hardening",
-    "skill-creator",
-    "skill-installer",
-    "source-onboarding",
-    "testing-suite",
-    "validate-crosslayer",
-    "verification-before-completion",
-    "workflow-architect",
+KEEP_CORE_BASELINE: set[str] = set()
+ALLOWED_REPO_LOCAL_OWNER_SURFACES = {
+    "CTX-DATA",
+    "CTX-RESEARCH",
+    "CTX-ORCHESTRATION",
+    "CTX-API-UI",
+    "CTX-DOMAIN",
+    "CTX-COMPUTE",
 }
-DOMAIN_TOKEN_RE = re.compile(
-    r"\b(trading|moex|futures|arbitrage|geopolitics|intraday|spread|commodity-news)\b",
-    re.IGNORECASE,
-)
 
 
 def _load_yaml_frontmatter(path: Path) -> dict[str, Any]:
@@ -159,11 +123,13 @@ def _validate_runtime_frontmatter(
             errors.append(f"invalid status `{status}` in {skill_md.as_posix()}")
         if not owner_surface:
             errors.append(f"missing owner_surface in {skill_md.as_posix()}")
+        elif strict and owner_surface not in ALLOWED_REPO_LOCAL_OWNER_SURFACES:
+            errors.append(
+                "repo-local skill owner_surface must be product-plane/data/compute scoped: "
+                f"{skill_md.as_posix()} (owner_surface={owner_surface})"
+            )
         if not triggers:
             errors.append(f"missing routing_triggers in {skill_md.as_posix()}")
-        content = skill_md.read_text(encoding="utf-8")
-        if DOMAIN_TOKEN_RE.search(content):
-            errors.append(f"domain token found in baseline skill file: {skill_md.as_posix()}")
 
     return by_id
 
@@ -189,10 +155,11 @@ def run(
         errors.append(f"missing cold-context policy file: {COLD_CONTEXT_FILE.as_posix()}")
     else:
         cold_text = COLD_CONTEXT_FILE.read_text(encoding="utf-8")
-        if COLD_SKILLS_PATTERN not in cold_text:
-            errors.append(
-                f"cold-context policy missing `{COLD_SKILLS_PATTERN}` in {COLD_CONTEXT_FILE.as_posix()}"
-            )
+        for pattern in COLD_SKILLS_PATTERNS:
+            if pattern not in cold_text:
+                errors.append(
+                    f"cold-context policy missing `{pattern}` in {COLD_CONTEXT_FILE.as_posix()}"
+                )
 
     if not skills_root.exists():
         errors.append(f"missing skills root: {skills_root.as_posix()}")
@@ -205,7 +172,7 @@ def run(
 
     runtime_records = _validate_runtime_frontmatter(skills_root=skills_root, strict=strict, errors=errors)
 
-    if strict:
+    if strict and KEEP_CORE_BASELINE:
         runtime_ids = set(runtime_records)
         missing_core = sorted(KEEP_CORE_BASELINE.difference(runtime_ids))
         extra_core = sorted(runtime_ids.difference(KEEP_CORE_BASELINE))
@@ -255,7 +222,7 @@ def run(
         print("remediation: see docs/workflows/skill-governance-sync.md")
         return 1
 
-    print(f"skill validation: OK ({len(runtime_records)} local skills, strict={strict})")
+    print(f"skill validation: OK ({len(runtime_records)} repo-local skills, strict={strict})")
     return 0
 
 

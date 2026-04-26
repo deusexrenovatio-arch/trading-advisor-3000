@@ -1736,7 +1736,7 @@ def build_prompt(
     compiler_line = suggested_phase_compiler_artifact if suggested_phase_compiler_artifact else "NONE"
     phase_ids_line = ",".join(suggested_phase_ids) if suggested_phase_ids else "NONE"
     required_intake_skills = ", ".join(
-        f".cursor/skills/{skill_id}/SKILL.md" for skill_id in INTAKE_REQUIRED_SKILLS
+        f"global Codex skill `{skill_id}`" for skill_id in INTAKE_REQUIRED_SKILLS
     )
     return (
         "Runtime Package Context:\n"

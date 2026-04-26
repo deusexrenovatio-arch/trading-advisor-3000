@@ -6,7 +6,9 @@
 .tmp_openspace/
 .runlogs/
 .cursor/
-.codex/
+.codex/*
+!.codex/skills/
+!.codex/skills/**
 src/trading_advisor_3000.egg-info/
 deployment/stocksharp-sidecar/**/bin/
 deployment/stocksharp-sidecar/**/obj/

@@ -8,7 +8,7 @@
 
 | Путь | Назначение | Владелец | Риск |
 | --- | --- | --- | --- |
-| `.cursor/skills/` | local skills for Codex | shell | medium |
+| `.codex/skills/` | TA3000-specific repo-local Codex skills | shell/product-plane bridge | medium |
 | `.githooks/` | PR-only and push protection | shell | high |
 | `configs/` | shell contracts / validators / routing configs | shell | high |
 | `docs/agent/` | hot docs | shell | high |
@@ -120,7 +120,7 @@ deployment/
 
 ### Shared governance paths
 - `docs/architecture/*`
-- `.cursor/skills/*`
+- `.codex/skills/*`
 - `CODEOWNERS`
 - CI definitions
 

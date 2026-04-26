@@ -12,8 +12,13 @@ def _run(command: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, cwd=cwd, capture_output=True, text=True, check=False)
 
 
-def _write_skill(root: Path, skill_id: str, classification: str = "KEEP_CORE") -> None:
-    skill_dir = root / ".cursor" / "skills" / skill_id
+def _write_skill(
+    root: Path,
+    skill_id: str,
+    classification: str = "KEEP_CORE",
+    owner_surface: str = "CTX-DATA",
+) -> None:
+    skill_dir = root / ".codex" / "skills" / skill_id
     skill_dir.mkdir(parents=True, exist_ok=True)
     (skill_dir / "SKILL.md").write_text(
         f"""---
@@ -22,7 +27,7 @@ description: Synthetic skill {skill_id}
 classification: {classification}
 wave: WAVE_1
 status: ACTIVE
-owner_surface: CTX-SKILLS
+owner_surface: {owner_surface}
 scope: synthetic scope
 routing_triggers:
   - "{skill_id}"
@@ -39,7 +44,7 @@ def _write_required_docs(root: Path) -> None:
     (root / "docs" / "agent" / "skills-routing.md").write_text("# routing\n", encoding="utf-8")
     (root / "docs" / "workflows" / "skill-governance-sync.md").write_text("# workflow\n", encoding="utf-8")
     (root / "docs" / "planning" / "skills-roadmap.md").write_text("# roadmap\n", encoding="utf-8")
-    (root / ".cursorignore").write_text(".cursor/skills/**\n", encoding="utf-8")
+    (root / ".cursorignore").write_text(".cursor/skills/**\n.codex/skills/**\n", encoding="utf-8")
 
 
 def test_validate_skills_strict_passes_on_repository_runtime() -> None:
@@ -63,7 +68,7 @@ def test_validate_skills_strict_detects_forbidden_class(tmp_path: Path) -> None:
             sys.executable,
             str(ROOT / "scripts" / "validate_skills.py"),
             "--skills-root",
-            str(tmp_path / ".cursor" / "skills"),
+            str(tmp_path / ".codex" / "skills"),
             "--catalog-file",
             str(tmp_path / "docs" / "agent" / "skills-catalog.md"),
             "--governance-doc",
@@ -90,7 +95,7 @@ def test_validate_skills_strict_detects_catalog_drift(tmp_path: Path) -> None:
             sys.executable,
             str(ROOT / "scripts" / "sync_skills_catalog.py"),
             "--skills-root",
-            str(tmp_path / ".cursor" / "skills"),
+            str(tmp_path / ".codex" / "skills"),
             "--catalog-file",
             str(catalog),
         ],
@@ -103,7 +108,7 @@ def test_validate_skills_strict_detects_catalog_drift(tmp_path: Path) -> None:
             sys.executable,
             str(ROOT / "scripts" / "validate_skills.py"),
             "--skills-root",
-            str(tmp_path / ".cursor" / "skills"),
+            str(tmp_path / ".codex" / "skills"),
             "--catalog-file",
             str(catalog),
             "--governance-doc",
@@ -118,3 +123,41 @@ def test_validate_skills_strict_detects_catalog_drift(tmp_path: Path) -> None:
     )
     assert result.returncode != 0
     assert "catalog drift" in (result.stdout + result.stderr).lower()
+
+
+def test_validate_skills_strict_rejects_generic_repo_local_owner_surface(tmp_path: Path) -> None:
+    _write_required_docs(tmp_path)
+    _write_skill(tmp_path, "alpha", owner_surface="CTX-OPS")
+    catalog = tmp_path / "docs" / "agent" / "skills-catalog.md"
+    _run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "sync_skills_catalog.py"),
+            "--skills-root",
+            str(tmp_path / ".codex" / "skills"),
+            "--catalog-file",
+            str(catalog),
+        ],
+        cwd=tmp_path,
+    )
+
+    result = _run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "validate_skills.py"),
+            "--skills-root",
+            str(tmp_path / ".codex" / "skills"),
+            "--catalog-file",
+            str(catalog),
+            "--governance-doc",
+            str(tmp_path / "docs" / "workflows" / "skill-governance-sync.md"),
+            "--routing-doc",
+            str(tmp_path / "docs" / "agent" / "skills-routing.md"),
+            "--roadmap-doc",
+            str(tmp_path / "docs" / "planning" / "skills-roadmap.md"),
+            "--strict",
+        ],
+        cwd=tmp_path,
+    )
+    assert result.returncode != 0
+    assert "product-plane/data/compute scoped" in (result.stdout + result.stderr)

@@ -98,7 +98,7 @@ Forbidden without a separate legal/product decision:
 
 ### Dev process
 - GitHub Actions
-- local `.cursor/skills`
+- repo-local `.codex/skills` for TA3000-specific product-plane skills
 - shell validators and gates
 
 ## 4. Р§С‚Рѕ РѕСЃС‚Р°РІРёС‚СЊ РІРЅРµ core

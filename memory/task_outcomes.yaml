@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-04-24'
+updated_at: '2026-04-26'
 items:
 - task_id: TASK-2026-03-16-BASELINE-SEED
   closed_at: '2026-03-16T10:00:00Z'
@@ -795,6 +795,32 @@ items:
   incident_signature: none
   improvement_action: validator
   improvement_artifact: scripts/validate_product_surface_naming.py
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-04-26-CLEAN-UP-LEGACY-CURSOR-SKILL-CATALOG-AND-ROUTE-R
+  closed_at: '2026-04-26T13:33:31Z'
+  branch: codex/skills-routing-local-catalog-cleanup
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-SKILLS
+  - CTX-ARCHITECTURE
+  - CTX-GOVERNANCE
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: pending
+  improvement_artifact: pending
   linked_plan_id: null
   linked_memory_id: null
   outcome_status: completed

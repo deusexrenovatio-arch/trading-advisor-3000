@@ -1,10 +1,10 @@
 # Session Handoff
-Updated: 2026-04-24 14:50 UTC
+Updated: 2026-04-26 13:33 UTC
 
 ## Active Task Note
-- Path: docs/tasks/active/TASK-2026-04-09-build-full-4-year-moex-raw-foundation-and-canoni.md
+- Path: docs/tasks/archive/TASK-2026-04-26-clean-up-legacy-cursor-skill-catalog-and-route-r.md
 - Mode: legacy-full
-- Status: in_progress
+- Status: completed
 
 ## Validation
 - `python scripts/validate_task_request_contract.py`

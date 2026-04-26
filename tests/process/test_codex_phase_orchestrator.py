@@ -53,7 +53,7 @@ def _write_acceptor_skills(repo: Path) -> None:
         "verification-before-completion": "---\nname: verification-before-completion\ndescription: test\nclassification: KEEP_CORE\nwave: WAVE_1\nstatus: ACTIVE\nowner_surface: CTX-OPS\nrouting_triggers:\n  - verification before completion\n---\n# verification before completion\n",
     }
     for skill_id, text in skills.items():
-        _write(repo / ".cursor/skills" / skill_id / "SKILL.md", text)
+        _write(repo / ".codex/skills" / skill_id / "SKILL.md", text)
 
 
 def _module_fixture(repo: Path) -> tuple[Path, Path]:
@@ -872,7 +872,7 @@ def test_orchestrator_fails_closed_when_stacked_followup_contract_module_binding
 
 def test_orchestrator_does_not_fail_when_acceptor_skill_file_is_missing(tmp_path: Path) -> None:
     contract, parent = _module_fixture(tmp_path)
-    (tmp_path / ".cursor/skills/docs-sync/SKILL.md").unlink()
+    (tmp_path / ".codex/skills/docs-sync/SKILL.md").unlink()
 
     code, state_path = orchestrate_current_phase(
         repo_root=tmp_path,

@@ -14,10 +14,10 @@ Read first:
 10. the latest acceptance blockers
 11. `docs/codex/orchestration/acceptance-contract.md`
 12. `docs/checklists/phase-evidence-contract.md`
-13. `.cursor/skills/repeated-issue-review/SKILL.md`
-14. `.cursor/skills/docs-sync/SKILL.md`
-15. `.cursor/skills/verification-before-completion/SKILL.md`
-16. `.cursor/skills/testing-suite/SKILL.md`
+13. Global Codex skill `repeated-issue-review`
+14. Global Codex skill `docs-sync`
+15. Global Codex skill `verification-before-completion`
+16. Global Codex skill `testing-suite`
 
 Rules:
 

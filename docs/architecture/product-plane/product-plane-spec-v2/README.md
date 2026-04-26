@@ -13,7 +13,7 @@
 - task lifecycle через `scripts/task_session.py`;
 - surface-aware gates: `run_loop_gate.py`, `run_pr_gate.py`, `run_nightly_gate.py`;
 - durable state в `plans/*` и `memory/*`;
-- локальные skills в `.cursor/skills/*`;
+- repo-local product-plane skills в `.codex/skills/*`;
 - application-plane package `src/trading_advisor_3000/*`.
 
 PR `#1` дополнительно описывает целевое усиление shell:
