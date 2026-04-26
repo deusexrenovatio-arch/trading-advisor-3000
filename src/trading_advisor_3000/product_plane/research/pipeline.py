@@ -252,7 +252,6 @@ def run_research_from_bars(
     derived_indicator_set_version = str(
         backtest_config.get("derived_indicator_set_version", DEFAULT_DERIVED_INDICATOR_SET_VERSION)
     )
-    feature_set_version = str(backtest_config.get("feature_set_version", ""))
     indicator_profile_version = str(backtest_config.get("indicator_profile_version", "core_v1"))
     derived_indicator_profile_version = str(backtest_config.get("derived_indicator_profile_version", "core_v1"))
     session_hours_raw = backtest_config.get("session_hours_utc")
@@ -317,7 +316,6 @@ def run_research_from_bars(
         dataset_version=dataset_version,
         indicator_set_version=indicator_set_version,
         derived_indicator_set_version=derived_indicator_set_version,
-        feature_set_version=feature_set_version,
         strategy_instances=strategy_space.strategy_instances,
         combination_count=len(strategy_space.strategy_instances),
         param_batch_size=int(backtest_config.get("param_batch_size", min(max(len(strategy_space.strategy_instances), 1), 25))),
@@ -337,7 +335,7 @@ def run_research_from_bars(
     batch_report = run_backtest_batch(
         dataset_output_dir=materialized_dir,
         indicator_output_dir=materialized_dir,
-        feature_output_dir=materialized_dir,
+        derived_indicator_output_dir=materialized_dir,
         output_dir=research_dir,
         request=request,
         engine_config=engine_config,
@@ -354,7 +352,7 @@ def run_research_from_bars(
     projection_report = project_runtime_candidates(
         dataset_output_dir=materialized_dir,
         indicator_output_dir=materialized_dir,
-        feature_output_dir=materialized_dir,
+        derived_indicator_output_dir=materialized_dir,
         output_dir=research_dir,
         request=CandidateProjectionRequest(
             ranking_policy_id=ranking_policy.policy_id,

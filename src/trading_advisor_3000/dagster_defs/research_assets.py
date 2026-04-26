@@ -310,8 +310,6 @@ def _research_config_schema() -> dict[str, object]:
         "indicator_profile_version": str,
         "derived_indicator_set_version": str,
         "derived_indicator_profile_version": str,
-        "feature_set_version": str,
-        "feature_profile_version": str,
         "code_version": str,
         "strategy_space": dict,
         "strategy_space_id": str,
@@ -519,7 +517,6 @@ def research_datasets(context) -> dict[str, object]:
     derived_indicator_set_version = str(
         _config_value(config, "derived_indicator_set_version", DEFAULT_DERIVED_INDICATOR_SET_VERSION)
     )
-    feature_set_version = str(_config_value(config, "feature_set_version", "features-v1"))
 
     if _reuse_existing_materialization(config):
         _require_existing_data_prep(
@@ -563,8 +560,6 @@ def research_datasets(context) -> dict[str, object]:
         "indicator_profile_version": str(_config_value(config, "indicator_profile_version", "core_v1")),
         "derived_indicator_set_version": derived_indicator_set_version,
         "derived_indicator_profile_version": str(_config_value(config, "derived_indicator_profile_version", "core_v1")),
-        "feature_set_version": feature_set_version,
-        "feature_profile_version": str(_config_value(config, "feature_profile_version", "core_v1")),
         "backtest_request": {
             "strategy_space_id": str(_config_value(config, "strategy_space_id")),
             "strategy_instances": [dict(item) for item in _config_value(config, "strategy_instances", [])],
@@ -788,7 +783,6 @@ def _backtest_request_config(research_datasets: dict[str, object]) -> BacktestBa
         strategy_space_id=str(payload["strategy_space_id"]),
         dataset_version=str(research_datasets["dataset_version"]),
         indicator_set_version=str(research_datasets["indicator_set_version"]),
-        feature_set_version=str(research_datasets["feature_set_version"]),
         derived_indicator_set_version=str(research_datasets["derived_indicator_set_version"]),
         strategy_instances=tuple(
             BacktestStrategyInstance(
@@ -863,7 +857,7 @@ def research_backtest_batches(
     report = run_backtest_batch(
         dataset_output_dir=materialized_output_dir,
         indicator_output_dir=materialized_output_dir,
-        feature_output_dir=materialized_output_dir,
+        derived_indicator_output_dir=materialized_output_dir,
         output_dir=results_output_dir,
         request=_backtest_request_config(research_datasets),
         engine_config=_engine_config(research_datasets),
@@ -930,7 +924,7 @@ def research_signal_candidates(
     report = project_runtime_candidates(
         dataset_output_dir=materialized_output_dir,
         indicator_output_dir=materialized_output_dir,
-        feature_output_dir=materialized_output_dir,
+        derived_indicator_output_dir=materialized_output_dir,
         output_dir=results_output_dir,
         request=_projection_request(research_datasets),
         ranking_rows=[dict(row) for row in research_strategy_rankings],
@@ -1071,8 +1065,6 @@ def build_research_data_prep_run_config(
     indicator_profile_version: str = "core_v1",
     derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
     derived_indicator_profile_version: str = "core_v1",
-    feature_set_version: str = "features-v1",
-    feature_profile_version: str = "core_v1",
 ) -> dict[str, object]:
     resolved_canonical_output_dir = (
         canonical_output_dir.resolve()
@@ -1119,8 +1111,6 @@ def build_research_data_prep_run_config(
                     indicator_profile_version=indicator_profile_version,
                     derived_indicator_set_version=derived_indicator_set_version,
                     derived_indicator_profile_version=derived_indicator_profile_version,
-                    feature_set_version=feature_set_version,
-                    feature_profile_version=feature_profile_version,
                     code_version="research-data-prep-after-moex",
                     strategy_space_id="",
                     strategy_instances=(),
@@ -1268,8 +1258,6 @@ def _research_run_config(
     indicator_profile_version: str,
     derived_indicator_set_version: str,
     derived_indicator_profile_version: str,
-    feature_set_version: str,
-    feature_profile_version: str,
     code_version: str = "research-orchestration",
     strategy_space: dict[str, object] | None = None,
     strategy_space_id: str = "",
@@ -1329,8 +1317,6 @@ def _research_run_config(
         "indicator_profile_version": indicator_profile_version,
         "derived_indicator_set_version": derived_indicator_set_version,
         "derived_indicator_profile_version": derived_indicator_profile_version,
-        "feature_set_version": feature_set_version,
-        "feature_profile_version": feature_profile_version,
         "code_version": code_version,
         "strategy_space": resolved_strategy_space,
         "strategy_space_id": strategy_space_id,
@@ -1388,8 +1374,6 @@ def _materialize_research_assets(
     indicator_profile_version: str = "core_v1",
     derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
     derived_indicator_profile_version: str = "core_v1",
-    feature_set_version: str = "features-v1",
-    feature_profile_version: str = "core_v1",
     code_version: str = "research-orchestration",
     strategy_space: dict[str, object] | None = None,
     combination_count: int = 1,
@@ -1487,8 +1471,6 @@ def _materialize_research_assets(
                         indicator_profile_version=indicator_profile_version,
                         derived_indicator_set_version=derived_indicator_set_version,
                         derived_indicator_profile_version=derived_indicator_profile_version,
-                        feature_set_version=feature_set_version,
-                        feature_profile_version=feature_profile_version,
                         code_version=code_version,
                         strategy_space=dict(strategy_space or _default_strategy_space()),
                         strategy_space_id=strategy_space_id,
@@ -1572,8 +1554,6 @@ def materialize_research_data_prep_assets(
     indicator_profile_version: str = "core_v1",
     derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
     derived_indicator_profile_version: str = "core_v1",
-    feature_set_version: str = "features-v1",
-    feature_profile_version: str = "core_v1",
     code_version: str = "research-data-prep-orchestration",
     reuse_existing_materialization: bool = False,
     selection: Sequence[str] | None = None,
@@ -1605,8 +1585,6 @@ def materialize_research_data_prep_assets(
         indicator_profile_version=indicator_profile_version,
         derived_indicator_set_version=derived_indicator_set_version,
         derived_indicator_profile_version=derived_indicator_profile_version,
-        feature_set_version=feature_set_version,
-        feature_profile_version=feature_profile_version,
         code_version=code_version,
         reuse_existing_materialization=reuse_existing_materialization,
         raise_on_error=raise_on_error,
@@ -1637,8 +1615,6 @@ def materialize_strategy_registry_refresh_assets(
     indicator_profile_version: str = "core_v1",
     derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
     derived_indicator_profile_version: str = "core_v1",
-    feature_set_version: str = "features-v1",
-    feature_profile_version: str = "core_v1",
     code_version: str = "strategy-registry-refresh-orchestration",
     strategy_space: dict[str, object] | None = None,
     combination_count: int = 1,
@@ -1681,8 +1657,6 @@ def materialize_strategy_registry_refresh_assets(
         indicator_profile_version=indicator_profile_version,
         derived_indicator_set_version=derived_indicator_set_version,
         derived_indicator_profile_version=derived_indicator_profile_version,
-        feature_set_version=feature_set_version,
-        feature_profile_version=feature_profile_version,
         code_version=code_version,
         strategy_space=strategy_space,
         combination_count=combination_count,
@@ -1724,8 +1698,6 @@ def materialize_research_backtest_assets(
     indicator_profile_version: str = "core_v1",
     derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
     derived_indicator_profile_version: str = "core_v1",
-    feature_set_version: str = "features-v1",
-    feature_profile_version: str = "core_v1",
     code_version: str = "research-backtest-orchestration",
     strategy_space: dict[str, object] | None = None,
     combination_count: int = 1,
@@ -1781,8 +1753,6 @@ def materialize_research_backtest_assets(
         indicator_profile_version=indicator_profile_version,
         derived_indicator_set_version=derived_indicator_set_version,
         derived_indicator_profile_version=derived_indicator_profile_version,
-        feature_set_version=feature_set_version,
-        feature_profile_version=feature_profile_version,
         code_version=code_version,
         strategy_space=strategy_space,
         combination_count=combination_count,
@@ -1837,8 +1807,6 @@ def materialize_research_projection_assets(
     indicator_profile_version: str = "core_v1",
     derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
     derived_indicator_profile_version: str = "core_v1",
-    feature_set_version: str = "features-v1",
-    feature_profile_version: str = "core_v1",
     code_version: str = "research-projection-orchestration",
     strategy_space: dict[str, object] | None = None,
     combination_count: int = 1,
@@ -1894,8 +1862,6 @@ def materialize_research_projection_assets(
         indicator_profile_version=indicator_profile_version,
         derived_indicator_set_version=derived_indicator_set_version,
         derived_indicator_profile_version=derived_indicator_profile_version,
-        feature_set_version=feature_set_version,
-        feature_profile_version=feature_profile_version,
         code_version=code_version,
         strategy_space=strategy_space,
         combination_count=combination_count,

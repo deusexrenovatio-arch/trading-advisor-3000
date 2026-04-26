@@ -132,7 +132,7 @@ class StrategyResolvedModule:
     module_version: str
     resolved_params: Mapping[str, object]
     timeframe_scope: str | None = None
-    derived_feature_refs: tuple[str, ...] = ()
+    derived_indicator_refs: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "role", _require_non_empty(self.role, field="role"))
@@ -141,11 +141,11 @@ class StrategyResolvedModule:
         object.__setattr__(self, "module_version", _require_non_empty(self.module_version, field="module_version"))
         if self.timeframe_scope is not None:
             object.__setattr__(self, "timeframe_scope", _require_non_empty(self.timeframe_scope, field="timeframe_scope"))
-        if self.derived_feature_refs:
+        if self.derived_indicator_refs:
             object.__setattr__(
                 self,
-                "derived_feature_refs",
-                tuple(item for item in self.derived_feature_refs if item and item.strip()),
+                "derived_indicator_refs",
+                tuple(item for item in self.derived_indicator_refs if item and item.strip()),
             )
 
     def to_manifest_dict(self) -> dict[str, object]:
@@ -156,7 +156,7 @@ class StrategyResolvedModule:
             "module_version": self.module_version,
             "params": dict(self.resolved_params),
             "timeframe_scope": self.timeframe_scope,
-            "derived_feature_refs": list(self.derived_feature_refs),
+            "derived_indicator_refs": list(self.derived_indicator_refs),
         }
 
 
@@ -183,7 +183,7 @@ class StrategyTemplateManifest:
     modules: tuple[StrategyTemplateModule, ...]
     risk_policy: Mapping[str, object]
     validation_policy: Mapping[str, object]
-    required_feature_columns: tuple[str, ...]
+    required_indicator_columns: tuple[str, ...]
     venue: str | None = None
     search_space: Mapping[str, object] | None = None
     source_ref: str | None = None
@@ -209,7 +209,7 @@ class StrategyTemplateManifest:
         object.__setattr__(self, "execution_tf", _require_non_empty(self.execution_tf, field="execution_tf"))
         object.__setattr__(self, "bar_type", _require_non_empty(self.bar_type, field="bar_type"))
         object.__setattr__(self, "execution_mode", _require_non_empty(self.execution_mode, field="execution_mode"))
-        object.__setattr__(self, "required_feature_columns", _require_non_empty_items(self.required_feature_columns, field="required_feature_columns"))
+        object.__setattr__(self, "required_indicator_columns", _require_non_empty_items(self.required_indicator_columns, field="required_indicator_columns"))
         object.__setattr__(self, "schema_version", _require_non_empty(self.schema_version, field="schema_version"))
         object.__setattr__(self, "author_source", _require_non_empty(self.author_source, field="author_source"))
         object.__setattr__(self, "status", _require_non_empty(self.status, field="status"))
@@ -255,7 +255,7 @@ class StrategyTemplateManifest:
                 "execution_mode": self.execution_mode,
             },
             "validation_policy": dict(self.validation_policy),
-            "required_feature_columns": list(self.required_feature_columns),
+            "required_indicator_columns": list(self.required_indicator_columns),
             "search_space": None if self.search_space is None else dict(self.search_space),
             "source_ref": self.source_ref,
             "author_source": self.author_source,
@@ -284,7 +284,7 @@ class StrategyInstanceManifest:
     parameter_values: Mapping[str, object]
     resolved_modules: tuple[StrategyResolvedModule, ...]
     risk_policy: Mapping[str, object]
-    required_feature_columns: tuple[str, ...]
+    required_indicator_columns: tuple[str, ...]
     venue: str | None = None
     generated_by_campaign_id: str | None = None
     generated_by_campaign_run_id: str | None = None
@@ -307,7 +307,7 @@ class StrategyInstanceManifest:
         object.__setattr__(self, "execution_tf", _require_non_empty(self.execution_tf, field="execution_tf"))
         object.__setattr__(self, "bar_type", _require_non_empty(self.bar_type, field="bar_type"))
         object.__setattr__(self, "execution_mode", _require_non_empty(self.execution_mode, field="execution_mode"))
-        object.__setattr__(self, "required_feature_columns", _require_non_empty_items(self.required_feature_columns, field="required_feature_columns"))
+        object.__setattr__(self, "required_indicator_columns", _require_non_empty_items(self.required_indicator_columns, field="required_indicator_columns"))
         object.__setattr__(self, "schema_version", _require_non_empty(self.schema_version, field="schema_version"))
         object.__setattr__(self, "status", _require_non_empty(self.status, field="status"))
         if self.venue is not None:
@@ -356,7 +356,7 @@ class StrategyInstanceManifest:
             "parameter_values": dict(self.parameter_values),
             "resolved_modules": [module.to_manifest_dict() for module in self.resolved_modules],
             "risk_policy": dict(self.risk_policy),
-            "required_feature_columns": list(self.required_feature_columns),
+            "required_indicator_columns": list(self.required_indicator_columns),
             "generated_by_campaign_id": self.generated_by_campaign_id,
             "generated_by_campaign_run_id": self.generated_by_campaign_run_id,
             "status": self.status,
