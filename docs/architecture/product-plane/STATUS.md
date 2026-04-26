@@ -53,8 +53,8 @@ It supersedes older phase-closure claims when they disagree.
 - The older `moex-spark-deltalake` module remains historical planning evidence only.
 - The explicit routing policy is documented in `docs/architecture/product-plane/moex-historical-route-decision.md`.
 
-## Governed Research Promotion Profile (v1)
-- Timeframes for promotion evidence: `15m`, `1h`, `1d`.
+## Governed Research Promotion Profile (v2)
+- Timeframes for promotion evidence: `15m`, `1h`, `4h`, `1d`.
 - `5m` is excluded from the current medium-term promotion profile.
 - Approved instrument universe is defined in `docs/architecture/product-plane/approved-universe-v1.md`.
 - Promotion runs must use at least 3 instruments from the approved universe and pin the canonical baseline root + universe version in evidence artifacts.
