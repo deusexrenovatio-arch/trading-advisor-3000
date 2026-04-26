@@ -94,6 +94,7 @@ class BacktestBatchRequest:
     feature_set_version: str
     strategy_instances: tuple[BacktestStrategyInstance, ...]
     combination_count: int
+    derived_indicator_set_version: str = "derived-v1"
     param_batch_size: int = 25
     series_batch_size: int = 4
     timeframe: str = ""
@@ -121,6 +122,7 @@ class BacktestBatchRequest:
                 self.strategy_space_id,
                 self.dataset_version,
                 self.indicator_set_version,
+                self.derived_indicator_set_version,
                 self.feature_set_version,
                 *[instance.strategy_instance_id for instance in self.strategy_instances],
                 str(self.combination_count),
@@ -212,6 +214,7 @@ def run_backtest_batch(
         request=ResearchSliceRequest(
             dataset_version=request.dataset_version,
             indicator_set_version=request.indicator_set_version,
+            derived_indicator_set_version=request.derived_indicator_set_version,
             feature_set_version=request.feature_set_version,
             timeframe=request.timeframe,
             contract_ids=request.contract_ids,

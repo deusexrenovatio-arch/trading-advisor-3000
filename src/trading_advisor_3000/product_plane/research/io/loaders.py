@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 
 from trading_advisor_3000.product_plane.research.datasets import load_materialized_research_dataset
-from trading_advisor_3000.product_plane.research.features import reload_feature_frames
+from trading_advisor_3000.product_plane.research.derived_indicators import reload_derived_indicator_frames
 from trading_advisor_3000.product_plane.research.indicators import reload_indicator_frames
 
 from .cache import ResearchCacheKey, ResearchFrameCache
@@ -16,7 +16,8 @@ from .cache import ResearchCacheKey, ResearchFrameCache
 class ResearchSliceRequest:
     dataset_version: str
     indicator_set_version: str
-    feature_set_version: str
+    derived_indicator_set_version: str = "derived-v1"
+    feature_set_version: str = ""
     timeframe: str = ""
     contract_ids: tuple[str, ...] = ()
     instrument_ids: tuple[str, ...] = ()
@@ -66,11 +67,11 @@ def _indicator_payload_columns(frame: pd.DataFrame) -> list[str]:
     return [column for column in frame.columns if column not in reserved]
 
 
-def _feature_payload_columns(frame: pd.DataFrame, *, existing: set[str]) -> list[str]:
+def _derived_payload_columns(frame: pd.DataFrame, *, existing: set[str]) -> list[str]:
     reserved = {
         "dataset_version",
         "indicator_set_version",
-        "feature_set_version",
+        "derived_indicator_set_version",
         "profile_version",
         "contract_id",
         "instrument_id",
@@ -99,7 +100,7 @@ def load_backtest_frames(
         *sorted(request.instrument_ids),
         request.dataset_version,
         request.indicator_set_version,
-        request.feature_set_version,
+        request.derived_indicator_set_version,
         "analysis" if request.analysis_only else "all",
         str(request.warmup_bars),
     )
@@ -143,13 +144,13 @@ def load_backtest_frames(
             request=request,
         )
     ]
-    feature_rows = [
+    derived_rows = [
         row
-        for row in reload_feature_frames(
-            feature_output_dir=feature_output_dir,
+        for row in reload_derived_indicator_frames(
+            derived_indicator_output_dir=feature_output_dir,
             dataset_version=request.dataset_version,
             indicator_set_version=request.indicator_set_version,
-            feature_set_version=request.feature_set_version,
+            derived_indicator_set_version=request.derived_indicator_set_version,
         )
         if _matches_filters(
             contract_id=row.contract_id,
@@ -161,7 +162,7 @@ def load_backtest_frames(
 
     bar_frame = pd.DataFrame([row.to_dict() for row in bar_rows])
     indicator_frame = pd.DataFrame([row.to_dict() for row in indicator_rows])
-    feature_frame = pd.DataFrame([row.to_dict() for row in feature_rows])
+    derived_frame = pd.DataFrame([row.to_dict() for row in derived_rows])
     if bar_frame.empty:
         return tuple(), cache_id, False
 
@@ -185,16 +186,16 @@ def load_backtest_frames(
                     how="left",
                     validate="one_to_one",
                 )
-        if not feature_frame.empty:
-            local_features = feature_frame[
-                (feature_frame["contract_id"] == contract_id)
-                & (feature_frame["instrument_id"] == instrument_id)
-                & (feature_frame["timeframe"] == timeframe)
+        if not derived_frame.empty:
+            local_derived = derived_frame[
+                (derived_frame["contract_id"] == contract_id)
+                & (derived_frame["instrument_id"] == instrument_id)
+                & (derived_frame["timeframe"] == timeframe)
             ]
-            if not local_features.empty:
-                feature_columns = _feature_payload_columns(local_features, existing=set(merged.columns))
+            if not local_derived.empty:
+                derived_columns = _derived_payload_columns(local_derived, existing=set(merged.columns))
                 merged = merged.merge(
-                    local_features[["contract_id", "instrument_id", "timeframe", "ts", *feature_columns]],
+                    local_derived[["contract_id", "instrument_id", "timeframe", "ts", *derived_columns]],
                     on=["contract_id", "instrument_id", "timeframe", "ts"],
                     how="left",
                     validate="one_to_one",
