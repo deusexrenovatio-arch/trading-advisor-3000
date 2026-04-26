@@ -214,12 +214,13 @@ def _atr_relative(frame: pd.DataFrame, spec: StrategySpec, params: dict[str, obj
 def _ma_cross_signals(frame: pd.DataFrame, spec: StrategySpec, params: dict[str, object], config: BacktestEngineConfig) -> dict[str, pd.Series]:
     fast = _ma_column(frame, int(params["fast_window"]))
     slow = _ma_column(frame, int(params["slow_window"]))
-    trend = _numeric(frame, "trend_state_fast_slow_code")
-    stack = _numeric(frame, "ma_stack_state_code")
+    ema_10 = _numeric(frame, "ema_10")
+    ema_20 = _numeric(frame, "ema_20")
+    ema_50 = _numeric(frame, "ema_50")
     session_mask = _session_entry_mask(frame.index, config.session_hours_utc)
 
-    long_state = (fast > slow) & (trend > 0) & (stack > 0)
-    short_state = config.allow_short & (fast < slow) & (trend < 0) & (stack < 0)
+    long_state = (fast > slow) & (ema_10 >= ema_20) & (ema_20 >= ema_50)
+    short_state = config.allow_short & (fast < slow) & (ema_10 <= ema_20) & (ema_20 <= ema_50)
     entries = long_state & ~long_state.shift(1, fill_value=False) & session_mask
     exits = (~long_state) & long_state.shift(1, fill_value=False)
     short_entries = short_state & ~short_state.shift(1, fill_value=False) & session_mask
@@ -238,15 +239,14 @@ def _ma_cross_signals(frame: pd.DataFrame, spec: StrategySpec, params: dict[str,
 def _breakout_signals(frame: pd.DataFrame, spec: StrategySpec, params: dict[str, object], config: BacktestEngineConfig) -> dict[str, pd.Series]:
     close = _numeric(frame, "close")
     breakout_window = int(params["breakout_window"])
-    rolling_high = _numeric(frame, "high").rolling(window=breakout_window, min_periods=breakout_window).max()
-    rolling_low = _numeric(frame, "low").rolling(window=breakout_window, min_periods=breakout_window).min()
+    rolling_high = _numeric(frame, "high").rolling(window=breakout_window, min_periods=breakout_window).max().shift(1)
+    rolling_low = _numeric(frame, "low").rolling(window=breakout_window, min_periods=breakout_window).min().shift(1)
     adx = _numeric(frame, "adx_14")
-    breakout_state = _numeric(frame, "breakout_ready_state_code")
     session_mask = _session_entry_mask(frame.index, config.session_hours_utc)
     buffer = _numeric(frame, "atr_14").fillna(0.0) * float(params["entry_buffer_atr"])
 
-    long_state = (breakout_state > 0) & (adx >= float(params["min_adx"])) & (close >= (rolling_high - buffer))
-    short_state = config.allow_short & (breakout_state < 0) & (adx >= float(params["min_adx"])) & (close <= (rolling_low + buffer))
+    long_state = (adx >= float(params["min_adx"])) & (close >= (rolling_high + buffer))
+    short_state = config.allow_short & (adx >= float(params["min_adx"])) & (close <= (rolling_low - buffer))
     entries = long_state & ~long_state.shift(1, fill_value=False) & session_mask
     exits = (close < rolling_high) & long_state.shift(1, fill_value=False)
     short_entries = short_state & ~short_state.shift(1, fill_value=False) & session_mask
@@ -265,12 +265,11 @@ def _breakout_signals(frame: pd.DataFrame, spec: StrategySpec, params: dict[str,
 def _mean_reversion_signals(frame: pd.DataFrame, spec: StrategySpec, params: dict[str, object], config: BacktestEngineConfig) -> dict[str, pd.Series]:
     rsi = _numeric(frame, "rsi_14")
     distance = _numeric(frame, "distance_to_session_vwap")
-    regime = _numeric(frame, "regime_state_code")
     session_mask = _session_entry_mask(frame.index, config.session_hours_utc)
     entry_distance = float(params["entry_distance_atr"])
 
-    long_state = (regime == 0) & (rsi <= float(params["entry_rsi"])) & (distance <= -entry_distance)
-    short_state = config.allow_short & (regime == 0) & (rsi >= (100.0 - float(params["entry_rsi"]))) & (distance >= entry_distance)
+    long_state = (rsi <= float(params["entry_rsi"])) & (distance <= -entry_distance)
+    short_state = config.allow_short & (rsi >= (100.0 - float(params["entry_rsi"]))) & (distance >= entry_distance)
     entries = long_state & ~long_state.shift(1, fill_value=False) & session_mask
     exits = ((rsi >= float(params["exit_rsi"])) | (distance >= 0.0)) & long_state.shift(1, fill_value=False)
     short_entries = short_state & ~short_state.shift(1, fill_value=False) & session_mask
@@ -288,30 +287,36 @@ def _mean_reversion_signals(frame: pd.DataFrame, spec: StrategySpec, params: dic
 
 def _mtf_pullback_signals(frame: pd.DataFrame, spec: StrategySpec, params: dict[str, object], config: BacktestEngineConfig) -> dict[str, pd.Series]:
     distance = _numeric(frame, "distance_to_session_vwap")
-    local_trend = _numeric(frame, "trend_state_fast_slow_code")
-    htf_trend = _numeric(frame, "htf_trend_state_code")
-    htf_rsi = _numeric(frame, "htf_rsi_14")
+    local_ema_20 = _numeric(frame, "ema_20")
+    local_ema_50 = _numeric(frame, "ema_50")
+    htf_ema_20 = _numeric(frame, "mtf_1h_to_15m_ema_20")
+    htf_ema_50 = _numeric(frame, "mtf_1h_to_15m_ema_50")
+    htf_rsi = _numeric(frame, "mtf_1h_to_15m_rsi_14")
     confirmation = int(params["confirmation_bars"])
     session_mask = _session_entry_mask(frame.index, config.session_hours_utc)
+    local_up = local_ema_20 > local_ema_50
+    local_down = local_ema_20 < local_ema_50
+    htf_up = htf_ema_20 > htf_ema_50
+    htf_down = htf_ema_20 < htf_ema_50
 
     base_long = (
-        (local_trend > 0)
-        & (htf_trend > 0)
+        local_up
+        & htf_up
         & (htf_rsi >= float(params["min_htf_rsi"]))
         & (distance <= -float(params["pullback_depth"]))
     )
     base_short = config.allow_short & (
-        (local_trend < 0)
-        & (htf_trend < 0)
+        local_down
+        & htf_down
         & (htf_rsi <= (100.0 - float(params["min_htf_rsi"])))
         & (distance >= float(params["pullback_depth"]))
     )
     long_state = base_long.rolling(window=confirmation, min_periods=confirmation).sum() == confirmation
     short_state = base_short.rolling(window=confirmation, min_periods=confirmation).sum() == confirmation
     entries = long_state & ~long_state.shift(1, fill_value=False) & session_mask
-    exits = ((local_trend <= 0) | (distance >= 0.0)) & long_state.shift(1, fill_value=False)
+    exits = ((~local_up) | (distance >= 0.0)) & long_state.shift(1, fill_value=False)
     short_entries = short_state & ~short_state.shift(1, fill_value=False) & session_mask
-    short_exits = ((local_trend >= 0) | (distance <= 0.0)) & short_state.shift(1, fill_value=False)
+    short_exits = ((~local_down) | (distance <= 0.0)) & short_state.shift(1, fill_value=False)
     sl_stop, tp_stop = _atr_relative(frame, spec, params)
     return {
         "entries": entries.fillna(False),
@@ -324,20 +329,28 @@ def _mtf_pullback_signals(frame: pd.DataFrame, spec: StrategySpec, params: dict[
 
 
 def _squeeze_release_signals(frame: pd.DataFrame, spec: StrategySpec, params: dict[str, object], config: BacktestEngineConfig) -> dict[str, pd.Series]:
-    squeeze = _numeric(frame, "squeeze_on_code")
-    breakout = _numeric(frame, "breakout_ready_state_code")
-    trend = _numeric(frame, "trend_state_fast_slow_code")
     close = _numeric(frame, "close")
     atr = _numeric(frame, "atr_14")
+    bb_position = _numeric(frame, "bb_position_20_2")
+    kc_position = _numeric(frame, "kc_position_20_1_5")
+    high_cross = _numeric(frame, "cross_close_rolling_high_20_code")
+    low_cross = _numeric(frame, "cross_close_rolling_low_20_code")
+    ema_20 = _numeric(frame, "ema_20")
+    ema_50 = _numeric(frame, "ema_50")
     session_mask = _session_entry_mask(frame.index, config.session_hours_utc)
     confirmation = int(params["release_confirmation"])
     min_squeeze_bars = int(params["min_squeeze_bars"])
     stop_multiple, target_multiple = _risk_multipliers(spec, params)
 
-    squeeze_count = (squeeze == 1).astype(int).rolling(window=min_squeeze_bars, min_periods=min_squeeze_bars).sum()
-    setup_ready = squeeze_count >= min_squeeze_bars
-    long_state = setup_ready & (breakout > 0) & (trend > 0)
-    short_state = config.allow_short & setup_ready & (breakout < 0) & (trend < 0)
+    channel_mid = bb_position.between(0.35, 0.65) & kc_position.between(0.35, 0.65)
+    setup_count = channel_mid.astype(int).rolling(window=min_squeeze_bars, min_periods=min_squeeze_bars).sum()
+    setup_ready = setup_count.shift(1, fill_value=0) >= min_squeeze_bars
+    trend_up = ema_20 >= ema_50
+    trend_down = ema_20 <= ema_50
+    release_up = (high_cross > 0) | ((bb_position >= 0.8) & (kc_position >= 0.65))
+    release_down = (low_cross < 0) | ((bb_position <= 0.2) & (kc_position <= 0.35))
+    long_state = setup_ready & release_up & trend_up
+    short_state = config.allow_short & setup_ready & release_down & trend_down
     if confirmation > 1:
         long_state = long_state.rolling(window=confirmation, min_periods=confirmation).sum() == confirmation
         short_state = short_state.rolling(window=confirmation, min_periods=confirmation).sum() == confirmation
@@ -362,14 +375,15 @@ def _squeeze_release_signals(frame: pd.DataFrame, spec: StrategySpec, params: di
             continue
 
         current_close = float(close.iloc[idx]) if not pd.isna(close.iloc[idx]) else entry_price
-        lost_context = bool(breakout.iloc[idx] == 0 or trend.iloc[idx] == 0 or squeeze.iloc[idx] != 1)
         if active_direction > 0:
             stop_price = entry_price - (entry_atr * stop_multiple)
             target_price = entry_price + (entry_atr * target_multiple)
+            lost_context = bool((not trend_up.iloc[idx]) or low_cross.iloc[idx] < 0 or bb_position.iloc[idx] < 0.25)
             should_exit = current_close <= stop_price or current_close >= target_price or lost_context
         else:
             stop_price = entry_price + (entry_atr * stop_multiple)
             target_price = entry_price - (entry_atr * target_multiple)
+            lost_context = bool((not trend_down.iloc[idx]) or high_cross.iloc[idx] > 0 or bb_position.iloc[idx] > 0.75)
             should_exit = current_close >= stop_price or current_close <= target_price or lost_context
         if should_exit:
             exit_signal.iloc[idx] = True

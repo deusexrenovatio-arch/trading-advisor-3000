@@ -21,9 +21,9 @@ def mtf_pullback_family_adapter() -> StrategyFamilyAdapter:
             "ema_20",
             "ema_50",
             "distance_to_session_vwap",
-            "trend_state_fast_slow_code",
-            "htf_trend_state_code",
-            "htf_rsi_14",
+            "mtf_1h_to_15m_ema_20",
+            "mtf_1h_to_15m_ema_50",
+            "mtf_1h_to_15m_rsi_14",
         ),
         parameter_grid=(
             StrategyParameter("pullback_depth", (0.25, 0.5, 0.75)),
@@ -49,7 +49,7 @@ def mtf_pullback_family_adapter() -> StrategyFamilyAdapter:
         strategy_spec=strategy_spec,
         template_key="mtf_pullback_core",
         template_title="MTF Pullback Core",
-        regime_module_key="feature.htf_trend_state_code",
+        regime_module_key="derived.mtf_ema_alignment",
         module_versions={"entry": "v2", "regime_filter": "v1", "risk_exit": "v1"},
     )
 

@@ -14,8 +14,17 @@ def squeeze_release_family_adapter() -> StrategyFamilyAdapter:
     strategy_spec = StrategySpec(
         version="squeeze-release-v1",
         family="squeeze_release",
-        description="Event-driven squeeze release strategy executed through vectorbt order callbacks.",
-        required_columns=("close", "atr_14", "squeeze_on_code", "breakout_ready_state_code", "trend_state_fast_slow_code"),
+        description="Event-driven volatility release strategy executed through vectorbt order callbacks.",
+        required_columns=(
+            "close",
+            "atr_14",
+            "ema_20",
+            "ema_50",
+            "bb_position_20_2",
+            "kc_position_20_1_5",
+            "cross_close_rolling_high_20_code",
+            "cross_close_rolling_low_20_code",
+        ),
         parameter_grid=(
             StrategyParameter("min_squeeze_bars", (3, 5, 8)),
             StrategyParameter("atr_target_multiple", (1.5, 2.0, 2.5)),
@@ -41,7 +50,7 @@ def squeeze_release_family_adapter() -> StrategyFamilyAdapter:
         strategy_spec=strategy_spec,
         template_key="squeeze_release_core",
         template_title="Squeeze Release Core",
-        regime_module_key="feature.squeeze_on_code",
+        regime_module_key="derived.volatility_channel_position",
         module_versions={"entry": "v1", "regime_filter": "v1", "risk_exit": "v1"},
     )
 

@@ -33,7 +33,7 @@ def test_breakout_window_changes_signal_generation() -> None:
     )
     frame = _frame(
         [
-            {"ts": ts, "close": close, "high": high, "low": low, "adx_14": 25.0, "atr_14": 1.0, "breakout_ready_state_code": 1, "trend_state_fast_slow_code": 1, "rolling_high_20": high, "rolling_low_20": low}
+            {"ts": ts, "close": close, "high": high, "low": low, "adx_14": 25.0, "atr_14": 1.0}
             for ts, (close, high, low) in zip(
                 timestamps,
                 (
@@ -52,11 +52,11 @@ def test_breakout_window_changes_signal_generation() -> None:
         version="breakout-semantic-v1",
         family="breakout",
         description="semantic test",
-        required_columns=("close", "high", "low", "rolling_high_20", "rolling_low_20", "adx_14", "atr_14", "breakout_ready_state_code", "trend_state_fast_slow_code"),
+        required_columns=("close", "high", "low", "adx_14", "atr_14"),
         parameter_grid=(
             StrategyParameter("breakout_window", (2, 5)),
             StrategyParameter("min_adx", (20,)),
-            StrategyParameter("entry_buffer_atr", (1.0,)),
+            StrategyParameter("entry_buffer_atr", (0.0,)),
         ),
         signal_builder_key="breakout",
         risk_policy=StrategyRiskPolicy(stop_atr_multiple=1.0, target_atr_multiple=2.0),
@@ -64,8 +64,8 @@ def test_breakout_window_changes_signal_generation() -> None:
     )
     config = BacktestEngineConfig()
 
-    fast = _breakout_signals(frame, spec, {"breakout_window": 2, "min_adx": 20, "entry_buffer_atr": 1.0}, config)
-    slow = _breakout_signals(frame, spec, {"breakout_window": 5, "min_adx": 20, "entry_buffer_atr": 1.0}, config)
+    fast = _breakout_signals(frame, spec, {"breakout_window": 2, "min_adx": 20, "entry_buffer_atr": 0.0}, config)
+    slow = _breakout_signals(frame, spec, {"breakout_window": 5, "min_adx": 20, "entry_buffer_atr": 0.0}, config)
 
     assert fast["entries"].tolist() != slow["entries"].tolist()
 
@@ -80,8 +80,6 @@ def test_risk_policy_drives_signal_stop_take_profit_levels() -> None:
                 "ema_20": 100.0 + idx,
                 "ema_50": 99.0 + idx,
                 "atr_14": 2.0,
-                "trend_state_fast_slow_code": 1,
-                "ma_stack_state_code": 2,
             }
             for idx, minute in enumerate((0, 15, 30, 45))
         ]
@@ -90,7 +88,7 @@ def test_risk_policy_drives_signal_stop_take_profit_levels() -> None:
         version="ma-risk-v1",
         family="ma_cross",
         description="risk semantic test",
-        required_columns=("close", "ema_10", "ema_20", "ema_50", "atr_14", "trend_state_fast_slow_code", "ma_stack_state_code"),
+        required_columns=("close", "ema_10", "ema_20", "ema_50", "atr_14"),
         parameter_grid=(StrategyParameter("fast_window", (10,)), StrategyParameter("slow_window", (20,))),
         signal_builder_key="ma_cross",
         risk_policy=StrategyRiskPolicy(stop_atr_multiple=0.5, target_atr_multiple=3.0),
@@ -105,19 +103,28 @@ def test_risk_policy_drives_signal_stop_take_profit_levels() -> None:
 def test_squeeze_target_multiple_changes_exit_timing() -> None:
     frame = _frame(
         [
-            {"ts": "2026-03-16T09:00:00Z", "close": 100.0, "atr_14": 1.0, "squeeze_on_code": 1, "breakout_ready_state_code": 0, "trend_state_fast_slow_code": 1},
-            {"ts": "2026-03-16T09:15:00Z", "close": 100.1, "atr_14": 1.0, "squeeze_on_code": 1, "breakout_ready_state_code": 0, "trend_state_fast_slow_code": 1},
-            {"ts": "2026-03-16T09:30:00Z", "close": 100.2, "atr_14": 1.0, "squeeze_on_code": 1, "breakout_ready_state_code": 1, "trend_state_fast_slow_code": 1},
-            {"ts": "2026-03-16T09:45:00Z", "close": 100.9, "atr_14": 1.0, "squeeze_on_code": 1, "breakout_ready_state_code": 1, "trend_state_fast_slow_code": 1},
-            {"ts": "2026-03-16T10:00:00Z", "close": 101.0, "atr_14": 1.0, "squeeze_on_code": 1, "breakout_ready_state_code": 1, "trend_state_fast_slow_code": 1},
-            {"ts": "2026-03-16T10:15:00Z", "close": 100.0, "atr_14": 1.0, "squeeze_on_code": 0, "breakout_ready_state_code": 0, "trend_state_fast_slow_code": 0},
+            {"ts": "2026-03-16T09:00:00Z", "close": 100.0, "atr_14": 1.0, "ema_20": 100.0, "ema_50": 99.0, "bb_position_20_2": 0.5, "kc_position_20_1_5": 0.5, "cross_close_rolling_high_20_code": 0, "cross_close_rolling_low_20_code": 0},
+            {"ts": "2026-03-16T09:15:00Z", "close": 100.1, "atr_14": 1.0, "ema_20": 100.1, "ema_50": 99.1, "bb_position_20_2": 0.5, "kc_position_20_1_5": 0.5, "cross_close_rolling_high_20_code": 0, "cross_close_rolling_low_20_code": 0},
+            {"ts": "2026-03-16T09:30:00Z", "close": 100.2, "atr_14": 1.0, "ema_20": 100.2, "ema_50": 99.2, "bb_position_20_2": 0.5, "kc_position_20_1_5": 0.5, "cross_close_rolling_high_20_code": 0, "cross_close_rolling_low_20_code": 0},
+            {"ts": "2026-03-16T09:45:00Z", "close": 100.9, "atr_14": 1.0, "ema_20": 100.4, "ema_50": 99.4, "bb_position_20_2": 0.85, "kc_position_20_1_5": 0.75, "cross_close_rolling_high_20_code": 1, "cross_close_rolling_low_20_code": 0},
+            {"ts": "2026-03-16T10:00:00Z", "close": 101.5, "atr_14": 1.0, "ema_20": 100.6, "ema_50": 99.6, "bb_position_20_2": 0.9, "kc_position_20_1_5": 0.8, "cross_close_rolling_high_20_code": 0, "cross_close_rolling_low_20_code": 0},
+            {"ts": "2026-03-16T10:15:00Z", "close": 100.0, "atr_14": 1.0, "ema_20": 98.0, "ema_50": 99.0, "bb_position_20_2": 0.2, "kc_position_20_1_5": 0.2, "cross_close_rolling_high_20_code": 0, "cross_close_rolling_low_20_code": -1},
         ]
     )
     spec = StrategySpec(
         version="squeeze-semantic-v1",
         family="squeeze_release",
         description="squeeze semantic test",
-        required_columns=("close", "atr_14", "squeeze_on_code", "breakout_ready_state_code", "trend_state_fast_slow_code"),
+        required_columns=(
+            "close",
+            "atr_14",
+            "ema_20",
+            "ema_50",
+            "bb_position_20_2",
+            "kc_position_20_1_5",
+            "cross_close_rolling_high_20_code",
+            "cross_close_rolling_low_20_code",
+        ),
         parameter_grid=(
             StrategyParameter("min_squeeze_bars", (3,)),
             StrategyParameter("atr_target_multiple", (0.5, 3.0)),
