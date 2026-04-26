@@ -16,7 +16,7 @@ Control plane управляет:
 
 Application plane управляет:
 - market data,
-- features/backtests,
+- indicators, derived indicators, and backtests,
 - runtime signals,
 - Telegram publishing,
 - paper/live execution,
@@ -60,8 +60,8 @@ flowchart LR
 
     P1(("P1 Data Ingestion"))
     P2(("P2 Canonical Data Builder/Orchestrator"))
-    P3(("P3 Feature Engine"))
-    P4(("P4 Feature-based Backtest"))
+    P3(("P3 Indicator Engine"))
+    P4(("P4 Indicator-based Backtest"))
     P5(("P5 Signal Decision Engine"))
     P6(("P6 Publishing Engine"))
     P7(("P7 Review / Analytics"))
@@ -69,7 +69,7 @@ flowchart LR
 
     D1[["D1 Raw Data Lake"]]
     D2[["D2 Canonical Market Data"]]
-    D3[["D3 Feature / Context Store"]]
+    D3[["D3 Indicator / Derived Indicator Store"]]
     D4[["D4 Signal Candidates"]]
     D5[["D5 Outcome / Analytics Store"]]
     D7[["D7 Active Signals"]]
@@ -119,7 +119,7 @@ flowchart LR
 
 ### 4.2 Research plane
 Ответственность:
-- features,
+- indicators,
 - backtest,
 - walk-forward,
 - candidate scoring,
@@ -127,7 +127,7 @@ flowchart LR
 
 Технологии:
 - Python,
-- internal backtest engine (`src/trading_advisor_3000/product_plane/research/backtest/engine.py`),
+- internal backtest engine (`src/trading_advisor_3000/product_plane/research/backtests/engine.py`),
 - Delta,
 - Dagster.
 

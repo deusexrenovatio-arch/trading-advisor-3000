@@ -1,4 +1,4 @@
-﻿# 04. ADRs
+# 04. ADRs
 
 ## ADR-001 вЂ” Monorepo split: control plane + application plane
 
@@ -31,7 +31,7 @@
 ### РџРѕСЃР»РµРґСЃС‚РІРёСЏ
 - РїСЂРѕС‰Рµ РјР°СЃС€С‚Р°Р±РёСЂРѕРІР°С‚СЊ data plane;
 - РјРѕР¶РЅРѕ РёСЃРїРѕР»СЊР·РѕРІР°С‚СЊ Spark РґР»СЏ С‚СЏР¶С‘Р»С‹С… РґР¶РѕР±РѕРІ Рё PyArrow РґР»СЏ Р»РѕРєР°Р»СЊРЅРѕРіРѕ dataframe/query Р°РЅР°Р»РёР·Р° (Polars/DuckDB removed by ADR-011; this historical wording is superseded);
-- advanced Delta features РІРєР»СЋС‡Р°С‚СЊ С‚РѕР»СЊРєРѕ РїРѕ РјРµСЂРµ РЅРµРѕР±С…РѕРґРёРјРѕСЃС‚Рё.
+- advanced Delta capabilities РІРєР»СЋС‡Р°С‚СЊ С‚РѕР»СЊРєРѕ РїРѕ РјРµСЂРµ РЅРµРѕР±С…РѕРґРёРјРѕСЃС‚Рё.
 
 ---
 
@@ -196,7 +196,7 @@ Runtime reality already ships a custom Telegram publication engine, SQL-file mig
 ### Evidence anchors
 - Telegram runtime path: `src/trading_advisor_3000/product_plane/runtime/publishing/telegram.py`, `tests/product-plane/unit/test_phase2c_runtime_components.py`.
 - SQL migration runner: `scripts/apply_app_migrations.py`, `src/trading_advisor_3000/migrations/*.sql`, `tests/product-plane/integration/test_phase2c_runtime_postgres_store.py`.
-- Internal backtest runtime: `src/trading_advisor_3000/product_plane/research/backtest/engine.py`, `tests/product-plane/integration/test_materialized_research_plane.py`.
+- Internal backtest runtime: `src/trading_advisor_3000/product_plane/research/backtests/engine.py`, `tests/product-plane/integration/test_materialized_research_plane.py`.
 - Observability runtime: `src/trading_advisor_3000/product_plane/runtime/analytics/review.py`, `tests/product-plane/integration/test_phase5_review_observability.py`.
 
 ### Consequences

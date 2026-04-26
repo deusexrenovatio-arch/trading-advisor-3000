@@ -6,7 +6,7 @@
 Используется для:
 - `raw.*`
 - `canonical.*`
-- `feature.*`
+- `research.indicator_frames` + `research.derived_indicator_frames`
 - `research.*`
 - `analytics.*`
 
@@ -101,22 +101,36 @@
 - volume
 - continuous_rule
 
-## 2.3 Feature layer
+## 2.3 Indicator and derived indicator layers
 
-### `feature.snapshots`
+### `research.indicator_frames`
+- dataset_version
+- indicator_set_version
+- profile_version
 - contract_id
 - instrument_id
 - timeframe
 - ts
-- feature_set_version
-- regime
-- atr
-- ema_fast
-- ema_slow
-- donchian_high
-- donchian_low
-- rvol
-- features_json
+- close
+- volume
+- ema_*
+- rsi_*
+- atr_*
+- macd_*
+
+### `research.derived_indicator_frames`
+- dataset_version
+- indicator_set_version
+- derived_indicator_set_version
+- profile_version
+- contract_id
+- instrument_id
+- timeframe
+- ts
+- distance_to_ema_*_atr
+- donchian_position_*
+- divergence_*_score
+- mtf_*_to_*_*
 
 ## 2.4 Research layer
 
@@ -307,10 +321,11 @@
 `raw.market_events`
 → `canonical.contracts / instruments / session_calendar`
 → `canonical.bars`
-→ `feature.snapshots`
+→ `research.indicator_frames`
+→ `research.derived_indicator_frames`
 
 ### Поток 2. Research
-`canonical.bars + feature.snapshots + config.strategy_versions`
+`canonical.bars + research.indicator_frames + research.derived_indicator_frames + config.strategy_versions`
 → `research.backtest_runs`
 → `research.signal_candidates`
 → `research.forward_observations`
@@ -340,7 +355,8 @@
 erDiagram
     INSTRUMENT ||--o{ FUTURES_CONTRACT : has
     FUTURES_CONTRACT ||--o{ CANONICAL_BAR : produces
-    FUTURES_CONTRACT ||--o{ FEATURE_SNAPSHOT : context_for
+    FUTURES_CONTRACT ||--o{ INDICATOR_FRAME : context_for
+    INDICATOR_FRAME ||--o{ DERIVED_INDICATOR_FRAME : derives
     STRATEGY ||--o{ STRATEGY_VERSION : versioned_as
     RISK_TEMPLATE ||--o{ STRATEGY_VERSION : applied_to
     STRATEGY_VERSION ||--o{ BACKTEST_RUN : tested_in

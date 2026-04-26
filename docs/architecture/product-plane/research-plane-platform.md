@@ -131,19 +131,19 @@ Research storage is split into two layers:
 Committed example configs should prefer external-first roots under `D:/TA3000-data`.
 Worktree-local roots are allowed only when a config explicitly asks for them.
 
-## Derived Indicator And Feature Semantics
+## Derived Indicator Semantics
 
-`research_derived_indicator_frames` is the wide causal technical-relationship layer between base indicators and curated feature sets.
-It keeps one row per candle and versioning separate from both base indicators and features.
+`research_derived_indicator_frames` is the wide causal technical-relationship layer between base indicators and strategies.
+It keeps one row per candle and versioning separate from base indicators.
 
-The feature layer now includes explicit helper outputs that downstream strategy and projection code can read directly:
+The derived indicator layer includes explicit helper outputs that downstream strategy and projection code can read directly:
 - `breakout_ready_flag`
 - `reversion_ready_flag`
 - `atr_stop_ref_1x`
 - `atr_target_ref_2x`
 
 These are not decorative metadata.
-They are materialized together with the rest of the feature frame and travel as part of the stable contract.
+They are materialized together with the rest of the derived indicator frame and travel as part of the stable contract.
 
 ## Benchmark Evidence
 
