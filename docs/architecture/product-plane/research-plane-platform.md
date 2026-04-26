@@ -12,7 +12,7 @@ The primary route is now a materialized, versioned pipeline with explicit data-p
 canonical data
   -> research_datasets / research_bar_views
   -> research_indicator_frames
-  -> research_feature_frames
+  -> research_derived_indicator_frames
   -> strategy registry refresh, when strategy inventory changes or a campaign needs instances
   -> research_strategy_families / research_strategy_templates / research_strategy_template_modules
   -> research_strategy_instances / research_strategy_instance_modules
@@ -24,17 +24,17 @@ canonical data
 ```
 
 What this means in practice:
-- expensive indicator and feature work is moved out of the hot backtest loop;
+- expensive indicator and derived-indicator work is moved out of the hot backtest loop;
 - `research_data_prep_job` is the product data-prep contour and is triggered after the canonical MOEX baseline update succeeds;
 - strategy registry refresh is intentionally separate from data prep, so strategy inventory changes do not masquerade as canonical data freshness work;
 - strategy templates and concrete strategy instances live in Delta registry tables instead of Python-only catalog state;
 - repeated research runs reuse the materialized layer and in-process cache;
-- successful campaign runs publish global run-stat/ranking indices and strategy notes from the canonical registry root;
+- successful campaign runs publish global run-stat/ranking indices and strategy notes from the research registry root;
 - runtime consumes projected candidates instead of knowing research internals.
 
 ## Strategy Registry Layer
 
-The canonical strategy registry layer in Delta includes:
+The research strategy registry layer in Delta includes:
 - `research_strategy_families`
 - `research_strategy_templates`
 - `research_strategy_template_modules`
@@ -92,7 +92,7 @@ Research data prep layer:
 - `research_datasets`
 - `research_bar_views`
 - `research_indicator_frames`
-- `research_feature_frames`
+- `research_derived_indicator_frames`
 
 Strategy registry layer (Stage 2 pre-cutover):
 - `research_strategy_families`
@@ -122,13 +122,19 @@ Projection layer:
 ## Storage Model
 
 Research storage is split into two layers:
-- reusable materialized outputs under `<materialized_root>/<materialization_key>/`
+- reusable gold outputs under `<materialized_root>/`
 - immutable run artifacts under `<runs_root>/<campaign_name>/<run_id>/`
+
+`materialization_key` remains the reproducibility fingerprint for a gold snapshot and is stored in
+`materialization.lock.json` plus run metadata; it is not part of the physical folder layout.
 
 Committed example configs should prefer external-first roots under `D:/TA3000-data`.
 Worktree-local roots are allowed only when a config explicitly asks for them.
 
-## Derived Feature Helper Semantics
+## Derived Indicator And Feature Semantics
+
+`research_derived_indicator_frames` is the wide causal technical-relationship layer between base indicators and curated feature sets.
+It keeps one row per candle and versioning separate from both base indicators and features.
 
 The feature layer now includes explicit helper outputs that downstream strategy and projection code can read directly:
 - `breakout_ready_flag`
