@@ -208,7 +208,7 @@ def run_benchmark_job(
     materialize_derived_indicator_frames(
         dataset_output_dir=materialized_dir,
         indicator_output_dir=materialized_dir,
-        feature_output_dir=materialized_dir,
+        derived_indicator_output_dir=materialized_dir,
         dataset_version=dataset_version,
         indicator_set_version="indicators-v1",
         derived_indicator_set_version="derived-v1",
