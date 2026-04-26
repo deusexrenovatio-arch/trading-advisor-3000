@@ -52,7 +52,6 @@ INTAKE_BLOCKED_EXIT = 3
 BLOCKER_SEVERITIES = ("P0", "P1", "P2")
 BLOCKER_SCALES = ("S", "M", "L", "XL")
 INTAKE_REQUIRED_SKILLS = ("workflow-architect",)
-TECHNICAL_INTAKE_MODEL = "gpt-5.3-codex"
 POSITIVE_HINTS = (
     ("technical_requirements", 140, "filename looks like technical requirements"),
     ("requirements", 120, "filename looks like requirements"),
@@ -1458,8 +1457,6 @@ def build_materialization_prompt(
 
 
 def lane_model_override(lane: str) -> str | None:
-    if lane == "technical_intake":
-        return TECHNICAL_INTAKE_MODEL
     return None
 
 

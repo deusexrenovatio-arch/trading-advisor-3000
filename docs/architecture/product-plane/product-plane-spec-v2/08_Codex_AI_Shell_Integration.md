@@ -103,7 +103,6 @@ Root `AGENTS.md` остаётся shell-first.
 
 ```toml
 project_root_markers = [".git"]
-model = "gpt-5.4"
 
 [mcp_servers.github]
 command = "docker"
