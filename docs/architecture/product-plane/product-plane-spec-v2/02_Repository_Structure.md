@@ -36,8 +36,9 @@ src/trading_advisor_3000/
       canonical/
       schemas/
     research/
-      features/
-      backtest/
+      indicators/
+      derived_indicators/
+      backtests/
       forward/
       strategies/
     runtime/

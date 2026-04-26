@@ -1,4 +1,4 @@
-﻿# 07. Tech Stack and Open Source
+# 07. Tech Stack and Open Source
 
 ## 1. Р’С‹Р±СЂР°РЅРЅС‹Р№ СЃС‚РµРє
 
@@ -12,7 +12,7 @@
 | DuckDB | local SQL and Delta/Parquet access | removed (ADR-011) | OSS | replaced by Delta Lake + PyArrow query/read path |
 | PostgreSQL | runtime state | chosen | OSS | signal/config/execution |
 | vectorbt | backtest/research | chosen (governed profile, ADR-012) | fair-code (Apache-2.0 + Commons Clause) | research-only contour; runtime/execution stays on internal engine |
-| pandas-ta-classic | governed feature engineering | chosen (governed profile, ADR-012) | OSS | bounded indicator/materialization contour paired with vectorbt research profile |
+| pandas-ta-classic | governed indicator engineering | chosen (governed profile, ADR-012) | OSS | bounded indicator/materialization contour paired with vectorbt research profile |
 | FastAPI | service/API layer | chosen | OSS | runtime/admin APIs |
 | aiogram | Telegram integration | removed (ADR-011) | OSS | replaced by custom Bot API publication engine |
 | Alembic | DB migrations | removed (ADR-011) | OSS | replaced by SQL migration runner (`scripts/apply_app_migrations.py`) |
@@ -42,7 +42,7 @@
 
 ### РСЃРїРѕР»СЊР·РѕРІР°С‚СЊ РґР»СЏ
 - large rebuilds,
-- recompute features,
+- recompute indicators and derived indicators,
 - batch normalization,
 - bigger historical pipelines.
 

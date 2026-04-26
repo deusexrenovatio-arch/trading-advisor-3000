@@ -31,7 +31,7 @@
 | Look-ahead in research | переоценка стратегий | PIT tests + frozen dataset versions |
 | Broker/runtime mismatch | неверный local position state | reconciliation + broker event log |
 | Sidecar drift | разные модели между Python и sidecar | transport-neutral contracts + sync tests |
-| Delta over-complexity | feature incompatibility | conservative table feature policy |
+| Delta over-complexity | indicator incompatibility | conservative table capability policy |
 | CI/gate bypass | неустойчивый delivery process | mandatory shell gate flow |
 | Secrets leakage | компрометация broker/API access | secret manager + no repo secrets |
 
