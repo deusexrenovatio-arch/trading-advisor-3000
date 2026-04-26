@@ -79,7 +79,7 @@ def test_materialized_research_backtest_is_reproducible_and_writes_outputs(tmp_p
 
     assert run_a["backtest_run"]["backtest_run_id"] == run_b["backtest_run"]["backtest_run_id"]
     assert run_a["signal_contract_rows"] == run_b["signal_contract_rows"]
-    assert run_a["delta_manifest"]["feature_snapshots"]["format"] == "delta"
+    assert run_a["delta_manifest"]["research_derived_indicator_frames"]["format"] == "delta"
     assert run_a["primary_path"] == "materialized_research"
 
     for path_text in run_a["output_paths"].values():
