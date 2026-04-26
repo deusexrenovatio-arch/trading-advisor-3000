@@ -47,7 +47,7 @@ def test_vectorized_research_indicator_profile_covers_core_indicator_groups() ->
     profile = core_v1_indicator_profile()
     assert profile.version == "core_v1"
     grouped = profile.by_category()
-    assert set(grouped) == {"momentum", "oscillator", "trend", "volatility", "volume"}
+    assert set(grouped) == {"momentum", "open_interest", "oscillator", "trend", "volatility", "volume"}
 
     all_columns = {column for spec in profile.indicators for column in spec.output_columns}
     assert {
@@ -56,6 +56,7 @@ def test_vectorized_research_indicator_profile_covers_core_indicator_groups() ->
         "macd_12_26_9",
         "atr_14",
         "obv",
+        "oi_change_1",
         "kc_upper_20_1_5",
     } <= all_columns
 
