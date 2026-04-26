@@ -82,6 +82,8 @@ $canonicalReportPath = Join-Path $canonicalRunRoot 'canonical-refresh-report.jso
 $rawTableSourcePath = Join-Path $rawIngestRunRoot 'delta\raw_moex_history.delta'
 $canonicalBarsSourcePath = Join-Path $canonicalRunRoot 'delta\canonical_bars.delta'
 $canonicalProvenanceSourcePath = Join-Path $canonicalRunRoot 'delta\canonical_bar_provenance.delta'
+$canonicalSessionCalendarSourcePath = Join-Path $canonicalRunRoot 'delta\canonical_session_calendar.delta'
+$canonicalRollMapSourcePath = Join-Path $canonicalRunRoot 'delta\canonical_roll_map.delta'
 
 Assert-PathExists -TargetPath $routeReportPath -Label 'route refresh report'
 Assert-PathExists -TargetPath $rawIngestReportPath -Label 'raw-ingest report'
@@ -89,6 +91,8 @@ Assert-PathExists -TargetPath $canonicalReportPath -Label 'canonical-refresh rep
 Assert-PathExists -TargetPath $rawTableSourcePath -Label 'raw table'
 Assert-PathExists -TargetPath $canonicalBarsSourcePath -Label 'canonical bars table'
 Assert-PathExists -TargetPath $canonicalProvenanceSourcePath -Label 'canonical provenance table'
+Assert-PathExists -TargetPath $canonicalSessionCalendarSourcePath -Label 'canonical session calendar table'
+Assert-PathExists -TargetPath $canonicalRollMapSourcePath -Label 'canonical roll map table'
 
 $routeReport = Get-Content -LiteralPath $routeReportPath -Raw | ConvertFrom-Json
 $rawIngestReport = Get-Content -LiteralPath $rawIngestReportPath -Raw | ConvertFrom-Json
@@ -114,10 +118,14 @@ New-Item -ItemType Directory -Path $baselineReportsRoot -Force | Out-Null
 $baselineRawPath = Join-Path $resolvedRawBaselineRoot 'raw_moex_history.delta'
 $baselineCanonicalBarsPath = Join-Path $resolvedCanonicalBaselineRoot 'canonical_bars.delta'
 $baselineCanonicalProvenancePath = Join-Path $resolvedCanonicalBaselineRoot 'canonical_bar_provenance.delta'
+$baselineCanonicalSessionCalendarPath = Join-Path $resolvedCanonicalBaselineRoot 'canonical_session_calendar.delta'
+$baselineCanonicalRollMapPath = Join-Path $resolvedCanonicalBaselineRoot 'canonical_roll_map.delta'
 
 Replace-DirectoryWithMaterializedCopy -DestinationPath $baselineRawPath -SourcePath $rawTableSourcePath
 Replace-DirectoryWithMaterializedCopy -DestinationPath $baselineCanonicalBarsPath -SourcePath $canonicalBarsSourcePath
 Replace-DirectoryWithMaterializedCopy -DestinationPath $baselineCanonicalProvenancePath -SourcePath $canonicalProvenanceSourcePath
+Replace-DirectoryWithMaterializedCopy -DestinationPath $baselineCanonicalSessionCalendarPath -SourcePath $canonicalSessionCalendarSourcePath
+Replace-DirectoryWithMaterializedCopy -DestinationPath $baselineCanonicalRollMapPath -SourcePath $canonicalRollMapSourcePath
 
 Copy-Item -LiteralPath $routeReportPath -Destination (Join-Path $baselineReportsRoot 'route-refresh-report.json') -Force
 Copy-Item -LiteralPath $canonicalReportPath -Destination (Join-Path $baselineReportsRoot 'canonical-refresh-report.json') -Force
@@ -152,6 +160,8 @@ $manifest = [ordered]@{
         raw_table = $baselineRawPath
         canonical_bars = $baselineCanonicalBarsPath
         canonical_bar_provenance = $baselineCanonicalProvenancePath
+        canonical_session_calendar = $baselineCanonicalSessionCalendarPath
+        canonical_roll_map = $baselineCanonicalRollMapPath
         route_report = (Join-Path $baselineReportsRoot 'route-refresh-report.json')
         canonical_report = (Join-Path $baselineReportsRoot 'canonical-refresh-report.json')
         manifest = (Join-Path $resolvedCanonicalBaselineRoot 'baseline-manifest.json')
@@ -164,6 +174,8 @@ $manifest = [ordered]@{
         raw_table_source = $rawTableSourcePath
         canonical_bars_source = $canonicalBarsSourcePath
         canonical_bar_provenance_source = $canonicalProvenanceSourcePath
+        canonical_session_calendar_source = $canonicalSessionCalendarSourcePath
+        canonical_roll_map_source = $canonicalRollMapSourcePath
     }
     source_retention_status = 'historical source run folders may be purged after baseline materialization because raw/canonical baseline paths are self-contained'
     summary = [ordered]@{
@@ -199,6 +211,8 @@ $readmeLines = @(
     "- raw: $baselineRawPath",
     "- canonical bars: $baselineCanonicalBarsPath",
     "- canonical provenance: $baselineCanonicalProvenancePath",
+    "- canonical session calendar: $baselineCanonicalSessionCalendarPath",
+    "- canonical roll map: $baselineCanonicalRollMapPath",
     '',
     'Derived placeholders:',
     "- features: $(Join-Path $resolvedDerivedRoot 'features')",
@@ -229,6 +243,8 @@ $result = [ordered]@{
     raw_table = $baselineRawPath
     canonical_bars = $baselineCanonicalBarsPath
     canonical_bar_provenance = $baselineCanonicalProvenancePath
+    canonical_session_calendar = $baselineCanonicalSessionCalendarPath
+    canonical_roll_map = $baselineCanonicalRollMapPath
     promoted_at_utc = $promotedAtUtc
 }
 $result | ConvertTo-Json -Depth 20

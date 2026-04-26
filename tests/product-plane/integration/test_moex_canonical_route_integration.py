@@ -196,13 +196,23 @@ def test_historical_canonical_route_generates_resampling_outputs_and_reports(tmp
     assert report["runtime_decoupling_proof"]["status"] == "PASS"
     assert report["output_paths"]["canonical_bars"]
     assert report["output_paths"]["canonical_bar_provenance"]
+    assert report["output_paths"]["canonical_session_calendar"]
+    assert report["output_paths"]["canonical_roll_map"]
+    assert report["sidecar_refresh"]["mode"] == "full"
+    assert report["sidecar_refresh"]["mutation_applied"] is True
     assert report["spark_execution_report"]["engine"] == "spark"
     assert report["spark_execution_report"]["proof_profile"] in {"docker-linux", "local-spark"}
     assert report["real_bindings"]
 
     bars = read_delta_table_rows(Path(str(report["output_paths"]["canonical_bars"])))
+    session_calendar = read_delta_table_rows(Path(str(report["output_paths"]["canonical_session_calendar"])))
+    roll_map = read_delta_table_rows(Path(str(report["output_paths"]["canonical_roll_map"])))
     assert bars
+    assert session_calendar
+    assert roll_map
     assert {row["timeframe"] for row in bars} == {"5m", "15m", "1h", "4h", "1d", "1w"}
+    assert {row["instrument_id"] for row in session_calendar} == {"FUT_BR"}
+    assert {row["active_contract_id"] for row in roll_map} == {"BRM6@MOEX"}
     first_m5 = next(
         row
         for row in bars
@@ -289,6 +299,8 @@ def test_historical_canonical_route_pass_noop_does_not_mutate_existing_tables(tm
     assert second["status"] == "PASS-NOOP"
     assert second["publish_decision"] == "publish"
     assert second["mutation_applied"] is False
+    assert second["sidecar_refresh"]["mode"] == "noop"
+    assert second["sidecar_refresh"]["mutation_applied"] is False
     assert bars_before == bars_after
 
 

@@ -110,8 +110,14 @@ def test_baseline_update_writes_to_stable_paths_and_scoped_canonical_refresh(
     assert captured["raw_table_path"] == raw_table_path
     assert captured["canonical_bars_path"] == canonical_bars_path
     assert captured["canonical_provenance_path"] == canonical_provenance_path
+    assert captured["canonical_session_calendar_path"] == canonical_bars_path.parent / "canonical_session_calendar.delta"
+    assert captured["canonical_roll_map_path"] == canonical_bars_path.parent / "canonical_roll_map.delta"
     assert captured["canonical_merge_strategy"] == CANONICAL_MERGE_SCOPED_DELETE_INSERT
     assert captured["max_changed_window_days"] == 10
+    assert report["canonical_session_calendar_path"] == (
+        canonical_bars_path.parent / "canonical_session_calendar.delta"
+    ).as_posix()
+    assert report["canonical_roll_map_path"] == (canonical_bars_path.parent / "canonical_roll_map.delta").as_posix()
     assert report["effective_changed_windows"] == 1
     assert not (tmp_path / "evidence" / "pending-changed-windows.json").exists()
 

@@ -182,6 +182,13 @@ def test_historical_dagster_cutover_definitions_are_executable(
     run_request = run_requests[0]
     assert isinstance(run_request.run_config, dict)
     assert run_request.run_config.get("ops")
+    op_config = run_request.run_config["ops"]["moex_baseline_update"]["config"]
+    assert op_config["canonical_session_calendar_path"].endswith(
+        "canonical/moex/baseline-4y-current/canonical_session_calendar.delta"
+    )
+    assert op_config["canonical_roll_map_path"].endswith(
+        "canonical/moex/baseline-4y-current/canonical_roll_map.delta"
+    )
 
 
 def test_dagster_route_schedule_fails_closed_without_external_data_root(

@@ -20,6 +20,8 @@ class CanonicalStorageBinding:
     canonical_root: Path
     canonical_bars_path: Path
     canonical_bar_provenance_path: Path | None
+    canonical_session_calendar_path: Path | None
+    canonical_roll_map_path: Path | None
     derived_root: Path | None
     features_root: Path | None
     indicators_root: Path | None
@@ -36,6 +38,16 @@ class CanonicalStorageBinding:
             "canonical_bar_provenance_path": (
                 self.canonical_bar_provenance_path.as_posix()
                 if self.canonical_bar_provenance_path is not None
+                else None
+            ),
+            "canonical_session_calendar_path": (
+                self.canonical_session_calendar_path.as_posix()
+                if self.canonical_session_calendar_path is not None
+                else None
+            ),
+            "canonical_roll_map_path": (
+                self.canonical_roll_map_path.as_posix()
+                if self.canonical_roll_map_path is not None
                 else None
             ),
             "derived_root": self.derived_root.as_posix() if self.derived_root is not None else None,
@@ -64,6 +76,8 @@ def _binding_from_direct_path(path: Path, *, source: str) -> CanonicalStorageBin
     canonical_root = canonical_bars_path.parent
     data_root = canonical_root.parents[2] if len(canonical_root.parents) >= 3 else canonical_root
     provenance = canonical_root / "canonical_bar_provenance.delta"
+    session_calendar = canonical_root / "canonical_session_calendar.delta"
+    roll_map = canonical_root / "canonical_roll_map.delta"
     derived_root = data_root / "derived" / "moex"
     return CanonicalStorageBinding(
         baseline_id=canonical_root.name or "direct-canonical-bars",
@@ -72,6 +86,8 @@ def _binding_from_direct_path(path: Path, *, source: str) -> CanonicalStorageBin
         canonical_root=canonical_root,
         canonical_bars_path=canonical_bars_path,
         canonical_bar_provenance_path=provenance if has_delta_log(provenance) else None,
+        canonical_session_calendar_path=session_calendar if has_delta_log(session_calendar) else None,
+        canonical_roll_map_path=roll_map if has_delta_log(roll_map) else None,
         derived_root=derived_root if derived_root.exists() else None,
         features_root=(derived_root / "features") if (derived_root / "features").exists() else None,
         indicators_root=(derived_root / "indicators") if (derived_root / "indicators").exists() else None,
@@ -102,6 +118,8 @@ def load_canonical_storage_binding(manifest_path: Path) -> CanonicalStorageBindi
     canonical_root = _path_from_text(storage_layout.get("canonical_root")) or canonical_bars_path.parent
     data_root = _path_from_text(payload.get("data_root")) or canonical_root.parents[2]
     provenance = _path_from_text(baseline_paths.get("canonical_bar_provenance"))
+    session_calendar = _path_from_text(baseline_paths.get("canonical_session_calendar"))
+    roll_map = _path_from_text(baseline_paths.get("canonical_roll_map"))
     derived_root = _path_from_text(storage_layout.get("derived_root"))
     features_root = _path_from_text(storage_layout.get("features_root"))
     indicators_root = _path_from_text(storage_layout.get("indicators_root"))
@@ -113,6 +131,8 @@ def load_canonical_storage_binding(manifest_path: Path) -> CanonicalStorageBindi
         canonical_root=canonical_root,
         canonical_bars_path=canonical_bars_path,
         canonical_bar_provenance_path=provenance if provenance is not None and has_delta_log(provenance) else provenance,
+        canonical_session_calendar_path=session_calendar,
+        canonical_roll_map_path=roll_map,
         derived_root=derived_root,
         features_root=features_root,
         indicators_root=indicators_root,
@@ -171,6 +191,8 @@ def resolve_moex_t3_storage(
                 canonical_root=binding.canonical_root,
                 canonical_bars_path=binding.canonical_bars_path,
                 canonical_bar_provenance_path=binding.canonical_bar_provenance_path,
+                canonical_session_calendar_path=binding.canonical_session_calendar_path,
+                canonical_roll_map_path=binding.canonical_roll_map_path,
                 derived_root=binding.derived_root,
                 features_root=binding.features_root,
                 indicators_root=binding.indicators_root,

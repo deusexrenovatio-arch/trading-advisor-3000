@@ -30,7 +30,9 @@ from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     BASELINE_UPDATE_STORAGE_DIRNAME,
     CANONICAL_BASELINE_BARS_FILENAME,
     CANONICAL_BASELINE_PROVENANCE_FILENAME,
+    CANONICAL_BASELINE_ROLL_MAP_FILENAME,
     CANONICAL_BASELINE_ROOT_RELATIVE_PATH,
+    CANONICAL_BASELINE_SESSION_CALENDAR_FILENAME,
     CANONICAL_REFRESH_REPORT_FILENAME,
     CANONICAL_REFRESH_STORAGE_DIRNAME,
     configured_moex_historical_data_root,
@@ -44,8 +46,8 @@ from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
 
 PASS_LIKE_RAW_STATUSES = {"PASS", "PASS-NOOP"}
 REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_MAPPING_REGISTRY = REPO_ROOT / "configs" / "moex_phase01" / "instrument_mapping_registry.v1.yaml"
-DEFAULT_UNIVERSE = REPO_ROOT / "configs" / "moex_phase01" / "universe" / "moex-futures-priority.v1.yaml"
+DEFAULT_MAPPING_REGISTRY = REPO_ROOT / "configs" / "moex_foundation" / "instrument_mapping_registry.v1.yaml"
+DEFAULT_UNIVERSE = REPO_ROOT / "configs" / "moex_foundation" / "universe" / "moex-futures-priority.v1.yaml"
 DEFAULT_TIMEFRAMES = "5m,15m,1h,4h,1d,1w"
 DEFAULT_WORKERS = 4
 DEFAULT_BATCH_SIZE = 250_000
@@ -106,6 +108,8 @@ MOEX_BASELINE_UPDATE_OP_CONFIG_SCHEMA = {
     "raw_table_path": DagsterField(str, is_required=False),
     "canonical_bars_path": DagsterField(str, is_required=False),
     "canonical_provenance_path": DagsterField(str, is_required=False),
+    "canonical_session_calendar_path": DagsterField(str, is_required=False),
+    "canonical_roll_map_path": DagsterField(str, is_required=False),
     "evidence_root": DagsterField(str, is_required=False),
     "timeframes": DagsterField(str, is_required=False),
     "refresh_window_days": DagsterField(int, is_required=False),
@@ -135,7 +139,11 @@ def moex_historical_asset_specs() -> list[AssetSpec]:
                 "Appends/merges fresh raw bars into the stable raw baseline and Spark-refreshes only changed canonical windows."
             ),
             inputs=("moex_iss", "mapping_registry", "universe", "baseline_raw", "baseline_canonical"),
-            outputs=("baseline-update-report.json",),
+            outputs=(
+                "baseline-update-report.json",
+                "canonical_session_calendar.delta",
+                "canonical_roll_map.delta",
+            ),
         ),
         AssetSpec(
             key="moex_raw_ingest",
@@ -154,7 +162,13 @@ def moex_historical_asset_specs() -> list[AssetSpec]:
                 "Blocked unless raw-ingest status is PASS/PASS-NOOP."
             ),
             inputs=("raw_ingest_owner_payload",),
-            outputs=("canonicalization-report.json",),
+            outputs=(
+                "canonicalization-report.json",
+                "canonical_bars.delta",
+                "canonical_bar_provenance.delta",
+                "canonical_session_calendar.delta",
+                "canonical_roll_map.delta",
+            ),
         ),
     ]
 
@@ -217,6 +231,8 @@ def _baseline_paths_from_root(root: Path) -> dict[str, Path]:
         "raw_table_path": root / RAW_BASELINE_TABLE_RELATIVE_PATH,
         "canonical_bars_path": canonical_root / CANONICAL_BASELINE_BARS_FILENAME,
         "canonical_provenance_path": canonical_root / CANONICAL_BASELINE_PROVENANCE_FILENAME,
+        "canonical_session_calendar_path": canonical_root / CANONICAL_BASELINE_SESSION_CALENDAR_FILENAME,
+        "canonical_roll_map_path": canonical_root / CANONICAL_BASELINE_ROLL_MAP_FILENAME,
         "evidence_root": root / BASELINE_UPDATE_STORAGE_DIRNAME,
     }
 
@@ -240,6 +256,8 @@ def _build_baseline_daily_schedule_run_config(context) -> dict[str, object]:
                     "raw_table_path": paths["raw_table_path"].as_posix(),
                     "canonical_bars_path": paths["canonical_bars_path"].as_posix(),
                     "canonical_provenance_path": paths["canonical_provenance_path"].as_posix(),
+                    "canonical_session_calendar_path": paths["canonical_session_calendar_path"].as_posix(),
+                    "canonical_roll_map_path": paths["canonical_roll_map_path"].as_posix(),
                     "evidence_root": paths["evidence_root"].as_posix(),
                     "timeframes": DEFAULT_TIMEFRAMES,
                     "refresh_window_days": DEFAULT_DAILY_REFRESH_WINDOW_DAYS,
@@ -547,6 +565,14 @@ def moex_baseline_update(context) -> dict[str, object]:
         _text_value(op_config, "canonical_provenance_path")
         or default_paths["canonical_provenance_path"].as_posix()
     ).resolve()
+    canonical_session_calendar_path = Path(
+        _text_value(op_config, "canonical_session_calendar_path")
+        or default_paths["canonical_session_calendar_path"].as_posix()
+    ).resolve()
+    canonical_roll_map_path = Path(
+        _text_value(op_config, "canonical_roll_map_path")
+        or default_paths["canonical_roll_map_path"].as_posix()
+    ).resolve()
     evidence_root = Path(
         _text_value(op_config, "evidence_root") or default_paths["evidence_root"].as_posix()
     ).resolve()
@@ -561,6 +587,8 @@ def moex_baseline_update(context) -> dict[str, object]:
         raw_table_path=raw_table_path,
         canonical_bars_path=canonical_bars_path,
         canonical_provenance_path=canonical_provenance_path,
+        canonical_session_calendar_path=canonical_session_calendar_path,
+        canonical_roll_map_path=canonical_roll_map_path,
         evidence_dir=evidence_root,
         run_id=run_id,
         timeframes=_split_timeframes(_text_value(op_config, "timeframes") or DEFAULT_TIMEFRAMES),
@@ -613,6 +641,8 @@ def moex_baseline_update(context) -> dict[str, object]:
             "canonical_rows": int(dict(report.get("canonical_report", {}) or {}).get("canonical_rows", 0) or 0),
             "raw_table_path": str(report.get("raw_table_path", "")),
             "canonical_bars_path": str(report.get("canonical_bars_path", "")),
+            "canonical_session_calendar_path": str(report.get("canonical_session_calendar_path", "")),
+            "canonical_roll_map_path": str(report.get("canonical_roll_map_path", "")),
         }
     )
     return report
@@ -793,6 +823,8 @@ def moex_historical_output_paths(output_dir: Path) -> dict[str, str]:
         "canonical_report": (resolved / CANONICAL_REFRESH_REPORT_FILENAME).as_posix(),
         "canonical_bars": (resolved / "delta" / "canonical_bars.delta").as_posix(),
         "canonical_bar_provenance": (resolved / "delta" / "canonical_bar_provenance.delta").as_posix(),
+        "canonical_session_calendar": (resolved / "delta" / "canonical_session_calendar.delta").as_posix(),
+        "canonical_roll_map": (resolved / "delta" / "canonical_roll_map.delta").as_posix(),
     }
 
 
