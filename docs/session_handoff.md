@@ -1,10 +1,10 @@
 # Session Handoff
-Updated: 2026-04-26 13:33 UTC
+Updated: 2026-04-26 14:20 UTC
 
 ## Active Task Note
-- Path: docs/tasks/archive/TASK-2026-04-26-clean-up-legacy-cursor-skill-catalog-and-route-r.md
+- Path: docs/tasks/active/TASK-2026-04-26-re-split-derived-indicator-and-feature-layer-rem.md
 - Mode: legacy-full
-- Status: completed
+- Status: in_progress
 
 ## Validation
 - `python scripts/validate_task_request_contract.py`
