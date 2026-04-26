@@ -21,6 +21,22 @@
 - When implementation status matters, also open:
   - `docs/architecture/product-plane/STATUS.md`
 - Route `architecture-review` first for design and boundary questions.
+- Use Graphify as an optional companion context for architecture mapping,
+  ownership, cross-module relationships, dependency tracing, or "where does this
+  concept live?" questions when a local Graphify report or graph JSON exists.
+- Before relying on Graphify for architecture orientation, compare the graph
+  freshness with the relevant changed areas. If the graph is stale for the
+  active question, refresh it with `graphify update .` for code-oriented context
+  or the explicit Graphify skill flow for semantic docs/images; if refresh is
+  skipped, state that the graph is stale and use it only as an orientation aid.
+- Graphify belongs to architecture orientation, not the general agent baseline:
+  do not run a Graphify pass after every Serena lookup or every code task.
+- Do not let Graphify override hot docs, source code, runtime evidence, or
+  governed artifacts. Use it to locate the relevant area, then use Serena or
+  direct source inspection for exact implementation proof.
+- Do not run Graphify semantic extraction across secrets, production data,
+  generated artifacts, archives, memory, or plans. Keep `.graphifyignore`
+  aligned with that boundary.
 - Co-load `docs-sync` when the architecture docs themselves need to be corrected
   or synchronized.
 - Co-load `module-scaffold` when the task creates a new module or moves a module

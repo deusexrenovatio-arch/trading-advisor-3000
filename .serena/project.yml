@@ -1,0 +1,16 @@
+project_name: "trading-advisor-3000"
+languages:
+- python
+encoding: "utf-8"
+ignore_all_files_in_gitignore: true
+ignored_paths:
+- codex_ai_delivery_shell_package/**
+- docs/tasks/archive/**
+- memory/**
+- plans/**
+- artifacts/**
+- .runlogs/**
+- .tmp*/**
+- graphify-out/**
+read_only: false
+initial_prompt: "For non-trivial code changes or new code inside an existing subsystem, use Serena first for code discovery, local pattern learning, impact analysis, and reference checks before broad scans, whole-file reads, or implementation. For new isolated files, inspect the closest existing module or pattern first unless the task is truly standalone. Skip Serena only for docs-only work, tiny already-localized edits, generated/artifact paths, config/non-code-only tasks, unsupported file types, or Serena unavailability; state the fallback reason briefly. Keep cold paths out of default exploration: codex_ai_delivery_shell_package, docs/tasks/archive, memory, plans, artifacts, .runlogs, and temp folders. Respect the dual-surface boundary: shell governance stays separate from product-plane app/data code."
