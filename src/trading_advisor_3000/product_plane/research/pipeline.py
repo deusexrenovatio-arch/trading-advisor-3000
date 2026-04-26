@@ -24,7 +24,11 @@ from trading_advisor_3000.product_plane.research.datasets import (
     materialize_research_dataset,
     research_dataset_store_contract,
 )
-from trading_advisor_3000.product_plane.research.features import materialize_feature_frames, research_feature_store_contract
+from trading_advisor_3000.product_plane.research.derived_indicators import (
+    DEFAULT_DERIVED_INDICATOR_SET_VERSION,
+    materialize_derived_indicator_frames,
+    research_derived_indicator_store_contract,
+)
 from trading_advisor_3000.product_plane.research.indicators import materialize_indicator_frames, indicator_store_contract
 from trading_advisor_3000.product_plane.research.io import ResearchFrameCache
 from trading_advisor_3000.product_plane.research.strategies import StrategyCatalog, StrategyRegistry, build_strategy_registry
@@ -245,9 +249,12 @@ def run_research_from_bars(
     session_calendar, roll_map = _inline_canonical_context(normalized_bars)
     base_timeframe = str(backtest_config.get("base_timeframe", timeframes[0]))
     indicator_set_version = str(backtest_config.get("indicator_set_version", "indicators-v1"))
-    feature_set_version = str(backtest_config.get("feature_set_version", "features-v1"))
+    derived_indicator_set_version = str(
+        backtest_config.get("derived_indicator_set_version", DEFAULT_DERIVED_INDICATOR_SET_VERSION)
+    )
+    feature_set_version = str(backtest_config.get("feature_set_version", ""))
     indicator_profile_version = str(backtest_config.get("indicator_profile_version", "core_v1"))
-    feature_profile_version = str(backtest_config.get("feature_profile_version", "core_v1"))
+    derived_indicator_profile_version = str(backtest_config.get("derived_indicator_profile_version", "core_v1"))
     session_hours_raw = backtest_config.get("session_hours_utc")
     session_hours_utc = (
         tuple(int(item) for item in session_hours_raw)
@@ -286,16 +293,15 @@ def run_research_from_bars(
         indicator_set_version=indicator_set_version,
         profile_version=indicator_profile_version,
     )
-    materialize_feature_frames(
+    materialize_derived_indicator_frames(
         dataset_output_dir=materialized_dir,
         indicator_output_dir=materialized_dir,
         feature_output_dir=materialized_dir,
         dataset_version=dataset_version,
         indicator_set_version=indicator_set_version,
-        feature_set_version=feature_set_version,
-        profile_version=feature_profile_version,
+        derived_indicator_set_version=derived_indicator_set_version,
+        profile_version=derived_indicator_profile_version,
     )
-
     strategy_registry = _primary_strategy_registry(strategy_version_id)
     all_combinations = len(strategy_registry.parameter_combinations(strategy_version_id))
     instances_per_strategy = int(backtest_config.get("combination_count", all_combinations))
@@ -310,6 +316,7 @@ def run_research_from_bars(
         strategy_space_id=strategy_space.strategy_space_id,
         dataset_version=dataset_version,
         indicator_set_version=indicator_set_version,
+        derived_indicator_set_version=derived_indicator_set_version,
         feature_set_version=feature_set_version,
         strategy_instances=strategy_space.strategy_instances,
         combination_count=len(strategy_space.strategy_instances),
@@ -385,7 +392,7 @@ def run_research_from_bars(
         "research_datasets": (materialized_dir / "research_datasets.delta").as_posix(),
         "research_bar_views": (materialized_dir / "research_bar_views.delta").as_posix(),
         "research_indicator_frames": (materialized_dir / "research_indicator_frames.delta").as_posix(),
-        "research_feature_frames": (materialized_dir / "research_feature_frames.delta").as_posix(),
+        "research_derived_indicator_frames": (materialized_dir / "research_derived_indicator_frames.delta").as_posix(),
         "research_backtest_batches": str(batch_report["output_paths"]["research_backtest_batches"]),
         "research_backtest_runs": str(batch_report["output_paths"]["research_backtest_runs"]),
         "research_strategy_stats": str(batch_report["output_paths"]["research_strategy_stats"]),
@@ -408,10 +415,9 @@ def run_research_from_bars(
         "backtest_run": backtest_run,
         "strategy_metrics": strategy_metrics,
         "delta_manifest": {
-            "feature_snapshots": research_feature_store_contract()["feature_snapshots"],
             **research_dataset_store_contract(),
             **indicator_store_contract(),
-            **research_feature_store_contract(),
+            **research_derived_indicator_store_contract(),
             **backtest_store_contract(),
             **results_store_contract(),
         },

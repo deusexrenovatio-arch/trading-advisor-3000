@@ -23,7 +23,10 @@ def test_committed_benchmark_artifacts_exist_and_record_threshold_pass() -> None
 
     payload = json.loads(report_json.read_text(encoding="utf-8-sig"))
     assert payload["dataset"]["scenario"] == "benchmark_small"
-    assert payload["thresholds"]["no_recompute_indicators_features"] is True
+    threshold_key = "no_recompute_indicators_derived"
+    if threshold_key not in payload["thresholds"]:
+        threshold_key = "no_recompute_indicators_features"
+    assert payload["thresholds"][threshold_key] is True
     assert payload["thresholds"]["hot_path_threshold_pass"] is True
     assert payload["thresholds"]["param_100_completed"] is True
     assert payload["artifacts"]["report_json"] == "research-benchmark-report.json"

@@ -93,6 +93,7 @@ def project_runtime_candidates(
     for ranking_row in selected_rows:
         dataset_version = str(ranking_row["dataset_version"])
         indicator_set_version = str(ranking_row.get("indicator_set_version", ""))
+        derived_indicator_set_version = str(ranking_row.get("derived_indicator_set_version", "derived-v1"))
         feature_set_version = str(ranking_row.get("feature_set_version", ""))
         contract_id = str(ranking_row["contract_id"])
         instrument_id = str(ranking_row["instrument_id"])
@@ -104,6 +105,7 @@ def project_runtime_candidates(
             request=ResearchSliceRequest(
                 dataset_version=dataset_version,
                 indicator_set_version=indicator_set_version,
+                derived_indicator_set_version=derived_indicator_set_version,
                 feature_set_version=feature_set_version,
                 timeframe=timeframe,
                 contract_ids=(contract_id,),
