@@ -166,3 +166,8 @@ items:
   mode: legacy-full
   status: in_progress
   started_at: '2026-04-16'
+- id: TASK-2026-04-26-RE-SPLIT-DERIVED-INDICATOR-AND-FEATURE-LAYER-REM
+  path: docs/tasks/active/TASK-2026-04-26-re-split-derived-indicator-and-feature-layer-rem.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-04-26'
