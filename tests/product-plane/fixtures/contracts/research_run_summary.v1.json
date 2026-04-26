@@ -23,7 +23,6 @@
     "research_bar_views": 2,
     "research_indicator_frames": 2,
     "research_derived_indicator_frames": 2,
-    "research_feature_frames": 2,
     "research_backtest_batches": 1,
     "research_backtest_runs": 12,
     "research_strategy_stats": 12,
@@ -38,7 +37,6 @@
     "research_bar_views": "D:/TA3000-data/research/gold/current/research_bar_views.delta",
     "research_indicator_frames": "D:/TA3000-data/research/gold/current/research_indicator_frames.delta",
     "research_derived_indicator_frames": "D:/TA3000-data/research/gold/current/research_derived_indicator_frames.delta",
-    "research_feature_frames": "D:/TA3000-data/research/gold/current/research_feature_frames.delta",
     "research_backtest_batches": "D:/TA3000-data/research/runs/fut_br_base_15m_explore/20260414T120000123456Z/results/research_backtest_batches.delta",
     "research_strategy_rankings": "D:/TA3000-data/research/runs/fut_br_base_15m_explore/20260414T120000123456Z/results/research_strategy_rankings.delta",
     "research_signal_candidates": "D:/TA3000-data/research/runs/fut_br_base_15m_explore/20260414T120000123456Z/results/research_signal_candidates.delta"
@@ -51,7 +49,6 @@
     "research_bar_views",
     "research_indicator_frames",
     "research_derived_indicator_frames",
-    "research_feature_frames",
     "research_backtest_batches",
     "research_backtest_runs",
     "research_strategy_stats",

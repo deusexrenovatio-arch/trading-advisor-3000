@@ -22,7 +22,7 @@
           "target_ref",
           "confidence",
           "ts_decision",
-          "feature_snapshot"
+          "indicator_context"
         ],
         "properties": {
           "signal_id": {"type": "string", "minLength": 1},
@@ -36,7 +36,7 @@
           "target_ref": {"type": "number"},
           "confidence": {"type": "number", "minimum": 0, "maximum": 1},
           "ts_decision": {"type": "string", "minLength": 1},
-          "feature_snapshot": {
+          "indicator_context": {
             "type": "object",
             "required": ["dataset_version", "snapshot_id"],
             "properties": {

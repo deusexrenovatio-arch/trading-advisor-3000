@@ -22,9 +22,7 @@
     "indicator_set_version": "indicators-v1",
     "indicator_profile_version": "core_v1",
     "derived_indicator_set_version": "derived-v1",
-    "derived_indicator_profile_version": "core_v1",
-    "feature_set_version": "features-v1",
-    "feature_profile_version": "core_v1"
+    "derived_indicator_profile_version": "core_v1"
   },
   "strategy_space": {
     "family_keys": ["ma_cross"],

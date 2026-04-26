@@ -10,8 +10,8 @@
   "target_ref": 83.95,
   "confidence": 0.76,
   "ts_decision": "2026-03-16T10:16:00Z",
-  "feature_snapshot": {
+  "indicator_context": {
     "dataset_version": "bars-whitelist-v1",
-    "snapshot_id": "FS-20260316-0001"
+    "snapshot_id": "ICTX-20260316-0001"
   }
 }

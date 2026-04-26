@@ -45,7 +45,7 @@ JSON-schema snapshots for the contracts-and-scaffolding surface.
 - `src/trading_advisor_3000/product_plane/contracts/schemas/research_campaign.v1.json`
 - `src/trading_advisor_3000/product_plane/contracts/schemas/research_run_summary.v1.json`
 
-- `src/trading_advisor_3000/product_plane/contracts/schemas/gold_feature_snapshot.v1.json`
+- `src/trading_advisor_3000/product_plane/contracts/schemas/technical_indicator_snapshot.v1.json`
 - `src/trading_advisor_3000/product_plane/contracts/schemas/strategy_candidate_projection.v1.json`
 - `src/trading_advisor_3000/product_plane/contracts/schemas/strategy_scorecard.v1.json`
 - `src/trading_advisor_3000/product_plane/contracts/schemas/strategy_promotion_decision.v1.json`
