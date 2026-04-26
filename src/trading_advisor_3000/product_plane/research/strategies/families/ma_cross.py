@@ -14,8 +14,8 @@ def ma_cross_family_adapter() -> StrategyFamilyAdapter:
     strategy_spec = StrategySpec(
         version="ma-cross-v1",
         family="ma_cross",
-        description="Trend-following moving-average crossover on materialized indicators and trend states.",
-        required_columns=("close", "ema_10", "ema_20", "ema_50", "atr_14", "trend_state_fast_slow_code", "ma_stack_state_code"),
+        description="Trend-following moving-average crossover on materialized EMA and ATR indicators.",
+        required_columns=("close", "ema_10", "ema_20", "ema_50", "atr_14"),
         parameter_grid=(
             StrategyParameter("fast_window", (10, 20)),
             StrategyParameter("slow_window", (20, 50)),
@@ -38,7 +38,7 @@ def ma_cross_family_adapter() -> StrategyFamilyAdapter:
         strategy_spec=strategy_spec,
         template_key="ma_cross_core",
         template_title="MA Cross Core",
-        regime_module_key="feature.trend_state_fast_slow_code",
+        regime_module_key="derived.ema_alignment",
         module_versions={"entry": "v1", "regime_filter": "v1", "risk_exit": "v1"},
     )
 

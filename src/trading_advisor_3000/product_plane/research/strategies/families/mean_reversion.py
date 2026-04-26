@@ -15,7 +15,7 @@ def mean_reversion_family_adapter() -> StrategyFamilyAdapter:
         version="mean-reversion-v1",
         family="mean_reversion",
         description="Mean-reversion strategy around session VWAP and RSI extremes.",
-        required_columns=("close", "rsi_14", "atr_14", "distance_to_session_vwap", "regime_state_code"),
+        required_columns=("close", "rsi_14", "atr_14", "distance_to_session_vwap"),
         parameter_grid=(
             StrategyParameter("entry_rsi", (20, 25, 30)),
             StrategyParameter("exit_rsi", (45, 50, 55)),
@@ -40,7 +40,7 @@ def mean_reversion_family_adapter() -> StrategyFamilyAdapter:
         strategy_spec=strategy_spec,
         template_key="mean_reversion_core",
         template_title="Mean Reversion Core",
-        regime_module_key="feature.regime_state_code",
+        regime_module_key="derived.session_vwap_distance",
         module_versions={"entry": "v1", "regime_filter": "v1", "risk_exit": "v1"},
     )
 

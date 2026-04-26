@@ -10,12 +10,12 @@ def test_strategy_registry_exposes_stage5_parameter_combinations_and_execution_m
 
     ma_cross = registry.get("ma-cross-v1")
     assert ma_cross.execution_mode == "signals"
-    assert {"close", "ema_10", "ema_20", "ema_50", "trend_state_fast_slow_code"} <= set(ma_cross.required_columns)
+    assert {"close", "ema_10", "ema_20", "ema_50", "atr_14"} <= set(ma_cross.required_columns)
     assert len(registry.parameter_combinations("ma-cross-v1")) == 4
 
     squeeze = registry.get("squeeze-release-v1")
     assert squeeze.execution_mode == "order_func"
-    assert {"close", "squeeze_on_code", "breakout_ready_state_code", "atr_14"} <= set(squeeze.required_columns)
+    assert {"close", "bb_position_20_2", "kc_position_20_1_5", "atr_14"} <= set(squeeze.required_columns)
     assert len(registry.parameter_combinations("squeeze-release-v1")) == 18
 
 
