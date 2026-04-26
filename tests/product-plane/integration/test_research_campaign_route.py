@@ -43,6 +43,7 @@ def _campaign_payload(
     *,
     campaign_name: str,
     target_stage: str,
+    indicator_profile_version: str = "core_v1",
     feature_profile_version: str = "core_v1",
 ) -> dict[str, object]:
     return {
@@ -67,7 +68,7 @@ def _campaign_payload(
         },
         "profiles": {
             "indicator_set_version": "indicators-v1",
-            "indicator_profile_version": "core_v1",
+            "indicator_profile_version": indicator_profile_version,
             "derived_indicator_set_version": "derived-v1",
             "derived_indicator_profile_version": "core_v1",
             "feature_set_version": "features-v1",
@@ -267,7 +268,7 @@ def test_changed_profile_version_forces_gold_rematerialization_without_changing_
             runs_root,
             campaign_name="profile-v1",
             target_stage="backtest",
-            feature_profile_version="core_v1",
+            indicator_profile_version="core_v1",
         ),
     )
     _write_campaign(
@@ -278,7 +279,7 @@ def test_changed_profile_version_forces_gold_rematerialization_without_changing_
             runs_root,
             campaign_name="profile-v2",
             target_stage="backtest",
-            feature_profile_version="core_intraday_v1",
+            indicator_profile_version="core_intraday_v1",
         ),
     )
 
