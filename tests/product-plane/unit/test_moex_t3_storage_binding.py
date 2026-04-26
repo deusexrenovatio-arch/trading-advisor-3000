@@ -28,6 +28,8 @@ def test_moex_t3_storage_resolves_authoritative_baseline_manifest(tmp_path: Path
     indicators_root = data_root / "derived" / "moex" / "indicators"
     bars_path = canonical_root / "canonical_bars.delta"
     provenance_path = canonical_root / "canonical_bar_provenance.delta"
+    session_calendar_path = canonical_root / "canonical_session_calendar.delta"
+    roll_map_path = canonical_root / "canonical_roll_map.delta"
 
     row = {
         "contract_id": "BR-6.26",
@@ -62,6 +64,8 @@ def test_moex_t3_storage_resolves_authoritative_baseline_manifest(tmp_path: Path
                 "baseline_paths": {
                     "canonical_bars": bars_path.as_posix(),
                     "canonical_bar_provenance": provenance_path.as_posix(),
+                    "canonical_session_calendar": session_calendar_path.as_posix(),
+                    "canonical_roll_map": roll_map_path.as_posix(),
                 },
             },
             ensure_ascii=False,
@@ -73,6 +77,8 @@ def test_moex_t3_storage_resolves_authoritative_baseline_manifest(tmp_path: Path
 
     assert binding.baseline_id == "moex-baseline-4y-current"
     assert binding.canonical_bars_path == bars_path.resolve()
+    assert binding.canonical_session_calendar_path == session_calendar_path.resolve()
+    assert binding.canonical_roll_map_path == roll_map_path.resolve()
     assert binding.features_root == features_root.resolve()
     assert binding.indicators_root == indicators_root.resolve()
     assert binding.to_dict()["source"] == "explicit-baseline-manifest"

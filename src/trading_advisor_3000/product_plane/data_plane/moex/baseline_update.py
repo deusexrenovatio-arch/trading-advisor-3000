@@ -103,6 +103,8 @@ def run_moex_baseline_update(
     raw_table_path: Path,
     canonical_bars_path: Path,
     canonical_provenance_path: Path,
+    canonical_session_calendar_path: Path | None = None,
+    canonical_roll_map_path: Path | None = None,
     evidence_dir: Path,
     run_id: str,
     timeframes: set[str],
@@ -128,6 +130,12 @@ def run_moex_baseline_update(
     raw_table_path = raw_table_path.resolve()
     canonical_bars_path = canonical_bars_path.resolve()
     canonical_provenance_path = canonical_provenance_path.resolve()
+    canonical_session_calendar_path = (
+        canonical_session_calendar_path or (canonical_bars_path.parent / "canonical_session_calendar.delta")
+    ).resolve()
+    canonical_roll_map_path = (
+        canonical_roll_map_path or (canonical_bars_path.parent / "canonical_roll_map.delta")
+    ).resolve()
     if not has_delta_log(raw_table_path):
         raise FileNotFoundError(f"baseline raw table is missing `_delta_log`: {raw_table_path.as_posix()}")
     if not has_delta_log(canonical_bars_path):
@@ -213,6 +221,8 @@ def run_moex_baseline_update(
             repo_root=repo_root,
             canonical_bars_path=canonical_bars_path,
             canonical_provenance_path=canonical_provenance_path,
+            canonical_session_calendar_path=canonical_session_calendar_path,
+            canonical_roll_map_path=canonical_roll_map_path,
             canonical_merge_strategy=CANONICAL_MERGE_SCOPED_DELETE_INSERT,
             max_changed_window_days=max_changed_window_days,
         )
@@ -248,6 +258,8 @@ def run_moex_baseline_update(
         "raw_table_path": raw_table_path.as_posix(),
         "canonical_bars_path": canonical_bars_path.as_posix(),
         "canonical_provenance_path": canonical_provenance_path.as_posix(),
+        "canonical_session_calendar_path": canonical_session_calendar_path.as_posix(),
+        "canonical_roll_map_path": canonical_roll_map_path.as_posix(),
         "source_rows": raw_report.get("source_rows", 0),
         "incremental_rows": raw_report.get("incremental_rows", 0),
         "deduplicated_rows": raw_report.get("deduplicated_rows", 0),
@@ -261,6 +273,7 @@ def run_moex_baseline_update(
             "scoped_source_rows": canonical_report.get("scoped_source_rows"),
             "scoped_canonical_rows": canonical_report.get("scoped_canonical_rows"),
             "canonical_rows": canonical_report.get("canonical_rows"),
+            "sidecar_refresh": canonical_report.get("sidecar_refresh"),
             "mutation_applied": canonical_report.get("mutation_applied"),
         },
         "artifact_paths": {
