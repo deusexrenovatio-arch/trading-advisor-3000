@@ -30,3 +30,11 @@ def test_context_coverage_config_declares_high_risk_contract_context() -> None:
     assert "CTX-RESEARCH" in required_cards
     assert "CTX-ORCHESTRATION" in required_cards
     assert "CTX-API-UI" in required_cards
+
+
+def test_context_cards_describe_interior_navigation() -> None:
+    payload = yaml.safe_load((ROOT / "configs/context_coverage.yaml").read_text(encoding="utf-8"))
+    for context_id in payload["required_context_cards"]:
+        text = (ROOT / "docs" / "agent-contexts" / f"{context_id}.md").read_text(encoding="utf-8")
+        assert "## Inside This Context" in text
+        assert "## Search Seeds" in text

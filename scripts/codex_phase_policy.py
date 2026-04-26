@@ -62,6 +62,8 @@ class WorkerReport:
     worker_self_quality: ResultQualitySummary | None = None
     evidence_contract: dict[str, Any] | None = None
     documentation_context: dict[str, Any] | None = None
+    context_footprint: dict[str, Any] | None = None
+    context_expansion_log: list[dict[str, Any]] | None = None
 
 
 @dataclass
@@ -91,6 +93,8 @@ class AcceptanceResult:
     prohibited_findings: list[str]
     policy_blockers: list[AcceptanceBlocker]
     result_quality: ResultQualitySummary | None = None
+    context_footprint: dict[str, Any] | None = None
+    context_expansion_log: list[dict[str, Any]] | None = None
 
 
 @dataclass
@@ -108,6 +112,10 @@ class AttemptRecord:
     verdict: str
     blockers_total: int
     policy_blockers_total: int
+    worker_context_footprint: dict[str, Any] | None = None
+    worker_context_expansion_log: list[dict[str, Any]] | None = None
+    acceptor_context_footprint: dict[str, Any] | None = None
+    acceptor_context_expansion_log: list[dict[str, Any]] | None = None
 
 
 def normalize_string_list(value: Any) -> list[str]:
@@ -119,6 +127,30 @@ def normalize_string_list(value: Any) -> list[str]:
         if text and text not in out:
             out.append(text)
     return out
+
+
+def normalize_optional_object(value: Any, *, field_name: str) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return dict(value)
+    return {"raw": str(value), "format_note": f"`{field_name}` was not an object"}
+
+
+def normalize_context_expansion_log(value: Any) -> list[dict[str, Any]] | None:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return [dict(value)]
+    if not isinstance(value, list):
+        return [{"reason": str(value), "source": "unstructured"}]
+    entries: list[dict[str, Any]] = []
+    for item in value:
+        if isinstance(item, dict):
+            entries.append(dict(item))
+        else:
+            entries.append({"reason": str(item), "source": "unstructured"})
+    return entries
 
 
 def normalize_worker_payload(payload: dict[str, Any]) -> WorkerReport:
@@ -135,6 +167,8 @@ def normalize_worker_payload(payload: dict[str, Any]) -> WorkerReport:
     if documentation_context is not None and not isinstance(documentation_context, dict):
         raise ValueError("worker payload `documentation_context` must be an object when present")
     worker_self_quality = normalize_result_quality_payload(payload.get("worker_self_quality"))
+    context_footprint = normalize_optional_object(payload.get("context_footprint"), field_name="context_footprint")
+    context_expansion_log = normalize_context_expansion_log(payload.get("context_expansion_log"))
     return WorkerReport(
         status=status,
         summary=str(payload.get("summary", "")).strip() or "No summary provided.",
@@ -149,6 +183,8 @@ def normalize_worker_payload(payload: dict[str, Any]) -> WorkerReport:
         worker_self_quality=worker_self_quality,
         evidence_contract=evidence_contract if isinstance(evidence_contract, dict) else None,
         documentation_context=documentation_context if isinstance(documentation_context, dict) else None,
+        context_footprint=context_footprint,
+        context_expansion_log=context_expansion_log,
     )
 
 
@@ -174,6 +210,8 @@ def normalize_acceptance_payload(payload: dict[str, Any]) -> AcceptanceResult:
     used_skills = normalize_string_list(payload.get("used_skills", []))
     if not used_skills:
         raise ValueError("acceptance payload missing required `used_skills`")
+    context_footprint = normalize_optional_object(payload.get("context_footprint"), field_name="context_footprint")
+    context_expansion_log = normalize_context_expansion_log(payload.get("context_expansion_log"))
     return AcceptanceResult(
         verdict=verdict,
         summary=str(payload.get("summary", "")).strip() or "No summary provided.",
@@ -185,6 +223,8 @@ def normalize_acceptance_payload(payload: dict[str, Any]) -> AcceptanceResult:
         prohibited_findings=normalize_string_list(payload.get("prohibited_findings", [])),
         policy_blockers=[],
         result_quality=normalize_result_quality_payload(payload.get("result_quality")),
+        context_footprint=context_footprint,
+        context_expansion_log=context_expansion_log,
     )
 
 
@@ -506,6 +546,8 @@ def apply_acceptance_policy(
         prohibited_findings=acceptance.prohibited_findings,
         policy_blockers=policy_blockers,
         result_quality=acceptance.result_quality,
+        context_footprint=acceptance.context_footprint,
+        context_expansion_log=acceptance.context_expansion_log,
     )
 
 
@@ -518,8 +560,19 @@ def render_acceptance_markdown(result: AcceptanceResult) -> str:
         f"- Route Signal: {result.route_signal}",
         f"- Used Skills: {', '.join(result.used_skills) if result.used_skills else 'none'}",
         "",
-        "## Blockers",
+        "## Context Expansion",
     ]
+    if not result.context_expansion_log:
+        lines.append("- none")
+    else:
+        for item in result.context_expansion_log:
+            lines.append(f"- {_context_expansion_line(item)}")
+    lines.extend(
+        [
+            "",
+            "## Blockers",
+        ]
+    )
     if not result.blockers:
         lines.append("- none")
     else:
@@ -595,6 +648,25 @@ def render_acceptance_markdown(result: AcceptanceResult) -> str:
             lines.append(f"- {item}")
     lines.append("")
     return "\n".join(lines)
+
+
+def _one_line(value: Any) -> str:
+    return " ".join(str(value or "").split())
+
+
+def _context_expansion_line(item: dict[str, Any]) -> str:
+    source = _one_line(item.get("source") or item.get("tool") or item.get("where") or "unknown")
+    reason = _one_line(item.get("reason") or item.get("question") or item.get("evidence_question") or "")
+    insufficiency = _one_line(item.get("insufficiency") or item.get("why_current_context_is_not_enough") or "")
+    stop_condition = _one_line(item.get("stop_condition") or item.get("stop") or "")
+    parts = [f"source={source}"]
+    if reason:
+        parts.append(f"reason={reason}")
+    if insufficiency:
+        parts.append(f"insufficiency={insufficiency}")
+    if stop_condition:
+        parts.append(f"stop={stop_condition}")
+    return "; ".join(parts)
 
 
 def route_guardrail_text() -> str:
@@ -809,8 +881,33 @@ def render_route_report(payload: dict[str, Any]) -> str:
     else:
         lines.append("- none")
 
-    lines.extend(["", "## Attempts"])
     attempts = payload.get("attempts", [])
+
+    lines.extend(["", "## Context Expansion"])
+    emitted_context_expansion = False
+    if isinstance(attempts, list):
+        for item in attempts:
+            if not isinstance(item, dict):
+                continue
+            for role_name, field_name in (
+                ("worker", "worker_context_expansion_log"),
+                ("acceptor", "acceptor_context_expansion_log"),
+            ):
+                entries = item.get(field_name, [])
+                if not isinstance(entries, list) or not entries:
+                    continue
+                emitted_context_expansion = True
+                for entry in entries[:3]:
+                    if isinstance(entry, dict):
+                        lines.append(
+                            f"- attempt {item.get('attempt')} {role_name}: {_context_expansion_line(entry)}"
+                        )
+                if len(entries) > 3:
+                    lines.append(f"- attempt {item.get('attempt')} {role_name}: ... {len(entries) - 3} more")
+    if not emitted_context_expansion:
+        lines.append("- none")
+
+    lines.extend(["", "## Attempts"])
     if isinstance(attempts, list) and attempts:
         for item in attempts:
             if not isinstance(item, dict):

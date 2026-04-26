@@ -15,20 +15,24 @@ If the task touches the product plane, also read:
 ## Startup checklist
 1. Confirm the task change surface: `shell`, `product-plane`, or `mixed`.
 2. Record that surface in the active task note and keep the same declaration in PR metadata.
-3. For ordinary chat, select global Codex skills first and name them briefly before substantial work. Use `codex-skill-routing` when the task is about skill routing or prompt protection.
-4. If a relevant global skill is not present in session metadata but exists under `D:/CodexHome/skills`, read that skill's main instruction file directly and state the fallback.
-5. Open repo-local skills only for TA3000-specific product/trading/data/compute knowledge under `.codex/skills`; `.cursor/skills` is legacy cleanup state only.
-6. For non-trivial code changes or new code inside an existing subsystem, start code discovery through Serena before broad text scans, whole-file reads, or implementation.
-7. Use Serena to inspect relevant symbols, nearby patterns, and references. For new isolated files, inspect the closest existing module or pattern first unless the task is truly standalone.
-8. Skip Serena only for docs-only work, already localized tiny edits, generated/artifact paths, config/non-code-only tasks, unsupported file types, or Serena unavailability; state the fallback reason briefly.
-9. For architecture-heavy, cross-module, ownership-sensitive, or concept-location uncertain code tasks, follow Architecture Orientation Routing in `docs/agent/skills-routing.md`.
-10. Confirm no business/domain logic is being imported into shell control-plane files.
-11. If the diff hits a configured critical contour, read `docs/agent/critical-contours.md` and add `## Solution Intent` to the active task note before coding.
-12. For package intake or governed continuation, prefer the one-step bootstrap: `python scripts/codex_governed_bootstrap.py --request "<request>" ...`.
-13. Otherwise start lifecycle directly: `python scripts/task_session.py begin --request "<request>"`.
-14. If the operator asks to take a package or continue a module phase, do not start manual inline execution. Route first through `python scripts/codex_governed_entry.py ...`.
-15. Confirm patch set is small and explicit.
-16. Run loop gate before PR prep: `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`.
+3. Run context routing before broad repo reading: `python scripts/context_router.py --from-git --format text`.
+4. Read the primary context card first and follow `navigation_order` only as far as the matched files require.
+5. For code work, use the primary context card's `Search Seeds` as Serena entrypoints before opening whole files.
+6. For ordinary chat, select global Codex skills first and name them briefly before substantial work. Use `codex-skill-routing` when the task is about skill routing or prompt protection.
+7. If a relevant global skill is not present in session metadata but exists under `D:/CodexHome/skills`, read that skill's main instruction file directly and state the fallback.
+8. Open repo-local skills only for TA3000-specific product/trading/data/compute knowledge under `.codex/skills`; `.cursor/skills` is legacy cleanup state only.
+9. For non-trivial code changes or new code inside an existing subsystem, start code discovery through Serena before broad text scans, whole-file reads, or implementation.
+10. Use Serena to inspect relevant symbols, nearby patterns, and references. For new isolated files, inspect the closest existing module or pattern first unless the task is truly standalone.
+11. Before expanding beyond the primary route into memory, current diff, logs, generated artifacts, live process state, Graphify, web docs, or broad file reads, record a short Context Expansion Reason: question, source/tool, why current context is insufficient, and stop condition.
+12. Skip Serena only for docs-only work, already localized tiny edits, generated/artifact paths, config/non-code-only tasks, unsupported file types, or Serena unavailability; state the fallback reason briefly.
+13. For architecture-heavy, cross-module, ownership-sensitive, or concept-location uncertain code tasks, follow Architecture Orientation Routing in `docs/agent/skills-routing.md`.
+14. Confirm no business/domain logic is being imported into shell control-plane files.
+15. If the diff hits a configured critical contour, read `docs/agent/critical-contours.md` and add `## Solution Intent` to the active task note before coding.
+16. For package intake or governed continuation, prefer the one-step bootstrap: `python scripts/codex_governed_bootstrap.py --request "<request>" ...`.
+17. Otherwise start lifecycle directly: `python scripts/task_session.py begin --request "<request>"`.
+18. If the operator asks to take a package or continue a module phase, do not start manual inline execution. Route first through `python scripts/codex_governed_entry.py ...`.
+19. Confirm patch set is small and explicit.
+20. Run loop gate before PR prep: `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`.
 
 ## Critical constraints
 - Mainline is PR-only by default.

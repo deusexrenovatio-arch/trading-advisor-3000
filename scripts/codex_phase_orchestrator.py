@@ -1365,6 +1365,8 @@ def orchestrate_current_phase(
                 "evidence_gaps": acceptance.evidence_gaps,
                 "prohibited_findings": acceptance.prohibited_findings,
                 "policy_blockers": [asdict(item) for item in acceptance.policy_blockers],
+                "context_footprint": acceptance.context_footprint,
+                "context_expansion_log": acceptance.context_expansion_log,
             }
             if acceptance.result_quality is not None:
                 initial_acceptance_payload["result_quality"] = asdict(acceptance.result_quality)
@@ -1409,6 +1411,8 @@ def orchestrate_current_phase(
             "evidence_gaps": acceptance.evidence_gaps,
             "prohibited_findings": acceptance.prohibited_findings,
             "policy_blockers": [asdict(item) for item in acceptance.policy_blockers],
+            "context_footprint": acceptance.context_footprint,
+            "context_expansion_log": acceptance.context_expansion_log,
         }
         if acceptance.result_quality is not None:
             acceptance_payload_doc["result_quality"] = asdict(acceptance.result_quality)
@@ -1433,6 +1437,10 @@ def orchestrate_current_phase(
                 verdict=acceptance.verdict,
                 blockers_total=len(acceptance.blockers),
                 policy_blockers_total=len(acceptance.policy_blockers),
+                worker_context_footprint=worker_report.context_footprint,
+                worker_context_expansion_log=worker_report.context_expansion_log,
+                acceptor_context_footprint=acceptance.context_footprint,
+                acceptor_context_expansion_log=acceptance.context_expansion_log,
             )
         )
         attempt_chat_summary_path = attempt_dir / "chat-summary.md"

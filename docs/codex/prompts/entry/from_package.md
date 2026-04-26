@@ -4,14 +4,15 @@ Read first:
 
 1. `AGENTS.md`
 2. `docs/agent/entrypoint.md`
-3. `docs/agent/domains.md`
-4. `docs/agent/checks.md`
-5. `docs/agent/runtime.md`
-6. `docs/DEV_WORKFLOW.md`
-7. `docs/session_handoff.md`
-8. the package manifest
-9. the suggested primary document from the package
-10. supporting source documents only as needed
+3. `docs/agent-contexts/README.md`
+4. `docs/agent/domains.md`
+5. `docs/agent/checks.md`
+6. `docs/agent/runtime.md`
+7. `docs/DEV_WORKFLOW.md`
+8. `docs/session_handoff.md`
+9. the package manifest
+10. the suggested primary document from the package
+11. supporting source documents only as needed
 
 Intake mission:
 
@@ -25,6 +26,7 @@ Core rules:
 - No hidden quality-bar downgrade.
 - No phase reordering when deterministic phase ids are present.
 - Keep `docs/session_handoff.md` as a lightweight pointer shim.
+- Before opening broad repo context, run or consume `python scripts/context_router.py --from-git --format text`; use the primary context card to locate relevant repo state, and keep package source documents as the requirement source of truth.
 - Use canonical gate names only.
 - Do not call governed launcher scripts from inside this runtime prompt.
 - Keep lane outputs operator-readable and low-noise: prefer meaning, decision rationale, and blockers over path/file inventory.
