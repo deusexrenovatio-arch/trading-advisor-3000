@@ -60,6 +60,8 @@ Canonical root:
 - `reports/canonical-refresh-report.json`
 - `canonical_bars.delta`
 - `canonical_bar_provenance.delta`
+- `canonical_session_calendar.delta`
+- `canonical_roll_map.delta`
 
 Derived root placeholders:
 - `features/`
@@ -72,6 +74,8 @@ Downstream readers must use these stable data-root paths:
 - `D:/TA3000-data/trading-advisor-3000-nightly/raw/moex/baseline-4y-current/raw_moex_history.delta`
 - `D:/TA3000-data/trading-advisor-3000-nightly/canonical/moex/baseline-4y-current/canonical_bars.delta`
 - `D:/TA3000-data/trading-advisor-3000-nightly/canonical/moex/baseline-4y-current/canonical_bar_provenance.delta`
+- `D:/TA3000-data/trading-advisor-3000-nightly/canonical/moex/baseline-4y-current/canonical_session_calendar.delta`
+- `D:/TA3000-data/trading-advisor-3000-nightly/canonical/moex/baseline-4y-current/canonical_roll_map.delta`
 
 Do not bind research, reconciliation, or later refresh jobs to the newest `moex-raw-ingest`, `moex-canonical-refresh`, or `moex-route-refresh` run folder by default.
 

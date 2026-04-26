@@ -19,6 +19,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     read_delta_table_rows,
     write_delta_table_rows,
 )
+from trading_advisor_3000.product_plane.data_plane.schemas import historical_data_delta_schema_manifest
 from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contracts import (
     STATUS_PASS_NOOP,
     build_parity_manifest_v1,
@@ -86,6 +87,8 @@ PROVENANCE_COLUMNS: dict[str, str] = {
     "build_run_id": "string",
     "built_at_utc": "timestamp",
 }
+
+SIDECAR_ROLL_REASON = "max_open_interest_then_latest_ts_close"
 
 RAW_SCOPE_COLUMNS: tuple[str, ...] = (
     "internal_id",
@@ -1256,6 +1259,278 @@ def _build_canonical_delete_predicate(affected_keys: set[tuple[str, str, str, st
     return " OR ".join(clauses)
 
 
+def _sidecar_columns(table_name: str) -> dict[str, str]:
+    manifest = historical_data_delta_schema_manifest()
+    return dict(manifest[table_name]["columns"])
+
+
+def _session_date_for_bar(bar: CanonicalBar, provenance: CanonicalProvenance) -> str:
+    return (provenance.source_ts_open_first or bar.ts)[:10]
+
+
+def _build_provenance_lookup(
+    provenance_rows: list[CanonicalProvenance],
+) -> dict[tuple[str, str, str, str], CanonicalProvenance]:
+    return {_canonical_provenance_key(row): row for row in provenance_rows}
+
+
+def _require_provenance_for_bar(
+    bar: CanonicalBar,
+    provenance_by_key: dict[tuple[str, str, str, str], CanonicalProvenance],
+) -> CanonicalProvenance:
+    provenance = provenance_by_key.get(_canonical_bar_key(bar))
+    if provenance is None:
+        raise RuntimeError(
+            "cannot build canonical sidecars without provenance for "
+            f"{bar.contract_id}/{bar.timeframe.value}/{bar.ts}"
+        )
+    return provenance
+
+
+def _build_session_calendar_sidecar_rows(
+    *,
+    bars: list[CanonicalBar],
+    provenance_rows: list[CanonicalProvenance],
+) -> list[dict[str, object]]:
+    provenance_by_key = _build_provenance_lookup(provenance_rows)
+    calendar: dict[tuple[str, str, str], dict[str, str]] = {}
+    for bar in bars:
+        provenance = _require_provenance_for_bar(bar, provenance_by_key)
+        session_date = _session_date_for_bar(bar, provenance)
+        key = (bar.instrument_id, bar.timeframe.value, session_date)
+        current = calendar.get(key)
+        if current is None:
+            calendar[key] = {
+                "session_open_ts": provenance.source_ts_open_first,
+                "session_close_ts": provenance.source_ts_close_last,
+            }
+            continue
+        if provenance.source_ts_open_first < current["session_open_ts"]:
+            current["session_open_ts"] = provenance.source_ts_open_first
+        if provenance.source_ts_close_last > current["session_close_ts"]:
+            current["session_close_ts"] = provenance.source_ts_close_last
+
+    return [
+        {
+            "instrument_id": instrument_id,
+            "timeframe": timeframe,
+            "session_date": session_date,
+            "session_open_ts": values["session_open_ts"],
+            "session_close_ts": values["session_close_ts"],
+        }
+        for (instrument_id, timeframe, session_date), values in sorted(calendar.items())
+    ]
+
+
+def _build_roll_map_sidecar_rows(
+    *,
+    bars: list[CanonicalBar],
+    provenance_rows: list[CanonicalProvenance],
+) -> list[dict[str, object]]:
+    provenance_by_key = _build_provenance_lookup(provenance_rows)
+    best_by_session: dict[tuple[str, str], tuple[int, str, str]] = {}
+    for bar in bars:
+        provenance = _require_provenance_for_bar(bar, provenance_by_key)
+        session_date = _session_date_for_bar(bar, provenance)
+        key = (bar.instrument_id, session_date)
+        candidate = (bar.open_interest, provenance.source_ts_close_last, bar.contract_id)
+        current = best_by_session.get(key)
+        if current is None or candidate > current:
+            best_by_session[key] = candidate
+
+    return [
+        {
+            "instrument_id": instrument_id,
+            "session_date": session_date,
+            "active_contract_id": values[2],
+            "reason": SIDECAR_ROLL_REASON,
+        }
+        for (instrument_id, session_date), values in sorted(best_by_session.items())
+    ]
+
+
+def _affected_sessions_from_keys(affected_keys: set[tuple[str, str, str, str]]) -> set[tuple[str, str]]:
+    return {
+        (instrument_id, ts[:10])
+        for _, instrument_id, _, ts in affected_keys
+        if instrument_id and ts
+    }
+
+
+def _build_sidecar_session_filters(
+    affected_sessions: set[tuple[str, str]],
+) -> list[list[tuple[str, str, object]]]:
+    filters: list[list[tuple[str, str, object]]] = []
+    for instrument_id, session_date in sorted(affected_sessions):
+        filters.append(
+            [
+                ("instrument_id", "=", instrument_id),
+                ("ts", ">=", f"{session_date}T00:00:00Z"),
+                ("ts", "<=", f"{session_date}T23:59:59Z"),
+            ]
+        )
+    return filters
+
+
+def _build_sidecar_delete_predicate(affected_sessions: set[tuple[str, str]]) -> str:
+    clauses = [
+        f"(instrument_id = {_sql_quote(instrument_id)} AND session_date = {_sql_quote(session_date)})"
+        for instrument_id, session_date in sorted(affected_sessions)
+    ]
+    return " OR ".join(clauses)
+
+
+def _read_canonical_bar_rows(table_path: Path) -> list[CanonicalBar]:
+    return [
+        CanonicalBar.from_dict(dict(row))
+        for row in read_delta_table_rows(table_path)
+        if isinstance(row, dict)
+    ]
+
+
+def _read_canonical_provenance_rows(table_path: Path) -> list[CanonicalProvenance]:
+    return [
+        _canonical_provenance_from_dict(dict(row), row_index=index)
+        for index, row in enumerate(read_delta_table_rows(table_path))
+        if isinstance(row, dict)
+    ]
+
+
+def _read_canonical_bar_rows_for_sessions(
+    *,
+    table_path: Path,
+    affected_sessions: set[tuple[str, str]],
+) -> list[CanonicalBar]:
+    if not affected_sessions:
+        return []
+    filters = _build_sidecar_session_filters(affected_sessions)
+    return [
+        CanonicalBar.from_dict(dict(row))
+        for row in read_delta_table_rows(table_path, filters=filters)
+        if isinstance(row, dict)
+    ]
+
+
+def _read_canonical_provenance_rows_for_sessions(
+    *,
+    table_path: Path,
+    affected_sessions: set[tuple[str, str]],
+) -> list[CanonicalProvenance]:
+    if not affected_sessions:
+        return []
+    filters = _build_sidecar_session_filters(affected_sessions)
+    return [
+        _canonical_provenance_from_dict(dict(row), row_index=index)
+        for index, row in enumerate(read_delta_table_rows(table_path, filters=filters))
+        if isinstance(row, dict)
+    ]
+
+
+def _publish_canonical_sidecars(
+    *,
+    bars_path: Path,
+    provenance_path: Path,
+    session_calendar_path: Path,
+    roll_map_path: Path,
+    in_memory_bars: list[CanonicalBar],
+    in_memory_provenance_rows: list[CanonicalProvenance],
+    in_memory_rows_are_complete: bool,
+    affected_sessions: set[tuple[str, str]],
+) -> dict[str, object]:
+    session_columns = _sidecar_columns("canonical_session_calendar")
+    roll_columns = _sidecar_columns("canonical_roll_map")
+    sidecars_exist = has_delta_log(session_calendar_path) and has_delta_log(roll_map_path)
+    if sidecars_exist and not affected_sessions:
+        return {
+            "refresh_mode": "noop",
+            "sidecar_mutation_applied": False,
+            "refreshed_session_calendar_rows": 0,
+            "refreshed_roll_map_rows": 0,
+            "output_paths": {
+                "canonical_session_calendar": session_calendar_path.as_posix(),
+                "canonical_roll_map": roll_map_path.as_posix(),
+            },
+        }
+    requires_full_refresh = not sidecars_exist
+
+    if requires_full_refresh:
+        bars = in_memory_bars if in_memory_rows_are_complete else _read_canonical_bar_rows(bars_path)
+        provenance_rows = (
+            in_memory_provenance_rows
+            if in_memory_rows_are_complete
+            else _read_canonical_provenance_rows(provenance_path)
+        )
+        session_rows = _build_session_calendar_sidecar_rows(
+            bars=bars,
+            provenance_rows=provenance_rows,
+        )
+        roll_rows = _build_roll_map_sidecar_rows(
+            bars=bars,
+            provenance_rows=provenance_rows,
+        )
+        write_delta_table_rows(
+            table_path=session_calendar_path,
+            rows=session_rows,
+            columns=session_columns,
+        )
+        write_delta_table_rows(
+            table_path=roll_map_path,
+            rows=roll_rows,
+            columns=roll_columns,
+        )
+        return {
+            "refresh_mode": "full",
+            "sidecar_mutation_applied": True,
+            "refreshed_session_calendar_rows": len(session_rows),
+            "refreshed_roll_map_rows": len(roll_rows),
+            "output_paths": {
+                "canonical_session_calendar": session_calendar_path.as_posix(),
+                "canonical_roll_map": roll_map_path.as_posix(),
+            },
+        }
+
+    bars = _read_canonical_bar_rows_for_sessions(
+        table_path=bars_path,
+        affected_sessions=affected_sessions,
+    )
+    provenance_rows = _read_canonical_provenance_rows_for_sessions(
+        table_path=provenance_path,
+        affected_sessions=affected_sessions,
+    )
+    session_rows = _build_session_calendar_sidecar_rows(
+        bars=bars,
+        provenance_rows=provenance_rows,
+    )
+    roll_rows = _build_roll_map_sidecar_rows(
+        bars=bars,
+        provenance_rows=provenance_rows,
+    )
+    predicate = _build_sidecar_delete_predicate(affected_sessions)
+    if predicate:
+        delete_delta_table_rows(table_path=session_calendar_path, predicate=predicate)
+        delete_delta_table_rows(table_path=roll_map_path, predicate=predicate)
+    append_delta_table_rows(
+        table_path=session_calendar_path,
+        rows=session_rows,
+        columns=session_columns,
+    )
+    append_delta_table_rows(
+        table_path=roll_map_path,
+        rows=roll_rows,
+        columns=roll_columns,
+    )
+    return {
+        "refresh_mode": "scoped",
+        "sidecar_mutation_applied": bool(predicate),
+        "refreshed_session_calendar_rows": len(session_rows),
+        "refreshed_roll_map_rows": len(roll_rows),
+        "output_paths": {
+            "canonical_session_calendar": session_calendar_path.as_posix(),
+            "canonical_roll_map": roll_map_path.as_posix(),
+        },
+    }
+
+
 def _validate_changed_window_width(
     *,
     changed_windows: list[ChangedWindowScope],
@@ -1459,6 +1734,8 @@ def run_historical_canonical_route(
     repo_root: Path | None = None,
     canonical_bars_path: Path | None = None,
     canonical_provenance_path: Path | None = None,
+    canonical_session_calendar_path: Path | None = None,
+    canonical_roll_map_path: Path | None = None,
     canonical_merge_strategy: str = CANONICAL_MERGE_FULL_OVERWRITE,
     max_changed_window_days: int | None = None,
 ) -> dict[str, object]:
@@ -1482,6 +1759,10 @@ def run_historical_canonical_route(
     provenance_path = (
         canonical_provenance_path or (output_dir / "delta" / "canonical_bar_provenance.delta")
     ).resolve()
+    session_calendar_path = (
+        canonical_session_calendar_path or (output_dir / "delta" / "canonical_session_calendar.delta")
+    ).resolve()
+    roll_map_path = (canonical_roll_map_path or (output_dir / "delta" / "canonical_roll_map.delta")).resolve()
 
     changed_windows_raw = raw_ingest_run_report.get("changed_windows", [])
     if not isinstance(changed_windows_raw, (list, tuple)):
@@ -1717,12 +1998,34 @@ def run_historical_canonical_route(
             columns=PROVENANCE_COLUMNS,
         )
 
+    sidecar_report: dict[str, object] = {
+        "refresh_mode": "skipped",
+        "sidecar_mutation_applied": False,
+        "refreshed_session_calendar_rows": 0,
+        "refreshed_roll_map_rows": 0,
+        "output_paths": {},
+    }
+    if publish_allowed and has_delta_log(bars_path) and has_delta_log(provenance_path):
+        sidecar_report = _publish_canonical_sidecars(
+            bars_path=bars_path,
+            provenance_path=provenance_path,
+            session_calendar_path=session_calendar_path,
+            roll_map_path=roll_map_path,
+            in_memory_bars=canonical_rows,
+            in_memory_provenance_rows=provenance_rows,
+            in_memory_rows_are_complete=not scoped_merge,
+            affected_sessions=_affected_sessions_from_keys(affected_keys),
+        )
+
     output_paths: dict[str, str] = {}
     if has_delta_log(bars_path):
         output_paths = {
             "canonical_bars": bars_path.as_posix(),
             "canonical_bar_provenance": provenance_path.as_posix(),
         }
+        sidecar_paths = sidecar_report.get("output_paths", {})
+        if isinstance(sidecar_paths, dict):
+            output_paths.update({str(key): str(value) for key, value in sidecar_paths.items()})
 
     status = _status_for_publish_decision(
         publish_allowed=publish_allowed,
@@ -1752,6 +2055,14 @@ def run_historical_canonical_route(
             if has_delta_log(provenance_path)
             else len(provenance_rows)
         ),
+        "sidecar_refresh": {
+            "mode": sidecar_report.get("refresh_mode"),
+            "mutation_applied": bool(sidecar_report.get("sidecar_mutation_applied", False)),
+            "refreshed_session_calendar_rows": int(
+                sidecar_report.get("refreshed_session_calendar_rows", 0) or 0
+            ),
+            "refreshed_roll_map_rows": int(sidecar_report.get("refreshed_roll_map_rows", 0) or 0),
+        },
         "scoped_canonical_rows": len(scoped_canonical_rows),
         "target_timeframes": [item.value for item in TARGET_TIMEFRAMES],
         "resampling_skips": _summarize_resampling_skips(resampling_skips),
