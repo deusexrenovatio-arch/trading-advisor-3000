@@ -16,7 +16,10 @@ from trading_advisor_3000.product_plane.research.backtests import (
     run_backtest_batch,
 )
 from trading_advisor_3000.product_plane.research.datasets import ResearchBarView, ResearchDatasetManifest, research_dataset_store_contract
-from trading_advisor_3000.product_plane.research.features import FeatureFrameRow, research_feature_store_contract
+from trading_advisor_3000.product_plane.research.derived_indicators import (
+    DerivedIndicatorFrameRow,
+    research_derived_indicator_store_contract,
+)
 from trading_advisor_3000.product_plane.research.indicators import IndicatorFrameRow, indicator_store_contract
 from trading_advisor_3000.product_plane.research.io import ResearchFrameCache
 from trading_advisor_3000.product_plane.research.strategies.catalog import StrategyCatalog
@@ -94,26 +97,23 @@ def _indicator(index: int, close: float, ema10: float, ema20: float, ema50: floa
     )
 
 
-def _feature(index: int, close: float) -> FeatureFrameRow:
-    trend = 1 if index <= 4 else -1 if 5 <= index <= 9 else 1
-    breakout = 1 if index in {2, 3, 10} else -1 if index in {7, 8} else 0
-    squeeze = 1 if index in {1, 2, 3, 6, 7, 8} else 0
-    return FeatureFrameRow(
+def _derived(index: int, close: float) -> DerivedIndicatorFrameRow:
+    mtf_up = index <= 4 or index >= 10
+    channel_mid = index in {0, 1, 2, 5, 6, 7}
+    release_up = index in {3, 10}
+    release_down = index in {8}
+    return DerivedIndicatorFrameRow(
         dataset_version="dataset-v5",
         indicator_set_version="indicators-v1",
-        feature_set_version="features-v1",
+        derived_indicator_set_version="derived-v1",
         profile_version="core_v1",
         contract_id="BR-6.26",
         instrument_id="BR",
         timeframe="15m",
         ts=_ts(index),
         values={
-            "trend_state_fast_slow_code": trend,
-            "trend_strength": 1.2 if trend != 0 else 0.2,
-            "ma_stack_state_code": 2 if trend > 0 else -2 if trend < 0 else 0,
-            "regime_state_code": 0 if index not in {2, 7} else 2,
-            "rolling_high_20": close - 0.2 if breakout == 1 else close + 0.8,
-            "rolling_low_20": close + 0.2 if breakout == -1 else close - 0.8,
+            "rolling_high_20": close + 0.8,
+            "rolling_low_20": close - 0.8,
             "opening_range_high": 103.5,
             "opening_range_low": 99.2,
             "swing_high_10": 104.0,
@@ -122,18 +122,15 @@ def _feature(index: int, close: float) -> FeatureFrameRow:
             "distance_to_session_vwap": -0.8 if index in {6, 7, 8} else 0.6 if index in {2, 3, 4} else 0.1,
             "distance_to_rolling_high_20": -0.2,
             "distance_to_rolling_low_20": 0.2,
-            "bb_width_20_2": 0.15,
-            "kc_width_20_1_5": 0.18,
-            "squeeze_on_code": squeeze,
-            "breakout_ready_state_code": breakout,
+            "bb_position_20_2": 0.5 if channel_mid else 0.9 if release_up else 0.1 if release_down else 0.35,
+            "kc_position_20_1_5": 0.5 if channel_mid else 0.8 if release_up else 0.2 if release_down else 0.35,
+            "cross_close_rolling_high_20_code": 1 if release_up else 0,
+            "cross_close_rolling_low_20_code": -1 if release_down else 0,
             "rvol_20": 1.3,
             "volume_zscore_20": 0.5,
-            "above_below_vwma_code": 1 if close >= 100 else -1,
-            "session_volume_state_code": 1,
-            "htf_ma_relation_code": 1 if trend > 0 else -1,
-            "htf_trend_state_code": 1 if trend > 0 else -1,
-            "htf_adx_14": 30.0,
-            "htf_rsi_14": 60.0 if trend > 0 else 40.0,
+            "mtf_1h_to_15m_ema_20": close + 1.0 if mtf_up else close - 1.0,
+            "mtf_1h_to_15m_ema_50": close - 1.0 if mtf_up else close + 1.0,
+            "mtf_1h_to_15m_rsi_14": 60.0 if mtf_up else 40.0,
         },
         source_bars_hash="SRC-BARS",
         source_indicators_hash="SRC-IND",
@@ -174,7 +171,7 @@ def _write_materialized_layers(
             )
         )
     ]
-    features = [_feature(index, bar.close) for index, bar in enumerate(bars)]
+    derived = [_derived(index, bar.close) for index, bar in enumerate(bars)]
 
     dataset_manifest = ResearchDatasetManifest(
         dataset_version="dataset-v5",
@@ -191,7 +188,7 @@ def _write_materialized_layers(
     )
     dataset_contract = research_dataset_store_contract()
     indicator_contract = indicator_store_contract()
-    feature_contract = research_feature_store_contract()
+    derived_contract = research_derived_indicator_store_contract()
     write_delta_table_rows(
         table_path=root / "research_datasets.delta",
         rows=[dataset_manifest.to_dict()],
@@ -208,9 +205,9 @@ def _write_materialized_layers(
         columns=indicator_contract["research_indicator_frames"]["columns"],
     )
     write_delta_table_rows(
-        table_path=root / "research_feature_frames.delta",
-        rows=[row.to_dict() for row in features],
-        columns=feature_contract["research_feature_frames"]["columns"],
+        table_path=root / "research_derived_indicator_frames.delta",
+        rows=[row.to_dict() for row in derived],
+        columns=derived_contract["research_derived_indicator_frames"]["columns"],
     )
     return root
 
@@ -345,7 +342,7 @@ def test_vectorbt_batch_runner_respects_dataset_windows_and_short_only_direction
         version="ma-cross-short-only-v1",
         family="ma_cross",
         description="Short-only MA cross validation spec.",
-        required_columns=("close", "ema_10", "ema_20", "ema_50", "atr_14", "trend_state_fast_slow_code", "ma_stack_state_code"),
+        required_columns=("close", "ema_10", "ema_20", "ema_50", "atr_14"),
         parameter_grid=(
             StrategyParameter("fast_window", (10,)),
             StrategyParameter("slow_window", (20,)),
@@ -381,7 +378,7 @@ def test_vectorbt_batch_runner_parameters_and_risk_policy_change_execution(tmp_p
         version="breakout-param-v1",
         family="breakout",
         description="Breakout parameter effect validation spec.",
-        required_columns=("close", "high", "low", "rolling_high_20", "rolling_low_20", "adx_14", "atr_14", "breakout_ready_state_code", "trend_state_fast_slow_code"),
+        required_columns=("close", "high", "low", "adx_14", "atr_14"),
         parameter_grid=(
             StrategyParameter("breakout_window", (2, 8)),
             StrategyParameter("min_adx", (10,)),
@@ -419,7 +416,7 @@ def test_vectorbt_batch_runner_handles_100_combinations_with_batching_and_cache(
         version="breakout-benchmark-v1",
         family="breakout",
         description="Large sweep validation spec.",
-        required_columns=("close", "high", "low", "rolling_high_20", "rolling_low_20", "adx_14", "atr_14", "breakout_ready_state_code", "trend_state_fast_slow_code"),
+        required_columns=("close", "high", "low", "adx_14", "atr_14"),
         parameter_grid=(
             StrategyParameter("breakout_window", (3, 4, 5, 6, 7)),
             StrategyParameter("min_adx", (10, 12, 14, 16, 18, 20, 22, 24, 26, 28)),

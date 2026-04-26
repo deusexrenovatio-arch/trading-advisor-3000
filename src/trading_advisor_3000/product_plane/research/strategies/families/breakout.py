@@ -14,17 +14,13 @@ def breakout_family_adapter() -> StrategyFamilyAdapter:
     strategy_spec = StrategySpec(
         version="breakout-v1",
         family="breakout",
-        description="Breakout continuation strategy over prebuilt range and breakout readiness features.",
+        description="Breakout continuation strategy over rolling price ranges and ADX strength.",
         required_columns=(
             "close",
             "high",
             "low",
-            "rolling_high_20",
-            "rolling_low_20",
             "adx_14",
             "atr_14",
-            "breakout_ready_state_code",
-            "trend_state_fast_slow_code",
         ),
         parameter_grid=(
             StrategyParameter("breakout_window", (20, 30, 55)),
@@ -49,7 +45,7 @@ def breakout_family_adapter() -> StrategyFamilyAdapter:
         strategy_spec=strategy_spec,
         template_key="breakout_core",
         template_title="Breakout Core",
-        regime_module_key="feature.breakout_ready_state_code",
+        regime_module_key="derived.rolling_range_breakout",
         module_versions={"entry": "v1", "regime_filter": "v1", "risk_exit": "v1"},
     )
 
