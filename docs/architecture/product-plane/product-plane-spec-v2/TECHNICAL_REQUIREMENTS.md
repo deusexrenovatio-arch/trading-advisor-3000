@@ -1,4 +1,4 @@
-﻿# РўРµС…РЅРёС‡РµСЃРєРѕРµ Р·Р°РґР°РЅРёРµ РЅР° СЂР°Р·СЂР°Р±РѕС‚РєСѓ Trading Advisor 3000 product plane
+# РўРµС…РЅРёС‡РµСЃРєРѕРµ Р·Р°РґР°РЅРёРµ РЅР° СЂР°Р·СЂР°Р±РѕС‚РєСѓ Trading Advisor 3000 product plane
 
 ## 1. РќР°Р·РЅР°С‡РµРЅРёРµ РґРѕРєСѓРјРµРЅС‚Р°
 
@@ -109,10 +109,10 @@
 - `D2 Canonical Market Data`
 
 #### Research plane
-- `P3 Feature Engine`
-- `P4 Feature-based Backtest`
+- `P3 Indicator Engine`
+- `P4 Indicator-based Backtest`
 - `P9 Event-Based Forward`
-- `D3 Feature / Context Store`
+- `D3 Indicator / Derived Indicator Store`
 - `D4 Signal Candidates`
 - `D5 Outcome / Analytics Store`
 
@@ -183,7 +183,7 @@
 - Shadow-forward Рё paper execution РёСЃРїРѕР»СЊР·СѓСЋС‚ С‚Рµ Р¶Рµ strategy contracts, С‡С‚Рѕ Рё runtime.
 
 ### РљР°С‡РµСЃС‚РІРµРЅРЅС‹Рµ
-- РџРѕР»РЅР°СЏ С‚СЂР°СЃСЃРёСЂРѕРІРєР°: bar -> feature snapshot -> signal -> publication -> outcome.
+- РџРѕР»РЅР°СЏ С‚СЂР°СЃСЃРёСЂРѕРІРєР°: bar -> indicator frame -> derived indicator frame -> signal -> publication -> outcome.
 - РџРѕРІС‚РѕСЂСЏРµРјРѕСЃС‚СЊ backtest run РЅР° РѕРґРЅРѕРј dataset version.
 - РћС‚СЃСѓС‚СЃС‚РІРёРµ look-ahead Рё РЅРµСЃРѕРіР»Р°СЃРѕРІР°РЅРЅС‹С… live fills.
 

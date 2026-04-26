@@ -6,9 +6,9 @@
 | --- | --- | --- | --- |
 | Foundation contracts | `src/.../contracts` | none | repo scaffolding |
 | Data ingestion | `src/.../data_plane/ingestion` | contracts | sidecar stub, docs |
-| Canonical builder | `src/.../data_plane/canonical` | contracts, ingestion | feature engine prep |
-| Feature engine | `src/.../research/features` | canonical builder | Telegram templates |
-| Backtest engine | `src/.../research/backtest` | feature engine | runtime scaffolding |
+| Canonical builder | `src/.../data_plane/canonical` | contracts, ingestion | indicator prep |
+| Indicator engine | `src/.../research/indicators` + `src/.../research/derived_indicators` | canonical builder | Telegram templates |
+| Backtest engine | `src/.../research/backtests` | indicator engine | runtime scaffolding |
 | Strategy registry | `src/.../runtime/config` | contracts | runtime scaffolding |
 | Signal runtime | `src/.../runtime/decision` | canonical, strategy registry | publishing |
 | Publishing engine | `src/.../interfaces/telegram` | signal runtime contracts | analytics scaffolding |
@@ -36,7 +36,7 @@
 ### DoD
 - зафиксированы domain contracts:
   - market data,
-  - features,
+  - indicators,
   - strategy,
   - signal,
   - execution;
@@ -68,12 +68,12 @@
 
 ---
 
-## M4. Feature engine
+## M4. Indicator engine
 ### DoD
-- feature catalog зафиксирован;
+- indicator catalog зафиксирован;
 - point-in-time correctness доказана тестами;
-- versioned feature set реализован;
-- feature snapshots доступны в Delta.
+- versioned indicator and derived indicator sets реализован;
+- indicator frames and derived indicator frames доступны в Delta.
 
 ---
 
@@ -196,7 +196,7 @@
 - Dagster data assets
 
 #### Track B — Research
-- features
+- indicators
 - backtest
 - shadow-forward
 

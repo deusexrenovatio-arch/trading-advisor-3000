@@ -125,7 +125,7 @@ Data-root truth source:
 - Root: `D:/TA3000-data/trading-advisor-3000-nightly/derived/moex`
 - Role: reserved data-only space for downstream computed layers that must stay outside the baseline roots.
 - Contents:
-  - `features/`
+  - `indicators/`
   - `indicators/`
 
 ### D. Baseline update evidence

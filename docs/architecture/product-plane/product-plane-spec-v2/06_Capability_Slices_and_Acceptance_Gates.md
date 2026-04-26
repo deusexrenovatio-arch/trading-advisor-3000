@@ -97,8 +97,8 @@ Track A/B/C/D may start.
 ## Research plane
 
 ### Deliverables
-- feature engine;
-- feature store contract;
+- indicator engine;
+- indicator and derived indicator store contract;
 - backtest engine;
 - sample strategy implementations;
 - candidate outputs.

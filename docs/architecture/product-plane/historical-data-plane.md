@@ -41,4 +41,4 @@ Deliver a runnable data-plane baseline:
 ## Out of Scope
 - production data sources and scheduling,
 - full Delta/Spark runtime wiring,
-- feature/research/runtime/execution phases beyond 2A.
+- research/runtime/execution phases beyond 2A.

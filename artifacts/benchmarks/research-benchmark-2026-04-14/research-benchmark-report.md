@@ -13,7 +13,7 @@
 - hot_speedup_vs_cold_total: 5.711796
 
 ## Thresholds
-- no_recompute_indicators_features: True
+- no_recompute_indicators_derived: True
 - hot_path_threshold_pass: True
 - param_100_completed: True
 

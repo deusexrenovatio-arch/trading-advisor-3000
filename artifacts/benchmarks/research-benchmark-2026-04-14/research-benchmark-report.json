@@ -7,11 +7,11 @@
     "bars_per_instrument": 96,
     "materialized_bar_rows": 576,
     "indicator_rows": 576,
-    "feature_rows": 576
+    "derived_indicator_rows": 576
   },
   "versions": {
     "indicator_set_version": "indicators-v1",
-    "feature_set_version": "features-v1",
+    "derived_indicator_set_version": "derived-v1",
     "strategy_catalog_version": "research-benchmark-catalog-v1"
   },
   "cold_bootstrap": {
@@ -54,7 +54,7 @@
     }
   ],
   "thresholds": {
-    "no_recompute_indicators_features": true,
+    "no_recompute_indicators_derived": true,
     "hot_speedup_vs_cold_total": 5.711796,
     "hot_ratio_vs_cold_total": 0.175076,
     "hot_path_threshold_pass": true,
