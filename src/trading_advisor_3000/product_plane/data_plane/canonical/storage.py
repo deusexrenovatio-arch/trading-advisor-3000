@@ -23,7 +23,6 @@ class CanonicalStorageBinding:
     canonical_session_calendar_path: Path | None
     canonical_roll_map_path: Path | None
     derived_root: Path | None
-    features_root: Path | None
     indicators_root: Path | None
     manifest_path: Path | None
     source: str
@@ -51,7 +50,6 @@ class CanonicalStorageBinding:
                 else None
             ),
             "derived_root": self.derived_root.as_posix() if self.derived_root is not None else None,
-            "features_root": self.features_root.as_posix() if self.features_root is not None else None,
             "indicators_root": self.indicators_root.as_posix() if self.indicators_root is not None else None,
             "manifest_path": self.manifest_path.as_posix() if self.manifest_path is not None else None,
             "source": self.source,
@@ -89,7 +87,6 @@ def _binding_from_direct_path(path: Path, *, source: str) -> CanonicalStorageBin
         canonical_session_calendar_path=session_calendar if has_delta_log(session_calendar) else None,
         canonical_roll_map_path=roll_map if has_delta_log(roll_map) else None,
         derived_root=derived_root if derived_root.exists() else None,
-        features_root=(derived_root / "features") if (derived_root / "features").exists() else None,
         indicators_root=(derived_root / "indicators") if (derived_root / "indicators").exists() else None,
         manifest_path=None,
         source=source,
@@ -121,7 +118,6 @@ def load_canonical_storage_binding(manifest_path: Path) -> CanonicalStorageBindi
     session_calendar = _path_from_text(baseline_paths.get("canonical_session_calendar"))
     roll_map = _path_from_text(baseline_paths.get("canonical_roll_map"))
     derived_root = _path_from_text(storage_layout.get("derived_root"))
-    features_root = _path_from_text(storage_layout.get("features_root"))
     indicators_root = _path_from_text(storage_layout.get("indicators_root"))
 
     return CanonicalStorageBinding(
@@ -134,7 +130,6 @@ def load_canonical_storage_binding(manifest_path: Path) -> CanonicalStorageBindi
         canonical_session_calendar_path=session_calendar,
         canonical_roll_map_path=roll_map,
         derived_root=derived_root,
-        features_root=features_root,
         indicators_root=indicators_root,
         manifest_path=resolved_manifest,
         source="baseline-manifest",
@@ -194,7 +189,6 @@ def resolve_moex_t3_storage(
                 canonical_session_calendar_path=binding.canonical_session_calendar_path,
                 canonical_roll_map_path=binding.canonical_roll_map_path,
                 derived_root=binding.derived_root,
-                features_root=binding.features_root,
                 indicators_root=binding.indicators_root,
                 manifest_path=binding.manifest_path,
                 source=source,

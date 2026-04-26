@@ -91,7 +91,6 @@ class BacktestBatchRequest:
     strategy_space_id: str
     dataset_version: str
     indicator_set_version: str
-    feature_set_version: str
     strategy_instances: tuple[BacktestStrategyInstance, ...]
     combination_count: int
     derived_indicator_set_version: str = "derived-v1"
@@ -123,7 +122,6 @@ class BacktestBatchRequest:
                 self.dataset_version,
                 self.indicator_set_version,
                 self.derived_indicator_set_version,
-                self.feature_set_version,
                 *[instance.strategy_instance_id for instance in self.strategy_instances],
                 str(self.combination_count),
                 str(self.param_batch_size),
@@ -193,7 +191,7 @@ def run_backtest_batch(
     *,
     dataset_output_dir: Path,
     indicator_output_dir: Path,
-    feature_output_dir: Path,
+    derived_indicator_output_dir: Path,
     output_dir: Path,
     request: BacktestBatchRequest,
     engine_config: BacktestEngineConfig | None = None,
@@ -210,12 +208,11 @@ def run_backtest_batch(
     series_frames, cache_id, cache_hit = load_backtest_frames(
         dataset_output_dir=dataset_output_dir,
         indicator_output_dir=indicator_output_dir,
-        feature_output_dir=feature_output_dir,
+        derived_indicator_output_dir=derived_indicator_output_dir,
         request=ResearchSliceRequest(
             dataset_version=request.dataset_version,
             indicator_set_version=request.indicator_set_version,
             derived_indicator_set_version=request.derived_indicator_set_version,
-            feature_set_version=request.feature_set_version,
             timeframe=request.timeframe,
             contract_ids=request.contract_ids,
             instrument_ids=request.instrument_ids,
@@ -253,7 +250,7 @@ def run_backtest_batch(
                         strategy_space_id=request.strategy_space_id,
                         dataset_version=request.dataset_version,
                         indicator_set_version=request.indicator_set_version,
-                        feature_set_version=request.feature_set_version,
+                        derived_indicator_set_version=request.derived_indicator_set_version,
                         split_windows=split_windows,
                     )
                     all_run_rows.extend(result["run_rows"])
@@ -268,7 +265,7 @@ def run_backtest_batch(
         "strategy_space_id": request.strategy_space_id,
         "dataset_version": request.dataset_version,
         "indicator_set_version": request.indicator_set_version,
-        "feature_set_version": request.feature_set_version,
+        "derived_indicator_set_version": request.derived_indicator_set_version,
         "engine_name": engine_config.engine_name,
         "param_batch_size": request.param_batch_size,
         "series_batch_size": request.series_batch_size,

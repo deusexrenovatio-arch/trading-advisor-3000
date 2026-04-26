@@ -13,7 +13,7 @@ class BacktestBatchArtifact:
     strategy_space_id: str
     dataset_version: str
     indicator_set_version: str
-    feature_set_version: str
+    derived_indicator_set_version: str
     combination_count: int
 
 
@@ -40,7 +40,7 @@ def backtest_store_contract() -> dict[str, dict[str, object]]:
                 "strategy_space_id": "string",
                 "dataset_version": "string",
                 "indicator_set_version": "string",
-                "feature_set_version": "string",
+                "derived_indicator_set_version": "string",
                 "engine_name": "string",
                 "param_batch_size": "int",
                 "series_batch_size": "int",
@@ -65,7 +65,7 @@ def backtest_store_contract() -> dict[str, dict[str, object]]:
                 "strategy_version_label": "string",
                 "dataset_version": "string",
                 "indicator_set_version": "string",
-                "feature_set_version": "string",
+                "derived_indicator_set_version": "string",
                 "contract_id": "string",
                 "instrument_id": "string",
                 "timeframe": "string",
@@ -211,7 +211,7 @@ def results_store_contract() -> dict[str, dict[str, object]]:
                 "strategy_version_label": "string",
                 "dataset_version": "string",
                 "indicator_set_version": "string",
-                "feature_set_version": "string",
+                "derived_indicator_set_version": "string",
                 "contract_id": "string",
                 "instrument_id": "string",
                 "timeframe": "string",
@@ -251,7 +251,7 @@ def results_store_contract() -> dict[str, dict[str, object]]:
                 "estimated_commission": "double",
                 "estimated_slippage": "double",
                 "window_id": "string",
-                "feature_snapshot_json": "json",
+                "indicator_context_json": "json",
                 "created_at": "timestamp",
             },
         },

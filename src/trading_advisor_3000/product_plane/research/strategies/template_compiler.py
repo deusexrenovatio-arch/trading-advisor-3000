@@ -131,7 +131,7 @@ def build_strategy_family_adapter(
             "preferred_metrics": list(strategy_spec.ranking_metadata.preferred_metrics),
             "ranking_tags": list(strategy_spec.ranking_metadata.tags),
         },
-        required_feature_columns=strategy_spec.required_columns,
+        required_indicator_columns=strategy_spec.required_columns,
         search_space=search_space,
         source_ref=source_ref,
         status="active",
