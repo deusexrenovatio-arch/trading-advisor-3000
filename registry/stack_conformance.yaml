@@ -141,7 +141,8 @@ technology_claims:
       files_all:
         - src/trading_advisor_3000/product_plane/data_plane/delta_runtime.py
         - src/trading_advisor_3000/product_plane/data_plane/pipeline.py
-        - src/trading_advisor_3000/product_plane/research/backtest/engine.py
+        - src/trading_advisor_3000/product_plane/research/datasets/materialize.py
+        - src/trading_advisor_3000/product_plane/research/backtests/results.py
       tests_any:
         - tests/product-plane/integration/test_historical_data_plane.py
         - tests/product-plane/integration/test_research_plane.py
@@ -220,11 +221,11 @@ technology_claims:
       dependencies_any:
         - vectorbt
       files_any:
-        - src/trading_advisor_3000/product_plane/research/backtest/engine.py
-        - src/trading_advisor_3000/dagster_defs/research_governed_assets.py
+        - src/trading_advisor_3000/product_plane/research/backtests/engine.py
+        - src/trading_advisor_3000/dagster_defs/research_assets.py
       tests_any:
-        - tests/product-plane/integration/test_research_plane.py
-        - tests/product-plane/integration/test_research_governed_dagster_execution.py
+        - tests/product-plane/integration/test_research_vectorbt_backtests.py
+        - tests/product-plane/integration/test_research_dagster_jobs.py
     governed_scope:
       adr_paths_any:
         - docs/architecture/product-plane/product-plane-spec-v2/04_ADRs.md
@@ -246,10 +247,10 @@ technology_claims:
       dependencies_any:
         - pandas-ta-classic
       files_any:
-        - src/trading_advisor_3000/product_plane/research/features/engine.py
-        - src/trading_advisor_3000/product_plane/research/features/store.py
+        - src/trading_advisor_3000/product_plane/research/indicators/materialize.py
+        - src/trading_advisor_3000/product_plane/research/indicators/registry.py
       tests_any:
-        - tests/product-plane/unit/test_research_features.py
+        - tests/product-plane/unit/test_research_indicator_layer.py
 
   - id: fastapi
     display_name: FastAPI
