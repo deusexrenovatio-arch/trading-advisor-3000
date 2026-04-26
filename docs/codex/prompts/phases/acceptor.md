@@ -4,23 +4,24 @@ Read first:
 
 1. `AGENTS.md`
 2. `docs/agent/entrypoint.md`
-3. `docs/agent/domains.md`
-4. `docs/agent/checks.md`
-5. `docs/agent/runtime.md`
-6. `docs/DEV_WORKFLOW.md`
-7. the execution contract
-8. the module parent brief
-9. the current phase brief
-10. the worker report
-11. the changed-files snapshot
-12. `docs/codex/orchestration/acceptance-contract.md`
-13. `docs/checklists/phase-evidence-contract.md`
-14. Global Codex skill `phase-acceptance-governor`
-15. Global Codex skill `architecture-review`
-16. Global Codex skill `testing-suite`
-17. Global Codex skill `docs-sync`
-18. Global Codex skill `verification-before-completion`
-19. the selected primary source document and supporting source documents named in the execution contract, when needed to judge phase-intent alignment
+3. `docs/agent-contexts/README.md`
+4. `docs/agent/domains.md`
+5. `docs/agent/checks.md`
+6. `docs/agent/runtime.md`
+7. `docs/DEV_WORKFLOW.md`
+8. the execution contract
+9. the module parent brief
+10. the current phase brief
+11. the worker report
+12. the changed-files snapshot
+13. `docs/codex/orchestration/acceptance-contract.md`
+14. `docs/checklists/phase-evidence-contract.md`
+15. Global Codex skill `phase-acceptance-governor`
+16. Global Codex skill `architecture-review`
+17. Global Codex skill `testing-suite`
+18. Global Codex skill `docs-sync`
+19. Global Codex skill `verification-before-completion`
+20. the selected primary source document and supporting source documents named in the execution contract, when needed to judge phase-intent alignment
 
 Review rules:
 
@@ -33,6 +34,10 @@ Review rules:
 
 - Judge only the current phase.
 - Focus on correctness, policy integrity, phase completion, and missing evidence.
+- Use the changed-files snapshot with `python scripts/context_router.py --stdin --format text` when the worker did not provide a clear context footprint.
+- Verify that the worker used the primary context, `Inside This Context`, and `Search Seeds` when non-trivial code discovery was required.
+- Include a `context_footprint` object in the acceptance payload, either copied from the worker report or recomputed from changed files.
+- Before expanding beyond the worker report, changed-files snapshot, and primary route into memory, logs, generated artifacts, live process state, Graphify, web docs, or broad file reads, add one entry to `context_expansion_log` with `reason`, `source`, `insufficiency`, and `stop_condition`.
 - Keep the short human summary terminal and operator-usable:
   - start with `PASS` or `BLOCKED` and the main reason,
   - explain what unlocks the phase next,
@@ -101,5 +106,5 @@ Review rules:
 Return a short human summary and finish with this exact marker block:
 
 BEGIN_PHASE_ACCEPTANCE_JSON
-{"verdict":"PASS|BLOCKED","summary":"...","operator_summary":{"verdict_reason":"...","unlock_condition":"...","evidence_basis":"...","what_not_proved":"..."},"unlock_recipe":["..."],"route_signal":"acceptance:governed-phase-route","used_skills":["phase-acceptance-governor","architecture-review","testing-suite","docs-sync"],"blockers":[{"id":"B1","title":"...","why":"...","remediation":"..."}],"rerun_checks":["..."],"evidence_gaps":[],"prohibited_findings":[],"result_quality":{"requirements_alignment":{"score":0,"summary":"..."},"documentation_quality":{"score":0,"summary":"..."},"implementation_quality":{"score":0,"summary":"..."},"testing_quality":{"score":0,"summary":"..."},"strengths":["..."],"gaps":["..."]}}
+{"verdict":"PASS|BLOCKED","summary":"...","operator_summary":{"verdict_reason":"...","unlock_condition":"...","evidence_basis":"...","what_not_proved":"..."},"context_footprint":{"primary_context":"...","navigation_order":["..."],"secondary_contexts":["..."],"unmapped_files":[],"cold_context_files":[],"critical_contours":[]},"context_expansion_log":[{"reason":"...","source":"memory|diff|logs|artifacts|live-process|graphify|web-docs|broad-read","insufficiency":"...","stop_condition":"..."}],"unlock_recipe":["..."],"route_signal":"acceptance:governed-phase-route","used_skills":["phase-acceptance-governor","architecture-review","testing-suite","docs-sync"],"blockers":[{"id":"B1","title":"...","why":"...","remediation":"..."}],"rerun_checks":["..."],"evidence_gaps":[],"prohibited_findings":[],"result_quality":{"requirements_alignment":{"score":0,"summary":"..."},"documentation_quality":{"score":0,"summary":"..."},"implementation_quality":{"score":0,"summary":"..."},"testing_quality":{"score":0,"summary":"..."},"strengths":["..."],"gaps":["..."]}}
 END_PHASE_ACCEPTANCE_JSON

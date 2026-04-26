@@ -3,6 +3,12 @@
 ## Scope
 Research pipelines, feature generation, and analysis-oriented execution.
 
+## Inside This Context
+- Research materialization, indicator/derived-indicator datasets, benchmark artifacts, research Dagster assets, and analysis-facing checks.
+- This is the first context for persistent research outputs and proof that real data-prep routes materialize.
+- Typical questions: what research table is produced, which indicator family is active, what proves materialization on real data?
+- Not inside: canonical ingestion ownership, live runtime execution, or operator API behavior except as consumers.
+
 ## Owned Paths
 - `src/trading_advisor_3000/product_plane/research/`
 - `src/trading_advisor_3000/spark_jobs/`
@@ -22,6 +28,18 @@ Research pipelines, feature generation, and analysis-oriented execution.
 - `src/trading_advisor_3000/product_plane/runtime/`
 - `src/trading_advisor_3000/product_plane/interfaces/`
 - `src/trading_advisor_3000/product_plane/contracts/`
+
+## Navigation Facets
+- materialization
+- indicators
+- dagster-assets
+- research-verification
+
+## Search Seeds
+- `src/trading_advisor_3000/product_plane/research/`
+- `src/trading_advisor_3000/spark_jobs/`
+- `src/trading_advisor_3000/dagster_defs/research_assets.py`
+- `tests/product-plane/integration/test_materialized_research_plane.py`
 
 ## Primary Review Route
 Use this order when reviewing or accepting research-plane changes:

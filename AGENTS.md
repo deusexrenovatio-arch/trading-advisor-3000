@@ -51,8 +51,13 @@ Business and trading logic remain out of scope for shell control-plane surfaces.
 - historical artifacts, generated reports, and archives
 
 ## Semantic Code Navigation
+- Before broad repository reading on a non-trivial task, run context routing or consume its current result:
+  `python scripts/context_router.py --from-git --format text`.
+- Read the primary context card in `docs/agent-contexts/`, then follow `navigation_order` only as far as the matched files require.
+- Use each context card's `Inside This Context` and `Search Seeds` sections to choose where Serena should start.
 - For non-trivial code changes or new code inside an existing subsystem, Serena is the mandatory first route for code discovery, local pattern learning, impact analysis, and reference checks before editing or adding code.
 - Use Serena for symbol overview, symbol lookup, nearby implementation patterns, references, rename/refactor planning, and precise implementation proof before broad text scans, whole-file reads, or multi-file code dumps.
+- Before expanding beyond the primary context route into memory, current diff, logs, generated artifacts, live process state, Graphify, web docs, or broad file reads, leave a short Context Expansion Reason: what uncertainty is being resolved, which source/tool will answer it, why the current route is insufficient, and when to stop expanding.
 - For new isolated files, first use Serena to inspect the closest existing module or pattern unless the task is truly standalone.
 - Direct search/read fallback is allowed only for docs-only work, generated/artifact paths, config/non-code-only tasks, tiny already-localized edits, unsupported file types, or Serena unavailability.
 - If Serena is skipped or unavailable on a code task, state the fallback reason briefly and continue with the lightest reliable tools.

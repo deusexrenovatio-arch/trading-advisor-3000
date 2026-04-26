@@ -4,20 +4,21 @@ Read first:
 
 1. `AGENTS.md`
 2. `docs/agent/entrypoint.md`
-3. `docs/agent/domains.md`
-4. `docs/agent/checks.md`
-5. `docs/agent/runtime.md`
-6. `docs/DEV_WORKFLOW.md`
-7. the execution contract
-8. the module parent brief
-9. the current phase brief
-10. the latest acceptance blockers
-11. `docs/codex/orchestration/acceptance-contract.md`
-12. `docs/checklists/phase-evidence-contract.md`
-13. Global Codex skill `repeated-issue-review`
-14. Global Codex skill `docs-sync`
-15. Global Codex skill `verification-before-completion`
-16. Global Codex skill `testing-suite`
+3. `docs/agent-contexts/README.md`
+4. `docs/agent/domains.md`
+5. `docs/agent/checks.md`
+6. `docs/agent/runtime.md`
+7. `docs/DEV_WORKFLOW.md`
+8. the execution contract
+9. the module parent brief
+10. the current phase brief
+11. the latest acceptance blockers
+12. `docs/codex/orchestration/acceptance-contract.md`
+13. `docs/checklists/phase-evidence-contract.md`
+14. Global Codex skill `repeated-issue-review`
+15. Global Codex skill `docs-sync`
+16. Global Codex skill `verification-before-completion`
+17. Global Codex skill `testing-suite`
 
 Rules:
 
@@ -32,6 +33,10 @@ Rules:
 - Fix only the blockers plus the minimum supporting edits needed to resolve them.
 - Do not widen into the next phase.
 - Do not declare acceptance complete.
+- Before broad discovery, run or consume `python scripts/context_router.py --from-git --format text`.
+- Open the primary context card from `navigation_order`, read `Inside This Context`, and use `Search Seeds` as Serena entrypoints for non-trivial code.
+- Include a `context_footprint` object in the remediation payload with primary context, navigation order, secondary contexts, unmapped files, cold files, and critical contours.
+- Before expanding beyond the primary route into memory, current diff, logs, generated artifacts, live process state, Graphify, web docs, or broad file reads, add one entry to `context_expansion_log` with `reason`, `source`, `insufficiency`, and `stop_condition`.
 - Start from blocker root cause, not only the visible symptom.
 - If the same blocker repeated, state what changed in the remediation approach instead of replaying the same fix path.
 - Documentation edits are allowed only in remediation scope when blockers require them.
@@ -63,5 +68,5 @@ Rules:
 Return a short human summary and finish with this exact marker block:
 
 BEGIN_PHASE_WORKER_JSON
-{"status":"DONE","summary":"...","operator_summary":{"blocker_focus":"...","root_cause":"...","chosen_path":"...","evidence_basis":"...","remaining_unlock_risk":"..."},"root_cause_summary":{"symptom":"...","root_cause":"...","approach_change":"..."},"decision_rationale":{"alternatives_considered":["..."],"target_shape_preserved":"...","system_simplification":"..."},"route_signal":"remediation:phase-only","files_touched":["..."],"checks_run":["..."],"remaining_risks":["..."],"assumptions":[],"skips":[],"fallbacks":[],"deferred_work":[],"evidence_contract":{"surfaces":["..."],"proof_class":"doc|schema|unit|integration|staging-real|live-real","artifact_paths":["..."],"checks":["..."],"real_bindings":["..."]},"documentation_context":{"source_documents":["..."],"materialized_documents":["docs/codex/contracts/<slug>.execution-contract.md","docs/codex/modules/<slug>.parent.md","docs/codex/modules/<slug>.phase-01.md"],"preserved_goals":["..."],"preserved_acceptance_criteria":["..."],"unresolved_conflicts":[]}}
+{"status":"DONE","summary":"...","operator_summary":{"blocker_focus":"...","root_cause":"...","chosen_path":"...","evidence_basis":"...","remaining_unlock_risk":"..."},"context_footprint":{"primary_context":"...","navigation_order":["..."],"secondary_contexts":["..."],"unmapped_files":[],"cold_context_files":[],"critical_contours":[]},"context_expansion_log":[{"reason":"...","source":"memory|diff|logs|artifacts|live-process|graphify|web-docs|broad-read","insufficiency":"...","stop_condition":"..."}],"root_cause_summary":{"symptom":"...","root_cause":"...","approach_change":"..."},"decision_rationale":{"alternatives_considered":["..."],"target_shape_preserved":"...","system_simplification":"..."},"route_signal":"remediation:phase-only","files_touched":["..."],"checks_run":["..."],"remaining_risks":["..."],"assumptions":[],"skips":[],"fallbacks":[],"deferred_work":[],"evidence_contract":{"surfaces":["..."],"proof_class":"doc|schema|unit|integration|staging-real|live-real","artifact_paths":["..."],"checks":["..."],"real_bindings":["..."]},"documentation_context":{"source_documents":["..."],"materialized_documents":["docs/codex/contracts/<slug>.execution-contract.md","docs/codex/modules/<slug>.parent.md","docs/codex/modules/<slug>.phase-01.md"],"preserved_goals":["..."],"preserved_acceptance_criteria":["..."],"unresolved_conflicts":[]}}
 END_PHASE_WORKER_JSON

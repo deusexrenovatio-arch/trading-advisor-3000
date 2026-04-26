@@ -4,16 +4,17 @@ Read first:
 
 1. `AGENTS.md`
 2. `docs/agent/entrypoint.md`
-3. `docs/agent/domains.md`
-4. `docs/agent/checks.md`
-5. `docs/agent/runtime.md`
-6. `docs/DEV_WORKFLOW.md`
-7. `docs/session_handoff.md`
-8. the execution contract
-9. the module parent brief
-10. the current phase brief
-11. the latest orchestration state, if present
-12. `docs/codex/orchestration/acceptance-contract.md`
+3. `docs/agent-contexts/README.md`
+4. `docs/agent/domains.md`
+5. `docs/agent/checks.md`
+6. `docs/agent/runtime.md`
+7. `docs/DEV_WORKFLOW.md`
+8. `docs/session_handoff.md`
+9. the execution contract
+10. the module parent brief
+11. the current phase brief
+12. the latest orchestration state, if present
+13. `docs/codex/orchestration/acceptance-contract.md`
 
 Execution rules:
 
@@ -22,6 +23,7 @@ Execution rules:
 - The governed launcher must already have been the first execution action in this continuation lifecycle:
   - `python scripts/codex_governed_entry.py continue --execution-contract <path> --parent-brief <path>`
 - This prompt does not authorize route selection by itself; if launcher evidence, route state, or phase pointers are missing or mismatched, report a route blocker instead of pretending continuation started.
+- Before opening broad context, run or consume `python scripts/context_router.py --from-git --format text` and use the primary card's `Inside This Context` plus `Search Seeds` as the search route.
 - Use the governed route only:
   - worker,
   - acceptance,

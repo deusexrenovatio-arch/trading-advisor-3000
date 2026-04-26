@@ -15,7 +15,9 @@ from codex_phase_policy import (  # noqa: E402
     WorkerReport,
     apply_acceptance_policy,
     normalize_acceptance_payload,
+    normalize_worker_payload,
     render_acceptance_markdown,
+    render_route_report,
 )
 
 
@@ -296,6 +298,18 @@ def test_acceptance_payload_normalizes_result_quality_and_renders_markdown() -> 
             "verdict": "PASS",
             "summary": "Acceptor scored a strong phase result.",
             "route_signal": "acceptance:governed-phase-route",
+            "context_footprint": {
+                "primary_context": "CTX-ORCHESTRATION",
+                "navigation_order": ["CTX-ORCHESTRATION"],
+            },
+            "context_expansion_log": [
+                {
+                    "reason": "Check whether worker evidence referenced generated artifacts.",
+                    "source": "artifacts",
+                    "insufficiency": "The worker summary named evidence but not the artifact details.",
+                    "stop_condition": "Artifact path confirms or refutes the evidence claim.",
+                }
+            ],
             "used_skills": [
                 "phase-acceptance-governor",
                 "architecture-review",
@@ -331,6 +345,119 @@ def test_acceptance_payload_normalizes_result_quality_and_renders_markdown() -> 
 
     assert acceptance.result_quality is not None
     assert acceptance.result_quality.overall_score == 87
+    assert acceptance.context_footprint is not None
+    assert acceptance.context_footprint["primary_context"] == "CTX-ORCHESTRATION"
+    assert acceptance.context_expansion_log is not None
+    assert acceptance.context_expansion_log[0]["source"] == "artifacts"
     markdown = render_acceptance_markdown(acceptance)
     assert "## Result Quality" in markdown
     assert "Overall Score: 87 (strong)" in markdown
+    assert "## Context Expansion" in markdown
+    assert "source=artifacts" in markdown
+
+
+def test_worker_payload_preserves_context_footprint_and_expansion_log() -> None:
+    worker = normalize_worker_payload(
+        {
+            "status": "DONE",
+            "summary": "Worker used routed context and one justified expansion.",
+            "route_signal": "worker:phase-only",
+            "files_touched": ["scripts/context_router.py"],
+            "checks_run": ["python -m pytest tests/process/test_context_router.py -q"],
+            "remaining_risks": [],
+            "assumptions": [],
+            "skips": [],
+            "fallbacks": [],
+            "deferred_work": [],
+            "context_footprint": {
+                "primary_context": "CTX-ORCHESTRATION",
+                "navigation_order": ["CTX-ORCHESTRATION", "CTX-OPS"],
+                "secondary_contexts": ["CTX-OPS"],
+                "unmapped_files": [],
+                "cold_context_files": [],
+                "critical_contours": [],
+            },
+            "context_expansion_log": [
+                {
+                    "reason": "Confirm whether prompt JSON is preserved by runtime policy code.",
+                    "source": "serena",
+                    "insufficiency": "Prompt text alone cannot prove payload fields survive normalization.",
+                    "stop_condition": "Relevant dataclass and normalizer are identified.",
+                }
+            ],
+        }
+    )
+
+    assert worker.context_footprint is not None
+    assert worker.context_footprint["primary_context"] == "CTX-ORCHESTRATION"
+    assert worker.context_expansion_log is not None
+    assert worker.context_expansion_log[0]["source"] == "serena"
+
+
+def test_context_trace_metadata_is_soft_when_malformed() -> None:
+    worker = normalize_worker_payload(
+        {
+            "status": "DONE",
+            "summary": "Worker emitted an unstructured context trace.",
+            "route_signal": "worker:phase-only",
+            "files_touched": [],
+            "checks_run": [],
+            "remaining_risks": [],
+            "assumptions": [],
+            "skips": [],
+            "fallbacks": [],
+            "deferred_work": [],
+            "context_footprint": "CTX-OPS",
+            "context_expansion_log": "looked at memory",
+        }
+    )
+
+    assert worker.context_footprint == {
+        "raw": "CTX-OPS",
+        "format_note": "`context_footprint` was not an object",
+    }
+    assert worker.context_expansion_log == [{"reason": "looked at memory", "source": "unstructured"}]
+
+
+def test_route_report_surfaces_context_expansion_reasons() -> None:
+    markdown = render_route_report(
+        {
+            "route_mode": "governed-phase-orchestration",
+            "phase_name": "Phase 01",
+            "backend": "simulate",
+            "final_status": "accepted",
+            "route_guardrails": [],
+            "route_trace": [],
+            "attempts": [
+                {
+                    "attempt": 1,
+                    "kind": "worker",
+                    "verdict": "PASS",
+                    "worker_route_signal": "worker:phase-only",
+                    "acceptor_route_signal": "acceptance:governed-phase-route",
+                    "policy_blockers_total": 0,
+                    "worker_context_expansion_log": [
+                        {
+                            "reason": "Need previous decision context.",
+                            "source": "memory",
+                            "insufficiency": "Primary card does not explain prior operator preference.",
+                            "stop_condition": "Preference is found or absent.",
+                        }
+                    ],
+                    "acceptor_context_expansion_log": [
+                        {
+                            "reason": "Verify executed evidence.",
+                            "source": "artifacts",
+                            "insufficiency": "Worker report lists a check but not its output.",
+                            "stop_condition": "Artifact confirms the check result.",
+                        }
+                    ],
+                }
+            ],
+            "next_phase": "done",
+        }
+    )
+
+    assert "## Context Expansion" in markdown
+    assert "attempt 1 worker: source=memory" in markdown
+    assert "attempt 1 acceptor: source=artifacts" in markdown

@@ -3,6 +3,12 @@
 ## Scope
 High-risk contract and durable-state surfaces for plans, memory, and validation policies.
 
+## Inside This Context
+- Durable process state, phase contracts, critical contours, task outcomes, and validation policy.
+- The context decides whether a change is allowed to proceed, not how product code should implement the behavior.
+- Typical questions: is the task request complete, is solution intent required, did a critical contour close honestly?
+- Not inside: app implementation details except when they are contractually constrained by configs, plans, or validators.
+
 ## Owned Paths
 - `configs/`
 - `plans/`
@@ -21,6 +27,19 @@ High-risk contract and durable-state surfaces for plans, memory, and validation 
 ## Guarded Paths
 - `src/trading_advisor_3000/`
 - `docs/architecture/`
+
+## Navigation Facets
+- contracts
+- plans
+- memory-state
+- critical-contours
+
+## Search Seeds
+- `scripts/validate_task_request_contract.py`
+- `scripts/validate_solution_intent.py`
+- `scripts/validate_critical_contour_closure.py`
+- `configs/critical_contours.yaml`
+- `plans/items/index.yaml`
 
 ## Escalation Rules
 1. Split mixed patches in order: contracts -> code -> docs.

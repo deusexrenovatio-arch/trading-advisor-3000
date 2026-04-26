@@ -4,23 +4,24 @@ Read first:
 
 1. `AGENTS.md`
 2. `docs/agent/entrypoint.md`
-3. `docs/agent/domains.md`
-4. `docs/agent/checks.md`
-5. `docs/agent/runtime.md`
-6. `docs/DEV_WORKFLOW.md`
-7. `docs/session_handoff.md`
-8. the execution contract
-9. the module parent brief
-10. the current phase brief
-11. `docs/codex/orchestration/acceptance-contract.md`
-12. `docs/checklists/phase-evidence-contract.md`
-13. Global Codex skill `code-implementation-worker`
-14. Global Codex skill `registry-first`
-15. Global Codex skill `architecture-review`
-16. Global Codex skill `testing-suite`
-17. Global Codex skill `verification-before-completion`
-18. Global Codex skill `patch-series-splitter`
-19. Global Codex skill `commit-and-pr-hygiene`
+3. `docs/agent-contexts/README.md`
+4. `docs/agent/domains.md`
+5. `docs/agent/checks.md`
+6. `docs/agent/runtime.md`
+7. `docs/DEV_WORKFLOW.md`
+8. `docs/session_handoff.md`
+9. the execution contract
+10. the module parent brief
+11. the current phase brief
+12. `docs/codex/orchestration/acceptance-contract.md`
+13. `docs/checklists/phase-evidence-contract.md`
+14. Global Codex skill `code-implementation-worker`
+15. Global Codex skill `registry-first`
+16. Global Codex skill `architecture-review`
+17. Global Codex skill `testing-suite`
+18. Global Codex skill `verification-before-completion`
+19. Global Codex skill `patch-series-splitter`
+20. Global Codex skill `commit-and-pr-hygiene`
 
 Rules:
 
@@ -36,6 +37,10 @@ Rules:
 - Implement only the current phase.
 - Do not open the next phase.
 - Do not claim acceptance.
+- Before broad discovery, run or consume `python scripts/context_router.py --from-git --format text`.
+- Open the primary context card from `navigation_order`, read `Inside This Context`, and use `Search Seeds` as Serena entrypoints for non-trivial code.
+- Include a `context_footprint` object in the worker payload with primary context, navigation order, secondary contexts, unmapped files, cold files, and critical contours.
+- Before expanding beyond the primary route into memory, current diff, logs, generated artifacts, live process state, Graphify, web docs, or broad file reads, add one entry to `context_expansion_log` with `reason`, `source`, `insufficiency`, and `stop_condition`.
 - If a remediation blockers file is present, address only those blockers plus the minimum required supporting fixes.
 - Run only the checks that match the current phase.
 - Keep the patch reviewable and phase-scoped.
@@ -82,5 +87,5 @@ Rules:
 Return a short human summary and finish with this exact marker block:
 
 BEGIN_PHASE_WORKER_JSON
-{"status":"DONE","summary":"...","operator_summary":{"phase_goal":"...","chosen_path":"...","why_not_shortcut":"...","evidence_basis":"...","remaining_unlock_risk":"..."},"decision_rationale":{"alternatives_considered":["..."],"target_shape_preserved":"...","system_simplification":"..."},"route_signal":"worker:phase-only","files_touched":["..."],"checks_run":["..."],"remaining_risks":["..."],"assumptions":[],"skips":[],"fallbacks":[],"deferred_work":[],"worker_self_quality":{"requirements_alignment":{"score":0,"summary":"..."},"documentation_quality":{"score":0,"summary":"..."},"implementation_quality":{"score":0,"summary":"..."},"testing_quality":{"score":0,"summary":"..."},"strengths":["..."],"gaps":["..."]},"evidence_contract":{"surfaces":["..."],"proof_class":"doc|schema|unit|integration|staging-real|live-real","artifact_paths":["..."],"checks":["..."],"real_bindings":["..."]}}
+{"status":"DONE","summary":"...","operator_summary":{"phase_goal":"...","chosen_path":"...","why_not_shortcut":"...","evidence_basis":"...","remaining_unlock_risk":"..."},"context_footprint":{"primary_context":"...","navigation_order":["..."],"secondary_contexts":["..."],"unmapped_files":[],"cold_context_files":[],"critical_contours":[]},"context_expansion_log":[{"reason":"...","source":"memory|diff|logs|artifacts|live-process|graphify|web-docs|broad-read","insufficiency":"...","stop_condition":"..."}],"decision_rationale":{"alternatives_considered":["..."],"target_shape_preserved":"...","system_simplification":"..."},"route_signal":"worker:phase-only","files_touched":["..."],"checks_run":["..."],"remaining_risks":["..."],"assumptions":[],"skips":[],"fallbacks":[],"deferred_work":[],"worker_self_quality":{"requirements_alignment":{"score":0,"summary":"..."},"documentation_quality":{"score":0,"summary":"..."},"implementation_quality":{"score":0,"summary":"..."},"testing_quality":{"score":0,"summary":"..."},"strengths":["..."],"gaps":["..."]},"evidence_contract":{"surfaces":["..."],"proof_class":"doc|schema|unit|integration|staging-real|live-real","artifact_paths":["..."],"checks":["..."],"real_bindings":["..."]}}
 END_PHASE_WORKER_JSON

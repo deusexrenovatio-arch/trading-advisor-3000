@@ -45,10 +45,23 @@ STOP_WORDS = {
 }
 DEFAULT_SESSION_HANDOFF_PATH = "docs/session_handoff.md"
 COLD_CONTEXT_PREFIXES: tuple[str, ...] = (
+    ".serena/",
+    "artifacts/",
     "plans/",
     "memory/",
     "codex_ai_delivery_shell_package/",
     "docs/tasks/archive/",
+)
+OPS_BOOKKEEPING_PREFIXES: tuple[str, ...] = (
+    "docs/session_handoff.md",
+    "docs/tasks/",
+)
+PRODUCT_PLANE_CONTEXT_IDS: tuple[str, ...] = (
+    "CTX-DATA",
+    "CTX-RESEARCH",
+    "CTX-ORCHESTRATION",
+    "CTX-API-UI",
+    "CTX-DOMAIN",
 )
 CRITICAL_CONTOUR_REVIEW_LENSES: tuple[str, ...] = (
     "architecture-review",
@@ -85,6 +98,8 @@ class ContextSpec:
     minimal_checks: tuple[str, ...]
     intent_keywords: tuple[str, ...]
     risk: str = "normal"
+    facets: tuple[str, ...] = ()
+    search_seeds: tuple[str, ...] = ()
 
 
 CONTEXTS: tuple[ContextSpec, ...] = (
@@ -103,6 +118,7 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "docs/runbooks/",
             "docs/tasks/",
             "docs/session_handoff.md",
+            ".serena/",
             "src/trading_advisor_3000/agents.md",
             "scripts/",
             "tests/process/",
@@ -120,6 +136,14 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "python scripts/validate_task_request_contract.py",
         ),
         intent_keywords=("governance", "policy", "gate", "workflow", "handoff", "session", "plan", "memory"),
+        facets=("lifecycle", "gates", "handoff", "process-tests"),
+        search_seeds=(
+            "scripts/context_router.py",
+            "scripts/run_loop_gate.py",
+            "scripts/run_pr_gate.py",
+            "scripts/task_session.py",
+            "tests/process/test_context_router.py",
+        ),
     ),
     ContextSpec(
         context_id="CTX-CONTRACTS",
@@ -157,6 +181,14 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         ),
         intent_keywords=("contract", "state", "ledger", "plan", "memory", "schema", "high-risk"),
         risk="high",
+        facets=("contracts", "plans", "memory-state", "critical-contours"),
+        search_seeds=(
+            "scripts/validate_task_request_contract.py",
+            "scripts/validate_solution_intent.py",
+            "scripts/validate_critical_contour_closure.py",
+            "configs/critical_contours.yaml",
+            "plans/items/index.yaml",
+        ),
     ),
     ContextSpec(
         context_id="CTX-ARCHITECTURE",
@@ -177,6 +209,13 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         ),
         intent_keywords=("architecture", "adr", "boundary", "module", "layer"),
         risk="high",
+        facets=("repository-map", "module-boundaries", "layer-policy", "architecture-tests"),
+        search_seeds=(
+            "docs/architecture/trading-advisor-3000.md",
+            "docs/architecture/repository-surfaces.md",
+            "docs/architecture/product-plane/STATUS.md",
+            "tests/architecture/",
+        ),
     ),
     ContextSpec(
         context_id="CTX-DATA",
@@ -187,6 +226,7 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "src/trading_advisor_3000/migrations/",
             "tests/product-plane/integration/test_historical_data_plane.py",
             "tests/product-plane/unit/test_historical_data_",
+            "tests/product-plane/unit/test_delta_",
             "tests/product-plane/fixtures/data_plane/",
         ),
         guarded_paths=("src/trading_advisor_3000/product_plane/research/", "src/trading_advisor_3000/product_plane/runtime/"),
@@ -199,6 +239,13 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "python -m pytest tests/product-plane/integration/test_historical_data_plane.py -q",
         ),
         intent_keywords=("data", "ingestion", "canonical", "provider", "dataset", "pipeline"),
+        facets=("ingestion", "canonical-storage", "quality", "delta-runtime"),
+        search_seeds=(
+            "src/trading_advisor_3000/product_plane/data_plane/",
+            "src/trading_advisor_3000/product_plane/data_plane/delta_runtime.py",
+            "tests/product-plane/unit/test_historical_data_",
+            "tests/product-plane/unit/test_delta_",
+        ),
     ),
     ContextSpec(
         context_id="CTX-RESEARCH",
@@ -222,6 +269,13 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "python -m pytest tests/product-plane/integration/test_research_plane.py -q",
         ),
         intent_keywords=("research", "analysis", "indicators", "experiment", "backtest", "forward"),
+        facets=("materialization", "indicators", "dagster-assets", "research-verification"),
+        search_seeds=(
+            "src/trading_advisor_3000/product_plane/research/",
+            "src/trading_advisor_3000/spark_jobs/",
+            "src/trading_advisor_3000/dagster_defs/research_assets.py",
+            "tests/product-plane/integration/test_materialized_research_plane.py",
+        ),
     ),
     ContextSpec(
         context_id="CTX-ORCHESTRATION",
@@ -235,7 +289,6 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "src/trading_advisor_3000/product_plane/config/",
             "src/trading_advisor_3000/app.py",
             "src/trading_advisor_3000/app_metadata.py",
-            "src/trading_advisor_3000/product_plane/",
             "src/trading_advisor_3000/product_plane/runtime/",
             "src/trading_advisor_3000/product_plane/execution/",
             "src/trading_advisor_3000/dagster_defs/",
@@ -268,6 +321,13 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "python -m pytest tests/product-plane/integration/test_runtime_lifecycle.py -q",
         ),
         intent_keywords=("runtime", "orchestration", "execution", "flow", "entrypoint", "coordination"),
+        facets=("runtime", "execution-flow", "config", "dagster-wiring"),
+        search_seeds=(
+            "src/trading_advisor_3000/product_plane/runtime/",
+            "src/trading_advisor_3000/product_plane/execution/",
+            "src/trading_advisor_3000/product_plane/config/",
+            "tests/product-plane/integration/test_runtime_lifecycle.py",
+        ),
     ),
     ContextSpec(
         context_id="CTX-API-UI",
@@ -289,6 +349,12 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "python -m pytest tests/product-plane/integration/test_controlled_live_execution.py -q",
         ),
         intent_keywords=("api", "interface", "delivery", "ui", "operator", "endpoint"),
+        facets=("operator-api", "live-bridge", "observability-export"),
+        search_seeds=(
+            "src/trading_advisor_3000/product_plane/interfaces/",
+            "tests/product-plane/integration/test_controlled_live_execution.py",
+            "tests/product-plane/unit/test_live_bridge.py",
+        ),
     ),
     ContextSpec(
         context_id="CTX-DOMAIN",
@@ -308,6 +374,11 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "python -m pytest tests/product-plane/test_app_plane_metadata.py -q",
         ),
         intent_keywords=("domain", "core behavior", "business rules"),
+        facets=("residual-domain", "app-metadata"),
+        search_seeds=(
+            "src/trading_advisor_3000/product_plane/domain/",
+            "tests/product-plane/test_app_plane_metadata.py",
+        ),
     ),
     ContextSpec(
         context_id="CTX-EXTERNAL-SOURCES",
@@ -325,6 +396,12 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "python scripts/validate_docs_links.py --roots AGENTS.md docs",
         ),
         intent_keywords=("external", "source", "integration", "lineage", "ingestion"),
+        facets=("source-contracts", "lineage", "integration-policy"),
+        search_seeds=(
+            "docs/agent-contexts/CTX-EXTERNAL-SOURCES.md",
+            "docs/runbooks/",
+            "src/trading_advisor_3000/product_plane/data_plane/",
+        ),
     ),
     ContextSpec(
         context_id="CTX-SKILLS",
@@ -356,6 +433,13 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "python scripts/sync_skills_catalog.py --check",
         ),
         intent_keywords=("skill", "skills", "catalog", "routing", "governance"),
+        facets=("skill-routing", "repo-local-catalog", "legacy-cursor-cleanup"),
+        search_seeds=(
+            "docs/agent/skills-routing.md",
+            "scripts/sync_skills_catalog.py",
+            "scripts/validate_skills.py",
+            "tests/process/test_validate_skills.py",
+        ),
     ),
 )
 CONTEXT_PRIORITY: tuple[str, ...] = tuple(spec.context_id for spec in CONTEXTS)
@@ -387,6 +471,8 @@ def _tokenize(text: str) -> set[str]:
 
 def _prefix_match(path: str, owned: str) -> bool:
     normalized_owned = _normalize_path(owned).rstrip("/")
+    if normalized_owned.endswith("_"):
+        return path.startswith(normalized_owned)
     return path == normalized_owned or path.startswith(f"{normalized_owned}/")
 
 
@@ -443,7 +529,15 @@ def _score_intent_contexts(
     return scores, intent_sources
 
 
-def _select_primary(counts: dict[str, int]) -> str | None:
+def _primary_weight(context_id: str, normalized_path: str) -> float:
+    if context_id == "CTX-OPS" and any(
+        _prefix_match(normalized_path, prefix) for prefix in OPS_BOOKKEEPING_PREFIXES
+    ):
+        return 0.2
+    return 1.0
+
+
+def _select_primary(counts: dict[str, float]) -> str | None:
     if not counts:
         return None
     ranked = sorted(
@@ -451,6 +545,12 @@ def _select_primary(counts: dict[str, int]) -> str | None:
         key=lambda item: (-item[1], CONTEXT_PRIORITY.index(item[0])),
     )
     return ranked[0][0]
+
+
+def _navigation_order(primary: str | None, visible_contexts: list[str]) -> list[str]:
+    if primary is None:
+        return list(visible_contexts)
+    return [primary, *[context_id for context_id in visible_contexts if context_id != primary]]
 
 
 def _load_session_handoff_text(path_value: str | None) -> str:
@@ -506,6 +606,7 @@ def route_files(
     target_modules = target_modules or []
     normalized = [(_normalize_path(path), path) for path in _deduplicate(changed_files)]
     matched: dict[str, list[str]] = defaultdict(list)
+    primary_weights: dict[str, float] = defaultdict(float)
     cold_context_files: list[str] = []
     unmapped: list[str] = []
     critical_contours = _detect_critical_contours([original_path for _normalized, original_path in normalized])
@@ -530,18 +631,23 @@ def route_files(
             continue
         for context_id in owners:
             matched[context_id].append(original_path)
+            primary_weights[context_id] += _primary_weight(context_id, normalized_path)
 
     intent_scores, intent_sources = _score_intent_contexts(
         request_text=request_text,
         session_handoff_text=session_handoff_text,
         target_modules=target_modules,
     )
-    counts = {context_id: len(paths) for context_id, paths in matched.items()}
-    primary = _select_primary(counts) or _select_primary(intent_scores)
+    cold_only = bool(normalized) and len(cold_context_files) == len(normalized)
+    if cold_only and not request_text and not target_modules:
+        intent_scores = {}
+        intent_sources = []
+    primary = _select_primary(dict(primary_weights)) or _select_primary(intent_scores)
 
     if not normalized and not intent_scores:
         return {
             "primary_context": None,
+            "navigation_order": [],
             "contexts": [],
             "intent_sources": intent_sources,
             "cold_context_files": [],
@@ -567,9 +673,10 @@ def route_files(
             [*visible_contexts, "CTX-ARCHITECTURE"],
             key=lambda cid: CONTEXT_PRIORITY.index(cid),
         )
+    navigation_order = _navigation_order(primary, visible_contexts)
 
     context_entries: list[dict[str, object]] = []
-    for context_id in visible_contexts:
+    for context_id in navigation_order:
         spec = next(spec for spec in CONTEXTS if spec.context_id == context_id)
         matched_files = sorted(matched.get(context_id, []))
         context_entries.append(
@@ -582,6 +689,8 @@ def route_files(
                 "guarded_paths": list(spec.guarded_paths),
                 "source_of_truth": list(spec.source_of_truth),
                 "minimal_checks": list(spec.minimal_checks),
+                "facets": list(spec.facets),
+                "search_seeds": list(spec.search_seeds),
                 "intent_score": int(intent_scores.get(context_id, 0)),
                 "policy_role": (
                     "companion"
@@ -592,13 +701,25 @@ def route_files(
         )
 
     recommendations: list[str] = []
+    context_ids = [entry["id"] for entry in context_entries]
     if not normalized and intent_scores:
         recommendations.append("No diff yet. Using request/session intent fallback.")
     if len(context_entries) > 1:
         recommendations.append(
             "Patch touches multiple contexts. Split by ownership to keep review and retrieval small."
         )
-    if "CTX-CONTRACTS" in [entry["id"] for entry in context_entries] and len(context_entries) > 1:
+        recommendations.append(
+            "Use navigation_order first; load secondary context cards only for their matched files."
+        )
+    if primary == "CTX-OPS" and any(context_id in context_ids for context_id in PRODUCT_PLANE_CONTEXT_IDS):
+        recommendations.append(
+            "OPS is mixed with product-plane context. Treat OPS as bookkeeping unless the code change is governance-first."
+        )
+    if "CTX-DOMAIN" in context_ids:
+        recommendations.append(
+            "CTX-DOMAIN is residual. Confirm no narrower data, research, runtime, or interface context applies."
+        )
+    if "CTX-CONTRACTS" in context_ids and len(context_entries) > 1:
         recommendations.append("High-risk mix detected. Use order: contracts -> code -> docs.")
     if unmapped:
         recommendations.append("Some files are unmapped. Classify manually before implementation.")
@@ -622,6 +743,7 @@ def route_files(
 
     return {
         "primary_context": primary,
+        "navigation_order": navigation_order,
         "contexts": context_entries,
         "intent_sources": intent_sources,
         "cold_context_files": sorted(cold_context_files),
@@ -634,6 +756,9 @@ def route_files(
 
 def _render_text(result: dict[str, object]) -> str:
     lines: list[str] = [f"primary_context: {result.get('primary_context')}"]
+    navigation_order = result.get("navigation_order", [])
+    if isinstance(navigation_order, list) and navigation_order:
+        lines.append("navigation_order: " + " -> ".join(str(item) for item in navigation_order))
     intent_sources = result.get("intent_sources", [])
     if isinstance(intent_sources, list) and intent_sources:
         lines.append(f"intent_sources: {', '.join(intent_sources)}")
@@ -643,6 +768,12 @@ def _render_text(result: dict[str, object]) -> str:
             if not isinstance(item, dict):
                 continue
             lines.append(f"- {item.get('id')} files={item.get('matched_files_count')} risk={item.get('risk')}")
+            facets = item.get("facets", [])
+            if isinstance(facets, list) and facets:
+                lines.append("  facets: " + ", ".join(str(value) for value in facets))
+            search_seeds = item.get("search_seeds", [])
+            if isinstance(search_seeds, list) and search_seeds:
+                lines.append("  search_seeds: " + ", ".join(str(value) for value in search_seeds))
             matched_files = item.get("matched_files", [])
             if isinstance(matched_files, list):
                 for path in matched_files:
