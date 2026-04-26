@@ -53,6 +53,14 @@ def _format_library_number(value: object) -> str:
     return str(value)
 
 
+def _numeric(series: pd.Series) -> pd.Series:
+    return pd.to_numeric(series, errors="coerce")
+
+
+def _safe_divide(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
+    return numerator / denominator.replace({0.0: pd.NA})
+
+
 def _series_group_key(row: ResearchBarView, *, dataset_version: str, indicator_set_version: str, series_mode: str) -> IndicatorFramePartitionKey:
     return IndicatorFramePartitionKey(
         dataset_version=dataset_version,
@@ -107,6 +115,7 @@ def _compute_spec(frame: pd.DataFrame, spec: IndicatorSpec) -> dict[str, pd.Seri
     high = frame["high"] if "high" in frame.columns else None
     low = frame["low"] if "low" in frame.columns else None
     volume = frame["volume"] if "volume" in frame.columns else None
+    open_interest = frame["open_interest"] if "open_interest" in frame.columns else None
 
     def _none_outputs() -> dict[str, pd.Series]:
         return {
@@ -123,17 +132,37 @@ def _compute_spec(frame: pd.DataFrame, spec: IndicatorSpec) -> dict[str, pd.Seri
     if spec.operation_key == "hma":
         series = ta.hma(close, length=int(params["length"]))
         return _none_outputs() if series is None else {spec.output_columns[0]: series}
+    if spec.operation_key == "slope":
+        series = ta.slope(close, length=int(params["length"]))
+        return _none_outputs() if series is None else {spec.output_columns[0]: series}
     if spec.operation_key == "atr":
         series = ta.atr(high, low, close, length=int(params["length"]))
         return _none_outputs() if series is None else {spec.output_columns[0]: series}
     if spec.operation_key == "natr":
         series = ta.natr(high, low, close, length=int(params["length"]))
         return _none_outputs() if series is None else {spec.output_columns[0]: series}
+    if spec.operation_key == "chop":
+        series = ta.chop(high, low, close, length=int(params["length"]))
+        return _none_outputs() if series is None else {spec.output_columns[0]: series}
+    if spec.operation_key == "supertrend":
+        length = int(params["length"])
+        multiplier = float(params["multiplier"])
+        supertrend = ta.supertrend(high, low, close, length=length, multiplier=multiplier)
+        if supertrend is None:
+            return _none_outputs()
+        suffix = f"{length}_{_format_library_number(multiplier)}"
+        return {
+            spec.output_columns[0]: supertrend[f"SUPERT_{suffix}"],
+            spec.output_columns[1]: supertrend[f"SUPERTd_{suffix}"],
+        }
     if spec.operation_key == "rsi":
         series = ta.rsi(close, length=int(params["length"]))
         return _none_outputs() if series is None else {spec.output_columns[0]: series}
     if spec.operation_key == "roc":
         series = ta.roc(close, length=int(params["length"]))
+        return _none_outputs() if series is None else {spec.output_columns[0]: series}
+    if spec.operation_key == "mom":
+        series = ta.mom(close, length=int(params["length"]))
         return _none_outputs() if series is None else {spec.output_columns[0]: series}
     if spec.operation_key == "obv":
         series = ta.obv(close, volume)
@@ -147,11 +176,52 @@ def _compute_spec(frame: pd.DataFrame, spec: IndicatorSpec) -> dict[str, pd.Seri
     if spec.operation_key == "vwma":
         series = ta.vwma(close, volume, length=int(params["length"]))
         return _none_outputs() if series is None else {spec.output_columns[0]: series}
+    if spec.operation_key == "ad":
+        series = ta.ad(high, low, close, volume)
+        return _none_outputs() if series is None else {spec.output_columns[0]: series}
+    if spec.operation_key == "adosc":
+        fast = int(params["fast"])
+        slow = int(params["slow"])
+        series = ta.adosc(high, low, close, volume, fast=fast, slow=slow)
+        return _none_outputs() if series is None else {spec.output_columns[0]: series}
+    if spec.operation_key == "force_index":
+        series = ta.efi(close, volume, length=int(params["length"]))
+        return _none_outputs() if series is None else {spec.output_columns[0]: series}
+    if spec.operation_key == "pvt":
+        series = ta.pvt(close, volume)
+        return _none_outputs() if series is None else {spec.output_columns[0]: series}
     if spec.operation_key == "cci":
         series = ta.cci(high, low, close, length=int(params["length"]))
         return _none_outputs() if series is None else {spec.output_columns[0]: series}
     if spec.operation_key == "willr":
         series = ta.willr(high, low, close, length=int(params["length"]))
+        return _none_outputs() if series is None else {spec.output_columns[0]: series}
+    if spec.operation_key == "stochrsi":
+        length = int(params["length"])
+        rsi_length = int(params["rsi_length"])
+        k = int(params["k"])
+        d = int(params["d"])
+        stochrsi = ta.stochrsi(close, length=length, rsi_length=rsi_length, k=k, d=d)
+        if stochrsi is None:
+            return _none_outputs()
+        suffix = f"{length}_{rsi_length}_{k}_{d}"
+        return {
+            spec.output_columns[0]: stochrsi[f"STOCHRSIk_{suffix}"],
+            spec.output_columns[1]: stochrsi[f"STOCHRSId_{suffix}"],
+        }
+    if spec.operation_key == "ultimate_oscillator":
+        fast = int(params["fast"])
+        medium = int(params["medium"])
+        slow = int(params["slow"])
+        series = ta.uo(high, low, close, fast=fast, medium=medium, slow=slow)
+        return _none_outputs() if series is None else {spec.output_columns[0]: series}
+    if spec.operation_key == "true_range":
+        return {spec.output_columns[0]: _numeric(frame["true_range"])}
+    if spec.operation_key == "realized_volatility":
+        length = int(params["length"])
+        return {spec.output_columns[0]: _numeric(frame["log_ret_1"]).rolling(window=length, min_periods=length).std(ddof=0)}
+    if spec.operation_key == "ulcer_index":
+        series = ta.ui(close, length=int(params["length"]))
         return _none_outputs() if series is None else {spec.output_columns[0]: series}
     if spec.operation_key == "volume_norm":
         length = int(params["length"])
@@ -218,9 +288,13 @@ def _compute_spec(frame: pd.DataFrame, spec: IndicatorSpec) -> dict[str, pd.Seri
         if donchian is None:
             return _none_outputs()
         suffix = f"{lower_length}_{upper_length}"
+        upper = donchian[f"DCU_{suffix}"]
+        lower = donchian[f"DCL_{suffix}"]
         return {
-            spec.output_columns[0]: donchian[f"DCU_{suffix}"],
-            spec.output_columns[1]: donchian[f"DCL_{suffix}"],
+            spec.output_columns[0]: upper,
+            spec.output_columns[1]: lower,
+            spec.output_columns[2]: donchian[f"DCM_{suffix}"],
+            spec.output_columns[3]: upper - lower,
         }
     if spec.operation_key == "bbands":
         length = int(params["length"])
@@ -234,6 +308,7 @@ def _compute_spec(frame: pd.DataFrame, spec: IndicatorSpec) -> dict[str, pd.Seri
             spec.output_columns[1]: bbands[f"BBM_{suffix}"],
             spec.output_columns[2]: bbands[f"BBL_{suffix}"],
             spec.output_columns[3]: bbands[f"BBB_{suffix}"],
+            spec.output_columns[4]: bbands[f"BBP_{suffix}"],
         }
     if spec.operation_key == "kc":
         length = int(params["length"])
@@ -255,15 +330,67 @@ def _compute_spec(frame: pd.DataFrame, spec: IndicatorSpec) -> dict[str, pd.Seri
         if ppo is None:
             return _none_outputs()
         suffix = f"{fast}_{slow}_{signal}"
-        return {spec.output_columns[0]: ppo[f"PPO_{suffix}"]}
+        return {
+            spec.output_columns[0]: ppo[f"PPO_{suffix}"],
+            spec.output_columns[1]: ppo[f"PPOs_{suffix}"],
+            spec.output_columns[2]: ppo[f"PPOh_{suffix}"],
+        }
     if spec.operation_key == "tsi":
         fast = int(params["fast"])
         slow = int(params["slow"])
         tsi = ta.tsi(close, fast=fast, slow=slow)
         if tsi is None:
             return _none_outputs()
-        suffix = f"{fast}_{slow}_{fast}"
-        return {spec.output_columns[0]: tsi[f"TSI_{suffix}"]}
+        return {spec.output_columns[0]: tsi.iloc[:, 0]}
+    if spec.operation_key == "trix":
+        length = int(params["length"])
+        signal = int(params["signal"])
+        trix = ta.trix(close, length=length, signal=signal)
+        if trix is None:
+            return _none_outputs()
+        suffix = f"{length}_{signal}"
+        return {
+            spec.output_columns[0]: trix[f"TRIX_{suffix}"],
+            spec.output_columns[1]: trix[f"TRIXs_{suffix}"],
+        }
+    if spec.operation_key == "kst":
+        kst = ta.kst(close)
+        if kst is None:
+            return _none_outputs()
+        return {
+            spec.output_columns[0]: kst.iloc[:, 0],
+            spec.output_columns[1]: kst.iloc[:, 1],
+        }
+    if spec.operation_key == "pvo":
+        fast = int(params["fast"])
+        slow = int(params["slow"])
+        signal = int(params["signal"])
+        pvo = ta.pvo(volume, fast=fast, slow=slow, signal=signal)
+        if pvo is None:
+            return _none_outputs()
+        suffix = f"{fast}_{slow}_{signal}"
+        return {
+            spec.output_columns[0]: pvo[f"PVO_{suffix}"],
+            spec.output_columns[1]: pvo[f"PVOs_{suffix}"],
+            spec.output_columns[2]: pvo[f"PVOh_{suffix}"],
+        }
+    if spec.operation_key == "oi_change":
+        return {spec.output_columns[0]: _numeric(open_interest).diff(int(params["length"]))}
+    if spec.operation_key == "oi_roc":
+        return {spec.output_columns[0]: _numeric(open_interest).pct_change(int(params["length"])) * 100.0}
+    if spec.operation_key == "oi_z":
+        length = int(params["length"])
+        oi = _numeric(open_interest)
+        mean = oi.rolling(window=length, min_periods=length).mean()
+        std = oi.rolling(window=length, min_periods=length).std(ddof=0)
+        return {spec.output_columns[0]: _safe_divide(oi - mean, std)}
+    if spec.operation_key == "oi_relative_activity":
+        length = int(params["length"])
+        oi = _numeric(open_interest)
+        mean = oi.rolling(window=length, min_periods=length).mean()
+        return {spec.output_columns[0]: _safe_divide(oi, mean)}
+    if spec.operation_key == "volume_oi_ratio":
+        return {spec.output_columns[0]: _safe_divide(_numeric(volume), _numeric(open_interest))}
     raise ValueError(f"unsupported indicator operation: {spec.operation_key}")
 
 
