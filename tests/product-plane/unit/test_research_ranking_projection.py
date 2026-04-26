@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from trading_advisor_3000.product_plane.research.backtests import RankingPolicy, default_ranking_policy, rank_backtest_results
 from trading_advisor_3000.product_plane.research.backtests.projection import (
@@ -22,7 +22,7 @@ def _run_row(
         "strategy_family": "ma_cross",
         "dataset_version": "dataset-v5",
         "indicator_set_version": "indicators-v1",
-        "feature_set_version": "features-v1",
+        "derived_indicator_set_version": "derived-v1",
         "contract_id": "BR-6.26",
         "instrument_id": "BR",
         "timeframe": "15m",
@@ -56,7 +56,7 @@ def _stat_row(
         "strategy_family": "ma_cross",
         "dataset_version": "dataset-v5",
         "indicator_set_version": "indicators-v1",
-        "feature_set_version": "features-v1",
+        "derived_indicator_set_version": "derived-v1",
         "contract_id": "BR-6.26",
         "instrument_id": "BR",
         "timeframe": "15m",
@@ -95,7 +95,7 @@ def _trade_row(
         "strategy_family": "ma_cross",
         "dataset_version": "dataset-v5",
         "indicator_set_version": "indicators-v1",
-        "feature_set_version": "features-v1",
+        "derived_indicator_set_version": "derived-v1",
         "contract_id": "BR-6.26",
         "instrument_id": "BR",
         "timeframe": "15m",

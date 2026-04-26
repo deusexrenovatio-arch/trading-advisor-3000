@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import shutil
 import socket
@@ -14,7 +14,7 @@ import pytest
 
 from trading_advisor_3000.product_plane.contracts import (
     DecisionCandidate,
-    FeatureSnapshotRef,
+    IndicatorContextRef,
     Mode,
     Timeframe,
     TradeSide,
@@ -40,7 +40,7 @@ def _candidate(*, ts_decision: str = "2026-03-18T10:16:00Z") -> DecisionCandidat
         target_ref=83.95,
         confidence=0.77,
         ts_decision=ts_decision,
-        feature_snapshot=FeatureSnapshotRef(
+        indicator_context=IndicatorContextRef(
             dataset_version="bars-whitelist-v1",
             snapshot_id="FS-20260318-0001",
         ),

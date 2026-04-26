@@ -146,9 +146,8 @@ def _write_staging_binding_report(tmp_path: Path) -> Path:
 def test_dagster_cutover_dagster_cutover_definitions_are_executable() -> None:
     assert_moex_historical_definitions_executable()
     specs = {item.key: item for item in moex_historical_asset_specs()}
-    assert set(specs) == {"moex_raw_ingest", "moex_canonical_refresh", "moex_indicator_feature_refresh"}
+    assert set(specs) == {"moex_baseline_update", "moex_raw_ingest", "moex_canonical_refresh"}
     assert specs["moex_canonical_refresh"].inputs == ("raw_ingest_owner_payload",)
-    assert specs["moex_indicator_feature_refresh"].inputs == ("canonicalization-report.json",)
     definitions = build_moex_historical_definitions()
     repository = definitions.get_repository_def()
     schedule_names = {schedule_def.name for schedule_def in repository.schedule_defs}
