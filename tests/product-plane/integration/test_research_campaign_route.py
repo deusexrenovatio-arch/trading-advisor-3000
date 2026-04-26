@@ -44,7 +44,6 @@ def _campaign_payload(
     campaign_name: str,
     target_stage: str,
     indicator_profile_version: str = "core_v1",
-    feature_profile_version: str = "core_v1",
 ) -> dict[str, object]:
     return {
         "campaign_name": campaign_name,
@@ -71,8 +70,6 @@ def _campaign_payload(
             "indicator_profile_version": indicator_profile_version,
             "derived_indicator_set_version": "derived-v1",
             "derived_indicator_profile_version": "core_v1",
-            "feature_set_version": "features-v1",
-            "feature_profile_version": feature_profile_version,
         },
         "strategy_space": {
             "family_keys": ["ma_cross"],

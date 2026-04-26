@@ -223,7 +223,7 @@ def _backtest_request(
     registry: StrategyRegistry | None = None,
     dataset_version: str = "dataset-v5",
     indicator_set_version: str = "indicators-v1",
-    feature_set_version: str = "features-v1",
+    derived_indicator_set_version: str = "derived-v1",
     timeframe: str = "15m",
     param_batch_size: int = 25,
     series_batch_size: int = 4,
@@ -239,7 +239,7 @@ def _backtest_request(
         strategy_space_id=strategy_space.strategy_space_id,
         dataset_version=dataset_version,
         indicator_set_version=indicator_set_version,
-        feature_set_version=feature_set_version,
+        derived_indicator_set_version=derived_indicator_set_version,
         strategy_instances=strategy_space.strategy_instances,
         combination_count=len(strategy_space.strategy_instances),
         param_batch_size=param_batch_size,
@@ -254,7 +254,7 @@ def test_vectorbt_batch_runner_materializes_signal_and_order_func_artifacts(tmp_
     report = run_backtest_batch(
         dataset_output_dir=materialized_dir,
         indicator_output_dir=materialized_dir,
-        feature_output_dir=materialized_dir,
+        derived_indicator_output_dir=materialized_dir,
         output_dir=output_dir,
         request=_backtest_request(
             strategy_labels=("ma-cross-v1", "squeeze-release-v1"),
@@ -305,7 +305,7 @@ def test_vectorbt_batch_runner_is_reproducible_and_uses_hot_cache(tmp_path: Path
     first = run_backtest_batch(
         dataset_output_dir=materialized_dir,
         indicator_output_dir=materialized_dir,
-        feature_output_dir=materialized_dir,
+        derived_indicator_output_dir=materialized_dir,
         output_dir=tmp_path / "backtests-cache-a",
         request=request,
         engine_config=BacktestEngineConfig(window_count=2),
@@ -314,7 +314,7 @@ def test_vectorbt_batch_runner_is_reproducible_and_uses_hot_cache(tmp_path: Path
     second = run_backtest_batch(
         dataset_output_dir=materialized_dir,
         indicator_output_dir=materialized_dir,
-        feature_output_dir=materialized_dir,
+        derived_indicator_output_dir=materialized_dir,
         output_dir=tmp_path / "backtests-cache-b",
         request=request,
         engine_config=BacktestEngineConfig(window_count=2),
@@ -356,7 +356,7 @@ def test_vectorbt_batch_runner_respects_dataset_windows_and_short_only_direction
     report = run_backtest_batch(
         dataset_output_dir=materialized_dir,
         indicator_output_dir=materialized_dir,
-        feature_output_dir=materialized_dir,
+        derived_indicator_output_dir=materialized_dir,
         output_dir=tmp_path / "backtests-wf",
         request=_backtest_request(
             strategy_labels=("ma-cross-short-only-v1",),
@@ -392,7 +392,7 @@ def test_vectorbt_batch_runner_parameters_and_risk_policy_change_execution(tmp_p
     report = run_backtest_batch(
         dataset_output_dir=materialized_dir,
         indicator_output_dir=materialized_dir,
-        feature_output_dir=materialized_dir,
+        derived_indicator_output_dir=materialized_dir,
         output_dir=tmp_path / "backtests-param-effects",
         request=_backtest_request(
             strategy_labels=("breakout-param-v1",),
@@ -437,7 +437,7 @@ def test_vectorbt_batch_runner_handles_100_combinations_with_batching_and_cache(
     first = run_backtest_batch(
         dataset_output_dir=materialized_dir,
         indicator_output_dir=materialized_dir,
-        feature_output_dir=materialized_dir,
+        derived_indicator_output_dir=materialized_dir,
         output_dir=tmp_path / "backtests-benchmark-a",
         request=request,
         engine_config=BacktestEngineConfig(),
@@ -447,7 +447,7 @@ def test_vectorbt_batch_runner_handles_100_combinations_with_batching_and_cache(
     second = run_backtest_batch(
         dataset_output_dir=materialized_dir,
         indicator_output_dir=materialized_dir,
-        feature_output_dir=materialized_dir,
+        derived_indicator_output_dir=materialized_dir,
         output_dir=tmp_path / "backtests-benchmark-b",
         request=request,
         engine_config=BacktestEngineConfig(),
@@ -469,7 +469,7 @@ def test_stage6_ranking_and_projection_build_runtime_compatible_candidates(tmp_p
     backtest_report = run_backtest_batch(
         dataset_output_dir=materialized_dir,
         indicator_output_dir=materialized_dir,
-        feature_output_dir=materialized_dir,
+        derived_indicator_output_dir=materialized_dir,
         output_dir=output_dir,
         request=_backtest_request(
             strategy_labels=("ma-cross-v1", "breakout-v1"),
@@ -500,7 +500,7 @@ def test_stage6_ranking_and_projection_build_runtime_compatible_candidates(tmp_p
     projection_report = project_runtime_candidates(
         dataset_output_dir=materialized_dir,
         indicator_output_dir=materialized_dir,
-        feature_output_dir=materialized_dir,
+        derived_indicator_output_dir=materialized_dir,
         output_dir=output_dir,
         request=CandidateProjectionRequest(
             ranking_policy_id="stage6-selection-v1",
@@ -518,7 +518,7 @@ def test_stage6_ranking_and_projection_build_runtime_compatible_candidates(tmp_p
     assert ranking_rows
     assert candidate_rows
     assert any(row["score_total"] >= 0.0 for row in ranking_rows)
-    assert all("feature_snapshot_json" in row for row in candidate_rows)
+    assert all("indicator_context_json" in row for row in candidate_rows)
     assert all(float(row["score"]) >= 0.0 for row in candidate_rows)
     for payload in projection_report["candidate_contracts"]:
         contract = DecisionCandidate.from_dict(payload)

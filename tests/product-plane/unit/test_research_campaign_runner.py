@@ -44,8 +44,6 @@ def _campaign_payload(
             "indicator_profile_version": "core_v1",
             "derived_indicator_set_version": "derived-v1",
             "derived_indicator_profile_version": "core_v1",
-            "feature_set_version": "features-v1",
-            "feature_profile_version": "core_v1",
         },
         "strategy_space": {
             "family_keys": ["ma_cross"],
@@ -221,8 +219,6 @@ def test_materialization_key_ignores_dataset_name_and_universe_id(tmp_path: Path
     raw_b = _campaign_payload(tmp_path)
     raw_b["dataset"]["dataset_name"] = "renamed-dataset"  # type: ignore[index]
     raw_b["dataset"]["universe_id"] = "renamed-universe"  # type: ignore[index]
-    raw_b["profiles"]["feature_set_version"] = "retired-feature-set"  # type: ignore[index]
-    raw_b["profiles"]["feature_profile_version"] = "retired-feature-profile"  # type: ignore[index]
 
     normalized_a = campaigns.normalize_campaign_config(repo_root=ROOT, raw=raw_a)
     normalized_b = campaigns.normalize_campaign_config(repo_root=ROOT, raw=raw_b)

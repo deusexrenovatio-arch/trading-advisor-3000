@@ -25,7 +25,7 @@ def test_backtest_batch_request_id_is_deterministic_with_batch_sizes() -> None:
         strategy_space_id="sspace_test",
         dataset_version="dataset-v5",
         indicator_set_version="indicators-v1",
-        feature_set_version="features-v1",
+        derived_indicator_set_version="derived-v1",
         strategy_instances=(
             BacktestStrategyInstance(
                 strategy_instance_id="sinst_a",

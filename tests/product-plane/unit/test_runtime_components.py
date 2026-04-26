@@ -1,8 +1,8 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from trading_advisor_3000.product_plane.contracts import (
     DecisionCandidate,
-    FeatureSnapshotRef,
+    IndicatorContextRef,
     Mode,
     Timeframe,
     TradeSide,
@@ -27,7 +27,7 @@ def _candidate(*, signal_id: str = "SIG-20260316-0001") -> DecisionCandidate:
         target_ref=83.95,
         confidence=0.72,
         ts_decision="2026-03-16T10:16:00Z",
-        feature_snapshot=FeatureSnapshotRef(
+        indicator_context=IndicatorContextRef(
             dataset_version="bars-whitelist-v1",
             snapshot_id="FS-20260316-0001",
         ),

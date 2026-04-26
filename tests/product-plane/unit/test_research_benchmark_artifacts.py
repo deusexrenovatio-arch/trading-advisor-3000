@@ -25,7 +25,7 @@ def test_committed_benchmark_artifacts_exist_and_record_threshold_pass() -> None
     assert payload["dataset"]["scenario"] == "benchmark_small"
     threshold_key = "no_recompute_indicators_derived"
     if threshold_key not in payload["thresholds"]:
-        threshold_key = "no_recompute_indicators_features"
+        threshold_key = "no_recompute_indicator_layers"
     assert payload["thresholds"][threshold_key] is True
     assert payload["thresholds"]["hot_path_threshold_pass"] is True
     assert payload["thresholds"]["param_100_completed"] is True
