@@ -38,7 +38,7 @@ def _require_keys(payload: dict[str, object], *, required: set[str], optional: s
 
 
 @dataclass(frozen=True)
-class FeatureSnapshotRef:
+class IndicatorContextRef:
     dataset_version: str
     snapshot_id: str
 
@@ -49,7 +49,7 @@ class FeatureSnapshotRef:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict[str, object]) -> "FeatureSnapshotRef":
+    def from_dict(cls, payload: dict[str, object]) -> "IndicatorContextRef":
         _require_keys(
             payload,
             required={"dataset_version", "snapshot_id"},
@@ -73,7 +73,7 @@ class DecisionCandidate:
     target_ref: float
     confidence: float
     ts_decision: str
-    feature_snapshot: FeatureSnapshotRef
+    indicator_context: IndicatorContextRef
 
     def __post_init__(self) -> None:
         if self.side == TradeSide.FLAT:
@@ -96,7 +96,7 @@ class DecisionCandidate:
             "target_ref": self.target_ref,
             "confidence": self.confidence,
             "ts_decision": self.ts_decision,
-            "feature_snapshot": self.feature_snapshot.to_dict(),
+            "indicator_context": self.indicator_context.to_dict(),
         }
 
     @classmethod
@@ -115,12 +115,12 @@ class DecisionCandidate:
                 "target_ref",
                 "confidence",
                 "ts_decision",
-                "feature_snapshot",
+                "indicator_context",
             },
         )
-        snapshot_payload = payload.get("feature_snapshot")
+        snapshot_payload = payload.get("indicator_context")
         if not isinstance(snapshot_payload, dict):
-            raise ValueError("feature_snapshot must be an object")
+            raise ValueError("indicator_context must be an object")
         return cls(
             signal_id=_required_text("signal_id", payload.get("signal_id")),
             contract_id=_required_text("contract_id", payload.get("contract_id")),
@@ -136,7 +136,7 @@ class DecisionCandidate:
             target_ref=_required_number("target_ref", payload.get("target_ref")),
             confidence=_required_unit_float("confidence", payload.get("confidence")),
             ts_decision=_required_text("ts_decision", payload.get("ts_decision")),
-            feature_snapshot=FeatureSnapshotRef.from_dict(snapshot_payload),
+            indicator_context=IndicatorContextRef.from_dict(snapshot_payload),
         )
 
 

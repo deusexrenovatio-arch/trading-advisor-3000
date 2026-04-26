@@ -254,9 +254,9 @@ release_blocking_boundaries:
   - boundary_id: research_strategy_governance
     release_blocking: true
     contracts:
-      - contract_id: gold_feature_snapshot
-        schema: gold_feature_snapshot.v1.json
-        fixture: gold_feature_snapshot.v1.json
+      - contract_id: technical_indicator_snapshot
+        schema: technical_indicator_snapshot.v1.json
+        fixture: technical_indicator_snapshot.v1.json
         compatibility: strict
         coverage_tests_any:
           - tests/product-plane/contracts/test_research_contracts.py
@@ -324,7 +324,7 @@ release_blocking_boundaries:
         fixture: real_broker_process_report.v1.json
         compatibility: additive
         coverage_tests_any:
-          - tests/product-plane/contracts/test_phase5_real_broker_process_contracts.py
+          - tests/product-plane/contracts/test_real_broker_process_contracts.py
 
   - boundary_id: moex_historical_handoff_contracts
     release_blocking: true

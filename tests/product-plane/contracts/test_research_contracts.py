@@ -114,7 +114,7 @@ def test_research_research_release_blocking_boundary_registered() -> None:
     assert isinstance(contracts, list) and contracts
     ids = {str(item.get("contract_id", "")).strip() for item in contracts if isinstance(item, dict)}
     assert ids == {
-        "gold_feature_snapshot",
+        "technical_indicator_snapshot",
         "strategy_candidate_projection",
         "strategy_scorecard",
         "strategy_promotion_decision",
@@ -123,7 +123,7 @@ def test_research_research_release_blocking_boundary_registered() -> None:
 
 def test_research_research_contract_schemas_and_fixtures_validate() -> None:
     matrix = {
-        "gold_feature_snapshot.v1.json": "contracts/gold_feature_snapshot.v1.json",
+        "technical_indicator_snapshot.v1.json": "contracts/technical_indicator_snapshot.v1.json",
         "strategy_candidate_projection.v1.json": "contracts/strategy_candidate_projection.v1.json",
         "strategy_scorecard.v1.json": "contracts/strategy_scorecard.v1.json",
         "strategy_promotion_decision.v1.json": "contracts/strategy_promotion_decision.v1.json",
@@ -133,10 +133,3 @@ def test_research_research_contract_schemas_and_fixtures_validate() -> None:
         fixture = _load_json(FIXTURES / file_name)
         assert schema["$id"] == schema_id
         _assert_schema_valid(schema, fixture)
-
-
-def test_research_technical_indicator_schema_and_fixture_validate() -> None:
-    schema = _load_json(SCHEMAS / "technical_indicator_snapshot.v1.json")
-    fixture = _load_json(FIXTURES / "technical_indicator_snapshot.v1.json")
-    assert schema["$id"] == "contracts/technical_indicator_snapshot.v1.json"
-    _assert_schema_valid(schema, fixture)
