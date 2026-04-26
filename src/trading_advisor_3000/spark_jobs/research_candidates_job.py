@@ -10,7 +10,7 @@ def _version_col_name() -> str:
 @dataclass(frozen=True)
 class ResearchSparkJobSpec:
     app_name: str
-    feature_source_table: str
+    derived_indicator_source_table: str
     backtest_runs_source_table: str
     target_table: str
     version_id_filter: str
@@ -19,7 +19,7 @@ class ResearchSparkJobSpec:
 def default_research_spec() -> ResearchSparkJobSpec:
     return ResearchSparkJobSpec(
         app_name="ta3000-research-governed-candidates",
-        feature_source_table="gold_feature_snapshot",
+        derived_indicator_source_table="research_derived_indicator_frames",
         backtest_runs_source_table="research_backtest_runs",
         target_table="research_runtime_candidate_projection",
         version_id_filter="trend-follow-v1",
@@ -72,7 +72,7 @@ WITH latest_run AS (
   ORDER BY finished_at DESC
   LIMIT 1
 ),
-scored_features AS (
+scored_indicators AS (
   SELECT
     snapshot_id,
     contract_id,
@@ -87,7 +87,7 @@ scored_features AS (
       ELSE 'flat'
     END AS side,
     LEAST(1.0, ABS(ema_fast - ema_slow) / NULLIF(GREATEST(COALESCE(atr, 0.0), 1e-9), 0.0)) AS score
-  FROM {spec.feature_source_table}
+  FROM {spec.derived_indicator_source_table}
   WHERE timeframe IN ('15m', '1h', '4h', '1d', '1w')
 )
 INSERT OVERWRITE TABLE {spec.target_table}
@@ -123,7 +123,7 @@ SELECT
   0.0 AS estimated_slippage,
   CAST(1000000 AS BIGINT) AS capital_rub,
   {reproducibility_expr} AS reproducibility_fingerprint
-FROM scored_features sf
+FROM scored_indicators sf
 CROSS JOIN latest_run run
 WHERE sf.side <> 'flat'
 """.strip()

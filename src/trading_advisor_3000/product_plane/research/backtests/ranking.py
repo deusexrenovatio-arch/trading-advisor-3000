@@ -279,7 +279,7 @@ def rank_backtest_results(
                 "strategy_version_label": str(first["strategy_version_label"]),
                 "dataset_version": str(first["dataset_version"]),
                 "indicator_set_version": str(representative_run_row.get("indicator_set_version", "")),
-                "feature_set_version": str(representative_run_row.get("feature_set_version", "")),
+                "derived_indicator_set_version": str(representative_run_row.get("derived_indicator_set_version", "derived-v1")),
                 "contract_id": str(first["contract_id"]),
                 "instrument_id": str(first["instrument_id"]),
                 "timeframe": str(first["timeframe"]),

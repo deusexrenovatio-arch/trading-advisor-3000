@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from trading_advisor_3000.product_plane.contracts import DecisionCandidate, FeatureSnapshotRef, Mode, Timeframe, TradeSide
+from trading_advisor_3000.product_plane.contracts import DecisionCandidate, IndicatorContextRef, Mode, Timeframe, TradeSide
 from trading_advisor_3000.product_plane.research.ids import candidate_id
 from trading_advisor_3000.product_plane.research.io import ResearchFrameCache, ResearchSliceRequest, load_backtest_frames
 from trading_advisor_3000.product_plane.research.strategies import StrategyRegistry, build_strategy_registry
@@ -71,7 +71,7 @@ def project_runtime_candidates(
     *,
     dataset_output_dir: Path,
     indicator_output_dir: Path,
-    feature_output_dir: Path,
+    derived_indicator_output_dir: Path,
     output_dir: Path,
     request: CandidateProjectionRequest,
     ranking_rows: list[dict[str, object]] | None = None,
@@ -94,19 +94,17 @@ def project_runtime_candidates(
         dataset_version = str(ranking_row["dataset_version"])
         indicator_set_version = str(ranking_row.get("indicator_set_version", ""))
         derived_indicator_set_version = str(ranking_row.get("derived_indicator_set_version", "derived-v1"))
-        feature_set_version = str(ranking_row.get("feature_set_version", ""))
         contract_id = str(ranking_row["contract_id"])
         instrument_id = str(ranking_row["instrument_id"])
         timeframe = str(ranking_row["timeframe"])
         series_frames, _, _ = load_backtest_frames(
             dataset_output_dir=dataset_output_dir,
             indicator_output_dir=indicator_output_dir,
-            feature_output_dir=feature_output_dir,
+            derived_indicator_output_dir=derived_indicator_output_dir,
             request=ResearchSliceRequest(
                 dataset_version=dataset_version,
                 indicator_set_version=indicator_set_version,
                 derived_indicator_set_version=derived_indicator_set_version,
-                feature_set_version=feature_set_version,
                 timeframe=timeframe,
                 contract_ids=(contract_id,),
                 instrument_ids=(instrument_id,),
@@ -125,13 +123,14 @@ def project_runtime_candidates(
             params=params,
             config=engine_config,
             dataset_version=dataset_version,
-            feature_set_version=feature_set_version,
+            indicator_set_version=indicator_set_version,
+            derived_indicator_set_version=derived_indicator_set_version,
             decision_lag_bars_max=request.decision_lag_bars_max,
         )
         if projection is None:
             continue
 
-        feature_snapshot = FeatureSnapshotRef.from_dict(projection["feature_snapshot"])
+        indicator_context = IndicatorContextRef.from_dict(projection["indicator_context"])
         confidence = _clip_unit((0.65 * float(ranking_row["score_total"])) + (0.35 * float(projection["signal_strength_score"])))
         signal_id = "SIG-" + _stable_hash(
             "|".join(
@@ -155,7 +154,7 @@ def project_runtime_candidates(
             target_ref=float(projection["target_ref"]),
             confidence=confidence,
             ts_decision=str(projection["ts_decision"]),
-            feature_snapshot=feature_snapshot,
+            indicator_context=indicator_context,
         )
         contracts.append(candidate_contract.to_dict())
         projected_rows.append(
@@ -186,7 +185,7 @@ def project_runtime_candidates(
                 "estimated_commission": 0.0,
                 "estimated_slippage": 0.0,
                 "window_id": str(ranking_row.get("window_ids_json", ["wf-01"])[0]) if ranking_row.get("window_ids_json") else "wf-01",
-                "feature_snapshot_json": candidate_contract.feature_snapshot.to_dict(),
+                "indicator_context_json": candidate_contract.indicator_context.to_dict(),
                 "created_at": _created_at(),
             }
         )

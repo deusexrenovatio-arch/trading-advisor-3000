@@ -228,7 +228,7 @@ def run_benchmark_job(
         strategy_space_id=benchmark_strategy_space.strategy_space_id,
         dataset_version=dataset_version,
         indicator_set_version="indicators-v1",
-        feature_set_version="",
+        derived_indicator_set_version="derived-v1",
         strategy_instances=benchmark_strategy_space.strategy_instances,
         combination_count=len(benchmark_strategy_space.strategy_instances),
         param_batch_size=param_batch_size,
@@ -241,7 +241,7 @@ def run_benchmark_job(
     cold_backtest = run_backtest_batch(
         dataset_output_dir=materialized_dir,
         indicator_output_dir=materialized_dir,
-        feature_output_dir=materialized_dir,
+        derived_indicator_output_dir=materialized_dir,
         output_dir=backtests_dir / "cold",
         request=request,
         engine_config=engine_config,
@@ -256,7 +256,7 @@ def run_benchmark_job(
     hot_backtest = run_backtest_batch(
         dataset_output_dir=materialized_dir,
         indicator_output_dir=materialized_dir,
-        feature_output_dir=materialized_dir,
+        derived_indicator_output_dir=materialized_dir,
         output_dir=backtests_dir / "hot",
         request=request,
         engine_config=engine_config,
@@ -278,14 +278,14 @@ def run_benchmark_job(
         scale_report = run_backtest_batch(
             dataset_output_dir=materialized_dir,
             indicator_output_dir=materialized_dir,
-            feature_output_dir=materialized_dir,
+            derived_indicator_output_dir=materialized_dir,
             output_dir=backtests_dir / f"scale-{count}",
             request=BacktestBatchRequest(
                 campaign_run_id="crun_benchmark",
                 strategy_space_id=scale_strategy_space.strategy_space_id,
                 dataset_version=dataset_version,
                 indicator_set_version="indicators-v1",
-                feature_set_version="",
+                derived_indicator_set_version="derived-v1",
                 strategy_instances=scale_strategy_space.strategy_instances,
                 combination_count=len(scale_strategy_space.strategy_instances),
                 param_batch_size=param_batch_size,

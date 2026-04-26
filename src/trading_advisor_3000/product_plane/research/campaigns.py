@@ -298,8 +298,6 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
         indicator_profile_version=str(normalized_config["profiles"]["indicator_profile_version"]),
         derived_indicator_set_version=str(normalized_config["profiles"]["derived_indicator_set_version"]),
         derived_indicator_profile_version=str(normalized_config["profiles"]["derived_indicator_profile_version"]),
-        feature_set_version=str(normalized_config["profiles"]["feature_set_version"]),
-        feature_profile_version=str(normalized_config["profiles"]["feature_profile_version"]),
         strategy_space=dict(normalized_config["strategy_space"]),
         backtest_policy=dict(normalized_config["backtest"]),
         ranking_policy=dict(normalized_config["ranking_policy"]),
@@ -643,8 +641,6 @@ def _dagster_common_kwargs(
         "indicator_profile_version": str(profiles["indicator_profile_version"]),
         "derived_indicator_set_version": str(profiles["derived_indicator_set_version"]),
         "derived_indicator_profile_version": str(profiles["derived_indicator_profile_version"]),
-        "feature_set_version": str(profiles["feature_set_version"]),
-        "feature_profile_version": str(profiles["feature_profile_version"]),
         "code_version": "product-plane-run-campaign",
         "strategy_space": dict(normalized_config["strategy_space"]),
         "param_batch_size": int(backtest["param_batch_size"]),
@@ -1125,8 +1121,6 @@ def _normalize_profiles(payload: dict[str, Any]) -> dict[str, Any]:
         "indicator_profile_version": _normalized_non_empty(payload["indicator_profile_version"]),
         "derived_indicator_set_version": _normalized_non_empty(payload["derived_indicator_set_version"]),
         "derived_indicator_profile_version": _normalized_non_empty(payload["derived_indicator_profile_version"]),
-        "feature_set_version": _normalized_non_empty(payload["feature_set_version"]),
-        "feature_profile_version": _normalized_non_empty(payload["feature_profile_version"]),
     }
 
 
@@ -1394,8 +1388,6 @@ def _write_materialization_lock(
             "indicator_profile_version": str(profiles["indicator_profile_version"]),
             "derived_indicator_set_version": str(profiles["derived_indicator_set_version"]),
             "derived_indicator_profile_version": str(profiles["derived_indicator_profile_version"]),
-            "feature_set_version": str(profiles["feature_set_version"]),
-            "feature_profile_version": str(profiles["feature_profile_version"]),
             "rows_by_table": dict(report.get("rows_by_table", {})),
             "output_paths": data_prep_output_paths,
             "created_at": utc_now_iso(),

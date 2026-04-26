@@ -655,7 +655,8 @@ def project_series_candidate(
     params: dict[str, object],
     config: BacktestEngineConfig,
     dataset_version: str,
-    feature_set_version: str,
+    indicator_set_version: str,
+    derived_indicator_set_version: str,
     decision_lag_bars_max: int = 1,
 ) -> dict[str, object] | None:
     if decision_lag_bars_max < 0:
@@ -705,8 +706,8 @@ def project_series_candidate(
     freshness_score = max(0.0, 1.0 - (freshness_bars / max(decision_lag_bars_max + 1, 1)))
     signal_strength = max(0.0, min(1.0, 0.35 + (0.35 * min(risk_reward / 2.0, 1.0)) + (0.30 * freshness_score)))
     ts_decision = str(frame["ts"].iloc[signal_index])
-    snapshot_id = "FSNAP-" + _stable_hash(
-        f"{dataset_version}|{feature_set_version}|{series.contract_id}|{series.timeframe}|{ts_decision}"
+    context_id = "ICTX-" + _stable_hash(
+        f"{dataset_version}|{indicator_set_version}|{derived_indicator_set_version}|{series.contract_id}|{series.timeframe}|{ts_decision}"
     )
     return {
         "side": side,
@@ -715,9 +716,9 @@ def project_series_candidate(
         "target_ref": target_ref,
         "ts_decision": ts_decision,
         "signal_strength_score": signal_strength,
-        "feature_snapshot": {
+        "indicator_context": {
             "dataset_version": dataset_version,
-            "snapshot_id": snapshot_id,
+            "snapshot_id": context_id,
         },
     }
 
@@ -733,7 +734,7 @@ def run_backtest_series(
     strategy_space_id: str,
     dataset_version: str,
     indicator_set_version: str,
-    feature_set_version: str,
+    derived_indicator_set_version: str,
     split_windows: tuple[dict[str, object], ...] | None = None,
 ) -> dict[str, list[dict[str, object]]]:
     params = dict(strategy_instance.parameter_values)
@@ -771,7 +772,7 @@ def run_backtest_series(
             "strategy_version_label": strategy_instance.strategy_version_label,
             "dataset_version": dataset_version,
             "indicator_set_version": indicator_set_version,
-            "feature_set_version": feature_set_version,
+            "derived_indicator_set_version": derived_indicator_set_version,
             "contract_id": series.contract_id,
             "instrument_id": series.instrument_id,
             "timeframe": series.timeframe,
@@ -785,7 +786,8 @@ def run_backtest_series(
             params=params,
             config=config,
             dataset_version=dataset_version,
-            feature_set_version=feature_set_version,
+            indicator_set_version=indicator_set_version,
+            derived_indicator_set_version=derived_indicator_set_version,
             decision_lag_bars_max=max(len(window_frame), 1),
         )
         run_row_seed["stop_ref"] = float(signal_projection["stop_ref"]) if signal_projection is not None else 0.0
@@ -872,7 +874,7 @@ def run_backtest_series(
             "strategy_version_label": strategy_instance.strategy_version_label,
             "dataset_version": dataset_version,
             "indicator_set_version": indicator_set_version,
-            "feature_set_version": feature_set_version,
+            "derived_indicator_set_version": derived_indicator_set_version,
             "contract_id": series.contract_id,
             "instrument_id": series.instrument_id,
             "timeframe": series.timeframe,

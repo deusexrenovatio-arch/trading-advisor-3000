@@ -7,7 +7,7 @@ from types import ModuleType
 
 @dataclass(frozen=True)
 class ResearchDependencyRequirement:
-    feature_name: str
+    capability_name: str
     distributions: tuple[str, ...]
     import_names: tuple[str, ...]
     rationale: str
@@ -32,21 +32,21 @@ class MissingResearchDependencyError(ImportError):
         packages = " or ".join(requirement.distributions)
         modules = ", ".join(attempts)
         super().__init__(
-            f"{requirement.feature_name} is part of the mandatory research contour and could not be imported. "
+            f"{requirement.capability_name} is part of the mandatory research contour and could not be imported. "
             f"Tried imports: {modules}. "
             f"Install {packages} in the base environment."
         )
 
 
 VECTORBT_REQUIREMENT = ResearchDependencyRequirement(
-    feature_name="vectorbt",
+    capability_name="vectorbt",
     distributions=("vectorbt",),
     import_names=("vectorbt",),
     rationale="VectorBT owns the future vectorized backtest and portfolio simulation hot path.",
 )
 
 PANDAS_TA_REQUIREMENT = ResearchDependencyRequirement(
-    feature_name="pandas-ta",
+    capability_name="pandas-ta",
     distributions=("pandas-ta-classic", "pandas-ta"),
     import_names=("pandas_ta_classic", "pandas_ta"),
     rationale=(
@@ -79,5 +79,5 @@ def resolve_research_dependency(requirement: ResearchDependencyRequirement) -> R
 def ensure_research_dependencies() -> dict[str, ResolvedResearchDependency]:
     resolved: dict[str, ResolvedResearchDependency] = {}
     for requirement in research_dependencies():
-        resolved[requirement.feature_name] = resolve_research_dependency(requirement)
+        resolved[requirement.capability_name] = resolve_research_dependency(requirement)
     return resolved

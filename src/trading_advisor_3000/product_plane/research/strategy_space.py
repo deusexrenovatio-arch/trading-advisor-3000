@@ -184,7 +184,7 @@ def _resolved_modules(
                 module_version=str(row["module_version"]),
                 resolved_params=resolved_params,
                 timeframe_scope=None if row.get("timeframe_scope") in {None, ""} else str(row["timeframe_scope"]),
-                derived_feature_refs=tuple(),
+                derived_indicator_refs=tuple(),
             )
         )
     return tuple(modules)
@@ -228,7 +228,7 @@ def _build_instance_manifest(
             parameter_values=parameter_values,
         ),
         risk_policy=risk_policy,
-        required_feature_columns=tuple(_parse_list_json(template_row.get("required_feature_columns"))),
+        required_indicator_columns=tuple(_parse_list_json(template_row.get("required_indicator_columns"))),
         generated_by_campaign_id=campaign_id,
         generated_by_campaign_run_id=campaign_run_id,
         status="active",
