@@ -68,6 +68,8 @@ def _campaign_payload(
         "profiles": {
             "indicator_set_version": "indicators-v1",
             "indicator_profile_version": "core_v1",
+            "derived_indicator_set_version": "derived-v1",
+            "derived_indicator_profile_version": "core_v1",
             "feature_set_version": "features-v1",
             "feature_profile_version": feature_profile_version,
         },
@@ -150,9 +152,10 @@ def test_data_prep_campaign_module_executes_research_data_prep_and_writes_summar
     assert payload["status"] == "success"
     for table_name in (
         "research_datasets",
+        "research_instrument_tree",
         "research_bar_views",
         "research_indicator_frames",
-        "research_feature_frames",
+        "research_derived_indicator_frames",
     ):
         assert table_name in payload["rows_by_table"]
         assert Path(str(payload["output_paths"][table_name])).exists()
@@ -191,6 +194,7 @@ def test_data_prep_campaign_dispatches_through_research_data_prep_boundary(
             "materialized_assets": ["research_datasets"],
             "output_paths": {
                 "research_datasets": (materialized_root / "research_datasets.delta").as_posix(),
+                "research_instrument_tree": (materialized_root / "research_instrument_tree.delta").as_posix(),
                 "research_backtest_batches": (results_root / "research_backtest_batches.delta").as_posix(),
             },
             "rows_by_table": {"research_datasets": 1},
@@ -214,6 +218,7 @@ def test_data_prep_campaign_dispatches_through_research_data_prep_boundary(
     assert summary["status"] == "success"
     assert len(calls) == 1
     assert calls[0]["dataset_version"] == "campaign-dataset-v1"
+    assert calls[0]["derived_indicator_set_version"] == "derived-v1"
     assert Path(str(summary["run_root"])).exists()
 
 
@@ -246,7 +251,7 @@ def test_backtest_campaign_reuses_existing_compatible_materialized_layer(tmp_pat
     assert second["reused_steps"] == ["research_data_prep"]
 
 
-def test_changed_profile_version_forces_new_materialization_root(tmp_path: Path) -> None:
+def test_changed_profile_version_forces_gold_rematerialization_without_changing_root(tmp_path: Path) -> None:
     canonical_dir = tmp_path / "canonical"
     materialized_root = tmp_path / "materialized"
     runs_root = tmp_path / "runs"
@@ -283,7 +288,7 @@ def test_changed_profile_version_forces_new_materialization_root(tmp_path: Path)
     assert first["status"] == "success"
     assert second["status"] == "success"
     assert first["materialization_key"] != second["materialization_key"]
-    assert first["materialized_root"] != second["materialized_root"]
+    assert first["materialized_root"] == second["materialized_root"]
     assert second["reused_steps"] == []
 
 

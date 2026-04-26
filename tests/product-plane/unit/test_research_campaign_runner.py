@@ -42,6 +42,8 @@ def _campaign_payload(
         "profiles": {
             "indicator_set_version": "indicators-v1",
             "indicator_profile_version": "core_v1",
+            "derived_indicator_set_version": "derived-v1",
+            "derived_indicator_profile_version": "core_v1",
             "feature_set_version": "features-v1",
             "feature_profile_version": "core_v1",
         },
@@ -97,20 +99,26 @@ def _load_json(path: Path) -> dict[str, object]:
     return payload
 
 
-def _seed_reusable_materialization(materialized_root: Path) -> None:
+def _seed_reusable_materialization(materialized_root: Path, *, materialization_key: str = "") -> None:
     for table_name in campaigns.DATA_PREP_TABLES:
         log_dir = materialized_root / f"{table_name}.delta" / "_delta_log"
         log_dir.mkdir(parents=True, exist_ok=True)
         (log_dir / "00000000000000000000.json").write_text("{}", encoding="utf-8")
+    if materialization_key:
+        (materialized_root / campaigns.MATERIALIZATION_LOCK_FILENAME).write_text(
+            json.dumps({"materialization_key": materialization_key}),
+            encoding="utf-8",
+        )
 
 
 def _mock_report(*, materialized_root: Path, results_root: Path, target_stage: str) -> dict[str, object]:
-    registry_root = materialized_root.parent / "canonical" / "research-registry"
+    registry_root = campaigns.research_registry_root(materialized_root=materialized_root)
     output_paths = {
         "research_datasets": (materialized_root / "research_datasets.delta").as_posix(),
+        "research_instrument_tree": (materialized_root / "research_instrument_tree.delta").as_posix(),
         "research_bar_views": (materialized_root / "research_bar_views.delta").as_posix(),
         "research_indicator_frames": (materialized_root / "research_indicator_frames.delta").as_posix(),
-        "research_feature_frames": (materialized_root / "research_feature_frames.delta").as_posix(),
+        "research_derived_indicator_frames": (materialized_root / "research_derived_indicator_frames.delta").as_posix(),
         "research_strategy_families": (registry_root / "research_strategy_families.delta").as_posix(),
         "research_strategy_templates": (registry_root / "research_strategy_templates.delta").as_posix(),
         "research_strategy_template_modules": (registry_root / "research_strategy_template_modules.delta").as_posix(),
@@ -123,18 +131,20 @@ def _mock_report(*, materialized_root: Path, results_root: Path, target_stage: s
     if target_stage == "data_prep":
         selected_assets = [
             "research_datasets",
+            "research_instrument_tree",
             "research_bar_views",
             "research_indicator_frames",
-            "research_feature_frames",
+            "research_derived_indicator_frames",
         ]
         materialized_assets = list(selected_assets)
     elif target_stage == "backtest":
         selected_assets = ["research_backtest_batches", "research_strategy_rankings"]
         materialized_assets = [
             "research_datasets",
+            "research_instrument_tree",
             "research_bar_views",
             "research_indicator_frames",
-            "research_feature_frames",
+            "research_derived_indicator_frames",
             "research_strategy_families",
             "research_strategy_templates",
             "research_strategy_template_modules",
@@ -147,9 +157,10 @@ def _mock_report(*, materialized_root: Path, results_root: Path, target_stage: s
         selected_assets = ["research_signal_candidates"]
         materialized_assets = [
             "research_datasets",
+            "research_instrument_tree",
             "research_bar_views",
             "research_indicator_frames",
-            "research_feature_frames",
+            "research_derived_indicator_frames",
             "research_strategy_families",
             "research_strategy_templates",
             "research_strategy_template_modules",
@@ -210,6 +221,8 @@ def test_materialization_key_ignores_dataset_name_and_universe_id(tmp_path: Path
     raw_b = _campaign_payload(tmp_path)
     raw_b["dataset"]["dataset_name"] = "renamed-dataset"  # type: ignore[index]
     raw_b["dataset"]["universe_id"] = "renamed-universe"  # type: ignore[index]
+    raw_b["profiles"]["feature_set_version"] = "retired-feature-set"  # type: ignore[index]
+    raw_b["profiles"]["feature_profile_version"] = "retired-feature-profile"  # type: ignore[index]
 
     normalized_a = campaigns.normalize_campaign_config(repo_root=ROOT, raw=raw_a)
     normalized_b = campaigns.normalize_campaign_config(repo_root=ROOT, raw=raw_b)
@@ -292,8 +305,9 @@ def test_run_campaign_reuse_decision_respects_force_flag(
 ) -> None:
     payload = _campaign_payload(tmp_path, target_stage="backtest", force_rematerialize=force_rematerialize)
     normalized = campaigns.normalize_campaign_config(repo_root=ROOT, raw=payload)
-    materialized_root = Path(str(normalized["materialized_root"])) / campaigns.build_materialization_key(normalized)
-    _seed_reusable_materialization(materialized_root)
+    materialization_key = campaigns.build_materialization_key(normalized)
+    materialized_root = Path(str(normalized["materialized_root"]))
+    _seed_reusable_materialization(materialized_root, materialization_key=materialization_key)
 
     config_path = tmp_path / "campaign.yaml"
     _write_campaign(config_path, payload)
@@ -314,6 +328,7 @@ def test_run_campaign_reuse_decision_respects_force_flag(
     summary = campaigns.run_campaign(config_path=config_path, repo_root=ROOT)
 
     assert captured["reuse_existing_materialization"] is expected_reuse
+    assert summary["materialized_root"] == materialized_root.as_posix()
     assert summary["reused_steps"] == (["research_data_prep"] if expected_reuse else [])
 
 
@@ -362,6 +377,10 @@ def test_run_campaign_writes_run_folder_layout(tmp_path: Path, monkeypatch: pyte
     assert (run_root / "logs" / "stderr.log").exists()
     assert (run_root / "results" / "publish-commit.json").exists()
     assert _load_json(run_root / "status.json")["status"] == "success"
+    assert "research_strategy_families" not in summary["output_paths"]
+    assert "research_campaigns" in summary["output_paths"]
+    materialization_lock = _load_json(Path(str(summary["materialized_root"])) / campaigns.MATERIALIZATION_LOCK_FILENAME)
+    assert set(materialization_lock["output_paths"]) == set(campaigns.DATA_PREP_TABLES)
 
 
 def test_run_campaign_emits_failure_summary_when_dispatch_fails(

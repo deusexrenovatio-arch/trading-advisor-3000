@@ -54,6 +54,8 @@ from .research_assets import (
     research_data_prep_after_moex_sensor,
     research_data_prep_job,
     research_definitions,
+    research_derived_indicator_frames,
+    research_instrument_tree,
     research_projection_job,
     strategy_registry_refresh_job,
 )
@@ -122,6 +124,8 @@ __all__ = [
     "research_data_prep_after_moex_sensor",
     "research_data_prep_job",
     "research_definitions",
+    "research_derived_indicator_frames",
+    "research_instrument_tree",
     "research_governed_asset_specs",
     "research_governed_definitions",
     "research_governed_materialization_job",

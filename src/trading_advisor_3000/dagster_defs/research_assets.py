@@ -19,6 +19,10 @@ from dagster import (
 from trading_advisor_3000.product_plane.contracts import CanonicalBar
 from trading_advisor_3000.product_plane.data_plane.canonical import RollMapEntry, SessionCalendarEntry
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log, read_delta_table_rows
+from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
+    CANONICAL_BASELINE_ROOT_RELATIVE_PATH,
+    MOEX_HISTORICAL_DATA_ROOT_ENV,
+)
 from trading_advisor_3000.product_plane.research.backtests import (
     BacktestBatchRequest,
     BacktestEngineConfig,
@@ -36,10 +40,11 @@ from trading_advisor_3000.product_plane.research.datasets import (
     materialize_research_dataset,
     research_dataset_store_contract,
 )
-from trading_advisor_3000.product_plane.research.features import (
-    materialize_feature_frames,
-    research_feature_store_contract,
-    reload_feature_frames,
+from trading_advisor_3000.product_plane.research.derived_indicators import (
+    DEFAULT_DERIVED_INDICATOR_SET_VERSION,
+    materialize_derived_indicator_frames,
+    reload_derived_indicator_frames,
+    research_derived_indicator_store_contract,
 )
 from trading_advisor_3000.product_plane.research.indicators import (
     materialize_indicator_frames,
@@ -66,19 +71,28 @@ RESEARCH_DATA_PREP_RESULTS_OUTPUT_DIR_ENV = "TA3000_RESEARCH_DATA_PREP_RESULTS_O
 RESEARCH_DATA_PREP_DATASET_VERSION_ENV = "TA3000_RESEARCH_DATA_PREP_DATASET_VERSION"
 RESEARCH_DATA_PREP_TIMEFRAMES_ENV = "TA3000_RESEARCH_DATA_PREP_TIMEFRAMES"
 
-DEFAULT_RESEARCH_DATA_PREP_CANONICAL_OUTPUT_DIR = Path("D:/TA3000-data/canonical/moex-futures")
-DEFAULT_RESEARCH_DATA_PREP_MATERIALIZED_OUTPUT_DIR = Path("D:/TA3000-data/research/materialized/current")
-DEFAULT_RESEARCH_DATA_PREP_RESULTS_OUTPUT_DIR = Path("D:/TA3000-data/research/runs/data-prep")
+DEFAULT_MOEX_HISTORICAL_DATA_ROOT = Path("D:/TA3000-data/trading-advisor-3000-nightly")
+DEFAULT_RESEARCH_DATA_PREP_CANONICAL_OUTPUT_DIR = (
+    DEFAULT_MOEX_HISTORICAL_DATA_ROOT / CANONICAL_BASELINE_ROOT_RELATIVE_PATH
+)
+DEFAULT_RESEARCH_DATA_PREP_MATERIALIZED_OUTPUT_DIR = (
+    DEFAULT_MOEX_HISTORICAL_DATA_ROOT / "research" / "gold" / "current"
+)
+DEFAULT_RESEARCH_DATA_PREP_RESULTS_OUTPUT_DIR = (
+    DEFAULT_MOEX_HISTORICAL_DATA_ROOT / "research" / "runs" / "data-prep"
+)
 DEFAULT_RESEARCH_DATA_PREP_DATASET_VERSION = "moex_research_current"
 DEFAULT_RESEARCH_DATA_PREP_DATASET_NAME = "moex-research-current"
-DEFAULT_RESEARCH_DATA_PREP_TIMEFRAMES = ("15m", "1h", "1d")
+DEFAULT_RESEARCH_DATA_PREP_TIMEFRAMES = ("15m", "1h", "4h", "1d")
 DEFAULT_RESEARCH_DATA_PREP_BASE_TIMEFRAME = "15m"
+DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS = 300
 
 RESEARCH_DATA_PREP_ASSETS = (
     "research_datasets",
+    "research_instrument_tree",
     "research_bar_views",
     "research_indicator_frames",
-    "research_feature_frames",
+    "research_derived_indicator_frames",
 )
 
 STRATEGY_REGISTRY_REFRESH_ASSETS = (
@@ -117,9 +131,10 @@ RESEARCH_ASSET_KEYS = (
 
 RESEARCH_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     "research_datasets": tuple(),
+    "research_instrument_tree": ("research_datasets",),
     "research_bar_views": ("research_datasets",),
     "research_indicator_frames": ("research_datasets", "research_bar_views"),
-    "research_feature_frames": ("research_datasets", "research_bar_views", "research_indicator_frames"),
+    "research_derived_indicator_frames": ("research_datasets", "research_bar_views", "research_indicator_frames"),
     "research_strategy_families": ("research_datasets",),
     "research_strategy_templates": ("research_strategy_families",),
     "research_strategy_template_modules": ("research_strategy_templates",),
@@ -128,7 +143,7 @@ RESEARCH_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     "research_backtest_batches": (
         "research_datasets",
         "research_indicator_frames",
-        "research_feature_frames",
+        "research_derived_indicator_frames",
         "research_strategy_instance_modules",
     ),
     "research_backtest_runs": ("research_backtest_batches",),
@@ -137,7 +152,7 @@ RESEARCH_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     "research_order_records": ("research_backtest_batches",),
     "research_drawdown_records": ("research_backtest_batches",),
     "research_strategy_rankings": ("research_backtest_batches", "research_strategy_stats", "research_trade_records"),
-    "research_signal_candidates": ("research_datasets", "research_feature_frames", "research_strategy_rankings"),
+    "research_signal_candidates": ("research_datasets", "research_derived_indicator_frames", "research_strategy_rankings"),
 }
 
 
@@ -148,6 +163,12 @@ def research_asset_specs() -> list[AssetSpec]:
             description="Materialize versioned research dataset manifests from canonical bars/session calendar/roll map.",
             inputs=("canonical_bars_delta", "canonical_session_calendar_delta", "canonical_roll_map_delta"),
             outputs=("research_datasets_delta",),
+        ),
+        AssetSpec(
+            key="research_instrument_tree",
+            description="Materialize the dataset-scoped instrument tree with instrument, contract, timeframe, and lineage coverage.",
+            inputs=("research_datasets_delta",),
+            outputs=("research_instrument_tree_delta",),
         ),
         AssetSpec(
             key="research_bar_views",
@@ -162,10 +183,10 @@ def research_asset_specs() -> list[AssetSpec]:
             outputs=("research_indicator_frames_delta",),
         ),
         AssetSpec(
-            key="research_feature_frames",
-            description="Materialize derived feature partitions from research bar views and materialized indicators.",
+            key="research_derived_indicator_frames",
+            description="Materialize causal technical relationships from research bars and base indicators.",
             inputs=("research_datasets_delta", "research_bar_views_delta", "research_indicator_frames_delta"),
-            outputs=("research_feature_frames_delta",),
+            outputs=("research_derived_indicator_frames_delta",),
         ),
         AssetSpec(
             key="research_strategy_families",
@@ -187,7 +208,7 @@ def research_asset_specs() -> list[AssetSpec]:
         ),
         AssetSpec(
             key="research_strategy_instances",
-            description="Expose concrete strategy instances materialized from strategy_space into the canonical registry root.",
+            description="Expose concrete strategy instances materialized from strategy_space into the research registry root.",
             inputs=("research_strategy_template_modules_delta",),
             outputs=("research_strategy_instances_delta",),
         ),
@@ -203,7 +224,7 @@ def research_asset_specs() -> list[AssetSpec]:
             inputs=(
                 "research_datasets_delta",
                 "research_indicator_frames_delta",
-                "research_feature_frames_delta",
+                "research_derived_indicator_frames_delta",
                 "research_strategy_instance_modules_delta",
             ),
             outputs=("research_backtest_batches_delta",),
@@ -247,7 +268,7 @@ def research_asset_specs() -> list[AssetSpec]:
         AssetSpec(
             key="research_signal_candidates",
             description="Project runtime-compatible candidates from ranked research results.",
-            inputs=("research_datasets_delta", "research_feature_frames_delta", "research_strategy_rankings_delta"),
+            inputs=("research_datasets_delta", "research_derived_indicator_frames_delta", "research_strategy_rankings_delta"),
             outputs=("research_signal_candidates_delta",),
         ),
     ]
@@ -287,6 +308,8 @@ def _research_config_schema() -> dict[str, object]:
         "dataset_instrument_ids": [str],
         "indicator_set_version": str,
         "indicator_profile_version": str,
+        "derived_indicator_set_version": str,
+        "derived_indicator_profile_version": str,
         "feature_set_version": str,
         "feature_profile_version": str,
         "code_version": str,
@@ -360,9 +383,10 @@ def _research_output_paths(*, registry_root: Path, materialized_output_dir: Path
             if table_name.startswith("research_strategy_")
         },
         "research_datasets": (resolved_materialized / "research_datasets.delta").as_posix(),
+        "research_instrument_tree": (resolved_materialized / "research_instrument_tree.delta").as_posix(),
         "research_bar_views": (resolved_materialized / "research_bar_views.delta").as_posix(),
         "research_indicator_frames": (resolved_materialized / "research_indicator_frames.delta").as_posix(),
-        "research_feature_frames": (resolved_materialized / "research_feature_frames.delta").as_posix(),
+        "research_derived_indicator_frames": (resolved_materialized / "research_derived_indicator_frames.delta").as_posix(),
         "research_backtest_batches": (resolved_results / "research_backtest_batches.delta").as_posix(),
         "research_backtest_runs": (resolved_results / "research_backtest_runs.delta").as_posix(),
         "research_strategy_stats": (resolved_results / "research_strategy_stats.delta").as_posix(),
@@ -392,17 +416,19 @@ def _require_existing_data_prep(
     materialized_output_dir: Path,
     dataset_version: str,
     indicator_set_version: str,
-    feature_set_version: str,
+    derived_indicator_set_version: str,
 ) -> None:
     dataset_path = materialized_output_dir / "research_datasets.delta"
+    instrument_tree_path = materialized_output_dir / "research_instrument_tree.delta"
     bar_views_path = materialized_output_dir / "research_bar_views.delta"
     indicator_path = materialized_output_dir / "research_indicator_frames.delta"
-    feature_path = materialized_output_dir / "research_feature_frames.delta"
+    derived_indicator_path = materialized_output_dir / "research_derived_indicator_frames.delta"
     for path in (
         dataset_path,
+        instrument_tree_path,
         bar_views_path,
         indicator_path,
-        feature_path,
+        derived_indicator_path,
     ):
         if not has_delta_log(path):
             raise RuntimeError(f"missing reusable research data prep table: {path.as_posix()}")
@@ -413,11 +439,11 @@ def _require_existing_data_prep(
         dataset_version=dataset_version,
         indicator_set_version=indicator_set_version,
     )
-    reload_feature_frames(
-        feature_output_dir=materialized_output_dir,
+    reload_derived_indicator_frames(
+        derived_indicator_output_dir=materialized_output_dir,
         dataset_version=dataset_version,
         indicator_set_version=indicator_set_version,
-        feature_set_version=feature_set_version,
+        derived_indicator_set_version=derived_indicator_set_version,
     )
 
 
@@ -490,6 +516,9 @@ def research_datasets(context) -> dict[str, object]:
     results_output_dir = _results_output_dir(config)
     dataset_version = str(_config_value(config, "dataset_version"))
     indicator_set_version = str(_config_value(config, "indicator_set_version", "indicators-v1"))
+    derived_indicator_set_version = str(
+        _config_value(config, "derived_indicator_set_version", DEFAULT_DERIVED_INDICATOR_SET_VERSION)
+    )
     feature_set_version = str(_config_value(config, "feature_set_version", "features-v1"))
 
     if _reuse_existing_materialization(config):
@@ -497,7 +526,7 @@ def research_datasets(context) -> dict[str, object]:
             materialized_output_dir=materialized_output_dir,
             dataset_version=dataset_version,
             indicator_set_version=indicator_set_version,
-            feature_set_version=feature_set_version,
+            derived_indicator_set_version=derived_indicator_set_version,
         )
         loaded = load_materialized_research_dataset(
             output_dir=materialized_output_dir,
@@ -505,9 +534,11 @@ def research_datasets(context) -> dict[str, object]:
         )
         report = {
             "dataset_manifest": dict(loaded["dataset_manifest"]),
+            "instrument_tree_count": len(loaded.get("instrument_tree", [])),
             "bar_view_count": len(loaded["bar_views"]),
             "output_paths": {
                 "research_datasets": (materialized_output_dir / "research_datasets.delta").as_posix(),
+                "research_instrument_tree": (materialized_output_dir / "research_instrument_tree.delta").as_posix(),
                 "research_bar_views": (materialized_output_dir / "research_bar_views.delta").as_posix(),
             },
         }
@@ -530,6 +561,8 @@ def research_datasets(context) -> dict[str, object]:
         "dataset_version": dataset_version,
         "indicator_set_version": indicator_set_version,
         "indicator_profile_version": str(_config_value(config, "indicator_profile_version", "core_v1")),
+        "derived_indicator_set_version": derived_indicator_set_version,
+        "derived_indicator_profile_version": str(_config_value(config, "derived_indicator_profile_version", "core_v1")),
         "feature_set_version": feature_set_version,
         "feature_profile_version": str(_config_value(config, "feature_profile_version", "core_v1")),
         "backtest_request": {
@@ -577,9 +610,17 @@ def research_datasets(context) -> dict[str, object]:
         "delta_manifest": {
             **research_dataset_store_contract(),
             **indicator_store_contract(),
-            **research_feature_store_contract(),
+            **research_derived_indicator_store_contract(),
         },
     }
+
+
+@asset(group_name="research")
+def research_instrument_tree(research_datasets: dict[str, object]) -> list[dict[str, object]]:
+    materialized_output_dir = Path(str(research_datasets["materialized_output_dir"]))
+    dataset_version = str(research_datasets["dataset_version"])
+    rows = read_delta_table_rows(materialized_output_dir / "research_instrument_tree.delta")
+    return [dict(row) for row in rows if row.get("dataset_version") == dataset_version]
 
 
 @asset(group_name="research")
@@ -619,7 +660,7 @@ def research_indicator_frames(
 
 
 @asset(group_name="research")
-def research_feature_frames(
+def research_derived_indicator_frames(
     research_datasets: dict[str, object],
     research_bar_views: list[dict[str, object]],
     research_indicator_frames: list[dict[str, object]],
@@ -629,23 +670,23 @@ def research_feature_frames(
     materialized_output_dir = Path(str(research_datasets["materialized_output_dir"]))
     dataset_version = str(research_datasets["dataset_version"])
     indicator_set_version = str(research_datasets["indicator_set_version"])
-    feature_set_version = str(research_datasets["feature_set_version"])
-    profile_version = str(research_datasets["feature_profile_version"])
+    derived_indicator_set_version = str(research_datasets["derived_indicator_set_version"])
+    profile_version = str(research_datasets["derived_indicator_profile_version"])
     if not bool(research_datasets.get("reuse_existing_materialization")):
-        materialize_feature_frames(
+        materialize_derived_indicator_frames(
             dataset_output_dir=materialized_output_dir,
             indicator_output_dir=materialized_output_dir,
-            feature_output_dir=materialized_output_dir,
+            derived_indicator_output_dir=materialized_output_dir,
             dataset_version=dataset_version,
             indicator_set_version=indicator_set_version,
-            feature_set_version=feature_set_version,
+            derived_indicator_set_version=derived_indicator_set_version,
             profile_version=profile_version,
         )
-    rows = reload_feature_frames(
-        feature_output_dir=materialized_output_dir,
+    rows = reload_derived_indicator_frames(
+        derived_indicator_output_dir=materialized_output_dir,
         dataset_version=dataset_version,
         indicator_set_version=indicator_set_version,
-        feature_set_version=feature_set_version,
+        derived_indicator_set_version=derived_indicator_set_version,
     )
     return [row.to_dict() for row in rows]
 
@@ -748,6 +789,7 @@ def _backtest_request_config(research_datasets: dict[str, object]) -> BacktestBa
         dataset_version=str(research_datasets["dataset_version"]),
         indicator_set_version=str(research_datasets["indicator_set_version"]),
         feature_set_version=str(research_datasets["feature_set_version"]),
+        derived_indicator_set_version=str(research_datasets["derived_indicator_set_version"]),
         strategy_instances=tuple(
             BacktestStrategyInstance(
                 strategy_instance_id=str(item["strategy_instance_id"]),
@@ -810,11 +852,11 @@ def _projection_request(research_datasets: dict[str, object]) -> CandidateProjec
 def research_backtest_batches(
     research_datasets: dict[str, object],
     research_indicator_frames: list[dict[str, object]],
-    research_feature_frames: list[dict[str, object]],
+    research_derived_indicator_frames: list[dict[str, object]],
     research_strategy_instance_modules: list[dict[str, object]],
 ) -> dict[str, object]:
     del research_indicator_frames
-    del research_feature_frames
+    del research_derived_indicator_frames
     del research_strategy_instance_modules
     materialized_output_dir = Path(str(research_datasets["materialized_output_dir"]))
     results_output_dir = Path(str(research_datasets["results_output_dir"]))
@@ -879,10 +921,10 @@ def research_strategy_rankings(
 @asset(group_name="research")
 def research_signal_candidates(
     research_datasets: dict[str, object],
-    research_feature_frames: list[dict[str, object]],
+    research_derived_indicator_frames: list[dict[str, object]],
     research_strategy_rankings: list[dict[str, object]],
 ) -> list[dict[str, object]]:
-    del research_feature_frames
+    del research_derived_indicator_frames
     materialized_output_dir = Path(str(research_datasets["materialized_output_dir"]))
     results_output_dir = Path(str(research_datasets["results_output_dir"]))
     report = project_runtime_candidates(
@@ -899,9 +941,10 @@ def research_signal_candidates(
 
 RESEARCH_ASSETS = (
     research_datasets,
+    research_instrument_tree,
     research_bar_views,
     research_indicator_frames,
-    research_feature_frames,
+    research_derived_indicator_frames,
     research_strategy_families,
     research_strategy_templates,
     research_strategy_template_modules,
@@ -921,9 +964,10 @@ research_data_prep_job = define_asset_job(
     name=RESEARCH_DATA_PREP_JOB_NAME,
     selection=AssetSelection.assets(
         research_datasets,
+        research_instrument_tree,
         research_bar_views,
         research_indicator_frames,
-        research_feature_frames,
+        research_derived_indicator_frames,
     ),
 )
 
@@ -968,6 +1012,23 @@ def _env_path(env_name: str, default: Path) -> Path:
     return Path(raw).resolve() if raw else default.resolve()
 
 
+def _default_moex_historical_data_root() -> Path:
+    raw = os.environ.get(MOEX_HISTORICAL_DATA_ROOT_ENV, "").strip()
+    return Path(raw).resolve() if raw else DEFAULT_MOEX_HISTORICAL_DATA_ROOT.resolve()
+
+
+def _default_research_canonical_output_dir() -> Path:
+    return _default_moex_historical_data_root() / CANONICAL_BASELINE_ROOT_RELATIVE_PATH
+
+
+def _default_research_materialized_output_dir() -> Path:
+    return _default_moex_historical_data_root() / "research" / "gold" / "current"
+
+
+def _default_research_results_output_dir() -> Path:
+    return _default_moex_historical_data_root() / "research" / "runs" / "data-prep"
+
+
 def _env_text(env_name: str, default: str) -> str:
     return os.environ.get(env_name, "").strip() or default
 
@@ -1008,26 +1069,28 @@ def build_research_data_prep_run_config(
     campaign_run_id: str = "research_data_prep_scheduled",
     indicator_set_version: str = "indicators-v1",
     indicator_profile_version: str = "core_v1",
+    derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
+    derived_indicator_profile_version: str = "core_v1",
     feature_set_version: str = "features-v1",
     feature_profile_version: str = "core_v1",
 ) -> dict[str, object]:
     resolved_canonical_output_dir = (
         canonical_output_dir.resolve()
         if canonical_output_dir is not None
-        else _env_path(RESEARCH_DATA_PREP_CANONICAL_OUTPUT_DIR_ENV, DEFAULT_RESEARCH_DATA_PREP_CANONICAL_OUTPUT_DIR)
+        else _env_path(RESEARCH_DATA_PREP_CANONICAL_OUTPUT_DIR_ENV, _default_research_canonical_output_dir())
     )
     resolved_materialized_output_dir = (
         materialized_output_dir.resolve()
         if materialized_output_dir is not None
         else _env_path(
             RESEARCH_DATA_PREP_MATERIALIZED_OUTPUT_DIR_ENV,
-            DEFAULT_RESEARCH_DATA_PREP_MATERIALIZED_OUTPUT_DIR,
+            _default_research_materialized_output_dir(),
         )
     )
     resolved_results_output_dir = (
         results_output_dir.resolve()
         if results_output_dir is not None
-        else _env_path(RESEARCH_DATA_PREP_RESULTS_OUTPUT_DIR_ENV, DEFAULT_RESEARCH_DATA_PREP_RESULTS_OUTPUT_DIR)
+        else _env_path(RESEARCH_DATA_PREP_RESULTS_OUTPUT_DIR_ENV, _default_research_results_output_dir())
     )
     resolved_timeframes = tuple(timeframes) if timeframes is not None else _split_env_csv(
         os.environ.get(RESEARCH_DATA_PREP_TIMEFRAMES_ENV, ""),
@@ -1037,7 +1100,7 @@ def build_research_data_prep_run_config(
         RESEARCH_DATA_PREP_DATASET_VERSION_ENV,
         DEFAULT_RESEARCH_DATA_PREP_DATASET_VERSION,
     )
-    registry_root = research_registry_root(canonical_output_dir=resolved_canonical_output_dir)
+    registry_root = research_registry_root(materialized_root=resolved_materialized_output_dir)
     return {
         "ops": {
             "research_datasets": {
@@ -1054,6 +1117,8 @@ def build_research_data_prep_run_config(
                     base_timeframe=base_timeframe,
                     indicator_set_version=indicator_set_version,
                     indicator_profile_version=indicator_profile_version,
+                    derived_indicator_set_version=derived_indicator_set_version,
+                    derived_indicator_profile_version=derived_indicator_profile_version,
                     feature_set_version=feature_set_version,
                     feature_profile_version=feature_profile_version,
                     code_version="research-data-prep-after-moex",
@@ -1079,7 +1144,7 @@ def research_data_prep_after_moex_sensor(context):
     if canonical_output_dir is None:
         canonical_output_dir = _env_path(
             RESEARCH_DATA_PREP_CANONICAL_OUTPUT_DIR_ENV,
-            DEFAULT_RESEARCH_DATA_PREP_CANONICAL_OUTPUT_DIR,
+            _default_research_canonical_output_dir(),
         )
     upstream_run_id = str(context.dagster_run.run_id)
     dataset_version = _env_text(
@@ -1194,13 +1259,15 @@ def _research_run_config(
     base_timeframe: str = "",
     start_ts: str = "",
     end_ts: str = "",
-    warmup_bars: int = 200,
+    warmup_bars: int = DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS,
     split_method: str = "holdout",
     series_mode: str = "contract",
     dataset_contract_ids: Sequence[str] = (),
     dataset_instrument_ids: Sequence[str] = (),
     indicator_set_version: str,
     indicator_profile_version: str,
+    derived_indicator_set_version: str,
+    derived_indicator_profile_version: str,
     feature_set_version: str,
     feature_profile_version: str,
     code_version: str = "research-orchestration",
@@ -1260,6 +1327,8 @@ def _research_run_config(
         "dataset_instrument_ids": [str(item) for item in dataset_instrument_ids],
         "indicator_set_version": indicator_set_version,
         "indicator_profile_version": indicator_profile_version,
+        "derived_indicator_set_version": derived_indicator_set_version,
+        "derived_indicator_profile_version": derived_indicator_profile_version,
         "feature_set_version": feature_set_version,
         "feature_profile_version": feature_profile_version,
         "code_version": code_version,
@@ -1307,7 +1376,7 @@ def _materialize_research_assets(
     base_timeframe: str = "",
     start_ts: str = "",
     end_ts: str = "",
-    warmup_bars: int = 200,
+    warmup_bars: int = DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS,
     split_method: str = "holdout",
     series_mode: str = "contract",
     dataset_contract_ids: Sequence[str] = (),
@@ -1317,6 +1386,8 @@ def _materialize_research_assets(
     selection: Sequence[str] | None = None,
     indicator_set_version: str = "indicators-v1",
     indicator_profile_version: str = "core_v1",
+    derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
+    derived_indicator_profile_version: str = "core_v1",
     feature_set_version: str = "features-v1",
     feature_profile_version: str = "core_v1",
     code_version: str = "research-orchestration",
@@ -1355,7 +1426,7 @@ def _materialize_research_assets(
         materialized_output_dir=materialized_output_dir,
         results_output_dir=results_output_dir,
     )
-    registry_root = research_registry_root(canonical_output_dir=canonical_output_dir)
+    registry_root = research_registry_root(materialized_root=resolved_materialized_output_dir)
     strategy_space_id = ""
     strategy_instances: list[dict[str, object]] = []
     resolved_combination_count = combination_count
@@ -1414,6 +1485,8 @@ def _materialize_research_assets(
                         dataset_instrument_ids=dataset_instrument_ids,
                         indicator_set_version=indicator_set_version,
                         indicator_profile_version=indicator_profile_version,
+                        derived_indicator_set_version=derived_indicator_set_version,
+                        derived_indicator_profile_version=derived_indicator_profile_version,
                         feature_set_version=feature_set_version,
                         feature_profile_version=feature_profile_version,
                         code_version=code_version,
@@ -1490,13 +1563,15 @@ def materialize_research_data_prep_assets(
     base_timeframe: str = "",
     start_ts: str = "",
     end_ts: str = "",
-    warmup_bars: int = 200,
+    warmup_bars: int = DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS,
     split_method: str = "holdout",
     series_mode: str = "contract",
     dataset_contract_ids: Sequence[str] = (),
     dataset_instrument_ids: Sequence[str] = (),
     indicator_set_version: str = "indicators-v1",
     indicator_profile_version: str = "core_v1",
+    derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
+    derived_indicator_profile_version: str = "core_v1",
     feature_set_version: str = "features-v1",
     feature_profile_version: str = "core_v1",
     code_version: str = "research-data-prep-orchestration",
@@ -1528,6 +1603,8 @@ def materialize_research_data_prep_assets(
         selection=selection,
         indicator_set_version=indicator_set_version,
         indicator_profile_version=indicator_profile_version,
+        derived_indicator_set_version=derived_indicator_set_version,
+        derived_indicator_profile_version=derived_indicator_profile_version,
         feature_set_version=feature_set_version,
         feature_profile_version=feature_profile_version,
         code_version=code_version,
@@ -1551,13 +1628,15 @@ def materialize_strategy_registry_refresh_assets(
     base_timeframe: str = "",
     start_ts: str = "",
     end_ts: str = "",
-    warmup_bars: int = 200,
+    warmup_bars: int = DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS,
     split_method: str = "holdout",
     series_mode: str = "contract",
     dataset_contract_ids: Sequence[str] = (),
     dataset_instrument_ids: Sequence[str] = (),
     indicator_set_version: str = "indicators-v1",
     indicator_profile_version: str = "core_v1",
+    derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
+    derived_indicator_profile_version: str = "core_v1",
     feature_set_version: str = "features-v1",
     feature_profile_version: str = "core_v1",
     code_version: str = "strategy-registry-refresh-orchestration",
@@ -1600,6 +1679,8 @@ def materialize_strategy_registry_refresh_assets(
         selection=selection,
         indicator_set_version=indicator_set_version,
         indicator_profile_version=indicator_profile_version,
+        derived_indicator_set_version=derived_indicator_set_version,
+        derived_indicator_profile_version=derived_indicator_profile_version,
         feature_set_version=feature_set_version,
         feature_profile_version=feature_profile_version,
         code_version=code_version,
@@ -1634,13 +1715,15 @@ def materialize_research_backtest_assets(
     base_timeframe: str = "",
     start_ts: str = "",
     end_ts: str = "",
-    warmup_bars: int = 200,
+    warmup_bars: int = DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS,
     split_method: str = "holdout",
     series_mode: str = "contract",
     dataset_contract_ids: Sequence[str] = (),
     dataset_instrument_ids: Sequence[str] = (),
     indicator_set_version: str = "indicators-v1",
     indicator_profile_version: str = "core_v1",
+    derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
+    derived_indicator_profile_version: str = "core_v1",
     feature_set_version: str = "features-v1",
     feature_profile_version: str = "core_v1",
     code_version: str = "research-backtest-orchestration",
@@ -1696,6 +1779,8 @@ def materialize_research_backtest_assets(
         selection=selection,
         indicator_set_version=indicator_set_version,
         indicator_profile_version=indicator_profile_version,
+        derived_indicator_set_version=derived_indicator_set_version,
+        derived_indicator_profile_version=derived_indicator_profile_version,
         feature_set_version=feature_set_version,
         feature_profile_version=feature_profile_version,
         code_version=code_version,
@@ -1743,13 +1828,15 @@ def materialize_research_projection_assets(
     base_timeframe: str = "",
     start_ts: str = "",
     end_ts: str = "",
-    warmup_bars: int = 200,
+    warmup_bars: int = DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS,
     split_method: str = "holdout",
     series_mode: str = "contract",
     dataset_contract_ids: Sequence[str] = (),
     dataset_instrument_ids: Sequence[str] = (),
     indicator_set_version: str = "indicators-v1",
     indicator_profile_version: str = "core_v1",
+    derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
+    derived_indicator_profile_version: str = "core_v1",
     feature_set_version: str = "features-v1",
     feature_profile_version: str = "core_v1",
     code_version: str = "research-projection-orchestration",
@@ -1805,6 +1892,8 @@ def materialize_research_projection_assets(
         selection=selection,
         indicator_set_version=indicator_set_version,
         indicator_profile_version=indicator_profile_version,
+        derived_indicator_set_version=derived_indicator_set_version,
+        derived_indicator_profile_version=derived_indicator_profile_version,
         feature_set_version=feature_set_version,
         feature_profile_version=feature_profile_version,
         code_version=code_version,

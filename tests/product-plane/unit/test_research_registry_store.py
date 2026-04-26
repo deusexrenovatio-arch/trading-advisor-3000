@@ -5,8 +5,22 @@ from pathlib import Path
 from trading_advisor_3000.product_plane.research.registry_store import (
     append_run_stats_index,
     read_registry_table,
+    research_registry_root,
     write_strategy_note,
 )
+
+
+def test_research_registry_root_lives_under_research_namespace(tmp_path: Path) -> None:
+    data_root = tmp_path / "trading-advisor-3000-nightly"
+    canonical_root = data_root / "canonical" / "moex" / "baseline-4y-current"
+    gold_root = data_root / "research" / "gold" / "current"
+
+    assert research_registry_root(canonical_output_dir=canonical_root) == (
+        data_root / "research" / "registry" / "current"
+    ).resolve()
+    assert research_registry_root(materialized_root=gold_root) == (
+        data_root / "research" / "registry" / "current"
+    ).resolve()
 
 
 def test_registry_indices_are_logically_append_only_for_existing_keys(tmp_path: Path) -> None:

@@ -56,10 +56,12 @@ TARGET_STEPS = {
 }
 DATA_PREP_TABLES = (
     "research_datasets",
+    "research_instrument_tree",
     "research_bar_views",
     "research_indicator_frames",
-    "research_feature_frames",
+    "research_derived_indicator_frames",
 )
+MATERIALIZATION_LOCK_FILENAME = "materialization.lock.json"
 RESEARCH_DATA_PREP_KWARGS = {
     "canonical_output_dir",
     "materialized_output_dir",
@@ -80,8 +82,8 @@ RESEARCH_DATA_PREP_KWARGS = {
     "dataset_instrument_ids",
     "indicator_set_version",
     "indicator_profile_version",
-    "feature_set_version",
-    "feature_profile_version",
+    "derived_indicator_set_version",
+    "derived_indicator_profile_version",
     "code_version",
     "reuse_existing_materialization",
 }
@@ -164,8 +166,8 @@ def build_materialization_key(normalized_config: dict[str, Any]) -> str:
         "instrument_ids": dataset["instrument_ids"],
         "indicator_set_version": profiles["indicator_set_version"],
         "indicator_profile_version": profiles["indicator_profile_version"],
-        "feature_set_version": profiles["feature_set_version"],
-        "feature_profile_version": profiles["feature_profile_version"],
+        "derived_indicator_set_version": profiles["derived_indicator_set_version"],
+        "derived_indicator_profile_version": profiles["derived_indicator_profile_version"],
     }
     return _stable_hash(payload)
 
@@ -259,9 +261,12 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
     campaign_id = build_campaign_id(config_fingerprint=config_fingerprint)
     campaign_run_id = build_campaign_run_id(campaign_id=campaign_id, run_id=run_id)
     materialization_key = build_materialization_key(normalized_config)
-    materialized_root = Path(str(normalized_config["materialized_root"])) / materialization_key
-    registry_root = research_registry_root(canonical_output_dir=Path(str(normalized_config["canonical_output_dir"])))
-    materialization_exists = _has_reusable_materialization(materialized_root)
+    materialized_root = Path(str(normalized_config["materialized_root"]))
+    registry_root = research_registry_root(materialized_root=materialized_root)
+    materialization_exists = _has_reusable_materialization(
+        materialized_root,
+        materialization_key=materialization_key,
+    )
     reuse_existing_materialization = materialization_exists and not bool(normalized_config["execution"]["force_rematerialize"])
     write_json(
         run_root / "campaign.lock.json",
@@ -291,6 +296,8 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
         dataset_version=str(normalized_config["dataset"]["dataset_version"]),
         indicator_set_version=str(normalized_config["profiles"]["indicator_set_version"]),
         indicator_profile_version=str(normalized_config["profiles"]["indicator_profile_version"]),
+        derived_indicator_set_version=str(normalized_config["profiles"]["derived_indicator_set_version"]),
+        derived_indicator_profile_version=str(normalized_config["profiles"]["derived_indicator_profile_version"]),
         feature_set_version=str(normalized_config["profiles"]["feature_set_version"]),
         feature_profile_version=str(normalized_config["profiles"]["feature_profile_version"]),
         strategy_space=dict(normalized_config["strategy_space"]),
@@ -303,7 +310,7 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
 
     warnings: list[str] = []
     if reuse_existing_materialization:
-        warnings.append("materialized research data prep layer reused from matching materialization_key")
+        warnings.append("materialized research gold layer reused from matching materialization_key")
 
     stage = str(normalized_config["target_stage"])
     stage_steps = list(TARGET_STEPS[stage])
@@ -329,13 +336,22 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
         warnings.extend(list(contract_validation.get("warnings", [])))
         if contract_validation["status"] != "passed":
             raise CampaignBlockedError("; ".join(contract_validation["errors"]) or "research contract validation failed")
+        if "research_data_prep" in executed_steps:
+            _write_materialization_lock(
+                materialized_root=materialized_root,
+                materialization_key=materialization_key,
+                normalized_config=normalized_config,
+                campaign_id=campaign_id,
+                campaign_run_id=campaign_run_id,
+                report=report,
+            )
 
         published_output_paths = _publish_staged_results(
             staging_results_root=staging_results_root,
             final_results_root=final_results_root,
             output_paths=dict(report["output_paths"]),
         )
-        registry_paths = registry_output_paths(registry_root=registry_root)
+        registry_paths = _campaign_registry_output_paths(registry_root=registry_root)
         index_paths = _publish_global_indices(registry_root=registry_root, results_root=final_results_root)
         result_digest = _build_result_digest(target_stage=stage, results_root=final_results_root)
         success_run_record = {
@@ -625,6 +641,8 @@ def _dagster_common_kwargs(
         "dataset_instrument_ids": tuple(str(item) for item in dataset["instrument_ids"]),
         "indicator_set_version": str(profiles["indicator_set_version"]),
         "indicator_profile_version": str(profiles["indicator_profile_version"]),
+        "derived_indicator_set_version": str(profiles["derived_indicator_set_version"]),
+        "derived_indicator_profile_version": str(profiles["derived_indicator_profile_version"]),
         "feature_set_version": str(profiles["feature_set_version"]),
         "feature_profile_version": str(profiles["feature_profile_version"]),
         "code_version": "product-plane-run-campaign",
@@ -881,6 +899,18 @@ def _write_publish_commit(
     )
 
 
+def _campaign_registry_output_paths(*, registry_root: Path) -> dict[str, str]:
+    all_paths = registry_output_paths(registry_root=registry_root)
+    return {
+        table_name: all_paths[table_name]
+        for table_name in (
+            "research_campaigns",
+            "research_campaign_runs",
+            "research_strategy_notes",
+        )
+    }
+
+
 def _quarantine_uncommitted_results(*, final_results_root: Path, run_root: Path) -> None:
     if not final_results_root.exists() or (final_results_root / "publish-commit.json").exists():
         return
@@ -939,6 +969,7 @@ def _record_failed_campaign_run(
 def _publish_global_indices(*, registry_root: Path, results_root: Path) -> dict[str, str]:
     stats_path = results_root / "research_strategy_stats.delta"
     ranking_path = results_root / "research_strategy_rankings.delta"
+    published_paths: dict[str, str] = {}
     if has_delta_log(stats_path):
         append_run_stats_index(
             registry_root=registry_root,
@@ -972,6 +1003,7 @@ def _publish_global_indices(*, registry_root: Path, results_root: Path) -> dict[
                 for row in read_delta_table_rows(stats_path)
             ],
         )
+        published_paths["research_run_stats_index"] = (registry_root / "research_run_stats_index.delta").as_posix()
     if has_delta_log(ranking_path):
         append_rankings_index(
             registry_root=registry_root,
@@ -996,10 +1028,8 @@ def _publish_global_indices(*, registry_root: Path, results_root: Path) -> dict[
                 for row in read_delta_table_rows(ranking_path)
             ],
         )
-    return {
-        "research_run_stats_index": (registry_root / "research_run_stats_index.delta").as_posix(),
-        "research_rankings_index": (registry_root / "research_rankings_index.delta").as_posix(),
-    }
+        published_paths["research_rankings_index"] = (registry_root / "research_rankings_index.delta").as_posix()
+    return published_paths
 
 
 def _build_artifacts_index(output_paths: dict[str, Any], rows_by_table: dict[str, Any]) -> dict[str, Any]:
@@ -1093,6 +1123,8 @@ def _normalize_profiles(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "indicator_set_version": _normalized_non_empty(payload["indicator_set_version"]),
         "indicator_profile_version": _normalized_non_empty(payload["indicator_profile_version"]),
+        "derived_indicator_set_version": _normalized_non_empty(payload["derived_indicator_set_version"]),
+        "derived_indicator_profile_version": _normalized_non_empty(payload["derived_indicator_profile_version"]),
         "feature_set_version": _normalized_non_empty(payload["feature_set_version"]),
         "feature_profile_version": _normalized_non_empty(payload["feature_profile_version"]),
     }
@@ -1301,8 +1333,74 @@ def _stable_hash(payload: object) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16].upper()
 
 
-def _has_reusable_materialization(materialized_root: Path) -> bool:
-    return all(has_delta_log(materialized_root / f"{table_name}.delta") for table_name in DATA_PREP_TABLES)
+def _materialization_lock_path(materialized_root: Path) -> Path:
+    return materialized_root / MATERIALIZATION_LOCK_FILENAME
+
+
+def _read_materialization_lock(materialized_root: Path) -> dict[str, object] | None:
+    lock_path = _materialization_lock_path(materialized_root)
+    if not lock_path.exists():
+        return None
+    try:
+        payload = json.loads(lock_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _has_reusable_materialization(
+    materialized_root: Path,
+    *,
+    materialization_key: str | None = None,
+) -> bool:
+    if not all(has_delta_log(materialized_root / f"{table_name}.delta") for table_name in DATA_PREP_TABLES):
+        return False
+    if materialization_key is None:
+        return True
+    lock = _read_materialization_lock(materialized_root)
+    return lock is not None and str(lock.get("materialization_key", "")) == materialization_key
+
+
+def _write_materialization_lock(
+    *,
+    materialized_root: Path,
+    materialization_key: str,
+    normalized_config: dict[str, Any],
+    campaign_id: str,
+    campaign_run_id: str,
+    report: dict[str, Any],
+) -> None:
+    dataset = dict(normalized_config["dataset"])
+    profiles = dict(normalized_config["profiles"])
+    data_prep_output_paths = {
+        table_name: path
+        for table_name, path in dict(report.get("output_paths", {})).items()
+        if table_name in DATA_PREP_TABLES
+    }
+    write_json(
+        _materialization_lock_path(materialized_root),
+        {
+            "materialization_key": materialization_key,
+            "config_fingerprint": build_config_fingerprint(normalized_config),
+            "campaign_id": campaign_id,
+            "campaign_run_id": campaign_run_id,
+            "canonical_output_dir": str(normalized_config["canonical_output_dir"]),
+            "materialized_root": materialized_root.as_posix(),
+            "dataset_version": str(dataset["dataset_version"]),
+            "dataset_name": str(dataset["dataset_name"]),
+            "series_mode": str(dataset["series_mode"]),
+            "timeframes": list(dataset["timeframes"]),
+            "indicator_set_version": str(profiles["indicator_set_version"]),
+            "indicator_profile_version": str(profiles["indicator_profile_version"]),
+            "derived_indicator_set_version": str(profiles["derived_indicator_set_version"]),
+            "derived_indicator_profile_version": str(profiles["derived_indicator_profile_version"]),
+            "feature_set_version": str(profiles["feature_set_version"]),
+            "feature_profile_version": str(profiles["feature_profile_version"]),
+            "rows_by_table": dict(report.get("rows_by_table", {})),
+            "output_paths": data_prep_output_paths,
+            "created_at": utc_now_iso(),
+        },
+    )
 
 
 def _dir_size(path: Path) -> int:
