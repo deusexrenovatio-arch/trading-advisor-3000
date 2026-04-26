@@ -296,7 +296,7 @@ def run_research_from_bars(
     materialize_derived_indicator_frames(
         dataset_output_dir=materialized_dir,
         indicator_output_dir=materialized_dir,
-        feature_output_dir=materialized_dir,
+        derived_indicator_output_dir=materialized_dir,
         dataset_version=dataset_version,
         indicator_set_version=indicator_set_version,
         derived_indicator_set_version=derived_indicator_set_version,
