@@ -85,9 +85,11 @@ def test_research_contract_lineage_is_consistent_across_dataset_indicator_and_de
         "indicator_set_version",
         "profile_version",
         "source_bars_hash",
+        "source_dataset_bars_hash",
         "row_count",
         "warmup_span",
         "null_warmup_span",
+        "output_columns_hash",
     } <= indicator_columns
 
     registry = build_indicator_profile_registry()
@@ -99,7 +101,11 @@ def test_research_contract_lineage_is_consistent_across_dataset_indicator_and_de
         "derived_indicator_set_version",
         "profile_version",
         "source_bars_hash",
+        "source_dataset_bars_hash",
         "source_indicators_hash",
+        "source_indicator_profile_version",
+        "source_indicator_output_columns_hash",
+        "output_columns_hash",
         "distance_to_ema_20_atr",
         "donchian_position_20",
         "divergence_price_rsi_14_score",

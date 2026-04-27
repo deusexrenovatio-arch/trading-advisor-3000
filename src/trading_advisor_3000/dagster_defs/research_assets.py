@@ -18,7 +18,12 @@ from dagster import (
 
 from trading_advisor_3000.product_plane.contracts import CanonicalBar
 from trading_advisor_3000.product_plane.data_plane.canonical import RollMapEntry, SessionCalendarEntry
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log, read_delta_table_rows
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    count_delta_table_rows,
+    ensure_delta_table_columns,
+    has_delta_log,
+    read_delta_table_rows,
+)
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     CANONICAL_BASELINE_ROOT_RELATIVE_PATH,
     MOEX_HISTORICAL_DATA_ROOT_ENV,
@@ -36,20 +41,17 @@ from trading_advisor_3000.product_plane.research.backtests import (
 from trading_advisor_3000.product_plane.research.datasets import (
     ContinuousFrontPolicy,
     ResearchDatasetManifest,
-    load_materialized_research_dataset,
     materialize_research_dataset,
     research_dataset_store_contract,
 )
 from trading_advisor_3000.product_plane.research.derived_indicators import (
     DEFAULT_DERIVED_INDICATOR_SET_VERSION,
     materialize_derived_indicator_frames,
-    reload_derived_indicator_frames,
     research_derived_indicator_store_contract,
 )
 from trading_advisor_3000.product_plane.research.indicators import (
     materialize_indicator_frames,
     indicator_store_contract,
-    reload_indicator_frames,
 )
 from trading_advisor_3000.product_plane.research.registry_store import registry_output_paths, research_registry_root
 from trading_advisor_3000.product_plane.research.strategy_space import prepare_strategy_space
@@ -397,6 +399,53 @@ def _research_output_paths(*, registry_root: Path, materialized_output_dir: Path
     }
 
 
+def _delta_table_summary(*, table_path: Path, table_name: str) -> dict[str, object]:
+    if not has_delta_log(table_path):
+        raise RuntimeError(f"missing `_delta_log` for `{table_name}` at {table_path.as_posix()}")
+    return {
+        "table": table_name,
+        "path": table_path.as_posix(),
+        "row_count": count_delta_table_rows(table_path),
+    }
+
+
+def _delta_table_filtered_row_count(
+    *,
+    table_path: Path,
+    table_name: str,
+    filters: list[tuple[str, str, object]],
+) -> int:
+    if not has_delta_log(table_path):
+        raise RuntimeError(f"missing `_delta_log` for `{table_name}` at {table_path.as_posix()}")
+    return count_delta_table_rows(table_path, filters=filters)
+
+
+def _require_delta_table_row(
+    *,
+    table_path: Path,
+    table_name: str,
+    filters: list[tuple[str, str, object]],
+) -> None:
+    if _delta_table_filtered_row_count(table_path=table_path, table_name=table_name, filters=filters) == 0:
+        criteria = ", ".join(f"{column}{operator}{value}" for column, operator, value in filters)
+        raise RuntimeError(f"missing reusable `{table_name}` row matching {criteria}")
+
+
+def _ensure_reusable_data_prep_schema(
+    *,
+    materialized_output_dir: Path,
+) -> None:
+    contracts = {
+        **research_dataset_store_contract(),
+        **indicator_store_contract(),
+        **research_derived_indicator_store_contract(),
+    }
+    for table_name, contract in contracts.items():
+        table_path = materialized_output_dir / f"{table_name}.delta"
+        if has_delta_log(table_path):
+            ensure_delta_table_columns(table_path=table_path, columns=dict(contract["columns"]))
+
+
 def _reuse_existing_materialization(config: dict[str, object]) -> bool:
     return bool(_config_value(config, "reuse_existing_materialization", False))
 
@@ -431,17 +480,33 @@ def _require_existing_data_prep(
         if not has_delta_log(path):
             raise RuntimeError(f"missing reusable research data prep table: {path.as_posix()}")
 
-    load_materialized_research_dataset(output_dir=materialized_output_dir, dataset_version=dataset_version)
-    reload_indicator_frames(
-        indicator_output_dir=materialized_output_dir,
-        dataset_version=dataset_version,
-        indicator_set_version=indicator_set_version,
+    _ensure_reusable_data_prep_schema(materialized_output_dir=materialized_output_dir)
+    _require_delta_table_row(
+        table_path=dataset_path,
+        table_name="research_datasets",
+        filters=[("dataset_version", "=", dataset_version)],
     )
-    reload_derived_indicator_frames(
-        derived_indicator_output_dir=materialized_output_dir,
-        dataset_version=dataset_version,
-        indicator_set_version=indicator_set_version,
-        derived_indicator_set_version=derived_indicator_set_version,
+    _require_delta_table_row(
+        table_path=bar_views_path,
+        table_name="research_bar_views",
+        filters=[("dataset_version", "=", dataset_version)],
+    )
+    _require_delta_table_row(
+        table_path=indicator_path,
+        table_name="research_indicator_frames",
+        filters=[
+            ("dataset_version", "=", dataset_version),
+            ("indicator_set_version", "=", indicator_set_version),
+        ],
+    )
+    _require_delta_table_row(
+        table_path=derived_indicator_path,
+        table_name="research_derived_indicator_frames",
+        filters=[
+            ("dataset_version", "=", dataset_version),
+            ("indicator_set_version", "=", indicator_set_version),
+            ("derived_indicator_set_version", "=", derived_indicator_set_version),
+        ],
     )
 
 
@@ -525,14 +590,22 @@ def research_datasets(context) -> dict[str, object]:
             indicator_set_version=indicator_set_version,
             derived_indicator_set_version=derived_indicator_set_version,
         )
-        loaded = load_materialized_research_dataset(
-            output_dir=materialized_output_dir,
-            dataset_version=dataset_version,
+        dataset_manifest_rows = read_delta_table_rows(
+            materialized_output_dir / "research_datasets.delta",
+            filters=[("dataset_version", "=", dataset_version)],
         )
         report = {
-            "dataset_manifest": dict(loaded["dataset_manifest"]),
-            "instrument_tree_count": len(loaded.get("instrument_tree", [])),
-            "bar_view_count": len(loaded["bar_views"]),
+            "dataset_manifest": dict(dataset_manifest_rows[0]),
+            "instrument_tree_count": _delta_table_filtered_row_count(
+                table_path=materialized_output_dir / "research_instrument_tree.delta",
+                table_name="research_instrument_tree",
+                filters=[("dataset_version", "=", dataset_version)],
+            ),
+            "bar_view_count": _delta_table_filtered_row_count(
+                table_path=materialized_output_dir / "research_bar_views.delta",
+                table_name="research_bar_views",
+                filters=[("dataset_version", "=", dataset_version)],
+            ),
             "output_paths": {
                 "research_datasets": (materialized_output_dir / "research_datasets.delta").as_posix(),
                 "research_instrument_tree": (materialized_output_dir / "research_instrument_tree.delta").as_posix(),
@@ -611,28 +684,28 @@ def research_datasets(context) -> dict[str, object]:
 
 
 @asset(group_name="research")
-def research_instrument_tree(research_datasets: dict[str, object]) -> list[dict[str, object]]:
+def research_instrument_tree(research_datasets: dict[str, object]) -> dict[str, object]:
     materialized_output_dir = Path(str(research_datasets["materialized_output_dir"]))
-    dataset_version = str(research_datasets["dataset_version"])
-    rows = read_delta_table_rows(materialized_output_dir / "research_instrument_tree.delta")
-    return [dict(row) for row in rows if row.get("dataset_version") == dataset_version]
+    return _delta_table_summary(
+        table_path=materialized_output_dir / "research_instrument_tree.delta",
+        table_name="research_instrument_tree",
+    )
 
 
 @asset(group_name="research")
-def research_bar_views(research_datasets: dict[str, object]) -> list[dict[str, object]]:
+def research_bar_views(research_datasets: dict[str, object]) -> dict[str, object]:
     materialized_output_dir = Path(str(research_datasets["materialized_output_dir"]))
-    loaded = load_materialized_research_dataset(
-        output_dir=materialized_output_dir,
-        dataset_version=str(research_datasets["dataset_version"]),
+    return _delta_table_summary(
+        table_path=materialized_output_dir / "research_bar_views.delta",
+        table_name="research_bar_views",
     )
-    return [row.to_dict() for row in loaded["bar_views"]]
 
 
 @asset(group_name="research")
 def research_indicator_frames(
     research_datasets: dict[str, object],
-    research_bar_views: list[dict[str, object]],
-) -> list[dict[str, object]]:
+    research_bar_views: dict[str, object],
+) -> dict[str, object]:
     del research_bar_views
     materialized_output_dir = Path(str(research_datasets["materialized_output_dir"]))
     dataset_version = str(research_datasets["dataset_version"])
@@ -646,20 +719,18 @@ def research_indicator_frames(
             indicator_set_version=indicator_set_version,
             profile_version=profile_version,
         )
-    rows = reload_indicator_frames(
-        indicator_output_dir=materialized_output_dir,
-        dataset_version=dataset_version,
-        indicator_set_version=indicator_set_version,
+    return _delta_table_summary(
+        table_path=materialized_output_dir / "research_indicator_frames.delta",
+        table_name="research_indicator_frames",
     )
-    return [row.to_dict() for row in rows]
 
 
 @asset(group_name="research")
 def research_derived_indicator_frames(
     research_datasets: dict[str, object],
-    research_bar_views: list[dict[str, object]],
-    research_indicator_frames: list[dict[str, object]],
-) -> list[dict[str, object]]:
+    research_bar_views: dict[str, object],
+    research_indicator_frames: dict[str, object],
+) -> dict[str, object]:
     del research_bar_views
     del research_indicator_frames
     materialized_output_dir = Path(str(research_datasets["materialized_output_dir"]))
@@ -677,13 +748,10 @@ def research_derived_indicator_frames(
             derived_indicator_set_version=derived_indicator_set_version,
             profile_version=profile_version,
         )
-    rows = reload_derived_indicator_frames(
-        derived_indicator_output_dir=materialized_output_dir,
-        dataset_version=dataset_version,
-        indicator_set_version=indicator_set_version,
-        derived_indicator_set_version=derived_indicator_set_version,
+    return _delta_table_summary(
+        table_path=materialized_output_dir / "research_derived_indicator_frames.delta",
+        table_name="research_derived_indicator_frames",
     )
-    return [row.to_dict() for row in rows]
 
 
 def _validate_strategy_seed_inventory(*, registry_root: Path) -> None:
@@ -845,8 +913,8 @@ def _projection_request(research_datasets: dict[str, object]) -> CandidateProjec
 @asset(group_name="research")
 def research_backtest_batches(
     research_datasets: dict[str, object],
-    research_indicator_frames: list[dict[str, object]],
-    research_derived_indicator_frames: list[dict[str, object]],
+    research_indicator_frames: dict[str, object],
+    research_derived_indicator_frames: dict[str, object],
     research_strategy_instance_modules: list[dict[str, object]],
 ) -> dict[str, object]:
     del research_indicator_frames
@@ -915,7 +983,7 @@ def research_strategy_rankings(
 @asset(group_name="research")
 def research_signal_candidates(
     research_datasets: dict[str, object],
-    research_derived_indicator_frames: list[dict[str, object]],
+    research_derived_indicator_frames: dict[str, object],
     research_strategy_rankings: list[dict[str, object]],
 ) -> list[dict[str, object]]:
     del research_derived_indicator_frames
@@ -1522,10 +1590,10 @@ def _materialize_research_assets(
         table_path = Path(output_paths[asset_name])
         if not has_delta_log(table_path):
             raise RuntimeError(f"missing `_delta_log` for `{asset_name}` at {table_path.as_posix()}")
-        rows_by_table[asset_name] = len(read_delta_table_rows(table_path))
+        rows_by_table[asset_name] = count_delta_table_rows(table_path)
     findings_path = Path(output_paths["research_run_findings"])
     if has_delta_log(findings_path):
-        rows_by_table["research_run_findings"] = len(read_delta_table_rows(findings_path))
+        rows_by_table["research_run_findings"] = count_delta_table_rows(findings_path)
     report["rows_by_table"] = rows_by_table
     return report
 

@@ -16,6 +16,7 @@ from trading_advisor_3000.dagster_defs import (
     materialize_research_projection_assets,
     materialize_strategy_registry_refresh_assets,
 )
+from trading_advisor_3000.dagster_defs import research_assets
 from trading_advisor_3000.product_plane.data_plane import run_sample_backfill
 from trading_advisor_3000.product_plane.data_plane.canonical import RollMapEntry, SessionCalendarEntry
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows, write_delta_table_rows
@@ -25,6 +26,7 @@ from trading_advisor_3000.product_plane.research.datasets import (
     load_materialized_research_dataset,
     materialize_research_dataset,
 )
+import trading_advisor_3000.product_plane.research.datasets.materialize as dataset_materialize_module
 from trading_advisor_3000.product_plane.research.derived_indicators import (
     materialize_derived_indicator_frames,
     reload_derived_indicator_frames,
@@ -177,6 +179,54 @@ def test_research_data_prep_materializes_dataset_indicator_and_derived_layers_on
     assert len(loaded_derived) == 2
     assert all(row.profile_version == "core_v1" for row in loaded_indicators)
     assert all(row.profile_version == "core_v1" for row in loaded_derived)
+
+
+def test_research_data_prep_reuse_does_not_reload_full_frames(tmp_path: Path, monkeypatch) -> None:
+    canonical_dir = tmp_path / "canonical"
+    run_sample_backfill(
+        source_path=RAW_FIXTURE,
+        output_dir=canonical_dir,
+        whitelist_contracts={"BR-6.26", "Si-6.26"},
+    )
+
+    dagster_dir = tmp_path / "dagster-reuse"
+    materialize_research_data_prep_assets(
+        canonical_output_dir=canonical_dir,
+        research_output_dir=dagster_dir,
+        dataset_version="dagster-reuse-v1",
+        timeframes=("15m",),
+        indicator_set_version="indicators-v1",
+        indicator_profile_version="core_v1",
+    )
+
+    original_dataset_reader = dataset_materialize_module.read_delta_table_rows
+
+    def _blocked_dataset_reader(table_path: Path, *args, **kwargs):
+        if Path(table_path).name == "research_bar_views.delta":
+            raise AssertionError("reuse path must not reload full research_bar_views")
+        return original_dataset_reader(table_path, *args, **kwargs)
+
+    def _blocked_frame_reload(*args, **kwargs):
+        raise AssertionError("reuse path must validate existing frames without full reload")
+
+    monkeypatch.setattr(dataset_materialize_module, "read_delta_table_rows", _blocked_dataset_reader)
+    monkeypatch.setattr(research_assets, "reload_indicator_frames", _blocked_frame_reload, raising=False)
+    monkeypatch.setattr(research_assets, "reload_derived_indicator_frames", _blocked_frame_reload, raising=False)
+
+    reuse_report = materialize_research_data_prep_assets(
+        canonical_output_dir=canonical_dir,
+        research_output_dir=dagster_dir,
+        dataset_version="dagster-reuse-v1",
+        timeframes=("15m",),
+        indicator_set_version="indicators-v1",
+        indicator_profile_version="core_v1",
+        reuse_existing_materialization=True,
+    )
+
+    assert reuse_report["success"] is True
+    assert reuse_report["rows_by_table"]["research_bar_views"] == 2
+    assert reuse_report["rows_by_table"]["research_indicator_frames"] == 2
+    assert reuse_report["rows_by_table"]["research_derived_indicator_frames"] == 2
 
 
 def test_strategy_registry_refresh_is_separate_from_research_data_prep(tmp_path: Path) -> None:

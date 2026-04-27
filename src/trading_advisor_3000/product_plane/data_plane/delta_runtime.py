@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 import json
 from datetime import date, datetime, time, timezone
 from pathlib import Path
@@ -228,7 +228,8 @@ def write_delta_table_rows(
         arrays = [pa.array([], type=field.type) for field in schema]
         arrow_table = pa.Table.from_arrays(arrays=arrays, schema=schema)
 
-    write_deltalake(str(table_path), arrow_table, mode=mode)
+    schema_mode = "overwrite" if mode == "overwrite" else "merge"
+    write_deltalake(str(table_path), arrow_table, mode=mode, schema_mode=schema_mode)
 
 
 def append_delta_table_rows(
@@ -241,6 +242,55 @@ def append_delta_table_rows(
         return
     mode = "append" if has_delta_log(table_path) else "overwrite"
     write_delta_table_rows(table_path=table_path, rows=rows, columns=columns, mode=mode)
+
+
+def write_delta_table_row_batches(
+    *,
+    table_path: Path,
+    row_batches: Iterable[list[dict[str, object]]],
+    columns: dict[str, str],
+    max_rows_per_delta_write: int,
+    replace_predicate: str | None = None,
+    preserve_existing_table: bool = False,
+) -> tuple[int, int]:
+    if max_rows_per_delta_write <= 0:
+        raise ValueError("max_rows_per_delta_write must be > 0")
+
+    table_exists = has_delta_log(table_path)
+    if table_exists and replace_predicate:
+        delete_delta_table_rows(table_path=table_path, predicate=replace_predicate)
+
+    row_count = 0
+    batch_count = 0
+    wrote_table = table_exists and preserve_existing_table
+    buffered_rows: list[dict[str, object]] = []
+
+    def flush_buffer() -> None:
+        nonlocal batch_count, buffered_rows, wrote_table
+        if not buffered_rows:
+            return
+        if wrote_table:
+            append_delta_table_rows(table_path=table_path, rows=buffered_rows, columns=columns)
+        else:
+            write_delta_table_rows(table_path=table_path, rows=buffered_rows, columns=columns)
+            wrote_table = True
+        batch_count += 1
+        buffered_rows = []
+
+    for batch in row_batches:
+        if not batch:
+            continue
+        buffered_rows.extend(batch)
+        row_count += len(batch)
+        if len(buffered_rows) >= max_rows_per_delta_write:
+            flush_buffer()
+
+    flush_buffer()
+
+    if not wrote_table and not table_exists:
+        write_delta_table_rows(table_path=table_path, rows=[], columns=columns)
+
+    return row_count, batch_count
 
 
 def delete_delta_table_rows(
@@ -257,11 +307,30 @@ def delete_delta_table_rows(
     table.delete(normalized_predicate)
 
 
-def count_delta_table_rows(table_path: Path) -> int:
+def count_delta_table_rows(table_path: Path, *, filters: DeltaReadFilters = None) -> int:
     if not has_delta_log(table_path):
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
     table = DeltaTable(str(table_path))
-    return int(table.to_pyarrow_dataset().count_rows())
+    if filters is None:
+        return int(table.to_pyarrow_dataset().count_rows())
+    normalized_filters = _normalize_filters_for_schema(filters, table.to_pyarrow_dataset().schema)
+    return int(table.to_pyarrow_table(columns=[], filters=normalized_filters).num_rows)
+
+
+def delta_table_columns(table_path: Path) -> tuple[str, ...]:
+    if not has_delta_log(table_path):
+        raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
+    table = DeltaTable(str(table_path))
+    return tuple(str(field.name) for field in table.to_pyarrow_dataset().schema)
+
+
+def ensure_delta_table_columns(*, table_path: Path, columns: dict[str, str]) -> bool:
+    existing_columns = set(delta_table_columns(table_path))
+    missing_columns = [column for column in columns if column not in existing_columns]
+    if not missing_columns:
+        return False
+    write_delta_table_rows(table_path=table_path, rows=[], columns=columns, mode="append")
+    return True
 
 
 def iter_delta_table_row_batches(

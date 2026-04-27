@@ -154,10 +154,12 @@ def test_indicator_store_contract_contains_stage3_metadata_columns() -> None:
         "indicator_set_version",
         "profile_version",
         "source_bars_hash",
+        "source_dataset_bars_hash",
         "row_count",
         "warmup_span",
         "null_warmup_span",
         "created_at",
+        "output_columns_hash",
     } <= set(columns)
 
 
@@ -178,7 +180,7 @@ def test_indicator_build_is_point_in_time_safe_for_existing_prefix() -> None:
         series_mode="contract",
     )
 
-    ignored = {"source_bars_hash", "row_count", "null_warmup_span", "created_at"}
+    ignored = {"source_bars_hash", "source_dataset_bars_hash", "row_count", "null_warmup_span", "created_at"}
     base_payload = [{k: v for k, v in row.to_dict().items() if k not in ignored} for row in base_rows]
     extended_payload = [{k: v for k, v in row.to_dict().items() if k not in ignored} for row in extended_rows[: len(base_rows)]]
     assert base_payload == extended_payload

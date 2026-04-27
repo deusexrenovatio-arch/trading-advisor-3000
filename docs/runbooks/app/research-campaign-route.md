@@ -36,7 +36,7 @@ Each execution still gets a fresh `run_id` and a fresh immutable run folder.
 ## Stage Selection
 
 The route is selected strictly by `target_stage` in the campaign config:
-- `data_prep` -> materialize reusable research data prep only: dataset, instrument tree, bar view, base indicator, derived indicator, and curated feature layers
+- `data_prep` -> materialize reusable research data prep only: dataset, instrument tree, bar view, base indicator, and derived indicator layers
 - `backtest` -> reuse or rebuild research data prep, refresh the strategy registry needed by the campaign, then run backtests and rankings
 - `projection` -> run the full route through candidate projection
 

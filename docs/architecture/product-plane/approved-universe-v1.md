@@ -8,7 +8,7 @@
 - Scope: medium-term strategy evaluation and promotion evidence
 
 ## Evaluation Profile (v1)
-- Allowed timeframes: `15m`, `1h`, `1d`
+- Allowed timeframes: `15m`, `1h`, `4h`, `1d`
 - Excluded timeframe from promotion profile: `5m`
 - Minimum asset breadth: at least `3` instruments from this approved list per promotion run
 
@@ -28,13 +28,13 @@
 - `FUT_WHEAT`
 
 ## Inclusion and Exclusion Rules
-- Include only instruments that exist in the pinned canonical baseline root with complete bars for all v1 timeframes (`15m`, `1h`, `1d`).
+- Include only instruments that exist in the pinned canonical baseline root with complete bars for all v1 timeframes (`15m`, `1h`, `4h`, `1d`).
 - Exclude instruments with broken roll continuity, missing canonical lineage, or failed QC gates in baseline artifacts.
 - Exclude instruments that do not satisfy minimum history coverage for the current 4-year window.
 
 ## Baseline Coverage Contract
 - Data source: `canonical_bars.delta` from `D:/TA3000-data/trading-advisor-3000-nightly/canonical/moex/baseline-4y-current` only.
-- Baseline coverage in current snapshot: `13` instruments, `2,567,246` rows for (`15m`, `1h`, `1d`) combined.
+- Baseline coverage in current snapshot: `13` instruments, `2,860,416` rows for (`15m`, `1h`, `4h`, `1d`) combined.
 - Reproducibility rule: promotion evidence must pin (`baseline_id`, `run_id`, `universe_version`) in each result package.
 
 ## Promotion Criteria (v1)

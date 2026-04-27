@@ -1,10 +1,10 @@
 # Session Handoff
-Updated: 2026-04-26 14:20 UTC
+Updated: 2026-04-27 08:46 UTC
 
 ## Active Task Note
-- Path: docs/tasks/active/TASK-2026-04-26-re-split-derived-indicator-and-feature-layer-rem.md
+- Path: docs/tasks/archive/TASK-2026-04-27-fix-memory-safe-incremental-indicator-and-derive.md
 - Mode: legacy-full
-- Status: in_progress
+- Status: completed
 
 ## Validation
 - `python scripts/validate_task_request_contract.py`

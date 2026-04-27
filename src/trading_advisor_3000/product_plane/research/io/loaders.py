@@ -58,10 +58,12 @@ def _indicator_payload_columns(frame: pd.DataFrame) -> list[str]:
         "timeframe",
         "ts",
         "source_bars_hash",
+        "source_dataset_bars_hash",
         "row_count",
         "warmup_span",
         "null_warmup_span",
         "created_at",
+        "output_columns_hash",
     }
     return [column for column in frame.columns if column not in reserved]
 
@@ -77,11 +79,13 @@ def _derived_payload_columns(frame: pd.DataFrame, *, existing: set[str]) -> list
         "timeframe",
         "ts",
         "source_bars_hash",
+        "source_dataset_bars_hash",
         "source_indicators_hash",
         "row_count",
         "warmup_span",
         "null_warmup_span",
         "created_at",
+        "output_columns_hash",
     }
     return [column for column in frame.columns if column not in reserved and column not in existing]
 
