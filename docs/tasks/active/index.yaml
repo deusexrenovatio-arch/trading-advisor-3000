@@ -171,6 +171,11 @@ items:
   mode: legacy-full
   status: in_progress
   started_at: '2026-04-26'
+- id: TASK-2026-04-27-REWRITE-ACTIVE-PRODUCT-PLANE-RESEARCH-BACKTEST-R
+  path: docs/tasks/active/TASK-2026-04-27-rewrite-active-product-plane-research-backtest-r.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-04-27'
 - id: TASK-2026-04-29-DOCUMENT-NATIVE-RUNTIME-OWNERSHIP-AND-ROUTE-AGEN
   path: docs/tasks/active/TASK-2026-04-29-document-native-runtime-ownership-and-route-agen.md
   mode: legacy-full

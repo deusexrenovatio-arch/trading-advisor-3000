@@ -16,10 +16,10 @@ It validates `research_campaign.v1.json`, writes immutable run artifacts, and di
 
 ## How To Choose `target_stage`
 
-Use `data_prep` when canonical data changed or indicator or derived indicator definitions changed.
-This now means research data prep only: datasets, instrument tree, bar views, base indicators, and derived indicators.
+Use `data_prep` when canonical data changed or indicator / derived-indicator definitions changed.
+This means research data prep only: datasets, instrument tree, bar views, base indicators, and derived indicators.
 
-Use `backtest` when the reusable materialized layer is ready and you want strategy registry refresh, strategy execution, and ranking outputs.
+Use `backtest` when the reusable materialized layer is ready and you want strategy registry refresh, vectorbt family-search execution, and ranking outputs.
 
 Use `projection` when ranked research results should become runtime candidates.
 
@@ -90,11 +90,12 @@ For Dagster memory behavior:
 - if a run shows large memory growth on an unchanged data-prep route, inspect whether a new asset started returning rows instead of a summary.
 
 For `backtest`:
-- `rows_by_table` for runs, stats, trades, orders, and drawdowns
+- `rows_by_table` for search specs, vectorbt search runs, param results, gate events, runs, stats, trades, orders, and drawdowns
 - `durations.total_seconds`
 - `dagster_selected_assets`
 - `dagster_materialized_assets`
 - `result_digest.ranking_top_rows`
+Backtest is expected to run from `StrategyFamilySearchSpec` and param chunks. A run that requires pre-materialized `StrategyInstance` rows before vectorbt is using the wrong route.
 
 For `projection`:
 - candidate table row count
