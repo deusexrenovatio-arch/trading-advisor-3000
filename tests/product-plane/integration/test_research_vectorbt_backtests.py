@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -35,6 +36,12 @@ from trading_advisor_3000.product_plane.research.strategies.spec import (
 def _ts(index: int) -> str:
     start = datetime(2026, 3, 16, 9, 0, tzinfo=UTC)
     return (start + timedelta(minutes=15 * index)).isoformat().replace("+00:00", "Z")
+
+
+def _tf_ts(index: int, timeframe: str) -> str:
+    minutes = {"15m": 15, "1h": 60, "4h": 240, "1d": 1440}[timeframe]
+    start = datetime(2026, 3, 16, 9, 0, tzinfo=UTC)
+    return (start + timedelta(minutes=minutes * index)).isoformat().replace("+00:00", "Z")
 
 
 def _bar(index: int, close: float) -> ResearchBarView:
@@ -81,13 +88,38 @@ def _indicator(index: int, close: float, ema10: float, ema20: float, ema50: floa
             "ema_50": ema50,
             "atr_14": 1.4,
             "rsi_14": 60.0 if index < 5 else 38.0 if index < 9 else 58.0,
+            "stoch_k_14_3_3": 25.0 if index < 5 else 75.0,
+            "stoch_d_14_3_3": 30.0 if index < 5 else 70.0,
+            "cci_20": -110.0 if index < 5 else 110.0,
+            "willr_14": -85.0 if index < 5 else -15.0,
             "adx_14": 28.0,
+            "chop_14": 58.0,
+            "macd_hist_12_26_9": 0.2 if ema20 >= ema50 else -0.2,
+            "ppo_hist_12_26_9": 0.2 if ema20 >= ema50 else -0.2,
+            "tsi_25_13": 15.0 if ema20 >= ema50 else -15.0,
+            "donchian_high_20": close + 0.8,
+            "donchian_low_20": close - 0.8,
+            "donchian_high_55": close + 0.9,
+            "donchian_low_55": close - 0.9,
+            "bb_upper_20_2": close + 1.0,
+            "bb_mid_20_2": close,
+            "bb_lower_20_2": close - 1.0,
             "bb_width_20_2": 0.15,
+            "bb_percent_b_20_2": 0.5,
             "kc_upper_20_1_5": close + 1.2,
             "kc_mid_20_1_5": close,
             "kc_lower_20_1_5": close - 1.2,
+            "natr_14": 1.4,
+            "obv": 1000.0 + index * 10,
+            "mfi_14": 45.0 + index,
+            "cmf_20": 0.1,
             "rvol_20": 1.3,
             "volume_z_20": 0.5,
+            "oi_change_1": 0.01,
+            "oi_roc_10": 0.02,
+            "oi_z_20": 0.4,
+            "oi_relative_activity_20": 1.1,
+            "volume_oi_ratio": 0.05,
         },
         source_bars_hash="SRC-BARS",
         row_count=12,
@@ -122,15 +154,65 @@ def _derived(index: int, close: float) -> DerivedIndicatorFrameRow:
             "distance_to_session_vwap": -0.8 if index in {6, 7, 8} else 0.6 if index in {2, 3, 4} else 0.1,
             "distance_to_rolling_high_20": -0.2,
             "distance_to_rolling_low_20": 0.2,
+            "distance_to_sma_20_atr": -0.1 if mtf_up else 0.1,
+            "distance_to_sma_50_atr": -0.2 if mtf_up else 0.2,
+            "distance_to_ema_50_atr": -0.2 if mtf_up else 0.2,
             "bb_position_20_2": 0.5 if channel_mid else 0.9 if release_up else 0.1 if release_down else 0.35,
             "kc_position_20_1_5": 0.5 if channel_mid else 0.8 if release_up else 0.2 if release_down else 0.35,
+            "rolling_position_20": 0.5 if channel_mid else 0.9 if release_up else 0.1 if release_down else 0.35,
+            "session_position": 0.5 if channel_mid else 0.85 if release_up else 0.15 if release_down else 0.35,
+            "week_position": 0.5 if channel_mid else 0.85 if release_up else 0.15 if release_down else 0.35,
+            "cross_close_sma_20_code": 1 if release_up else -1 if release_down else 0,
+            "cross_close_session_vwap_code": 1 if release_up else -1 if release_down else 0,
             "cross_close_rolling_high_20_code": 1 if release_up else 0,
             "cross_close_rolling_low_20_code": -1 if release_down else 0,
+            "close_change_1": 0.2 if mtf_up else -0.2,
+            "close_slope_20": 0.002 if mtf_up else -0.002,
+            "sma_20_slope_5": 0.002 if mtf_up else -0.002,
+            "ema_20_slope_5": 0.002 if mtf_up else -0.002,
+            "roc_10_change_1": 0.002 if mtf_up else -0.002,
+            "mom_10_change_1": 0.002 if mtf_up else -0.002,
+            "cross_close_ema_20_code": 1 if release_up else -1 if release_down else 0,
+            "macd_signal_cross_code": 1 if release_up else -1 if release_down else 0,
+            "ppo_signal_cross_code": 1 if release_up else -1 if release_down else 0,
+            "trix_signal_cross_code": 1 if release_up else -1 if release_down else 0,
+            "kst_signal_cross_code": 1 if release_up else -1 if release_down else 0,
+            "distance_to_ema_20_atr": -0.1 if mtf_up else 0.1,
+            "distance_to_donchian_high_20_atr": -0.2 if release_up else 0.8,
+            "distance_to_donchian_low_20_atr": 0.2 if release_down else -0.8,
+            "distance_to_donchian_high_55_atr": -0.2 if release_up else 0.9,
+            "distance_to_donchian_low_55_atr": 0.2 if release_down else -0.9,
+            "distance_to_bb_upper_20_2_atr": -0.2 if release_up else 0.8,
+            "distance_to_bb_lower_20_2_atr": 0.2 if release_down else -0.8,
+            "distance_to_kc_upper_20_1_5_atr": -0.2 if release_up else 0.8,
+            "distance_to_kc_lower_20_1_5_atr": 0.2 if release_down else -0.8,
+            "donchian_position_20": 0.9 if release_up else 0.1 if release_down else 0.5,
+            "donchian_position_55": 0.9 if release_up else 0.1 if release_down else 0.5,
+            "volume_change_1": 0.1,
+            "oi_change_1": 0.01,
             "rvol_20": 1.3,
             "volume_zscore_20": 0.5,
-            "mtf_1h_to_15m_ema_20": close + 1.0 if mtf_up else close - 1.0,
-            "mtf_1h_to_15m_ema_50": close - 1.0 if mtf_up else close + 1.0,
-            "mtf_1h_to_15m_rsi_14": 60.0 if mtf_up else 40.0,
+            "price_volume_corr_20": 0.2,
+            "price_oi_corr_20": 0.1,
+            "volume_oi_corr_20": 0.1,
+            "divergence_price_rsi_14_score": 0.6 if release_down else -0.6 if release_up else 0.0,
+            "divergence_price_stoch_k_14_3_3_score": 0.6 if release_down else -0.6 if release_up else 0.0,
+            "divergence_price_cci_20_score": 0.6 if release_down else -0.6 if release_up else 0.0,
+            "divergence_price_willr_14_score": 0.6 if release_down else -0.6 if release_up else 0.0,
+            "divergence_price_macd_hist_12_26_9_score": 0.6 if release_down else -0.6 if release_up else 0.0,
+            "divergence_price_ppo_hist_12_26_9_score": 0.6 if release_down else -0.6 if release_up else 0.0,
+            "divergence_price_tsi_25_13_score": 0.6 if release_down else -0.6 if release_up else 0.0,
+            "divergence_price_mfi_14_score": 0.6 if release_down else -0.6 if release_up else 0.0,
+            "divergence_price_cmf_20_score": 0.6 if release_down else -0.6 if release_up else 0.0,
+            "divergence_price_obv_score": 0.6 if release_down else -0.6 if release_up else 0.0,
+            "divergence_price_oi_change_1_score": 0.6 if release_down else -0.6 if release_up else 0.0,
+            "mtf_4h_to_15m_ema_20": close + 1.2 if mtf_up else close - 1.2,
+            "mtf_4h_to_15m_ema_50": close - 1.2 if mtf_up else close + 1.2,
+            "mtf_4h_to_15m_adx_14": 30.0,
+            "mtf_4h_to_15m_rsi_14": 62.0 if mtf_up else 38.0,
+            "mtf_1d_to_4h_ema_20": close + 1.5 if mtf_up else close - 1.5,
+            "mtf_1d_to_4h_ema_50": close - 1.5 if mtf_up else close + 1.5,
+            "mtf_1d_to_4h_adx_14": 30.0,
         },
         source_bars_hash="SRC-BARS",
         source_indicators_hash="SRC-IND",
@@ -152,6 +234,18 @@ def _write_materialized_layers(
         _bar(index, close)
         for index, close in enumerate((100.0, 101.0, 102.0, 103.0, 104.0, 103.0, 101.0, 99.0, 97.0, 98.0, 100.0, 102.0))
     ]
+    bars.extend(
+        replace(_bar(index, 100.0 + index), timeframe="1h", ts=_tf_ts(index, "1h"), bar_index=index)
+        for index in range(12)
+    )
+    bars.extend(
+        replace(_bar(index, 101.0 + index), timeframe="4h", ts=_tf_ts(index, "4h"), bar_index=index)
+        for index in range(3)
+    )
+    bars.extend(
+        replace(_bar(index, 102.0 + index), timeframe="1d", ts=_tf_ts(index, "1d"), bar_index=index)
+        for index in range(2)
+    )
     indicators = [
         _indicator(index, close, ema10, ema20, ema50)
         for index, (close, ema10, ema20, ema50) in enumerate(
@@ -171,13 +265,48 @@ def _write_materialized_layers(
             )
         )
     ]
-    derived = [_derived(index, bar.close) for index, bar in enumerate(bars)]
+    indicators.extend(
+        replace(
+            _indicator(index, 100.0 + index, 100.5 + index, 101.0 + index, 99.0 + index),
+            timeframe="1h",
+            ts=_tf_ts(index, "1h"),
+            row_count=12,
+        )
+        for index in range(12)
+    )
+    indicators.extend(
+        replace(
+            _indicator(index, 101.0 + index, 101.5 + index, 102.0 + index, 100.0 + index),
+            timeframe="4h",
+            ts=_tf_ts(index, "4h"),
+            row_count=3,
+        )
+        for index in range(3)
+    )
+    indicators.extend(
+        replace(
+            _indicator(index, 102.0 + index, 102.5 + index, 103.0 + index, 101.0 + index),
+            timeframe="1d",
+            ts=_tf_ts(index, "1d"),
+            row_count=2,
+        )
+        for index in range(2)
+    )
+    derived = [_derived(index, bar.close) for index, bar in enumerate(bars) if bar.timeframe == "15m"]
+    derived.extend(
+        replace(_derived(index, 100.0 + index), timeframe="1h", ts=_tf_ts(index, "1h"), row_count=12)
+        for index in range(12)
+    )
+    derived.extend(
+        replace(_derived(index, 101.0 + index), timeframe="4h", ts=_tf_ts(index, "4h"), row_count=3)
+        for index in range(3)
+    )
 
     dataset_manifest = ResearchDatasetManifest(
         dataset_version="dataset-v5",
         dataset_name="stage5 synthetic",
         universe_id="moex-futures",
-        timeframes=("15m",),
+        timeframes=("15m", "1h", "4h", "1d"),
         base_timeframe="15m",
         split_method=split_method,
         warmup_bars=0,
@@ -240,8 +369,8 @@ def _backtest_request(
         dataset_version=dataset_version,
         indicator_set_version=indicator_set_version,
         derived_indicator_set_version=derived_indicator_set_version,
-        strategy_instances=strategy_space.strategy_instances,
-        combination_count=len(strategy_space.strategy_instances),
+        search_specs=strategy_space.search_specs,
+        combination_count=sum(len(spec.parameter_space.get("rows", ())) or 1 for spec in strategy_space.search_specs),
         param_batch_size=param_batch_size,
         series_batch_size=series_batch_size,
         timeframe=timeframe,
@@ -257,7 +386,7 @@ def test_vectorbt_batch_runner_materializes_signal_and_order_func_artifacts(tmp_
         derived_indicator_output_dir=materialized_dir,
         output_dir=output_dir,
         request=_backtest_request(
-            strategy_labels=("ma-cross-v1", "squeeze-release-v1"),
+            strategy_labels=("ma-cross-v1", "volatility-squeeze-release-v1"),
             combinations_per_strategy=2,
             param_batch_size=1,
             series_batch_size=1,
@@ -283,7 +412,7 @@ def test_vectorbt_batch_runner_materializes_signal_and_order_func_artifacts(tmp_
     assert trade_rows
     assert order_rows
     assert drawdown_rows
-    assert {"signals", "order_func"} <= {row["execution_mode"] for row in run_rows}
+    assert {row["execution_mode"] for row in run_rows} == {"from_signals"}
     assert all(row["trade_count"] >= 0 for row in run_rows)
     assert all("total_return" in row for row in stats_rows)
     assert all(row["side"] in {"long", "short"} for row in trade_rows)
@@ -291,6 +420,43 @@ def test_vectorbt_batch_runner_materializes_signal_and_order_func_artifacts(tmp_
     assert all("drawdown_pct" in row for row in drawdown_rows)
     for path_text in report["output_paths"].values():
         assert (Path(path_text) / "_delta_log").exists()
+
+
+def test_vectorbt_batch_runner_runs_new_launch_families_on_native_clock_layers(tmp_path: Path) -> None:
+    materialized_dir = _write_materialized_layers(tmp_path / "materialized-launch-families")
+    output_dir = tmp_path / "backtests-launch-families"
+    report = run_backtest_batch(
+        dataset_output_dir=materialized_dir,
+        indicator_output_dir=materialized_dir,
+        derived_indicator_output_dir=materialized_dir,
+        output_dir=output_dir,
+        request=_backtest_request(
+            strategy_labels=("trend-movement-cross-v1", "channel-breakout-continuation-v1"),
+            combinations_per_strategy=2,
+            param_batch_size=2,
+            series_batch_size=1,
+            timeframe="15m",
+        ),
+        engine_config=BacktestEngineConfig(
+            fees_bps=5.0,
+            slippage_bps=2.0,
+            allow_short=True,
+            window_count=1,
+        ),
+    )
+
+    assert report["backtest_batch"]["combination_count"] == 4
+    assert {row["family_key"] for row in report["search_spec_rows"]} == {
+        "trend_movement_cross_v1",
+        "channel_breakout_continuation_v1",
+    }
+    assert {row["family_key"] for row in report["param_result_rows"]} == {
+        "trend_movement_cross_v1",
+        "channel_breakout_continuation_v1",
+    }
+    assert {row["execution_mode"] for row in report["run_rows"]} == {"from_signals"}
+    assert all(row["timeframe"] == "15m" for row in report["run_rows"])
+    assert len(report["gate_event_rows"]) >= len(report["param_result_rows"])
 
 
 def test_vectorbt_batch_runner_is_reproducible_and_uses_hot_cache(tmp_path: Path) -> None:

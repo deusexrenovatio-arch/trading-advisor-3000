@@ -236,6 +236,61 @@ def test_metric_order_really_changes_ranking_priority() -> None:
     assert top_return["objective_score"] != top_pf["objective_score"]
 
 
+def test_ranking_keeps_family_first_survivors_before_cross_family_selection() -> None:
+    run_rows: list[dict[str, object]] = []
+    stat_rows: list[dict[str, object]] = []
+    for run_id, label, family, params_hash, total_return in (
+        ("RUN-MA-A", "ma-cross-v1", "ma_cross", "MA-A", 0.14),
+        ("RUN-MA-B", "ma-cross-v1", "ma_cross", "MA-B", 0.12),
+        ("RUN-BR-A", "breakout-v1", "breakout", "BR-A", 0.08),
+    ):
+        run_rows.append(
+            {
+                **_run_row(run_id=run_id, params_hash=params_hash, params_json={"slot": params_hash}, window_id="wf-01"),
+                "strategy_version_label": label,
+                "family_key": family,
+                "strategy_template_id": f"stpl_{family}",
+            }
+        )
+        stat_rows.append(
+            {
+                **_stat_row(
+                    run_id=run_id,
+                    params_hash=params_hash,
+                    window_id="wf-01",
+                    total_return=total_return,
+                    sharpe=1.2,
+                    profit_factor=1.4,
+                    max_drawdown=0.10,
+                    trade_count=4,
+                ),
+                "strategy_version_label": label,
+                "family_key": family,
+                "strategy_template_id": f"stpl_{family}",
+            }
+        )
+    report = rank_backtest_results(
+        batch_rows=[{"backtest_batch_id": "BTBATCH-STAGE6"}],
+        run_rows=run_rows,
+        stat_rows=stat_rows,
+        trade_rows=[_trade_row(run_id=row["backtest_run_id"], trade_id=f"TRD-{row['backtest_run_id']}", pnl=50.0) for row in run_rows],
+        policy=RankingPolicy(
+            policy_id="family-first-test",
+            metric_order=("total_return", "profit_factor", "max_drawdown"),
+            min_trade_count=1,
+            max_drawdown_cap=0.5,
+            min_positive_fold_ratio=0.0,
+            min_parameter_stability=0.0,
+            min_slippage_score=0.0,
+        ),
+    )
+
+    ranked = sorted(report["ranking_rows"], key=lambda row: row["selected_rank"])
+    assert [row["family_rank"] for row in ranked] == [1, 1, 2]
+    assert ranked[1]["family_key"] == "breakout"
+    assert ranked[2]["params_hash"] == "MA-B"
+
+
 def test_projection_selection_policy_really_changes_selected_rows() -> None:
     rows = [
         {

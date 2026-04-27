@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import pandas as pd
 import pytest
 
 from trading_advisor_3000.product_plane.research.datasets import ResearchBarView
@@ -24,6 +25,8 @@ def _view(*, ts_index: int, close: float, timeframe: str = "15m") -> ResearchBar
         ts = start + timedelta(minutes=15 * ts_index)
     elif timeframe == "1h":
         ts = start + timedelta(hours=ts_index)
+    elif timeframe == "4h":
+        ts = start + timedelta(hours=4 * ts_index)
     else:
         raise AssertionError(f"unexpected timeframe: {timeframe}")
     ts_text = ts.isoformat().replace("+00:00", "Z")
@@ -227,13 +230,17 @@ def test_derived_indicator_batch_writer_coalesces_delta_writes(tmp_path) -> None
 def test_derived_indicator_build_produces_wide_v2_values_and_causal_mtf_overlay() -> None:
     bars_15m = [
         _view(ts_index=index, close=90.0 + index * 0.05 + ((index % 16) - 8) * 0.06, timeframe="15m")
-        for index in range(320)
+        for index in range(1200)
     ]
     bars_1h = [
         _view(ts_index=index, close=91.0 + index * 0.18 + ((index % 8) - 4) * 0.08, timeframe="1h")
+        for index in range(300)
+    ]
+    bars_4h = [
+        _view(ts_index=index, close=92.0 + index * 0.42 + ((index % 6) - 3) * 0.12, timeframe="4h")
         for index in range(80)
     ]
-    bars = [*bars_15m, *bars_1h]
+    bars = [*bars_15m, *bars_1h, *bars_4h]
     indicators = build_indicator_frames(
         dataset_version="dataset-v5",
         indicator_set_version="indicators-v1",
@@ -252,6 +259,7 @@ def test_derived_indicator_build_produces_wide_v2_values_and_causal_mtf_overlay(
 
     indicator_15m = [row for row in indicators if row.timeframe == "15m"]
     indicator_1h = [row for row in indicators if row.timeframe == "1h"]
+    indicator_4h = [row for row in indicators if row.timeframe == "4h"]
     rows_15m = [row for row in rows if row.timeframe == "15m"]
     tail = rows_15m[-1]
     for column in (
@@ -270,6 +278,10 @@ def test_derived_indicator_build_produces_wide_v2_values_and_causal_mtf_overlay(
         "mtf_1h_to_15m_ema_20",
         "mtf_1h_to_15m_ema_50",
         "mtf_1h_to_15m_rsi_14",
+        "mtf_4h_to_15m_ema_20",
+        "mtf_4h_to_15m_ema_50",
+        "mtf_4h_to_15m_adx_14",
+        "mtf_4h_to_15m_rsi_14",
     ):
         assert tail.values[column] is not None
     assert tail.values["sma_20_slope_5"] == pytest.approx(
@@ -280,6 +292,15 @@ def test_derived_indicator_build_produces_wide_v2_values_and_causal_mtf_overlay(
     )
     assert tail.values["mtf_1h_to_15m_ema_20"] == pytest.approx(indicator_1h[-1].values["ema_20"])
     assert tail.values["mtf_1h_to_15m_ema_50"] == pytest.approx(indicator_1h[-1].values["ema_50"])
+    current_close_ts = pd.Timestamp(tail.ts) + pd.Timedelta(minutes=15)
+    source_4h = [
+        row
+        for row in indicator_4h
+        if pd.Timestamp(row.ts) + pd.Timedelta(hours=4) <= current_close_ts
+    ][-1]
+    assert tail.values["mtf_4h_to_15m_ema_20"] == pytest.approx(source_4h.values["ema_20"])
+    assert tail.values["mtf_4h_to_15m_adx_14"] == pytest.approx(source_4h.values["adx_14"])
+    assert "mtf_4h_to_15m_donchian_high_55" not in tail.values
     assert tail.null_warmup_span < tail.row_count
 
 
@@ -313,4 +334,3 @@ def test_derived_indicator_edge_rules_avoid_misleading_signals() -> None:
     assert rows[22].values["divergence_price_rsi_14_score"] > 0.0
     assert "session_volume_state_code" not in rows[-1].values
     assert "oscillator_pressure_code" not in rows[-1].values
-
