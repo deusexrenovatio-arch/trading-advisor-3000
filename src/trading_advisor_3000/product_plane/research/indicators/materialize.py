@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterator
 from pathlib import Path
 
 import pandas as pd
 import pandas_ta_classic as ta
 
-from trading_advisor_3000.product_plane.research.datasets import ResearchBarView, load_materialized_research_dataset
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import iter_delta_table_row_batches, read_delta_table_rows
+from trading_advisor_3000.product_plane.research.datasets import ResearchBarView
 
 from .registry import (
     IndicatorProfile,
@@ -19,9 +21,13 @@ from .registry import (
 from .store import (
     IndicatorFramePartitionKey,
     IndicatorFrameRow,
+    existing_indicator_value_columns,
+    indicator_output_columns_hash,
     load_indicator_frames,
+    load_indicator_partition_metadata,
+    load_indicator_partition_rows,
     indicator_store_contract,
-    write_indicator_frames,
+    write_indicator_frame_batches,
 )
 
 
@@ -99,6 +105,116 @@ def _group_existing_rows(
     for row in sorted(rows, key=lambda item: (item.instrument_id, item.timeframe, item.ts, item.contract_id)):
         grouped.setdefault(row.partition_key(series_mode=series_mode), []).append(row)
     return grouped
+
+
+def _metadata_partition_key(row: dict[str, object], *, series_mode: str) -> IndicatorFramePartitionKey:
+    return IndicatorFramePartitionKey(
+        dataset_version=str(row["dataset_version"]),
+        indicator_set_version=str(row["indicator_set_version"]),
+        timeframe=str(row["timeframe"]),
+        instrument_id=str(row["instrument_id"]),
+        contract_id=None if series_mode == "continuous_front" else str(row["contract_id"]),
+    )
+
+
+def _group_existing_partition_metadata(
+    *,
+    rows: list[dict[str, object]],
+    series_mode: str,
+) -> dict[IndicatorFramePartitionKey, dict[str, object]]:
+    grouped: dict[IndicatorFramePartitionKey, dict[str, object]] = {}
+    for row in rows:
+        grouped.setdefault(_metadata_partition_key(row, series_mode=series_mode), row)
+    return grouped
+
+
+def _load_dataset_manifest(*, output_dir: Path, dataset_version: str) -> dict[str, object]:
+    rows = read_delta_table_rows(
+        output_dir / "research_datasets.delta",
+        filters=[("dataset_version", "=", dataset_version)],
+    )
+    if not rows:
+        raise KeyError(f"dataset_version not found: {dataset_version}")
+    return rows[0]
+
+
+def _bar_partition_key_from_row(
+    row: dict[str, object],
+    *,
+    dataset_version: str,
+    indicator_set_version: str,
+    series_mode: str,
+) -> IndicatorFramePartitionKey:
+    return IndicatorFramePartitionKey(
+        dataset_version=dataset_version,
+        indicator_set_version=indicator_set_version,
+        timeframe=str(row["timeframe"]),
+        instrument_id=str(row["instrument_id"]),
+        contract_id=None if series_mode == "continuous_front" else str(row["contract_id"]),
+    )
+
+
+def _load_bar_partition_counts(
+    *,
+    dataset_output_dir: Path,
+    dataset_version: str,
+    indicator_set_version: str,
+    series_mode: str,
+) -> dict[IndicatorFramePartitionKey, int]:
+    counts: dict[IndicatorFramePartitionKey, int] = {}
+    for batch in iter_delta_table_row_batches(
+        dataset_output_dir / "research_bar_views.delta",
+        columns=["dataset_version", "contract_id", "instrument_id", "timeframe"],
+    ):
+        for row in batch:
+            if row.get("dataset_version") != dataset_version:
+                continue
+            key = _bar_partition_key_from_row(
+                row,
+                dataset_version=dataset_version,
+                indicator_set_version=indicator_set_version,
+                series_mode=series_mode,
+            )
+            counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _load_bar_partition_rows(
+    *,
+    dataset_output_dir: Path,
+    dataset_version: str,
+    partition: IndicatorFramePartitionKey,
+) -> list[ResearchBarView]:
+    filters: list[tuple[str, str, object]] = [
+        ("dataset_version", "=", dataset_version),
+        ("instrument_id", "=", partition.instrument_id),
+        ("timeframe", "=", partition.timeframe),
+    ]
+    if partition.contract_id is not None:
+        filters.append(("contract_id", "=", partition.contract_id))
+    rows = read_delta_table_rows(dataset_output_dir / "research_bar_views.delta", filters=filters)
+    return [
+        ResearchBarView.from_dict(row)
+        for row in sorted(rows, key=lambda item: str(item["ts"]))
+    ]
+
+
+def _latest_delta_commit_timestamp(table_path: Path) -> int | None:
+    log_dir = table_path / "_delta_log"
+    if not log_dir.exists():
+        return None
+    log_files = sorted(log_dir.glob("*.json"))
+    if not log_files:
+        return None
+    for line in reversed(log_files[-1].read_text(encoding="utf-8").splitlines()):
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        commit_info = payload.get("commitInfo") if isinstance(payload, dict) else None
+        if isinstance(commit_info, dict) and commit_info.get("timestamp") is not None:
+            return int(commit_info["timestamp"])
+    return None
 
 
 def _validate_required_inputs(frame: pd.DataFrame, spec: IndicatorSpec) -> None:
@@ -412,21 +528,53 @@ def _null_warmup_span(payload_rows: list[dict[str, object]], output_columns: tup
     return count
 
 
+def _profile_for_specs(profile: IndicatorProfile, specs: tuple[IndicatorSpec, ...]) -> IndicatorProfile:
+    return IndicatorProfile(
+        version=profile.version,
+        description=profile.description,
+        indicators=specs,
+    )
+
+
+def _specs_for_columns(profile: IndicatorProfile, columns: set[str]) -> tuple[IndicatorSpec, ...]:
+    return tuple(
+        spec
+        for spec in profile.indicators
+        if any(column in columns for column in spec.output_columns)
+    )
+
+
 def _existing_partition_matches(
-    existing_rows: list[IndicatorFrameRow],
+    existing_metadata: dict[str, object] | None,
     *,
     source_hash: str,
     profile_version: str,
     row_count: int,
+    output_columns_hash: str,
+    legacy_output_columns_match: bool = False,
 ) -> bool:
-    if not existing_rows:
+    if not existing_metadata:
         return False
-    head = existing_rows[0]
-    return (
-        head.source_bars_hash == source_hash
-        and head.profile_version == profile_version
-        and head.row_count == row_count
+    existing_output_columns_hash = str(existing_metadata.get("output_columns_hash") or "")
+    output_hash_matches = (
+        existing_output_columns_hash == output_columns_hash
+        or (not existing_output_columns_hash and legacy_output_columns_match)
     )
+    return (
+        existing_metadata.get("source_bars_hash") == source_hash
+        and existing_metadata.get("profile_version") == profile_version
+        and int(existing_metadata.get("row_count", -1) or -1) == row_count
+        and output_hash_matches
+    )
+
+
+def _timestamp_after(left: object, right: object) -> bool:
+    if not left or not right:
+        return False
+    try:
+        return pd.Timestamp(left) > pd.Timestamp(right)
+    except (TypeError, ValueError):
+        return str(left) > str(right)
 
 
 def _build_partition_rows(
@@ -435,21 +583,42 @@ def _build_partition_rows(
     indicator_set_version: str,
     profile: IndicatorProfile,
     series: list[ResearchBarView],
+    source_dataset_bars_hash: str = "",
+    output_columns_hash: str | None = None,
+    compute_profile: IndicatorProfile | None = None,
+    existing_rows: list[IndicatorFrameRow] | None = None,
 ) -> list[IndicatorFrameRow]:
     frame = pd.DataFrame([row.to_dict() for row in series])
-    computed = _compute_profile_frame(frame, profile)
+    compute_profile = compute_profile or profile
+    computed = _compute_profile_frame(frame, compute_profile)
     payload_rows = computed.to_dict("records")
     output_columns = profile.expected_output_columns()
+    computed_columns = set(compute_profile.expected_output_columns())
+    existing_by_ts = {row.ts: row for row in existing_rows or []}
     source_hash = _bars_hash(series)
-    null_warmup_span = _null_warmup_span(payload_rows, output_columns)
-    created_at = pd.Timestamp.utcnow().isoformat().replace("+00:00", "Z")
+    output_columns_hash = output_columns_hash or indicator_output_columns_hash(output_columns)
+    prepared_values: list[tuple[ResearchBarView, dict[str, float | None], IndicatorFrameRow | None]] = []
+    merged_payload_rows: list[dict[str, object]] = []
+
+    for original, payload in zip(series, payload_rows, strict=True):
+        existing = existing_by_ts.get(original.ts)
+        values: dict[str, float | None] = {}
+        for column in output_columns:
+            if column in computed_columns:
+                value = payload.get(column)
+            elif existing is not None and column in existing.values:
+                value = existing.values[column]
+            else:
+                value = None
+            values[column] = None if value is None or pd.isna(value) else float(value)
+        prepared_values.append((original, values, existing))
+        merged_payload_rows.append(values)
+
+    null_warmup_span = _null_warmup_span(merged_payload_rows, output_columns)
+    materialized_at = pd.Timestamp.utcnow().isoformat().replace("+00:00", "Z")
 
     rows: list[IndicatorFrameRow] = []
-    for original, payload in zip(series, payload_rows, strict=True):
-        values = {
-            column: (None if payload.get(column) is None or pd.isna(payload.get(column)) else float(payload[column]))
-            for column in output_columns
-        }
+    for original, values, existing in prepared_values:
         rows.append(
             IndicatorFrameRow(
                 dataset_version=dataset_version,
@@ -464,7 +633,9 @@ def _build_partition_rows(
                 row_count=len(series),
                 warmup_span=profile.max_warmup_bars(),
                 null_warmup_span=null_warmup_span,
-                created_at=created_at,
+                created_at=existing.created_at if existing is not None else materialized_at,
+                output_columns_hash=output_columns_hash,
+                source_dataset_bars_hash=source_dataset_bars_hash,
             )
         )
     return rows
@@ -507,74 +678,179 @@ def materialize_indicator_frames(
     profile: IndicatorProfile | None = None,
     profile_version: str | None = None,
 ) -> dict[str, object]:
-    loaded = load_materialized_research_dataset(output_dir=dataset_output_dir, dataset_version=dataset_version)
-    series_mode = str(loaded["dataset_manifest"].get("series_mode", "contract"))
+    dataset_manifest = _load_dataset_manifest(output_dir=dataset_output_dir, dataset_version=dataset_version)
+    series_mode = str(dataset_manifest.get("series_mode", "contract"))
+    current_dataset_bars_hash = str(dataset_manifest.get("bars_hash") or "")
+    current_dataset_created_at = str(dataset_manifest.get("created_at") or "")
     registry: IndicatorProfileRegistry = build_indicator_profile_registry()
     resolved_profile = profile or registry.get(profile_version or "core_v1")
-    grouped_current = _group_bar_views(
+    partition_counts = _load_bar_partition_counts(
+        dataset_output_dir=dataset_output_dir,
         dataset_version=dataset_version,
         indicator_set_version=indicator_set_version,
-        bar_views=loaded["bar_views"],
         series_mode=series_mode,
     )
-    existing_rows = load_indicator_frames(
+    table_exists = (indicator_output_dir / "research_indicator_frames.delta" / "_delta_log").exists()
+    source_table_commit_ts = _latest_delta_commit_timestamp(dataset_output_dir / "research_bar_views.delta")
+    indicator_table_commit_ts = (
+        _latest_delta_commit_timestamp(indicator_output_dir / "research_indicator_frames.delta")
+        if table_exists else None
+    )
+    legacy_table_covers_source_commit = bool(
+        source_table_commit_ts is not None
+        and indicator_table_commit_ts is not None
+        and indicator_table_commit_ts >= source_table_commit_ts
+    )
+    existing_metadata = load_indicator_partition_metadata(
         output_dir=indicator_output_dir,
         dataset_version=dataset_version,
         indicator_set_version=indicator_set_version,
-    ) if (indicator_output_dir / "research_indicator_frames.delta" / "_delta_log").exists() else []
-    existing_by_partition = _group_existing_rows(rows=existing_rows, series_mode=series_mode)
+    ) if table_exists else []
+    existing_by_partition = _group_existing_partition_metadata(rows=existing_metadata, series_mode=series_mode)
+    target_output_columns = resolved_profile.expected_output_columns()
+    target_output_columns_hash = indicator_output_columns_hash(target_output_columns)
+    existing_output_columns = set(
+        existing_indicator_value_columns(output_dir=indicator_output_dir)
+    ) if table_exists else set()
+    reusable_existing_columns = tuple(
+        column for column in target_output_columns if column in existing_output_columns
+    )
 
-    refreshed_rows: list[IndicatorFrameRow] = []
+    current_partitions: set[IndicatorFramePartitionKey] = set()
     replace_partitions: list[IndicatorFramePartitionKey] = []
+    refresh_plan: list[
+        tuple[
+            IndicatorFramePartitionKey,
+            list[ResearchBarView],
+            IndicatorProfile,
+            list[IndicatorFrameRow] | None,
+        ]
+    ] = []
     reused_partitions = 0
     refreshed_partitions = 0
+    extended_partitions = 0
+    recomputed_partitions = 0
 
-    for partition_key, series in grouped_current.items():
-        source_hash = _bars_hash(series)
-        existing_partition_rows = existing_by_partition.get(partition_key, [])
+    for partition_key, row_count in sorted(
+        partition_counts.items(),
+        key=lambda item: (item[0].instrument_id, item[0].contract_id or "", item[0].timeframe),
+    ):
+        current_partitions.add(partition_key)
+        existing_partition_metadata = existing_by_partition.get(partition_key)
+        source_hash = str(existing_partition_metadata.get("source_bars_hash") or "") if existing_partition_metadata else ""
+        source_row_count = int(existing_partition_metadata.get("row_count", -1) or -1) if existing_partition_metadata else -1
+        existing_dataset_bars_hash = (
+            str(existing_partition_metadata.get("source_dataset_bars_hash") or "")
+            if existing_partition_metadata else ""
+        )
+        existing_materialized_at = (
+            str(existing_partition_metadata.get("created_at") or "")
+            if existing_partition_metadata else ""
+        )
+        series: list[ResearchBarView] | None = None
+        dataset_may_have_changed = (
+            bool(current_dataset_bars_hash and existing_dataset_bars_hash and current_dataset_bars_hash != existing_dataset_bars_hash)
+            or bool(
+                current_dataset_bars_hash
+                and not existing_dataset_bars_hash
+                and not legacy_table_covers_source_commit
+                and _timestamp_after(current_dataset_created_at, existing_materialized_at)
+            )
+        )
+        source_changed = source_row_count != row_count or not source_hash or dataset_may_have_changed
+        if source_changed:
+            series = _load_bar_partition_rows(
+                dataset_output_dir=dataset_output_dir,
+                dataset_version=dataset_version,
+                partition=partition_key,
+            )
+            source_hash = _bars_hash(series)
         if _existing_partition_matches(
-            existing_partition_rows,
+            existing_partition_metadata,
             source_hash=source_hash,
             profile_version=resolved_profile.version,
-            row_count=len(series),
+            row_count=row_count,
+            output_columns_hash=target_output_columns_hash,
+            legacy_output_columns_match=set(target_output_columns).issubset(existing_output_columns),
         ):
             reused_partitions += 1
             continue
-        refreshed_rows.extend(
-            _build_partition_rows(
-                dataset_version=dataset_version,
-                indicator_set_version=indicator_set_version,
-                profile=resolved_profile,
-                series=series,
-            )
+
+        source_unchanged = bool(existing_partition_metadata) and (
+            existing_partition_metadata.get("source_bars_hash") == source_hash
+            and int(existing_partition_metadata.get("row_count", -1) or -1) == row_count
         )
+        missing_columns = set(target_output_columns) - existing_output_columns
+        can_extend_from_existing = bool(source_unchanged and missing_columns and reusable_existing_columns)
+        if series is None:
+            series = _load_bar_partition_rows(
+                dataset_output_dir=dataset_output_dir,
+                dataset_version=dataset_version,
+                partition=partition_key,
+            )
+        if can_extend_from_existing:
+            missing_specs = _specs_for_columns(resolved_profile, missing_columns)
+            compute_profile = _profile_for_specs(resolved_profile, missing_specs)
+            existing_rows = load_indicator_partition_rows(
+                output_dir=indicator_output_dir,
+                partition=partition_key,
+                value_columns=reusable_existing_columns,
+            )
+            extended_partitions += 1
+        else:
+            compute_profile = resolved_profile
+            existing_rows = None
+            recomputed_partitions += 1
+
+        refresh_plan.append((partition_key, series, compute_profile, existing_rows))
         replace_partitions.append(partition_key)
         refreshed_partitions += 1
 
     deleted_partitions = tuple(
         partition
         for partition in existing_by_partition
-        if partition not in grouped_current
+        if partition not in current_partitions
     )
     replace_partitions.extend(deleted_partitions)
 
     output_paths = {"research_indicator_frames": (indicator_output_dir / "research_indicator_frames.delta").as_posix()}
-    if replace_partitions or not (indicator_output_dir / "research_indicator_frames.delta" / "_delta_log").exists():
-        output_paths = write_indicator_frames(
+    refreshed_row_count = 0
+    batch_count = 0
+    if replace_partitions or not table_exists:
+        def _row_batches() -> Iterator[list[IndicatorFrameRow]]:
+            for _, series, compute_profile, existing_rows in refresh_plan:
+                yield _build_partition_rows(
+                    dataset_version=dataset_version,
+                    indicator_set_version=indicator_set_version,
+                    profile=resolved_profile,
+                    series=series,
+                    source_dataset_bars_hash=current_dataset_bars_hash,
+                    output_columns_hash=target_output_columns_hash,
+                    compute_profile=compute_profile,
+                    existing_rows=existing_rows,
+                )
+
+        output_paths, refreshed_row_count, batch_count = write_indicator_frame_batches(
             output_dir=indicator_output_dir,
-            rows=refreshed_rows,
+            row_batches=_row_batches(),
             replace_partitions=tuple(replace_partitions),
+            profile=resolved_profile,
         )
 
-    current_total_rows = sum(len(series) for series in grouped_current.values())
+    current_total_rows = sum(partition_counts.values())
     return {
         "indicator_row_count": current_total_rows,
+        "refreshed_row_count": refreshed_row_count,
         "refreshed_partition_count": refreshed_partitions,
         "reused_partition_count": reused_partitions,
+        "extended_partition_count": extended_partitions,
+        "recomputed_partition_count": recomputed_partitions,
         "deleted_partition_count": len(deleted_partitions),
+        "write_batch_count": batch_count,
         "profile_version": resolved_profile.version,
+        "output_columns_hash": target_output_columns_hash,
         "output_paths": output_paths,
-        "delta_manifest": indicator_store_contract(),
+        "delta_manifest": indicator_store_contract(profile=resolved_profile),
     }
 
 

@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-04-26'
+updated_at: '2026-04-27'
 items:
 - id: TASK-2026-03-16-SHELL-BOOTSTRAP
   path: docs/tasks/archive/TASK-2026-03-16-shell-bootstrap.md
@@ -187,3 +187,21 @@ items:
   status: completed
   started_at: '2026-04-26'
   completed_at: '2026-04-26'
+- id: TASK-2026-04-26-MATERIALIZE-FULL-MOEX-RESEARCH-INDICATOR-AND-DER
+  path: docs/tasks/archive/TASK-2026-04-26-materialize-full-moex-research-indicator-and-der.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-26'
+  completed_at: '2026-04-26'
+- id: TASK-2026-04-27-SYSTEMATIZE-INCREMENTAL-MATERIALIZATION-FOR-RESE
+  path: docs/tasks/archive/TASK-2026-04-27-systematize-incremental-materialization-for-rese.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-27'
+  completed_at: '2026-04-27'
+- id: TASK-2026-04-27-FIX-MEMORY-SAFE-INCREMENTAL-INDICATOR-AND-DERIVE
+  path: docs/tasks/archive/TASK-2026-04-27-fix-memory-safe-incremental-indicator-and-derive.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-27'
+  completed_at: '2026-04-27'

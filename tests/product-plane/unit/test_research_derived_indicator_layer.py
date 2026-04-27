@@ -9,7 +9,11 @@ from trading_advisor_3000.product_plane.research.derived_indicators import (
     WIDE_TECHNICAL_GOLD_V2_DERIVED_COLUMNS,
     build_derived_indicator_frames,
     build_derived_indicator_profile_registry,
+    load_derived_indicator_frames,
     research_derived_indicator_store_contract,
+)
+from trading_advisor_3000.product_plane.research.derived_indicators.store import (
+    write_derived_indicator_frame_batches,
 )
 from trading_advisor_3000.product_plane.research.indicators import IndicatorFrameRow, build_indicator_frames
 
@@ -114,11 +118,15 @@ def test_derived_indicator_store_contract_is_separate_wide_layer() -> None:
             "timeframe",
             "ts",
             "source_bars_hash",
+            "source_dataset_bars_hash",
             "source_indicators_hash",
+            "source_indicator_profile_version",
+            "source_indicator_output_columns_hash",
             "row_count",
             "warmup_span",
             "null_warmup_span",
             "created_at",
+            "output_columns_hash",
         }
     )
     assert contract["research_derived_indicator_frames"]["format"] == "delta"
@@ -182,6 +190,38 @@ def test_derived_indicator_build_keeps_feature_sets_out_of_layer_identity() -> N
     assert payload["donchian_position_20"] is not None
     assert "oscillator_pressure_code" not in payload
     assert "feature_set_version" not in payload
+
+
+def test_derived_indicator_batch_writer_coalesces_delta_writes(tmp_path) -> None:
+    bars = [_view(ts_index=index, close=80.0 + index * 0.25) for index in range(32)]
+    indicators = [_indicator_row(ts_index=index, close=80.0 + index * 0.25) for index in range(32)]
+    rows = build_derived_indicator_frames(
+        dataset_version="dataset-v5",
+        indicator_set_version="indicators-v1",
+        derived_indicator_set_version="derived-v1",
+        bar_views=bars,
+        indicator_rows=indicators,
+        series_mode="contract",
+    )
+    row_batches = [rows[index : index + 8] for index in range(0, len(rows), 8)]
+
+    paths, row_count, write_batch_count = write_derived_indicator_frame_batches(
+        output_dir=tmp_path,
+        row_batches=row_batches,
+        max_rows_per_delta_write=15,
+    )
+    reloaded = load_derived_indicator_frames(
+        output_dir=tmp_path,
+        dataset_version="dataset-v5",
+        indicator_set_version="indicators-v1",
+        derived_indicator_set_version="derived-v1",
+    )
+
+    assert row_count == len(rows)
+    assert write_batch_count == 2
+    assert len(reloaded) == len(rows)
+    assert (tmp_path / "research_derived_indicator_frames.delta" / "_delta_log").exists()
+    assert "research_derived_indicator_frames" in paths
 
 
 def test_derived_indicator_build_produces_wide_v2_values_and_causal_mtf_overlay() -> None:

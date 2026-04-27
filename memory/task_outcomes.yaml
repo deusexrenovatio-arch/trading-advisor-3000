@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-04-26'
+updated_at: '2026-04-27'
 items:
 - task_id: TASK-2026-03-16-BASELINE-SEED
   closed_at: '2026-03-16T10:00:00Z'
@@ -821,6 +821,85 @@ items:
   incident_signature: none
   improvement_action: pending
   improvement_artifact: pending
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-04-26-MATERIALIZE-FULL-MOEX-RESEARCH-INDICATOR-AND-DER
+  closed_at: '2026-04-26T18:11:40Z'
+  branch: codex/materialize-indicators-derived-job
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - '`CTX-DATA`'
+  - '`CTX-RESEARCH`'
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: workflow
+  improvement_artifact: focused tests and real run summary.
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-04-27-SYSTEMATIZE-INCREMENTAL-MATERIALIZATION-FOR-RESE
+  closed_at: '2026-04-27T07:15:03Z'
+  branch: codex/materialize-indicators-derived-job
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-RESEARCH
+  - CTX-DATA
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: workflow
+  improvement_artifact: research plane operations note and focused partition-reuse
+    tests.
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-04-27-FIX-MEMORY-SAFE-INCREMENTAL-INDICATOR-AND-DERIVE
+  closed_at: '2026-04-27T08:46:58Z'
+  branch: codex/materialize-indicators-derived-job
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-RESEARCH
+  - CTX-DATA
+  - CTX-ORCHESTRATION
+  - CTX-OPS
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: workflow
+  improvement_artifact: research indicator/derived materialization tests and research
+    operations runbook update.
   linked_plan_id: null
   linked_memory_id: null
   outcome_status: completed

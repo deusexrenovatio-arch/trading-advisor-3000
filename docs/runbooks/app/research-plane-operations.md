@@ -16,8 +16,8 @@ It validates `research_campaign.v1.json`, writes immutable run artifacts, and di
 
 ## How To Choose `target_stage`
 
-Use `data_prep` when canonical data changed or indicator, derived indicator, or feature definitions changed.
-This now means research data prep only: datasets, instrument tree, bar views, base indicators, derived indicators, and curated features.
+Use `data_prep` when canonical data changed or indicator or derived indicator definitions changed.
+This now means research data prep only: datasets, instrument tree, bar views, base indicators, and derived indicators.
 
 Use `backtest` when the reusable materialized layer is ready and you want strategy registry refresh, strategy execution, and ranking outputs.
 
@@ -46,6 +46,17 @@ Storage is split on purpose:
 - reusable gold layer: `<materialized_root>/`
 - immutable run artifacts: `<runs_root>/<campaign_name>/<run_id>/`
 
+The authoritative persisted technical-analysis tables are Delta directories under the reusable gold layer:
+- base indicators: `<materialized_root>/research_indicator_frames.delta`
+- derived indicators: `<materialized_root>/research_derived_indicator_frames.delta`
+
+For the accepted MOEX baseline these resolve to:
+- `D:/TA3000-data/trading-advisor-3000-nightly/research/gold/current/research_indicator_frames.delta`
+- `D:/TA3000-data/trading-advisor-3000-nightly/research/gold/current/research_derived_indicator_frames.delta`
+
+Folders under `research/gold/verification/` are temporary proof or acceptance copies.
+They are not the production-current serving location and can be cleaned up after evidence is captured.
+
 `materialization_key` is an identity/fingerprint recorded in `materialization.lock.json` and run artifacts.
 It is not used as a physical folder segment.
 
@@ -62,6 +73,21 @@ For scheduled freshness:
 - `research_data_prep_job` should run after `moex_baseline_update_job` succeeds
 - `research_data_prep_after_moex_sensor` is the Dagster handoff from canonical MOEX refresh to research data prep
 - `strategy_registry_refresh_job` remains separate and should be run when strategy inventory or campaign strategy-space inputs change
+
+For materialized-layer freshness:
+- partition identity is dataset/profile/instrument/contract/timeframe;
+- source fingerprints decide reuse, following the same operating idea as MOEX canonical changed-window refresh;
+- base indicators compare `source_bars_hash`;
+- both base and derived layers also record `output_columns_hash`, so profile expansion can be distinguished from source-data changes;
+- when an indicator or derived-indicator profile is extended with new output columns and source data is unchanged, existing wide-table values are reused and only missing columns are computed before replacing the affected partition;
+- derived indicators compare `source_indicators_hash` only over the base indicator columns consumed by derived formulas, so adding an unrelated base indicator does not invalidate derived partitions;
+- derived no-op checks reuse stored indicator-source metadata and load base indicator rows only for partitions that actually need a derived refresh;
+- unchanged partitions are reused, changed/deleted partitions are replaced, and reports expose refreshed, reused, extended, recomputed, and deleted partition counts.
+
+For Dagster memory behavior:
+- research data-prep assets should pass lightweight Delta table summaries between steps, not multi-million-row payloads;
+- row counts for materialized tables should be read through Delta metadata/count helpers instead of loading full tables into the Dagster IO manager;
+- if a run shows large memory growth on an unchanged data-prep route, inspect whether a new asset started returning rows instead of a summary.
 
 For `backtest`:
 - `rows_by_table` for runs, stats, trades, orders, and drawdowns

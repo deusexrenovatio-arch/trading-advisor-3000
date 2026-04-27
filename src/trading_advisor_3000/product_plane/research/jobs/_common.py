@@ -6,9 +6,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from deltalake import DeltaTable
-
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log, read_delta_table_rows
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    count_delta_table_rows,
+    delta_table_columns,
+    has_delta_log,
+)
 from trading_advisor_3000.product_plane.research.backtests import backtest_store_contract, results_store_contract
 from trading_advisor_3000.product_plane.research.datasets import research_dataset_store_contract
 from trading_advisor_3000.product_plane.research.derived_indicators import research_derived_indicator_store_contract
@@ -39,7 +41,7 @@ def write_text(path: Path, text: str) -> None:
 
 
 def delta_row_count(path: Path) -> int:
-    return len(read_delta_table_rows(path)) if has_delta_log(path) else 0
+    return count_delta_table_rows(path) if has_delta_log(path) else 0
 
 
 def delta_version_count(path: Path) -> int:
@@ -107,8 +109,7 @@ def validate_research_contracts(
             errors.append(f"missing `_delta_log` for `{table_name}` at {table_path.as_posix()}")
             continue
 
-        delta_table = DeltaTable(str(table_path))
-        actual_columns = list(delta_table.to_pyarrow_table().schema.names)
+        actual_columns = delta_table_columns(table_path)
         expected_columns = list(dict(expected["columns"]).keys())
         missing_columns = [column for column in expected_columns if column not in actual_columns]
         extra_columns = [column for column in actual_columns if column not in expected_columns]
@@ -120,7 +121,7 @@ def validate_research_contracts(
                 details.append(f"extra columns: {', '.join(extra_columns)}")
             errors.append(f"schema mismatch for `{table_name}` ({'; '.join(details)})")
 
-        actual_row_count = len(read_delta_table_rows(table_path))
+        actual_row_count = count_delta_table_rows(table_path)
         actual_row_counts[table_name] = actual_row_count
         reported_row_count = rows_by_table.get(table_name)
         if reported_row_count is not None and int(reported_row_count) != actual_row_count:
