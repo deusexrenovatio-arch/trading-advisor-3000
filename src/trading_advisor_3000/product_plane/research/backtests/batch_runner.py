@@ -4,36 +4,29 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypeVar
 
 from trading_advisor_3000.product_plane.research.datasets import load_materialized_research_dataset
 from trading_advisor_3000.product_plane.research.io.cache import ResearchFrameCache
 from trading_advisor_3000.product_plane.research.io.loaders import ResearchSliceRequest, load_backtest_frames
 from trading_advisor_3000.product_plane.research.strategies import StrategyRegistry, build_strategy_registry
 
-from .engine import BacktestEngineConfig, run_backtest_series
+from .engine import (
+    BacktestEngineConfig,
+    StrategyFamilySearchSpec,
+    run_vectorbt_family_search,
+    search_spec_id,
+    strategy_spec_to_search_spec,
+)
 from .results import backtest_store_contract, write_backtest_artifacts
-
-
-T = TypeVar("T")
 
 
 def _stable_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12].upper()
 
 
-def _chunked(items: list[T], chunk_size: int) -> tuple[tuple[T, ...], ...]:
-    return tuple(
-        tuple(items[index : index + chunk_size])
-        for index in range(0, len(items), chunk_size)
-    ) or (tuple(),)
-
-
 def _manifest_split_windows(dataset_manifest: dict[str, object]) -> tuple[dict[str, object], ...]:
     raw = dataset_manifest.get("split_params_json")
     if isinstance(raw, str) and raw.strip():
-        import json
-
         payload = json.loads(raw)
     elif isinstance(raw, dict):
         payload = raw
@@ -43,46 +36,57 @@ def _manifest_split_windows(dataset_manifest: dict[str, object]) -> tuple[dict[s
     return tuple(item for item in windows if isinstance(item, dict))
 
 
-def _manifest_hash(payload: dict[str, object]) -> str:
-    normalized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+def _spec_execution_timeframe(spec: StrategyFamilySearchSpec, fallback: str = "15m") -> str:
+    value = spec.clock_profile.get("execution_tf") if spec.clock_profile else None
+    resolved = str(value).strip() if value is not None else ""
+    return resolved or fallback
 
 
-@dataclass(frozen=True)
-class BacktestStrategyInstance:
-    strategy_instance_id: str
-    strategy_template_id: str
-    family_id: str
-    family_key: str
-    strategy_version_label: str
-    execution_mode: str
-    parameter_values: dict[str, object]
-    manifest_hash: str
+def _spec_required_timeframes(spec: StrategyFamilySearchSpec, fallback: str = "15m") -> tuple[str, ...]:
+    if spec.required_inputs_by_clock:
+        timeframes: list[str] = []
+        for payload in spec.required_inputs_by_clock.values():
+            if not isinstance(payload, dict):
+                continue
+            has_inputs = any(payload.get(key) for key in ("price_inputs", "materialized_indicators", "materialized_derived"))
+            value = str(payload.get("timeframe", "")).strip()
+            if has_inputs and value and value not in timeframes:
+                timeframes.append(value)
+        if timeframes:
+            return tuple(timeframes)
+        return (fallback,)
+    if not spec.clock_profile:
+        return (fallback,)
+    timeframes: list[str] = []
+    for key in ("regime_tf", "signal_tf", "trigger_tf", "execution_tf"):
+        value = str(spec.clock_profile.get(key, "")).strip()
+        if value and value not in timeframes:
+            timeframes.append(value)
+    return tuple(timeframes) or (fallback,)
 
-    def __post_init__(self) -> None:
-        for field_name in (
-            "strategy_instance_id",
-            "strategy_template_id",
-            "family_id",
-            "family_key",
-            "strategy_version_label",
-            "execution_mode",
-            "manifest_hash",
-        ):
-            if not str(getattr(self, field_name)).strip():
-                raise ValueError(f"{field_name} must be non-empty")
+
+def _loader_timeframe_for_specs(search_specs: tuple[StrategyFamilySearchSpec, ...], requested_timeframe: str) -> str:
+    fallback = requested_timeframe or "15m"
+    required = {
+        timeframe
+        for spec in search_specs
+        for timeframe in _spec_required_timeframes(spec, fallback=fallback)
+    }
+    if len(required) <= 1:
+        return next(iter(required)) if required else requested_timeframe
+    return ""
 
 
 @dataclass(frozen=True)
 class EphemeralStrategySpace:
     strategy_space_id: str
-    strategy_instances: tuple[BacktestStrategyInstance, ...]
+    search_specs: tuple[StrategyFamilySearchSpec, ...]
 
     def __post_init__(self) -> None:
         if not self.strategy_space_id.strip():
             raise ValueError("strategy_space_id must not be empty")
-        if not self.strategy_instances:
-            raise ValueError("strategy_instances must not be empty")
+        if not self.search_specs:
+            raise ValueError("search_specs must not be empty")
 
 
 @dataclass(frozen=True)
@@ -91,11 +95,11 @@ class BacktestBatchRequest:
     strategy_space_id: str
     dataset_version: str
     indicator_set_version: str
-    strategy_instances: tuple[BacktestStrategyInstance, ...]
+    search_specs: tuple[StrategyFamilySearchSpec, ...]
     combination_count: int
     derived_indicator_set_version: str = "derived-v1"
-    param_batch_size: int = 25
-    series_batch_size: int = 4
+    param_batch_size: int = 500
+    series_batch_size: int = 8
     timeframe: str = ""
     contract_ids: tuple[str, ...] = ()
     instrument_ids: tuple[str, ...] = ()
@@ -105,8 +109,8 @@ class BacktestBatchRequest:
             raise ValueError("campaign_run_id must not be empty")
         if not self.strategy_space_id.strip():
             raise ValueError("strategy_space_id must not be empty")
-        if not self.strategy_instances:
-            raise ValueError("strategy_instances must not be empty")
+        if not self.search_specs:
+            raise ValueError("search_specs must not be empty")
         if self.combination_count <= 0:
             raise ValueError("combination_count must be positive")
         if self.param_batch_size <= 0:
@@ -122,7 +126,7 @@ class BacktestBatchRequest:
                 self.dataset_version,
                 self.indicator_set_version,
                 self.derived_indicator_set_version,
-                *[instance.strategy_instance_id for instance in self.strategy_instances],
+                *[search_spec_id(spec) for spec in self.search_specs],
                 str(self.combination_count),
                 str(self.param_batch_size),
                 str(self.series_batch_size),
@@ -146,44 +150,50 @@ def build_ephemeral_strategy_space(
     if instances_per_strategy <= 0:
         raise ValueError("instances_per_strategy must be positive")
 
-    strategy_instances: list[BacktestStrategyInstance] = []
+    search_specs: list[StrategyFamilySearchSpec] = []
     for strategy_version_label in strategy_version_labels:
         strategy_spec = registry.get(strategy_version_label)
-        family_id = "sfam_" + _stable_hash(strategy_spec.family)
-        strategy_template_id = "stpl_" + _stable_hash(
-            f"{strategy_spec.family}|{strategy_spec.version}|{strategy_spec.execution_mode}"
+        base_spec = strategy_spec_to_search_spec(
+            strategy_spec,
+            max_parameter_combinations=instances_per_strategy,
         )
-        parameter_sets = registry.parameter_combinations(strategy_version_label)[:instances_per_strategy]
-        for parameter_values in parameter_sets:
-            manifest_payload = {
-                "strategy_version_label": strategy_spec.version,
-                "family_key": strategy_spec.family,
-                "execution_mode": strategy_spec.execution_mode,
-                "parameter_values": parameter_values,
-            }
-            manifest_hash = _manifest_hash(manifest_payload)
-            strategy_instances.append(
-                BacktestStrategyInstance(
-                    strategy_instance_id=f"sinst_{manifest_hash}",
-                    strategy_template_id=strategy_template_id,
-                    family_id=family_id,
-                    family_key=strategy_spec.family,
-                    strategy_version_label=strategy_spec.version,
-                    execution_mode=strategy_spec.execution_mode,
-                    parameter_values=dict(parameter_values),
-                    manifest_hash=manifest_hash,
-                )
+        rows = strategy_spec.parameter_combinations()[:instances_per_strategy]
+        search_specs.append(
+            StrategyFamilySearchSpec(
+                search_spec_version=base_spec.search_spec_version,
+                family_key=base_spec.family_key,
+                template_key=base_spec.template_key,
+                strategy_version_label=base_spec.strategy_version_label,
+                intent=base_spec.intent,
+                allowed_clock_profiles=base_spec.allowed_clock_profiles,
+                allowed_market_states=base_spec.allowed_market_states,
+                required_price_inputs=base_spec.required_price_inputs,
+                required_materialized_indicators=base_spec.required_materialized_indicators,
+                required_materialized_derived=base_spec.required_materialized_derived,
+                signal_surface_key=base_spec.signal_surface_key,
+                signal_surface_mode=base_spec.signal_surface_mode,
+                parameter_mode="table",
+                parameter_space={"rows": tuple(rows)},
+                parameter_constraints=base_spec.parameter_constraints,
+                clock_profile=base_spec.clock_profile,
+                required_inputs_by_clock=base_spec.required_inputs_by_clock,
+                parameter_space_by_role=base_spec.parameter_space_by_role,
+                parameter_clock_map=base_spec.parameter_clock_map,
+                optional_indicator_plan=base_spec.optional_indicator_plan,
+                exit_parameter_space=base_spec.exit_parameter_space,
+                risk_parameter_space=base_spec.risk_parameter_space,
+                execution_assumptions=base_spec.execution_assumptions,
+                max_parameter_combinations=instances_per_strategy,
+                chunking_policy=base_spec.chunking_policy,
+                selection_policy=base_spec.selection_policy,
             )
-
-    if not strategy_instances:
-        raise ValueError("ephemeral strategy space resolved to 0 strategy instances")
-
+        )
     strategy_space_id = "sspace_" + _stable_hash(
-        "|".join(instance.strategy_instance_id for instance in strategy_instances)
+        "|".join(search_spec_id(spec) for spec in tuple(search_specs))
     )
     return EphemeralStrategySpace(
         strategy_space_id=strategy_space_id,
-        strategy_instances=tuple(strategy_instances),
+        search_specs=tuple(search_specs),
     )
 
 
@@ -198,7 +208,7 @@ def run_backtest_batch(
     strategy_registry: StrategyRegistry | None = None,
     cache: ResearchFrameCache | None = None,
 ) -> dict[str, object]:
-    registry = strategy_registry or build_strategy_registry()
+    del strategy_registry
     engine_config = engine_config or BacktestEngineConfig()
     dataset_manifest = load_materialized_research_dataset(
         output_dir=dataset_output_dir,
@@ -213,7 +223,7 @@ def run_backtest_batch(
             dataset_version=request.dataset_version,
             indicator_set_version=request.indicator_set_version,
             derived_indicator_set_version=request.derived_indicator_set_version,
-            timeframe=request.timeframe,
+            timeframe=_loader_timeframe_for_specs(request.search_specs, request.timeframe),
             contract_ids=request.contract_ids,
             instrument_ids=request.instrument_ids,
         ),
@@ -224,40 +234,39 @@ def run_backtest_batch(
         raise ValueError("no materialized research series matched the backtest request")
 
     batch_id = request.batch_id()
+    all_search_spec_rows = [_search_spec_row(spec) for spec in request.search_specs]
+    all_search_run_rows: list[dict[str, object]] = []
+    all_param_result_rows: list[dict[str, object]] = []
+    all_gate_rows: list[dict[str, object]] = []
     all_run_rows: list[dict[str, object]] = []
     all_stat_rows: list[dict[str, object]] = []
     all_trade_rows: list[dict[str, object]] = []
     all_order_rows: list[dict[str, object]] = []
     all_drawdown_rows: list[dict[str, object]] = []
-    total_combinations = len(request.strategy_instances)
 
-    for instance_chunk in _chunked(list(request.strategy_instances), request.param_batch_size):
-        if not instance_chunk:
-            continue
-        for series_chunk in _chunked(selected_series, request.series_batch_size):
-            if not series_chunk:
-                continue
-            for series in series_chunk:
-                for strategy_instance in instance_chunk:
-                    strategy_spec = registry.get(strategy_instance.strategy_version_label)
-                    result = run_backtest_series(
-                        series=series,
-                        strategy_spec=strategy_spec,
-                        strategy_instance=strategy_instance,
-                        config=engine_config,
-                        backtest_batch_id=batch_id,
-                        campaign_run_id=request.campaign_run_id,
-                        strategy_space_id=request.strategy_space_id,
-                        dataset_version=request.dataset_version,
-                        indicator_set_version=request.indicator_set_version,
-                        derived_indicator_set_version=request.derived_indicator_set_version,
-                        split_windows=split_windows,
-                    )
-                    all_run_rows.extend(result["run_rows"])
-                    all_stat_rows.extend(result["stat_rows"])
-                    all_trade_rows.extend(result["trade_rows"])
-                    all_order_rows.extend(result["order_rows"])
-                    all_drawdown_rows.extend(result["drawdown_rows"])
+    for search_spec in request.search_specs:
+        for series_chunk in _chunked_series_for_spec(selected_series, request.series_batch_size, search_spec, request.timeframe):
+            report = run_vectorbt_family_search(
+                series_frames=series_chunk,
+                search_spec=search_spec,
+                config=engine_config,
+                backtest_batch_id=batch_id,
+                campaign_run_id=request.campaign_run_id,
+                strategy_space_id=request.strategy_space_id,
+                dataset_version=request.dataset_version,
+                indicator_set_version=request.indicator_set_version,
+                derived_indicator_set_version=request.derived_indicator_set_version,
+                split_windows=split_windows,
+                param_batch_size=request.param_batch_size,
+            )
+            all_search_run_rows.extend(report["search_run_rows"])
+            all_param_result_rows.extend(report["param_result_rows"])
+            all_gate_rows.extend(report["gate_rows"])
+            all_run_rows.extend(report["run_rows"])
+            all_stat_rows.extend(report["stat_rows"])
+            all_trade_rows.extend(report["trade_rows"])
+            all_order_rows.extend(report["order_rows"])
+            all_drawdown_rows.extend(report["drawdown_rows"])
 
     batch_row = {
         "backtest_batch_id": batch_id,
@@ -269,7 +278,7 @@ def run_backtest_batch(
         "engine_name": engine_config.engine_name,
         "param_batch_size": request.param_batch_size,
         "series_batch_size": request.series_batch_size,
-        "combination_count": total_combinations,
+        "combination_count": request.combination_count,
         "series_count": len(selected_series),
         "cache_id": cache_id,
         "cache_hit": 1 if cache_hit else 0,
@@ -278,6 +287,12 @@ def run_backtest_batch(
     output_paths = write_backtest_artifacts(
         output_dir=output_dir,
         batch_rows=[batch_row],
+        search_spec_rows=all_search_spec_rows,
+        search_run_rows=all_search_run_rows,
+        param_result_rows=all_param_result_rows,
+        gate_event_rows=all_gate_rows,
+        ephemeral_indicator_rows=[],
+        promotion_event_rows=[],
         run_rows=all_run_rows,
         stat_rows=all_stat_rows,
         trade_rows=all_trade_rows,
@@ -286,6 +301,12 @@ def run_backtest_batch(
     )
     return {
         "backtest_batch": batch_row,
+        "search_spec_rows": all_search_spec_rows,
+        "search_run_rows": all_search_run_rows,
+        "param_result_rows": all_param_result_rows,
+        "gate_event_rows": all_gate_rows,
+        "ephemeral_indicator_rows": [],
+        "promotion_event_rows": [],
         "run_rows": all_run_rows,
         "stat_rows": all_stat_rows,
         "trade_rows": all_trade_rows,
@@ -296,3 +317,69 @@ def run_backtest_batch(
         "delta_manifest": backtest_store_contract(),
         "output_paths": output_paths,
     }
+
+
+def _search_spec_row(spec: StrategyFamilySearchSpec) -> dict[str, object]:
+    payload = spec.to_dict()
+    return {
+        "search_spec_id": search_spec_id(spec),
+        "family_key": spec.family_key,
+        "template_key": spec.template_key,
+        "search_spec_version": spec.search_spec_version,
+        "intent": spec.intent,
+        "clock_profiles": list(spec.allowed_clock_profiles),
+        "market_states": list(spec.allowed_market_states),
+        "required_price_inputs_json": list(spec.required_price_inputs),
+        "required_materialized_indicators_json": list(spec.required_materialized_indicators),
+        "required_materialized_derived_json": list(spec.required_materialized_derived),
+        "optional_indicator_plan_json": [item.to_dict() for item in spec.optional_indicator_plan],
+        "signal_surface_key": spec.signal_surface_key,
+        "signal_surface_mode": spec.signal_surface_mode,
+        "parameter_mode": spec.parameter_mode,
+        "parameter_space_json": payload["parameter_space"],
+        "parameter_constraints_json": list(spec.parameter_constraints),
+        "clock_profile_json": payload["clock_profile"],
+        "required_inputs_by_clock_json": payload["required_inputs_by_clock"],
+        "parameter_space_by_role_json": payload["parameter_space_by_role"],
+        "parameter_clock_map_json": payload["parameter_clock_map"],
+        "exit_parameter_space_json": payload["exit_parameter_space"],
+        "risk_parameter_space_json": payload["risk_parameter_space"],
+        "execution_assumptions_json": payload["execution_assumptions"],
+        "created_at": "2026-04-27T00:00:00Z",
+    }
+
+
+def _chunked_series(items: list[object], chunk_size: int) -> tuple[tuple[object, ...], ...]:
+    return tuple(
+        tuple(items[index : index + chunk_size])
+        for index in range(0, len(items), chunk_size)
+    ) or (tuple(),)
+
+
+def _chunked_series_for_spec(
+    items: list[object],
+    chunk_size: int,
+    spec: StrategyFamilySearchSpec,
+    fallback_timeframe: str,
+) -> tuple[tuple[object, ...], ...]:
+    series_items = [item for item in items if hasattr(item, "instrument_id") and hasattr(item, "timeframe")]
+    execution_tf = _spec_execution_timeframe(spec, fallback=fallback_timeframe or "15m")
+    required_timeframes = set(_spec_required_timeframes(spec, fallback=execution_tf))
+    execution_instruments = [
+        str(item.instrument_id)
+        for item in series_items
+        if str(item.timeframe) == execution_tf
+    ]
+    if not execution_instruments:
+        return _chunked_series(items, chunk_size)
+    chunks: list[tuple[object, ...]] = []
+    for offset in range(0, len(execution_instruments), max(1, chunk_size)):
+        instrument_set = set(execution_instruments[offset : offset + max(1, chunk_size)])
+        chunk = tuple(
+            item
+            for item in series_items
+            if str(item.instrument_id) in instrument_set and str(item.timeframe) in required_timeframes
+        )
+        if chunk:
+            chunks.append(chunk)
+    return tuple(chunks) or (tuple(),)

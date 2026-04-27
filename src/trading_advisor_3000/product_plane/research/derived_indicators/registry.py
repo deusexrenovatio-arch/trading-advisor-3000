@@ -25,6 +25,34 @@ class DerivedIndicatorProfileRegistry:
         return tuple(profile.version for profile in self.profiles)
 
 
+MTF_MAPPINGS: tuple[tuple[str, str], ...] = (
+    ("1h", "15m"),
+    ("4h", "15m"),
+    ("4h", "1h"),
+    ("1d", "15m"),
+    ("1d", "1h"),
+    ("1d", "4h"),
+)
+
+MTF_TREND_CONTEXT_COLUMNS: tuple[str, ...] = ("ema_20", "ema_50", "adx_14", "rsi_14")
+
+
+def mtf_carried_columns(source_timeframe: str, target_timeframe: str) -> tuple[str, ...]:
+    return MTF_TREND_CONTEXT_COLUMNS
+
+
+def mtf_column_name(source_timeframe: str, target_timeframe: str, source_column: str) -> str:
+    return f"mtf_{source_timeframe}_to_{target_timeframe}_{source_column}"
+
+
+def mtf_projected_columns() -> tuple[str, ...]:
+    return tuple(
+        mtf_column_name(source_timeframe, target_timeframe, source_column)
+        for source_timeframe, target_timeframe in MTF_MAPPINGS
+        for source_column in mtf_carried_columns(source_timeframe, target_timeframe)
+    )
+
+
 WIDE_TECHNICAL_GOLD_V2_DERIVED_COLUMNS: tuple[str, ...] = (
     "rolling_high_20",
     "rolling_low_20",
@@ -120,30 +148,7 @@ WIDE_TECHNICAL_GOLD_V2_DERIVED_COLUMNS: tuple[str, ...] = (
     "divergence_price_oi_roc_10_score",
     "divergence_price_oi_z_20_score",
     "divergence_price_oi_relative_activity_20_score",
-    "mtf_1h_to_15m_ema_20",
-    "mtf_1h_to_15m_ema_50",
-    "mtf_1h_to_15m_adx_14",
-    "mtf_1h_to_15m_rsi_14",
-    "mtf_4h_to_15m_ema_20",
-    "mtf_4h_to_15m_ema_50",
-    "mtf_4h_to_15m_adx_14",
-    "mtf_4h_to_15m_rsi_14",
-    "mtf_4h_to_1h_ema_20",
-    "mtf_4h_to_1h_ema_50",
-    "mtf_4h_to_1h_adx_14",
-    "mtf_4h_to_1h_rsi_14",
-    "mtf_1d_to_15m_ema_20",
-    "mtf_1d_to_15m_ema_50",
-    "mtf_1d_to_15m_adx_14",
-    "mtf_1d_to_15m_rsi_14",
-    "mtf_1d_to_1h_ema_20",
-    "mtf_1d_to_1h_ema_50",
-    "mtf_1d_to_1h_adx_14",
-    "mtf_1d_to_1h_rsi_14",
-    "mtf_1d_to_4h_ema_20",
-    "mtf_1d_to_4h_ema_50",
-    "mtf_1d_to_4h_adx_14",
-    "mtf_1d_to_4h_rsi_14",
+    *mtf_projected_columns(),
 )
 
 

@@ -1125,6 +1125,16 @@ def _normalize_profiles(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _normalize_strategy_space(payload: dict[str, Any]) -> dict[str, Any]:
+    retired_fields = sorted(
+        field
+        for field in ("include_instance_ids", "exclude_manifest_hashes", "materialize_instances", "max_instance_count")
+        if field in payload
+    )
+    if retired_fields:
+        raise CampaignBlockedError(
+            "strategy_space uses retired per-instance fields; use family/template search fields instead: "
+            + ", ".join(retired_fields)
+        )
     search_space_overrides = payload.get("search_space_overrides", {})
     if not isinstance(search_space_overrides, dict):
         raise CampaignBlockedError("strategy_space.search_space_overrides must be an object")
@@ -1143,10 +1153,11 @@ def _normalize_strategy_space(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "family_keys": family_keys,
         "template_ids": template_ids,
-        "include_instance_ids": _sorted_unique_strings(payload["include_instance_ids"]),
-        "exclude_manifest_hashes": _sorted_unique_strings(payload["exclude_manifest_hashes"]),
-        "materialize_instances": bool(payload["materialize_instances"]),
-        "max_instance_count": _normalized_positive_int(payload["max_instance_count"], field="strategy_space.max_instance_count"),
+        "exclude_template_manifest_hashes": _sorted_unique_strings(payload["exclude_template_manifest_hashes"]),
+        "max_parameter_combinations": _normalized_positive_int(
+            payload["max_parameter_combinations"],
+            field="strategy_space.max_parameter_combinations",
+        ),
         "search_space_overrides": normalized_overrides,
     }
 

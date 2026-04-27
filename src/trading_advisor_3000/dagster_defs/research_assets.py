@@ -31,9 +31,9 @@ from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
 from trading_advisor_3000.product_plane.research.backtests import (
     BacktestBatchRequest,
     BacktestEngineConfig,
-    BacktestStrategyInstance,
     CandidateProjectionRequest,
     RankingPolicy,
+    StrategyFamilySearchSpec,
     project_runtime_candidates,
     rank_backtest_results,
     run_backtest_batch,
@@ -101,8 +101,6 @@ STRATEGY_REGISTRY_REFRESH_ASSETS = (
     "research_strategy_families",
     "research_strategy_templates",
     "research_strategy_template_modules",
-    "research_strategy_instances",
-    "research_strategy_instance_modules",
 )
 
 STRATEGY_REGISTRY_REFRESH_EXECUTION_ASSETS = (
@@ -112,6 +110,12 @@ STRATEGY_REGISTRY_REFRESH_EXECUTION_ASSETS = (
 
 RESEARCH_BACKTEST_ASSETS = (
     "research_backtest_batches",
+    "research_strategy_search_specs",
+    "research_vbt_search_runs",
+    "research_vbt_param_results",
+    "research_vbt_param_gate_events",
+    "research_vbt_ephemeral_indicator_cache",
+    "research_strategy_promotion_events",
     "research_backtest_runs",
     "research_strategy_stats",
     "research_trade_records",
@@ -140,14 +144,18 @@ RESEARCH_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     "research_strategy_families": ("research_datasets",),
     "research_strategy_templates": ("research_strategy_families",),
     "research_strategy_template_modules": ("research_strategy_templates",),
-    "research_strategy_instances": ("research_strategy_template_modules",),
-    "research_strategy_instance_modules": ("research_strategy_instances",),
     "research_backtest_batches": (
         "research_datasets",
         "research_indicator_frames",
         "research_derived_indicator_frames",
-        "research_strategy_instance_modules",
+        "research_strategy_template_modules",
     ),
+    "research_strategy_search_specs": ("research_backtest_batches",),
+    "research_vbt_search_runs": ("research_backtest_batches",),
+    "research_vbt_param_results": ("research_backtest_batches",),
+    "research_vbt_param_gate_events": ("research_backtest_batches",),
+    "research_vbt_ephemeral_indicator_cache": ("research_backtest_batches",),
+    "research_strategy_promotion_events": ("research_backtest_batches",),
     "research_backtest_runs": ("research_backtest_batches",),
     "research_strategy_stats": ("research_backtest_batches",),
     "research_trade_records": ("research_backtest_batches",),
@@ -209,27 +217,51 @@ def research_asset_specs() -> list[AssetSpec]:
             outputs=("research_strategy_template_modules_delta",),
         ),
         AssetSpec(
-            key="research_strategy_instances",
-            description="Expose concrete strategy instances materialized from strategy_space into the research registry root.",
-            inputs=("research_strategy_template_modules_delta",),
-            outputs=("research_strategy_instances_delta",),
-        ),
-        AssetSpec(
-            key="research_strategy_instance_modules",
-            description="Expose flattened module graphs for concrete strategy instances.",
-            inputs=("research_strategy_instances_delta",),
-            outputs=("research_strategy_instance_modules_delta",),
-        ),
-        AssetSpec(
             key="research_backtest_batches",
-            description="Run batched vectorbt backtests over the materialized research plane.",
+            description="Run vectorbt family-search surfaces over the materialized research plane.",
             inputs=(
                 "research_datasets_delta",
                 "research_indicator_frames_delta",
                 "research_derived_indicator_frames_delta",
-                "research_strategy_instance_modules_delta",
+                "research_strategy_template_modules_delta",
             ),
             outputs=("research_backtest_batches_delta",),
+        ),
+        AssetSpec(
+            key="research_strategy_search_specs",
+            description="Expose family-level StrategyFamilySearchSpec rows used by vectorbt parametric search.",
+            inputs=("research_backtest_batches_delta",),
+            outputs=("research_strategy_search_specs_delta",),
+        ),
+        AssetSpec(
+            key="research_vbt_search_runs",
+            description="Expose vectorbt family-search run rows grouped by search spec, clock, dataset, and chunk.",
+            inputs=("research_backtest_batches_delta",),
+            outputs=("research_vbt_search_runs_delta",),
+        ),
+        AssetSpec(
+            key="research_vbt_param_results",
+            description="Expose param_hash-level vectorbt metrics from family-search surfaces.",
+            inputs=("research_backtest_batches_delta",),
+            outputs=("research_vbt_param_results_delta",),
+        ),
+        AssetSpec(
+            key="research_vbt_param_gate_events",
+            description="Expose gate outcomes for each vectorbt family-search parameter row.",
+            inputs=("research_backtest_batches_delta",),
+            outputs=("research_vbt_param_gate_events_delta",),
+        ),
+        AssetSpec(
+            key="research_vbt_ephemeral_indicator_cache",
+            description="Expose metadata for ephemeral vectorbt indicator inputs used by search surfaces.",
+            inputs=("research_backtest_batches_delta",),
+            outputs=("research_vbt_ephemeral_indicator_cache_delta",),
+        ),
+        AssetSpec(
+            key="research_strategy_promotion_events",
+            description="Expose post-ranking promotion events from param_hash rows into StrategyInstance records.",
+            inputs=("research_backtest_batches_delta",),
+            outputs=("research_strategy_promotion_events_delta",),
         ),
         AssetSpec(
             key="research_backtest_runs",
@@ -280,10 +312,8 @@ def _default_strategy_space() -> dict[str, object]:
     return {
         "family_keys": [adapter.family_manifest.family_key for adapter in phase_stg02_family_adapters()],
         "template_ids": [],
-        "include_instance_ids": [],
-        "exclude_manifest_hashes": [],
-        "materialize_instances": True,
-        "max_instance_count": 5000,
+        "exclude_template_manifest_hashes": [],
+        "max_parameter_combinations": 250000,
         "search_space_overrides": {},
     }
 
@@ -315,7 +345,7 @@ def _research_config_schema() -> dict[str, object]:
         "code_version": str,
         "strategy_space": dict,
         "strategy_space_id": str,
-        "strategy_instances": [dict],
+        "search_specs": [dict],
         "combination_count": int,
         "param_batch_size": int,
         "series_batch_size": int,
@@ -376,17 +406,20 @@ def _resolve_research_output_dirs(
 def _research_output_paths(*, registry_root: Path, materialized_output_dir: Path, results_output_dir: Path) -> dict[str, str]:
     resolved_materialized = materialized_output_dir.resolve()
     resolved_results = results_output_dir.resolve()
+    registry_paths = registry_output_paths(registry_root=registry_root)
     return {
-        **{
-            table_name: path
-            for table_name, path in registry_output_paths(registry_root=registry_root).items()
-            if table_name.startswith("research_strategy_")
-        },
+        **{table_name: registry_paths[table_name] for table_name in STRATEGY_REGISTRY_REFRESH_ASSETS},
         "research_datasets": (resolved_materialized / "research_datasets.delta").as_posix(),
         "research_instrument_tree": (resolved_materialized / "research_instrument_tree.delta").as_posix(),
         "research_bar_views": (resolved_materialized / "research_bar_views.delta").as_posix(),
         "research_indicator_frames": (resolved_materialized / "research_indicator_frames.delta").as_posix(),
         "research_derived_indicator_frames": (resolved_materialized / "research_derived_indicator_frames.delta").as_posix(),
+        "research_strategy_search_specs": (resolved_results / "research_strategy_search_specs.delta").as_posix(),
+        "research_vbt_search_runs": (resolved_results / "research_vbt_search_runs.delta").as_posix(),
+        "research_vbt_param_results": (resolved_results / "research_vbt_param_results.delta").as_posix(),
+        "research_vbt_param_gate_events": (resolved_results / "research_vbt_param_gate_events.delta").as_posix(),
+        "research_vbt_ephemeral_indicator_cache": (resolved_results / "research_vbt_ephemeral_indicator_cache.delta").as_posix(),
+        "research_strategy_promotion_events": (resolved_results / "research_strategy_promotion_events.delta").as_posix(),
         "research_backtest_batches": (resolved_results / "research_backtest_batches.delta").as_posix(),
         "research_backtest_runs": (resolved_results / "research_backtest_runs.delta").as_posix(),
         "research_strategy_stats": (resolved_results / "research_strategy_stats.delta").as_posix(),
@@ -635,7 +668,7 @@ def research_datasets(context) -> dict[str, object]:
         "derived_indicator_profile_version": str(_config_value(config, "derived_indicator_profile_version", "core_v1")),
         "backtest_request": {
             "strategy_space_id": str(_config_value(config, "strategy_space_id")),
-            "strategy_instances": [dict(item) for item in _config_value(config, "strategy_instances", [])],
+            "search_specs": [dict(item) for item in _config_value(config, "search_specs", [])],
             "combination_count": int(_config_value(config, "combination_count", 1)),
             "param_batch_size": int(_config_value(config, "param_batch_size", 25)),
             "series_batch_size": int(_config_value(config, "series_batch_size", 4)),
@@ -759,8 +792,6 @@ def _validate_strategy_seed_inventory(*, registry_root: Path) -> None:
         "research_strategy_families": registry_root / "research_strategy_families.delta",
         "research_strategy_templates": registry_root / "research_strategy_templates.delta",
         "research_strategy_template_modules": registry_root / "research_strategy_template_modules.delta",
-        "research_strategy_instances": registry_root / "research_strategy_instances.delta",
-        "research_strategy_instance_modules": registry_root / "research_strategy_instance_modules.delta",
     }
     for table_name, table_path in paths.items():
         if not has_delta_log(table_path):
@@ -769,8 +800,6 @@ def _validate_strategy_seed_inventory(*, registry_root: Path) -> None:
     family_rows = read_delta_table_rows(paths["research_strategy_families"])
     template_rows = read_delta_table_rows(paths["research_strategy_templates"])
     module_rows = read_delta_table_rows(paths["research_strategy_template_modules"])
-    instance_rows = read_delta_table_rows(paths["research_strategy_instances"])
-    instance_module_rows = read_delta_table_rows(paths["research_strategy_instance_modules"])
 
     expected_adapter_keys = {adapter.family_manifest.family_key for adapter in phase_stg02_family_adapters()}
     actual_adapter_keys = {str(row.get("family_key", "")).strip() for row in family_rows}
@@ -789,10 +818,6 @@ def _validate_strategy_seed_inventory(*, registry_root: Path) -> None:
             "strategy template-module registry missing required rows: "
             f"expected_at_least={len(expected_adapter_keys)}, actual={len(module_rows)}"
         )
-    if not instance_rows:
-        raise RuntimeError("strategy_space resolved to 0 materialized instances on supported route")
-    if not instance_module_rows:
-        raise RuntimeError("strategy instance-module registry missing required rows on supported route")
 
 
 @asset(group_name="research")
@@ -824,26 +849,6 @@ def research_strategy_template_modules(
     return [dict(row) for row in read_delta_table_rows(registry_root / "research_strategy_template_modules.delta")]
 
 
-@asset(group_name="research")
-def research_strategy_instances(
-    research_strategy_template_modules: list[dict[str, object]],
-    research_datasets: dict[str, object],
-) -> list[dict[str, object]]:
-    del research_strategy_template_modules
-    registry_root = Path(str(research_datasets["registry_root"]))
-    return [dict(row) for row in read_delta_table_rows(registry_root / "research_strategy_instances.delta")]
-
-
-@asset(group_name="research")
-def research_strategy_instance_modules(
-    research_strategy_instances: list[dict[str, object]],
-    research_datasets: dict[str, object],
-) -> list[dict[str, object]]:
-    del research_strategy_instances
-    registry_root = Path(str(research_datasets["registry_root"]))
-    return [dict(row) for row in read_delta_table_rows(registry_root / "research_strategy_instance_modules.delta")]
-
-
 def _backtest_request_config(research_datasets: dict[str, object]) -> BacktestBatchRequest:
     payload = dict(research_datasets["backtest_request"])
     return BacktestBatchRequest(
@@ -852,18 +857,9 @@ def _backtest_request_config(research_datasets: dict[str, object]) -> BacktestBa
         dataset_version=str(research_datasets["dataset_version"]),
         indicator_set_version=str(research_datasets["indicator_set_version"]),
         derived_indicator_set_version=str(research_datasets["derived_indicator_set_version"]),
-        strategy_instances=tuple(
-            BacktestStrategyInstance(
-                strategy_instance_id=str(item["strategy_instance_id"]),
-                strategy_template_id=str(item["strategy_template_id"]),
-                family_id=str(item["family_id"]),
-                family_key=str(item["family_key"]),
-                strategy_version_label=str(item["strategy_version_label"]),
-                execution_mode=str(item["execution_mode"]),
-                parameter_values=dict(item.get("parameter_values", {})),
-                manifest_hash=str(item["manifest_hash"]),
-            )
-            for item in payload["strategy_instances"]
+        search_specs=tuple(
+            StrategyFamilySearchSpec.from_dict(item)
+            for item in payload["search_specs"]
         ),
         combination_count=int(payload["combination_count"]),
         param_batch_size=int(payload["param_batch_size"]),
@@ -934,6 +930,36 @@ def research_backtest_batches(
         **report,
         "results_output_dir": results_output_dir.as_posix(),
     }
+
+
+@asset(group_name="research")
+def research_strategy_search_specs(research_backtest_batches: dict[str, object]) -> list[dict[str, object]]:
+    return [dict(row) for row in research_backtest_batches["search_spec_rows"]]
+
+
+@asset(group_name="research")
+def research_vbt_search_runs(research_backtest_batches: dict[str, object]) -> list[dict[str, object]]:
+    return [dict(row) for row in research_backtest_batches["search_run_rows"]]
+
+
+@asset(group_name="research")
+def research_vbt_param_results(research_backtest_batches: dict[str, object]) -> list[dict[str, object]]:
+    return [dict(row) for row in research_backtest_batches["param_result_rows"]]
+
+
+@asset(group_name="research")
+def research_vbt_param_gate_events(research_backtest_batches: dict[str, object]) -> list[dict[str, object]]:
+    return [dict(row) for row in research_backtest_batches["gate_event_rows"]]
+
+
+@asset(group_name="research")
+def research_vbt_ephemeral_indicator_cache(research_backtest_batches: dict[str, object]) -> list[dict[str, object]]:
+    return [dict(row) for row in research_backtest_batches["ephemeral_indicator_rows"]]
+
+
+@asset(group_name="research")
+def research_strategy_promotion_events(research_backtest_batches: dict[str, object]) -> list[dict[str, object]]:
+    return [dict(row) for row in research_backtest_batches["promotion_event_rows"]]
 
 
 @asset(group_name="research")
@@ -1010,9 +1036,13 @@ RESEARCH_ASSETS = (
     research_strategy_families,
     research_strategy_templates,
     research_strategy_template_modules,
-    research_strategy_instances,
-    research_strategy_instance_modules,
     research_backtest_batches,
+    research_strategy_search_specs,
+    research_vbt_search_runs,
+    research_vbt_param_results,
+    research_vbt_param_gate_events,
+    research_vbt_ephemeral_indicator_cache,
+    research_strategy_promotion_events,
     research_backtest_runs,
     research_strategy_stats,
     research_trade_records,
@@ -1040,8 +1070,6 @@ strategy_registry_refresh_job = define_asset_job(
         research_strategy_families,
         research_strategy_templates,
         research_strategy_template_modules,
-        research_strategy_instances,
-        research_strategy_instance_modules,
     ),
 )
 
@@ -1049,6 +1077,12 @@ research_backtest_job = define_asset_job(
     name=RESEARCH_BACKTEST_JOB_NAME,
     selection=AssetSelection.assets(
         research_backtest_batches,
+        research_strategy_search_specs,
+        research_vbt_search_runs,
+        research_vbt_param_results,
+        research_vbt_param_gate_events,
+        research_vbt_ephemeral_indicator_cache,
+        research_strategy_promotion_events,
         research_backtest_runs,
         research_strategy_stats,
         research_trade_records,
@@ -1181,7 +1215,7 @@ def build_research_data_prep_run_config(
                     derived_indicator_profile_version=derived_indicator_profile_version,
                     code_version="research-data-prep-after-moex",
                     strategy_space_id="",
-                    strategy_instances=(),
+                    search_specs=(),
                     combination_count=0,
                 )
             }
@@ -1329,7 +1363,7 @@ def _research_run_config(
     code_version: str = "research-orchestration",
     strategy_space: dict[str, object] | None = None,
     strategy_space_id: str = "",
-    strategy_instances: Sequence[dict[str, object]] = (),
+    search_specs: Sequence[dict[str, object]] = (),
     combination_count: int = 1,
     param_batch_size: int = 25,
     series_batch_size: int = 4,
@@ -1388,7 +1422,7 @@ def _research_run_config(
         "code_version": code_version,
         "strategy_space": resolved_strategy_space,
         "strategy_space_id": strategy_space_id,
-        "strategy_instances": [dict(item) for item in strategy_instances],
+        "search_specs": [dict(item) for item in search_specs],
         "combination_count": combination_count,
         "param_batch_size": param_batch_size,
         "series_batch_size": series_batch_size,
@@ -1480,7 +1514,7 @@ def _materialize_research_assets(
     )
     registry_root = research_registry_root(materialized_root=resolved_materialized_output_dir)
     strategy_space_id = ""
-    strategy_instances: list[dict[str, object]] = []
+    search_specs: list[dict[str, object]] = []
     resolved_combination_count = combination_count
     if _requires_strategy_space(expected_materialized_assets):
         prepared_strategy_space = prepare_strategy_space(
@@ -1503,8 +1537,13 @@ def _materialize_research_assets(
             created_at="2026-04-18T00:00:00Z",
         )
         strategy_space_id = prepared_strategy_space.strategy_space_id
-        strategy_instances = [instance.to_dict() for instance in prepared_strategy_space.execution_instances]
-        resolved_combination_count = len(strategy_instances)
+        search_specs = [spec.to_dict() for spec in prepared_strategy_space.family_search_specs]
+        resolved_combination_count = 0
+        for spec in prepared_strategy_space.family_search_specs:
+            count = 1
+            for values in spec.search_spec.parameter_space.values():
+                count *= max(1, len(values))
+            resolved_combination_count += count
     output_paths = _research_output_paths(
         registry_root=registry_root,
         materialized_output_dir=resolved_materialized_output_dir,
@@ -1542,7 +1581,7 @@ def _materialize_research_assets(
                         code_version=code_version,
                         strategy_space=dict(strategy_space or _default_strategy_space()),
                         strategy_space_id=strategy_space_id,
-                        strategy_instances=strategy_instances,
+                        search_specs=search_specs,
                         combination_count=resolved_combination_count,
                         param_batch_size=param_batch_size,
                         series_batch_size=series_batch_size,
