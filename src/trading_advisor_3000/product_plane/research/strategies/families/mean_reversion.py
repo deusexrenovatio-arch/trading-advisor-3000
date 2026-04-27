@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from trading_advisor_3000.product_plane.research.strategies.spec import (
+    StrategyIndicatorRequirement,
     StrategyParameter,
     StrategyRankingMetadata,
     StrategyRiskPolicy,
@@ -27,6 +28,18 @@ def mean_reversion_family_adapter() -> StrategyFamilyAdapter:
             preferred_metrics=("sortino", "profit_factor", "win_rate"),
             tags=("reversion", "signals"),
         ),
+        intent="Baseline 15m mean-reversion around session VWAP using local RSI extremes.",
+        allowed_clock_profiles=("intraday_15m_v1",),
+        market_regimes=("reversion", "range"),
+        indicator_requirements=(
+            StrategyIndicatorRequirement("close", "entry", "15m", "price"),
+            StrategyIndicatorRequirement("rsi_14", "decision", "15m", "indicator"),
+            StrategyIndicatorRequirement("distance_to_session_vwap", "entry", "15m", "derived"),
+            StrategyIndicatorRequirement("atr_14", "risk", "15m", "indicator"),
+        ),
+        entry_logic=("Enter when 15m RSI is extreme and price is stretched from session VWAP.",),
+        exit_logic=("Exit on RSI normalization or ATR stop/target.",),
+        verification_questions=("Do RSI and VWAP distance thresholds change the reversion entries?",),
     )
     return build_strategy_family_adapter(
         adapter_key="mean_reversion",
@@ -41,6 +54,8 @@ def mean_reversion_family_adapter() -> StrategyFamilyAdapter:
         template_key="mean_reversion_core",
         template_title="Mean Reversion Core",
         regime_module_key="derived.session_vwap_distance",
+        signal_tf="15m",
+        trigger_tf="15m",
         module_versions={"entry": "v1", "regime_filter": "v1", "risk_exit": "v1"},
     )
 
