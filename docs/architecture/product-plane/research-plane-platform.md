@@ -13,12 +13,15 @@ canonical data
   -> research_datasets / research_bar_views
   -> research_indicator_frames
   -> research_derived_indicator_frames
-  -> strategy registry refresh, when strategy inventory changes or a campaign needs instances
+  -> strategy registry refresh, when strategy inventory changes or a campaign needs family templates
   -> research_strategy_families / research_strategy_templates / research_strategy_template_modules
-  -> research_strategy_instances / research_strategy_instance_modules
-  -> research_backtest_batches / runs / stats / trades / orders / drawdowns
+  -> StrategyFamilySearchSpec
+  -> VectorBTInputBundle / VectorBTSignalSurface
+  -> research_strategy_search_specs / research_vbt_search_runs / research_vbt_param_results / research_vbt_param_gate_events
+  -> compatibility runs / stats / trades / orders / drawdowns
   -> research_strategy_rankings / research_run_findings
   -> research_signal_candidates
+  -> promotion events, only for selected winners
   -> research_run_stats_index / research_rankings_index / research_strategy_notes
   -> runtime
 ```
@@ -27,7 +30,9 @@ What this means in practice:
 - expensive indicator and derived-indicator work is moved out of the hot backtest loop;
 - `research_data_prep_job` is the product data-prep contour and is triggered after the canonical MOEX baseline update succeeds;
 - strategy registry refresh is intentionally separate from data prep, so strategy inventory changes do not masquerade as canonical data freshness work;
-- strategy templates and concrete strategy instances live in Delta registry tables instead of Python-only catalog state;
+- strategy templates live in Delta registry tables; concrete `StrategyInstance` rows are created only after promotion from parametric results;
+- vectorbt receives family-level matrix/surface inputs, not one already materialized strategy instance at a time;
+- primary result identity is `param_hash`, while compatibility tables may still expose downstream run/stat/trade rows for ranking and projection consumers;
 - repeated research runs reuse the materialized layer and in-process cache;
 - successful campaign runs publish global run-stat/ranking indices and strategy notes from the research registry root;
 - runtime consumes projected candidates instead of knowing research internals.
@@ -38,20 +43,23 @@ The research strategy registry layer in Delta includes:
 - `research_strategy_families`
 - `research_strategy_templates`
 - `research_strategy_template_modules`
-- `research_strategy_instances`
-- `research_strategy_instance_modules`
 - `research_campaigns`
 - `research_campaign_runs`
 - `research_run_stats_index`
 - `research_rankings_index`
 - `research_strategy_notes`
 
-Frozen Stage 2 adapter inventory (must stay exactly five until a governed source amendment):
+Current adapter inventory for parametric family search:
 1. `ma_cross` -> `python_adapter:trading_advisor_3000.product_plane.research.strategies.families.ma_cross.ma_cross_family_adapter`
 2. `breakout` -> `python_adapter:trading_advisor_3000.product_plane.research.strategies.families.breakout.breakout_family_adapter`
 3. `mean_reversion` -> `python_adapter:trading_advisor_3000.product_plane.research.strategies.families.mean_reversion.mean_reversion_family_adapter`
-4. `mtf_pullback` -> `python_adapter:trading_advisor_3000.product_plane.research.strategies.families.mtf_pullback.mtf_pullback_family_adapter`
-5. `squeeze_release` -> `python_adapter:trading_advisor_3000.product_plane.research.strategies.families.squeeze_release.squeeze_release_family_adapter`
+4. `trend_mtf_pullback_v1` -> `python_adapter:trading_advisor_3000.product_plane.research.strategies.families.mtf_pullback.mtf_pullback_family_adapter`
+5. `volatility_squeeze_release_v1` -> `python_adapter:trading_advisor_3000.product_plane.research.strategies.families.squeeze_release.squeeze_release_family_adapter`
+6. `trend_movement_cross_v1` -> `python_adapter:trading_advisor_3000.product_plane.research.strategies.families.trend_movement_cross.trend_movement_cross_family_adapter`
+7. `channel_breakout_continuation_v1` -> `python_adapter:trading_advisor_3000.product_plane.research.strategies.families.channel_breakout_continuation.channel_breakout_continuation_family_adapter`
+8. `range_vwap_band_reversion_v1` -> `python_adapter:trading_advisor_3000.product_plane.research.strategies.families.range_vwap_band_reversion.range_vwap_band_reversion_family_adapter`
+9. `failed_breakout_reversal_v1` -> `python_adapter:trading_advisor_3000.product_plane.research.strategies.families.failed_breakout_reversal.failed_breakout_reversal_family_adapter`
+10. `divergence_reversal_v1` -> `python_adapter:trading_advisor_3000.product_plane.research.strategies.families.divergence_reversal.divergence_reversal_family_adapter`
 
 Provenance policy for template rows:
 1. `author_source` and `source_ref` are mandatory provenance fields in Stage 2 generated template manifests.
@@ -59,7 +67,7 @@ Provenance policy for template rows:
 3. `repo_seed` rows are the canonical override source when both sources describe the same template identity (`family_key`, `template_key`, `template_version`); `python_adapter` rows remain traceability evidence and do not silently overwrite seeded canonical rows.
 4. `StrategySpec` and `StrategyCatalog` remain execution adapters only and are not a supported canonical storage route.
 
-This policy keeps inventory/provenance semantics stable while campaign routing runs through `strategy_space`.
+This policy keeps inventory/provenance semantics stable while campaign routing resolves `strategy_space` into `StrategyFamilySearchSpec` rows.
 
 ## Stable Entry Points
 
@@ -94,12 +102,10 @@ Research data prep layer:
 - `research_indicator_frames`
 - `research_derived_indicator_frames`
 
-Strategy registry layer (Stage 2 pre-cutover):
+Strategy registry layer:
 - `research_strategy_families`
 - `research_strategy_templates`
 - `research_strategy_template_modules`
-- `research_strategy_instances`
-- `research_strategy_instance_modules`
 - `research_campaigns`
 - `research_campaign_runs`
 - `research_run_stats_index`
@@ -107,6 +113,12 @@ Strategy registry layer (Stage 2 pre-cutover):
 - `research_strategy_notes`
 
 Backtest layer:
+- `research_strategy_search_specs`
+- `research_vbt_search_runs`
+- `research_vbt_param_results`
+- `research_vbt_param_gate_events`
+- `research_vbt_ephemeral_indicator_cache`
+- `research_strategy_promotion_events`
 - `research_backtest_batches`
 - `research_backtest_runs`
 - `research_strategy_stats`
