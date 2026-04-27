@@ -74,10 +74,8 @@ def _campaign_payload(
         "strategy_space": {
             "family_keys": ["ma_cross"],
             "template_ids": [],
-            "include_instance_ids": [],
-            "exclude_manifest_hashes": [],
-            "materialize_instances": True,
-            "max_instance_count": 64,
+            "exclude_template_manifest_hashes": [],
+            "max_parameter_combinations": 64,
             "search_space_overrides": {},
         },
         "backtest": {

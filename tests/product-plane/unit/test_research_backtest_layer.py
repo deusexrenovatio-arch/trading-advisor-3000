@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from trading_advisor_3000.product_plane.research.backtests import BacktestBatchRequest, BacktestStrategyInstance, backtest_store_contract
+from trading_advisor_3000.product_plane.research.backtests import BacktestBatchRequest, backtest_store_contract, build_ephemeral_strategy_space
 from trading_advisor_3000.product_plane.research.strategies import build_strategy_registry
 
 
@@ -13,10 +13,22 @@ def test_strategy_registry_exposes_stage5_parameter_combinations_and_execution_m
     assert {"close", "ema_10", "ema_20", "ema_50", "atr_14"} <= set(ma_cross.required_columns)
     assert len(registry.parameter_combinations("ma-cross-v1")) == 4
 
-    squeeze = registry.get("squeeze-release-v1")
-    assert squeeze.execution_mode == "order_func"
-    assert {"close", "bb_position_20_2", "kc_position_20_1_5", "atr_14"} <= set(squeeze.required_columns)
-    assert len(registry.parameter_combinations("squeeze-release-v1")) == 18
+    squeeze = registry.get("volatility-squeeze-release-v1")
+    assert squeeze.execution_mode == "signals"
+    assert {
+        "close",
+        "bb_position_20_2",
+        "kc_position_20_1_5",
+        "bb_width_20_2",
+        "atr_14",
+    } <= set(squeeze.required_columns)
+    assert "mtf_4h_to_15m_bb_position_20_2" not in squeeze.required_columns
+    assert set(squeeze.required_columns_for_role("decision")) >= {
+        "bb_width_20_2",
+        "bb_position_20_2",
+        "kc_position_20_1_5",
+    }
+    assert len(registry.parameter_combinations("volatility-squeeze-release-v1")) == 1944
 
 
 def test_backtest_batch_request_id_is_deterministic_with_batch_sizes() -> None:
@@ -26,28 +38,10 @@ def test_backtest_batch_request_id_is_deterministic_with_batch_sizes() -> None:
         dataset_version="dataset-v5",
         indicator_set_version="indicators-v1",
         derived_indicator_set_version="derived-v1",
-        strategy_instances=(
-            BacktestStrategyInstance(
-                strategy_instance_id="sinst_a",
-                strategy_template_id="stpl_a",
-                family_id="sfam_ma_cross",
-                family_key="ma_cross",
-                strategy_version_label="ma-cross-v1",
-                execution_mode="signals",
-                parameter_values={"fast_window": 10, "slow_window": 20},
-                manifest_hash="sha256:a",
-            ),
-            BacktestStrategyInstance(
-                strategy_instance_id="sinst_b",
-                strategy_template_id="stpl_b",
-                family_id="sfam_squeeze_release",
-                family_key="squeeze_release",
-                strategy_version_label="squeeze-release-v1",
-                execution_mode="order_func",
-                parameter_values={"release_confirmation": 2},
-                manifest_hash="sha256:b",
-            ),
-        ),
+        search_specs=build_ephemeral_strategy_space(
+            strategy_version_labels=("ma-cross-v1", "volatility-squeeze-release-v1"),
+            instances_per_strategy=2,
+        ).search_specs,
         combination_count=3,
         param_batch_size=2,
         series_batch_size=1,
@@ -59,6 +53,12 @@ def test_backtest_batch_request_id_is_deterministic_with_batch_sizes() -> None:
 def test_backtest_store_contract_contains_stage5_artifacts() -> None:
     contract = backtest_store_contract()
     assert {
+        "research_strategy_search_specs",
+        "research_vbt_search_runs",
+        "research_vbt_param_results",
+        "research_vbt_param_gate_events",
+        "research_vbt_ephemeral_indicator_cache",
+        "research_strategy_promotion_events",
         "research_backtest_batches",
         "research_backtest_runs",
         "research_strategy_stats",
