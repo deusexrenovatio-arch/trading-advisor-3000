@@ -76,19 +76,15 @@
       "required": [
         "family_keys",
         "template_ids",
-        "include_instance_ids",
-        "exclude_manifest_hashes",
-        "materialize_instances",
-        "max_instance_count",
+        "exclude_template_manifest_hashes",
+        "max_parameter_combinations",
         "search_space_overrides"
       ],
       "properties": {
         "family_keys": {"type": "array", "items": {"type": "string", "minLength": 1}},
         "template_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
-        "include_instance_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
-        "exclude_manifest_hashes": {"type": "array", "items": {"type": "string", "minLength": 1}},
-        "materialize_instances": {"type": "boolean"},
-        "max_instance_count": {"type": "integer", "exclusiveMinimum": 0},
+        "exclude_template_manifest_hashes": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "max_parameter_combinations": {"type": "integer", "exclusiveMinimum": 0},
         "search_space_overrides": {
           "type": "object",
           "additionalProperties": {
