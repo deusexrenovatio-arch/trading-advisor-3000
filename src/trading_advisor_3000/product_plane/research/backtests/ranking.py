@@ -286,6 +286,7 @@ def rank_backtest_results(
                 "mean_total_return": mean_total_return,
                 "params_hash": str(representative_row.get("params_hash", first["strategy_instance_id"])),
                 "rank": 0,
+                "family_rank": 0,
                 "selected_rank": 0,
                 "objective_score": policy_metric_score,
                 "policy_metric_score": policy_metric_score,
@@ -422,6 +423,35 @@ def _apply_policy_scores(rows: list[dict[str, object]], *, policy: RankingPolicy
 
 
 def _assign_partition_ranks(rows: list[dict[str, object]]) -> None:
+    family_partitions: dict[tuple[str, str, str, str], list[dict[str, object]]] = {}
+    for row in rows:
+        key = (
+            str(row["dataset_version"]),
+            str(row["contract_id"]),
+            str(row["timeframe"]),
+            str(row["family_key"]),
+        )
+        family_partitions.setdefault(key, []).append(row)
+
+    for group_rows in family_partitions.values():
+        sorted_family_rows = sorted(
+            group_rows,
+            key=lambda row: (
+                -int(row.get("policy_pass", 0)),
+                -float(row["score_total"]),
+                -float(row["objective_score"]),
+                str(row["strategy_instance_id"]),
+            ),
+        )
+        for index, row in enumerate(sorted_family_rows, start=1):
+            row["family_rank"] = index
+            reason = _coerce_json(row.get("rank_reason_json", {}))
+            reason["family_first_ranking"] = {
+                "family_rank": index,
+                "family_key": row["family_key"],
+            }
+            row["rank_reason_json"] = reason
+
     partitions: dict[tuple[str, str, str], list[dict[str, object]]] = {}
     for row in rows:
         key = (
@@ -436,6 +466,7 @@ def _assign_partition_ranks(rows: list[dict[str, object]]) -> None:
             group_rows,
             key=lambda row: (
                 -int(row.get("policy_pass", 0)),
+                int(row.get("family_rank", 999_999) or 999_999),
                 -float(row["score_total"]),
                 -float(row["objective_score"]),
                 str(row["strategy_instance_id"]),

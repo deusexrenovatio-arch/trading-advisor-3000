@@ -11,7 +11,7 @@ from trading_advisor_3000.product_plane.research.ids import candidate_id
 from trading_advisor_3000.product_plane.research.io import ResearchFrameCache, ResearchSliceRequest, load_backtest_frames
 from trading_advisor_3000.product_plane.research.strategies import StrategyRegistry, build_strategy_registry
 
-from .engine import BacktestEngineConfig, project_series_candidate
+from .engine import BacktestEngineConfig, project_family_candidate, strategy_spec_to_search_spec
 from .results import load_backtest_artifacts, results_store_contract, write_stage6_artifacts
 
 
@@ -97,6 +97,18 @@ def project_runtime_candidates(
         contract_id = str(ranking_row["contract_id"])
         instrument_id = str(ranking_row["instrument_id"])
         timeframe = str(ranking_row["timeframe"])
+        strategy_spec = registry.get(str(ranking_row["strategy_version_label"]))
+        search_spec = strategy_spec_to_search_spec(
+            strategy_spec,
+            template_key=str(ranking_row.get("template_key", ranking_row.get("strategy_template_id", "")) or strategy_spec.signal_builder_key),
+        )
+        required_timeframes = {
+            str(payload.get("timeframe"))
+            for payload in search_spec.required_inputs_by_clock.values()
+            if isinstance(payload, dict)
+            and any(payload.get(key) for key in ("price_inputs", "materialized_indicators", "materialized_derived"))
+            and payload.get("timeframe")
+        }
         series_frames, _, _ = load_backtest_frames(
             dataset_output_dir=dataset_output_dir,
             indicator_output_dir=indicator_output_dir,
@@ -105,7 +117,7 @@ def project_runtime_candidates(
                 dataset_version=dataset_version,
                 indicator_set_version=indicator_set_version,
                 derived_indicator_set_version=derived_indicator_set_version,
-                timeframe=timeframe,
+                timeframe="" if len(required_timeframes) > 1 else timeframe,
                 contract_ids=(contract_id,),
                 instrument_ids=(instrument_id,),
                 analysis_only=True,
@@ -115,11 +127,10 @@ def project_runtime_candidates(
         if not series_frames:
             continue
 
-        strategy_spec = registry.get(str(ranking_row["strategy_version_label"]))
         params = _coerce_json(_coerce_json(ranking_row.get("rank_reason_json")).get("parameter_values", {}))
-        projection = project_series_candidate(
-            series=series_frames[0],
-            strategy_spec=strategy_spec,
+        projection = project_family_candidate(
+            series=series_frames if len(required_timeframes) > 1 else series_frames[0],
+            search_spec=search_spec,
             params=params,
             config=engine_config,
             dataset_version=dataset_version,
