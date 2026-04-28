@@ -74,6 +74,9 @@ def _native_clock_trend_series(instrument_id: str, timeframe: str, offset: float
             {
                 "ts": f"2026-03-16T{9 + (index // 4):02d}:{(index % 4) * 15:02d}:00Z",
                 "timeframe": "15m",
+                "open": 99.8 + offset + (index * 0.2),
+                "high": 100.4 + offset + (index * 0.2),
+                "low": 99.6 + offset + (index * 0.2),
                 "close": 100.0 + offset + (index * 0.2),
                 "atr_14": 1.2,
                 "obv": 1000.0 + index,
@@ -104,6 +107,10 @@ def _native_clock_trend_series(instrument_id: str, timeframe: str, offset: float
                 "ts": f"2026-03-16T{9 + index:02d}:00:00Z",
                 "timeframe": "1h",
                 "close": 100.0 + offset + index,
+                "ema_20": 101.0 + offset + index,
+                "ema_50": 99.0 + offset + index,
+                "adx_14": 32.0,
+                "rsi_14": 58.0,
                 "close_change_1": 0.2,
                 "close_slope_20": 0.002,
                 "sma_20_slope_5": 0.002,
@@ -144,6 +151,7 @@ def _native_clock_trend_series(instrument_id: str, timeframe: str, offset: float
                 "ema_20": 101.0 + offset,
                 "ema_50": 99.0 + offset,
                 "adx_14": 30.0,
+                "rsi_14": 62.0,
             },
             {
                 "ts": "2026-03-17T09:00:00Z",
@@ -152,6 +160,7 @@ def _native_clock_trend_series(instrument_id: str, timeframe: str, offset: float
                 "ema_20": 102.0 + offset,
                 "ema_50": 100.0 + offset,
                 "adx_14": 31.0,
+                "rsi_14": 63.0,
             },
         ]
     else:
@@ -461,6 +470,52 @@ def test_trend_surface_uses_native_clock_frames_then_aligns_events_to_execution(
     assert portfolio.wrapper.shape == (48, 4)
     assert surface.entries.iloc[0].sum() == 0
     assert not any("mtf_" in column for layer in surface.indicator_plan.inputs_by_clock.values() for column in layer.get("materialized_derived", ()))
+
+
+def test_mtf_pullback_surface_uses_native_signal_adx_index() -> None:
+    spec = strategy_spec_to_search_spec(
+        build_strategy_registry().get("trend-mtf-pullback-v1"),
+        template_key="trend_mtf_pullback",
+    )
+    series_frames = tuple(
+        _native_clock_trend_series(instrument_id, timeframe, offset)
+        for instrument_id, offset in (("BR", 0.0), ("RI", 2.0))
+        for timeframe in ("15m", "1h", "4h", "1d")
+    )
+    bundle = build_input_bundle(
+        series_frames,
+        dataset_version="dataset-v5",
+        indicator_set_version="indicators-v1",
+        derived_indicator_set_version="derived-v1",
+        clock_profile=spec.clock_profile,
+        execution_timeframe="15m",
+    )
+    param_rows = (
+        {
+            "adx_min": 18,
+            "slope_min": 0.0,
+            "pullback_atr_min": 0.0,
+            "pullback_atr_max": 1.2,
+            "rsi_reclaim_long": 50,
+            "rsi_reclaim_short": 50,
+            "stop_atr_mult": 1.5,
+            "trail_atr_mult": 2.0,
+            "max_holding_bars": 24,
+        },
+    )
+
+    surface = build_signal_surface(
+        bundle=bundle,
+        spec=spec,
+        param_rows=param_rows,
+        search_run_id="VBTSEARCH-MTF-PULLBACK",
+        config=BacktestEngineConfig(),
+    )
+    portfolio = run_surface_portfolio(bundle=bundle, surface=surface, config=BacktestEngineConfig())
+
+    assert surface.diagnostics["surface_engine"] == "ta3000.native_clock_layers"
+    assert surface.entries.shape == (48, 2)
+    assert portfolio.wrapper.shape == (48, 2)
 
 
 def test_missing_mtf_input_fails_at_indicator_plan_gate_without_fallback() -> None:
