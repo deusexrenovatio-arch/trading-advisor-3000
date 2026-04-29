@@ -8,7 +8,28 @@ dataset:
   dataset_version: moex_approved_universe_current_v1
   dataset_name: moex_approved_universe_current
   universe_id: universe-v1
-  series_mode: contract
+  series_mode: continuous_front
+  continuous_front_policy:
+    roll_source: continuous_front_roll_events
+    active_contract_field: active_contract_id
+    require_point_in_time_alignment: true
+    preserve_roll_gap_columns: true
+    roll_policy_version: front_liquidity_oi_v1
+    adjustment_policy_version: backward_current_anchor_additive_v1
+    roll_policy_mode: liquidity_oi_v1
+    primary_metric: open_interest
+    secondary_metric: volume
+    confirmation_bars: 1
+    candidate_share_min: 0.0
+    advantage_ratio_min: 1.0
+    switch_timing: next_tradable_bar_after_decision_watermark
+    tie_breaker: higher_open_interest_then_volume_then_contract_id
+    adjustment_mode: additive
+    gap_type: close_to_close
+    reference_price_policy: decision_bar_close
+    price_space: continuous_backward_current_anchor_additive
+    decision_uses_closed_bar: true
+    effective_after_watermark: true
   timeframes:
     - 15m
     - 1h

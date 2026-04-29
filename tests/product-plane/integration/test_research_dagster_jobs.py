@@ -22,10 +22,12 @@ from trading_advisor_3000.product_plane.data_plane.canonical import RollMapEntry
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows, write_delta_table_rows
 from trading_advisor_3000.product_plane.data_plane.schemas import historical_data_delta_schema_manifest
 from trading_advisor_3000.product_plane.research.datasets import (
+    ContinuousFrontPolicy,
     ResearchDatasetManifest,
     load_materialized_research_dataset,
     materialize_research_dataset,
 )
+from trading_advisor_3000.product_plane.research.continuous_front import continuous_front_store_contract
 import trading_advisor_3000.product_plane.research.datasets.materialize as dataset_materialize_module
 from trading_advisor_3000.product_plane.research.derived_indicators import (
     materialize_derived_indicator_frames,
@@ -137,6 +139,131 @@ def _write_rich_stage7_canonical_context(output_dir: Path) -> None:
     )
 
 
+def _write_spark_front_outputs_from_canonical(
+    *,
+    canonical_dir: Path,
+    output_dir: Path,
+    dataset_version: str,
+    run_id: str,
+    policy: ContinuousFrontPolicy,
+    timeframes: tuple[str, ...],
+) -> dict[str, object]:
+    contract = continuous_front_store_contract()
+    canonical_rows = [
+        row
+        for row in read_delta_table_rows(canonical_dir / "canonical_bars.delta")
+        if not timeframes or str(row.get("timeframe")) in timeframes
+    ]
+    created_at = "2026-04-29T00:00:00Z"
+    front_rows = [
+        {
+            "dataset_version": dataset_version,
+            "roll_policy_version": policy.roll_policy_version,
+            "adjustment_policy_version": policy.adjustment_policy_version,
+            "instrument_id": str(row["instrument_id"]),
+            "timeframe": str(row["timeframe"]),
+            "ts": str(row["ts"]),
+            "active_contract_id": str(row["contract_id"]),
+            "previous_contract_id": None,
+            "candidate_contract_id": str(row["contract_id"]),
+            "roll_epoch": 0,
+            "roll_event_id": None,
+            "is_roll_bar": False,
+            "is_first_bar_after_roll": False,
+            "bars_since_roll": index,
+            "native_open": float(row["open"]),
+            "native_high": float(row["high"]),
+            "native_low": float(row["low"]),
+            "native_close": float(row["close"]),
+            "native_volume": int(row["volume"]),
+            "native_open_interest": int(row["open_interest"]),
+            "continuous_open": float(row["open"]),
+            "continuous_high": float(row["high"]),
+            "continuous_low": float(row["low"]),
+            "continuous_close": float(row["close"]),
+            "adjustment_mode": policy.adjustment_mode,
+            "cumulative_additive_offset": 0.0,
+            "ratio_factor": None,
+            "price_space": policy.price_space,
+            "causality_watermark_ts": str(row["ts"]),
+            "input_row_count": len(canonical_rows),
+            "created_at": created_at,
+        }
+        for index, row in enumerate(canonical_rows)
+    ]
+    groups = sorted({(str(row["instrument_id"]), str(row["timeframe"])) for row in front_rows})
+    qc_rows = [
+        {
+            "dataset_version": dataset_version,
+            "roll_policy_version": policy.roll_policy_version,
+            "adjustment_policy_version": policy.adjustment_policy_version,
+            "instrument_id": instrument_id,
+            "timeframe": timeframe,
+            "run_id": run_id,
+            "started_at": created_at,
+            "completed_at": created_at,
+            "input_row_count": len(
+                [
+                    row
+                    for row in front_rows
+                    if row["instrument_id"] == instrument_id and row["timeframe"] == timeframe
+                ]
+            ),
+            "output_row_count": len(
+                [
+                    row
+                    for row in front_rows
+                    if row["instrument_id"] == instrument_id and row["timeframe"] == timeframe
+                ]
+            ),
+            "roll_event_count": 0,
+            "missing_active_bar_count": 0,
+            "duplicate_key_count": 0,
+            "timeline_error_count": 0,
+            "ohlc_error_count": 0,
+            "negative_volume_oi_count": 0,
+            "missing_reference_price_count": 0,
+            "future_causality_violation_count": 0,
+            "gap_abs_max": 0.0,
+            "gap_abs_mean": 0.0,
+            "blocked_reason": None,
+            "status": "PASS",
+        }
+        for instrument_id, timeframe in groups
+    ]
+    table_rows = {
+        "continuous_front_bars": front_rows,
+        "continuous_front_roll_events": [],
+        "continuous_front_adjustment_ladder": [],
+        "continuous_front_qc_report": qc_rows,
+    }
+    output_paths: dict[str, str] = {}
+    for table_name, rows in table_rows.items():
+        table_path = output_dir / f"{table_name}.delta"
+        write_delta_table_rows(
+            table_path=table_path,
+            rows=rows,
+            columns=dict(contract[table_name]["columns"]),
+        )
+        output_paths[table_name] = table_path.as_posix()
+    return {
+        "success": True,
+        "status": "PASS",
+        "run_id": run_id,
+        "dataset_version": dataset_version,
+        "policy": policy.to_config_dict(),
+        "output_paths": output_paths,
+        "staged_output_paths": {},
+        "rows_by_table": {table_name: len(rows) for table_name, rows in table_rows.items()},
+        "qc_rows": qc_rows,
+        "contract_check_errors": [],
+        "delta_manifest": contract,
+        "spark_profile": {
+            "causal_roll_engine": "test-spark-entrypoint",
+        },
+    }
+
+
 def test_research_data_prep_materializes_dataset_indicator_and_derived_layers_only(tmp_path: Path) -> None:
     canonical_dir = tmp_path / "canonical"
     run_sample_backfill(
@@ -179,6 +306,55 @@ def test_research_data_prep_materializes_dataset_indicator_and_derived_layers_on
     assert len(loaded_derived) == 2
     assert all(row.profile_version == "core_v1" for row in loaded_indicators)
     assert all(row.profile_version == "core_v1" for row in loaded_derived)
+
+
+def test_research_data_prep_can_source_indicators_from_continuous_front(tmp_path: Path, monkeypatch) -> None:
+    canonical_dir = tmp_path / "canonical-continuous"
+    run_sample_backfill(
+        source_path=RAW_FIXTURE,
+        output_dir=canonical_dir,
+        whitelist_contracts={"BR-6.26", "Si-6.26"},
+    )
+
+    spark_calls: list[dict[str, object]] = []
+
+    def _spark_entrypoint(**kwargs: object) -> dict[str, object]:
+        spark_calls.append(dict(kwargs))
+        return _write_spark_front_outputs_from_canonical(
+            canonical_dir=Path(str(kwargs["canonical_bars_path"])).parent,
+            output_dir=Path(str(kwargs["output_dir"])),
+            dataset_version=str(kwargs["dataset_version"]),
+            run_id=str(kwargs["run_id"]),
+            policy=kwargs["policy"],  # type: ignore[arg-type]
+            timeframes=tuple(str(item) for item in kwargs["timeframes"]),  # type: ignore[index]
+        )
+
+    monkeypatch.setattr(research_assets, "run_continuous_front_spark_job", _spark_entrypoint)
+
+    dagster_dir = tmp_path / "dagster-continuous"
+    dagster_report = materialize_research_data_prep_assets(
+        canonical_output_dir=canonical_dir,
+        research_output_dir=dagster_dir,
+        dataset_version="dagster-continuous-v1",
+        timeframes=("15m",),
+        series_mode="continuous_front",
+        continuous_front_policy=ContinuousFrontPolicy().to_config_dict(),
+        indicator_set_version="indicators-v1",
+        indicator_profile_version="core_v1",
+    )
+
+    assert dagster_report["success"] is True
+    assert spark_calls
+    assert dagster_report["rows_by_table"]["continuous_front_bars"] > 0
+    assert dagster_report["rows_by_table"]["continuous_front_qc_report"] > 0
+    assert (
+        dagster_report["rows_by_table"]["research_bar_views"]
+        == dagster_report["rows_by_table"]["continuous_front_bars"]
+    )
+    loaded_dataset = load_materialized_research_dataset(output_dir=dagster_dir, dataset_version="dagster-continuous-v1")
+    assert loaded_dataset["dataset_manifest"]["source_table"] == "continuous_front_bars"
+    assert loaded_dataset["dataset_manifest"]["continuous_front_policy"]["roll_policy_mode"] == "liquidity_oi_v1"
+    assert len(loaded_dataset["bar_views"]) == dagster_report["rows_by_table"]["research_bar_views"]
 
 
 def test_research_data_prep_reuse_does_not_reload_full_frames(tmp_path: Path, monkeypatch) -> None:
@@ -287,6 +463,8 @@ def test_research_definitions_expose_product_jobs_and_moex_success_sensor(tmp_pa
     op_config = run_config["ops"]["research_datasets"]["config"]
     assert op_config["dataset_version"] == "sensor-data-v1"
     assert op_config["timeframes"] == ["15m"]
+    assert run_config["ops"]["continuous_front_bars"]["config"]["series_mode"] == "continuous_front"
+    assert op_config["continuous_front_policy"]["roll_policy_mode"] == "liquidity_oi_v1"
 
 
 def test_research_data_prep_defaults_follow_moex_historical_data_root(

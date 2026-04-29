@@ -66,6 +66,8 @@ class ResearchDatasetManifest:
             *self.timeframes,
             *self.source_tables,
         ]
+        if self.continuous_front_policy is not None:
+            parts.append(json.dumps(self.continuous_front_policy.to_config_dict(), sort_keys=True))
         return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16].upper()
 
     def resolved_dataset_name(self) -> str:
@@ -96,12 +98,7 @@ class ResearchDatasetManifest:
             "lineage_key": self.lineage_key(),
         }
         if self.continuous_front_policy is not None:
-            payload["continuous_front_policy"] = {
-                "roll_source": self.continuous_front_policy.roll_source,
-                "active_contract_field": self.continuous_front_policy.active_contract_field,
-                "require_point_in_time_alignment": self.continuous_front_policy.require_point_in_time_alignment,
-                "preserve_roll_gap_columns": self.continuous_front_policy.preserve_roll_gap_columns,
-            }
+            payload["continuous_front_policy"] = self.continuous_front_policy.to_config_dict()
         return payload
 
     def manifest_hash(self) -> str:

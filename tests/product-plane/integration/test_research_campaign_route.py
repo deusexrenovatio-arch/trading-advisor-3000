@@ -149,6 +149,10 @@ def test_data_prep_campaign_module_executes_research_data_prep_and_writes_summar
 
     assert payload["status"] == "success"
     for table_name in (
+        "continuous_front_bars",
+        "continuous_front_roll_events",
+        "continuous_front_adjustment_ladder",
+        "continuous_front_qc_report",
         "research_datasets",
         "research_instrument_tree",
         "research_bar_views",
@@ -188,14 +192,21 @@ def test_data_prep_campaign_dispatches_through_research_data_prep_boundary(
         results_root = Path(str(kwargs["results_output_dir"]))
         return {
             "success": True,
-            "selected_assets": ["research_datasets"],
-            "materialized_assets": ["research_datasets"],
+            "selected_assets": list(campaigns.DATA_PREP_TABLES),
+            "materialized_assets": list(campaigns.DATA_PREP_TABLES),
             "output_paths": {
+                "continuous_front_bars": (materialized_root / "continuous_front_bars.delta").as_posix(),
+                "continuous_front_roll_events": (materialized_root / "continuous_front_roll_events.delta").as_posix(),
+                "continuous_front_adjustment_ladder": (materialized_root / "continuous_front_adjustment_ladder.delta").as_posix(),
+                "continuous_front_qc_report": (materialized_root / "continuous_front_qc_report.delta").as_posix(),
                 "research_datasets": (materialized_root / "research_datasets.delta").as_posix(),
                 "research_instrument_tree": (materialized_root / "research_instrument_tree.delta").as_posix(),
+                "research_bar_views": (materialized_root / "research_bar_views.delta").as_posix(),
+                "research_indicator_frames": (materialized_root / "research_indicator_frames.delta").as_posix(),
+                "research_derived_indicator_frames": (materialized_root / "research_derived_indicator_frames.delta").as_posix(),
                 "research_backtest_batches": (results_root / "research_backtest_batches.delta").as_posix(),
             },
-            "rows_by_table": {"research_datasets": 1},
+            "rows_by_table": {table_name: 1 for table_name in campaigns.DATA_PREP_TABLES},
         }
 
     monkeypatch.setattr(campaigns, "materialize_research_data_prep_assets", _data_prep)

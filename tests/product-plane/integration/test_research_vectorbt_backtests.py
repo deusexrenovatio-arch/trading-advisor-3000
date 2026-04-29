@@ -16,12 +16,14 @@ from trading_advisor_3000.product_plane.research.backtests import (
     run_backtest_batch,
 )
 from trading_advisor_3000.product_plane.research.datasets import ResearchBarView, ResearchDatasetManifest, research_dataset_store_contract
+from trading_advisor_3000.product_plane.research.datasets.continuous import ContinuousFrontPolicy
 from trading_advisor_3000.product_plane.research.derived_indicators import (
     DerivedIndicatorFrameRow,
     research_derived_indicator_store_contract,
 )
 from trading_advisor_3000.product_plane.research.indicators import IndicatorFrameRow, indicator_store_contract
 from trading_advisor_3000.product_plane.research.io import ResearchFrameCache
+from trading_advisor_3000.product_plane.research.io.loaders import ResearchSliceRequest, load_backtest_frames
 from trading_advisor_3000.product_plane.research.strategies.catalog import StrategyCatalog
 from trading_advisor_3000.product_plane.research.strategies.registry import StrategyRegistry, build_strategy_registry
 from trading_advisor_3000.product_plane.research.strategies.spec import (
@@ -37,11 +39,22 @@ def _ts(index: int) -> str:
     return (start + timedelta(minutes=15 * index)).isoformat().replace("+00:00", "Z")
 
 
-def _bar(index: int, close: float) -> ResearchBarView:
+def _bar(
+    index: int,
+    close: float,
+    *,
+    contract_id: str = "BR-6.26",
+    series_mode: str = "contract",
+    native_close: float | None = None,
+    roll_epoch: int = 0,
+    roll_event_id: str | None = None,
+    is_roll_bar: bool = False,
+) -> ResearchBarView:
     ts = _ts(index)
+    resolved_native_close = close if native_close is None else native_close
     return ResearchBarView(
         dataset_version="dataset-v5",
-        contract_id="BR-6.26",
+        contract_id=contract_id,
         instrument_id="BR",
         timeframe="15m",
         ts=ts,
@@ -54,7 +67,7 @@ def _bar(index: int, close: float) -> ResearchBarView:
         session_date="2026-03-16",
         session_open_ts="2026-03-16T09:00:00Z",
         session_close_ts="2026-03-16T23:45:00Z",
-        active_contract_id="BR-6.26",
+        active_contract_id=contract_id,
         ret_1=None if index == 0 else 0.01,
         log_ret_1=None if index == 0 else 0.00995,
         true_range=1.7,
@@ -62,6 +75,30 @@ def _bar(index: int, close: float) -> ResearchBarView:
         oc_range=0.4,
         bar_index=index,
         slice_role="analysis",
+        series_id="BR|15m|continuous_front" if series_mode == "continuous_front" else contract_id,
+        series_mode=series_mode,
+        roll_epoch=roll_epoch,
+        roll_event_id=roll_event_id,
+        is_roll_bar=is_roll_bar,
+        is_first_bar_after_roll=is_roll_bar,
+        bars_since_roll=0 if is_roll_bar else index,
+        price_space="continuous_adjusted" if series_mode == "continuous_front" else "native",
+        native_open=resolved_native_close - 0.4,
+        native_high=resolved_native_close + 0.8,
+        native_low=resolved_native_close - 0.9,
+        native_close=resolved_native_close,
+        continuous_open=close - 0.4,
+        continuous_high=close + 0.8,
+        continuous_low=close - 0.9,
+        continuous_close=close,
+        execution_open=resolved_native_close - 0.4,
+        execution_high=resolved_native_close + 0.8,
+        execution_low=resolved_native_close - 0.9,
+        execution_close=resolved_native_close,
+        previous_contract_id="BR-6.26" if is_roll_bar else None,
+        candidate_contract_id=contract_id if is_roll_bar else None,
+        adjustment_mode="additive" if series_mode == "continuous_front" else "",
+        cumulative_additive_offset=close - resolved_native_close,
     )
 
 
@@ -146,12 +183,35 @@ def _write_materialized_layers(
     *,
     split_method: str = "full",
     split_windows: list[dict[str, object]] | None = None,
+    series_mode: str = "contract",
 ) -> Path:
     root.mkdir(parents=True, exist_ok=True)
-    bars = [
-        _bar(index, close)
-        for index, close in enumerate((100.0, 101.0, 102.0, 103.0, 104.0, 103.0, 101.0, 99.0, 97.0, 98.0, 100.0, 102.0))
-    ]
+    close_values = (100.0, 101.0, 102.0, 103.0, 104.0, 103.0, 101.0, 99.0, 97.0, 98.0, 100.0, 102.0)
+    bars = []
+    for index, close in enumerate(close_values):
+        contract_id = "BR-6.26"
+        native_close = close
+        roll_epoch = 0
+        roll_event_id = None
+        is_roll_bar = False
+        if series_mode == "continuous_front":
+            contract_id = "BR-6.26" if index < 6 else "BR-7.26"
+            native_close = close + 50.0
+            roll_epoch = 0 if index < 6 else 1
+            roll_event_id = "CFR-test-0001" if index >= 6 else None
+            is_roll_bar = index == 6
+        bars.append(
+            _bar(
+                index,
+                close,
+                contract_id=contract_id,
+                series_mode=series_mode,
+                native_close=native_close,
+                roll_epoch=roll_epoch,
+                roll_event_id=roll_event_id,
+                is_roll_bar=is_roll_bar,
+            )
+        )
     indicators = [
         _indicator(index, close, ema10, ema20, ema50)
         for index, (close, ema10, ema20, ema50) in enumerate(
@@ -179,6 +239,9 @@ def _write_materialized_layers(
         universe_id="moex-futures",
         timeframes=("15m",),
         base_timeframe="15m",
+        series_mode=series_mode,
+        source_table="continuous_front_bars" if series_mode == "continuous_front" else "canonical_bars",
+        continuous_front_policy=ContinuousFrontPolicy() if series_mode == "continuous_front" else None,
         split_method=split_method,
         warmup_bars=0,
         bars_hash="SRC-BARS",
@@ -210,6 +273,56 @@ def _write_materialized_layers(
         columns=derived_contract["research_derived_indicator_frames"]["columns"],
     )
     return root
+
+
+def test_continuous_front_loader_and_backtest_keep_one_series_with_native_execution(tmp_path: Path) -> None:
+    materialized_dir = _write_materialized_layers(tmp_path / "materialized-continuous-front", series_mode="continuous_front")
+    output_dir = tmp_path / "backtests-continuous-front"
+
+    series_frames, _, _ = load_backtest_frames(
+        dataset_output_dir=materialized_dir,
+        indicator_output_dir=materialized_dir,
+        derived_indicator_output_dir=materialized_dir,
+        request=ResearchSliceRequest(
+            dataset_version="dataset-v5",
+            indicator_set_version="indicators-v1",
+            derived_indicator_set_version="derived-v1",
+            timeframe="15m",
+        ),
+    )
+
+    assert len(series_frames) == 1
+    series = series_frames[0]
+    assert series.contract_id == "continuous-front"
+    assert series.series_id == "BR|15m|continuous_front"
+    assert set(series.frame["contract_id"]) == {"BR-6.26", "BR-7.26"}
+    assert series.signal_frame is not None
+    assert series.execution_frame is not None
+    assert float(series.signal_frame["close"].iloc[6]) == 101.0
+    assert float(series.execution_frame["close"].iloc[6]) == 151.0
+    assert bool(series.frame["is_roll_bar"].iloc[6]) is True
+
+    report = run_backtest_batch(
+        dataset_output_dir=materialized_dir,
+        indicator_output_dir=materialized_dir,
+        derived_indicator_output_dir=materialized_dir,
+        output_dir=output_dir,
+        request=_backtest_request(
+            strategy_labels=("ma-cross-v1",),
+            combinations_per_strategy=1,
+            param_batch_size=1,
+            series_batch_size=1,
+        ),
+        engine_config=BacktestEngineConfig(allow_short=False, window_count=1),
+    )
+
+    assert report["backtest_batch"]["series_count"] == 1
+    assert {row["contract_id"] for row in report["run_rows"]} == {"continuous-front"}
+    assert {row["series_id"] for row in report["run_rows"]} == {"BR|15m|continuous_front"}
+    assert report["order_rows"]
+    assert min(float(row["price"]) for row in report["order_rows"]) > 140.0
+    assert {row["execution_price_space"] for row in report["order_rows"]} == {"native"}
+    assert {"BR-6.26", "BR-7.26"} & {row["active_contract_id"] for row in report["order_rows"]}
 
 
 def _custom_registry(*specs: StrategySpec) -> StrategyRegistry:
