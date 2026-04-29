@@ -8,6 +8,7 @@ import yaml
 
 from trading_advisor_3000.dagster_defs.research_assets import _resolve_research_output_dirs
 from trading_advisor_3000.product_plane.research import campaigns
+from trading_advisor_3000.product_plane.research.datasets import ContinuousFrontPolicy
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -112,6 +113,10 @@ def _seed_reusable_materialization(materialized_root: Path, *, materialization_k
 def _mock_report(*, materialized_root: Path, results_root: Path, target_stage: str) -> dict[str, object]:
     registry_root = campaigns.research_registry_root(materialized_root=materialized_root)
     output_paths = {
+        "continuous_front_bars": (materialized_root / "continuous_front_bars.delta").as_posix(),
+        "continuous_front_roll_events": (materialized_root / "continuous_front_roll_events.delta").as_posix(),
+        "continuous_front_adjustment_ladder": (materialized_root / "continuous_front_adjustment_ladder.delta").as_posix(),
+        "continuous_front_qc_report": (materialized_root / "continuous_front_qc_report.delta").as_posix(),
         "research_datasets": (materialized_root / "research_datasets.delta").as_posix(),
         "research_instrument_tree": (materialized_root / "research_instrument_tree.delta").as_posix(),
         "research_bar_views": (materialized_root / "research_bar_views.delta").as_posix(),
@@ -127,17 +132,15 @@ def _mock_report(*, materialized_root: Path, results_root: Path, target_stage: s
         "research_signal_candidates": (results_root / "research_signal_candidates.delta").as_posix(),
     }
     if target_stage == "data_prep":
-        selected_assets = [
-            "research_datasets",
-            "research_instrument_tree",
-            "research_bar_views",
-            "research_indicator_frames",
-            "research_derived_indicator_frames",
-        ]
+        selected_assets = list(campaigns.DATA_PREP_TABLES)
         materialized_assets = list(selected_assets)
     elif target_stage == "backtest":
         selected_assets = ["research_backtest_batches", "research_strategy_rankings"]
         materialized_assets = [
+            "continuous_front_bars",
+            "continuous_front_roll_events",
+            "continuous_front_adjustment_ladder",
+            "continuous_front_qc_report",
             "research_datasets",
             "research_instrument_tree",
             "research_bar_views",
@@ -154,6 +157,10 @@ def _mock_report(*, materialized_root: Path, results_root: Path, target_stage: s
     else:
         selected_assets = ["research_signal_candidates"]
         materialized_assets = [
+            "continuous_front_bars",
+            "continuous_front_roll_events",
+            "continuous_front_adjustment_ladder",
+            "continuous_front_qc_report",
             "research_datasets",
             "research_instrument_tree",
             "research_bar_views",
@@ -224,6 +231,44 @@ def test_materialization_key_ignores_dataset_name_and_universe_id(tmp_path: Path
     normalized_b = campaigns.normalize_campaign_config(repo_root=ROOT, raw=raw_b)
 
     assert campaigns.build_materialization_key(normalized_a) == campaigns.build_materialization_key(normalized_b)
+
+
+def test_materialization_key_changes_when_continuous_front_policy_changes(tmp_path: Path) -> None:
+    raw_a = _campaign_payload(tmp_path)
+    raw_b = _campaign_payload(tmp_path)
+    raw_a["dataset"]["series_mode"] = "continuous_front"  # type: ignore[index]
+    raw_b["dataset"]["series_mode"] = "continuous_front"  # type: ignore[index]
+    raw_a["dataset"]["continuous_front_policy"] = ContinuousFrontPolicy(confirmation_bars=1).to_config_dict()  # type: ignore[index]
+    raw_b["dataset"]["continuous_front_policy"] = ContinuousFrontPolicy(confirmation_bars=3).to_config_dict()  # type: ignore[index]
+
+    normalized_a = campaigns.normalize_campaign_config(repo_root=ROOT, raw=raw_a)
+    normalized_b = campaigns.normalize_campaign_config(repo_root=ROOT, raw=raw_b)
+
+    assert campaigns.build_materialization_key(normalized_a) != campaigns.build_materialization_key(normalized_b)
+
+
+def test_materialization_lock_records_continuous_front_policy(tmp_path: Path) -> None:
+    raw = _campaign_payload(tmp_path, target_stage="data_prep")
+    raw["dataset"]["series_mode"] = "continuous_front"  # type: ignore[index]
+    raw["dataset"]["continuous_front_policy"] = ContinuousFrontPolicy(confirmation_bars=3).to_config_dict()  # type: ignore[index]
+    normalized = campaigns.normalize_campaign_config(repo_root=ROOT, raw=raw)
+    materialized_root = tmp_path / "materialized-lock"
+
+    campaigns._write_materialization_lock(  # type: ignore[attr-defined]
+        materialized_root=materialized_root,
+        materialization_key=campaigns.build_materialization_key(normalized),
+        normalized_config=normalized,
+        campaign_id="camp_lock",
+        campaign_run_id="crun_lock",
+        report=_mock_report(
+            materialized_root=materialized_root,
+            results_root=tmp_path / "results-lock",
+            target_stage="data_prep",
+        ),
+    )
+
+    lock = _load_json(materialized_root / campaigns.MATERIALIZATION_LOCK_FILENAME)
+    assert lock["continuous_front_policy"]["confirmation_bars"] == 3
 
 
 def test_research_output_dirs_fail_closed_for_partial_or_mixed_dir_inputs(tmp_path: Path) -> None:

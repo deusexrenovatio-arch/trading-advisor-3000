@@ -433,12 +433,26 @@ def _strategy_signals(frame: pd.DataFrame, spec: StrategySpec, params: dict[str,
     raise ValueError(f"unsupported signal builder key: {spec.signal_builder_key}")
 
 
-def _run_portfolio(frame: pd.DataFrame, spec: StrategySpec, params: dict[str, object], config: BacktestEngineConfig) -> vbt.Portfolio:
-    signals = _strategy_signals(frame, spec, params, config)
+def _signal_frame(series: ResearchSeriesFrame) -> pd.DataFrame:
+    return series.signal_frame if series.signal_frame is not None else series.frame
+
+
+def _execution_frame(series: ResearchSeriesFrame) -> pd.DataFrame:
+    return series.execution_frame if series.execution_frame is not None else series.frame
+
+
+def _run_portfolio(
+    signal_frame: pd.DataFrame,
+    execution_frame: pd.DataFrame,
+    spec: StrategySpec,
+    params: dict[str, object],
+    config: BacktestEngineConfig,
+) -> vbt.Portfolio:
+    signals = _strategy_signals(signal_frame, spec, params, config)
     fees = config.fees_bps / 10_000.0
     slippage = config.slippage_bps / 10_000.0
-    close = _numeric(frame, "close")
-    freq = _timeframe_freq(str(frame["timeframe"].iloc[0]))
+    close = _numeric(execution_frame, "close")
+    freq = _timeframe_freq(str(signal_frame["timeframe"].iloc[0]))
 
     if spec.execution_mode == "order_func":
         close_frame = close.to_frame(name="close")
@@ -518,9 +532,12 @@ def _trade_rows(
         return []
     rows: list[dict[str, object]] = []
     index = list(series.frame.index)
+    metadata_frame = _signal_frame(series)
     for _, trade in records.iterrows():
         entry_idx = int(trade["entry_idx"])
         exit_idx = int(trade["exit_idx"])
+        entry_meta = metadata_frame.iloc[entry_idx] if 0 <= entry_idx < len(metadata_frame) else {}
+        exit_meta = metadata_frame.iloc[exit_idx] if 0 <= exit_idx < len(metadata_frame) else entry_meta
         entry_ts = pd.Timestamp(index[entry_idx]).isoformat().replace("+00:00", "Z")
         if 0 <= exit_idx < len(index):
             exit_ts = pd.Timestamp(index[exit_idx]).isoformat().replace("+00:00", "Z")
@@ -539,6 +556,8 @@ def _trade_rows(
                 "family_id": run_row["family_id"],
                 "family_key": run_row["family_key"],
                 "contract_id": run_row["contract_id"],
+                "series_id": run_row.get("series_id", run_row["contract_id"]),
+                "series_mode": run_row.get("series_mode", "contract"),
                 "instrument_id": run_row["instrument_id"],
                 "timeframe": run_row["timeframe"],
                 "window_id": run_row["window_id"],
@@ -557,8 +576,18 @@ def _trade_rows(
                 "holding_bars": duration_bars,
                 "stop_ref": run_row["stop_ref"],
                 "target_ref": run_row["target_ref"],
-              }
-              )
+                "signal_price_space": run_row.get("signal_price_space", "native"),
+                "execution_price_space": run_row.get("execution_price_space", "native"),
+                "entry_active_contract_id": str(entry_meta.get("active_contract_id", run_row["contract_id"])),
+                "exit_active_contract_id": str(exit_meta.get("active_contract_id", run_row["contract_id"])),
+                "entry_roll_epoch": int(entry_meta.get("roll_epoch", 0) or 0),
+                "exit_roll_epoch": int(exit_meta.get("roll_epoch", 0) or 0),
+                "entry_roll_event_id": None if entry_meta.get("roll_event_id") is None else str(entry_meta.get("roll_event_id")),
+                "exit_roll_event_id": None if exit_meta.get("roll_event_id") is None else str(exit_meta.get("roll_event_id")),
+                "entry_is_roll_bar": bool(entry_meta.get("is_roll_bar", False)),
+                "exit_is_roll_bar": bool(exit_meta.get("is_roll_bar", False)),
+            }
+        )
     return rows
 
 
@@ -573,8 +602,10 @@ def _order_rows(
         return []
     rows: list[dict[str, object]] = []
     index = list(series.frame.index)
+    metadata_frame = _signal_frame(series)
     for _, order in records.iterrows():
         bar_index = int(order["idx"])
+        meta = metadata_frame.iloc[bar_index] if 0 <= bar_index < len(metadata_frame) else {}
         ts = pd.Timestamp(index[bar_index]).isoformat().replace("+00:00", "Z")
         action = "buy" if int(order["side"]) == 0 else "sell"
         size = float(order["size"])
@@ -586,6 +617,8 @@ def _order_rows(
                 "strategy_instance_id": run_row["strategy_instance_id"],
                 "family_key": run_row["family_key"],
                 "contract_id": run_row["contract_id"],
+                "series_id": run_row.get("series_id", run_row["contract_id"]),
+                "series_mode": run_row.get("series_mode", "contract"),
                 "instrument_id": run_row["instrument_id"],
                 "timeframe": run_row["timeframe"],
                 "window_id": run_row["window_id"],
@@ -600,6 +633,12 @@ def _order_rows(
                 "commission": float(order["fees"]),
                 "slippage": 0.0,
                 "status": "filled",
+                "signal_price_space": run_row.get("signal_price_space", "native"),
+                "execution_price_space": run_row.get("execution_price_space", "native"),
+                "active_contract_id": str(meta.get("active_contract_id", run_row["contract_id"])),
+                "roll_epoch": int(meta.get("roll_epoch", 0) or 0),
+                "roll_event_id": None if meta.get("roll_event_id") is None else str(meta.get("roll_event_id")),
+                "is_roll_bar": bool(meta.get("is_roll_bar", False)),
             }
         )
     return rows
@@ -661,7 +700,7 @@ def project_series_candidate(
 ) -> dict[str, object] | None:
     if decision_lag_bars_max < 0:
         raise ValueError("decision_lag_bars_max must be non-negative")
-    frame = series.frame.copy()
+    frame = _signal_frame(series).copy()
     signals = _strategy_signals(frame, strategy_spec, params, config)
     close = _numeric(frame, "close")
     long_entries = signals.get("entries")
@@ -746,13 +785,21 @@ def run_backtest_series(
     order_rows: list[dict[str, object]] = []
     drawdown_rows: list[dict[str, object]] = []
 
-    for window_id, window_frame in _window_frames(series.frame, window_count=config.window_count, split_windows=split_windows):
-        portfolio = _run_portfolio(window_frame, strategy_spec, params, config)
+    signal_source = _signal_frame(series)
+    execution_source = _execution_frame(series)
+
+    for window_id, window_frame in _window_frames(signal_source, window_count=config.window_count, split_windows=split_windows):
+        execution_window = execution_source.loc[window_frame.index].copy()
+        portfolio = _run_portfolio(window_frame, execution_window, strategy_spec, params, config)
         window_series = ResearchSeriesFrame(
             contract_id=series.contract_id,
             instrument_id=series.instrument_id,
             timeframe=series.timeframe,
             frame=window_frame,
+            series_id=series.series_id,
+            series_mode=series.series_mode,
+            signal_frame=window_frame,
+            execution_frame=execution_window,
         )
         run_row_seed = {
             "backtest_run_id": _run_id(
@@ -774,11 +821,15 @@ def run_backtest_series(
             "indicator_set_version": indicator_set_version,
             "derived_indicator_set_version": derived_indicator_set_version,
             "contract_id": series.contract_id,
+            "series_id": series.series_id or series.contract_id,
+            "series_mode": series.series_mode,
             "instrument_id": series.instrument_id,
             "timeframe": series.timeframe,
             "window_id": window_id,
             "stop_ref": 0.0,
             "target_ref": 0.0,
+            "signal_price_space": str(window_frame.get("price_space", pd.Series(["native"])).iloc[0]),
+            "execution_price_space": "native",
         }
         signal_projection = project_series_candidate(
             series=window_series,
@@ -841,6 +892,8 @@ def run_backtest_series(
             "strategy_version_label": strategy_instance.strategy_version_label,
             "dataset_version": dataset_version,
             "contract_id": series.contract_id,
+            "series_id": series.series_id or series.contract_id,
+            "series_mode": series.series_mode,
             "instrument_id": series.instrument_id,
             "timeframe": series.timeframe,
             "window_id": window_id,
@@ -876,6 +929,8 @@ def run_backtest_series(
             "indicator_set_version": indicator_set_version,
             "derived_indicator_set_version": derived_indicator_set_version,
             "contract_id": series.contract_id,
+            "series_id": series.series_id or series.contract_id,
+            "series_mode": series.series_mode,
             "instrument_id": series.instrument_id,
             "timeframe": series.timeframe,
             "window_id": window_id,
