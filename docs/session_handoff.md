@@ -1,8 +1,8 @@
 # Session Handoff
-Updated: 2026-04-29 14:45 UTC
+Updated: 2026-04-29 16:15 UTC
 
 ## Active Task Note
-- Path: docs/tasks/active/TASK-2026-04-29-audit-skill-responsibility-boundaries-and-isolat.md
+- Path: docs/tasks/active/TASK-2026-04-29-publish-skill-routing-boundary-hot-doc-updates-f.md
 - Mode: legacy-full
 - Status: in_progress
 
