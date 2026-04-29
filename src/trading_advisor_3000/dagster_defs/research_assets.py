@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
 from dagster import (
@@ -24,6 +25,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     has_delta_log,
     read_delta_table_frame,
     read_delta_table_rows,
+    write_delta_table_rows,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     CANONICAL_BASELINE_ROOT_RELATIVE_PATH,
@@ -38,6 +40,11 @@ from trading_advisor_3000.product_plane.research.backtests import (
     project_runtime_candidates,
     rank_backtest_results,
     run_backtest_batch,
+)
+from trading_advisor_3000.product_plane.research.continuous_front import (
+    CONTINUOUS_FRONT_TABLES,
+    continuous_front_store_contract,
+    load_continuous_front_as_research_context,
 )
 from trading_advisor_3000.product_plane.research.datasets import (
     ContinuousFrontPolicy,
@@ -57,6 +64,7 @@ from trading_advisor_3000.product_plane.research.indicators import (
 from trading_advisor_3000.product_plane.research.registry_store import registry_output_paths, research_registry_root
 from trading_advisor_3000.product_plane.research.strategy_space import prepare_strategy_space
 from trading_advisor_3000.product_plane.research.strategies.families import phase_stg02_family_adapters
+from trading_advisor_3000.spark_jobs import run_continuous_front_spark_job
 
 from .moex_historical_assets import MOEX_BASELINE_UPDATE_JOB_NAME, moex_baseline_update_job
 from .historical_data_proof_assets import AssetSpec
@@ -91,6 +99,10 @@ DEFAULT_RESEARCH_DATA_PREP_BASE_TIMEFRAME = "15m"
 DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS = 300
 
 RESEARCH_DATA_PREP_ASSETS = (
+    "continuous_front_bars",
+    "continuous_front_roll_events",
+    "continuous_front_adjustment_ladder",
+    "continuous_front_qc_report",
     "research_datasets",
     "research_instrument_tree",
     "research_bar_views",
@@ -139,7 +151,15 @@ RESEARCH_ASSET_KEYS = (
 )
 
 RESEARCH_DEPENDENCIES: dict[str, tuple[str, ...]] = {
-    "research_datasets": tuple(),
+    "continuous_front_bars": tuple(),
+    "continuous_front_roll_events": ("continuous_front_bars",),
+    "continuous_front_adjustment_ladder": ("continuous_front_bars",),
+    "continuous_front_qc_report": (
+        "continuous_front_bars",
+        "continuous_front_roll_events",
+        "continuous_front_adjustment_ladder",
+    ),
+    "research_datasets": ("continuous_front_qc_report",),
     "research_instrument_tree": ("research_datasets",),
     "research_bar_views": ("research_datasets",),
     "research_indicator_frames": ("research_datasets", "research_bar_views"),
@@ -174,9 +194,42 @@ RESEARCH_DEPENDENCIES: dict[str, tuple[str, ...]] = {
 def research_asset_specs() -> list[AssetSpec]:
     return [
         AssetSpec(
-            key="research_datasets",
-            description="Materialize versioned research dataset manifests from canonical bars/session calendar/roll map.",
+            key="continuous_front_bars",
+            description="Materialize causal continuous-front bars from canonical bars after canonical refresh.",
             inputs=("canonical_bars_delta", "canonical_session_calendar_delta", "canonical_roll_map_delta"),
+            outputs=("continuous_front_bars_delta",),
+        ),
+        AssetSpec(
+            key="continuous_front_roll_events",
+            description="Expose confirmed roll decisions used by the continuous-front contour.",
+            inputs=("continuous_front_bars_delta",),
+            outputs=("continuous_front_roll_events_delta",),
+        ),
+        AssetSpec(
+            key="continuous_front_adjustment_ladder",
+            description="Expose the as-of additive adjustment ladder consumed by research materialization.",
+            inputs=("continuous_front_bars_delta",),
+            outputs=("continuous_front_adjustment_ladder_delta",),
+        ),
+        AssetSpec(
+            key="continuous_front_qc_report",
+            description="Publish fail-closed QC for each continuous-front run/instrument/timeframe.",
+            inputs=(
+                "continuous_front_bars_delta",
+                "continuous_front_roll_events_delta",
+                "continuous_front_adjustment_ladder_delta",
+            ),
+            outputs=("continuous_front_qc_report_delta",),
+        ),
+        AssetSpec(
+            key="research_datasets",
+            description="Materialize versioned research dataset manifests from canonical or continuous-front bars.",
+            inputs=(
+                "continuous_front_qc_report_delta",
+                "canonical_bars_delta",
+                "canonical_session_calendar_delta",
+                "canonical_roll_map_delta",
+            ),
             outputs=("research_datasets_delta",),
         ),
         AssetSpec(
@@ -353,6 +406,7 @@ def _research_config_schema() -> dict[str, object]:
         "warmup_bars": int,
         "split_method": str,
         "series_mode": str,
+        "continuous_front_policy": dict,
         "dataset_contract_ids": [str],
         "dataset_instrument_ids": [str],
         "indicator_set_version": str,
@@ -427,6 +481,12 @@ def _research_output_paths(*, registry_root: Path, materialized_output_dir: Path
     registry_paths = registry_output_paths(registry_root=registry_root)
     return {
         **{table_name: registry_paths[table_name] for table_name in STRATEGY_REGISTRY_REFRESH_ASSETS},
+        "continuous_front_bars": (resolved_materialized / "continuous_front_bars.delta").as_posix(),
+        "continuous_front_roll_events": (resolved_materialized / "continuous_front_roll_events.delta").as_posix(),
+        "continuous_front_adjustment_ladder": (
+            resolved_materialized / "continuous_front_adjustment_ladder.delta"
+        ).as_posix(),
+        "continuous_front_qc_report": (resolved_materialized / "continuous_front_qc_report.delta").as_posix(),
         "research_datasets": (resolved_materialized / "research_datasets.delta").as_posix(),
         "research_instrument_tree": (resolved_materialized / "research_instrument_tree.delta").as_posix(),
         "research_bar_views": (resolved_materialized / "research_bar_views.delta").as_posix(),
@@ -459,6 +519,75 @@ def _delta_table_summary(*, table_path: Path, table_name: str) -> dict[str, obje
         "table": table_name,
         "path": table_path.as_posix(),
         "row_count": count_delta_table_rows(table_path),
+    }
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _write_contract_mode_continuous_front_placeholders(
+    *,
+    output_dir: Path,
+    dataset_version: str,
+    policy: ContinuousFrontPolicy,
+    run_id: str,
+) -> dict[str, object]:
+    contract = continuous_front_store_contract()
+    now = _utc_now_iso()
+    qc_row = {
+        "dataset_version": dataset_version,
+        "roll_policy_version": policy.roll_policy_version,
+        "adjustment_policy_version": policy.adjustment_policy_version,
+        "instrument_id": "*",
+        "timeframe": "*",
+        "run_id": run_id,
+        "started_at": now,
+        "completed_at": now,
+        "input_row_count": 0,
+        "output_row_count": 0,
+        "roll_event_count": 0,
+        "missing_active_bar_count": 0,
+        "duplicate_key_count": 0,
+        "timeline_error_count": 0,
+        "ohlc_error_count": 0,
+        "negative_volume_oi_count": 0,
+        "missing_reference_price_count": 0,
+        "future_causality_violation_count": 0,
+        "gap_abs_max": 0.0,
+        "gap_abs_mean": 0.0,
+        "blocked_reason": "series_mode_contract",
+        "status": "SKIP",
+    }
+    rows_by_table_payload: dict[str, list[dict[str, object]]] = {
+        "continuous_front_bars": [],
+        "continuous_front_roll_events": [],
+        "continuous_front_adjustment_ladder": [],
+        "continuous_front_qc_report": [qc_row],
+    }
+    output_paths: dict[str, str] = {}
+    for table_name in CONTINUOUS_FRONT_TABLES:
+        table_path = output_dir / f"{table_name}.delta"
+        write_delta_table_rows(
+            table_path=table_path,
+            rows=rows_by_table_payload[table_name],
+            columns=dict(contract[table_name]["columns"]),
+        )
+        output_paths[table_name] = table_path.as_posix()
+    return {
+        "success": True,
+        "status": "SKIP",
+        "run_id": run_id,
+        "dataset_version": dataset_version,
+        "policy": policy.to_config_dict(),
+        "output_paths": output_paths,
+        "staged_output_paths": {},
+        "rows_by_table": {
+            table_name: count_delta_table_rows(Path(path)) for table_name, path in output_paths.items()
+        },
+        "qc_rows": [qc_row],
+        "contract_check_errors": [],
+        "delta_manifest": contract,
     }
 
 
@@ -600,41 +729,27 @@ def _load_canonical_context(config: dict[str, object]) -> tuple[list[CanonicalBa
 
     contract_ids = {str(item) for item in _config_value(config, "dataset_contract_ids", [])}
     instrument_ids = {str(item) for item in _config_value(config, "dataset_instrument_ids", [])}
-    timeframes = tuple(str(item) for item in _config_value(config, "timeframes"))
+    timeframes = tuple(str(item) for item in _config_value(config, "timeframes", []))
+    timeframe_set = set(timeframes)
     start_ts = str(_config_value(config, "start_ts", "") or "")
     end_ts = str(_config_value(config, "end_ts", "") or "")
     warmup_bars = int(_config_value(config, "warmup_bars", 0))
 
-    bar_filters: list[tuple[str, str, object]] = []
-    if timeframes:
-        bar_filters.append(("timeframe", "=", timeframes[0]) if len(timeframes) == 1 else ("timeframe", "in", list(timeframes)))
-    if contract_ids:
-        contract_values = sorted(contract_ids)
-        bar_filters.append(("contract_id", "=", contract_values[0]) if len(contract_values) == 1 else ("contract_id", "in", contract_values))
-    if instrument_ids:
-        instrument_values = sorted(instrument_ids)
-        bar_filters.append(("instrument_id", "=", instrument_values[0]) if len(instrument_values) == 1 else ("instrument_id", "in", instrument_values))
-    if start_ts and warmup_bars <= 0:
-        bar_filters.append(("ts", ">=", start_ts))
-    if end_ts:
-        bar_filters.append(("ts", "<=", end_ts))
+    def _value_filter(column: str, values: Sequence[str]) -> tuple[str, str, object] | None:
+        resolved = tuple(str(value) for value in values if str(value))
+        if not resolved:
+            return None
+        if len(resolved) == 1:
+            return (column, "=", resolved[0])
+        return (column, "in", sorted(resolved))
 
     calendar_filters: list[tuple[str, str, object]] = []
-    if timeframes:
-        calendar_filters.append(("timeframe", "=", timeframes[0]) if len(timeframes) == 1 else ("timeframe", "in", list(timeframes)))
-    if instrument_ids:
-        instrument_values = sorted(instrument_ids)
-        calendar_filters.append(("instrument_id", "=", instrument_values[0]) if len(instrument_values) == 1 else ("instrument_id", "in", instrument_values))
-
-    roll_map_filters: list[tuple[str, str, object]] = []
-    if instrument_ids:
-        instrument_values = sorted(instrument_ids)
-        roll_map_filters.append(("instrument_id", "=", instrument_values[0]) if len(instrument_values) == 1 else ("instrument_id", "in", instrument_values))
-
-    bars = [
-        CanonicalBar.from_dict(row)
-        for row in read_delta_table_rows(bars_path, filters=bar_filters)
-    ]
+    for maybe_filter in (
+        _value_filter("instrument_id", sorted(instrument_ids)),
+        _value_filter("timeframe", timeframes),
+    ):
+        if maybe_filter is not None:
+            calendar_filters.append(maybe_filter)
     session_calendar = [
         SessionCalendarEntry(
             instrument_id=str(row["instrument_id"]),
@@ -643,41 +758,175 @@ def _load_canonical_context(config: dict[str, object]) -> tuple[list[CanonicalBa
             session_open_ts=str(row["session_open_ts"]),
             session_close_ts=str(row["session_close_ts"]),
         )
-        for row in read_delta_table_rows(calendar_path, filters=calendar_filters)
-    ]
-    roll_map = [
-        RollMapEntry(
-            instrument_id=str(row["instrument_id"]),
-            session_date=str(row["session_date"]),
-            active_contract_id=str(row["active_contract_id"]),
-            reason=str(row["reason"]),
+        for row in read_delta_table_rows(calendar_path, filters=calendar_filters or None)
+        if (
+            (not instrument_ids or str(row.get("instrument_id")) in instrument_ids)
+            and (not timeframe_set or str(row.get("timeframe")) in timeframe_set)
         )
-        for row in read_delta_table_rows(roll_map_path, filters=roll_map_filters)
     ]
+    if str(_config_value(config, "series_mode", "contract")) == "continuous_front":
+        bars, roll_map = load_continuous_front_as_research_context(
+            continuous_front_output_dir=_materialized_output_dir(config),
+            dataset_version=str(_config_value(config, "dataset_version")),
+            instrument_ids=tuple(instrument_ids),
+            timeframes=tuple(timeframes),
+            start_ts=str(_config_value(config, "start_ts", "")) or None,
+            end_ts=str(_config_value(config, "end_ts", "")) or None,
+        )
+        if contract_ids:
+            bars = [row for row in bars if row.contract_id in contract_ids]
+    else:
+        bar_filters: list[tuple[str, str, object]] = []
+        for maybe_filter in (
+            _value_filter("contract_id", sorted(contract_ids)),
+            _value_filter("instrument_id", sorted(instrument_ids)),
+            _value_filter("timeframe", timeframes),
+        ):
+            if maybe_filter is not None:
+                bar_filters.append(maybe_filter)
+        if start_ts and warmup_bars <= 0:
+            bar_filters.append(("ts", ">=", start_ts))
+        if end_ts:
+            bar_filters.append(("ts", "<=", end_ts))
+        roll_map_filters: list[tuple[str, str, object]] = []
+        roll_map_instrument_filter = _value_filter("instrument_id", sorted(instrument_ids))
+        if roll_map_instrument_filter is not None:
+            roll_map_filters.append(roll_map_instrument_filter)
+        bars = [
+            CanonicalBar.from_dict(row)
+            for row in read_delta_table_rows(bars_path, filters=bar_filters or None)
+            if (
+                (not contract_ids or str(row.get("contract_id")) in contract_ids)
+                and (not instrument_ids or str(row.get("instrument_id")) in instrument_ids)
+                and (not timeframe_set or str(row.get("timeframe")) in timeframe_set)
+                and (not start_ts or warmup_bars > 0 or str(row.get("ts")) >= start_ts)
+                and (not end_ts or str(row.get("ts")) <= end_ts)
+            )
+        ]
+        roll_map = [
+            RollMapEntry(
+                instrument_id=str(row["instrument_id"]),
+                session_date=str(row["session_date"]),
+                active_contract_id=str(row["active_contract_id"]),
+                reason=str(row["reason"]),
+            )
+            for row in read_delta_table_rows(roll_map_path, filters=roll_map_filters or None)
+            if not instrument_ids or str(row.get("instrument_id")) in instrument_ids
+        ]
     return bars, session_calendar, roll_map
 
 
 def _seed_manifest(config: dict[str, object]) -> ResearchDatasetManifest:
+    series_mode = str(_config_value(config, "series_mode", "contract"))
     return ResearchDatasetManifest(
         dataset_version=str(_config_value(config, "dataset_version")),
         dataset_name=str(_config_value(config, "dataset_name", "research-materialized")),
-        source_table="canonical_bars",
+        source_table="continuous_front_bars" if series_mode == "continuous_front" else "canonical_bars",
         universe_id=str(_config_value(config, "universe_id", "moex-futures")),
         timeframes=tuple(str(item) for item in _config_value(config, "timeframes")),
         base_timeframe=str(_config_value(config, "base_timeframe", "15m")),
         start_ts=str(_config_value(config, "start_ts", "")) or None,
         end_ts=str(_config_value(config, "end_ts", "")) or None,
-        series_mode=str(_config_value(config, "series_mode", "contract")),  # type: ignore[arg-type]
+        series_mode=series_mode,  # type: ignore[arg-type]
         split_method=str(_config_value(config, "split_method", "holdout")),  # type: ignore[arg-type]
         warmup_bars=int(_config_value(config, "warmup_bars", 200)),
-        continuous_front_policy=ContinuousFrontPolicy() if str(_config_value(config, "series_mode", "contract")) == "continuous_front" else None,
+        source_tables=CONTINUOUS_FRONT_TABLES if series_mode == "continuous_front" else (
+            "canonical_bars",
+            "canonical_session_calendar",
+            "canonical_roll_map",
+        ),
+        continuous_front_policy=(
+            ContinuousFrontPolicy.from_config(dict(_config_value(config, "continuous_front_policy", {})))
+            if series_mode == "continuous_front"
+            else None
+        ),
         code_version=str(_config_value(config, "code_version", "research-data-prep")),
     )
 
 
 @asset(group_name="research", config_schema=_research_config_schema())
-def research_datasets(context) -> dict[str, object]:
+def continuous_front_bars(context) -> dict[str, object]:
     config = dict(context.op_execution_context.op_config)
+    materialized_output_dir = _materialized_output_dir(config)
+    dataset_version = str(_config_value(config, "dataset_version"))
+    series_mode = str(_config_value(config, "series_mode", "contract"))
+    policy = ContinuousFrontPolicy.from_config(dict(_config_value(config, "continuous_front_policy", {})))
+    run_id = str(_config_value(config, "campaign_run_id", "continuous_front_refresh"))
+    if series_mode == "continuous_front":
+        report = run_continuous_front_spark_job(
+            dataset_version=dataset_version,
+            canonical_bars_path=_canonical_table_path(config, "canonical_bars"),
+            canonical_session_calendar_path=_canonical_table_path(config, "canonical_session_calendar"),
+            canonical_roll_map_path=_canonical_table_path(config, "canonical_roll_map"),
+            output_dir=materialized_output_dir,
+            policy=policy,
+            run_id=run_id,
+            instrument_ids=tuple(str(item) for item in _config_value(config, "dataset_instrument_ids", [])),
+            timeframes=tuple(str(item) for item in _config_value(config, "timeframes", [])),
+            start_ts=str(_config_value(config, "start_ts", "")) or None,
+            end_ts=str(_config_value(config, "end_ts", "")) or None,
+        )
+    else:
+        report = _write_contract_mode_continuous_front_placeholders(
+            output_dir=materialized_output_dir,
+            dataset_version=dataset_version,
+            policy=policy,
+            run_id=run_id,
+        )
+    return {
+        "materialized_output_dir": materialized_output_dir.as_posix(),
+        "dataset_version": dataset_version,
+        "status": report["status"],
+        "output_paths": report["output_paths"],
+        "rows_by_table": report["rows_by_table"],
+        "qc_rows": report["qc_rows"],
+        "spark_profile": report.get("spark_profile"),
+    }
+
+
+@asset(group_name="research")
+def continuous_front_roll_events(continuous_front_bars: dict[str, object]) -> dict[str, object]:
+    materialized_output_dir = Path(str(continuous_front_bars["materialized_output_dir"]))
+    return _delta_table_summary(
+        table_path=materialized_output_dir / "continuous_front_roll_events.delta",
+        table_name="continuous_front_roll_events",
+    )
+
+
+@asset(group_name="research")
+def continuous_front_adjustment_ladder(continuous_front_bars: dict[str, object]) -> dict[str, object]:
+    materialized_output_dir = Path(str(continuous_front_bars["materialized_output_dir"]))
+    return _delta_table_summary(
+        table_path=materialized_output_dir / "continuous_front_adjustment_ladder.delta",
+        table_name="continuous_front_adjustment_ladder",
+    )
+
+
+@asset(group_name="research")
+def continuous_front_qc_report(
+    continuous_front_bars: dict[str, object],
+    continuous_front_roll_events: dict[str, object],
+    continuous_front_adjustment_ladder: dict[str, object],
+) -> dict[str, object]:
+    materialized_output_dir = Path(str(continuous_front_bars["materialized_output_dir"]))
+    summary = _delta_table_summary(
+        table_path=materialized_output_dir / "continuous_front_qc_report.delta",
+        table_name="continuous_front_qc_report",
+    )
+    summary["continuous_front_status"] = continuous_front_bars["status"]
+    summary["roll_events"] = continuous_front_roll_events
+    summary["adjustment_ladder"] = continuous_front_adjustment_ladder
+    return summary
+
+
+@asset(group_name="research", config_schema=_research_config_schema())
+def research_datasets(context, continuous_front_qc_report: dict[str, object]) -> dict[str, object]:
+    config = dict(context.op_execution_context.op_config)
+    if (
+        str(_config_value(config, "series_mode", "contract")) == "continuous_front"
+        and str(continuous_front_qc_report.get("continuous_front_status")) != "PASS"
+    ):
+        raise RuntimeError("continuous_front research dataset materialization requires PASS QC")
     registry_root = Path(str(_config_value(config, "registry_root"))).resolve()
     materialized_output_dir = _materialized_output_dir(config)
     results_output_dir = _results_output_dir(config)
@@ -787,6 +1036,7 @@ def research_datasets(context) -> dict[str, object]:
             **report["output_paths"],
         },
         "delta_manifest": {
+            **continuous_front_store_contract(),
             **research_dataset_store_contract(),
             **indicator_store_contract(),
             **research_derived_indicator_store_contract(),
@@ -1239,6 +1489,10 @@ def research_signal_candidates(
 
 
 RESEARCH_ASSETS = (
+    continuous_front_bars,
+    continuous_front_roll_events,
+    continuous_front_adjustment_ladder,
+    continuous_front_qc_report,
     research_datasets,
     research_instrument_tree,
     research_bar_views,
@@ -1268,6 +1522,10 @@ RESEARCH_ASSETS = (
 research_data_prep_job = define_asset_job(
     name=RESEARCH_DATA_PREP_JOB_NAME,
     selection=AssetSelection.assets(
+        continuous_front_bars,
+        continuous_front_roll_events,
+        continuous_front_adjustment_ladder,
+        continuous_front_qc_report,
         research_datasets,
         research_instrument_tree,
         research_bar_views,
@@ -1377,6 +1635,8 @@ def build_research_data_prep_run_config(
     universe_id: str = "moex-futures",
     timeframes: Sequence[str] | None = None,
     base_timeframe: str = DEFAULT_RESEARCH_DATA_PREP_BASE_TIMEFRAME,
+    series_mode: str = "continuous_front",
+    continuous_front_policy: dict[str, object] | None = None,
     campaign_run_id: str = "research_data_prep_scheduled",
     indicator_set_version: str = "indicators-v1",
     indicator_profile_version: str = "core_v1",
@@ -1410,29 +1670,35 @@ def build_research_data_prep_run_config(
         DEFAULT_RESEARCH_DATA_PREP_DATASET_VERSION,
     )
     registry_root = research_registry_root(materialized_root=resolved_materialized_output_dir)
+    research_config = _research_run_config(
+        canonical_output_dir=resolved_canonical_output_dir,
+        registry_root=registry_root,
+        materialized_output_dir=resolved_materialized_output_dir,
+        results_output_dir=resolved_results_output_dir,
+        campaign_run_id=campaign_run_id,
+        dataset_version=resolved_dataset_version,
+        dataset_name=dataset_name,
+        universe_id=universe_id,
+        timeframes=resolved_timeframes,
+        base_timeframe=base_timeframe,
+        series_mode=series_mode,
+        continuous_front_policy=continuous_front_policy,
+        indicator_set_version=indicator_set_version,
+        indicator_profile_version=indicator_profile_version,
+        derived_indicator_set_version=derived_indicator_set_version,
+        derived_indicator_profile_version=derived_indicator_profile_version,
+        code_version="research-data-prep-after-moex",
+        strategy_space_id="",
+        strategy_instances=(),
+        combination_count=0,
+    )
     return {
         "ops": {
+            "continuous_front_bars": {
+                "config": research_config,
+            },
             "research_datasets": {
-                "config": _research_run_config(
-                    canonical_output_dir=resolved_canonical_output_dir,
-                    registry_root=registry_root,
-                    materialized_output_dir=resolved_materialized_output_dir,
-                    results_output_dir=resolved_results_output_dir,
-                    campaign_run_id=campaign_run_id,
-                    dataset_version=resolved_dataset_version,
-                    dataset_name=dataset_name,
-                    universe_id=universe_id,
-                    timeframes=resolved_timeframes,
-                    base_timeframe=base_timeframe,
-                    indicator_set_version=indicator_set_version,
-                    indicator_profile_version=indicator_profile_version,
-                    derived_indicator_set_version=derived_indicator_set_version,
-                    derived_indicator_profile_version=derived_indicator_profile_version,
-                    code_version="research-data-prep-after-moex",
-                    strategy_space_id="",
-                    search_specs=(),
-                    combination_count=0,
-                )
+                "config": research_config,
             }
         }
     }
@@ -1464,11 +1730,14 @@ def research_data_prep_after_moex_sensor(context):
             canonical_output_dir=canonical_output_dir,
             campaign_run_id=f"research_data_prep_after_{upstream_run_id}",
             dataset_version=dataset_version,
+            series_mode="continuous_front",
+            continuous_front_policy=ContinuousFrontPolicy.from_config().to_config_dict(),
         ),
         tags={
             "ta3000/upstream_job": MOEX_BASELINE_UPDATE_JOB_NAME,
             "ta3000/upstream_run_id": upstream_run_id,
             "ta3000/dataset_version": dataset_version,
+            "ta3000/series_mode": "continuous_front",
         },
     )
 
@@ -1569,6 +1838,7 @@ def _research_run_config(
     warmup_bars: int = DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS,
     split_method: str = "holdout",
     series_mode: str = "contract",
+    continuous_front_policy: dict[str, object] | None = None,
     dataset_contract_ids: Sequence[str] = (),
     dataset_instrument_ids: Sequence[str] = (),
     indicator_set_version: str,
@@ -1629,6 +1899,9 @@ def _research_run_config(
         "warmup_bars": warmup_bars,
         "split_method": split_method,
         "series_mode": series_mode,
+        "continuous_front_policy": dict(
+            continuous_front_policy or ContinuousFrontPolicy.from_config().to_config_dict()
+        ),
         "dataset_contract_ids": [str(item) for item in dataset_contract_ids],
         "dataset_instrument_ids": [str(item) for item in dataset_instrument_ids],
         "indicator_set_version": indicator_set_version,
@@ -1684,6 +1957,7 @@ def _materialize_research_assets(
     warmup_bars: int = DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS,
     split_method: str = "holdout",
     series_mode: str = "contract",
+    continuous_front_policy: dict[str, object] | None = None,
     dataset_contract_ids: Sequence[str] = (),
     dataset_instrument_ids: Sequence[str] = (),
     default_assets: Sequence[str],
@@ -1772,65 +2046,71 @@ def _materialize_research_assets(
         materialized_output_dir=resolved_materialized_output_dir,
         results_output_dir=resolved_results_output_dir,
     )
+    research_config = _research_run_config(
+        canonical_output_dir=canonical_output_dir,
+        registry_root=registry_root,
+        materialized_output_dir=resolved_materialized_output_dir,
+        results_output_dir=resolved_results_output_dir,
+        campaign_run_id=campaign_run_id,
+        dataset_version=dataset_version,
+        dataset_name=dataset_name,
+        universe_id=universe_id,
+        timeframes=timeframes,
+        base_timeframe=base_timeframe,
+        start_ts=start_ts,
+        end_ts=end_ts,
+        warmup_bars=warmup_bars,
+        split_method=split_method,
+        series_mode=series_mode,
+        continuous_front_policy=continuous_front_policy,
+        dataset_contract_ids=dataset_contract_ids,
+        dataset_instrument_ids=dataset_instrument_ids,
+        indicator_set_version=indicator_set_version,
+        indicator_profile_version=indicator_profile_version,
+        derived_indicator_set_version=derived_indicator_set_version,
+        derived_indicator_profile_version=derived_indicator_profile_version,
+        code_version=code_version,
+        strategy_space=dict(strategy_space or _default_strategy_space()),
+        strategy_space_id=strategy_space_id,
+        search_specs=search_specs,
+        strategy_instances=strategy_instances,
+        combination_count=resolved_combination_count,
+        param_batch_size=param_batch_size,
+        series_batch_size=series_batch_size,
+        backtest_timeframe=backtest_timeframe,
+        backtest_contract_ids=backtest_contract_ids,
+        backtest_instrument_ids=backtest_instrument_ids,
+        fees_bps=fees_bps,
+        slippage_bps=slippage_bps,
+        allow_short=allow_short,
+        window_count=window_count,
+        ranking_policy_id=ranking_policy_id,
+        ranking_metric_order=ranking_metric_order,
+        require_out_of_sample_pass=require_out_of_sample_pass,
+        min_trade_count=min_trade_count,
+        min_fold_count=min_fold_count,
+        max_drawdown_cap=max_drawdown_cap,
+        min_positive_fold_ratio=min_positive_fold_ratio,
+        stress_slippage_bps=stress_slippage_bps,
+        min_parameter_stability=min_parameter_stability,
+        min_slippage_score=min_slippage_score,
+        selection_policy=selection_policy,
+        max_candidates_per_partition=max_candidates_per_partition,
+        min_robust_score=min_robust_score,
+        decision_lag_bars_max=decision_lag_bars_max,
+        reuse_existing_materialization=reuse_existing_materialization,
+    )
 
     result = materialize(
         assets=list(RESEARCH_ASSETS),
         selection=expected_materialized_assets,
         run_config={
             "ops": {
+                "continuous_front_bars": {
+                    "config": research_config,
+                },
                 "research_datasets": {
-                    "config": _research_run_config(
-                        canonical_output_dir=canonical_output_dir,
-                        registry_root=registry_root,
-                        materialized_output_dir=resolved_materialized_output_dir,
-                        results_output_dir=resolved_results_output_dir,
-                        campaign_run_id=campaign_run_id,
-                        dataset_version=dataset_version,
-                        dataset_name=dataset_name,
-                        universe_id=universe_id,
-                        timeframes=timeframes,
-                        base_timeframe=base_timeframe,
-                        start_ts=start_ts,
-                        end_ts=end_ts,
-                        warmup_bars=warmup_bars,
-                        split_method=split_method,
-                        series_mode=series_mode,
-                        dataset_contract_ids=dataset_contract_ids,
-                        dataset_instrument_ids=dataset_instrument_ids,
-                        indicator_set_version=indicator_set_version,
-                        indicator_profile_version=indicator_profile_version,
-                        derived_indicator_set_version=derived_indicator_set_version,
-                        derived_indicator_profile_version=derived_indicator_profile_version,
-                        code_version=code_version,
-                        strategy_space=dict(strategy_space or _default_strategy_space()),
-                        strategy_space_id=strategy_space_id,
-                        search_specs=search_specs,
-                        combination_count=resolved_combination_count,
-                        param_batch_size=param_batch_size,
-                        series_batch_size=series_batch_size,
-                        backtest_timeframe=backtest_timeframe,
-                        backtest_contract_ids=backtest_contract_ids,
-                        backtest_instrument_ids=backtest_instrument_ids,
-                        fees_bps=fees_bps,
-                        slippage_bps=slippage_bps,
-                        allow_short=allow_short,
-                        window_count=window_count,
-                        ranking_policy_id=ranking_policy_id,
-                        ranking_metric_order=ranking_metric_order,
-                        require_out_of_sample_pass=require_out_of_sample_pass,
-                        min_trade_count=min_trade_count,
-                        min_fold_count=min_fold_count,
-                        max_drawdown_cap=max_drawdown_cap,
-                        min_positive_fold_ratio=min_positive_fold_ratio,
-                        stress_slippage_bps=stress_slippage_bps,
-                        min_parameter_stability=min_parameter_stability,
-                        min_slippage_score=min_slippage_score,
-                        selection_policy=selection_policy,
-                        max_candidates_per_partition=max_candidates_per_partition,
-                        min_robust_score=min_robust_score,
-                        decision_lag_bars_max=decision_lag_bars_max,
-                        reuse_existing_materialization=reuse_existing_materialization,
-                    )
+                    "config": research_config,
                 }
             }
         },
@@ -1879,6 +2159,7 @@ def materialize_research_data_prep_assets(
     warmup_bars: int = DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS,
     split_method: str = "holdout",
     series_mode: str = "contract",
+    continuous_front_policy: dict[str, object] | None = None,
     dataset_contract_ids: Sequence[str] = (),
     dataset_instrument_ids: Sequence[str] = (),
     indicator_set_version: str = "indicators-v1",
@@ -1907,6 +2188,7 @@ def materialize_research_data_prep_assets(
         warmup_bars=warmup_bars,
         split_method=split_method,
         series_mode=series_mode,
+        continuous_front_policy=continuous_front_policy,
         dataset_contract_ids=dataset_contract_ids,
         dataset_instrument_ids=dataset_instrument_ids,
         default_assets=RESEARCH_DATA_PREP_ASSETS,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -31,24 +32,31 @@ from .store import (
 )
 
 
-def _bars_hash(rows: list[ResearchBarView]) -> str:
-    payload = [
-        {
-            "contract_id": row.contract_id,
-            "instrument_id": row.instrument_id,
-            "timeframe": row.timeframe,
-            "ts": row.ts,
-            "open": row.open,
-            "high": row.high,
-            "low": row.low,
-            "close": row.close,
-            "volume": row.volume,
-            "open_interest": row.open_interest,
-        }
-        for row in rows
-    ]
+def _bars_hash(rows: list[ResearchBarView], *, adjustment_ladder_rows: tuple[dict[str, object], ...] = ()) -> str:
+    payload = {
+        "bars": [row.to_dict() for row in rows],
+        "adjustment_ladder": _normalize_ladder_rows(adjustment_ladder_rows),
+    }
     normalized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16].upper()
+
+
+def _normalize_ladder_rows(rows: tuple[dict[str, object], ...]) -> list[dict[str, object]]:
+    normalized: list[dict[str, object]] = []
+    for row in rows:
+        normalized.append(
+            {
+                "instrument_id": str(row["instrument_id"]),
+                "timeframe": str(row["timeframe"]),
+                "roll_sequence": int(row["roll_sequence"]),
+                "effective_ts": str(row["effective_ts"]),
+                "additive_gap": float(row["additive_gap"]),
+            }
+        )
+    return sorted(
+        normalized,
+        key=lambda row: (str(row["instrument_id"]), str(row["timeframe"]), int(row["roll_sequence"])),
+    )
 
 
 def _format_library_number(value: object) -> str:
@@ -197,6 +205,14 @@ def _load_bar_partition_rows(
         ResearchBarView.from_dict(row)
         for row in sorted(rows, key=lambda item: str(item["ts"]))
     ]
+
+
+def _load_adjustment_ladder_rows(*, dataset_output_dir: Path, dataset_version: str) -> tuple[dict[str, object], ...]:
+    table_path = dataset_output_dir / "continuous_front_adjustment_ladder.delta"
+    if not (table_path / "_delta_log").exists():
+        return ()
+    rows = read_delta_table_rows(table_path, filters=[("dataset_version", "=", dataset_version)])
+    return tuple(dict(row) for row in rows)
 
 
 def _latest_delta_commit_timestamp(table_path: Path) -> int | None:
@@ -518,6 +534,124 @@ def _compute_profile_frame(frame: pd.DataFrame, profile: IndicatorProfile) -> pd
     return result
 
 
+def _ladder_rows_for_series(
+    adjustment_ladder_rows: tuple[dict[str, object], ...],
+    *,
+    instrument_id: str,
+    timeframe: str,
+) -> tuple[dict[str, object], ...]:
+    return tuple(
+        sorted(
+            (
+                row
+                for row in adjustment_ladder_rows
+                if str(row.get("instrument_id")) == instrument_id and str(row.get("timeframe")) == timeframe
+            ),
+            key=lambda row: int(row["roll_sequence"]),
+        )
+    )
+
+
+def _asof_adjusted_price_frame(
+    frame: pd.DataFrame,
+    *,
+    target_epoch: int,
+    gap_by_sequence: dict[int, float],
+) -> pd.DataFrame:
+    adjusted = frame[frame["roll_epoch"] <= target_epoch].copy()
+    row_epochs = pd.to_numeric(adjusted["roll_epoch"], errors="coerce").fillna(0).astype(int)
+    offsets = row_epochs.map(
+        lambda row_epoch: sum(gap_by_sequence[sequence] for sequence in range(row_epoch + 1, target_epoch + 1))
+    )
+    for column in ("open", "high", "low", "close"):
+        native_column = f"native_{column}"
+        source = adjusted[native_column] if native_column in adjusted.columns else adjusted[column]
+        adjusted[column] = pd.to_numeric(source, errors="coerce") + offsets
+    close = _numeric(adjusted["close"])
+    prev_close = close.shift(1)
+    adjusted["ret_1"] = (close / prev_close) - 1.0
+    adjusted.loc[prev_close.isna() | (prev_close == 0.0), "ret_1"] = pd.NA
+    adjusted["log_ret_1"] = pd.NA
+    valid_ret = prev_close.notna() & (prev_close > 0.0) & (close > 0.0)
+    adjusted.loc[valid_ret, "log_ret_1"] = (close[valid_ret] / prev_close[valid_ret]).map(math.log)
+    high = _numeric(adjusted["high"])
+    low = _numeric(adjusted["low"])
+    open_ = _numeric(adjusted["open"])
+    adjusted["hl_range"] = high - low
+    adjusted["oc_range"] = close - open_
+    adjusted["true_range"] = pd.concat(
+        [
+            high - low,
+            (high - prev_close).abs(),
+            (low - prev_close).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
+    return adjusted
+
+
+def _compute_continuous_front_profile_frame(
+    frame: pd.DataFrame,
+    profile: IndicatorProfile,
+    *,
+    adjustment_ladder_rows: tuple[dict[str, object], ...],
+) -> pd.DataFrame:
+    if frame.empty:
+        return _compute_profile_frame(frame, profile)
+    if "roll_epoch" not in frame.columns:
+        raise ValueError("continuous_front indicator materialization requires roll_epoch on research_bar_views")
+    instrument_id = str(frame["instrument_id"].iloc[0])
+    timeframe = str(frame["timeframe"].iloc[0])
+    ladder_rows = _ladder_rows_for_series(
+        adjustment_ladder_rows,
+        instrument_id=instrument_id,
+        timeframe=timeframe,
+    )
+    frame = frame.copy()
+    frame["roll_epoch"] = pd.to_numeric(frame["roll_epoch"], errors="coerce").fillna(0).astype(int)
+    max_epoch = int(frame["roll_epoch"].max() or 0)
+    if max_epoch == 0:
+        return _compute_profile_frame(frame, profile)
+    if not ladder_rows:
+        raise ValueError(
+            "continuous_front indicator materialization requires adjustment ladder rows for rolled series "
+            f"{instrument_id}|{timeframe}"
+        )
+    gap_by_sequence = {int(row["roll_sequence"]): float(row["additive_gap"]) for row in ladder_rows}
+    missing_sequences = [sequence for sequence in range(1, max_epoch + 1) if sequence not in gap_by_sequence]
+    if missing_sequences:
+        joined = ", ".join(str(sequence) for sequence in missing_sequences)
+        raise ValueError(
+            "continuous_front indicator materialization missing adjustment ladder roll_sequence "
+            f"{joined} for {instrument_id}|{timeframe}"
+        )
+
+    computed_segments: list[pd.DataFrame] = []
+    for target_epoch in sorted(frame["roll_epoch"].unique()):
+        epoch = int(target_epoch)
+        adjusted = _asof_adjusted_price_frame(frame, target_epoch=epoch, gap_by_sequence=gap_by_sequence)
+        computed = _compute_profile_frame(adjusted, profile)
+        target_index = frame.index[frame["roll_epoch"] == epoch]
+        computed_segments.append(computed.loc[target_index])
+    return pd.concat(computed_segments).sort_index()
+
+
+def _compute_profile_frame_for_series(
+    frame: pd.DataFrame,
+    profile: IndicatorProfile,
+    *,
+    series_mode: str,
+    adjustment_ladder_rows: tuple[dict[str, object], ...],
+) -> pd.DataFrame:
+    if series_mode != "continuous_front":
+        return _compute_profile_frame(frame, profile)
+    return _compute_continuous_front_profile_frame(
+        frame,
+        profile,
+        adjustment_ladder_rows=adjustment_ladder_rows,
+    )
+
+
 def _null_warmup_span(payload_rows: list[dict[str, object]], output_columns: tuple[str, ...]) -> int:
     count = 0
     for row in payload_rows:
@@ -583,19 +717,33 @@ def _build_partition_rows(
     indicator_set_version: str,
     profile: IndicatorProfile,
     series: list[ResearchBarView],
+    series_mode: str = "contract",
     source_dataset_bars_hash: str = "",
     output_columns_hash: str | None = None,
     compute_profile: IndicatorProfile | None = None,
     existing_rows: list[IndicatorFrameRow] | None = None,
+    adjustment_ladder_rows: tuple[dict[str, object], ...] = (),
 ) -> list[IndicatorFrameRow]:
     frame = pd.DataFrame([row.to_dict() for row in series])
     compute_profile = compute_profile or profile
-    computed = _compute_profile_frame(frame, compute_profile)
+    series_ladder_rows = ()
+    if series_mode == "continuous_front" and series:
+        series_ladder_rows = _ladder_rows_for_series(
+            adjustment_ladder_rows,
+            instrument_id=series[0].instrument_id,
+            timeframe=series[0].timeframe,
+        )
+    computed = _compute_profile_frame_for_series(
+        frame,
+        compute_profile,
+        series_mode=series_mode,
+        adjustment_ladder_rows=series_ladder_rows,
+    )
     payload_rows = computed.to_dict("records")
     output_columns = profile.expected_output_columns()
     computed_columns = set(compute_profile.expected_output_columns())
     existing_by_ts = {row.ts: row for row in existing_rows or []}
-    source_hash = _bars_hash(series)
+    source_hash = _bars_hash(series, adjustment_ladder_rows=series_ladder_rows)
     output_columns_hash = output_columns_hash or indicator_output_columns_hash(output_columns)
     prepared_values: list[tuple[ResearchBarView, dict[str, float | None], IndicatorFrameRow | None]] = []
     merged_payload_rows: list[dict[str, object]] = []
@@ -648,6 +796,7 @@ def build_indicator_frames(
     bar_views: list[ResearchBarView],
     series_mode: str = "contract",
     profile: IndicatorProfile | None = None,
+    adjustment_ladder_rows: tuple[dict[str, object], ...] = (),
 ) -> list[IndicatorFrameRow]:
     profile = profile or default_indicator_profile()
     grouped = _group_bar_views(
@@ -664,6 +813,8 @@ def build_indicator_frames(
                 indicator_set_version=indicator_set_version,
                 profile=profile,
                 series=series,
+                series_mode=series_mode,
+                adjustment_ladder_rows=adjustment_ladder_rows,
             )
         )
     return rows
@@ -680,6 +831,11 @@ def materialize_indicator_frames(
 ) -> dict[str, object]:
     dataset_manifest = _load_dataset_manifest(output_dir=dataset_output_dir, dataset_version=dataset_version)
     series_mode = str(dataset_manifest.get("series_mode", "contract"))
+    adjustment_ladder_rows = (
+        _load_adjustment_ladder_rows(dataset_output_dir=dataset_output_dir, dataset_version=dataset_version)
+        if series_mode == "continuous_front"
+        else ()
+    )
     current_dataset_bars_hash = str(dataset_manifest.get("bars_hash") or "")
     current_dataset_created_at = str(dataset_manifest.get("created_at") or "")
     registry: IndicatorProfileRegistry = build_indicator_profile_registry()
@@ -757,14 +913,19 @@ def materialize_indicator_frames(
                 and _timestamp_after(current_dataset_created_at, existing_materialized_at)
             )
         )
-        source_changed = source_row_count != row_count or not source_hash or dataset_may_have_changed
+        source_changed = source_row_count != row_count or not source_hash or dataset_may_have_changed or series_mode == "continuous_front"
         if source_changed:
             series = _load_bar_partition_rows(
                 dataset_output_dir=dataset_output_dir,
                 dataset_version=dataset_version,
                 partition=partition_key,
             )
-            source_hash = _bars_hash(series)
+            series_ladder_rows = _ladder_rows_for_series(
+                adjustment_ladder_rows,
+                instrument_id=partition_key.instrument_id,
+                timeframe=partition_key.timeframe,
+            )
+            source_hash = _bars_hash(series, adjustment_ladder_rows=series_ladder_rows)
         if _existing_partition_matches(
             existing_partition_metadata,
             source_hash=source_hash,
@@ -824,10 +985,12 @@ def materialize_indicator_frames(
                     indicator_set_version=indicator_set_version,
                     profile=resolved_profile,
                     series=series,
+                    series_mode=series_mode,
                     source_dataset_bars_hash=current_dataset_bars_hash,
                     output_columns_hash=target_output_columns_hash,
                     compute_profile=compute_profile,
                     existing_rows=existing_rows,
+                    adjustment_ladder_rows=adjustment_ladder_rows,
                 )
 
         output_paths, refreshed_row_count, batch_count = write_indicator_frame_batches(
