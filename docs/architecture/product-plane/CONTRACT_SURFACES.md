@@ -39,6 +39,10 @@ Any public payload change is invalid unless schema, fixture, and tests are updat
 ## Internal Product Plane Orchestration Contracts
 
 The following contracts are versioned and test-covered, but they are not part of the release-blocking runtime boundary inventory:
+- `continuous_front_bars.v1`
+- `continuous_front_roll_events.v1`
+- `continuous_front_adjustment_ladder.v1`
+- `continuous_front_qc_report.v1`
 - `research_campaign.v1`
 - `research_run_summary.v1`
 
