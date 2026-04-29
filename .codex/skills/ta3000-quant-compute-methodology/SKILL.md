@@ -1,15 +1,18 @@
 ---
 name: ta3000-quant-compute-methodology
-description: Use for TA3000 research compute work that touches vectorbt, pandas-ta-classic, indicators, derived indicators, signal matrices, strategy execution, or backtest integration, especially when library-native methodology should guide the design before local TA3000 patterns.
+description: Use for TA3000 research compute work that touches vectorbt, pandas-ta-classic, Optuna, indicators, derived indicators, signal matrices, strategy execution, optimizer search, or backtest integration, especially when library-native methodology and native runtime ownership should guide the design before local TA3000 patterns.
 classification: KEEP_CORE
 wave: WAVE_1
 status: ACTIVE
 owner_surface: CTX-COMPUTE
-scope: TA3000 vectorbt and pandas-ta-classic methodology for research compute integration
+scope: TA3000 vectorbt, pandas-ta-classic, Optuna, and native-runtime methodology for research compute integration
 routing_triggers:
   - vectorbt
   - pandas-ta-classic
   - pandas_ta_classic
+  - Optuna
+  - optimizer search
+  - native runtime ownership
   - signal matrix
   - from_signals
   - from_order_func
@@ -22,7 +25,7 @@ routing_triggers:
 # TA3000 Quant Compute Methodology
 
 ## When To Use
-- A task touches `vectorbt`, `pandas-ta-classic`, technical indicators, derived indicators, strategy families, signal matrices, backtest execution, or research campaign compute.
+- A task touches `vectorbt`, `pandas-ta-classic`, `Optuna`, technical indicators, derived indicators, strategy families, signal matrices, backtest execution, optimizer search, or research campaign compute.
 - A strategy or indicator implementation is being designed and the strongest library-native pattern is not yet clear.
 - A previous implementation risked hand-rolling logic that the libraries already support.
 
@@ -31,6 +34,8 @@ Do not use this for pure storage proof; pair with `ta3000-data-plane-proof` when
 ## First Move: Library Recon
 Before designing or editing compute logic, inspect the relevant library entry points and write down the chosen pattern in the work notes or final summary:
 
+- TA3000 native runtime ownership: `docs/architecture/product-plane/native-runtime-ownership.md`
+- TA3000 native runtime selection route: `docs/agent/native-runtime-selection.md`
 - VectorBT overview: `https://vectorbt.dev/`
 - VectorBT portfolio modes: `https://vectorbt.dev/api/portfolio/base/`
 - VectorBT signals accessor: `https://vectorbt.dev/api/signals/accessors/`
@@ -40,12 +45,15 @@ Before designing or editing compute logic, inspect the relevant library entry po
 - Pandas TA Classic strategy system: `https://xgboosted.github.io/pandas-ta-classic/strategies.html`
 - Pandas TA Classic indicators catalog: `https://xgboosted.github.io/pandas-ta-classic/indicators.html`
 - Pandas TA Classic vectorbt bridge: `https://xgboosted.github.io/pandas-ta-classic/performance.html`
+- Optuna ask-and-tell: `https://optuna.readthedocs.io/en/stable/tutorial/20_recipes/009_ask_and_tell.html`
+- Optuna optimization algorithms: `https://optuna.readthedocs.io/en/stable/tutorial/10_key_features/003_efficient_optimization_algorithms.html`
 
 If API shape, feature availability, or semantics matter, verify the current docs or installed package instead of relying on memory.
 
 ## Library-Native Questions
 Answer these before choosing an implementation:
 
+0. What is the Native Runtime Choice: pandas-ta-classic, vectorbt, Optuna, Spark, Delta Lake, Dagster, DuckDB, or explicit custom code?
 1. Can a standard indicator be expressed with `pandas-ta-classic` rather than custom pandas?
 2. Can a bundle of base indicators be expressed as a `df.ta.strategy(...)` or category strategy?
 3. Can the trade logic be expressed as boolean `entries` / `exits` and run through `vbt.Portfolio.from_signals(...)`?
@@ -53,6 +61,8 @@ Answer these before choosing an implementation:
 5. Is `from_order_func(...)` truly needed because the logic depends on simulation state, complex callbacks, or multiple orders per symbol and bar?
 6. Can `vbt.signals` or `SignalFactory` handle signal cleanup, chaining, stops, or analysis instead of a manual loop?
 7. Can `IndicatorFactory`, `from_pandas_ta`, parameter grids, or broadcasting keep the implementation vectorized?
+8. If the task is adaptive search, can Optuna own the study/trial loop instead of a custom optimizer loop?
+9. If the task materializes or refreshes research tables, should Spark, Delta Lake, and Dagster own the route instead of local pandas or one-off scripts?
 
 ## Role Split
 - Use `pandas-ta-classic` for base market measurements: moving averages, momentum, trend, volatility, volume, candle patterns, returns, and other standard technical indicators.
@@ -60,6 +70,13 @@ Answer these before choosing an implementation:
 - Use `vectorbt` for trade-level semantics: entry/exit matrices, long/short direction, stops, portfolio simulation, grouped metrics, parameter sweeps, and signal analysis.
 
 Practical rule: `pandas-ta-classic` answers "what is the market state?"; `vectorbt` answers "what happens if we trade this state?".
+
+## Native Runtime Boundary
+- Keep Python thin when a documented runtime primitive owns the operation: assemble inputs, validate contracts, pass matrices/configs, persist provenance, and report evidence.
+- Do not hand-roll portfolio accounting, parameter search, standard indicators, durable table writes, or recurring materialization routes unless the native primitive is explicitly unsuitable.
+- For adaptive search, prefer Optuna studies, samplers, pruners, and `study.ask()` / `study.tell()` with TA3000 Delta-backed provenance.
+- For durable research outputs, keep Spark/Delta/Dagster as the first-choice dataflow and storage route; a local pandas smoke is not production proof.
+- Use DuckDB for focused local SQL validation or profiling, not as a substitute for the authoritative Delta/Dagster path.
 
 ## VectorBT Design Bias
 - Prefer matrix-shaped inputs over per-instrument loops.

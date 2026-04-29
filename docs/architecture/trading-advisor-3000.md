@@ -69,6 +69,22 @@ flowchart LR
 | `product-plane` | contracts, data, research, runtime, execution, app operations | weaken shell governance contracts or move product logic into shell paths |
 | `shared architecture docs` | explain the split and connect both surfaces | override product implementation truth or contract truth |
 
+## Product-Plane Runtime Ownership
+Product-plane work has explicit native runtime owners. Spark, Delta Lake,
+Dagster, pandas-ta-classic, vectorbt, Optuna, and DuckDB are not incidental
+dependencies; they define where the core operation should live.
+
+The architecture rule is:
+- use native runtime primitives when the documented library surface owns the
+  problem shape;
+- keep Python as orchestration, contract adaptation, validation, or explicit
+  fallback;
+- record the Native Runtime Choice before non-trivial data, research, compute,
+  optimization, or orchestration changes.
+
+Canonical ownership matrix:
+- [docs/architecture/product-plane/native-runtime-ownership.md](docs/architecture/product-plane/native-runtime-ownership.md)
+
 ## Current Reality Versus Target Shape
 1. The dual-surface split is real and already enforced in repository structure.
 2. The product-plane codebase is present under `src/trading_advisor_3000/product_plane/*`.
@@ -87,9 +103,11 @@ flowchart LR
    - [docs/architecture/architecture-map-v2.md](docs/architecture/architecture-map-v2.md)
 4. Current product implementation reality:
    - [docs/architecture/product-plane/STATUS.md](docs/architecture/product-plane/STATUS.md)
-5. Release-blocking product boundaries:
+5. Product-plane native runtime ownership:
+   - [docs/architecture/product-plane/native-runtime-ownership.md](docs/architecture/product-plane/native-runtime-ownership.md)
+6. Release-blocking product boundaries:
    - [docs/architecture/product-plane/CONTRACT_SURFACES.md](docs/architecture/product-plane/CONTRACT_SURFACES.md)
-6. Detailed target product architecture:
+7. Detailed target product architecture:
    - [docs/architecture/product-plane/product-plane-spec-v2/01_Architecture_Overview.md](docs/architecture/product-plane/product-plane-spec-v2/01_Architecture_Overview.md)
 
 ## Interpretation Rules
@@ -106,3 +124,6 @@ flowchart LR
 4. Historical and batch market data can support research, backfill, and analytics,
    but live intraday decisions remain fail-closed without the broker live boundary
    described in [docs/architecture/product-plane/STATUS.md](docs/architecture/product-plane/STATUS.md).
+5. Product-plane runtime work must choose the native runtime owner before custom
+   Python owns logic that Spark, Delta Lake, Dagster, pandas-ta-classic,
+   vectorbt, Optuna, or DuckDB already covers.

@@ -8,6 +8,12 @@ It supersedes older phase-closure claims when they disagree.
 - Historical phase shorthand may remain only when provenance would otherwise be lost.
 - [shell-delivery-operational-proving.md](docs/architecture/product-plane/shell-delivery-operational-proving.md) is a delivery/evidence overlay, not proof that product capability slices are closed.
 
+## Native Runtime Ownership Rule
+- Product-plane runtime ownership is defined in [native-runtime-ownership.md](docs/architecture/product-plane/native-runtime-ownership.md).
+- Spark, Delta Lake, Dagster, pandas-ta-classic, vectorbt, Optuna, and DuckDB are architecture surfaces with strong zones, not optional implementation flavor.
+- Python is expected to coordinate, adapt contracts, validate, and report evidence unless the architecture rule records an explicit fallback.
+- Completion claims for data/research/compute/optimization routes must prove the native runtime path that owns the work, not only a local Python smoke.
+
 ## Current Capability Status
 
 | Surface | Status | What is real now | What is not yet real |

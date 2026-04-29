@@ -57,6 +57,20 @@
 - For user-facing output, Telegram-style advisory signals, paper routing, semi-auto approval, live execution, or robot questions, add `ta3000-signal-to-action-lifecycle` and keep the output mode explicit.
 - Pair these repo-local skills with global implementation, testing, review, and verification skills as needed; repo-local research skills do not replace executable evidence or standard PR hygiene.
 
+## Native Runtime Routing
+- For product-plane data, research, compute, optimization, or orchestration work, read `docs/architecture/product-plane/native-runtime-ownership.md` and the agent shim `docs/agent/native-runtime-selection.md` before implementation.
+- Record a Native Runtime Choice whenever the task touches Spark, Delta Lake, Dagster, pandas-ta-classic, vectorbt, Optuna, DuckDB, or a replacement custom Python path.
+- Prefer library-native primitives before custom Python:
+  - Spark SQL/DataFrames for large structured transforms;
+  - Delta Lake for durable table writes, merges, schema control, and storage proof;
+  - Dagster assets/jobs/sensors/schedules for repeatable operational routes;
+  - pandas-ta-classic for standard technical indicators and indicator bundles;
+  - vectorbt for signal/order/portfolio simulation and matrix-shaped parameter surfaces;
+  - Optuna for adaptive optimizer search and trial provenance;
+  - DuckDB for local SQL validation, profiling, and query-plan evidence.
+- If custom Python owns logic in one of those zones, state the fallback reason and the proof that the native primitive did not fit.
+- Treat loops over bars, instruments, parameter rows, or table rows as review triggers when a native runtime can express the same operation.
+
 ## Generic-First Routing
 1. Start from generic process/architecture/testing/governance skills.
 2. Apply stack skills only after stack surfaces are present and validated.
