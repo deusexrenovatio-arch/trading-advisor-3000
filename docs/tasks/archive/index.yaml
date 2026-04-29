@@ -217,3 +217,9 @@ items:
   status: completed
   started_at: '2026-04-29'
   completed_at: '2026-04-29'
+- id: TASK-2026-04-29-PUBLISH-WORK3-CONTINUOUS-FRONT-PR-STACK
+  path: docs/tasks/archive/TASK-2026-04-29-publish-work3-continuous-front-pr-stack.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-29'
+  completed_at: '2026-04-29'

@@ -1,5 +1,5 @@
 # Task Note
-Updated: 2026-04-29 13:25 UTC
+Updated: 2026-04-29 13:34 UTC
 
 ## Goal
 - Deliver: Publish Work3 continuous-front PR stack
@@ -14,7 +14,7 @@ Updated: 2026-04-29 13:25 UTC
 - Priority Rule: quality and safety over speed when tradeoffs appear.
 
 ## Current Delta
-- PR1 contracts, PR2 runtime, and PR3 docs/process evidence are split from the Work3 diff and based on fresh `origin/main`.
+- PR1 contracts, PR2 runtime, and PR3 docs/process evidence are split from the Work3 diff, based on fresh `origin/main`, pushed, and opened as draft PRs #73, #74, and #75.
 
 ## First-Time-Right Report
 1. Confirmed coverage: objective and acceptance path are explicit.
@@ -30,22 +30,24 @@ Updated: 2026-04-29 13:25 UTC
 - Next Probe: run the smallest failing command before next patch.
 
 ## Task Outcome
-- Outcome Status: in_progress
-- Decision Quality: pending
-- Final Contexts: pending
-- Route Match: pending
-- Primary Rework Cause: none
-- Incident Signature: none
-- Improvement Action: pending
-- Improvement Artifact: pending
+- Outcome Status: completed
+- Decision Quality: correct_after_replan
+- Final Contexts: CTX-OPS, CTX-CONTRACTS, CTX-RESEARCH, CTX-ARCHITECTURE
+- Route Match: matched
+- Primary Rework Cause: test_gap
+- Incident Signature: PR-stack-publication-continuous-front-work3.
+- Improvement Action: test
+- Improvement Artifact: draft PRs #73, #74, and #75.
 
 ## Blockers
 - No blocker.
 
 ## Next Step
-- Implement focused patch and rerun loop gate.
+- Review and merge the stack in order: #73 -> #74 -> #75.
 
 ## Validation
-- `python scripts/validate_task_request_contract.py`
-- `python scripts/validate_session_handoff.py`
-- `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
+- `py -3.11 -m pytest tests/product-plane/contracts/test_continuous_front_contracts.py -q --basetemp=.tmp/pytest-cf-contracts-pr1`
+- `py -3.11 -m pytest tests/product-plane/contracts/test_continuous_front_contracts.py tests/product-plane/unit/test_continuous_front.py tests/product-plane/unit/test_continuous_front_spark_job.py tests/product-plane/unit/test_research_dataset_layer.py tests/product-plane/unit/test_research_indicator_layer.py tests/product-plane/unit/test_research_campaign_runner.py tests/product-plane/unit/test_research_dagster_manifests.py tests/product-plane/integration/test_research_vectorbt_backtests.py tests/product-plane/integration/test_research_dagster_jobs.py tests/product-plane/integration/test_research_campaign_route.py -q --basetemp=.tmp/pytest-cf-runtime-pr2-rerun`
+- `py -3.11 scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`
+- `py -3.11 scripts/run_pr_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`
+- Draft PRs: #73, #74, #75.
