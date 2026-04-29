@@ -176,3 +176,8 @@ items:
   mode: legacy-full
   status: in_progress
   started_at: '2026-04-29'
+- id: TASK-2026-04-29-AUDIT-SKILL-RESPONSIBILITY-BOUNDARIES-AND-ISOLAT
+  path: docs/tasks/active/TASK-2026-04-29-audit-skill-responsibility-boundaries-and-isolat.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-04-29'
