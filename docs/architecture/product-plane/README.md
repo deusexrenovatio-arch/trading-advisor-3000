@@ -6,6 +6,7 @@ Read these first:
 - [trading-advisor-3000.md](docs/architecture/trading-advisor-3000.md) - canonical whole-repository orientation map.
 - [STATUS.md](docs/architecture/product-plane/STATUS.md) - current implemented reality and no-go zones.
 - [CONTRACT_SURFACES.md](docs/architecture/product-plane/CONTRACT_SURFACES.md) - current versioned boundary inventory.
+- [native-runtime-ownership.md](docs/architecture/product-plane/native-runtime-ownership.md) - architecture rule for Spark, Delta Lake, Dagster, pandas-ta-classic, vectorbt, Optuna, DuckDB, and Python ownership.
 - [research-plane-platform.md](docs/architecture/product-plane/research-plane-platform.md) - stable map of the current research-plane primary path.
 - [contract-change-policy.md](docs/architecture/product-plane/contract-change-policy.md) - compatibility and versioning policy for release-blocking envelopes.
 - [approved-universe-v1.md](docs/architecture/product-plane/approved-universe-v1.md) - governed universe and promotion contract for medium-term multi-asset evaluation.
@@ -68,4 +69,10 @@ Active naming rule:
 
 ## Boundary rule
 Product-plane changes must not break shell contracts and must not move trading business logic into shell-sensitive paths.
+
+Product-plane data, research, compute, optimization, and orchestration changes
+must also follow [native-runtime-ownership.md](docs/architecture/product-plane/native-runtime-ownership.md):
+native library primitives own their strong zones, while Python coordinates,
+adapts contracts, validates, and records evidence unless an explicit fallback is
+documented.
 

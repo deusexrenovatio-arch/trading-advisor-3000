@@ -12,6 +12,11 @@ If the task touches the product plane, also read:
 1. `docs/architecture/product-plane/STATUS.md`
 2. `docs/architecture/product-plane/CONTRACT_SURFACES.md`
 
+If the task touches product-plane data, research, compute, optimization, or
+orchestration runtimes, also read:
+1. `docs/architecture/product-plane/native-runtime-ownership.md`
+2. `docs/agent/native-runtime-selection.md`
+
 ## Startup checklist
 1. Confirm the task change surface: `shell`, `product-plane`, or `mixed`.
 2. Record that surface in the active task note and keep the same declaration in PR metadata.
@@ -26,13 +31,14 @@ If the task touches the product plane, also read:
 11. Before expanding beyond the primary route into memory, current diff, logs, generated artifacts, live process state, Graphify, web docs, or broad file reads, record a short Context Expansion Reason: question, source/tool, why current context is insufficient, and stop condition.
 12. Skip Serena only for docs-only work, already localized tiny edits, generated/artifact paths, config/non-code-only tasks, unsupported file types, or Serena unavailability; state the fallback reason briefly.
 13. For architecture-heavy, cross-module, ownership-sensitive, or concept-location uncertain code tasks, follow Architecture Orientation Routing in `docs/agent/skills-routing.md`.
-14. Confirm no business/domain logic is being imported into shell control-plane files.
-15. If the diff hits a configured critical contour, read `docs/agent/critical-contours.md` and add `## Solution Intent` to the active task note before coding.
-16. For package intake or governed continuation, prefer the one-step bootstrap: `python scripts/codex_governed_bootstrap.py --request "<request>" ...`.
-17. Otherwise start lifecycle directly: `python scripts/task_session.py begin --request "<request>"`.
-18. If the operator asks to take a package or continue a module phase, do not start manual inline execution. Route first through `python scripts/codex_governed_entry.py ...`.
-19. Confirm patch set is small and explicit.
-20. Run loop gate before PR prep: `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`.
+14. For product-plane runtime work, record the Native Runtime Choice from `docs/architecture/product-plane/native-runtime-ownership.md` before implementation.
+15. Confirm no business/domain logic is being imported into shell control-plane files.
+16. If the diff hits a configured critical contour, read `docs/agent/critical-contours.md` and add `## Solution Intent` to the active task note before coding.
+17. For package intake or governed continuation, prefer the one-step bootstrap: `python scripts/codex_governed_bootstrap.py --request "<request>" ...`.
+18. Otherwise start lifecycle directly: `python scripts/task_session.py begin --request "<request>"`.
+19. If the operator asks to take a package or continue a module phase, do not start manual inline execution. Route first through `python scripts/codex_governed_entry.py ...`.
+20. Confirm patch set is small and explicit.
+21. Run loop gate before PR prep: `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`.
 
 ## Critical constraints
 - Mainline is PR-only by default.
@@ -43,6 +49,7 @@ If the task touches the product plane, also read:
 - Emergency main push requires explicit neutral variables.
 - Product-plane work is allowed in isolated app paths; shell surfaces stay domain-free.
 - For package intake or module continuation, manual chat-only execution is not a valid governed route. The governed entry launcher must be used first.
+- Spark, Delta Lake, Dagster, pandas-ta-classic, vectorbt, Optuna, and DuckDB must be considered as native runtime owners before custom Python owns product-plane data, compute, optimization, or orchestration logic.
 
 ## Escalate when
 - one patch mixes multiple high-risk surfaces,

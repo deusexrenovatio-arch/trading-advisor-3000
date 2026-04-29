@@ -19,6 +19,7 @@ Use these exact terms in task notes and PRs:
 | `scripts/*`, `configs/*` | shell | lifecycle and validation runtime |
 | `plans/*`, `memory/*` | shell | durable process state |
 | `docs/checklists/*`, `docs/workflows/*`, `docs/runbooks/*` | shell | governance contracts and operations |
+| `docs/agent/native-runtime-selection.md` | shell | routing shim that points agents to the product-plane runtime ownership architecture |
 | `src/trading_advisor_3000/*` | product-plane | application runtime, contracts, and modules |
 | `src/trading_advisor_3000/dagster_defs/*`, `src/trading_advisor_3000/spark_jobs/*` | product-plane | data-plane execution definitions and Spark jobs; domain tokens are allowed here because these modules are product execution surfaces |
 | `tests/product-plane/*` | product-plane | product tests |
@@ -51,3 +52,12 @@ If a patch is `mixed`:
 1. State why both surfaces are required.
 2. Keep boundaries explicit in the patch summary.
 3. Prefer split order for high-risk paths: `contracts -> code -> docs`.
+
+## Native runtime ownership
+Product-plane runtime ownership is architectural truth, not only an agent
+preference. The canonical matrix is
+`docs/architecture/product-plane/native-runtime-ownership.md`.
+
+Agent route shims may reference it, but they must not become the only place
+where Spark, Delta Lake, Dagster, pandas-ta-classic, vectorbt, Optuna, DuckDB,
+or Python ownership is defined.
