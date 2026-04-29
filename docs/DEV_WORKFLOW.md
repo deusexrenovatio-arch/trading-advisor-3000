@@ -17,6 +17,11 @@ Provide a predictable and enforceable workflow for governance-first delivery in 
 
 For product-plane tasks, read `docs/architecture/product-plane/STATUS.md` before treating older phase-closure language as current truth.
 
+## Worktree setup
+New worktrees run `scripts/serena_worktree_bootstrap.py` from the tracked `post-checkout` hook when the target commit contains the hook. If a worktree was created from an older commit or the hook was skipped, run:
+
+`py -3.11 scripts/serena_worktree_bootstrap.py --worktree "<worktree-root>"`
+
 ## Gate order
 `begin -> task note -> task contract validation -> loop gate -> pr gate -> nightly gate -> dashboard refresh -> end`
 
