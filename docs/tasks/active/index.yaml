@@ -186,8 +186,3 @@ items:
   mode: tracked_session
   status: in_progress
   started_at: '2026-04-29'
-- id: TASK-2026-04-29-PUBLISH-WORK3-CONTINUOUS-FRONT-PR-STACK
-  path: docs/tasks/active/TASK-2026-04-29-publish-work3-continuous-front-pr-stack.md
-  mode: legacy-full
-  status: in_progress
-  started_at: '2026-04-29'
