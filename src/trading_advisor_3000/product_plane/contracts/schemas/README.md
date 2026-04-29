@@ -42,6 +42,10 @@ JSON-schema snapshots for the contracts-and-scaffolding surface.
 - `src/trading_advisor_3000/product_plane/contracts/schemas/runtime_operational_snapshot.v1.json`
 - `src/trading_advisor_3000/product_plane/contracts/schemas/broker_staging_connector_profile.v1.json`
 - `src/trading_advisor_3000/product_plane/contracts/schemas/real_broker_process_report.v1.json`
+- `src/trading_advisor_3000/product_plane/contracts/schemas/continuous_front_bars.v1.json`
+- `src/trading_advisor_3000/product_plane/contracts/schemas/continuous_front_roll_events.v1.json`
+- `src/trading_advisor_3000/product_plane/contracts/schemas/continuous_front_adjustment_ladder.v1.json`
+- `src/trading_advisor_3000/product_plane/contracts/schemas/continuous_front_qc_report.v1.json`
 - `src/trading_advisor_3000/product_plane/contracts/schemas/research_campaign.v1.json`
 - `src/trading_advisor_3000/product_plane/contracts/schemas/research_run_summary.v1.json`
 
