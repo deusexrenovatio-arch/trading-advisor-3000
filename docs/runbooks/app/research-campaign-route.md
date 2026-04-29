@@ -36,12 +36,12 @@ Each execution still gets a fresh `run_id` and a fresh immutable run folder.
 ## Stage Selection
 
 The route is selected strictly by `target_stage` in the campaign config:
-- `data_prep` -> materialize reusable research data prep only: dataset, instrument tree, bar view, base indicator, and derived indicator layers
+- `data_prep` -> materialize reusable research data prep only: continuous front, dataset, instrument tree, bar view, base indicator, and derived indicator layers
 - `backtest` -> reuse or rebuild research data prep, refresh the strategy registry needed by the campaign, then run backtests and rankings
 - `projection` -> run the full route through candidate projection
 
 The scheduled freshness contour is `research_data_prep_job`.
-It is triggered after `moex_baseline_update_job` succeeds so materialized research data stays current with the canonical MOEX baseline.
+It is triggered after `moex_baseline_update_job` succeeds so `continuous_front_refresh` and materialized research data stay current with the canonical MOEX baseline.
 Strategy refresh is separate because strategy inventory changes are not the same decision as data freshness.
 
 Accepted baseline defaults should resolve to:
@@ -52,7 +52,9 @@ Accepted baseline defaults should resolve to:
 
 The canonical root must include `canonical_bars.delta`, `canonical_bar_provenance.delta`,
 `canonical_session_calendar.delta`, and `canonical_roll_map.delta`.
-The MOEX canonical job owns all four tables; research data prep consumes them and then builds the reusable research layer.
+The MOEX canonical job owns all four tables.
+Research data prep consumes them, builds `continuous_front_bars.delta`, `continuous_front_roll_events.delta`, `continuous_front_adjustment_ladder.delta`, and `continuous_front_qc_report.delta`, then builds the reusable research layer.
+`continuous_front` is historical/batch research truth only and must not be used as a live intraday decision source.
 
 ## Run Artifacts
 

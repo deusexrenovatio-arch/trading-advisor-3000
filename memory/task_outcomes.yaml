@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-04-27'
+updated_at: '2026-04-29'
 items:
 - task_id: TASK-2026-03-16-BASELINE-SEED
   closed_at: '2026-03-16T10:00:00Z'
@@ -900,6 +900,87 @@ items:
   improvement_action: workflow
   improvement_artifact: research indicator/derived materialization tests and research
     operations runbook update.
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-04-28-IMPLEMENT-PRODUCT-PLANE-CONTINUOUS-FRONT-CONTOUR
+  closed_at: '2026-04-28T16:49:59Z'
+  branch: codex/continuous-front-contour
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - product-plane research data-prep
+  - continuous_front contracts
+  - Dagster assets
+  - campaign config
+  - and docs.
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: test_gap
+  incident_signature: continuous_front_policy_missing_from_loaded_manifest.
+  improvement_action: test
+  improvement_artifact: tests/product-plane/integration/test_research_dagster_jobs.py
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-04-29-REPAIR-CONTINUOUS-FRONT-ACCEPTANCE-PROBLEMS-FROM
+  closed_at: '2026-04-29T10:08:53Z'
+  branch: codex/continuous-front-contour
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-RESEARCH
+  - CTX-OPS
+  - CTX-CONTRACTS
+  route_match: expanded
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: environment_blocked
+  primary_rework_cause: environment
+  incident_signature: continuous_front_downstream_contract_collapse_and_spark_runtime_gap
+  improvement_action: env
+  improvement_artifact: docs/tasks/active/continuous-front-acceptance-problems-2026-04-29.md
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: partial
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-04-29-PUBLISH-WORK3-CONTINUOUS-FRONT-PR-STACK
+  closed_at: '2026-04-29T13:29:49Z'
+  branch: codex/continuous-front-03-docs-evidence
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  - CTX-CONTRACTS
+  - CTX-RESEARCH
+  - CTX-ARCHITECTURE
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: test_gap
+  incident_signature: PR-stack-publication-continuous-front-work3.
+  improvement_action: test
+  improvement_artifact: 'draft PRs #73, #74, and #75.'
   linked_plan_id: null
   linked_memory_id: null
   outcome_status: completed
