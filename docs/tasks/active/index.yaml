@@ -176,3 +176,13 @@ items:
   mode: legacy-full
   status: in_progress
   started_at: '2026-04-29'
+- id: TASK-2026-04-28-REPAIR-CONTINUOUS-FRONT-ACCEPTANCE-BLOCKERS-FROM
+  path: docs/tasks/active/TASK-2026-04-28-repair-continuous-front-acceptance-blockers-from.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-04-28'
+- id: TASK-2026-04-29-REPAIR-CONTINUOUS-FRONT-P0-AS-OF-ADJUSTMENT-AND-
+  path: docs/tasks/active/TASK-2026-04-29-repair-continuous-front-p0-as-of-adjustment-and-.md
+  mode: tracked_session
+  status: in_progress
+  started_at: '2026-04-29'
