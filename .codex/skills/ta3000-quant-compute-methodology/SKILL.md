@@ -1,11 +1,11 @@
 ---
 name: ta3000-quant-compute-methodology
-description: Use for TA3000 research compute work that touches vectorbt, pandas-ta-classic, Optuna, indicators, derived indicators, signal matrices, strategy execution, optimizer search, or backtest integration, especially when library-native methodology and native runtime ownership should guide the design before local TA3000 patterns.
+description: Use for TA3000 research compute work that touches vectorbt, pandas-ta-classic, Optuna, indicators, derived indicators, signal matrices, strategy execution, optimizer search, or backtest integration after strategy intent and measurable TA states are clear.
 classification: KEEP_CORE
 wave: WAVE_1
 status: ACTIVE
 owner_surface: CTX-COMPUTE
-scope: TA3000 vectorbt, pandas-ta-classic, Optuna, and native-runtime methodology for research compute integration
+scope: TA3000 library-native compute, optimizer, signal-matrix, and runtime-ownership implementation boundary
 routing_triggers:
   - vectorbt
   - pandas-ta-classic
@@ -30,6 +30,13 @@ routing_triggers:
 - A previous implementation risked hand-rolling logic that the libraries already support.
 
 Do not use this for pure storage proof; pair with `ta3000-data-plane-proof` when the claim depends on real `D:/TA3000-data` outputs.
+
+## Boundary With Neighbor Skills
+- This skill owns compute methodology: library-native indicators, derived matrices, signal matrices, vectorbt execution, Optuna search, and native runtime choice.
+- `ta3000-strategy-research-methodology` owns why the strategy should exist and what evidence would reject it.
+- `ta3000-technical-analysis-system-design` owns the measurable TA state model before implementation.
+- `ta3000-data-plane-proof` owns proof against authoritative storage roots, Delta logs, row counts, and production materialization evidence.
+- `ta3000-backtest-validation-and-overfit-control` owns robustness, walk-forward, OOS, overfit, cost, and slippage acceptance.
 
 ## First Move: Library Recon
 Before designing or editing compute logic, inspect the relevant library entry points and write down the chosen pattern in the work notes or final summary:

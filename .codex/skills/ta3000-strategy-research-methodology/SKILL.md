@@ -1,11 +1,11 @@
 ---
 name: ta3000-strategy-research-methodology
-description: Use for TA3000 product-plane strategy research when a trading idea must be turned into an explicit hypothesis, measurable strategy intent, research protocol, acceptance criteria, or rejection decision before implementation or integration.
+description: Use for TA3000 product-plane strategy research when a trading idea must be turned into an explicit hypothesis, measurable strategy intent, research protocol, acceptance criteria, or rejection decision before technical-analysis design, compute implementation, or integration.
 classification: KEEP_CORE
 wave: WAVE_1
 status: ACTIVE
 owner_surface: CTX-RESEARCH
-scope: TA3000 strategy hypothesis design and research protocol methodology
+scope: TA3000 strategy hypothesis, intent, and research protocol ownership
 routing_triggers:
   - strategy research
   - trading hypothesis
@@ -25,6 +25,12 @@ routing_triggers:
 - Work risks jumping from an indicator idea straight to code without a research hypothesis.
 
 Use this with `ta3000-technical-analysis-system-design` for technical-analysis ideas and with `ta3000-backtest-validation-and-overfit-control` before claiming a strategy is promising.
+
+## Boundary With Neighbor Skills
+- This skill owns strategy intent: hypothesis, regime, research protocol, acceptance criteria, and rejection logic.
+- `ta3000-technical-analysis-system-design` owns the translation of chart/indicator language into measurable technical-analysis states.
+- `ta3000-quant-compute-methodology` owns the library-native implementation path after the hypothesis and measurable states are clear.
+- `ta3000-backtest-validation-and-overfit-control` owns evidence quality after a strategy is implemented or being promoted.
 
 ## Research Entry Points
 Use external references to refresh methodology when the strategy concept is not already clear:

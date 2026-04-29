@@ -1,11 +1,11 @@
 ---
 name: ta3000-technical-analysis-system-design
-description: Use for TA3000 product-plane technical-analysis strategy design when indicators, chart patterns, trend, momentum, mean reversion, breakout, volatility, volume, market structure, or multi-timeframe logic must be translated into measurable and testable system rules.
+description: Use for TA3000 product-plane technical-analysis system design when indicators, chart patterns, trend, momentum, mean reversion, breakout, volatility, volume, market structure, or multi-timeframe logic must be translated into measurable rules before library-native compute or validation.
 classification: KEEP_CORE
 wave: WAVE_1
 status: ACTIVE
 owner_surface: CTX-RESEARCH
-scope: TA3000 technical-analysis signal taxonomy and system design
+scope: TA3000 technical-analysis state taxonomy and system-design boundary
 routing_triggers:
   - technical analysis
   - trend strategy
@@ -27,6 +27,12 @@ routing_triggers:
 - A strategy mixes base indicators, derived relationships, confirmation filters, and exits.
 
 Use with `ta3000-quant-compute-methodology` when choosing `pandas-ta-classic`, custom pandas, and `vectorbt` responsibilities.
+
+## Boundary With Neighbor Skills
+- This skill owns technical-analysis system design: turning discretionary TA language into measurable states, conditions, timing, and invalidation.
+- `ta3000-strategy-research-methodology` owns the higher-level hypothesis, regime thesis, and acceptance/rejection protocol.
+- `ta3000-quant-compute-methodology` owns the library-native compute and simulation route once the measurable TA states are specified.
+- Do not use this skill as a substitute for backtest validation, promotion evidence, or live signal-delivery design.
 
 ## Knowledge Entry Points
 Use these sources as methodology anchors when designing or revising technical-analysis logic:
