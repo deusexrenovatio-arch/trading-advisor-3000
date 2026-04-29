@@ -44,6 +44,9 @@ def research_dataset_store_contract() -> dict[str, dict[str, object]]:
                 "created_at": "timestamp",
                 "code_version": "string",
                 "notes_json": "json",
+                "source_tables": "json",
+                "continuous_front_policy": "json",
+                "lineage_key": "string",
             },
         },
         "research_instrument_tree": {
@@ -89,6 +92,31 @@ def research_dataset_store_contract() -> dict[str, dict[str, object]]:
                 "session_open_ts": "timestamp",
                 "session_close_ts": "timestamp",
                 "active_contract_id": "string",
+                "series_id": "string",
+                "series_mode": "string",
+                "roll_epoch": "int",
+                "roll_event_id": "string",
+                "is_roll_bar": "boolean",
+                "is_first_bar_after_roll": "boolean",
+                "bars_since_roll": "int",
+                "price_space": "string",
+                "native_open": "double",
+                "native_high": "double",
+                "native_low": "double",
+                "native_close": "double",
+                "continuous_open": "double",
+                "continuous_high": "double",
+                "continuous_low": "double",
+                "continuous_close": "double",
+                "execution_open": "double",
+                "execution_high": "double",
+                "execution_low": "double",
+                "execution_close": "double",
+                "previous_contract_id": "string",
+                "candidate_contract_id": "string",
+                "adjustment_mode": "string",
+                "cumulative_additive_offset": "double",
+                "ratio_factor": "double",
                 "ret_1": "double",
                 "log_ret_1": "double",
                 "true_range": "double",
@@ -139,7 +167,19 @@ def _stable_hash_views(rows: list[ResearchBarView]) -> str:
             "volume": row.volume,
             "open_interest": row.open_interest,
             "active_contract_id": row.active_contract_id,
-        }
+            "series_id": row.series_id,
+            "series_mode": row.series_mode,
+            "roll_epoch": row.roll_epoch,
+            "roll_event_id": row.roll_event_id,
+            "is_roll_bar": row.is_roll_bar,
+            "is_first_bar_after_roll": row.is_first_bar_after_roll,
+            "bars_since_roll": row.bars_since_roll,
+            "price_space": row.price_space,
+            "native_close": row.native_close if row.native_close is not None else row.close,
+            "continuous_close": row.continuous_close if row.continuous_close is not None else row.close,
+            "execution_close": row.execution_close if row.execution_close is not None else row.close,
+            "cumulative_additive_offset": row.cumulative_additive_offset,
+            }
         for row in rows
     ]
     normalized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -403,6 +443,29 @@ def materialize_research_dataset(
     }
 
 
+def _decode_json_manifest_field(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return value
+
+
+def _normalize_loaded_manifest_row(row: dict[str, object]) -> dict[str, object]:
+    payload = dict(row)
+    for field_name in (
+        "timeframes_json",
+        "split_params_json",
+        "notes_json",
+        "source_tables",
+        "continuous_front_policy",
+    ):
+        if field_name in payload:
+            payload[field_name] = _decode_json_manifest_field(payload[field_name])
+    return payload
+
+
 def load_materialized_research_dataset(*, output_dir: Path, dataset_version: str) -> dict[str, object]:
     datasets_path = output_dir / "research_datasets.delta"
     instrument_tree_path = output_dir / "research_instrument_tree.delta"
@@ -414,7 +477,7 @@ def load_materialized_research_dataset(*, output_dir: Path, dataset_version: str
     if not manifest_rows:
         raise KeyError(f"dataset_version not found: {dataset_version}")
     return {
-        "dataset_manifest": manifest_rows[0],
+        "dataset_manifest": _normalize_loaded_manifest_row(manifest_rows[0]),
         "instrument_tree": [
             row
             for row in instrument_rows
