@@ -181,3 +181,8 @@ items:
   mode: legacy-full
   status: in_progress
   started_at: '2026-04-29'
+- id: TASK-2026-04-29-PUBLISH-SKILL-ROUTING-BOUNDARY-HOT-DOC-UPDATES-F
+  path: docs/tasks/active/TASK-2026-04-29-publish-skill-routing-boundary-hot-doc-updates-f.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-04-29'

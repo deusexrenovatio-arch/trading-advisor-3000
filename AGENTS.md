@@ -18,6 +18,7 @@ Business and trading logic remain out of scope for shell control-plane surfaces.
 8. Every change set must declare a change surface: `shell`, `product-plane`, or `mixed`.
 9. Generic engineering skills belong in the global Codex skill root (`D:/CodexHome/skills`); repo-local skills are only for TA3000-specific trading, product-domain, or compute-runtime knowledge.
 10. `.cursor/skills` is a retired legacy skill catalog. Do not add skills there; use global Codex skills for ordinary chat routing and `.codex/skills` only for TA3000-specific product-plane/trading/data/compute knowledge.
+11. GraphQL and Node.js are not active TA3000 baseline surfaces. Do not route GraphQL/Node-specific skills unless active source files or contracts appear outside ignored temporary, generated, archive, or package-intake paths.
 
 ## Source-Of-Truth Layers
 ### Hot (read first)
@@ -65,7 +66,8 @@ Business and trading logic remain out of scope for shell control-plane surfaces.
 ## Ordinary Chat Skill Routing
 - In normal chat, route through global Codex skills first. Use `codex-skill-routing` when the task is about skill selection, prompt routing, or preventing missed skills.
 - Before substantial work, name the selected skills briefly and why they apply. If no skill is needed, say why.
-- For non-trivial implementation, use `code-implementation-worker` plus the relevant test/architecture/verification skills.
+- Select skills by sequence, not keyword count: start with the skill that owns the current artifact, add neighboring skills only when their phase is reached, and keep evidence/acceptance skills for closeout.
+- For non-trivial implementation, use `code-implementation-worker` plus the relevant architecture, contract, executable-test, documentation, and verification skills in that order.
 - For review, acceptance, unblock, or "is this done?" questions, use `code-reviewer`, `phase-acceptance-governor`, and/or `verification-before-completion` as appropriate.
 - If a required skill is missing from the current session metadata but exists on disk under `D:/CodexHome/skills`, read that skill's main instruction file directly and state it as a fallback.
 - Open repo-local skills only for TA3000-specific product/trading/data/compute knowledge under `.codex/skills`.

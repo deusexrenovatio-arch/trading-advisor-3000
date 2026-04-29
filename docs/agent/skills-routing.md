@@ -18,6 +18,7 @@
 ## Tool Reality Check
 - Repo-local active skills are whatever `.codex/skills/*/SKILL.md` contains; the generated catalog can validly be empty.
 - Global skills are the ordinary-chat baseline; generic process rules belong there, not in `.cursor/skills` or repo-local skills.
+- GraphQL, Node.js, npm, pnpm, yarn, JavaScript, and TypeScript are not active TA3000 baseline surfaces. Do not route GraphQL/Node-specific global skills for this repo unless active source files or contracts appear outside ignored temporary, generated, archive, or package-intake paths.
 - Serena is the default exact-symbol/navigation tool for non-trivial code discovery in this repo.
 - MemPalace is advisory continuity memory, not a source of truth; use it when prior context could reduce work, then verify against repo/runtime evidence when it matters.
 - Graphify is optional architecture orientation. Use it only when a local graph/report exists or the task explicitly needs that map; it is not a baseline pass after every Serena lookup.
@@ -31,6 +32,31 @@
 4. If a needed skill is generic, keep it in the global Codex skill root instead of adding it to this repo.
 5. If the task is genuinely TA3000-specific, open the repo-local skill narrowly and do not load the whole skill corpus.
 6. Before expanding beyond the selected skill/context route into memory, current diff, logs, generated artifacts, live process state, web docs, Graphify, or broad file reads, leave a Context Expansion Reason: evidence question, source/tool, insufficiency, and stop condition.
+
+## Global Skill Sequence Rules
+- Route by the artifact or decision currently being produced, not by keyword count.
+- Start with the skill that owns the next decision, then hand off when the artifact changes.
+- Load adjacent skills only when their output is immediately needed; do not preload a whole skill family.
+- Keep `verification-before-completion` near closeout, after evidence exists.
+- Keep `phase-acceptance-governor` last for governed pass/block decisions.
+- Use `pr-commit-history-and-summary` after the diff shape is known, unless the user asks for history planning before edits.
+- Use `release-versioning-changelog-and-notes` only when release artifacts, SemVer, tags, or release readiness are part of the task.
+
+## Common Global Skill Sequences
+- Normal implementation:
+  `code-implementation-worker` -> `executable-test-suite` when tests are affected -> `docs-sync` when docs changed -> `verification-before-completion` -> `pr-commit-history-and-summary` before PR publication.
+- Architecture-sensitive implementation:
+  `architecture-review` -> `registry-first` when contracts or data products change -> surface-specific contract skill -> `code-implementation-worker` -> `executable-test-suite` -> `docs-sync` -> `verification-before-completion`.
+- Review or acceptance:
+  `code-reviewer` -> `qa-acceptance-scenario-planning` when scenarios are unclear -> `executable-test-suite` when tests must be added or run -> `verification-before-completion` -> `phase-acceptance-governor` for governed pass/block.
+- Event contracts:
+  `registry-first` -> `event-contracts` for topics/payloads/producers/consumers -> `executable-test-suite` -> `docs-sync` -> `verification-before-completion`.
+- Data or integration:
+  `integration-connector` for external access/raw landing -> `source-onboarding` for canonical keys/crosswalks -> `data-quality-gates` for QC -> `data-lineage` for provenance/ownership -> `data-engineer` for transforms/storage/orchestration -> `executable-test-suite` -> `verification-before-completion`.
+- Document knowledge pipeline:
+  `document-postgres-ingestion` -> `document-knowledge-graph-neo4j` -> `document-vector-indexing` -> `document-crosslayer-consistency` -> `verification-before-completion`.
+- CI, PR, and release:
+  `ci-bootstrap` only when CI or merge gates are missing -> `github-actions-ops` for existing Actions failures/hardening -> `pr-commit-history-and-summary` -> `release-versioning-changelog-and-notes` only for release artifacts/versioning -> `verification-before-completion`.
 
 ## Memory-Backed Failure Routing
 - When the user says "again", "still broken", "not that", or the same symptom repeats after a focused fix, route through `repeated-issue-review` before another patch.
@@ -106,28 +132,28 @@
   or synchronized.
 - Co-load `module-scaffold` when the task creates a new module or moves a module
   between architectural zones.
-- Co-load `validate-crosslayer` when the task crosses shell/product boundaries or
-  multiple product-plane layers.
+- Co-load `document-crosslayer-consistency` only when the task crosses Postgres,
+  Neo4j, FAISS, and provenance links in the document retrieval pipeline.
 
 ## Worker Coding Routing
 - When the active phase is implementation and the request is code-writing focused, load:
   - `code-implementation-worker` (primary)
 - Co-load conditionally:
   - `registry-first` when contracts/schemas/interfaces change
-  - `validate-crosslayer` when changes cross multiple layers or boundaries
-  - `testing-suite` for primary changed-path coverage only
+  - `document-crosslayer-consistency` when changes cross document retrieval layers or boundaries
+  - `executable-test-suite` for primary changed-path coverage only
 - Do not auto-load intake-oriented or acceptance-only skills for worker coding by default.
 
 ## Acceptance Routing
 - When a task involves phase acceptance, acceptor flows, unblock decisions, or explicit guardrails against fallbacks/skips, load `phase-acceptance-governor` first.
-- Co-load `architecture-review`, `testing-suite`, and `docs-sync` when acceptance covers architecture fit, executed tests, and documentation closure.
+- Co-load `architecture-review`, `executable-test-suite`, and `docs-sync` when acceptance covers architecture fit, executed tests, and documentation closure.
 - Co-load `verification-before-completion` whenever completion claims must be fail-closed on executable evidence.
 
 ## Pipeline Routing
 - When changes touch `.github/workflows/**` or lane wiring, load:
   - `ci-bootstrap`
   - `github-actions-ops`
-  - `commit-and-pr-hygiene`
+  - `pr-commit-history-and-summary`
 - Use this set for both lane design and failing-check remediation so CI changes remain policy-aligned and reviewable.
 
 ## Orchestration Routing
@@ -138,12 +164,12 @@
   load:
   - `phase-acceptance-governor`
   - `verification-before-completion`
-  - `testing-suite`
+  - `executable-test-suite`
 - Orchestration acceptance is considered incomplete if completion-verification evidence is missing.
 
 ## Critical Contour Routing
 - When changed files match `configs/critical_contours.yaml`, route `CTX-ARCHITECTURE` as a companion context even when no architecture doc changed directly.
-- For critical contours, load `architecture-review` and `qa-test-engineer` before implementation so the chosen path is checked against target shape and executable evidence.
+- For critical contours, load `architecture-review` and `qa-acceptance-scenario-planning` before implementation so the chosen path is checked against target shape and executable evidence.
 - If the task claims contour closure or acceptance, also load `phase-acceptance-governor` and `verification-before-completion`.
 - Critical contour work must declare `target`, `staged`, or `fallback` in the active task note before code changes begin.
 - If the chosen path is simpler than the target shape, the agent must name that fact explicitly instead of presenting it as target closure.
