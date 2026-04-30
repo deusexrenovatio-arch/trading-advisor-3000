@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows, write_delta_table_rows
 
 from .adapter_contracts import StrategyFamilyAdapter
 from .families import phase_stg02_family_adapters
@@ -117,6 +117,35 @@ def _find_template_row(
     return matching_rows[0]
 
 
+def _retain_stg02_strategy_rows(
+    *,
+    registry_root: Path,
+    supported_family_keys: set[str],
+) -> dict[str, int]:
+    contract = phase_stg01_strategy_store_contract()
+    retained_counts: dict[str, int] = {}
+    for table_name in (
+        "research_strategy_families",
+        "research_strategy_templates",
+        "research_strategy_template_modules",
+    ):
+        table_path = registry_root / f"{table_name}.delta"
+        rows = read_delta_table_rows(table_path)
+        retained_rows = [
+            row
+            for row in rows
+            if str(row.get("family_key", "")).strip() in supported_family_keys
+        ]
+        if len(retained_rows) != len(rows):
+            write_delta_table_rows(
+                table_path=table_path,
+                rows=retained_rows,
+                columns=contract[table_name]["columns"],
+            )
+        retained_counts[table_name] = len(retained_rows)
+    return retained_counts
+
+
 def materialize_strategy_template_seed_registry(
     *,
     registry_root: Path,
@@ -161,6 +190,11 @@ def materialize_strategy_template_seed_registry(
     families_table = registry_root / "research_strategy_families.delta"
     templates_table = registry_root / "research_strategy_templates.delta"
     template_modules_table = registry_root / "research_strategy_template_modules.delta"
+    supported_family_keys = {adapter.family_manifest.family_key for adapter in inventory}
+    retained_counts = _retain_stg02_strategy_rows(
+        registry_root=registry_root,
+        supported_family_keys=supported_family_keys,
+    )
     family_rows = read_delta_table_rows(families_table)
     template_rows = read_delta_table_rows(templates_table)
     template_module_rows = read_delta_table_rows(template_modules_table)
@@ -197,6 +231,7 @@ def materialize_strategy_template_seed_registry(
             "research_strategy_templates": len(template_rows),
             "research_strategy_template_modules": len(template_module_rows),
         },
+        "retained_delta_table_counts": retained_counts,
         "output_paths": {
             "research_strategy_families": families_table.as_posix(),
             "research_strategy_templates": templates_table.as_posix(),

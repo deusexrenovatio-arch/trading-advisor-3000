@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from time import perf_counter
 
-from trading_advisor_3000.product_plane.research.datasets import load_materialized_research_dataset
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_frame
 from trading_advisor_3000.product_plane.research.io.cache import ResearchFrameCache
 from trading_advisor_3000.product_plane.research.io.loaders import ResearchSliceRequest, load_backtest_frames
 from trading_advisor_3000.product_plane.research.strategies import StrategyRegistry, build_strategy_registry
@@ -17,6 +18,7 @@ from .engine import (
     search_spec_id,
     strategy_spec_to_search_spec,
 )
+from .input_requirements import loader_columns_for_search_specs
 from .results import backtest_store_contract, write_backtest_artifacts
 
 
@@ -34,6 +36,17 @@ def _manifest_split_windows(dataset_manifest: dict[str, object]) -> tuple[dict[s
         payload = {}
     windows = payload.get("windows", []) if isinstance(payload, dict) else []
     return tuple(item for item in windows if isinstance(item, dict))
+
+
+def _load_dataset_manifest(*, dataset_output_dir: Path, dataset_version: str) -> dict[str, object]:
+    frame = read_delta_table_frame(
+        dataset_output_dir / "research_datasets.delta",
+        columns=["dataset_version", "split_params_json"],
+        filters=[("dataset_version", "=", dataset_version)],
+    )
+    if frame.empty:
+        raise KeyError(f"dataset_version not found: {dataset_version}")
+    return {str(key): value for key, value in frame.iloc[0].to_dict().items()}
 
 
 def _spec_execution_timeframe(spec: StrategyFamilySearchSpec, fallback: str = "15m") -> str:
@@ -103,6 +116,7 @@ class BacktestBatchRequest:
     timeframe: str = ""
     contract_ids: tuple[str, ...] = ()
     instrument_ids: tuple[str, ...] = ()
+    optimizer_policy: dict[str, object] = field(default_factory=lambda: {"engine": "grid"})
 
     def __post_init__(self) -> None:
         if not self.campaign_run_id.strip():
@@ -117,6 +131,9 @@ class BacktestBatchRequest:
             raise ValueError("param_batch_size must be positive")
         if self.series_batch_size <= 0:
             raise ValueError("series_batch_size must be positive")
+        engine = str(self.optimizer_policy.get("engine", "grid"))
+        if engine not in {"grid", "optuna"}:
+            raise ValueError("optimizer_policy.engine must be `grid` or `optuna`")
 
     def batch_id(self) -> str:
         payload = "|".join(
@@ -131,6 +148,7 @@ class BacktestBatchRequest:
                 str(self.param_batch_size),
                 str(self.series_batch_size),
                 self.timeframe,
+                json.dumps(self.optimizer_policy, ensure_ascii=False, sort_keys=True),
                 *self.contract_ids,
                 *self.instrument_ids,
             )
@@ -210,11 +228,12 @@ def run_backtest_batch(
 ) -> dict[str, object]:
     del strategy_registry
     engine_config = engine_config or BacktestEngineConfig()
-    dataset_manifest = load_materialized_research_dataset(
-        output_dir=dataset_output_dir,
+    dataset_manifest = _load_dataset_manifest(
+        dataset_output_dir=dataset_output_dir,
         dataset_version=request.dataset_version,
-    )["dataset_manifest"]
+    )
     split_windows = _manifest_split_windows(dataset_manifest)
+    input_columns = loader_columns_for_search_specs(request.search_specs)
     series_frames, cache_id, cache_hit = load_backtest_frames(
         dataset_output_dir=dataset_output_dir,
         indicator_output_dir=indicator_output_dir,
@@ -226,6 +245,9 @@ def run_backtest_batch(
             timeframe=_loader_timeframe_for_specs(request.search_specs, request.timeframe),
             contract_ids=request.contract_ids,
             instrument_ids=request.instrument_ids,
+            price_columns=input_columns.price_columns,
+            indicator_columns=input_columns.indicator_columns,
+            derived_columns=input_columns.derived_columns,
         ),
         cache=cache,
     )
@@ -236,6 +258,8 @@ def run_backtest_batch(
     batch_id = request.batch_id()
     all_search_spec_rows = [_search_spec_row(spec) for spec in request.search_specs]
     all_search_run_rows: list[dict[str, object]] = []
+    all_optimizer_study_rows: list[dict[str, object]] = []
+    all_optimizer_trial_rows: list[dict[str, object]] = []
     all_param_result_rows: list[dict[str, object]] = []
     all_gate_rows: list[dict[str, object]] = []
     all_run_rows: list[dict[str, object]] = []
@@ -243,6 +267,7 @@ def run_backtest_batch(
     all_trade_rows: list[dict[str, object]] = []
     all_order_rows: list[dict[str, object]] = []
     all_drawdown_rows: list[dict[str, object]] = []
+    started = perf_counter()
 
     for search_spec in request.search_specs:
         for series_chunk in _chunked_series_for_spec(selected_series, request.series_batch_size, search_spec, request.timeframe):
@@ -258,8 +283,11 @@ def run_backtest_batch(
                 derived_indicator_set_version=request.derived_indicator_set_version,
                 split_windows=split_windows,
                 param_batch_size=request.param_batch_size,
+                optimizer_policy=request.optimizer_policy,
             )
             all_search_run_rows.extend(report["search_run_rows"])
+            all_optimizer_study_rows.extend(report["optimizer_study_rows"])
+            all_optimizer_trial_rows.extend(report["optimizer_trial_rows"])
             all_param_result_rows.extend(report["param_result_rows"])
             all_gate_rows.extend(report["gate_rows"])
             all_run_rows.extend(report["run_rows"])
@@ -268,6 +296,7 @@ def run_backtest_batch(
             all_order_rows.extend(report["order_rows"])
             all_drawdown_rows.extend(report["drawdown_rows"])
 
+    duration_seconds = max(perf_counter() - started, 1e-9)
     batch_row = {
         "backtest_batch_id": batch_id,
         "campaign_run_id": request.campaign_run_id,
@@ -282,6 +311,10 @@ def run_backtest_batch(
         "series_count": len(selected_series),
         "cache_id": cache_id,
         "cache_hit": 1 if cache_hit else 0,
+        "duration_seconds": round(duration_seconds, 6),
+        "evaluations_per_second": round(request.combination_count / duration_seconds, 6),
+        "run_rows_per_second": round(len(all_run_rows) / duration_seconds, 6),
+        "trade_rows_per_second": round(len(all_trade_rows) / duration_seconds, 6),
         "created_at": all_stat_rows[0]["created_at"] if all_stat_rows else "1970-01-01T00:00:00Z",
     }
     output_paths = write_backtest_artifacts(
@@ -289,6 +322,8 @@ def run_backtest_batch(
         batch_rows=[batch_row],
         search_spec_rows=all_search_spec_rows,
         search_run_rows=all_search_run_rows,
+        optimizer_study_rows=all_optimizer_study_rows,
+        optimizer_trial_rows=all_optimizer_trial_rows,
         param_result_rows=all_param_result_rows,
         gate_event_rows=all_gate_rows,
         ephemeral_indicator_rows=[],
@@ -303,6 +338,8 @@ def run_backtest_batch(
         "backtest_batch": batch_row,
         "search_spec_rows": all_search_spec_rows,
         "search_run_rows": all_search_run_rows,
+        "optimizer_study_rows": all_optimizer_study_rows,
+        "optimizer_trial_rows": all_optimizer_trial_rows,
         "param_result_rows": all_param_result_rows,
         "gate_event_rows": all_gate_rows,
         "ephemeral_indicator_rows": [],
@@ -365,20 +402,26 @@ def _chunked_series_for_spec(
     series_items = [item for item in items if hasattr(item, "instrument_id") and hasattr(item, "timeframe")]
     execution_tf = _spec_execution_timeframe(spec, fallback=fallback_timeframe or "15m")
     required_timeframes = set(_spec_required_timeframes(spec, fallback=execution_tf))
-    execution_instruments = [
-        str(item.instrument_id)
-        for item in series_items
-        if str(item.timeframe) == execution_tf
-    ]
-    if not execution_instruments:
+    execution_series_keys: list[tuple[str, str]] = []
+    seen_execution_keys: set[tuple[str, str]] = set()
+    for item in series_items:
+        if str(item.timeframe) != execution_tf:
+            continue
+        key = (str(getattr(item, "contract_id", "")), str(item.instrument_id))
+        if key in seen_execution_keys:
+            continue
+        seen_execution_keys.add(key)
+        execution_series_keys.append(key)
+    if not execution_series_keys:
         return _chunked_series(items, chunk_size)
     chunks: list[tuple[object, ...]] = []
-    for offset in range(0, len(execution_instruments), max(1, chunk_size)):
-        instrument_set = set(execution_instruments[offset : offset + max(1, chunk_size)])
+    for offset in range(0, len(execution_series_keys), max(1, chunk_size)):
+        series_key_set = set(execution_series_keys[offset : offset + max(1, chunk_size)])
         chunk = tuple(
             item
             for item in series_items
-            if str(item.instrument_id) in instrument_set and str(item.timeframe) in required_timeframes
+            if (str(getattr(item, "contract_id", "")), str(item.instrument_id)) in series_key_set
+            and str(item.timeframe) in required_timeframes
         )
         if chunk:
             chunks.append(chunk)
