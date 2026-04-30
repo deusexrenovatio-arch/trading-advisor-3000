@@ -1,5 +1,6 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
+import json
 from pathlib import Path
 from datetime import UTC, datetime, timedelta
 
@@ -22,16 +23,16 @@ from trading_advisor_3000.product_plane.data_plane.canonical import RollMapEntry
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows, write_delta_table_rows
 from trading_advisor_3000.product_plane.data_plane.schemas import historical_data_delta_schema_manifest
 from trading_advisor_3000.product_plane.research.datasets import (
+    ResearchBarView,
     ResearchDatasetManifest,
-    load_materialized_research_dataset,
     materialize_research_dataset,
 )
 import trading_advisor_3000.product_plane.research.datasets.materialize as dataset_materialize_module
 from trading_advisor_3000.product_plane.research.derived_indicators import (
+    load_derived_indicator_frames,
     materialize_derived_indicator_frames,
-    reload_derived_indicator_frames,
 )
-from trading_advisor_3000.product_plane.research.indicators import materialize_indicator_frames, reload_indicator_frames
+from trading_advisor_3000.product_plane.research.indicators import load_indicator_frames, materialize_indicator_frames
 from trading_advisor_3000.product_plane.research.registry_store import research_registry_root
 from trading_advisor_3000.product_plane.research.strategies.compiler_bridge import REQUIRED_STG02_ADAPTER_KEYS
 from trading_advisor_3000.product_plane.contracts import CanonicalBar
@@ -63,6 +64,21 @@ def _load_canonical_context(output_dir: Path) -> tuple[list[CanonicalBar], list[
         for row in read_delta_table_rows(output_dir / "canonical_roll_map.delta")
     ]
     return bars, session_calendar, roll_map
+
+
+def _load_research_dataset(output_dir: Path, dataset_version: str) -> dict[str, object]:
+    filters = [("dataset_version", "=", dataset_version)]
+    manifests = read_delta_table_rows(output_dir / "research_datasets.delta", filters=filters)
+    instrument_tree = read_delta_table_rows(output_dir / "research_instrument_tree.delta", filters=filters)
+    bar_views = [
+        ResearchBarView.from_dict(row)
+        for row in read_delta_table_rows(output_dir / "research_bar_views.delta", filters=filters)
+    ]
+    return {
+        "dataset_manifest": manifests[0],
+        "instrument_tree": instrument_tree,
+        "bar_views": bar_views,
+    }
 
 
 def _write_rich_stage7_canonical_context(output_dir: Path) -> None:
@@ -159,14 +175,14 @@ def test_research_data_prep_materializes_dataset_indicator_and_derived_layers_on
     assert set(dagster_report["materialized_assets"]) == set(RESEARCH_DATA_PREP_ASSETS)
     assert "research_strategy_families" not in dagster_report["rows_by_table"]
 
-    loaded_dataset = load_materialized_research_dataset(output_dir=dagster_dir, dataset_version="dagster-dataset-v1")
-    loaded_indicators = reload_indicator_frames(
-        indicator_output_dir=dagster_dir,
+    loaded_dataset = _load_research_dataset(dagster_dir, "dagster-dataset-v1")
+    loaded_indicators = load_indicator_frames(
+        output_dir=dagster_dir,
         dataset_version="dagster-dataset-v1",
         indicator_set_version="indicators-v1",
     )
-    loaded_derived = reload_derived_indicator_frames(
-        derived_indicator_output_dir=dagster_dir,
+    loaded_derived = load_derived_indicator_frames(
+        output_dir=dagster_dir,
         dataset_version="dagster-dataset-v1",
         indicator_set_version="indicators-v1",
         derived_indicator_set_version="derived-v1",
@@ -372,14 +388,28 @@ def test_research_data_prep_matches_direct_materialization(tmp_path: Path) -> No
         indicator_profile_version="core_v1",
     )
 
-    direct_dataset = load_materialized_research_dataset(output_dir=direct_dir, dataset_version="same-dataset-v1")
-    dagster_dataset = load_materialized_research_dataset(output_dir=dagster_dir, dataset_version="same-dataset-v1")
-    direct_indicator_rows = [row.to_dict() for row in reload_indicator_frames(indicator_output_dir=direct_dir, dataset_version="same-dataset-v1", indicator_set_version="indicators-v1")]
-    dagster_indicator_rows = [row.to_dict() for row in reload_indicator_frames(indicator_output_dir=dagster_dir, dataset_version="same-dataset-v1", indicator_set_version="indicators-v1")]
+    direct_dataset = _load_research_dataset(direct_dir, "same-dataset-v1")
+    dagster_dataset = _load_research_dataset(dagster_dir, "same-dataset-v1")
+    direct_indicator_rows = [
+        row.to_dict()
+        for row in load_indicator_frames(
+            output_dir=direct_dir,
+            dataset_version="same-dataset-v1",
+            indicator_set_version="indicators-v1",
+        )
+    ]
+    dagster_indicator_rows = [
+        row.to_dict()
+        for row in load_indicator_frames(
+            output_dir=dagster_dir,
+            dataset_version="same-dataset-v1",
+            indicator_set_version="indicators-v1",
+        )
+    ]
     direct_derived_rows = [
         row.to_dict()
-        for row in reload_derived_indicator_frames(
-            derived_indicator_output_dir=direct_dir,
+        for row in load_derived_indicator_frames(
+            output_dir=direct_dir,
             dataset_version="same-dataset-v1",
             indicator_set_version="indicators-v1",
             derived_indicator_set_version="derived-v1",
@@ -387,8 +417,8 @@ def test_research_data_prep_matches_direct_materialization(tmp_path: Path) -> No
     ]
     dagster_derived_rows = [
         row.to_dict()
-        for row in reload_derived_indicator_frames(
-            derived_indicator_output_dir=dagster_dir,
+        for row in load_derived_indicator_frames(
+            output_dir=dagster_dir,
             dataset_version="same-dataset-v1",
             indicator_set_version="indicators-v1",
             derived_indicator_set_version="derived-v1",
@@ -421,6 +451,17 @@ def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_pat
             "exclude_template_manifest_hashes": [],
             "max_parameter_combinations": 64,
             "search_space_overrides": {},
+            "optimizer": {
+                "engine": "optuna",
+                "sampler": "tpe",
+                "seed": 11,
+                "n_trials": 3,
+                "objective": "robust_oos_trial_v1",
+                "direction": "maximize",
+                "top_k": 1,
+                "radius": 1,
+                "max_neighborhood_trials": 2,
+            },
         },
         combination_count=4,
         param_batch_size=2,
@@ -437,6 +478,8 @@ def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_pat
     assert set(backtest_report["selected_assets"]) == {
         "research_strategy_search_specs",
         "research_vbt_search_runs",
+        "research_optimizer_studies",
+        "research_optimizer_trials",
         "research_vbt_param_results",
         "research_vbt_param_gate_events",
         "research_vbt_ephemeral_indicator_cache",
@@ -455,13 +498,28 @@ def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_pat
     assert backtest_report["rows_by_table"]["research_order_records"] > 0
     assert backtest_report["rows_by_table"]["research_strategy_search_specs"] > 0
     assert backtest_report["rows_by_table"]["research_vbt_search_runs"] > 0
+    assert backtest_report["rows_by_table"]["research_optimizer_studies"] > 0
+    assert backtest_report["rows_by_table"]["research_optimizer_trials"] > 0
     assert backtest_report["rows_by_table"]["research_vbt_param_results"] > 0
     assert backtest_report["rows_by_table"]["research_vbt_param_gate_events"] > 0
     assert "research_drawdown_records" in backtest_report["rows_by_table"]
     assert backtest_report["rows_by_table"]["research_strategy_rankings"] > 0
     assert (Path(backtest_report["output_paths"]["research_backtest_batches"]) / "_delta_log").exists()
+    assert (Path(backtest_report["output_paths"]["research_optimizer_studies"]) / "_delta_log").exists()
+    assert (Path(backtest_report["output_paths"]["research_optimizer_trials"]) / "_delta_log").exists()
     assert (Path(backtest_report["output_paths"]["research_strategy_rankings"]) / "_delta_log").exists()
     assert read_delta_table_rows(Path(backtest_report["output_paths"]["research_backtest_runs"]))
+    optimizer_trials = read_delta_table_rows(Path(backtest_report["output_paths"]["research_optimizer_trials"]))
+    assert {row["trial_kind"] for row in optimizer_trials} >= {"optuna_trial"}
+    assert "neighborhood_probe" not in {row["trial_kind"] for row in optimizer_trials}
+    assert all(row["param_hash"] for row in optimizer_trials)
+    optimizer_components = [
+        json.loads(row["objective_components_json"])
+        if isinstance(row["objective_components_json"], str)
+        else row["objective_components_json"]
+        for row in optimizer_trials
+    ]
+    assert all(row["signal_generator"] == "vectorbt.SignalFactory.from_choice_func" for row in optimizer_components)
     assert read_delta_table_rows(Path(backtest_report["output_paths"]["research_strategy_rankings"]))
 
     projection_report = materialize_research_projection_assets(

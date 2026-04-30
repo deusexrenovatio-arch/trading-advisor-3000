@@ -10,7 +10,6 @@ from trading_advisor_3000.product_plane.research.datasets import (
     ContinuousFrontPolicy,
     ResearchBarView,
     ResearchDatasetManifest,
-    load_materialized_research_dataset,
     materialize_research_dataset,
 )
 
@@ -41,6 +40,21 @@ def _load_canonical_context(output_dir: Path) -> tuple[list[CanonicalBar], list[
         for row in read_delta_table_rows(output_dir / "canonical_roll_map.delta")
     ]
     return bars, session_calendar, roll_map
+
+
+def _load_research_dataset(output_dir: Path, dataset_version: str) -> dict[str, object]:
+    filters = [("dataset_version", "=", dataset_version)]
+    manifests = read_delta_table_rows(output_dir / "research_datasets.delta", filters=filters)
+    instrument_tree = read_delta_table_rows(output_dir / "research_instrument_tree.delta", filters=filters)
+    bar_views = [
+        ResearchBarView.from_dict(row)
+        for row in read_delta_table_rows(output_dir / "research_bar_views.delta", filters=filters)
+    ]
+    return {
+        "dataset_manifest": manifests[0],
+        "instrument_tree": instrument_tree,
+        "bar_views": bar_views,
+    }
 
 
 def test_research_dataset_materialization_and_reload_by_dataset_version(tmp_path: Path) -> None:
@@ -76,10 +90,7 @@ def test_research_dataset_materialization_and_reload_by_dataset_version(tmp_path
     assert (Path(str(report["output_paths"]["research_datasets"])) / "_delta_log").exists()
     assert (Path(str(report["output_paths"]["research_bar_views"])) / "_delta_log").exists()
 
-    loaded = load_materialized_research_dataset(
-        output_dir=research_output_dir,
-        dataset_version="research-dataset-v1",
-    )
+    loaded = _load_research_dataset(research_output_dir, "research-dataset-v1")
     assert loaded["dataset_manifest"]["dataset_version"] == "research-dataset-v1"
     assert len(loaded["bar_views"]) == 2
     assert all(isinstance(row, ResearchBarView) for row in loaded["bar_views"])
@@ -144,6 +155,6 @@ def test_research_dataset_materialization_supports_continuous_front_mode(tmp_pat
         output_dir=tmp_path / "research-cf",
     )
 
-    loaded = load_materialized_research_dataset(output_dir=tmp_path / "research-cf", dataset_version="research-cf-v1")
+    loaded = _load_research_dataset(tmp_path / "research-cf", "research-cf-v1")
     assert [row.active_contract_id for row in loaded["bar_views"]] == ["BR-6.26", "BR-7.26"]
     assert report["dataset_manifest"]["split_params_json"]["windows"][0]["window_id"] == "full-01"
