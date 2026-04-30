@@ -62,6 +62,39 @@ def test_stg02_seed_registry_snapshot_is_deterministic_across_reruns(tmp_path: P
     assert first["delta_table_counts"]["research_strategy_template_modules"] >= len(REQUIRED_STG02_ADAPTER_KEYS)
 
 
+def test_stg02_seed_registry_prunes_retired_family_rows(tmp_path: Path) -> None:
+    adapter = phase_stg02_family_adapters()[0]
+    materialize_strategy_template_manifest(
+        registry_root=tmp_path,
+        family_manifest=replace(adapter.family_manifest, family_key="retired_alias"),
+        template_manifest=replace(
+            adapter.template_manifest,
+            family_key="retired_alias",
+            template_key="retired_alias_core",
+        ),
+    )
+    assert {
+        str(row["family_key"])
+        for row in read_delta_table_rows(tmp_path / "research_strategy_families.delta")
+    } == {"retired_alias"}
+
+    report = materialize_strategy_template_seed_registry(registry_root=tmp_path)
+
+    assert report["delta_table_counts"]["research_strategy_families"] == len(REQUIRED_STG02_ADAPTER_KEYS)
+    assert "retired_alias" not in {
+        str(row["family_key"])
+        for row in read_delta_table_rows(tmp_path / "research_strategy_families.delta")
+    }
+    assert "retired_alias" not in {
+        str(row["family_key"])
+        for row in read_delta_table_rows(tmp_path / "research_strategy_templates.delta")
+    }
+    assert "retired_alias" not in {
+        str(row["family_key"])
+        for row in read_delta_table_rows(tmp_path / "research_strategy_template_modules.delta")
+    }
+
+
 def test_stg02_seed_mapping_report_tracks_adapter_source_to_delta_rows(tmp_path: Path) -> None:
     registry_root = tmp_path / "seed-registry"
     report_path = tmp_path / "seed-report.json"
