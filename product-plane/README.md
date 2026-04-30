@@ -22,6 +22,8 @@ The stable research path is now the materialized research contour:
 
 `canonical data -> research materialization -> vectorbt backtests -> ranking -> candidate projection -> runtime`
 
+Backtest input reads are Delta-native: the campaign route filters Delta tables and projects only required strategy columns before Python builds vectorbt matrices. Python row-object reloaders are not a supported fallback for the active research/backtest contour.
+
 Official operational route:
 
 `python -m trading_advisor_3000.product_plane.research.jobs.run_campaign --config <campaign.yaml>`
