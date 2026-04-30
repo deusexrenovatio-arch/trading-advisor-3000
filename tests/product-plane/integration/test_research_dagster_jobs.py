@@ -418,10 +418,8 @@ def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_pat
         strategy_space={
             "family_keys": ["ma_cross"],
             "template_ids": [],
-            "include_instance_ids": [],
-            "exclude_manifest_hashes": [],
-            "materialize_instances": True,
-            "max_instance_count": 64,
+            "exclude_template_manifest_hashes": [],
+            "max_parameter_combinations": 64,
             "search_space_overrides": {},
         },
         combination_count=4,
@@ -437,6 +435,12 @@ def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_pat
     )
     assert backtest_report["success"] is True
     assert set(backtest_report["selected_assets"]) == {
+        "research_strategy_search_specs",
+        "research_vbt_search_runs",
+        "research_vbt_param_results",
+        "research_vbt_param_gate_events",
+        "research_vbt_ephemeral_indicator_cache",
+        "research_strategy_promotion_events",
         "research_backtest_batches",
         "research_backtest_runs",
         "research_strategy_stats",
@@ -449,6 +453,10 @@ def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_pat
     assert "research_strategy_rankings" in backtest_report["materialized_assets"]
     assert backtest_report["rows_by_table"]["research_trade_records"] > 0
     assert backtest_report["rows_by_table"]["research_order_records"] > 0
+    assert backtest_report["rows_by_table"]["research_strategy_search_specs"] > 0
+    assert backtest_report["rows_by_table"]["research_vbt_search_runs"] > 0
+    assert backtest_report["rows_by_table"]["research_vbt_param_results"] > 0
+    assert backtest_report["rows_by_table"]["research_vbt_param_gate_events"] > 0
     assert "research_drawdown_records" in backtest_report["rows_by_table"]
     assert backtest_report["rows_by_table"]["research_strategy_rankings"] > 0
     assert (Path(backtest_report["output_paths"]["research_backtest_batches"]) / "_delta_log").exists()
@@ -464,10 +472,8 @@ def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_pat
         strategy_space={
             "family_keys": ["ma_cross"],
             "template_ids": [],
-            "include_instance_ids": [],
-            "exclude_manifest_hashes": [],
-            "materialize_instances": True,
-            "max_instance_count": 64,
+            "exclude_template_manifest_hashes": [],
+            "max_parameter_combinations": 64,
             "search_space_overrides": {},
         },
         combination_count=4,
