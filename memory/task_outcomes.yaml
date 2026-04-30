@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-04-29'
+updated_at: '2026-04-30'
 items:
 - task_id: TASK-2026-03-16-BASELINE-SEED
   closed_at: '2026-03-16T10:00:00Z'
@@ -981,6 +981,139 @@ items:
   incident_signature: PR-stack-publication-continuous-front-work3.
   improvement_action: test
   improvement_artifact: 'draft PRs #73, #74, and #75.'
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-04-29-IMPLEMENT-HYBRID-SPARK-TA-ROLL-AWARE-CONTINUOUS-
+  closed_at: '2026-04-29T15:38:14Z'
+  branch: codex/continuous-front-03-docs-evidence
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-RESEARCH
+  - CTX-DATA
+  - CTX-ORCHESTRATION
+  - CTX-CONTRACTS
+  route_match: expanded
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_first_time
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: workflow
+  improvement_artifact: docs/tasks/active/TASK-2026-04-29-implement-hybrid-spark-ta-roll-aware-continuous-.md
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-04-29-REFACTOR-CONTINUOUS-FRONT-INDICATOR-CALCULATION-
+  closed_at: '2026-04-29T16:44:43Z'
+  branch: codex/continuous-front-03-docs-evidence
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-RESEARCH
+  - CTX-CONTRACTS
+  - CTX-ARCHITECTURE
+  - CTX-ORCHESTRATION
+  route_match: expanded
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: architecture
+  improvement_artifact: src/trading_advisor_3000/product_plane/research/continuous_front_indicators/pandas_job.py
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-04-29-FIX-CONTINUOUS-FRONT-INDICATOR-QC-AND-ROLL-BOUND
+  closed_at: '2026-04-29T17:40:48Z'
+  branch: codex/continuous-front-03-docs-evidence
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-RESEARCH
+  - CTX-CONTRACTS
+  - CTX-ARCHITECTURE
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: test
+  improvement_artifact: tests/product-plane/continuous_front_indicators/test_rules_and_projection.py
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-04-29-FIX-CONTINUOUS-FRONT-INDICATOR-FORMULA-GATE-PREF
+  closed_at: '2026-04-29T18:26:04Z'
+  branch: codex/continuous-front-03-docs-evidence
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - continuous-front indicators
+  - base indicator materialization
+  - derived indicator materialization
+  - Dagster research asset wiring.
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: validator
+  improvement_artifact: tests/product-plane/continuous_front_indicators/test_rules_and_projection.py
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-04-30-EXPAND-CONTINUOUS-FRONT-FORMULA-GATE-TO-VALIDATE
+  closed_at: '2026-04-30T10:06:43Z'
+  branch: codex/continuous-front-03-docs-evidence
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-RESEARCH
+  - CTX-CONTRACTS
+  - CTX-ARCHITECTURE
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: validator
+  improvement_artifact: tests/product-plane/continuous_front_indicators/test_rules_and_projection.py
   linked_plan_id: null
   linked_memory_id: null
   outcome_status: completed
