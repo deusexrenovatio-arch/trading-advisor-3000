@@ -3592,12 +3592,27 @@ def _windowed_series(
     for window_id in common_window_ids:
         window_frames: list[ResearchSeriesFrame] = []
         for series, windows in zip((item[0] for item in per_series), available_by_series, strict=True):
+            window_frame = windows[window_id]
+            signal_frame = (
+                series.signal_frame.loc[window_frame.index].copy()
+                if series.signal_frame is not None
+                else window_frame
+            )
+            execution_frame = (
+                series.execution_frame.loc[window_frame.index].copy()
+                if series.execution_frame is not None
+                else window_frame
+            )
             window_frames.append(
                 ResearchSeriesFrame(
                     contract_id=series.contract_id,
                     instrument_id=series.instrument_id,
                     timeframe=series.timeframe,
-                    frame=windows[window_id],
+                    frame=window_frame,
+                    series_id=series.series_id,
+                    series_mode=series.series_mode,
+                    signal_frame=signal_frame,
+                    execution_frame=execution_frame,
                 )
             )
         resolved.append((window_id, tuple(window_frames)))

@@ -1689,7 +1689,6 @@ def build_research_data_prep_run_config(
         derived_indicator_profile_version=derived_indicator_profile_version,
         code_version="research-data-prep-after-moex",
         strategy_space_id="",
-        strategy_instances=(),
         combination_count=0,
     )
     return {
@@ -2073,7 +2072,6 @@ def _materialize_research_assets(
         strategy_space=dict(strategy_space or _default_strategy_space()),
         strategy_space_id=strategy_space_id,
         search_specs=search_specs,
-        strategy_instances=strategy_instances,
         combination_count=resolved_combination_count,
         param_batch_size=param_batch_size,
         series_batch_size=series_batch_size,
