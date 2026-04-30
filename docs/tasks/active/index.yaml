@@ -176,6 +176,11 @@ items:
   mode: legacy-full
   status: in_progress
   started_at: '2026-04-27'
+- id: TASK-2026-04-28-PROFILE-VECTORBT-FAMILY-SEARCH-ON-A-REAL-INSTRUM
+  path: docs/tasks/active/TASK-2026-04-28-profile-vectorbt-family-search-on-a-real-instrum.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-04-28'
 - id: TASK-2026-04-29-DOCUMENT-NATIVE-RUNTIME-OWNERSHIP-AND-ROUTE-AGEN
   path: docs/tasks/active/TASK-2026-04-29-document-native-runtime-ownership-and-route-agen.md
   mode: legacy-full
