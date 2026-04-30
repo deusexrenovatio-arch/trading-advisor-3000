@@ -37,12 +37,13 @@ Each execution still gets a fresh `run_id` and a fresh immutable run folder.
 
 The route is selected strictly by `target_stage` in the campaign config:
 - `data_prep` -> materialize reusable research data prep only: dataset, instrument tree, bar view, base indicator, and derived indicator layers
-- `backtest` -> reuse or rebuild research data prep, refresh the strategy registry needed by the campaign, then run backtests and rankings
+- `backtest` -> reuse or rebuild research data prep, refresh family/template registry rows, resolve campaign `strategy_space` into `StrategyFamilySearchSpec`, then run vectorbt family-search surfaces and rankings
 - `projection` -> run the full route through candidate projection
 
 The scheduled freshness contour is `research_data_prep_job`.
 It is triggered after `moex_baseline_update_job` succeeds so materialized research data stays current with the canonical MOEX baseline.
 Strategy refresh is separate because strategy inventory changes are not the same decision as data freshness.
+Backtest execution must not pre-materialize thousands of `StrategyInstance` rows. The accepted order is family search spec -> matrix input bundle -> signal surface -> vectorbt `Portfolio.from_signals` over param chunks -> param_hash metrics/gates/ranking. `StrategyInstance` materialization belongs only to post-ranking promotion.
 
 Accepted baseline defaults should resolve to:
 - canonical root: `D:/TA3000-data/trading-advisor-3000-nightly/canonical/moex/baseline-4y-current`
