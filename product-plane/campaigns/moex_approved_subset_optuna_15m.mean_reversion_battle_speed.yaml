@@ -1,0 +1,114 @@
+campaign_name: moex_approved_subset_optuna_15m_mean_reversion_battle_speed
+target_stage: backtest
+canonical_output_dir: D:/TA3000-data/trading-advisor-3000-nightly/canonical/moex/baseline-4y-current
+materialized_root: D:/TA3000-data/trading-advisor-3000-nightly/research/gold/verification/optuna-signal-smoke-br
+runs_root: D:/TA3000-data/trading-advisor-3000-nightly/research/runs
+
+dataset:
+  dataset_version: moex_approved_subset_optuna_15m_br_smoke_v1
+  dataset_name: moex_approved_subset_optuna_15m_br_smoke
+  universe_id: universe-v1
+  series_mode: contract
+  timeframes:
+    - 15m
+    - 1h
+    - 4h
+    - 1d
+  base_timeframe: 15m
+  start_ts: "2021-04-01T00:00:00Z"
+  end_ts: "2026-03-31T23:59:59Z"
+  warmup_bars: 300
+  split_method: holdout
+  contract_ids: []
+  instrument_ids:
+    - FUT_BR
+
+profiles:
+  indicator_set_version: indicators-v1
+  indicator_profile_version: core_v1
+  derived_indicator_set_version: derived-v1
+  derived_indicator_profile_version: core_v1
+
+strategy_space:
+  family_keys:
+    - mean_reversion
+  template_ids: []
+  exclude_template_manifest_hashes: []
+  max_parameter_combinations: 250000
+  search_space_overrides:
+    mean_reversion:
+      entry_distance_atr:
+        - 0.25
+        - 0.5
+        - 0.75
+        - 1.0
+        - 1.25
+        - 1.5
+        - 2.0
+      entry_rsi:
+        - 15
+        - 20
+        - 25
+        - 30
+        - 35
+      exit_rsi:
+        - 40
+        - 45
+        - 50
+        - 55
+        - 60
+      stop_atr_mult:
+        - 0.6
+        - 0.9
+        - 1.2
+        - 1.5
+        - 2.0
+      target_atr_mult:
+        - 1.0
+        - 1.5
+        - 2.0
+        - 2.5
+        - 3.0
+  optimizer:
+    engine: optuna
+    sampler: tpe
+    seed: 20260429
+    n_trials: 128
+    objective: robust_oos_trial_v1
+    direction: maximize
+    top_k: 8
+    radius: 0
+    max_neighborhood_trials: 0
+
+backtest:
+  param_batch_size: 128
+  series_batch_size: 1
+  backtest_timeframe: 15m
+  fees_bps: 0.0
+  slippage_bps: 5.0
+  allow_short: true
+  window_count: 3
+
+ranking_policy:
+  policy_id: robust_oos_v1
+  metric_order:
+    - total_return
+    - profit_factor
+    - max_drawdown
+  require_out_of_sample_pass: true
+  min_trade_count: 8
+  max_drawdown_cap: 0.35
+  min_positive_fold_ratio: 0.5
+  stress_slippage_bps: 7.5
+  min_parameter_stability: 0.35
+  min_slippage_score: 0.45
+
+projection_policy:
+  selection_policy: all_policy_pass
+  max_candidates_per_partition: 2
+  min_robust_score: 0.55
+  decision_lag_bars_max: 4
+
+execution:
+  force_rematerialize: false
+  raise_on_error: true
