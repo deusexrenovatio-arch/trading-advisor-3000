@@ -1,0 +1,39 @@
+continuous_front_indicators:
+  indicator_set_version: core_v1_rollaware
+  derived_set_version: wide_technical_gold_v2_rollaware
+  rule_set_version: roll_rules_hybrid_v1
+
+  pipeline_engine: dagster_delta_pandas_ta_classic
+  input_projection_materialized: true
+  fail_closed: true
+  allow_final_back_adjusted_chart_only: false
+
+  adapters:
+    pandas_ta_on_p0:
+      enabled: true
+      allowed_output_columns_from_rules_only: true
+      allow_native_ohlc_input: false
+      allow_chart_adjusted_input: false
+
+    pandas_ta_post_transform:
+      enabled: true
+      require_post_transform_verification: true
+      allowed_output_columns_from_rules_only: true
+
+    custom_roll_aware:
+      enabled: true
+      required_for_anchor_sensitive: true
+      required_for_volume_oi_native: true
+      required_for_grid_locked: true
+
+    pandas_window:
+      enabled: true
+      required_for_derived_levels: true
+      required_for_mtf_overlays: true
+
+  acceptance:
+    prefix_invariance: true
+    independent_formula_samples: true
+    pandas_ta_parity_gate: true
+    adapter_authorization_gate: true
+    publish_fail_closed: true
