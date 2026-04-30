@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from trading_advisor_3000.product_plane.research.backtests import BacktestBatchRequest, backtest_store_contract, build_ephemeral_strategy_space
+from trading_advisor_3000.product_plane.research.backtests.input_requirements import loader_columns_for_search_specs
 from trading_advisor_3000.product_plane.research.strategies import build_strategy_registry
 
 
@@ -48,6 +49,18 @@ def test_backtest_batch_request_id_is_deterministic_with_batch_sizes() -> None:
         timeframe="15m",
     )
     assert request.batch_id() == request.batch_id()
+
+
+def test_loader_columns_for_search_specs_include_native_clock_inputs() -> None:
+    search_specs = build_ephemeral_strategy_space(
+        strategy_version_labels=("ma-cross-v1",),
+        instances_per_strategy=2,
+    ).search_specs
+
+    columns = loader_columns_for_search_specs(search_specs)
+
+    assert "close" in columns.price_columns
+    assert {"ema_10", "ema_20", "ema_50", "atr_14"} <= set(columns.indicator_columns)
 
 
 def test_backtest_store_contract_contains_stage5_artifacts() -> None:

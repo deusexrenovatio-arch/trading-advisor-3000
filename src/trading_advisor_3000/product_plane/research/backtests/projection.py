@@ -12,6 +12,7 @@ from trading_advisor_3000.product_plane.research.io import ResearchFrameCache, R
 from trading_advisor_3000.product_plane.research.strategies import StrategyRegistry, build_strategy_registry
 
 from .engine import BacktestEngineConfig, project_family_candidate, strategy_spec_to_search_spec
+from .input_requirements import loader_columns_for_search_specs
 from .results import load_backtest_artifacts, results_store_contract, write_stage6_artifacts
 
 
@@ -109,6 +110,7 @@ def project_runtime_candidates(
             and any(payload.get(key) for key in ("price_inputs", "materialized_indicators", "materialized_derived"))
             and payload.get("timeframe")
         }
+        input_columns = loader_columns_for_search_specs((search_spec,))
         series_frames, _, _ = load_backtest_frames(
             dataset_output_dir=dataset_output_dir,
             indicator_output_dir=indicator_output_dir,
@@ -121,6 +123,9 @@ def project_runtime_candidates(
                 contract_ids=(contract_id,),
                 instrument_ids=(instrument_id,),
                 analysis_only=True,
+                price_columns=input_columns.price_columns,
+                indicator_columns=input_columns.indicator_columns,
+                derived_columns=input_columns.derived_columns,
             ),
             cache=cache,
         )
