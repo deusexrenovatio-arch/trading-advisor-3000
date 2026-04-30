@@ -11,12 +11,33 @@ from .cache import ResearchCacheKey, ResearchFrameCache
 
 
 KEY_COLUMNS = ("contract_id", "instrument_id", "timeframe", "ts")
+MANIFEST_METADATA_COLUMNS = ("dataset_version", "series_mode")
 BAR_METADATA_COLUMNS = (
     "dataset_version",
     "session_date",
     "session_open_ts",
     "session_close_ts",
     "active_contract_id",
+    "series_id",
+    "series_mode",
+    "roll_epoch",
+    "roll_event_id",
+    "is_roll_bar",
+    "is_first_bar_after_roll",
+    "bars_since_roll",
+    "price_space",
+    "native_open",
+    "native_high",
+    "native_low",
+    "native_close",
+    "continuous_open",
+    "continuous_high",
+    "continuous_low",
+    "continuous_close",
+    "execution_open",
+    "execution_high",
+    "execution_low",
+    "execution_close",
     "bar_index",
 )
 INDICATOR_METADATA_COLUMNS = ("dataset_version", "indicator_set_version")
@@ -44,6 +65,10 @@ class ResearchSeriesFrame:
     instrument_id: str
     timeframe: str
     frame: pd.DataFrame
+    series_id: str = ""
+    series_mode: str = "contract"
+    signal_frame: pd.DataFrame | None = None
+    execution_frame: pd.DataFrame | None = None
 
 
 def _dedupe(values: tuple[str, ...] | list[str]) -> list[str]:
@@ -132,6 +157,57 @@ def _derived_payload_columns(frame: pd.DataFrame, *, existing: set[str]) -> list
     return [column for column in frame.columns if column not in reserved and column not in existing]
 
 
+def _dataset_series_mode(dataset_manifest: dict[str, object]) -> str:
+    return str(dataset_manifest.get("series_mode") or "contract")
+
+
+def _series_group_columns(bar_frame: pd.DataFrame, *, series_mode: str) -> list[str]:
+    if series_mode == "continuous_front":
+        if "series_id" not in bar_frame.columns:
+            bar_frame["series_id"] = (
+                bar_frame["instrument_id"].astype(str) + "|" + bar_frame["timeframe"].astype(str) + "|continuous_front"
+            )
+        return ["series_id", "instrument_id", "timeframe"]
+    return ["contract_id", "instrument_id", "timeframe"]
+
+
+def _local_rows_for_series(
+    frame: pd.DataFrame,
+    *,
+    series_mode: str,
+    contract_id: str,
+    instrument_id: str,
+    timeframe: str,
+) -> pd.DataFrame:
+    if frame.empty:
+        return frame
+    mask = (frame["instrument_id"] == instrument_id) & (frame["timeframe"] == timeframe)
+    if series_mode != "continuous_front":
+        mask = mask & (frame["contract_id"] == contract_id)
+    return frame[mask]
+
+
+def _merge_keys(*, series_mode: str) -> list[str]:
+    if series_mode == "continuous_front":
+        return ["instrument_id", "timeframe", "ts"]
+    return ["contract_id", "instrument_id", "timeframe", "ts"]
+
+
+def _build_execution_frame(signal_frame: pd.DataFrame, *, series_mode: str) -> pd.DataFrame:
+    execution = signal_frame.copy()
+    if series_mode != "continuous_front":
+        return execution
+    for source, target in (
+        ("execution_open", "open"),
+        ("execution_high", "high"),
+        ("execution_low", "low"),
+        ("execution_close", "close"),
+    ):
+        if source in execution.columns:
+            execution[target] = pd.to_numeric(execution[source], errors="coerce")
+    return execution
+
+
 def load_backtest_frames(
     *,
     dataset_output_dir: Path,
@@ -163,6 +239,16 @@ def load_backtest_frames(
         if cached is not None:
             return cached, cache_id, True
 
+    manifest_frame = read_delta_table_frame(
+        dataset_output_dir / "research_datasets.delta",
+        columns=list(MANIFEST_METADATA_COLUMNS),
+        filters=[("dataset_version", "=", request.dataset_version)],
+    )
+    series_mode = (
+        _dataset_series_mode(dict(manifest_frame.iloc[0]))
+        if not manifest_frame.empty
+        else "contract"
+    )
     bar_frame = read_delta_table_frame(
         dataset_output_dir / "research_bar_views.delta",
         columns=_projected_columns(
@@ -203,46 +289,60 @@ def load_backtest_frames(
         return tuple(), cache_id, False
 
     slices: list[ResearchSeriesFrame] = []
-    for (contract_id, instrument_id, timeframe), base_frame in bar_frame.groupby(
-        ["contract_id", "instrument_id", "timeframe"], sort=True
-    ):
+    group_columns = _series_group_columns(bar_frame, series_mode=series_mode)
+    for group_key, base_frame in bar_frame.groupby(group_columns, sort=True):
+        if series_mode == "continuous_front":
+            series_id, instrument_id, timeframe = group_key
+            contract_id = "continuous-front"
+        else:
+            contract_id, instrument_id, timeframe = group_key
+            series_id = str(contract_id)
         series = base_frame.sort_values("ts").reset_index(drop=True)
         merged = series.copy()
         if not indicator_frame.empty:
-            local_indicators = indicator_frame[
-                (indicator_frame["contract_id"] == contract_id)
-                & (indicator_frame["instrument_id"] == instrument_id)
-                & (indicator_frame["timeframe"] == timeframe)
-            ]
+            local_indicators = _local_rows_for_series(
+                indicator_frame,
+                series_mode=series_mode,
+                contract_id=str(contract_id),
+                instrument_id=str(instrument_id),
+                timeframe=str(timeframe),
+            )
             if not local_indicators.empty:
                 indicator_columns = _indicator_payload_columns(local_indicators)
                 merged = merged.merge(
-                    local_indicators[["contract_id", "instrument_id", "timeframe", "ts", *indicator_columns]],
-                    on=["contract_id", "instrument_id", "timeframe", "ts"],
+                    local_indicators[[*_merge_keys(series_mode=series_mode), *indicator_columns]],
+                    on=_merge_keys(series_mode=series_mode),
                     how="left",
                     validate="one_to_one",
                 )
         if not derived_frame.empty:
-            local_derived = derived_frame[
-                (derived_frame["contract_id"] == contract_id)
-                & (derived_frame["instrument_id"] == instrument_id)
-                & (derived_frame["timeframe"] == timeframe)
-            ]
+            local_derived = _local_rows_for_series(
+                derived_frame,
+                series_mode=series_mode,
+                contract_id=str(contract_id),
+                instrument_id=str(instrument_id),
+                timeframe=str(timeframe),
+            )
             if not local_derived.empty:
                 derived_columns = _derived_payload_columns(local_derived, existing=set(merged.columns))
                 merged = merged.merge(
-                    local_derived[["contract_id", "instrument_id", "timeframe", "ts", *derived_columns]],
-                    on=["contract_id", "instrument_id", "timeframe", "ts"],
+                    local_derived[[*_merge_keys(series_mode=series_mode), *derived_columns]],
+                    on=_merge_keys(series_mode=series_mode),
                     how="left",
                     validate="one_to_one",
                 )
         merged.index = pd.to_datetime(merged["ts"], utc=True)
+        execution_frame = _build_execution_frame(merged, series_mode=series_mode)
         slices.append(
             ResearchSeriesFrame(
                 contract_id=str(contract_id),
                 instrument_id=str(instrument_id),
                 timeframe=str(timeframe),
                 frame=merged,
+                series_id=str(series_id),
+                series_mode=series_mode,
+                signal_frame=merged,
+                execution_frame=execution_frame,
             )
         )
 

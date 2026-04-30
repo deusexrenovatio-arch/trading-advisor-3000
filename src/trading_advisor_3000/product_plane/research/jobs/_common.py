@@ -12,6 +12,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     has_delta_log,
 )
 from trading_advisor_3000.product_plane.research.backtests import backtest_store_contract, results_store_contract
+from trading_advisor_3000.product_plane.research.continuous_front import continuous_front_store_contract
 from trading_advisor_3000.product_plane.research.datasets import research_dataset_store_contract
 from trading_advisor_3000.product_plane.research.derived_indicators import research_derived_indicator_store_contract
 from trading_advisor_3000.product_plane.research.indicators import indicator_store_contract
@@ -73,6 +74,7 @@ def research_contract_manifest() -> dict[str, dict[str, object]]:
                 "research_strategy_template_modules",
             )
         },
+        **continuous_front_store_contract(),
         **research_dataset_store_contract(),
         **indicator_store_contract(),
         **research_derived_indicator_store_contract(),

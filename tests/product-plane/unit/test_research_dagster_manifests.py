@@ -27,6 +27,7 @@ from trading_advisor_3000.product_plane.research.indicators.store import (
     IndicatorFrameRow,
     write_indicator_frames,
 )
+from trading_advisor_3000.product_plane.research.continuous_front import continuous_front_store_contract
 from trading_advisor_3000.product_plane.research.strategies.families import phase_stg02_family_adapters
 
 
@@ -34,6 +35,10 @@ def test_research_dagster_asset_specs_declared() -> None:
     specs = {spec.key: spec for spec in research_asset_specs()}
     keys = set(specs)
     assert {
+        "continuous_front_bars",
+        "continuous_front_roll_events",
+        "continuous_front_adjustment_ladder",
+        "continuous_front_qc_report",
         "research_datasets",
         "research_instrument_tree",
         "research_bar_views",
@@ -60,9 +65,17 @@ def test_research_dagster_asset_specs_declared() -> None:
         "research_signal_candidates",
     } == keys
     assert set(specs["research_datasets"].inputs) == {
+        "continuous_front_qc_report_delta",
         "canonical_bars_delta",
         "canonical_session_calendar_delta",
         "canonical_roll_map_delta",
+    }
+    assert set(specs["continuous_front_roll_events"].inputs) == {"continuous_front_bars_delta"}
+    assert set(specs["continuous_front_adjustment_ladder"].inputs) == {"continuous_front_bars_delta"}
+    assert set(specs["continuous_front_qc_report"].inputs) == {
+        "continuous_front_bars_delta",
+        "continuous_front_roll_events_delta",
+        "continuous_front_adjustment_ladder_delta",
     }
     assert set(specs["research_instrument_tree"].inputs) == {"research_datasets_delta"}
     assert set(specs["research_indicator_frames"].inputs) == {
@@ -550,9 +563,11 @@ def test_derived_store_replaces_partition_with_delta_delete_append_without_row_r
 
 def test_research_contract_lineage_is_consistent_across_dataset_indicator_and_derived_layers() -> None:
     dataset_manifest = research_dataset_store_contract()
+    continuous_manifest = continuous_front_store_contract()
     indicator_manifest = indicator_store_contract()
     derived_manifest = research_derived_indicator_store_contract()
 
+    assert "continuous_front_bars" in continuous_manifest
     assert {"research_datasets", "research_instrument_tree", "research_bar_views"} == set(dataset_manifest)
     assert "research_indicator_frames" in indicator_manifest
     assert "research_derived_indicator_frames" in derived_manifest

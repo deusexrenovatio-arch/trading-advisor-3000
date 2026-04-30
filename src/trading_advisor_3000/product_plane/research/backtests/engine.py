@@ -909,6 +909,29 @@ def build_input_bundle(
     if "close" not in price:
         raise KeyError("close")
     close_index = price["close"].index
+    execution_metadata_columns = (
+        "active_contract_id",
+        "roll_epoch",
+        "roll_event_id",
+        "is_roll_bar",
+        "price_space",
+        "series_id",
+        "series_mode",
+    )
+    execution_metadata: dict[str, pd.DataFrame] = {}
+    signal_price_spaces: dict[str, str] = {}
+    series_modes: dict[str, str] = {}
+    series_ids: dict[str, str] = {}
+    for series in execution_series:
+        source = series.signal_frame if series.signal_frame is not None else series.frame
+        available_columns = [column for column in execution_metadata_columns if column in source.columns]
+        metadata = source[available_columns].copy() if available_columns else pd.DataFrame(index=source.index)
+        metadata.index = pd.to_datetime(source["ts"] if "ts" in source.columns else source.index, utc=True)
+        execution_metadata[series.instrument_id] = metadata.reindex(close_index)
+        price_space = source["price_space"].iloc[0] if "price_space" in source.columns and not source.empty else "native"
+        signal_price_spaces[series.instrument_id] = str(price_space or "native")
+        series_modes[series.instrument_id] = series.series_mode
+        series_ids[series.instrument_id] = series.series_id or series.contract_id
     return VectorBTInputBundle(
         index=close_index,
         instruments=instruments,
@@ -925,6 +948,11 @@ def build_input_bundle(
             "timezone": "UTC",
             "as_of_policy": "closed_bars_only",
             "contract_ids": {series.instrument_id: series.contract_id for series in execution_series},
+            "series_ids": series_ids,
+            "series_modes": series_modes,
+            "signal_price_spaces": signal_price_spaces,
+            "execution_price_space": "native",
+            "execution_metadata": execution_metadata,
         },
         timeframe_price=price_by_tf,
         timeframe_fields=fields_by_tf,
@@ -2092,7 +2120,8 @@ def _squeeze_release_signals(
 
 
 def _expanded_close(bundle: VectorBTInputBundle, columns: pd.MultiIndex) -> pd.DataFrame:
-    close = _numeric_frame(bundle.field("close"))
+    close_name = "execution_close" if "execution_close" in bundle.fields else "close"
+    close = _numeric_frame(bundle.field(close_name))
     param_count = len(columns.get_level_values("param_hash").unique())
     data = np.concatenate([close.to_numpy(dtype=float) for _ in range(param_count)], axis=1)
     return pd.DataFrame(data, index=bundle.index, columns=columns)
@@ -2229,6 +2258,22 @@ def collect_surface_rows(
         family_key, surface_key, template_key, param_id, instrument_id = (str(item) for item in column)
         params = dict(param_lookup[param_id])
         contract_id = _contract_id_for_instrument(bundle, instrument_id)
+        metadata_by_instrument = bundle.metadata.get("execution_metadata", {})
+        metadata_frame = (
+            metadata_by_instrument.get(instrument_id)
+            if isinstance(metadata_by_instrument, Mapping)
+            else None
+        )
+        series_ids = bundle.metadata.get("series_ids", {})
+        series_modes = bundle.metadata.get("series_modes", {})
+        signal_price_spaces = bundle.metadata.get("signal_price_spaces", {})
+        series_id = series_ids.get(instrument_id, contract_id) if isinstance(series_ids, Mapping) else contract_id
+        series_mode = series_modes.get(instrument_id, "contract") if isinstance(series_modes, Mapping) else "contract"
+        signal_price_space = (
+            signal_price_spaces.get(instrument_id, "native")
+            if isinstance(signal_price_spaces, Mapping)
+            else "native"
+        )
         run_id = _run_id(
             search_run_id=surface.search_run_id,
             column=column,
@@ -2253,6 +2298,8 @@ def collect_surface_rows(
             "indicator_set_version": indicator_set_version,
             "derived_indicator_set_version": derived_indicator_set_version,
             "contract_id": contract_id,
+            "series_id": str(series_id),
+            "series_mode": str(series_mode),
             "instrument_id": instrument_id,
             "timeframe": timeframe,
             "clock_profile": str(bundle.metadata["clock_profile"]),
@@ -2270,6 +2317,8 @@ def collect_surface_rows(
             "finished_at": created_at,
             "stop_ref": 0.0,
             "target_ref": 0.0,
+            "signal_price_space": str(signal_price_space),
+            "execution_price_space": str(bundle.metadata.get("execution_price_space", "native")),
         }
         run_rows.append(row_seed)
         total = _scalar_metric(total_return, column)
@@ -2287,6 +2336,8 @@ def collect_surface_rows(
             "strategy_version_label": spec.strategy_version_label,
             "dataset_version": dataset_version,
             "contract_id": contract_id,
+            "series_id": str(series_id),
+            "series_mode": str(series_mode),
             "instrument_id": instrument_id,
             "timeframe": timeframe,
             "window_id": window_id,
@@ -2374,6 +2425,7 @@ def collect_surface_rows(
                 records=trade_records.get(col_index, []),
                 run_row=row_seed,
                 index=index,
+                metadata_frame=metadata_frame if isinstance(metadata_frame, pd.DataFrame) else None,
             )
         )
         order_rows.extend(
@@ -2381,6 +2433,7 @@ def collect_surface_rows(
                 records=order_records.get(col_index, []),
                 run_row=row_seed,
                 index=index,
+                metadata_frame=metadata_frame if isinstance(metadata_frame, pd.DataFrame) else None,
             )
         )
         drawdown_rows.extend(
@@ -2408,13 +2461,29 @@ def _contract_id_for_instrument(bundle: VectorBTInputBundle, instrument_id: str)
     return instrument_id
 
 
-def _trade_rows(*, records: Sequence[dict[str, object]], run_row: Mapping[str, object], index: Sequence[object]) -> list[dict[str, object]]:
+def _metadata_at(metadata_frame: pd.DataFrame | None, row_index: int) -> Mapping[str, object]:
+    if metadata_frame is None or metadata_frame.empty:
+        return {}
+    bounded_index = min(max(row_index, 0), len(metadata_frame) - 1)
+    return metadata_frame.iloc[bounded_index].to_dict()
+
+
+def _trade_rows(
+    *,
+    records: Sequence[dict[str, object]],
+    run_row: Mapping[str, object],
+    index: Sequence[object],
+    metadata_frame: pd.DataFrame | None = None,
+) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for record in records:
         entry_idx = int(record.get("entry_idx", 0))
         exit_idx = int(record.get("exit_idx", entry_idx))
+        entry_meta = _metadata_at(metadata_frame, entry_idx)
+        exit_meta = _metadata_at(metadata_frame, exit_idx) if 0 <= exit_idx < len(index) else entry_meta
         entry_ts = pd.Timestamp(index[min(max(entry_idx, 0), len(index) - 1)]).isoformat().replace("+00:00", "Z")
         exit_ts = pd.Timestamp(index[min(max(exit_idx, 0), len(index) - 1)]).isoformat().replace("+00:00", "Z")
+        duration_bars = max(0, exit_idx - entry_idx)
         direction = "long" if int(record.get("direction", 0)) == 0 else "short"
         status = "closed" if int(record.get("status", 1)) == 1 else "open"
         entry_fees = float(record.get("entry_fees", 0.0) or 0.0)
@@ -2429,6 +2498,8 @@ def _trade_rows(*, records: Sequence[dict[str, object]], run_row: Mapping[str, o
                 "family_id": run_row["family_id"],
                 "family_key": run_row["family_key"],
                 "contract_id": run_row["contract_id"],
+                "series_id": run_row.get("series_id", run_row["contract_id"]),
+                "series_mode": run_row.get("series_mode", "contract"),
                 "instrument_id": run_row["instrument_id"],
                 "timeframe": run_row["timeframe"],
                 "window_id": run_row["window_id"],
@@ -2445,18 +2516,35 @@ def _trade_rows(*, records: Sequence[dict[str, object]], run_row: Mapping[str, o
                 "net_pnl": pnl - (entry_fees + exit_fees),
                 "commission": entry_fees + exit_fees,
                 "slippage": 0.0,
-                "holding_bars": max(0, exit_idx - entry_idx),
+                "holding_bars": duration_bars,
                 "stop_ref": run_row["stop_ref"],
                 "target_ref": run_row["target_ref"],
+                "signal_price_space": run_row.get("signal_price_space", "native"),
+                "execution_price_space": run_row.get("execution_price_space", "native"),
+                "entry_active_contract_id": str(entry_meta.get("active_contract_id", run_row["contract_id"])),
+                "exit_active_contract_id": str(exit_meta.get("active_contract_id", run_row["contract_id"])),
+                "entry_roll_epoch": int(entry_meta.get("roll_epoch", 0) or 0),
+                "exit_roll_epoch": int(exit_meta.get("roll_epoch", 0) or 0),
+                "entry_roll_event_id": None if entry_meta.get("roll_event_id") is None else str(entry_meta.get("roll_event_id")),
+                "exit_roll_event_id": None if exit_meta.get("roll_event_id") is None else str(exit_meta.get("roll_event_id")),
+                "entry_is_roll_bar": bool(entry_meta.get("is_roll_bar", False)),
+                "exit_is_roll_bar": bool(exit_meta.get("is_roll_bar", False)),
             }
         )
     return rows
 
 
-def _order_rows(*, records: Sequence[dict[str, object]], run_row: Mapping[str, object], index: Sequence[object]) -> list[dict[str, object]]:
+def _order_rows(
+    *,
+    records: Sequence[dict[str, object]],
+    run_row: Mapping[str, object],
+    index: Sequence[object],
+    metadata_frame: pd.DataFrame | None = None,
+) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for record in records:
         bar_index = int(record.get("idx", 0))
+        meta = _metadata_at(metadata_frame, bar_index)
         ts = pd.Timestamp(index[min(max(bar_index, 0), len(index) - 1)]).isoformat().replace("+00:00", "Z")
         action = "buy" if int(record.get("side", 0)) == 0 else "sell"
         price = float(record.get("price", 0.0) or 0.0)
@@ -2468,6 +2556,8 @@ def _order_rows(*, records: Sequence[dict[str, object]], run_row: Mapping[str, o
                 "strategy_instance_id": run_row["strategy_instance_id"],
                 "family_key": run_row["family_key"],
                 "contract_id": run_row["contract_id"],
+                "series_id": run_row.get("series_id", run_row["contract_id"]),
+                "series_mode": run_row.get("series_mode", "contract"),
                 "instrument_id": run_row["instrument_id"],
                 "timeframe": run_row["timeframe"],
                 "window_id": run_row["window_id"],
@@ -2483,6 +2573,12 @@ def _order_rows(*, records: Sequence[dict[str, object]], run_row: Mapping[str, o
                 "commission": float(record.get("fees", 0.0) or 0.0),
                 "slippage": 0.0,
                 "status": "filled",
+                "signal_price_space": run_row.get("signal_price_space", "native"),
+                "execution_price_space": run_row.get("execution_price_space", "native"),
+                "active_contract_id": str(meta.get("active_contract_id", run_row["contract_id"])),
+                "roll_epoch": int(meta.get("roll_epoch", 0) or 0),
+                "roll_event_id": None if meta.get("roll_event_id") is None else str(meta.get("roll_event_id")),
+                "is_roll_bar": bool(meta.get("is_roll_bar", False)),
             }
         )
     return rows
@@ -3496,12 +3592,27 @@ def _windowed_series(
     for window_id in common_window_ids:
         window_frames: list[ResearchSeriesFrame] = []
         for series, windows in zip((item[0] for item in per_series), available_by_series, strict=True):
+            window_frame = windows[window_id]
+            signal_frame = (
+                series.signal_frame.loc[window_frame.index].copy()
+                if series.signal_frame is not None
+                else window_frame
+            )
+            execution_frame = (
+                series.execution_frame.loc[window_frame.index].copy()
+                if series.execution_frame is not None
+                else window_frame
+            )
             window_frames.append(
                 ResearchSeriesFrame(
                     contract_id=series.contract_id,
                     instrument_id=series.instrument_id,
                     timeframe=series.timeframe,
-                    frame=windows[window_id],
+                    frame=window_frame,
+                    series_id=series.series_id,
+                    series_mode=series.series_mode,
+                    signal_frame=signal_frame,
+                    execution_frame=execution_frame,
                 )
             )
         resolved.append((window_id, tuple(window_frames)))

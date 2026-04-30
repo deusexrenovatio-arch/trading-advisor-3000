@@ -22,6 +22,7 @@ from trading_advisor_3000.product_plane.contracts.schema_validation import (
     validate_schema,
 )
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log, read_delta_table_frame, read_delta_table_rows
+from trading_advisor_3000.product_plane.research.datasets import ContinuousFrontPolicy
 from trading_advisor_3000.product_plane.research.jobs._common import validate_research_contracts, write_json
 from trading_advisor_3000.product_plane.research.registry_store import (
     append_rankings_index,
@@ -56,6 +57,10 @@ TARGET_STEPS = {
     "projection": ("research_data_prep", "strategy_registry_refresh", "backtest", "ranking", "projection"),
 }
 DATA_PREP_TABLES = (
+    "continuous_front_bars",
+    "continuous_front_roll_events",
+    "continuous_front_adjustment_ladder",
+    "continuous_front_qc_report",
     "research_datasets",
     "research_instrument_tree",
     "research_bar_views",
@@ -79,6 +84,7 @@ RESEARCH_DATA_PREP_KWARGS = {
     "warmup_bars",
     "split_method",
     "series_mode",
+    "continuous_front_policy",
     "dataset_contract_ids",
     "dataset_instrument_ids",
     "indicator_set_version",
@@ -165,6 +171,7 @@ def build_materialization_key(normalized_config: dict[str, Any]) -> str:
         "split_method": dataset["split_method"],
         "contract_ids": dataset["contract_ids"],
         "instrument_ids": dataset["instrument_ids"],
+        "continuous_front_policy": dict(dataset["continuous_front_policy"]),
         "indicator_set_version": profiles["indicator_set_version"],
         "indicator_profile_version": profiles["indicator_profile_version"],
         "derived_indicator_set_version": profiles["derived_indicator_set_version"],
@@ -652,6 +659,7 @@ def _dagster_common_kwargs(
         "warmup_bars": int(dataset["warmup_bars"]),
         "split_method": str(dataset["split_method"]),
         "series_mode": str(dataset["series_mode"]),
+        "continuous_front_policy": dict(dataset["continuous_front_policy"]),
         "dataset_contract_ids": tuple(str(item) for item in dataset["contract_ids"]),
         "dataset_instrument_ids": tuple(str(item) for item in dataset["instrument_ids"]),
         "indicator_set_version": str(profiles["indicator_set_version"]),
@@ -1383,11 +1391,15 @@ def _write_logs(*, run_root: Path, stdout_lines: list[str], stderr_lines: list[s
 
 def _normalize_dataset(*, payload: dict[str, Any]) -> dict[str, Any]:
     timeframes = _sorted_unique_strings(payload["timeframes"], sort_key=_timeframe_sort_key)
+    continuous_front_policy = ContinuousFrontPolicy.from_config(
+        dict(payload.get("continuous_front_policy") or payload.get("continuous_front") or {})
+    ).to_config_dict()
     return {
         "dataset_version": _normalized_non_empty(payload["dataset_version"]),
         "dataset_name": _normalized_non_empty(payload["dataset_name"]),
         "universe_id": _normalized_non_empty(payload["universe_id"]),
         "series_mode": _normalized_enum(payload["series_mode"], {"contract", "continuous_front"}, field="dataset.series_mode"),
+        "continuous_front_policy": continuous_front_policy,
         "timeframes": timeframes,
         "base_timeframe": _normalized_non_empty(payload["base_timeframe"]),
         "start_ts": _normalized_optional_string(payload.get("start_ts")),
@@ -1712,6 +1724,7 @@ def _write_materialization_lock(
             "dataset_version": str(dataset["dataset_version"]),
             "dataset_name": str(dataset["dataset_name"]),
             "series_mode": str(dataset["series_mode"]),
+            "continuous_front_policy": dict(dataset["continuous_front_policy"]),
             "timeframes": list(dataset["timeframes"]),
             "indicator_set_version": str(profiles["indicator_set_version"]),
             "indicator_profile_version": str(profiles["indicator_profile_version"]),

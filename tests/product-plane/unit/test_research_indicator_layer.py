@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import pytest
+
 from trading_advisor_3000.product_plane.research.datasets import ResearchBarView
 from trading_advisor_3000.product_plane.research.indicators import (
+    IndicatorParameter,
+    IndicatorProfile,
+    IndicatorSpec,
     build_indicator_frames,
     build_indicator_profile_registry,
     default_indicator_profile,
@@ -125,6 +130,66 @@ def _view(*, ts_index: int, close: float, volume: int = 1000) -> ResearchBarView
     )
 
 
+def _continuous_view(
+    *,
+    ts_index: int,
+    close: float,
+    roll_epoch: int,
+    active_contract_id: str,
+    previous_contract_id: str | None = None,
+    is_roll_bar: bool = False,
+) -> ResearchBarView:
+    row = _view(ts_index=ts_index, close=close)
+    return ResearchBarView(
+        **{
+            **row.to_dict(),
+            "contract_id": active_contract_id,
+            "active_contract_id": active_contract_id,
+            "series_id": "BR|15m|continuous_front",
+            "series_mode": "continuous_front",
+            "roll_epoch": roll_epoch,
+            "roll_event_id": "roll-1" if roll_epoch else None,
+            "is_roll_bar": is_roll_bar,
+            "is_first_bar_after_roll": is_roll_bar,
+            "bars_since_roll": 0 if is_roll_bar else ts_index,
+            "price_space": "continuous_backward_current_anchor_additive",
+            "native_open": close - 0.2,
+            "native_high": close + 0.5,
+            "native_low": close - 0.6,
+            "native_close": close,
+            "continuous_open": close - 0.2,
+            "continuous_high": close + 0.5,
+            "continuous_low": close - 0.6,
+            "continuous_close": close,
+            "execution_open": close - 0.2,
+            "execution_high": close + 0.5,
+            "execution_low": close - 0.6,
+            "execution_close": close,
+            "previous_contract_id": previous_contract_id,
+            "adjustment_mode": "additive",
+            "cumulative_additive_offset": 0.0,
+        }
+    )
+
+
+def _sma2_profile() -> IndicatorProfile:
+    return IndicatorProfile(
+        version="sma2_test",
+        description="Two-bar SMA test profile",
+        indicators=(
+            IndicatorSpec(
+                indicator_id="sma_2",
+                category="trend",
+                operation_key="sma",
+                parameters=(IndicatorParameter(name="length", value=2),),
+                required_input_columns=("close",),
+                output_columns=("sma_2",),
+                warmup_bars=2,
+            ),
+        ),
+    )
+
+
 def test_indicator_registry_exposes_versioned_profiles_and_richer_specs() -> None:
     registry = build_indicator_profile_registry()
     assert registry.versions() == ("core_v1", "core_intraday_v1", "core_swing_v1")
@@ -184,6 +249,63 @@ def test_indicator_build_is_point_in_time_safe_for_existing_prefix() -> None:
     base_payload = [{k: v for k, v in row.to_dict().items() if k not in ignored} for row in base_rows]
     extended_payload = [{k: v for k, v in row.to_dict().items() if k not in ignored} for row in extended_rows[: len(base_rows)]]
     assert base_payload == extended_payload
+
+
+def test_continuous_front_indicators_apply_adjustment_ladder_as_of_current_roll_epoch() -> None:
+    rows = build_indicator_frames(
+        dataset_version="dataset-v3",
+        indicator_set_version="indicators-v1",
+        bar_views=[
+            _continuous_view(ts_index=0, close=100.0, roll_epoch=0, active_contract_id="BRK2@MOEX"),
+            _continuous_view(ts_index=1, close=101.0, roll_epoch=0, active_contract_id="BRK2@MOEX"),
+            _continuous_view(
+                ts_index=2,
+                close=112.0,
+                roll_epoch=1,
+                active_contract_id="BRM2@MOEX",
+                previous_contract_id="BRK2@MOEX",
+                is_roll_bar=True,
+            ),
+            _continuous_view(ts_index=3, close=113.0, roll_epoch=1, active_contract_id="BRM2@MOEX"),
+        ],
+        series_mode="continuous_front",
+        profile=_sma2_profile(),
+        adjustment_ladder_rows=(
+            {
+                "instrument_id": "BR",
+                "timeframe": "15m",
+                "roll_sequence": 1,
+                "effective_ts": "2026-03-16T09:30:00Z",
+                "additive_gap": 10.0,
+            },
+        ),
+    )
+
+    values_by_ts = {row.ts: row.values["sma_2"] for row in rows}
+    assert values_by_ts["2026-03-16T09:15:00Z"] == pytest.approx(100.5)
+    assert values_by_ts["2026-03-16T09:30:00Z"] == pytest.approx(111.5)
+    assert values_by_ts["2026-03-16T09:45:00Z"] == pytest.approx(112.5)
+
+
+def test_continuous_front_indicators_require_ladder_for_rolled_series() -> None:
+    with pytest.raises(ValueError, match="adjustment ladder"):
+        build_indicator_frames(
+            dataset_version="dataset-v3",
+            indicator_set_version="indicators-v1",
+            bar_views=[
+                _continuous_view(ts_index=0, close=100.0, roll_epoch=0, active_contract_id="BRK2@MOEX"),
+                _continuous_view(
+                    ts_index=1,
+                    close=112.0,
+                    roll_epoch=1,
+                    active_contract_id="BRM2@MOEX",
+                    previous_contract_id="BRK2@MOEX",
+                    is_roll_bar=True,
+                ),
+            ],
+            series_mode="continuous_front",
+            profile=_sma2_profile(),
+        )
 
 
 def test_indicator_build_produces_real_values_and_null_warmup_span() -> None:
