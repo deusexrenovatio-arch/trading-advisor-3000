@@ -75,7 +75,11 @@ def completed_task_records(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return records
 
 
-def compute_process_rollup(payload: dict[str, Any], window_size: int = ROLLING_WINDOW_SIZE) -> dict[str, Any]:
+def compute_process_rollup(
+    payload: dict[str, Any],
+    window_size: int = ROLLING_WINDOW_SIZE,
+    burn_in_min_completed_tasks: int | None = None,
+) -> dict[str, Any]:
     records = completed_task_records(payload)
     window = records[-window_size:] if window_size > 0 else records
     signatures_seen: Counter[str] = Counter()
@@ -100,11 +104,13 @@ def compute_process_rollup(payload: dict[str, Any], window_size: int = ROLLING_W
         "repeat_error_rate": _safe_ratio(repeat_errors, total),
         "environment_blocker_rate": _safe_ratio(env_blocked, total),
     }
+    burn_in_target = max(window_size, burn_in_min_completed_tasks or window_size, 1)
     return {
         "completed_tasks_count": len(records),
         "window_size": window_size,
+        "burn_in_min_completed_tasks": burn_in_target,
         "window_tasks_count": total,
-        "burn_in_complete": len(records) >= max(window_size, 1),
+        "burn_in_complete": len(records) >= burn_in_target,
         "current_metrics": metrics,
     }
 
@@ -116,6 +122,7 @@ def render_rollup_markdown(rollup: dict[str, Any]) -> str:
         "",
         f"- completed_tasks_count: {rollup.get('completed_tasks_count', 0)}",
         f"- window_tasks_count: {rollup.get('window_tasks_count', 0)}",
+        f"- burn_in_min_completed_tasks: {rollup.get('burn_in_min_completed_tasks', 0)}",
         f"- burn_in_complete: {rollup.get('burn_in_complete', False)}",
         "",
         "| Metric | Value |",

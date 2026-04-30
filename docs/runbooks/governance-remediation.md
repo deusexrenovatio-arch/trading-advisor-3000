@@ -99,6 +99,12 @@ Use this runbook when a governance gate fails.
 - Keep task outcomes ledger valid and status values allowed.
 - Use `python scripts/sync_task_outcomes.py` to refresh current task record.
 
+## `python scripts/validate_process_regressions.py`
+- If the rolling process gate fails, inspect `memory/task_outcomes.yaml` first.
+- Use the process report to identify recent non-first-time tasks before changing thresholds.
+- Keep `burn_in_min_completed_tasks` explicit when the ledger has not reached a stable sample size.
+- Do not rewrite task outcomes just to satisfy the metric; fix the process or add a tracked remediation task.
+
 ## `python scripts/validate_architecture_policy.py`
 - Ensure required architecture package files exist.
 - Keep architecture map in mermaid format and ADR baseline present.
