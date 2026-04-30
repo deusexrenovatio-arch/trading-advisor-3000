@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from trading_advisor_3000.product_plane.research.datasets import load_materialized_research_dataset
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows
 from trading_advisor_3000.product_plane.research.io.cache import ResearchFrameCache
 from trading_advisor_3000.product_plane.research.io.loaders import ResearchSliceRequest, load_backtest_frames
 from trading_advisor_3000.product_plane.research.strategies import StrategyRegistry, build_strategy_registry
@@ -35,6 +35,18 @@ def _manifest_split_windows(dataset_manifest: dict[str, object]) -> tuple[dict[s
         payload = {}
     windows = payload.get("windows", []) if isinstance(payload, dict) else []
     return tuple(item for item in windows if isinstance(item, dict))
+
+
+def _load_dataset_manifest(*, output_dir: Path, dataset_version: str) -> dict[str, object]:
+    rows = read_delta_table_rows(
+        output_dir / "research_datasets.delta",
+        filters=[("dataset_version", "=", dataset_version)],
+    )
+    if not rows:
+        raise ValueError(f"materialized research dataset `{dataset_version}` is missing")
+    if len(rows) > 1:
+        raise ValueError(f"materialized research dataset `{dataset_version}` is not unique")
+    return dict(rows[0])
 
 
 def _spec_execution_timeframe(spec: StrategyFamilySearchSpec, fallback: str = "15m") -> str:
@@ -211,10 +223,10 @@ def run_backtest_batch(
 ) -> dict[str, object]:
     del strategy_registry
     engine_config = engine_config or BacktestEngineConfig()
-    dataset_manifest = load_materialized_research_dataset(
+    dataset_manifest = _load_dataset_manifest(
         output_dir=dataset_output_dir,
         dataset_version=request.dataset_version,
-    )["dataset_manifest"]
+    )
     split_windows = _manifest_split_windows(dataset_manifest)
     input_columns = loader_columns_for_search_specs(request.search_specs)
     series_frames, cache_id, cache_hit = load_backtest_frames(
