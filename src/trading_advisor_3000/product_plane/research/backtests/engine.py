@@ -612,11 +612,25 @@ def search_spec_id(spec: StrategyFamilySearchSpec) -> str:
     return "SSPEC-" + _stable_hash(_canonical_json(spec.to_dict()))
 
 
+def _strategy_tuple_attr(strategy_spec: StrategySpec, name: str, default: tuple[object, ...] = ()) -> tuple[object, ...]:
+    raw_value = getattr(strategy_spec, name, default)
+    if raw_value is None:
+        return default
+    if isinstance(raw_value, str):
+        return (raw_value,)
+    return tuple(raw_value)
+
+
+def _strategy_indicator_requirements(strategy_spec: StrategySpec) -> tuple[object, ...]:
+    return _strategy_tuple_attr(strategy_spec, "indicator_requirements")
+
+
 def _clock_profile_payload(strategy_spec: StrategySpec) -> dict[str, object]:
     raw_profile = getattr(strategy_spec, "clock_profile", None)
     if raw_profile is not None and hasattr(raw_profile, "to_dict"):
         return dict(raw_profile.to_dict())
-    name = strategy_spec.allowed_clock_profiles[0] if strategy_spec.allowed_clock_profiles else "research_clock_v1"
+    allowed_clock_profiles = _strategy_tuple_attr(strategy_spec, "allowed_clock_profiles", ("research_clock_v1",))
+    name = str(allowed_clock_profiles[0]) if allowed_clock_profiles else "research_clock_v1"
     return {
         "name": name,
         "regime_tf": "1d",
@@ -678,7 +692,7 @@ def _required_inputs_by_clock(strategy_spec: StrategySpec, clock_profile: Mappin
         if value not in items:
             items.append(value)
 
-    for requirement in strategy_spec.indicator_requirements:
+    for requirement in _strategy_indicator_requirements(strategy_spec):
         layer = _clock_layer_for_role(str(requirement.role))
         payload = layers.setdefault(
             layer,
@@ -719,13 +733,21 @@ def strategy_spec_to_search_spec(
     required_inputs_by_clock = _required_inputs_by_clock(strategy_spec, clock_profile)
     required_indicators: list[str] = []
     required_derived: list[str] = []
+    indicator_requirements = _strategy_indicator_requirements(strategy_spec)
+    intent = getattr(strategy_spec, "intent", None)
+    allowed_clock_profiles = _strategy_tuple_attr(strategy_spec, "allowed_clock_profiles", ("research_clock_v1",))
+    market_regimes = _strategy_tuple_attr(strategy_spec, "market_regimes")
+    parameter_constraints = _strategy_tuple_attr(strategy_spec, "parameter_constraints")
+    optional_indicator_plan = _strategy_tuple_attr(strategy_spec, "optional_indicator_plan")
+    entry_logic = _strategy_tuple_attr(strategy_spec, "entry_logic")
+    exit_logic = _strategy_tuple_attr(strategy_spec, "exit_logic")
 
     def _append_unique(values: list[str], column: str) -> None:
         if column not in values:
             values.append(column)
 
-    if strategy_spec.indicator_requirements:
-        for requirement in strategy_spec.indicator_requirements:
+    if indicator_requirements:
+        for requirement in indicator_requirements:
             if requirement.column in PRICE_INPUTS or requirement.source == "price":
                 continue
             if requirement.source == "indicator":
@@ -745,9 +767,9 @@ def strategy_spec_to_search_spec(
         family_key=strategy_spec.family,
         template_key=template_key or strategy_spec.signal_builder_key,
         strategy_version_label=strategy_spec.version,
-        intent=strategy_spec.intent or strategy_spec.description,
-        allowed_clock_profiles=strategy_spec.allowed_clock_profiles,
-        allowed_market_states=tuple(strategy_spec.market_regimes or strategy_spec.ranking_metadata.tags) or ("mixed_unknown",),
+        intent=str(intent).strip() if intent else strategy_spec.description,
+        allowed_clock_profiles=tuple(str(item) for item in allowed_clock_profiles),
+        allowed_market_states=tuple(market_regimes or strategy_spec.ranking_metadata.tags) or ("mixed_unknown",),
         required_price_inputs=tuple(column for column in PRICE_INPUTS if column in strategy_spec.required_columns or column == "close"),
         required_materialized_indicators=tuple(required_indicators),
         required_materialized_derived=tuple(required_derived),
@@ -755,7 +777,7 @@ def strategy_spec_to_search_spec(
         signal_surface_mode="indicator_factory" if strategy_spec.execution_mode == "signals" else "signal_factory",
         parameter_mode="product",
         parameter_space={parameter.name: tuple(parameter.values) for parameter in strategy_spec.parameter_grid},
-        parameter_constraints=strategy_spec.parameter_constraints,
+        parameter_constraints=tuple(str(item) for item in parameter_constraints),
         clock_profile=clock_profile,
         required_inputs_by_clock=required_inputs_by_clock,
         parameter_space_by_role=strategy_spec.parameter_space_by_role()
@@ -764,7 +786,7 @@ def strategy_spec_to_search_spec(
         parameter_clock_map=strategy_spec.parameter_clock_map()
         if hasattr(strategy_spec, "parameter_clock_map")
         else tuple(),
-        optional_indicator_plan=strategy_spec.optional_indicator_plan,
+        optional_indicator_plan=optional_indicator_plan,
         risk_parameter_space={
             "stop_atr_mult": (strategy_spec.risk_policy.stop_atr_multiple,),
             "target_atr_mult": (strategy_spec.risk_policy.target_atr_multiple,),
@@ -778,9 +800,9 @@ def strategy_spec_to_search_spec(
             "clock_profile": clock_profile,
             "indicator_alignment": "native_per_clock",
             "event_alignment": "closed_layer_event_to_execution",
-            "indicator_roles": [requirement.to_dict() for requirement in strategy_spec.indicator_requirements],
-            "entry_logic": list(strategy_spec.entry_logic),
-            "exit_logic": list(strategy_spec.exit_logic),
+            "indicator_roles": [requirement.to_dict() for requirement in indicator_requirements],
+            "entry_logic": list(entry_logic),
+            "exit_logic": list(exit_logic),
         },
         max_parameter_combinations=max_parameter_combinations,
         chunking_policy={
