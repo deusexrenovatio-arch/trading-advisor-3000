@@ -911,11 +911,11 @@ def research_backtest_batches(
     research_datasets: dict[str, object],
     research_indicator_frames: dict[str, object],
     research_derived_indicator_frames: dict[str, object],
-    research_strategy_instance_modules: list[dict[str, object]],
+    research_strategy_template_modules: list[dict[str, object]],
 ) -> dict[str, object]:
     del research_indicator_frames
     del research_derived_indicator_frames
-    del research_strategy_instance_modules
+    del research_strategy_template_modules
     materialized_output_dir = Path(str(research_datasets["materialized_output_dir"]))
     results_output_dir = Path(str(research_datasets["results_output_dir"]))
     report = run_backtest_batch(
