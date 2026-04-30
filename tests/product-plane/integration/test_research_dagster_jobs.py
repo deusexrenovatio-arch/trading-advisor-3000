@@ -23,15 +23,14 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_del
 from trading_advisor_3000.product_plane.data_plane.schemas import historical_data_delta_schema_manifest
 from trading_advisor_3000.product_plane.research.datasets import (
     ResearchDatasetManifest,
-    load_materialized_research_dataset,
     materialize_research_dataset,
 )
 import trading_advisor_3000.product_plane.research.datasets.materialize as dataset_materialize_module
 from trading_advisor_3000.product_plane.research.derived_indicators import (
+    load_derived_indicator_frames,
     materialize_derived_indicator_frames,
-    reload_derived_indicator_frames,
 )
-from trading_advisor_3000.product_plane.research.indicators import materialize_indicator_frames, reload_indicator_frames
+from trading_advisor_3000.product_plane.research.indicators import load_indicator_frames, materialize_indicator_frames
 from trading_advisor_3000.product_plane.research.registry_store import research_registry_root
 from trading_advisor_3000.product_plane.research.strategies.compiler_bridge import REQUIRED_STG02_ADAPTER_KEYS
 from trading_advisor_3000.product_plane.contracts import CanonicalBar
@@ -63,6 +62,21 @@ def _load_canonical_context(output_dir: Path) -> tuple[list[CanonicalBar], list[
         for row in read_delta_table_rows(output_dir / "canonical_roll_map.delta")
     ]
     return bars, session_calendar, roll_map
+
+
+def _load_materialized_dataset_rows(output_dir: Path, *, dataset_version: str) -> dict[str, object]:
+    filters = [("dataset_version", "=", dataset_version)]
+    manifest_rows = read_delta_table_rows(output_dir / "research_datasets.delta", filters=filters)
+    if not manifest_rows:
+        raise AssertionError(f"missing research dataset manifest for {dataset_version}")
+    return {
+        "dataset_manifest": dict(manifest_rows[0]),
+        "instrument_tree": read_delta_table_rows(output_dir / "research_instrument_tree.delta", filters=filters),
+        "bar_views": sorted(
+            read_delta_table_rows(output_dir / "research_bar_views.delta", filters=filters),
+            key=lambda row: (str(row["contract_id"]), str(row["timeframe"]), str(row["ts"])),
+        ),
+    }
 
 
 def _write_rich_stage7_canonical_context(output_dir: Path) -> None:
@@ -159,14 +173,14 @@ def test_research_data_prep_materializes_dataset_indicator_and_derived_layers_on
     assert set(dagster_report["materialized_assets"]) == set(RESEARCH_DATA_PREP_ASSETS)
     assert "research_strategy_families" not in dagster_report["rows_by_table"]
 
-    loaded_dataset = load_materialized_research_dataset(output_dir=dagster_dir, dataset_version="dagster-dataset-v1")
-    loaded_indicators = reload_indicator_frames(
-        indicator_output_dir=dagster_dir,
+    loaded_dataset = _load_materialized_dataset_rows(dagster_dir, dataset_version="dagster-dataset-v1")
+    loaded_indicators = load_indicator_frames(
+        output_dir=dagster_dir,
         dataset_version="dagster-dataset-v1",
         indicator_set_version="indicators-v1",
     )
-    loaded_derived = reload_derived_indicator_frames(
-        derived_indicator_output_dir=dagster_dir,
+    loaded_derived = load_derived_indicator_frames(
+        output_dir=dagster_dir,
         dataset_version="dagster-dataset-v1",
         indicator_set_version="indicators-v1",
         derived_indicator_set_version="derived-v1",
@@ -372,14 +386,14 @@ def test_research_data_prep_matches_direct_materialization(tmp_path: Path) -> No
         indicator_profile_version="core_v1",
     )
 
-    direct_dataset = load_materialized_research_dataset(output_dir=direct_dir, dataset_version="same-dataset-v1")
-    dagster_dataset = load_materialized_research_dataset(output_dir=dagster_dir, dataset_version="same-dataset-v1")
-    direct_indicator_rows = [row.to_dict() for row in reload_indicator_frames(indicator_output_dir=direct_dir, dataset_version="same-dataset-v1", indicator_set_version="indicators-v1")]
-    dagster_indicator_rows = [row.to_dict() for row in reload_indicator_frames(indicator_output_dir=dagster_dir, dataset_version="same-dataset-v1", indicator_set_version="indicators-v1")]
+    direct_dataset = _load_materialized_dataset_rows(direct_dir, dataset_version="same-dataset-v1")
+    dagster_dataset = _load_materialized_dataset_rows(dagster_dir, dataset_version="same-dataset-v1")
+    direct_indicator_rows = [row.to_dict() for row in load_indicator_frames(output_dir=direct_dir, dataset_version="same-dataset-v1", indicator_set_version="indicators-v1")]
+    dagster_indicator_rows = [row.to_dict() for row in load_indicator_frames(output_dir=dagster_dir, dataset_version="same-dataset-v1", indicator_set_version="indicators-v1")]
     direct_derived_rows = [
         row.to_dict()
-        for row in reload_derived_indicator_frames(
-            derived_indicator_output_dir=direct_dir,
+        for row in load_derived_indicator_frames(
+            output_dir=direct_dir,
             dataset_version="same-dataset-v1",
             indicator_set_version="indicators-v1",
             derived_indicator_set_version="derived-v1",
@@ -387,8 +401,8 @@ def test_research_data_prep_matches_direct_materialization(tmp_path: Path) -> No
     ]
     dagster_derived_rows = [
         row.to_dict()
-        for row in reload_derived_indicator_frames(
-            derived_indicator_output_dir=dagster_dir,
+        for row in load_derived_indicator_frames(
+            output_dir=dagster_dir,
             dataset_version="same-dataset-v1",
             indicator_set_version="indicators-v1",
             derived_indicator_set_version="derived-v1",
@@ -396,7 +410,7 @@ def test_research_data_prep_matches_direct_materialization(tmp_path: Path) -> No
     ]
 
     assert direct_dataset["dataset_manifest"]["bars_hash"] == dagster_dataset["dataset_manifest"]["bars_hash"]
-    assert [row.to_dict() for row in direct_dataset["bar_views"]] == [row.to_dict() for row in dagster_dataset["bar_views"]]
+    assert direct_dataset["bar_views"] == dagster_dataset["bar_views"]
     assert len(direct_indicator_rows) == len(dagster_indicator_rows)
     assert [row["ts"] for row in direct_indicator_rows] == [row["ts"] for row in dagster_indicator_rows]
     assert [row["profile_version"] for row in direct_indicator_rows] == [row["profile_version"] for row in dagster_indicator_rows]
