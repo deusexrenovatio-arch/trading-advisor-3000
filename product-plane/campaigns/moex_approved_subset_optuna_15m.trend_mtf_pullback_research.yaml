@@ -1,0 +1,145 @@
+campaign_name: moex_approved_subset_optuna_15m_trend_mtf_pullback_research
+target_stage: backtest
+canonical_output_dir: D:/TA3000-data/trading-advisor-3000-nightly/canonical/moex/baseline-4y-current
+materialized_root: D:/TA3000-data/trading-advisor-3000-nightly/research/gold/verification/optuna-signal-research-br
+runs_root: D:/TA3000-data/trading-advisor-3000-nightly/research/runs
+
+dataset:
+  dataset_version: moex_approved_subset_optuna_15m_br_research_v1
+  dataset_name: moex_approved_subset_optuna_15m_br_research
+  universe_id: universe-v1
+  series_mode: contract
+  timeframes:
+    - 15m
+    - 1h
+    - 4h
+    - 1d
+  base_timeframe: 15m
+  start_ts: "2021-04-01T00:00:00Z"
+  end_ts: "2026-03-31T23:59:59Z"
+  warmup_bars: 300
+  split_method: walk_forward
+  contract_ids: []
+  instrument_ids:
+    - FUT_BR
+
+profiles:
+  indicator_set_version: indicators-v1
+  indicator_profile_version: core_v1
+  derived_indicator_set_version: derived-v1
+  derived_indicator_profile_version: core_v1
+
+strategy_space:
+  family_keys:
+    - trend_mtf_pullback_v1
+  template_ids: []
+  exclude_template_manifest_hashes: []
+  max_parameter_combinations: 250000
+  search_space_overrides:
+    trend_mtf_pullback_v1:
+      regime_tf:
+        - 1d
+        - 4h
+      signal_tf:
+        - 4h
+        - 1h
+      trigger_tf:
+        - 1h
+        - 15m
+      execution_tf:
+        - 15m
+      adx_min:
+        - 16
+        - 18
+        - 22
+        - 26
+        - 30
+      slope_min:
+        - 0.0
+        - 0.00025
+        - 0.0005
+        - 0.001
+        - 0.002
+      pullback_atr_min:
+        - 0.0
+        - 0.2
+        - 0.4
+      pullback_atr_max:
+        - 0.8
+        - 1.2
+        - 1.6
+        - 2.0
+      rsi_reclaim_long:
+        - 40
+        - 45
+        - 50
+        - 55
+        - 60
+      rsi_reclaim_short:
+        - 40
+        - 45
+        - 50
+        - 55
+        - 60
+      stop_atr_mult:
+        - 1.25
+        - 1.5
+        - 2.0
+        - 2.5
+        - 3.0
+      trail_atr_mult:
+        - 1.5
+        - 2.0
+        - 2.5
+        - 3.0
+        - 3.5
+      max_holding_bars:
+        - 24
+        - 48
+        - 72
+        - 96
+        - 144
+  optimizer:
+    engine: optuna
+    sampler: tpe
+    seed: 20260429
+    n_trials: 384
+    objective: robust_oos_trial_v1
+    direction: maximize
+    top_k: 12
+    radius: 0
+    max_neighborhood_trials: 0
+
+backtest:
+  param_batch_size: 32
+  series_batch_size: 1
+  backtest_timeframe: 15m
+  fees_bps: 0.0
+  slippage_bps: 5.0
+  allow_short: true
+  window_count: 4
+
+ranking_policy:
+  policy_id: robust_oos_v1
+  metric_order:
+    - total_return
+    - profit_factor
+    - max_drawdown
+  require_out_of_sample_pass: true
+  min_trade_count: 12
+  min_fold_count: 2
+  max_drawdown_cap: 0.35
+  min_positive_fold_ratio: 0.5
+  stress_slippage_bps: 7.5
+  min_parameter_stability: 0.35
+  min_slippage_score: 0.45
+
+projection_policy:
+  selection_policy: all_policy_pass
+  max_candidates_per_partition: 2
+  min_robust_score: 0.55
+  decision_lag_bars_max: 4
+
+execution:
+  force_rematerialize: false
+  raise_on_error: true
