@@ -221,3 +221,8 @@ items:
   mode: tracked_session
   status: in_progress
   started_at: '2026-04-29'
+- id: TASK-2026-04-30-PUBLISH-AND-INTEGRATE-CONTINUOUS-FRONT-INDICATOR
+  path: docs/tasks/active/TASK-2026-04-30-publish-and-integrate-continuous-front-indicator.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-04-30'

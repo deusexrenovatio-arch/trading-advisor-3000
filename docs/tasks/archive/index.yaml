@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-04-29'
+updated_at: '2026-04-30'
 items:
 - id: TASK-2026-03-16-SHELL-BOOTSTRAP
   path: docs/tasks/archive/TASK-2026-03-16-shell-bootstrap.md
@@ -223,3 +223,33 @@ items:
   status: completed
   started_at: '2026-04-29'
   completed_at: '2026-04-29'
+- id: TASK-2026-04-29-IMPLEMENT-HYBRID-SPARK-TA-ROLL-AWARE-CONTINUOUS-
+  path: docs/tasks/archive/TASK-2026-04-29-implement-hybrid-spark-ta-roll-aware-continuous-.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-29'
+  completed_at: '2026-04-29'
+- id: TASK-2026-04-29-REFACTOR-CONTINUOUS-FRONT-INDICATOR-CALCULATION-
+  path: docs/tasks/archive/TASK-2026-04-29-refactor-continuous-front-indicator-calculation-.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-29'
+  completed_at: '2026-04-29'
+- id: TASK-2026-04-29-FIX-CONTINUOUS-FRONT-INDICATOR-QC-AND-ROLL-BOUND
+  path: docs/tasks/archive/TASK-2026-04-29-fix-continuous-front-indicator-qc-and-roll-bound.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-29'
+  completed_at: '2026-04-29'
+- id: TASK-2026-04-29-FIX-CONTINUOUS-FRONT-INDICATOR-FORMULA-GATE-PREF
+  path: docs/tasks/archive/TASK-2026-04-29-fix-continuous-front-indicator-formula-gate-pref.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-29'
+  completed_at: '2026-04-29'
+- id: TASK-2026-04-30-EXPAND-CONTINUOUS-FRONT-FORMULA-GATE-TO-VALIDATE
+  path: docs/tasks/archive/TASK-2026-04-30-expand-continuous-front-formula-gate-to-validate.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-30'
+  completed_at: '2026-04-30'
