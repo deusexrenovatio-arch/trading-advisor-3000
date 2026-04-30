@@ -1503,8 +1503,8 @@ def _mtf_pullback_state(
         & (signal_adx_values[:, :, None] >= adx_min[None, None, :])
         & (signal_rsi_values[:, :, None] <= rsi_short[None, None, :])
     )
-    signal_long = _align_bool_cube_to_execution(bundle, signal_long_native, adx.index)
-    signal_short = _align_bool_cube_to_execution(bundle, signal_short_native, adx.index)
+    signal_long = _align_bool_cube_to_execution(bundle, signal_long_native, signal_adx.index)
+    signal_short = _align_bool_cube_to_execution(bundle, signal_short_native, signal_adx.index)
 
     pullback_distance = np.minimum(
         np.abs(distance_ema_20.to_numpy(dtype=float)),
