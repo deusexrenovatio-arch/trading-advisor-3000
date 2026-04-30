@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from dagster import (
@@ -22,6 +22,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
     ensure_delta_table_columns,
     has_delta_log,
+    read_delta_table_frame,
     read_delta_table_rows,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
@@ -112,6 +113,8 @@ RESEARCH_BACKTEST_ASSETS = (
     "research_backtest_batches",
     "research_strategy_search_specs",
     "research_vbt_search_runs",
+    "research_optimizer_studies",
+    "research_optimizer_trials",
     "research_vbt_param_results",
     "research_vbt_param_gate_events",
     "research_vbt_ephemeral_indicator_cache",
@@ -152,6 +155,8 @@ RESEARCH_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     ),
     "research_strategy_search_specs": ("research_backtest_batches",),
     "research_vbt_search_runs": ("research_backtest_batches",),
+    "research_optimizer_studies": ("research_backtest_batches",),
+    "research_optimizer_trials": ("research_backtest_batches",),
     "research_vbt_param_results": ("research_backtest_batches",),
     "research_vbt_param_gate_events": ("research_backtest_batches",),
     "research_vbt_ephemeral_indicator_cache": ("research_backtest_batches",),
@@ -161,7 +166,7 @@ RESEARCH_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     "research_trade_records": ("research_backtest_batches",),
     "research_order_records": ("research_backtest_batches",),
     "research_drawdown_records": ("research_backtest_batches",),
-    "research_strategy_rankings": ("research_backtest_batches", "research_strategy_stats", "research_trade_records"),
+    "research_strategy_rankings": ("research_backtest_runs", "research_strategy_stats", "research_trade_records"),
     "research_signal_candidates": ("research_datasets", "research_derived_indicator_frames", "research_strategy_rankings"),
 }
 
@@ -240,6 +245,18 @@ def research_asset_specs() -> list[AssetSpec]:
             outputs=("research_vbt_search_runs_delta",),
         ),
         AssetSpec(
+            key="research_optimizer_studies",
+            description="Expose Delta-first optimizer study provenance for adaptive family-search campaigns.",
+            inputs=("research_backtest_batches_delta",),
+            outputs=("research_optimizer_studies_delta",),
+        ),
+        AssetSpec(
+            key="research_optimizer_trials",
+            description="Expose optimizer trial rows linked to vectorbt param_hash results.",
+            inputs=("research_backtest_batches_delta",),
+            outputs=("research_optimizer_trials_delta",),
+        ),
+        AssetSpec(
             key="research_vbt_param_results",
             description="Expose param_hash-level vectorbt metrics from family-search surfaces.",
             inputs=("research_backtest_batches_delta",),
@@ -296,7 +313,7 @@ def research_asset_specs() -> list[AssetSpec]:
         AssetSpec(
             key="research_strategy_rankings",
             description="Rank strategy variants over materialized backtest results using Stage 6 robustness policy.",
-            inputs=("research_backtest_batches_delta", "research_strategy_stats_delta", "research_trade_records_delta"),
+            inputs=("research_backtest_runs_delta", "research_strategy_stats_delta", "research_trade_records_delta"),
             outputs=("research_strategy_rankings_delta",),
         ),
         AssetSpec(
@@ -360,6 +377,7 @@ def _research_config_schema() -> dict[str, object]:
         "ranking_metric_order": [str],
         "require_out_of_sample_pass": bool,
         "min_trade_count": int,
+        "min_fold_count": int,
         "max_drawdown_cap": float,
         "min_positive_fold_ratio": float,
         "stress_slippage_bps": float,
@@ -416,6 +434,8 @@ def _research_output_paths(*, registry_root: Path, materialized_output_dir: Path
         "research_derived_indicator_frames": (resolved_materialized / "research_derived_indicator_frames.delta").as_posix(),
         "research_strategy_search_specs": (resolved_results / "research_strategy_search_specs.delta").as_posix(),
         "research_vbt_search_runs": (resolved_results / "research_vbt_search_runs.delta").as_posix(),
+        "research_optimizer_studies": (resolved_results / "research_optimizer_studies.delta").as_posix(),
+        "research_optimizer_trials": (resolved_results / "research_optimizer_trials.delta").as_posix(),
         "research_vbt_param_results": (resolved_results / "research_vbt_param_results.delta").as_posix(),
         "research_vbt_param_gate_events": (resolved_results / "research_vbt_param_gate_events.delta").as_posix(),
         "research_vbt_ephemeral_indicator_cache": (resolved_results / "research_vbt_ephemeral_indicator_cache.delta").as_posix(),
@@ -512,6 +532,8 @@ def _require_existing_data_prep(
     ):
         if not has_delta_log(path):
             raise RuntimeError(f"missing reusable research data prep table: {path.as_posix()}")
+        if count_delta_table_rows(path) <= 0:
+            raise RuntimeError(f"empty reusable research data prep table: {path.as_posix()}")
 
     _ensure_reusable_data_prep_schema(materialized_output_dir=materialized_output_dir)
     _require_delta_table_row(
@@ -543,6 +565,31 @@ def _require_existing_data_prep(
     )
 
 
+def _dataset_manifest_row(*, materialized_output_dir: Path, dataset_version: str) -> dict[str, object]:
+    rows = read_delta_table_rows(
+        materialized_output_dir / "research_datasets.delta",
+        columns=list(research_dataset_store_contract()["research_datasets"]["columns"]),
+        filters=[("dataset_version", "=", dataset_version)],
+    )
+    if not rows:
+        raise RuntimeError(f"dataset_version not found: {dataset_version}")
+    return dict(rows[0])
+
+
+def _materialized_table_manifest(research_datasets: dict[str, object], table_name: str) -> dict[str, object]:
+    output_paths = research_datasets.get("output_paths", {})
+    if isinstance(output_paths, Mapping) and table_name in output_paths:
+        table_path = Path(str(output_paths[table_name]))
+    else:
+        table_path = Path(str(research_datasets["materialized_output_dir"])) / f"{table_name}.delta"
+    return {
+        "table_name": table_name,
+        "table_path": table_path.as_posix(),
+        "row_count": count_delta_table_rows(table_path) if has_delta_log(table_path) else 0,
+        "has_delta_log": has_delta_log(table_path),
+    }
+
+
 def _load_canonical_context(config: dict[str, object]) -> tuple[list[CanonicalBar], list[SessionCalendarEntry], list[RollMapEntry]]:
     bars_path = _canonical_table_path(config, "canonical_bars")
     calendar_path = _canonical_table_path(config, "canonical_session_calendar")
@@ -553,14 +600,40 @@ def _load_canonical_context(config: dict[str, object]) -> tuple[list[CanonicalBa
 
     contract_ids = {str(item) for item in _config_value(config, "dataset_contract_ids", [])}
     instrument_ids = {str(item) for item in _config_value(config, "dataset_instrument_ids", [])}
+    timeframes = tuple(str(item) for item in _config_value(config, "timeframes"))
+    start_ts = str(_config_value(config, "start_ts", "") or "")
+    end_ts = str(_config_value(config, "end_ts", "") or "")
+    warmup_bars = int(_config_value(config, "warmup_bars", 0))
+
+    bar_filters: list[tuple[str, str, object]] = []
+    if timeframes:
+        bar_filters.append(("timeframe", "=", timeframes[0]) if len(timeframes) == 1 else ("timeframe", "in", list(timeframes)))
+    if contract_ids:
+        contract_values = sorted(contract_ids)
+        bar_filters.append(("contract_id", "=", contract_values[0]) if len(contract_values) == 1 else ("contract_id", "in", contract_values))
+    if instrument_ids:
+        instrument_values = sorted(instrument_ids)
+        bar_filters.append(("instrument_id", "=", instrument_values[0]) if len(instrument_values) == 1 else ("instrument_id", "in", instrument_values))
+    if start_ts and warmup_bars <= 0:
+        bar_filters.append(("ts", ">=", start_ts))
+    if end_ts:
+        bar_filters.append(("ts", "<=", end_ts))
+
+    calendar_filters: list[tuple[str, str, object]] = []
+    if timeframes:
+        calendar_filters.append(("timeframe", "=", timeframes[0]) if len(timeframes) == 1 else ("timeframe", "in", list(timeframes)))
+    if instrument_ids:
+        instrument_values = sorted(instrument_ids)
+        calendar_filters.append(("instrument_id", "=", instrument_values[0]) if len(instrument_values) == 1 else ("instrument_id", "in", instrument_values))
+
+    roll_map_filters: list[tuple[str, str, object]] = []
+    if instrument_ids:
+        instrument_values = sorted(instrument_ids)
+        roll_map_filters.append(("instrument_id", "=", instrument_values[0]) if len(instrument_values) == 1 else ("instrument_id", "in", instrument_values))
 
     bars = [
         CanonicalBar.from_dict(row)
-        for row in read_delta_table_rows(bars_path)
-        if (
-            (not contract_ids or str(row.get("contract_id")) in contract_ids)
-            and (not instrument_ids or str(row.get("instrument_id")) in instrument_ids)
-        )
+        for row in read_delta_table_rows(bars_path, filters=bar_filters)
     ]
     session_calendar = [
         SessionCalendarEntry(
@@ -570,8 +643,7 @@ def _load_canonical_context(config: dict[str, object]) -> tuple[list[CanonicalBa
             session_open_ts=str(row["session_open_ts"]),
             session_close_ts=str(row["session_close_ts"]),
         )
-        for row in read_delta_table_rows(calendar_path)
-        if not instrument_ids or str(row.get("instrument_id")) in instrument_ids
+        for row in read_delta_table_rows(calendar_path, filters=calendar_filters)
     ]
     roll_map = [
         RollMapEntry(
@@ -580,8 +652,7 @@ def _load_canonical_context(config: dict[str, object]) -> tuple[list[CanonicalBa
             active_contract_id=str(row["active_contract_id"]),
             reason=str(row["reason"]),
         )
-        for row in read_delta_table_rows(roll_map_path)
-        if not instrument_ids or str(row.get("instrument_id")) in instrument_ids
+        for row in read_delta_table_rows(roll_map_path, filters=roll_map_filters)
     ]
     return bars, session_calendar, roll_map
 
@@ -623,12 +694,11 @@ def research_datasets(context) -> dict[str, object]:
             indicator_set_version=indicator_set_version,
             derived_indicator_set_version=derived_indicator_set_version,
         )
-        dataset_manifest_rows = read_delta_table_rows(
-            materialized_output_dir / "research_datasets.delta",
-            filters=[("dataset_version", "=", dataset_version)],
-        )
         report = {
-            "dataset_manifest": dict(dataset_manifest_rows[0]),
+            "dataset_manifest": _dataset_manifest_row(
+                materialized_output_dir=materialized_output_dir,
+                dataset_version=dataset_version,
+            ),
             "instrument_tree_count": _delta_table_filtered_row_count(
                 table_path=materialized_output_dir / "research_instrument_tree.delta",
                 table_name="research_instrument_tree",
@@ -654,6 +724,12 @@ def research_datasets(context) -> dict[str, object]:
             roll_map=roll_map,
             output_dir=materialized_output_dir,
         )
+    strategy_space_config = _config_value(config, "strategy_space", {})
+    optimizer_policy = (
+        dict(strategy_space_config.get("optimizer", {"engine": "grid"}))
+        if isinstance(strategy_space_config, Mapping)
+        else {"engine": "grid"}
+    )
     return {
         "canonical_output_dir": Path(str(_config_value(config, "canonical_output_dir"))).resolve().as_posix(),
         "registry_root": registry_root.as_posix(),
@@ -675,6 +751,7 @@ def research_datasets(context) -> dict[str, object]:
             "timeframe": str(_config_value(config, "backtest_timeframe", str(_config_value(config, "base_timeframe", "15m")))),
             "contract_ids": tuple(str(item) for item in _config_value(config, "backtest_contract_ids", [])),
             "instrument_ids": tuple(str(item) for item in _config_value(config, "backtest_instrument_ids", [])),
+            "optimizer_policy": optimizer_policy,
         },
         "engine_config": {
             "fees_bps": float(_config_value(config, "fees_bps", 0.0)),
@@ -687,6 +764,7 @@ def research_datasets(context) -> dict[str, object]:
             "metric_order": tuple(str(item) for item in _config_value(config, "ranking_metric_order", ("total_return", "profit_factor", "max_drawdown"))),
             "require_out_of_sample_pass": bool(_config_value(config, "require_out_of_sample_pass", True)),
             "min_trade_count": int(_config_value(config, "min_trade_count", 4)),
+            "min_fold_count": int(_config_value(config, "min_fold_count", 1)),
             "max_drawdown_cap": float(_config_value(config, "max_drawdown_cap", 0.35)),
             "min_positive_fold_ratio": float(_config_value(config, "min_positive_fold_ratio", 0.5)),
             "stress_slippage_bps": float(_config_value(config, "stress_slippage_bps", 7.5)),
@@ -718,20 +796,12 @@ def research_datasets(context) -> dict[str, object]:
 
 @asset(group_name="research")
 def research_instrument_tree(research_datasets: dict[str, object]) -> dict[str, object]:
-    materialized_output_dir = Path(str(research_datasets["materialized_output_dir"]))
-    return _delta_table_summary(
-        table_path=materialized_output_dir / "research_instrument_tree.delta",
-        table_name="research_instrument_tree",
-    )
+    return _materialized_table_manifest(research_datasets, "research_instrument_tree")
 
 
 @asset(group_name="research")
 def research_bar_views(research_datasets: dict[str, object]) -> dict[str, object]:
-    materialized_output_dir = Path(str(research_datasets["materialized_output_dir"]))
-    return _delta_table_summary(
-        table_path=materialized_output_dir / "research_bar_views.delta",
-        table_name="research_bar_views",
-    )
+    return _materialized_table_manifest(research_datasets, "research_bar_views")
 
 
 @asset(group_name="research")
@@ -752,10 +822,7 @@ def research_indicator_frames(
             indicator_set_version=indicator_set_version,
             profile_version=profile_version,
         )
-    return _delta_table_summary(
-        table_path=materialized_output_dir / "research_indicator_frames.delta",
-        table_name="research_indicator_frames",
-    )
+    return _materialized_table_manifest(research_datasets, "research_indicator_frames")
 
 
 @asset(group_name="research")
@@ -781,10 +848,7 @@ def research_derived_indicator_frames(
             derived_indicator_set_version=derived_indicator_set_version,
             profile_version=profile_version,
         )
-    return _delta_table_summary(
-        table_path=materialized_output_dir / "research_derived_indicator_frames.delta",
-        table_name="research_derived_indicator_frames",
-    )
+    return _materialized_table_manifest(research_datasets, "research_derived_indicator_frames")
 
 
 def _validate_strategy_seed_inventory(*, registry_root: Path) -> None:
@@ -867,6 +931,7 @@ def _backtest_request_config(research_datasets: dict[str, object]) -> BacktestBa
         timeframe=str(payload["timeframe"]),
         contract_ids=tuple(str(item) for item in payload["contract_ids"]),
         instrument_ids=tuple(str(item) for item in payload["instrument_ids"]),
+        optimizer_policy=dict(payload.get("optimizer_policy", {"engine": "grid"})),
     )
 
 
@@ -887,6 +952,7 @@ def _ranking_policy(research_datasets: dict[str, object]) -> RankingPolicy:
         metric_order=tuple(str(item) for item in payload["metric_order"]),
         require_out_of_sample_pass=bool(payload["require_out_of_sample_pass"]),
         min_trade_count=int(payload["min_trade_count"]),
+        min_fold_count=int(payload.get("min_fold_count", 1)),
         max_drawdown_cap=float(payload["max_drawdown_cap"]),
         min_positive_fold_ratio=float(payload["min_positive_fold_ratio"]),
         stress_slippage_bps=float(payload["stress_slippage_bps"]),
@@ -904,6 +970,106 @@ def _projection_request(research_datasets: dict[str, object]) -> CandidateProjec
         min_robust_score=float(payload["min_robust_score"]),
         decision_lag_bars_max=int(payload["decision_lag_bars_max"]),
     )
+
+
+RANKING_BACKTEST_RUN_COLUMNS = [
+    "backtest_run_id",
+    "campaign_run_id",
+    "strategy_instance_id",
+    "strategy_template_id",
+    "family_id",
+    "family_key",
+    "strategy_version_label",
+    "indicator_set_version",
+    "derived_indicator_set_version",
+    "contract_id",
+    "instrument_id",
+    "timeframe",
+    "params_hash",
+    "parameter_values_json",
+]
+RANKING_STAT_COLUMNS = [
+    "backtest_run_id",
+    "campaign_run_id",
+    "strategy_instance_id",
+    "strategy_template_id",
+    "family_id",
+    "family_key",
+    "strategy_version_label",
+    "dataset_version",
+    "contract_id",
+    "instrument_id",
+    "timeframe",
+    "window_id",
+    "params_hash",
+    "total_return",
+    "annualized_return",
+    "sharpe",
+    "sortino",
+    "calmar",
+    "max_drawdown",
+    "profit_factor",
+    "win_rate",
+    "avg_trade",
+    "turnover",
+    "trade_count",
+]
+RANKING_TRADE_COLUMNS = [
+    "backtest_run_id",
+    "campaign_run_id",
+    "contract_id",
+    "instrument_id",
+    "timeframe",
+    "window_id",
+    "entry_price",
+    "exit_price",
+    "qty",
+    "gross_pnl",
+    "net_pnl",
+    "commission",
+]
+
+
+def _backtest_result_table_path(research_backtest_batches: dict[str, object], table_name: str) -> Path:
+    output_paths = research_backtest_batches.get("output_paths", {})
+    if not isinstance(output_paths, Mapping):
+        output_paths = {}
+    raw_path = output_paths.get(table_name)
+    if raw_path is None:
+        results_output_dir = Path(str(research_backtest_batches["results_output_dir"]))
+        raw_path = (results_output_dir / f"{table_name}.delta").as_posix()
+    return Path(str(raw_path))
+
+
+def _backtest_result_table_manifest(research_backtest_batches: dict[str, object], table_name: str) -> dict[str, object]:
+    table_path = _backtest_result_table_path(research_backtest_batches, table_name)
+    row_counts = research_backtest_batches.get("row_counts", {})
+    if not isinstance(row_counts, Mapping):
+        row_counts = {}
+    return {
+        "table_name": table_name,
+        "table_path": table_path.as_posix(),
+        "row_count": int(row_counts.get(table_name, 0) or 0),
+        "has_delta_log": has_delta_log(table_path),
+    }
+
+
+def _backtest_result_rows(
+    research_backtest_batches: dict[str, object],
+    table_name: str,
+    *,
+    columns: Sequence[str] | None = None,
+) -> list[dict[str, object]]:
+    table_path = _backtest_result_table_path(research_backtest_batches, table_name)
+    if not has_delta_log(table_path):
+        return []
+    if columns is not None:
+        frame = read_delta_table_frame(table_path, columns=list(columns))
+        return [
+            {str(key): item for key, item in row.items()}
+            for row in frame.to_dict("records")
+        ]
+    return read_delta_table_rows(table_path)
 
 
 @asset(group_name="research")
@@ -926,75 +1092,102 @@ def research_backtest_batches(
         request=_backtest_request_config(research_datasets),
         engine_config=_engine_config(research_datasets),
     )
+    row_counts = {
+        "research_strategy_search_specs": len(report["search_spec_rows"]),
+        "research_vbt_search_runs": len(report["search_run_rows"]),
+        "research_optimizer_studies": len(report["optimizer_study_rows"]),
+        "research_optimizer_trials": len(report["optimizer_trial_rows"]),
+        "research_vbt_param_results": len(report["param_result_rows"]),
+        "research_vbt_param_gate_events": len(report["gate_event_rows"]),
+        "research_vbt_ephemeral_indicator_cache": len(report["ephemeral_indicator_rows"]),
+        "research_strategy_promotion_events": len(report["promotion_event_rows"]),
+        "research_backtest_runs": len(report["run_rows"]),
+        "research_strategy_stats": len(report["stat_rows"]),
+        "research_trade_records": len(report["trade_rows"]),
+        "research_order_records": len(report["order_rows"]),
+        "research_drawdown_records": len(report["drawdown_rows"]),
+    }
     return {
-        **report,
+        "backtest_batch": dict(report["backtest_batch"]),
+        "output_paths": dict(report["output_paths"]),
+        "row_counts": row_counts,
         "results_output_dir": results_output_dir.as_posix(),
     }
 
 
 @asset(group_name="research")
-def research_strategy_search_specs(research_backtest_batches: dict[str, object]) -> list[dict[str, object]]:
-    return [dict(row) for row in research_backtest_batches["search_spec_rows"]]
+def research_strategy_search_specs(research_backtest_batches: dict[str, object]) -> dict[str, object]:
+    return _backtest_result_table_manifest(research_backtest_batches, "research_strategy_search_specs")
 
 
 @asset(group_name="research")
-def research_vbt_search_runs(research_backtest_batches: dict[str, object]) -> list[dict[str, object]]:
-    return [dict(row) for row in research_backtest_batches["search_run_rows"]]
+def research_vbt_search_runs(research_backtest_batches: dict[str, object]) -> dict[str, object]:
+    return _backtest_result_table_manifest(research_backtest_batches, "research_vbt_search_runs")
 
 
 @asset(group_name="research")
-def research_vbt_param_results(research_backtest_batches: dict[str, object]) -> list[dict[str, object]]:
-    return [dict(row) for row in research_backtest_batches["param_result_rows"]]
+def research_optimizer_studies(research_backtest_batches: dict[str, object]) -> dict[str, object]:
+    return _backtest_result_table_manifest(research_backtest_batches, "research_optimizer_studies")
 
 
 @asset(group_name="research")
-def research_vbt_param_gate_events(research_backtest_batches: dict[str, object]) -> list[dict[str, object]]:
-    return [dict(row) for row in research_backtest_batches["gate_event_rows"]]
+def research_optimizer_trials(research_backtest_batches: dict[str, object]) -> dict[str, object]:
+    return _backtest_result_table_manifest(research_backtest_batches, "research_optimizer_trials")
 
 
 @asset(group_name="research")
-def research_vbt_ephemeral_indicator_cache(research_backtest_batches: dict[str, object]) -> list[dict[str, object]]:
-    return [dict(row) for row in research_backtest_batches["ephemeral_indicator_rows"]]
+def research_vbt_param_results(research_backtest_batches: dict[str, object]) -> dict[str, object]:
+    return _backtest_result_table_manifest(research_backtest_batches, "research_vbt_param_results")
 
 
 @asset(group_name="research")
-def research_strategy_promotion_events(research_backtest_batches: dict[str, object]) -> list[dict[str, object]]:
-    return [dict(row) for row in research_backtest_batches["promotion_event_rows"]]
+def research_vbt_param_gate_events(research_backtest_batches: dict[str, object]) -> dict[str, object]:
+    return _backtest_result_table_manifest(research_backtest_batches, "research_vbt_param_gate_events")
 
 
 @asset(group_name="research")
-def research_backtest_runs(research_backtest_batches: dict[str, object]) -> list[dict[str, object]]:
-    return [dict(row) for row in research_backtest_batches["run_rows"]]
+def research_vbt_ephemeral_indicator_cache(research_backtest_batches: dict[str, object]) -> dict[str, object]:
+    return _backtest_result_table_manifest(research_backtest_batches, "research_vbt_ephemeral_indicator_cache")
 
 
 @asset(group_name="research")
-def research_strategy_stats(research_backtest_batches: dict[str, object]) -> list[dict[str, object]]:
-    return [dict(row) for row in research_backtest_batches["stat_rows"]]
+def research_strategy_promotion_events(research_backtest_batches: dict[str, object]) -> dict[str, object]:
+    return _backtest_result_table_manifest(research_backtest_batches, "research_strategy_promotion_events")
 
 
 @asset(group_name="research")
-def research_trade_records(research_backtest_batches: dict[str, object]) -> list[dict[str, object]]:
-    return [dict(row) for row in research_backtest_batches["trade_rows"]]
+def research_backtest_runs(research_backtest_batches: dict[str, object]) -> dict[str, object]:
+    return _backtest_result_table_manifest(research_backtest_batches, "research_backtest_runs")
 
 
 @asset(group_name="research")
-def research_order_records(research_backtest_batches: dict[str, object]) -> list[dict[str, object]]:
-    return [dict(row) for row in research_backtest_batches["order_rows"]]
+def research_strategy_stats(research_backtest_batches: dict[str, object]) -> dict[str, object]:
+    return _backtest_result_table_manifest(research_backtest_batches, "research_strategy_stats")
 
 
 @asset(group_name="research")
-def research_drawdown_records(research_backtest_batches: dict[str, object]) -> list[dict[str, object]]:
-    return [dict(row) for row in research_backtest_batches["drawdown_rows"]]
+def research_trade_records(research_backtest_batches: dict[str, object]) -> dict[str, object]:
+    return _backtest_result_table_manifest(research_backtest_batches, "research_trade_records")
+
+
+@asset(group_name="research")
+def research_order_records(research_backtest_batches: dict[str, object]) -> dict[str, object]:
+    return _backtest_result_table_manifest(research_backtest_batches, "research_order_records")
+
+
+@asset(group_name="research")
+def research_drawdown_records(research_backtest_batches: dict[str, object]) -> dict[str, object]:
+    return _backtest_result_table_manifest(research_backtest_batches, "research_drawdown_records")
 
 
 @asset(group_name="research")
 def research_strategy_rankings(
     research_datasets: dict[str, object],
-    research_backtest_batches: dict[str, object],
-    research_strategy_stats: list[dict[str, object]],
-    research_trade_records: list[dict[str, object]],
-) -> list[dict[str, object]]:
-    del research_backtest_batches
+    research_backtest_runs: dict[str, object],
+    research_strategy_stats: dict[str, object],
+    research_trade_records: dict[str, object],
+) -> dict[str, object]:
+    del research_backtest_runs
     del research_strategy_stats
     del research_trade_records
     results_output_dir = Path(str(research_datasets["results_output_dir"]))
@@ -1003,28 +1196,46 @@ def research_strategy_rankings(
         output_dir=results_output_dir,
         policy=_ranking_policy(research_datasets),
     )
-    return [dict(row) for row in report["ranking_rows"]]
+    return _backtest_result_table_manifest(
+        {
+            "output_paths": report.get("output_paths", {}),
+            "row_counts": {
+                "research_strategy_rankings": len(report.get("ranking_rows", ())),
+                "research_run_findings": len(report.get("finding_rows", ())),
+            },
+            "results_output_dir": results_output_dir.as_posix(),
+        },
+        "research_strategy_rankings",
+    )
 
 
 @asset(group_name="research")
 def research_signal_candidates(
     research_datasets: dict[str, object],
     research_derived_indicator_frames: dict[str, object],
-    research_strategy_rankings: list[dict[str, object]],
-) -> list[dict[str, object]]:
+    research_strategy_rankings: dict[str, object],
+) -> dict[str, object]:
     del research_derived_indicator_frames
     materialized_output_dir = Path(str(research_datasets["materialized_output_dir"]))
     results_output_dir = Path(str(research_datasets["results_output_dir"]))
+    ranking_table_path = Path(str(research_strategy_rankings["table_path"]))
+    ranking_rows = read_delta_table_rows(ranking_table_path) if has_delta_log(ranking_table_path) else []
     report = project_runtime_candidates(
         dataset_output_dir=materialized_output_dir,
         indicator_output_dir=materialized_output_dir,
         derived_indicator_output_dir=materialized_output_dir,
         output_dir=results_output_dir,
         request=_projection_request(research_datasets),
-        ranking_rows=[dict(row) for row in research_strategy_rankings],
+        ranking_rows=ranking_rows,
         config=_engine_config(research_datasets),
     )
-    return [dict(row) for row in report["candidate_rows"]]
+    candidate_path = Path(str(report["output_paths"]["research_signal_candidates"]))
+    return {
+        "table_name": "research_signal_candidates",
+        "table_path": candidate_path.as_posix(),
+        "row_count": len(report.get("candidate_rows", ())),
+        "has_delta_log": has_delta_log(candidate_path),
+    }
 
 
 RESEARCH_ASSETS = (
@@ -1039,6 +1250,8 @@ RESEARCH_ASSETS = (
     research_backtest_batches,
     research_strategy_search_specs,
     research_vbt_search_runs,
+    research_optimizer_studies,
+    research_optimizer_trials,
     research_vbt_param_results,
     research_vbt_param_gate_events,
     research_vbt_ephemeral_indicator_cache,
@@ -1079,6 +1292,8 @@ research_backtest_job = define_asset_job(
         research_backtest_batches,
         research_strategy_search_specs,
         research_vbt_search_runs,
+        research_optimizer_studies,
+        research_optimizer_trials,
         research_vbt_param_results,
         research_vbt_param_gate_events,
         research_vbt_ephemeral_indicator_cache,
@@ -1378,6 +1593,7 @@ def _research_run_config(
     ranking_metric_order: Sequence[str] = ("total_return", "profit_factor", "max_drawdown"),
     require_out_of_sample_pass: bool = True,
     min_trade_count: int = 4,
+    min_fold_count: int = 1,
     max_drawdown_cap: float = 0.35,
     min_positive_fold_ratio: float = 0.5,
     stress_slippage_bps: float = 7.5,
@@ -1437,6 +1653,7 @@ def _research_run_config(
         "ranking_metric_order": [str(item) for item in ranking_metric_order],
         "require_out_of_sample_pass": require_out_of_sample_pass,
         "min_trade_count": min_trade_count,
+        "min_fold_count": min_fold_count,
         "max_drawdown_cap": max_drawdown_cap,
         "min_positive_fold_ratio": min_positive_fold_ratio,
         "stress_slippage_bps": stress_slippage_bps,
@@ -1492,6 +1709,7 @@ def _materialize_research_assets(
     ranking_metric_order: Sequence[str] = ("total_return", "profit_factor", "max_drawdown"),
     require_out_of_sample_pass: bool = True,
     min_trade_count: int = 4,
+    min_fold_count: int = 1,
     max_drawdown_cap: float = 0.35,
     min_positive_fold_ratio: float = 0.5,
     stress_slippage_bps: float = 7.5,
@@ -1539,11 +1757,16 @@ def _materialize_research_assets(
         strategy_space_id = prepared_strategy_space.strategy_space_id
         search_specs = [spec.to_dict() for spec in prepared_strategy_space.family_search_specs]
         resolved_combination_count = 0
-        for spec in prepared_strategy_space.family_search_specs:
-            count = 1
-            for values in spec.search_spec.parameter_space.values():
-                count *= max(1, len(values))
-            resolved_combination_count += count
+        optimizer = dict((strategy_space or _default_strategy_space()).get("optimizer", {})) if isinstance(strategy_space or {}, dict) else {}
+        if str(optimizer.get("engine", "grid")) == "optuna":
+            per_spec_count = int(optimizer.get("n_trials", 0) or 0)
+            resolved_combination_count = per_spec_count * len(prepared_strategy_space.family_search_specs)
+        else:
+            for spec in prepared_strategy_space.family_search_specs:
+                count = 1
+                for values in spec.search_spec.parameter_space.values():
+                    count *= max(1, len(values))
+                resolved_combination_count += count
     output_paths = _research_output_paths(
         registry_root=registry_root,
         materialized_output_dir=resolved_materialized_output_dir,
@@ -1596,6 +1819,7 @@ def _materialize_research_assets(
                         ranking_metric_order=ranking_metric_order,
                         require_out_of_sample_pass=require_out_of_sample_pass,
                         min_trade_count=min_trade_count,
+                        min_fold_count=min_fold_count,
                         max_drawdown_cap=max_drawdown_cap,
                         min_positive_fold_ratio=min_positive_fold_ratio,
                         stress_slippage_bps=stress_slippage_bps,
@@ -1821,6 +2045,7 @@ def materialize_research_backtest_assets(
     ranking_metric_order: Sequence[str] = ("total_return", "profit_factor", "max_drawdown"),
     require_out_of_sample_pass: bool = True,
     min_trade_count: int = 4,
+    min_fold_count: int = 1,
     max_drawdown_cap: float = 0.35,
     min_positive_fold_ratio: float = 0.5,
     stress_slippage_bps: float = 7.5,
@@ -1876,6 +2101,7 @@ def materialize_research_backtest_assets(
         ranking_metric_order=ranking_metric_order,
         require_out_of_sample_pass=require_out_of_sample_pass,
         min_trade_count=min_trade_count,
+        min_fold_count=min_fold_count,
         max_drawdown_cap=max_drawdown_cap,
         min_positive_fold_ratio=min_positive_fold_ratio,
         stress_slippage_bps=stress_slippage_bps,
@@ -1934,6 +2160,7 @@ def materialize_research_projection_assets(
     decision_lag_bars_max: int = 1,
     require_out_of_sample_pass: bool = True,
     min_trade_count: int = 4,
+    min_fold_count: int = 1,
     max_drawdown_cap: float = 0.35,
     min_positive_fold_ratio: float = 0.5,
     stress_slippage_bps: float = 7.5,
@@ -1989,6 +2216,7 @@ def materialize_research_projection_assets(
         decision_lag_bars_max=decision_lag_bars_max,
         require_out_of_sample_pass=require_out_of_sample_pass,
         min_trade_count=min_trade_count,
+        min_fold_count=min_fold_count,
         max_drawdown_cap=max_drawdown_cap,
         min_positive_fold_ratio=min_positive_fold_ratio,
         stress_slippage_bps=stress_slippage_bps,
