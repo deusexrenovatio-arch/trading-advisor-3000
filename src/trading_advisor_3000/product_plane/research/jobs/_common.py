@@ -71,8 +71,6 @@ def research_contract_manifest() -> dict[str, dict[str, object]]:
                 "research_strategy_families",
                 "research_strategy_templates",
                 "research_strategy_template_modules",
-                "research_strategy_instances",
-                "research_strategy_instance_modules",
             )
         },
         **research_dataset_store_contract(),

@@ -31,6 +31,150 @@ class BacktestRunArtifact:
 
 def backtest_store_contract() -> dict[str, dict[str, object]]:
     return {
+        "research_strategy_search_specs": {
+            "format": "delta",
+            "partition_by": ["family_key", "search_spec_version"],
+            "columns": {
+                "search_spec_id": "string",
+                "family_key": "string",
+                "template_key": "string",
+                "search_spec_version": "string",
+                "intent": "string",
+                "clock_profiles": "json",
+                "market_states": "json",
+                "required_price_inputs_json": "json",
+                "required_materialized_indicators_json": "json",
+                "required_materialized_derived_json": "json",
+                "optional_indicator_plan_json": "json",
+                "signal_surface_key": "string",
+                "signal_surface_mode": "string",
+                "parameter_mode": "string",
+                "parameter_space_json": "json",
+                "parameter_constraints_json": "json",
+                "clock_profile_json": "json",
+                "required_inputs_by_clock_json": "json",
+                "parameter_space_by_role_json": "json",
+                "parameter_clock_map_json": "json",
+                "exit_parameter_space_json": "json",
+                "risk_parameter_space_json": "json",
+                "execution_assumptions_json": "json",
+                "created_at": "timestamp",
+            },
+        },
+        "research_vbt_search_runs": {
+            "format": "delta",
+            "partition_by": ["family_key", "clock_profile"],
+            "columns": {
+                "search_run_id": "string",
+                "search_spec_id": "string",
+                "campaign_id": "string",
+                "family_key": "string",
+                "template_key": "string",
+                "clock_profile": "string",
+                "dataset_id": "string",
+                "dataset_snapshot": "string",
+                "indicator_profile_version": "string",
+                "derived_indicator_profile_version": "string",
+                "universe_key": "string",
+                "fold_id": "string",
+                "param_count": "int",
+                "instrument_count": "int",
+                "chunk_count": "int",
+                "status": "string",
+                "started_at": "timestamp",
+                "finished_at": "timestamp",
+                "error_message": "string",
+            },
+        },
+        "research_vbt_param_results": {
+            "format": "delta",
+            "partition_by": ["family_key", "clock_profile"],
+            "columns": {
+                "search_run_id": "string",
+                "param_hash": "string",
+                "family_key": "string",
+                "template_key": "string",
+                "clock_profile": "string",
+                "instrument_id": "string",
+                "fold_id": "string",
+                "params_json": "json",
+                "indicator_plan_hash": "string",
+                "net_pnl": "double",
+                "sharpe": "double",
+                "sortino": "double",
+                "calmar": "double",
+                "max_drawdown": "double",
+                "profit_factor": "double",
+                "win_rate": "double",
+                "avg_trade": "double",
+                "trade_count": "int",
+                "turnover": "double",
+                "avg_holding_minutes": "double",
+                "fees_paid": "double",
+                "slippage_paid": "double",
+                "exposure_avg": "double",
+                "stress_label": "string",
+                "created_at": "timestamp",
+            },
+        },
+        "research_vbt_param_gate_events": {
+            "format": "delta",
+            "partition_by": ["gate_name", "passed"],
+            "columns": {
+                "search_run_id": "string",
+                "param_hash": "string",
+                "gate_name": "string",
+                "passed": "int",
+                "failure_code": "string",
+                "failure_reason": "string",
+                "metric_snapshot_json": "json",
+                "created_at": "timestamp",
+            },
+        },
+        "research_vbt_ephemeral_indicator_cache": {
+            "format": "delta",
+            "partition_by": ["family_key", "provider"],
+            "columns": {
+                "cache_id": "string",
+                "search_run_id": "string",
+                "family_key": "string",
+                "clock_profile": "string",
+                "dataset_id": "string",
+                "dataset_snapshot": "string",
+                "provider": "string",
+                "provider_version": "string",
+                "indicator_key": "string",
+                "indicator_params_json": "json",
+                "input_columns": "json",
+                "output_columns": "json",
+                "output_hash": "string",
+                "warmup_bars": "int",
+                "index_start": "timestamp",
+                "index_end": "timestamp",
+                "instrument_count": "int",
+                "row_count": "int",
+                "cache_scope": "string",
+                "created_at": "timestamp",
+            },
+        },
+        "research_strategy_promotion_events": {
+            "format": "delta",
+            "partition_by": ["family_key", "promotion_stage"],
+            "columns": {
+                "promotion_id": "string",
+                "search_run_id": "string",
+                "param_hash": "string",
+                "promoted_to_instance_id": "string",
+                "family_key": "string",
+                "template_key": "string",
+                "promotion_stage": "string",
+                "promotion_reason": "string",
+                "params_json": "json",
+                "metrics_snapshot_json": "json",
+                "manifest_hash": "string",
+                "created_at": "timestamp",
+            },
+        },
         "research_backtest_batches": {
             "format": "delta",
             "partition_by": ["dataset_version", "strategy_space_id"],
@@ -56,12 +200,14 @@ def backtest_store_contract() -> dict[str, dict[str, object]]:
             "partition_by": ["family_key", "timeframe"],
             "columns": {
                 "backtest_run_id": "string",
+                "search_run_id": "string",
                 "backtest_batch_id": "string",
                 "campaign_run_id": "string",
                 "strategy_instance_id": "string",
                 "strategy_template_id": "string",
                 "family_id": "string",
                 "family_key": "string",
+                "template_key": "string",
                 "strategy_version_label": "string",
                 "dataset_version": "string",
                 "indicator_set_version": "string",
@@ -69,9 +215,13 @@ def backtest_store_contract() -> dict[str, dict[str, object]]:
                 "contract_id": "string",
                 "instrument_id": "string",
                 "timeframe": "string",
+                "clock_profile": "string",
                 "window_id": "string",
                 "validation_split_id": "string",
+                "param_hash": "string",
+                "params_hash": "string",
                 "parameter_values_json": "json",
+                "params_json": "json",
                 "execution_mode": "string",
                 "engine_name": "string",
                 "row_count": "int",
@@ -86,17 +236,21 @@ def backtest_store_contract() -> dict[str, dict[str, object]]:
             "partition_by": ["family_key", "timeframe"],
             "columns": {
                 "backtest_run_id": "string",
+                "search_run_id": "string",
                 "campaign_run_id": "string",
                 "strategy_instance_id": "string",
                 "strategy_template_id": "string",
                 "family_id": "string",
                 "family_key": "string",
+                "template_key": "string",
                 "strategy_version_label": "string",
                 "dataset_version": "string",
                 "contract_id": "string",
                 "instrument_id": "string",
                 "timeframe": "string",
                 "window_id": "string",
+                "param_hash": "string",
+                "params_hash": "string",
                 "total_return": "double",
                 "annualized_return": "double",
                 "sharpe": "double",
@@ -131,6 +285,7 @@ def backtest_store_contract() -> dict[str, dict[str, object]]:
                 "instrument_id": "string",
                 "timeframe": "string",
                 "window_id": "string",
+                "param_hash": "string",
                 "trade_id": "string",
                 "side": "string",
                 "status": "string",
@@ -160,6 +315,7 @@ def backtest_store_contract() -> dict[str, dict[str, object]]:
                 "instrument_id": "string",
                 "timeframe": "string",
                 "window_id": "string",
+                "param_hash": "string",
                 "order_id": "string",
                 "ts": "timestamp",
                 "side": "string",
@@ -188,6 +344,7 @@ def backtest_store_contract() -> dict[str, dict[str, object]]:
                 "drawdown_pct": "double",
                 "peak_equity": "double",
                 "window_id": "string",
+                "param_hash": "string",
                 "status_code": "int",
                 "status": "string",
             },
@@ -216,6 +373,8 @@ def results_store_contract() -> dict[str, dict[str, object]]:
                 "instrument_id": "string",
                 "timeframe": "string",
                 "rank": "int",
+                "family_rank": "int",
+                "selected_rank": "int",
                 "objective_score": "double",
                 "score_total": "double",
                 "ranking_policy_id": "string",
@@ -280,20 +439,44 @@ def write_backtest_artifacts(
     run_rows: list[dict[str, object]],
     stat_rows: list[dict[str, object]],
     trade_rows: list[dict[str, object]],
+    search_spec_rows: list[dict[str, object]] | None = None,
+    search_run_rows: list[dict[str, object]] | None = None,
+    param_result_rows: list[dict[str, object]] | None = None,
+    gate_event_rows: list[dict[str, object]] | None = None,
+    ephemeral_indicator_rows: list[dict[str, object]] | None = None,
+    promotion_event_rows: list[dict[str, object]] | None = None,
     order_rows: list[dict[str, object]] | None = None,
     drawdown_rows: list[dict[str, object]] | None = None,
 ) -> dict[str, str]:
     contract = backtest_store_contract()
     output_dir.mkdir(parents=True, exist_ok=True)
+    search_specs_path = output_dir / "research_strategy_search_specs.delta"
+    search_runs_path = output_dir / "research_vbt_search_runs.delta"
+    param_results_path = output_dir / "research_vbt_param_results.delta"
+    gate_events_path = output_dir / "research_vbt_param_gate_events.delta"
+    ephemeral_path = output_dir / "research_vbt_ephemeral_indicator_cache.delta"
+    promotion_path = output_dir / "research_strategy_promotion_events.delta"
     batch_path = output_dir / "research_backtest_batches.delta"
     run_path = output_dir / "research_backtest_runs.delta"
     stats_path = output_dir / "research_strategy_stats.delta"
     trades_path = output_dir / "research_trade_records.delta"
     orders_path = output_dir / "research_order_records.delta"
     drawdowns_path = output_dir / "research_drawdown_records.delta"
+    search_spec_rows = search_spec_rows or []
+    search_run_rows = search_run_rows or []
+    param_result_rows = param_result_rows or []
+    gate_event_rows = gate_event_rows or []
+    ephemeral_indicator_rows = ephemeral_indicator_rows or []
+    promotion_event_rows = promotion_event_rows or []
     order_rows = order_rows or []
     drawdown_rows = drawdown_rows or []
 
+    write_delta_table_rows(table_path=search_specs_path, rows=search_spec_rows, columns=contract["research_strategy_search_specs"]["columns"])
+    write_delta_table_rows(table_path=search_runs_path, rows=search_run_rows, columns=contract["research_vbt_search_runs"]["columns"])
+    write_delta_table_rows(table_path=param_results_path, rows=param_result_rows, columns=contract["research_vbt_param_results"]["columns"])
+    write_delta_table_rows(table_path=gate_events_path, rows=gate_event_rows, columns=contract["research_vbt_param_gate_events"]["columns"])
+    write_delta_table_rows(table_path=ephemeral_path, rows=ephemeral_indicator_rows, columns=contract["research_vbt_ephemeral_indicator_cache"]["columns"])
+    write_delta_table_rows(table_path=promotion_path, rows=promotion_event_rows, columns=contract["research_strategy_promotion_events"]["columns"])
     write_delta_table_rows(table_path=batch_path, rows=batch_rows, columns=contract["research_backtest_batches"]["columns"])
     write_delta_table_rows(table_path=run_path, rows=run_rows, columns=contract["research_backtest_runs"]["columns"])
     write_delta_table_rows(table_path=stats_path, rows=stat_rows, columns=contract["research_strategy_stats"]["columns"])
@@ -301,6 +484,12 @@ def write_backtest_artifacts(
     write_delta_table_rows(table_path=orders_path, rows=order_rows, columns=contract["research_order_records"]["columns"])
     write_delta_table_rows(table_path=drawdowns_path, rows=drawdown_rows, columns=contract["research_drawdown_records"]["columns"])
     return {
+        "research_strategy_search_specs": search_specs_path.as_posix(),
+        "research_vbt_search_runs": search_runs_path.as_posix(),
+        "research_vbt_param_results": param_results_path.as_posix(),
+        "research_vbt_param_gate_events": gate_events_path.as_posix(),
+        "research_vbt_ephemeral_indicator_cache": ephemeral_path.as_posix(),
+        "research_strategy_promotion_events": promotion_path.as_posix(),
         "research_backtest_batches": batch_path.as_posix(),
         "research_backtest_runs": run_path.as_posix(),
         "research_strategy_stats": stats_path.as_posix(),
@@ -350,6 +539,12 @@ def write_stage6_artifacts(
 
 def load_backtest_artifacts(output_dir: Path) -> dict[str, list[dict[str, object]]]:
     return {
+        "research_strategy_search_specs": _read_if_present(output_dir / "research_strategy_search_specs.delta"),
+        "research_vbt_search_runs": _read_if_present(output_dir / "research_vbt_search_runs.delta"),
+        "research_vbt_param_results": _read_if_present(output_dir / "research_vbt_param_results.delta"),
+        "research_vbt_param_gate_events": _read_if_present(output_dir / "research_vbt_param_gate_events.delta"),
+        "research_vbt_ephemeral_indicator_cache": _read_if_present(output_dir / "research_vbt_ephemeral_indicator_cache.delta"),
+        "research_strategy_promotion_events": _read_if_present(output_dir / "research_strategy_promotion_events.delta"),
         "research_backtest_batches": _read_if_present(output_dir / "research_backtest_batches.delta"),
         "research_backtest_runs": _read_if_present(output_dir / "research_backtest_runs.delta"),
         "research_strategy_stats": _read_if_present(output_dir / "research_strategy_stats.delta"),

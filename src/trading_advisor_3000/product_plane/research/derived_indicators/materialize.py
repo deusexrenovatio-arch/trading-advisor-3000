@@ -13,8 +13,11 @@ from trading_advisor_3000.product_plane.research.datasets import ResearchBarView
 from trading_advisor_3000.product_plane.research.derived_indicators.registry import (
     DerivedIndicatorProfile,
     DerivedIndicatorProfileRegistry,
+    MTF_MAPPINGS,
     build_derived_indicator_profile_registry,
     current_derived_indicator_profile,
+    mtf_carried_columns,
+    mtf_column_name,
 )
 from trading_advisor_3000.product_plane.research.indicators import IndicatorFramePartitionKey, IndicatorFrameRow
 from trading_advisor_3000.product_plane.research.indicators.store import (
@@ -41,16 +44,6 @@ from .store import (
 class DerivedSeriesKey:
     instrument_id: str
     contract_id: str | None
-
-
-MTF_MAPPINGS: tuple[tuple[str, str], ...] = (
-    ("1h", "15m"),
-    ("4h", "15m"),
-    ("4h", "1h"),
-    ("1d", "15m"),
-    ("1d", "1h"),
-    ("1d", "4h"),
-)
 
 
 DERIVED_SOURCE_INDICATOR_COLUMNS: tuple[str, ...] = tuple(
@@ -575,20 +568,14 @@ def _compute_mtf_overlay(
 ) -> dict[str, pd.Series]:
     output: dict[str, pd.Series] = {}
     for source_timeframe, target_timeframe in MTF_MAPPINGS:
-        prefix = f"mtf_{source_timeframe}_to_{target_timeframe}"
-        columns = (
-            f"{prefix}_ema_20",
-            f"{prefix}_ema_50",
-            f"{prefix}_adx_14",
-            f"{prefix}_rsi_14",
-        )
+        source_columns = mtf_carried_columns(source_timeframe, target_timeframe)
+        columns = tuple(mtf_column_name(source_timeframe, target_timeframe, column) for column in source_columns)
         if current_timeframe != target_timeframe or source_timeframe not in source_frames:
             for column in columns:
                 output[column] = pd.Series([None] * len(frame), index=frame.index, dtype="object")
             continue
         source_frame = source_frames[source_timeframe]
-        required = {"ts", "ema_20", "ema_50", "adx_14", "rsi_14"}
-        if not required <= set(source_frame.columns):
+        if not set(source_columns) <= set(source_frame.columns):
             for column in columns:
                 output[column] = pd.Series([None] * len(frame), index=frame.index, dtype="object")
             continue
@@ -598,10 +585,10 @@ def _compute_mtf_overlay(
         right = pd.DataFrame(
             {
                 "source_close_ts": source_close_ts,
-                columns[0]: _numeric(source_frame, "ema_20"),
-                columns[1]: _numeric(source_frame, "ema_50"),
-                columns[2]: _numeric(source_frame, "adx_14"),
-                columns[3]: _numeric(source_frame, "rsi_14"),
+                **{
+                    output_column: _numeric(source_frame, source_column)
+                    for source_column, output_column in zip(source_columns, columns, strict=True)
+                },
             }
         ).sort_values("source_close_ts")
         merged = pd.merge_asof(left, right, left_on="current_close_ts", right_on="source_close_ts", direction="backward")

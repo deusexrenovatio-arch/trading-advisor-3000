@@ -18,14 +18,18 @@ def test_research_dagster_asset_specs_declared() -> None:
         "research_bar_views",
         "research_indicator_frames",
         "research_derived_indicator_frames",
-        "research_strategy_families",
-        "research_strategy_templates",
-        "research_strategy_template_modules",
-        "research_strategy_instances",
-        "research_strategy_instance_modules",
-        "research_backtest_batches",
-        "research_backtest_runs",
-        "research_strategy_stats",
+            "research_strategy_families",
+            "research_strategy_templates",
+            "research_strategy_template_modules",
+            "research_strategy_search_specs",
+            "research_vbt_search_runs",
+            "research_vbt_param_results",
+            "research_vbt_param_gate_events",
+            "research_vbt_ephemeral_indicator_cache",
+            "research_strategy_promotion_events",
+            "research_backtest_batches",
+            "research_backtest_runs",
+            "research_strategy_stats",
         "research_trade_records",
         "research_order_records",
         "research_drawdown_records",
@@ -50,14 +54,18 @@ def test_research_dagster_asset_specs_declared() -> None:
     assert set(specs["research_strategy_families"].inputs) == {"research_datasets_delta"}
     assert set(specs["research_strategy_templates"].inputs) == {"research_strategy_families_delta"}
     assert set(specs["research_strategy_template_modules"].inputs) == {"research_strategy_templates_delta"}
-    assert set(specs["research_strategy_instances"].inputs) == {"research_strategy_template_modules_delta"}
-    assert set(specs["research_strategy_instance_modules"].inputs) == {"research_strategy_instances_delta"}
     assert set(specs["research_backtest_batches"].inputs) == {
         "research_datasets_delta",
         "research_indicator_frames_delta",
         "research_derived_indicator_frames_delta",
-        "research_strategy_instance_modules_delta",
+        "research_strategy_template_modules_delta",
     }
+    assert set(specs["research_strategy_search_specs"].inputs) == {"research_backtest_batches_delta"}
+    assert set(specs["research_vbt_search_runs"].inputs) == {"research_backtest_batches_delta"}
+    assert set(specs["research_vbt_param_results"].inputs) == {"research_backtest_batches_delta"}
+    assert set(specs["research_vbt_param_gate_events"].inputs) == {"research_backtest_batches_delta"}
+    assert set(specs["research_vbt_ephemeral_indicator_cache"].inputs) == {"research_backtest_batches_delta"}
+    assert set(specs["research_strategy_promotion_events"].inputs) == {"research_backtest_batches_delta"}
     assert set(specs["research_strategy_rankings"].inputs) == {
         "research_backtest_batches_delta",
         "research_strategy_stats_delta",
@@ -143,5 +151,6 @@ def test_research_default_strategy_space_follows_frozen_stg02_adapter_inventory(
     assert tuple(default_strategy_space["family_keys"]) == tuple(
         adapter.family_manifest.family_key for adapter in phase_stg02_family_adapters()
     )
-    assert default_strategy_space["materialize_instances"] is True
+    assert default_strategy_space["max_parameter_combinations"] == 250000
+    assert "materialize_instances" not in default_strategy_space
 
