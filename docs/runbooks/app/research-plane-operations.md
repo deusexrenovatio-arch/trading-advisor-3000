@@ -90,12 +90,15 @@ For Dagster memory behavior:
 - if a run shows large memory growth on an unchanged data-prep route, inspect whether a new asset started returning rows instead of a summary.
 
 For `backtest`:
-- `rows_by_table` for search specs, vectorbt search runs, param results, gate events, runs, stats, trades, orders, and drawdowns
+- `rows_by_table` for search specs, optimizer studies/trials, vectorbt search runs, param results, gate events, runs, stats, trades, orders, and drawdowns
 - `durations.total_seconds`
 - `dagster_selected_assets`
 - `dagster_materialized_assets`
 - `result_digest.ranking_top_rows`
-Backtest is expected to run from `StrategyFamilySearchSpec` and param chunks. A run that requires pre-materialized `StrategyInstance` rows before vectorbt is using the wrong route.
+Backtest is expected to run from `StrategyFamilySearchSpec`, MTF-resolved inputs, vectorbt `SignalFactory.from_choice_func`, and vectorbt `Portfolio.from_signals`. A run that requires pre-materialized `StrategyInstance` rows before vectorbt is using the wrong route.
+Backtest input reads must be Delta-native: dataset/version/instrument/timeframe/slice predicates and strategy-column projection happen in the Delta/Arrow layer before Python builds vectorbt matrices. If a run loads `research_bar_views`, `research_indicator_frames`, or `research_derived_indicator_frames` through Python row-object reloaders, treat it as the wrong route even if the run finishes.
+If `strategy_space.optimizer.engine=optuna`, inspect `research_optimizer_studies.delta` and `research_optimizer_trials.delta` as ask/tell search provenance; the trading result truth remains in the vectorbt param/result/ranking tables.
+For full or battle results, require a `research_campaign_runs.delta` row that points to the run folder. Delta-shaped benchmark folders under `research/runs/_benchmarks/` are useful for timing and proof, but they are not canonical campaign results and must not be used as ranking/projection truth.
 
 For `projection`:
 - candidate table row count
@@ -134,6 +137,7 @@ If data prep fails:
 If backtest fails:
 - inspect the JSON report first;
 - check strategy and timeframe selection before debugging engine details.
+- if the run is slow before vectorbt starts, check that the input loader is using native Delta filters and projected columns, not a full Python row scan.
 
 If projection fails:
 - confirm rankings were produced;

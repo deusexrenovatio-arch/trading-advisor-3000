@@ -49,6 +49,7 @@ orchestration runtimes, also read:
 - Serena is the mandatory first route for non-trivial code discovery, but not a CI gate; do not add heavy checks unless they pay for themselves on the active task.
 - Emergency main push requires explicit neutral variables.
 - Product-plane work is allowed in isolated app paths; shell surfaces stay domain-free.
+- Product-plane research/backtest inputs must use native Delta/Arrow/Spark reads with predicates and column projection; do not use Python row-object loaders as an active fallback for Delta-backed analytical tables.
 - For package intake or module continuation, manual chat-only execution is not a valid governed route. The governed entry launcher must be used first.
 - Spark, Delta Lake, Dagster, pandas-ta-classic, vectorbt, Optuna, and DuckDB must be considered as native runtime owners before custom Python owns product-plane data, compute, optimization, or orchestration logic.
 

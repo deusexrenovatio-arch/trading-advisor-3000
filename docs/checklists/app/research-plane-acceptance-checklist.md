@@ -8,6 +8,7 @@ Date: 2026-03-16
 - [x] Derived feature layer materializes helper labels and ATR reference outputs
 - [x] Canonical operational route is `python -m trading_advisor_3000.product_plane.research.jobs.run_campaign --config <campaign.yaml>`
 - [x] Campaign runner is the only operator-facing research route; scheduled freshness stays Dagster-owned
+- [x] Active backtest inputs are read through native Delta/Arrow predicates and strategy-column projection before Python/vectorbt matrix construction; Python row-object Delta reloaders are not accepted as a fallback for the battle contour
 - [x] Benchmark artifacts now exist as committed JSON, markdown, and cache-marker evidence
 - Stable references:
   `docs/architecture/product-plane/research-plane-platform.md`
