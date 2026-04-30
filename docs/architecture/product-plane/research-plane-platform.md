@@ -16,8 +16,9 @@ canonical data
   -> strategy registry refresh, when strategy inventory changes or a campaign needs family templates
   -> research_strategy_families / research_strategy_templates / research_strategy_template_modules
   -> StrategyFamilySearchSpec
-  -> VectorBTInputBundle / VectorBTSignalSurface
-  -> research_strategy_search_specs / research_vbt_search_runs / research_vbt_param_results / research_vbt_param_gate_events
+  -> MTF input resolver / vectorbt SignalFactory / vectorbt Portfolio.from_signals
+  -> research_strategy_search_specs / research_optimizer_studies / research_optimizer_trials
+  -> research_vbt_search_runs / research_vbt_param_results / research_vbt_param_gate_events
   -> compatibility runs / stats / trades / orders / drawdowns
   -> research_strategy_rankings / research_run_findings
   -> research_signal_candidates
@@ -31,8 +32,11 @@ What this means in practice:
 - `research_data_prep_job` is the product data-prep contour and is triggered after the canonical MOEX baseline update succeeds;
 - strategy registry refresh is intentionally separate from data prep, so strategy inventory changes do not masquerade as canonical data freshness work;
 - strategy templates live in Delta registry tables; concrete `StrategyInstance` rows are created only after promotion from parametric results;
-- vectorbt receives family-level matrix/surface inputs, not one already materialized strategy instance at a time;
+- backtest inputs are read from Delta through native Delta/Arrow predicates and strategy-column projection before Python/vectorbt sees them;
+- vectorbt receives family-level MTF-resolved matrix inputs, generates entry/exit indices through `SignalFactory.from_choice_func`, and executes through `Portfolio.from_signals`;
 - primary result identity is `param_hash`, while compatibility tables may still expose downstream run/stat/trade rows for ranking and projection consumers;
+- adaptive optimizer state is Delta-first run provenance; Optuna proposes trial parameters, while `research_optimizer_studies` and `research_optimizer_trials` explain selected `param_hash` rows and vectorbt result tables remain the execution truth;
+- Dagster handoff between research assets passes Delta manifests, paths, row counts, and run metadata; large row sets such as trades, stats, and ranking inputs are read from Delta inside the owning step instead of being pickled through the orchestrator;
 - repeated research runs reuse the materialized layer and in-process cache;
 - successful campaign runs publish global run-stat/ranking indices and strategy notes from the research registry root;
 - runtime consumes projected candidates instead of knowing research internals.
@@ -114,6 +118,8 @@ Strategy registry layer:
 
 Backtest layer:
 - `research_strategy_search_specs`
+- `research_optimizer_studies`
+- `research_optimizer_trials`
 - `research_vbt_search_runs`
 - `research_vbt_param_results`
 - `research_vbt_param_gate_events`
@@ -137,11 +143,40 @@ Research storage is split into two layers:
 - reusable gold outputs under `<materialized_root>/`
 - immutable run artifacts under `<runs_root>/<campaign_name>/<run_id>/`
 
+Canonical research runs are created only by `run_campaign`. A canonical run must have a
+`research_campaign_runs` row that points at its `results_output_dir`, plus the matching
+`campaign.lock.json`, `run-summary.json`, `artifacts-index.json`, and Delta result tables.
+
+Benchmark or speed-proof tooling may write Delta-shaped artifacts for inspection, but it must
+use `<runs_root>/_benchmarks/<benchmark_id>/` and `artifact_role=benchmark_noncanonical`.
+Those folders are not campaign results, must not publish `research_campaign_runs`, and must
+not feed the global run-stat/ranking indices. JSON emitted by benchmark tooling is only a
+receipt with paths, counts, and timings.
+
 `materialization_key` remains the reproducibility fingerprint for a gold snapshot and is stored in
 `materialization.lock.json` plus run metadata; it is not part of the physical folder layout.
 
 Committed example configs should prefer external-first roots under `D:/TA3000-data`.
 Worktree-local roots are allowed only when a config explicitly asks for them.
+
+## Delta Input Contract
+
+The battle research/backtest contour must not use Python row-object/list scans as a data-loading fallback.
+The accepted sequence is:
+
+```text
+Delta table
+  -> native Delta predicates for dataset/version/instrument/timeframe/slice
+  -> native column projection from StrategyFamilySearchSpec requirements
+  -> Arrow/Pandas frame
+  -> MTF resolver and vectorbt matrices
+```
+
+This keeps Python as orchestration and matrix preparation only.
+Materialized research-table replacement follows the same boundary: replace a dataset version or an indicator/derived partition with Delta delete/append semantics, not by reading the full table into Python and writing the preserved rows back.
+Historical row-list helpers may remain for compatibility, small metadata, or tests, but they are not a supported route for `research_bar_views`, `research_indicator_frames`, or `research_derived_indicator_frames` in active research, backtest, ranking, or projection execution.
+
+Merge-readiness proof for this contour requires a forced data-prep refresh into a verification root. A reused gold layer proves the backtest path, but it does not prove that the current materialization code can rebuild the full dataset, indicator, and derived-indicator tables. The proof surface is the campaign run summary plus physical `_delta_log` checks for every data-prep table.
 
 ## Derived Indicator Semantics
 

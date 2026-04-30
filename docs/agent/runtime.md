@@ -4,6 +4,17 @@
 Process automation is driven by canonical Python entrypoints and documented hooks.
 Do not reintroduce shell-only wrapper flows as primary control paths.
 
+## Product Plane Delta Input Rule
+For Product Plane analytical inputs, especially research and backtest inputs, Python is only the orchestration layer.
+Do not load Delta-backed bars, indicators, derived indicators, or campaign result tables through Python row-object/list scans as the active data path.
+
+The accepted read path is Delta-native first:
+- apply Delta predicates before data reaches Python;
+- project only the columns required by the strategy family or operator inspection;
+- convert to Arrow/Pandas/vectorbt matrices only after Delta has filtered the table.
+
+Allowed engines are the native Delta/Arrow/Spark read paths used by the Product Plane. Row-list helpers may exist for small metadata, tests, or historical compatibility, but they are not a fallback for the battle research/backtest contour.
+
 ## Lifecycle
 - `python scripts/task_session.py begin --request "<request>"`
 - `python scripts/task_session.py status`
