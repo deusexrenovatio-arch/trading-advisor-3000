@@ -4,13 +4,17 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pandas as pd
+
 from trading_advisor_3000.product_plane.contracts import DecisionCandidate
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows, write_delta_table_rows
+from trading_advisor_3000.product_plane.research.backtests.batch_runner import _chunked_series_for_spec
 from trading_advisor_3000.product_plane.research.backtests import (
     BacktestBatchRequest,
     BacktestEngineConfig,
     CandidateProjectionRequest,
     RankingPolicy,
+    StrategyFamilySearchSpec,
     build_ephemeral_strategy_space,
     project_runtime_candidates,
     rank_backtest_results,
@@ -22,7 +26,7 @@ from trading_advisor_3000.product_plane.research.derived_indicators import (
     research_derived_indicator_store_contract,
 )
 from trading_advisor_3000.product_plane.research.indicators import IndicatorFrameRow, indicator_store_contract
-from trading_advisor_3000.product_plane.research.io import ResearchFrameCache
+from trading_advisor_3000.product_plane.research.io import ResearchFrameCache, ResearchSeriesFrame
 from trading_advisor_3000.product_plane.research.strategies.catalog import StrategyCatalog
 from trading_advisor_3000.product_plane.research.strategies.registry import StrategyRegistry, build_strategy_registry
 from trading_advisor_3000.product_plane.research.strategies.spec import (
@@ -345,6 +349,46 @@ def _custom_registry(*specs: StrategySpec) -> StrategyRegistry:
     return StrategyRegistry(catalog=StrategyCatalog(version="stage5-test-catalog", strategies=tuple(specs)))
 
 
+def test_vectorbt_batch_runner_chunks_mtf_contract_series_by_execution_contract() -> None:
+    spec = StrategyFamilySearchSpec(
+        search_spec_version="search-v1",
+        family_key="mtf_contract_chunk",
+        template_key="mtf_contract_chunk",
+        strategy_version_label="mtf-contract-chunk-v1",
+        intent="Keep MTF frames for the same contract together.",
+        allowed_clock_profiles=("short_swing_1h_v1",),
+        allowed_market_states=(),
+        required_price_inputs=("close",),
+        required_materialized_indicators=("ema_20",),
+        required_materialized_derived=(),
+        signal_surface_key="ma_cross",
+        signal_surface_mode="long_short",
+        parameter_mode="table",
+        parameter_space={"rows": ({"fast_window": 10, "slow_window": 20},)},
+        clock_profile={"execution_tf": "15m"},
+        required_inputs_by_clock={
+            "entry": {"timeframe": "15m", "price_inputs": ["close"]},
+            "signal": {"timeframe": "1h", "materialized_indicators": ["ema_20"]},
+        },
+    )
+    frames = [
+        ResearchSeriesFrame(contract_id=contract_id, instrument_id="FUT_BR", timeframe=timeframe, frame=pd.DataFrame())
+        for contract_id in ("BRF6@MOEX", "BRG6@MOEX")
+        for timeframe in ("15m", "1h")
+    ]
+
+    chunks = _chunked_series_for_spec(frames, 1, spec, "15m")
+
+    assert len(chunks) == 2
+    assert [
+        {(series.contract_id, series.timeframe) for series in chunk}
+        for chunk in chunks
+    ] == [
+        {("BRF6@MOEX", "15m"), ("BRF6@MOEX", "1h")},
+        {("BRG6@MOEX", "15m"), ("BRG6@MOEX", "1h")},
+    ]
+
+
 def _backtest_request(
     *,
     strategy_labels: tuple[str, ...],
@@ -422,7 +466,7 @@ def test_vectorbt_batch_runner_materializes_signal_and_order_func_artifacts(tmp_
         assert (Path(path_text) / "_delta_log").exists()
 
 
-def test_vectorbt_batch_runner_runs_new_launch_families_on_native_clock_layers(tmp_path: Path) -> None:
+def test_vectorbt_batch_runner_runs_new_launch_families_on_mtf_input_resolver(tmp_path: Path) -> None:
     materialized_dir = _write_materialized_layers(tmp_path / "materialized-launch-families")
     output_dir = tmp_path / "backtests-launch-families"
     report = run_backtest_batch(

@@ -1,5 +1,6 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
+import json
 from pathlib import Path
 from datetime import UTC, datetime, timedelta
 
@@ -388,8 +389,22 @@ def test_research_data_prep_matches_direct_materialization(tmp_path: Path) -> No
 
     direct_dataset = _load_materialized_dataset_rows(direct_dir, dataset_version="same-dataset-v1")
     dagster_dataset = _load_materialized_dataset_rows(dagster_dir, dataset_version="same-dataset-v1")
-    direct_indicator_rows = [row.to_dict() for row in load_indicator_frames(output_dir=direct_dir, dataset_version="same-dataset-v1", indicator_set_version="indicators-v1")]
-    dagster_indicator_rows = [row.to_dict() for row in load_indicator_frames(output_dir=dagster_dir, dataset_version="same-dataset-v1", indicator_set_version="indicators-v1")]
+    direct_indicator_rows = [
+        row.to_dict()
+        for row in load_indicator_frames(
+            output_dir=direct_dir,
+            dataset_version="same-dataset-v1",
+            indicator_set_version="indicators-v1",
+        )
+    ]
+    dagster_indicator_rows = [
+        row.to_dict()
+        for row in load_indicator_frames(
+            output_dir=dagster_dir,
+            dataset_version="same-dataset-v1",
+            indicator_set_version="indicators-v1",
+        )
+    ]
     direct_derived_rows = [
         row.to_dict()
         for row in load_derived_indicator_frames(
@@ -435,6 +450,17 @@ def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_pat
             "exclude_template_manifest_hashes": [],
             "max_parameter_combinations": 64,
             "search_space_overrides": {},
+            "optimizer": {
+                "engine": "optuna",
+                "sampler": "tpe",
+                "seed": 11,
+                "n_trials": 3,
+                "objective": "robust_oos_trial_v1",
+                "direction": "maximize",
+                "top_k": 1,
+                "radius": 1,
+                "max_neighborhood_trials": 2,
+            },
         },
         combination_count=4,
         param_batch_size=2,
@@ -451,6 +477,8 @@ def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_pat
     assert set(backtest_report["selected_assets"]) == {
         "research_strategy_search_specs",
         "research_vbt_search_runs",
+        "research_optimizer_studies",
+        "research_optimizer_trials",
         "research_vbt_param_results",
         "research_vbt_param_gate_events",
         "research_vbt_ephemeral_indicator_cache",
@@ -471,10 +499,10 @@ def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_pat
     assert backtest_report["rows_by_table"]["research_order_records"] > 0
     assert backtest_report["rows_by_table"]["research_strategy_search_specs"] > 0
     assert backtest_report["rows_by_table"]["research_vbt_search_runs"] > 0
+    assert backtest_report["rows_by_table"]["research_optimizer_studies"] > 0
+    assert backtest_report["rows_by_table"]["research_optimizer_trials"] > 0
     assert backtest_report["rows_by_table"]["research_vbt_param_results"] > 0
     assert backtest_report["rows_by_table"]["research_vbt_param_gate_events"] > 0
-    assert "research_optimizer_studies" in backtest_report["rows_by_table"]
-    assert "research_optimizer_trials" in backtest_report["rows_by_table"]
     assert "research_drawdown_records" in backtest_report["rows_by_table"]
     assert backtest_report["rows_by_table"]["research_strategy_rankings"] > 0
     assert (Path(backtest_report["output_paths"]["research_backtest_batches"]) / "_delta_log").exists()
@@ -482,6 +510,17 @@ def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_pat
     assert (Path(backtest_report["output_paths"]["research_optimizer_trials"]) / "_delta_log").exists()
     assert (Path(backtest_report["output_paths"]["research_strategy_rankings"]) / "_delta_log").exists()
     assert read_delta_table_rows(Path(backtest_report["output_paths"]["research_backtest_runs"]))
+    optimizer_trials = read_delta_table_rows(Path(backtest_report["output_paths"]["research_optimizer_trials"]))
+    assert {row["trial_kind"] for row in optimizer_trials} >= {"optuna_trial"}
+    assert "neighborhood_probe" not in {row["trial_kind"] for row in optimizer_trials}
+    assert all(row["param_hash"] for row in optimizer_trials)
+    optimizer_components = [
+        json.loads(row["objective_components_json"])
+        if isinstance(row["objective_components_json"], str)
+        else row["objective_components_json"]
+        for row in optimizer_trials
+    ]
+    assert all(row["signal_generator"] == "vectorbt.SignalFactory.from_choice_func" for row in optimizer_components)
     assert read_delta_table_rows(Path(backtest_report["output_paths"]["research_strategy_rankings"]))
 
     projection_report = materialize_research_projection_assets(

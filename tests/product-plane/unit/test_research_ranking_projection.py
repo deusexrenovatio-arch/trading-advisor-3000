@@ -1,8 +1,14 @@
 ﻿from __future__ import annotations
 
-from trading_advisor_3000.product_plane.research.backtests import RankingPolicy, default_ranking_policy, rank_backtest_results
+from trading_advisor_3000.product_plane.research.backtests import (
+    RankingPolicy,
+    default_ranking_policy,
+    rank_backtest_results,
+    score_optimizer_trial,
+)
 from trading_advisor_3000.product_plane.research.backtests.projection import (
     CandidateProjectionRequest,
+    _optimizer_selection_rows,
     _select_rows,
     supported_selection_policies,
 )
@@ -120,6 +126,109 @@ def test_default_ranking_policy_is_declared_for_stage6() -> None:
     policy = default_ranking_policy()
     assert policy.policy_id == "robust_oos_v1"
     assert policy.metric_order == ("total_return", "profit_factor", "max_drawdown")
+    assert policy.min_fold_count == 1
+
+
+def test_optimizer_objective_components_keep_raw_strategy_metrics() -> None:
+    scored = score_optimizer_trial(
+        param_rows=[
+            {
+                "net_pnl": 12.0,
+                "trade_count": 3,
+                "max_drawdown": 0.08,
+                "profit_factor": 1.7,
+                "win_rate": 0.62,
+                "avg_trade": 4.0,
+                "turnover": 0.3,
+                "fees_paid": 1.5,
+                "slippage_paid": 0.5,
+            },
+            {
+                "net_pnl": 8.0,
+                "trade_count": 2,
+                "max_drawdown": 0.10,
+                "profit_factor": 1.3,
+                "win_rate": 0.55,
+                "avg_trade": 3.0,
+                "turnover": 0.25,
+                "fees_paid": 1.0,
+                "slippage_paid": 0.4,
+            },
+        ],
+        trade_rows=[
+            {
+                "entry_price": 100.0,
+                "exit_price": 103.0,
+                "qty": 1.0,
+                "gross_pnl": 3.2,
+                "net_pnl": 3.0,
+                "commission": 0.2,
+            },
+            {
+                "entry_price": 104.0,
+                "exit_price": 106.5,
+                "qty": 1.0,
+                "gross_pnl": 2.7,
+                "net_pnl": 2.5,
+                "commission": 0.2,
+            },
+        ],
+        policy=RankingPolicy(
+            policy_id="objective-components-test",
+            metric_order=("total_return", "profit_factor", "max_drawdown"),
+            min_trade_count=1,
+            max_drawdown_cap=0.35,
+            min_positive_fold_ratio=0.5,
+            min_parameter_stability=0.0,
+            min_slippage_score=0.0,
+        ),
+    )
+
+    assert scored["net_pnl_total"] == 20.0
+    assert scored["total_return_mean"] == 0.1
+    assert scored["profit_factor_mean"] == 1.5
+    assert scored["trade_net_pnl_total"] == 5.5
+    assert scored["trade_commission_total"] == 0.4
+    assert scored["policy_metric_vector"]["total_return"] > 0.0
+
+
+def test_optimizer_objective_rejects_single_fold_when_policy_requires_more() -> None:
+    scored = score_optimizer_trial(
+        param_rows=[
+            {
+                "net_pnl": 12.0,
+                "trade_count": 3,
+                "max_drawdown": 0.08,
+                "profit_factor": 1.7,
+                "win_rate": 0.62,
+            }
+        ],
+        trade_rows=[
+            {
+                "entry_price": 100.0,
+                "exit_price": 103.0,
+                "qty": 1.0,
+                "gross_pnl": 3.2,
+                "net_pnl": 3.0,
+                "commission": 0.2,
+            },
+        ],
+        policy=RankingPolicy(
+            policy_id="fold-count-test",
+            metric_order=("total_return", "profit_factor", "max_drawdown"),
+            min_trade_count=1,
+            min_fold_count=2,
+            max_drawdown_cap=0.35,
+            min_positive_fold_ratio=0.0,
+            min_parameter_stability=0.0,
+            min_slippage_score=0.0,
+        ),
+    )
+
+    assert scored["fold_count"] == 1
+    assert scored["constraint_names"][0] == "min_fold_count"
+    assert scored["constraint_values"][0] == 1.0
+    assert scored["constraints_passed"] is False
 
 
 def test_ranking_orders_robust_parameter_sets_and_marks_weak_ones() -> None:
@@ -181,6 +290,121 @@ def test_ranking_orders_robust_parameter_sets_and_marks_weak_ones() -> None:
     assert {row["finding_type"] for row in finding_rows} == {"ranking_policy_reject"}
     stable = next(row for row in ranking_rows if row["params_hash"] == "PA")
     assert 0.0 <= stable["parameter_stability_score"] <= 1.0
+    assert "policy_failure_reasons_json" in weak
+
+
+def test_ranking_blocks_projection_when_fold_count_is_too_low() -> None:
+    run_rows = [
+        _run_row(run_id="RUN-FOLD-1", params_hash="PF", params_json={"fast_window": 10}, window_id="wf-01"),
+    ]
+    stat_rows = [
+        _stat_row(
+            run_id="RUN-FOLD-1",
+            params_hash="PF",
+            window_id="wf-01",
+            total_return=0.12,
+            sharpe=1.4,
+            profit_factor=1.8,
+            max_drawdown=0.10,
+            trade_count=3,
+        ),
+    ]
+    report = rank_backtest_results(
+        batch_rows=[{"backtest_batch_id": "BTBATCH-STAGE6"}],
+        run_rows=run_rows,
+        stat_rows=stat_rows,
+        trade_rows=[
+            {
+                **_trade_row(run_id="RUN-FOLD-1", trade_id="TRD-F1", pnl=90.0),
+                "net_pnl": 90.0,
+                "qty": 1.0,
+            }
+        ],
+        policy=RankingPolicy(
+            policy_id="fold-count-ranking-test",
+            metric_order=("total_return", "profit_factor", "max_drawdown"),
+            min_trade_count=1,
+            min_fold_count=2,
+            max_drawdown_cap=0.35,
+            min_positive_fold_ratio=0.0,
+            min_parameter_stability=0.0,
+            min_slippage_score=0.0,
+        ),
+    )
+
+    row = report["ranking_rows"][0]
+    assert row["out_of_sample_pass"] == 0
+    assert row["policy_pass"] == 0
+    assert row["qualifies_for_projection"] is False
+    assert "min_fold_count" in row["policy_failure_reasons_json"]
+    assert row["rank_reason_json"]["policy_thresholds"]["min_fold_count"] == 2
+
+
+def test_ranking_trade_stress_uses_composite_run_identity_when_run_ids_repeat() -> None:
+    base_run = _run_row(run_id="RUN-DUP", params_hash="PA", params_json={"fast_window": 10}, window_id="wf-01")
+    other_run = {
+        **base_run,
+        "contract_id": "BR-9.26",
+        "instrument_id": "BRX",
+    }
+    base_stat = _stat_row(
+        run_id="RUN-DUP",
+        params_hash="PA",
+        window_id="wf-01",
+        total_return=0.08,
+        sharpe=1.2,
+        profit_factor=1.8,
+        max_drawdown=0.08,
+        trade_count=2,
+    )
+    other_stat = {
+        **base_stat,
+        "contract_id": "BR-9.26",
+        "instrument_id": "BRX",
+        "total_return": 0.04,
+        "profit_factor": 1.2,
+    }
+    trade_rows = [
+        {
+            **_trade_row(run_id="RUN-DUP", trade_id="TRD-A", pnl=120.0),
+            "contract_id": "BR-6.26",
+            "instrument_id": "BR",
+            "window_id": "wf-01",
+            "net_pnl": 120.0,
+            "qty": 1.0,
+        },
+        {
+            **_trade_row(run_id="RUN-DUP", trade_id="TRD-B", pnl=-10.0),
+            "contract_id": "BR-9.26",
+            "instrument_id": "BRX",
+            "window_id": "wf-01",
+            "net_pnl": -10.0,
+            "qty": 1.0,
+        },
+    ]
+
+    report = rank_backtest_results(
+        batch_rows=[{"backtest_batch_id": "BTBATCH-STAGE6"}],
+        run_rows=[base_run, other_run],
+        stat_rows=[base_stat, other_stat],
+        trade_rows=trade_rows,
+        policy=RankingPolicy(
+            policy_id="composite-run-key-test",
+            metric_order=("total_return", "profit_factor", "max_drawdown"),
+            min_trade_count=1,
+            max_drawdown_cap=0.35,
+            min_positive_fold_ratio=0.5,
+            min_parameter_stability=0.0,
+            min_slippage_score=0.45,
+        ),
+    )
+
+    rows_by_contract = {row["contract_id"]: row for row in report["ranking_rows"]}
+    assert rows_by_contract["BR-6.26"]["slippage_sensitivity_score"] == 1.0
+    assert rows_by_contract["BR-6.26"]["policy_pass"] == 1
+    assert rows_by_contract["BR-9.26"]["slippage_sensitivity_score"] == 0.0
+    assert rows_by_contract["BR-9.26"]["policy_pass"] == 0
+    assert "slippage_sensitivity" in rows_by_contract["BR-9.26"]["policy_failure_reasons_json"]
 
 
 def test_metric_order_really_changes_ranking_priority() -> None:
@@ -358,3 +582,81 @@ def test_projection_selection_policy_really_changes_selected_rows() -> None:
     assert [row["representative_backtest_run_id"] for row in policy_selected] == ["RUN-B"]
     assert {row["strategy_family"] for row in family_selected} == {"ma_cross", "breakout"}
     assert len(all_selected) == 3
+
+
+def test_projection_can_select_accepted_optuna_trials_without_strategy_ranking_rows() -> None:
+    artifacts = {
+        "research_optimizer_studies": [
+            {
+                "optimizer_study_id": "OPTSTUDY-A",
+                "campaign_run_id": "CRUN-A",
+                "family_key": "ma_cross",
+                "template_key": "ma_cross",
+                "study_config_json": {
+                    "selection_owner": "optuna.study",
+                    "ranking_policy": {"policy_id": "robust_oos_v1"},
+                },
+            }
+        ],
+        "research_optimizer_trials": [
+            {
+                "optimizer_trial_id": "OPTTRIAL-A",
+                "optimizer_study_id": "OPTSTUDY-A",
+                "trial_number": 3,
+                "trial_kind": "optuna_trial",
+                "param_hash": "PA",
+                "params_json": {"fast_window": 10, "slow_window": 20},
+                "value": 0.72,
+                "status": "completed",
+                "constraints_passed": True,
+                "objective_components_json": {
+                    "objective_score": 0.70,
+                    "score_total": 0.72,
+                    "selection_owner": "optuna.study",
+                    "constraint_names": ("min_trade_count",),
+                    "constraint_values": (-2.0,),
+                },
+            },
+            {
+                "optimizer_trial_id": "OPTTRIAL-B",
+                "optimizer_study_id": "OPTSTUDY-A",
+                "trial_number": 4,
+                "trial_kind": "optuna_trial",
+                "param_hash": "PB",
+                "params_json": {"fast_window": 30, "slow_window": 80},
+                "value": 0.91,
+                "status": "completed",
+                "constraints_passed": False,
+                "objective_components_json": {
+                    "objective_score": 0.91,
+                    "score_total": 0.91,
+                    "selection_owner": "optuna.study",
+                    "constraint_names": ("slippage_sensitivity",),
+                    "constraint_values": (0.45,),
+                },
+            },
+        ],
+        "research_backtest_runs": [
+            {
+                **_run_row(
+                    run_id="RUN-A-1",
+                    params_hash="PA",
+                    params_json={"fast_window": 10, "slow_window": 20},
+                    window_id="wf-01",
+                ),
+                "campaign_run_id": "CRUN-A",
+                "strategy_version_label": "ma-cross-v1",
+                "family_key": "ma_cross",
+                "strategy_template_id": "stpl_ma_cross",
+            }
+        ],
+    }
+
+    projection_rows = _optimizer_selection_rows(artifacts)
+    selected = _select_rows(projection_rows, request=CandidateProjectionRequest())
+
+    assert len(projection_rows) == 1
+    assert selected[0]["ranking_id"].startswith("OPTSEL-")
+    assert selected[0]["score_total"] == 0.72
+    assert selected[0]["rank_reason_json"]["parameter_values"] == {"fast_window": 10, "slow_window": 20}
+    assert selected[0]["rank_reason_json"]["selection_owner"] == "optuna.study"
