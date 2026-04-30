@@ -12,7 +12,8 @@ from trading_advisor_3000.product_plane.research.io import ResearchFrameCache, R
 from trading_advisor_3000.product_plane.research.strategies import StrategyRegistry, build_strategy_registry
 
 from .engine import BacktestEngineConfig, project_family_candidate, strategy_spec_to_search_spec
-from .results import load_backtest_artifacts, results_store_contract, write_stage6_artifacts
+from .input_requirements import loader_columns_for_search_specs
+from .results import results_store_contract, write_stage6_artifacts
 
 
 def _stable_hash(text: str) -> str:
@@ -82,9 +83,9 @@ def project_runtime_candidates(
     registry = strategy_registry or build_strategy_registry()
     engine_config = config or BacktestEngineConfig()
     if ranking_rows is None:
-        ranking_rows = load_backtest_artifacts(output_dir)["research_strategy_rankings"]
+        raise ValueError("projection requires explicit ranking rows from the Delta-backed orchestration layer")
     if not ranking_rows:
-        raise ValueError("projection requires ranking rows")
+        raise ValueError("projection requires accepted Optuna trial rows or ranking rows")
 
     selected_rows = _select_rows(ranking_rows, request=request)
     projected_rows: list[dict[str, object]] = []
@@ -102,6 +103,7 @@ def project_runtime_candidates(
             strategy_spec,
             template_key=str(ranking_row.get("template_key", ranking_row.get("strategy_template_id", "")) or strategy_spec.signal_builder_key),
         )
+        input_columns = loader_columns_for_search_specs((search_spec,))
         required_timeframes = {
             str(payload.get("timeframe"))
             for payload in search_spec.required_inputs_by_clock.values()
@@ -121,6 +123,9 @@ def project_runtime_candidates(
                 contract_ids=(contract_id,),
                 instrument_ids=(instrument_id,),
                 analysis_only=True,
+                price_columns=input_columns.price_columns,
+                indicator_columns=input_columns.indicator_columns,
+                derived_columns=input_columns.derived_columns,
             ),
             cache=cache,
         )
@@ -213,6 +218,117 @@ def project_runtime_candidates(
         "delta_manifest": results_store_contract(),
         "output_paths": output_paths,
     }
+
+
+def _optimizer_selection_rows(artifacts: dict[str, list[dict[str, object]]]) -> list[dict[str, object]]:
+    studies = artifacts.get("research_optimizer_studies", [])
+    trials = artifacts.get("research_optimizer_trials", [])
+    runs = artifacts.get("research_backtest_runs", [])
+    if not studies or not trials or not runs:
+        return []
+
+    studies_by_id = {
+        str(row.get("optimizer_study_id", "")): row
+        for row in studies
+        if row.get("optimizer_study_id")
+    }
+    runs_by_campaign_param: dict[tuple[str, str], list[dict[str, object]]] = {}
+    runs_by_param: dict[str, list[dict[str, object]]] = {}
+    for row in runs:
+        param_hash = str(row.get("param_hash", row.get("params_hash", "")))
+        campaign_run_id = str(row.get("campaign_run_id", ""))
+        if not param_hash:
+            continue
+        runs_by_campaign_param.setdefault((campaign_run_id, param_hash), []).append(row)
+        runs_by_param.setdefault(param_hash, []).append(row)
+
+    selected_rows: list[dict[str, object]] = []
+    for trial in trials:
+        status = str(trial.get("status", ""))
+        if status not in {"completed", "duplicate"} or not bool(trial.get("constraints_passed", False)):
+            continue
+        study = studies_by_id.get(str(trial.get("optimizer_study_id", "")), {})
+        campaign_run_id = str(study.get("campaign_run_id", ""))
+        param_hash = str(trial.get("param_hash", ""))
+        matching_runs = runs_by_campaign_param.get((campaign_run_id, param_hash), runs_by_param.get(param_hash, []))
+        if not matching_runs:
+            continue
+        components = _coerce_json(trial.get("objective_components_json", {}))
+        study_config = _coerce_json(study.get("study_config_json", {}))
+        ranking_policy = _coerce_json(study_config.get("ranking_policy", {}))
+        policy_id = str(ranking_policy.get("policy_id", "robust_oos_v1"))
+        params = _coerce_json(trial.get("params_json", {}))
+        grouped_runs: dict[tuple[str, str, str], list[dict[str, object]]] = {}
+        for run in matching_runs:
+            key = (
+                str(run.get("contract_id", "")),
+                str(run.get("instrument_id", "")),
+                str(run.get("timeframe", "")),
+            )
+            grouped_runs.setdefault(key, []).append(run)
+        for (contract_id, instrument_id, timeframe), group in sorted(grouped_runs.items()):
+            representative = sorted(group, key=lambda row: str(row.get("window_id", "")))[0]
+            strategy_version_label = str(
+                representative.get(
+                    "strategy_version_label",
+                    representative.get("strategy_version", study.get("family_key", "")),
+                )
+            )
+            family_key = str(representative.get("family_key", representative.get("strategy_family", study.get("family_key", ""))))
+            template_key = str(study.get("template_key", representative.get("strategy_template_id", "")))
+            ranking_id = "OPTSEL-" + _stable_hash(
+                "|".join(
+                    (
+                        str(trial.get("optimizer_trial_id", "")),
+                        contract_id,
+                        instrument_id,
+                        timeframe,
+                    )
+                )
+            )
+            selected_rows.append(
+                {
+                    "ranking_id": ranking_id,
+                    "ranking_policy_id": policy_id,
+                    "campaign_run_id": campaign_run_id or str(representative.get("campaign_run_id", "")),
+                    "backtest_run_id": str(representative.get("backtest_run_id", "")),
+                    "representative_backtest_run_id": str(representative.get("backtest_run_id", "")),
+                    "strategy_instance_id": str(representative.get("strategy_instance_id", f"sinst_{param_hash}")),
+                    "strategy_template_id": str(representative.get("strategy_template_id", template_key)),
+                    "template_key": template_key,
+                    "family_id": str(representative.get("family_id", f"sfam_{family_key}")),
+                    "family_key": family_key,
+                    "strategy_version_label": strategy_version_label,
+                    "dataset_version": str(representative.get("dataset_version", "")),
+                    "indicator_set_version": str(representative.get("indicator_set_version", "")),
+                    "derived_indicator_set_version": str(representative.get("derived_indicator_set_version", "derived-v1")),
+                    "contract_id": contract_id,
+                    "instrument_id": instrument_id,
+                    "timeframe": timeframe,
+                    "params_hash": param_hash,
+                    "rank": int(trial.get("trial_number", 0) or 0),
+                    "family_rank": int(trial.get("trial_number", 0) or 0),
+                    "selected_rank": int(trial.get("trial_number", 0) or 0),
+                    "objective_score": float(components.get("objective_score", trial.get("value", 0.0)) or 0.0),
+                    "policy_metric_score": float(components.get("objective_score", trial.get("value", 0.0)) or 0.0),
+                    "score_total": float(components.get("score_total", trial.get("value", 0.0)) or 0.0),
+                    "robust_score": float(components.get("score_total", trial.get("value", 0.0)) or 0.0),
+                    "qualifies_for_projection": True,
+                    "policy_pass": 1,
+                    "rank_reason_json": {
+                        "parameter_values": params,
+                        "optimizer_trial_id": str(trial.get("optimizer_trial_id", "")),
+                        "optimizer_study_id": str(trial.get("optimizer_study_id", "")),
+                        "constraint_names": components.get("constraint_names", ()),
+                        "constraint_values": components.get("constraint_values", ()),
+                        "selection_owner": components.get("selection_owner", "optuna.study"),
+                        "window_ids": tuple(str(row.get("window_id", "")) for row in group if row.get("window_id")),
+                    },
+                    "window_ids_json": tuple(str(row.get("window_id", "")) for row in group if row.get("window_id")),
+                    "created_at": _created_at(),
+                }
+            )
+    return selected_rows
 
 
 def _select_rows(

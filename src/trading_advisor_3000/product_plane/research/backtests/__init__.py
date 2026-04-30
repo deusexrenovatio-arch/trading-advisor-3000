@@ -16,11 +16,10 @@ from .engine import (
     project_family_candidate,
 )
 from .projection import CandidateProjectionRequest, project_runtime_candidates, supported_selection_policies
-from .ranking import RankingPolicy, default_ranking_policy, rank_backtest_results
+from .ranking import RankingPolicy, default_ranking_policy, rank_backtest_results, score_optimizer_trial
 from .results import (
     BacktestBatchArtifact,
     BacktestRunArtifact,
-    load_backtest_artifacts,
     backtest_store_contract,
     results_store_contract,
 )
@@ -40,12 +39,12 @@ __all__ = [
     "VectorBTSignalSurfaceResult",
     "build_ephemeral_strategy_space",
     "default_ranking_policy",
-    "load_backtest_artifacts",
     "backtest_store_contract",
     "results_store_contract",
     "project_runtime_candidates",
     "project_family_candidate",
     "rank_backtest_results",
     "run_backtest_batch",
+    "score_optimizer_trial",
     "supported_selection_policies",
 ]
