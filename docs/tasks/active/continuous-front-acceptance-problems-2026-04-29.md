@@ -2,7 +2,7 @@
 
 Date: 2026-04-29
 Change surface: product-plane
-Source intent: `C:\Users\Admin\Downloads\PLAN_continious_front.md`
+Source intent: local intake artifact named PLAN_continious_front; its acceptance points are reflected in this task note.
 
 ## Current Verdict
 
