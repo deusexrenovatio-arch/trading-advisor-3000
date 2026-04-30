@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from trading_advisor_3000.product_plane.research.strategies.spec import (
+    StrategyIndicatorRequirement,
     StrategyParameter,
     StrategyRankingMetadata,
     StrategyRiskPolicy,
@@ -33,6 +34,19 @@ def breakout_family_adapter() -> StrategyFamilyAdapter:
             preferred_metrics=("total_return", "profit_factor", "max_drawdown"),
             tags=("breakout", "signals"),
         ),
+        intent="Baseline 15m rolling-range breakout with local ADX and ATR controls.",
+        allowed_clock_profiles=("intraday_15m_v1",),
+        market_regimes=("breakout",),
+        indicator_requirements=(
+            StrategyIndicatorRequirement("close", "entry", "15m", "price"),
+            StrategyIndicatorRequirement("high", "trigger", "15m", "price"),
+            StrategyIndicatorRequirement("low", "trigger", "15m", "price"),
+            StrategyIndicatorRequirement("adx_14", "decision", "15m", "indicator"),
+            StrategyIndicatorRequirement("atr_14", "risk", "15m", "indicator"),
+        ),
+        entry_logic=("Enter when 15m close breaks the rolling range with ADX above threshold.",),
+        exit_logic=("Use ATR stop/target on the 15m execution index.",),
+        verification_questions=("Do breakout_window and entry_buffer_atr change the signal timing?",),
     )
     return build_strategy_family_adapter(
         adapter_key="breakout",
@@ -46,6 +60,8 @@ def breakout_family_adapter() -> StrategyFamilyAdapter:
         template_key="breakout_core",
         template_title="Breakout Core",
         regime_module_key="derived.rolling_range_breakout",
+        signal_tf="15m",
+        trigger_tf="15m",
         module_versions={"entry": "v1", "regime_filter": "v1", "risk_exit": "v1"},
     )
 
