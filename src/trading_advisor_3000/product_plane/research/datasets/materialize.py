@@ -8,10 +8,15 @@ from pathlib import Path
 
 from trading_advisor_3000.product_plane.contracts import CanonicalBar
 from trading_advisor_3000.product_plane.data_plane.canonical import RollMapEntry, SessionCalendarEntry
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows, write_delta_table_rows
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    delta_equals_predicate,
+    read_delta_table_rows,
+    replace_delta_table_rows,
+)
 
 from .manifest import ResearchDatasetManifest
 from .splitters import (
+    DatasetWindow,
     HoldoutSplitConfig,
     WalkForwardSplitConfig,
     build_holdout_window,
@@ -100,7 +105,7 @@ def research_dataset_store_contract() -> dict[str, dict[str, object]]:
         },
     }
 
-
+# Dataset row-object reloaders are intentionally not part of the active route.
 def _utc_now_iso() -> str:
     return datetime.now(tz=UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -235,7 +240,10 @@ def _build_split_payload(
     split_method: str,
     split_config: HoldoutSplitConfig | WalkForwardSplitConfig | None,
 ) -> dict[str, object]:
-    analysis_rows = [row for row in selected_views if row.slice_role == "analysis"]
+    analysis_rows = sorted(
+        (row for row in selected_views if row.slice_role == "analysis"),
+        key=lambda row: (row.ts, row.contract_id, row.timeframe, row.instrument_id),
+    )
     analysis_count = len(analysis_rows)
     payload: dict[str, object] = {
         "analysis_row_count": analysis_count,
@@ -245,29 +253,36 @@ def _build_split_payload(
     if analysis_count == 0:
         return payload
 
+    def _row_ts(position: int) -> str:
+        return analysis_rows[max(0, min(position, analysis_count - 1))].ts
+
+    def _window_payload(window: DatasetWindow) -> dict[str, object]:
+        return {
+            **window.to_dict(),
+            "analysis_start_ts": _row_ts(window.train_start),
+            "analysis_end_ts": _row_ts(window.test_stop - 1),
+            "train_start_ts": _row_ts(window.train_start),
+            "train_end_ts": _row_ts(window.train_stop - 1),
+            "test_start_ts": _row_ts(window.test_start),
+            "test_end_ts": _row_ts(window.test_stop - 1),
+        }
+
     if split_method == "full":
+        window = DatasetWindow(
+            window_id="full-01",
+            train_start=0,
+            train_stop=analysis_count,
+            test_start=0,
+            test_stop=analysis_count,
+        )
         payload["windows"] = [
-            {
-                "window_id": "full-01",
-                "analysis_start_ts": analysis_rows[0].ts,
-                "analysis_end_ts": analysis_rows[-1].ts,
-                "train_start": 0,
-                "train_stop": analysis_count,
-                "test_start": 0,
-                "test_stop": analysis_count,
-            }
+            _window_payload(window)
         ]
         return payload
 
     if split_method == "holdout":
         window = build_holdout_window(analysis_count, split_config if isinstance(split_config, HoldoutSplitConfig) else None)
-        payload["windows"] = [
-            {
-                **window.to_dict(),
-                "analysis_start_ts": analysis_rows[0].ts,
-                "analysis_end_ts": analysis_rows[-1].ts,
-            }
-        ]
+        payload["windows"] = [_window_payload(window)]
         return payload
 
     config = split_config if isinstance(split_config, WalkForwardSplitConfig) else WalkForwardSplitConfig(
@@ -276,11 +291,7 @@ def _build_split_payload(
         step_size=max(1, math.floor(analysis_count * 0.2)),
     )
     payload["windows"] = [
-        {
-            **window.to_dict(),
-            "analysis_start_ts": analysis_rows[max(0, min(window.train_start, analysis_count - 1))].ts,
-            "analysis_end_ts": analysis_rows[max(0, min(window.test_stop - 1, analysis_count - 1))].ts,
-        }
+        _window_payload(window)
         for window in build_walk_forward_windows(analysis_count, config)
     ]
     return payload
@@ -366,29 +377,24 @@ def materialize_research_dataset(
         selected_views=selected_views,
     )
 
-    existing_manifests = read_delta_table_rows(datasets_path) if (datasets_path / "_delta_log").exists() else []
-    existing_instruments = read_delta_table_rows(instrument_tree_path) if (instrument_tree_path / "_delta_log").exists() else []
-    existing_views = read_delta_table_rows(bar_views_path) if (bar_views_path / "_delta_log").exists() else []
-    write_delta_table_rows(
+    dataset_predicate = delta_equals_predicate({"dataset_version": manifest.dataset_version})
+    replace_delta_table_rows(
         table_path=datasets_path,
-        rows=[*[row for row in existing_manifests if row.get("dataset_version") != manifest.dataset_version], manifest.to_dict()],
+        rows=[manifest.to_dict()],
         columns=contract["research_datasets"]["columns"],
+        predicate=dataset_predicate,
     )
-    write_delta_table_rows(
+    replace_delta_table_rows(
         table_path=instrument_tree_path,
-        rows=[
-            *[row for row in existing_instruments if row.get("dataset_version") != manifest.dataset_version],
-            *instrument_tree_rows,
-        ],
+        rows=instrument_tree_rows,
         columns=contract["research_instrument_tree"]["columns"],
+        predicate=dataset_predicate,
     )
-    write_delta_table_rows(
+    replace_delta_table_rows(
         table_path=bar_views_path,
-        rows=[
-            *[row for row in existing_views if row.get("dataset_version") != manifest.dataset_version],
-            *[row.to_dict() for row in selected_views],
-        ],
+        rows=[row.to_dict() for row in selected_views],
         columns=contract["research_bar_views"]["columns"],
+        predicate=dataset_predicate,
     )
     return {
         "dataset_manifest": manifest.to_dict(),
@@ -400,29 +406,4 @@ def materialize_research_dataset(
             "research_bar_views": bar_views_path.as_posix(),
         },
         "delta_manifest": contract,
-    }
-
-
-def load_materialized_research_dataset(*, output_dir: Path, dataset_version: str) -> dict[str, object]:
-    datasets_path = output_dir / "research_datasets.delta"
-    instrument_tree_path = output_dir / "research_instrument_tree.delta"
-    bar_views_path = output_dir / "research_bar_views.delta"
-    manifests = read_delta_table_rows(datasets_path)
-    instrument_rows = read_delta_table_rows(instrument_tree_path) if (instrument_tree_path / "_delta_log").exists() else []
-    bar_view_rows = read_delta_table_rows(bar_views_path)
-    manifest_rows = [row for row in manifests if row.get("dataset_version") == dataset_version]
-    if not manifest_rows:
-        raise KeyError(f"dataset_version not found: {dataset_version}")
-    return {
-        "dataset_manifest": manifest_rows[0],
-        "instrument_tree": [
-            row
-            for row in instrument_rows
-            if row.get("dataset_version") == dataset_version
-        ],
-        "bar_views": [
-            ResearchBarView.from_dict(row)
-            for row in bar_view_rows
-            if row.get("dataset_version") == dataset_version
-        ],
     }
