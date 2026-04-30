@@ -163,6 +163,8 @@ def prepare_strategy_space(
     max_parameter_combinations = int(strategy_space.get("max_parameter_combinations", 0) or 0)
     if max_parameter_combinations <= 0:
         raise ValueError("strategy_space.max_parameter_combinations must be positive")
+    optimizer = strategy_space.get("optimizer", {})
+    optimizer_engine = str(optimizer.get("engine", "grid")) if isinstance(optimizer, dict) else "grid"
 
     registry = build_strategy_registry()
     prospective_count = 0
@@ -207,7 +209,12 @@ def prepare_strategy_space(
             chunking_policy=base_spec.chunking_policy,
             selection_policy=base_spec.selection_policy,
         )
-        prospective_count += len(resolve_parameter_rows(search_spec))
+        if optimizer_engine == "optuna":
+            if not isinstance(optimizer, dict):
+                raise ValueError("strategy_space.optimizer must be an object")
+            prospective_count += int(optimizer.get("n_trials", 0) or 0)
+        else:
+            prospective_count += len(resolve_parameter_rows(search_spec))
         search_specs.append(
             StrategySearchSpecPayload(
                 search_spec=search_spec,

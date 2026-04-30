@@ -5,15 +5,19 @@ import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from itertools import product
+from time import perf_counter
 from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
 import vectorbt as vbt
+from numba import njit
 from vectorbt.portfolio import enums
 
 from trading_advisor_3000.product_plane.research.io.loaders import ResearchSeriesFrame
 from trading_advisor_3000.product_plane.research.strategies import StrategySpec
+
+from .ranking import RankingPolicy, default_ranking_policy, score_optimizer_trial
 
 
 PRICE_INPUTS = ("open", "high", "low", "close")
@@ -47,6 +51,8 @@ METADATA_COLUMNS = {
     "warmup_span",
     "null_warmup_span",
 }
+_OPTUNA_CONSTRAINTS_ATTR = "ta3000_constraint_values"
+_OPTUNA_CONSTRAINT_NAMES_ATTR = "ta3000_constraint_names"
 
 
 class InputPlanValidationError(ValueError):
@@ -406,6 +412,13 @@ class VectorBTSignalSurfaceResult:
     diagnostics: Mapping[str, object] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class MTFInputResolverResult:
+    indicator_plan: VectorBTIndicatorPlan
+    input_names: tuple[str, ...]
+    role_timeframes: Mapping[str, str]
+
+
 def _stable_hash(text: str, *, length: int = 12) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:length].upper()
 
@@ -489,12 +502,17 @@ def _window_frames(
         for index, window in enumerate(split_windows, start=1):
             window_id = str(window.get("window_id", f"wf-{index:02d}"))
             subset = pd.DataFrame()
-            test_start = window.get("test_start")
-            test_stop = window.get("test_stop")
-            if isinstance(test_start, int) and isinstance(test_stop, int):
-                start = max(0, min(len(frame), test_start))
-                stop = max(start, min(len(frame), test_stop))
-                subset = frame.iloc[start:stop].copy()
+            if window.get("test_start_ts") and window.get("test_end_ts"):
+                start_ts = str(window["test_start_ts"])
+                end_ts = str(window["test_end_ts"])
+                subset = frame[(frame["ts"] >= start_ts) & (frame["ts"] <= end_ts)].copy()
+            if subset.empty:
+                test_start = window.get("test_start")
+                test_stop = window.get("test_stop")
+                if isinstance(test_start, int) and isinstance(test_stop, int):
+                    start = max(0, min(len(frame), test_start))
+                    stop = max(start, min(len(frame), test_stop))
+                    subset = frame.iloc[start:stop].copy()
             if subset.empty and window.get("analysis_start_ts") and window.get("analysis_end_ts"):
                 start_ts = str(window["analysis_start_ts"])
                 end_ts = str(window["analysis_end_ts"])
@@ -1120,24 +1138,6 @@ def _parameter_space_default(
     return default
 
 
-def _edge_signal(state: np.ndarray, *, shift_bars: int) -> np.ndarray:
-    previous = np.concatenate([np.zeros_like(state[:1], dtype=bool), state[:-1]], axis=0)
-    signal = state & ~previous
-    if shift_bars <= 0:
-        return signal
-    padding = np.zeros_like(signal[:shift_bars], dtype=bool)
-    return np.concatenate([padding, signal[:-shift_bars]], axis=0)
-
-
-def _exit_signal(active_state: np.ndarray, *, shift_bars: int) -> np.ndarray:
-    previous = np.concatenate([np.zeros_like(active_state[:1], dtype=bool), active_state[:-1]], axis=0)
-    signal = (~active_state) & previous
-    if shift_bars <= 0:
-        return signal
-    padding = np.zeros_like(signal[:shift_bars], dtype=bool)
-    return np.concatenate([padding, signal[:-shift_bars]], axis=0)
-
-
 def _rolling_confirm(signal: np.ndarray, confirm_bars: Sequence[int]) -> np.ndarray:
     if not confirm_bars:
         return signal
@@ -1156,13 +1156,99 @@ def _reshape_surface(values: np.ndarray) -> np.ndarray:
     return np.transpose(values, (0, 2, 1)).reshape(values.shape[0], values.shape[2] * values.shape[1])
 
 
-def _unreshape_surface(values: np.ndarray, *, instrument_count: int, param_count: int) -> np.ndarray:
-    return values.reshape(values.shape[0], param_count, instrument_count).transpose(0, 2, 1)
-
-
 def _broadcast_stop(close: np.ndarray, atr: np.ndarray, param_values: np.ndarray) -> np.ndarray:
     safe_close = np.where(close == 0.0, np.nan, close)
     return np.nan_to_num((atr[:, :, None] * param_values[None, None, :]) / safe_close[:, :, None], nan=0.0)
+
+
+@njit
+def _active_state_entry_choice_nb(
+    from_i: int,
+    to_i: int,
+    col: int,
+    active_state: np.ndarray,
+    shift_bars: int,
+    temp_idx_arr: np.ndarray,
+) -> np.ndarray:
+    scan_from = from_i - shift_bars
+    if scan_from < 0:
+        scan_from = 0
+    for index in range(scan_from, to_i):
+        previous = False
+        if index > 0:
+            previous = active_state[index - 1, col]
+        if active_state[index, col] and not previous:
+            signal_index = index + shift_bars
+            if signal_index < from_i:
+                continue
+            if signal_index >= to_i:
+                break
+            temp_idx_arr[0] = signal_index
+            return temp_idx_arr[:1]
+    return temp_idx_arr[:0]
+
+
+@njit
+def _active_state_exit_choice_nb(
+    from_i: int,
+    to_i: int,
+    col: int,
+    active_state: np.ndarray,
+    shift_bars: int,
+    temp_idx_arr: np.ndarray,
+) -> np.ndarray:
+    scan_from = from_i - shift_bars
+    if scan_from < 0:
+        scan_from = 0
+    for index in range(scan_from, to_i):
+        previous = False
+        if index > 0:
+            previous = active_state[index - 1, col]
+        if not active_state[index, col] and previous:
+            signal_index = index + shift_bars
+            if signal_index < from_i:
+                continue
+            if signal_index >= to_i:
+                break
+            temp_idx_arr[0] = signal_index
+            return temp_idx_arr[:1]
+    return temp_idx_arr[:0]
+
+
+_SIGNAL_FACTORY_CLASS: Any | None = None
+
+
+def _signal_factory_class() -> Any:
+    global _SIGNAL_FACTORY_CLASS
+    if _SIGNAL_FACTORY_CLASS is None:
+        _SIGNAL_FACTORY_CLASS = vbt.SignalFactory(
+            mode="both",
+            input_names=["active_state"],
+        ).from_choice_func(
+            entry_choice_func=_active_state_entry_choice_nb,
+            exit_choice_func=_active_state_exit_choice_nb,
+            entry_settings={"pass_inputs": ["active_state"], "pass_kwargs": ["temp_idx_arr"]},
+            exit_settings={"pass_inputs": ["active_state"], "pass_kwargs": ["temp_idx_arr"]},
+        )
+    return _SIGNAL_FACTORY_CLASS
+
+
+def _run_signal_factory_from_state(
+    state: np.ndarray,
+    *,
+    shift_bars: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    active_state = _reshape_surface(state.astype(bool))
+    result = _signal_factory_class().run(
+        active_state.shape,
+        active_state,
+        entry_args=(int(shift_bars),),
+        exit_args=(int(shift_bars),),
+        entry_kwargs={"wait": 1, "pick_first": True},
+        exit_kwargs={"wait": 1, "pick_first": True},
+        short_name="ta3000_vbt_signal",
+    )
+    return result.entries.to_numpy(dtype=bool), result.exits.to_numpy(dtype=bool)
 
 
 def _surface_input_names(bundle: VectorBTInputBundle, spec: StrategyFamilySearchSpec) -> tuple[str, ...]:
@@ -1181,74 +1267,42 @@ def _surface_input_names(bundle: VectorBTInputBundle, spec: StrategyFamilySearch
     return tuple(names)
 
 
-def _indicator_factory_state_apply(*args: object, **kwargs: object) -> tuple[np.ndarray, np.ndarray]:
-    input_names = tuple(str(item) for item in kwargs["input_names"])
-    param_rows = tuple(dict(row) for row in kwargs["param_rows"] if isinstance(row, Mapping))
-    surface_key = str(kwargs["surface_key"])
-    allow_short = bool(kwargs.get("allow_short", True))
-    arrays = {
-        name: np.asarray(args[index], dtype=float)
-        for index, name in enumerate(input_names)
-    }
-    if not arrays:
-        raise ValueError("vectorbt signal surface requires at least one input array")
-    row_count, instrument_count = next(iter(arrays.values())).shape
-    temp_bundle = VectorBTInputBundle(
-        index=pd.RangeIndex(row_count),
-        instruments=tuple(str(index) for index in range(instrument_count)),
-        price={name: pd.DataFrame(value) for name, value in arrays.items() if name in PRICE_INPUTS},
-        fields={name: pd.DataFrame(value) for name, value in arrays.items() if name not in PRICE_INPUTS},
-        metadata={"execution_tf": "15m", "clock_profile": "vectorbt_indicator_factory"},
-    )
-    temp_config = BacktestEngineConfig(allow_short=allow_short)
-    if surface_key == "trend_movement_cross_v1":
-        long_state, short_state = _trend_movement_cross_state(temp_bundle, param_rows, temp_config)
-    elif surface_key == "channel_breakout_continuation_v1":
-        long_state, short_state = _channel_breakout_continuation_state(temp_bundle, param_rows, temp_config)
+def _role_timeframes_from_spec(spec: StrategyFamilySearchSpec, bundle: VectorBTInputBundle | None = None) -> dict[str, str]:
+    if spec.required_inputs_by_clock:
+        return {
+            str(layer): str(payload.get("timeframe", ""))
+            for layer, payload in spec.required_inputs_by_clock.items()
+            if isinstance(payload, Mapping)
+        }
+    execution_tf = str(bundle.metadata.get("execution_tf", "")) if bundle is not None else _execution_timeframe_from_profile(spec.clock_profile)
+    return {"execution": execution_tf}
+
+
+def resolve_mtf_signal_factory_inputs(bundle: VectorBTInputBundle, spec: StrategyFamilySearchSpec) -> MTFInputResolverResult:
+    indicator_plan = resolve_indicator_plan(bundle, spec)
+    input_names: list[str] = []
+    if spec.required_inputs_by_clock:
+        for layer, payload in spec.required_inputs_by_clock.items():
+            if not isinstance(payload, Mapping):
+                continue
+            timeframe = str(payload.get("timeframe", "")).strip() or str(bundle.metadata.get("execution_tf", ""))
+            for payload_key in ("price_inputs", "materialized_indicators", "materialized_derived"):
+                for column in _payload_aliases(payload, payload_key):
+                    bundle.field_at(column, timeframe, align_to_execution=True)
+                    input_name = f"{layer}__{timeframe}__{column}"
+                    if input_name not in input_names:
+                        input_names.append(input_name)
     else:
-        raise ValueError(f"unsupported vectorbt indicator factory surface: {surface_key}")
-    return _reshape_surface(long_state).astype(bool), _reshape_surface(short_state).astype(bool)
-
-
-def _run_indicator_factory_states(
-    *,
-    bundle: VectorBTInputBundle,
-    spec: StrategyFamilySearchSpec,
-    surface_key: str,
-    param_rows: Sequence[dict[str, object]],
-    config: BacktestEngineConfig,
-    param_hashes: Sequence[str],
-) -> tuple[np.ndarray, np.ndarray, dict[str, object]]:
-    input_names = _surface_input_names(bundle, spec)
-    surface_factory = vbt.IndicatorFactory(
-        class_name="TA3000VectorBTSignalSurface",
-        short_name="ta3000_vbt_surface",
-        input_names=input_names,
-        param_names=["param_hash"],
-        output_names=["long_state", "short_state"],
-    ).from_custom_func(_indicator_factory_state_apply, var_args=True)
-    result = surface_factory.run(
-        *(bundle.field(name) for name in input_names),
-        list(param_hashes),
-        input_names=input_names,
-        surface_key=surface_key,
-        param_rows=[dict(row) for row in param_rows],
-        allow_short=config.allow_short,
-        param_product=False,
-    )
-    instrument_count = len(bundle.instruments)
-    param_count = len(param_rows)
-    diagnostics = {
-        "surface_engine": "vectorbt.IndicatorFactory.from_custom_func",
-        "surface_mode": spec.signal_surface_mode,
-        "input_names": list(input_names),
-        "param_count": param_count,
-        "instrument_count": instrument_count,
-    }
-    return (
-        _unreshape_surface(result.long_state.to_numpy(dtype=bool), instrument_count=instrument_count, param_count=param_count),
-        _unreshape_surface(result.short_state.to_numpy(dtype=bool), instrument_count=instrument_count, param_count=param_count),
-        diagnostics,
+        execution_tf = str(bundle.metadata.get("execution_tf", ""))
+        for column in _surface_input_names(bundle, spec):
+            bundle.field(column)
+            input_name = f"execution__{execution_tf}__{column}"
+            if input_name not in input_names:
+                input_names.append(input_name)
+    return MTFInputResolverResult(
+        indicator_plan=indicator_plan,
+        input_names=tuple(input_names),
+        role_timeframes=_role_timeframes_from_spec(spec, bundle),
     )
 
 
@@ -1260,7 +1314,8 @@ def build_signal_surface(
     search_run_id: str,
     config: BacktestEngineConfig,
 ) -> VectorBTSignalSurfaceResult:
-    indicator_plan = resolve_indicator_plan(bundle, spec)
+    input_resolver = resolve_mtf_signal_factory_inputs(bundle, spec)
+    indicator_plan = input_resolver.indicator_plan
     if not param_rows:
         raise ValueError("signal surface requires at least one parameter row")
     param_hashes = tuple(param_hash(spec, row) for row in param_rows)
@@ -1277,8 +1332,13 @@ def build_signal_surface(
     atr = _field_array(bundle, "atr_14") if "atr_14" in bundle.fields else np.ones_like(close)
     session_mask = _session_entry_mask(bundle.index, config.session_hours_utc)[:, None, None]
     diagnostics: dict[str, object] = {
-        "surface_engine": "ta3000.numpy_vectorized",
+        "surface_engine": "vectorbt.SignalFactory.from_choice_func",
+        "state_builder": "ta3000.numpy_vectorized_state",
+        "input_resolver": "mtf_input_resolver",
+        "portfolio_engine": "vectorbt.Portfolio.from_signals",
         "surface_mode": spec.signal_surface_mode,
+        "input_names": list(input_resolver.input_names),
+        "role_timeframes": dict(input_resolver.role_timeframes),
         "param_count": len(param_rows),
         "instrument_count": len(bundle.instruments),
     }
@@ -1294,27 +1354,17 @@ def build_signal_surface(
     }
     if spec.required_inputs_by_clock and surface_key in native_surface_builders:
         long_state, short_state = native_surface_builders[surface_key](bundle, param_rows, config)
-        diagnostics = {
-            "surface_engine": "ta3000.native_clock_layers",
-            "surface_mode": spec.signal_surface_mode,
-            "clock_profile": dict(spec.clock_profile),
-            "required_inputs_by_clock": {
-                str(layer): dict(payload)
-                for layer, payload in spec.required_inputs_by_clock.items()
-            },
-            "event_alignment": "closed_layer_event_to_execution",
-            "param_count": len(param_rows),
-            "instrument_count": len(bundle.instruments),
+        diagnostics["state_builder"] = "ta3000.mtf_state_builder"
+        diagnostics["clock_profile"] = dict(spec.clock_profile)
+        diagnostics["required_inputs_by_clock"] = {
+            str(layer): dict(payload)
+            for layer, payload in spec.required_inputs_by_clock.items()
         }
+        diagnostics["event_alignment"] = "closed_layer_event_to_execution"
     elif surface_key in {"trend_movement_cross_v1", "channel_breakout_continuation_v1"}:
-        long_state, short_state, diagnostics = _run_indicator_factory_states(
-            bundle=bundle,
-            spec=spec,
-            surface_key=surface_key,
-            param_rows=param_rows,
-            config=config,
-            param_hashes=param_hashes,
-        )
+        state_builder = _trend_movement_cross_state if surface_key == "trend_movement_cross_v1" else _channel_breakout_continuation_state
+        long_state, short_state = state_builder(bundle, param_rows, config)
+        diagnostics["state_builder"] = "ta3000.vectorized_state_builder"
     elif surface_key in {"ma_cross_v1", "ma_cross"}:
         long_state, short_state = _ma_cross_state(bundle, param_rows, config)
     elif surface_key in {"breakout_v1", "breakout"}:
@@ -1345,10 +1395,8 @@ def build_signal_surface(
         short_state = np.zeros_like(short_state, dtype=bool)
     elif direction_mode == "short_only":
         long_state = np.zeros_like(long_state, dtype=bool)
-    entries = _edge_signal(long_state, shift_bars=config.signal_shift_bars)
-    exits = _exit_signal(long_state, shift_bars=config.signal_shift_bars)
-    short_entries = _edge_signal(short_state, shift_bars=config.signal_shift_bars)
-    short_exits = _exit_signal(short_state, shift_bars=config.signal_shift_bars)
+    entries, exits = _run_signal_factory_from_state(long_state, shift_bars=config.signal_shift_bars)
+    short_entries, short_exits = _run_signal_factory_from_state(short_state, shift_bars=config.signal_shift_bars)
     stop_default = _parameter_space_default(spec.risk_parameter_space, ("stop_atr_mult", "stop_atr_multiple"), 1.0)
     target_default = _parameter_space_default(
         spec.risk_parameter_space,
@@ -1369,7 +1417,7 @@ def build_signal_surface(
     tp_stop = _broadcast_stop(close, atr, target_values)
 
     def _frame(values: np.ndarray, dtype: str | None = None) -> pd.DataFrame:
-        data = _reshape_surface(values)
+        data = _reshape_surface(values) if values.ndim == 3 else values
         frame = pd.DataFrame(data, index=bundle.index, columns=columns)
         if dtype is not None:
             return frame.astype(dtype)
@@ -2116,8 +2164,18 @@ def _orders_fee_by_col(records: pd.DataFrame, columns: pd.MultiIndex) -> pd.Seri
     return fees
 
 
-def _run_id(*, search_run_id: str, column: tuple[object, ...], window_id: str) -> str:
-    return "BTRUN-" + _stable_hash(f"{search_run_id}|{window_id}|{column}")
+def _run_id(
+    *,
+    search_run_id: str,
+    column: tuple[object, ...],
+    window_id: str,
+    contract_id: str,
+    instrument_id: str,
+    timeframe: str,
+) -> str:
+    return "BTRUN-" + _stable_hash(
+        f"{search_run_id}|{window_id}|{contract_id}|{instrument_id}|{timeframe}|{column}"
+    )
 
 
 def _scalar_metric(series: pd.Series, column: tuple[object, ...]) -> float:
@@ -2170,8 +2228,15 @@ def collect_surface_rows(
     for col_index, column in enumerate(columns):
         family_key, surface_key, template_key, param_id, instrument_id = (str(item) for item in column)
         params = dict(param_lookup[param_id])
-        run_id = _run_id(search_run_id=surface.search_run_id, column=column, window_id=window_id)
         contract_id = _contract_id_for_instrument(bundle, instrument_id)
+        run_id = _run_id(
+            search_run_id=surface.search_run_id,
+            column=column,
+            window_id=window_id,
+            contract_id=contract_id,
+            instrument_id=instrument_id,
+            timeframe=timeframe,
+        )
         row_seed = {
             "backtest_run_id": run_id,
             "search_run_id": surface.search_run_id,
@@ -2453,6 +2518,776 @@ def _drawdown_rows(*, records: Sequence[dict[str, object]], run_row: Mapping[str
     return rows
 
 
+def _optimizer_engine(optimizer_policy: Mapping[str, object] | None) -> str:
+    if optimizer_policy is None:
+        return "grid"
+    return str(optimizer_policy.get("engine", "grid"))
+
+
+def _optuna_ranking_policy(optimizer_policy: Mapping[str, object]) -> RankingPolicy:
+    defaults = default_ranking_policy()
+    raw_policy = optimizer_policy.get("ranking_policy", {})
+    source = raw_policy if isinstance(raw_policy, Mapping) and raw_policy else optimizer_policy
+    raw_metric_order = source.get("metric_order", defaults.metric_order)
+    if isinstance(raw_metric_order, str):
+        metric_order = tuple(item.strip() for item in raw_metric_order.split(",") if item.strip())
+    elif isinstance(raw_metric_order, Iterable):
+        metric_order = tuple(str(item) for item in raw_metric_order if str(item).strip())
+    else:
+        metric_order = defaults.metric_order
+    return RankingPolicy(
+        policy_id=str(source.get("policy_id", defaults.policy_id)),
+        metric_order=metric_order or defaults.metric_order,
+        require_out_of_sample_pass=bool(source.get("require_out_of_sample_pass", defaults.require_out_of_sample_pass)),
+        min_trade_count=int(source.get("min_trade_count", defaults.min_trade_count) or defaults.min_trade_count),
+        min_fold_count=int(source.get("min_fold_count", defaults.min_fold_count) or defaults.min_fold_count),
+        max_drawdown_cap=float(source.get("max_drawdown_cap", defaults.max_drawdown_cap) or defaults.max_drawdown_cap),
+        min_positive_fold_ratio=float(
+            source.get("min_positive_fold_ratio", defaults.min_positive_fold_ratio)
+            if source.get("min_positive_fold_ratio", None) is not None
+            else defaults.min_positive_fold_ratio
+        ),
+        stress_slippage_bps=float(source.get("stress_slippage_bps", defaults.stress_slippage_bps)),
+        min_parameter_stability=float(source.get("min_parameter_stability", defaults.min_parameter_stability)),
+        min_slippage_score=float(source.get("min_slippage_score", defaults.min_slippage_score)),
+    )
+
+
+def _ranking_policy_payload(policy: RankingPolicy) -> dict[str, object]:
+    return {
+        "policy_id": policy.policy_id,
+        "metric_order": list(policy.metric_order),
+        "require_out_of_sample_pass": policy.require_out_of_sample_pass,
+        "min_trade_count": policy.min_trade_count,
+        "min_fold_count": policy.min_fold_count,
+        "max_drawdown_cap": policy.max_drawdown_cap,
+        "min_positive_fold_ratio": policy.min_positive_fold_ratio,
+        "stress_slippage_bps": policy.stress_slippage_bps,
+        "min_parameter_stability": policy.min_parameter_stability,
+        "min_slippage_score": policy.min_slippage_score,
+    }
+
+
+def _resolved_optuna_policy(optimizer_policy: Mapping[str, object], spec: StrategyFamilySearchSpec) -> dict[str, object]:
+    n_trials = int(optimizer_policy.get("n_trials", 0) or 0)
+    max_neighborhood_trials = int(optimizer_policy.get("max_neighborhood_trials", 64) or 0)
+    ranking_policy = _optuna_ranking_policy(optimizer_policy)
+    if n_trials <= 0:
+        raise ValueError("strategy_space.optimizer.n_trials must be positive for optuna")
+    if n_trials > spec.max_parameter_combinations:
+        raise ValueError(
+            "strategy_space.optimizer trial budget exceeds max_parameter_combinations: "
+            f"{n_trials} > {spec.max_parameter_combinations}"
+        )
+    return {
+        "engine": "optuna",
+        "sampler": str(optimizer_policy.get("sampler", "tpe")),
+        "seed": int(optimizer_policy.get("seed", 0) or 0),
+        "objective": str(optimizer_policy.get("objective", "robust_oos_trial_v1")),
+        "direction": str(optimizer_policy.get("direction", "maximize")),
+        "n_trials": n_trials,
+        "top_k": int(optimizer_policy.get("top_k", 8) or 8),
+        "radius": int(optimizer_policy.get("radius", 1) or 0),
+        "max_neighborhood_trials": max_neighborhood_trials,
+        "selection_owner": "optuna.study",
+        "constraints_func": "ta3000.robust_oos_trial_constraints",
+        "ranking_policy": _ranking_policy_payload(ranking_policy),
+    }
+
+
+def _finite_float(value: object, default: float = 0.0) -> float:
+    try:
+        resolved = float(value)
+    except (TypeError, ValueError):
+        return default
+    return resolved if np.isfinite(resolved) else default
+
+
+def _clip_unit(value: float) -> float:
+    return max(0.0, min(1.0, float(value)))
+
+
+def _optimizer_objective(
+    param_rows: Sequence[dict[str, object]],
+    *,
+    trade_rows: Sequence[dict[str, object]] = (),
+    policy: RankingPolicy | None = None,
+) -> tuple[float, dict[str, object]]:
+    scored = score_optimizer_trial(
+        param_rows=[dict(row) for row in param_rows],
+        trade_rows=[dict(row) for row in trade_rows],
+        policy=policy,
+    )
+    value = float(scored["value"])
+    components = {key: value for key, value in scored.items() if key != "value"}
+    return value, components
+
+
+_TRIAL_CLOCK_PARAM_KEYS = ("regime_tf", "signal_tf", "trigger_tf", "execution_tf")
+_CLOCK_LAYER_PARAM_KEYS = {
+    "regime": "regime_tf",
+    "signal": "signal_tf",
+    "trigger": "trigger_tf",
+    "execution": "execution_tf",
+}
+
+
+def _effective_search_spec_for_params(spec: StrategyFamilySearchSpec, params: Mapping[str, object]) -> StrategyFamilySearchSpec:
+    if not any(params.get(key) for key in _TRIAL_CLOCK_PARAM_KEYS):
+        return spec
+    payload = spec.to_dict()
+    clock_profile = dict(spec.clock_profile)
+    for key in _TRIAL_CLOCK_PARAM_KEYS:
+        value = params.get(key)
+        if value is not None and str(value).strip():
+            clock_profile[key] = str(value).strip()
+    required_inputs_by_clock: dict[str, dict[str, object]] = {}
+    for layer, layer_payload in spec.required_inputs_by_clock.items():
+        resolved = dict(layer_payload)
+        clock_key = _CLOCK_LAYER_PARAM_KEYS.get(str(layer))
+        if clock_key is not None and clock_profile.get(clock_key):
+            resolved["timeframe"] = str(clock_profile[clock_key])
+        required_inputs_by_clock[str(layer)] = resolved
+    payload["clock_profile"] = clock_profile
+    payload["required_inputs_by_clock"] = required_inputs_by_clock
+    return StrategyFamilySearchSpec.from_dict(payload)
+
+
+def _optimizer_provenance_components(
+    *,
+    row: Mapping[str, object],
+    spec: StrategyFamilySearchSpec,
+    extra: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    components: dict[str, object] = dict(extra or {})
+    components.update(
+        {
+            "optimizer_engine": "optuna",
+            "signal_generator": "vectorbt.SignalFactory.from_choice_func",
+            "input_resolver": "mtf_input_resolver",
+            "portfolio_engine": "vectorbt.Portfolio.from_signals",
+            "role_timeframes": _role_timeframes_from_spec(spec),
+        }
+    )
+    if row.get("mode") is not None:
+        components["mode"] = str(row["mode"])
+    return components
+
+
+def _suggest_optuna_row(trial: Any, spec: StrategyFamilySearchSpec) -> dict[str, object]:
+    row: dict[str, object] = {}
+    for name, values in sorted(spec.parameter_space.items(), key=lambda item: item[0]):
+        choices = list(values)
+        if choices:
+            row[name] = trial.suggest_categorical(name, choices)
+    return row
+
+
+def _sort_jsonable_values(values: Iterable[object]) -> list[object]:
+    return sorted(
+        values,
+        key=lambda value: json.dumps(value, ensure_ascii=False, sort_keys=True, default=str),
+    )
+
+
+def _parameter_space_diagnostics(
+    spec: StrategyFamilySearchSpec,
+    trial_rows: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    choice_counts = {str(name): len(tuple(values)) for name, values in sorted(spec.parameter_space.items())}
+    fixed_parameters: dict[str, object] = {}
+    active_parameters: list[str] = []
+    for name, values in sorted(spec.parameter_space.items()):
+        choices = tuple(values)
+        if len(choices) == 1:
+            fixed_parameters[str(name)] = choices[0]
+        elif choices:
+            active_parameters.append(str(name))
+
+    observed: dict[str, set[object]] = {name: set() for name in choice_counts}
+    for row in trial_rows:
+        params = row.get("params_json", {})
+        if isinstance(params, str) and params.strip():
+            try:
+                params = json.loads(params)
+            except json.JSONDecodeError:
+                params = {}
+        if not isinstance(params, Mapping):
+            continue
+        for name in observed:
+            if name in params:
+                observed[name].add(params[name])
+
+    return {
+        "choice_counts": choice_counts,
+        "active_parameters": active_parameters,
+        "fixed_parameters": fixed_parameters,
+        "observed_unique_value_counts": {name: len(values) for name, values in sorted(observed.items())},
+        "observed_values": {
+            name: _sort_jsonable_values(values)
+            for name, values in sorted(observed.items())
+        },
+    }
+
+
+def _optimizer_trial_id(*, optimizer_study_id: str, trial_number: int, trial_kind: str, param_id: str) -> str:
+    return "OPTTRIAL-" + _stable_hash(f"{optimizer_study_id}|{trial_number}|{trial_kind}|{param_id}")
+
+
+def _search_run_row(
+    *,
+    search_run_id: str,
+    search_spec: StrategyFamilySearchSpec,
+    campaign_id: str,
+    dataset_version: str,
+    indicator_set_version: str,
+    derived_indicator_set_version: str,
+    bundle: VectorBTInputBundle,
+    window_id: str,
+    param_count: int,
+    status: str,
+    started_at: str,
+    error_message: str = "",
+) -> dict[str, object]:
+    return {
+        "search_run_id": search_run_id,
+        "search_spec_id": search_spec_id(search_spec),
+        "campaign_id": campaign_id,
+        "family_key": search_spec.family_key,
+        "template_key": search_spec.template_key,
+        "clock_profile": str(bundle.metadata["clock_profile"]),
+        "dataset_id": dataset_version,
+        "dataset_snapshot": dataset_version,
+        "indicator_profile_version": indicator_set_version,
+        "derived_indicator_profile_version": derived_indicator_set_version,
+        "universe_key": ",".join(bundle.instruments),
+        "fold_id": window_id,
+        "param_count": param_count,
+        "instrument_count": len(bundle.instruments),
+        "chunk_count": 1 if param_count else 0,
+        "status": status,
+        "started_at": started_at,
+        "finished_at": _created_at(),
+        "error_message": error_message,
+    }
+
+
+def _run_optuna_family_search(
+    *,
+    series_frames: Sequence[ResearchSeriesFrame],
+    search_spec: StrategyFamilySearchSpec,
+    config: BacktestEngineConfig,
+    backtest_batch_id: str,
+    campaign_run_id: str,
+    strategy_space_id: str,
+    dataset_version: str,
+    indicator_set_version: str,
+    derived_indicator_set_version: str,
+    split_windows: tuple[dict[str, object], ...] | None,
+    param_batch_size: int,
+    optimizer_policy: Mapping[str, object],
+) -> dict[str, object]:
+    try:
+        import optuna
+    except ImportError as exc:  # pragma: no cover - dependency guard for misconfigured runtimes.
+        raise RuntimeError("Optuna optimizer mode requires the `optuna` package") from exc
+
+    policy = _resolved_optuna_policy(optimizer_policy, search_spec)
+    if policy["sampler"] != "tpe":
+        raise ValueError("strategy_space.optimizer.sampler must be `tpe`")
+    if policy["direction"] != "maximize":
+        raise ValueError("strategy_space.optimizer.direction must be `maximize`")
+    if policy["objective"] != "robust_oos_trial_v1":
+        raise ValueError("strategy_space.optimizer.objective must be `robust_oos_trial_v1`")
+
+    ranking_policy = _optuna_ranking_policy(optimizer_policy)
+    started_at = _created_at()
+    search_run_id_base = "VBTSEARCH-" + _stable_hash(
+        f"{backtest_batch_id}|{search_spec.family_key}|{search_spec.template_key}|optuna|{policy['n_trials']}"
+    )
+    optimizer_study_id = "OPTSTUDY-" + _stable_hash(
+        f"{search_run_id_base}|{campaign_run_id}|{strategy_space_id}|{search_spec_id(search_spec)}"
+    )
+    windows = list(_windowed_series(series_frames, config=config, split_windows=split_windows))
+    search_run_rows: list[dict[str, object]] = []
+    run_rows: list[dict[str, object]] = []
+    stat_rows: list[dict[str, object]] = []
+    param_result_rows: list[dict[str, object]] = []
+    gate_rows: list[dict[str, object]] = []
+    trade_rows: list[dict[str, object]] = []
+    order_rows: list[dict[str, object]] = []
+    drawdown_rows: list[dict[str, object]] = []
+    optimizer_trial_rows: list[dict[str, object]] = []
+    evaluations: dict[str, dict[str, object]] = {}
+    tell_attrs_by_trial: dict[int, dict[str, object]] = {}
+    ask_tell_batch_summaries: list[dict[str, object]] = []
+
+    def _trial_constraints_from_components(
+        components: Mapping[str, object],
+        *,
+        constraints_passed: bool,
+    ) -> tuple[tuple[str, ...], tuple[float, ...]]:
+        raw_names = components.get("constraint_names", ())
+        raw_values = components.get("constraint_values", ())
+        names = tuple(str(item) for item in raw_names) if isinstance(raw_names, Iterable) and not isinstance(raw_names, str) else tuple()
+        try:
+            values = tuple(float(item) for item in raw_values) if isinstance(raw_values, Iterable) and not isinstance(raw_values, str) else tuple()
+        except (TypeError, ValueError):
+            values = tuple()
+        if values:
+            return names, values
+        return ("unclassified_failure",), ((-1.0 if constraints_passed else 1.0),)
+
+    def record_trial(
+        *,
+        trial_number: int,
+        trial_kind: str,
+        row: Mapping[str, object],
+        value: float,
+        status: str,
+        components: Mapping[str, object],
+        constraints_passed: bool,
+        failure_reason: str,
+        search_run_ids: Sequence[str],
+        started: str,
+    ) -> None:
+        param_id = param_hash(_effective_search_spec_for_params(search_spec, row), row)
+        component_payload = dict(components)
+        constraint_names, constraint_values = _trial_constraints_from_components(
+            component_payload,
+            constraints_passed=constraints_passed,
+        )
+        component_payload["constraint_names"] = constraint_names
+        component_payload["constraint_values"] = constraint_values
+        component_payload["constraints_passed"] = bool(constraints_passed)
+        optimizer_trial_rows.append(
+            {
+                "optimizer_trial_id": _optimizer_trial_id(
+                    optimizer_study_id=optimizer_study_id,
+                    trial_number=trial_number,
+                    trial_kind=trial_kind,
+                    param_id=param_id,
+                ),
+                "optimizer_study_id": optimizer_study_id,
+                "trial_number": trial_number,
+                "trial_kind": trial_kind,
+                "param_hash": param_id,
+                "params_json": dict(row),
+                "value": value,
+                "status": status,
+                "objective_components_json": component_payload,
+                "constraints_passed": constraints_passed,
+                "failure_reason": failure_reason,
+                "search_run_ids_json": list(search_run_ids),
+                "started_at": started,
+                "finished_at": _created_at(),
+            }
+        )
+        tell_attrs_by_trial[trial_number] = {
+            "constraint_names": constraint_names,
+            "constraint_values": constraint_values,
+            "constraints_passed": bool(constraints_passed),
+            "objective_components": component_payload,
+        }
+
+    def _bundle_for_window(window_series: Sequence[ResearchSeriesFrame], effective_spec: StrategyFamilySearchSpec) -> VectorBTInputBundle:
+        clock_profile_payload = (
+            dict(effective_spec.clock_profile)
+            if effective_spec.clock_profile
+            else {
+                "name": _clock_profile_for_timeframe(window_series[0].timeframe),
+                "execution_tf": window_series[0].timeframe,
+            }
+        )
+        return build_input_bundle(
+            window_series,
+            dataset_version=dataset_version,
+            indicator_set_version=indicator_set_version,
+            derived_indicator_set_version=derived_indicator_set_version,
+            clock_profile=clock_profile_payload,
+            execution_timeframe=_execution_timeframe_from_profile(clock_profile_payload, window_series[0].timeframe),
+        )
+
+    def evaluate_batch(
+        trial_items: Sequence[tuple[Any, str, Mapping[str, object]]],
+        *,
+        batch_index: int,
+    ) -> dict[int, float]:
+        values_by_trial: dict[int, float] = {}
+        pending: list[dict[str, object]] = []
+        for trial_ref, trial_kind, row in trial_items:
+            trial_number = int(getattr(trial_ref, "number", trial_ref))
+            trial_started = _created_at()
+            candidate = dict(row)
+            effective_spec = _effective_search_spec_for_params(search_spec, candidate)
+            candidate_hash = param_hash(effective_spec, candidate)
+            if not _constraints_pass(candidate, effective_spec.parameter_constraints):
+                components = _optimizer_provenance_components(
+                    row=candidate,
+                    spec=effective_spec,
+                    extra={
+                        "failure": "PARAMETER_CONSTRAINT_FAILED",
+                        "constraint_names": ("parameter_constraints",),
+                        "constraint_values": (1.0,),
+                        "selection_owner": "optuna.study",
+                    },
+                )
+                record_trial(
+                    trial_number=trial_number,
+                    trial_kind=trial_kind,
+                    row=candidate,
+                    value=-1.0,
+                    status="constraint_failed",
+                    components=components,
+                    constraints_passed=False,
+                    failure_reason="PARAMETER_CONSTRAINT_FAILED",
+                    search_run_ids=(),
+                    started=trial_started,
+                )
+                values_by_trial[trial_number] = -1.0
+                continue
+            cached = evaluations.get(candidate_hash)
+            if cached is not None:
+                record_trial(
+                    trial_number=trial_number,
+                    trial_kind=trial_kind,
+                    row=candidate,
+                    value=float(cached["value"]),
+                    status="duplicate",
+                    components=dict(cached["components"]),
+                    constraints_passed=bool(cached["constraints_passed"]),
+                    failure_reason="",
+                    search_run_ids=tuple(cached["search_run_ids"]),
+                    started=trial_started,
+                )
+                values_by_trial[trial_number] = float(cached["value"])
+                continue
+            pending.append(
+                {
+                    "trial_number": trial_number,
+                    "trial_kind": trial_kind,
+                    "started": trial_started,
+                    "row": candidate,
+                    "spec": effective_spec,
+                    "param_hash": candidate_hash,
+                }
+            )
+
+        pending_by_hash: dict[str, dict[str, object]] = {}
+        pending_duplicates: dict[str, list[dict[str, object]]] = {}
+        for item in pending:
+            candidate_hash = str(item["param_hash"])
+            if candidate_hash in pending_by_hash:
+                pending_duplicates.setdefault(candidate_hash, []).append(item)
+                continue
+            pending_by_hash[candidate_hash] = item
+
+        grouped: dict[str, list[dict[str, object]]] = {}
+        for item in pending_by_hash.values():
+            effective_spec = item["spec"]
+            assert isinstance(effective_spec, StrategyFamilySearchSpec)
+            key = search_spec_id(effective_spec)
+            grouped.setdefault(key, []).append(item)
+
+        for group_offset, group_items in enumerate(grouped.values(), start=1):
+            effective_spec = group_items[0]["spec"]
+            assert isinstance(effective_spec, StrategyFamilySearchSpec)
+            param_rows = tuple(dict(item["row"]) for item in group_items if isinstance(item["row"], Mapping))
+            param_lookup = {str(item["param_hash"]): dict(item["row"]) for item in group_items}
+            local_search_run_rows: list[dict[str, object]] = []
+            local_run_rows: list[dict[str, object]] = []
+            local_stat_rows: list[dict[str, object]] = []
+            local_param_result_rows: list[dict[str, object]] = []
+            local_gate_rows: list[dict[str, object]] = []
+            local_trade_rows: list[dict[str, object]] = []
+            local_order_rows: list[dict[str, object]] = []
+            local_drawdown_rows: list[dict[str, object]] = []
+            local_search_run_ids: list[str] = []
+            try:
+                for window_id, window_series in windows:
+                    bundle = _bundle_for_window(window_series, effective_spec)
+                    search_run_id = f"{search_run_id_base}-ASKTELL-{batch_index:04d}-{group_offset:02d}-{window_id}"
+                    surface = build_signal_surface(
+                        bundle=bundle,
+                        spec=effective_spec,
+                        param_rows=param_rows,
+                        search_run_id=search_run_id,
+                        config=config,
+                    )
+                    portfolio = run_surface_portfolio(bundle=bundle, surface=surface, config=config)
+                    collected = collect_surface_rows(
+                        portfolio=portfolio,
+                        bundle=bundle,
+                        surface=surface,
+                        spec=effective_spec,
+                        param_lookup=param_lookup,
+                        backtest_batch_id=backtest_batch_id,
+                        campaign_run_id=campaign_run_id,
+                        strategy_space_id=strategy_space_id,
+                        dataset_version=dataset_version,
+                        indicator_set_version=indicator_set_version,
+                        derived_indicator_set_version=derived_indicator_set_version,
+                        window_id=window_id,
+                    )
+                    local_run_rows.extend(collected["run_rows"])
+                    local_stat_rows.extend(collected["stat_rows"])
+                    local_param_result_rows.extend(collected["param_result_rows"])
+                    local_gate_rows.extend(collected["gate_rows"])
+                    local_trade_rows.extend(collected["trade_rows"])
+                    local_order_rows.extend(collected["order_rows"])
+                    local_drawdown_rows.extend(collected["drawdown_rows"])
+                    local_search_run_ids.append(search_run_id)
+                    local_search_run_rows.append(
+                        _search_run_row(
+                            search_run_id=search_run_id,
+                            search_spec=effective_spec,
+                            campaign_id=strategy_space_id,
+                            dataset_version=dataset_version,
+                            indicator_set_version=indicator_set_version,
+                            derived_indicator_set_version=derived_indicator_set_version,
+                            bundle=bundle,
+                            window_id=window_id,
+                            param_count=len(param_rows),
+                            status="success",
+                            started_at=str(group_items[0]["started"]),
+                        )
+                    )
+            except Exception as exc:  # noqa: BLE001
+                failed_items: list[dict[str, object]] = []
+                for item in group_items:
+                    failed_items.append(item)
+                    failed_items.extend(pending_duplicates.get(str(item["param_hash"]), ()))
+                for item in failed_items:
+                    components = _optimizer_provenance_components(
+                        row=dict(item["row"]),
+                        spec=effective_spec,
+                        extra={
+                            "failure": type(exc).__name__,
+                            "constraint_names": ("evaluation_failure",),
+                            "constraint_values": (1.0,),
+                            "selection_owner": "optuna.study",
+                        },
+                    )
+                    record_trial(
+                        trial_number=int(item["trial_number"]),
+                        trial_kind=str(item["trial_kind"]),
+                        row=dict(item["row"]),
+                        value=-1.0,
+                        status="failed",
+                        components=components,
+                        constraints_passed=False,
+                        failure_reason=str(exc),
+                        search_run_ids=(),
+                        started=str(item["started"]),
+                    )
+                    values_by_trial[int(item["trial_number"])] = -1.0
+                continue
+
+            search_run_rows.extend(local_search_run_rows)
+            run_rows.extend(local_run_rows)
+            stat_rows.extend(local_stat_rows)
+            param_result_rows.extend(local_param_result_rows)
+            gate_rows.extend(local_gate_rows)
+            trade_rows.extend(local_trade_rows)
+            order_rows.extend(local_order_rows)
+            drawdown_rows.extend(local_drawdown_rows)
+
+            result_rows_by_hash: dict[str, list[dict[str, object]]] = {str(item["param_hash"]): [] for item in group_items}
+            for result_row in local_param_result_rows:
+                result_rows_by_hash.setdefault(str(result_row["param_hash"]), []).append(result_row)
+            trade_rows_by_hash: dict[str, list[dict[str, object]]] = {str(item["param_hash"]): [] for item in group_items}
+            for trade_row in local_trade_rows:
+                trade_rows_by_hash.setdefault(str(trade_row.get("param_hash", "")), []).append(trade_row)
+            for item in group_items:
+                candidate = dict(item["row"])
+                candidate_hash = str(item["param_hash"])
+                value, raw_components = _optimizer_objective(
+                    result_rows_by_hash.get(candidate_hash, ()),
+                    trade_rows=trade_rows_by_hash.get(candidate_hash, ()),
+                    policy=ranking_policy,
+                )
+                components = _optimizer_provenance_components(
+                    row=candidate,
+                    spec=effective_spec,
+                    extra=raw_components,
+                )
+                constraints_passed = bool(components.get("constraints_passed", False))
+                evaluations[candidate_hash] = {
+                    "value": value,
+                    "components": components,
+                    "constraints_passed": constraints_passed,
+                    "search_run_ids": tuple(local_search_run_ids),
+                    "params": candidate,
+                    "trial_number": int(item["trial_number"]),
+                    "trial_kind": str(item["trial_kind"]),
+                }
+                record_trial(
+                    trial_number=int(item["trial_number"]),
+                    trial_kind=str(item["trial_kind"]),
+                    row=candidate,
+                    value=value,
+                    status="completed",
+                    components=components,
+                    constraints_passed=constraints_passed,
+                    failure_reason="",
+                    search_run_ids=tuple(local_search_run_ids),
+                    started=str(item["started"]),
+                )
+                values_by_trial[int(item["trial_number"])] = value
+                for duplicate_item in pending_duplicates.get(candidate_hash, ()):
+                    record_trial(
+                        trial_number=int(duplicate_item["trial_number"]),
+                        trial_kind=str(duplicate_item["trial_kind"]),
+                        row=dict(duplicate_item["row"]),
+                        value=value,
+                        status="duplicate",
+                        components=components,
+                        constraints_passed=constraints_passed,
+                        failure_reason="",
+                        search_run_ids=tuple(local_search_run_ids),
+                        started=str(duplicate_item["started"]),
+                    )
+                    values_by_trial[int(duplicate_item["trial_number"])] = value
+        return values_by_trial
+
+    def _constraints_func(frozen_trial: Any) -> tuple[float, ...]:
+        values = frozen_trial.user_attrs.get(_OPTUNA_CONSTRAINTS_ATTR)
+        if values is None:
+            return (1.0,)
+        try:
+            resolved = tuple(float(item) for item in values)
+        except (TypeError, ValueError):
+            return (1.0,)
+        return resolved or (1.0,)
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    sampler = optuna.samplers.TPESampler(seed=int(policy["seed"]), constraints_func=_constraints_func)
+    study = optuna.create_study(direction=str(policy["direction"]), sampler=sampler)
+
+    requested_trials = int(policy["n_trials"])
+    batch_size = max(1, int(param_batch_size))
+    completed_asks = 0
+    batch_index = 0
+    while completed_asks < requested_trials:
+        batch_index += 1
+        trial_items: list[tuple[Any, str, Mapping[str, object]]] = []
+        for _ in range(min(batch_size, requested_trials - completed_asks)):
+            trial = study.ask()
+            row = _suggest_optuna_row(trial, search_spec)
+            trial_items.append((trial, "optuna_trial", row))
+            completed_asks += 1
+        batch_started = perf_counter()
+        trial_rows_before = len(optimizer_trial_rows)
+        evaluated_before = len(evaluations)
+        values = evaluate_batch(trial_items, batch_index=batch_index)
+        batch_duration = max(perf_counter() - batch_started, 1e-9)
+        for trial, _, _ in trial_items:
+            trial_number = int(trial.number)
+            value = float(values.get(trial_number, -1.0))
+            attrs = tell_attrs_by_trial.get(trial_number, {})
+            trial.set_user_attr(_OPTUNA_CONSTRAINT_NAMES_ATTR, tuple(attrs.get("constraint_names", ())))
+            trial.set_user_attr(_OPTUNA_CONSTRAINTS_ATTR, tuple(attrs.get("constraint_values", (1.0,))))
+            trial.set_user_attr("ta3000_constraints_passed", bool(attrs.get("constraints_passed", False)))
+            trial.set_user_attr("ta3000_objective_components", dict(attrs.get("objective_components", {})))
+            study.tell(trial, value)
+        batch_rows = optimizer_trial_rows[trial_rows_before:]
+        status_counts: dict[str, int] = {}
+        for row in batch_rows:
+            status = str(row.get("status", ""))
+            status_counts[status] = status_counts.get(status, 0) + 1
+        ask_tell_batch_summaries.append(
+            {
+                "batch_index": batch_index,
+                "asked_trial_count": len(trial_items),
+                "recorded_trial_count": len(batch_rows),
+                "new_unique_evaluations": len(evaluations) - evaluated_before,
+                "duration_seconds": round(batch_duration, 6),
+                "trials_per_second": round(len(trial_items) / batch_duration, 6),
+                "status_counts": dict(sorted(status_counts.items())),
+            }
+        )
+
+    completed = [
+        row
+        for row in optimizer_trial_rows
+        if str(row["status"]) == "completed"
+    ]
+    completed_trials = [
+        row
+        for row in optimizer_trial_rows
+        if str(row["status"]) in {"completed", "duplicate"}
+    ]
+    feasible_trial_numbers = {
+        int(row["trial_number"])
+        for row in completed_trials
+        if bool(row.get("constraints_passed", False))
+    }
+    best_trial = None
+    try:
+        best_trial = study.best_trial
+    except ValueError:
+        best_trial = None
+    if best_trial is not None and int(best_trial.number) not in feasible_trial_numbers:
+        best_trial = None
+    best_row = (
+        next(
+            (
+                row
+                for row in optimizer_trial_rows
+                if best_trial is not None and int(row["trial_number"]) == int(best_trial.number)
+            ),
+            None,
+        )
+        if best_trial is not None
+        else None
+    )
+    study_status = "success" if best_row else ("no_feasible_trials" if completed_trials else "failed")
+    optimizer_study_rows = [
+        {
+            "optimizer_study_id": optimizer_study_id,
+            "campaign_run_id": campaign_run_id,
+            "strategy_space_id": strategy_space_id,
+            "search_spec_id": search_spec_id(search_spec),
+            "family_key": search_spec.family_key,
+            "template_key": search_spec.template_key,
+            "optimizer_engine": "optuna",
+            "sampler": str(policy["sampler"]),
+            "seed": int(policy["seed"]),
+            "objective_name": str(policy["objective"]),
+            "direction": str(policy["direction"]),
+            "n_trials_requested": int(policy["n_trials"]),
+            "n_trials_completed": len(completed_trials),
+            "best_trial_number": int(best_row["trial_number"]) if best_row else -1,
+            "best_param_hash": str(best_row["param_hash"]) if best_row else "",
+            "best_value": float(best_row["value"]) if best_row else 0.0,
+            "status": study_status,
+            "started_at": started_at,
+            "finished_at": _created_at(),
+            "study_config_json": {
+                **policy,
+                "evaluated_param_count": len(evaluations),
+                "trial_row_count": len(optimizer_trial_rows),
+                "ask_tell_batch_size": batch_size,
+                "ask_tell_batch_count": batch_index,
+                "ask_tell_batch_summaries": ask_tell_batch_summaries,
+                "parameter_space_diagnostics": _parameter_space_diagnostics(search_spec, optimizer_trial_rows),
+            },
+        }
+    ]
+    return {
+        "search_run_rows": search_run_rows,
+        "optimizer_study_rows": optimizer_study_rows,
+        "optimizer_trial_rows": optimizer_trial_rows,
+        "run_rows": run_rows,
+        "stat_rows": stat_rows,
+        "param_result_rows": param_result_rows,
+        "gate_rows": gate_rows,
+        "trade_rows": trade_rows,
+        "order_rows": order_rows,
+        "drawdown_rows": drawdown_rows,
+    }
+
+
 def run_vectorbt_family_search(
     *,
     series_frames: Sequence[ResearchSeriesFrame],
@@ -2466,7 +3301,23 @@ def run_vectorbt_family_search(
     derived_indicator_set_version: str,
     split_windows: tuple[dict[str, object], ...] | None,
     param_batch_size: int,
+    optimizer_policy: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
+    if _optimizer_engine(optimizer_policy) == "optuna":
+        return _run_optuna_family_search(
+            series_frames=series_frames,
+            search_spec=search_spec,
+            config=config,
+            backtest_batch_id=backtest_batch_id,
+            campaign_run_id=campaign_run_id,
+            strategy_space_id=strategy_space_id,
+            dataset_version=dataset_version,
+            indicator_set_version=indicator_set_version,
+            derived_indicator_set_version=derived_indicator_set_version,
+            split_windows=split_windows,
+            param_batch_size=param_batch_size,
+            optimizer_policy=dict(optimizer_policy or {}),
+        )
     all_params = _parameter_rows(search_spec)
     search_run_id_base = "VBTSEARCH-" + _stable_hash(
         f"{backtest_batch_id}|{search_spec.family_key}|{search_spec.template_key}|{len(all_params)}"
@@ -2602,6 +3453,8 @@ def run_vectorbt_family_search(
             )
     return {
         "search_run_rows": search_run_rows,
+        "optimizer_study_rows": [],
+        "optimizer_trial_rows": [],
         "run_rows": run_rows,
         "stat_rows": stat_rows,
         "param_result_rows": param_result_rows,
@@ -2627,19 +3480,28 @@ def _windowed_series(
         (series, _window_frames(series.frame, window_count=config.window_count, split_windows=split_windows))
         for series in series_frames
     ]
-    window_ids = tuple(window_id for window_id, _ in per_series[0][1])
+    first_window_ids = tuple(window_id for window_id, _ in per_series[0][1])
+    available_by_series = [
+        {window_id: frame for window_id, frame in windows}
+        for _, windows in per_series
+    ]
+    common_window_ids = tuple(
+        window_id
+        for window_id in first_window_ids
+        if all(window_id in windows for windows in available_by_series)
+    )
+    if not common_window_ids:
+        raise ValueError("split window layout has no common windows across selected research series")
     resolved: list[tuple[str, tuple[ResearchSeriesFrame, ...]]] = []
-    for offset, window_id in enumerate(window_ids):
+    for window_id in common_window_ids:
         window_frames: list[ResearchSeriesFrame] = []
-        for series, windows in per_series:
-            if offset >= len(windows) or windows[offset][0] != window_id:
-                raise ValueError("split window layout differs across selected research series")
+        for series, windows in zip((item[0] for item in per_series), available_by_series, strict=True):
             window_frames.append(
                 ResearchSeriesFrame(
                     contract_id=series.contract_id,
                     instrument_id=series.instrument_id,
                     timeframe=series.timeframe,
-                    frame=windows[offset][1],
+                    frame=windows[window_id],
                 )
             )
         resolved.append((window_id, tuple(window_frames)))

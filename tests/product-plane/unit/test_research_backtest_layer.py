@@ -72,6 +72,8 @@ def test_backtest_store_contract_contains_stage5_artifacts() -> None:
         "research_vbt_param_gate_events",
         "research_vbt_ephemeral_indicator_cache",
         "research_strategy_promotion_events",
+        "research_optimizer_studies",
+        "research_optimizer_trials",
         "research_backtest_batches",
         "research_backtest_runs",
         "research_strategy_stats",
@@ -98,3 +100,9 @@ def test_backtest_store_contract_contains_stage5_artifacts() -> None:
     } <= stats_columns
     assert {"order_id", "side", "fill_qty"} <= set(contract["research_order_records"]["columns"])
     assert {"ts", "drawdown_pct", "status"} <= set(contract["research_drawdown_records"]["columns"])
+    assert {"optimizer_study_id", "sampler", "n_trials_requested"} <= set(
+        contract["research_optimizer_studies"]["columns"]
+    )
+    assert {"optimizer_trial_id", "trial_number", "trial_kind", "status"} <= set(
+        contract["research_optimizer_trials"]["columns"]
+    )
