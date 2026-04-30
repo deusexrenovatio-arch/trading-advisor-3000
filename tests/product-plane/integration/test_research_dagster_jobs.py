@@ -25,6 +25,7 @@ from trading_advisor_3000.product_plane.data_plane.schemas import historical_dat
 from trading_advisor_3000.product_plane.research.datasets import (
     ContinuousFrontPolicy,
     ResearchDatasetManifest,
+    load_materialized_research_dataset,
     materialize_research_dataset,
 )
 from trading_advisor_3000.product_plane.research.continuous_front import continuous_front_store_contract
