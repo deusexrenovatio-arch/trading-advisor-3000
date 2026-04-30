@@ -21,15 +21,22 @@ def run(*, task_outcomes_path: Path, thresholds_path: Path) -> int:
     payload = load_task_outcomes(task_outcomes_path)
     thresholds_payload = _load_yaml(thresholds_path)
     window_size = int(thresholds_payload.get("window_size", 20))
+    burn_in_min_completed_tasks = int(thresholds_payload.get("burn_in_min_completed_tasks", window_size))
     metrics_thresholds = thresholds_payload.get("thresholds", {})
     if not isinstance(metrics_thresholds, dict):
         metrics_thresholds = {}
 
-    rollup = compute_process_rollup(payload, window_size=window_size)
+    rollup = compute_process_rollup(
+        payload,
+        window_size=window_size,
+        burn_in_min_completed_tasks=burn_in_min_completed_tasks,
+    )
     if not rollup["burn_in_complete"]:
         print(
             "process regressions validation: OK "
-            f"(burn_in=False completed={rollup['completed_tasks_count']} window_size={window_size})"
+            f"(burn_in=False completed={rollup['completed_tasks_count']} "
+            f"window_size={window_size} "
+            f"burn_in_min_completed_tasks={rollup['burn_in_min_completed_tasks']})"
         )
         return 0
 

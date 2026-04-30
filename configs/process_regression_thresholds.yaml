@@ -1,6 +1,7 @@
 version: 1
 # Keep process-regression gating in burn-in until the repo has a larger terminal-task sample.
 window_size: 40
+burn_in_min_completed_tasks: 60
 thresholds:
   correct_first_time_pct: 0.70
   start_match_pct: 0.75

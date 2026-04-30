@@ -51,6 +51,30 @@ def test_compute_process_rollup_metrics() -> None:
     assert rollup["current_metrics"]["repeat_error_rate"] > 0
 
 
+def test_compute_process_rollup_honors_burn_in_min_completed_tasks() -> None:
+    payload = {
+        "version": 1,
+        "items": [
+            {
+                "task_id": f"TASK-{index}",
+                "closed_at": f"2026-03-16T10:0{index}:00Z",
+                "route_match": "matched",
+                "decision_quality": "correct_first_time",
+                "incident_signature": "none",
+                "same_path_attempts": 1,
+                "outcome_status": "completed",
+            }
+            for index in range(3)
+        ],
+    }
+
+    rollup = compute_process_rollup(payload, window_size=2, burn_in_min_completed_tasks=4)
+
+    assert rollup["window_tasks_count"] == 2
+    assert rollup["burn_in_min_completed_tasks"] == 4
+    assert rollup["burn_in_complete"] is False
+
+
 def test_render_rollup_markdown_has_table() -> None:
     rollup = {
         "completed_tasks_count": 1,
