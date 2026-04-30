@@ -31,14 +31,12 @@ strategy_space:
   family_keys:
     - ma_cross
   template_ids: []
-  include_instance_ids: []
-  exclude_manifest_hashes: []
-  materialize_instances: true
-  max_instance_count: 256
+  exclude_template_manifest_hashes: []
+  max_parameter_combinations: 256
   search_space_overrides: {}
 
 backtest:
-  param_batch_size: 25
+  param_batch_size: 500
   series_batch_size: 4
   backtest_timeframe: 15m
   fees_bps: 0.0
