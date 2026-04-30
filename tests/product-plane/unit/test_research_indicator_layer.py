@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from trading_advisor_3000.product_plane.research.datasets import ResearchBarView
@@ -251,7 +253,7 @@ def test_indicator_build_is_point_in_time_safe_for_existing_prefix() -> None:
     assert base_payload == extended_payload
 
 
-def test_continuous_front_indicators_apply_adjustment_ladder_as_of_current_roll_epoch() -> None:
+def test_continuous_front_indicators_apply_ladder_as_of_current_roll_epoch() -> None:
     rows = build_indicator_frames(
         dataset_version="dataset-v3",
         indicator_set_version="indicators-v1",
@@ -325,6 +327,7 @@ def test_indicator_build_produces_real_values_and_null_warmup_span() -> None:
     assert tail.values["tsi_25_13"] is not None
     assert tail.values["bb_width_20_2"] is not None
     assert tail.values["rvol_20"] is not None
+    assert tail.values["close_slope_20"] == pytest.approx(math.degrees(math.atan(0.3)))
     assert tail.profile_version == "core_v1"
     assert tail.warmup_span >= tail.null_warmup_span >= 0
 

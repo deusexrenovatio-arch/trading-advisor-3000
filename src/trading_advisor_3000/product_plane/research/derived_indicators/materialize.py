@@ -6,9 +6,18 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import iter_delta_table_row_batches, read_delta_table_rows
+from trading_advisor_3000.product_plane.research.continuous_front_indicators.input_projection import (
+    load_adjustment_ladder_rows,
+)
+from trading_advisor_3000.product_plane.research.continuous_front_indicators.rules import (
+    ROLL_BOUNDARY_DERIVED_SOURCE_COLUMNS,
+    assert_rule_coverage,
+    rules_for_derived_profile,
+)
 from trading_advisor_3000.product_plane.research.datasets import ResearchBarView
 from trading_advisor_3000.product_plane.research.derived_indicators.registry import (
     DerivedIndicatorProfile,
@@ -399,6 +408,7 @@ def _prepare_base_frame(
     *,
     bars: list[ResearchBarView],
     indicators: list[IndicatorFrameRow],
+    adjustment_ladder_rows: tuple[dict[str, object], ...] = (),
 ) -> pd.DataFrame:
     if not indicators:
         raise ValueError("derived indicator materialization requires base indicators for every series/timeframe partition")
@@ -438,7 +448,49 @@ def _prepare_base_frame(
         how="left",
         validate="one_to_one",
     )
-    return merged.sort_values("ts").reset_index(drop=True)
+    merged = merged.sort_values("ts").reset_index(drop=True)
+    return _with_continuous_front_projection(merged, adjustment_ladder_rows=adjustment_ladder_rows)
+
+
+def _with_continuous_front_projection(
+    frame: pd.DataFrame,
+    *,
+    adjustment_ladder_rows: tuple[dict[str, object], ...],
+) -> pd.DataFrame:
+    if frame.empty or "roll_epoch" not in frame.columns:
+        return frame
+    result = frame.copy()
+    roll_epoch = pd.to_numeric(result["roll_epoch"], errors="coerce").fillna(0).astype(int)
+    max_epoch = int(roll_epoch.max() or 0)
+    if max_epoch == 0:
+        return result
+    instrument_id = str(result["instrument_id"].iloc[0])
+    timeframe = str(result["timeframe"].iloc[0])
+    series_ladder_rows = tuple(
+        row
+        for row in adjustment_ladder_rows
+        if str(row.get("instrument_id")) == instrument_id and str(row.get("timeframe")) == timeframe
+    )
+    if not series_ladder_rows:
+        raise ValueError(
+            "continuous_front derived indicator materialization requires adjustment ladder rows "
+            f"for {instrument_id}|{timeframe}"
+        )
+    gap_by_sequence = {int(row["roll_sequence"]): float(row["additive_gap"]) for row in series_ladder_rows}
+    missing_sequences = [sequence for sequence in range(1, max_epoch + 1) if sequence not in gap_by_sequence]
+    if missing_sequences:
+        joined = ", ".join(str(sequence) for sequence in missing_sequences)
+        raise ValueError(
+            "continuous_front derived indicator materialization missing adjustment ladder roll_sequence "
+            f"{joined}"
+        )
+    offsets = roll_epoch.map(lambda epoch: sum(gap_by_sequence[sequence] for sequence in range(1, int(epoch) + 1)))
+    result["_cf_offset"] = offsets.astype(float)
+    for column in ("open", "high", "low", "close"):
+        native_column = f"native_{column}"
+        source = _numeric(result, native_column) if native_column in result.columns else _numeric(result, column)
+        result[f"_cf_{column}0"] = source - result["_cf_offset"]
+    return result
 
 
 def _numeric(frame: pd.DataFrame, column: str) -> pd.Series:
@@ -449,6 +501,16 @@ def _numeric(frame: pd.DataFrame, column: str) -> pd.Series:
 
 def _safe_divide(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
     return numerator / denominator.replace({0.0: pd.NA})
+
+
+def _roll_epoch_cross_window(frame: pd.DataFrame, *, window: int) -> pd.Series:
+    if "roll_epoch" not in frame.columns:
+        return pd.Series([False] * len(frame), index=frame.index)
+    roll_epoch = _numeric(frame, "roll_epoch")
+    return roll_epoch.rolling(window=window, min_periods=window).apply(
+        lambda values: 0.0 if len(set(int(value) for value in values)) == 1 else 1.0,
+        raw=False,
+    ).fillna(1.0).astype(bool)
 
 
 def _append_columns(frame: pd.DataFrame, columns: dict[str, pd.Series]) -> pd.DataFrame:
@@ -486,19 +548,17 @@ def _change_code(current: pd.Series, reference: pd.Series) -> pd.Series:
 
 
 def _slope(series: pd.Series, *, length: int) -> pd.Series:
-    return (series - series.shift(length)) / float(length)
+    series = pd.to_numeric(series, errors="coerce")
+    movement_per_bar = (series - series.shift(length)) / float(length)
+    return pd.Series(np.degrees(np.arctan(movement_per_bar)), index=series.index)
 
 
 def _divergence_score(price: pd.Series, indicator: pd.Series, *, length: int) -> pd.Series:
     price = pd.to_numeric(price, errors="coerce")
     indicator = pd.to_numeric(indicator, errors="coerce")
-    prior_price_high = price.shift(1).rolling(window=length, min_periods=length).max()
-    prior_price_low = price.shift(1).rolling(window=length, min_periods=length).min()
-    prior_indicator_high = indicator.shift(1).rolling(window=length, min_periods=length).max()
-    prior_indicator_low = indicator.shift(1).rolling(window=length, min_periods=length).min()
-    price_position = _safe_divide(price - prior_price_low, prior_price_high - prior_price_low)
-    indicator_position = _safe_divide(indicator - prior_indicator_low, prior_indicator_high - prior_indicator_low)
-    return price_position - indicator_position
+    price_angle = _slope(price, length=length)
+    indicator_angle = _slope(indicator, length=length)
+    return price_angle - indicator_angle
 
 
 def _compute_opening_range(frame: pd.DataFrame, *, opening_bars: int) -> dict[str, pd.Series]:
@@ -547,11 +607,16 @@ def _compute_swing_levels(frame: pd.DataFrame, *, left_bars: int, right_bars: in
 
 
 def _compute_session_vwap(frame: pd.DataFrame) -> pd.Series:
-    typical_price = (_numeric(frame, "high") + _numeric(frame, "low") + _numeric(frame, "close")) / 3.0
+    if "_cf_offset" in frame.columns:
+        typical_price = (_numeric(frame, "_cf_high0") + _numeric(frame, "_cf_low0") + _numeric(frame, "_cf_close0")) / 3.0
+        post_transform = _numeric(frame, "_cf_offset")
+    else:
+        typical_price = (_numeric(frame, "high") + _numeric(frame, "low") + _numeric(frame, "close")) / 3.0
+        post_transform = pd.Series([0.0] * len(frame), index=frame.index)
     weighted = typical_price * _numeric(frame, "volume")
     session_cum_weight = weighted.groupby(frame["session_date"], sort=False).cumsum()
     session_cum_volume = _numeric(frame, "volume").groupby(frame["session_date"], sort=False).cumsum()
-    return _safe_divide(session_cum_weight, session_cum_volume)
+    return _safe_divide(session_cum_weight, session_cum_volume) + post_transform
 
 
 def _bar_close_times(frame: pd.DataFrame, timeframe: str) -> pd.Series:
@@ -605,21 +670,45 @@ def _compute_derived_frame(
     source_frames: dict[str, pd.DataFrame],
     profile: DerivedIndicatorProfile,
 ) -> pd.DataFrame:
+    assert_rule_coverage(output_columns=set(profile.output_columns), rules=rules_for_derived_profile(profile))
     result = base_frame.copy()
-    close = _numeric(result, "close")
-    high = _numeric(result, "high")
-    low = _numeric(result, "low")
+    is_continuous_front = "_cf_offset" in result.columns
+    offset = _numeric(result, "_cf_offset") if is_continuous_front else pd.Series([0.0] * len(result), index=result.index)
+    close0 = _numeric(result, "_cf_close0") if is_continuous_front else _numeric(result, "close")
+    high0 = _numeric(result, "_cf_high0") if is_continuous_front else _numeric(result, "high")
+    low0 = _numeric(result, "_cf_low0") if is_continuous_front else _numeric(result, "low")
+    close = close0 + offset
+    high = high0 + offset
+    low = low0 + offset
     atr = _numeric(result, "atr_14").replace({0.0: pd.NA})
 
-    result["rolling_high_20"] = high.rolling(window=20, min_periods=20).max()
-    result["rolling_low_20"] = low.rolling(window=20, min_periods=20).min()
-    result["session_high"] = high.groupby(result["session_date"], sort=False).cummax()
-    result["session_low"] = low.groupby(result["session_date"], sort=False).cummin()
+    result["close"] = close
+    result["high"] = high
+    result["low"] = low
+    result["rolling_high_20"] = high0.rolling(window=20, min_periods=20).max() + offset
+    result["rolling_low_20"] = low0.rolling(window=20, min_periods=20).min() + offset
+    result["session_high"] = high0.groupby(result["session_date"], sort=False).cummax() + offset
+    result["session_low"] = low0.groupby(result["session_date"], sort=False).cummin() + offset
     week_key = pd.to_datetime(result["ts"], utc=True).dt.strftime("%G-%V")
-    result["week_high"] = high.groupby(week_key, sort=False).cummax()
-    result["week_low"] = low.groupby(week_key, sort=False).cummin()
-    result = _append_columns(result, _compute_opening_range(result, opening_bars=4))
-    result = _append_columns(result, _compute_swing_levels(result, left_bars=5, right_bars=5))
+    result["week_high"] = high0.groupby(week_key, sort=False).cummax() + offset
+    result["week_low"] = low0.groupby(week_key, sort=False).cummin() + offset
+    level_source = result.copy()
+    if is_continuous_front:
+        level_source["high"] = high0
+        level_source["low"] = low0
+    opening_range = _compute_opening_range(level_source, opening_bars=4)
+    swing_levels = _compute_swing_levels(level_source, left_bars=5, right_bars=5)
+    if is_continuous_front:
+        opening_range = {
+            column: pd.to_numeric(series, errors="coerce") + offset
+            for column, series in opening_range.items()
+        }
+        swing_levels = {
+            column: pd.to_numeric(series, errors="coerce") + offset
+            for column, series in swing_levels.items()
+        }
+    result = _append_columns(result, opening_range)
+    result = _append_columns(result, swing_levels)
     result["session_vwap"] = _compute_session_vwap(result)
 
     distance_targets = {
@@ -681,20 +770,30 @@ def _compute_derived_frame(
     result["trix_signal_cross_code"] = _change_code(_numeric(result, "trix_30_9"), _numeric(result, "trix_signal_30_9"))
     result["kst_signal_cross_code"] = _change_code(_numeric(result, "kst_10_15_20_30"), _numeric(result, "kst_signal_9"))
 
-    result["close_change_1"] = close.diff(1)
+    result["close_change_1"] = close0.diff(1)
     result["close_slope_20"] = _numeric(result, "close_slope_20")
-    result["sma_20_slope_5"] = _slope(_numeric(result, "sma_20"), length=5)
-    result["ema_20_slope_5"] = _slope(_numeric(result, "ema_20"), length=5)
+    result["sma_20_slope_5"] = _slope(_numeric(result, "sma_20") - offset, length=5)
+    result["ema_20_slope_5"] = _slope(_numeric(result, "ema_20") - offset, length=5)
     result["roc_10_change_1"] = _numeric(result, "roc_10").diff(1)
     result["mom_10_change_1"] = _numeric(result, "mom_10").diff(1)
     result["volume_change_1"] = _numeric(result, "volume").diff(1)
+    if is_continuous_front:
+        same_epoch_prev = _numeric(result, "roll_epoch") == _numeric(result, "roll_epoch").shift(1)
+        result.loc[~same_epoch_prev.fillna(False), "volume_change_1"] = pd.NA
     result["oi_change_1"] = _numeric(result, "oi_change_1")
 
     result["rvol_20"] = _numeric(result, "rvol_20")
     result["volume_zscore_20"] = _numeric(result, "volume_z_20")
-    result["price_volume_corr_20"] = close.diff(1).rolling(window=20, min_periods=20).corr(_numeric(result, "volume").diff(1))
-    result["price_oi_corr_20"] = close.diff(1).rolling(window=20, min_periods=20).corr(_numeric(result, "oi_change_1"))
+    result["price_volume_corr_20"] = close0.diff(1).rolling(window=20, min_periods=20).corr(_numeric(result, "volume").diff(1))
+    result["price_oi_corr_20"] = close0.diff(1).rolling(window=20, min_periods=20).corr(_numeric(result, "oi_change_1"))
     result["volume_oi_corr_20"] = _numeric(result, "volume").diff(1).rolling(window=20, min_periods=20).corr(_numeric(result, "oi_change_1"))
+    cross_native_window = pd.Series([False] * len(result), index=result.index)
+    cross_divergence_window = pd.Series([False] * len(result), index=result.index)
+    if is_continuous_front:
+        cross_native_window = _roll_epoch_cross_window(result, window=20)
+        cross_divergence_window = _roll_epoch_cross_window(result, window=21)
+        for column in ("price_volume_corr_20", "price_oi_corr_20", "volume_oi_corr_20"):
+            result.loc[cross_native_window, column] = pd.NA
 
     divergence_sources = {
         "rsi_14": "rsi_14",
@@ -725,7 +824,10 @@ def _compute_derived_frame(
     }
     divergence_columns: dict[str, pd.Series] = {}
     for output_suffix, column in divergence_sources.items():
-        divergence_columns[f"divergence_price_{output_suffix}_score"] = _divergence_score(close, _numeric(result, column), length=20)
+        divergence = _divergence_score(close0, _numeric(result, column), length=20)
+        if is_continuous_front and output_suffix in ROLL_BOUNDARY_DERIVED_SOURCE_COLUMNS:
+            divergence.loc[cross_divergence_window] = pd.NA
+        divergence_columns[f"divergence_price_{output_suffix}_score"] = divergence
     result = _append_columns(result, divergence_columns)
 
     result = _append_columns(
@@ -822,8 +924,13 @@ def _build_partition_rows(
     output_columns_hash: str | None = None,
     compute_profile: DerivedIndicatorProfile | None = None,
     existing_rows: list[DerivedIndicatorFrameRow] | None = None,
+    adjustment_ladder_rows: tuple[dict[str, object], ...] = (),
 ) -> list[DerivedIndicatorFrameRow]:
-    base_frame = _prepare_base_frame(bars=local_series, indicators=local_indicator_rows)
+    base_frame = _prepare_base_frame(
+        bars=local_series,
+        indicators=local_indicator_rows,
+        adjustment_ladder_rows=adjustment_ladder_rows,
+    )
     current_timeframe = local_series[0].timeframe
     compute_profile = compute_profile or profile
     computed = _compute_derived_frame(
@@ -901,6 +1008,7 @@ def build_derived_indicator_frames(
     indicator_rows: list[IndicatorFrameRow],
     series_mode: str = "contract",
     profile: DerivedIndicatorProfile | None = None,
+    adjustment_ladder_rows: tuple[dict[str, object], ...] = (),
 ) -> list[DerivedIndicatorFrameRow]:
     profile = profile or current_derived_indicator_profile()
     grouped_bars = _group_bar_views(bar_views=bar_views, series_mode=series_mode)
@@ -913,6 +1021,7 @@ def build_derived_indicator_frames(
             timeframe: _prepare_base_frame(
                 bars=bars_by_timeframe[timeframe],
                 indicators=indicators_by_timeframe.get(timeframe, []),
+                adjustment_ladder_rows=adjustment_ladder_rows if series_mode == "continuous_front" else (),
             )
             for timeframe in bars_by_timeframe
         }
@@ -926,6 +1035,7 @@ def build_derived_indicator_frames(
                     local_series=local_series,
                     local_indicator_rows=indicators_by_timeframe.get(timeframe, []),
                     source_frames=source_frames,
+                    adjustment_ladder_rows=adjustment_ladder_rows if series_mode == "continuous_front" else (),
                 )
             )
     return rows
@@ -944,6 +1054,11 @@ def materialize_derived_indicator_frames(
 ) -> dict[str, object]:
     dataset_manifest = _load_dataset_manifest(output_dir=dataset_output_dir, dataset_version=dataset_version)
     series_mode = str(dataset_manifest.get("series_mode", "contract"))
+    adjustment_ladder_rows = (
+        load_adjustment_ladder_rows(dataset_output_dir=dataset_output_dir, dataset_version=dataset_version)
+        if series_mode == "continuous_front"
+        else ()
+    )
     current_dataset_bars_hash = str(dataset_manifest.get("bars_hash") or "")
     registry: DerivedIndicatorProfileRegistry = build_derived_indicator_profile_registry()
     resolved_profile = profile or registry.get(profile_version or "core_v1")
@@ -1171,6 +1286,7 @@ def materialize_derived_indicator_frames(
                     timeframe: _prepare_base_frame(
                         bars=bars_by_timeframe[timeframe],
                         indicators=_load_indicator_rows(series_key, timeframe),
+                        adjustment_ladder_rows=adjustment_ladder_rows if series_mode == "continuous_front" else (),
                     )
                     for timeframe in bars_by_timeframe
                 }
@@ -1187,6 +1303,7 @@ def materialize_derived_indicator_frames(
                         output_columns_hash=target_output_columns_hash,
                         compute_profile=compute_profile,
                         existing_rows=existing_rows,
+                        adjustment_ladder_rows=adjustment_ladder_rows if series_mode == "continuous_front" else (),
                     )
 
         output_paths, refreshed_row_count, batch_count = write_derived_indicator_frame_batches(
