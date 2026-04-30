@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/continuous_front_adjustment_ladder.v1.json",
+  "title": "ContinuousFrontAdjustmentLadderV1",
+  "type": "object",
+  "required": [
+    "dataset_version",
+    "roll_policy_version",
+    "adjustment_policy_version",
+    "instrument_id",
+    "timeframe",
+    "roll_event_id",
+    "roll_sequence",
+    "effective_ts",
+    "additive_gap",
+    "cumulative_offset_before",
+    "cumulative_offset_after",
+    "created_at"
+  ],
+  "properties": {
+    "dataset_version": {"type": "string", "minLength": 1},
+    "roll_policy_version": {"type": "string", "minLength": 1},
+    "adjustment_policy_version": {"type": "string", "minLength": 1},
+    "instrument_id": {"type": "string", "minLength": 1},
+    "timeframe": {"type": "string", "minLength": 1},
+    "roll_event_id": {"type": "string", "minLength": 1},
+    "roll_sequence": {"type": "integer", "exclusiveMinimum": 0},
+    "effective_ts": {"type": "string", "minLength": 1},
+    "additive_gap": {"type": "number"},
+    "cumulative_offset_before": {"type": "number"},
+    "cumulative_offset_after": {"type": "number"},
+    "ratio_gap": {"type": ["number", "null"]},
+    "ratio_factor_before": {"type": ["number", "null"]},
+    "ratio_factor_after": {"type": ["number", "null"]},
+    "created_at": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}
