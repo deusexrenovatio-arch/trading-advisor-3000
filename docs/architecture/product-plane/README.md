@@ -8,6 +8,7 @@ Read these first:
 - [CONTRACT_SURFACES.md](docs/architecture/product-plane/CONTRACT_SURFACES.md) - current versioned boundary inventory.
 - [native-runtime-ownership.md](docs/architecture/product-plane/native-runtime-ownership.md) - architecture rule for Spark, Delta Lake, Dagster, pandas-ta-classic, vectorbt, Optuna, DuckDB, and Python ownership.
 - [research-plane-platform.md](docs/architecture/product-plane/research-plane-platform.md) - stable map of the current research-plane primary path.
+- [continuous-signal-layer-technical-specification.md](docs/architecture/product-plane/continuous-signal-layer-technical-specification.md) - implementation-ready target spec for continuous adjusted signal bars, raw active-contract execution alignment, indicator/derived retargeting, and vectorbt loader changes.
 - [contract-change-policy.md](docs/architecture/product-plane/contract-change-policy.md) - compatibility and versioning policy for release-blocking envelopes.
 - [approved-universe-v1.md](docs/architecture/product-plane/approved-universe-v1.md) - governed universe and promotion contract for medium-term multi-asset evaluation.
 - [moex-historical-route-decision.md](docs/architecture/product-plane/moex-historical-route-decision.md) - authoritative job ownership, reusable vs retired entrypoints, and one fixed historical data route.
