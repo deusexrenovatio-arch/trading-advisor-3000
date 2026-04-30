@@ -1,8 +1,8 @@
 # Session Handoff
-Updated: 2026-04-28 11:19 UTC
+Updated: 2026-04-30 13:39 UTC
 
 ## Active Task Note
-- Path: docs/tasks/active/TASK-2026-04-28-profile-vectorbt-family-search-on-a-real-instrum.md
+- Path: docs/tasks/active/TASK-2026-04-30-split-optuna-vectorbt-preintegration-changes-int.md
 - Mode: legacy-full
 - Status: in_progress
 

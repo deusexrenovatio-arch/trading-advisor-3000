@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-04-29'
+updated_at: '2026-04-30'
 items:
 - id: TASK-2026-03-17-CREATE-PR-TO-MAIN-FOR-PHASE0-PHASE3-DELIVERY-INC
   path: docs/tasks/active/TASK-2026-03-17-create-pr-to-main-for-phase0-phase3-delivery-inc.md
@@ -196,3 +196,18 @@ items:
   mode: legacy-full
   status: in_progress
   started_at: '2026-04-29'
+- id: TASK-2026-04-29-PRODUCT-PLANE-OPTUNA-VECTORBT-STRATEGY-FAMILY-SM
+  path: docs/tasks/active/TASK-2026-04-29-product-plane-optuna-vectorbt-strategy-family-sm.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-04-29'
+- id: TASK-2026-04-30-PREINTEGRATION-FIXES-FOR-OPTUNA-VECTORBT-BACKTES
+  path: docs/tasks/active/TASK-2026-04-30-preintegration-fixes-for-optuna-vectorbt-backtes.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-04-30'
+- id: TASK-2026-04-30-SPLIT-OPTUNA-VECTORBT-PREINTEGRATION-CHANGES-INT
+  path: docs/tasks/active/TASK-2026-04-30-split-optuna-vectorbt-preintegration-changes-int.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-04-30'
