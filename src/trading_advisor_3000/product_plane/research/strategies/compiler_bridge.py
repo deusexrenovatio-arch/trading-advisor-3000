@@ -15,8 +15,13 @@ REQUIRED_STG02_ADAPTER_KEYS = (
     "ma_cross",
     "breakout",
     "mean_reversion",
-    "mtf_pullback",
-    "squeeze_release",
+    "trend_mtf_pullback_v1",
+    "volatility_squeeze_release_v1",
+    "trend_movement_cross_v1",
+    "channel_breakout_continuation_v1",
+    "range_vwap_band_reversion_v1",
+    "failed_breakout_reversal_v1",
+    "divergence_reversal_v1",
 )
 
 

@@ -16,14 +16,16 @@ from .manifests import (
     canonical_manifest_json,
 )
 from .registry import StrategyRegistry, build_strategy_registry
-from .spec import StrategyParameter, StrategyRankingMetadata, StrategyRiskPolicy, StrategySpec
+from .spec import StrategyClockProfileSpec, StrategyIndicatorRequirement, StrategyParameter, StrategyRankingMetadata, StrategyRiskPolicy, StrategySpec
 
 __all__ = [
     "StrategyCatalog",
     "StrategyFamilyAdapter",
     "StrategyFamilyManifest",
+    "StrategyClockProfileSpec",
     "StrategyInstanceIdentity",
     "StrategyInstanceManifest",
+    "StrategyIndicatorRequirement",
     "StrategyParameter",
     "StrategyRankingMetadata",
     "StrategyRegistry",
