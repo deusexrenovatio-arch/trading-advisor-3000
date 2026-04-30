@@ -4,6 +4,7 @@ import hashlib
 import json
 import shutil
 import traceback
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
@@ -20,7 +21,7 @@ from trading_advisor_3000.product_plane.contracts.schema_validation import (
     load_schema,
     validate_schema,
 )
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log, read_delta_table_rows
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log, read_delta_table_frame, read_delta_table_rows
 from trading_advisor_3000.product_plane.research.jobs._common import validate_research_contracts, write_json
 from trading_advisor_3000.product_plane.research.registry_store import (
     append_rankings_index,
@@ -351,7 +352,23 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
         )
         registry_paths = _campaign_registry_output_paths(registry_root=registry_root)
         index_paths = _publish_global_indices(registry_root=registry_root, results_root=final_results_root)
-        result_digest = _build_result_digest(target_stage=stage, results_root=final_results_root)
+        total_seconds = round(perf_counter() - started, 6)
+        duration_metrics = _build_duration_metrics(
+            total_seconds=total_seconds,
+            rows_by_table=dict(report.get("rows_by_table", {})),
+            results_root=final_results_root,
+        )
+        result_digest = _build_result_digest(
+            target_stage=stage,
+            results_root=final_results_root,
+            duration_metrics=duration_metrics,
+            rows_by_table=dict(report.get("rows_by_table", {})),
+            materialized_root=materialized_root,
+            output_paths={**published_output_paths, **registry_paths, **index_paths},
+            executed_steps=executed_steps,
+            reused_steps=reused_steps,
+            force_rematerialize=bool(normalized_config["execution"]["force_rematerialize"]),
+        )
         success_run_record = {
             "registry_root": registry_root,
             "campaign_run_id": campaign_run_id,
@@ -407,7 +424,7 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
             config_fingerprint=config_fingerprint,
             executed_steps=executed_steps,
             reused_steps=reused_steps,
-            durations={"total_seconds": round(perf_counter() - started, 6)},
+            durations=duration_metrics,
             rows_by_table=dict(report.get("rows_by_table", {})),
             output_paths={**published_output_paths, **registry_paths, **index_paths},
             dagster_selected_assets=list(report["selected_assets"]),
@@ -656,6 +673,7 @@ def _dagster_common_kwargs(
         "ranking_metric_order": tuple(str(item) for item in ranking["metric_order"]),
         "require_out_of_sample_pass": bool(ranking["require_out_of_sample_pass"]),
         "min_trade_count": int(ranking["min_trade_count"]),
+        "min_fold_count": int(ranking["min_fold_count"]),
         "max_drawdown_cap": float(ranking["max_drawdown_cap"]),
         "min_positive_fold_ratio": float(ranking["min_positive_fold_ratio"]),
         "stress_slippage_bps": float(ranking["stress_slippage_bps"]),
@@ -804,12 +822,164 @@ def _write_prevalidation_lock(
     )
 
 
-def _build_result_digest(*, target_stage: str, results_root: Path) -> dict[str, Any] | None:
-    if target_stage == "data_prep":
+def _rate(count: object, total_seconds: float) -> float:
+    try:
+        value = float(count)
+    except (TypeError, ValueError):
+        value = 0.0
+    return round(value / max(total_seconds, 1e-9), 6)
+
+
+def _build_duration_metrics(
+    *,
+    total_seconds: float,
+    rows_by_table: dict[str, Any],
+    results_root: Path | None = None,
+) -> dict[str, float]:
+    backtest_seconds = _backtest_stage_seconds(results_root) if results_root is not None else None
+    throughput_seconds = backtest_seconds or total_seconds
+    metrics = {
+        "total_seconds": total_seconds,
+        "optimizer_trials_per_second": _rate(rows_by_table.get("research_optimizer_trials", 0), throughput_seconds),
+        "backtest_runs_per_second": _rate(rows_by_table.get("research_backtest_runs", 0), throughput_seconds),
+        "strategy_stats_per_second": _rate(rows_by_table.get("research_strategy_stats", 0), throughput_seconds),
+        "trade_records_per_second": _rate(rows_by_table.get("research_trade_records", 0), throughput_seconds),
+        "order_records_per_second": _rate(rows_by_table.get("research_order_records", 0), throughput_seconds),
+        "campaign_optimizer_trials_per_second": _rate(rows_by_table.get("research_optimizer_trials", 0), total_seconds),
+        "campaign_backtest_runs_per_second": _rate(rows_by_table.get("research_backtest_runs", 0), total_seconds),
+        "campaign_strategy_stats_per_second": _rate(rows_by_table.get("research_strategy_stats", 0), total_seconds),
+        "campaign_trade_records_per_second": _rate(rows_by_table.get("research_trade_records", 0), total_seconds),
+        "campaign_order_records_per_second": _rate(rows_by_table.get("research_order_records", 0), total_seconds),
+        "ranking_rows_per_campaign_second": _rate(rows_by_table.get("research_strategy_rankings", 0), total_seconds),
+    }
+    if backtest_seconds is not None:
+        metrics["backtest_duration_seconds"] = round(backtest_seconds, 6)
+    return metrics
+
+
+def _backtest_stage_seconds(results_root: Path) -> float | None:
+    batch_path = results_root / "research_backtest_batches.delta"
+    if not has_delta_log(batch_path):
         return None
+    rows = _read_projected_delta_records(batch_path, columns=["duration_seconds"])
+    durations: list[float] = []
+    for row in rows:
+        try:
+            duration = float(row.get("duration_seconds", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            duration = 0.0
+        if duration > 0:
+            durations.append(duration)
+    if not durations:
+        return None
+    return sum(durations)
+
+
+def _optimizer_status_counts(rows: list[dict[str, object]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        status = str(row.get("status", ""))
+        counts[status] = counts.get(status, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _study_config_dict(value: object) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return {str(key): item for key, item in value.items()}
+    if isinstance(value, str) and value.strip():
+        try:
+            payload = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        if isinstance(payload, dict):
+            return {str(key): item for key, item in payload.items()}
+    return {}
+
+
+def _json_value(value: object) -> object:
+    if isinstance(value, str) and value.strip():
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value
+    return value
+
+
+def _optimizer_digest(results_root: Path) -> dict[str, Any]:
+    studies_path = results_root / "research_optimizer_studies.delta"
+    trials_path = results_root / "research_optimizer_trials.delta"
+    study_rows = read_delta_table_rows(studies_path) if has_delta_log(studies_path) else []
+    trial_rows = read_delta_table_rows(trials_path) if has_delta_log(trials_path) else []
+    batch_counts: list[int] = []
+    fixed_parameters: dict[str, object] = {}
+    observed_unique_value_counts: dict[str, int] = {}
+    for row in study_rows:
+        config = _study_config_dict(row.get("study_config_json", {}))
+        if "ask_tell_batch_count" in config:
+            batch_counts.append(int(config.get("ask_tell_batch_count", 0) or 0))
+        diagnostics = config.get("parameter_space_diagnostics", {})
+        if isinstance(diagnostics, dict):
+            raw_fixed = diagnostics.get("fixed_parameters", {})
+            if isinstance(raw_fixed, dict):
+                fixed_parameters.update({str(key): value for key, value in raw_fixed.items()})
+            raw_counts = diagnostics.get("observed_unique_value_counts", {})
+            if isinstance(raw_counts, dict):
+                for key, value in raw_counts.items():
+                    observed_unique_value_counts[str(key)] = max(
+                        observed_unique_value_counts.get(str(key), 0),
+                        int(value or 0),
+                    )
+    return {
+        "study_count": len(study_rows),
+        "trial_count": len(trial_rows),
+        "trial_status_counts": _optimizer_status_counts(trial_rows),
+        "ask_tell_batch_count_min": min(batch_counts) if batch_counts else 0,
+        "ask_tell_batch_count_max": max(batch_counts) if batch_counts else 0,
+        "fixed_parameters": dict(sorted(fixed_parameters.items())),
+        "observed_unique_value_counts": dict(sorted(observed_unique_value_counts.items())),
+    }
+
+
+def _build_result_digest(
+    *,
+    target_stage: str,
+    results_root: Path,
+    duration_metrics: dict[str, float] | None = None,
+    rows_by_table: dict[str, Any] | None = None,
+    materialized_root: Path | None = None,
+    output_paths: dict[str, Any] | None = None,
+    executed_steps: Sequence[str] = (),
+    reused_steps: Sequence[str] = (),
+    force_rematerialize: bool = False,
+) -> dict[str, Any] | None:
+    data_prep_proof = _build_data_prep_proof_digest(
+        materialized_root=materialized_root,
+        output_paths=output_paths or {},
+        rows_by_table=rows_by_table or {},
+        executed_steps=executed_steps,
+        reused_steps=reused_steps,
+        force_rematerialize=force_rematerialize,
+    ) if materialized_root is not None else None
+    if target_stage == "data_prep":
+        return {"data_prep_proof": data_prep_proof} if data_prep_proof is not None else None
 
     ranking_path = results_root / "research_strategy_rankings.delta"
-    ranking_rows = read_delta_table_rows(ranking_path) if has_delta_log(ranking_path) else []
+    ranking_rows = _read_projected_delta_records(
+        ranking_path,
+        columns=[
+            "strategy_instance_id",
+            "family_key",
+            "contract_id",
+            "timeframe",
+            "rank",
+            "score_total",
+            "objective_score",
+            "parameter_stability_score",
+            "slippage_sensitivity_score",
+            "policy_failure_reasons_json",
+            "qualifies_for_projection",
+        ],
+    )
     ranking_sorted = sorted(
         ranking_rows,
         key=lambda row: (
@@ -819,25 +989,29 @@ def _build_result_digest(*, target_stage: str, results_root: Path) -> dict[str, 
         ),
         reverse=True,
     )
+    ranking_top_rows = [_digest_ranking_row(row) for row in ranking_sorted[:5]]
+    projection_eligible_top_rows = [
+        _digest_ranking_row(row)
+        for row in ranking_sorted
+        if bool(row.get("qualifies_for_projection", False))
+    ][:5]
     digest: dict[str, Any] = {
+        "runtime_metrics": duration_metrics or {},
+        "rows_by_table": dict(rows_by_table or {}),
+        "optimizer": _optimizer_digest(results_root),
         "projection_qualified_count": sum(1 for row in ranking_rows if bool(row.get("qualifies_for_projection", False))),
-        "ranking_top_rows": [
-            {
-                "strategy_instance_id": str(row.get("strategy_instance_id", "")),
-                "family_key": str(row.get("family_key", "")),
-                "contract_id": str(row.get("contract_id", "")),
-                "timeframe": str(row.get("timeframe", "")),
-                "rank": int(row.get("rank", 0)),
-                "score_total": round(float(row.get("score_total", 0.0) or 0.0), 6),
-                "objective_score": round(float(row.get("objective_score", 0.0) or 0.0), 6),
-                "qualifies_for_projection": bool(row.get("qualifies_for_projection", False)),
-            }
-            for row in ranking_sorted[:5]
-        ],
+        "ranking_top_rows": ranking_top_rows,
+        "best_overall_rows": ranking_top_rows,
+        "projection_eligible_top_rows": projection_eligible_top_rows,
     }
+    if data_prep_proof is not None:
+        digest["data_prep_proof"] = data_prep_proof
     if target_stage == "projection":
         candidate_path = results_root / "research_signal_candidates.delta"
-        candidate_rows = read_delta_table_rows(candidate_path) if has_delta_log(candidate_path) else []
+        candidate_rows = _read_projected_delta_records(
+            candidate_path,
+            columns=["strategy_instance_id", "timeframe"],
+        )
         by_strategy: dict[str, int] = {}
         by_timeframe: dict[str, int] = {}
         for row in candidate_rows:
@@ -849,6 +1023,69 @@ def _build_result_digest(*, target_stage: str, results_root: Path) -> dict[str, 
         digest["candidate_rows_by_strategy"] = dict(sorted(by_strategy.items()))
         digest["candidate_rows_by_timeframe"] = dict(sorted(by_timeframe.items()))
     return digest
+
+
+def _digest_ranking_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "strategy_instance_id": str(row.get("strategy_instance_id", "")),
+        "family_key": str(row.get("family_key", "")),
+        "contract_id": str(row.get("contract_id", "")),
+        "timeframe": str(row.get("timeframe", "")),
+        "rank": int(row.get("rank", 0)),
+        "score_total": round(float(row.get("score_total", 0.0) or 0.0), 6),
+        "objective_score": round(float(row.get("objective_score", 0.0) or 0.0), 6),
+        "parameter_stability_score": round(float(row.get("parameter_stability_score", 0.0) or 0.0), 6),
+        "slippage_sensitivity_score": round(float(row.get("slippage_sensitivity_score", 0.0) or 0.0), 6),
+        "qualifies_for_projection": bool(row.get("qualifies_for_projection", False)),
+        "policy_failure_reasons": _json_value(row.get("policy_failure_reasons_json", ())),
+    }
+
+
+def _build_data_prep_proof_digest(
+    *,
+    materialized_root: Path,
+    output_paths: dict[str, Any],
+    rows_by_table: dict[str, Any],
+    executed_steps: Sequence[str],
+    reused_steps: Sequence[str],
+    force_rematerialize: bool,
+) -> dict[str, Any]:
+    data_prep_executed = "research_data_prep" in set(executed_steps)
+    data_prep_reused = "research_data_prep" in set(reused_steps)
+    if data_prep_executed and force_rematerialize:
+        mode = "forced_refresh"
+    elif data_prep_executed:
+        mode = "fresh_materialization"
+    elif data_prep_reused:
+        mode = "reused_materialization"
+    else:
+        mode = "not_requested"
+
+    tables: dict[str, dict[str, Any]] = {}
+    for table_name in DATA_PREP_TABLES:
+        raw_path = output_paths.get(table_name)
+        table_path = Path(str(raw_path)) if raw_path else materialized_root / f"{table_name}.delta"
+        tables[table_name] = {
+            "path": table_path.as_posix(),
+            "row_count": int(rows_by_table.get(table_name, 0) or 0),
+            "has_delta_log": has_delta_log(table_path),
+        }
+    return {
+        "mode": mode,
+        "force_rematerialize": bool(force_rematerialize),
+        "materialized_root": materialized_root.as_posix(),
+        "tables": tables,
+    }
+
+
+def _read_projected_delta_records(path: Path, *, columns: list[str]) -> list[dict[str, Any]]:
+    if not has_delta_log(path):
+        return []
+    frame = read_delta_table_frame(path, columns=columns)
+    return [
+        {str(key): value for key, value in row.items()}
+        for row in frame.to_dict("records")
+    ]
 
 
 def _publish_staged_results(
@@ -996,7 +1233,35 @@ def _publish_global_indices(*, registry_root: Path, results_root: Path) -> dict[
                     "status": row["status"],
                     "created_at": row["created_at"],
                 }
-                for row in read_delta_table_rows(stats_path)
+                for row in _read_projected_delta_records(
+                    stats_path,
+                    columns=[
+                        "campaign_run_id",
+                        "backtest_run_id",
+                        "strategy_instance_id",
+                        "strategy_template_id",
+                        "family_id",
+                        "family_key",
+                        "dataset_version",
+                        "instrument_id",
+                        "contract_id",
+                        "timeframe",
+                        "window_id",
+                        "total_return",
+                        "sharpe",
+                        "sortino",
+                        "calmar",
+                        "max_drawdown",
+                        "profit_factor",
+                        "win_rate",
+                        "trade_count",
+                        "turnover",
+                        "commission_total",
+                        "slippage_total",
+                        "status",
+                        "created_at",
+                    ],
+                )
             ],
         )
         published_paths["research_run_stats_index"] = (registry_root / "research_run_stats_index.delta").as_posix()
@@ -1021,7 +1286,26 @@ def _publish_global_indices(*, registry_root: Path, results_root: Path) -> dict[
                     "rank_reason_json": row["rank_reason_json"],
                     "created_at": row["created_at"],
                 }
-                for row in read_delta_table_rows(ranking_path)
+                for row in _read_projected_delta_records(
+                    ranking_path,
+                    columns=[
+                        "campaign_run_id",
+                        "ranking_id",
+                        "strategy_instance_id",
+                        "backtest_run_id",
+                        "family_id",
+                        "family_key",
+                        "dataset_version",
+                        "timeframe",
+                        "rank",
+                        "objective_score",
+                        "score_total",
+                        "qualifies_for_projection",
+                        "ranking_policy_id",
+                        "rank_reason_json",
+                        "created_at",
+                    ],
+                )
             ],
         )
         published_paths["research_rankings_index"] = (registry_root / "research_rankings_index.delta").as_posix()
@@ -1150,7 +1434,7 @@ def _normalize_strategy_space(payload: dict[str, Any]) -> dict[str, Any]:
     template_ids = _sorted_unique_strings(payload["template_ids"])
     if not family_keys and not template_ids:
         raise CampaignBlockedError("strategy_space must include family_keys or template_ids")
-    return {
+    normalized = {
         "family_keys": family_keys,
         "template_ids": template_ids,
         "exclude_template_manifest_hashes": _sorted_unique_strings(payload["exclude_template_manifest_hashes"]),
@@ -1159,6 +1443,36 @@ def _normalize_strategy_space(payload: dict[str, Any]) -> dict[str, Any]:
             field="strategy_space.max_parameter_combinations",
         ),
         "search_space_overrides": normalized_overrides,
+    }
+    if "optimizer" in payload:
+        optimizer = payload["optimizer"]
+        if not isinstance(optimizer, dict):
+            raise CampaignBlockedError("strategy_space.optimizer must be an object")
+        normalized["optimizer"] = _normalize_strategy_optimizer({str(key): value for key, value in optimizer.items()})
+    return normalized
+
+
+def _normalize_strategy_optimizer(payload: dict[str, Any]) -> dict[str, Any]:
+    engine = _normalized_enum(payload.get("engine", "grid"), {"grid", "optuna"}, field="strategy_space.optimizer.engine")
+    if engine == "grid":
+        return {"engine": "grid"}
+    return {
+        "engine": "optuna",
+        "sampler": _normalized_enum(payload.get("sampler", "tpe"), {"tpe"}, field="strategy_space.optimizer.sampler"),
+        "seed": _normalized_non_negative_int(payload.get("seed", 0), field="strategy_space.optimizer.seed"),
+        "n_trials": _normalized_positive_int(payload.get("n_trials", 0), field="strategy_space.optimizer.n_trials"),
+        "objective": _normalized_enum(
+            payload.get("objective", "robust_oos_trial_v1"),
+            {"robust_oos_trial_v1"},
+            field="strategy_space.optimizer.objective",
+        ),
+        "direction": _normalized_enum(payload.get("direction", "maximize"), {"maximize"}, field="strategy_space.optimizer.direction"),
+        "top_k": _normalized_positive_int(payload.get("top_k", 8), field="strategy_space.optimizer.top_k"),
+        "radius": _normalized_non_negative_int(payload.get("radius", 1), field="strategy_space.optimizer.radius"),
+        "max_neighborhood_trials": _normalized_non_negative_int(
+            payload.get("max_neighborhood_trials", 64),
+            field="strategy_space.optimizer.max_neighborhood_trials",
+        ),
     }
 
 
@@ -1183,6 +1497,10 @@ def _normalize_ranking_policy(payload: dict[str, Any]) -> dict[str, Any]:
         "metric_order": metric_order,
         "require_out_of_sample_pass": bool(payload["require_out_of_sample_pass"]),
         "min_trade_count": _normalized_positive_int(payload["min_trade_count"], field="ranking_policy.min_trade_count"),
+        "min_fold_count": _normalized_positive_int(
+            payload.get("min_fold_count", 1),
+            field="ranking_policy.min_fold_count",
+        ),
         "max_drawdown_cap": _normalized_non_negative_number(payload["max_drawdown_cap"], field="ranking_policy.max_drawdown_cap"),
         "min_positive_fold_ratio": _normalized_ratio(payload["min_positive_fold_ratio"], field="ranking_policy.min_positive_fold_ratio"),
         "stress_slippage_bps": _normalized_non_negative_number(payload["stress_slippage_bps"], field="ranking_policy.stress_slippage_bps"),
