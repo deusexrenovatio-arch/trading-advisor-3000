@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log, read_delta_table_rows, write_delta_table_rows
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
 
 
 @dataclass(frozen=True)
@@ -84,6 +84,52 @@ def backtest_store_contract() -> dict[str, dict[str, object]]:
                 "started_at": "timestamp",
                 "finished_at": "timestamp",
                 "error_message": "string",
+            },
+        },
+        "research_optimizer_studies": {
+            "format": "delta",
+            "partition_by": ["family_key", "optimizer_engine"],
+            "columns": {
+                "optimizer_study_id": "string",
+                "campaign_run_id": "string",
+                "strategy_space_id": "string",
+                "search_spec_id": "string",
+                "family_key": "string",
+                "template_key": "string",
+                "optimizer_engine": "string",
+                "sampler": "string",
+                "seed": "int",
+                "objective_name": "string",
+                "direction": "string",
+                "n_trials_requested": "int",
+                "n_trials_completed": "int",
+                "best_trial_number": "int",
+                "best_param_hash": "string",
+                "best_value": "double",
+                "status": "string",
+                "started_at": "timestamp",
+                "finished_at": "timestamp",
+                "study_config_json": "json",
+            },
+        },
+        "research_optimizer_trials": {
+            "format": "delta",
+            "partition_by": ["optimizer_study_id", "trial_kind"],
+            "columns": {
+                "optimizer_trial_id": "string",
+                "optimizer_study_id": "string",
+                "trial_number": "int",
+                "trial_kind": "string",
+                "param_hash": "string",
+                "params_json": "json",
+                "value": "double",
+                "status": "string",
+                "objective_components_json": "json",
+                "constraints_passed": "bool",
+                "failure_reason": "string",
+                "search_run_ids_json": "json",
+                "started_at": "timestamp",
+                "finished_at": "timestamp",
             },
         },
         "research_vbt_param_results": {
@@ -192,6 +238,10 @@ def backtest_store_contract() -> dict[str, dict[str, object]]:
                 "series_count": "int",
                 "cache_id": "string",
                 "cache_hit": "int",
+                "duration_seconds": "double",
+                "evaluations_per_second": "double",
+                "run_rows_per_second": "double",
+                "trade_rows_per_second": "double",
                 "created_at": "timestamp",
             },
         },
@@ -377,10 +427,24 @@ def results_store_contract() -> dict[str, dict[str, object]]:
                 "selected_rank": "int",
                 "objective_score": "double",
                 "score_total": "double",
+                "policy_metric_score": "double",
+                "fold_consistency_score": "double",
+                "parameter_stability_score": "double",
+                "parameter_stability_source": "string",
+                "slippage_sensitivity_score": "double",
+                "preferred_metric_score": "double",
                 "ranking_policy_id": "string",
                 "ranking_policy_json": "json",
                 "rank_reason_json": "json",
                 "qualifies_for_projection": "bool",
+                "out_of_sample_pass": "int",
+                "policy_pass": "int",
+                "policy_failure_reasons_json": "json",
+                "params_hash": "string",
+                "mean_total_return": "double",
+                "trade_count_total": "int",
+                "worst_max_drawdown": "double",
+                "representative_backtest_run_id": "string",
                 "window_ids_json": "json",
                 "created_at": "timestamp",
             },
@@ -441,6 +505,8 @@ def write_backtest_artifacts(
     trade_rows: list[dict[str, object]],
     search_spec_rows: list[dict[str, object]] | None = None,
     search_run_rows: list[dict[str, object]] | None = None,
+    optimizer_study_rows: list[dict[str, object]] | None = None,
+    optimizer_trial_rows: list[dict[str, object]] | None = None,
     param_result_rows: list[dict[str, object]] | None = None,
     gate_event_rows: list[dict[str, object]] | None = None,
     ephemeral_indicator_rows: list[dict[str, object]] | None = None,
@@ -452,6 +518,8 @@ def write_backtest_artifacts(
     output_dir.mkdir(parents=True, exist_ok=True)
     search_specs_path = output_dir / "research_strategy_search_specs.delta"
     search_runs_path = output_dir / "research_vbt_search_runs.delta"
+    optimizer_studies_path = output_dir / "research_optimizer_studies.delta"
+    optimizer_trials_path = output_dir / "research_optimizer_trials.delta"
     param_results_path = output_dir / "research_vbt_param_results.delta"
     gate_events_path = output_dir / "research_vbt_param_gate_events.delta"
     ephemeral_path = output_dir / "research_vbt_ephemeral_indicator_cache.delta"
@@ -464,6 +532,8 @@ def write_backtest_artifacts(
     drawdowns_path = output_dir / "research_drawdown_records.delta"
     search_spec_rows = search_spec_rows or []
     search_run_rows = search_run_rows or []
+    optimizer_study_rows = optimizer_study_rows or []
+    optimizer_trial_rows = optimizer_trial_rows or []
     param_result_rows = param_result_rows or []
     gate_event_rows = gate_event_rows or []
     ephemeral_indicator_rows = ephemeral_indicator_rows or []
@@ -473,6 +543,8 @@ def write_backtest_artifacts(
 
     write_delta_table_rows(table_path=search_specs_path, rows=search_spec_rows, columns=contract["research_strategy_search_specs"]["columns"])
     write_delta_table_rows(table_path=search_runs_path, rows=search_run_rows, columns=contract["research_vbt_search_runs"]["columns"])
+    write_delta_table_rows(table_path=optimizer_studies_path, rows=optimizer_study_rows, columns=contract["research_optimizer_studies"]["columns"])
+    write_delta_table_rows(table_path=optimizer_trials_path, rows=optimizer_trial_rows, columns=contract["research_optimizer_trials"]["columns"])
     write_delta_table_rows(table_path=param_results_path, rows=param_result_rows, columns=contract["research_vbt_param_results"]["columns"])
     write_delta_table_rows(table_path=gate_events_path, rows=gate_event_rows, columns=contract["research_vbt_param_gate_events"]["columns"])
     write_delta_table_rows(table_path=ephemeral_path, rows=ephemeral_indicator_rows, columns=contract["research_vbt_ephemeral_indicator_cache"]["columns"])
@@ -486,6 +558,8 @@ def write_backtest_artifacts(
     return {
         "research_strategy_search_specs": search_specs_path.as_posix(),
         "research_vbt_search_runs": search_runs_path.as_posix(),
+        "research_optimizer_studies": optimizer_studies_path.as_posix(),
+        "research_optimizer_trials": optimizer_trials_path.as_posix(),
         "research_vbt_param_results": param_results_path.as_posix(),
         "research_vbt_param_gate_events": gate_events_path.as_posix(),
         "research_vbt_ephemeral_indicator_cache": ephemeral_path.as_posix(),
@@ -535,29 +609,3 @@ def write_stage6_artifacts(
         )
         output_paths["research_run_findings"] = findings_path.as_posix()
     return output_paths
-
-
-def load_backtest_artifacts(output_dir: Path) -> dict[str, list[dict[str, object]]]:
-    return {
-        "research_strategy_search_specs": _read_if_present(output_dir / "research_strategy_search_specs.delta"),
-        "research_vbt_search_runs": _read_if_present(output_dir / "research_vbt_search_runs.delta"),
-        "research_vbt_param_results": _read_if_present(output_dir / "research_vbt_param_results.delta"),
-        "research_vbt_param_gate_events": _read_if_present(output_dir / "research_vbt_param_gate_events.delta"),
-        "research_vbt_ephemeral_indicator_cache": _read_if_present(output_dir / "research_vbt_ephemeral_indicator_cache.delta"),
-        "research_strategy_promotion_events": _read_if_present(output_dir / "research_strategy_promotion_events.delta"),
-        "research_backtest_batches": _read_if_present(output_dir / "research_backtest_batches.delta"),
-        "research_backtest_runs": _read_if_present(output_dir / "research_backtest_runs.delta"),
-        "research_strategy_stats": _read_if_present(output_dir / "research_strategy_stats.delta"),
-        "research_trade_records": _read_if_present(output_dir / "research_trade_records.delta"),
-        "research_order_records": _read_if_present(output_dir / "research_order_records.delta"),
-        "research_drawdown_records": _read_if_present(output_dir / "research_drawdown_records.delta"),
-        "research_strategy_rankings": _read_if_present(output_dir / "research_strategy_rankings.delta"),
-        "research_signal_candidates": _read_if_present(output_dir / "research_signal_candidates.delta"),
-        "research_run_findings": _read_if_present(output_dir / "research_run_findings.delta"),
-    }
-
-
-def _read_if_present(table_path: Path) -> list[dict[str, object]]:
-    if not has_delta_log(table_path):
-        return []
-    return read_delta_table_rows(table_path)
