@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime, timedelta
 
 import pandas as pd
@@ -17,6 +18,10 @@ from trading_advisor_3000.product_plane.research.derived_indicators.store import
     write_derived_indicator_frame_batches,
 )
 from trading_advisor_3000.product_plane.research.indicators import IndicatorFrameRow, build_indicator_frames
+
+
+def _angle_slope(current: float, previous: float, *, length: int) -> float:
+    return math.degrees(math.atan((current - previous) / float(length)))
 
 
 def _view(*, ts_index: int, close: float, timeframe: str = "15m") -> ResearchBarView:
@@ -285,10 +290,10 @@ def test_derived_indicator_build_produces_wide_v2_values_and_causal_mtf_overlay(
     ):
         assert tail.values[column] is not None
     assert tail.values["sma_20_slope_5"] == pytest.approx(
-        (indicator_15m[-1].values["sma_20"] - indicator_15m[-6].values["sma_20"]) / 5.0
+        _angle_slope(indicator_15m[-1].values["sma_20"], indicator_15m[-6].values["sma_20"], length=5)
     )
     assert tail.values["ema_20_slope_5"] == pytest.approx(
-        (indicator_15m[-1].values["ema_20"] - indicator_15m[-6].values["ema_20"]) / 5.0
+        _angle_slope(indicator_15m[-1].values["ema_20"], indicator_15m[-6].values["ema_20"], length=5)
     )
     assert tail.values["mtf_1h_to_15m_ema_20"] == pytest.approx(indicator_1h[-1].values["ema_20"])
     assert tail.values["mtf_1h_to_15m_ema_50"] == pytest.approx(indicator_1h[-1].values["ema_50"])
@@ -331,6 +336,8 @@ def test_derived_indicator_edge_rules_avoid_misleading_signals() -> None:
     )
 
     assert rows[22].values["cross_close_rolling_high_20_code"] == 1
-    assert rows[22].values["divergence_price_rsi_14_score"] > 0.0
+    assert rows[22].values["divergence_price_rsi_14_score"] == pytest.approx(
+        _angle_slope(102.0, 100.0, length=20) - _angle_slope(52.0, 52.0, length=20)
+    )
     assert "session_volume_state_code" not in rows[-1].values
     assert "oscillator_pressure_code" not in rows[-1].values

@@ -10,6 +10,10 @@ import pandas as pd
 import pandas_ta_classic as ta
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import iter_delta_table_row_batches, read_delta_table_rows
+from trading_advisor_3000.product_plane.research.continuous_front_indicators.rules import (
+    assert_rule_coverage,
+    rules_for_indicator_profile,
+)
 from trading_advisor_3000.product_plane.research.datasets import ResearchBarView
 
 from .registry import (
@@ -265,7 +269,7 @@ def _compute_spec(frame: pd.DataFrame, spec: IndicatorSpec) -> dict[str, pd.Seri
         series = ta.hma(close, length=int(params["length"]))
         return _none_outputs() if series is None else {spec.output_columns[0]: series}
     if spec.operation_key == "slope":
-        series = ta.slope(close, length=int(params["length"]))
+        series = ta.slope(close, length=int(params["length"]), as_angle=True, to_degrees=True)
         return _none_outputs() if series is None else {spec.output_columns[0]: series}
     if spec.operation_key == "atr":
         series = ta.atr(high, low, close, length=int(params["length"]))
@@ -552,21 +556,15 @@ def _ladder_rows_for_series(
     )
 
 
-def _asof_adjusted_price_frame(
-    frame: pd.DataFrame,
-    *,
-    target_epoch: int,
-    gap_by_sequence: dict[int, float],
-) -> pd.DataFrame:
-    adjusted = frame[frame["roll_epoch"] <= target_epoch].copy()
-    row_epochs = pd.to_numeric(adjusted["roll_epoch"], errors="coerce").fillna(0).astype(int)
-    offsets = row_epochs.map(
-        lambda row_epoch: sum(gap_by_sequence[sequence] for sequence in range(row_epoch + 1, target_epoch + 1))
-    )
-    for column in ("open", "high", "low", "close"):
-        native_column = f"native_{column}"
-        source = adjusted[native_column] if native_column in adjusted.columns else adjusted[column]
-        adjusted[column] = pd.to_numeric(source, errors="coerce") + offsets
+def _offset_by_epoch(max_epoch: int, gap_by_sequence: dict[int, float]) -> dict[int, float]:
+    return {
+        epoch: sum(gap_by_sequence[sequence] for sequence in range(1, epoch + 1))
+        for epoch in range(0, max_epoch + 1)
+    }
+
+
+def _recompute_price_inputs(frame: pd.DataFrame) -> pd.DataFrame:
+    adjusted = frame.copy()
     close = _numeric(adjusted["close"])
     prev_close = close.shift(1)
     adjusted["ret_1"] = (close / prev_close) - 1.0
@@ -590,6 +588,72 @@ def _asof_adjusted_price_frame(
     return adjusted
 
 
+def _native_price_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    native = frame.copy()
+    for column in ("open", "high", "low", "close"):
+        native_column = f"native_{column}"
+        if native_column in native.columns:
+            native[column] = pd.to_numeric(native[native_column], errors="coerce")
+    return _recompute_price_inputs(native)
+
+
+def _zero_anchor_price_frame(frame: pd.DataFrame, *, gap_by_sequence: dict[int, float]) -> pd.DataFrame:
+    zero_anchor = frame.copy()
+    row_epochs = pd.to_numeric(zero_anchor["roll_epoch"], errors="coerce").fillna(0).astype(int)
+    cumulative_offsets = row_epochs.map(lambda epoch: sum(gap_by_sequence[sequence] for sequence in range(1, int(epoch) + 1)))
+    for column in ("open", "high", "low", "close"):
+        native_column = f"native_{column}"
+        source = zero_anchor[native_column] if native_column in zero_anchor.columns else zero_anchor[column]
+        zero_anchor[column] = pd.to_numeric(source, errors="coerce") - cumulative_offsets
+    return _recompute_price_inputs(zero_anchor)
+
+
+def _asof_adjusted_price_frame(
+    frame: pd.DataFrame,
+    *,
+    target_epoch: int,
+    gap_by_sequence: dict[int, float],
+) -> pd.DataFrame:
+    adjusted = frame[frame["roll_epoch"] <= target_epoch].copy()
+    row_epochs = pd.to_numeric(adjusted["roll_epoch"], errors="coerce").fillna(0).astype(int)
+    offsets = row_epochs.map(
+        lambda row_epoch: sum(gap_by_sequence[sequence] for sequence in range(row_epoch + 1, target_epoch + 1))
+    )
+    for column in ("open", "high", "low", "close"):
+        native_column = f"native_{column}"
+        source = adjusted[native_column] if native_column in adjusted.columns else adjusted[column]
+        adjusted[column] = pd.to_numeric(source, errors="coerce") + offsets
+    return _recompute_price_inputs(adjusted)
+
+
+def _output_groups_for_spec(
+    spec: IndicatorSpec,
+    rules_by_output: dict[str, object],
+) -> dict[str, tuple[str, ...]]:
+    groups: dict[str, list[str]] = {}
+    for output_column in spec.output_columns:
+        rule = rules_by_output[output_column]
+        group_id = rule.calculation_group_id
+        groups.setdefault(group_id, []).append(output_column)
+    return {group_id: tuple(columns) for group_id, columns in groups.items()}
+
+
+def _frame_for_calculation_group(
+    group_id: str,
+    *,
+    zero_anchor_frame: pd.DataFrame,
+    target_anchor_frame: pd.DataFrame,
+    native_frame: pd.DataFrame,
+) -> pd.DataFrame:
+    if group_id in {"price_level_post_transform", "price_range_on_p0", "oscillator_on_p0"}:
+        return zero_anchor_frame
+    if group_id in {"anchor_sensitive_roll_aware", "price_volume_roll_aware"}:
+        return target_anchor_frame
+    if group_id in {"native_volume_oi_roll_aware", "grid_locked_native"}:
+        return native_frame
+    return target_anchor_frame
+
+
 def _compute_continuous_front_profile_frame(
     frame: pd.DataFrame,
     profile: IndicatorProfile,
@@ -598,6 +662,8 @@ def _compute_continuous_front_profile_frame(
 ) -> pd.DataFrame:
     if frame.empty:
         return _compute_profile_frame(frame, profile)
+    rules = rules_for_indicator_profile(profile)
+    assert_rule_coverage(output_columns=set(profile.expected_output_columns()), rules=rules)
     if "roll_epoch" not in frame.columns:
         raise ValueError("continuous_front indicator materialization requires roll_epoch on research_bar_views")
     instrument_id = str(frame["instrument_id"].iloc[0])
@@ -610,14 +676,15 @@ def _compute_continuous_front_profile_frame(
     frame = frame.copy()
     frame["roll_epoch"] = pd.to_numeric(frame["roll_epoch"], errors="coerce").fillna(0).astype(int)
     max_epoch = int(frame["roll_epoch"].max() or 0)
-    if max_epoch == 0:
-        return _compute_profile_frame(frame, profile)
     if not ladder_rows:
-        raise ValueError(
-            "continuous_front indicator materialization requires adjustment ladder rows for rolled series "
-            f"{instrument_id}|{timeframe}"
-        )
-    gap_by_sequence = {int(row["roll_sequence"]): float(row["additive_gap"]) for row in ladder_rows}
+        if max_epoch > 0:
+            raise ValueError(
+                "continuous_front indicator materialization requires adjustment ladder rows for rolled series "
+                f"{instrument_id}|{timeframe}"
+            )
+        gap_by_sequence: dict[int, float] = {}
+    else:
+        gap_by_sequence = {int(row["roll_sequence"]): float(row["additive_gap"]) for row in ladder_rows}
     missing_sequences = [sequence for sequence in range(1, max_epoch + 1) if sequence not in gap_by_sequence]
     if missing_sequences:
         joined = ", ".join(str(sequence) for sequence in missing_sequences)
@@ -626,14 +693,83 @@ def _compute_continuous_front_profile_frame(
             f"{joined} for {instrument_id}|{timeframe}"
         )
 
+    rules_by_output = {rule.output_column: rule for rule in rules}
+    target_offset_by_epoch = _offset_by_epoch(max_epoch=max_epoch, gap_by_sequence=gap_by_sequence)
     computed_segments: list[pd.DataFrame] = []
     for target_epoch in sorted(frame["roll_epoch"].unique()):
         epoch = int(target_epoch)
-        adjusted = _asof_adjusted_price_frame(frame, target_epoch=epoch, gap_by_sequence=gap_by_sequence)
-        computed = _compute_profile_frame(adjusted, profile)
         target_index = frame.index[frame["roll_epoch"] == epoch]
-        computed_segments.append(computed.loc[target_index])
-    return pd.concat(computed_segments).sort_index()
+        source_frame = frame[frame["roll_epoch"] <= epoch].copy()
+        zero_anchor_frame = _zero_anchor_price_frame(source_frame, gap_by_sequence=gap_by_sequence)
+        target_anchor_frame = _asof_adjusted_price_frame(frame, target_epoch=epoch, gap_by_sequence=gap_by_sequence)
+        native_frame = _native_price_frame(source_frame)
+        segment = target_anchor_frame.loc[target_index].copy()
+        target_offset = float(target_offset_by_epoch[epoch])
+        compute_cache: dict[tuple[str, str], dict[str, pd.Series]] = {}
+
+        for spec in profile.indicators:
+            for group_id, output_columns in _output_groups_for_spec(spec, rules_by_output).items():
+                cache_key = (spec.indicator_id, group_id)
+                if cache_key not in compute_cache:
+                    group_frame = _frame_for_calculation_group(
+                        group_id,
+                        zero_anchor_frame=zero_anchor_frame,
+                        target_anchor_frame=target_anchor_frame,
+                        native_frame=native_frame,
+                    )
+                    compute_cache[cache_key] = _compute_spec(group_frame, spec)
+                computed_outputs = compute_cache[cache_key]
+                for output_column in output_columns:
+                    series = computed_outputs[output_column].reindex(target_anchor_frame.index)
+                    if group_id == "price_level_post_transform":
+                        series = series + target_offset
+                    segment[output_column] = series.loc[target_index]
+        computed_segments.append(segment)
+    computed = pd.concat(computed_segments).sort_index()
+    return _enforce_continuous_front_native_boundaries(computed, profile)
+
+
+def _enforce_continuous_front_native_boundaries(frame: pd.DataFrame, profile: IndicatorProfile) -> pd.DataFrame:
+    result = frame.copy()
+    roll_epoch = pd.to_numeric(result["roll_epoch"], errors="coerce").fillna(0).astype(int)
+    specs_by_output = {
+        output_column: spec
+        for spec in profile.indicators
+        for output_column in spec.output_columns
+    }
+    rules_by_output = {rule.output_column: rule for rule in rules_for_indicator_profile(profile)}
+
+    reset_operation_keys = {"obv", "ad", "adosc", "pvt", "pvo"}
+    for spec in profile.indicators:
+        spec_rules = [rules_by_output[column] for column in spec.output_columns]
+        if spec.operation_key not in reset_operation_keys or not any(rule.group.reset_on_roll for rule in spec_rules):
+            continue
+        recomputed_outputs = pd.DataFrame(index=result.index, columns=list(spec.output_columns), dtype="object")
+        for _, segment in result.groupby(roll_epoch, sort=False):
+            recomputed = _compute_profile_frame(segment.copy(), _profile_for_specs(profile, (spec,)))
+            segment_outputs = recomputed[list(spec.output_columns)]
+            recomputed_outputs.loc[segment_outputs.index, list(spec.output_columns)] = segment_outputs
+        for column in spec.output_columns:
+            result[column] = recomputed_outputs[column]
+
+    for column, rule in rules_by_output.items():
+        if column not in result.columns or rule.group.allow_cross_contract_window:
+            continue
+        spec = specs_by_output[column]
+        if spec.operation_key in {"oi_change", "oi_roc"}:
+            lag = max(1, int(spec.params_dict().get("length", 1)))
+            same_epoch_lag = roll_epoch == roll_epoch.shift(lag)
+            result.loc[~same_epoch_lag.fillna(False), column] = pd.NA
+            continue
+        if spec.operation_key == "volume_oi_ratio":
+            continue
+        length = max(1, int(spec.params_dict().get("length", spec.warmup_bars)))
+        window_crosses = roll_epoch.rolling(window=length, min_periods=length).apply(
+            lambda values: 0.0 if len(set(int(value) for value in values)) == 1 else 1.0,
+            raw=False,
+        )
+        result.loc[window_crosses.fillna(1.0).astype(bool), column] = pd.NA
+    return result
 
 
 def _compute_profile_frame_for_series(

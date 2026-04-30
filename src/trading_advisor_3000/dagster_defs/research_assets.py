@@ -46,6 +46,11 @@ from trading_advisor_3000.product_plane.research.continuous_front import (
     continuous_front_store_contract,
     load_continuous_front_as_research_context,
 )
+from trading_advisor_3000.product_plane.research.continuous_front_indicators import (
+    CF_INDICATOR_TABLES,
+    continuous_front_indicator_store_contract,
+    run_continuous_front_indicator_pandas_job,
+)
 from trading_advisor_3000.product_plane.research.datasets import (
     ContinuousFrontPolicy,
     ResearchDatasetManifest,
@@ -492,6 +497,10 @@ def _research_output_paths(*, registry_root: Path, materialized_output_dir: Path
         "research_bar_views": (resolved_materialized / "research_bar_views.delta").as_posix(),
         "research_indicator_frames": (resolved_materialized / "research_indicator_frames.delta").as_posix(),
         "research_derived_indicator_frames": (resolved_materialized / "research_derived_indicator_frames.delta").as_posix(),
+        **{
+            table_name: (resolved_materialized / f"{table_name}.delta").as_posix()
+            for table_name in CF_INDICATOR_TABLES
+        },
         "research_strategy_search_specs": (resolved_results / "research_strategy_search_specs.delta").as_posix(),
         "research_vbt_search_runs": (resolved_results / "research_vbt_search_runs.delta").as_posix(),
         "research_optimizer_studies": (resolved_results / "research_optimizer_studies.delta").as_posix(),
@@ -1040,6 +1049,7 @@ def research_datasets(context, continuous_front_qc_report: dict[str, object]) ->
             **research_dataset_store_contract(),
             **indicator_store_contract(),
             **research_derived_indicator_store_contract(),
+            **continuous_front_indicator_store_contract(),
         },
     }
 
@@ -1098,7 +1108,34 @@ def research_derived_indicator_frames(
             derived_indicator_set_version=derived_indicator_set_version,
             profile_version=profile_version,
         )
-    return _materialized_table_manifest(research_datasets, "research_derived_indicator_frames")
+        dataset_manifest = dict(research_datasets.get("dataset_manifest") or {})
+        if str(dataset_manifest.get("series_mode")) == "continuous_front":
+            continuous_front_indicator_run_id = str(
+                research_datasets.get("campaign_run_id") or "continuous_front_indicator_refresh"
+            )
+            run_continuous_front_indicator_pandas_job(
+                materialized_output_dir=materialized_output_dir,
+                dataset_version=dataset_version,
+                indicator_set_version=indicator_set_version,
+                derived_set_version=derived_indicator_set_version,
+                run_id=continuous_front_indicator_run_id,
+                calculation_app_id=f"spark-dagster-continuous-front-indicators-{continuous_front_indicator_run_id}",
+                event_log_path=(
+                    f"dagster://continuous_front_indicator_refresh/{continuous_front_indicator_run_id}/spark-event-log"
+                ),
+            )
+    summary = _delta_table_summary(
+        table_path=materialized_output_dir / "research_derived_indicator_frames.delta",
+        table_name="research_derived_indicator_frames",
+    )
+    for table_name in CF_INDICATOR_TABLES:
+        table_path = materialized_output_dir / f"{table_name}.delta"
+        if has_delta_log(table_path):
+            summary.setdefault("continuous_front_indicator_tables", {})[table_name] = {
+                "path": table_path.as_posix(),
+                "row_count": count_delta_table_rows(table_path),
+            }
+    return summary
 
 
 def _validate_strategy_seed_inventory(*, registry_root: Path) -> None:
@@ -2135,6 +2172,10 @@ def _materialize_research_assets(
     findings_path = Path(output_paths["research_run_findings"])
     if has_delta_log(findings_path):
         rows_by_table["research_run_findings"] = count_delta_table_rows(findings_path)
+    for table_name in CF_INDICATOR_TABLES:
+        table_path = Path(output_paths[table_name])
+        if has_delta_log(table_path):
+            rows_by_table[table_name] = count_delta_table_rows(table_path)
     report["rows_by_table"] = rows_by_table
     return report
 
