@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-04-27'
+updated_at: '2026-04-29'
 items:
 - id: TASK-2026-03-16-SHELL-BOOTSTRAP
   path: docs/tasks/archive/TASK-2026-03-16-shell-bootstrap.md
@@ -205,3 +205,21 @@ items:
   status: completed
   started_at: '2026-04-27'
   completed_at: '2026-04-27'
+- id: TASK-2026-04-28-IMPLEMENT-PRODUCT-PLANE-CONTINUOUS-FRONT-CONTOUR
+  path: docs/tasks/archive/TASK-2026-04-28-implement-product-plane-continuous-front-contour.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-28'
+  completed_at: '2026-04-28'
+- id: TASK-2026-04-29-REPAIR-CONTINUOUS-FRONT-ACCEPTANCE-PROBLEMS-FROM
+  path: docs/tasks/archive/TASK-2026-04-29-repair-continuous-front-acceptance-problems-from.md
+  mode: tracked_session
+  status: completed
+  started_at: '2026-04-29'
+  completed_at: '2026-04-29'
+- id: TASK-2026-04-29-PUBLISH-WORK3-CONTINUOUS-FRONT-PR-STACK
+  path: docs/tasks/archive/TASK-2026-04-29-publish-work3-continuous-front-pr-stack.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-29'
+  completed_at: '2026-04-29'

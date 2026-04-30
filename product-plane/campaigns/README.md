@@ -28,8 +28,9 @@ Rules:
 - immutable per-run artifacts live under `runs_root/<campaign_name>/<run_id>/`.
 - forced proof configs must use a separate `research/gold/verification/...` materialized root and `execution.force_rematerialize: true`.
 - scheduled freshness is Dagster-owned: `research_data_prep_after_moex_sensor` starts `research_data_prep_job` after `moex_baseline_update_job` succeeds.
-- the data prep materialization includes `research_instrument_tree`, `research_bar_views`, `research_indicator_frames`, and `research_derived_indicator_frames`.
+- the data prep materialization includes `continuous_front_bars`, `continuous_front_roll_events`, `continuous_front_adjustment_ladder`, `continuous_front_qc_report`, `research_instrument_tree`, `research_bar_views`, `research_indicator_frames`, and `research_derived_indicator_frames`.
 - backtest stages must consume those Delta tables through native Delta/Arrow filters and strategy-column projection; Python row-object reloaders are not a campaign fallback.
+- `continuous_front` is a historical/batch research contour; it is not a live intraday decision source.
 
 Committed configs should describe the full operator path through `run_campaign`.
 Implementation modules and benchmark tooling are intentionally outside this config contract.
