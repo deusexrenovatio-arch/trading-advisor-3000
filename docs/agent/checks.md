@@ -20,6 +20,11 @@
 | Legacy namespace growth | `python scripts/validate_legacy_namespace_growth.py` | fail closed when changed files introduce new legacy rename tokens outside migration allowlist |
 | Product surface naming | `python scripts/validate_product_surface_naming.py` | fail closed when active product-facing names reintroduce numbered delivery labels |
 
+## Product Plane Data-Path Review
+- Research/backtest hot paths must read Delta inputs through native Delta/Arrow/Spark APIs with predicate pushdown and column projection before Python receives the data.
+- Do not accept a Python row-object/list scan as a fallback for `research_bar_views`, `research_indicator_frames`, `research_derived_indicator_frames`, optimizer trials, or vectorbt result inputs in the active campaign route.
+- If a changed Product Plane path still uses row-list helpers, it must be bounded to metadata/tests/non-hot compatibility and called out explicitly in review.
+
 ## Gate lanes
 
 | Lane | Canonical command | Scope |
