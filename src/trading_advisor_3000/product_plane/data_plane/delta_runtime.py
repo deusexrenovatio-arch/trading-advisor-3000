@@ -6,6 +6,7 @@ from datetime import date, datetime, time, timezone
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
 import pyarrow as pa
 from deltalake import DeltaTable, write_deltalake
 
@@ -183,7 +184,7 @@ def _normalize_filters_for_schema(
         return None
     fields_by_name = {field.name: field for field in schema}
     if not filters:
-        return filters
+        return None
 
     first = filters[0]
     if isinstance(first, tuple):
@@ -307,6 +308,41 @@ def delete_delta_table_rows(
     table.delete(normalized_predicate)
 
 
+def _delta_literal(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(value)
+    text = str(value).replace("'", "''")
+    return f"'{text}'"
+
+
+def delta_equals_predicate(values: dict[str, object]) -> str:
+    clauses = [f"{column} = {_delta_literal(value)}" for column, value in values.items()]
+    if not clauses:
+        raise ValueError("delta predicate requires at least one equality")
+    return " AND ".join(clauses)
+
+
+def replace_delta_table_rows(
+    *,
+    table_path: Path,
+    rows: list[dict[str, object]],
+    columns: dict[str, str],
+    predicate: str,
+) -> None:
+    normalized_predicate = str(predicate).strip()
+    if not normalized_predicate:
+        raise ValueError("delta replace predicate must be non-empty")
+    if has_delta_log(table_path):
+        delete_delta_table_rows(table_path=table_path, predicate=normalized_predicate)
+    if rows:
+        append_delta_table_rows(table_path=table_path, rows=rows, columns=columns)
+        return
+    if not has_delta_log(table_path):
+        write_delta_table_rows(table_path=table_path, rows=[], columns=columns)
+
+
 def count_delta_table_rows(table_path: Path, *, filters: DeltaReadFilters = None) -> int:
     if not has_delta_log(table_path):
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
@@ -370,3 +406,22 @@ def read_delta_table_rows(
         for row in rows
         if isinstance(row, dict)
     ]
+
+
+def read_delta_table_frame(
+    table_path: Path,
+    *,
+    columns: list[str] | None = None,
+    filters: DeltaReadFilters = None,
+) -> pd.DataFrame:
+    if not has_delta_log(table_path):
+        raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
+    table = DeltaTable(str(table_path))
+    dataset = table.to_pyarrow_dataset()
+    normalized_filters = _normalize_filters_for_schema(filters, dataset.schema)
+    selected_columns = columns
+    if selected_columns is not None:
+        available = set(dataset.schema.names)
+        selected_columns = [column for column in selected_columns if column in available]
+    arrow_table = table.to_pyarrow_table(columns=selected_columns, filters=normalized_filters)
+    return arrow_table.to_pandas()

@@ -5,11 +5,22 @@ from pathlib import Path
 
 import pandas as pd
 
-from trading_advisor_3000.product_plane.research.datasets import load_materialized_research_dataset
-from trading_advisor_3000.product_plane.research.derived_indicators import reload_derived_indicator_frames
-from trading_advisor_3000.product_plane.research.indicators import reload_indicator_frames
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_frame
 
 from .cache import ResearchCacheKey, ResearchFrameCache
+
+
+KEY_COLUMNS = ("contract_id", "instrument_id", "timeframe", "ts")
+BAR_METADATA_COLUMNS = (
+    "dataset_version",
+    "session_date",
+    "session_open_ts",
+    "session_close_ts",
+    "active_contract_id",
+    "bar_index",
+)
+INDICATOR_METADATA_COLUMNS = ("dataset_version", "indicator_set_version")
+DERIVED_METADATA_COLUMNS = ("dataset_version", "indicator_set_version", "derived_indicator_set_version")
 
 
 @dataclass(frozen=True)
@@ -22,6 +33,9 @@ class ResearchSliceRequest:
     instrument_ids: tuple[str, ...] = ()
     analysis_only: bool = True
     warmup_bars: int = 0
+    price_columns: tuple[str, ...] = ()
+    indicator_columns: tuple[str, ...] = ()
+    derived_columns: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -32,20 +46,48 @@ class ResearchSeriesFrame:
     frame: pd.DataFrame
 
 
-def _matches_filters(
-    *,
-    contract_id: str,
-    instrument_id: str,
-    timeframe: str,
+def _dedupe(values: tuple[str, ...] | list[str]) -> list[str]:
+    result: list[str] = []
+    for value in values:
+        text = str(value).strip()
+        if text and text not in result:
+            result.append(text)
+    return result
+
+
+def _delta_filters(
     request: ResearchSliceRequest,
-) -> bool:
-    if request.timeframe and timeframe != request.timeframe:
-        return False
-    if request.contract_ids and contract_id not in request.contract_ids:
-        return False
-    if request.instrument_ids and instrument_id not in request.instrument_ids:
-        return False
-    return True
+    *,
+    include_indicator_version: bool = False,
+    include_derived_version: bool = False,
+) -> list[tuple[str, str, object]]:
+    filters: list[tuple[str, str, object]] = [("dataset_version", "=", request.dataset_version)]
+    if request.analysis_only and not include_indicator_version and not include_derived_version:
+        filters.append(("slice_role", "=", "analysis"))
+    if request.timeframe:
+        filters.append(("timeframe", "=", request.timeframe))
+    if request.contract_ids:
+        values = sorted(set(request.contract_ids))
+        filters.append(("contract_id", "=", values[0]) if len(values) == 1 else ("contract_id", "in", values))
+    if request.instrument_ids:
+        values = sorted(set(request.instrument_ids))
+        filters.append(("instrument_id", "=", values[0]) if len(values) == 1 else ("instrument_id", "in", values))
+    if include_indicator_version:
+        filters.append(("indicator_set_version", "=", request.indicator_set_version))
+    if include_derived_version:
+        filters.append(("derived_indicator_set_version", "=", request.derived_indicator_set_version))
+    return filters
+
+
+def _projected_columns(
+    *,
+    metadata_columns: tuple[str, ...],
+    payload_columns: tuple[str, ...],
+    filter_columns: tuple[str, ...] = (),
+) -> list[str] | None:
+    if not payload_columns:
+        return None
+    return _dedupe([*metadata_columns, *KEY_COLUMNS, *filter_columns, *payload_columns])
 
 
 def _indicator_payload_columns(frame: pd.DataFrame) -> list[str]:
@@ -106,6 +148,9 @@ def load_backtest_frames(
         request.derived_indicator_set_version,
         "analysis" if request.analysis_only else "all",
         str(request.warmup_bars),
+        "price:" + ",".join(sorted(request.price_columns)),
+        "indicator:" + ",".join(sorted(request.indicator_columns)),
+        "derived:" + ",".join(sorted(request.derived_columns)),
     )
     cache_key = ResearchCacheKey(
         scope="stage5-backtest",
@@ -118,54 +163,42 @@ def load_backtest_frames(
         if cached is not None:
             return cached, cache_id, True
 
-    loaded_dataset = load_materialized_research_dataset(
-        output_dir=dataset_output_dir,
-        dataset_version=request.dataset_version,
+    bar_frame = read_delta_table_frame(
+        dataset_output_dir / "research_bar_views.delta",
+        columns=_projected_columns(
+            metadata_columns=BAR_METADATA_COLUMNS,
+            payload_columns=request.price_columns,
+        ),
+        filters=_delta_filters(request),
     )
-    bar_rows = [
-        row
-        for row in loaded_dataset["bar_views"]
-        if (not request.analysis_only or row.slice_role == "analysis")
-        and _matches_filters(
-            contract_id=row.contract_id,
-            instrument_id=row.instrument_id,
-            timeframe=row.timeframe,
-            request=request,
+    indicator_frame = (
+        read_delta_table_frame(
+            indicator_output_dir / "research_indicator_frames.delta",
+            columns=_projected_columns(
+                metadata_columns=INDICATOR_METADATA_COLUMNS,
+                payload_columns=request.indicator_columns,
+            ),
+            filters=_delta_filters(request, include_indicator_version=True),
         )
-    ]
-    indicator_rows = [
-        row
-        for row in reload_indicator_frames(
-            indicator_output_dir=indicator_output_dir,
-            dataset_version=request.dataset_version,
-            indicator_set_version=request.indicator_set_version,
+        if request.indicator_columns
+        else pd.DataFrame()
+    )
+    derived_frame = (
+        read_delta_table_frame(
+            derived_indicator_output_dir / "research_derived_indicator_frames.delta",
+            columns=_projected_columns(
+                metadata_columns=DERIVED_METADATA_COLUMNS,
+                payload_columns=request.derived_columns,
+            ),
+            filters=_delta_filters(
+                request,
+                include_indicator_version=True,
+                include_derived_version=True,
+            ),
         )
-        if _matches_filters(
-            contract_id=row.contract_id,
-            instrument_id=row.instrument_id,
-            timeframe=row.timeframe,
-            request=request,
-        )
-    ]
-    derived_rows = [
-        row
-        for row in reload_derived_indicator_frames(
-            derived_indicator_output_dir=derived_indicator_output_dir,
-            dataset_version=request.dataset_version,
-            indicator_set_version=request.indicator_set_version,
-            derived_indicator_set_version=request.derived_indicator_set_version,
-        )
-        if _matches_filters(
-            contract_id=row.contract_id,
-            instrument_id=row.instrument_id,
-            timeframe=row.timeframe,
-            request=request,
-        )
-    ]
-
-    bar_frame = pd.DataFrame([row.to_dict() for row in bar_rows])
-    indicator_frame = pd.DataFrame([row.to_dict() for row in indicator_rows])
-    derived_frame = pd.DataFrame([row.to_dict() for row in derived_rows])
+        if request.derived_columns
+        else pd.DataFrame()
+    )
     if bar_frame.empty:
         return tuple(), cache_id, False
 
