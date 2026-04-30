@@ -17,6 +17,7 @@ from .engine import (
     search_spec_id,
     strategy_spec_to_search_spec,
 )
+from .input_requirements import loader_columns_for_search_specs
 from .results import backtest_store_contract, write_backtest_artifacts
 
 
@@ -215,6 +216,7 @@ def run_backtest_batch(
         dataset_version=request.dataset_version,
     )["dataset_manifest"]
     split_windows = _manifest_split_windows(dataset_manifest)
+    input_columns = loader_columns_for_search_specs(request.search_specs)
     series_frames, cache_id, cache_hit = load_backtest_frames(
         dataset_output_dir=dataset_output_dir,
         indicator_output_dir=indicator_output_dir,
@@ -226,6 +228,9 @@ def run_backtest_batch(
             timeframe=_loader_timeframe_for_specs(request.search_specs, request.timeframe),
             contract_ids=request.contract_ids,
             instrument_ids=request.instrument_ids,
+            price_columns=input_columns.price_columns,
+            indicator_columns=input_columns.indicator_columns,
+            derived_columns=input_columns.derived_columns,
         ),
         cache=cache,
     )

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from scripts import run_historical_data_spark_proof as proof_runner
 from scripts.run_historical_data_spark_proof import (
     _docker_exec_args,
     _docker_host_owner,
@@ -57,6 +58,22 @@ def test_docker_exec_args_fall_back_to_plain_python_command(monkeypatch) -> None
     )
 
     assert args[:2] == ["python", "scripts/run_historical_data_spark_proof.py"]
+
+
+def test_docker_image_healthcheck_requires_pandas(monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    class Completed:
+        returncode = 0
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        return Completed()
+
+    monkeypatch.setattr(proof_runner.subprocess, "run", fake_run)
+
+    assert proof_runner._docker_image_healthcheck("phase-proof")
+    assert calls == [["docker", "run", "--rm", "phase-proof", "python", "-c", "import yaml; import pandas"]]
 
 
 def test_hostify_container_path_maps_workspace_path_back_into_repo() -> None:
