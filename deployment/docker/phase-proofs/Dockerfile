@@ -17,6 +17,7 @@ RUN python -m pip install --upgrade pip \
         "PyYAML>=6,<7" \
         "fastapi>=0.110,<1" \
         "deltalake>=0.21,<1" \
+        "pandas>=2.2,<3" \
         "dagster>=1.8,<2" \
         "psycopg[binary]>=3.2,<4" \
         "pyspark>=3.5,<3.6" \

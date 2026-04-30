@@ -92,7 +92,7 @@ def _ensure_docker_image(image: str, dockerfile: Path) -> None:
 
 def _docker_image_healthcheck(image: str) -> bool:
     completed = subprocess.run(
-        ["docker", "run", "--rm", image, "python", "-c", "import yaml"],
+        ["docker", "run", "--rm", image, "python", "-c", "import yaml; import pandas"],
         cwd=_repo_root(),
         capture_output=True,
         text=True,
