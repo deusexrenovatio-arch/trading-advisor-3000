@@ -83,6 +83,21 @@ Superpowers standard and should be hardened before more specialized work:
 | `incident-runbook` | Evidence-aware but not strict enough. | Add incident/postmortem stop conditions and required artifacts. |
 | `document-crosslayer-consistency` | Evidence-aware but soft. | Add explicit inconsistency classes, proof commands, and blocker rules. |
 
+2026-05-05 low-priority pass completed locally in `D:/CodexHome/skills` for:
+
+- `business-analyst`
+- `product-owner`
+- `observability-slo`
+- `risk-profile-gates`
+- `schema-migrations-postgres`
+- `incident-runbook`
+- `document-crosslayer-consistency`
+- `computer-vision-expert`
+
+Each received explicit `When To Use`, `When Not To Use`, workflow/evidence
+expectations, and `Red Flags`. These global skill file edits live outside the
+TA3000 repository; this audit records the pass for branch context only.
+
 ## Keep As Domain Or Runtime Extensions
 
 These are valuable because they encode local constraints that Superpowers does
