@@ -55,9 +55,11 @@ Updated: 2026-05-05 15:43 UTC
 - `python scripts/validate_skills.py --strict`
 - `python scripts/skill_update_decision.py --strict --from-git --git-ref HEAD`
 - `python scripts/skill_precommit_gate.py --from-git --git-ref HEAD`
+- `gh run watch 25388013775 --exit-status --interval 10`
 
 ## Branch Commit Shape
 - `docs(agent): add Superpowers-first skill routing`
 - `docs(agent): record low-priority skill hardening pass`
 - `chore(governance): archive Superpowers routing task session`
 - `chore(governance): update Superpowers task indexes`
+- `chore(governance): align Superpowers closeout evidence`
