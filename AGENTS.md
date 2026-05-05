@@ -64,8 +64,9 @@ Business and trading logic remain out of scope for shell control-plane surfaces.
 - If Serena is skipped or unavailable on a code task, state the fallback reason briefly and continue with the lightest reliable tools.
 
 ## Ordinary Chat Skill Routing
-- In normal chat, route through global Codex skills first. Use `codex-skill-routing` when the task is about skill selection, prompt routing, or preventing missed skills.
-- Before substantial work, name the selected skills briefly and why they apply. If no skill is needed, say why.
+- When Superpowers plugin skills are available, check and invoke the relevant Superpowers process skill before clarification, repository exploration, implementation, review, verification, or closeout when any skill could apply.
+- After the Superpowers process check, route through global Codex skills. Use `codex-skill-routing` when the task is about skill selection, prompt routing, or preventing missed skills.
+- Before substantial work, name the selected Superpowers/global skills briefly and why they apply. If no skill is needed or Superpowers is unavailable, say why.
 - Select skills by sequence, not keyword count: start with the skill that owns the current artifact, add neighboring skills only when their phase is reached, and keep evidence/acceptance skills for closeout.
 - For non-trivial implementation, use `code-implementation-worker` plus the relevant architecture, contract, executable-test, documentation, and verification skills in that order.
 - For review, acceptance, unblock, or "is this done?" questions, use `code-reviewer`, `phase-acceptance-governor`, and/or `verification-before-completion` as appropriate.

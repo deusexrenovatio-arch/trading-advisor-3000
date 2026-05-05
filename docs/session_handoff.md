@@ -1,10 +1,10 @@
 # Session Handoff
-Updated: 2026-04-30 13:39 UTC
+Updated: 2026-05-05 16:15 UTC
 
 ## Active Task Note
-- Path: docs/tasks/active/TASK-2026-04-30-split-optuna-vectorbt-preintegration-changes-int.md
+- Path: docs/tasks/archive/TASK-2026-05-05-prepare-superpowers-skill-routing-and-skill-hard.md
 - Mode: legacy-full
-- Status: in_progress
+- Status: completed
 
 ## Validation
 - `python scripts/validate_task_request_contract.py`
