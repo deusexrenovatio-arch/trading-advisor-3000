@@ -33,12 +33,12 @@ Updated: 2026-05-05 15:43 UTC
 
 ## Task Outcome
 - Outcome Status: completed
-- Decision Quality: accepted
+- Decision Quality: correct_after_replan
 - Final Contexts: CTX-OPS
 - Route Match: matched
 - Primary Rework Cause: none
 - Incident Signature: none
-- Improvement Action: Superpowers process skills are now the first routing check when exposed.
+- Improvement Action: skill
 - Improvement Artifact: docs/agent/audits/2026-05-05-superpowers-baseline-skill-audit.md
 
 ## Blockers
@@ -56,6 +56,8 @@ Updated: 2026-05-05 15:43 UTC
 - `python scripts/skill_update_decision.py --strict --from-git --git-ref HEAD`
 - `python scripts/skill_precommit_gate.py --from-git --git-ref HEAD`
 
-## Commits
-- `0babdc5e docs(agent): add Superpowers-first skill routing`
-- `fe79d96d docs(agent): record low-priority skill hardening pass`
+## Branch Commit Shape
+- `docs(agent): add Superpowers-first skill routing`
+- `docs(agent): record low-priority skill hardening pass`
+- `chore(governance): archive Superpowers routing task session`
+- `chore(governance): update Superpowers task indexes`

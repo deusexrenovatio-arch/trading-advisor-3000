@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-04-30'
+updated_at: '2026-05-05'
 items:
 - task_id: TASK-2026-03-16-BASELINE-SEED
   closed_at: '2026-03-16T10:00:00Z'
@@ -1114,6 +1114,30 @@ items:
   incident_signature: none
   improvement_action: validator
   improvement_artifact: tests/product-plane/continuous_front_indicators/test_rules_and_projection.py
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
+- task_id: TASK-2026-05-05-PREPARE-SUPERPOWERS-SKILL-ROUTING-AND-SKILL-HARD
+  closed_at: '2026-05-05T15:44:00Z'
+  branch: codex/superpowers-skill-routing-main
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: skill
+  improvement_artifact: docs/agent/audits/2026-05-05-superpowers-baseline-skill-audit.md
   linked_plan_id: null
   linked_memory_id: null
   outcome_status: completed
