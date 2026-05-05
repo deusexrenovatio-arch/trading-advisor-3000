@@ -1,11 +1,11 @@
 ---
 name: ta3000-quant-compute-methodology
-description: Use for TA3000 research compute work that touches vectorbt, pandas-ta-classic, Optuna, indicators, derived indicators, signal matrices, strategy execution, optimizer search, or backtest integration after strategy intent and measurable TA states are clear.
+description: Use for TA3000 research compute work that touches vectorbt, pandas-ta-classic, Optuna, Spark/Delta/Dagster research materialization, indicators, derived indicators, signal matrices, strategy execution, optimizer search, or backtest integration after strategy intent and measurable TA states are clear, especially when library-native methodology should guide design before local TA3000 patterns.
 classification: KEEP_CORE
 wave: WAVE_1
 status: ACTIVE
 owner_surface: CTX-COMPUTE
-scope: TA3000 library-native compute, optimizer, signal-matrix, and runtime-ownership implementation boundary
+scope: TA3000 library-native compute, optimizer, signal-matrix, runtime-ownership, and materialization integration boundary
 routing_triggers:
   - vectorbt
   - pandas-ta-classic
@@ -20,6 +20,9 @@ routing_triggers:
   - derived indicators
   - research backtest
   - strategy execution
+  - native runtime choice
+  - research materialization
+  - Spark Delta Dagster
 ---
 
 # TA3000 Quant Compute Methodology

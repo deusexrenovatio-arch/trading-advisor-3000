@@ -15,6 +15,13 @@
 - An empty repo-local skill catalog is valid when the needed behavior is generic and already covered globally.
 - A global skill may be only a working lens; it does not always imply an extra tool call.
 
+## Superpowers-First Process Layer
+- When Superpowers plugin skills are available, treat `superpowers:using-superpowers` as the first process-routing contract.
+- Check and invoke the relevant Superpowers process skill before clarification, repository exploration, implementation, review, verification, or closeout when any skill could apply.
+- Process skills decide how to approach the task. Global Codex skills and repo-local TA3000 skills still decide engineering/domain specifics.
+- User instructions, AGENTS.md, TA3000 shell/product-plane boundaries, governed entry rules, PR-only main, and Serena/context-routing requirements remain higher-priority constraints.
+- If Superpowers skills are unavailable in the current session, state the fallback and continue through the global Codex skill layer.
+
 ## Tool Reality Check
 - Repo-local active skills are whatever `.codex/skills/*/SKILL.md` contains; the generated catalog can validly be empty.
 - Global skills are the ordinary-chat baseline; generic process rules belong there, not in `.cursor/skills` or repo-local skills.
@@ -26,12 +33,13 @@
 - Tracked MCP templates and live session tools can differ. Use validators for repository contracts and live tool discovery for current-session truth.
 
 ## Ordinary Chat Guard
-1. Use `codex-skill-routing` for questions about skill selection, prompt routing, and missed-skill protection.
-2. Before substantial work, name the selected global skills briefly and why they apply.
-3. If a needed global skill is not present in current session metadata but exists under `D:/CodexHome/skills`, read its main instruction file directly and state the fallback.
-4. If a needed skill is generic, keep it in the global Codex skill root instead of adding it to this repo.
-5. If the task is genuinely TA3000-specific, open the repo-local skill narrowly and do not load the whole skill corpus.
-6. Before expanding beyond the selected skill/context route into memory, current diff, logs, generated artifacts, live process state, web docs, Graphify, or broad file reads, leave a Context Expansion Reason: evidence question, source/tool, insufficiency, and stop condition.
+1. Check Superpowers process skills first when they are exposed in the session.
+2. Use `codex-skill-routing` for questions about skill selection, prompt routing, and missed-skill protection.
+3. Before substantial work, name the selected Superpowers/global skills briefly and why they apply.
+4. If a needed global skill is not present in current session metadata but exists under `D:/CodexHome/skills`, read its main instruction file directly and state the fallback.
+5. If a needed skill is generic, keep it in the global Codex skill root instead of adding it to this repo.
+6. If the task is genuinely TA3000-specific, open the repo-local skill narrowly and do not load the whole skill corpus.
+7. Before expanding beyond the selected skill/context route into memory, current diff, logs, generated artifacts, live process state, web docs, Graphify, or broad file reads, leave a Context Expansion Reason: evidence question, source/tool, insufficiency, and stop condition.
 
 ## Global Skill Sequence Rules
 - Route by the artifact or decision currently being produced, not by keyword count.
