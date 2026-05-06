@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-04-13",
+  "generated_at": "2026-05-06",
   "overall_status": "yellow",
   "sections": {
     "lifecycle": {
       "status": "green",
-      "terminal_outcomes_total": 23,
-      "correct_first_time_rate": 0.30434782608695654
+      "terminal_outcomes_total": 44,
+      "correct_first_time_rate": 0.22727272727272727
     },
     "state": {
       "status": "green",
@@ -15,69 +15,54 @@
     },
     "quality": {
       "status": "green",
-      "process_completed_tasks": 23,
+      "process_completed_tasks": 44,
       "process_window_tasks": 20,
       "burn_in_complete": true
     },
     "orchestration_quality": {
       "status": "yellow",
-      "runs_total": 47,
+      "runs_total": 22,
       "window_runs_count": 20,
       "burn_in_complete": true,
-      "accepted_runs": 11,
-      "blocked_runs": 9,
-      "first_pass_acceptance_rate": 0.25,
+      "accepted_runs": 15,
+      "blocked_runs": 5,
+      "first_pass_acceptance_rate": 0.45,
       "remediation_rate": 0.35,
-      "average_orchestration_score": 61.15,
-      "median_orchestration_score": 56.0,
+      "average_orchestration_score": 75.6,
+      "median_orchestration_score": 75.5,
       "latest_orchestration_score": 39,
       "latest_score_label": "critical",
-      "calibration_runs": 2,
-      "average_worker_acceptor_absolute_delta": 2.0,
+      "calibration_runs": 0,
+      "average_worker_acceptor_absolute_delta": 0.0,
       "worker_overconfidence_rate": 0.0,
       "worker_underconfidence_rate": 0.0,
       "score_bands": {
-        "critical": 9,
-        "excellent": 5,
-        "fragile": 3,
+        "critical": 4,
+        "excellent": 9,
+        "fragile": 4,
         "strong": 1,
         "watch": 2
       },
       "top_blocker_categories": [
         {
           "category": "evidence_gap",
-          "count": 47,
+          "count": 33,
           "suggestion": "Tighten evidence contracts around exact commands, artifacts, and owned-surface coverage."
         },
         {
           "category": "prohibited_finding",
-          "count": 21,
+          "count": 10,
           "suggestion": "Move prohibited conditions into preflight and worker guardrails so acceptance is not the first detector."
         },
         {
-          "category": "deferred",
-          "count": 8,
-          "suggestion": "Split critical work earlier so deferred closure does not survive into acceptance."
-        },
-        {
           "category": "acceptance_blocker",
-          "count": 6,
+          "count": 4,
           "suggestion": "Make acceptor findings more structured so blocker classes can be routed earlier."
         },
         {
-          "category": "fallback",
-          "count": 3,
-          "suggestion": "Turn fallback paths into explicit contract decisions instead of allowing silent implementation shortcuts."
-        },
-        {
-          "category": "assumption",
+          "category": "skip",
           "count": 1,
-          "suggestion": "Strengthen worker handoffs so unresolved assumptions are blocked before acceptance."
-        },
-        {
-          "category": "doc_context_gap",
-          "count": 1,
-          "suggestion": "Require full source and materialized documentation context whenever remediation edits docs."
+          "suggestion": "Shift required checks earlier or reduce scope until reruns can execute the full evidence set."
         }
       ],
       "quality_expansion_points": [
@@ -86,63 +71,47 @@
         "Blocked final states are too frequent; escalate repeated blocker patterns sooner.",
         "Tighten evidence contracts around exact commands, artifacts, and owned-surface coverage.",
         "Move prohibited conditions into preflight and worker guardrails so acceptance is not the first detector.",
-        "Split critical work earlier so deferred closure does not survive into acceptance."
+        "Make acceptor findings more structured so blocker classes can be routed earlier."
       ],
       "latest_run": {
         "orchestration_score": 39,
         "score_label": "critical",
         "component_scores": {
-          "progression": 60,
-          "evidence": 44,
-          "policy": 0
+          "progression": 0,
+          "evidence": 70,
+          "policy": 58
         },
-        "attempts_total": 1,
-        "blocked_attempts": 1,
-        "remediation_attempts": 0,
+        "attempts_total": 3,
+        "blocked_attempts": 3,
+        "remediation_attempts": 2,
         "first_pass_passed": false,
         "final_status": "blocked",
-        "acceptance_blockers_total": 2,
-        "policy_blockers_total": 7,
-        "evidence_gaps_total": 1,
-        "prohibited_findings_total": 2,
+        "acceptance_blockers_total": 5,
+        "policy_blockers_total": 0,
+        "evidence_gaps_total": 0,
+        "prohibited_findings_total": 0,
         "missing_acceptance_artifacts_total": 0,
         "top_blocker_categories": [
           {
-            "category": "deferred",
-            "count": 3,
-            "suggestion": "Split critical work earlier so deferred closure does not survive into acceptance."
-          },
-          {
             "category": "evidence_gap",
-            "count": 2,
+            "count": 3,
             "suggestion": "Tighten evidence contracts around exact commands, artifacts, and owned-surface coverage."
           },
           {
-            "category": "prohibited_finding",
+            "category": "acceptance_blocker",
             "count": 2,
-            "suggestion": "Move prohibited conditions into preflight and worker guardrails so acceptance is not the first detector."
-          },
-          {
-            "category": "doc_context_gap",
-            "count": 1,
-            "suggestion": "Require full source and materialized documentation context whenever remediation edits docs."
-          },
-          {
-            "category": "fallback",
-            "count": 1,
-            "suggestion": "Turn fallback paths into explicit contract decisions instead of allowing silent implementation shortcuts."
+            "suggestion": "Make acceptor findings more structured so blocker classes can be routed earlier."
           }
         ],
         "quality_expansion_points": [
+          "Raise first-pass quality by pushing blocker-specific checks into preflight or worker handoff.",
           "Escalate repeated blocker patterns earlier instead of spending the full retry budget on the same class.",
-          "Split critical work earlier so deferred closure does not survive into acceptance.",
           "Tighten evidence contracts around exact commands, artifacts, and owned-surface coverage.",
-          "Move prohibited conditions into preflight and worker guardrails so acceptance is not the first detector."
+          "Make acceptor findings more structured so blocker classes can be routed earlier."
         ],
         "score_rationale": [
-          "The phase remained blocked at the end of the governed cycle.",
-          "Acceptance recorded unresolved evidence gaps.",
-          "Orchestrator policy raised blockers that reduced result confidence."
+          "Remediation was required before the phase could move forward.",
+          "The phase remained blocked at the end of the governed cycle."
         ]
       }
     },
@@ -151,19 +120,19 @@
       "critical_tasks_with_explicit_solution_class": 14,
       "blocked_shortcut_claims": 0,
       "staged_vs_target_declarations": {
-        "staged": 4,
-        "target": 10
+        "staged": 3,
+        "target": 11
       },
       "observation_window_start": "2026-03-25",
-      "observation_window_days": 19,
+      "observation_window_days": 42,
       "observation_window_min_days": 7,
       "observation_window_max_days": 14,
       "observation_window_status": "review_due",
-      "task_notes_scanned": 57
+      "task_notes_scanned": 58
     }
   },
   "baseline_metrics": {
-    "generated_at": "2026-04-13",
+    "generated_at": "2026-05-06",
     "plans": {
       "total_items": 2,
       "active_items": 0,
@@ -175,29 +144,30 @@
       "patterns": 1
     },
     "process_rollup": {
-      "completed_tasks_count": 23,
+      "completed_tasks_count": 44,
       "window_size": 20,
+      "burn_in_min_completed_tasks": 20,
       "window_tasks_count": 20,
       "burn_in_complete": true,
       "current_metrics": {
-        "correct_first_time_pct": 0.25,
-        "start_match_pct": 0.95,
-        "context_expansion_rate": 0.05,
+        "correct_first_time_pct": 0.15,
+        "start_match_pct": 0.8,
+        "context_expansion_rate": 0.2,
         "repeat_error_rate": 0.0,
-        "environment_blocker_rate": 0.0
+        "environment_blocker_rate": 0.05
       }
     },
     "dev_loop_baseline": {
-      "generated_at": "2026-04-13",
-      "task_outcomes_total": 23,
-      "terminal_outcomes_total": 23,
+      "generated_at": "2026-05-06",
+      "task_outcomes_total": 44,
+      "terminal_outcomes_total": 44,
       "outcomes_with_patch_timing": 2,
-      "outcomes_without_patch_timing": 21,
+      "outcomes_without_patch_timing": 42,
       "median_time_to_first_patch_sec": 105.0,
       "p90_time_to_first_patch_sec": 120,
-      "median_same_path_attempts": 1,
-      "correct_first_time_rate": 0.30434782608695654,
-      "start_route_match_rate": 0.9565217391304348
+      "median_same_path_attempts": 1.0,
+      "correct_first_time_rate": 0.22727272727272727,
+      "start_route_match_rate": 0.8863636363636364
     }
   }
 }
