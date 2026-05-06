@@ -8,6 +8,8 @@ Use `docs/architecture/trading-advisor-3000.md` as the single entry map when you
 need a coherent whole-system view before reading the more specific documents.
 
 ## Start map
+- `docs/project-map/current-truth-map-2026-05-05.md`
+- `docs/project-map/documentation-currentness-map-2026-05-06.md`
 - `docs/architecture/trading-advisor-3000.md`
 - `docs/architecture/repository-surfaces.md`
 - `docs/architecture/layers-v2.md`
@@ -26,7 +28,16 @@ need a coherent whole-system view before reading the more specific documents.
 - `docs/architecture/product-plane/README.md`
 - `docs/architecture/product-plane/STATUS.md`
 - `docs/architecture/product-plane/CONTRACT_SURFACES.md`
-- `docs/architecture/product-plane/product-plane-spec-v2/README.md`
+- `docs/architecture/product-plane/research-plane-platform.md`
+- `docs/architecture/product-plane/stack-conformance-baseline.md`
+
+## Retired historical docs
+- Retired legacy app-path docs are archived at
+  `docs/archive/legacy-app-docs/2026-05-06/README.md`. Use
+  `docs/architecture/product-plane/**` for current product-plane truth.
+- The old product-plane spec v2 package is archived at
+  `docs/archive/product-plane-spec-v2/2026-05-06/README.md`; do not use it as a
+  current implementation source.
 
 ## Shared references
 - `docs/architecture/glossary.md`

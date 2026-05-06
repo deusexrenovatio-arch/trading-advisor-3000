@@ -22,7 +22,6 @@ Research pipelines, feature generation, and analysis-oriented execution.
 - `tests/product-plane/unit/test_research_dagster_manifests.py`
 - `docs/architecture/product-plane/research-plane-platform.md`
 - `docs/runbooks/app/research-plane-operations.md`
-- `docs/checklists/app/research-plane-acceptance-checklist.md`
 
 ## Guarded Paths
 - `src/trading_advisor_3000/product_plane/runtime/`
@@ -44,7 +43,7 @@ Research pipelines, feature generation, and analysis-oriented execution.
 ## Primary Review Route
 Use this order when reviewing or accepting research-plane changes:
 1. confirm the stable architecture map in `docs/architecture/product-plane/research-plane-platform.md`
-2. confirm the acceptance chain in `docs/checklists/app/research-plane-acceptance-checklist.md`
+2. confirm current status in `docs/architecture/product-plane/STATUS.md`
 3. use `test_research_dagster_jobs.py` as the main orchestration proof
 4. use `test_research_campaign_route.py` for operator-route proof
 5. use `test_research_benchmark_job.py` plus `test_research_benchmark_artifacts.py` for benchmark evidence

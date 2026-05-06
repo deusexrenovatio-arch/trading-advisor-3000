@@ -17,7 +17,7 @@ Updated: 2026-03-16 16:36 UTC
 - Добавлен product overlay `src/trading_advisor_3000/AGENTS.md`.
 - Создан skeleton product-plane каталогов в `src/trading_advisor_3000/product_plane/*`, `tests/product-plane/*`, `docs/*/app/*`, `deployment/*`.
 - Добавлены phase acceptance tests: `tests/product-plane/test_phase0_acceptance.py`.
-- Оформлены `docs/architecture/product-plane/product-plane-bootstrap-plan.md` и `docs/checklists/app/product-plane-bootstrap-acceptance-checklist.md`.
+- Оформлены `docs/architecture/product-plane/product-plane-bootstrap-plan.md` и `docs/archive/product-plane-acceptance-checklists/2026-05-06/product-plane-bootstrap-acceptance-checklist.md`.
 
 ## First-Time-Right Report
 1. Confirmed coverage: все обязательные deliverables Phase 0 закрыты отдельным patch set.
@@ -40,7 +40,7 @@ Updated: 2026-03-16 16:36 UTC
 - Primary Rework Cause: workflow_gap
 - Incident Signature: none
 - Improvement Action: docs
-- Improvement Artifact: docs/checklists/app/product-plane-bootstrap-acceptance-checklist.md
+- Improvement Artifact: docs/archive/product-plane-acceptance-checklists/2026-05-06/product-plane-bootstrap-acceptance-checklist.md
 
 ## Blockers
 - No blocker.

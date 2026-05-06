@@ -18,9 +18,9 @@ Updated: 2026-03-30 10:08 UTC
 
 ## In Scope
 
-- `docs/architecture/app/STATUS.md`
-- `docs/architecture/app/stack-conformance-baseline.md`
-- `docs/architecture/app/phase10-stack-conformance-reacceptance-report.md`
+- `docs/archive/legacy-app-docs/2026-05-06/STATUS.md`
+- `docs/archive/legacy-app-docs/2026-05-06/stack-conformance-baseline.md`
+- `docs/archive/legacy-app-docs/2026-05-06/phase10-stack-conformance-reacceptance-report.md`
 - `artifacts/acceptance/f1/*`
 - `docs/codex/modules/*` where stack or acceptance claims materially affect governed reading
 - `registry/stack_conformance.yaml`
@@ -44,13 +44,13 @@ Updated: 2026-03-30 10:08 UTC
 ## Constraints
 
 - Either add real ADR-supported retirement decisions for claimed removed technologies or delete unsupported removal claims; do not keep mixed truth.
-- `docs/architecture/app/STATUS.md`, the baseline, acceptance reports, registry, stack spec, and ADR set must agree after the phase.
+- `docs/archive/legacy-app-docs/2026-05-06/STATUS.md`, the baseline, acceptance reports, registry, stack spec, and ADR set must agree after the phase.
 - Route reports stay orchestration metadata, not capability proof.
 
 ## Acceptance Gate
 
 - Любой deliberate contradiction между report/registy/spec/ADR должен ломать validator.
-- `docs/architecture/app/STATUS.md`, baseline, phase10 report, red-team result и registry согласованы.
+- `docs/archive/legacy-app-docs/2026-05-06/STATUS.md`, baseline, phase10 report, red-team result и registry согласованы.
 - В touched docs нет overclaiming beyond truth-source state.
 
 ## Disprover

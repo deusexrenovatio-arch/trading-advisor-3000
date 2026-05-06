@@ -1,4 +1,4 @@
-﻿# Re-acceptance Stack-Conformance Re-Acceptance Report
+# Re-acceptance Stack-Conformance Re-Acceptance Report
 
 Date: 2026-03-27
 Route: `remediation:phase-only`
@@ -14,16 +14,16 @@ Re-evaluate product-phase acceptance artifacts under the repaired stack-conforma
 - `registry/stack_conformance.yaml`
 - `docs/architecture/product-plane/STATUS.md`
 - `docs/architecture/product-plane/stack-conformance-baseline.md`
-- `docs/checklists/app/historical-data-plane-acceptance-checklist.md`
-- `docs/checklists/app/research-plane-acceptance-checklist.md`
-- `docs/checklists/app/runtime-lifecycle-acceptance-checklist.md`
-- `docs/checklists/app/execution-flow-acceptance-checklist.md`
-- `docs/checklists/app/shadow-replay-acceptance-checklist.md`
-- `docs/checklists/app/controlled-live-execution-acceptance-checklist.md`
-- `docs/checklists/app/review-observability-acceptance-checklist.md`
-- `docs/checklists/app/operational-hardening-acceptance-checklist.md`
-- `docs/checklists/app/scale-up-readiness-acceptance-checklist.md`
-- `docs/checklists/app/shell-delivery-operational-proving-acceptance-checklist.md`
+- `docs/archive/product-plane-acceptance-checklists/2026-05-06/historical-data-plane-acceptance-checklist.md`
+- `docs/archive/product-plane-acceptance-checklists/2026-05-06/research-plane-acceptance-checklist.md`
+- `docs/archive/product-plane-acceptance-checklists/2026-05-06/runtime-lifecycle-acceptance-checklist.md`
+- `docs/archive/product-plane-acceptance-checklists/2026-05-06/execution-flow-acceptance-checklist.md`
+- `docs/archive/product-plane-acceptance-checklists/2026-05-06/shadow-replay-acceptance-checklist.md`
+- `docs/archive/product-plane-acceptance-checklists/2026-05-06/controlled-live-execution-acceptance-checklist.md`
+- `docs/archive/product-plane-acceptance-checklists/2026-05-06/review-observability-acceptance-checklist.md`
+- `docs/archive/product-plane-acceptance-checklists/2026-05-06/operational-hardening-acceptance-checklist.md`
+- `docs/archive/product-plane-acceptance-checklists/2026-05-06/scale-up-readiness-acceptance-checklist.md`
+- `docs/archive/product-plane-acceptance-checklists/2026-05-06/shell-delivery-operational-proving-acceptance-checklist.md`
 - `docs/codex/contracts/stack-conformance-remediation.execution-contract.md`
 - `docs/codex/modules/stack-conformance-remediation.phase-10.md`
 - Route reports from module phases 03-09 in `artifacts/codex/orchestration/*-stack-conformance-remediation-phase-*/route-report.md`

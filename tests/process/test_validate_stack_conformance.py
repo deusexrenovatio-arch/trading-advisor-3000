@@ -43,12 +43,10 @@ def _seed_common(
     )
     _write(tmp_path / "docs/architecture/product-plane/README.md", readme_text)
     _write(
-        tmp_path / "docs/architecture/product-plane/product-plane-spec-v2/07_Tech_Stack_and_Open_Source.md",
-        "| FastAPI | service/API layer | chosen | OSS | runtime/admin APIs |\n",
-    )
-    _write(
-        tmp_path / "docs/architecture/product-plane/product-plane-spec-v2/04_ADRs.md",
-        "ADR placeholder for stack replacement notes.\n",
+        tmp_path / "docs/architecture/product-plane/stack-conformance-baseline.md",
+        "| FastAPI | service/API layer | chosen | OSS | runtime/admin APIs |\n"
+        "ADR placeholder for stack replacement notes.\n"
+        "ADR-011\n",
     )
     _write(
         tmp_path / "docs/checklists/app/phase2-acceptance-checklist.md",
@@ -91,7 +89,7 @@ def _base_registry(*, surface_claim: str, technology_claim: str) -> dict[str, An
         "version": 1,
         "truth_sources": {
             "status_doc": "docs/architecture/product-plane/STATUS.md",
-            "spec_doc": "docs/architecture/product-plane/product-plane-spec-v2/07_Tech_Stack_and_Open_Source.md",
+            "spec_doc": "docs/architecture/product-plane/stack-conformance-baseline.md",
             "pyproject": "pyproject.toml",
         },
         "closure_claim_guard": {
@@ -126,7 +124,7 @@ def _base_registry(*, surface_claim: str, technology_claim: str) -> dict[str, An
                 },
                 "replacement": {
                     "adr_required_when_removed": True,
-                    "adr_paths_any": ["docs/architecture/product-plane/product-plane-spec-v2/04_ADRs.md"],
+                    "adr_paths_any": ["docs/architecture/product-plane/stack-conformance-baseline.md"],
                     "adr_markers_any": ["fastapi"],
                 },
             }
@@ -279,10 +277,6 @@ def test_validate_stack_conformance_fails_when_removed_technology_is_still_chose
         dependencies=[],
         include_fastapi_entrypoint=False,
         include_fastapi_test=False,
-    )
-    _write(
-        tmp_path / "docs/architecture/product-plane/product-plane-spec-v2/04_ADRs.md",
-        "ADR remove fastapi from runtime path.\n",
     )
     registry = _base_registry(surface_claim="partial", technology_claim="removed")
     registry_path = _write_registry(tmp_path, registry)

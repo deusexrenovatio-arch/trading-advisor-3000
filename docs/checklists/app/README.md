@@ -1,19 +1,15 @@
 # App Checklists
 
-Product phase acceptance checklists.
+Historical product-plane acceptance checklists have been archived at:
 
-- `docs/checklists/app/product-plane-bootstrap-acceptance-checklist.md`
-- `docs/checklists/app/contracts-and-scaffolding-acceptance-checklist.md`
-- `docs/checklists/app/historical-data-plane-acceptance-checklist.md`
-- `docs/checklists/app/research-plane-acceptance-checklist.md`
-- `docs/checklists/app/runtime-lifecycle-acceptance-checklist.md`
-- `docs/checklists/app/execution-flow-acceptance-checklist.md`
-- `docs/checklists/app/shadow-replay-acceptance-checklist.md`
-- `docs/checklists/app/controlled-live-execution-acceptance-checklist.md`
-- `docs/checklists/app/review-observability-acceptance-checklist.md`
-- `docs/checklists/app/operational-hardening-acceptance-checklist.md`
-- `docs/checklists/app/scale-up-readiness-acceptance-checklist.md`
-- `docs/checklists/app/shell-delivery-operational-proving-acceptance-checklist.md`
-- `docs/checklists/app/mcp-and-real-execution-rollout-checklist.md`
-- `docs/checklists/app/data-integration-closure-passport.md`
-- `docs/checklists/app/runtime-publication-closure-passport.md`
+- `docs/archive/product-plane-acceptance-checklists/2026-05-06/README.md`
+
+Do not use archived checklists as current product readiness truth.
+
+For current status and release-blocking boundaries, read:
+
+- `docs/architecture/product-plane/STATUS.md`
+- `docs/architecture/product-plane/CONTRACT_SURFACES.md`
+- `docs/architecture/product-plane/stack-conformance-baseline.md`
+- `docs/project-map/current-truth-map-2026-05-05.md`
+- `docs/project-map/documentation-currentness-map-2026-05-06.md`

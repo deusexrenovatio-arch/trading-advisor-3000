@@ -17,7 +17,7 @@ Prepare architecture and core contracts for expansion without blocking refactors
 - `tests/product-plane/unit/test_runtime_context_orchestration.py`
 - `docs/architecture/adr/0002-scale-up-extension-seams.md`
 - `docs/architecture/product-plane/scale-up-readiness.md`
-- `docs/checklists/app/scale-up-readiness-acceptance-checklist.md`
+- archived checklist batch: `docs/archive/product-plane-acceptance-checklists/2026-05-06/README.md`
 
 ## Design Decisions
 1. Adapter/provider extensibility is registry-first: core flow uses catalogs/registries, not hardcoded if-else branches.
