@@ -1,9 +1,20 @@
-# Bootstrap Plan — Shell Alignment and Repo Landing
+# Bootstrap Plan - Shell Alignment and Repo Landing
 
-## Цель
-Зафиксировать интеграцию product-plane в существующий AI delivery shell без внедрения продуктовой торговой логики.
+## Historical Status
 
-## Change surface
+This document records the original product-plane repo landing slice from
+2026-03-16. It is historical evidence, not a current implementation or readiness
+claim.
+
+The old product-plane spec package that drove this bootstrap plan is archived at
+`docs/archive/product-plane-spec-v2/2026-05-06/README.md`.
+
+## Goal
+
+Land product-plane structure inside the existing AI delivery shell without
+moving trading-domain runtime logic into shell surfaces.
+
+## Change Surface
 - `src/trading_advisor_3000/*`
 - `tests/product-plane/*`
 - `docs/architecture/product-plane/*`
@@ -12,30 +23,35 @@
 - `docs/workflows/app/*`
 - `deployment/*`
 
-## Что входит в фазу
-1. Добавление product docs package (spec v2) в `docs/architecture/product-plane/product-plane-spec-v2/`.
-2. Добавление product overlay `src/trading_advisor_3000/AGENTS.md`.
-3. Фиксация целевой структуры product-plane каталогов (skeleton only).
-4. Подготовка acceptance checklist и evidence команд.
+## Original Scope
+1. Add the product docs package that is now archived as spec v2 provenance.
+2. Add product overlay `src/trading_advisor_3000/AGENTS.md`.
+3. Record target product-plane skeleton directories.
+4. Prepare acceptance checklist and evidence commands.
 
-## Что не входит в фазу
-1. Реализация runtime/data/research/execution модулей.
-2. Изменение shell canonical entrypoints и governance contracts.
-3. Интеграции с внешними системами и секретами.
+## Original Non-Scope
+1. Runtime/data/research/execution module implementation.
+2. Changes to shell canonical entrypoints and governance contracts.
+3. External-system integrations and secrets.
 
-## Решение по baseline PR #1
-Применяется вариант "PR #1 merged first" из `docs/architecture/product-plane/product-plane-spec-v2/00_AI_Shell_Alignment.md`:
-- shell hardening принимается как baseline;
-- product phase выполняется поверх этого baseline;
-- смешанные shell/product patch sets в этой фазе не используются.
+## Baseline Decision
 
-## План проверки
+The original plan used the "PR #1 merged first" decision from the archived
+`docs/archive/product-plane-spec-v2/2026-05-06/00_AI_Shell_Alignment.md`
+package:
+
+- shell hardening was accepted as the baseline;
+- product-plane bootstrap ran on top of that baseline;
+- mixed shell/product patch sets were not used for this bootstrap slice.
+
+## Verification Plan
 1. `python -m pytest tests/product-plane -q`
 2. `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
 3. `python scripts/run_pr_gate.py --from-git --git-ref HEAD`
 
-## Критерии готовности (Bootstrap)
-- root shell docs корректно referenced в product overlay и phase docs;
-- phase package закоммичиваемый и полный;
-- shell-sensitive пути не изменяются произвольно;
-- loop gate зелёный.
+## Current Reading Rule
+
+Use this document only for bootstrap provenance. For current product-plane truth,
+read `docs/architecture/product-plane/STATUS.md`,
+`docs/architecture/product-plane/CONTRACT_SURFACES.md`, and
+`docs/project-map/current-truth-map-2026-05-05.md`.

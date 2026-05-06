@@ -12,7 +12,7 @@ Close the final production-readiness loop for the delivery shell + app integrati
 - `scripts/run_shell_delivery_operational_proving.py` consolidated proving runner.
 - `tests/process/test_shell_delivery_operational_proving.py` fail-path and dry-run contract tests.
 - `docs/runbooks/app/shell-delivery-operational-proving-runbook.md`.
-- `docs/checklists/app/shell-delivery-operational-proving-acceptance-checklist.md`.
+- archived checklist batch: `docs/archive/product-plane-acceptance-checklists/2026-05-06/README.md`.
 
 ## Design Decisions
 1. Shell delivery proving is executable, not narrative-only: one script orchestrates all lanes in fixed order and emits a machine-readable report.

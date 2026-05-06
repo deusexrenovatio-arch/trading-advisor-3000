@@ -9,8 +9,17 @@
 6. `docs/architecture/repository-surfaces.md`
 
 If the task touches the product plane, also read:
-1. `docs/architecture/product-plane/STATUS.md`
-2. `docs/architecture/product-plane/CONTRACT_SURFACES.md`
+1. `docs/project-map/current-truth-map-2026-05-05.md`
+2. `docs/architecture/product-plane/STATUS.md`
+3. `docs/architecture/product-plane/CONTRACT_SURFACES.md`
+
+Reality rule:
+- Treat old task notes, package-intake artifacts, TZs, and target-shape specs as
+  historical evidence unless the current truth map or current product docs
+  explicitly promote them.
+- Treat `docs/archive/` as off-route by default. Open it only for explicit
+  forensic/audit work, broken-reference remediation, or when a current truth
+  document names a specific archived artifact as evidence.
 
 If the task touches product-plane data, research, compute, optimization, or
 orchestration runtimes, also read:

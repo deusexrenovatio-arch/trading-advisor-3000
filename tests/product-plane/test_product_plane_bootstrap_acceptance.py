@@ -4,16 +4,19 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SPEC_DIR = ROOT / "docs" / "architecture" / "product-plane" / "product-plane-spec-v2"
+ACTIVE_SPEC_DIR = ROOT / "docs" / "architecture" / "product-plane" / "product-plane-spec-v2"
+ARCHIVED_SPEC_DIR = ROOT / "docs" / "archive" / "product-plane-spec-v2" / "2026-05-06"
+ARCHIVED_CHECKLIST_DIR = ROOT / "docs" / "archive" / "product-plane-acceptance-checklists" / "2026-05-06"
 
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def test_product_plane_docs_package_is_complete() -> None:
+def test_product_plane_spec_v2_is_archived_and_complete() -> None:
     expected = {
         "README.md",
+        "PACKAGE-README.md",
         "TECHNICAL_REQUIREMENTS.md",
         "00_AI_Shell_Alignment.md",
         "01_Architecture_Overview.md",
@@ -27,11 +30,13 @@ def test_product_plane_docs_package_is_complete() -> None:
         "09_Constraints_Risks_and_NFR.md",
         "10_MCP_Deployment_Request.md",
     }
-    present = {path.name for path in SPEC_DIR.glob("*.md")}
+    present = {path.name for path in ARCHIVED_SPEC_DIR.glob("*.md")}
+
+    assert not ACTIVE_SPEC_DIR.exists()
     assert expected <= present
 
 
-def test_overlay_references_root_shell_hot_docs() -> None:
+def test_overlay_references_current_product_truth_sources() -> None:
     overlay = _read(ROOT / "src" / "trading_advisor_3000" / "AGENTS.md")
     required_refs = (
         "AGENTS.md",
@@ -40,18 +45,22 @@ def test_overlay_references_root_shell_hot_docs() -> None:
         "docs/agent/checks.md",
         "docs/agent/runtime.md",
         "docs/DEV_WORKFLOW.md",
-        "TECHNICAL_REQUIREMENTS.md",
-        "00_AI_Shell_Alignment.md",
-        "06_Capability_Slices_and_Acceptance_Gates.md",
+        "docs/project-map/current-truth-map-2026-05-05.md",
+        "docs/architecture/product-plane/STATUS.md",
+        "docs/architecture/product-plane/CONTRACT_SURFACES.md",
+        "docs/architecture/product-plane/stack-conformance-baseline.md",
     )
     for ref in required_refs:
         assert ref in overlay
 
+    assert "docs/architecture/product-plane/product-plane-spec-v2" not in overlay
 
-def test_product_plane_bootstrap_plan_contains_pr1_baseline_decision() -> None:
+
+def test_product_plane_bootstrap_plan_is_historical_and_points_to_archive() -> None:
     plan = _read(ROOT / "docs" / "architecture" / "product-plane" / "product-plane-bootstrap-plan.md")
     assert "PR #1 merged first" in plan
-    assert "shell hardening" in plan
+    assert "historical evidence" in plan
+    assert "docs/archive/product-plane-spec-v2/2026-05-06/README.md" in plan
 
 
 def test_product_status_doc_uses_capability_naming_rule() -> None:
@@ -64,6 +73,7 @@ def test_app_docs_index_points_to_status_and_contract_truth_sources() -> None:
     index_doc = _read(ROOT / "docs" / "architecture" / "product-plane" / "README.md")
     assert "STATUS.md" in index_doc
     assert "CONTRACT_SURFACES.md" in index_doc
+    assert "docs/archive/product-plane-spec-v2/2026-05-06/README.md" in index_doc
 
 
 def test_bootstrap_runbook_is_listed_in_app_runbooks_index() -> None:
@@ -71,9 +81,9 @@ def test_bootstrap_runbook_is_listed_in_app_runbooks_index() -> None:
     assert "bootstrap.md" in runbooks_index
 
 
-def test_product_plane_bootstrap_checklist_contains_acceptance_evidence_commands() -> None:
+def test_product_plane_bootstrap_checklist_is_archived_with_acceptance_evidence_commands() -> None:
     checklist = _read(
-        ROOT / "docs" / "checklists" / "app" / "product-plane-bootstrap-acceptance-checklist.md"
+        ARCHIVED_CHECKLIST_DIR / "product-plane-bootstrap-acceptance-checklist.md"
     )
     required_commands = (
         "python -m pytest tests/product-plane -q",

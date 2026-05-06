@@ -1,0 +1,98 @@
+filters:
+  and:
+    - type == "project-node"
+properties:
+  title:
+    displayName: Area
+  node_id:
+    displayName: Node
+  surface:
+    displayName: Surface
+  level:
+    displayName: Level
+  parent_node:
+    displayName: Parent
+  state:
+    displayName: State
+  needs_user_attention:
+    displayName: User
+  confidence:
+    displayName: Confidence
+  last_verified:
+    displayName: Last Verified
+  update_rule:
+    displayName: Update Rule
+  state_source:
+    displayName: State Source
+  source_refs:
+    displayName: Source Refs
+  dfd_refs:
+    displayName: DFD Refs
+  proof_refs:
+    displayName: Proof Refs
+views:
+  - type: cards
+    name: Area Cards
+    groupBy:
+      property: surface
+      direction: ASC
+    order:
+      - title
+      - level
+      - state
+      - surface
+      - parent_node
+      - confidence
+      - needs_user_attention
+      - last_verified
+  - type: table
+    name: Area Table
+    order:
+      - title
+      - node_id
+      - surface
+      - level
+      - parent_node
+      - state
+      - needs_user_attention
+      - confidence
+      - update_rule
+      - dfd_refs
+      - source_refs
+      - proof_refs
+      - last_verified
+  - type: table
+    name: By Parent
+    groupBy:
+      property: parent_node
+      direction: ASC
+    order:
+      - title
+      - level
+      - parent_node
+      - state
+      - confidence
+      - update_rule
+      - dfd_refs
+      - source_refs
+      - last_verified
+  - type: table
+    name: Areas Needing Review
+    filters:
+      or:
+        - state == "attention"
+        - state == "blocked"
+        - state == "unknown"
+        - needs_user_attention == true
+    order:
+      - title
+      - node_id
+      - surface
+      - level
+      - parent_node
+      - state
+      - confidence
+      - update_rule
+      - dfd_refs
+      - source_refs
+      - last_verified

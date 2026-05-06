@@ -211,14 +211,14 @@
 
 ## 11. Р”РѕРєСѓРјРµРЅС‚С‹ РїР°РєРµС‚Р°
 
-- `docs/architecture/product-plane/product-plane-spec-v2/00_AI_Shell_Alignment.md`
-- `docs/architecture/product-plane/product-plane-spec-v2/01_Architecture_Overview.md`
-- `docs/architecture/product-plane/product-plane-spec-v2/02_Repository_Structure.md`
-- `docs/architecture/product-plane/product-plane-spec-v2/03_Data_Model_and_Flows.md`
-- `docs/architecture/product-plane/product-plane-spec-v2/04_ADRs.md`
-- `docs/architecture/product-plane/product-plane-spec-v2/05_Modules_DoD_and_Parallelization.md`
-- `docs/architecture/product-plane/product-plane-spec-v2/06_Capability_Slices_and_Acceptance_Gates.md`
-- `docs/architecture/product-plane/product-plane-spec-v2/07_Tech_Stack_and_Open_Source.md`
-- `docs/architecture/product-plane/product-plane-spec-v2/08_Codex_AI_Shell_Integration.md`
-- `docs/architecture/product-plane/product-plane-spec-v2/09_Constraints_Risks_and_NFR.md`
-- `docs/architecture/product-plane/product-plane-spec-v2/10_MCP_Deployment_Request.md`
+- `docs/archive/product-plane-spec-v2/2026-05-06/00_AI_Shell_Alignment.md`
+- `docs/archive/product-plane-spec-v2/2026-05-06/01_Architecture_Overview.md`
+- `docs/archive/product-plane-spec-v2/2026-05-06/02_Repository_Structure.md`
+- `docs/archive/product-plane-spec-v2/2026-05-06/03_Data_Model_and_Flows.md`
+- `docs/archive/product-plane-spec-v2/2026-05-06/04_ADRs.md`
+- `docs/archive/product-plane-spec-v2/2026-05-06/05_Modules_DoD_and_Parallelization.md`
+- `docs/archive/product-plane-spec-v2/2026-05-06/06_Capability_Slices_and_Acceptance_Gates.md`
+- `docs/archive/product-plane-spec-v2/2026-05-06/07_Tech_Stack_and_Open_Source.md`
+- `docs/archive/product-plane-spec-v2/2026-05-06/08_Codex_AI_Shell_Integration.md`
+- `docs/archive/product-plane-spec-v2/2026-05-06/09_Constraints_Risks_and_NFR.md`
+- `docs/archive/product-plane-spec-v2/2026-05-06/10_MCP_Deployment_Request.md`

@@ -23,13 +23,14 @@ Use these exact terms in task notes and PRs:
 | `src/trading_advisor_3000/*` | product-plane | application runtime, contracts, and modules |
 | `src/trading_advisor_3000/dagster_defs/*`, `src/trading_advisor_3000/spark_jobs/*` | product-plane | data-plane execution definitions and Spark jobs; domain tokens are allowed here because these modules are product execution surfaces |
 | `tests/product-plane/*` | product-plane | product tests |
-| `docs/architecture/product-plane/*`, `docs/runbooks/app/*`, `docs/checklists/app/*`, `docs/workflows/app/*` | product-plane | product architecture and operational evidence |
+| `docs/architecture/product-plane/*`, `docs/runbooks/app/*`, `docs/workflows/app/*` | product-plane | product architecture and operational evidence |
+| `docs/checklists/app/README.md` | product-plane | pointer to archived product-plane acceptance checklist history |
 | `deployment/*` | product-plane | deploy and transport surfaces |
 | `docs/architecture/*` (outside `product-plane/`) | shared | architecture bridge between shell and product-plane |
 
 ## Naming decision for this sweep
 1. Canonical docs root is now `docs/architecture/product-plane/`.
-2. Legacy root `docs/architecture/app` is retained as compatibility redirects during migration window.
+2. Legacy app-path docs are archived under `docs/archive/legacy-app-docs/2026-05-06/`.
 3. Runtime and tests physical renames remain deferred to their dedicated phases.
 
 Migration specification reference:
@@ -41,7 +42,7 @@ Migration specification reference:
 - Guardrail validator: `scripts/validate_legacy_namespace_growth.py` blocks new legacy namespace references in changed files outside explicit migration allowlist paths.
 
 ## Controlled rename candidates and status
-- Completed in this phase: `docs/architecture/app` -> `docs/architecture/product-plane` with legacy redirect stubs.
+- Completed in this phase: legacy app-path docs -> `docs/architecture/product-plane`, with retired app-path docs archived.
 - Completed in this phase: product tests namespace now runs from `tests/product-plane/`.
 - Completed in this phase: product runtime namespace now runs from `src/trading_advisor_3000/product_plane/`.
 

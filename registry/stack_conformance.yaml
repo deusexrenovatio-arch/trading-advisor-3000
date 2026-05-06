@@ -2,7 +2,7 @@ version: 1
 
 truth_sources:
   status_doc: docs/architecture/product-plane/STATUS.md
-  spec_doc: docs/architecture/product-plane/product-plane-spec-v2/07_Tech_Stack_and_Open_Source.md
+  spec_doc: docs/architecture/product-plane/stack-conformance-baseline.md
   pyproject: pyproject.toml
 
 closure_claim_guard:
@@ -10,8 +10,8 @@ closure_claim_guard:
     - docs/architecture/product-plane/README.md
     - docs/architecture/product-plane/stack-conformance-baseline.md
     - docs/architecture/product-plane/STATUS.md
+    - docs/checklists/app/README.md
   document_globs:
-    - docs/checklists/app/*.md
     - docs/architecture/product-plane/*acceptance-verdict*.md
   forbidden_terms:
     - full DoD
@@ -185,7 +185,7 @@ technology_claims:
     replacement:
       adr_required_when_removed: true
       adr_paths_any:
-        - docs/architecture/product-plane/product-plane-spec-v2/04_ADRs.md
+        - docs/architecture/product-plane/stack-conformance-baseline.md
       adr_markers_any:
         - ADR-011
 
@@ -197,7 +197,7 @@ technology_claims:
     replacement:
       adr_required_when_removed: true
       adr_paths_any:
-        - docs/architecture/product-plane/product-plane-spec-v2/04_ADRs.md
+        - docs/architecture/product-plane/stack-conformance-baseline.md
       adr_markers_any:
         - ADR-011
 
@@ -228,7 +228,7 @@ technology_claims:
         - tests/product-plane/integration/test_research_dagster_jobs.py
     governed_scope:
       adr_paths_any:
-        - docs/architecture/product-plane/product-plane-spec-v2/04_ADRs.md
+        - docs/architecture/product-plane/stack-conformance-baseline.md
       adr_markers_any:
         - ADR-012
       allowed_runtime_modes:
@@ -274,7 +274,7 @@ technology_claims:
     replacement:
       adr_required_when_removed: true
       adr_paths_any:
-        - docs/architecture/product-plane/product-plane-spec-v2/04_ADRs.md
+        - docs/architecture/product-plane/stack-conformance-baseline.md
       adr_markers_any:
         - ADR-011
 
@@ -286,7 +286,7 @@ technology_claims:
     replacement:
       adr_required_when_removed: true
       adr_paths_any:
-        - docs/architecture/product-plane/product-plane-spec-v2/04_ADRs.md
+        - docs/architecture/product-plane/stack-conformance-baseline.md
       adr_markers_any:
         - ADR-011
 
@@ -298,7 +298,7 @@ technology_claims:
     replacement:
       adr_required_when_removed: true
       adr_paths_any:
-        - docs/architecture/product-plane/product-plane-spec-v2/04_ADRs.md
+        - docs/architecture/product-plane/stack-conformance-baseline.md
       adr_markers_any:
         - ADR-011
 

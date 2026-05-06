@@ -88,10 +88,12 @@ Canonical ownership matrix:
 ## Current Reality Versus Target Shape
 1. The dual-surface split is real and already enforced in repository structure.
 2. The product-plane codebase is present under `src/trading_advisor_3000/product_plane/*`.
-3. The product spec still contains target-shape material; it is not automatic proof
-   that every capability is already implemented.
+3. The old product-plane spec v2 package is archived target-shape material; it
+   is not automatic proof that every capability is already implemented.
 4. When target design and implemented reality diverge, implemented-reality status
    documents win for implementation claims.
+5. Old task notes, TZ/package-intake artifacts, and phase reports are historical
+   evidence unless a current truth document explicitly promotes them.
 
 ## Canonical Reading Order
 1. Whole-repo orientation:
@@ -103,19 +105,26 @@ Canonical ownership matrix:
    - [docs/architecture/architecture-map-v2.md](docs/architecture/architecture-map-v2.md)
 4. Current product implementation reality:
    - [docs/architecture/product-plane/STATUS.md](docs/architecture/product-plane/STATUS.md)
-5. Product-plane native runtime ownership:
+5. Current reset and recovery truth:
+   - [docs/project-map/current-truth-map-2026-05-05.md](docs/project-map/current-truth-map-2026-05-05.md)
+   - [docs/project-map/product-reset-audit-2026-05-05.md](docs/project-map/product-reset-audit-2026-05-05.md)
+   - [docs/project-map/documentation-reality-audit-2026-05-05.md](docs/project-map/documentation-reality-audit-2026-05-05.md)
+6. Product-plane native runtime ownership:
    - [docs/architecture/product-plane/native-runtime-ownership.md](docs/architecture/product-plane/native-runtime-ownership.md)
-6. Release-blocking product boundaries:
+7. Release-blocking product boundaries:
    - [docs/architecture/product-plane/CONTRACT_SURFACES.md](docs/architecture/product-plane/CONTRACT_SURFACES.md)
-7. Detailed target product architecture:
-   - [docs/architecture/product-plane/product-plane-spec-v2/01_Architecture_Overview.md](docs/architecture/product-plane/product-plane-spec-v2/01_Architecture_Overview.md)
+8. Current research-plane platform shape:
+   - [docs/architecture/product-plane/research-plane-platform.md](docs/architecture/product-plane/research-plane-platform.md)
+9. Claim-control stack baseline:
+   - [docs/architecture/product-plane/stack-conformance-baseline.md](docs/architecture/product-plane/stack-conformance-baseline.md)
 
 ## Interpretation Rules
 1. Use this document to orient yourself quickly.
 2. Use [repository-surfaces.md](docs/architecture/repository-surfaces.md) when you need exact ownership of paths and change surfaces.
 3. Use [STATUS.md](docs/architecture/product-plane/STATUS.md) when the question is "what is real now?"
 4. Use [CONTRACT_SURFACES.md](docs/architecture/product-plane/CONTRACT_SURFACES.md) when the question is "which interfaces are release-blocking?"
-5. Use the product-plane specification when the question is "what is the intended target shape?"
+5. Use the archived product-plane spec v2 package only when the question is
+   explicitly about historical target-shape provenance.
 
 ## Non-Negotiable Architecture Boundaries
 1. Shell files stay governance-focused and do not host trading-domain logic.

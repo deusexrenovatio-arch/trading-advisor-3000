@@ -74,7 +74,7 @@ Infra / Platform / Repository owners
 3. Repo должен считаться trusted project только после review.
 4. Все MCP credentials хранятся вне repo.
 5. Добавление MCP server документируется в:
-   - `docs/architecture/product-plane/product-plane-spec-v2/08_Codex_AI_Shell_Integration.md`
+   - `docs/archive/product-plane-spec-v2/2026-05-06/08_Codex_AI_Shell_Integration.md`
    - shell instructions / runbooks (если необходимо)
 
 ## Предлагаемый порядок внедрения

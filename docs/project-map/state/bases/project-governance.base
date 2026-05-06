@@ -1,0 +1,92 @@
+filters:
+  or:
+    - type == "project-node"
+    - type == "project-rule"
+properties:
+  title:
+    displayName: Title
+  type:
+    displayName: Type
+  level:
+    displayName: Level
+  parent_node:
+    displayName: Parent
+  state:
+    displayName: State
+  status:
+    displayName: Status
+  confidence:
+    displayName: Confidence
+  update_rule:
+    displayName: Update Rule
+  state_source:
+    displayName: State Source
+  source_refs:
+    displayName: Source Refs
+  dfd_refs:
+    displayName: DFD Refs
+  proof_refs:
+    displayName: Proof Refs
+  last_verified:
+    displayName: Last Verified
+views:
+  - type: table
+    name: Update Matrix
+    filters:
+      and:
+        - type == "project-node"
+    groupBy:
+      property: update_rule
+      direction: ASC
+    order:
+      - title
+      - level
+      - parent_node
+      - state
+      - confidence
+      - state_source
+      - dfd_refs
+      - source_refs
+      - proof_refs
+      - last_verified
+  - type: table
+    name: DFD Alignment
+    filters:
+      and:
+        - type == "project-node"
+    groupBy:
+      property: level
+      direction: ASC
+    order:
+      - title
+      - parent_node
+      - dfd_refs
+      - source_refs
+      - proof_refs
+      - last_verified
+  - type: table
+    name: Rule Notes
+    filters:
+      and:
+        - type == "project-rule"
+    order:
+      - title
+      - status
+      - last_verified
+  - type: table
+    name: Unknown Or Attention
+    filters:
+      and:
+        - type == "project-node"
+        - or:
+            - state == "attention"
+            - state == "blocked"
+            - state == "unknown"
+    order:
+      - title
+      - level
+      - parent_node
+      - state
+      - confidence
+      - state_source
+      - last_verified

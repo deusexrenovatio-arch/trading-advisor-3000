@@ -17,10 +17,12 @@ LEGACY_TOKENS: tuple[str, ...] = (
 )
 ALLOWED_PATH_PREFIXES: tuple[str, ...] = (
     "artifacts/rename-migration/",
+    "docs/archive/",
     "docs/codex/contracts/dual-surface-safe-rename.execution-contract.md",
     "docs/codex/modules/dual-surface-safe-rename.",
     "docs/architecture/dual-surface-safe-rename-migration-technical-specification.md",
     "docs/architecture/product-plane/",
+    "docs/project-map/state/candidates/",
     "src/trading_advisor_3000/product_plane/",
     "scripts/build_dual_surface_rename_inventory.py",
     "scripts/validate_legacy_namespace_growth.py",

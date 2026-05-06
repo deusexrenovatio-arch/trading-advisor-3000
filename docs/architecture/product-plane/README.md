@@ -18,7 +18,8 @@ Read these first:
 Repository naming note:
 - Use `product-plane` as the canonical term in docs and PR text.
 - Canonical docs root is `docs/architecture/product-plane/`.
-- Legacy `docs/architecture/app/` compatibility redirects are retired; minimal historical anchors may remain for immutable planning references.
+- Retired legacy app-path docs are archived at
+  `docs/archive/legacy-app-docs/2026-05-06/README.md`.
 
 Active naming rule:
 - Active file names, test suites, scripts, and selectors use capability names rather than phase labels.
@@ -26,13 +27,27 @@ Active naming rule:
 - `python scripts/validate_product_surface_naming.py` enforces the active-name side of this rule for changed product-facing surfaces.
 - [shell-delivery-operational-proving.md](docs/architecture/product-plane/shell-delivery-operational-proving.md) is a shell-controlled evidence overlay, not proof of full product closure.
 
-## Bootstrap Package
-- `docs/architecture/product-plane/product-plane-spec-v2/TECHNICAL_REQUIREMENTS.md`
-- `docs/architecture/product-plane/product-plane-spec-v2/00_AI_Shell_Alignment.md`
-- `docs/architecture/product-plane/product-plane-spec-v2/02_Repository_Structure.md`
-- `docs/architecture/product-plane/product-plane-spec-v2/06_Capability_Slices_and_Acceptance_Gates.md`
+## Archived Target-Shape Bootstrap Package
 
-## Phase artifacts
+The old product-plane spec v2 package has been moved out of the active
+architecture tree:
+
+- `docs/archive/product-plane-spec-v2/2026-05-06/README.md`
+
+Use that archive only for provenance. For current product reality, read
+`docs/project-map/current-truth-map-2026-05-05.md`,
+`docs/architecture/product-plane/STATUS.md`,
+`docs/architecture/product-plane/CONTRACT_SURFACES.md`,
+`docs/architecture/product-plane/research-plane-platform.md`, and
+`docs/architecture/product-plane/stack-conformance-baseline.md`.
+
+## Historical Capability Evidence
+
+The documents below record capability slices, phase evidence, or closure
+attempts. Read `docs/architecture/product-plane/STATUS.md`,
+`docs/architecture/product-plane/CONTRACT_SURFACES.md`, route decisions,
+current runbooks, code, and tests before treating any of them as current state.
+
 - `docs/architecture/product-plane/product-plane-bootstrap-plan.md` - shell alignment and repo landing.
 - `docs/architecture/product-plane/contracts-and-scaffolding.md` - contracts freeze and scaffolding.
 - `docs/architecture/product-plane/historical-data-plane.md` - data plane MVP implementation and acceptance.
@@ -52,21 +67,18 @@ Active naming rule:
 - `docs/architecture/product-plane/sidecar-wire-api-v1.md` - wire-level HTTP/JSON sidecar contract for staging-first real transport.
 - `docs/architecture/product-plane/bootstrap-through-shadow-acceptance-verdict-2026-03-17.md` - architecture acceptance disposition (MVP vs full target closure).
 
-## Related checklists
-- `docs/checklists/app/product-plane-bootstrap-acceptance-checklist.md`
-- `docs/checklists/app/contracts-and-scaffolding-acceptance-checklist.md`
-- `docs/checklists/app/historical-data-plane-acceptance-checklist.md`
-- `docs/checklists/app/research-plane-acceptance-checklist.md`
-- `docs/checklists/app/runtime-lifecycle-acceptance-checklist.md`
-- `docs/checklists/app/execution-flow-acceptance-checklist.md`
-- `docs/checklists/app/shadow-replay-acceptance-checklist.md`
-- `docs/checklists/app/controlled-live-execution-acceptance-checklist.md`
-- `docs/checklists/app/review-observability-acceptance-checklist.md`
-- `docs/checklists/app/operational-hardening-acceptance-checklist.md`
-- `docs/checklists/app/scale-up-readiness-acceptance-checklist.md`
-- `docs/checklists/app/shell-delivery-operational-proving-acceptance-checklist.md`
-- `docs/checklists/app/data-integration-closure-passport.md`
-- `docs/checklists/app/runtime-publication-closure-passport.md`
+## Archived Acceptance Checklists
+
+The old product-plane acceptance checklists and closure passports have been
+archived at:
+
+- `docs/archive/product-plane-acceptance-checklists/2026-05-06/README.md`
+
+Use that archive only for historical acceptance provenance. Current status and
+release-blocking product boundaries are defined by
+`docs/architecture/product-plane/STATUS.md`,
+`docs/architecture/product-plane/CONTRACT_SURFACES.md`, route decisions,
+runbooks, code, tests, and accepted runtime/data evidence.
 
 ## Boundary rule
 Product-plane changes must not break shell contracts and must not move trading business logic into shell-sensitive paths.
