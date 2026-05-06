@@ -27,10 +27,36 @@ It does not replace implementation docs, checklists, or capability narratives.
 - Dagster closure is `partial`: executable `Definitions` and local materialization proof exist for the historical-data proof slice, while broader orchestration coverage remains open.
 - Durable runtime, service/API, Telegram adapter, and real sidecar closure are not part of this branch baseline and remain unresolved here.
 - Live execution transport baseline remains `partial` on this branch and must not be described as real sidecar closure.
-- Vectorbt status is governed by ADR-012 as a bounded research-only contour (`planned` in stack conformance), not as runtime/live execution core.
+- Vectorbt status is governed by ADR-012 as a bounded research-only contour, not as runtime/live execution core.
 - Legal/commercial envelope for vectorbt is restricted to internal governed research use; external commercialization requires a dedicated legal/product decision.
 - Approved universe contract for strategy promotion is versioned in `docs/architecture/product-plane/approved-universe-v1.md` and is mandatory for multi-asset promotion evidence.
 - Shell proving artifacts do not equal product capability closure.
+
+## Current Stack Markers
+
+These markers are the active machine-readable stack baseline used by
+`registry/stack_conformance.yaml`. They replace the archived spec-v2 stack table
+for current claim-control validation.
+
+| Runtime | Role | Decision |
+| --- | --- | --- |
+| Delta Lake | durable data tables | chosen |
+| Apache Spark | heavy compute / rebuilds | chosen |
+| Dagster | orchestration | chosen |
+| PostgreSQL | runtime state | chosen |
+| vectorbt | backtest/research | chosen |
+| pandas-ta-classic | standard technical indicator catalog | chosen |
+| FastAPI | service/API layer | chosen |
+| .NET 8 | execution sidecar runtime | chosen |
+| StockSharp | execution/QUIK bridge | chosen |
+
+## Removed Stack Decisions
+
+- ADR-011 removes Polars, DuckDB as a product store, aiogram, Alembic, and
+  OpenTelemetry from the active stack baseline. DuckDB remains allowed only as a
+  local validation/profiling helper under the native runtime ownership rule.
+- ADR-012 limits vectorbt to governed research materialization and backtesting;
+  runtime decisions and live execution must not depend on vectorbt.
 
 ## Writer Rules
 - Use vocabulary from [restricted-acceptance-vocabulary.md](docs/architecture/product-plane/restricted-acceptance-vocabulary.md).
