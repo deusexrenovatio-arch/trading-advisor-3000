@@ -2,6 +2,12 @@ version: 1
 source: product-reality-audit-data-to-signal-2026-05-06
 source_refs:
   - docs/project-map/product-reality-audit-data-to-signal-2026-05-06.md
+aggregation:
+  cockpit_level: 1
+  method: unweighted_average
+  rule: >
+    Cockpit cards aggregate scored nodes by level-1 architecture spine. Leaf
+    scores remain keyed by node_id so the weakest block stays visible.
 scale:
   min: 0
   max: 5

@@ -100,6 +100,7 @@ scores:
     assert "P1 decision" in html
     assert "Decision" in html
     assert "Reality audit readiness" in html
+    assert "scored blocks" in html
     assert "4.0/5" in html
     assert "Strongest current layer" in html
     assert "DFD, source, and proof refs" in html

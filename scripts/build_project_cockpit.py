@@ -109,6 +109,9 @@ class BlockRollup:
     priority_counts: Counter[str]
     state_counts: Counter[str]
     needs_user_attention: bool
+    readiness_score: float | None
+    readiness_count: int
+    weakest_readiness_title: str
 
 
 def parse_args() -> argparse.Namespace:
@@ -343,6 +346,9 @@ def _rollup_for(
     ]
     state_counts = Counter(related.state for related in related_nodes)
     priority_counts = Counter(item.priority for item in related_items)
+    readiness_nodes = [related for related in related_nodes if related.readiness_score is not None]
+    readiness_score = _average_readiness(readiness_nodes)
+    weakest = min(readiness_nodes, key=lambda item: item.readiness_score or 0.0) if readiness_nodes else None
     needs_user_attention = any(related.needs_user_attention for related in related_nodes) or any(
         item.needs_user_attention for item in related_items
     )
@@ -367,6 +373,9 @@ def _rollup_for(
         priority_counts=priority_counts,
         state_counts=state_counts,
         needs_user_attention=needs_user_attention,
+        readiness_score=readiness_score,
+        readiness_count=len(readiness_nodes),
+        weakest_readiness_title=weakest.title if weakest is not None else "",
     )
 
 
@@ -435,18 +444,43 @@ def _readiness_tier(score: float | None) -> str:
     return "weak"
 
 
-def _readiness_block(node: ProjectNode) -> str:
-    if node.readiness_score is None:
+def _average_readiness(nodes: list[ProjectNode]) -> float | None:
+    scores = [node.readiness_score for node in nodes if node.readiness_score is not None]
+    if not scores:
+        return None
+    return round(sum(scores) / len(scores), 1)
+
+
+def _sorted_l1_nodes(nodes: list[ProjectNode]) -> list[ProjectNode]:
+    by_id = {node.node_id: node for node in nodes if node.level == 1}
+    ordered = [by_id[node_id] for node_id in LEVEL_1_ORDER if node_id in by_id]
+    ordered_ids = {node.node_id for node in ordered}
+    ordered.extend(_sort_nodes([node for node in nodes if node.level == 1 and node.node_id not in ordered_ids]))
+    return ordered
+
+
+def _readiness_block(node: ProjectNode, *, rollup: BlockRollup | None = None) -> str:
+    rollup_score = rollup.readiness_score if rollup is not None else None
+    score = rollup_score if rollup_score is not None else node.readiness_score
+    if score is None:
         return ""
-    label = node.readiness_label or "Readiness"
-    next_line = f'<span class="readiness-next">Next: {escape(node.readiness_next)}</span>' if node.readiness_next else ""
+    is_rollup = rollup_score is not None
+    label = "Readiness roll-up" if is_rollup else (node.readiness_label or "Readiness")
+    next_text = ""
+    if is_rollup and rollup is not None:
+        next_text = f"{rollup.readiness_count} scored blocks"
+        if rollup.weakest_readiness_title:
+            next_text += f"; weakest: {rollup.weakest_readiness_title}"
+    elif node.readiness_next:
+        next_text = f"Next: {node.readiness_next}"
+    next_line = f'<span class="readiness-next">{escape(next_text)}</span>' if next_text else ""
     return f"""
-  <div class="readiness readiness-{escape(_readiness_tier(node.readiness_score))}">
+  <div class="readiness readiness-{escape(_readiness_tier(score))}">
     <div class="readiness-head">
       <span>Readiness</span>
-      <strong>{escape(_format_score(node.readiness_score))}</strong>
+      <strong>{escape(_format_score(score))}</strong>
     </div>
-    <div class="readiness-bar" aria-hidden="true"><span style="width: {_score_percent(node.readiness_score)}%"></span></div>
+    <div class="readiness-bar" aria-hidden="true"><span style="width: {_score_percent(score)}%"></span></div>
     <span class="readiness-label">{escape(label)}</span>
     {next_line}
   </div>
@@ -454,35 +488,52 @@ def _readiness_block(node: ProjectNode) -> str:
 
 
 def _render_readiness_snapshot(repo_root: Path, output: Path, nodes: list[ProjectNode]) -> str:
-    scored = [node for node in nodes if node.readiness_score is not None]
-    if not scored:
+    children = _children_by_parent(nodes)
+    scored_spines: list[tuple[ProjectNode, list[ProjectNode], float]] = []
+    for spine in _sorted_l1_nodes(nodes):
+        scored = [
+            node
+            for node in [spine, *_collect_descendants(spine, children)]
+            if node.readiness_score is not None
+        ]
+        score = _average_readiness(scored)
+        if score is not None:
+            scored_spines.append((spine, sorted(scored, key=lambda item: (item.readiness_score or 0.0, item.title)), score))
+    if not scored_spines:
         return '<p class="empty">No readiness scores yet.</p>'
     source_link = ""
     if (repo_root / READINESS_SCORES).exists():
         source_link = f'<a class="doc-link" href="{_href(repo_root, output, READINESS_SCORES)}">readiness source</a>'
     cards = []
-    for node in sorted(scored, key=lambda item: (item.readiness_score or 0.0, item.title.lower())):
+    for spine, scored, score in sorted(scored_spines, key=lambda item: (item[2], item[0].title.lower())):
+        weakest = scored[0]
+        breakdown = "\n".join(
+            f"<li>{_note_link(repo_root, output, item.path, item.title)} <strong>{escape(_format_score(item.readiness_score))}</strong></li>"
+            for item in scored
+        )
         cards.append(
             f"""
-<article class="readiness-card readiness-{escape(_readiness_tier(node.readiness_score))}">
+<article class="readiness-card readiness-{escape(_readiness_tier(score))}">
   <div class="card-topline">
-    <span class="node-level">L{node.level}</span>
-    <span class="surface surface-{escape(node.surface)}">{escape(node.surface)}</span>
+    <span class="node-level">L{spine.level}</span>
+    <span class="surface surface-{escape(spine.surface)}">{escape(spine.surface)}</span>
   </div>
-  <h3>{_note_link(repo_root, output, node.path, node.title)}</h3>
+  <h3>{_note_link(repo_root, output, spine.path, spine.title)}</h3>
   <div class="readiness-head">
-    <span>{escape(node.readiness_label or "Readiness")}</span>
-    <strong>{escape(_format_score(node.readiness_score))}</strong>
+    <span>{len(scored)} scored blocks</span>
+    <strong>{escape(_format_score(score))}</strong>
   </div>
-  <div class="readiness-bar" aria-hidden="true"><span style="width: {_score_percent(node.readiness_score)}%"></span></div>
-  <p>{escape(node.readiness_note or node.excerpt)}</p>
-  <span class="readiness-next">Next: {escape(node.readiness_next or "Keep score current.")}</span>
+  <div class="readiness-bar" aria-hidden="true"><span style="width: {_score_percent(score)}%"></span></div>
+  <p>Weakest block: {escape(weakest.title)} ({escape(_format_score(weakest.readiness_score))}).</p>
+  <ul class="readiness-breakdown">
+    {breakdown}
+  </ul>
 </article>
 """
         )
     return f"""
 <div class="readiness-source">
-  <span>Scores are readiness estimates from the current reality audit, not task status.</span>
+  <span>Scores are unweighted L1 roll-ups from the current reality audit, not task status.</span>
   {source_link}
 </div>
 <div class="readiness-grid">
@@ -534,7 +585,7 @@ def _node_card(
     <span>{escape(_priority_summary(rollup.priority_counts))}</span>
   </div>
 """
-    readiness = _readiness_block(node)
+    readiness = _readiness_block(node, rollup=rollup if major else None)
     return f"""
 <article class="{classes}" data-kind="node" data-state="{escape(node.state)}" data-rollup="{escape(rollup_state)}" data-surface="{escape(node.surface)}" data-level="{node.level}" data-search="{search}">
   <div class="card-topline">

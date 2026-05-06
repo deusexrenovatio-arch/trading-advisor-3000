@@ -60,7 +60,8 @@ Not used as truth:
 
 These numeric scores are estimates for the current product goal, not task
 completion percentages. They are mirrored into
-`docs/project-map/state/readiness-scores.yaml` and rendered in the HTML cockpit.
+`docs/project-map/state/readiness-scores.yaml` and rendered in the HTML cockpit
+as level-1 architecture-spine roll-ups.
 
 Scale:
 
