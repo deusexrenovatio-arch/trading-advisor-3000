@@ -1,5 +1,12 @@
 # TA3000 Product Reset Audit - 2026-05-05
 
+## Currentness Note - 2026-05-06
+
+Use `docs/project-map/product-reality-audit-data-to-signal-2026-05-06.md` for
+the fresher Data Plane -> Research Factory -> Signal-to-Action status. That
+follow-up audit supersedes the Optuna/code-state details and the latest physical
+row-count evidence in this reset audit.
+
 ## Product Frame
 
 This audit uses the reset frame:
@@ -152,12 +159,15 @@ What exists:
   - `research_campaign_runs.delta`: 22 rows;
   - `research_rankings_index.delta`: 29,258 rows;
   - `research_run_stats_index.delta`: 37,322 rows.
-- Research runs root has 289 Delta tables, including backtest, trade, ranking,
-  optimizer-study, optimizer-trial, and candidate-like outputs.
+- Research runs root has persisted backtest, trade, ranking, optimizer-study,
+  and optimizer-trial outputs. The fresher 2026-05-06 audit found no current
+  `research_signal_candidates.delta` under `D:/TA3000-data`.
 
 Gaps:
 
-- Current source has no active `optuna`, `optimizer`, `study`, or `trial` code hits under source/campaign/test paths, despite existing Optuna-named persisted benchmark artifacts. This needs reconciliation before claiming Optuna is an active current-code capability.
+- Superseded by the 2026-05-06 data-to-signal audit: current source now has
+  active Optuna/vectorbt research surfaces, so this older inconsistency should
+  not be used as current product state.
 - Strategy families exist more as technical implementations than as falsifiable strategy hypotheses tied to capital-growth goals.
 - Strategy specs do not yet look like a strong research backlog with explicit market behavior, regime, invalidation, expected failure modes, and acceptance evidence.
 - Calendar spread/arbitrage strategies are not present in current main.
@@ -300,10 +310,10 @@ Execution scaffolding exists. Keep it downstream.
    There are real Delta roots and research artifacts, but not yet a daily signal
    loop that helps the user trade.
 
-3. Optuna state is inconsistent.
-   Persisted benchmark artifacts mention Optuna, but current source scan found
-   no active optimizer/Optuna code. This needs a focused reconciliation before
-   optimizer capability is treated as current.
+3. Signal candidate state is not materialized.
+   The 2026-05-06 data-to-signal audit found active Optuna/vectorbt code and
+   ranking evidence, but no current `research_signal_candidates.delta` under the
+   authoritative data root. Candidate projection is now the sharper current gap.
 
 4. Strategy layer lacks product-grade hypotheses.
    Strategy family code exists, but the next value comes from explicit hypotheses,

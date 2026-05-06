@@ -14,7 +14,8 @@ Use these sources for current product-state questions:
 
 | Question | Read first |
 | --- | --- |
-| What is TA3000 now? | `docs/project-map/product-reset-audit-2026-05-05.md` |
+| What is TA3000 now? | `docs/project-map/product-reality-audit-data-to-signal-2026-05-06.md` and `docs/project-map/product-reset-audit-2026-05-05.md` |
+| Where does the current data-to-signal chain break? | `docs/project-map/product-reality-audit-data-to-signal-2026-05-06.md` |
 | Which code/data state is authoritative? | `docs/project-map/status-inventory-2026-05-05.md` |
 | Which worktrees are candidates or noise? | `docs/project-map/worktree-diff-digest-2026-05-05.md` |
 | Which docs are current vs stale? | `docs/project-map/documentation-reality-audit-2026-05-05.md` |

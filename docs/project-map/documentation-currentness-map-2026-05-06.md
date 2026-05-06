@@ -15,7 +15,7 @@ by code, tests, and data-root evidence:
 
 | Area | Current documents |
 | --- | --- |
-| Overall project reality | `docs/project-map/current-truth-map-2026-05-05.md`, `docs/project-map/product-reset-audit-2026-05-05.md`, `docs/project-map/status-inventory-2026-05-05.md` |
+| Overall project reality | `docs/project-map/current-truth-map-2026-05-05.md`, `docs/project-map/product-reality-audit-data-to-signal-2026-05-06.md`, `docs/project-map/product-reset-audit-2026-05-05.md`, `docs/project-map/status-inventory-2026-05-05.md` |
 | Whole-repository architecture | `docs/architecture/trading-advisor-3000.md`, `docs/architecture/repository-surfaces.md` |
 | Product-plane implemented reality | `docs/architecture/product-plane/STATUS.md` |
 | Product contracts | `docs/architecture/product-plane/CONTRACT_SURFACES.md`, `docs/architecture/product-plane/contract-change-policy.md` |

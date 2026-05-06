@@ -16,9 +16,10 @@ For the current TA3000 reset, read these before old task notes, package-intake
 artifacts, or target-shape specs:
 
 - `docs/project-map/current-truth-map-2026-05-05.md` - separates current truth from historical evidence.
+- `docs/project-map/product-reality-audit-data-to-signal-2026-05-06.md` - current Data Plane -> Research Factory -> Signal-to-Action audit.
 - `docs/project-map/documentation-currentness-map-2026-05-06.md` - classifies project documentation by currentness.
 - `docs/project-map/documentation-cleanup-candidates-2026-05-06.md` - working list for archive/rewrite decisions.
-- `docs/project-map/product-reset-audit-2026-05-05.md` - product audit for Research Factory -> Signal-to-Action.
+- `docs/project-map/product-reset-audit-2026-05-05.md` - reset-frame product audit; use the 2026-05-06 data-to-signal audit for fresher Optuna and candidate-projection state.
 - `docs/project-map/documentation-reality-audit-2026-05-05.md` - documentation noise audit and cleanup policy.
 - `docs/project-map/status-inventory-2026-05-05.md` - code/worktree/data snapshot.
 - `docs/project-map/worktree-diff-digest-2026-05-05.md` - recovery triage for local worktrees.
