@@ -2,6 +2,14 @@
 
 This lab folder defines a package-first intake flow for Codex work in this repository.
 
+Documentation currentness boundary:
+
+`docs/codex/**` is delivery/governance machinery. It can define or preserve a
+governed route, but it is not product-plane implementation proof by itself.
+For current product state, start from
+`docs/project-map/current-truth-map-2026-05-05.md` and
+`docs/project-map/documentation-currentness-map-2026-05-06.md`.
+
 The target operator experience is:
 
 1. drop one `zip` package with a full task/TZ document set into the intake inbox;

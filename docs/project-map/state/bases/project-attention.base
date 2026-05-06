@@ -1,0 +1,89 @@
+filters:
+  or:
+    - type == "project-node"
+    - type == "project-item"
+properties:
+  title:
+    displayName: Title
+  type:
+    displayName: Kind
+  node_id:
+    displayName: Node
+  linked_node:
+    displayName: Linked Node
+  state:
+    displayName: State
+  status:
+    displayName: Status
+  priority:
+    displayName: Priority
+  severity:
+    displayName: Severity
+  needs_user_attention:
+    displayName: User
+  confidence:
+    displayName: Confidence
+  owner:
+    displayName: Owner
+  origin_kind:
+    displayName: Origin
+  origin_refs:
+    displayName: Origin Refs
+views:
+  - type: table
+    name: User Attention
+    filters:
+      and:
+        - needs_user_attention == true
+    order:
+      - title
+      - type
+      - node_id
+      - linked_node
+      - state
+      - status
+      - priority
+      - severity
+      - owner
+      - origin_kind
+  - type: table
+    name: Attention Queue
+    filters:
+      or:
+        - state == "attention"
+        - state == "blocked"
+        - state == "unknown"
+        - status == "open"
+        - status == "inbox"
+    order:
+      - title
+      - type
+      - node_id
+      - linked_node
+      - state
+      - status
+      - priority
+      - severity
+      - needs_user_attention
+      - confidence
+      - owner
+      - origin_kind
+      - origin_refs
+  - type: cards
+    name: Attention Cards
+    filters:
+      or:
+        - state == "attention"
+        - state == "blocked"
+        - state == "unknown"
+        - status == "open"
+        - status == "inbox"
+    order:
+      - title
+      - state
+      - status
+      - priority
+      - severity
+      - linked_node
+      - needs_user_attention
+      - origin_kind

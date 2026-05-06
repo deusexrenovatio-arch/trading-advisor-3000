@@ -1,0 +1,24 @@
+{
+	"nodes":[
+		{"id":"1000000000000001","type":"group","x":-360,"y":-220,"width":1280,"height":840,"color":"5","label":"Project Areas Overview"},
+		{"id":"2000000000000001","type":"text","text":"# Project State Graph\n\nOverview only. Click an area card for linked items and details. Items are intentionally not shown on this canvas.","x":-320,"y":-180,"width":1060,"height":90,"color":"5"},
+		{"id":"3000000000000001","type":"file","file":"docs/project-map/state/nodes/Delivery Shell.md","x":-320,"y":-40,"width":260,"height":140,"color":"4"},
+		{"id":"3000000000000002","type":"file","file":"docs/project-map/state/nodes/Product Plane.md","x":40,"y":-40,"width":260,"height":140,"color":"2"},
+		{"id":"3000000000000003","type":"file","file":"docs/project-map/state/nodes/Project Map.md","x":400,"y":-40,"width":260,"height":140,"color":"2"},
+		{"id":"3000000000000004","type":"file","file":"docs/project-map/state/nodes/Data Plane.md","x":-320,"y":170,"width":240,"height":130,"color":"2"},
+		{"id":"3000000000000005","type":"file","file":"docs/project-map/state/nodes/Research Plane.md","x":-20,"y":170,"width":240,"height":130,"color":"2"},
+		{"id":"3000000000000006","type":"file","file":"docs/project-map/state/nodes/Runtime Plane.md","x":280,"y":170,"width":240,"height":130,"color":"3"},
+		{"id":"3000000000000007","type":"file","file":"docs/project-map/state/nodes/Contract Surfaces.md","x":-20,"y":360,"width":240,"height":130,"color":"4"},
+		{"id":"3000000000000008","type":"file","file":"docs/project-map/state/nodes/Execution Plane.md","x":280,"y":360,"width":240,"height":130,"color":"2"},
+		{"id":"5000000000000001","type":"text","text":"## Legend\n\nGreen = ok\nOrange = attention\nYellow = unknown\n\nItems live in node cards and Bases.","x":560,"y":170,"width":170,"height":200,"color":"5"}
+	],
+	"edges":[
+		{"id":"6000000000000001","fromNode":"3000000000000002","fromSide":"left","toNode":"3000000000000001","toSide":"right","label":"governed by"},
+		{"id":"6000000000000002","fromNode":"3000000000000004","fromSide":"right","toNode":"3000000000000005","toSide":"left","label":"feeds"},
+		{"id":"6000000000000003","fromNode":"3000000000000005","fromSide":"right","toNode":"3000000000000006","toSide":"left","label":"candidates"},
+		{"id":"6000000000000004","fromNode":"3000000000000006","fromSide":"bottom","toNode":"3000000000000008","toSide":"top","label":"order context"},
+		{"id":"6000000000000005","fromNode":"3000000000000007","fromSide":"top","toNode":"3000000000000002","toSide":"bottom","label":"contracts constrain"},
+		{"id":"6000000000000006","fromNode":"3000000000000003","fromSide":"left","toNode":"3000000000000001","toSide":"top","label":"maps"},
+		{"id":"6000000000000007","fromNode":"3000000000000003","fromSide":"bottom","toNode":"3000000000000002","toSide":"top","label":"maps"}
+	]
+}

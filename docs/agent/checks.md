@@ -17,6 +17,9 @@
 | Skills catalog drift | `python scripts/sync_skills_catalog.py --check` | ensure generated catalog matches runtime skills |
 | CODEOWNERS coverage | `python scripts/validate_codeowners.py` | ensure ownership routing remains complete |
 | Docs links | `python scripts/validate_docs_links.py --roots AGENTS.md docs` | prevent broken markdown references |
+| Project map contract | `python scripts/validate_project_map.py` | keep Obsidian project-map nodes tied to DFD/source/proof refs |
+| Project map item sync | `python scripts/sync_project_map_items.py --check` | ensure generated attention items match current project-map node signals |
+| Project cockpit freshness | `python scripts/build_project_cockpit.py --check` | ensure generated HTML stays aligned with project-map notes |
 | Legacy namespace growth | `python scripts/validate_legacy_namespace_growth.py` | fail closed when changed files introduce new legacy rename tokens outside migration allowlist |
 | Product surface naming | `python scripts/validate_product_surface_naming.py` | fail closed when active product-facing names reintroduce numbered delivery labels |
 

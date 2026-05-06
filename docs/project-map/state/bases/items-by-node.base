@@ -1,0 +1,50 @@
+filters:
+  and:
+    - type == "project-item"
+properties:
+  title:
+    displayName: Title
+  item_type:
+    displayName: Type
+  linked_node:
+    displayName: Linked Node
+  status:
+    displayName: Status
+  priority:
+    displayName: Priority
+  severity:
+    displayName: Severity
+  needs_user_attention:
+    displayName: Needs Attention
+  owner:
+    displayName: Owner
+  created:
+    displayName: Created
+  origin_kind:
+    displayName: Origin
+  origin_refs:
+    displayName: Origin Refs
+views:
+  - type: table
+    name: Items By Node
+    filters:
+      or:
+        - status == "open"
+        - status == "inbox"
+        - status == "watch"
+    groupBy:
+      property: linked_node
+      direction: ASC
+    order:
+      - file.name
+      - title
+      - linked_node
+      - item_type
+      - status
+      - priority
+      - severity
+      - needs_user_attention
+      - owner
+      - created
+      - origin_kind
+      - origin_refs

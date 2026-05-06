@@ -1,0 +1,105 @@
+filters:
+  and:
+    - type == "project-item"
+properties:
+  title:
+    displayName: Title
+  item_id:
+    displayName: Item
+  item_type:
+    displayName: Type
+  linked_node:
+    displayName: Area
+  status:
+    displayName: Status
+  priority:
+    displayName: Priority
+  severity:
+    displayName: Severity
+  needs_user_attention:
+    displayName: User
+  owner:
+    displayName: Owner
+  created:
+    displayName: Created
+  origin_kind:
+    displayName: Origin
+  origin_refs:
+    displayName: Origin Refs
+  sync_managed:
+    displayName: Synced
+views:
+  - type: cards
+    name: Triage Board
+    filters:
+      or:
+        - status == "inbox"
+        - status == "open"
+        - status == "watch"
+    groupBy:
+      property: status
+      direction: ASC
+    order:
+      - title
+      - item_type
+      - linked_node
+      - priority
+      - severity
+      - needs_user_attention
+      - owner
+      - origin_kind
+  - type: table
+    name: Inbox
+    filters:
+      and:
+        - status == "inbox"
+    order:
+      - title
+      - item_type
+      - linked_node
+      - priority
+      - severity
+      - needs_user_attention
+      - owner
+      - created
+      - origin_kind
+      - origin_refs
+  - type: table
+    name: Open Problems And Risks
+    filters:
+      and:
+        - status == "open"
+        - or:
+            - item_type == "problem"
+            - item_type == "risk"
+            - item_type == "question"
+    order:
+      - title
+      - item_type
+      - linked_node
+      - priority
+      - severity
+      - needs_user_attention
+      - owner
+      - created
+      - origin_kind
+      - origin_refs
+  - type: table
+    name: All Active Items
+    filters:
+      or:
+        - status == "inbox"
+        - status == "open"
+        - status == "watch"
+    order:
+      - title
+      - item_type
+      - linked_node
+      - status
+      - priority
+      - severity
+      - needs_user_attention
+      - owner
+      - created
+      - origin_kind
+      - origin_refs
