@@ -160,8 +160,9 @@ What exists:
   - `research_rankings_index.delta`: 29,258 rows;
   - `research_run_stats_index.delta`: 37,322 rows.
 - Research runs root has persisted backtest, trade, ranking, optimizer-study,
-  and optimizer-trial outputs. The fresher 2026-05-06 audit found no current
-  `research_signal_candidates.delta` under `D:/TA3000-data`.
+  and optimizer-trial outputs. The fresher 2026-05-06 audit found no non-empty
+  current `research_signal_candidates.delta` feed; an isolated projection proof
+  created an empty verification table.
 
 Gaps:
 
@@ -310,10 +311,12 @@ Execution scaffolding exists. Keep it downstream.
    There are real Delta roots and research artifacts, but not yet a daily signal
    loop that helps the user trade.
 
-3. Signal candidate state is not materialized.
+3. Signal candidate state is empty.
    The 2026-05-06 data-to-signal audit found active Optuna/vectorbt code and
-   ranking evidence, but no current `research_signal_candidates.delta` under the
-   authoritative data root. Candidate projection is now the sharper current gap.
+   ranking evidence, then materialized an isolated verification
+   `research_signal_candidates.delta` with `_delta_log` and zero rows under the
+   current freshness policy. Non-empty candidate projection is now the sharper
+   current gap.
 
 4. Strategy layer lacks product-grade hypotheses.
    Strategy family code exists, but the next value comes from explicit hypotheses,

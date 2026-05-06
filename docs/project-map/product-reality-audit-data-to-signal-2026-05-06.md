@@ -51,7 +51,7 @@ Not used as truth:
 | Strategy registry / search | Implemented and populated | Strategy-family machinery exists; it is not just docs. |
 | Vectorbt / Optuna backtest path | Implemented and materially exercised | Current code has an active vectorbt and Optuna path. |
 | Strategy validation | Partly implemented | There are rankings and gates, but no accepted capital-allocation standard yet. |
-| Signal candidate projection | Implemented in code, not current on disk | This is the main break before runtime usefulness. |
+| Signal candidate projection | Implemented and verified as an isolated empty Delta output | This is still the main break before runtime usefulness. |
 | Runtime signal lifecycle | Implemented | Candidate replay, Telegram publication lifecycle, and durable state exist. |
 | Telegram advisory product loop | Not proven | No current real candidate feed and no accepted live Telegram delivery proof. |
 | Paper / semi-auto / live execution | Downstream | Correctly remains after validated strategies and advisory proof. |
@@ -60,7 +60,7 @@ The short version:
 
 TA3000 is no longer only scaffolding. The data and research factory are real.
 The runtime/Telegram chain is real as a technical surface. The missing product
-bridge is a current, materialized `research_signal_candidates` output plus an
+bridge is a current, non-empty `research_signal_candidates` output plus an
 accepted advisory signal contract and live delivery proof.
 
 ## Physical Data Evidence
@@ -175,24 +175,46 @@ materialize `research_signal_candidates`.
 
 ## Signal Candidate Gap
 
-Direct storage search found:
+The initial direct storage search found no current candidate table:
 
 ```text
 research_signal_candidates.delta directories under D:/TA3000-data: 0
 ```
 
+After this audit identified the gap, an isolated projection proof was run from
+the latest sampled ranking output into a verification run folder:
+
+```text
+D:/TA3000-data/trading-advisor-3000-nightly/research/runs/_verification/
+  product-reality-audit-signal-candidates/20260506T141926Z/results/
+  research_signal_candidates.delta
+```
+
+Projection proof result:
+
+| Field | Value |
+| --- | ---: |
+| Source ranking rows | 3,703 |
+| Selection policy | `all_policy_pass` |
+| Minimum robust score | 0.55 |
+| Decision lag | 4 bars |
+| Candidate Delta `_delta_log` | true |
+| Candidate rows | 0 |
+
 Interpretation:
 
 - Candidate projection exists in code and tests.
 - Some backtest summaries contain `projection_qualified_count`.
-- No current physical `research_signal_candidates.delta` table exists under the
-  authoritative data root.
+- A verification `research_signal_candidates.delta` table can now be written.
+- Under the current freshness policy, that table is empty.
 
 This is the main product gap between Research Factory and Telegram advisory
-delivery.
+delivery: not table creation, but a non-empty, fresh, strategy-acceptable
+candidate feed.
 
 The next useful proof is not another broad audit. It is a projection proof that
-materializes candidate rows from current ranked research output and verifies:
+materializes non-empty candidate rows from current ranked research output or
+records exactly why no fresh candidates qualify. It should verify:
 
 - output path;
 - `_delta_log`;
@@ -275,7 +297,7 @@ manual nature.
 
 | Gap | Why it matters | Next proof |
 | --- | --- | --- |
-| No current `research_signal_candidates.delta` | Runtime has no current research-backed input. | Materialize projection asset from latest ranked output. |
+| No non-empty current `research_signal_candidates.delta` | Runtime has no current research-backed input. | Produce fresh candidates or record why zero qualify. |
 | No advisory signal contract accepted | Telegram messages may be technically delivered but not useful for manual trading. | Define entry/exit/invalidate/hold payload and lifecycle. |
 | No live Telegram evidence tied to candidates | Adapter exists, but product channel is not proven. | Send or dry-run with fail-closed live binding proof after candidate materialization. |
 | Strategy validation not capital-ready | Rankings are not enough to risk capital. | Create repeatable validation packet and promotion labels. |
