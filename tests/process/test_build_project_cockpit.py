@@ -68,6 +68,18 @@ Short note body for {title}.
 def test_project_cockpit_renders_nodes_items_and_traceability(tmp_path: Path) -> None:
     _write_node(tmp_path, title="Product Plane", node_id="product-plane", state="attention")
     _write_node(tmp_path, title="Research Data Prep", node_id="research-data-prep", level=2, parent="product-plane")
+    readiness_path = tmp_path / "docs" / "project-map" / "state" / "readiness-scores.yaml"
+    readiness_path.write_text(
+        """version: 1
+scores:
+  - node_id: research-data-prep
+    score: 4.0
+    label: Strongest current layer
+    note: Materialized and reusable.
+    next_proof: Keep freshness tied to canonical refresh.
+""",
+        encoding="utf-8",
+    )
     item_path = create_item(
         repo_root=tmp_path,
         title="Open Research Question",
@@ -87,6 +99,9 @@ def test_project_cockpit_renders_nodes_items_and_traceability(tmp_path: Path) ->
     assert "Open Research Question" in html
     assert "P1 decision" in html
     assert "Decision" in html
+    assert "Reality audit readiness" in html
+    assert "4.0/5" in html
+    assert "Strongest current layer" in html
     assert "DFD, source, and proof refs" in html
     assert item_path.name.replace(" ", "%20") in html
 

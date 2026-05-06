@@ -34,6 +34,7 @@ It is separate from DFD:
 
 - `state/nodes/*.md` - project areas.
 - `state/items/*.md` - ideas, problems, risks, questions, and follow-up tasks.
+- `state/readiness-scores.yaml` - numeric readiness estimates rendered into the cockpit.
 - `project-cockpit.html` - generated browser cockpit over the same notes.
 - Project Graph Lens - graph-first Obsidian entrypoint.
 - `state/bases/*.base` - secondary filtered views over nodes and items.

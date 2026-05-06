@@ -78,6 +78,10 @@
     }
     .metric span { display: block; color: var(--muted); font-size: 12px; }
     .metric strong { display: block; margin-top: 4px; font-size: 24px; }
+    .doc-link {
+      color: var(--text);
+      border-bottom: 1px solid var(--line);
+    }
     .section {
       margin-top: 28px;
     }
@@ -93,6 +97,64 @@
       font-size: 12px;
       text-transform: uppercase;
     }
+    .readiness-source {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+    .readiness-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(235px, 1fr));
+      gap: 10px;
+    }
+    .readiness-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 12px;
+    }
+    .readiness-card p {
+      color: var(--muted);
+      margin-top: 8px;
+    }
+    .readiness {
+      display: grid;
+      gap: 5px;
+      border-top: 1px solid var(--line);
+      padding-top: 8px;
+      margin-top: 8px;
+    }
+    .readiness-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+    }
+    .readiness-head span, .readiness-label, .readiness-next {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .readiness-head strong {
+      font-size: 18px;
+    }
+    .readiness-bar {
+      height: 7px;
+      border-radius: 999px;
+      background: #363a42;
+      overflow: hidden;
+    }
+    .readiness-bar span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--unknown);
+    }
+    .readiness-high .readiness-bar span { background: var(--ok); }
+    .readiness-medium .readiness-bar span { background: var(--attention); }
+    .readiness-low .readiness-bar span { background: var(--unknown); }
+    .readiness-weak .readiness-bar span { background: var(--blocked); }
     .level-one-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
@@ -223,6 +285,7 @@
       .topbar { grid-template-columns: 1fr; }
       .controls { grid-template-columns: 1fr 1fr; }
       .metrics { grid-template-columns: repeat(2, 1fr); }
+      .readiness-source { flex-direction: column; }
       .evidence-grid { grid-template-columns: 1fr; }
     }
   </style>
@@ -276,6 +339,174 @@
 <div class="metric"><span>Unknown</span><strong>1</strong></div>
     </section>
 
+    <section class="section" aria-label="Readiness scores">
+      <header>
+        <div>
+          <p class="eyebrow">Readiness scores</p>
+          <h2>Reality audit readiness</h2>
+        </div>
+      </header>
+
+<div class="readiness-source">
+  <span>Scores are readiness estimates from the current reality audit, not task status.</span>
+  <a class="doc-link" href="state/readiness-scores.yaml">readiness source</a>
+</div>
+<div class="readiness-grid">
+
+<article class="readiness-card readiness-weak">
+  <div class="card-topline">
+    <span class="node-level">L1</span>
+    <span class="surface surface-product-plane">product-plane</span>
+  </div>
+  <h3><a href="state/nodes/Execution%20Plane.md">Execution Plane</a></h3>
+  <div class="readiness-head">
+    <span>Downstream by design</span>
+    <strong>1.8/5</strong>
+  </div>
+  <div class="readiness-bar" aria-hidden="true"><span style="width: 36%"></span></div>
+  <p>Paper/live scaffolding exists, but live execution is intentionally behind strategy validation and advisory proof.</p>
+  <span class="readiness-next">Next: Keep live execution blocked until validated strategy and advisory loop are accepted.</span>
+</article>
+
+<article class="readiness-card readiness-low">
+  <div class="card-topline">
+    <span class="node-level">L2</span>
+    <span class="surface surface-product-plane">product-plane</span>
+  </div>
+  <h3><a href="state/nodes/Signal%20Candidate%20Projection.md">Signal Candidate Projection</a></h3>
+  <div class="readiness-head">
+    <span>Writes table, no fresh candidates</span>
+    <strong>2.2/5</strong>
+  </div>
+  <div class="readiness-bar" aria-hidden="true"><span style="width: 44%"></span></div>
+  <p>Isolated projection proof created a Delta table with _delta_log, but candidate rows were zero.</p>
+  <span class="readiness-next">Next: Produce non-empty fresh candidates or record exact no-signal reasons.</span>
+</article>
+
+<article class="readiness-card readiness-low">
+  <div class="card-topline">
+    <span class="node-level">L2</span>
+    <span class="surface surface-product-plane">product-plane</span>
+  </div>
+  <h3><a href="state/nodes/Paper%20Execution.md">Paper Execution</a></h3>
+  <div class="readiness-head">
+    <span>Paper path exists</span>
+    <strong>2.5/5</strong>
+  </div>
+  <div class="readiness-bar" aria-hidden="true"><span style="width: 50%"></span></div>
+  <p>Paper broker flow and tests exist, but it is not the near-term product interface.</p>
+  <span class="readiness-next">Next: Connect paper mode only after advisory signal contract is accepted.</span>
+</article>
+
+<article class="readiness-card readiness-low">
+  <div class="card-topline">
+    <span class="node-level">L1</span>
+    <span class="surface surface-product-plane">product-plane</span>
+  </div>
+  <h3><a href="state/nodes/Runtime%20Plane.md">Runtime Plane</a></h3>
+  <div class="readiness-head">
+    <span>Technical runtime, not product loop</span>
+    <strong>2.7/5</strong>
+  </div>
+  <div class="readiness-bar" aria-hidden="true"><span style="width: 54%"></span></div>
+  <p>Runtime and Telegram adapter surfaces exist, but current advisory loop is not proven.</p>
+  <span class="readiness-next">Next: Bind non-empty candidates to advisory message delivery and monitoring.</span>
+</article>
+
+<article class="readiness-card readiness-medium">
+  <div class="card-topline">
+    <span class="node-level">L2</span>
+    <span class="surface surface-product-plane">product-plane</span>
+  </div>
+  <h3><a href="state/nodes/Signal%20Lifecycle.md">Signal Lifecycle</a></h3>
+  <div class="readiness-head">
+    <span>Runtime lifecycle implemented</span>
+    <strong>3.1/5</strong>
+  </div>
+  <div class="readiness-bar" aria-hidden="true"><span style="width: 62%"></span></div>
+  <p>Replay, publish/update/close/cancel/expire, and signal event history exist.</p>
+  <span class="readiness-next">Next: Replay real projected candidates through advisory mode with persisted state evidence.</span>
+</article>
+
+<article class="readiness-card readiness-medium">
+  <div class="card-topline">
+    <span class="node-level">L2</span>
+    <span class="surface surface-product-plane">product-plane</span>
+  </div>
+  <h3><a href="state/nodes/Backtest%20And%20Ranking.md">Backtest And Ranking</a></h3>
+  <div class="readiness-head">
+    <span>Exercised research path</span>
+    <strong>3.2/5</strong>
+  </div>
+  <div class="readiness-bar" aria-hidden="true"><span style="width: 64%"></span></div>
+  <p>Vectorbt/Optuna campaign evidence exists; capital-allocation validation is not accepted.</p>
+  <span class="readiness-next">Next: Add repeatable validation packet with OOS, costs, robustness, and rejection evidence.</span>
+</article>
+
+<article class="readiness-card readiness-medium">
+  <div class="card-topline">
+    <span class="node-level">L2</span>
+    <span class="surface surface-product-plane">product-plane</span>
+  </div>
+  <h3><a href="state/nodes/Durable%20Signal%20Store.md">Durable Signal Store</a></h3>
+  <div class="readiness-head">
+    <span>Durable runtime state exists</span>
+    <strong>3.3/5</strong>
+  </div>
+  <div class="readiness-bar" aria-hidden="true"><span style="width: 66%"></span></div>
+  <p>Staging/production profiles use PostgresSignalStore and block non-durable fallbacks.</p>
+  <span class="readiness-next">Next: Keep restart/recovery proof tied to real advisory replay.</span>
+</article>
+
+<article class="readiness-card readiness-medium">
+  <div class="card-topline">
+    <span class="node-level">L2</span>
+    <span class="surface surface-product-plane">product-plane</span>
+  </div>
+  <h3><a href="state/nodes/Strategy%20Registry.md">Strategy Registry</a></h3>
+  <div class="readiness-head">
+    <span>Implemented and populated</span>
+    <strong>3.4/5</strong>
+  </div>
+  <div class="readiness-bar" aria-hidden="true"><span style="width: 68%"></span></div>
+  <p>Strategy families/templates exist and are populated; hypothesis discipline is still uneven.</p>
+  <span class="readiness-next">Next: Attach falsifiable research notes and acceptance criteria to promoted families.</span>
+</article>
+
+<article class="readiness-card readiness-medium">
+  <div class="card-topline">
+    <span class="node-level">L1</span>
+    <span class="surface surface-product-plane">product-plane</span>
+  </div>
+  <h3><a href="state/nodes/Data%20Plane.md">Data Plane</a></h3>
+  <div class="readiness-head">
+    <span>Real materialized foundation</span>
+    <strong>3.8/5</strong>
+  </div>
+  <div class="readiness-bar" aria-hidden="true"><span style="width: 76%"></span></div>
+  <p>Canonical and research Delta roots exist with row-count proof; strategy-readiness QC still incomplete.</p>
+  <span class="readiness-next">Next: Define strategy-ready data QC for target strategy families.</span>
+</article>
+
+<article class="readiness-card readiness-high">
+  <div class="card-topline">
+    <span class="node-level">L2</span>
+    <span class="surface surface-product-plane">product-plane</span>
+  </div>
+  <h3><a href="state/nodes/Research%20Data%20Prep.md">Research Data Prep</a></h3>
+  <div class="readiness-head">
+    <span>Strongest current layer</span>
+    <strong>4.0/5</strong>
+  </div>
+  <div class="readiness-bar" aria-hidden="true"><span style="width: 80%"></span></div>
+  <p>Research gold frames and continuous-front frames are materialized and reusable.</p>
+  <span class="readiness-next">Next: Keep freshness tied to canonical refresh and campaign materialization locks.</span>
+</article>
+
+</div>
+
+    </section>
+
     <section class="section">
       <header>
         <div>
@@ -292,6 +523,7 @@
   </div>
   <h3><a href="state/nodes/Delivery%20Shell.md">Delivery Shell</a></h3>
   <p>Control plane for policy, context routing, task lifecycle, gates, PR evidence, and handoff state. DFD shape was corrected from a linear workflow to a control-plane model. Delivery Gates, Durable Work State, and</p>
+
 
   <div class="rollup-line">
     <span>ok 5</span>
@@ -313,6 +545,7 @@
   <h3><a href="state/nodes/Product%20Plane.md">Product Plane</a></h3>
   <p>Application plane for contracts, data, research, runtime, execution, app docs, and product tests. Status is broad and should be read through child nodes before making delivery claims. Execution Plane. Use the...</p>
 
+
   <div class="rollup-line">
     <span>unknown 1 / attention 13 / ok 9</span>
     <span>P2 1</span>
@@ -325,13 +558,24 @@
 </article>
 
 
-<article class="node-card filterable node-major" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="1" data-search="data plane data-plane product-plane attention review historical market ingestion, moex raw/canonical baseline, qc, and research handoff. dfd now uses short store names and keeps full paths in canonical status/runbook docs. raw data ingest, canonical data refresh... docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/moex-nightly-v2-architecture.md docs/runbooks/app/moex-baseline-storage-runbook.md docs/obsidian/dfd/level-2-data-plane.md docs/obsidian/dfd/level-1-product-plane.md scripts/run_moex_raw_ingest.py scripts/run_moex_canonical_refresh.py tests/product-plane/unit/test_moex_canonical_route.py">
+<article class="node-card filterable node-major" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="1" data-search="data plane data-plane product-plane attention review historical market ingestion, moex raw/canonical baseline, qc, and research handoff. dfd now uses short store names and keeps full paths in canonical status/runbook docs. raw data ingest, canonical data refresh... real materialized foundation canonical and research delta roots exist with row-count proof; strategy-readiness qc still incomplete. define strategy-ready data qc for target strategy families. docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/moex-nightly-v2-architecture.md docs/runbooks/app/moex-baseline-storage-runbook.md docs/obsidian/dfd/level-2-data-plane.md docs/obsidian/dfd/level-1-product-plane.md scripts/run_moex_raw_ingest.py scripts/run_moex_canonical_refresh.py tests/product-plane/unit/test_moex_canonical_route.py">
   <div class="card-topline">
     <span class="node-level">L1</span>
     <span class="surface surface-product-plane">product-plane</span>
   </div>
   <h3><a href="state/nodes/Data%20Plane.md">Data Plane</a></h3>
   <p>Historical market ingestion, MOEX raw/canonical baseline, QC, and research handoff. DFD now uses short store names and keeps full paths in canonical status/runbook docs. Raw Data Ingest, Canonical Data Refresh...</p>
+
+  <div class="readiness readiness-medium">
+    <div class="readiness-head">
+      <span>Readiness</span>
+      <strong>3.8/5</strong>
+    </div>
+    <div class="readiness-bar" aria-hidden="true"><span style="width: 76%"></span></div>
+    <span class="readiness-label">Real materialized foundation</span>
+    <span class="readiness-next">Next: Define strategy-ready data QC for target strategy families.</span>
+  </div>
+
 
   <div class="rollup-line">
     <span>attention 4 / ok 1</span>
@@ -353,6 +597,7 @@
   <h3><a href="state/nodes/Research%20Plane.md">Research Plane</a></h3>
   <p>Materialized research data prep, strategy registry, backtest outputs, rankings, findings, and candidate projection. Research state should be checked through persisted Delta tables and current status docs, not...</p>
 
+
   <div class="rollup-line">
     <span>attention 5</span>
     <span>No active items</span>
@@ -365,13 +610,24 @@
 </article>
 
 
-<article class="node-card filterable node-major" data-kind="node" data-state="unknown" data-rollup="unknown" data-surface="product-plane" data-level="1" data-search="runtime plane runtime-plane product-plane unknown unknown runtime signal lifecycle, durable signal store, publication state, and api runtime surface. state graph mvp marks this as unknown until the runtime-specific state view is reviewed against current proof. durabl... docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/runtime-lifecycle.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-research-to-runtime.md docs/obsidian/dfd/level-1-product-plane.md tests/product-plane/integration/test_runtime_lifecycle.py tests/product-plane/integration/test_runtime_postgres_store.py">
+<article class="node-card filterable node-major" data-kind="node" data-state="unknown" data-rollup="unknown" data-surface="product-plane" data-level="1" data-search="runtime plane runtime-plane product-plane unknown unknown runtime signal lifecycle, durable signal store, publication state, and api runtime surface. state graph mvp marks this as unknown until the runtime-specific state view is reviewed against current proof. durabl... technical runtime, not product loop runtime and telegram adapter surfaces exist, but current advisory loop is not proven. bind non-empty candidates to advisory message delivery and monitoring. docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/runtime-lifecycle.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-research-to-runtime.md docs/obsidian/dfd/level-1-product-plane.md tests/product-plane/integration/test_runtime_lifecycle.py tests/product-plane/integration/test_runtime_postgres_store.py">
   <div class="card-topline">
     <span class="node-level">L1</span>
     <span class="surface surface-product-plane">product-plane</span>
   </div>
   <h3><a href="state/nodes/Runtime%20Plane.md">Runtime Plane</a></h3>
   <p>Runtime signal lifecycle, durable signal store, publication state, and API runtime surface. State graph MVP marks this as unknown until the runtime-specific state view is reviewed against current proof. Durabl...</p>
+
+  <div class="readiness readiness-low">
+    <div class="readiness-head">
+      <span>Readiness</span>
+      <strong>2.7/5</strong>
+    </div>
+    <div class="readiness-bar" aria-hidden="true"><span style="width: 54%"></span></div>
+    <span class="readiness-label">Technical runtime, not product loop</span>
+    <span class="readiness-next">Next: Bind non-empty candidates to advisory message delivery and monitoring.</span>
+  </div>
+
 
   <div class="rollup-line">
     <span>unknown 1 / attention 1 / ok 3</span>
@@ -385,13 +641,24 @@
 </article>
 
 
-<article class="node-card filterable node-major" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="1" data-search="execution plane execution-plane product-plane attention review paper execution, sidecar boundary, broker events, reconciliation, and position/risk snapshots. the current dfd intentionally does not invent a durable execution db. sidecar wire boundary, and broker process cl... docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/execution-flow.md docs/architecture/product-plane/controlled-live-execution.md docs/architecture/product-plane/sidecar-wire-api-v1.md docs/obsidian/dfd/level-2-contracts-and-execution.md docs/obsidian/dfd/level-1-product-plane.md tests/product-plane/integration/test_execution_flow.py tests/product-plane/integration/test_real_execution_staging_rollout.py">
+<article class="node-card filterable node-major" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="1" data-search="execution plane execution-plane product-plane attention review paper execution, sidecar boundary, broker events, reconciliation, and position/risk snapshots. the current dfd intentionally does not invent a durable execution db. sidecar wire boundary, and broker process cl... downstream by design paper/live scaffolding exists, but live execution is intentionally behind strategy validation and advisory proof. keep live execution blocked until validated strategy and advisory loop are accepted. docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/execution-flow.md docs/architecture/product-plane/controlled-live-execution.md docs/architecture/product-plane/sidecar-wire-api-v1.md docs/obsidian/dfd/level-2-contracts-and-execution.md docs/obsidian/dfd/level-1-product-plane.md tests/product-plane/integration/test_execution_flow.py tests/product-plane/integration/test_real_execution_staging_rollout.py">
   <div class="card-topline">
     <span class="node-level">L1</span>
     <span class="surface surface-product-plane">product-plane</span>
   </div>
   <h3><a href="state/nodes/Execution%20Plane.md">Execution Plane</a></h3>
   <p>Paper execution, sidecar boundary, broker events, reconciliation, and position/risk snapshots. The current DFD intentionally does not invent a durable execution DB. Sidecar Wire Boundary, and Broker Process Cl...</p>
+
+  <div class="readiness readiness-weak">
+    <div class="readiness-head">
+      <span>Readiness</span>
+      <strong>1.8/5</strong>
+    </div>
+    <div class="readiness-bar" aria-hidden="true"><span style="width: 36%"></span></div>
+    <span class="readiness-label">Downstream by design</span>
+    <span class="readiness-next">Next: Keep live execution blocked until validated strategy and advisory loop are accepted.</span>
+  </div>
+
 
   <div class="rollup-line">
     <span>attention 2 / ok 2</span>
@@ -413,6 +680,7 @@
   <h3><a href="state/nodes/Contract%20Surfaces.md">Contract Surfaces</a></h3>
   <p>Release-blocking schemas, fixtures, contract tests, and compatibility inventory. DFD points at short contract store names; canonical contract truth stays in the contract-surfaces architecture document. Contrac...</p>
 
+
   <div class="rollup-line">
     <span>ok 3</span>
     <span>No active items</span>
@@ -432,6 +700,7 @@
   </div>
   <h3><a href="state/nodes/Project%20Map.md">Project Map</a></h3>
   <p>Obsidian-friendly DFD and project state graph layer. The state graph MVP needs user review before adding Canvas projection or automation. DFD Readability Review, and Canvas Projection. Use the Items By Node ba...</p>
+
 
   <div class="rollup-line">
     <span>attention 1</span>
@@ -473,6 +742,7 @@
   <h3><a href="state/nodes/Agent%20Entry%20And%20Routing.md">Agent Entry And Routing</a></h3>
   <p>Entry docs, domain routing, skill selection, and context-card orientation for agent work in the repository. Update this node when agent entry docs, routing rules, skill rules, or context cards change.</p>
 
+
   <div class="rollup-line">
     <span>ok 1</span>
     <span>No active items</span>
@@ -491,6 +761,7 @@
   </div>
   <h3><a href="state/nodes/Delivery%20Gates.md">Delivery Gates</a></h3>
   <p>Loop gate, PR gate, validation commands, and acceptance checks used to keep changes reviewable before they move toward main. Update this node when canonical gate names, validation commands, or acceptance polic...</p>
+
 
   <div class="rollup-line">
     <span>ok 1</span>
@@ -511,6 +782,7 @@
   <h3><a href="state/nodes/Durable%20Work%20State.md">Durable Work State</a></h3>
   <p>Task notes, handoff pointers, plan items, and evidence references that let work continue without relying only on chat memory. Update this node when the canonical task-state, handoff, or plan storage model chan...</p>
 
+
   <div class="rollup-line">
     <span>ok 1</span>
     <span>No active items</span>
@@ -529,6 +801,7 @@
   </div>
   <h3><a href="state/nodes/Validation%20Reports.md">Validation Reports</a></h3>
   <p>Reports, validation artifacts, and gate outputs used as evidence that a change met its acceptance route. Update this node when validation artifact locations or report semantics change.</p>
+
 
   <div class="rollup-line">
     <span>ok 1</span>
@@ -555,13 +828,24 @@
   </header>
   <div class="lane-grid">
 
-<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="1" data-search="data plane data-plane product-plane attention review historical market ingestion, moex raw/canonical baseline, qc, and research handoff. dfd now uses short store names and keeps full paths in canonical status/runbook docs. raw data ingest, canonical data refresh... docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/moex-nightly-v2-architecture.md docs/runbooks/app/moex-baseline-storage-runbook.md docs/obsidian/dfd/level-2-data-plane.md docs/obsidian/dfd/level-1-product-plane.md scripts/run_moex_raw_ingest.py scripts/run_moex_canonical_refresh.py tests/product-plane/unit/test_moex_canonical_route.py">
+<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="1" data-search="data plane data-plane product-plane attention review historical market ingestion, moex raw/canonical baseline, qc, and research handoff. dfd now uses short store names and keeps full paths in canonical status/runbook docs. raw data ingest, canonical data refresh... real materialized foundation canonical and research delta roots exist with row-count proof; strategy-readiness qc still incomplete. define strategy-ready data qc for target strategy families. docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/moex-nightly-v2-architecture.md docs/runbooks/app/moex-baseline-storage-runbook.md docs/obsidian/dfd/level-2-data-plane.md docs/obsidian/dfd/level-1-product-plane.md scripts/run_moex_raw_ingest.py scripts/run_moex_canonical_refresh.py tests/product-plane/unit/test_moex_canonical_route.py">
   <div class="card-topline">
     <span class="node-level">L1</span>
     <span class="surface surface-product-plane">product-plane</span>
   </div>
   <h3><a href="state/nodes/Data%20Plane.md">Data Plane</a></h3>
   <p>Historical market ingestion, MOEX raw/canonical baseline, QC, and research handoff. DFD now uses short store names and keeps full paths in canonical status/runbook docs. Raw Data Ingest, Canonical Data Refresh...</p>
+
+  <div class="readiness readiness-medium">
+    <div class="readiness-head">
+      <span>Readiness</span>
+      <strong>3.8/5</strong>
+    </div>
+    <div class="readiness-bar" aria-hidden="true"><span style="width: 76%"></span></div>
+    <span class="readiness-label">Real materialized foundation</span>
+    <span class="readiness-next">Next: Define strategy-ready data QC for target strategy families.</span>
+  </div>
+
 
   <div class="rollup-line">
     <span>attention 4 / ok 1</span>
@@ -574,13 +858,24 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="1" data-search="execution plane execution-plane product-plane attention review paper execution, sidecar boundary, broker events, reconciliation, and position/risk snapshots. the current dfd intentionally does not invent a durable execution db. sidecar wire boundary, and broker process cl... docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/execution-flow.md docs/architecture/product-plane/controlled-live-execution.md docs/architecture/product-plane/sidecar-wire-api-v1.md docs/obsidian/dfd/level-2-contracts-and-execution.md docs/obsidian/dfd/level-1-product-plane.md tests/product-plane/integration/test_execution_flow.py tests/product-plane/integration/test_real_execution_staging_rollout.py">
+<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="1" data-search="execution plane execution-plane product-plane attention review paper execution, sidecar boundary, broker events, reconciliation, and position/risk snapshots. the current dfd intentionally does not invent a durable execution db. sidecar wire boundary, and broker process cl... downstream by design paper/live scaffolding exists, but live execution is intentionally behind strategy validation and advisory proof. keep live execution blocked until validated strategy and advisory loop are accepted. docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/execution-flow.md docs/architecture/product-plane/controlled-live-execution.md docs/architecture/product-plane/sidecar-wire-api-v1.md docs/obsidian/dfd/level-2-contracts-and-execution.md docs/obsidian/dfd/level-1-product-plane.md tests/product-plane/integration/test_execution_flow.py tests/product-plane/integration/test_real_execution_staging_rollout.py">
   <div class="card-topline">
     <span class="node-level">L1</span>
     <span class="surface surface-product-plane">product-plane</span>
   </div>
   <h3><a href="state/nodes/Execution%20Plane.md">Execution Plane</a></h3>
   <p>Paper execution, sidecar boundary, broker events, reconciliation, and position/risk snapshots. The current DFD intentionally does not invent a durable execution DB. Sidecar Wire Boundary, and Broker Process Cl...</p>
+
+  <div class="readiness readiness-weak">
+    <div class="readiness-head">
+      <span>Readiness</span>
+      <strong>1.8/5</strong>
+    </div>
+    <div class="readiness-bar" aria-hidden="true"><span style="width: 36%"></span></div>
+    <span class="readiness-label">Downstream by design</span>
+    <span class="readiness-next">Next: Keep live execution blocked until validated strategy and advisory loop are accepted.</span>
+  </div>
+
 
   <div class="rollup-line">
     <span>attention 2 / ok 2</span>
@@ -601,6 +896,7 @@
   <h3><a href="state/nodes/Research%20Plane.md">Research Plane</a></h3>
   <p>Materialized research data prep, strategy registry, backtest outputs, rankings, findings, and candidate projection. Research state should be checked through persisted Delta tables and current status docs, not...</p>
 
+
   <div class="rollup-line">
     <span>attention 5</span>
     <span>No active items</span>
@@ -612,13 +908,24 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="unknown" data-rollup="unknown" data-surface="product-plane" data-level="1" data-search="runtime plane runtime-plane product-plane unknown unknown runtime signal lifecycle, durable signal store, publication state, and api runtime surface. state graph mvp marks this as unknown until the runtime-specific state view is reviewed against current proof. durabl... docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/runtime-lifecycle.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-research-to-runtime.md docs/obsidian/dfd/level-1-product-plane.md tests/product-plane/integration/test_runtime_lifecycle.py tests/product-plane/integration/test_runtime_postgres_store.py">
+<article class="node-card filterable" data-kind="node" data-state="unknown" data-rollup="unknown" data-surface="product-plane" data-level="1" data-search="runtime plane runtime-plane product-plane unknown unknown runtime signal lifecycle, durable signal store, publication state, and api runtime surface. state graph mvp marks this as unknown until the runtime-specific state view is reviewed against current proof. durabl... technical runtime, not product loop runtime and telegram adapter surfaces exist, but current advisory loop is not proven. bind non-empty candidates to advisory message delivery and monitoring. docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/runtime-lifecycle.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-research-to-runtime.md docs/obsidian/dfd/level-1-product-plane.md tests/product-plane/integration/test_runtime_lifecycle.py tests/product-plane/integration/test_runtime_postgres_store.py">
   <div class="card-topline">
     <span class="node-level">L1</span>
     <span class="surface surface-product-plane">product-plane</span>
   </div>
   <h3><a href="state/nodes/Runtime%20Plane.md">Runtime Plane</a></h3>
   <p>Runtime signal lifecycle, durable signal store, publication state, and API runtime surface. State graph MVP marks this as unknown until the runtime-specific state view is reviewed against current proof. Durabl...</p>
+
+  <div class="readiness readiness-low">
+    <div class="readiness-head">
+      <span>Readiness</span>
+      <strong>2.7/5</strong>
+    </div>
+    <div class="readiness-bar" aria-hidden="true"><span style="width: 54%"></span></div>
+    <span class="readiness-label">Technical runtime, not product loop</span>
+    <span class="readiness-next">Next: Bind non-empty candidates to advisory message delivery and monitoring.</span>
+  </div>
+
 
   <div class="rollup-line">
     <span>unknown 1 / attention 1 / ok 3</span>
@@ -638,6 +945,7 @@
   </div>
   <h3><a href="state/nodes/Contract%20Surfaces.md">Contract Surfaces</a></h3>
   <p>Release-blocking schemas, fixtures, contract tests, and compatibility inventory. DFD points at short contract store names; canonical contract truth stays in the contract-surfaces architecture document. Contrac...</p>
+
 
   <div class="rollup-line">
     <span>ok 3</span>
@@ -672,6 +980,7 @@
   <h3><a href="state/nodes/Canonical%20Data%20Refresh.md">Canonical Data Refresh</a></h3>
   <p>Spark-owned canonical recompute, resampling, provenance rebuild, and canonical Delta output for downstream research. Update this node when canonical ownership, runtime owner, refresh scope, provenance, or acce...</p>
 
+
   <div class="rollup-line">
     <span>attention 1</span>
     <span>No active items</span>
@@ -690,6 +999,7 @@
   </div>
   <h3><a href="state/nodes/MOEX%20Historical%20Route.md">MOEX Historical Route</a></h3>
   <p>The governed historical-data route: Dagster orchestration, Python raw ingest, Spark canonical refresh, and stable raw/canonical storage. Update this node when the authoritative MOEX route decision, schedule, w...</p>
+
 
   <div class="rollup-line">
     <span>attention 1</span>
@@ -710,6 +1020,7 @@
   <h3><a href="state/nodes/Raw%20Data%20Ingest.md">Raw Data Ingest</a></h3>
   <p>Source-aware MOEX extraction and raw Delta mutation boundary. Python owns the connector behavior, request diagnostics, retries, and raw writer discipline. Update this node when raw writer ownership, source dia...</p>
 
+
   <div class="rollup-line">
     <span>attention 1</span>
     <span>No active items</span>
@@ -728,6 +1039,7 @@
   </div>
   <h3><a href="state/nodes/Baseline%20Storage.md">Baseline Storage</a></h3>
   <p>Accepted raw/canonical baseline storage under the external TA3000 data root. Downstream consumers bind to stable baseline paths, not arbitrary rerun folders. Update this node when accepted data roots, pinned b...</p>
+
 
   <div class="rollup-line">
     <span>ok 1</span>
@@ -754,7 +1066,7 @@
   </header>
   <div class="lane-grid">
 
-<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="2" data-search="backtest and ranking backtest-and-ranking product-plane attention review vectorbt-owned portfolio simulation, persisted backtest runs, strategy stats, trades, orders, drawdowns, rankings, and findings. update this node when backtest runtime ownership, ranking policy, stored output... docs/architecture/product-plane/research-plane-platform.md docs/architecture/product-plane/native-runtime-ownership.md docs/obsidian/dfd/level-2-research-to-runtime.md tests/product-plane/integration/test_research_vectorbt_backtests.py tests/product-plane/unit/test_research_backtest_layer.py tests/product-plane/unit/test_research_ranking_projection.py">
+<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="2" data-search="backtest and ranking backtest-and-ranking product-plane attention review vectorbt-owned portfolio simulation, persisted backtest runs, strategy stats, trades, orders, drawdowns, rankings, and findings. update this node when backtest runtime ownership, ranking policy, stored output... exercised research path vectorbt/optuna campaign evidence exists; capital-allocation validation is not accepted. add repeatable validation packet with oos, costs, robustness, and rejection evidence. docs/architecture/product-plane/research-plane-platform.md docs/architecture/product-plane/native-runtime-ownership.md docs/obsidian/dfd/level-2-research-to-runtime.md tests/product-plane/integration/test_research_vectorbt_backtests.py tests/product-plane/unit/test_research_backtest_layer.py tests/product-plane/unit/test_research_ranking_projection.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -762,6 +1074,17 @@
   <h3><a href="state/nodes/Backtest%20And%20Ranking.md">Backtest And Ranking</a></h3>
   <p>vectorbt-owned portfolio simulation, persisted backtest runs, strategy stats, trades, orders, drawdowns, rankings, and findings. Update this node when backtest runtime ownership, ranking policy, stored output...</p>
 
+  <div class="readiness readiness-medium">
+    <div class="readiness-head">
+      <span>Readiness</span>
+      <strong>3.2/5</strong>
+    </div>
+    <div class="readiness-bar" aria-hidden="true"><span style="width: 64%"></span></div>
+    <span class="readiness-label">Exercised research path</span>
+    <span class="readiness-next">Next: Add repeatable validation packet with OOS, costs, robustness, and rejection evidence.</span>
+  </div>
+
+
   <div class="rollup-line">
     <span>attention 1</span>
     <span>No active items</span>
@@ -773,7 +1096,7 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="2" data-search="research data prep research-data-prep product-plane attention review materialized research datasets, bar views, indicator frames, and derived indicator frames built after accepted canonical data refresh. update this node when research materialization ownership, delta table set,... docs/architecture/product-plane/research-plane-platform.md docs/architecture/product-plane/native-runtime-ownership.md docs/obsidian/dfd/level-2-research-to-runtime.md tests/product-plane/integration/test_research_indicator_materialization.py tests/product-plane/integration/test_research_dagster_jobs.py tests/product-plane/unit/test_research_dataset_layer.py">
+<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="2" data-search="research data prep research-data-prep product-plane attention review materialized research datasets, bar views, indicator frames, and derived indicator frames built after accepted canonical data refresh. update this node when research materialization ownership, delta table set,... strongest current layer research gold frames and continuous-front frames are materialized and reusable. keep freshness tied to canonical refresh and campaign materialization locks. docs/architecture/product-plane/research-plane-platform.md docs/architecture/product-plane/native-runtime-ownership.md docs/obsidian/dfd/level-2-research-to-runtime.md tests/product-plane/integration/test_research_indicator_materialization.py tests/product-plane/integration/test_research_dagster_jobs.py tests/product-plane/unit/test_research_dataset_layer.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -781,6 +1104,17 @@
   <h3><a href="state/nodes/Research%20Data%20Prep.md">Research Data Prep</a></h3>
   <p>Materialized research datasets, bar views, indicator frames, and derived indicator frames built after accepted canonical data refresh. Update this node when research materialization ownership, Delta table set,...</p>
 
+  <div class="readiness readiness-high">
+    <div class="readiness-head">
+      <span>Readiness</span>
+      <strong>4.0/5</strong>
+    </div>
+    <div class="readiness-bar" aria-hidden="true"><span style="width: 80%"></span></div>
+    <span class="readiness-label">Strongest current layer</span>
+    <span class="readiness-next">Next: Keep freshness tied to canonical refresh and campaign materialization locks.</span>
+  </div>
+
+
   <div class="rollup-line">
     <span>attention 1</span>
     <span>No active items</span>
@@ -792,13 +1126,24 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="2" data-search="signal candidate projection signal-candidate-projection product-plane attention review contract-safe candidate projection from research outputs toward runtime consumption. runtime consumes projected candidates, not research internals. must satisfy release-blocking research and signal candidate c... docs/architecture/product-plane/research-plane-platform.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-research-to-runtime.md tests/product-plane/unit/test_research_ranking_projection.py tests/product-plane/contracts">
+<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="2" data-search="signal candidate projection signal-candidate-projection product-plane attention review contract-safe candidate projection from research outputs toward runtime consumption. runtime consumes projected candidates, not research internals. must satisfy release-blocking research and signal candidate c... writes table, no fresh candidates isolated projection proof created a delta table with _delta_log, but candidate rows were zero. produce non-empty fresh candidates or record exact no-signal reasons. docs/architecture/product-plane/research-plane-platform.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-research-to-runtime.md tests/product-plane/unit/test_research_ranking_projection.py tests/product-plane/contracts">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
   </div>
   <h3><a href="state/nodes/Signal%20Candidate%20Projection.md">Signal Candidate Projection</a></h3>
   <p>Contract-safe candidate projection from research outputs toward runtime consumption. Runtime consumes projected candidates, not research internals. Must satisfy release-blocking research and signal candidate c...</p>
+
+  <div class="readiness readiness-low">
+    <div class="readiness-head">
+      <span>Readiness</span>
+      <strong>2.2/5</strong>
+    </div>
+    <div class="readiness-bar" aria-hidden="true"><span style="width: 44%"></span></div>
+    <span class="readiness-label">Writes table, no fresh candidates</span>
+    <span class="readiness-next">Next: Produce non-empty fresh candidates or record exact no-signal reasons.</span>
+  </div>
+
 
   <div class="rollup-line">
     <span>attention 1</span>
@@ -811,13 +1156,24 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="2" data-search="strategy registry strategy-registry product-plane attention review delta-backed strategy families, templates, modules, instances, campaigns, run indices, rankings, and strategy notes. update this node when strategy inventory, adapter count, registry tables, or campaign routin... docs/architecture/product-plane/research-plane-platform.md docs/obsidian/dfd/level-2-research-to-runtime.md tests/product-plane/unit/test_research_registry_store.py tests/product-plane/unit/test_research_campaign_runner.py">
+<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="2" data-search="strategy registry strategy-registry product-plane attention review delta-backed strategy families, templates, modules, instances, campaigns, run indices, rankings, and strategy notes. update this node when strategy inventory, adapter count, registry tables, or campaign routin... implemented and populated strategy families/templates exist and are populated; hypothesis discipline is still uneven. attach falsifiable research notes and acceptance criteria to promoted families. docs/architecture/product-plane/research-plane-platform.md docs/obsidian/dfd/level-2-research-to-runtime.md tests/product-plane/unit/test_research_registry_store.py tests/product-plane/unit/test_research_campaign_runner.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
   </div>
   <h3><a href="state/nodes/Strategy%20Registry.md">Strategy Registry</a></h3>
   <p>Delta-backed strategy families, templates, modules, instances, campaigns, run indices, rankings, and strategy notes. Update this node when strategy inventory, adapter count, registry tables, or campaign routin...</p>
+
+  <div class="readiness readiness-medium">
+    <div class="readiness-head">
+      <span>Readiness</span>
+      <strong>3.4/5</strong>
+    </div>
+    <div class="readiness-bar" aria-hidden="true"><span style="width: 68%"></span></div>
+    <span class="readiness-label">Implemented and populated</span>
+    <span class="readiness-next">Next: Attach falsifiable research notes and acceptance criteria to promoted families.</span>
+  </div>
+
 
   <div class="rollup-line">
     <span>attention 1</span>
@@ -852,6 +1208,7 @@
   <h3><a href="state/nodes/Live%20Decision%20Boundary.md">Live Decision Boundary</a></h3>
   <p>Strict boundary between historical/batch context and intraday live decisions. Live decisions require confirmed broker live data through the real execution boundary. Update this node when live decision policy,...</p>
 
+
   <div class="rollup-line">
     <span>attention 1</span>
     <span>No active items</span>
@@ -863,13 +1220,24 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="ok" data-rollup="stable" data-surface="product-plane" data-level="2" data-search="durable signal store durable-signal-store product-plane ok stable durable runtime signal, event, publication, and migration-tracking boundary. production-like profiles block non-durable fallbacks. must satisfy release-blocking persistence and signal/event/publication contrac... docs/architecture/product-plane/status.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-research-to-runtime.md docs/obsidian/dfd/level-2-contracts-and-execution.md tests/product-plane/integration/test_runtime_postgres_store.py tests/product-plane/unit/test_durable_runtime_bootstrap.py">
+<article class="node-card filterable" data-kind="node" data-state="ok" data-rollup="stable" data-surface="product-plane" data-level="2" data-search="durable signal store durable-signal-store product-plane ok stable durable runtime signal, event, publication, and migration-tracking boundary. production-like profiles block non-durable fallbacks. must satisfy release-blocking persistence and signal/event/publication contrac... durable runtime state exists staging/production profiles use postgressignalstore and block non-durable fallbacks. keep restart/recovery proof tied to real advisory replay. docs/architecture/product-plane/status.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-research-to-runtime.md docs/obsidian/dfd/level-2-contracts-and-execution.md tests/product-plane/integration/test_runtime_postgres_store.py tests/product-plane/unit/test_durable_runtime_bootstrap.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
   </div>
   <h3><a href="state/nodes/Durable%20Signal%20Store.md">Durable Signal Store</a></h3>
   <p>Durable runtime signal, event, publication, and migration-tracking boundary. Production-like profiles block non-durable fallbacks. Must satisfy release-blocking persistence and signal/event/publication contrac...</p>
+
+  <div class="readiness readiness-medium">
+    <div class="readiness-head">
+      <span>Readiness</span>
+      <strong>3.3/5</strong>
+    </div>
+    <div class="readiness-bar" aria-hidden="true"><span style="width: 66%"></span></div>
+    <span class="readiness-label">Durable runtime state exists</span>
+    <span class="readiness-next">Next: Keep restart/recovery proof tied to real advisory replay.</span>
+  </div>
+
 
   <div class="rollup-line">
     <span>ok 1</span>
@@ -890,6 +1258,7 @@
   <h3><a href="state/nodes/Runtime%20API.md">Runtime API</a></h3>
   <p>FastAPI ASGI runtime surface for health, readiness, replay, close/cancel, and operator-facing runtime projections. Must satisfy release-blocking runtime API envelopes and does not bypass the live decision boun...</p>
 
+
   <div class="rollup-line">
     <span>ok 1</span>
     <span>No active items</span>
@@ -901,13 +1270,24 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="ok" data-rollup="stable" data-surface="product-plane" data-level="2" data-search="signal lifecycle signal-lifecycle product-plane ok stable candidate replay, active signal state, close/cancel/expire flow, publication lifecycle, and signal-event history. update this node when runtime state transitions, replay behavior, signal event contracts, or pu... docs/architecture/product-plane/status.md docs/architecture/product-plane/runtime-lifecycle.md docs/obsidian/dfd/level-2-research-to-runtime.md tests/product-plane/integration/test_runtime_lifecycle.py tests/product-plane/unit/test_runtime_components.py">
+<article class="node-card filterable" data-kind="node" data-state="ok" data-rollup="stable" data-surface="product-plane" data-level="2" data-search="signal lifecycle signal-lifecycle product-plane ok stable candidate replay, active signal state, close/cancel/expire flow, publication lifecycle, and signal-event history. update this node when runtime state transitions, replay behavior, signal event contracts, or pu... runtime lifecycle implemented replay, publish/update/close/cancel/expire, and signal event history exist. replay real projected candidates through advisory mode with persisted state evidence. docs/architecture/product-plane/status.md docs/architecture/product-plane/runtime-lifecycle.md docs/obsidian/dfd/level-2-research-to-runtime.md tests/product-plane/integration/test_runtime_lifecycle.py tests/product-plane/unit/test_runtime_components.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
   </div>
   <h3><a href="state/nodes/Signal%20Lifecycle.md">Signal Lifecycle</a></h3>
   <p>Candidate replay, active signal state, close/cancel/expire flow, publication lifecycle, and signal-event history. Update this node when runtime state transitions, replay behavior, signal event contracts, or pu...</p>
+
+  <div class="readiness readiness-medium">
+    <div class="readiness-head">
+      <span>Readiness</span>
+      <strong>3.1/5</strong>
+    </div>
+    <div class="readiness-bar" aria-hidden="true"><span style="width: 62%"></span></div>
+    <span class="readiness-label">Runtime lifecycle implemented</span>
+    <span class="readiness-next">Next: Replay real projected candidates through advisory mode with persisted state evidence.</span>
+  </div>
+
 
   <div class="rollup-line">
     <span>ok 1</span>
@@ -942,6 +1322,7 @@
   <h3><a href="state/nodes/Broker%20Process%20Closure.md">Broker Process Closure</a></h3>
   <p>Real broker process boundary for StockSharp, QUIK, broker/Finam session proof, submit/replace/cancel, updates, fills, and operational blockers. Update this node when real broker acceptance, connector binding,...</p>
 
+
   <div class="rollup-line">
     <span>attention 1</span>
     <span>No active items</span>
@@ -953,13 +1334,24 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="ok" data-rollup="stable" data-surface="product-plane" data-level="2" data-search="paper execution paper-execution product-plane ok stable paper broker flow from order intent to broker order/fill, position snapshot, event log, and reconciliation skeleton. shares release-blocking execution dto contracts. update this node when paper broker behavior... docs/architecture/product-plane/status.md docs/architecture/product-plane/execution-flow.md docs/obsidian/dfd/level-2-contracts-and-execution.md tests/product-plane/integration/test_execution_flow.py tests/product-plane/unit/test_execution_reconciliation.py">
+<article class="node-card filterable" data-kind="node" data-state="ok" data-rollup="stable" data-surface="product-plane" data-level="2" data-search="paper execution paper-execution product-plane ok stable paper broker flow from order intent to broker order/fill, position snapshot, event log, and reconciliation skeleton. shares release-blocking execution dto contracts. update this node when paper broker behavior... paper path exists paper broker flow and tests exist, but it is not the near-term product interface. connect paper mode only after advisory signal contract is accepted. docs/architecture/product-plane/status.md docs/architecture/product-plane/execution-flow.md docs/obsidian/dfd/level-2-contracts-and-execution.md tests/product-plane/integration/test_execution_flow.py tests/product-plane/unit/test_execution_reconciliation.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
   </div>
   <h3><a href="state/nodes/Paper%20Execution.md">Paper Execution</a></h3>
   <p>Paper broker flow from order intent to broker order/fill, position snapshot, event log, and reconciliation skeleton. Shares release-blocking execution DTO contracts. Update this node when paper broker behavior...</p>
+
+  <div class="readiness readiness-low">
+    <div class="readiness-head">
+      <span>Readiness</span>
+      <strong>2.5/5</strong>
+    </div>
+    <div class="readiness-bar" aria-hidden="true"><span style="width: 50%"></span></div>
+    <span class="readiness-label">Paper path exists</span>
+    <span class="readiness-next">Next: Connect paper mode only after advisory signal contract is accepted.</span>
+  </div>
+
 
   <div class="rollup-line">
     <span>ok 1</span>
@@ -979,6 +1371,7 @@
   </div>
   <h3><a href="state/nodes/Sidecar%20Wire%20Boundary.md">Sidecar Wire Boundary</a></h3>
   <p>HTTP/JSON wire contract between the Python execution bridge and the StockSharp sidecar gateway, including submit/cancel/replace, streams, probes, and kill-switch behavior. Must satisfy release-blocking sidecar...</p>
+
 
   <div class="rollup-line">
     <span>ok 1</span>
@@ -1013,6 +1406,7 @@
   <h3><a href="state/nodes/Contract%20Change%20Policy.md">Contract Change Policy</a></h3>
   <p>Rules for changing public product-plane payloads: schema, fixture, tests, inventory, and compatibility updates must move together. Protects runtime API and sidecar wire transport from payload drift. Update thi...</p>
 
+
   <div class="rollup-line">
     <span>ok 1</span>
     <span>No active items</span>
@@ -1031,6 +1425,7 @@
   </div>
   <h3><a href="state/nodes/Release%20Blocking%20Contracts.md">Release Blocking Contracts</a></h3>
   <p>Versioned schemas, fixtures, tests, inventory, and compatibility classes that block release-sensitive payload drift. Governs signal candidate projection, runtime API envelopes, durable signal store payloads, p...</p>
+
 
   <div class="rollup-line">
     <span>ok 1</span>

@@ -56,6 +56,34 @@ Not used as truth:
 | Telegram advisory product loop | Not proven | No current real candidate feed and no accepted live Telegram delivery proof. |
 | Paper / semi-auto / live execution | Downstream | Correctly remains after validated strategies and advisory proof. |
 
+## Readiness Scores
+
+These numeric scores are estimates for the current product goal, not task
+completion percentages. They are mirrored into
+`docs/project-map/state/readiness-scores.yaml` and rendered in the HTML cockpit.
+
+Scale:
+
+- `0`: absent;
+- `1`: docs/contracts or scaffolding only;
+- `2`: code path exists, but product proof is weak;
+- `3`: integrated or materialized proof exists, with important gaps;
+- `4`: usable for current product work with known limits;
+- `5`: operationally routine for the current product goal.
+
+| Cockpit node | Score | Meaning | Next proof |
+| --- | ---: | --- | --- |
+| `data-plane` | 3.8 | Real materialized foundation. | Define strategy-ready data QC for target strategy families. |
+| `research-data-prep` | 4.0 | Strongest current layer. | Keep freshness tied to canonical refresh and campaign locks. |
+| `strategy-registry` | 3.4 | Implemented and populated. | Attach falsifiable research notes and acceptance criteria. |
+| `backtest-and-ranking` | 3.2 | Vectorbt/Optuna path materially exercised. | Add validation packet with OOS, costs, robustness, and rejections. |
+| `signal-candidate-projection` | 2.2 | Projection writes Delta, but current proof has zero candidates. | Produce non-empty fresh candidates or exact no-signal reasons. |
+| `signal-lifecycle` | 3.1 | Runtime lifecycle implemented. | Replay real projected candidates through advisory mode. |
+| `durable-signal-store` | 3.3 | Durable runtime state exists. | Tie restart/recovery proof to real advisory replay. |
+| `runtime-plane` | 2.7 | Technical runtime exists; product loop not proven. | Bind non-empty candidates to advisory delivery and monitoring. |
+| `execution-plane` | 1.8 | Downstream by design. | Keep live execution blocked until strategy and advisory proof exist. |
+| `paper-execution` | 2.5 | Paper path exists. | Connect paper mode after advisory signal contract is accepted. |
+
 The short version:
 
 TA3000 is no longer only scaffolding. The data and research factory are real.

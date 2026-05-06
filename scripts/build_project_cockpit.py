@@ -21,6 +21,7 @@ import yaml
 MAP_ROOT = Path("docs/project-map/state")
 NODE_ROOT = MAP_ROOT / "nodes"
 ITEM_ROOT = MAP_ROOT / "items"
+READINESS_SCORES = MAP_ROOT / "readiness-scores.yaml"
 OUTPUT = Path("docs/project-map/project-cockpit.html")
 
 LEVEL_1_ORDER = (
@@ -74,6 +75,11 @@ class ProjectNode:
     source_refs: tuple[str, ...]
     dfd_refs: tuple[str, ...]
     proof_refs: tuple[str, ...]
+    readiness_score: float | None
+    readiness_label: str
+    readiness_note: str
+    readiness_next: str
+    readiness_source_refs: tuple[str, ...]
     excerpt: str
 
 
@@ -150,6 +156,15 @@ def _as_bool(value: Any) -> bool:
     return value is True or str(value).lower() == "true"
 
 
+def _as_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _priority_from_legacy(severity: str, needs_user_attention: bool) -> str:
     if needs_user_attention:
         return "p1"
@@ -184,15 +199,39 @@ def _plain_excerpt(markdown: str, *, max_len: int = 210) -> str:
     return text
 
 
+def _load_readiness_scores(repo_root: Path) -> dict[str, dict[str, Any]]:
+    path = repo_root / READINESS_SCORES
+    if not path.exists():
+        return {}
+    loaded = yaml.safe_load(path.read_text(encoding="utf-8-sig")) or {}
+    if not isinstance(loaded, dict):
+        raise ValueError(f"{READINESS_SCORES.as_posix()} must contain a YAML mapping")
+    entries = loaded.get("scores", [])
+    if not isinstance(entries, list):
+        raise ValueError(f"{READINESS_SCORES.as_posix()} field `scores` must be a list")
+    by_node: dict[str, dict[str, Any]] = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        node_id = str(entry.get("node_id") or "").strip()
+        if not node_id:
+            continue
+        by_node[node_id] = entry
+    return by_node
+
+
 def _load_nodes(repo_root: Path) -> list[ProjectNode]:
     nodes: list[ProjectNode] = []
+    readiness_scores = _load_readiness_scores(repo_root)
     for path in sorted((repo_root / NODE_ROOT).glob("*.md")):
         fm, body = _read_note(path)
+        node_id = str(fm.get("node_id") or path.stem)
+        readiness = readiness_scores.get(node_id, {})
         nodes.append(
             ProjectNode(
                 path=path,
                 title=str(fm.get("title") or path.stem),
-                node_id=str(fm.get("node_id") or path.stem),
+                node_id=node_id,
                 surface=str(fm.get("surface") or "unknown"),
                 level=int(fm.get("level") or 1),
                 parent_node="" if fm.get("parent_node") is None else str(fm.get("parent_node") or ""),
@@ -205,6 +244,11 @@ def _load_nodes(repo_root: Path) -> list[ProjectNode]:
                 source_refs=_as_tuple(fm.get("source_refs")),
                 dfd_refs=_as_tuple(fm.get("dfd_refs")),
                 proof_refs=_as_tuple(fm.get("proof_refs")),
+                readiness_score=_as_float(readiness.get("score")) if isinstance(readiness, dict) else None,
+                readiness_label=str(readiness.get("label") or "") if isinstance(readiness, dict) else "",
+                readiness_note=str(readiness.get("note") or "") if isinstance(readiness, dict) else "",
+                readiness_next=str(readiness.get("next_proof") or "") if isinstance(readiness, dict) else "",
+                readiness_source_refs=_as_tuple(readiness.get("source_refs")) if isinstance(readiness, dict) else (),
                 excerpt=_plain_excerpt(body),
             )
         )
@@ -367,6 +411,86 @@ def _priority_summary(priority_counts: Counter[str]) -> str:
     return " / ".join(parts) if parts else "No active items"
 
 
+def _format_score(score: float | None) -> str:
+    if score is None:
+        return "n/a"
+    return f"{score:.1f}/5"
+
+
+def _score_percent(score: float | None) -> int:
+    if score is None:
+        return 0
+    return max(0, min(100, int(round((score / 5.0) * 100))))
+
+
+def _readiness_tier(score: float | None) -> str:
+    if score is None:
+        return "unknown"
+    if score >= 4.0:
+        return "high"
+    if score >= 3.0:
+        return "medium"
+    if score >= 2.0:
+        return "low"
+    return "weak"
+
+
+def _readiness_block(node: ProjectNode) -> str:
+    if node.readiness_score is None:
+        return ""
+    label = node.readiness_label or "Readiness"
+    next_line = f'<span class="readiness-next">Next: {escape(node.readiness_next)}</span>' if node.readiness_next else ""
+    return f"""
+  <div class="readiness readiness-{escape(_readiness_tier(node.readiness_score))}">
+    <div class="readiness-head">
+      <span>Readiness</span>
+      <strong>{escape(_format_score(node.readiness_score))}</strong>
+    </div>
+    <div class="readiness-bar" aria-hidden="true"><span style="width: {_score_percent(node.readiness_score)}%"></span></div>
+    <span class="readiness-label">{escape(label)}</span>
+    {next_line}
+  </div>
+"""
+
+
+def _render_readiness_snapshot(repo_root: Path, output: Path, nodes: list[ProjectNode]) -> str:
+    scored = [node for node in nodes if node.readiness_score is not None]
+    if not scored:
+        return '<p class="empty">No readiness scores yet.</p>'
+    source_link = ""
+    if (repo_root / READINESS_SCORES).exists():
+        source_link = f'<a class="doc-link" href="{_href(repo_root, output, READINESS_SCORES)}">readiness source</a>'
+    cards = []
+    for node in sorted(scored, key=lambda item: (item.readiness_score or 0.0, item.title.lower())):
+        cards.append(
+            f"""
+<article class="readiness-card readiness-{escape(_readiness_tier(node.readiness_score))}">
+  <div class="card-topline">
+    <span class="node-level">L{node.level}</span>
+    <span class="surface surface-{escape(node.surface)}">{escape(node.surface)}</span>
+  </div>
+  <h3>{_note_link(repo_root, output, node.path, node.title)}</h3>
+  <div class="readiness-head">
+    <span>{escape(node.readiness_label or "Readiness")}</span>
+    <strong>{escape(_format_score(node.readiness_score))}</strong>
+  </div>
+  <div class="readiness-bar" aria-hidden="true"><span style="width: {_score_percent(node.readiness_score)}%"></span></div>
+  <p>{escape(node.readiness_note or node.excerpt)}</p>
+  <span class="readiness-next">Next: {escape(node.readiness_next or "Keep score current.")}</span>
+</article>
+"""
+        )
+    return f"""
+<div class="readiness-source">
+  <span>Scores are readiness estimates from the current reality audit, not task status.</span>
+  {source_link}
+</div>
+<div class="readiness-grid">
+  {"".join(cards)}
+</div>
+"""
+
+
 def _state_summary(state_counts: Counter[str]) -> str:
     parts = [f"{state} {state_counts[state]}" for state in ("blocked", "unknown", "attention", "ok") if state_counts[state]]
     return " / ".join(parts) if parts else "No child states"
@@ -394,6 +518,9 @@ def _node_card(
         node.state,
         rollup_state,
         node.excerpt,
+        node.readiness_label,
+        node.readiness_note,
+        node.readiness_next,
         " ".join(node.source_refs),
         " ".join(node.dfd_refs),
         " ".join(node.proof_refs),
@@ -407,6 +534,7 @@ def _node_card(
     <span>{escape(_priority_summary(rollup.priority_counts))}</span>
   </div>
 """
+    readiness = _readiness_block(node)
     return f"""
 <article class="{classes}" data-kind="node" data-state="{escape(node.state)}" data-rollup="{escape(rollup_state)}" data-surface="{escape(node.surface)}" data-level="{node.level}" data-search="{search}">
   <div class="card-topline">
@@ -415,6 +543,7 @@ def _node_card(
   </div>
   <h3>{_note_link(repo_root, output, node.path, node.title)}</h3>
   <p>{escape(node.excerpt or node.update_rule or "No note summary yet.")}</p>
+  {readiness}
   {rollup_meta}
   <div class="meta-row">
     {_badge("rollup", rollup_label)}
@@ -667,6 +796,10 @@ def render(repo_root: Path, *, output: Path = OUTPUT) -> str:
     }}
     .metric span {{ display: block; color: var(--muted); font-size: 12px; }}
     .metric strong {{ display: block; margin-top: 4px; font-size: 24px; }}
+    .doc-link {{
+      color: var(--text);
+      border-bottom: 1px solid var(--line);
+    }}
     .section {{
       margin-top: 28px;
     }}
@@ -682,6 +815,64 @@ def render(repo_root: Path, *, output: Path = OUTPUT) -> str:
       font-size: 12px;
       text-transform: uppercase;
     }}
+    .readiness-source {{
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }}
+    .readiness-grid {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(235px, 1fr));
+      gap: 10px;
+    }}
+    .readiness-card {{
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 12px;
+    }}
+    .readiness-card p {{
+      color: var(--muted);
+      margin-top: 8px;
+    }}
+    .readiness {{
+      display: grid;
+      gap: 5px;
+      border-top: 1px solid var(--line);
+      padding-top: 8px;
+      margin-top: 8px;
+    }}
+    .readiness-head {{
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+    }}
+    .readiness-head span, .readiness-label, .readiness-next {{
+      color: var(--muted);
+      font-size: 12px;
+    }}
+    .readiness-head strong {{
+      font-size: 18px;
+    }}
+    .readiness-bar {{
+      height: 7px;
+      border-radius: 999px;
+      background: #363a42;
+      overflow: hidden;
+    }}
+    .readiness-bar span {{
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--unknown);
+    }}
+    .readiness-high .readiness-bar span {{ background: var(--ok); }}
+    .readiness-medium .readiness-bar span {{ background: var(--attention); }}
+    .readiness-low .readiness-bar span {{ background: var(--unknown); }}
+    .readiness-weak .readiness-bar span {{ background: var(--blocked); }}
     .level-one-grid {{
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
@@ -812,6 +1003,7 @@ def render(repo_root: Path, *, output: Path = OUTPUT) -> str:
       .topbar {{ grid-template-columns: 1fr; }}
       .controls {{ grid-template-columns: 1fr 1fr; }}
       .metrics {{ grid-template-columns: repeat(2, 1fr); }}
+      .readiness-source {{ flex-direction: column; }}
       .evidence-grid {{ grid-template-columns: 1fr; }}
     }}
   </style>
@@ -850,6 +1042,16 @@ def render(repo_root: Path, *, output: Path = OUTPUT) -> str:
 
     <section class="metrics" aria-label="Project map summary">
       {_render_summary(nodes, items)}
+    </section>
+
+    <section class="section" aria-label="Readiness scores">
+      <header>
+        <div>
+          <p class="eyebrow">Readiness scores</p>
+          <h2>Reality audit readiness</h2>
+        </div>
+      </header>
+      {_render_readiness_snapshot(repo_root, output, nodes)}
     </section>
 
     <section class="section">

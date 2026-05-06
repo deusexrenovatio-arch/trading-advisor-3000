@@ -18,6 +18,7 @@ visual entrypoint is the generated HTML cockpit.
 | --- | --- | --- |
 | Project node | `nodes/` | Stable area of the project |
 | Project item | `items/` | Idea, problem, risk, question, or task linked to a node |
+| Readiness scores | `readiness-scores.yaml` | Numeric readiness estimates linked to nodes |
 | Candidate report | `candidates/` | Advisory inbox for memory-recovered signals |
 | Project rule | root note | Governance for map updates |
 | HTML cockpit | `../project-cockpit.html` | Main readable visual projection |
@@ -51,6 +52,8 @@ For now this is hybrid:
 
 - A node can have manual `state`.
 - A node has `level`, `parent_node`, `update_rule`, and `state_source`.
+- Node readiness scores are stored in `readiness-scores.yaml`, keyed by
+  `node_id`, and are shown in the HTML cockpit.
 - Items carry `needs_user_attention`, `severity`, and `status`.
 - Items also carry `priority`: `p0` blocks current progress, `p1` needs a
   decision, `p2` needs review, and `p3` is watch/backlog.

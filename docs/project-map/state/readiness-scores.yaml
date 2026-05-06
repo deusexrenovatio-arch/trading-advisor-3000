@@ -1,0 +1,86 @@
+version: 1
+source: product-reality-audit-data-to-signal-2026-05-06
+source_refs:
+  - docs/project-map/product-reality-audit-data-to-signal-2026-05-06.md
+scale:
+  min: 0
+  max: 5
+  meaning:
+    "0": absent
+    "1": docs/contracts or scaffolding only
+    "2": code path exists, but product proof is weak
+    "3": integrated or materialized proof exists, with important gaps
+    "4": usable for current product work with known limits
+    "5": operationally routine for the current product goal
+scores:
+  - node_id: data-plane
+    score: 3.8
+    label: Real materialized foundation
+    note: Canonical and research Delta roots exist with row-count proof; strategy-readiness QC still incomplete.
+    next_proof: Define strategy-ready data QC for target strategy families.
+    source_refs:
+      - docs/project-map/product-reality-audit-data-to-signal-2026-05-06.md
+  - node_id: research-data-prep
+    score: 4.0
+    label: Strongest current layer
+    note: Research gold frames and continuous-front frames are materialized and reusable.
+    next_proof: Keep freshness tied to canonical refresh and campaign materialization locks.
+    source_refs:
+      - docs/project-map/product-reality-audit-data-to-signal-2026-05-06.md
+  - node_id: strategy-registry
+    score: 3.4
+    label: Implemented and populated
+    note: Strategy families/templates exist and are populated; hypothesis discipline is still uneven.
+    next_proof: Attach falsifiable research notes and acceptance criteria to promoted families.
+    source_refs:
+      - docs/project-map/product-reality-audit-data-to-signal-2026-05-06.md
+  - node_id: backtest-and-ranking
+    score: 3.2
+    label: Exercised research path
+    note: Vectorbt/Optuna campaign evidence exists; capital-allocation validation is not accepted.
+    next_proof: Add repeatable validation packet with OOS, costs, robustness, and rejection evidence.
+    source_refs:
+      - docs/project-map/product-reality-audit-data-to-signal-2026-05-06.md
+  - node_id: signal-candidate-projection
+    score: 2.2
+    label: Writes table, no fresh candidates
+    note: Isolated projection proof created a Delta table with _delta_log, but candidate rows were zero.
+    next_proof: Produce non-empty fresh candidates or record exact no-signal reasons.
+    source_refs:
+      - docs/project-map/product-reality-audit-data-to-signal-2026-05-06.md
+  - node_id: signal-lifecycle
+    score: 3.1
+    label: Runtime lifecycle implemented
+    note: Replay, publish/update/close/cancel/expire, and signal event history exist.
+    next_proof: Replay real projected candidates through advisory mode with persisted state evidence.
+    source_refs:
+      - docs/project-map/product-reality-audit-data-to-signal-2026-05-06.md
+  - node_id: durable-signal-store
+    score: 3.3
+    label: Durable runtime state exists
+    note: Staging/production profiles use PostgresSignalStore and block non-durable fallbacks.
+    next_proof: Keep restart/recovery proof tied to real advisory replay.
+    source_refs:
+      - docs/architecture/product-plane/STATUS.md
+      - docs/project-map/product-reality-audit-data-to-signal-2026-05-06.md
+  - node_id: runtime-plane
+    score: 2.7
+    label: Technical runtime, not product loop
+    note: Runtime and Telegram adapter surfaces exist, but current advisory loop is not proven.
+    next_proof: Bind non-empty candidates to advisory message delivery and monitoring.
+    source_refs:
+      - docs/project-map/product-reality-audit-data-to-signal-2026-05-06.md
+  - node_id: execution-plane
+    score: 1.8
+    label: Downstream by design
+    note: Paper/live scaffolding exists, but live execution is intentionally behind strategy validation and advisory proof.
+    next_proof: Keep live execution blocked until validated strategy and advisory loop are accepted.
+    source_refs:
+      - docs/project-map/product-reality-audit-data-to-signal-2026-05-06.md
+  - node_id: paper-execution
+    score: 2.5
+    label: Paper path exists
+    note: Paper broker flow and tests exist, but it is not the near-term product interface.
+    next_proof: Connect paper mode only after advisory signal contract is accepted.
+    source_refs:
+      - docs/architecture/product-plane/STATUS.md
