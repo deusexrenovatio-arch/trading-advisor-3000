@@ -35,6 +35,9 @@ DEFAULT_CONTINUOUS_FRONT_POLICY: dict[str, object] = {
 }
 
 
+CALENDAR_EXPIRY_CONTINUOUS_FRONT_POLICY: dict[str, object] = dict(DEFAULT_CONTINUOUS_FRONT_POLICY)
+
+
 def _parse_hhmm(value: str) -> int:
     parts = value.strip().split(":")
     if len(parts) != 2:

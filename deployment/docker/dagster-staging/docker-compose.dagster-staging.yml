@@ -11,7 +11,7 @@ services:
       - -m
       - trading_advisor_3000.dagster_defs
       - -a
-      - moex_historical_definitions
+      - product_plane_definitions
       - -h
       - 0.0.0.0
       - -p
@@ -52,7 +52,7 @@ services:
       - -m
       - trading_advisor_3000.dagster_defs
       - -a
-      - moex_historical_definitions
+      - product_plane_definitions
       - -d
       - /workspace
     environment:
