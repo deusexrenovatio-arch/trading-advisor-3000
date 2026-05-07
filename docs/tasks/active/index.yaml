@@ -6,3 +6,8 @@ items:
   mode: legacy-full
   status: in_progress
   started_at: '2026-05-07'
+- id: TASK-2026-05-07-SEPARATE-BRANCH-DIAGNOSTICS-FROM-PR-REQUIRED-CI-
+  path: docs/tasks/active/TASK-2026-05-07-separate-branch-diagnostics-from-pr-required-ci-.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-05-07'
