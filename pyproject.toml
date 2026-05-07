@@ -9,7 +9,6 @@ description = "Trading Advisor 3000 shell and product-plane scaffolding"
 requires-python = ">=3.11"
 dependencies = [
   "PyYAML>=6,<7",
-  "optuna>=4,<5",
   "vectorbt>=0.28.5,<0.29",
   "pandas-ta-classic>=0.4.47,<0.5",
 ]
@@ -38,6 +37,12 @@ proof-docker = [
 dev-test = [
   "pytest>=9,<10",
   "httpx>=0.27,<1",
+  "ruff>=0.8,<1",
+  "mypy>=1.14,<2",
+]
+dev-quality = [
+  "ruff>=0.8,<1",
+  "mypy>=1.14,<2",
 ]
 dev = [
   "fastapi>=0.110,<1",
@@ -56,6 +61,8 @@ dev = [
   "docker>=7,<8",
   "pytest>=9,<10",
   "httpx>=0.27,<1",
+  "ruff>=0.8,<1",
+  "mypy>=1.14,<2",
 ]
 
 [tool.setuptools]
@@ -65,4 +72,35 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.pytest.ini_options]
-addopts = "--basetemp=.tmp/pytest"
+addopts = "--basetemp=.tmp/pytest --strict-markers"
+markers = [
+  "unit: fast tests for isolated functions, modules, or local behavior",
+  "contract: tests for governance, schema, API, file, or cross-surface contracts",
+  "integration: tests that exercise multiple subsystems or external runtime boundaries",
+  "slow: tests that are intentionally excluded from the fast local loop",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [
+  ".runlogs",
+  ".tmp",
+  ".tmp_openspace",
+  "artifacts",
+  "codex_ai_delivery_shell_package",
+  "docs/tasks/archive",
+  "memory",
+  "plans",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.mypy]
+python_version = "3.11"
+mypy_path = "src"
+files = ["src", "scripts", "tests"]
+exclude = "^(\\.runlogs|\\.tmp|\\.tmp_openspace|artifacts|codex_ai_delivery_shell_package|docs/tasks/archive|memory|plans)/"
+ignore_missing_imports = true
+follow_imports = "silent"

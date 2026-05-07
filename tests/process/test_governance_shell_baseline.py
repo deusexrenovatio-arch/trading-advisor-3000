@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -11,8 +10,10 @@ REQUIRED_FILES = [
     "CODEOWNERS",
     ".cursorignore",
     ".githooks/pre-push",
+    "Makefile",
     "scripts/install_git_hooks.py",
     "scripts/critical_contours.py",
+    "scripts/run_boring_checks.py",
     "scripts/run_loop_gate.py",
     "scripts/validate_solution_intent.py",
     "scripts/validate_critical_contour_closure.py",

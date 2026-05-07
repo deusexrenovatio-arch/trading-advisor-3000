@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
-
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts"
@@ -14,12 +14,15 @@ from gate_common import CommandSpec, scope_validate_command  # noqa: E402
 
 
 def _run(command: list[str]) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env["AI_SHELL_BORING_SKIP_FAST_TESTS"] = "1"
     return subprocess.run(
         command,
         cwd=ROOT,
         check=False,
         capture_output=True,
         text=True,
+        env=env,
     )
 
 
@@ -294,10 +297,44 @@ def test_scope_validate_command_uses_base_refs_for_skill_precommit_gate() -> Non
     assert "--strict" in scoped
 
 
+def test_scope_validate_command_uses_stdin_for_boring_checks() -> None:
+    scoped = scope_validate_command(
+        f"{sys.executable} scripts/run_boring_checks.py --profile quick --scope changed",
+        base_sha=None,
+        head_sha=None,
+        changed_files=[
+            "scripts/run_boring_checks.py",
+            *[f"artifacts/codex/package-intake/{index}/manifest.md" for index in range(600)],
+        ],
+    )
+
+    assert isinstance(scoped, CommandSpec)
+    assert "--stdin" in scoped.command
+    assert "--changed-files" not in scoped.command
+    assert scoped.stdin_text is not None
+    assert "scripts/run_boring_checks.py" in scoped.stdin_text
+
+
+def test_scope_validate_command_uses_base_refs_for_boring_checks() -> None:
+    scoped = scope_validate_command(
+        f"{sys.executable} scripts/run_boring_checks.py --profile quick --scope changed",
+        base_sha="origin/main",
+        head_sha="HEAD",
+        changed_files=["scripts/run_boring_checks.py"],
+    )
+
+    assert isinstance(scoped, str)
+    assert "--base-sha origin/main" in scoped
+    assert "--head-sha HEAD" in scoped
+    assert "--changed-files" not in scoped
+
+
 def test_loop_gate_handles_large_scope_from_stdin() -> None:
+    env = os.environ.copy()
+    env["AI_SHELL_BORING_SKIP_FAST_TESTS"] = "1"
     changed_files = "\n".join(
         [
-            "scripts/codex_governed_entry.py",
+            "scripts/run_boring_checks.py",
             *[f"artifacts/codex/package-intake/{index}/manifest.md" for index in range(300)],
         ]
     )
@@ -317,6 +354,7 @@ def test_loop_gate_handles_large_scope_from_stdin() -> None:
         capture_output=True,
         text=True,
         input=changed_files,
+        env=env,
     )
 
     assert result.returncode == 0, result.stdout + "\n" + result.stderr

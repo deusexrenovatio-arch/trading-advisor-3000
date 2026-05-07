@@ -137,11 +137,18 @@ def scope_validate_command(
         "scripts/validate_critical_contour_closure.py",
         "scripts/validate_legacy_namespace_growth.py",
         "scripts/validate_product_surface_naming.py",
+        "scripts/run_boring_checks.py",
     )
-    if not any(any(token.endswith(script_name) for token in normalized) for script_name in scoped_scripts):
+    if not any(
+        any(token.endswith(script_name) for token in normalized) for script_name in scoped_scripts
+    ):
         surface_matrix_script = "scripts/run_surface_pr_matrix.py"
         if any(token.endswith(surface_matrix_script) for token in normalized):
-            if "--base-ref" in normalized or "--head-ref" in normalized or "--changed-files" in normalized:
+            if (
+                "--base-ref" in normalized
+                or "--head-ref" in normalized
+                or "--changed-files" in normalized
+            ):
                 return command
             scoped_parts = list(parts)
             if base_sha and head_sha:
