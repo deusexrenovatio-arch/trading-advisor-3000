@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import pytest
+
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
     delta_table_columns,
     ensure_delta_table_columns,
+    read_filtered_delta_table_rows,
     read_delta_table_rows,
+    read_small_delta_table_rows,
     write_delta_table_rows,
     write_delta_table_row_batches,
 )
@@ -57,6 +61,42 @@ def test_count_delta_table_rows_accepts_filters(tmp_path) -> None:
             ("indicator_set_version", "=", "indicators-v1"),
         ],
     ) == 1
+
+
+def test_read_filtered_delta_table_rows_requires_filters(tmp_path) -> None:
+    table_path = tmp_path / "filtered_read.delta"
+    write_delta_table_rows(
+        table_path=table_path,
+        columns={"dataset_version": "string", "value": "int"},
+        rows=[
+            {"dataset_version": "dataset-v1", "value": 1},
+            {"dataset_version": "dataset-v2", "value": 2},
+        ],
+    )
+
+    with pytest.raises(ValueError, match="filters are required"):
+        read_filtered_delta_table_rows(table_path, filters=[])
+
+    rows = read_filtered_delta_table_rows(
+        table_path,
+        filters=[("dataset_version", "=", "dataset-v1")],
+        limit=1,
+    )
+
+    assert rows == [{"dataset_version": "dataset-v1", "value": 1}]
+
+
+def test_read_small_delta_table_rows_rejects_hot_tables(tmp_path) -> None:
+    table_path = tmp_path / "research_datasets.delta"
+    write_delta_table_rows(
+        table_path=table_path,
+        columns={"dataset_version": "string"},
+        rows=[{"dataset_version": "dataset-v1"}],
+    )
+
+    assert read_small_delta_table_rows(table_path) == [{"dataset_version": "dataset-v1"}]
+    with pytest.raises(ValueError, match="hot Delta tables"):
+        read_small_delta_table_rows(tmp_path / "canonical_bars.delta")
 
 
 def test_write_delta_table_rows_overwrite_replaces_schema(tmp_path) -> None:

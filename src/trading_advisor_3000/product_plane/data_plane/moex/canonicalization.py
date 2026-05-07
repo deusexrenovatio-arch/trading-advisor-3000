@@ -14,8 +14,9 @@ from trading_advisor_3000.product_plane.contracts import CanonicalBar, Timeframe
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
     has_delta_log,
+    iter_delta_table_row_batches,
     read_delta_table_rows,
-    write_delta_table_rows,
+    write_delta_table_row_batches,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contracts import (
     STATUS_PASS_NOOP,
@@ -41,6 +42,11 @@ TARGET_MINUTES_BY_TIMEFRAME: dict[Timeframe, int] = {
     Timeframe.D1: 1440,
     Timeframe.W1: 10080,
 }
+
+
+def _iter_delta_rows_for_merge(table_path: Path) -> Iterable[dict[str, object]]:
+    for batch in iter_delta_table_row_batches(table_path):
+        yield from batch
 
 SOURCE_MINUTES_BY_LABEL: dict[str, int] = {
     "1m": 1,
@@ -1449,14 +1455,14 @@ def run_moex_canonicalization(
 
     existing_canonical_rows: list[CanonicalBar] = []
     if has_delta_log(bars_path):
-        for row_index, payload in enumerate(read_delta_table_rows(bars_path)):
+        for row_index, payload in enumerate(_iter_delta_rows_for_merge(bars_path)):
             if not isinstance(payload, dict):
                 continue
             existing_canonical_rows.append(CanonicalBar.from_dict(dict(payload)))
 
     existing_provenance_rows: list[CanonicalProvenance] = []
     if has_delta_log(provenance_path):
-        for row_index, payload in enumerate(read_delta_table_rows(provenance_path)):
+        for row_index, payload in enumerate(_iter_delta_rows_for_merge(provenance_path)):
             if not isinstance(payload, dict):
                 continue
             existing_provenance_rows.append(_canonical_provenance_from_dict(dict(payload), row_index=row_index))
@@ -1581,15 +1587,17 @@ def run_moex_canonicalization(
     )
 
     if mutation_required:
-        write_delta_table_rows(
+        write_delta_table_row_batches(
             table_path=bars_path,
-            rows=canonical_rows_payload,
+            row_batches=iter([canonical_rows_payload]),
             columns=CANONICAL_BAR_COLUMNS,
+            max_rows_per_delta_write=65_536,
         )
-        write_delta_table_rows(
+        write_delta_table_row_batches(
             table_path=provenance_path,
-            rows=provenance_rows_payload,
+            row_batches=iter([provenance_rows_payload]),
             columns=PROVENANCE_COLUMNS,
+            max_rows_per_delta_write=65_536,
         )
 
     output_paths: dict[str, str] = {}

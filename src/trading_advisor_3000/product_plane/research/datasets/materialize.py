@@ -10,7 +10,8 @@ from trading_advisor_3000.product_plane.contracts import CanonicalBar
 from trading_advisor_3000.product_plane.data_plane.canonical import RollMapEntry, SessionCalendarEntry
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     delta_equals_predicate,
-    read_delta_table_rows,
+    read_filtered_delta_table_rows,
+    read_small_delta_table_rows,
     replace_delta_table_rows,
 )
 
@@ -476,9 +477,14 @@ def load_materialized_research_dataset(*, output_dir: Path, dataset_version: str
     datasets_path = output_dir / "research_datasets.delta"
     instrument_tree_path = output_dir / "research_instrument_tree.delta"
     bar_views_path = output_dir / "research_bar_views.delta"
-    manifests = read_delta_table_rows(datasets_path)
-    instrument_rows = read_delta_table_rows(instrument_tree_path) if (instrument_tree_path / "_delta_log").exists() else []
-    bar_view_rows = read_delta_table_rows(bar_views_path)
+    manifests = read_small_delta_table_rows(datasets_path)
+    instrument_rows = (
+        read_small_delta_table_rows(instrument_tree_path) if (instrument_tree_path / "_delta_log").exists() else []
+    )
+    bar_view_rows = read_filtered_delta_table_rows(
+        bar_views_path,
+        filters=[("dataset_version", "=", dataset_version)],
+    )
     manifest_rows = [row for row in manifests if row.get("dataset_version") == dataset_version]
     if not manifest_rows:
         raise KeyError(f"dataset_version not found: {dataset_version}")

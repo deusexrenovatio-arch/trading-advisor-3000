@@ -11,6 +11,8 @@ import pyarrow as pa
 import pyarrow.dataset as ds
 from deltalake import DeltaTable, write_deltalake
 
+from .hot_delta_tables import is_hot_delta_table_path
+
 DeltaReadFilters = list[tuple[str, str, object]] | list[list[tuple[str, str, object]]] | None
 
 
@@ -273,6 +275,30 @@ def _filters_to_dataset_expression(filters: DeltaReadFilters) -> ds.Expression |
     return expression
 
 
+def _normalize_loaded_rows(rows: list[object]) -> list[dict[str, object]]:
+    return [
+        {str(key): _normalize_loaded_value(value) for key, value in row.items()}
+        for row in rows
+        if isinstance(row, dict)
+    ]
+
+
+def _has_delta_read_bound(*, filters: DeltaReadFilters, limit: int | None = None) -> bool:
+    return bool(filters) or limit is not None
+
+
+def _enforce_hot_delta_read_bound(
+    table_path: Path,
+    *,
+    filters: DeltaReadFilters,
+    limit: int | None = None,
+) -> None:
+    if is_hot_delta_table_path(table_path) and not _has_delta_read_bound(filters=filters, limit=limit):
+        raise ValueError(
+            "hot Delta tables require filters, limit, batched reads, or Spark/Delta-native operations"
+        )
+
+
 def has_delta_log(path: Path) -> bool:
     return (path / "_delta_log").exists()
 
@@ -454,12 +480,7 @@ def iter_delta_table_row_batches(
         batch_size=batch_size,
     )
     for batch in scanner.to_batches():
-        rows = batch.to_pylist()
-        yield [
-            {str(key): _normalize_loaded_value(value) for key, value in row.items()}
-            for row in rows
-            if isinstance(row, dict)
-        ]
+        yield _normalize_loaded_rows(batch.to_pylist())
 
 
 def read_delta_table_arrow(
@@ -470,6 +491,7 @@ def read_delta_table_arrow(
 ) -> pa.Table:
     if not has_delta_log(table_path):
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
+    _enforce_hot_delta_read_bound(table_path, filters=filters)
     table = DeltaTable(str(table_path))
     dataset = table.to_pyarrow_dataset()
     normalized_filters = _normalize_filters_for_schema(filters, dataset.schema)
@@ -485,17 +507,19 @@ def read_delta_table_rows(
     *,
     columns: list[str] | None = None,
     filters: DeltaReadFilters = None,
+    limit: int | None = None,
 ) -> list[dict[str, object]]:
     if not has_delta_log(table_path):
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
+    if limit is not None and limit < 0:
+        raise ValueError("limit must be >= 0")
+    _enforce_hot_delta_read_bound(table_path, filters=filters, limit=limit)
     table = DeltaTable(str(table_path))
     normalized_filters = _normalize_filters_for_schema(filters, table.to_pyarrow_dataset().schema)
-    rows = table.to_pyarrow_table(columns=columns, filters=normalized_filters).to_pylist()
-    return [
-        {str(key): _normalize_loaded_value(value) for key, value in row.items()}
-        for row in rows
-        if isinstance(row, dict)
-    ]
+    arrow_table = table.to_pyarrow_table(columns=columns, filters=normalized_filters)
+    if limit is not None:
+        arrow_table = arrow_table.slice(0, limit)
+    return _normalize_loaded_rows(arrow_table.to_pylist())
 
 
 def read_delta_table_frame(
@@ -506,6 +530,7 @@ def read_delta_table_frame(
 ) -> pd.DataFrame:
     if not has_delta_log(table_path):
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
+    _enforce_hot_delta_read_bound(table_path, filters=filters)
     table = DeltaTable(str(table_path))
     dataset = table.to_pyarrow_dataset()
     normalized_filters = _normalize_filters_for_schema(filters, dataset.schema)
@@ -515,3 +540,28 @@ def read_delta_table_frame(
         selected_columns = [column for column in selected_columns if column in available]
     arrow_table = table.to_pyarrow_table(columns=selected_columns, filters=normalized_filters)
     return arrow_table.to_pandas()
+
+
+def read_filtered_delta_table_rows(
+    table_path: Path,
+    *,
+    filters: DeltaReadFilters,
+    columns: list[str] | None = None,
+    limit: int | None = None,
+) -> list[dict[str, object]]:
+    if not filters:
+        raise ValueError("filters are required for filtered Delta table reads")
+    return read_delta_table_rows(table_path, columns=columns, filters=filters, limit=limit)
+
+
+def read_small_delta_table_rows(
+    table_path: Path,
+    *,
+    columns: list[str] | None = None,
+    limit: int | None = None,
+) -> list[dict[str, object]]:
+    if is_hot_delta_table_path(table_path):
+        raise ValueError(
+            "hot Delta tables require filtered reads, batched reads, or Spark/Delta-native operations"
+        )
+    return read_delta_table_rows(table_path, columns=columns, limit=limit)

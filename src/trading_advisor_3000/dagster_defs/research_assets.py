@@ -24,7 +24,9 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
     ensure_delta_table_columns,
     has_delta_log,
+    iter_delta_table_row_batches,
     read_delta_table_frame,
+    read_filtered_delta_table_rows,
     read_delta_table_rows,
     write_delta_table_rows,
 )
@@ -463,6 +465,16 @@ def _canonical_table_path(config: dict[str, object], table_name: str) -> Path:
     return Path(str(_config_value(config, "canonical_output_dir"))).resolve() / f"{table_name}.delta"
 
 
+def _read_canonical_context_rows(
+    table_path: Path,
+    *,
+    filters: list[tuple[str, str, object]] | None,
+) -> list[dict[str, object]]:
+    if filters:
+        return read_filtered_delta_table_rows(table_path, filters=filters)
+    return [row for batch in iter_delta_table_row_batches(table_path) for row in batch]
+
+
 def _resolve_research_output_dirs(
     *,
     research_output_dir: Path | None = None,
@@ -770,7 +782,7 @@ def _load_canonical_context(config: dict[str, object]) -> tuple[list[CanonicalBa
             session_open_ts=str(row["session_open_ts"]),
             session_close_ts=str(row["session_close_ts"]),
         )
-        for row in read_delta_table_rows(calendar_path, filters=calendar_filters or None)
+        for row in _read_canonical_context_rows(calendar_path, filters=calendar_filters or None)
         if (
             (not instrument_ids or str(row.get("instrument_id")) in instrument_ids)
             and (not timeframe_set or str(row.get("timeframe")) in timeframe_set)
@@ -806,7 +818,7 @@ def _load_canonical_context(config: dict[str, object]) -> tuple[list[CanonicalBa
             roll_map_filters.append(roll_map_instrument_filter)
         bars = [
             CanonicalBar.from_dict(row)
-            for row in read_delta_table_rows(bars_path, filters=bar_filters or None)
+            for row in _read_canonical_context_rows(bars_path, filters=bar_filters or None)
             if (
                 (not contract_ids or str(row.get("contract_id")) in contract_ids)
                 and (not instrument_ids or str(row.get("instrument_id")) in instrument_ids)
@@ -822,7 +834,7 @@ def _load_canonical_context(config: dict[str, object]) -> tuple[list[CanonicalBa
                 active_contract_id=str(row["active_contract_id"]),
                 reason=str(row["reason"]),
             )
-            for row in read_delta_table_rows(roll_map_path, filters=roll_map_filters or None)
+            for row in _read_canonical_context_rows(roll_map_path, filters=roll_map_filters or None)
             if not instrument_ids or str(row.get("instrument_id")) in instrument_ids
         ]
     return bars, session_calendar, roll_map

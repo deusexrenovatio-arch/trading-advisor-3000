@@ -3,7 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from .canonical import build_canonical_dataset, run_data_quality_checks
-from .delta_runtime import has_delta_log, read_delta_table_rows, write_delta_table_rows
+from .delta_runtime import (
+    has_delta_log,
+    read_delta_table_rows,
+    write_delta_table_rows,
+    write_delta_table_row_batches,
+)
 from .ingestion import ingest_raw_backfill
 from .schemas import historical_data_delta_schema_manifest
 
@@ -41,30 +46,35 @@ def run_sample_backfill(
     session_calendar_output_path = output_dir / "canonical_session_calendar.delta"
     roll_map_output_path = output_dir / "canonical_roll_map.delta"
 
-    write_delta_table_rows(
+    write_delta_table_row_batches(
         table_path=bars_output_path,
-        rows=[item.to_dict() for item in dataset.bars],
+        row_batches=iter([[item.to_dict() for item in dataset.bars]]),
         columns=delta_schema_manifest["canonical_bars"]["columns"],
+        max_rows_per_delta_write=65_536,
     )
-    write_delta_table_rows(
+    write_delta_table_row_batches(
         table_path=instruments_output_path,
-        rows=[item.to_dict() for item in dataset.instruments],
+        row_batches=iter([[item.to_dict() for item in dataset.instruments]]),
         columns=delta_schema_manifest["canonical_instruments"]["columns"],
+        max_rows_per_delta_write=65_536,
     )
-    write_delta_table_rows(
+    write_delta_table_row_batches(
         table_path=contracts_output_path,
-        rows=[item.to_dict() for item in dataset.contracts],
+        row_batches=iter([[item.to_dict() for item in dataset.contracts]]),
         columns=delta_schema_manifest["canonical_contracts"]["columns"],
+        max_rows_per_delta_write=65_536,
     )
-    write_delta_table_rows(
+    write_delta_table_row_batches(
         table_path=session_calendar_output_path,
-        rows=[item.to_dict() for item in dataset.session_calendar],
+        row_batches=iter([[item.to_dict() for item in dataset.session_calendar]]),
         columns=delta_schema_manifest["canonical_session_calendar"]["columns"],
+        max_rows_per_delta_write=65_536,
     )
-    write_delta_table_rows(
+    write_delta_table_row_batches(
         table_path=roll_map_output_path,
-        rows=[item.to_dict() for item in dataset.roll_map],
+        row_batches=iter([[item.to_dict() for item in dataset.roll_map]]),
         columns=delta_schema_manifest["canonical_roll_map"]["columns"],
+        max_rows_per_delta_write=65_536,
     )
 
     return {
