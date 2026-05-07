@@ -4,6 +4,7 @@
 
 | Check | Command | Purpose |
 | --- | --- | --- |
+| Boring checks quick ratchet | `python scripts/run_boring_checks.py --profile quick --scope changed` | parse `pyproject.toml`, run ruff format/check, compile changed Python, and run fast process/architecture tests |
 | Hook bootstrap (dry run) | `python scripts/install_git_hooks.py --dry-run --allow-no-git` | verify operational bootstrap entrypoint |
 | Session handoff contract | `python scripts/validate_session_handoff.py` | keep pointer-shim and context budget valid |
 | Task request contract | `python scripts/validate_task_request_contract.py` | enforce objective/scope/repetition controls |
@@ -23,10 +24,11 @@
 | Legacy namespace growth | `python scripts/validate_legacy_namespace_growth.py` | fail closed when changed files introduce new legacy rename tokens outside migration allowlist |
 | Product surface naming | `python scripts/validate_product_surface_naming.py` | fail closed when active product-facing names reintroduce numbered delivery labels |
 
-## Product Plane Data-Path Review
-- Research/backtest hot paths must read Delta inputs through native Delta/Arrow/Spark APIs with predicate pushdown and column projection before Python receives the data.
-- Do not accept a Python row-object/list scan as a fallback for `research_bar_views`, `research_indicator_frames`, `research_derived_indicator_frames`, optimizer trials, or vectorbt result inputs in the active campaign route.
-- If a changed Product Plane path still uses row-list helpers, it must be bounded to metadata/tests/non-hot compatibility and called out explicitly in review.
+Quality baseline note:
+- `run_boring_checks.py --profile quick --scope changed` is the mandatory
+  changed-file ratchet for current work.
+- Full-repository `ruff` and `mypy` remain historical cleanup work until the
+  existing baseline debt is removed.
 
 ## Gate lanes
 

@@ -21,7 +21,9 @@ def parse_args() -> argparse.Namespace:
         default=Path(__file__).resolve().parents[1],
         help="Repository root path. Defaults to the parent of scripts/.",
     )
-    parser.add_argument("--dry-run", action="store_true", help="Print actions without changing Git config.")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Print actions without changing Git config."
+    )
     parser.add_argument(
         "--allow-no-git",
         action="store_true",
