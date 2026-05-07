@@ -41,6 +41,16 @@ def test_research_campaign_example_yaml_matches_schema() -> None:
         validate_schema(schema, payload)
 
 
+def test_research_campaign_v1_keeps_continuous_front_policy_fields_optional() -> None:
+    schema = load_schema(SCHEMAS / "research_campaign.v1.json")
+    payload = _load_json(FIXTURES / "research_campaign.v1.json")
+    dataset = payload["dataset"]
+    assert isinstance(dataset, dict)
+    dataset["continuous_front_policy"] = {}
+
+    validate_schema(schema, payload)
+
+
 def test_research_contract_schema_snapshots_exist() -> None:
     expected = {
         "research_campaign.v1.json": "contracts/research_campaign.v1.json",
