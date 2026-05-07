@@ -1653,6 +1653,12 @@ def scheduled_continuous_front_policy_config() -> dict[str, object]:
             ) from exc
         if not isinstance(payload, Mapping):
             raise RuntimeError(f"{RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_ENV} must contain a JSON object")
+        unknown_keys = sorted(str(key) for key in payload if str(key) not in CALENDAR_EXPIRY_CONTINUOUS_FRONT_POLICY)
+        if unknown_keys:
+            raise RuntimeError(
+                f"{RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_ENV} contains unsupported "
+                f"continuous_front policy keys: {', '.join(unknown_keys)}"
+            )
         return ContinuousFrontPolicy.from_config(dict(payload)).to_config_dict()
     return ContinuousFrontPolicy.from_config(CALENDAR_EXPIRY_CONTINUOUS_FRONT_POLICY).to_config_dict()
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from trading_advisor_3000.product_plane.contracts import CanonicalBar, Timeframe
 from trading_advisor_3000.product_plane.data_plane.canonical import RollMapEntry, SessionCalendarEntry
 from trading_advisor_3000.product_plane.research.datasets import (
@@ -141,6 +143,11 @@ def test_continuous_front_uses_roll_map_across_contract_boundary() -> None:
     assert [row.contract_id for row in views] == ["BR-6.26", "BR-7.26"]
     assert [row.active_contract_id for row in views] == ["BR-6.26", "BR-7.26"]
     assert [row.bar_index for row in views] == [0, 1]
+
+
+def test_continuous_front_policy_rejects_unknown_session_timezone() -> None:
+    with pytest.raises(ValueError, match="unsupported continuous_front session_timezone"):
+        ContinuousFrontPolicy(session_timezone="Europe/Moscw")
 
 
 def test_continuous_front_preserves_intraday_roll_rows_in_research_views() -> None:

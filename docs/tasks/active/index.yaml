@@ -1,3 +1,8 @@
 version: 1
 updated_at: '2026-05-07'
-items: []
+items:
+- id: TASK-2026-05-07-PUBLISH-CONTINUOUS-FRONT-CALENDAR-SESSION-ACTIVE
+  path: docs/tasks/active/TASK-2026-05-07-publish-continuous-front-calendar-session-active.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-05-07'

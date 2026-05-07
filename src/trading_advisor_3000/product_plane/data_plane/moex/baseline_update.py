@@ -18,7 +18,13 @@ from .foundation import (
     validate_mapping_registry,
     validate_universe_mapping_alignment,
 )
-from .historical_route_contracts import STATUS_PASS, STATUS_PASS_NOOP, normalize_changed_windows
+from .historical_route_contracts import (
+    STATUS_PASS,
+    STATUS_PASS_NOOP,
+    _SORTED_CHANGED_WINDOW_KEYS,
+    _sha256_json,
+    normalize_changed_windows,
+)
 from .iss_client import MoexISSClient
 from .historical_canonical_route import CANONICAL_MERGE_SCOPED_DELETE_INSERT, run_historical_canonical_route
 
@@ -90,7 +96,11 @@ def _baseline_raw_report_for_canonical(
     merged_changed_windows: list[dict[str, object]],
 ) -> dict[str, object]:
     payload = dict(raw_report)
-    payload["changed_windows"] = merged_changed_windows
+    normalized_windows = normalize_changed_windows(merged_changed_windows)
+    payload["changed_windows"] = normalized_windows
+    payload["changed_windows_hash_sha256"] = _sha256_json(
+        [{key: row[key] for key in _SORTED_CHANGED_WINDOW_KEYS} for row in normalized_windows]
+    )
     if merged_changed_windows and str(payload.get("status", "")).strip() == STATUS_PASS_NOOP:
         payload["status"] = STATUS_PASS
     return payload

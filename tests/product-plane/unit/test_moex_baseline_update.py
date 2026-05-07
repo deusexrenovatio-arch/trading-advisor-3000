@@ -12,6 +12,10 @@ from trading_advisor_3000.product_plane.data_plane.moex.historical_canonical_rou
     CANONICAL_MERGE_SCOPED_DELETE_INSERT,
     PROVENANCE_COLUMNS,
 )
+from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contracts import (
+    build_parity_manifest_v1,
+    build_raw_ingest_run_report_v2,
+)
 from trading_advisor_3000.product_plane.data_plane.moex.foundation import (
     RAW_COLUMNS,
     DiscoveryRecord,
@@ -167,6 +171,55 @@ def test_baseline_update_persists_pending_windows_when_canonical_refresh_fails(
     assert len(pending["changed_windows"]) == 1
 
 
+def test_baseline_raw_report_for_canonical_rehashes_merged_changed_windows() -> None:
+    pending_window = {
+        "internal_id": "FUT_BR",
+        "source_timeframe": "1m",
+        "source_interval": 1,
+        "moex_secid": "BRM6@MOEX",
+        "window_start_utc": "2026-04-21T00:00:00Z",
+        "window_end_utc": "2026-04-22T00:00:00Z",
+        "incremental_rows": 12,
+    }
+    current_window = {
+        "internal_id": "FUT_BR",
+        "source_timeframe": "1h",
+        "source_interval": 60,
+        "moex_secid": "BRM6@MOEX",
+        "window_start_utc": "2026-04-22T00:00:00Z",
+        "window_end_utc": "2026-04-23T00:00:00Z",
+        "incremental_rows": 2,
+    }
+    raw_report = build_raw_ingest_run_report_v2(
+        run_id="baseline-daily-retry",
+        ingest_till_utc="2026-04-23T00:00:00Z",
+        source_rows=2,
+        incremental_rows=2,
+        deduplicated_rows=0,
+        stale_rows=0,
+        watermark_by_key={},
+        raw_table_path="raw.delta",
+        raw_ingest_progress_path="progress.jsonl",
+        raw_ingest_error_path="errors.jsonl",
+        raw_ingest_error_latest_path="errors.latest.json",
+        changed_windows=[current_window],
+        generated_at_utc="2026-04-23T00:00:01Z",
+    )
+
+    canonical_report = baseline_module._baseline_raw_report_for_canonical(
+        raw_report=raw_report,
+        merged_changed_windows=[pending_window, current_window],
+    )
+    manifest = build_parity_manifest_v1(
+        run_id="baseline-daily-retry",
+        raw_ingest_run_report=canonical_report,
+        generated_at_utc="2026-04-23T00:00:02Z",
+    )
+
+    assert manifest["window_count"] == 2
+    assert canonical_report["changed_windows_hash_sha256"] == manifest["changed_windows_hash_sha256"]
+
+
 class _BaselineWindowClient:
     def iter_candles(
         self,
@@ -206,6 +259,15 @@ class _BaselineWindowClient:
             volume=80,
             begin="2026-04-01 10:20:00",
             end="2026-04-01 10:29:59",
+        )
+        yield MoexCandle(
+            open=102.0,
+            high=102.0,
+            low=102.0,
+            close=102.0,
+            volume=1,
+            begin="2026-04-01 10:40:00",
+            end="2026-04-01 10:39:59",
         )
 
 
@@ -290,9 +352,11 @@ def test_baseline_raw_window_updates_only_scoped_rows_without_full_table_read(
     )
 
     rows = read_delta_table_rows(raw_table_path)
+    assert report["source_rows"] == 3
     assert report["incremental_rows"] == 2
     assert report["deduplicated_rows"] == 1
     assert len(rows) == 3
+    assert all(str(row["ts_close"]) >= str(row["ts_open"]) for row in rows)
     assert {
         row["close"]
         for row in rows
