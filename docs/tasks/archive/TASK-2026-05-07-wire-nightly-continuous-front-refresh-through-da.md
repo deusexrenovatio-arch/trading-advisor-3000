@@ -32,7 +32,7 @@ Updated: 2026-05-07 11:05 UTC
 
 ## Task Outcome
 - Outcome Status: completed
-- Decision Quality: product-plane nightly route uses Dagster-owned automation and the accepted calendar-expiry continuous-front policy instead of default liquidity recomputation.
+- Decision Quality: correct_after_replan
 - Final Contexts: CTX-ORCHESTRATION, CTX-DATA
 - Route Match: matched product-plane runtime and data-plane proof route.
 - Primary Rework Cause: none

@@ -18,6 +18,10 @@
 ## Superpowers-First Process Layer
 - When Superpowers plugin skills are available, treat `superpowers:using-superpowers` as the first process-routing contract.
 - Check and invoke the relevant Superpowers process skill before clarification, repository exploration, implementation, review, verification, or closeout when any skill could apply.
+- The Superpowers routing rule is intentionally hard: if there is even a small chance a Superpowers process skill applies, use it. Do not replace this with local judgment, speed, confidence, or "small diff" reasoning.
+- Classify by semantic risk, not by patch size. Behavior changes, bugfixes, data/compute semantic changes, contract movement, and user-facing output changes are never "too small" for the process route.
+- For behavior changes and bugfixes, `superpowers:test-driven-development` is mandatory before implementation. Red/green proof is the default evidence. If the red phase was missed, closeout must say so and provide post-hoc red/green proof or residual risk.
+- Before closeout, `superpowers:verification-before-completion` must be paired with an explicit self-review for behavior/contract changes: what changed, which contract moved, which old behavior is forbidden, which test catches it, which edge cases remain, and what risk is still accepted.
 - Process skills decide how to approach the task. Global Codex skills and repo-local TA3000 skills still decide engineering/domain specifics.
 - User instructions, AGENTS.md, TA3000 shell/product-plane boundaries, governed entry rules, PR-only main, and Serena/context-routing requirements remain higher-priority constraints.
 - If Superpowers skills are unavailable in the current session, state the fallback and continue through the global Codex skill layer.
@@ -34,25 +38,27 @@
 
 ## Ordinary Chat Guard
 1. Check Superpowers process skills first when they are exposed in the session.
-2. Use `codex-skill-routing` for questions about skill selection, prompt routing, and missed-skill protection.
-3. Before substantial work, name the selected Superpowers/global skills briefly and why they apply.
-4. If a needed global skill is not present in current session metadata but exists under `D:/CodexHome/skills`, read its main instruction file directly and state the fallback.
-5. If a needed skill is generic, keep it in the global Codex skill root instead of adding it to this repo.
-6. If the task is genuinely TA3000-specific, open the repo-local skill narrowly and do not load the whole skill corpus.
-7. Before expanding beyond the selected skill/context route into memory, current diff, logs, generated artifacts, live process state, web docs, Graphify, or broad file reads, leave a Context Expansion Reason: evidence question, source/tool, insufficiency, and stop condition.
+2. Run the semantic-risk check before deciding a task is small: behavior, bugfix, data/compute semantics, contract, user-facing output, docs-only, generated/mechanical, or investigation-only.
+3. Use `codex-skill-routing` for questions about skill selection, prompt routing, and missed-skill protection.
+4. Before substantial work, name the selected Superpowers/global skills briefly and why they apply.
+5. If a needed global skill is not present in current session metadata but exists under `D:/CodexHome/skills`, read its main instruction file directly and state the fallback.
+6. If a needed skill is generic, keep it in the global Codex skill root instead of adding it to this repo.
+7. If the task is genuinely TA3000-specific, open the repo-local skill narrowly and do not load the whole skill corpus.
+8. Before expanding beyond the selected skill/context route into memory, current diff, logs, generated artifacts, live process state, web docs, Graphify, or broad file reads, leave a Context Expansion Reason: evidence question, source/tool, insufficiency, and stop condition.
 
 ## Global Skill Sequence Rules
 - Route by the artifact or decision currently being produced, not by keyword count.
 - Start with the skill that owns the next decision, then hand off when the artifact changes.
 - Load adjacent skills only when their output is immediately needed; do not preload a whole skill family.
 - Keep `verification-before-completion` near closeout, after evidence exists.
+- Treat `code-reviewer` as the default self-review closeout lens for behavior or contract changes, even when no external review was requested.
 - Keep `phase-acceptance-governor` last for governed pass/block decisions.
 - Use `pr-commit-history-and-summary` after the diff shape is known, unless the user asks for history planning before edits.
 - Use `release-versioning-changelog-and-notes` only when release artifacts, SemVer, tags, or release readiness are part of the task.
 
 ## Common Global Skill Sequences
 - Normal implementation:
-  `code-implementation-worker` -> `executable-test-suite` when tests are affected -> `docs-sync` when docs changed -> `verification-before-completion` -> `pr-commit-history-and-summary` before PR publication.
+  `superpowers:test-driven-development` for behavior/bugfix changes -> `code-implementation-worker` -> `executable-test-suite` when tests are affected -> `docs-sync` when docs changed -> self-review through `code-reviewer` for behavior/contract changes -> `verification-before-completion` -> `pr-commit-history-and-summary` before PR publication.
 - Architecture-sensitive implementation:
   `architecture-review` -> `registry-first` when contracts or data products change -> surface-specific contract skill -> `code-implementation-worker` -> `executable-test-suite` -> `docs-sync` -> `verification-before-completion`.
 - Review or acceptance:

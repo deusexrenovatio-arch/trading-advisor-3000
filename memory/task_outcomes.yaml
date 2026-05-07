@@ -1171,6 +1171,30 @@ items:
   intent_sources:
   - request
   - session_handoff
+- task_id: TASK-2026-05-07-HARDEN-SUPERPOWERS-FIRST-ROUTING-AGAINST-BEHAVIO
+  closed_at: '2026-05-07T09:06:43Z'
+  branch: codex/superpowers-routing-hardening
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: workflow_gap
+  incident_signature: behavior_change_routing_bypass
+  improvement_action: skill
+  improvement_artifact: docs/agent/skills-routing.md
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
 - task_id: TASK-2026-05-07-WIRE-NIGHTLY-CONTINUOUS-FRONT-REFRESH-THROUGH-DA
   closed_at: '2026-05-07T11:07:58Z'
   branch: codex/continuous-front-nightly-wiring
