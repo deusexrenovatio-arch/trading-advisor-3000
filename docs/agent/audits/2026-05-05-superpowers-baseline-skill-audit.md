@@ -185,9 +185,9 @@ Self-review closeout shape:
 - residual risk.
 
 Global skill updates made outside the repo:
-- `D:/CodexHome/skills/codex-skill-routing/SKILL.md`
-- `D:/CodexHome/skills/code-implementation-worker/SKILL.md`
-- `D:/CodexHome/skills/verification-before-completion/SKILL.md`
+- `codex-skill-routing`
+- `code-implementation-worker`
+- `verification-before-completion`
 
 ## Non-Goals
 
