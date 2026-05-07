@@ -142,7 +142,7 @@ def test_continuous_front_spark_job_rejects_unsupported_policy(
 def test_continuous_front_spark_job_rejects_calendar_expiry_policy_variant(
     tmp_path: Path,
 ) -> None:
-    with pytest.raises(RuntimeError, match="calendar_expiry_v1.calendar_roll_offset_trading_days=3"):
+    with pytest.raises(RuntimeError, match=r"calendar_expiry_v1\.calendar_roll_offset_trading_days=3"):
         job.run_continuous_front_spark_job(
             canonical_bars_path=tmp_path / "canonical_bars.delta",
             canonical_session_calendar_path=tmp_path / "canonical_session_calendar.delta",
