@@ -24,10 +24,22 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--start-ts", default="", help="Optional inclusive UTC start timestamp.")
     parser.add_argument("--end-ts", default="", help="Optional inclusive UTC end timestamp.")
     parser.add_argument("--spark-master", default=DEFAULT_SPARK_MASTER)
-    parser.add_argument("--roll-policy-mode", default="liquidity_oi_v1")
+    parser.add_argument("--roll-policy-version", default="front_calendar_expiry_t2_session_0900_2350_v1")
+    parser.add_argument("--roll-policy-mode", default="calendar_expiry_v1")
+    parser.add_argument("--primary-metric", default="volume")
+    parser.add_argument("--secondary-metric", default="open_interest")
     parser.add_argument("--confirmation-bars", type=int, default=1)
     parser.add_argument("--candidate-share-min", type=float, default=0.0)
     parser.add_argument("--advantage-ratio-min", type=float, default=1.0)
+    parser.add_argument("--switch-timing", default="first_active_bar_on_or_after_roll_session")
+    parser.add_argument("--tie-breaker", default="maturity_order_then_contract_id")
+    parser.add_argument("--reference-price-policy", default="last_old_active_close_to_first_new_active_close")
+    parser.add_argument("--session-policy", default="research_regular_0900_2350")
+    parser.add_argument("--session-timezone", default="Europe/Moscow")
+    parser.add_argument("--session-start-time", default="09:00")
+    parser.add_argument("--session-end-time", default="23:50")
+    parser.add_argument("--expected-timeline-mode", default="active_contract_bars")
+    parser.add_argument("--calendar-roll-offset-trading-days", type=int, default=2)
     return parser
 
 
@@ -64,10 +76,22 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     policy = ContinuousFrontPolicy.from_config(
         {
+            "roll_policy_version": args.roll_policy_version,
             "roll_policy_mode": args.roll_policy_mode,
+            "primary_metric": args.primary_metric,
+            "secondary_metric": args.secondary_metric,
             "confirmation_bars": args.confirmation_bars,
             "candidate_share_min": args.candidate_share_min,
             "advantage_ratio_min": args.advantage_ratio_min,
+            "switch_timing": args.switch_timing,
+            "tie_breaker": args.tie_breaker,
+            "reference_price_policy": args.reference_price_policy,
+            "session_policy": args.session_policy,
+            "session_timezone": args.session_timezone,
+            "session_start_time": args.session_start_time,
+            "session_end_time": args.session_end_time,
+            "expected_timeline_mode": args.expected_timeline_mode,
+            "calendar_roll_offset_trading_days": args.calendar_roll_offset_trading_days,
         }
     )
     payload = run_continuous_front_refresh_job(

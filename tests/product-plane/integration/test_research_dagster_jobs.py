@@ -369,7 +369,7 @@ def test_research_data_prep_can_source_indicators_from_continuous_front(tmp_path
     )
     loaded_dataset = load_materialized_research_dataset(output_dir=dagster_dir, dataset_version="dagster-continuous-v1")
     assert loaded_dataset["dataset_manifest"]["source_table"] == "continuous_front_bars"
-    assert loaded_dataset["dataset_manifest"]["continuous_front_policy"]["roll_policy_mode"] == "liquidity_oi_v1"
+    assert loaded_dataset["dataset_manifest"]["continuous_front_policy"]["roll_policy_mode"] == "calendar_expiry_v1"
     assert len(loaded_dataset["bar_views"]) == dagster_report["rows_by_table"]["research_bar_views"]
 
 
@@ -480,7 +480,10 @@ def test_research_definitions_expose_product_jobs_and_moex_success_sensor(tmp_pa
     assert op_config["dataset_version"] == "sensor-data-v1"
     assert op_config["timeframes"] == ["15m"]
     assert run_config["ops"]["continuous_front_bars"]["config"]["series_mode"] == "continuous_front"
-    assert op_config["continuous_front_policy"]["roll_policy_mode"] == "liquidity_oi_v1"
+    assert op_config["continuous_front_policy"]["roll_policy_mode"] == "calendar_expiry_v1"
+    assert op_config["continuous_front_policy"]["session_start_time"] == "09:00"
+    assert op_config["continuous_front_policy"]["session_end_time"] == "23:50"
+    assert op_config["continuous_front_policy"]["expected_timeline_mode"] == "active_contract_bars"
 
 
 def test_research_data_prep_defaults_follow_moex_historical_data_root(

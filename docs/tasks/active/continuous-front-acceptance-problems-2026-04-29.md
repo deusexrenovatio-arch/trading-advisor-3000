@@ -12,6 +12,26 @@ The original acceptance block was valid: continuous-front bars were produced, bu
 
 The remaining local Windows limitation is not an acceptance blocker: raw Windows Spark/Delta still needs a proper Hadoop native runtime (`hadoop.dll`/NativeIO), but the provisioned Docker/Linux Dagster image can run the real Spark contour against `D:/TA3000-data`.
 
+## 2026-05-02 Follow-Up: Session-Bounded Calendar Front
+
+Status: implemented for the default continuous-front refresh policy.
+
+Decision:
+- Continuous-front defaults now use `calendar_expiry_v1` with `calendar_roll_offset_trading_days=2`.
+- Intraday bars are bounded to the Moscow regular research window `09:00 <= time < 23:50`.
+- Expected timeline is `active_contract_bars`: it is built from bars that actually exist for the selected active contract, not from the union of timestamps across all contracts.
+
+Reason:
+- Current MOEX candle input has no usable open interest: raw history stores it as null and canonical bars carry zeroes.
+- Union-timestamp timelines turn sparse off-session or inactive-contract candles into false `missing_active_bar_count` failures.
+- Volume is useful for audit, but the production default is now deterministic date/session policy.
+
+Proof:
+- Focused Spark regression covers a sparse roll window with an 08:45 Moscow old-contract candle and validates that only active-contract session bars are emitted.
+- Docker/Linux real Delta audit on `FUT_BR|15m|2025-09-20..2025-09-30` wrote `continuous_front_bars=352`, `roll_events=1`, `qc_report=1`, QC `PASS`, `missing_active_bar_count=0`.
+- Host-side Delta audit confirmed `_delta_log` exists for all continuous-front tables and `bad_session_rows=0`; output bar times are `09:00..23:45` Moscow.
+- Full Docker/Linux audit on target timeframes `15m,1h,4h,1d` wrote `continuous_front_bars=994820`, `roll_events=1253`, `qc_report=52`; all QC rows `PASS`, `missing_active_sum=0`, `missing_reference_sum=0`, `bad_intraday_session_rows=0`.
+
 ## Repaired Findings
 
 ### 1. Intraday Roll Rows Were Dropped Downstream

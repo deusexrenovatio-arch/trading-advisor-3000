@@ -912,6 +912,8 @@ def ingest_moex_baseline_window(
             for candle in candles:
                 ts_open_dt = _parse_moex_datetime(candle.begin)
                 ts_close_dt = _parse_moex_datetime(candle.end)
+                if ts_close_dt < ts_open_dt:
+                    continue
                 if ts_close_dt < window_start or ts_close_dt > window_end:
                     continue
                 source_rows += 1
@@ -1184,6 +1186,8 @@ def ingest_moex_bootstrap_window(
             for candle in candles:
                 ts_open_dt = _parse_moex_datetime(candle.begin)
                 ts_close_dt = _parse_moex_datetime(candle.end)
+                if ts_close_dt < ts_open_dt:
+                    continue
                 if ts_close_dt < window_start or ts_close_dt > window_end:
                     continue
                 source_rows += 1

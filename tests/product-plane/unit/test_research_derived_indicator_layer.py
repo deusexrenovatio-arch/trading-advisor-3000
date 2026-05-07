@@ -201,6 +201,90 @@ def test_derived_indicator_build_keeps_feature_sets_out_of_layer_identity() -> N
     assert "feature_set_version" not in payload
 
 
+def test_continuous_front_derived_rows_keep_chronological_alignment_across_contract_chunks() -> None:
+    start = datetime(2026, 3, 16, 9, 0, tzinfo=UTC)
+
+    def continuous_view(index: int) -> ResearchBarView:
+        ts = (start + timedelta(minutes=15 * index)).isoformat().replace("+00:00", "Z")
+        contract_id = "ZZ_OLD@MOEX" if index < 30 else "AA_NEW@MOEX"
+        close = 100.0 + index if index < 30 else 95.0 + (index - 30)
+        return ResearchBarView(
+            dataset_version="dataset-v5",
+            contract_id=contract_id,
+            instrument_id="BR",
+            timeframe="15m",
+            ts=ts,
+            open=close - 0.3,
+            high=close + 0.6,
+            low=close - 0.7,
+            close=close,
+            volume=1000 + index,
+            open_interest=20000 + index,
+            session_date=ts[:10],
+            session_open_ts=f"{ts[:10]}T09:00:00Z",
+            session_close_ts=f"{ts[:10]}T23:45:00Z",
+            active_contract_id=contract_id,
+            ret_1=None if index == 0 else 0.01,
+            log_ret_1=None if index == 0 else 0.00995,
+            true_range=1.3,
+            hl_range=1.3,
+            oc_range=0.3,
+            bar_index=index,
+            slice_role="analysis",
+            series_id="BR|15m|continuous_front",
+            series_mode="continuous_front",
+            price_space="continuous_backward_current_anchor_additive",
+            native_open=close - 0.3,
+            native_high=close + 0.6,
+            native_low=close - 0.7,
+            native_close=close,
+            continuous_open=close - 0.3,
+            continuous_high=close + 0.6,
+            continuous_low=close - 0.7,
+            continuous_close=close,
+            execution_open=close - 0.3,
+            execution_high=close + 0.6,
+            execution_low=close - 0.7,
+            execution_close=close,
+            adjustment_mode="additive",
+        )
+
+    bars = [continuous_view(index) for index in range(40)]
+    indicators = [
+        IndicatorFrameRow(
+            dataset_version=row.dataset_version,
+            indicator_set_version="indicators-v1",
+            profile_version="core_v1",
+            contract_id=row.contract_id,
+            instrument_id=row.instrument_id,
+            timeframe=row.timeframe,
+            ts=row.ts,
+            values={"atr_14": 1.5, "ema_20": row.close - 0.2, "sma_20": row.close - 0.3},
+            source_bars_hash="SRC-BARS",
+            row_count=len(bars),
+            warmup_span=20,
+            null_warmup_span=0,
+            created_at="2026-03-16T12:00:00Z",
+        )
+        for row in bars
+    ]
+
+    rows = build_derived_indicator_frames(
+        dataset_version="dataset-v5",
+        indicator_set_version="indicators-v1",
+        derived_indicator_set_version="derived-v1",
+        bar_views=bars,
+        indicator_rows=indicators,
+        series_mode="continuous_front",
+    )
+
+    assert [row.ts for row in rows] == [row.ts for row in bars]
+    probe = rows[35].to_dict()
+    assert probe["ts"] == bars[35].ts
+    assert probe["rolling_high_20"] == pytest.approx(129.6)
+    assert probe["rolling_high_20"] > bars[35].high
+
+
 def test_derived_indicator_batch_writer_coalesces_delta_writes(tmp_path) -> None:
     bars = [_view(ts_index=index, close=80.0 + index * 0.25) for index in range(32)]
     indicators = [_indicator_row(ts_index=index, close=80.0 + index * 0.25) for index in range(32)]
