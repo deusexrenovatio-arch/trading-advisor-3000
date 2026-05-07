@@ -1596,7 +1596,7 @@ def _verify_lineage_delta(
         if not row.get("source_input_row_hash"):
             failures.append({"key": _row_key(row), "failure": "missing_base_input_hash"})
         elif input_hashes and str(row.get("source_input_row_hash")) not in input_hashes:
-            pass
+            failures.append({"key": _row_key(row), "failure": "invalid_base_input_hash"})
         if row.get("indicator_row_hash") != _row_hash(row, indicator_value_columns):
             failures.append({"key": _row_key(row), "failure": "invalid_base_row_hash"})
 
@@ -1621,7 +1621,7 @@ def _verify_lineage_delta(
         if not row.get("source_base_indicator_row_hash"):
             failures.append({"key": _row_key(row), "failure": "missing_derived_base_hash"})
         elif base_hashes and str(row.get("source_base_indicator_row_hash")) not in base_hashes:
-            pass
+            failures.append({"key": _row_key(row), "failure": "invalid_derived_base_hash"})
         if row.get("derived_row_hash") != _row_hash(row, derived_value_columns):
             failures.append({"key": _row_key(row), "failure": "invalid_derived_row_hash"})
         if len(failures) >= 50:

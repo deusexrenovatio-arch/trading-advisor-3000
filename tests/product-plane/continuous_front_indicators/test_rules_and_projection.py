@@ -821,3 +821,81 @@ def test_lineage_gate_fails_without_runtime_evidence() -> None:
         row["field"] for row in failures if row.get("failure") == "missing_runtime_evidence_field"
     }
     assert {"spark_app_id", "spark_event_log_path", "dependency_lock_hash"} <= missing_fields
+
+
+def test_delta_lineage_gate_fails_on_hash_membership_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trading_advisor_3000.product_plane.research.continuous_front_indicators import (
+        pandas_job,
+    )
+
+    input_path = tmp_path / "input.delta"
+    base_path = tmp_path / "base.delta"
+    derived_path = tmp_path / "derived.delta"
+    input_row = {
+        "dataset_version": "cf-dataset-v1",
+        "instrument_id": "FUT_BR",
+        "timeframe": "15m",
+        "ts": "2026-01-01T09:00:00Z",
+        "input_front_row_hash": "input-good",
+    }
+    base_row = {
+        "dataset_version": "cf-dataset-v1",
+        "instrument_id": "FUT_BR",
+        "timeframe": "15m",
+        "ts": "2026-01-01T09:00:00Z",
+        "source_input_row_hash": "input-missing",
+        "indicator_value": 1.0,
+    }
+    base_row["indicator_row_hash"] = pandas_job._row_hash(base_row, ("indicator_value",))
+    derived_row = {
+        "dataset_version": "cf-dataset-v1",
+        "instrument_id": "FUT_BR",
+        "timeframe": "15m",
+        "ts": "2026-01-01T09:00:00Z",
+        "source_input_row_hash": "input-good",
+        "source_base_indicator_row_hash": "base-missing",
+        "derived_value": 2.0,
+    }
+    derived_row["derived_row_hash"] = pandas_job._row_hash(derived_row, ("derived_value",))
+
+    def fake_first_delta_rows(table_path: Path, **_: object) -> list[dict[str, object]]:
+        if table_path == input_path:
+            return [input_row]
+        if table_path == base_path:
+            return [base_row]
+        if table_path == derived_path:
+            return [derived_row]
+        raise AssertionError(f"unexpected table path: {table_path}")
+
+    monkeypatch.setattr(pandas_job, "_first_delta_rows", fake_first_delta_rows)
+    qc = pandas_job._verify_lineage_delta(
+        run_id="lineage-hash-membership",
+        source_versions_digest="INPUTS",
+        output_versions_digest="OUTPUTS",
+        runtime_evidence={
+            "spark_app_id": "spark-app",
+            "spark_event_log_path": "file:///tmp/spark-events",
+            "input_delta_versions_hash": "input-version",
+            "output_delta_versions_hash": "output-version",
+            "rule_set_hash": "rules",
+            "adapter_bundle_hash": "adapters",
+            "formula_kernel_hash": "formulas",
+            "job_config_hash": "config",
+            "code_artifact_hash": "code",
+            "dependency_lock_hash": "deps",
+            "created_by_pipeline": "spark_delta_governed",
+        },
+        input_path=input_path,
+        base_path=base_path,
+        derived_path=derived_path,
+        dataset_version="cf-dataset-v1",
+        indicator_value_columns=("indicator_value",),
+        derived_value_columns=("derived_value",),
+    )
+
+    failures = {row["failure"] for row in qc["sample_rows_json"]}
+    assert qc["status"] == "fail"
+    assert {"invalid_base_input_hash", "invalid_derived_base_hash"} <= failures
