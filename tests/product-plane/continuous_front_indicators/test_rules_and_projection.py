@@ -11,7 +11,9 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     read_delta_table_rows,
     write_delta_table_rows,
 )
-from trading_advisor_3000.product_plane.research.continuous_front import continuous_front_store_contract
+from trading_advisor_3000.product_plane.research.continuous_front import (
+    continuous_front_store_contract,
+)
 from trading_advisor_3000.product_plane.research.continuous_front_indicators import (
     CF_INDICATOR_TABLES,
     build_cf_indicator_input_rows,
@@ -23,7 +25,10 @@ from trading_advisor_3000.product_plane.research.continuous_front_indicators.pan
     _cross_contract_window_any,
     _verify_lineage,
 )
-from trading_advisor_3000.product_plane.research.datasets import ResearchBarView, research_dataset_store_contract
+from trading_advisor_3000.product_plane.research.datasets import (
+    ResearchBarView,
+    research_dataset_store_contract,
+)
 from trading_advisor_3000.product_plane.research.derived_indicators import (
     build_derived_indicator_frames,
     current_derived_indicator_profile,
@@ -79,7 +84,9 @@ def _view(
         roll_epoch=roll_epoch,
         is_roll_bar=is_roll_bar,
         is_first_bar_after_roll=is_roll_bar,
-        bars_since_roll=0 if is_roll_bar else (bars_since_roll if bars_since_roll is not None else roll_epoch),
+        bars_since_roll=0
+        if is_roll_bar
+        else (bars_since_roll if bars_since_roll is not None else roll_epoch),
         price_space="continuous_backward_current_anchor_additive",
         native_open=close - 0.5,
         native_high=close + 1.0,
@@ -213,7 +220,9 @@ def _write_continuous_front_materialized_inputs(materialized_dir: Path) -> list[
                 "created_at": "2026-04-29T00:00:00Z",
             }
         ],
-        columns=dict(continuous_front_store_contract()["continuous_front_adjustment_ladder"]["columns"]),
+        columns=dict(
+            continuous_front_store_contract()["continuous_front_adjustment_ladder"]["columns"]
+        ),
     )
     return views
 
@@ -222,7 +231,9 @@ def _write_materialized_indicator_frames(
     materialized_dir: Path,
     views: list[ResearchBarView],
 ) -> tuple[list[IndicatorFrameRow], list[object]]:
-    ladder_rows = read_delta_table_rows(materialized_dir / "continuous_front_adjustment_ladder.delta")
+    ladder_rows = read_delta_table_rows(
+        materialized_dir / "continuous_front_adjustment_ladder.delta"
+    )
     indicator_rows = build_indicator_frames(
         dataset_version="cf-dataset-v1",
         indicator_set_version="indicators-v1",
@@ -242,7 +253,11 @@ def _write_materialized_indicator_frames(
     write_delta_table_rows(
         table_path=materialized_dir / "research_indicator_frames.delta",
         rows=[row.to_dict() for row in indicator_rows],
-        columns=dict(indicator_store_contract(profile=default_indicator_profile())["research_indicator_frames"]["columns"]),
+        columns=dict(
+            indicator_store_contract(profile=default_indicator_profile())[
+                "research_indicator_frames"
+            ]["columns"]
+        ),
     )
     write_delta_table_rows(
         table_path=materialized_dir / "research_derived_indicator_frames.delta",
@@ -260,7 +275,9 @@ def test_roll_rule_catalog_covers_every_base_and_derived_output() -> None:
     rules = default_indicator_roll_rules()
     columns = {rule.output_column for rule in rules}
     expected_base = set(default_indicator_profile().expected_output_columns())
-    expected_derived = set(research_derived_indicator_store_contract()["research_derived_indicator_frames"]["columns"])
+    expected_derived = set(
+        research_derived_indicator_store_contract()["research_derived_indicator_frames"]["columns"]
+    )
     expected_derived -= {
         "dataset_version",
         "indicator_set_version",
@@ -284,14 +301,42 @@ def test_roll_rule_catalog_covers_every_base_and_derived_output() -> None:
 
     assert expected_base <= columns
     assert expected_derived <= columns
-    assert next(rule for rule in rules if rule.output_column == "ema_20").calculation_group_id == "price_level_post_transform"
-    assert next(rule for rule in rules if rule.output_column == "roc_10").calculation_group_id == "anchor_sensitive_roll_aware"
-    assert next(rule for rule in rules if rule.output_column == "bb_width_20_2").calculation_group_id == "anchor_sensitive_roll_aware"
-    assert next(rule for rule in rules if rule.output_column == "donchian_width_20").calculation_group_id == "price_range_on_p0"
-    assert next(rule for rule in rules if rule.output_column == "rvol_20").calculation_group_id == "native_volume_oi_roll_aware"
-    assert next(rule for rule in rules if rule.output_column == "session_vwap").calculation_group_id == "pandas_window_derived_level"
-    assert next(rule for rule in rules if rule.output_column == "session_vwap").group.adapter_id == "pandas_window_adapter"
-    for column in ("volume_change_1", "price_volume_corr_20", "price_oi_corr_20", "volume_oi_corr_20"):
+    assert (
+        next(rule for rule in rules if rule.output_column == "ema_20").calculation_group_id
+        == "price_level_post_transform"
+    )
+    assert (
+        next(rule for rule in rules if rule.output_column == "roc_10").calculation_group_id
+        == "anchor_sensitive_roll_aware"
+    )
+    assert (
+        next(rule for rule in rules if rule.output_column == "bb_width_20_2").calculation_group_id
+        == "anchor_sensitive_roll_aware"
+    )
+    assert (
+        next(
+            rule for rule in rules if rule.output_column == "donchian_width_20"
+        ).calculation_group_id
+        == "price_range_on_p0"
+    )
+    assert (
+        next(rule for rule in rules if rule.output_column == "rvol_20").calculation_group_id
+        == "native_volume_oi_roll_aware"
+    )
+    assert (
+        next(rule for rule in rules if rule.output_column == "session_vwap").calculation_group_id
+        == "pandas_window_derived_level"
+    )
+    assert (
+        next(rule for rule in rules if rule.output_column == "session_vwap").group.adapter_id
+        == "pandas_window_adapter"
+    )
+    for column in (
+        "volume_change_1",
+        "price_volume_corr_20",
+        "price_oi_corr_20",
+        "volume_oi_corr_20",
+    ):
         rule = next(rule for rule in rules if rule.output_column == column)
         assert rule.calculation_group_id == "native_volume_oi_roll_aware"
         assert not rule.group.allow_cross_contract_window
@@ -300,7 +345,9 @@ def test_roll_rule_catalog_covers_every_base_and_derived_output() -> None:
 def test_input_projection_materializes_causal_zero_anchor_prices_from_ladder() -> None:
     rows = build_cf_indicator_input_rows(
         bar_views=[
-            _view(ts="2026-03-16T09:00:00Z", close=100.0, roll_epoch=0, active_contract_id="BRK2@MOEX"),
+            _view(
+                ts="2026-03-16T09:00:00Z", close=100.0, roll_epoch=0, active_contract_id="BRK2@MOEX"
+            ),
             _view(
                 ts="2026-03-16T09:15:00Z",
                 close=112.0,
@@ -339,7 +386,9 @@ def test_input_projection_materializes_causal_zero_anchor_prices_from_ladder() -
 def test_input_projection_does_not_anchor_past_rows_to_future_rolls() -> None:
     rows = build_cf_indicator_input_rows(
         bar_views=[
-            _view(ts="2026-03-16T09:00:00Z", close=100.0, roll_epoch=0, active_contract_id="BRK2@MOEX"),
+            _view(
+                ts="2026-03-16T09:00:00Z", close=100.0, roll_epoch=0, active_contract_id="BRK2@MOEX"
+            ),
             _view(
                 ts="2026-03-16T09:15:00Z",
                 close=112.0,
@@ -448,7 +497,9 @@ def test_base_indicators_use_their_declared_roll_calculation_group() -> None:
     assert values_by_ts["2026-03-16T09:30:00Z"]["sma_2"] == pytest.approx(111.5)
     assert values_by_ts["2026-03-16T09:45:00Z"]["sma_2"] == pytest.approx(112.5)
     assert values_by_ts["2026-03-16T09:45:00Z"]["mom_2"] == pytest.approx(2.0)
-    assert values_by_ts["2026-03-16T09:45:00Z"]["roc_2"] == pytest.approx(((113.0 / 111.0) - 1.0) * 100.0)
+    assert values_by_ts["2026-03-16T09:45:00Z"]["roc_2"] == pytest.approx(
+        ((113.0 / 111.0) - 1.0) * 100.0
+    )
 
 
 def test_one_bar_native_oi_change_is_null_on_roll_boundary() -> None:
@@ -600,7 +651,9 @@ def test_derived_divergence_over_reset_state_is_null_while_window_crosses_roll()
 def test_cross_contract_metadata_tracks_active_calculation_window() -> None:
     assert _cross_contract_window_any({"roll_seq": 1, "bars_since_roll": 0}, max_window_bars=20)
     assert _cross_contract_window_any({"roll_seq": 1, "bars_since_roll": 19}, max_window_bars=20)
-    assert not _cross_contract_window_any({"roll_seq": 1, "bars_since_roll": 20}, max_window_bars=20)
+    assert not _cross_contract_window_any(
+        {"roll_seq": 1, "bars_since_roll": 20}, max_window_bars=20
+    )
 
 
 def test_continuous_front_indicator_job_writes_governed_sidecar_tables(tmp_path: Path) -> None:
@@ -621,13 +674,17 @@ def test_continuous_front_indicator_job_writes_governed_sidecar_tables(tmp_path:
     for table_name in CF_INDICATOR_TABLES:
         assert has_delta_log(materialized_dir / f"{table_name}.delta")
     assert read_delta_table_rows(materialized_dir / "indicator_roll_rules.delta")
-    acceptance = read_delta_table_rows(materialized_dir / "continuous_front_indicator_acceptance_report.delta")[0]
+    acceptance = read_delta_table_rows(
+        materialized_dir / "continuous_front_indicator_acceptance_report.delta"
+    )[0]
     assert acceptance["publish_status"] == "accepted"
     assert acceptance["prefix_invariance_fail_count"] == 0
     assert acceptance["formula_sample_fail_count"] == 0
     assert acceptance["pandas_ta_parity_fail_count"] == 0
     assert acceptance["lineage_fail_count"] == 0
-    manifest = read_delta_table_rows(materialized_dir / "continuous_front_indicator_run_manifest.delta")[0]
+    manifest = read_delta_table_rows(
+        materialized_dir / "continuous_front_indicator_run_manifest.delta"
+    )[0]
     assert manifest["created_by_pipeline"] == "spark_delta_governed"
     assert manifest["spark_app_id"]
     assert manifest["spark_event_log_path"]
@@ -635,9 +692,8 @@ def test_continuous_front_indicator_job_writes_governed_sidecar_tables(tmp_path:
     assert manifest["output_delta_versions_hash"]
     formula_qc = next(row for row in report["qc_rows"] if row["check_group"] == "formula_sample")
     observed_formula_value = ast.literal_eval(str(formula_qc["observed_value"]))
-    required_formula_count = (
-        len(default_indicator_profile().expected_output_columns())
-        + len(current_derived_indicator_profile().output_columns)
+    required_formula_count = len(default_indicator_profile().expected_output_columns()) + len(
+        current_derived_indicator_profile().output_columns
     )
     assert observed_formula_value["checked_columns_count"] == required_formula_count
     assert observed_formula_value["required_columns_count"] == required_formula_count
@@ -654,7 +710,9 @@ def test_continuous_front_indicator_job_writes_governed_sidecar_tables(tmp_path:
         assert token in checked_formula_columns
     qc_groups = {
         row["check_group"]
-        for row in read_delta_table_rows(materialized_dir / "continuous_front_indicator_qc_observations.delta")
+        for row in read_delta_table_rows(
+            materialized_dir / "continuous_front_indicator_qc_observations.delta"
+        )
     }
     assert {
         "prefix_invariance",
@@ -675,7 +733,9 @@ def test_continuous_front_indicator_job_reads_materialized_frames_without_recomp
     indicator_rows, derived_rows = _write_materialized_indicator_frames(materialized_dir, views)
 
     def fail_recompute(*args: object, **kwargs: object) -> None:
-        raise AssertionError("sidecar proof must read materialized indicator tables, not recompute them")
+        raise AssertionError(
+            "sidecar proof must read materialized indicator tables, not recompute them"
+        )
 
     import trading_advisor_3000.product_plane.research.derived_indicators as derived_indicators_api
     import trading_advisor_3000.product_plane.research.indicators as indicators_api
@@ -694,10 +754,52 @@ def test_continuous_front_indicator_job_reads_materialized_frames_without_recomp
     )
 
     assert report["publish_status"] == "accepted"
-    assert len(read_delta_table_rows(materialized_dir / "continuous_front_indicator_frames.delta")) == len(indicator_rows)
-    assert len(read_delta_table_rows(materialized_dir / "continuous_front_derived_indicator_frames.delta")) == len(
-        derived_rows
+    assert len(
+        read_delta_table_rows(materialized_dir / "continuous_front_indicator_frames.delta")
+    ) == len(indicator_rows)
+    assert len(
+        read_delta_table_rows(materialized_dir / "continuous_front_derived_indicator_frames.delta")
+    ) == len(derived_rows)
+
+
+def test_continuous_front_indicator_job_avoids_full_row_python_loaders(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    materialized_dir = tmp_path / "materialized"
+    views = _write_continuous_front_materialized_inputs(materialized_dir)
+    _write_materialized_indicator_frames(materialized_dir, views)
+
+    def fail_full_loader(*args: object, **kwargs: object) -> None:
+        raise AssertionError(
+            "continuous-front sidecar hot path must use Delta-native table operations"
+        )
+
+    from trading_advisor_3000.product_plane.research.continuous_front_indicators import (
+        pandas_job,
     )
+
+    monkeypatch.setattr(pandas_job, "load_research_bar_views", fail_full_loader, raising=False)
+    monkeypatch.setattr(pandas_job, "load_indicator_frames", fail_full_loader, raising=False)
+    monkeypatch.setattr(
+        pandas_job, "load_derived_indicator_frames", fail_full_loader, raising=False
+    )
+
+    report = run_continuous_front_indicator_pandas_job(
+        materialized_output_dir=materialized_dir,
+        dataset_version="cf-dataset-v1",
+        indicator_set_version="indicators-v1",
+        derived_set_version="derived-v1",
+        run_id="cf-indicator-delta-native",
+        calculation_app_id="spark-test-continuous-front-indicators",
+        event_log_path="file:///tmp/spark-events/cf-indicator-delta-native",
+    )
+
+    assert report["publish_status"] == "accepted"
+    manifest = read_delta_table_rows(
+        materialized_dir / "continuous_front_indicator_run_manifest.delta"
+    )[0]
+    assert "delta_native" in str(manifest["calculation_engines_json"])
 
 
 def test_lineage_gate_fails_without_runtime_evidence() -> None:
@@ -715,5 +817,7 @@ def test_lineage_gate_fails_without_runtime_evidence() -> None:
 
     assert qc["status"] == "fail"
     failures = qc["sample_rows_json"]
-    missing_fields = {row["field"] for row in failures if row.get("failure") == "missing_runtime_evidence_field"}
+    missing_fields = {
+        row["field"] for row in failures if row.get("failure") == "missing_runtime_evidence_field"
+    }
     assert {"spark_app_id", "spark_event_log_path", "dependency_lock_hash"} <= missing_fields
