@@ -36,6 +36,7 @@ from trading_advisor_3000.product_plane.research.indicators import (
     IndicatorSpec,
     build_indicator_frames,
     default_indicator_profile,
+    indicator_store_contract,
 )
 
 
@@ -133,6 +134,126 @@ def _indicator_row(
         created_at="2026-04-29T00:00:00Z",
         output_columns_hash="OUT",
     )
+
+
+def _write_continuous_front_materialized_inputs(materialized_dir: Path) -> list[ResearchBarView]:
+    start = datetime(2026, 3, 16, 9, 0, tzinfo=UTC)
+    views = []
+    roll_index = 220
+    for index in range(260):
+        roll_epoch = 0 if index < roll_index else 1
+        is_roll_bar = index == roll_index
+        close = 100.0 + index * 0.25 + (8.0 if roll_epoch else 0.0)
+        views.append(
+            _view(
+                ts=(start + timedelta(minutes=15 * index)).isoformat().replace("+00:00", "Z"),
+                close=close,
+                roll_epoch=roll_epoch,
+                active_contract_id="BRK2@MOEX" if roll_epoch == 0 else "BRM2@MOEX",
+                is_roll_bar=is_roll_bar,
+                volume=1000 + index * 3 + (index % 5) * 17,
+                open_interest=2000 + index * 7,
+                bars_since_roll=index if roll_epoch == 0 else index - roll_index,
+            )
+        )
+    dataset_contract = research_dataset_store_contract()
+    write_delta_table_rows(
+        table_path=materialized_dir / "research_datasets.delta",
+        rows=[
+            {
+                "dataset_version": "cf-dataset-v1",
+                "dataset_name": "cf",
+                "source_table": "continuous_front_bars",
+                "series_mode": "continuous_front",
+                "universe_id": "moex-futures",
+                "timeframes_json": ["15m"],
+                "base_timeframe": "15m",
+                "start_ts": "2026-03-16T09:00:00Z",
+                "end_ts": views[-1].ts,
+                "warmup_bars": 0,
+                "split_method": "full",
+                "split_params_json": {},
+                "bars_hash": "BARS",
+                "created_at": "2026-04-29T00:00:00Z",
+                "code_version": "test",
+                "notes_json": {},
+                "source_tables": ["continuous_front_bars"],
+                "continuous_front_policy": {
+                    "roll_policy_version": "front_liquidity_oi_v1",
+                    "adjustment_policy_version": "backward_current_anchor_additive_v1",
+                },
+                "lineage_key": "LINEAGE",
+            }
+        ],
+        columns=dict(dataset_contract["research_datasets"]["columns"]),
+    )
+    write_delta_table_rows(
+        table_path=materialized_dir / "research_bar_views.delta",
+        rows=[view.to_dict() for view in views],
+        columns=dict(dataset_contract["research_bar_views"]["columns"]),
+    )
+    write_delta_table_rows(
+        table_path=materialized_dir / "continuous_front_adjustment_ladder.delta",
+        rows=[
+            {
+                "dataset_version": "cf-dataset-v1",
+                "roll_policy_version": "front_liquidity_oi_v1",
+                "adjustment_policy_version": "backward_current_anchor_additive_v1",
+                "instrument_id": "FUT_BR",
+                "timeframe": "15m",
+                "roll_event_id": "roll-1",
+                "roll_sequence": 1,
+                "effective_ts": views[roll_index].ts,
+                "additive_gap": 8.0,
+                "cumulative_offset_before": 8.0,
+                "cumulative_offset_after": 0.0,
+                "ratio_gap": 1.0,
+                "ratio_factor_before": 1.0,
+                "ratio_factor_after": 1.0,
+                "created_at": "2026-04-29T00:00:00Z",
+            }
+        ],
+        columns=dict(continuous_front_store_contract()["continuous_front_adjustment_ladder"]["columns"]),
+    )
+    return views
+
+
+def _write_materialized_indicator_frames(
+    materialized_dir: Path,
+    views: list[ResearchBarView],
+) -> tuple[list[IndicatorFrameRow], list[object]]:
+    ladder_rows = read_delta_table_rows(materialized_dir / "continuous_front_adjustment_ladder.delta")
+    indicator_rows = build_indicator_frames(
+        dataset_version="cf-dataset-v1",
+        indicator_set_version="indicators-v1",
+        bar_views=views,
+        series_mode="continuous_front",
+        adjustment_ladder_rows=tuple(ladder_rows),
+    )
+    derived_rows = build_derived_indicator_frames(
+        dataset_version="cf-dataset-v1",
+        indicator_set_version="indicators-v1",
+        derived_indicator_set_version="derived-v1",
+        bar_views=views,
+        indicator_rows=indicator_rows,
+        series_mode="continuous_front",
+        adjustment_ladder_rows=tuple(ladder_rows),
+    )
+    write_delta_table_rows(
+        table_path=materialized_dir / "research_indicator_frames.delta",
+        rows=[row.to_dict() for row in indicator_rows],
+        columns=dict(indicator_store_contract(profile=default_indicator_profile())["research_indicator_frames"]["columns"]),
+    )
+    write_delta_table_rows(
+        table_path=materialized_dir / "research_derived_indicator_frames.delta",
+        rows=[row.to_dict() for row in derived_rows],
+        columns=dict(
+            research_derived_indicator_store_contract(profile=current_derived_indicator_profile())[
+                "research_derived_indicator_frames"
+            ]["columns"]
+        ),
+    )
+    return indicator_rows, derived_rows
 
 
 def test_roll_rule_catalog_covers_every_base_and_derived_output() -> None:
@@ -484,84 +605,8 @@ def test_cross_contract_metadata_tracks_active_calculation_window() -> None:
 
 def test_continuous_front_indicator_job_writes_governed_sidecar_tables(tmp_path: Path) -> None:
     materialized_dir = tmp_path / "materialized"
-    start = datetime(2026, 3, 16, 9, 0, tzinfo=UTC)
-    views = []
-    roll_index = 220
-    for index in range(260):
-        roll_epoch = 0 if index < roll_index else 1
-        is_roll_bar = index == roll_index
-        close = 100.0 + index * 0.25 + (8.0 if roll_epoch else 0.0)
-        views.append(
-            _view(
-                ts=(start + timedelta(minutes=15 * index)).isoformat().replace("+00:00", "Z"),
-                close=close,
-                roll_epoch=roll_epoch,
-                active_contract_id="BRK2@MOEX" if roll_epoch == 0 else "BRM2@MOEX",
-                is_roll_bar=is_roll_bar,
-                volume=1000 + index * 3 + (index % 5) * 17,
-                open_interest=2000 + index * 7,
-                bars_since_roll=index if roll_epoch == 0 else index - roll_index,
-            )
-        )
-    dataset_contract = research_dataset_store_contract()
-    write_delta_table_rows(
-        table_path=materialized_dir / "research_datasets.delta",
-        rows=[
-            {
-                "dataset_version": "cf-dataset-v1",
-                "dataset_name": "cf",
-                "source_table": "continuous_front_bars",
-                "series_mode": "continuous_front",
-                "universe_id": "moex-futures",
-                "timeframes_json": ["15m"],
-                "base_timeframe": "15m",
-                "start_ts": "2026-03-16T09:00:00Z",
-                "end_ts": views[-1].ts,
-                "warmup_bars": 0,
-                "split_method": "full",
-                "split_params_json": {},
-                "bars_hash": "BARS",
-                "created_at": "2026-04-29T00:00:00Z",
-                "code_version": "test",
-                "notes_json": {},
-                "source_tables": ["continuous_front_bars"],
-                "continuous_front_policy": {
-                    "roll_policy_version": "front_liquidity_oi_v1",
-                    "adjustment_policy_version": "backward_current_anchor_additive_v1",
-                },
-                "lineage_key": "LINEAGE",
-            }
-        ],
-        columns=dict(dataset_contract["research_datasets"]["columns"]),
-    )
-    write_delta_table_rows(
-        table_path=materialized_dir / "research_bar_views.delta",
-        rows=[view.to_dict() for view in views],
-        columns=dict(dataset_contract["research_bar_views"]["columns"]),
-    )
-    write_delta_table_rows(
-        table_path=materialized_dir / "continuous_front_adjustment_ladder.delta",
-        rows=[
-            {
-                "dataset_version": "cf-dataset-v1",
-                "roll_policy_version": "front_liquidity_oi_v1",
-                "adjustment_policy_version": "backward_current_anchor_additive_v1",
-                "instrument_id": "FUT_BR",
-                "timeframe": "15m",
-                "roll_event_id": "roll-1",
-                "roll_sequence": 1,
-                "effective_ts": views[roll_index].ts,
-                "additive_gap": 8.0,
-                "cumulative_offset_before": 8.0,
-                "cumulative_offset_after": 0.0,
-                "ratio_gap": 1.0,
-                "ratio_factor_before": 1.0,
-                "ratio_factor_after": 1.0,
-                "created_at": "2026-04-29T00:00:00Z",
-            }
-        ],
-        columns=dict(continuous_front_store_contract()["continuous_front_adjustment_ladder"]["columns"]),
-    )
+    views = _write_continuous_front_materialized_inputs(materialized_dir)
+    _write_materialized_indicator_frames(materialized_dir, views)
     report = run_continuous_front_indicator_pandas_job(
         materialized_output_dir=materialized_dir,
         dataset_version="cf-dataset-v1",
@@ -619,6 +664,40 @@ def test_continuous_front_indicator_job_writes_governed_sidecar_tables(tmp_path:
         "anti_bypass",
     } <= qc_groups
     assert set(continuous_front_indicator_store_contract()) == set(CF_INDICATOR_TABLES)
+
+
+def test_continuous_front_indicator_job_reads_materialized_frames_without_recompute(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    materialized_dir = tmp_path / "materialized"
+    views = _write_continuous_front_materialized_inputs(materialized_dir)
+    indicator_rows, derived_rows = _write_materialized_indicator_frames(materialized_dir, views)
+
+    def fail_recompute(*args: object, **kwargs: object) -> None:
+        raise AssertionError("sidecar proof must read materialized indicator tables, not recompute them")
+
+    import trading_advisor_3000.product_plane.research.derived_indicators as derived_indicators_api
+    import trading_advisor_3000.product_plane.research.indicators as indicators_api
+
+    monkeypatch.setattr(indicators_api, "build_indicator_frames", fail_recompute)
+    monkeypatch.setattr(derived_indicators_api, "build_derived_indicator_frames", fail_recompute)
+
+    report = run_continuous_front_indicator_pandas_job(
+        materialized_output_dir=materialized_dir,
+        dataset_version="cf-dataset-v1",
+        indicator_set_version="indicators-v1",
+        derived_set_version="derived-v1",
+        run_id="cf-indicator-materialized-read",
+        calculation_app_id="spark-test-continuous-front-indicators",
+        event_log_path="file:///tmp/spark-events/cf-indicator-materialized-read",
+    )
+
+    assert report["publish_status"] == "accepted"
+    assert len(read_delta_table_rows(materialized_dir / "continuous_front_indicator_frames.delta")) == len(indicator_rows)
+    assert len(read_delta_table_rows(materialized_dir / "continuous_front_derived_indicator_frames.delta")) == len(
+        derived_rows
+    )
 
 
 def test_lineage_gate_fails_without_runtime_evidence() -> None:
