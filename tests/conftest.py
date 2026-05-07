@@ -16,7 +16,7 @@ if str(SRC) not in sys.path:
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     _ = config
     for item in items:
-        marker = _marker_for_path(Path(str(item.fspath)))
+        marker = _marker_for_path(item.path)
         if marker and not item.get_closest_marker(marker):
             item.add_marker(getattr(pytest.mark, marker))
 
