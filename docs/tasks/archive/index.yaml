@@ -265,3 +265,9 @@ items:
   status: completed
   started_at: '2026-05-07'
   completed_at: '2026-05-07'
+- id: TASK-2026-05-07-WIRE-NIGHTLY-CONTINUOUS-FRONT-REFRESH-THROUGH-DA
+  path: docs/tasks/archive/TASK-2026-05-07-wire-nightly-continuous-front-refresh-through-da.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-05-07'
+  completed_at: '2026-05-07'

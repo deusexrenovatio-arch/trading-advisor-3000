@@ -1171,3 +1171,28 @@ items:
   intent_sources:
   - request
   - session_handoff
+- task_id: TASK-2026-05-07-WIRE-NIGHTLY-CONTINUOUS-FRONT-REFRESH-THROUGH-DA
+  closed_at: '2026-05-07T11:07:58Z'
+  branch: codex/continuous-front-nightly-wiring
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-ORCHESTRATION
+  - CTX-DATA
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: none
+  incident_signature: none
+  improvement_action: test
+  improvement_artifact: tests/product-plane/unit/test_continuous_front_spark_job.py
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
