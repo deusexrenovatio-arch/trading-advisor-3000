@@ -186,13 +186,23 @@ def _series_key_from_indicator(row: IndicatorFrameRow, *, series_mode: str) -> D
     )
 
 
+def _series_sort_key(
+    row: ResearchBarView | IndicatorFrameRow,
+    *,
+    series_mode: str,
+) -> tuple[str, str, str, str]:
+    if series_mode == "continuous_front":
+        return (row.instrument_id, row.timeframe, row.ts, row.contract_id)
+    return (row.instrument_id, row.contract_id, row.timeframe, row.ts)
+
+
 def _group_bar_views(
     *,
     bar_views: list[ResearchBarView],
     series_mode: str,
 ) -> dict[DerivedSeriesKey, dict[str, list[ResearchBarView]]]:
     grouped: dict[DerivedSeriesKey, dict[str, list[ResearchBarView]]] = {}
-    for row in sorted(bar_views, key=lambda item: (item.instrument_id, item.contract_id, item.timeframe, item.ts)):
+    for row in sorted(bar_views, key=lambda item: _series_sort_key(item, series_mode=series_mode)):
         series_key = _series_key_from_bar(row, series_mode=series_mode)
         grouped.setdefault(series_key, {}).setdefault(row.timeframe, []).append(row)
     return grouped
@@ -280,7 +290,7 @@ def _group_indicator_rows(
     series_mode: str,
 ) -> dict[DerivedSeriesKey, dict[str, list[IndicatorFrameRow]]]:
     grouped: dict[DerivedSeriesKey, dict[str, list[IndicatorFrameRow]]] = {}
-    for row in sorted(rows, key=lambda item: (item.instrument_id, item.contract_id, item.timeframe, item.ts)):
+    for row in sorted(rows, key=lambda item: _series_sort_key(item, series_mode=series_mode)):
         series_key = _series_key_from_indicator(row, series_mode=series_mode)
         grouped.setdefault(series_key, {}).setdefault(row.timeframe, []).append(row)
     return grouped
