@@ -6,7 +6,7 @@ Updated: 2026-05-07 17:25 UTC
 
 ## Task Request Contract
 - Objective: remove the expensive full-row Python materialization path from continuous-front sidecar rebuilds.
-- In Scope: Delta/Arrow table reads, sidecar materialization, lineage/QC checks, and regression coverage for the hot path.
+- In Scope: Delta/Arrow table reads, sidecar materialization, lineage/QC checks, regression coverage for the hot path, and local hook hardening needed to publish the branch.
 - Out of Scope: changing indicator formulas, changing canonical/raw ingest, Docker runtime repair, or publishing isolated verification output to current.
 - Constraints: preserve existing Delta table contracts, stable row hashes, and acceptance semantics.
 - Done Evidence: focused tests, loop gate, PR-only policy validation, and production-scale isolated verification on the nightly data root.
@@ -23,6 +23,7 @@ Updated: 2026-05-07 17:25 UTC
 - Added filtered Arrow/Delta reads so table scans can stay column-selected and batched.
 - Reworked continuous-front indicator sidecars to join and write Delta batches instead of loading full table rows into Python lists.
 - Added regression coverage that fails if the hot path calls the old full-row loaders.
+- Hardened the Serena post-checkout hook against inherited Git hook environment so pre-push process tests run in their own temp worktrees.
 
 ## First-Time-Right Report
 1. Confirmed coverage: input projection, base indicators, derived indicators, lineage, QC, and hot-path loader avoidance are covered.
