@@ -483,6 +483,29 @@ def test_research_definitions_expose_product_jobs_and_moex_success_sensor(tmp_pa
     assert op_config["continuous_front_policy"]["roll_policy_mode"] == "liquidity_oi_v1"
 
 
+def test_scheduled_research_refresh_uses_calendar_expiry_policy(monkeypatch) -> None:
+    monkeypatch.delenv(research_assets.RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_ENV, raising=False)
+
+    policy = research_assets.scheduled_continuous_front_policy_config()
+
+    assert policy["roll_policy_mode"] == "calendar_expiry_v1"
+    assert policy["roll_policy_version"] == "front_calendar_expiry_t2_session_0900_2350_v1"
+    assert policy["switch_timing"] == "first_active_bar_on_or_after_roll_session"
+    assert policy["reference_price_policy"] == "last_old_active_close_to_first_new_active_close"
+
+
+def test_scheduled_research_refresh_policy_can_be_overridden_from_env(monkeypatch) -> None:
+    monkeypatch.setenv(
+        research_assets.RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_ENV,
+        json.dumps({"roll_policy_mode": "liquidity_volume_oi_v1", "confirmation_bars": 3}),
+    )
+
+    policy = research_assets.scheduled_continuous_front_policy_config()
+
+    assert policy["roll_policy_mode"] == "liquidity_volume_oi_v1"
+    assert policy["confirmation_bars"] == 3
+
+
 def test_research_data_prep_defaults_follow_moex_historical_data_root(
     tmp_path: Path,
     monkeypatch,

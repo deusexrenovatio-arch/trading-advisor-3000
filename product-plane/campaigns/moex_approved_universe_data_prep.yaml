@@ -14,22 +14,28 @@ dataset:
     active_contract_field: active_contract_id
     require_point_in_time_alignment: true
     preserve_roll_gap_columns: true
-    roll_policy_version: front_liquidity_oi_v1
+    roll_policy_version: front_calendar_expiry_t2_session_0900_2350_v1
     adjustment_policy_version: backward_current_anchor_additive_v1
-    roll_policy_mode: liquidity_oi_v1
-    primary_metric: open_interest
-    secondary_metric: volume
+    roll_policy_mode: calendar_expiry_v1
+    primary_metric: volume
+    secondary_metric: open_interest
     confirmation_bars: 1
     candidate_share_min: 0.0
     advantage_ratio_min: 1.0
-    switch_timing: next_tradable_bar_after_decision_watermark
-    tie_breaker: higher_open_interest_then_volume_then_contract_id
+    switch_timing: first_active_bar_on_or_after_roll_session
+    tie_breaker: maturity_order_then_contract_id
     adjustment_mode: additive
     gap_type: close_to_close
-    reference_price_policy: decision_bar_close
+    reference_price_policy: last_old_active_close_to_first_new_active_close
     price_space: continuous_backward_current_anchor_additive
     decision_uses_closed_bar: true
     effective_after_watermark: true
+    calendar_roll_offset_trading_days: 2
+    expected_timeline_mode: active_contract_bars
+    session_policy: research_regular_0900_2350
+    session_timezone: Europe/Moscow
+    session_start_time: "09:00"
+    session_end_time: "23:50"
   timeframes:
     - 15m
     - 1h
@@ -37,7 +43,7 @@ dataset:
     - 1d
   base_timeframe: 15m
   start_ts: "2021-04-01T00:00:00Z"
-  end_ts: "2026-03-31T23:59:59Z"
+  end_ts:
   warmup_bars: 300
   split_method: holdout
   contract_ids: []

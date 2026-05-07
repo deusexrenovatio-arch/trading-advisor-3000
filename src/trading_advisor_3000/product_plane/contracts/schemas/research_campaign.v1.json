@@ -79,7 +79,13 @@
             "reference_price_policy": {"type": "string", "minLength": 1},
             "price_space": {"type": "string", "minLength": 1},
             "decision_uses_closed_bar": {"type": "boolean"},
-            "effective_after_watermark": {"type": "boolean"}
+            "effective_after_watermark": {"type": "boolean"},
+            "calendar_roll_offset_trading_days": {"type": "integer", "minimum": 0},
+            "expected_timeline_mode": {"type": "string"},
+            "session_policy": {"type": "string"},
+            "session_timezone": {"type": "string"},
+            "session_start_time": {"type": "string"},
+            "session_end_time": {"type": "string"}
           },
           "additionalProperties": false
         },

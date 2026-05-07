@@ -5,7 +5,10 @@ from pathlib import Path
 import pytest
 
 from trading_advisor_3000.product_plane.research.continuous_front import CONTINUOUS_FRONT_TABLES
-from trading_advisor_3000.product_plane.research.datasets import ContinuousFrontPolicy
+from trading_advisor_3000.product_plane.research.datasets import (
+    CALENDAR_EXPIRY_CONTINUOUS_FRONT_POLICY,
+    ContinuousFrontPolicy,
+)
 from trading_advisor_3000.spark_jobs import continuous_front_job as job
 
 
@@ -123,19 +126,130 @@ def test_continuous_front_spark_job_uses_native_spark_contour(
     assert "collect" not in job.run_continuous_front_spark_job.__code__.co_names
 
 
-def test_continuous_front_spark_job_rejects_unsupported_policy(
+def test_continuous_front_spark_job_rejects_unsupported_reference_policy(
     tmp_path: Path,
 ) -> None:
-    with pytest.raises(RuntimeError, match="does not support"):
+    with pytest.raises(RuntimeError, match="reference_price_policy=settlement_price"):
         job.run_continuous_front_spark_job(
             canonical_bars_path=tmp_path / "canonical_bars.delta",
             canonical_session_calendar_path=tmp_path / "canonical_session_calendar.delta",
             canonical_roll_map_path=tmp_path / "canonical_roll_map.delta",
             output_dir=tmp_path / "continuous-front",
             dataset_version="spark-cf-v1",
-            policy=ContinuousFrontPolicy(roll_policy_mode="calendar_expiry_v1"),
+            policy=ContinuousFrontPolicy(reference_price_policy="settlement_price"),
             spark_session_factory=lambda _app_name, _master: _FakeSpark(),
         )
+
+
+def test_spark_native_calendar_expiry_uses_roll_map_active_contracts(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    pytest.importorskip("pyspark.sql")
+    monkeypatch.setenv("HADOOP_HOME", (Path.cwd() / ".tmp" / "hadoop-winutils").as_posix())
+    monkeypatch.setenv("TA3000_SPARK_RUNTIME_ROOT", (tmp_path / "spark-runtime").as_posix())
+    spark = job._create_spark_session(  # type: ignore[attr-defined]
+        "ta3000-continuous-front-calendar-test",
+        "local[2]",
+    )
+    try:
+        bars = spark.sql(
+            """
+            SELECT
+              contract_id,
+              instrument_id,
+              timeframe,
+              CAST(ts AS TIMESTAMP) AS ts,
+              CAST(open_price AS DOUBLE) AS open,
+              CAST(high_price AS DOUBLE) AS high,
+              CAST(low_price AS DOUBLE) AS low,
+              CAST(close_price AS DOUBLE) AS close,
+              CAST(volume AS BIGINT) AS volume,
+              CAST(open_interest AS BIGINT) AS open_interest
+            FROM VALUES
+              ('BRK2@MOEX', 'FUT_BR', '15m', '2022-03-21 10:00:00', 99.0, 101.0, 98.0, 100.0, 1000, 300),
+              ('BRM2@MOEX', 'FUT_BR', '15m', '2022-03-21 10:00:00', 109.0, 111.0, 108.0, 110.0, 900, 100),
+              ('BRK2@MOEX', 'FUT_BR', '15m', '2022-03-21 10:15:00', 100.0, 102.0, 99.0, 101.0, 1000, 120),
+              ('BRM2@MOEX', 'FUT_BR', '15m', '2022-03-21 10:15:00', 110.0, 112.0, 109.0, 111.0, 900, 420),
+              ('BRK2@MOEX', 'FUT_BR', '15m', '2022-03-22 10:00:00', 101.0, 103.0, 100.0, 102.0, 1000, 100),
+              ('BRM2@MOEX', 'FUT_BR', '15m', '2022-03-22 10:00:00', 111.0, 113.0, 110.0, 112.0, 900, 430)
+            AS t(
+              contract_id,
+              instrument_id,
+              timeframe,
+              ts,
+              open_price,
+              high_price,
+              low_price,
+              close_price,
+              volume,
+              open_interest
+            )
+            """
+        )
+        session_calendar = spark.sql(
+            """
+            SELECT
+              instrument_id,
+              timeframe,
+              session_date,
+              CAST(session_open_ts AS TIMESTAMP) AS session_open_ts,
+              CAST(session_close_ts AS TIMESTAMP) AS session_close_ts
+            FROM VALUES
+              ('FUT_BR', '15m', '2022-03-21', '2022-03-21 09:00:00', '2022-03-21 23:50:00'),
+              ('FUT_BR', '15m', '2022-03-22', '2022-03-22 09:00:00', '2022-03-22 23:50:00')
+            AS t(instrument_id, timeframe, session_date, session_open_ts, session_close_ts)
+            """
+        )
+        roll_map = spark.sql(
+            """
+            SELECT instrument_id, session_date, active_contract_id
+            FROM VALUES
+              ('FUT_BR', '2022-03-21', 'BRK2@MOEX'),
+              ('FUT_BR', '2022-03-22', 'BRM2@MOEX')
+            AS t(instrument_id, session_date, active_contract_id)
+            """
+        )
+        monkeypatch.setattr(job, "_load_filtered_bars", lambda **_kwargs: bars)
+        monkeypatch.setattr(job, "_load_session_calendar", lambda **_kwargs: session_calendar)
+        monkeypatch.setattr(job, "_load_roll_map", lambda **_kwargs: roll_map)
+
+        tables = job._build_spark_native_tables(  # type: ignore[attr-defined]
+            spark=spark,
+            canonical_bars_path=tmp_path / "canonical_bars.delta",
+            canonical_session_calendar_path=tmp_path / "canonical_session_calendar.delta",
+            canonical_roll_map_path=tmp_path / "canonical_roll_map.delta",
+            dataset_version="spark-calendar-v1",
+            policy=ContinuousFrontPolicy.from_config(CALENDAR_EXPIRY_CONTINUOUS_FRONT_POLICY),
+            run_id="spark-calendar",
+            instrument_ids=(),
+            timeframes=("15m",),
+            start_ts=None,
+            end_ts=None,
+        )
+
+        front = [
+            row.asDict(recursive=True)
+            for row in tables["continuous_front_bars"].orderBy("ts").toLocalIterator()
+        ]
+        event = next(tables["continuous_front_roll_events"].toLocalIterator()).asDict(recursive=True)
+        qc = next(tables["continuous_front_qc_report"].toLocalIterator()).asDict(recursive=True)
+
+        assert [row["active_contract_id"] for row in front] == ["BRK2@MOEX", "BRK2@MOEX", "BRM2@MOEX"]
+        assert [row["candidate_contract_id"] for row in front] == ["BRK2@MOEX", "BRK2@MOEX", "BRM2@MOEX"]
+        assert [row["input_row_count"] for row in front] == [6, 6, 6]
+        assert front[-1]["is_roll_bar"] is True
+        assert front[-1]["causality_watermark_ts"] == front[-1]["ts"]
+        assert event["decision_ts"] == front[1]["ts"]
+        assert event["effective_ts"] == front[-1]["ts"]
+        assert event["old_reference_price"] == pytest.approx(101.0)
+        assert event["new_reference_price"] == pytest.approx(112.0)
+        assert event["additive_gap"] == pytest.approx(11.0)
+        assert event["causality_watermark_ts"] == event["effective_ts"]
+        assert qc["status"] == "PASS"
+        assert qc["missing_active_bar_count"] == 0
+    finally:
+        spark.stop()
 
 
 def test_spark_native_adjustment_uses_backward_current_anchor(
@@ -190,6 +304,8 @@ def test_spark_native_adjustment_uses_backward_current_anchor(
         tables = job._build_spark_native_tables(  # type: ignore[attr-defined]
             spark=spark,
             canonical_bars_path=tmp_path / "canonical_bars.delta",
+            canonical_session_calendar_path=tmp_path / "canonical_session_calendar.delta",
+            canonical_roll_map_path=tmp_path / "canonical_roll_map.delta",
             dataset_version="spark-current-anchor-v1",
             policy=ContinuousFrontPolicy(confirmation_bars=1),
             run_id="spark-current-anchor",

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .continuous import ContinuousFrontPolicy
+from .continuous import CALENDAR_EXPIRY_CONTINUOUS_FRONT_POLICY, ContinuousFrontPolicy
 from .manifest import ResearchDatasetManifest
 from .materialize import (
     build_research_instrument_tree,
@@ -16,6 +16,7 @@ from .views import ResearchBarView, build_research_bar_views
 
 __all__ = [
     "ContinuousFrontPolicy",
+    "CALENDAR_EXPIRY_CONTINUOUS_FRONT_POLICY",
     "DatasetWindow",
     "HoldoutSplitConfig",
     "ResearchBarView",
