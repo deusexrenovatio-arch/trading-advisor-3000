@@ -8,7 +8,6 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from typing import Any
 
 from trading_advisor_3000.product_plane.contracts import CanonicalBar, Timeframe
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
@@ -1041,8 +1040,8 @@ def _build_scoped_raw_read_filters(
 ) -> list[list[tuple[str, str, object]]]:
     filters: list[list[tuple[str, str, object]]] = []
     for window in changed_windows:
-        window_start = _parse_iso_utc(window.window_start_utc)
-        window_end = _parse_iso_utc(window.window_end_utc)
+        window_start = _to_iso_utc(_parse_iso_utc(window.window_start_utc))
+        window_end = _to_iso_utc(_parse_iso_utc(window.window_end_utc))
         filters.append(
             [
                 ("internal_id", "=", window.internal_id),

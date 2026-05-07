@@ -6,10 +6,12 @@ from pathlib import Path
 import pytest
 
 from trading_advisor_3000.product_plane.contracts import CanonicalBar, Timeframe
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows, write_delta_table_rows
 from trading_advisor_3000.product_plane.data_plane.moex.foundation import RAW_COLUMNS
 from trading_advisor_3000.product_plane.data_plane.moex.historical_canonical_route import (
     CanonicalProvenance,
+    ChangedWindowScope,
+    _build_scoped_raw_read_filters,
     run_historical_canonical_route,
     run_contract_compatibility_check,
     run_qc_gates,
@@ -253,3 +255,55 @@ def test_canonical_route_rejects_changed_window_wider_than_baseline_update_guard
             },
             max_changed_window_days=10,
         )
+
+
+def test_canonical_route_scoped_raw_filters_match_string_timestamp_schema(tmp_path: Path) -> None:
+    raw_table_path = tmp_path / "raw_moex_history.delta"
+    write_delta_table_rows(
+        table_path=raw_table_path,
+        rows=[
+            {
+                "internal_id": "FUT_BR",
+                "finam_symbol": "BRM6",
+                "moex_engine": "futures",
+                "moex_market": "forts",
+                "moex_board": "RFUD",
+                "moex_secid": "BRM6",
+                "asset_group": "commodity",
+                "timeframe": "1m",
+                "source_interval": 1,
+                "ts_open": "2026-05-04T07:00:00Z",
+                "ts_close": "2026-05-04T07:00:59Z",
+                "open": 100.0,
+                "high": 101.0,
+                "low": 99.0,
+                "close": 100.5,
+                "volume": 10,
+                "open_interest": None,
+                "ingest_run_id": "raw-pass",
+                "ingested_at_utc": "2026-05-04T07:01:00Z",
+                "provenance_json": {"source_provider": "moex_iss", "run_id": "raw-pass"},
+            }
+        ],
+        columns=RAW_COLUMNS,
+    )
+
+    filters = _build_scoped_raw_read_filters(
+        [
+            ChangedWindowScope(
+                internal_id="FUT_BR",
+                source_timeframe="1m",
+                source_interval=1,
+                moex_secid="BRM6",
+                window_start_utc="2026-05-04T07:00:00Z",
+                window_end_utc="2026-05-04T07:01:00Z",
+                incremental_rows=1,
+            )
+        ]
+    )
+
+    rows = read_delta_table_rows(raw_table_path, columns=["internal_id", "ts_close"], filters=filters)
+
+    assert rows == [{"internal_id": "FUT_BR", "ts_close": "2026-05-04T07:00:59Z"}]
+    assert filters[0][2][2] == "2026-05-04T07:00:00Z"
+    assert filters[0][3][2] == "2026-05-04T07:01:00Z"
