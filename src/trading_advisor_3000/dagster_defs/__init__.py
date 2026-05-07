@@ -31,6 +31,12 @@ from .moex_historical_assets import (
     moex_historical_definitions,
     moex_historical_output_paths,
 )
+from .product_plane_definitions import (
+    PRODUCT_PLANE_NIGHTLY_JOB_NAMES,
+    assert_product_plane_definitions_executable,
+    build_product_plane_definitions,
+    product_plane_definitions,
+)
 from .research_assets import (
     RESEARCH_ASSETS,
     RESEARCH_BACKTEST_ASSETS,
@@ -70,6 +76,7 @@ __all__ = [
     "MOEX_BASELINE_UPDATE_JOB_NAME",
     "MOEX_HISTORICAL_ASSETS",
     "MOEX_HISTORICAL_CUTOVER_JOB_NAME",
+    "PRODUCT_PLANE_NIGHTLY_JOB_NAMES",
     "RESEARCH_ASSETS",
     "RESEARCH_BACKTEST_ASSETS",
     "RESEARCH_BACKTEST_JOB_NAME",
@@ -82,11 +89,13 @@ __all__ = [
     "STRATEGY_REGISTRY_REFRESH_JOB_NAME",
     "assert_historical_data_proof_definitions_executable",
     "assert_moex_historical_definitions_executable",
+    "assert_product_plane_definitions_executable",
     "assert_research_definitions_executable",
     "build_historical_data_proof_definitions",
     "build_moex_historical_dagster_binding_artifact",
     "build_moex_historical_definitions",
     "build_moex_historical_run_config",
+    "build_product_plane_definitions",
     "build_research_data_prep_run_config",
     "build_research_definitions",
     "continuous_front_adjustment_ladder",
@@ -112,6 +121,7 @@ __all__ = [
     "moex_historical_cutover_preview_schedule",
     "moex_historical_definitions",
     "moex_historical_output_paths",
+    "product_plane_definitions",
     "research_asset_specs",
     "research_backtest_job",
     "research_data_prep_after_moex_sensor",
