@@ -73,6 +73,7 @@ Use this runbook when a governance gate fails.
 - Required GitHub merge checks for `main` are:
   - `loop-lane`
   - `pr-lane`
+- These required checks are PR-only contexts. Branch pushes and manual diagnostic runs use `branch-lane` so push-range failures do not block a green PR-range merge gate.
 - Public GitHub repositories can validate rules anonymously; private repositories require `GH_TOKEN` or `GITHUB_TOKEN`.
 
 ## Governed mutation lock contention

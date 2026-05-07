@@ -34,8 +34,9 @@ Quality baseline note:
 
 | Lane | Canonical command | Scope |
 | --- | --- | --- |
-| Loop gate | `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none` | fast surface-aware checks with explicit markers |
-| PR gate | `python scripts/run_pr_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none` | closeout superset checks with explicit markers |
+| Branch diagnostic lane | `python scripts/run_loop_gate.py --skip-session-check --from-git --git-ref HEAD --snapshot-mode changed-files --profile none` | push/manual feedback with branch-local diff semantics; not a merge-required GitHub context |
+| Loop gate | `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none` | PR-only fast surface-aware checks with explicit markers |
+| PR gate | `python scripts/run_pr_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none` | PR-only closeout superset checks with explicit markers |
 | Nightly gate | `python scripts/run_nightly_gate.py --from-git --git-ref HEAD` | deep hygiene and reporting |
 | Dashboard refresh | `python scripts/build_governance_dashboard.py --output-json artifacts/governance-dashboard.json --output-md artifacts/governance-dashboard.md` | dashboard/report regeneration lane |
 | Shell delivery proving | `python scripts/run_shell_delivery_operational_proving.py --from-git --git-ref HEAD --output artifacts/shell-delivery-operational-proving.json` | consolidated lane proof with fail-closed evidence |
@@ -43,6 +44,7 @@ Quality baseline note:
 Hosted CI note:
 - GitHub-hosted lane execution is enabled only when `AI_SHELL_ENABLE_HOSTED_CI=1`.
 - Default-off mode prevents infrastructure-side billing errors from producing false-red checks.
+- Required GitHub contexts `loop-lane` and `pr-lane` are pull-request-only; branch push feedback uses `branch-lane`.
 
 ## Durable-state checks
 - `python scripts/validate_plans.py`

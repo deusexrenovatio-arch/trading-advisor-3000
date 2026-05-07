@@ -5,7 +5,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -55,6 +54,21 @@ def test_ci_workflow_resolves_explicit_diff_ranges_for_hosted_gates() -> None:
     assert "github.event.before" in workflow_text
     assert "--base-ref" in workflow_text
     assert "--head-ref" in workflow_text
+
+
+def test_ci_workflow_keeps_pr_required_lanes_pr_only() -> None:
+    workflow_text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+
+    assert "branch-lane:" in workflow_text
+    assert "branch-lane-surface-summary" in workflow_text
+    assert (
+        "github.event_name == 'push' || github.event_name == 'workflow_dispatch'" in workflow_text
+    )
+    assert "github.event_name == 'pull_request' || github.event_name == 'push'" not in workflow_text
+    assert "loop-lane:" in workflow_text
+    assert "pr-lane:" in workflow_text
+    assert "needs: loop-lane" in workflow_text
+    assert workflow_text.count("github.event_name == 'pull_request' }}") == 2
 
 
 def test_ci_workflow_uses_surface_aware_profile_planning() -> None:
