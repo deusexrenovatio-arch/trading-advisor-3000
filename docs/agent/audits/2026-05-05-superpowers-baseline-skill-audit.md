@@ -165,6 +165,30 @@ Superpowers. Later style pass should add missing when-not-use sections to:
 Remaining candidates are lower-priority soft role or specialist skills. They
 should be handled in separate passes rather than mixed into this merge.
 
+## 2026-05-07 Routing Hardening Addendum
+
+Problem:
+- The first Superpowers-first routing pass still allowed a process bypass: a behavior or contract change could be mislabeled as a small semantic patch and go straight to patch/test/gate.
+
+Decision:
+- Re-anchor routing on the original Superpowers contract: if there is even a small chance a Superpowers process skill applies, use it before clarification, exploration, implementation, review, verification, or closeout.
+- Classify by semantic risk, not diff size.
+- Behavior changes, bugfixes, data/compute semantic changes, contract movement, and user-facing output changes trigger `superpowers:test-driven-development`.
+- Closeout for behavior or contract changes requires explicit self-review plus fresh verification evidence.
+
+Self-review closeout shape:
+- changed behavior;
+- moved contract or invariant;
+- old behavior now forbidden;
+- test/proof that catches old behavior;
+- uncovered edge cases;
+- residual risk.
+
+Global skill updates made outside the repo:
+- `codex-skill-routing`
+- `code-implementation-worker`
+- `verification-before-completion`
+
 ## Non-Goals
 
 - Do not copy Superpowers skill text into local skills wholesale.
