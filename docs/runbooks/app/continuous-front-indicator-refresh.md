@@ -1,10 +1,13 @@
 # Continuous Front Indicator Refresh
 
-Use this route after continuous-front bars have been materialized.
+Use this route after continuous-front bars, `research_indicator_frames`, and
+`research_derived_indicator_frames` have been materialized.
 
 ## Data Prep Route
 
-The normal Dagster data-prep route now writes both the legacy research tables and the governed continuous-front sidecar tables when `series_mode=continuous_front`:
+The normal Dagster data-prep route now writes both the consumer-facing research
+tables and the governed continuous-front sidecar tables when
+`series_mode=continuous_front`:
 
 ```powershell
 py -3.11 -m trading_advisor_3000.dagster_defs.research_assets
@@ -20,6 +23,9 @@ run_continuous_front_indicator_pandas_job(
     derived_set_version=...,
 )
 ```
+
+The sidecar job reads the already-materialized indicator and derived-indicator
+Delta tables. It must not recompute the full indicator stack during proof.
 
 ## Expected Tables
 

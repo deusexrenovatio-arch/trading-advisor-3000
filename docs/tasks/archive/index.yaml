@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-05-05'
+updated_at: '2026-05-07'
 items:
 - id: TASK-2026-03-16-SHELL-BOOTSTRAP
   path: docs/tasks/archive/TASK-2026-03-16-shell-bootstrap.md
@@ -259,3 +259,9 @@ items:
   status: completed
   started_at: '2026-05-05'
   completed_at: '2026-05-05'
+- id: TASK-2026-05-07-SLIM-CONTINUOUS-FRONT-INDICATOR-SIDECAR-PROOF-TO
+  path: docs/tasks/archive/TASK-2026-05-07-slim-continuous-front-indicator-sidecar-proof-to.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-05-07'
+  completed_at: '2026-05-07'
