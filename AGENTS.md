@@ -65,11 +65,14 @@ Business and trading logic remain out of scope for shell control-plane surfaces.
 
 ## Ordinary Chat Skill Routing
 - When Superpowers plugin skills are available, check and invoke the relevant Superpowers process skill before clarification, repository exploration, implementation, review, verification, or closeout when any skill could apply.
+- Do not classify a behavior, bugfix, data/compute, contract, or user-facing semantic change as "small" to bypass Superpowers routing. Diff size is not the routing signal; semantic risk is.
+- For behavior changes and bugfixes, use `superpowers:test-driven-development` before implementation. If the code was already changed without red/green proof, stop before closeout and perform post-hoc red/green proof or record the process miss and residual risk explicitly.
 - After the Superpowers process check, route through global Codex skills. Use `codex-skill-routing` when the task is about skill selection, prompt routing, or preventing missed skills.
 - Before substantial work, name the selected Superpowers/global skills briefly and why they apply. If no skill is needed or Superpowers is unavailable, say why.
 - Select skills by sequence, not keyword count: start with the skill that owns the current artifact, add neighboring skills only when their phase is reached, and keep evidence/acceptance skills for closeout.
 - For non-trivial implementation, use `code-implementation-worker` plus the relevant architecture, contract, executable-test, documentation, and verification skills in that order.
-- For review, acceptance, unblock, or "is this done?" questions, use `code-reviewer`, `phase-acceptance-governor`, and/or `verification-before-completion` as appropriate.
+- Before closeout, use `verification-before-completion` and include an explicit self-review for behavior/contract changes: what changed, which contract moved, which old behavior is now forbidden, which test catches it, and what residual risk remains.
+- For review, acceptance, unblock, or "is this done?" questions, use `code-reviewer`, `phase-acceptance-governor`, and/or `verification-before-completion` as appropriate. Do not replace self-review with test output alone.
 - If a required skill is missing from the current session metadata but exists on disk under `D:/CodexHome/skills`, read that skill's main instruction file directly and state it as a fallback.
 - Open repo-local skills only for TA3000-specific product/trading/data/compute knowledge under `.codex/skills`.
 
