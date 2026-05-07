@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pandas as pd
@@ -307,6 +308,65 @@ def test_derived_indicator_build_produces_wide_v2_values_and_causal_mtf_overlay(
     assert tail.values["mtf_4h_to_15m_adx_14"] == pytest.approx(source_4h.values["adx_14"])
     assert "mtf_4h_to_15m_donchian_high_55" not in tail.values
     assert tail.null_warmup_span < tail.row_count
+
+
+def test_continuous_front_derived_rows_keep_chronological_timestamp_binding_after_roll() -> None:
+    old_bar = _view(ts_index=0, close=100.0)
+    old_bar = replace(
+        old_bar,
+        contract_id="Z-OLD",
+        active_contract_id="Z-OLD",
+        series_mode="continuous_front",
+        native_open=old_bar.open,
+        native_high=old_bar.high,
+        native_low=old_bar.low,
+        native_close=old_bar.close,
+    )
+    new_bar = _view(ts_index=1, close=105.0)
+    new_bar = replace(
+        new_bar,
+        contract_id="A-NEW",
+        active_contract_id="A-NEW",
+        series_mode="continuous_front",
+        roll_epoch=1,
+        roll_event_id="roll-1",
+        is_roll_bar=True,
+        is_first_bar_after_roll=True,
+        native_open=new_bar.open,
+        native_high=new_bar.high,
+        native_low=new_bar.low,
+        native_close=new_bar.close,
+    )
+    indicators = [
+        replace(_indicator_row(ts_index=0, close=100.0), contract_id=old_bar.contract_id),
+        replace(_indicator_row(ts_index=1, close=105.0), contract_id=new_bar.contract_id),
+    ]
+
+    rows = build_derived_indicator_frames(
+        dataset_version="dataset-v5",
+        indicator_set_version="indicators-v1",
+        derived_indicator_set_version="derived-v1",
+        bar_views=[old_bar, new_bar],
+        indicator_rows=indicators,
+        series_mode="continuous_front",
+        adjustment_ladder_rows=(
+            {
+                "instrument_id": "BR",
+                "timeframe": "15m",
+                "roll_sequence": 1,
+                "additive_gap": 0.0,
+            },
+        ),
+    )
+
+    assert [row.ts for row in rows] == [old_bar.ts, new_bar.ts]
+    values_by_ts = {row.ts: row.values for row in rows}
+    assert values_by_ts[old_bar.ts]["session_position"] == pytest.approx(
+        (old_bar.close - old_bar.low) / (old_bar.high - old_bar.low)
+    )
+    assert values_by_ts[new_bar.ts]["session_position"] == pytest.approx(
+        (new_bar.close - old_bar.low) / (new_bar.high - old_bar.low)
+    )
 
 
 def test_derived_indicator_edge_rules_avoid_misleading_signals() -> None:
