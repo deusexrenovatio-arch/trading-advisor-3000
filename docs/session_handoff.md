@@ -1,10 +1,10 @@
 # Session Handoff
-Updated: 2026-05-07 09:06 UTC
+Updated: 2026-05-07 11:07 UTC
 
 ## Active Task Note
-- Path: docs/tasks/archive/TASK-2026-05-07-harden-superpowers-first-routing-against-behavio.md
+- Path: docs/tasks/active/TASK-2026-05-07-publish-continuous-front-calendar-session-active.md
 - Mode: legacy-full
-- Status: completed
+- Status: in_progress
 
 ## Validation
 - `python scripts/validate_task_request_contract.py`
