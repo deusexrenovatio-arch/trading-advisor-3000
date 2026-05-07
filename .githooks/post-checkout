@@ -8,13 +8,40 @@ import subprocess
 import sys
 from pathlib import Path
 
+GIT_LOCAL_ENV_VARS = (
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CONFIG",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_IMPLICIT_WORK_TREE",
+    "GIT_GRAFT_FILE",
+    "GIT_INDEX_FILE",
+    "GIT_NO_REPLACE_OBJECTS",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_PREFIX",
+    "GIT_SHALLOW_FILE",
+    "GIT_COMMON_DIR",
+)
+
+
+def _without_inherited_git_env() -> dict[str, str]:
+    env = os.environ.copy()
+    for name in GIT_LOCAL_ENV_VARS:
+        env.pop(name, None)
+    return env
+
 
 def _repo_root() -> Path:
+    env = _without_inherited_git_env()
     completed = subprocess.run(
         ["git", "rev-parse", "--show-toplevel"],
         check=False,
         capture_output=True,
         text=True,
+        env=env,
     )
     if completed.returncode == 0 and completed.stdout.strip():
         return Path(completed.stdout.strip()).resolve()
@@ -41,6 +68,7 @@ def main() -> int:
         check=False,
         capture_output=True,
         text=True,
+        env=_without_inherited_git_env(),
     )
     if completed.returncode != 0:
         if completed.stdout:

@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
 import json
+from collections.abc import Iterable, Iterator
 from datetime import date, datetime, time, timezone
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 import pyarrow as pa
+import pyarrow.dataset as ds
 from deltalake import DeltaTable, write_deltalake
-
 
 DeltaReadFilters = list[tuple[str, str, object]] | list[list[tuple[str, str, object]]] | None
 
@@ -121,10 +121,14 @@ def _normalize_value(value: Any, type_name: str) -> Any:
 
 
 def _build_schema(columns: dict[str, str]) -> pa.Schema:
-    return pa.schema([pa.field(name, _arrow_type(type_name)) for name, type_name in columns.items()])
+    return pa.schema(
+        [pa.field(name, _arrow_type(type_name)) for name, type_name in columns.items()]
+    )
 
 
-def _normalize_rows(rows: list[dict[str, object]], columns: dict[str, str]) -> list[dict[str, object]]:
+def _normalize_rows(
+    rows: list[dict[str, object]], columns: dict[str, str]
+) -> list[dict[str, object]]:
     normalized_rows: list[dict[str, object]] = []
     for row in rows:
         normalized: dict[str, object] = {}
@@ -206,6 +210,67 @@ def _normalize_filters_for_schema(
             ]
         )
     return normalized_groups
+
+
+def _filter_clause_expression(clause: tuple[str, str, object]) -> ds.Expression:
+    column_name, operator, value = clause
+    field = ds.field(str(column_name))
+    normalized_operator = str(operator).strip().lower()
+    if normalized_operator == "=":
+        return field == value
+    if normalized_operator in {"!=", "<>"}:
+        return field != value
+    if normalized_operator == ">":
+        return field > value
+    if normalized_operator == ">=":
+        return field >= value
+    if normalized_operator == "<":
+        return field < value
+    if normalized_operator == "<=":
+        return field <= value
+    if normalized_operator == "in" and isinstance(value, (list, tuple, set)):
+        return field.isin(list(value))
+    if normalized_operator == "not in" and isinstance(value, (list, tuple, set)):
+        return ~field.isin(list(value))
+    raise ValueError(f"unsupported delta dataset scanner filter operator: {operator}")
+
+
+def _filters_to_dataset_expression(filters: DeltaReadFilters) -> ds.Expression | None:
+    if filters is None:
+        return None
+    if not filters:
+        return None
+    first = filters[0]
+    if isinstance(first, tuple):
+        expressions = [
+            _filter_clause_expression(clause) for clause in filters if isinstance(clause, tuple)
+        ]
+        if not expressions:
+            return None
+        expression = expressions[0]
+        for item in expressions[1:]:
+            expression = expression & item
+        return expression
+
+    group_expressions: list[ds.Expression] = []
+    for group in filters:
+        if not isinstance(group, list):
+            continue
+        expressions = [
+            _filter_clause_expression(clause) for clause in group if isinstance(clause, tuple)
+        ]
+        if not expressions:
+            continue
+        expression = expressions[0]
+        for item in expressions[1:]:
+            expression = expression & item
+        group_expressions.append(expression)
+    if not group_expressions:
+        return None
+    expression = group_expressions[0]
+    for item in group_expressions[1:]:
+        expression = expression | item
+    return expression
 
 
 def has_delta_log(path: Path) -> bool:
@@ -373,6 +438,7 @@ def iter_delta_table_row_batches(
     table_path: Path,
     *,
     columns: list[str] | None = None,
+    filters: DeltaReadFilters = None,
     batch_size: int = 65_536,
 ) -> Iterator[list[dict[str, object]]]:
     if not has_delta_log(table_path):
@@ -381,13 +447,37 @@ def iter_delta_table_row_batches(
         raise ValueError("batch_size must be > 0")
     table = DeltaTable(str(table_path))
     dataset = table.to_pyarrow_dataset()
-    for batch in dataset.to_batches(columns=columns, batch_size=batch_size):
+    normalized_filters = _normalize_filters_for_schema(filters, dataset.schema)
+    scanner = dataset.scanner(
+        columns=columns,
+        filter=_filters_to_dataset_expression(normalized_filters),
+        batch_size=batch_size,
+    )
+    for batch in scanner.to_batches():
         rows = batch.to_pylist()
         yield [
             {str(key): _normalize_loaded_value(value) for key, value in row.items()}
             for row in rows
             if isinstance(row, dict)
         ]
+
+
+def read_delta_table_arrow(
+    table_path: Path,
+    *,
+    columns: list[str] | None = None,
+    filters: DeltaReadFilters = None,
+) -> pa.Table:
+    if not has_delta_log(table_path):
+        raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
+    table = DeltaTable(str(table_path))
+    dataset = table.to_pyarrow_dataset()
+    normalized_filters = _normalize_filters_for_schema(filters, dataset.schema)
+    selected_columns = columns
+    if selected_columns is not None:
+        available = set(dataset.schema.names)
+        selected_columns = [column for column in selected_columns if column in available]
+    return table.to_pyarrow_table(columns=selected_columns, filters=normalized_filters)
 
 
 def read_delta_table_rows(

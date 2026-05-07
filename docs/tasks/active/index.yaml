@@ -11,3 +11,8 @@ items:
   mode: legacy-full
   status: in_progress
   started_at: '2026-05-07'
+- id: TASK-2026-05-07-DELTA-NATIVE-CONTINUOUS-FRONT-SIDECAR
+  path: docs/tasks/active/TASK-2026-05-07-delta-native-continuous-front-sidecar.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-05-07'

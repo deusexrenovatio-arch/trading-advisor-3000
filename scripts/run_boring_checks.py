@@ -26,7 +26,7 @@ COLD_PREFIXES = (
 )
 ACTIVE_ROOTS = ("src", "scripts", "tests")
 PYTHON_SUFFIXES = (".py", ".pyi")
-PYTHON_ENTRYPOINTS = (".githooks/pre-push",)
+PYTHON_ENTRYPOINTS = (".githooks/pre-push", ".githooks/post-checkout")
 PYPROJECT = "pyproject.toml"
 CONFIG_SMOKE_TARGET = "scripts/run_boring_checks.py"
 FAST_TEST_TARGETS = ("tests/process", "tests/architecture")
