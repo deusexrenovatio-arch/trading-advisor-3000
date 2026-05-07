@@ -39,10 +39,14 @@ dev-test = [
   "httpx>=0.27,<1",
   "ruff>=0.8,<1",
   "mypy>=1.14,<2",
+  "import-linter>=2.7,<3",
+  "docvet[griffe]>=1.15,<2; python_version >= '3.12'",
 ]
 dev-quality = [
   "ruff>=0.8,<1",
   "mypy>=1.14,<2",
+  "import-linter>=2.7,<3",
+  "docvet[griffe]>=1.15,<2; python_version >= '3.12'",
 ]
 dev = [
   "fastapi>=0.110,<1",
@@ -63,6 +67,8 @@ dev = [
   "httpx>=0.27,<1",
   "ruff>=0.8,<1",
   "mypy>=1.14,<2",
+  "import-linter>=2.7,<3",
+  "docvet[griffe]>=1.15,<2; python_version >= '3.12'",
 ]
 
 [tool.setuptools]
@@ -104,3 +110,14 @@ files = ["src", "scripts", "tests"]
 exclude = "^(\\.runlogs|\\.tmp|\\.tmp_openspace|artifacts|codex_ai_delivery_shell_package|docs/tasks/archive|memory|plans)/"
 ignore_missing_imports = true
 follow_imports = "silent"
+
+[tool.docvet]
+src-root = "."
+docstring-style = "google"
+exclude = ["tests", "codex_ai_delivery_shell_package", "docs/tasks/archive", "memory", "plans"]
+fail-on = ["freshness", "coverage", "griffe"]
+warn-on = ["presence", "enrichment"]
+
+[tool.docvet.freshness]
+drift-threshold = 30
+age-threshold = 90

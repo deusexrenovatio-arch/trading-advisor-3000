@@ -47,13 +47,14 @@ orchestration runtimes, also read:
 18. For architecture-heavy, cross-module, ownership-sensitive, or concept-location uncertain code tasks, follow Architecture Orientation Routing in `docs/agent/skills-routing.md`.
 19. For product-plane runtime work, record the Native Runtime Choice from `docs/architecture/product-plane/native-runtime-ownership.md` before implementation.
 20. Confirm no business/domain logic is being imported into shell control-plane files.
-21. If the diff hits a configured critical contour, read `docs/agent/critical-contours.md` and add `## Solution Intent` to the active task note before coding.
-22. For package intake or governed continuation, prefer the one-step bootstrap: `python scripts/codex_governed_bootstrap.py --request "<request>" ...`.
-23. Otherwise start lifecycle directly: `python scripts/task_session.py begin --request "<request>"`.
-24. If the operator asks to take a package or continue a module phase, do not start manual inline execution. Route first through `python scripts/codex_governed_entry.py ...`.
-25. Confirm patch set is small and explicit.
-26. Before closeout for behavior or contract changes, write the self-review in the final/task note: changed behavior, moved contract, old behavior now forbidden, test proving it, uncovered edge cases, and residual risk.
-27. Run loop gate before PR prep: `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`.
+21. For Python import or API/docstring changes, treat `.importlinter` and `docvet` as active contracts before editing; the changed-file ratchet runs them through `scripts/run_boring_checks.py`.
+22. If the diff hits a configured critical contour, read `docs/agent/critical-contours.md` and add `## Solution Intent` to the active task note before coding.
+23. For package intake or governed continuation, prefer the one-step bootstrap: `python scripts/codex_governed_bootstrap.py --request "<request>" ...`.
+24. Otherwise start lifecycle directly: `python scripts/task_session.py begin --request "<request>"`.
+25. If the operator asks to take a package or continue a module phase, do not start manual inline execution. Route first through `python scripts/codex_governed_entry.py ...`.
+26. Confirm patch set is small and explicit.
+27. Before closeout for behavior or contract changes, write the self-review in the final/task note: changed behavior, moved contract, old behavior now forbidden, test proving it, uncovered edge cases, and residual risk.
+28. Run loop gate before PR prep: `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`.
 
 ## Critical constraints
 - Mainline is PR-only by default.

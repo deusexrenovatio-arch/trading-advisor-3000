@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import compileall
 import os
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -28,8 +29,11 @@ ACTIVE_ROOTS = ("src", "scripts", "tests")
 PYTHON_SUFFIXES = (".py", ".pyi")
 PYTHON_ENTRYPOINTS = (".githooks/pre-push",)
 PYPROJECT = "pyproject.toml"
+IMPORT_LINTER_CONFIG = ".importlinter"
 CONFIG_SMOKE_TARGET = "scripts/run_boring_checks.py"
 FAST_TEST_TARGETS = ("tests/process", "tests/architecture")
+DOCVET_PREFIXES = ("src/", "scripts/")
+DOCVET_MINIMUM_PYTHON = (3, 12)
 
 
 def _normalize(path_text: str) -> str:
@@ -96,6 +100,33 @@ def _mypy_targets(python_targets: list[str]) -> list[str]:
     return [path_text for path_text in python_targets if path_text.endswith(PYTHON_SUFFIXES)]
 
 
+def _docvet_targets(python_targets: list[str]) -> list[str]:
+    return [
+        path_text
+        for path_text in _mypy_targets(python_targets)
+        if path_text.startswith(DOCVET_PREFIXES)
+    ]
+
+
+def _is_changed(path_text: str, changed_files: list[str]) -> bool:
+    marker = _normalize(path_text).lower()
+    return any(_normalize(candidate).lower() == marker for candidate in changed_files)
+
+
+def _should_run_import_linter(
+    repo_root: Path,
+    *,
+    scope: str,
+    changed_files: list[str],
+    python_targets: list[str],
+) -> bool:
+    if scope == "all":
+        return True
+    if python_targets:
+        return True
+    return _is_changed(IMPORT_LINTER_CONFIG, changed_files) or _is_changed(PYPROJECT, changed_files)
+
+
 def _parse_pyproject(repo_root: Path) -> int:
     try:
         with (repo_root / PYPROJECT).open("rb") as file:
@@ -127,6 +158,73 @@ def _run(
     except subprocess.TimeoutExpired:
         print(f"[boring] command timed out after {timeout}s")
         return 124
+
+
+def _with_src_pythonpath(repo_root: Path) -> dict[str, str]:
+    env = os.environ.copy()
+    src_path = str(repo_root / "src")
+    existing = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = src_path if not existing else os.pathsep.join([src_path, existing])
+    return env
+
+
+def _required_tool(name: str) -> str | None:
+    executable = shutil.which(name)
+    if executable:
+        return executable
+    print(f"[boring] {name} missing; install the project quality extras before running this gate.")
+    return None
+
+
+def _run_import_linter(
+    repo_root: Path,
+    scope: str,
+    changed_files: list[str],
+    python_targets: list[str],
+    *,
+    timeout: int | None,
+) -> int:
+    if not _should_run_import_linter(
+        repo_root,
+        scope=scope,
+        changed_files=changed_files,
+        python_targets=python_targets,
+    ):
+        print("[boring] No import-linter targets.")
+        return 0
+
+    config_path = repo_root / IMPORT_LINTER_CONFIG
+    if not config_path.exists():
+        print(f"[boring] import-linter config missing: {IMPORT_LINTER_CONFIG}")
+        return 1
+    executable = _required_tool("lint-imports")
+    if executable is None:
+        return 1
+    return _run(
+        [executable, "--config", str(config_path), "--no-cache"],
+        repo_root=repo_root / "src",
+        timeout=timeout,
+        env=_with_src_pythonpath(repo_root),
+    )
+
+
+def _run_docvet(repo_root: Path, python_targets: list[str], *, timeout: int | None) -> int:
+    targets = _docvet_targets(python_targets)
+    if not targets:
+        print("[boring] No docvet targets.")
+        return 0
+    if sys.version_info < DOCVET_MINIMUM_PYTHON:
+        print("[boring] docvet requires Python 3.12+; rerun this gate with Python 3.12 or newer.")
+        return 1
+    executable = _required_tool("docvet")
+    if executable is None:
+        return 1
+    return _run(
+        [executable, "check", "--quiet", *targets],
+        repo_root=repo_root,
+        timeout=timeout,
+        env=_with_src_pythonpath(repo_root),
+    )
 
 
 def _run_ruff(
@@ -233,6 +331,16 @@ def _run_profile(repo_root: Path, args: argparse.Namespace, python_targets: list
     steps: list[Callable[[Path], int]] = [_parse_pyproject]
     if args.profile in {"quick", "code", "full"}:
         steps.append(
+            lambda root: _run_import_linter(
+                root,
+                args.scope,
+                list(args.changed_files),
+                python_targets,
+                timeout=args.timeout,
+            )
+        )
+        steps.append(lambda root: _run_docvet(root, python_targets, timeout=args.timeout))
+        steps.append(
             lambda root: _run_ruff(
                 root,
                 python_targets,
@@ -260,6 +368,11 @@ def _run_profile(repo_root: Path, args: argparse.Namespace, python_targets: list
 
 
 def main() -> int:
+    """Run the configured boring-check profile from CLI arguments.
+
+    Returns:
+        Process exit code for the selected profile.
+    """
     parser = argparse.ArgumentParser(description="Run boring engineering checks.")
     parser.add_argument("--profile", choices=("quick", "code", "type", "full"), default="quick")
     parser.add_argument("--scope", choices=("changed", "all"), default="changed")
@@ -275,6 +388,7 @@ def main() -> int:
 
     repo_root = Path(__file__).resolve().parents[1]
     changed_files = _changed_files_for_args(args)
+    args.changed_files = changed_files
     python_targets = _python_targets(repo_root, scope=args.scope, changed_files=changed_files)
     return _run_profile(repo_root, args, python_targets)
 
