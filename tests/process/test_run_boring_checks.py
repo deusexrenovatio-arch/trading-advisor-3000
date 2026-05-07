@@ -8,7 +8,12 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-from run_boring_checks import _changed_python_targets, _mypy_targets, _python_targets  # noqa: E402
+from run_boring_checks import (  # noqa: E402
+    _changed_python_targets,
+    _mypy_targets,
+    _parse_pyproject,
+    _python_targets,
+)
 
 
 def test_changed_python_targets_keep_active_python_files_only() -> None:
@@ -51,3 +56,9 @@ def test_mypy_targets_skip_extensionless_hooks() -> None:
         "scripts/run_boring_checks.py",
         "tests/process/test_run_boring_checks.py",
     ]
+
+
+def test_parse_pyproject_reports_malformed_toml(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text("[project\n", encoding="utf-8")
+
+    assert _parse_pyproject(tmp_path) == 1

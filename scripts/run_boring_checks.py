@@ -97,19 +97,45 @@ def _mypy_targets(python_targets: list[str]) -> list[str]:
 
 
 def _parse_pyproject(repo_root: Path) -> int:
-    with (repo_root / PYPROJECT).open("rb") as file:
-        tomllib.load(file)
+    try:
+        with (repo_root / PYPROJECT).open("rb") as file:
+            tomllib.load(file)
+    except tomllib.TOMLDecodeError as exc:
+        print(f"[boring] pyproject.toml parse FAILED: {exc}")
+        return 1
     print("[boring] pyproject.toml parse OK")
     return 0
 
 
-def _run(command: list[str], *, repo_root: Path, env: dict[str, str] | None = None) -> int:
+def _run(
+    command: list[str],
+    *,
+    repo_root: Path,
+    timeout: int | None,
+    env: dict[str, str] | None = None,
+) -> int:
     printable = " ".join(command)
     print(f"[boring] {printable}")
-    return subprocess.run(command, cwd=repo_root, check=False, env=env).returncode
+    try:
+        return subprocess.run(
+            command,
+            cwd=repo_root,
+            check=False,
+            env=env,
+            timeout=timeout,
+        ).returncode
+    except subprocess.TimeoutExpired:
+        print(f"[boring] command timed out after {timeout}s")
+        return 124
 
 
-def _run_ruff(repo_root: Path, python_targets: list[str], *, fix: bool) -> int:
+def _run_ruff(
+    repo_root: Path,
+    python_targets: list[str],
+    *,
+    fix: bool,
+    timeout: int | None,
+) -> int:
     if not python_targets:
         print("[boring] No Python targets for ruff.")
         return 0
@@ -117,14 +143,14 @@ def _run_ruff(repo_root: Path, python_targets: list[str], *, fix: bool) -> int:
     format_command = [sys.executable, "-m", "ruff", "format", *python_targets]
     if not fix:
         format_command.insert(4, "--check")
-    code = _run(format_command, repo_root=repo_root)
+    code = _run(format_command, repo_root=repo_root, timeout=timeout)
     if code != 0:
         return code
 
     check_command = [sys.executable, "-m", "ruff", "check", *python_targets]
     if fix:
         check_command.insert(4, "--fix")
-    return _run(check_command, repo_root=repo_root)
+    return _run(check_command, repo_root=repo_root, timeout=timeout)
 
 
 def _run_compileall(repo_root: Path, python_targets: list[str]) -> int:
@@ -146,7 +172,7 @@ def _run_compileall(repo_root: Path, python_targets: list[str]) -> int:
     return 0
 
 
-def _run_fast_pytest(repo_root: Path) -> int:
+def _run_fast_pytest(repo_root: Path, *, timeout: int | None) -> int:
     if os.getenv("AI_SHELL_BORING_SKIP_FAST_TESTS") == "1":
         print("[boring] fast pytest skipped for re-entrant gate subprocess")
         return 0
@@ -162,11 +188,18 @@ def _run_fast_pytest(repo_root: Path) -> int:
             "--basetemp=.tmp/pytest-boring",
         ],
         repo_root=repo_root,
+        timeout=timeout,
         env=env,
     )
 
 
-def _run_mypy(repo_root: Path, scope: str, python_targets: list[str]) -> int:
+def _run_mypy(
+    repo_root: Path,
+    scope: str,
+    python_targets: list[str],
+    *,
+    timeout: int | None,
+) -> int:
     if scope == "all":
         targets = list(ACTIVE_ROOTS)
     else:
@@ -174,10 +207,10 @@ def _run_mypy(repo_root: Path, scope: str, python_targets: list[str]) -> int:
     if not targets:
         print("[boring] No Python targets for mypy.")
         return 0
-    return _run([sys.executable, "-m", "mypy", *targets], repo_root=repo_root)
+    return _run([sys.executable, "-m", "mypy", *targets], repo_root=repo_root, timeout=timeout)
 
 
-def _changed_files_for_args(repo_root: Path, args: argparse.Namespace) -> list[str]:
+def _changed_files_for_args(args: argparse.Namespace) -> list[str]:
     default_changed_scope = (
         args.scope == "changed"
         and not args.from_git
@@ -199,12 +232,19 @@ def _changed_files_for_args(repo_root: Path, args: argparse.Namespace) -> list[s
 def _run_profile(repo_root: Path, args: argparse.Namespace, python_targets: list[str]) -> int:
     steps: list[Callable[[Path], int]] = [_parse_pyproject]
     if args.profile in {"quick", "code", "full"}:
-        steps.append(lambda root: _run_ruff(root, python_targets, fix=bool(args.fix)))
+        steps.append(
+            lambda root: _run_ruff(
+                root,
+                python_targets,
+                fix=bool(args.fix),
+                timeout=args.timeout,
+            )
+        )
         steps.append(lambda root: _run_compileall(root, python_targets))
     if args.profile in {"quick", "full"}:
-        steps.append(_run_fast_pytest)
+        steps.append(lambda root: _run_fast_pytest(root, timeout=args.timeout))
     if args.profile in {"type", "full"}:
-        steps.append(lambda root: _run_mypy(root, args.scope, python_targets))
+        steps.append(lambda root: _run_mypy(root, args.scope, python_targets, timeout=args.timeout))
 
     for step in steps:
         code = step(repo_root)
@@ -224,6 +264,7 @@ def main() -> int:
     parser.add_argument("--profile", choices=("quick", "code", "type", "full"), default="quick")
     parser.add_argument("--scope", choices=("changed", "all"), default="changed")
     parser.add_argument("--fix", action="store_true")
+    parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--from-git", action="store_true")
     parser.add_argument("--git-ref", default="HEAD")
     parser.add_argument("--base-ref", "--base", "--base-sha", dest="base_ref", default=None)
@@ -233,7 +274,7 @@ def main() -> int:
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parents[1]
-    changed_files = _changed_files_for_args(repo_root, args)
+    changed_files = _changed_files_for_args(args)
     python_targets = _python_targets(repo_root, scope=args.scope, changed_files=changed_files)
     return _run_profile(repo_root, args, python_targets)
 
