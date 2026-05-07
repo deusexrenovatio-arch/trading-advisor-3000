@@ -27,8 +27,10 @@ env:
 # runners are not available (for example billing/spending disabled).
 # Set repository variable AI_SHELL_ENABLE_HOSTED_CI=1 to enable lane execution.
 jobs:
-  loop-lane:
-    if: ${{ vars.AI_SHELL_ENABLE_HOSTED_CI == '1' && (github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+  branch-lane:
+    # Branch diagnostics use push/dispatch diff semantics and deliberately do not
+    # share the PR-required `loop-lane`/`pr-lane` context names.
+    if: ${{ vars.AI_SHELL_ENABLE_HOSTED_CI == '1' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -58,10 +60,7 @@ jobs:
         id: diff-range
         shell: bash
         run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            echo "base_ref=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
-            echo "head_ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
-          elif [[ "${{ github.event_name }}" == "push" && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
             echo "base_ref=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
             echo "head_ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
           elif git rev-parse HEAD^ >/dev/null 2>&1; then
@@ -87,6 +86,63 @@ jobs:
           python -m pytest tests/process/test_harness_contracts.py -q
           python -m pytest tests/process/test_validate_task_request_contract.py -q
 
+      - name: Upload Branch Lane Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: branch-lane-surface-summary
+          path: artifacts/ci/loop-gate-summary.md
+          if-no-files-found: warn
+
+  loop-lane:
+    # PR-only required context. Pushes are covered by `branch-lane` so stale
+    # push-range checks cannot block a green PR-range merge gate.
+    if: ${{ vars.AI_SHELL_ENABLE_HOSTED_CI == '1' && github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .[dev-test]
+
+      - name: Bootstrap Dry Run
+        run: python scripts/install_git_hooks.py --dry-run --allow-no-git
+
+      - name: MCP Governance Contract
+        run: |
+          python scripts/validate_mcp_config.py
+          python scripts/validate_no_tracked_secrets.py
+
+      - name: Resolve Diff Range
+        id: diff-range
+        shell: bash
+        run: |
+          echo "base_ref=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+          echo "head_ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Loop Gate
+        shell: bash
+        run: |
+          mkdir -p artifacts/ci
+          python scripts/run_loop_gate.py --skip-session-check --base-ref "${{ steps.diff-range.outputs.base_ref }}" --head-ref "${{ steps.diff-range.outputs.head_ref }}" --snapshot-mode changed-files --profile none --summary-file artifacts/ci/loop-gate-summary.md
+
+      - name: Fast QA Matrix
+        run: |
+          python -m pytest tests/process/test_compute_change_surface.py -q
+          python -m pytest tests/process/test_context_router.py -q
+          python -m pytest tests/process/test_gate_scope_routing.py -q
+          python -m pytest tests/process/test_harness_contracts.py -q
+          python -m pytest tests/process/test_validate_task_request_contract.py -q
+
       - name: Upload Loop Lane Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -95,7 +151,7 @@ jobs:
           if-no-files-found: warn
 
   pr-lane:
-    if: ${{ vars.AI_SHELL_ENABLE_HOSTED_CI == '1' && (github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ vars.AI_SHELL_ENABLE_HOSTED_CI == '1' && github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     needs: loop-lane
     steps:
@@ -118,16 +174,8 @@ jobs:
         id: diff-range
         shell: bash
         run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            echo "base_ref=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
-            echo "head_ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
-          elif [[ "${{ github.event_name }}" == "push" && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
-            echo "base_ref=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
-            echo "head_ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
-          elif git rev-parse HEAD^ >/dev/null 2>&1; then
-            echo "base_ref=$(git rev-parse HEAD^)" >> "$GITHUB_OUTPUT"
-            echo "head_ref=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          fi
+          echo "base_ref=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+          echo "head_ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
 
       - name: Resolve PR Surface Matrix
         id: pr-matrix

@@ -26,18 +26,20 @@ New worktrees run `scripts/serena_worktree_bootstrap.py` from the tracked `post-
 `begin -> task note -> task contract validation -> loop gate -> pr gate -> nightly gate -> dashboard refresh -> end`
 
 ## CI lane model
-1. `loop-lane` for fast surface-aware feedback.
-2. `pr-lane` for closeout confidence with contour-aware dependency/test selection.
+1. `branch-lane` for push/manual diagnostics that use branch-local diff semantics and are not merge-required.
+2. `loop-lane` for PR-only fast surface-aware feedback.
+3. `pr-lane` for PR-only closeout confidence with contour-aware dependency/test selection.
    - planner: `python scripts/run_surface_pr_matrix.py --plan-only ...`
    - executor: `python scripts/run_surface_pr_matrix.py ...`
-3. `nightly-lane` for hygiene, telemetry, and report generation.
-4. `dashboard-refresh` for deterministic report/dashboard rebuild.
-5. Hosted lane execution is opt-in via repository variable:
+4. `nightly-lane` for hygiene, telemetry, and report generation.
+5. `dashboard-refresh` for deterministic report/dashboard rebuild.
+6. Hosted lane execution is opt-in via repository variable:
    - `AI_SHELL_ENABLE_HOSTED_CI=1`
    - default is disabled to avoid false-red checks when hosted runners are unavailable.
 
 Main merge requirement:
 - GitHub protection for `main` must require successful `loop-lane` and `pr-lane` before merge.
+- `loop-lane` and `pr-lane` are reserved for pull request events so push-range failures cannot shadow a green PR-range check.
 - `nightly-lane` and `dashboard-refresh` are non-merge lanes and remain post-PR hygiene/report lanes.
 
 ## Hosted CI fallback
