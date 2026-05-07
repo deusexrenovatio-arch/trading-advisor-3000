@@ -133,7 +133,7 @@ def test_continuous_front_spark_job_rejects_unsupported_policy(
             canonical_roll_map_path=tmp_path / "canonical_roll_map.delta",
             output_dir=tmp_path / "continuous-front",
             dataset_version="spark-cf-v1",
-            policy=ContinuousFrontPolicy(roll_policy_mode="calendar_expiry_v1"),
+            policy=ContinuousFrontPolicy(switch_timing="same_bar_after_decision"),
             spark_session_factory=lambda _app_name, _master: _FakeSpark(),
         )
 
@@ -191,7 +191,16 @@ def test_spark_native_adjustment_uses_backward_current_anchor(
             spark=spark,
             canonical_bars_path=tmp_path / "canonical_bars.delta",
             dataset_version="spark-current-anchor-v1",
-            policy=ContinuousFrontPolicy(confirmation_bars=1),
+            policy=ContinuousFrontPolicy(
+                roll_policy_version="front_liquidity_oi_v1",
+                roll_policy_mode="liquidity_oi_v1",
+                primary_metric="open_interest",
+                secondary_metric="volume",
+                confirmation_bars=1,
+                switch_timing="next_tradable_bar_after_decision_watermark",
+                tie_breaker="higher_open_interest_then_volume_then_contract_id",
+                reference_price_policy="decision_bar_close",
+            ),
             run_id="spark-current-anchor",
             instrument_ids=(),
             timeframes=("15m",),
@@ -220,5 +229,115 @@ def test_spark_native_adjustment_uses_backward_current_anchor(
         assert event["additive_gap"] == pytest.approx(10.0)
         assert ladder["cumulative_offset_before"] == pytest.approx(10.0)
         assert ladder["cumulative_offset_after"] == pytest.approx(0.0)
+    finally:
+        spark.stop()
+
+
+def test_calendar_expiry_spark_policy_uses_active_contract_session_bars(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    pytest.importorskip("pyspark.sql")
+    monkeypatch.setenv("HADOOP_HOME", (Path.cwd() / ".tmp" / "hadoop-winutils").as_posix())
+    monkeypatch.setenv("TA3000_SPARK_RUNTIME_ROOT", (tmp_path / "spark-runtime").as_posix())
+    spark = job._create_spark_session(  # type: ignore[attr-defined]
+        "ta3000-continuous-front-calendar-session-test",
+        "local[2]",
+    )
+    try:
+        bars = spark.sql(
+            """
+            SELECT
+              contract_id,
+              instrument_id,
+              timeframe,
+              CAST(ts AS TIMESTAMP) AS ts,
+              CAST(open_price AS DOUBLE) AS open,
+              CAST(high_price AS DOUBLE) AS high,
+              CAST(low_price AS DOUBLE) AS low,
+              CAST(close_price AS DOUBLE) AS close,
+              CAST(volume AS BIGINT) AS volume,
+              CAST(open_interest AS BIGINT) AS open_interest
+            FROM VALUES
+              ('BRU5@MOEX', 'FUT_BR', '15m', '2025-09-23 06:00:00', 99.0, 101.0, 98.0, 100.0, 100, 0),
+              ('BRU5@MOEX', 'FUT_BR', '15m', '2025-09-24 05:45:00', 100.0, 102.0, 99.0, 101.0, 15, 0),
+              ('BRU5@MOEX', 'FUT_BR', '15m', '2025-09-24 06:00:00', 101.0, 103.0, 100.0, 102.0, 20, 0),
+              ('BRV5@MOEX', 'FUT_BR', '15m', '2025-09-24 06:00:00', 110.0, 112.0, 109.0, 111.0, 600, 0),
+              ('BRX5@MOEX', 'FUT_BR', '15m', '2025-09-24 06:00:00', 210.0, 212.0, 209.0, 211.0, 800, 0),
+              ('BRV5@MOEX', 'FUT_BR', '15m', '2025-09-24 06:15:00', 111.0, 113.0, 110.0, 112.0, 650, 0),
+              ('BRX5@MOEX', 'FUT_BR', '15m', '2025-09-24 06:15:00', 211.0, 213.0, 210.0, 212.0, 850, 0),
+              ('BRU5@MOEX', 'FUT_BR', '15m', '2025-09-25 06:00:00', 102.0, 104.0, 101.0, 103.0, 30, 0),
+              ('BRV5@MOEX', 'FUT_BR', '15m', '2025-09-25 06:00:00', 112.0, 114.0, 111.0, 113.0, 700, 0),
+              ('BRX5@MOEX', 'FUT_BR', '15m', '2025-09-25 06:00:00', 212.0, 214.0, 211.0, 213.0, 900, 0),
+              ('BRU5@MOEX', 'FUT_BR', '15m', '2025-09-26 06:00:00', 103.0, 105.0, 102.0, 104.0, 25, 0),
+              ('BRV5@MOEX', 'FUT_BR', '15m', '2025-09-26 06:00:00', 113.0, 115.0, 112.0, 114.0, 750, 0),
+              ('BRV5@MOEX', 'FUT_BR', '15m', '2025-10-01 06:00:00', 114.0, 116.0, 113.0, 115.0, 760, 0)
+            AS t(
+              contract_id,
+              instrument_id,
+              timeframe,
+              ts,
+              open_price,
+              high_price,
+              low_price,
+              close_price,
+              volume,
+              open_interest
+            )
+            """
+        )
+        monkeypatch.setattr(job, "_load_filtered_bars", lambda **_kwargs: bars)
+
+        tables = job._build_spark_native_tables(  # type: ignore[attr-defined]
+            spark=spark,
+            canonical_bars_path=tmp_path / "canonical_bars.delta",
+            dataset_version="spark-calendar-session-v1",
+            policy=ContinuousFrontPolicy(
+                roll_policy_version="front_calendar_expiry_t2_session_0900_2350_v1",
+                roll_policy_mode="calendar_expiry_v1",
+                primary_metric="volume",
+                secondary_metric="open_interest",
+                switch_timing="first_active_bar_on_or_after_roll_session",
+                tie_breaker="maturity_order_then_contract_id",
+                reference_price_policy="last_old_active_close_to_first_new_active_close",
+                calendar_roll_offset_trading_days=2,
+            ),
+            run_id="spark-calendar-session",
+            instrument_ids=(),
+            timeframes=("15m",),
+            start_ts=None,
+            end_ts=None,
+        )
+
+        front = [
+            row.asDict(recursive=True)
+            for row in tables["continuous_front_bars"].orderBy("ts").toLocalIterator()
+        ]
+        events = [
+            row.asDict(recursive=True)
+            for row in tables["continuous_front_roll_events"].orderBy("effective_ts").toLocalIterator()
+        ]
+        qc = next(tables["continuous_front_qc_report"].toLocalIterator()).asDict(recursive=True)
+
+        assert [row["active_contract_id"] for row in front] == [
+            "BRU5@MOEX",
+            "BRV5@MOEX",
+            "BRV5@MOEX",
+            "BRV5@MOEX",
+            "BRV5@MOEX",
+            "BRV5@MOEX",
+        ]
+        assert [row["native_close"] for row in front] == pytest.approx([100.0, 111.0, 112.0, 113.0, 114.0, 115.0])
+        assert len({(row["timeframe"], row["ts"]) for row in front}) == len(front)
+        assert all(str(row["ts"]) != "2025-09-24 05:45:00" for row in front)
+        assert len(events) == 1
+        assert events[0]["old_contract_id"] == "BRU5@MOEX"
+        assert events[0]["new_contract_id"] == "BRV5@MOEX"
+        assert events[0]["old_reference_price"] == pytest.approx(100.0)
+        assert events[0]["new_reference_price"] == pytest.approx(111.0)
+        assert events[0]["additive_gap"] == pytest.approx(11.0)
+        assert qc["status"] == "PASS"
+        assert qc["missing_active_bar_count"] == 0
+        assert qc["missing_reference_price_count"] == 0
     finally:
         spark.stop()
