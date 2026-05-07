@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from trading_advisor_3000.dagster_defs import (
     RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME,
     RESEARCH_DATA_PREP_ASSETS,
@@ -484,6 +486,39 @@ def test_research_definitions_expose_product_jobs_and_moex_success_sensor(tmp_pa
     assert op_config["continuous_front_policy"]["session_start_time"] == "09:00"
     assert op_config["continuous_front_policy"]["session_end_time"] == "23:50"
     assert op_config["continuous_front_policy"]["expected_timeline_mode"] == "active_contract_bars"
+
+
+def test_scheduled_research_refresh_uses_calendar_expiry_policy(monkeypatch) -> None:
+    monkeypatch.delenv(research_assets.RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_ENV, raising=False)
+
+    policy = research_assets.scheduled_continuous_front_policy_config()
+
+    assert policy["roll_policy_mode"] == "calendar_expiry_v1"
+    assert policy["roll_policy_version"] == "front_calendar_expiry_t2_session_0900_2350_v1"
+    assert policy["switch_timing"] == "first_active_bar_on_or_after_roll_session"
+    assert policy["reference_price_policy"] == "last_old_active_close_to_first_new_active_close"
+
+
+def test_scheduled_research_refresh_policy_can_be_overridden_from_env(monkeypatch) -> None:
+    monkeypatch.setenv(
+        research_assets.RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_ENV,
+        json.dumps({"roll_policy_mode": "liquidity_volume_oi_v1", "confirmation_bars": 3}),
+    )
+
+    policy = research_assets.scheduled_continuous_front_policy_config()
+
+    assert policy["roll_policy_mode"] == "liquidity_volume_oi_v1"
+    assert policy["confirmation_bars"] == 3
+
+
+def test_scheduled_research_refresh_policy_rejects_unknown_env_keys(monkeypatch) -> None:
+    monkeypatch.setenv(
+        research_assets.RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_ENV,
+        json.dumps({"roll_policy_mode": "calendar_expiry_v1", "roll_policy_mod": "typo"}),
+    )
+
+    with pytest.raises(RuntimeError, match="roll_policy_mod"):
+        research_assets.scheduled_continuous_front_policy_config()
 
 
 def test_research_data_prep_defaults_follow_moex_historical_data_root(

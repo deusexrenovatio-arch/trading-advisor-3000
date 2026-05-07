@@ -14,7 +14,10 @@ from trading_advisor_3000.product_plane.research.continuous_front import (
     CONTINUOUS_FRONT_TABLES,
     continuous_front_store_contract,
 )
-from trading_advisor_3000.product_plane.research.datasets import ContinuousFrontPolicy
+from trading_advisor_3000.product_plane.research.datasets import (
+    CALENDAR_EXPIRY_CONTINUOUS_FRONT_POLICY,
+    ContinuousFrontPolicy,
+)
 
 from .canonical_bars_job import DEFAULT_SPARK_MASTER, _create_spark_session
 
@@ -131,7 +134,20 @@ def _require_spark_native_policy(policy: ContinuousFrontPolicy) -> None:
         unsupported.append(f"gap_type={policy.gap_type}")
     allowed_reference_price_policy = {"decision_bar_close"}
     if policy.roll_policy_mode == "calendar_expiry_v1":
+        expected = ContinuousFrontPolicy.from_config(CALENDAR_EXPIRY_CONTINUOUS_FRONT_POLICY)
         allowed_reference_price_policy.add("last_old_active_close_to_first_new_active_close")
+        for field_name in (
+            "calendar_roll_offset_trading_days",
+            "expected_timeline_mode",
+            "session_policy",
+            "session_timezone",
+            "session_start_time",
+            "session_end_time",
+            "tie_breaker",
+        ):
+            value = getattr(policy, field_name)
+            if value != getattr(expected, field_name):
+                unsupported.append(f"calendar_expiry_v1.{field_name}={value}")
     if policy.reference_price_policy not in allowed_reference_price_policy:
         unsupported.append(f"reference_price_policy={policy.reference_price_policy}")
     allowed_switch_timing = {"next_tradable_bar_after_decision_watermark"}

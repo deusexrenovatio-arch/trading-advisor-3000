@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
@@ -52,6 +53,7 @@ from trading_advisor_3000.product_plane.research.continuous_front_indicators imp
     run_continuous_front_indicator_pandas_job,
 )
 from trading_advisor_3000.product_plane.research.datasets import (
+    CALENDAR_EXPIRY_CONTINUOUS_FRONT_POLICY,
     ContinuousFrontPolicy,
     ResearchDatasetManifest,
     materialize_research_dataset,
@@ -86,6 +88,7 @@ RESEARCH_DATA_PREP_MATERIALIZED_OUTPUT_DIR_ENV = "TA3000_RESEARCH_DATA_PREP_MATE
 RESEARCH_DATA_PREP_RESULTS_OUTPUT_DIR_ENV = "TA3000_RESEARCH_DATA_PREP_RESULTS_OUTPUT_DIR"
 RESEARCH_DATA_PREP_DATASET_VERSION_ENV = "TA3000_RESEARCH_DATA_PREP_DATASET_VERSION"
 RESEARCH_DATA_PREP_TIMEFRAMES_ENV = "TA3000_RESEARCH_DATA_PREP_TIMEFRAMES"
+RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_ENV = "TA3000_RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_JSON"
 
 DEFAULT_MOEX_HISTORICAL_DATA_ROOT = Path("D:/TA3000-data/trading-advisor-3000-nightly")
 DEFAULT_RESEARCH_DATA_PREP_CANONICAL_OUTPUT_DIR = (
@@ -1639,6 +1642,27 @@ def _env_text(env_name: str, default: str) -> str:
     return os.environ.get(env_name, "").strip() or default
 
 
+def scheduled_continuous_front_policy_config() -> dict[str, object]:
+    raw_policy = os.environ.get(RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_ENV, "").strip()
+    if raw_policy:
+        try:
+            payload = json.loads(raw_policy)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"{RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_ENV} must contain a JSON object"
+            ) from exc
+        if not isinstance(payload, Mapping):
+            raise RuntimeError(f"{RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_ENV} must contain a JSON object")
+        unknown_keys = sorted(str(key) for key in payload if str(key) not in CALENDAR_EXPIRY_CONTINUOUS_FRONT_POLICY)
+        if unknown_keys:
+            raise RuntimeError(
+                f"{RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_ENV} contains unsupported "
+                f"continuous_front policy keys: {', '.join(unknown_keys)}"
+            )
+        return ContinuousFrontPolicy.from_config(dict(payload)).to_config_dict()
+    return ContinuousFrontPolicy.from_config(CALENDAR_EXPIRY_CONTINUOUS_FRONT_POLICY).to_config_dict()
+
+
 def _moex_canonical_output_dir_from_run_config(run_config: object) -> Path | None:
     if not isinstance(run_config, dict):
         return None
@@ -1767,7 +1791,7 @@ def research_data_prep_after_moex_sensor(context):
             campaign_run_id=f"research_data_prep_after_{upstream_run_id}",
             dataset_version=dataset_version,
             series_mode="continuous_front",
-            continuous_front_policy=ContinuousFrontPolicy.from_config().to_config_dict(),
+            continuous_front_policy=scheduled_continuous_front_policy_config(),
         ),
         tags={
             "ta3000/upstream_job": MOEX_BASELINE_UPDATE_JOB_NAME,

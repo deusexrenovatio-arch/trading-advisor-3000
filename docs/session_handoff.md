@@ -1,10 +1,10 @@
 # Session Handoff
-Updated: 2026-05-07 11:07 UTC
+Updated: 2026-05-07 11:56 UTC
 
 ## Active Task Note
-- Path: docs/tasks/active/TASK-2026-05-07-publish-continuous-front-calendar-session-active.md
+- Path: docs/tasks/archive/TASK-2026-05-07-wire-nightly-continuous-front-refresh-through-da.md
 - Mode: legacy-full
-- Status: in_progress
+- Status: completed
 
 ## Validation
 - `python scripts/validate_task_request_contract.py`
