@@ -100,6 +100,7 @@ def test_continuous_front_spark_job_uses_native_spark_contour(
     assert report["spark_profile"]["delta_reader"] == "spark"
     assert report["spark_profile"]["delta_writer"] == "spark"
     assert report["spark_profile"]["causal_roll_engine"] == "spark-native-window-batch"
+    assert "calendar_contract_windows" not in str(report["spark_profile"]["sql_plan"])
     assert set(report["spark_profile"]) == {
         "app_name",
         "master",
@@ -229,6 +230,90 @@ def test_spark_native_adjustment_uses_backward_current_anchor(
         assert event["additive_gap"] == pytest.approx(10.0)
         assert ladder["cumulative_offset_before"] == pytest.approx(10.0)
         assert ladder["cumulative_offset_after"] == pytest.approx(0.0)
+    finally:
+        spark.stop()
+
+
+def test_calendar_expiry_spark_policy_uses_unbounded_contract_windows_for_partial_refresh(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    pytest.importorskip("pyspark.sql")
+    monkeypatch.setenv("HADOOP_HOME", (Path.cwd() / ".tmp" / "hadoop-winutils").as_posix())
+    monkeypatch.setenv("TA3000_SPARK_RUNTIME_ROOT", (tmp_path / "spark-runtime").as_posix())
+    spark = job._create_spark_session(  # type: ignore[attr-defined]
+        "ta3000-continuous-front-calendar-partial-refresh-test",
+        "local[2]",
+    )
+    try:
+        full_bars = spark.sql(
+            """
+            SELECT
+              contract_id,
+              instrument_id,
+              timeframe,
+              CAST(ts AS TIMESTAMP) AS ts,
+              CAST(open_price AS DOUBLE) AS open,
+              CAST(high_price AS DOUBLE) AS high,
+              CAST(low_price AS DOUBLE) AS low,
+              CAST(close_price AS DOUBLE) AS close,
+              CAST(volume AS BIGINT) AS volume,
+              CAST(open_interest AS BIGINT) AS open_interest
+            FROM VALUES
+              ('BRU5@MOEX', 'FUT_BR', '15m', '2025-09-23 06:00:00', 99.0, 101.0, 98.0, 100.0, 100, 0),
+              ('BRU5@MOEX', 'FUT_BR', '15m', '2025-09-24 06:00:00', 100.0, 102.0, 99.0, 101.0, 100, 0),
+              ('BRV5@MOEX', 'FUT_BR', '15m', '2025-09-24 06:00:00', 110.0, 112.0, 109.0, 111.0, 600, 0),
+              ('BRX5@MOEX', 'FUT_BR', '15m', '2025-09-24 06:00:00', 210.0, 212.0, 209.0, 211.0, 800, 0),
+              ('BRU5@MOEX', 'FUT_BR', '15m', '2025-09-25 06:00:00', 101.0, 103.0, 100.0, 102.0, 100, 0),
+              ('BRV5@MOEX', 'FUT_BR', '15m', '2025-09-25 06:00:00', 111.0, 113.0, 110.0, 112.0, 650, 0),
+              ('BRX5@MOEX', 'FUT_BR', '15m', '2025-09-25 06:00:00', 211.0, 213.0, 210.0, 212.0, 850, 0),
+              ('BRU5@MOEX', 'FUT_BR', '15m', '2025-09-26 06:00:00', 102.0, 104.0, 101.0, 103.0, 100, 0),
+              ('BRV5@MOEX', 'FUT_BR', '15m', '2025-09-26 06:00:00', 112.0, 114.0, 111.0, 113.0, 700, 0),
+              ('BRV5@MOEX', 'FUT_BR', '15m', '2025-10-01 06:00:00', 113.0, 115.0, 112.0, 114.0, 710, 0)
+            AS t(
+              contract_id,
+              instrument_id,
+              timeframe,
+              ts,
+              open_price,
+              high_price,
+              low_price,
+              close_price,
+              volume,
+              open_interest
+            )
+            """
+        )
+        partial_bars = full_bars.where(
+            "ts >= TIMESTAMP '2025-09-25 00:00:00' AND ts <= TIMESTAMP '2025-09-26 23:59:59'"
+        )
+
+        def _load_bars(**kwargs):
+            if kwargs.get("start_ts") is None and kwargs.get("end_ts") is None:
+                return full_bars
+            return partial_bars
+
+        monkeypatch.setattr(job, "_load_filtered_bars", _load_bars)
+
+        tables = job._build_spark_native_tables(  # type: ignore[attr-defined]
+            spark=spark,
+            canonical_bars_path=tmp_path / "canonical_bars.delta",
+            dataset_version="spark-calendar-partial-v1",
+            policy=ContinuousFrontPolicy(calendar_roll_offset_trading_days=2),
+            run_id="spark-calendar-partial",
+            instrument_ids=(),
+            timeframes=("15m",),
+            start_ts="2025-09-25T00:00:00Z",
+            end_ts="2025-09-26T23:59:59Z",
+        )
+
+        front = [
+            row.asDict(recursive=True)
+            for row in tables["continuous_front_bars"].orderBy("ts").toLocalIterator()
+        ]
+
+        assert [row["active_contract_id"] for row in front] == ["BRV5@MOEX", "BRV5@MOEX"]
+        assert [row["native_close"] for row in front] == pytest.approx([112.0, 113.0])
     finally:
         spark.stop()
 

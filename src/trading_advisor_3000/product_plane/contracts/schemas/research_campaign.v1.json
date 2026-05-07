@@ -46,22 +46,6 @@
         "series_mode": {"type": "string", "enum": ["contract", "continuous_front"]},
         "continuous_front_policy": {
           "type": "object",
-          "required": [
-            "roll_policy_version",
-            "adjustment_policy_version",
-            "roll_policy_mode",
-            "confirmation_bars",
-            "switch_timing",
-            "adjustment_mode",
-            "reference_price_policy",
-            "price_space",
-            "session_policy",
-            "session_timezone",
-            "session_start_time",
-            "session_end_time",
-            "expected_timeline_mode",
-            "calendar_roll_offset_trading_days"
-          ],
           "properties": {
             "roll_source": {"type": "string", "minLength": 1},
             "active_contract_field": {"type": "string", "minLength": 1},

@@ -206,8 +206,8 @@ def test_continuous_front_derived_rows_keep_chronological_alignment_across_contr
 
     def continuous_view(index: int) -> ResearchBarView:
         ts = (start + timedelta(minutes=15 * index)).isoformat().replace("+00:00", "Z")
-        contract_id = "ZZ_OLD@MOEX" if index < 20 else "AA_NEW@MOEX"
-        close = 100.0 + index
+        contract_id = "ZZ_OLD@MOEX" if index < 30 else "AA_NEW@MOEX"
+        close = 100.0 + index if index < 30 else 95.0 + (index - 30)
         return ResearchBarView(
             dataset_version="dataset-v5",
             contract_id=contract_id,
@@ -249,7 +249,7 @@ def test_continuous_front_derived_rows_keep_chronological_alignment_across_contr
             adjustment_mode="additive",
         )
 
-    bars = [continuous_view(index) for index in range(25)]
+    bars = [continuous_view(index) for index in range(40)]
     indicators = [
         IndicatorFrameRow(
             dataset_version=row.dataset_version,
@@ -279,9 +279,10 @@ def test_continuous_front_derived_rows_keep_chronological_alignment_across_contr
     )
 
     assert [row.ts for row in rows] == [row.ts for row in bars]
-    tail = rows[-1].to_dict()
-    assert tail["ts"] == bars[-1].ts
-    assert tail["rolling_high_20"] == pytest.approx(124.6)
+    probe = rows[35].to_dict()
+    assert probe["ts"] == bars[35].ts
+    assert probe["rolling_high_20"] == pytest.approx(129.6)
+    assert probe["rolling_high_20"] > bars[35].high
 
 
 def test_derived_indicator_batch_writer_coalesces_delta_writes(tmp_path) -> None:

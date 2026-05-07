@@ -42,16 +42,8 @@ regular_session_bars AS (
   SELECT *
   FROM filtered_canonical_bars
   WHERE timeframe NOT RLIKE '^[0-9]+[mh]$'
-     OR local_time(ts, 'Europe/Moscow') >= '09:00'
-    AND local_time(ts, 'Europe/Moscow') < '23:50'
-),
-calendar_contract_windows AS (
-  SELECT contract_id, instrument_id, timeframe,
-         first_session_date,
-         last_session_date,
-         roll_start_session_date
-  FROM regular_session_bars
-  WHERE :roll_policy_mode = 'calendar_expiry_v1'
+     OR date_format(from_utc_timestamp(ts, 'Europe/Moscow'), 'HH:mm') >= '09:00'
+    AND date_format(from_utc_timestamp(ts, 'Europe/Moscow'), 'HH:mm') < '23:50'
 ),
 ranked_contract_bars AS (
   SELECT *,
@@ -277,7 +269,7 @@ def _with_maturity_columns(dataframe):
     )
 
 
-def _calendar_expiry_active_timeline(*, keyed, policy: ContinuousFrontPolicy):
+def _calendar_expiry_active_timeline(*, keyed, contract_keyed, policy: ContinuousFrontPolicy):
     from pyspark.sql import Window, functions as F  # type: ignore[import-not-found]
 
     grouped = Window.partitionBy("instrument_id", "timeframe")
@@ -285,8 +277,9 @@ def _calendar_expiry_active_timeline(*, keyed, policy: ContinuousFrontPolicy):
         "series_input_row_count",
         F.count(F.lit(1)).over(grouped),
     )
+    contract_keyed_with_session = contract_keyed.withColumn("session_date", _session_date(policy))
     contract_dates = (
-        keyed_with_session.where(F.col("maturity_rank").isNotNull())
+        contract_keyed_with_session.where(F.col("maturity_rank").isNotNull())
         .select("instrument_id", "timeframe", "contract_id", "maturity_rank", "session_date")
         .distinct()
     )
@@ -414,12 +407,14 @@ def _calendar_expiry_active_timeline(*, keyed, policy: ContinuousFrontPolicy):
     )
 
 
-def _active_timeline(*, bars, policy: ContinuousFrontPolicy):
+def _active_timeline(*, bars, policy: ContinuousFrontPolicy, calendar_bars=None):
     from pyspark.sql import Window, functions as F  # type: ignore[import-not-found]
 
     keyed = _with_maturity_columns(bars)
     if policy.roll_policy_mode == "calendar_expiry_v1":
-        return _calendar_expiry_active_timeline(keyed=keyed, policy=policy)
+        contract_source = calendar_bars if calendar_bars is not None else bars
+        contract_keyed = _with_maturity_columns(contract_source)
+        return _calendar_expiry_active_timeline(keyed=keyed, contract_keyed=contract_keyed, policy=policy)
 
     primary_metric, secondary_metric = _metric_columns(policy)
     if primary_metric not in {"open_interest", "volume"} or secondary_metric not in {"open_interest", "volume"}:
@@ -527,8 +522,19 @@ def _build_spark_native_tables(
         end_ts=end_ts,
     )
     bars = _filter_policy_session(raw_bars, policy)
+    calendar_bars = None
+    if policy.roll_policy_mode == "calendar_expiry_v1":
+        calendar_raw_bars = _load_filtered_bars(
+            spark=spark,
+            canonical_bars_path=canonical_bars_path,
+            instrument_ids=instrument_ids,
+            timeframes=timeframes,
+            start_ts=None,
+            end_ts=None,
+        )
+        calendar_bars = _filter_policy_session(calendar_raw_bars, policy)
     keyed_bars = _with_maturity_columns(bars)
-    timeline = _active_timeline(bars=bars, policy=policy)
+    timeline = _active_timeline(bars=bars, policy=policy, calendar_bars=calendar_bars)
     tl = timeline.alias("tl")
     kb = keyed_bars.select(
             "contract_id",

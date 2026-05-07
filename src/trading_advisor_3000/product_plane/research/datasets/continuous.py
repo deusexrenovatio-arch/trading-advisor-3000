@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 DEFAULT_CONTINUOUS_FRONT_POLICY: dict[str, object] = {
@@ -91,8 +92,13 @@ class ContinuousFrontPolicy:
             raise ValueError("adjustment_policy_version must be non-empty")
         if self.session_policy != "research_regular_0900_2350":
             raise ValueError(f"unsupported continuous_front session_policy: {self.session_policy}")
-        if not self.session_timezone.strip():
+        session_timezone = self.session_timezone.strip()
+        if not session_timezone:
             raise ValueError("session_timezone must be non-empty")
+        try:
+            ZoneInfo(session_timezone)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError(f"unsupported continuous_front session_timezone: {self.session_timezone!r}") from exc
         if _parse_hhmm(self.session_end_time) <= _parse_hhmm(self.session_start_time):
             raise ValueError("session_end_time must be after session_start_time")
         if self.expected_timeline_mode != "active_contract_bars":
