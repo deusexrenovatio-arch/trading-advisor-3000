@@ -1,9 +1,11 @@
 # MCP Wave Rollout Runbook
 
 ## Purpose
+
 Deploy and validate MCP Wave 1-3 for `trading-advisor-3000` with fail-closed preflight checks.
 
 ## Rollout Artifacts
+
 - `deployment/mcp/mcp-rollout-matrix.yaml`
 - `deployment/mcp/rollout-manifest.yaml`
 - `deployment/mcp/config.template.toml`
@@ -13,6 +15,7 @@ Deploy and validate MCP Wave 1-3 for `trading-advisor-3000` with fail-closed pre
 - `deployment/mcp/rollback.md`
 
 ## Target Servers
+
 Wave 1:
 - `github`
 - `openai_docs`
@@ -26,12 +29,14 @@ Wave 3:
 - `duckdb`
 
 ## Preconditions
+
 1. Project trust policy is accepted for this repository.
 2. Credentials are present only in local/staging environment variables.
 3. No production write-access credentials are used for MCP servers.
 4. Owners confirm least-privilege scopes for each server token.
 
 ## Token and Role Preparation
+
 1. `github`:
    - use repo-scoped token/app with minimum read/write PR permissions;
    - export both `TA3000_MCP_GITHUB_TOKEN` and `GITHUB_PERSONAL_ACCESS_TOKEN` to satisfy local preflight and Docker pass-through.
@@ -43,11 +48,13 @@ Wave 3:
    - use dev/staging dataset path only.
 
 ## Network Requirements
+
 1. Host must reach required MCP endpoints (`github`, `openai_docs`, Dagster workspace endpoint).
 2. `docker`, `npx`, `uvx`, and `py` executables must be available in PATH.
 3. Production data networks are not allowed for Wave 1-3 default profiles.
 
 ## Bootstrap
+
 1. Create project-scoped config:
    - `python deployment/mcp/bootstrap_mcp_config.py --target .codex/config.toml`
    - on Windows the bootstrap script normalizes `npx` and `uvx` command entries to runnable executable variants.
@@ -63,6 +70,7 @@ Desktop note:
 - the desktop application currently reads MCP server definitions from `~/.codex/config.toml`, so the merge step above is part of the operational bootstrap.
 
 ## Smoke Procedure
+
 1. Base profile:
    - `python scripts/mcp_preflight_smoke.py --profile base --strict-env-check --probe-commands`
 2. Ops profile:
@@ -75,6 +83,7 @@ Optional command probe execution:
 - `python scripts/mcp_preflight_smoke.py --profile ops --strict-env-check --probe-commands`
 
 ## Incident Scenarios
+
 1. Token expired / invalid:
    - rotate the specific credential;
    - rerun `validate_mcp_config.py` and profile smoke.
@@ -89,6 +98,7 @@ Optional command probe execution:
    - downgrade profile to the previous healthy wave.
 
 ## Recovery
+
 1. Downgrade to `base` profile if `ops` or `data_readonly` fails.
 2. Revoke problematic credentials and reissue least-privilege tokens.
 3. Keep failure evidence as JSON output from `mcp_preflight_smoke.py --format json`.

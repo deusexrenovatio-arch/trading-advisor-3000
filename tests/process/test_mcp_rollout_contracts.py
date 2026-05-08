@@ -30,7 +30,14 @@ def test_mcp_config_contract_passes_for_repository_template() -> None:
     )
     assert errors == []
     assert report["errors_total"] == 0
-    assert len(report["required_server_ids"]) == 6
+    assert sorted(report["required_server_ids"]) == [
+        "dagster",
+        "docker",
+        "duckdb",
+        "github",
+        "openai_docs",
+        "postgres_readonly",
+    ]
 
 
 def test_mcp_config_validation_fails_when_required_server_is_missing(tmp_path: Path) -> None:
