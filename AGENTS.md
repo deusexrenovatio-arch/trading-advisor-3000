@@ -76,6 +76,12 @@ Business and trading logic remain out of scope for shell control-plane surfaces.
 - If a required skill is missing from the current session metadata but exists on disk under `D:/CodexHome/skills`, read that skill's main instruction file directly and state it as a fallback.
 - Open repo-local skills only for TA3000-specific product/trading/data/compute knowledge under `.codex/skills`.
 
+## Agent Quality Contracts
+- Treat `.importlinter` as an executable architecture contract before adding or moving Python imports. Do not satisfy it by weakening boundaries; fix the dependency direction or make an explicit architecture decision.
+- After changing Python modules under `src/` or `scripts/`, treat docstrings as part of the changed API. `docvet` freshness/coverage/griffe findings are hard gate failures; presence/enrichment findings are remediation guidance unless promoted in `pyproject.toml`.
+- `python scripts/run_boring_checks.py --profile quick --scope changed` is the canonical changed-file ratchet for import contracts and docstring freshness. Keep it inside `run_loop_gate.py`; do not add a parallel quality wrapper.
+- `docvet` requires Python 3.12+. If a local Python 3.11 run cannot execute it, rerun the gate with Python 3.12 or newer rather than treating the check as passed.
+
 ## Phase-Aware Delivery Loop
 ### Phase 1 baseline
 1. Read hot docs.

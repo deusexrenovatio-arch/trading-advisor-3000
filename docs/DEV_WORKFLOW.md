@@ -6,14 +6,15 @@ Provide a predictable and enforceable workflow for governance-first delivery in 
 ## Canonical loop
 1. Read hot docs (`docs/agent/*`).
 2. Confirm the change surface (`shell`, `product-plane`, or `mixed`), keep domain logic out of shell control-plane files, and keep the same surface declaration in task note + PR.
-3. For non-trivial code changes or new code inside an existing subsystem, start with Serena for code discovery, local pattern learning, impact analysis, and reference checks before broad scans, whole-file reads, or implementation.
-4. For architecture-heavy, cross-module, ownership-sensitive, or concept-location uncertain code tasks, follow Architecture Orientation Routing in `docs/agent/skills-routing.md`.
-5. Start task session: `python scripts/task_session.py begin --request "<request>"`.
-6. Keep task contract current in active task note.
-7. If the diff matches a critical contour, add `## Solution Intent` before coding and keep the declared class aligned with contour evidence.
-8. Run loop gate: `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`.
-9. Run PR gate before closeout.
-10. Close lifecycle with `python scripts/task_session.py end` when outcome is terminal.
+3. For Python import or API/docstring changes, account for `.importlinter` and `docvet` before editing; `run_boring_checks.py` enforces both in the changed-file ratchet.
+4. For non-trivial code changes or new code inside an existing subsystem, start with Serena for code discovery, local pattern learning, impact analysis, and reference checks before broad scans, whole-file reads, or implementation.
+5. For architecture-heavy, cross-module, ownership-sensitive, or concept-location uncertain code tasks, follow Architecture Orientation Routing in `docs/agent/skills-routing.md`.
+6. Start task session: `python scripts/task_session.py begin --request "<request>"`.
+7. Keep task contract current in active task note.
+8. If the diff matches a critical contour, add `## Solution Intent` before coding and keep the declared class aligned with contour evidence.
+9. Run loop gate: `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`.
+10. Run PR gate before closeout.
+11. Close lifecycle with `python scripts/task_session.py end` when outcome is terminal.
 
 For product-plane tasks, read `docs/architecture/product-plane/STATUS.md` before treating older phase-closure language as current truth.
 

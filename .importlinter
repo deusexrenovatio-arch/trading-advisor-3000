@@ -1,0 +1,30 @@
+[importlinter]
+root_package = trading_advisor_3000
+exclude_type_checking_imports = True
+
+[importlinter:contract:product-contracts-are-foundation]
+name = Product contracts stay below implementation layers
+type = forbidden
+source_modules =
+    trading_advisor_3000.product_plane.contracts
+forbidden_modules =
+    trading_advisor_3000.product_plane.data_plane
+    trading_advisor_3000.product_plane.execution
+    trading_advisor_3000.product_plane.interfaces
+    trading_advisor_3000.product_plane.research
+    trading_advisor_3000.product_plane.runtime
+
+[importlinter:contract:data-plane-does-not-import-decision-layers]
+name = Data plane does not import research/runtime/execution/interfaces
+type = forbidden
+source_modules =
+    trading_advisor_3000.product_plane.data_plane
+forbidden_modules =
+    trading_advisor_3000.product_plane.execution
+    trading_advisor_3000.product_plane.interfaces
+    trading_advisor_3000.product_plane.research
+    trading_advisor_3000.product_plane.runtime
+ignore_imports =
+    # Existing post-merge orchestration bridge; do not copy to new data-plane code.
+    trading_advisor_3000.product_plane.data_plane.moex.post_merge_update -> trading_advisor_3000.dagster_defs.research_assets
+unmatched_ignore_imports_alerting = warn
