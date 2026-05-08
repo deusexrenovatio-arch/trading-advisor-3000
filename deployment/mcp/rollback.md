@@ -1,7 +1,7 @@
 # MCP Rollback Steps
 
 1. Switch active profile to `base` only.
-2. Disable MCP-enabled workflow surfaces in local `.codex/config.toml`; if the incident is local-memory specific, disable `mempalace` first.
+2. Disable MCP-enabled workflow surfaces in local `.codex/config.toml`.
 3. Revoke compromised/invalid tokens.
 4. Run:
    - `python scripts/validate_mcp_config.py`

@@ -9,12 +9,11 @@ Date: 2026-04-13
 
 ## MCP Acceptance
 - [x] Server matrix + ownership/auth model is documented.
-- [x] Project-scoped config contract has required profiles (`base`, `ops`, `data_readonly`) with `mempalace` included in the base surface.
+- [x] Project-scoped config contract has required profiles (`base`, `ops`, `data_readonly`).
 - [x] Static config validation exists and is wired to gates.
 - [x] Tracked secret scan exists and is wired to gates.
 - [x] Runtime preflight smoke command supports negative scenarios.
 - [x] Deployment bundle includes troubleshooting, limitations, rollback.
-- [x] `mempalace` is documented as a local-memory MCP server that resolves palace path from host-level MemPalace config instead of a repo path.
 
 ## Real Execution Acceptance
 - [x] Bridge has HTTP/JSON sidecar transport with idempotency semantics.

@@ -145,12 +145,6 @@ items:
   status: completed
   started_at: '2026-04-13'
   completed_at: '2026-04-13'
-- id: TASK-2026-04-13-PROMOTE-MEMPALACE-INTO-THE-OFFICIAL-REPOSITORY-M
-  path: docs/tasks/archive/TASK-2026-04-13-promote-mempalace-into-the-official-repository-m.md
-  mode: legacy-full
-  status: completed
-  started_at: '2026-04-13'
-  completed_at: '2026-04-13'
 - id: TASK-2026-04-13-CONTINUE-GOVERNED-MODULE-FOR-MOEX-HISTORICAL-ROU-1
   path: docs/tasks/archive/TASK-2026-04-13-continue-governed-module-for-moex-historical-rou-1.md
   mode: legacy-full

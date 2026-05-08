@@ -31,7 +31,6 @@
 - Global skills are the ordinary-chat baseline; generic process rules belong there, not in `.cursor/skills` or repo-local skills.
 - GraphQL, Node.js, npm, pnpm, yarn, JavaScript, and TypeScript are not active TA3000 baseline surfaces. Do not route GraphQL/Node-specific global skills for this repo unless active source files or contracts appear outside ignored temporary, generated, archive, or package-intake paths.
 - Serena is the default exact-symbol/navigation tool for non-trivial code discovery in this repo.
-- MemPalace is advisory continuity memory, not a source of truth; use it when prior context could reduce work, then verify against repo/runtime evidence when it matters.
 - Graphify is optional architecture orientation. Use it only when a local graph/report exists or the task explicitly needs that map; it is not a baseline pass after every Serena lookup.
 - Browser, GitHub, documents, spreadsheets, and presentation plugin tools are trigger/lazy capabilities, not hot context to load preemptively.
 - Tracked MCP templates and live session tools can differ. Use validators for repository contracts and live tool discovery for current-session truth.
@@ -74,13 +73,12 @@
 
 ## Memory-Backed Failure Routing
 - When the user says "again", "still broken", "not that", or the same symptom repeats after a focused fix, route through `repeated-issue-review` before another patch.
-- Use scoped MemPalace recall for history-sensitive repeated failures, but keep it advisory. Verify any drift-prone memory hit against live repo/runtime/log/artifact evidence before completion.
+- Use scoped local memory or repo history for history-sensitive repeated failures, but keep it advisory. Verify any drift-prone memory hit against live repo/runtime/log/artifact evidence before completion.
 - If a repeated failure pattern is stable and reusable, promote it into an active global or repo-local skill rather than leaving it only in raw memory.
 - Keep memory recall lightweight: use it when it can reduce wrong turns or context load, not as a default hard gate for every localized edit.
 
 ## Failure-Pattern Skill Map
 - Local Codex Desktop, Windows path/session/env/temp/interpreter, or runaway-service issues: global `codex-windows-runtime-recovery`.
-- MemPalace ingestion, stale search, write health, hook sync, or `chunks=0` extraction issues: global `mempalace-healthcheck-and-sync`.
 - TA3000 governed package/TZ intake, package-vs-continue routing, intake checkpoints, clean-worktree route closure, or deferred critical work: repo-local `ta3000-governed-package-intake`.
 - TA3000 active product-surface naming, phase/debug labels, capability naming, and active/archive/provenance separation: repo-local `ta3000-product-surface-naming-cleanup`.
 - TA3000 data-plane proof on `D:/TA3000-data`, Delta `_delta_log`, row counts, report JSON, canonical tail alignment, or real production-route materialization: repo-local `ta3000-data-plane-proof`.

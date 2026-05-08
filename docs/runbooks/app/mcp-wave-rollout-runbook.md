@@ -16,7 +16,6 @@ Deploy and validate MCP Wave 1-3 for `trading-advisor-3000` with fail-closed pre
 Wave 1:
 - `github`
 - `openai_docs`
-- `mempalace`
 
 Wave 2:
 - `docker`
@@ -31,7 +30,6 @@ Wave 3:
 2. Credentials are present only in local/staging environment variables.
 3. No production write-access credentials are used for MCP servers.
 4. Owners confirm least-privilege scopes for each server token.
-5. `mempalace` must resolve to a local palace configured on the host; do not point it at shared or production-sensitive memory stores.
 
 ## Token and Role Preparation
 1. `github`:
@@ -43,16 +41,11 @@ Wave 3:
    - use dedicated read-only role and DSN.
 4. `duckdb`:
    - use dev/staging dataset path only.
-5. `mempalace`:
-   - ensure MemPalace is installed on Python 3.11 for the host launcher;
-   - verify `~/.mempalace/config.json` resolves the intended local palace path;
-   - verify `py -3.11 -m mempalace status` succeeds before relying on the base profile.
 
 ## Network Requirements
 1. Host must reach required MCP endpoints (`github`, `openai_docs`, Dagster workspace endpoint).
 2. `docker`, `npx`, `uvx`, and `py` executables must be available in PATH.
 3. Production data networks are not allowed for Wave 1-3 default profiles.
-4. A valid local MemPalace install/config must exist for `mempalace`.
 
 ## Bootstrap
 1. Create project-scoped config:
@@ -68,7 +61,6 @@ Wave 3:
 Desktop note:
 - the project file `.codex/config.toml` is the repo contract;
 - the desktop application currently reads MCP server definitions from `~/.codex/config.toml`, so the merge step above is part of the operational bootstrap.
-- the repo contract intentionally does not hardcode a palace filesystem path; `mempalace` resolves it from the local MemPalace configuration on the host.
 
 ## Smoke Procedure
 1. Base profile:
@@ -89,20 +81,15 @@ Optional command probe execution:
 2. Server command unavailable:
    - verify runtime (`docker`, `npx`, `uvx`, `py`) is installed on host;
    - rerun smoke for affected profile only.
-3. MemPalace module/config unavailable:
-   - verify `py -3.11 -m mempalace status`;
-   - confirm `~/.mempalace/config.json` points to the intended local palace;
-   - rerun `--profile base --probe-commands`.
-4. Permission denied:
+3. Permission denied:
    - reduce token scope to least privilege;
    - verify repository/org scoping and rerun smoke.
-5. Server unavailable:
+4. Server unavailable:
    - run `--format json` smoke and keep failure payload;
    - downgrade profile to the previous healthy wave.
 
 ## Recovery
 1. Downgrade to `base` profile if `ops` or `data_readonly` fails.
-2. If the failure is isolated to `mempalace`, disable that user-level MCP entry temporarily and keep the rest of the base profile healthy while fixing the local memory install/config.
-3. Revoke problematic credentials and reissue least-privilege tokens.
-4. Keep failure evidence as JSON output from `mcp_preflight_smoke.py --format json`.
-5. Follow `deployment/mcp/rollback.md` for full rollback.
+2. Revoke problematic credentials and reissue least-privilege tokens.
+3. Keep failure evidence as JSON output from `mcp_preflight_smoke.py --format json`.
+4. Follow `deployment/mcp/rollback.md` for full rollback.

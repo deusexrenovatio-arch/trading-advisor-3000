@@ -1,3 +1,5 @@
+"""Prevent newly added references to retired legacy namespace paths."""
+
 from __future__ import annotations
 
 import argparse
@@ -6,7 +8,6 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-
 
 REMEDIATION_DOC = "docs/runbooks/governance-remediation.md"
 LEGACY_TOKENS: tuple[str, ...] = (
@@ -22,7 +23,6 @@ ALLOWED_PATH_PREFIXES: tuple[str, ...] = (
     "docs/codex/modules/dual-surface-safe-rename.",
     "docs/architecture/dual-surface-safe-rename-migration-technical-specification.md",
     "docs/architecture/product-plane/",
-    "docs/project-map/state/candidates/",
     "src/trading_advisor_3000/product_plane/",
     "scripts/build_dual_surface_rename_inventory.py",
     "scripts/validate_legacy_namespace_growth.py",
@@ -34,6 +34,8 @@ HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,\d+)? @@")
 
 @dataclass(frozen=True)
 class Violation:
+    """A newly added legacy namespace token in a changed file."""
+
     file: str
     line: int
     token: str
@@ -67,12 +69,16 @@ def _collect_changed_files(
         candidates = [_normalize_path(item) for item in changed_files_override]
     elif base_sha and head_sha:
         completed = _run_git(repo_root, ["diff", "--name-only", f"{base_sha}..{head_sha}"])
-        candidates = [_normalize_path(line) for line in completed.stdout.splitlines() if line.strip()]
+        candidates = [
+            _normalize_path(line) for line in completed.stdout.splitlines() if line.strip()
+        ]
     else:
         tracked = _run_git(repo_root, ["diff", "--name-only", "HEAD"])
         untracked = _run_git(repo_root, ["ls-files", "--others", "--exclude-standard"])
         candidates = [_normalize_path(line) for line in tracked.stdout.splitlines() if line.strip()]
-        candidates.extend(_normalize_path(line) for line in untracked.stdout.splitlines() if line.strip())
+        candidates.extend(
+            _normalize_path(line) for line in untracked.stdout.splitlines() if line.strip()
+        )
 
     unique: list[str] = []
     seen: set[str] = set()
@@ -86,6 +92,8 @@ def _collect_changed_files(
 
 
 def extract_added_lines_from_patch(patch_text: str) -> list[tuple[int, str]]:
+    """Return added patch lines with their new-file line numbers."""
+
     rows: list[tuple[int, str]] = []
     current_line: int | None = None
     for raw in patch_text.splitlines():
@@ -153,6 +161,8 @@ def detect_violations(
     base_sha: str | None,
     head_sha: str | None,
 ) -> list[Violation]:
+    """Find legacy namespace tokens introduced by the supplied changed files."""
+
     violations: list[Violation] = []
     for rel_path in changed_files:
         if _is_allowlisted(rel_path):
@@ -188,6 +198,8 @@ def run(
     head_sha: str | None = None,
     changed_files_override: list[str] | None = None,
 ) -> int:
+    """Run the legacy namespace growth validation and return a process exit code."""
+
     changed_files = _collect_changed_files(
         repo_root=repo_root,
         base_sha=base_sha,
@@ -219,15 +231,20 @@ def run(
             + f"in `{item.excerpt}`"
         )
     print(
-        "remediation: move the new reference to target namespace or update the migration allowlist only with explicit rationale"
+        "remediation: move the new reference to target namespace or update the "
+        "migration allowlist only with explicit rationale"
     )
     print(f"remediation doc: {REMEDIATION_DOC}")
     return 1
 
 
 def main() -> None:
+    """Parse command-line arguments and execute the validator."""
+
     parser = argparse.ArgumentParser(
-        description="Fail closed when new legacy namespace references are introduced in changed files."
+        description=(
+            "Fail closed when new legacy namespace references are introduced in changed files."
+        )
     )
     parser.add_argument("--repo-root", default=".")
     parser.add_argument("--base-sha", default=None)
@@ -240,7 +257,11 @@ def main() -> None:
     if args.base_sha and args.head_sha:
         changed_files_override = None
     elif args.stdin or args.changed_files:
-        stdin_items = [line.strip() for line in sys.stdin.read().splitlines() if line.strip()] if args.stdin else []
+        stdin_items = (
+            [line.strip() for line in sys.stdin.read().splitlines() if line.strip()]
+            if args.stdin
+            else []
+        )
         changed_files_override = [*list(args.changed_files), *stdin_items]
 
     sys.exit(

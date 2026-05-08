@@ -104,7 +104,6 @@ These are valuable because they encode local constraints that Superpowers does
 not know:
 
 - `codex-windows-runtime-recovery`
-- `mempalace-healthcheck-and-sync`
 - `data-engineer`
 - `data-quality-gates`
 - `data-lineage`
