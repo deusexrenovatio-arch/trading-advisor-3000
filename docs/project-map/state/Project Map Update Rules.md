@@ -146,16 +146,6 @@ If old `sync-task-blocker` item cards already exist, archive them under
 active item folder. Keeping them under `state/items/` can make historical
 blockers appear current even when their source task notes have been retired.
 
-## Candidate Rule
-
-Memory-recovered signals are candidates, not active project items. Use
-`scripts/collect_project_map_candidates.py` to refresh the candidate inbox from
-MemPalace. Promote a candidate only after current repo evidence, runtime
-artifact evidence, or an explicit user/agent decision confirms that the signal
-is still live.
-
-The candidate report must not affect cockpit roll-up status directly.
-
 ## Update Triggers
 
 Update this map when any of these change:

@@ -34,8 +34,6 @@ It is separate from DFD:
 - `state/nodes/*.md` - project areas.
 - `state/items/*.md` - ideas, problems, risks, questions, and follow-up tasks.
 - `project-cockpit.html` - generated browser cockpit over the same notes.
-- `docs/project-map/state/candidates/project-map-candidates.md` - generated
-  candidate inbox from advisory memory recall; not active project truth.
 - Project Graph Lens - graph-first Obsidian entrypoint.
 - `state/bases/*.base` - secondary filtered views over nodes and items.
 - `state/canvases/*.canvas` - optional projections over the same notes.
@@ -45,8 +43,6 @@ It is separate from DFD:
 - `scripts/add_project_map_item.py` - item intake helper for new open questions.
 - `scripts/sync_project_map_items.py` - generated item sync from current node
   state. Legacy task-note blockers can be imported only with an explicit flag.
-- `scripts/collect_project_map_candidates.py` - advisory MemPalace candidate
-  collector for lost or stale problem signals.
 
 ## Primary View
 
@@ -72,7 +68,3 @@ not show unexplained problems.
 `docs/tasks/active` is not a current source of truth for this map. Those notes
 were often created inside separate worktrees and were not reliably merged, so
 they are treated as legacy diagnostic material rather than live project state.
-
-The candidate report has the same boundary: it helps recover possible lost
-signals from memory, but it must be reviewed before anything is promoted to an
-active project item.

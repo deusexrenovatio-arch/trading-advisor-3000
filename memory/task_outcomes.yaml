@@ -645,33 +645,6 @@ items:
   intent_sources:
   - request
   - session_handoff
-- task_id: TASK-2026-04-13-PROMOTE-MEMPALACE-INTO-THE-OFFICIAL-REPOSITORY-M
-  closed_at: '2026-04-13T13:29:27Z'
-  branch: codex/intake-human-checkpoint
-  goal_class: process
-  start_primary_context: CTX-OPS
-  start_contexts:
-  - CTX-OPS
-  final_contexts:
-  - CTX-OPS
-  - MCP contract hardening
-  - base-profile mempalace rollout
-  - and Codex config sync
-  route_match: matched
-  time_to_first_patch_sec: null
-  same_path_attempts: 1
-  decision_quality: correct_after_replan
-  primary_rework_cause: workflow_gap
-  incident_signature: none
-  improvement_action: docs
-  improvement_artifact: docs/runbooks/app/mcp-wave-rollout-runbook.md
-  linked_plan_id: null
-  linked_memory_id: null
-  outcome_status: completed
-  unmapped_files_count: 0
-  intent_sources:
-  - request
-  - session_handoff
 - task_id: TASK-2026-04-13-CONTINUE-GOVERNED-MODULE-FOR-MOEX-HISTORICAL-ROU-1
   closed_at: '2026-04-13T14:12:40Z'
   branch: codex/intake-human-checkpoint

@@ -4,7 +4,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
@@ -60,16 +59,9 @@ def test_validate_legacy_namespace_growth_allows_cold_historical_paths(tmp_path:
     archive_note.parent.mkdir(parents=True, exist_ok=True)
     archive_note.write_text("- tests/app/ is preserved as historical evidence\n", encoding="utf-8")
 
-    candidate_note = tmp_path / "docs" / "project-map" / "state" / "candidates" / "project-map-candidates.md"
-    candidate_note.parent.mkdir(parents=True, exist_ok=True)
-    candidate_note.write_text("- docs/architecture/app/ appears in an unpromoted candidate quote\n", encoding="utf-8")
-
     code = run(
         tmp_path,
-        changed_files_override=[
-            "docs/archive/historical/old-task.md",
-            "docs/project-map/state/candidates/project-map-candidates.md",
-        ],
+        changed_files_override=["docs/archive/historical/old-task.md"],
     )
     assert code == 0
 
@@ -79,7 +71,9 @@ def test_validate_legacy_namespace_growth_passes_when_no_changes() -> None:
     assert code == 0
 
 
-def test_validate_legacy_namespace_growth_handles_missing_stdout(monkeypatch, tmp_path: Path) -> None:
+def test_validate_legacy_namespace_growth_handles_missing_stdout(
+    monkeypatch, tmp_path: Path
+) -> None:
     target = tmp_path / "docs" / "sample.md"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("# sample\n", encoding="utf-8")
@@ -87,9 +81,13 @@ def test_validate_legacy_namespace_growth_handles_missing_stdout(monkeypatch, tm
     def _fake_run_git(_repo_root: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
         command = " ".join(args)
         if command.startswith("diff --unified=0 --no-color"):
-            return subprocess.CompletedProcess(args=["git", *args], returncode=0, stdout=None, stderr="")
+            return subprocess.CompletedProcess(
+                args=["git", *args], returncode=0, stdout=None, stderr=""
+            )
         if command.startswith("ls-files --error-unmatch"):
-            return subprocess.CompletedProcess(args=["git", *args], returncode=0, stdout="", stderr="")
+            return subprocess.CompletedProcess(
+                args=["git", *args], returncode=0, stdout="", stderr=""
+            )
         return subprocess.CompletedProcess(args=["git", *args], returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(legacy_growth, "_run_git", _fake_run_git)
