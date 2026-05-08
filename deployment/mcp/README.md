@@ -3,6 +3,7 @@
 This bundle defines the operational rollout contract for MCP Wave 1-3.
 
 ## Contents
+
 - `mcp-rollout-matrix.yaml` - target servers, owners, auth model, limits, health probes.
 - `rollout-manifest.yaml` - wave order, profile mapping, bootstrap/security contract.
 - `config.template.toml` - project-scoped MCP config contract (`base`, `ops`, `data_readonly`).
@@ -12,12 +13,14 @@ This bundle defines the operational rollout contract for MCP Wave 1-3.
 - `deployment/mcp/rollback.md` - rollback sequence.
 
 ## Security Rules
+
 1. Do not store credentials in repository files.
 2. Keep production access disabled by default.
 3. Use read-only roles for database MCP servers.
 4. Treat this repository as trusted project only after review.
 
 ## Rollout
+
 1. Validate config contract:
    - `python scripts/validate_mcp_config.py`
 2. Bootstrap project config and merge active Codex Desktop MCP entries:
@@ -34,6 +37,7 @@ Notes:
 - Codex Desktop currently discovers MCP servers from the user-level config in `~/.codex/config.toml`; `--merge-home-config` keeps that file aligned without overwriting unrelated personal settings.
 
 ## Rollback
+
 1. Disable MCP profile usage in local `.codex/config.toml`.
 2. Revoke MCP credentials (GitHub token, workspace token, readonly DSN).
 3. Re-run preflight in `base` profile to ensure safe fallback.

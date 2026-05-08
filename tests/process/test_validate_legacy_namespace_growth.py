@@ -66,9 +66,44 @@ def test_validate_legacy_namespace_growth_allows_cold_historical_paths(tmp_path:
     assert code == 0
 
 
+def test_validate_legacy_namespace_growth_rejects_project_map_candidates_path(
+    tmp_path: Path,
+) -> None:
+    candidate_note = (
+        tmp_path / "docs" / "project-map" / "state" / "candidates" / "candidate-note.md"
+    )
+    candidate_note.parent.mkdir(parents=True, exist_ok=True)
+    candidate_note.write_text("- tests/app/ should now be blocked here\n", encoding="utf-8")
+
+    code = run(
+        tmp_path,
+        changed_files_override=["docs/project-map/state/candidates/candidate-note.md"],
+    )
+    assert code == 1
+
+
 def test_validate_legacy_namespace_growth_passes_when_no_changes() -> None:
     code = run(ROOT, changed_files_override=[])
     assert code == 0
+
+
+def test_validate_legacy_namespace_growth_fails_closed_when_git_diff_fails(
+    monkeypatch, tmp_path: Path
+) -> None:
+    def _fake_run_git(_repo_root: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
+        if args == ["diff", "--name-only", "HEAD"]:
+            return subprocess.CompletedProcess(
+                args=["git", *args],
+                returncode=128,
+                stdout="",
+                stderr="fatal: not a git repository",
+            )
+        return subprocess.CompletedProcess(args=["git", *args], returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(legacy_growth, "_run_git", _fake_run_git)
+
+    code = run(tmp_path)
+    assert code == 1
 
 
 def test_validate_legacy_namespace_growth_handles_missing_stdout(

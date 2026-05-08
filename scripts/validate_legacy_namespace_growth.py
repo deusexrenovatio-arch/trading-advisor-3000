@@ -58,6 +58,20 @@ def _run_git(repo_root: Path, args: list[str]) -> subprocess.CompletedProcess[st
     )
 
 
+def _git_failure_message(args: list[str], completed: subprocess.CompletedProcess[str]) -> str:
+    command = "git " + " ".join(args)
+    stderr = (completed.stderr or "").strip()
+    detail = f": {stderr}" if stderr else ""
+    return f"{command} failed with exit code {completed.returncode}{detail}"
+
+
+def _git_stdout_lines(repo_root: Path, args: list[str]) -> list[str]:
+    completed = _run_git(repo_root, args)
+    if completed.returncode != 0:
+        raise RuntimeError(_git_failure_message(args, completed))
+    return [line for line in (completed.stdout or "").splitlines() if line.strip()]
+
+
 def _collect_changed_files(
     *,
     repo_root: Path,
@@ -68,16 +82,20 @@ def _collect_changed_files(
     if changed_files_override is not None:
         candidates = [_normalize_path(item) for item in changed_files_override]
     elif base_sha and head_sha:
-        completed = _run_git(repo_root, ["diff", "--name-only", f"{base_sha}..{head_sha}"])
         candidates = [
-            _normalize_path(line) for line in completed.stdout.splitlines() if line.strip()
+            _normalize_path(line)
+            for line in _git_stdout_lines(
+                repo_root, ["diff", "--name-only", f"{base_sha}..{head_sha}"]
+            )
         ]
     else:
-        tracked = _run_git(repo_root, ["diff", "--name-only", "HEAD"])
-        untracked = _run_git(repo_root, ["ls-files", "--others", "--exclude-standard"])
-        candidates = [_normalize_path(line) for line in tracked.stdout.splitlines() if line.strip()]
+        candidates = [
+            _normalize_path(line)
+            for line in _git_stdout_lines(repo_root, ["diff", "--name-only", "HEAD"])
+        ]
         candidates.extend(
-            _normalize_path(line) for line in untracked.stdout.splitlines() if line.strip()
+            _normalize_path(line)
+            for line in _git_stdout_lines(repo_root, ["ls-files", "--others", "--exclude-standard"])
         )
 
     unique: list[str] = []
@@ -135,8 +153,10 @@ def _collect_added_lines_for_file(
         patch_args.append("HEAD")
     patch_args.extend(["--", normalized])
     completed = _run_git(repo_root, patch_args)
+    if completed.returncode != 0:
+        raise RuntimeError(_git_failure_message(patch_args, completed))
     patch_stdout = completed.stdout or ""
-    added_rows = extract_added_lines_from_patch(patch_stdout if completed.returncode == 0 else "")
+    added_rows = extract_added_lines_from_patch(patch_stdout)
     if added_rows:
         return added_rows
 
@@ -200,22 +220,26 @@ def run(
 ) -> int:
     """Run the legacy namespace growth validation and return a process exit code."""
 
-    changed_files = _collect_changed_files(
-        repo_root=repo_root,
-        base_sha=base_sha,
-        head_sha=head_sha,
-        changed_files_override=changed_files_override,
-    )
-    if not changed_files:
-        print("legacy namespace growth validation: OK (no changed files)")
-        return 0
+    try:
+        changed_files = _collect_changed_files(
+            repo_root=repo_root,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            changed_files_override=changed_files_override,
+        )
+        if not changed_files:
+            print("legacy namespace growth validation: OK (no changed files)")
+            return 0
 
-    violations = detect_violations(
-        repo_root=repo_root,
-        changed_files=changed_files,
-        base_sha=base_sha,
-        head_sha=head_sha,
-    )
+        violations = detect_violations(
+            repo_root=repo_root,
+            changed_files=changed_files,
+            base_sha=base_sha,
+            head_sha=head_sha,
+        )
+    except RuntimeError as exc:
+        print(f"legacy namespace growth validation failed: {exc}")
+        return 1
     if not violations:
         print(
             "legacy namespace growth validation: OK "
