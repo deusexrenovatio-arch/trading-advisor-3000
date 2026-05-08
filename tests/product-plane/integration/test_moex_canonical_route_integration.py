@@ -1,13 +1,20 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from trading_advisor_3000.product_plane.data_plane.moex import historical_canonical_route as phase02_module
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows, write_delta_table_rows
-from trading_advisor_3000.product_plane.data_plane.moex import build_raw_ingest_run_report_v2, run_historical_canonical_route
-
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    iter_delta_table_row_batches,
+    write_delta_table_rows,
+)
+from trading_advisor_3000.product_plane.data_plane.moex import (
+    build_raw_ingest_run_report_v2,
+    run_historical_canonical_route,
+)
+from trading_advisor_3000.product_plane.data_plane.moex import (
+    historical_canonical_route as phase02_module,
+)
 
 RAW_COLUMNS: dict[str, str] = {
     "internal_id": "string",
@@ -31,6 +38,10 @@ RAW_COLUMNS: dict[str, str] = {
 
 def _iso(dt: datetime) -> str:
     return dt.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _read_batched_delta_rows(table_path: Path) -> list[dict[str, object]]:
+    return [row for batch in iter_delta_table_row_batches(table_path) for row in batch]
 
 
 def _raw_rows(*, with_source_provider: bool) -> list[dict[str, object]]:
@@ -176,7 +187,9 @@ def _build_raw_ingest_report_noop(*, run_id: str) -> dict[str, object]:
     )
 
 
-def test_historical_canonical_route_generates_resampling_outputs_and_reports(tmp_path: Path) -> None:
+def test_historical_canonical_route_generates_resampling_outputs_and_reports(
+    tmp_path: Path,
+) -> None:
     raw_table_path = tmp_path / "phase01" / "delta" / "raw_moex_history.delta"
     rows = _raw_rows(with_source_provider=True)
     _write_raw_table(raw_table_path, rows)
@@ -204,9 +217,11 @@ def test_historical_canonical_route_generates_resampling_outputs_and_reports(tmp
     assert report["spark_execution_report"]["proof_profile"] in {"docker-linux", "local-spark"}
     assert report["real_bindings"]
 
-    bars = read_delta_table_rows(Path(str(report["output_paths"]["canonical_bars"])))
-    session_calendar = read_delta_table_rows(Path(str(report["output_paths"]["canonical_session_calendar"])))
-    roll_map = read_delta_table_rows(Path(str(report["output_paths"]["canonical_roll_map"])))
+    bars = _read_batched_delta_rows(Path(str(report["output_paths"]["canonical_bars"])))
+    session_calendar = _read_batched_delta_rows(
+        Path(str(report["output_paths"]["canonical_session_calendar"]))
+    )
+    roll_map = _read_batched_delta_rows(Path(str(report["output_paths"]["canonical_roll_map"])))
     assert bars
     assert session_calendar
     assert roll_map
@@ -255,7 +270,9 @@ def test_historical_canonical_route_is_fail_closed_when_qc_fails(tmp_path: Path)
     assert payload["publish_decision"] == "blocked"
 
 
-def test_historical_canonical_route_reports_skips_for_incompatible_daily_only_contract(tmp_path: Path) -> None:
+def test_historical_canonical_route_reports_skips_for_incompatible_daily_only_contract(
+    tmp_path: Path,
+) -> None:
     raw_table_path = tmp_path / "phase01" / "delta" / "raw_moex_history.delta"
     rows = _raw_rows_with_daily_only_contract(with_source_provider=True)
     _write_raw_table(raw_table_path, rows)
@@ -274,7 +291,9 @@ def test_historical_canonical_route_reports_skips_for_incompatible_daily_only_co
     assert "5m" in report["resampling_skips"]["by_timeframe"]
 
 
-def test_historical_canonical_route_pass_noop_does_not_mutate_existing_tables(tmp_path: Path) -> None:
+def test_historical_canonical_route_pass_noop_does_not_mutate_existing_tables(
+    tmp_path: Path,
+) -> None:
     raw_table_path = tmp_path / "phase01" / "delta" / "raw_moex_history.delta"
     rows = _raw_rows(with_source_provider=True)
     _write_raw_table(raw_table_path, rows)
@@ -286,7 +305,7 @@ def test_historical_canonical_route_pass_noop_does_not_mutate_existing_tables(tm
         run_id="phase02-int-first",
         raw_ingest_run_report=_build_raw_ingest_report_for_rows(rows=rows, run_id="phase01-pass1"),
     )
-    bars_before = read_delta_table_rows(Path(str(first["output_paths"]["canonical_bars"])))
+    bars_before = _read_batched_delta_rows(Path(str(first["output_paths"]["canonical_bars"])))
 
     second = run_historical_canonical_route(
         raw_table_path=raw_table_path,
@@ -294,7 +313,7 @@ def test_historical_canonical_route_pass_noop_does_not_mutate_existing_tables(tm
         run_id="phase02-int-noop",
         raw_ingest_run_report=_build_raw_ingest_report_noop(run_id="phase01-pass2"),
     )
-    bars_after = read_delta_table_rows(Path(str(second["output_paths"]["canonical_bars"])))
+    bars_after = _read_batched_delta_rows(Path(str(second["output_paths"]["canonical_bars"])))
 
     assert second["status"] == "PASS-NOOP"
     assert second["publish_decision"] == "publish"
@@ -336,7 +355,9 @@ def test_historical_canonical_route_avoids_full_raw_table_read(tmp_path: Path, m
     assert report["scoped_source_rows"] > 0
 
 
-def test_canonical_route_pass_noop_skips_raw_table_read_entirely(tmp_path: Path, monkeypatch) -> None:
+def test_canonical_route_pass_noop_skips_raw_table_read_entirely(
+    tmp_path: Path, monkeypatch
+) -> None:
     raw_table_path = tmp_path / "phase01" / "delta" / "raw_moex_history.delta"
     rows = _raw_rows(with_source_provider=True)
     _write_raw_table(raw_table_path, rows)
@@ -375,4 +396,3 @@ def test_canonical_route_pass_noop_skips_raw_table_read_entirely(tmp_path: Path,
     assert second["status"] == "PASS-NOOP"
     assert second["publish_decision"] == "publish"
     assert second["mutation_applied"] is False
-

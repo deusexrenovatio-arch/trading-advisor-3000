@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import csv
 import json
+import re
+import traceback
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-import re
-import traceback
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -22,7 +22,6 @@ from ..delta_runtime import (
 )
 from .historical_route_contracts import build_raw_ingest_run_report_v2
 from .iss_client import MoexISSClient
-
 
 MOEX_TIMEZONE = ZoneInfo("Europe/Moscow")
 ALLOWED_ASSET_GROUPS = {"commodity", "index"}
@@ -181,7 +180,9 @@ def _raw_row_key(row: dict[str, Any]) -> tuple[str, str, int, str, str, str]:
     )
 
 
-def _sorted_raw_rows(rows_by_key: dict[tuple[str, str, int, str, str, str], dict[str, Any]]) -> list[dict[str, Any]]:
+def _sorted_raw_rows(
+    rows_by_key: dict[tuple[str, str, int, str, str, str], dict[str, Any]],
+) -> list[dict[str, Any]]:
     return [rows_by_key[key] for key in sorted(rows_by_key)]
 
 
@@ -360,9 +361,13 @@ def load_universe(path: Path) -> list[UniverseSymbol]:
             raise ValueError(f"universe symbol `{symbol.internal_id}` must use asset_class=futures")
         if symbol.asset_group not in ALLOWED_ASSET_GROUPS:
             allowed = ", ".join(sorted(ALLOWED_ASSET_GROUPS))
-            raise ValueError(f"universe symbol `{symbol.internal_id}` asset_group must be one of: {allowed}")
+            raise ValueError(
+                f"universe symbol `{symbol.internal_id}` asset_group must be one of: {allowed}"
+            )
         if symbol.status not in {"active", "inactive"}:
-            raise ValueError(f"universe symbol `{symbol.internal_id}` status must be active|inactive")
+            raise ValueError(
+                f"universe symbol `{symbol.internal_id}` status must be active|inactive"
+            )
         rows.append(symbol)
     return rows
 
@@ -373,7 +378,9 @@ def load_mapping_registry(path: Path) -> list[MappingRecord]:
         raise ValueError(f"mapping payload must be object: {path.as_posix()}")
     mappings = payload.get("mappings")
     if not isinstance(mappings, list) or not mappings:
-        raise ValueError(f"mapping registry must contain non-empty mappings list: {path.as_posix()}")
+        raise ValueError(
+            f"mapping registry must contain non-empty mappings list: {path.as_posix()}"
+        )
 
     rows: list[MappingRecord] = []
     for idx, row in enumerate(mappings):
@@ -383,18 +390,28 @@ def load_mapping_registry(path: Path) -> list[MappingRecord]:
         rows.append(
             MappingRecord(
                 internal_id=_require_text(row.get("internal_id"), f"mappings[{idx}].internal_id"),
-                finam_symbol=_require_text(row.get("finam_symbol"), f"mappings[{idx}].finam_symbol"),
+                finam_symbol=_require_text(
+                    row.get("finam_symbol"), f"mappings[{idx}].finam_symbol"
+                ),
                 moex_engine=_require_text(row.get("moex_engine"), f"mappings[{idx}].moex_engine"),
                 moex_market=_require_text(row.get("moex_market"), f"mappings[{idx}].moex_market"),
                 moex_board=_require_text(row.get("moex_board"), f"mappings[{idx}].moex_board"),
                 moex_secid=_require_text(row.get("moex_secid"), f"mappings[{idx}].moex_secid"),
                 asset_class=_require_text(row.get("asset_class"), f"mappings[{idx}].asset_class"),
                 asset_group=_require_text(row.get("asset_group"), f"mappings[{idx}].asset_group"),
-                mapping_version=_require_int(row.get("mapping_version"), f"mappings[{idx}].mapping_version"),
+                mapping_version=_require_int(
+                    row.get("mapping_version"), f"mappings[{idx}].mapping_version"
+                ),
                 is_active=_require_bool(row.get("is_active"), f"mappings[{idx}].is_active"),
-                activated_at_utc=_require_text(row.get("activated_at_utc"), f"mappings[{idx}].activated_at_utc"),
-                deactivated_at_utc=deactivated_raw.strip() if isinstance(deactivated_raw, str) and deactivated_raw.strip() else None,
-                change_reason=_require_text(row.get("change_reason"), f"mappings[{idx}].change_reason"),
+                activated_at_utc=_require_text(
+                    row.get("activated_at_utc"), f"mappings[{idx}].activated_at_utc"
+                ),
+                deactivated_at_utc=deactivated_raw.strip()
+                if isinstance(deactivated_raw, str) and deactivated_raw.strip()
+                else None,
+                change_reason=_require_text(
+                    row.get("change_reason"), f"mappings[{idx}].change_reason"
+                ),
             )
         )
     return rows
@@ -423,13 +440,15 @@ def validate_mapping_registry(mappings: list[MappingRecord]) -> None:
         internal_key = row.internal_id
         if internal_key in seen_internal:
             raise ValueError(
-                f"duplicate active mapping for internal_id `{internal_key}`: {seen_internal[internal_key]} and {row.moex_secid}"
+                f"duplicate active mapping for internal_id `{internal_key}`: "
+                f"{seen_internal[internal_key]} and {row.moex_secid}"
             )
         seen_internal[internal_key] = row.moex_secid
 
         if row.finam_symbol in seen_finam:
             raise ValueError(
-                f"duplicate active mapping for finam_symbol `{row.finam_symbol}`: {seen_finam[row.finam_symbol]} and {row.moex_secid}"
+                f"duplicate active mapping for finam_symbol `{row.finam_symbol}`: "
+                f"{seen_finam[row.finam_symbol]} and {row.moex_secid}"
             )
         seen_finam[row.finam_symbol] = row.moex_secid
 
@@ -439,7 +458,9 @@ def validate_mapping_registry(mappings: list[MappingRecord]) -> None:
         seen_moex[moex_key] = row.internal_id
 
 
-def validate_universe_mapping_alignment(universe: list[UniverseSymbol], mappings: list[MappingRecord]) -> None:
+def validate_universe_mapping_alignment(
+    universe: list[UniverseSymbol], mappings: list[MappingRecord]
+) -> None:
     active_mappings = {row.internal_id: row for row in mappings if row.is_active}
     active_universe = [row for row in universe if row.is_active]
     for symbol in active_universe:
@@ -458,7 +479,9 @@ def validate_universe_mapping_alignment(universe: list[UniverseSymbol], mappings
             raise ValueError(f"active mapping mismatch for `{symbol.internal_id}`: moex_secid")
 
 
-def _select_active_mappings_for_universe(universe: list[UniverseSymbol], mappings: list[MappingRecord]) -> list[MappingRecord]:
+def _select_active_mappings_for_universe(
+    universe: list[UniverseSymbol], mappings: list[MappingRecord]
+) -> list[MappingRecord]:
     active_universe_ids = {row.internal_id for row in universe if row.is_active}
     return sorted(
         (row for row in mappings if row.is_active and row.internal_id in active_universe_ids),
@@ -497,8 +520,7 @@ def _iter_snapshot_dates(*, start_date: date, end_date: date, step_days: int) ->
         candidates.append(end_date)
 
     snapshots = {
-        _normalize_snapshot_trade_date(candidate=item, end_date=end_date)
-        for item in candidates
+        _normalize_snapshot_trade_date(candidate=item, end_date=end_date) for item in candidates
     }
     return sorted(snapshots)
 
@@ -528,8 +550,7 @@ def _discover_contract_secids(
             asset_code_to_internal.setdefault(asset_code, set()).add(internal_id)
 
     secids_by_internal: dict[str, set[str]] = {
-        mapping.internal_id: {mapping.moex_secid}
-        for mapping in active_mappings
+        mapping.internal_id: {mapping.moex_secid} for mapping in active_mappings
     }
     if not asset_code_to_internal:
         return {key: sorted(value) for key, value in secids_by_internal.items()}
@@ -573,10 +594,7 @@ def _discover_contract_secids(
                     ):
                         secids_by_internal.setdefault(internal_id, set()).add(secid)
 
-    return {
-        internal_id: sorted(secids)
-        for internal_id, secids in secids_by_internal.items()
-    }
+    return {internal_id: sorted(secids) for internal_id, secids in secids_by_internal.items()}
 
 
 def discover_coverage(
@@ -601,7 +619,9 @@ def discover_coverage(
     records: list[DiscoveryRecord] = []
     active_mappings = _select_active_mappings_for_universe(universe, mappings)
     if not active_mappings:
-        raise ValueError("discover_coverage requires at least one active mapping for the selected universe")
+        raise ValueError(
+            "discover_coverage requires at least one active mapping for the selected universe"
+        )
     effective_contract_discovery_lookback_days = (
         bootstrap_window_days
         if contract_discovery_lookback_days is None
@@ -620,16 +640,14 @@ def discover_coverage(
             contract_discovery_step_days=contract_discovery_step_days,
         )
     else:
-        secids_by_internal = {
-            row.internal_id: [row.moex_secid]
-            for row in active_mappings
-        }
+        secids_by_internal = {row.internal_id: [row.moex_secid] for row in active_mappings}
     if expand_contract_chain and effective_contract_discovery_lookback_days >= 365:
         expanded_contracts = sum(max(len(secids) - 1, 0) for secids in secids_by_internal.values())
         if expanded_contracts == 0:
             raise RuntimeError(
                 "contract chain expansion returned only seed contracts for long-window backfill; "
-                "verify discovery snapshots resolve to trading days and asset_codes match MOEX ASSETCODE values"
+                "verify discovery snapshots resolve to trading days and asset_codes "
+                "match MOEX ASSETCODE values"
             )
 
     for mapping in active_mappings:
@@ -662,7 +680,9 @@ def discover_coverage(
                         moex_board=mapping.moex_board,
                         moex_secid=secid,
                         asset_group=mapping.asset_group,
-                        requested_target_timeframes=",".join(target_timeframes_by_interval[source_interval]),
+                        requested_target_timeframes=",".join(
+                            target_timeframes_by_interval[source_interval]
+                        ),
                         source_interval=source_interval,
                         source_timeframe=_source_timeframe_label(source_interval),
                         coverage_begin_utc=begin_utc,
@@ -780,9 +800,13 @@ def _delete_raw_rows_by_close_time(
         raise ValueError("chunk_size must be > 0")
     keys_by_scope: dict[tuple[str, str, int, str], set[str]] = {}
     for internal_id, timeframe, source_interval, moex_secid, ts_close in keys:
-        keys_by_scope.setdefault((internal_id, timeframe, source_interval, moex_secid), set()).add(ts_close)
+        keys_by_scope.setdefault((internal_id, timeframe, source_interval, moex_secid), set()).add(
+            ts_close
+        )
 
-    for (internal_id, timeframe, source_interval, moex_secid), close_values in sorted(keys_by_scope.items()):
+    for (internal_id, timeframe, source_interval, moex_secid), close_values in sorted(
+        keys_by_scope.items()
+    ):
         ordered_close_values = sorted(close_values)
         for batch_start in range(0, len(ordered_close_values), chunk_size):
             batch_values = ordered_close_values[batch_start : batch_start + chunk_size]
@@ -801,7 +825,9 @@ def _append_progress_event(*, jsonl_path: Path, latest_path: Path, payload: dict
     jsonl_path.parent.mkdir(parents=True, exist_ok=True)
     with jsonl_path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
-    latest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    latest_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
 
 
 def ingest_moex_baseline_window(
@@ -847,7 +873,9 @@ def ingest_moex_baseline_window(
 
     ingest_marks = _utc_now_iso()
     progress_jsonl = progress_path or (table_path.parent.parent / "raw-ingest-progress.jsonl")
-    progress_latest = progress_latest_path or (table_path.parent.parent / "raw-ingest-progress.latest.json")
+    progress_latest = progress_latest_path or (
+        table_path.parent.parent / "raw-ingest-progress.latest.json"
+    )
     error_jsonl = error_path or (table_path.parent.parent / "raw-ingest-errors.jsonl")
     error_latest = error_latest_path or (table_path.parent.parent / "raw-ingest-error.latest.json")
 
@@ -883,8 +911,7 @@ def ingest_moex_baseline_window(
                 window_end=window_end,
             )
             baseline_signatures = {
-                _raw_row_key(row): _signature_for_row(row)
-                for row in existing_window_rows
+                _raw_row_key(row): _signature_for_row(row) for row in existing_window_rows
             }
 
             iter_candles = getattr(client, "iter_candles", None)
@@ -972,7 +999,11 @@ def ingest_moex_baseline_window(
                     overlap_start = watermark_dt - timedelta(minutes=refresh_overlap_minutes)
                     within_refresh_overlap = overlap_start <= ts_close_dt <= watermark_dt
 
-                if watermark_dt is not None and ts_close_dt <= watermark_dt and not within_refresh_overlap:
+                if (
+                    watermark_dt is not None
+                    and ts_close_dt <= watermark_dt
+                    and not within_refresh_overlap
+                ):
                     stale_rows += 1
                     item_stale_rows += 1
                     continue
@@ -987,7 +1018,9 @@ def ingest_moex_baseline_window(
                 item_incremental_rows += 1
                 rows_to_append_by_key[row_key] = row
                 if baseline_signature is not None:
-                    corrected_close_keys.append((row_key[0], row_key[1], row_key[2], row_key[3], row_key[5]))
+                    corrected_close_keys.append(
+                        (row_key[0], row_key[1], row_key[2], row_key[3], row_key[5])
+                    )
                     if watermark_dt is not None and ts_close_dt <= watermark_dt:
                         item_overlap_corrected_rows += 1
 
@@ -1012,7 +1045,9 @@ def ingest_moex_baseline_window(
                 "appended_batches_total": appended_batches,
                 "processed_at_utc": _utc_now_iso(),
             }
-            _append_progress_event(jsonl_path=progress_jsonl, latest_path=progress_latest, payload=progress_payload)
+            _append_progress_event(
+                jsonl_path=progress_jsonl, latest_path=progress_latest, payload=progress_payload
+            )
             if item_incremental_rows > 0:
                 changed_windows.append(
                     {
@@ -1052,7 +1087,9 @@ def ingest_moex_baseline_window(
                 "traceback": traceback.format_exc(),
                 "reported_at_utc": _utc_now_iso(),
             }
-            _append_progress_event(jsonl_path=error_jsonl, latest_path=error_latest, payload=error_payload)
+            _append_progress_event(
+                jsonl_path=error_jsonl, latest_path=error_latest, payload=error_payload
+            )
             raise
 
     rows_to_append = _sorted_raw_rows(rows_to_append_by_key)
@@ -1078,7 +1115,9 @@ def ingest_moex_baseline_window(
         incremental_rows=incremental_rows,
         deduplicated_rows=deduplicated_rows,
         stale_rows=stale_rows,
-        watermark_by_key={f"{key[0]}|{key[1]}|{key[2]}": value for key, value in sorted(watermarks.items())},
+        watermark_by_key={
+            f"{key[0]}|{key[1]}|{key[2]}": value for key, value in sorted(watermarks.items())
+        },
         raw_table_path=table_path.as_posix(),
         raw_ingest_progress_path=progress_jsonl.as_posix(),
         raw_ingest_error_path=error_jsonl.as_posix(),
@@ -1110,13 +1149,21 @@ def ingest_moex_bootstrap_window(
     if append_batch_size <= 0:
         raise ValueError("append_batch_size must be > 0")
     table_exists = has_delta_log(table_path)
-    existing_rows_payload = read_delta_table_rows(table_path) if table_exists else []
-    existing_rows: list[dict[str, Any]] = [dict(item) for item in existing_rows_payload if isinstance(item, dict)]
+    existing_rows_payload = (
+        [row for batch in iter_delta_table_row_batches(table_path) for row in batch]
+        if table_exists
+        else []
+    )
+    existing_rows: list[dict[str, Any]] = [
+        dict(item) for item in existing_rows_payload if isinstance(item, dict)
+    ]
     table_rows_by_key: dict[tuple[str, str, int, str, str, str], dict[str, Any]] = {}
     for row in existing_rows:
         table_rows_by_key[_raw_row_key(row)] = row
     baseline_rows_by_key = dict(table_rows_by_key)
-    baseline_signatures = {key: _signature_for_row(row) for key, row in baseline_rows_by_key.items()}
+    baseline_signatures = {
+        key: _signature_for_row(row) for key, row in baseline_rows_by_key.items()
+    }
     current_signatures = dict(baseline_signatures)
     changed_keys: set[tuple[str, str, int, str, str, str]] = set()
     new_rows_by_key: dict[tuple[str, str, int, str, str, str], dict[str, Any]] = {}
@@ -1131,7 +1178,9 @@ def ingest_moex_bootstrap_window(
 
     ingest_marks = _utc_now_iso()
     progress_jsonl = progress_path or (table_path.parent.parent / "raw-ingest-progress.jsonl")
-    progress_latest = progress_latest_path or (table_path.parent.parent / "raw-ingest-progress.latest.json")
+    progress_latest = progress_latest_path or (
+        table_path.parent.parent / "raw-ingest-progress.latest.json"
+    )
     error_jsonl = error_path or (table_path.parent.parent / "raw-ingest-errors.jsonl")
     error_latest = error_latest_path or (table_path.parent.parent / "raw-ingest-error.latest.json")
 
@@ -1247,7 +1296,11 @@ def ingest_moex_bootstrap_window(
                     overlap_start = watermark_dt - timedelta(minutes=refresh_overlap_minutes)
                     within_refresh_overlap = overlap_start <= ts_close_dt <= watermark_dt
 
-                if watermark_dt is not None and ts_close_dt <= watermark_dt and not within_refresh_overlap:
+                if (
+                    watermark_dt is not None
+                    and ts_close_dt <= watermark_dt
+                    and not within_refresh_overlap
+                ):
                     stale_rows += 1
                     item_stale_rows += 1
                     continue
@@ -1274,7 +1327,11 @@ def ingest_moex_bootstrap_window(
                         incremental_rows += 1
                         item_incremental_rows += 1
                         item_changed_keys.add(row_key)
-                    if baseline_signature is not None and watermark_dt is not None and ts_close_dt <= watermark_dt:
+                    if (
+                        baseline_signature is not None
+                        and watermark_dt is not None
+                        and ts_close_dt <= watermark_dt
+                    ):
                         item_overlap_corrected_rows += 1
 
                 table_rows_by_key[row_key] = row
@@ -1306,7 +1363,9 @@ def ingest_moex_bootstrap_window(
                 "appended_batches_total": appended_batches,
                 "processed_at_utc": _utc_now_iso(),
             }
-            _append_progress_event(jsonl_path=progress_jsonl, latest_path=progress_latest, payload=progress_payload)
+            _append_progress_event(
+                jsonl_path=progress_jsonl, latest_path=progress_latest, payload=progress_payload
+            )
             if item_incremental_rows > 0:
                 changed_windows.append(
                     {
@@ -1346,7 +1405,9 @@ def ingest_moex_bootstrap_window(
                 "traceback": traceback.format_exc(),
                 "reported_at_utc": _utc_now_iso(),
             }
-            _append_progress_event(jsonl_path=error_jsonl, latest_path=error_latest, payload=error_payload)
+            _append_progress_event(
+                jsonl_path=error_jsonl, latest_path=error_latest, payload=error_payload
+            )
             raise
 
     table_rows_sorted = _sorted_raw_rows(table_rows_by_key)
@@ -1356,7 +1417,9 @@ def ingest_moex_bootstrap_window(
     else:
         new_rows_sorted = _sorted_raw_rows(new_rows_by_key)
         if not table_exists:
-            write_delta_table_rows(table_path=table_path, rows=table_rows_sorted, columns=RAW_COLUMNS, mode="error")
+            write_delta_table_rows(
+                table_path=table_path, rows=table_rows_sorted, columns=RAW_COLUMNS, mode="error"
+            )
             if table_rows_sorted:
                 appended_batches += 1
         elif new_rows_sorted:
@@ -1377,7 +1440,9 @@ def ingest_moex_bootstrap_window(
         incremental_rows=incremental_rows,
         deduplicated_rows=deduplicated_rows,
         stale_rows=stale_rows,
-        watermark_by_key={f"{key[0]}|{key[1]}|{key[2]}": value for key, value in sorted(watermarks.items())},
+        watermark_by_key={
+            f"{key[0]}|{key[1]}|{key[2]}": value for key, value in sorted(watermarks.items())
+        },
         raw_table_path=table_path.as_posix(),
         raw_ingest_progress_path=progress_jsonl.as_posix(),
         raw_ingest_error_path=error_jsonl.as_posix(),
@@ -1386,7 +1451,9 @@ def ingest_moex_bootstrap_window(
     )
 
 
-def _write_coverage_artifacts(coverage: list[DiscoveryRecord], *, output_dir: Path) -> tuple[Path, Path]:
+def _write_coverage_artifacts(
+    coverage: list[DiscoveryRecord], *, output_dir: Path
+) -> tuple[Path, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
     json_path = output_dir / "coverage-report.json"
     csv_path = output_dir / "coverage-report.csv"
@@ -1507,7 +1574,9 @@ def run_moex_foundation(
         error_latest_path=output_dir / "raw-ingest-error.latest.json",
     )
     raw_ingest_report_path = output_dir / "raw-ingest-report.json"
-    raw_ingest_report_path.write_text(json.dumps(ingest_report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    raw_ingest_report_path.write_text(
+        json.dumps(ingest_report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
 
     return FoundationRunReport(
         run_id=run_id,

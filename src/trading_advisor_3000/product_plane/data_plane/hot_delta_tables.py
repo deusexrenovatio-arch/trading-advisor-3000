@@ -16,16 +16,28 @@ HOT_DELTA_TABLES: tuple[HotDeltaTable, ...] = (
     HotDeltaTable("raw_moex_history", "raw_moex_history.delta", "raw_moex"),
     HotDeltaTable("canonical_bars", "canonical_bars.delta", "canonical"),
     HotDeltaTable("canonical_bar_provenance", "canonical_bar_provenance.delta", "canonical"),
-    HotDeltaTable("canonical_session_calendar", "canonical_session_calendar.delta", "canonical_sidecar"),
+    HotDeltaTable(
+        "canonical_session_calendar", "canonical_session_calendar.delta", "canonical_sidecar"
+    ),
     HotDeltaTable("canonical_roll_map", "canonical_roll_map.delta", "canonical_sidecar"),
     HotDeltaTable("canonical_contracts", "canonical_contracts.delta", "canonical_sidecar"),
     HotDeltaTable("canonical_instruments", "canonical_instruments.delta", "canonical_sidecar"),
     HotDeltaTable("research_bar_views", "research_bar_views.delta", "research"),
     HotDeltaTable("research_indicator_frames", "research_indicator_frames.delta", "research"),
-    HotDeltaTable("research_derived_indicator_frames", "research_derived_indicator_frames.delta", "research"),
+    HotDeltaTable(
+        "research_derived_indicator_frames", "research_derived_indicator_frames.delta", "research"
+    ),
     HotDeltaTable("continuous_front_bars", "continuous_front_bars.delta", "continuous_front"),
-    HotDeltaTable("continuous_front_adjustment_ladder", "continuous_front_adjustment_ladder.delta", "continuous_front"),
-    HotDeltaTable("continuous_front_indicator_frames", "continuous_front_indicator_frames.delta", "continuous_front"),
+    HotDeltaTable(
+        "continuous_front_adjustment_ladder",
+        "continuous_front_adjustment_ladder.delta",
+        "continuous_front",
+    ),
+    HotDeltaTable(
+        "continuous_front_indicator_frames",
+        "continuous_front_indicator_frames.delta",
+        "continuous_front",
+    ),
     HotDeltaTable(
         "continuous_front_derived_indicator_frames",
         "continuous_front_derived_indicator_frames.delta",

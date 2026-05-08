@@ -1,13 +1,20 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from trading_advisor_3000.product_plane.data_plane.moex import canonicalization as canonicalization_module
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows, write_delta_table_rows
-from trading_advisor_3000.product_plane.data_plane.moex import build_raw_ingest_run_report_v2, run_moex_canonicalization
-
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    iter_delta_table_row_batches,
+    write_delta_table_rows,
+)
+from trading_advisor_3000.product_plane.data_plane.moex import build_raw_ingest_run_report_v2
+from trading_advisor_3000.product_plane.data_plane.moex import (
+    canonicalization as canonicalization_module,
+)
+from trading_advisor_3000.product_plane.data_plane.moex.canonicalization import (
+    run_moex_canonicalization,
+)
 
 RAW_COLUMNS: dict[str, str] = {
     "internal_id": "string",
@@ -30,6 +37,10 @@ RAW_COLUMNS: dict[str, str] = {
 
 def _iso(dt: datetime) -> str:
     return dt.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _read_batched_delta_rows(table_path: Path) -> list[dict[str, object]]:
+    return [row for batch in iter_delta_table_row_batches(table_path) for row in batch]
 
 
 def _raw_rows(*, with_source_provider: bool) -> list[dict[str, object]]:
@@ -182,7 +193,9 @@ def test_canonicalization_generates_resampling_outputs_and_reports(tmp_path: Pat
         raw_table_path=raw_table_path,
         output_dir=tmp_path / "canonicalization",
         run_id="canonicalization-int-pass",
-        raw_ingest_run_report=_build_raw_ingest_report_for_rows(rows=rows, run_id="raw-ingest-pass1"),
+        raw_ingest_run_report=_build_raw_ingest_report_for_rows(
+            rows=rows, run_id="raw-ingest-pass1"
+        ),
     )
 
     assert report["status"] == "PASS"
@@ -197,7 +210,7 @@ def test_canonicalization_generates_resampling_outputs_and_reports(tmp_path: Pat
     assert report["spark_execution_report"]["proof_profile"] in {"docker-linux", "local-spark"}
     assert report["real_bindings"]
 
-    bars = read_delta_table_rows(Path(str(report["output_paths"]["canonical_bars"])))
+    bars = _read_batched_delta_rows(Path(str(report["output_paths"]["canonical_bars"])))
     assert bars
     assert {row["timeframe"] for row in bars} == {"5m", "15m", "1h", "4h", "1d", "1w"}
     first_m5 = next(
@@ -227,7 +240,9 @@ def test_canonicalization_is_fail_closed_when_qc_fails(tmp_path: Path) -> None:
         raw_table_path=raw_table_path,
         output_dir=tmp_path / "canonicalization-blocked",
         run_id="canonicalization-int-fail",
-        raw_ingest_run_report=_build_raw_ingest_report_for_rows(rows=rows, run_id="raw-ingest-pass1"),
+        raw_ingest_run_report=_build_raw_ingest_report_for_rows(
+            rows=rows, run_id="raw-ingest-pass1"
+        ),
     )
 
     assert report["status"] == "BLOCKED"
@@ -242,7 +257,9 @@ def test_canonicalization_is_fail_closed_when_qc_fails(tmp_path: Path) -> None:
     assert payload["publish_decision"] == "blocked"
 
 
-def test_canonicalization_reports_skips_for_incompatible_daily_only_contract(tmp_path: Path) -> None:
+def test_canonicalization_reports_skips_for_incompatible_daily_only_contract(
+    tmp_path: Path,
+) -> None:
     raw_table_path = tmp_path / "raw_ingest" / "delta" / "raw_moex_history.delta"
     rows = _raw_rows_with_daily_only_contract(with_source_provider=True)
     _write_raw_table(raw_table_path, rows)
@@ -251,7 +268,9 @@ def test_canonicalization_reports_skips_for_incompatible_daily_only_contract(tmp
         raw_table_path=raw_table_path,
         output_dir=tmp_path / "canonicalization-mixed",
         run_id="canonicalization-int-mixed",
-        raw_ingest_run_report=_build_raw_ingest_report_for_rows(rows=rows, run_id="raw-ingest-pass1"),
+        raw_ingest_run_report=_build_raw_ingest_report_for_rows(
+            rows=rows, run_id="raw-ingest-pass1"
+        ),
     )
 
     assert report["status"] == "PASS"
@@ -271,9 +290,11 @@ def test_canonicalization_pass_noop_does_not_mutate_existing_tables(tmp_path: Pa
         raw_table_path=raw_table_path,
         output_dir=output_dir,
         run_id="canonicalization-int-first",
-        raw_ingest_run_report=_build_raw_ingest_report_for_rows(rows=rows, run_id="raw-ingest-pass1"),
+        raw_ingest_run_report=_build_raw_ingest_report_for_rows(
+            rows=rows, run_id="raw-ingest-pass1"
+        ),
     )
-    bars_before = read_delta_table_rows(Path(str(first["output_paths"]["canonical_bars"])))
+    bars_before = _read_batched_delta_rows(Path(str(first["output_paths"]["canonical_bars"])))
 
     second = run_moex_canonicalization(
         raw_table_path=raw_table_path,
@@ -281,7 +302,7 @@ def test_canonicalization_pass_noop_does_not_mutate_existing_tables(tmp_path: Pa
         run_id="canonicalization-int-noop",
         raw_ingest_run_report=_build_raw_ingest_report_noop(run_id="raw-ingest-pass2"),
     )
-    bars_after = read_delta_table_rows(Path(str(second["output_paths"]["canonical_bars"])))
+    bars_after = _read_batched_delta_rows(Path(str(second["output_paths"]["canonical_bars"])))
 
     assert second["status"] == "PASS-NOOP"
     assert second["publish_decision"] == "publish"
@@ -313,7 +334,9 @@ def test_canonicalization_avoids_full_raw_table_read(tmp_path: Path, monkeypatch
         raw_table_path=raw_table_path,
         output_dir=tmp_path / "canonicalization-guarded",
         run_id="canonicalization-int-guarded",
-        raw_ingest_run_report=_build_raw_ingest_report_for_rows(rows=rows, run_id="raw-ingest-pass1"),
+        raw_ingest_run_report=_build_raw_ingest_report_for_rows(
+            rows=rows, run_id="raw-ingest-pass1"
+        ),
     )
 
     assert report["status"] == "PASS"
@@ -321,7 +344,9 @@ def test_canonicalization_avoids_full_raw_table_read(tmp_path: Path, monkeypatch
     assert report["scoped_source_rows"] > 0
 
 
-def test_canonicalization_pass_noop_skips_raw_table_read_entirely(tmp_path: Path, monkeypatch) -> None:
+def test_canonicalization_pass_noop_skips_raw_table_read_entirely(
+    tmp_path: Path, monkeypatch
+) -> None:
     raw_table_path = tmp_path / "raw_ingest" / "delta" / "raw_moex_history.delta"
     rows = _raw_rows(with_source_provider=True)
     _write_raw_table(raw_table_path, rows)
@@ -331,7 +356,9 @@ def test_canonicalization_pass_noop_skips_raw_table_read_entirely(tmp_path: Path
         raw_table_path=raw_table_path,
         output_dir=output_dir,
         run_id="canonicalization-int-first-noop-guard",
-        raw_ingest_run_report=_build_raw_ingest_report_for_rows(rows=rows, run_id="raw-ingest-pass1"),
+        raw_ingest_run_report=_build_raw_ingest_report_for_rows(
+            rows=rows, run_id="raw-ingest-pass1"
+        ),
     )
     assert first["publish_decision"] == "publish"
 

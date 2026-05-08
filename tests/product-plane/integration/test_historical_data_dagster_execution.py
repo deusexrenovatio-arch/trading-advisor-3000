@@ -5,14 +5,17 @@ from pathlib import Path
 
 from dagster import Definitions
 
-from trading_advisor_3000.product_plane.data_plane import run_sample_backfill
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows
+from trading_advisor_3000.dagster_defs import (
+    historical_data_proof_assets as historical_data_proof_assets_module,
+)
 from trading_advisor_3000.dagster_defs import materialize_historical_data_proof_assets
-from trading_advisor_3000.dagster_defs import historical_data_proof_assets as historical_data_proof_assets_module
-
+from trading_advisor_3000.product_plane.data_plane import run_sample_backfill
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import iter_delta_table_row_batches
 
 ROOT = Path(__file__).resolve().parents[3]
-SOURCE_FIXTURE = ROOT / "tests" / "product-plane" / "fixtures" / "data_plane" / "raw_backfill_sample.jsonl"
+SOURCE_FIXTURE = (
+    ROOT / "tests" / "product-plane" / "fixtures" / "data_plane" / "raw_backfill_sample.jsonl"
+)
 WHITELIST = {"BR-6.26", "Si-6.26"}
 COMPARE_TABLES = (
     "canonical_bars",
@@ -27,7 +30,13 @@ def _sorted_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
     return sorted(rows, key=lambda item: json.dumps(item, ensure_ascii=False, sort_keys=True))
 
 
-def test_historical_data_dagster_materialization_executes_and_matches_data_plane_outputs(tmp_path: Path) -> None:
+def _read_batched_delta_rows(table_path: Path) -> list[dict[str, object]]:
+    return [row for batch in iter_delta_table_row_batches(table_path) for row in batch]
+
+
+def test_historical_data_dagster_materialization_executes_and_matches_data_plane_outputs(
+    tmp_path: Path,
+) -> None:
     dagster_report = materialize_historical_data_proof_assets(
         source_path=SOURCE_FIXTURE,
         output_dir=tmp_path / "dagster",
@@ -40,8 +49,12 @@ def test_historical_data_dagster_materialization_executes_and_matches_data_plane
     )
 
     assert dagster_report["success"] is True
-    assert set(dagster_report["selected_assets"]) == set(historical_data_proof_assets_module.HISTORICAL_DATA_PROOF_TABLES)
-    assert set(dagster_report["materialized_assets"]) == set(historical_data_proof_assets_module.HISTORICAL_DATA_PROOF_TABLES)
+    assert set(dagster_report["selected_assets"]) == set(
+        historical_data_proof_assets_module.HISTORICAL_DATA_PROOF_TABLES
+    )
+    assert set(dagster_report["materialized_assets"]) == set(
+        historical_data_proof_assets_module.HISTORICAL_DATA_PROOF_TABLES
+    )
     rows_by_table = dict(dagster_report["rows_by_table"])
     assert rows_by_table["raw_market_backfill"] == 2
     assert rows_by_table["canonical_bars"] == 2
@@ -49,10 +62,14 @@ def test_historical_data_dagster_materialization_executes_and_matches_data_plane
         dagster_path = Path(str(dagster_report["output_paths"][table_name]))
         python_path = Path(str(python_report["output_paths"][table_name]))
         assert (dagster_path / "_delta_log").exists()
-        assert _sorted_rows(read_delta_table_rows(dagster_path)) == _sorted_rows(read_delta_table_rows(python_path))
+        assert _sorted_rows(_read_batched_delta_rows(dagster_path)) == _sorted_rows(
+            _read_batched_delta_rows(python_path)
+        )
 
 
-def test_historical_data_dagster_partial_selection_materializes_only_selected_assets(tmp_path: Path) -> None:
+def test_historical_data_dagster_partial_selection_materializes_only_selected_assets(
+    tmp_path: Path,
+) -> None:
     dagster_report = materialize_historical_data_proof_assets(
         source_path=SOURCE_FIXTURE,
         output_dir=tmp_path / "dagster-partial",
@@ -76,9 +93,13 @@ def test_historical_data_dagster_partial_selection_materializes_only_selected_as
 
     bars_path = Path(str(dagster_report["output_paths"]["canonical_bars"]))
     python_bars_path = Path(str(python_report["output_paths"]["canonical_bars"]))
-    assert _sorted_rows(read_delta_table_rows(bars_path)) == _sorted_rows(read_delta_table_rows(python_bars_path))
+    assert _sorted_rows(_read_batched_delta_rows(bars_path)) == _sorted_rows(
+        _read_batched_delta_rows(python_bars_path)
+    )
 
-    assert (Path(str(dagster_report["output_paths"]["raw_market_backfill"])) / "_delta_log").exists()
+    assert (
+        Path(str(dagster_report["output_paths"]["raw_market_backfill"])) / "_delta_log"
+    ).exists()
     assert (Path(str(dagster_report["output_paths"]["canonical_bars"])) / "_delta_log").exists()
 
     for table_name in (
@@ -107,7 +128,9 @@ def test_historical_data_dagster_disprover_fails_on_missing_source_fixture(tmp_p
         raise AssertionError("expected Dagster materialization failure for missing source fixture")
 
 
-def test_historical_data_dagster_disprover_fails_for_metadata_only_definitions(monkeypatch, tmp_path: Path) -> None:
+def test_historical_data_dagster_disprover_fails_for_metadata_only_definitions(
+    monkeypatch, tmp_path: Path
+) -> None:
     metadata_only_defs = Definitions(
         assets=[
             historical_data_proof_assets_module.AssetSpec(
@@ -119,7 +142,9 @@ def test_historical_data_dagster_disprover_fails_for_metadata_only_definitions(m
             for table_name in historical_data_proof_assets_module.HISTORICAL_DATA_PROOF_TABLES
         ]
     )
-    monkeypatch.setattr(historical_data_proof_assets_module, "historical_data_proof_definitions", metadata_only_defs)
+    monkeypatch.setattr(
+        historical_data_proof_assets_module, "historical_data_proof_definitions", metadata_only_defs
+    )
     try:
         materialize_historical_data_proof_assets(
             source_path=SOURCE_FIXTURE,

@@ -6,11 +6,11 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
     delta_table_columns,
     ensure_delta_table_columns,
-    read_filtered_delta_table_rows,
     read_delta_table_rows,
+    read_filtered_delta_table_rows,
     read_small_delta_table_rows,
-    write_delta_table_rows,
     write_delta_table_row_batches,
+    write_delta_table_rows,
 )
 
 
@@ -54,13 +54,16 @@ def test_count_delta_table_rows_accepts_filters(tmp_path) -> None:
         ],
     )
 
-    assert count_delta_table_rows(
-        table_path,
-        filters=[
-            ("dataset_version", "=", "dataset-v1"),
-            ("indicator_set_version", "=", "indicators-v1"),
-        ],
-    ) == 1
+    assert (
+        count_delta_table_rows(
+            table_path,
+            filters=[
+                ("dataset_version", "=", "dataset-v1"),
+                ("indicator_set_version", "=", "indicators-v1"),
+            ],
+        )
+        == 1
+    )
 
 
 def test_read_filtered_delta_table_rows_requires_filters(tmp_path) -> None:
@@ -84,6 +87,27 @@ def test_read_filtered_delta_table_rows_requires_filters(tmp_path) -> None:
     )
 
     assert rows == [{"dataset_version": "dataset-v1", "value": 1}]
+
+
+def test_read_delta_table_rows_rejects_unbounded_hot_tables(tmp_path) -> None:
+    table_path = tmp_path / "canonical_bars.delta"
+    write_delta_table_rows(
+        table_path=table_path,
+        columns={"id": "string", "value": "int"},
+        rows=[{"id": "a", "value": 1}],
+    )
+
+    with pytest.raises(ValueError, match="hot Delta tables"):
+        read_delta_table_rows(table_path)
+    with pytest.raises(ValueError, match="hot Delta tables"):
+        read_delta_table_rows(table_path, filters=None)
+    with pytest.raises(ValueError, match="hot Delta tables"):
+        read_delta_table_rows(table_path, filters=[])
+
+    assert read_delta_table_rows(table_path, filters=[("id", "=", "a")]) == [
+        {"id": "a", "value": 1}
+    ]
+    assert read_delta_table_rows(table_path, limit=1) == [{"id": "a", "value": 1}]
 
 
 def test_read_small_delta_table_rows_rejects_hot_tables(tmp_path) -> None:

@@ -1,19 +1,26 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
 import json
-from pathlib import Path
 import tempfile
-
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows, write_delta_table_rows
-from trading_advisor_3000.product_plane.data_plane.moex import build_raw_ingest_run_report_v2, run_historical_dagster_cutover
-from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contracts import read_technical_route_run_ledger
-from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
-    MOEX_HISTORICAL_DATA_ROOT_ENV,
-)
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    iter_delta_table_row_batches,
+    write_delta_table_rows,
+)
+from trading_advisor_3000.product_plane.data_plane.moex import (
+    build_raw_ingest_run_report_v2,
+    run_historical_dagster_cutover,
+)
+from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contracts import (
+    read_technical_route_run_ledger,
+)
+from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
+    MOEX_HISTORICAL_DATA_ROOT_ENV,
+)
 
 RAW_COLUMNS: dict[str, str] = {
     "internal_id": "string",
@@ -43,6 +50,10 @@ def _external_data_root_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _iso(dt: datetime) -> str:
     return dt.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _read_batched_delta_rows(table_path: Path) -> list[dict[str, object]]:
+    return [row for batch in iter_delta_table_row_batches(table_path) for row in batch]
 
 
 def _prepare_raw_route_inputs(tmp_path: Path, *, run_id: str) -> tuple[Path, Path]:
@@ -101,17 +112,23 @@ def _prepare_raw_route_inputs(tmp_path: Path, *, run_id: str) -> tuple[Path, Pat
         raw_table_path=raw_table_path.as_posix(),
         raw_ingest_progress_path=(tmp_path / "phase01" / "raw-ingest-progress.jsonl").as_posix(),
         raw_ingest_error_path=(tmp_path / "phase01" / "raw-ingest-errors.jsonl").as_posix(),
-        raw_ingest_error_latest_path=(tmp_path / "phase01" / "raw-ingest-error.latest.json").as_posix(),
+        raw_ingest_error_latest_path=(
+            tmp_path / "phase01" / "raw-ingest-error.latest.json"
+        ).as_posix(),
         changed_windows=changed_windows,
     )
 
     raw_report_path = tmp_path / "phase01" / "raw-ingest-report.json"
     raw_report_path.parent.mkdir(parents=True, exist_ok=True)
-    raw_report_path.write_text(json.dumps(raw_report_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    raw_report_path.write_text(
+        json.dumps(raw_report_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     return raw_table_path, raw_report_path
 
 
-def test_historical_dagster_cutover_materializes_route_and_emits_recovery_artifacts(tmp_path: Path) -> None:
+def test_historical_dagster_cutover_materializes_route_and_emits_recovery_artifacts(
+    tmp_path: Path,
+) -> None:
     raw_table_path, raw_report_path = _prepare_raw_route_inputs(tmp_path, run_id="phase03-int-raw")
     output_dir = tmp_path / "phase03-cutover"
 
@@ -147,7 +164,7 @@ def test_historical_dagster_cutover_materializes_route_and_emits_recovery_artifa
         assert canonical_payload["publish_decision"] == "publish"
         bars_path = Path(str(materialization["output_paths"]["canonical_bars"]))
         assert bars_path.exists()
-        bars = read_delta_table_rows(bars_path)
+        bars = _read_batched_delta_rows(bars_path)
         assert bars
         if cycle["mode"] == "nightly":
             assert materialization["schedule"] is not None

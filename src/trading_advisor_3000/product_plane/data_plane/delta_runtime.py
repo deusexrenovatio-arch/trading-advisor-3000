@@ -293,9 +293,12 @@ def _enforce_hot_delta_read_bound(
     filters: DeltaReadFilters,
     limit: int | None = None,
 ) -> None:
-    if is_hot_delta_table_path(table_path) and not _has_delta_read_bound(filters=filters, limit=limit):
+    if is_hot_delta_table_path(table_path) and not _has_delta_read_bound(
+        filters=filters, limit=limit
+    ):
         raise ValueError(
-            "hot Delta tables require filters, limit, batched reads, or Spark/Delta-native operations"
+            "hot Delta tables require filters, limit, batched reads, "
+            "or Spark/Delta-native operations"
         )
 
 
@@ -562,6 +565,7 @@ def read_small_delta_table_rows(
 ) -> list[dict[str, object]]:
     if is_hot_delta_table_path(table_path):
         raise ValueError(
-            "hot Delta tables require filtered reads, batched reads, or Spark/Delta-native operations"
+            "hot Delta tables require filtered reads, batched reads, "
+            "or Spark/Delta-native operations"
         )
     return read_delta_table_rows(table_path, columns=columns, limit=limit)

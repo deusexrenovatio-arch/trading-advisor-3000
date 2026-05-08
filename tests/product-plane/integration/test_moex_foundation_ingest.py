@@ -3,8 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows
-from trading_advisor_3000.product_plane.data_plane.moex.foundation import load_mapping_registry, run_moex_foundation
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import iter_delta_table_row_batches
+from trading_advisor_3000.product_plane.data_plane.moex.foundation import (
+    load_mapping_registry,
+    run_moex_foundation,
+)
 from trading_advisor_3000.product_plane.data_plane.moex.iss_client import CandleBorder, MoexCandle
 
 
@@ -74,6 +77,10 @@ class _FakeMoexClient:
         ]
 
 
+def _read_batched_delta_rows(table_path: Path) -> list[dict[str, object]]:
+    return [row for batch in iter_delta_table_row_batches(table_path) for row in batch]
+
+
 class _OverlapRefreshClient:
     def __init__(self) -> None:
         self.corrected = False
@@ -141,9 +148,7 @@ def test_raw_ingest_foundation_ingest_is_idempotent_and_watermark_safe(tmp_path:
     universe = Path("configs/moex_foundation/universe/moex-futures-priority.v1.yaml")
     client = _FakeMoexClient()
     active_internal_ids = {
-        row.internal_id
-        for row in load_mapping_registry(mapping_registry)
-        if row.is_active
+        row.internal_id for row in load_mapping_registry(mapping_registry) if row.is_active
     }
     expected_rows = len(active_internal_ids) * 2
 
@@ -175,15 +180,13 @@ def test_raw_ingest_foundation_ingest_is_idempotent_and_watermark_safe(tmp_path:
     assert pass2.stale_rows == 0
     assert Path(pass2.raw_ingest_progress_path).exists()
 
-    raw_rows = read_delta_table_rows(Path(pass2.raw_table_path))
+    raw_rows = _read_batched_delta_rows(Path(pass2.raw_table_path))
     assert len(raw_rows) == expected_rows
     assert {row["internal_id"] for row in raw_rows} == active_internal_ids
     assert {row["timeframe"] for row in raw_rows} == {"1m"}
     assert {row["source_interval"] for row in raw_rows} == {1}
     first_bucket_closes = {
-        row["close"]
-        for row in raw_rows
-        if str(row["ts_open"]).endswith("07:00:00Z")
+        row["close"] for row in raw_rows if str(row["ts_open"]).endswith("07:00:00Z")
     }
     assert first_bucket_closes == {99.0}
     requested_target_sets: set[str] = set()
@@ -193,18 +196,20 @@ def test_raw_ingest_foundation_ingest_is_idempotent_and_watermark_safe(tmp_path:
             provenance = json.loads(provenance)
         requested_target_sets.add(provenance["requested_target_timeframes"])
     assert requested_target_sets == {"15m"}
-    progress_lines = Path(pass2.raw_ingest_progress_path).read_text(encoding="utf-8").strip().splitlines()
+    progress_lines = (
+        Path(pass2.raw_ingest_progress_path).read_text(encoding="utf-8").strip().splitlines()
+    )
     assert len(progress_lines) == len(active_internal_ids) * 2
 
 
-def test_raw_ingest_foundation_refresh_overlap_applies_near_watermark_corrections_without_duplicates(tmp_path: Path) -> None:
+def test_raw_ingest_foundation_refresh_overlap_applies_corrections(
+    tmp_path: Path,
+) -> None:
     mapping_registry = Path("configs/moex_foundation/instrument_mapping_registry.v1.yaml")
     universe = Path("configs/moex_foundation/universe/moex-futures-priority.v1.yaml")
     client = _OverlapRefreshClient()
     active_internal_ids = {
-        row.internal_id
-        for row in load_mapping_registry(mapping_registry)
-        if row.is_active
+        row.internal_id for row in load_mapping_registry(mapping_registry) if row.is_active
     }
     expected_rows = len(active_internal_ids) * 2
 
@@ -236,12 +241,10 @@ def test_raw_ingest_foundation_refresh_overlap_applies_near_watermark_correction
     assert pass2.incremental_rows == len(active_internal_ids)
     assert pass2.stale_rows == 0
 
-    raw_rows = read_delta_table_rows(Path(pass2.raw_table_path))
+    raw_rows = _read_batched_delta_rows(Path(pass2.raw_table_path))
     assert len(raw_rows) == expected_rows
     assert {row["internal_id"] for row in raw_rows} == active_internal_ids
     first_bucket_closes = {
-        row["close"]
-        for row in raw_rows
-        if str(row["ts_open"]).endswith("07:00:00Z")
+        row["close"] for row in raw_rows if str(row["ts_open"]).endswith("07:00:00Z")
     }
     assert first_bucket_closes == {99.75}

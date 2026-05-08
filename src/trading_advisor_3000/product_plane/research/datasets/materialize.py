@@ -7,7 +7,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from trading_advisor_3000.product_plane.contracts import CanonicalBar
-from trading_advisor_3000.product_plane.data_plane.canonical import RollMapEntry, SessionCalendarEntry
+from trading_advisor_3000.product_plane.data_plane.canonical import (
+    RollMapEntry,
+    SessionCalendarEntry,
+)
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     delta_equals_predicate,
     read_filtered_delta_table_rows,
@@ -134,6 +137,7 @@ def research_dataset_store_contract() -> dict[str, dict[str, object]]:
         },
     }
 
+
 # Dataset row-object reloaders are intentionally not part of the active route.
 def _utc_now_iso() -> str:
     return datetime.now(tz=UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -182,10 +186,14 @@ def _stable_hash_views(rows: list[ResearchBarView]) -> str:
             "bars_since_roll": row.bars_since_roll,
             "price_space": row.price_space,
             "native_close": row.native_close if row.native_close is not None else row.close,
-            "continuous_close": row.continuous_close if row.continuous_close is not None else row.close,
-            "execution_close": row.execution_close if row.execution_close is not None else row.close,
+            "continuous_close": row.continuous_close
+            if row.continuous_close is not None
+            else row.close,
+            "execution_close": row.execution_close
+            if row.execution_close is not None
+            else row.close,
             "cumulative_additive_offset": row.cumulative_additive_offset,
-            }
+        }
         for row in rows
     ]
     normalized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -237,21 +245,29 @@ def build_research_instrument_tree(
 
     rows: list[dict[str, object]] = []
     for instrument_id, instrument_rows in sorted(grouped.items()):
-        ordered = sorted(instrument_rows, key=lambda item: (item.timeframe, item.ts, item.contract_id))
+        ordered = sorted(
+            instrument_rows, key=lambda item: (item.timeframe, item.ts, item.contract_id)
+        )
         metadata = _instrument_metadata(instrument_id)
         contract_ids = sorted({row.contract_id for row in ordered})
-        active_contract_ids = sorted({row.active_contract_id for row in ordered if row.active_contract_id})
+        active_contract_ids = sorted(
+            {row.active_contract_id for row in ordered if row.active_contract_id}
+        )
         timeframes = sorted({row.timeframe for row in ordered}, key=_timeframe_sort_key)
-        lineage_key = hashlib.sha256(
-            "|".join(
-                [
-                    manifest.lineage_key(),
-                    str(metadata["internal_id"]),
-                    *contract_ids,
-                    *timeframes,
-                ]
-            ).encode("utf-8")
-        ).hexdigest()[:16].upper()
+        lineage_key = (
+            hashlib.sha256(
+                "|".join(
+                    [
+                        manifest.lineage_key(),
+                        str(metadata["internal_id"]),
+                        *contract_ids,
+                        *timeframes,
+                    ]
+                ).encode("utf-8")
+            )
+            .hexdigest()[:16]
+            .upper()
+        )
         rows.append(
             {
                 "dataset_version": manifest.dataset_version,
@@ -316,24 +332,27 @@ def _build_split_payload(
             test_start=0,
             test_stop=analysis_count,
         )
-        payload["windows"] = [
-            _window_payload(window)
-        ]
-        return payload
-
-    if split_method == "holdout":
-        window = build_holdout_window(analysis_count, split_config if isinstance(split_config, HoldoutSplitConfig) else None)
         payload["windows"] = [_window_payload(window)]
         return payload
 
-    config = split_config if isinstance(split_config, WalkForwardSplitConfig) else WalkForwardSplitConfig(
-        train_size=max(1, math.floor(analysis_count * 0.6)),
-        test_size=max(1, math.floor(analysis_count * 0.2)),
-        step_size=max(1, math.floor(analysis_count * 0.2)),
+    if split_method == "holdout":
+        window = build_holdout_window(
+            analysis_count, split_config if isinstance(split_config, HoldoutSplitConfig) else None
+        )
+        payload["windows"] = [_window_payload(window)]
+        return payload
+
+    config = (
+        split_config
+        if isinstance(split_config, WalkForwardSplitConfig)
+        else WalkForwardSplitConfig(
+            train_size=max(1, math.floor(analysis_count * 0.6)),
+            test_size=max(1, math.floor(analysis_count * 0.2)),
+            step_size=max(1, math.floor(analysis_count * 0.2)),
+        )
     )
     payload["windows"] = [
-        _window_payload(window)
-        for window in build_walk_forward_windows(analysis_count, config)
+        _window_payload(window) for window in build_walk_forward_windows(analysis_count, config)
     ]
     return payload
 
@@ -347,9 +366,7 @@ def build_research_dataset_manifest(
 ) -> ResearchDatasetManifest:
     selected_keys = {(view.contract_id, view.timeframe, view.ts) for view in selected_views}
     selected_bars = [
-        row
-        for row in bars
-        if (row.contract_id, row.timeframe.value, row.ts) in selected_keys
+        row for row in bars if (row.contract_id, row.timeframe.value, row.ts) in selected_keys
     ]
     split_payload = _build_split_payload(
         selected_views=selected_views,
@@ -473,13 +490,17 @@ def _normalize_loaded_manifest_row(row: dict[str, object]) -> dict[str, object]:
     return payload
 
 
-def load_materialized_research_dataset(*, output_dir: Path, dataset_version: str) -> dict[str, object]:
+def load_materialized_research_dataset(
+    *, output_dir: Path, dataset_version: str
+) -> dict[str, object]:
     datasets_path = output_dir / "research_datasets.delta"
     instrument_tree_path = output_dir / "research_instrument_tree.delta"
     bar_views_path = output_dir / "research_bar_views.delta"
     manifests = read_small_delta_table_rows(datasets_path)
     instrument_rows = (
-        read_small_delta_table_rows(instrument_tree_path) if (instrument_tree_path / "_delta_log").exists() else []
+        read_small_delta_table_rows(instrument_tree_path)
+        if (instrument_tree_path / "_delta_log").exists()
+        else []
     )
     bar_view_rows = read_filtered_delta_table_rows(
         bar_views_path,
@@ -491,9 +512,7 @@ def load_materialized_research_dataset(*, output_dir: Path, dataset_version: str
     return {
         "dataset_manifest": _normalize_loaded_manifest_row(manifest_rows[0]),
         "instrument_tree": [
-            row
-            for row in instrument_rows
-            if row.get("dataset_version") == dataset_version
+            row for row in instrument_rows if row.get("dataset_version") == dataset_version
         ],
         "bar_views": [
             ResearchBarView.from_dict(row)

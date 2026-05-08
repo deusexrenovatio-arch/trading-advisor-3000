@@ -6,8 +6,8 @@ from .canonical import build_canonical_dataset, run_data_quality_checks
 from .delta_runtime import (
     has_delta_log,
     read_delta_table_rows,
-    write_delta_table_rows,
     write_delta_table_row_batches,
+    write_delta_table_rows,
 )
 from .ingestion import ingest_raw_backfill
 from .schemas import historical_data_delta_schema_manifest
@@ -22,7 +22,9 @@ def run_sample_backfill(
     delta_schema_manifest = historical_data_delta_schema_manifest()
     output_dir.mkdir(parents=True, exist_ok=True)
     raw_output_path = output_dir / "raw_market_backfill.delta"
-    existing_raw_rows = read_delta_table_rows(raw_output_path) if has_delta_log(raw_output_path) else []
+    existing_raw_rows = (
+        read_delta_table_rows(raw_output_path) if has_delta_log(raw_output_path) else []
+    )
 
     ingestion_batch = ingest_raw_backfill(
         source_path,

@@ -4,8 +4,15 @@ from pathlib import Path
 
 from trading_advisor_3000.product_plane.contracts import CanonicalBar
 from trading_advisor_3000.product_plane.data_plane import run_sample_backfill
-from trading_advisor_3000.product_plane.data_plane.canonical import RollMapEntry, SessionCalendarEntry
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows
+from trading_advisor_3000.product_plane.data_plane.canonical import (
+    RollMapEntry,
+    SessionCalendarEntry,
+)
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    iter_delta_table_row_batches,
+    read_filtered_delta_table_rows,
+    read_small_delta_table_rows,
+)
 from trading_advisor_3000.product_plane.research.datasets import (
     ContinuousFrontPolicy,
     ResearchBarView,
@@ -13,13 +20,23 @@ from trading_advisor_3000.product_plane.research.datasets import (
     materialize_research_dataset,
 )
 
-
 ROOT = Path(__file__).resolve().parents[3]
-RAW_FIXTURE = ROOT / "tests" / "product-plane" / "fixtures" / "data_plane" / "raw_backfill_sample.jsonl"
+RAW_FIXTURE = (
+    ROOT / "tests" / "product-plane" / "fixtures" / "data_plane" / "raw_backfill_sample.jsonl"
+)
 
 
-def _load_canonical_context(output_dir: Path) -> tuple[list[CanonicalBar], list[SessionCalendarEntry], list[RollMapEntry]]:
-    bars = [CanonicalBar.from_dict(row) for row in read_delta_table_rows(output_dir / "canonical_bars.delta")]
+def _read_batched_delta_rows(table_path: Path) -> list[dict[str, object]]:
+    return [row for batch in iter_delta_table_row_batches(table_path) for row in batch]
+
+
+def _load_canonical_context(
+    output_dir: Path,
+) -> tuple[list[CanonicalBar], list[SessionCalendarEntry], list[RollMapEntry]]:
+    bars = [
+        CanonicalBar.from_dict(row)
+        for row in _read_batched_delta_rows(output_dir / "canonical_bars.delta")
+    ]
     session_calendar = [
         SessionCalendarEntry(
             instrument_id=str(row["instrument_id"]),
@@ -28,7 +45,7 @@ def _load_canonical_context(output_dir: Path) -> tuple[list[CanonicalBar], list[
             session_open_ts=str(row["session_open_ts"]),
             session_close_ts=str(row["session_close_ts"]),
         )
-        for row in read_delta_table_rows(output_dir / "canonical_session_calendar.delta")
+        for row in _read_batched_delta_rows(output_dir / "canonical_session_calendar.delta")
     ]
     roll_map = [
         RollMapEntry(
@@ -37,18 +54,28 @@ def _load_canonical_context(output_dir: Path) -> tuple[list[CanonicalBar], list[
             active_contract_id=str(row["active_contract_id"]),
             reason=str(row["reason"]),
         )
-        for row in read_delta_table_rows(output_dir / "canonical_roll_map.delta")
+        for row in _read_batched_delta_rows(output_dir / "canonical_roll_map.delta")
     ]
     return bars, session_calendar, roll_map
 
 
 def _load_research_dataset(output_dir: Path, dataset_version: str) -> dict[str, object]:
     filters = [("dataset_version", "=", dataset_version)]
-    manifests = read_delta_table_rows(output_dir / "research_datasets.delta", filters=filters)
-    instrument_tree = read_delta_table_rows(output_dir / "research_instrument_tree.delta", filters=filters)
+    manifests = [
+        row
+        for row in read_small_delta_table_rows(output_dir / "research_datasets.delta")
+        if row.get("dataset_version") == dataset_version
+    ]
+    instrument_tree = [
+        row
+        for row in read_small_delta_table_rows(output_dir / "research_instrument_tree.delta")
+        if row.get("dataset_version") == dataset_version
+    ]
     bar_views = [
         ResearchBarView.from_dict(row)
-        for row in read_delta_table_rows(output_dir / "research_bar_views.delta", filters=filters)
+        for row in read_filtered_delta_table_rows(
+            output_dir / "research_bar_views.delta", filters=filters
+        )
     ]
     return {
         "dataset_manifest": manifests[0],
@@ -145,8 +172,12 @@ def test_research_dataset_materialization_supports_continuous_front_mode(tmp_pat
         ),
         bars=bars,
         session_calendar=[
-            SessionCalendarEntry("BR", "15m", "2026-03-16", "2026-03-16T10:00:00Z", "2026-03-16T23:45:00Z"),
-            SessionCalendarEntry("BR", "15m", "2026-03-17", "2026-03-17T10:00:00Z", "2026-03-17T23:45:00Z"),
+            SessionCalendarEntry(
+                "BR", "15m", "2026-03-16", "2026-03-16T10:00:00Z", "2026-03-16T23:45:00Z"
+            ),
+            SessionCalendarEntry(
+                "BR", "15m", "2026-03-17", "2026-03-17T10:00:00Z", "2026-03-17T23:45:00Z"
+            ),
         ],
         roll_map=[
             RollMapEntry("BR", "2026-03-16", "BR-6.26", "test"),
