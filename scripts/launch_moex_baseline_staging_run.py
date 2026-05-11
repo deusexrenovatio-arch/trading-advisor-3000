@@ -1,0 +1,184 @@
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+import urllib.error
+import urllib.request
+from datetime import UTC, datetime
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from trading_advisor_3000.product_plane.data_plane.moex.runtime_instances import (  # noqa: E402
+    PRODUCT_RUNTIME_ROLE,
+    VERIFICATION_RUNTIME_ROLE,
+    build_moex_baseline_run_config_for_instance,
+    load_moex_runtime_instances_registry,
+)
+
+
+def _default_run_id() -> str:
+    return "codex-manual-" + datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _safe_run_id(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_.=-]+", "-", value.strip()).strip(".-")
+    if not cleaned:
+        raise ValueError("run id must contain at least one safe character")
+    return cleaned
+
+
+def _default_ingest_till_utc() -> str:
+    return datetime.now(tz=UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _post_graphql(
+    *, url: str, query: str, variables: dict[str, object], timeout_sec: int
+) -> dict[str, object]:
+    request = urllib.request.Request(
+        url,
+        data=json.dumps({"query": query, "variables": variables}).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_sec) as response:
+            return dict(json.load(response))
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode(errors="replace")
+        try:
+            return dict(json.loads(body))
+        except json.JSONDecodeError:
+            return {"errors": [{"message": body}]}
+
+
+def _launch_mutation() -> str:
+    return """
+mutation Launch($executionParams: ExecutionParams!) {
+  launchRun(executionParams: $executionParams) {
+    __typename
+    ... on LaunchRunSuccess { run { runId status } }
+    ... on RunConfigValidationInvalid { errors { message reason } }
+    ... on PipelineNotFoundError { message }
+    ... on PythonError { message stack }
+    ... on UnauthorizedError { message }
+  }
+}
+"""
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Launch a MOEX baseline Dagster run against a registered staging instance."
+    )
+    parser.add_argument(
+        "--instance-id", default="", help="Defaults to the product-runtime staging instance."
+    )
+    parser.add_argument("--run-id", default="", help="Logical run id.")
+    parser.add_argument("--ingest-till-utc", default="", help="Defaults to current UTC timestamp.")
+    parser.add_argument(
+        "--registry-path", default="", help="Optional runtime instance registry path."
+    )
+    parser.add_argument(
+        "--graphql-url", default="", help="Override Dagster GraphQL URL from registry."
+    )
+    parser.add_argument("--timeout-sec", type=int, default=60)
+    parser.add_argument(
+        "--allow-product-runtime-write",
+        action="store_true",
+        help="Required when launching the product-runtime staging instance.",
+    )
+    parser.add_argument(
+        "--allow-unseeded-verification",
+        action="store_true",
+        help="Required when launching a verification instance without a separate seed proof.",
+    )
+    args = parser.parse_args()
+
+    registry = load_moex_runtime_instances_registry(
+        Path(args.registry_path).resolve() if str(args.registry_path).strip() else None,
+        repo_root=ROOT,
+    )
+    instance = (
+        registry.instance(str(args.instance_id))
+        if str(args.instance_id).strip()
+        else registry.default_product_runtime()
+    )
+    if instance.role == PRODUCT_RUNTIME_ROLE and instance.mutation_policy.get(
+        "require_explicit_product_write", False
+    ):
+        if not args.allow_product_runtime_write:
+            raise SystemExit(
+                "product runtime staging launch requires --allow-product-runtime-write"
+            )
+    if instance.role == VERIFICATION_RUNTIME_ROLE:
+        require_seed = bool(instance.mutation_policy.get("require_seed", False))
+        if require_seed and not args.allow_unseeded_verification:
+            raise SystemExit(
+                "verification staging launch requires seed proof or --allow-unseeded-verification"
+            )
+
+    dagster_owner = registry.dagster_owner(instance)
+    dagster = dagster_owner.dagster
+    graphql_url = str(args.graphql_url).strip() or str(dagster.get("graphql_url", "")).strip()
+    if not graphql_url:
+        raise SystemExit(
+            f"runtime instance `{dagster_owner.instance_id}` does not declare dagster.graphql_url"
+        )
+    run_id = _safe_run_id(str(args.run_id).strip() or _default_run_id())
+    ingest_till_utc = str(args.ingest_till_utc).strip() or _default_ingest_till_utc()
+    run_config = build_moex_baseline_run_config_for_instance(
+        instance,
+        run_id=run_id,
+        ingest_till_utc=ingest_till_utc,
+    )
+    variables = {
+        "executionParams": {
+            "selector": {
+                "repositoryLocationName": str(dagster["repository_location"]),
+                "repositoryName": str(dagster["repository"]),
+                "jobName": str(dagster["job"]),
+            },
+            "runConfigData": run_config,
+            "mode": "default",
+            "executionMetadata": {
+                "tags": [
+                    {"key": "ta3000/runtime_instance_id", "value": instance.instance_id},
+                    {"key": "ta3000/runtime_instance_role", "value": instance.role},
+                    {"key": "ta3000/logical_run_id", "value": run_id},
+                    {"key": "ta3000/trigger", "value": "codex-registered-staging-launch"},
+                ]
+            },
+        }
+    }
+    payload = _post_graphql(
+        url=graphql_url,
+        query=_launch_mutation(),
+        variables=variables,
+        timeout_sec=int(args.timeout_sec),
+    )
+    print(
+        json.dumps(
+            {
+                "instance_id": instance.instance_id,
+                "dagster_owner_instance_id": dagster_owner.instance_id,
+                "logical_run_id": run_id,
+                "ingest_till_utc": ingest_till_utc,
+                "graphql_url": graphql_url,
+                "payload": payload,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    launch = dict(dict(payload.get("data", {}) or {}).get("launchRun", {}) or {})
+    if launch.get("__typename") != "LaunchRunSuccess":
+        raise SystemExit("Dagster launch did not return LaunchRunSuccess")
+
+
+if __name__ == "__main__":
+    main()

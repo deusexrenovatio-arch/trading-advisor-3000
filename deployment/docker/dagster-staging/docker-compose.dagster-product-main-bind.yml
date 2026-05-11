@@ -1,8 +1,7 @@
+name: dagster-product-staging
+
 services:
   dagster-webserver:
-    build:
-      context: ../../..
-      dockerfile: deployment/docker/dagster-staging/Dockerfile
     image: ta3000-dagster-staging:latest
     container_name: ta3000-dagster-webserver
     working_dir: /workspace
@@ -11,7 +10,7 @@ services:
       - -m
       - trading_advisor_3000.dagster_defs
       - -a
-      - moex_historical_definitions
+      - product_plane_definitions
       - -h
       - 0.0.0.0
       - -p
@@ -24,15 +23,15 @@ services:
       TA3000_MOEX_HISTORICAL_DATA_ROOT: /ta3000-data/moex-historical
       TA3000_MOEX_PRODUCT_RUNTIME_STAGING_ROOT: /ta3000-data/staging/product/moex-historical
       TA3000_MOEX_VERIFICATION_STAGING_ROOT: /ta3000-data/staging/test/moex-verification
-      TA3000_MOEX_RUNTIME_INSTANCES_REGISTRY: /workspace/deployment/runtime-instances/moex-runtime-instances.v1.yaml
       TA3000_MOEX_CANONICALIZATION_SPARK_PROFILE: local
     ports:
       - "${TA3000_DAGSTER_PORT:-3000}:3000"
     volumes:
-      - dagster-home:/opt/dagster/dagster_home
-      - "${TA3000_MOEX_HISTORICAL_DATA_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-nightly}:/ta3000-data/moex-historical"
+      - dagster-product-home:/opt/dagster/dagster_home
+      - "${TA3000_PRODUCT_MAIN_WORKTREE:-D:/CodexHome/worktrees/moex-product-main/trading advisor 3000}:/workspace:ro"
+      - "${TA3000_MOEX_PRODUCT_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-nightly}:/ta3000-data/moex-historical"
       - "${TA3000_MOEX_PRODUCT_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-nightly}:/ta3000-data/staging/product/moex-historical"
-      - "${TA3000_MOEX_TEST_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-verification}:/ta3000-data/staging/test/moex-verification"
+      - "${TA3000_MOEX_TEST_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-verification}:/ta3000-data/staging/test/moex-verification:ro"
     healthcheck:
       test:
         - CMD
@@ -45,7 +44,7 @@ services:
       start_period: 20s
     restart: unless-stopped
     networks:
-      - ta3000-dagster-staging
+      - ta3000-dagster-product
 
   dagster-daemon:
     image: ta3000-dagster-staging:latest
@@ -57,7 +56,7 @@ services:
       - -m
       - trading_advisor_3000.dagster_defs
       - -a
-      - moex_historical_definitions
+      - product_plane_definitions
       - -d
       - /workspace
     environment:
@@ -66,23 +65,25 @@ services:
       TA3000_MOEX_HISTORICAL_DATA_ROOT: /ta3000-data/moex-historical
       TA3000_MOEX_PRODUCT_RUNTIME_STAGING_ROOT: /ta3000-data/staging/product/moex-historical
       TA3000_MOEX_VERIFICATION_STAGING_ROOT: /ta3000-data/staging/test/moex-verification
-      TA3000_MOEX_RUNTIME_INSTANCES_REGISTRY: /workspace/deployment/runtime-instances/moex-runtime-instances.v1.yaml
       TA3000_MOEX_CANONICALIZATION_SPARK_PROFILE: local
     volumes:
-      - dagster-home:/opt/dagster/dagster_home
-      - "${TA3000_MOEX_HISTORICAL_DATA_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-nightly}:/ta3000-data/moex-historical"
+      - dagster-product-home:/opt/dagster/dagster_home
+      - "${TA3000_PRODUCT_MAIN_WORKTREE:-D:/CodexHome/worktrees/moex-product-main/trading advisor 3000}:/workspace:ro"
+      - "${TA3000_MOEX_PRODUCT_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-nightly}:/ta3000-data/moex-historical"
       - "${TA3000_MOEX_PRODUCT_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-nightly}:/ta3000-data/staging/product/moex-historical"
-      - "${TA3000_MOEX_TEST_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-verification}:/ta3000-data/staging/test/moex-verification"
+      - "${TA3000_MOEX_TEST_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-verification}:/ta3000-data/staging/test/moex-verification:ro"
     depends_on:
       dagster-webserver:
         condition: service_healthy
     restart: unless-stopped
     networks:
-      - ta3000-dagster-staging
+      - ta3000-dagster-product
 
 volumes:
-  dagster-home:
+  dagster-product-home:
+    name: dagster-staging_dagster-home
+    external: true
 
 networks:
-  ta3000-dagster-staging:
+  ta3000-dagster-product:
     driver: bridge
