@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from trading_advisor_3000.product_plane.data_plane import delta_runtime as delta_runtime_module
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
     delta_table_columns,
@@ -103,11 +104,40 @@ def test_read_delta_table_rows_rejects_unbounded_hot_tables(tmp_path) -> None:
         read_delta_table_rows(table_path, filters=None)
     with pytest.raises(ValueError, match="hot Delta tables"):
         read_delta_table_rows(table_path, filters=[])
+    with pytest.raises(ValueError, match="hot Delta tables"):
+        read_delta_table_rows(table_path, filters=[[]])
+    with pytest.raises(ValueError, match="hot Delta tables"):
+        read_delta_table_rows(table_path, filters=[("id", "in", [])])
 
     assert read_delta_table_rows(table_path, filters=[("id", "=", "a")]) == [
         {"id": "a", "value": 1}
     ]
     assert read_delta_table_rows(table_path, limit=1) == [{"id": "a", "value": 1}]
+
+
+def test_read_delta_table_rows_applies_limit_before_full_materialization(
+    tmp_path, monkeypatch
+) -> None:
+    table_path = tmp_path / "canonical_bars.delta"
+    write_delta_table_rows(
+        table_path=table_path,
+        columns={"id": "string", "value": "int"},
+        rows=[{"id": "a", "value": 1}, {"id": "b", "value": 2}],
+    )
+
+    def fail_full_materialization(*args, **kwargs):  # noqa: ANN002, ANN003
+        raise AssertionError("limit read used full table materialization")
+
+    monkeypatch.setattr(
+        delta_runtime_module.DeltaTable,
+        "to_pyarrow_table",
+        fail_full_materialization,
+    )
+
+    rows = read_delta_table_rows(table_path, limit=1)
+
+    assert len(rows) == 1
+    assert rows[0] == {"id": "a", "value": 1}
 
 
 def test_read_small_delta_table_rows_rejects_hot_tables(tmp_path) -> None:

@@ -1736,15 +1736,21 @@ def research_signal_candidates(
     materialized_output_dir = Path(str(research_datasets["materialized_output_dir"]))
     results_output_dir = Path(str(research_datasets["results_output_dir"]))
     ranking_table_path = Path(str(research_strategy_rankings["table_path"]))
+    projection_request = _projection_request(research_datasets)
     ranking_rows = (
-        read_delta_table_rows(ranking_table_path) if has_delta_log(ranking_table_path) else []
+        read_filtered_delta_table_rows(
+            ranking_table_path,
+            filters=[("ranking_policy_id", "=", projection_request.ranking_policy_id)],
+        )
+        if has_delta_log(ranking_table_path)
+        else []
     )
     report = project_runtime_candidates(
         dataset_output_dir=materialized_output_dir,
         indicator_output_dir=materialized_output_dir,
         derived_indicator_output_dir=materialized_output_dir,
         output_dir=results_output_dir,
-        request=_projection_request(research_datasets),
+        request=projection_request,
         ranking_rows=ranking_rows,
         config=_engine_config(research_datasets),
     )

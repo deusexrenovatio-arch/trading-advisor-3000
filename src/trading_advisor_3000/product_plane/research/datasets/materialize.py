@@ -514,9 +514,5 @@ def load_materialized_research_dataset(
         "instrument_tree": [
             row for row in instrument_rows if row.get("dataset_version") == dataset_version
         ],
-        "bar_views": [
-            ResearchBarView.from_dict(row)
-            for row in bar_view_rows
-            if row.get("dataset_version") == dataset_version
-        ],
+        "bar_views": [ResearchBarView.from_dict(row) for row in bar_view_rows],
     }

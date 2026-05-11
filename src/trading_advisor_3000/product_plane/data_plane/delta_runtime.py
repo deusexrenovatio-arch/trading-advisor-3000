@@ -194,24 +194,25 @@ def _normalize_filters_for_schema(
 
     first = filters[0]
     if isinstance(first, tuple):
-        return [
+        normalized_clauses = [
             _normalize_filter_clause(clause, fields_by_name)
             for clause in filters
             if isinstance(clause, tuple)
         ]
+        return normalized_clauses or None
 
     normalized_groups: list[list[tuple[str, str, object]]] = []
     for group in filters:
         if not isinstance(group, list):
             continue
-        normalized_groups.append(
-            [
-                _normalize_filter_clause(clause, fields_by_name)
-                for clause in group
-                if isinstance(clause, tuple)
-            ]
-        )
-    return normalized_groups
+        normalized_group = [
+            _normalize_filter_clause(clause, fields_by_name)
+            for clause in group
+            if isinstance(clause, tuple)
+        ]
+        if normalized_group:
+            normalized_groups.append(normalized_group)
+    return normalized_groups or None
 
 
 def _filter_clause_expression(clause: tuple[str, str, object]) -> ds.Expression:
@@ -283,8 +284,37 @@ def _normalize_loaded_rows(rows: list[object]) -> list[dict[str, object]]:
     ]
 
 
+def _has_effective_filter_value(value: object) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return any(_has_effective_filter_value(item) for item in value)
+    if isinstance(value, dict):
+        return bool(value)
+    return True
+
+
+def _filters_have_effective_clause(filters: DeltaReadFilters) -> bool:
+    if not filters:
+        return False
+    for item in filters:
+        if isinstance(item, tuple) and len(item) == 3:
+            column_name, operator, value = item
+            if (
+                str(column_name).strip()
+                and str(operator).strip()
+                and _has_effective_filter_value(value)
+            ):
+                return True
+        if isinstance(item, list) and _filters_have_effective_clause(item):
+            return True
+    return False
+
+
 def _has_delta_read_bound(*, filters: DeltaReadFilters, limit: int | None = None) -> bool:
-    return bool(filters) or limit is not None
+    return limit is not None or _filters_have_effective_clause(filters)
 
 
 def _enforce_hot_delta_read_bound(
@@ -494,10 +524,10 @@ def read_delta_table_arrow(
 ) -> pa.Table:
     if not has_delta_log(table_path):
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
-    _enforce_hot_delta_read_bound(table_path, filters=filters)
     table = DeltaTable(str(table_path))
     dataset = table.to_pyarrow_dataset()
     normalized_filters = _normalize_filters_for_schema(filters, dataset.schema)
+    _enforce_hot_delta_read_bound(table_path, filters=normalized_filters)
     selected_columns = columns
     if selected_columns is not None:
         available = set(dataset.schema.names)
@@ -516,12 +546,25 @@ def read_delta_table_rows(
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
     if limit is not None and limit < 0:
         raise ValueError("limit must be >= 0")
-    _enforce_hot_delta_read_bound(table_path, filters=filters, limit=limit)
     table = DeltaTable(str(table_path))
-    normalized_filters = _normalize_filters_for_schema(filters, table.to_pyarrow_dataset().schema)
-    arrow_table = table.to_pyarrow_table(columns=columns, filters=normalized_filters)
+    dataset = table.to_pyarrow_dataset()
+    normalized_filters = _normalize_filters_for_schema(filters, dataset.schema)
+    _enforce_hot_delta_read_bound(table_path, filters=normalized_filters, limit=limit)
+    if limit == 0:
+        return []
     if limit is not None:
-        arrow_table = arrow_table.slice(0, limit)
+        scanner = dataset.scanner(
+            columns=columns,
+            filter=_filters_to_dataset_expression(normalized_filters),
+        )
+        rows: list[dict[str, object]] = []
+        for batch in scanner.to_batches():
+            remaining = limit - len(rows)
+            if remaining <= 0:
+                break
+            rows.extend(_normalize_loaded_rows(batch.to_pylist())[:remaining])
+        return rows
+    arrow_table = table.to_pyarrow_table(columns=columns, filters=normalized_filters)
     return _normalize_loaded_rows(arrow_table.to_pylist())
 
 
@@ -533,10 +576,10 @@ def read_delta_table_frame(
 ) -> pd.DataFrame:
     if not has_delta_log(table_path):
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
-    _enforce_hot_delta_read_bound(table_path, filters=filters)
     table = DeltaTable(str(table_path))
     dataset = table.to_pyarrow_dataset()
     normalized_filters = _normalize_filters_for_schema(filters, dataset.schema)
+    _enforce_hot_delta_read_bound(table_path, filters=normalized_filters)
     selected_columns = columns
     if selected_columns is not None:
         available = set(dataset.schema.names)
@@ -552,7 +595,7 @@ def read_filtered_delta_table_rows(
     columns: list[str] | None = None,
     limit: int | None = None,
 ) -> list[dict[str, object]]:
-    if not filters:
+    if not _filters_have_effective_clause(filters):
         raise ValueError("filters are required for filtered Delta table reads")
     return read_delta_table_rows(table_path, columns=columns, filters=filters, limit=limit)
 

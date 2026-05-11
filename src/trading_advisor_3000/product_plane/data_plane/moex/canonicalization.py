@@ -47,6 +47,17 @@ def _iter_delta_rows_for_merge(table_path: Path) -> Iterable[dict[str, object]]:
         yield from batch
 
 
+def _chunk_delta_row_payloads(
+    rows: list[dict[str, object]],
+    *,
+    chunk_size: int,
+) -> Iterable[list[dict[str, object]]]:
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be > 0")
+    for start in range(0, len(rows), chunk_size):
+        yield rows[start : start + chunk_size]
+
+
 SOURCE_MINUTES_BY_LABEL: dict[str, int] = {
     "1m": 1,
     "5m": 5,
@@ -1562,11 +1573,13 @@ def run_moex_canonicalization(
                 str(spark_output_paths.get("canonical_bar_provenance", "")).strip()
             )
             if scoped_bars_path.as_posix() and has_delta_log(scoped_bars_path):
-                for payload in read_delta_table_rows(scoped_bars_path):
+                for payload in _iter_delta_rows_for_merge(scoped_bars_path):
                     if isinstance(payload, dict):
                         scoped_canonical_rows.append(CanonicalBar.from_dict(dict(payload)))
             if scoped_provenance_path.as_posix() and has_delta_log(scoped_provenance_path):
-                for row_index, payload in enumerate(read_delta_table_rows(scoped_provenance_path)):
+                for row_index, payload in enumerate(
+                    _iter_delta_rows_for_merge(scoped_provenance_path)
+                ):
                     if isinstance(payload, dict):
                         scoped_provenance_rows.append(
                             _canonical_provenance_from_dict_lenient(
@@ -1674,13 +1687,13 @@ def run_moex_canonicalization(
     if mutation_required:
         write_delta_table_row_batches(
             table_path=bars_path,
-            row_batches=iter([canonical_rows_payload]),
+            row_batches=_chunk_delta_row_payloads(canonical_rows_payload, chunk_size=65_536),
             columns=CANONICAL_BAR_COLUMNS,
             max_rows_per_delta_write=65_536,
         )
         write_delta_table_row_batches(
             table_path=provenance_path,
-            row_batches=iter([provenance_rows_payload]),
+            row_batches=_chunk_delta_row_payloads(provenance_rows_payload, chunk_size=65_536),
             columns=PROVENANCE_COLUMNS,
             max_rows_per_delta_write=65_536,
         )
