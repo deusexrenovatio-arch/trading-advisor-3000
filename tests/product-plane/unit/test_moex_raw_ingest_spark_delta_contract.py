@@ -29,18 +29,23 @@ def test_raw_ingest_fingerprint_contract_covers_source_metadata_and_provenance()
     assert "ingested_at_utc" not in fingerprint_columns
 
 
-def test_raw_ingest_reconcile_uses_window_scoped_delete_before_append() -> None:
+def test_raw_ingest_reconcile_uses_window_scoped_merge_transaction() -> None:
     source = inspect.getsource(moex_raw_ingest_job.run_moex_raw_ingest_spark_delta_job)
 
     assert "source_rows_path" in source
+    assert "FileNotFoundError" in source
     assert "unmatched_source_count" in source
     assert "raw source rows did not match declared window scopes" in source
     assert "left_anti" in source
-    assert "_iter_window_delete_conditions" in source
+    assert "_build_window_delete_condition" in source
     assert "toLocalIterator()" in source
-    assert ".delete(" in source
+    assert ".merge(" in source
+    assert ".whenMatchedUpdateAll()" in source
+    assert ".whenNotMatchedInsertAll()" in source
+    assert ".whenNotMatchedBySourceDelete(" in source
+    assert ".delete(" not in source
+    assert '.mode("append")' not in source
     assert "windows_to_reconcile_df.collect()" not in source
-    assert ".whenMatchedUpdateAll()" not in source
 
 
 def test_raw_ingest_watermark_keys_include_source_interval() -> None:

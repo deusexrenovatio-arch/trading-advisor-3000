@@ -186,19 +186,30 @@ def _sql_timestamp_literal(value: object) -> str:
     return "TIMESTAMP '" + parsed.strftime("%Y-%m-%d %H:%M:%S") + "'"
 
 
-def _build_window_delete_condition(windows: list[Mapping[str, Any]]) -> str:
+def _column_ref(column: str, *, target_alias: str = "") -> str:
+    return f"{target_alias}.{column}" if target_alias else column
+
+
+def _build_window_delete_condition(
+    windows: list[Mapping[str, Any]], *, target_alias: str = ""
+) -> str:
     parts: list[str] = []
     for window in windows:
+        internal_id = _column_ref("internal_id", target_alias=target_alias)
+        timeframe = _column_ref("timeframe", target_alias=target_alias)
+        source_interval = _column_ref("source_interval", target_alias=target_alias)
+        moex_secid = _column_ref("moex_secid", target_alias=target_alias)
+        ts_close = _column_ref("ts_close", target_alias=target_alias)
         parts.append(
             "("
             + " AND ".join(
                 [
-                    f"internal_id = {_sql_string_literal(window['internal_id'])}",
-                    f"timeframe = {_sql_string_literal(window['timeframe'])}",
-                    f"source_interval = {int(window['source_interval'])}",
-                    f"moex_secid = {_sql_string_literal(window['moex_secid'])}",
-                    f"ts_close >= {_sql_timestamp_literal(window['_window_start_utc'])}",
-                    f"ts_close <= {_sql_timestamp_literal(window['_window_end_utc'])}",
+                    f"{internal_id} = {_sql_string_literal(window['internal_id'])}",
+                    f"{timeframe} = {_sql_string_literal(window['timeframe'])}",
+                    f"{source_interval} = {int(window['source_interval'])}",
+                    f"{moex_secid} = {_sql_string_literal(window['moex_secid'])}",
+                    f"{ts_close} >= {_sql_timestamp_literal(window['_window_start_utc'])}",
+                    f"{ts_close} <= {_sql_timestamp_literal(window['_window_end_utc'])}",
                 ]
             )
             + ")"
@@ -397,7 +408,11 @@ def run_moex_raw_ingest_spark_delta_job(
         if source_rows_path is not None and source_rows_payload:
             raise ValueError("provide either source_rows_path or source_rows, not both")
         if source_rows_path is not None:
-            if source_rows_path.exists() and source_rows_path.stat().st_size > 0:
+            if not source_rows_path.exists():
+                raise FileNotFoundError(
+                    f"raw source rows staging path does not exist: {source_rows_path.as_posix()}"
+                )
+            if source_rows_path.stat().st_size > 0:
                 source_df = spark.read.schema(source_schema).json(str(source_rows_path)).cache()
             else:
                 source_df = spark.createDataFrame([], schema=source_schema).cache()
@@ -587,16 +602,26 @@ def run_moex_raw_ingest_spark_delta_job(
                 str(table_path)
             )
         elif incremental_rows > 0:
+            reconcile_windows = [row.asDict() for row in windows_to_reconcile_df.toLocalIterator()]
+            scoped_delete_condition = _build_window_delete_condition(
+                reconcile_windows, target_alias="target"
+            )
+            merge_condition = " AND ".join(
+                f"target.{column} <=> source.{column}" for column in RAW_KEY_COLUMNS
+            )
             delta_table = DeltaTable.forPath(spark, str(table_path))
-            for delete_condition in _iter_window_delete_conditions(
-                (row.asDict() for row in windows_to_reconcile_df.toLocalIterator())
-            ):
-                if delete_condition:
-                    delta_table.delete(delete_condition)
-            if int(replacement_source_df.count()) > 0:
-                replacement_source_df.select(*RAW_COLUMNS).write.format("delta").mode(
-                    "append"
-                ).save(str(table_path))
+            merge_builder = (
+                delta_table.alias("target")
+                .merge(
+                    replacement_source_df.select(*RAW_COLUMNS).alias("source"),
+                    merge_condition,
+                )
+                .whenMatchedUpdateAll()
+                .whenNotMatchedInsertAll()
+            )
+            if scoped_delete_condition:
+                merge_builder = merge_builder.whenNotMatchedBySourceDelete(scoped_delete_condition)
+            merge_builder.execute()
 
         raw_after_df = spark.read.format("delta").load(str(table_path))
         watermark_by_key = _collect_post_watermarks(
