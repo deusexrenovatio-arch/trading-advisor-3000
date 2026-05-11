@@ -58,6 +58,23 @@ def _chunk_delta_row_payloads(
         yield rows[start : start + chunk_size]
 
 
+def _require_spark_delta_output_path(
+    output_paths: dict[str, object],
+    key: str,
+) -> Path:
+    raw_value = output_paths.get(key)
+    path_text = str(raw_value).strip() if raw_value is not None else ""
+    if not path_text or path_text == ".":
+        raise ValueError(f"spark canonicalization report missing `{key}` output path")
+    table_path = Path(path_text)
+    if not has_delta_log(table_path):
+        raise FileNotFoundError(
+            f"spark canonicalization `{key}` output is missing `_delta_log`: "
+            f"{table_path.as_posix()}"
+        )
+    return table_path
+
+
 SOURCE_MINUTES_BY_LABEL: dict[str, int] = {
     "1m": 1,
     "5m": 5,
@@ -1567,25 +1584,20 @@ def run_moex_canonicalization(
             repo_root=repo_root,
         )
         spark_output_paths = spark_execution_report.get("output_paths", {})
-        if isinstance(spark_output_paths, dict):
-            scoped_bars_path = Path(str(spark_output_paths.get("canonical_bars", "")).strip())
-            scoped_provenance_path = Path(
-                str(spark_output_paths.get("canonical_bar_provenance", "")).strip()
-            )
-            if scoped_bars_path.as_posix() and has_delta_log(scoped_bars_path):
-                for payload in _iter_delta_rows_for_merge(scoped_bars_path):
-                    if isinstance(payload, dict):
-                        scoped_canonical_rows.append(CanonicalBar.from_dict(dict(payload)))
-            if scoped_provenance_path.as_posix() and has_delta_log(scoped_provenance_path):
-                for row_index, payload in enumerate(
-                    _iter_delta_rows_for_merge(scoped_provenance_path)
-                ):
-                    if isinstance(payload, dict):
-                        scoped_provenance_rows.append(
-                            _canonical_provenance_from_dict_lenient(
-                                dict(payload), row_index=row_index
-                            )
-                        )
+        if not isinstance(spark_output_paths, dict):
+            raise ValueError("spark canonicalization report missing `output_paths`")
+        scoped_bars_path = _require_spark_delta_output_path(spark_output_paths, "canonical_bars")
+        scoped_provenance_path = _require_spark_delta_output_path(
+            spark_output_paths, "canonical_bar_provenance"
+        )
+        for payload in _iter_delta_rows_for_merge(scoped_bars_path):
+            if isinstance(payload, dict):
+                scoped_canonical_rows.append(CanonicalBar.from_dict(dict(payload)))
+        for row_index, payload in enumerate(_iter_delta_rows_for_merge(scoped_provenance_path)):
+            if isinstance(payload, dict):
+                scoped_provenance_rows.append(
+                    _canonical_provenance_from_dict_lenient(dict(payload), row_index=row_index)
+                )
 
     canonical_rows = _merge_scoped_canonical_rows(
         existing_rows=existing_canonical_rows,

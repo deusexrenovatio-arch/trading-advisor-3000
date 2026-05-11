@@ -194,6 +194,8 @@ def _normalize_filters_for_schema(
 
     first = filters[0]
     if isinstance(first, tuple):
+        if any(not isinstance(item, tuple) for item in filters):
+            return None
         normalized_clauses = [
             _normalize_filter_clause(clause, fields_by_name)
             for clause in filters
@@ -201,6 +203,8 @@ def _normalize_filters_for_schema(
         ]
         return normalized_clauses or None
 
+    if any(not isinstance(item, list) for item in filters):
+        return None
     normalized_groups: list[list[tuple[str, str, object]]] = []
     for group in filters:
         if not isinstance(group, list):
@@ -299,8 +303,13 @@ def _has_effective_filter_value(value: object) -> bool:
 def _filters_have_effective_clause(filters: DeltaReadFilters) -> bool:
     if not filters:
         return False
-    for item in filters:
-        if isinstance(item, tuple) and len(item) == 3:
+    first = filters[0]
+    if isinstance(first, tuple):
+        if any(not isinstance(item, tuple) for item in filters):
+            return False
+        for item in filters:
+            if len(item) != 3:
+                continue
             column_name, operator, value = item
             if (
                 str(column_name).strip()
@@ -308,8 +317,11 @@ def _filters_have_effective_clause(filters: DeltaReadFilters) -> bool:
                 and _has_effective_filter_value(value)
             ):
                 return True
-        if isinstance(item, list) and _filters_have_effective_clause(item):
-            return True
+        return False
+    if isinstance(first, list):
+        if any(not isinstance(item, list) for item in filters):
+            return False
+        return any(_filters_have_effective_clause(item) for item in filters if item)
     return False
 
 

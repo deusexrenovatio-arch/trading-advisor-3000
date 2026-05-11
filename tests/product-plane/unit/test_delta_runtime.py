@@ -108,6 +108,8 @@ def test_read_delta_table_rows_rejects_unbounded_hot_tables(tmp_path) -> None:
         read_delta_table_rows(table_path, filters=[[]])
     with pytest.raises(ValueError, match="hot Delta tables"):
         read_delta_table_rows(table_path, filters=[("id", "in", [])])
+    with pytest.raises(ValueError, match="hot Delta tables"):
+        read_delta_table_rows(table_path, filters=[("id", "=", "a"), [("id", "=", "b")]])
 
     assert read_delta_table_rows(table_path, filters=[("id", "=", "a")]) == [
         {"id": "a", "value": 1}

@@ -4,6 +4,8 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     iter_delta_table_row_batches,
     write_delta_table_rows,
@@ -342,6 +344,38 @@ def test_canonicalization_avoids_full_raw_table_read(tmp_path: Path, monkeypatch
     assert report["status"] == "PASS"
     assert report["publish_decision"] == "publish"
     assert report["scoped_source_rows"] > 0
+
+
+def test_canonicalization_fails_closed_on_missing_spark_output_paths(
+    tmp_path: Path, monkeypatch
+) -> None:
+    raw_table_path = tmp_path / "raw_ingest" / "delta" / "raw_moex_history.delta"
+    rows = _raw_rows_with_daily_only_contract(with_source_provider=True)
+    _write_raw_table(raw_table_path, rows)
+
+    def missing_spark_outputs(**kwargs):  # noqa: ANN003
+        return {
+            "output_paths": {
+                "canonical_bars": "",
+                "canonical_bar_provenance": "",
+            }
+        }
+
+    monkeypatch.setattr(
+        canonicalization_module,
+        "_run_spark_canonicalization",
+        missing_spark_outputs,
+    )
+
+    with pytest.raises(ValueError, match="canonical_bars"):
+        run_moex_canonicalization(
+            raw_table_path=raw_table_path,
+            output_dir=tmp_path / "canonicalization-missing-spark-output",
+            run_id="canonicalization-int-missing-spark-output",
+            raw_ingest_run_report=_build_raw_ingest_report_for_rows(
+                rows=rows, run_id="raw-ingest-pass1"
+            ),
+        )
 
 
 def test_canonicalization_pass_noop_skips_raw_table_read_entirely(
