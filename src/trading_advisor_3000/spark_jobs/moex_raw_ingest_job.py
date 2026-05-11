@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,6 +15,7 @@ from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contrac
 
 from .canonical_bars_job import DEFAULT_SPARK_MASTER, _create_spark_session, _load_spark_modules
 
+LOGGER = logging.getLogger(__name__)
 KEY_SCOPE_COLUMNS = ("internal_id", "timeframe", "source_interval", "moex_secid")
 RAW_KEY_COLUMNS = KEY_SCOPE_COLUMNS + ("ts_open", "ts_close")
 RAW_SOURCE_TIMESTAMP_COLUMNS = ("ts_open", "ts_close")
@@ -60,7 +62,7 @@ def _parse_iso_utc(value: object) -> datetime | None:
             return None
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
     if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=UTC).replace(tzinfo=None)
+        return parsed
     return parsed.astimezone(UTC).replace(tzinfo=None)
 
 
@@ -296,8 +298,8 @@ def compute_raw_watermarks_spark_delta(
     finally:
         try:
             spark.stop()
-        except Exception:  # pragma: no cover - best-effort cleanup
-            pass
+        except Exception as cleanup_exc:  # pragma: no cover - best-effort cleanup
+            LOGGER.debug("Spark session cleanup failed: %s", cleanup_exc)
 
 
 def _filtered_raw_by_scopes(raw_df: Any, scopes_df: Any, functions: Any) -> Any:
@@ -650,5 +652,5 @@ def run_moex_raw_ingest_spark_delta_job(
     finally:
         try:
             spark.stop()
-        except Exception:  # pragma: no cover - best-effort cleanup
-            pass
+        except Exception as cleanup_exc:  # pragma: no cover - best-effort cleanup
+            LOGGER.debug("Spark session cleanup failed: %s", cleanup_exc)

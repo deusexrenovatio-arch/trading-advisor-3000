@@ -39,6 +39,16 @@ def _default_ingest_till_utc() -> str:
     return datetime.now(tz=UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def _positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be an integer") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
 def _validate_graphql_url(url: str) -> str:
     parsed = urllib.parse.urlsplit(url.strip())
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -75,6 +85,16 @@ def _resolve_graphql_url(raw_url: str, *, dagster: dict[str, object], override: 
     return _validate_graphql_url(url)
 
 
+def _graphql_json_response(body: str, *, source: str) -> dict[str, object]:
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        return {"errors": [{"message": f"{source} returned non-JSON response"}]}
+    if not isinstance(payload, dict):
+        return {"errors": [{"message": f"{source} response must be a JSON object"}]}
+    return payload
+
+
 def _post_graphql(
     *, url: str, query: str, variables: dict[str, object], timeout_sec: int
 ) -> dict[str, object]:
@@ -86,13 +106,11 @@ def _post_graphql(
     )
     try:
         with urllib.request.urlopen(request, timeout=timeout_sec) as response:
-            return dict(json.load(response))
+            body = response.read().decode(errors="replace")
+            return _graphql_json_response(body, source="Dagster GraphQL")
     except urllib.error.HTTPError as exc:
         body = exc.read().decode(errors="replace")
-        try:
-            return dict(json.loads(body))
-        except json.JSONDecodeError:
-            return {"errors": [{"message": body}]}
+        return _graphql_json_response(body, source="Dagster GraphQL error")
     except urllib.error.URLError as exc:
         reason = getattr(exc, "reason", exc)
         return {"errors": [{"message": f"Dagster GraphQL request failed: {reason}"}]}
@@ -128,7 +146,7 @@ def main() -> None:
     parser.add_argument(
         "--graphql-url", default="", help="Override Dagster GraphQL URL from registry."
     )
-    parser.add_argument("--timeout-sec", type=int, default=60)
+    parser.add_argument("--timeout-sec", type=_positive_int, default=60)
     parser.add_argument(
         "--allow-product-runtime-write",
         action="store_true",

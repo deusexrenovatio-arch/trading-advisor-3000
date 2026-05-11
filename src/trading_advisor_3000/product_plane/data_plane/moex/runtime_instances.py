@@ -86,6 +86,12 @@ def _require_text(value: object, *, name: str) -> str:
     return text
 
 
+def _require_bool(value: object, *, name: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    raise ValueError(f"`{name}` must be a boolean")
+
+
 def validate_moex_runtime_run_id(value: object, *, name: str = "run_id") -> str:
     text = _require_text(value, name=name)
     if text in {".", ".."} or not _SAFE_RUN_ID_RE.fullmatch(text):
@@ -160,7 +166,10 @@ def _validate_registry(registry: MoexRuntimeInstancesRegistry) -> None:
     for instance in registry.instances.values():
         if instance.status != "active":
             continue
-        if not bool(instance.mutation_policy.get("manual_launch_allowed", False)):
+        if not _require_bool(
+            instance.mutation_policy.get("manual_launch_allowed"),
+            name=f"{instance.instance_id}.mutation_policy.manual_launch_allowed",
+        ):
             raise ValueError(
                 f"active runtime instance `{instance.instance_id}` must declare manual launch policy"
             )
@@ -262,7 +271,10 @@ def build_moex_baseline_run_config_for_instance(
                     "refresh_overlap_minutes": int(defaults.get("refresh_overlap_minutes", 180)),
                     "max_changed_window_days": int(defaults.get("max_changed_window_days", 10)),
                     "stability_lag_minutes": int(defaults.get("stability_lag_minutes", 20)),
-                    "expand_contract_chain": bool(defaults.get("expand_contract_chain", True)),
+                    "expand_contract_chain": _require_bool(
+                        defaults.get("expand_contract_chain", True),
+                        name=f"{instance.instance_id}.launch_defaults.expand_contract_chain",
+                    ),
                     "ingest_till_utc": _require_text(ingest_till_utc, name="ingest_till_utc"),
                     "run_id": resolved_run_id,
                 }

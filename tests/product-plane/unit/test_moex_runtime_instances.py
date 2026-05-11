@@ -108,3 +108,46 @@ def test_moex_runtime_instances_require_product_seed_instance(tmp_path: Path) ->
 
     with pytest.raises(ValueError, match="seed_from_instance.*product_runtime_staging"):
         load_moex_runtime_instances_registry(bad_registry_path, repo_root=REPO_ROOT)
+
+
+def test_moex_runtime_instances_reject_string_boolean_policy(tmp_path: Path) -> None:
+    registry_path = (
+        REPO_ROOT / "deployment" / "runtime-instances" / "moex-runtime-instances.v1.yaml"
+    )
+    bad_registry_path = tmp_path / "moex-runtime-instances.v1.yaml"
+    bad_registry_path.write_text(
+        registry_path.read_text(encoding="utf-8").replace(
+            "manual_launch_allowed: true",
+            'manual_launch_allowed: "false"',
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="manual_launch_allowed.*boolean"):
+        load_moex_runtime_instances_registry(bad_registry_path, repo_root=REPO_ROOT)
+
+
+def test_moex_runtime_instances_reject_string_boolean_launch_default(
+    tmp_path: Path,
+) -> None:
+    registry_path = (
+        REPO_ROOT / "deployment" / "runtime-instances" / "moex-runtime-instances.v1.yaml"
+    )
+    bad_registry_path = tmp_path / "moex-runtime-instances.v1.yaml"
+    bad_registry_path.write_text(
+        registry_path.read_text(encoding="utf-8").replace(
+            "expand_contract_chain: true",
+            'expand_contract_chain: "false"',
+            1,
+        ),
+        encoding="utf-8",
+    )
+    registry = load_moex_runtime_instances_registry(bad_registry_path, repo_root=REPO_ROOT)
+
+    with pytest.raises(ValueError, match="expand_contract_chain.*boolean"):
+        build_moex_baseline_run_config_for_instance(
+            registry.default_product_runtime(),
+            run_id="manual-proof",
+            ingest_till_utc="2026-05-08T12:39:47Z",
+        )
