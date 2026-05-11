@@ -28,6 +28,8 @@ def test_moex_runtime_instances_registry_declares_product_and_test_staging() -> 
         product.docker["preferred_container_data_root"]
         == "/ta3000-data/staging/product/moex-historical"
     )
+    assert product.dagster["graphql_url"] == "http://127.0.0.1:3000/graphql"
+    assert product.dagster["graphql_port_env"] == "TA3000_DAGSTER_PORT"
     assert product.dagster["job"] == "moex_baseline_update_job"
     assert product.mutation_policy["require_explicit_product_write"] is True
     assert verification.instance_id == "moex_test_staging_on_demand"

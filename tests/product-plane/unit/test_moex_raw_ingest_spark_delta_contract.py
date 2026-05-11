@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 
+from trading_advisor_3000.product_plane.data_plane.moex import foundation
 from trading_advisor_3000.spark_jobs import moex_raw_ingest_job
 
 
@@ -53,3 +54,17 @@ def test_raw_ingest_watermark_keys_include_source_interval() -> None:
 
     assert "KEY_SCOPE_COLUMNS" in source
     assert 'row["source_interval"]' in source
+
+
+def test_foundation_stages_raw_source_rows_without_per_row_file_reopen() -> None:
+    assert not hasattr(foundation, "_append_raw_source_row")
+
+    for target in [
+        foundation.ingest_moex_baseline_window,
+        foundation.ingest_moex_bootstrap_window,
+    ]:
+        source = inspect.getsource(target)
+        assert 'with source_rows_path.open("a", encoding="utf-8") as source_rows_handle' in source
+        assert "_write_raw_source_row(" in source
+        assert "source_rows_handle" in source
+        assert "_append_raw_source_row" not in source

@@ -710,11 +710,6 @@ def _write_raw_source_row(handle: Any, row: dict[str, Any], *, source_order: int
     handle.write("\n")
 
 
-def _append_raw_source_row(path: Path, row: dict[str, Any], *, source_order: int) -> None:
-    with path.open("a", encoding="utf-8") as handle:
-        _write_raw_source_row(handle, row, source_order=source_order)
-
-
 def _append_progress_event(*, jsonl_path: Path, latest_path: Path, payload: dict[str, Any]) -> None:
     jsonl_path.parent.mkdir(parents=True, exist_ok=True)
     with jsonl_path.open("a", encoding="utf-8") as handle:
@@ -821,50 +816,51 @@ def ingest_moex_baseline_window(
                     date_till=window_end.date(),
                 )
 
-            for candle in candles:
-                ts_open_dt = _parse_moex_datetime(candle.begin)
-                ts_close_dt = _parse_moex_datetime(candle.end)
-                if ts_close_dt < window_start or ts_close_dt > window_end:
-                    continue
-                item_source_rows += 1
-                source_order += 1
-                _append_raw_source_row(
-                    source_rows_path,
-                    {
-                        "internal_id": item.internal_id,
-                        "finam_symbol": item.finam_symbol,
-                        "moex_engine": item.moex_engine,
-                        "moex_market": item.moex_market,
-                        "moex_board": item.moex_board,
-                        "moex_secid": item.moex_secid,
-                        "asset_group": item.asset_group,
-                        "timeframe": item.source_timeframe,
-                        "source_interval": item.source_interval,
-                        "ts_open": _to_iso_utc(ts_open_dt),
-                        "ts_close": _to_iso_utc(ts_close_dt),
-                        "open": candle.open,
-                        "high": candle.high,
-                        "low": candle.low,
-                        "close": candle.close,
-                        "volume": candle.volume,
-                        "open_interest": None,
-                        "ingest_run_id": run_id,
-                        "ingested_at_utc": ingest_marks,
-                        "provenance_json": {
-                            "source_provider": "moex_iss",
+            with source_rows_path.open("a", encoding="utf-8") as source_rows_handle:
+                for candle in candles:
+                    ts_open_dt = _parse_moex_datetime(candle.begin)
+                    ts_close_dt = _parse_moex_datetime(candle.end)
+                    if ts_close_dt < window_start or ts_close_dt > window_end:
+                        continue
+                    item_source_rows += 1
+                    source_order += 1
+                    _write_raw_source_row(
+                        source_rows_handle,
+                        {
+                            "internal_id": item.internal_id,
+                            "finam_symbol": item.finam_symbol,
+                            "moex_engine": item.moex_engine,
+                            "moex_market": item.moex_market,
+                            "moex_board": item.moex_board,
+                            "moex_secid": item.moex_secid,
+                            "asset_group": item.asset_group,
+                            "timeframe": item.source_timeframe,
                             "source_interval": item.source_interval,
-                            "source_timeframe": item.source_timeframe,
-                            "requested_target_timeframes": item.requested_target_timeframes,
-                            "run_id": run_id,
-                            "window_start_utc": _to_iso_utc(window_start),
-                            "window_end_utc": _to_iso_utc(window_end),
-                            "stability_lag_minutes": stability_lag_minutes,
-                            "refresh_overlap_minutes": refresh_overlap_minutes,
-                            "discovery_url": item.discovery_url,
+                            "ts_open": _to_iso_utc(ts_open_dt),
+                            "ts_close": _to_iso_utc(ts_close_dt),
+                            "open": candle.open,
+                            "high": candle.high,
+                            "low": candle.low,
+                            "close": candle.close,
+                            "volume": candle.volume,
+                            "open_interest": None,
+                            "ingest_run_id": run_id,
+                            "ingested_at_utc": ingest_marks,
+                            "provenance_json": {
+                                "source_provider": "moex_iss",
+                                "source_interval": item.source_interval,
+                                "source_timeframe": item.source_timeframe,
+                                "requested_target_timeframes": item.requested_target_timeframes,
+                                "run_id": run_id,
+                                "window_start_utc": _to_iso_utc(window_start),
+                                "window_end_utc": _to_iso_utc(window_end),
+                                "stability_lag_minutes": stability_lag_minutes,
+                                "refresh_overlap_minutes": refresh_overlap_minutes,
+                                "discovery_url": item.discovery_url,
+                            },
                         },
-                    },
-                    source_order=source_order,
-                )
+                        source_order=source_order,
+                    )
 
             _safe_progress_print(
                 "[moex-baseline-raw-source] "
@@ -1008,48 +1004,53 @@ def ingest_moex_bootstrap_window(
                     date_till=window_end.date(),
                 )
 
-            for candle in candles:
-                ts_open_dt = _parse_moex_datetime(candle.begin)
-                ts_close_dt = _parse_moex_datetime(candle.end)
-                if ts_close_dt < window_start or ts_close_dt > window_end:
-                    continue
-                item_source_rows += 1
+            with source_rows_path.open("a", encoding="utf-8") as source_rows_handle:
+                for candle in candles:
+                    ts_open_dt = _parse_moex_datetime(candle.begin)
+                    ts_close_dt = _parse_moex_datetime(candle.end)
+                    if ts_close_dt < window_start or ts_close_dt > window_end:
+                        continue
+                    item_source_rows += 1
 
-                row = {
-                    "internal_id": item.internal_id,
-                    "finam_symbol": item.finam_symbol,
-                    "moex_engine": item.moex_engine,
-                    "moex_market": item.moex_market,
-                    "moex_board": item.moex_board,
-                    "moex_secid": item.moex_secid,
-                    "asset_group": item.asset_group,
-                    "timeframe": item.source_timeframe,
-                    "source_interval": item.source_interval,
-                    "ts_open": _to_iso_utc(ts_open_dt),
-                    "ts_close": _to_iso_utc(ts_close_dt),
-                    "open": candle.open,
-                    "high": candle.high,
-                    "low": candle.low,
-                    "close": candle.close,
-                    "volume": candle.volume,
-                    "open_interest": None,
-                    "ingest_run_id": run_id,
-                    "ingested_at_utc": ingest_marks,
-                    "provenance_json": {
-                        "source_provider": "moex_iss",
+                    row = {
+                        "internal_id": item.internal_id,
+                        "finam_symbol": item.finam_symbol,
+                        "moex_engine": item.moex_engine,
+                        "moex_market": item.moex_market,
+                        "moex_board": item.moex_board,
+                        "moex_secid": item.moex_secid,
+                        "asset_group": item.asset_group,
+                        "timeframe": item.source_timeframe,
                         "source_interval": item.source_interval,
-                        "source_timeframe": item.source_timeframe,
-                        "requested_target_timeframes": item.requested_target_timeframes,
-                        "run_id": run_id,
-                        "window_start_utc": _to_iso_utc(window_start),
-                        "window_end_utc": _to_iso_utc(window_end),
-                        "stability_lag_minutes": stability_lag_minutes,
-                        "refresh_overlap_minutes": refresh_overlap_minutes,
-                        "discovery_url": item.discovery_url,
-                    },
-                }
-                source_order += 1
-                _append_raw_source_row(source_rows_path, row, source_order=source_order)
+                        "ts_open": _to_iso_utc(ts_open_dt),
+                        "ts_close": _to_iso_utc(ts_close_dt),
+                        "open": candle.open,
+                        "high": candle.high,
+                        "low": candle.low,
+                        "close": candle.close,
+                        "volume": candle.volume,
+                        "open_interest": None,
+                        "ingest_run_id": run_id,
+                        "ingested_at_utc": ingest_marks,
+                        "provenance_json": {
+                            "source_provider": "moex_iss",
+                            "source_interval": item.source_interval,
+                            "source_timeframe": item.source_timeframe,
+                            "requested_target_timeframes": item.requested_target_timeframes,
+                            "run_id": run_id,
+                            "window_start_utc": _to_iso_utc(window_start),
+                            "window_end_utc": _to_iso_utc(window_end),
+                            "stability_lag_minutes": stability_lag_minutes,
+                            "refresh_overlap_minutes": refresh_overlap_minutes,
+                            "discovery_url": item.discovery_url,
+                        },
+                    }
+                    source_order += 1
+                    _write_raw_source_row(
+                        source_rows_handle,
+                        row,
+                        source_order=source_order,
+                    )
             source_rows_by_scope[scope_key] = item_source_rows
             _safe_progress_print(
                 "[moex-raw-ingest-source] "
