@@ -7,18 +7,20 @@ docs/architecture/product-plane/moex-historical-route-decision.md.
 
 from __future__ import annotations
 
+import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
-import os
-import shutil
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    count_delta_table_rows,
     has_delta_log,
-    read_delta_table_rows,
+    iter_delta_table_row_batches,
 )
-from trading_advisor_3000.product_plane.data_plane.schemas import historical_data_delta_schema_manifest
-
+from trading_advisor_3000.product_plane.data_plane.schemas import (
+    historical_data_delta_schema_manifest,
+)
 
 DEFAULT_SPARK_MASTER = "local[2]"
 DEFAULT_SPARK_RUNTIME_ROOT = "/tmp/ta3000-spark-runtime"
@@ -51,7 +53,8 @@ def build_bars_sql_plan(spec: SparkJobSpec | None = None) -> str:
     spec = spec or default_spec()
     return f"""
 INSERT OVERWRITE TABLE {spec.target_bars_table}
-SELECT contract_id, instrument_id, timeframe, ts_open AS ts, open, high, low, close, volume, open_interest
+SELECT contract_id, instrument_id, timeframe, ts_open AS ts,
+       open, high, low, close, volume, open_interest
 FROM (
     SELECT *,
            ROW_NUMBER() OVER (
@@ -150,14 +153,16 @@ def _ensure_java_home() -> None:
     except ModuleNotFoundError as exc:  # pragma: no cover - exercised in runtime env
         raise RuntimeError(
             "JAVA_HOME is not set and `jdk4py` is not installed. "
-            "Install Spark runtime dependencies (`pip install -e .[spark,dev]`) or set JAVA_HOME explicitly."
+            "Install Spark runtime dependencies (`pip install -e .[spark,dev]`) "
+            "or set JAVA_HOME explicitly."
         ) from exc
     os.environ["JAVA_HOME"] = str(jdk4py.JAVA_HOME)
 
 
 def _load_spark_modules() -> tuple[Any, Any, Any, Any]:
     try:
-        from pyspark.sql import SparkSession, Window, functions as F  # type: ignore[import-not-found]
+        from pyspark.sql import SparkSession, Window  # type: ignore[import-not-found]
+        from pyspark.sql import functions as F
     except ModuleNotFoundError as exc:  # pragma: no cover - exercised in runtime env
         raise RuntimeError(
             "Spark runtime is unavailable: install `pyspark` and rerun the phase-04 Spark proof."
@@ -166,7 +171,8 @@ def _load_spark_modules() -> tuple[Any, Any, Any, Any]:
         from delta import configure_spark_with_delta_pip  # type: ignore[import-not-found]
     except ModuleNotFoundError as exc:  # pragma: no cover - exercised in runtime env
         raise RuntimeError(
-            "Spark Delta writer is unavailable: install `delta-spark` or use the Docker/Linux proof profile."
+            "Spark Delta writer is unavailable: install `delta-spark` or use the "
+            "Docker/Linux proof profile."
         ) from exc
     return SparkSession, Window, F, configure_spark_with_delta_pip
 
@@ -199,12 +205,13 @@ def _create_spark_session(app_name: str, master: str) -> Any:
         .config("spark.ui.enabled", "false")
         .config("spark.sql.shuffle.partitions", "4")
         .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
-        .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+        .config(
+            "spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog"
+        )
     )
     if runtime_dirs:
-        builder = (
-            builder.config("spark.jars.ivy", runtime_dirs["ivy"])
-            .config("spark.local.dir", runtime_dirs["local_dir"])
+        builder = builder.config("spark.jars.ivy", runtime_dirs["ivy"]).config(
+            "spark.local.dir", runtime_dirs["local_dir"]
         )
     return configure(builder).getOrCreate()
 
@@ -239,16 +246,22 @@ def validate_spark_output_contract(
         if not has_delta_log(path):
             errors.append(f"missing `_delta_log` for `{table_name}` at {path.as_posix()}")
             continue
-        rows = read_delta_table_rows(path)
         expected_columns = set((delta_schema_manifest[table_name].get("columns") or {}).keys())
-        for index, row in enumerate(rows, start=1):
-            keys = set(row.keys())
-            missing = sorted(expected_columns - keys)
-            extra = sorted(keys - expected_columns)
-            if missing:
-                errors.append(f"{table_name} row {index} missing columns: {', '.join(missing)}")
-            if extra:
-                errors.append(f"{table_name} row {index} has unsupported columns: {', '.join(extra)}")
+        row_index = 0
+        for batch in iter_delta_table_row_batches(path):
+            for row in batch:
+                row_index += 1
+                keys = set(row.keys())
+                missing = sorted(expected_columns - keys)
+                extra = sorted(keys - expected_columns)
+                if missing:
+                    errors.append(
+                        f"{table_name} row {row_index} missing columns: {', '.join(missing)}"
+                    )
+                if extra:
+                    errors.append(
+                        f"{table_name} row {row_index} has unsupported columns: {', '.join(extra)}"
+                    )
     return errors
 
 
@@ -280,8 +293,14 @@ def run_canonical_bars_spark_job(
         raw_columns = list((manifest["raw_market_backfill"].get("columns") or {}).keys())
         source_df = source_df.select(*raw_columns)
 
-        bars_window = window.partitionBy("contract_id", "timeframe", "ts_open").orderBy(F.col("ts_close").desc())
-        dedup_df = source_df.withColumn("_rn", F.row_number().over(bars_window)).where(F.col("_rn") == 1).drop("_rn")
+        bars_window = window.partitionBy("contract_id", "timeframe", "ts_open").orderBy(
+            F.col("ts_close").desc()
+        )
+        dedup_df = (
+            source_df.withColumn("_rn", F.row_number().over(bars_window))
+            .where(F.col("_rn") == 1)
+            .drop("_rn")
+        )
 
         bars_df = dedup_df.select(
             "contract_id",
@@ -298,20 +317,28 @@ def run_canonical_bars_spark_job(
 
         instruments_df = source_df.select("instrument_id").distinct().orderBy("instrument_id")
 
-        contracts_df = source_df.groupBy("contract_id").agg(
-            F.min("instrument_id").alias("instrument_id"),
-            F.min("ts_open").alias("first_seen_ts"),
-            F.max("ts_close").alias("last_seen_ts"),
-        ).orderBy("contract_id")
+        contracts_df = (
+            source_df.groupBy("contract_id")
+            .agg(
+                F.min("instrument_id").alias("instrument_id"),
+                F.min("ts_open").alias("first_seen_ts"),
+                F.max("ts_close").alias("last_seen_ts"),
+            )
+            .orderBy("contract_id")
+        )
 
-        session_calendar_df = source_df.groupBy(
-            "instrument_id",
-            "timeframe",
-            F.to_date("ts_open").alias("session_date"),
-        ).agg(
-            F.min("ts_open").alias("session_open_ts"),
-            F.max("ts_close").alias("session_close_ts"),
-        ).orderBy("instrument_id", "timeframe", "session_date")
+        session_calendar_df = (
+            source_df.groupBy(
+                "instrument_id",
+                "timeframe",
+                F.to_date("ts_open").alias("session_date"),
+            )
+            .agg(
+                F.min("ts_open").alias("session_open_ts"),
+                F.max("ts_close").alias("session_close_ts"),
+            )
+            .orderBy("instrument_id", "timeframe", "session_date")
+        )
 
         roll_window = window.partitionBy("instrument_id", F.to_date("ts_open")).orderBy(
             F.col("open_interest").desc(),
@@ -335,11 +362,15 @@ def run_canonical_bars_spark_job(
             "canonical_bars": (output_dir / "canonical_bars.delta").as_posix(),
             "canonical_instruments": (output_dir / "canonical_instruments.delta").as_posix(),
             "canonical_contracts": (output_dir / "canonical_contracts.delta").as_posix(),
-            "canonical_session_calendar": (output_dir / "canonical_session_calendar.delta").as_posix(),
+            "canonical_session_calendar": (
+                output_dir / "canonical_session_calendar.delta"
+            ).as_posix(),
             "canonical_roll_map": (output_dir / "canonical_roll_map.delta").as_posix(),
         }
         dataframes_by_table = {
-            "raw_market_backfill": source_df.orderBy("contract_id", "timeframe", "ts_open", "ts_close"),
+            "raw_market_backfill": source_df.orderBy(
+                "contract_id", "timeframe", "ts_open", "ts_close"
+            ),
             "canonical_bars": bars_df,
             "canonical_instruments": instruments_df,
             "canonical_contracts": contracts_df,
@@ -358,10 +389,12 @@ def run_canonical_bars_spark_job(
             delta_schema_manifest=manifest,
         )
         if contract_errors:
-            raise RuntimeError("Spark output contract validation failed: " + "; ".join(contract_errors))
+            raise RuntimeError(
+                "Spark output contract validation failed: " + "; ".join(contract_errors)
+            )
 
         rows_by_table = {
-            table_name: len(read_delta_table_rows(Path(path_text)))
+            table_name: count_delta_table_rows(Path(path_text))
             for table_name, path_text in output_paths.items()
         }
 

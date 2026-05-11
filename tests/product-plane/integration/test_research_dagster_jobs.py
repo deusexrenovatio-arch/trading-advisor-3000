@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -12,42 +12,70 @@ from trading_advisor_3000.dagster_defs import (
     RESEARCH_DATA_PREP_JOB_NAME,
     STRATEGY_REGISTRY_REFRESH_ASSETS,
     STRATEGY_REGISTRY_REFRESH_JOB_NAME,
-    build_research_definitions,
     build_research_data_prep_run_config,
+    build_research_definitions,
     materialize_research_backtest_assets,
     materialize_research_data_prep_assets,
     materialize_research_projection_assets,
     materialize_strategy_registry_refresh_assets,
+    research_assets,
 )
-from trading_advisor_3000.dagster_defs import research_assets
+from trading_advisor_3000.product_plane.contracts import CanonicalBar
 from trading_advisor_3000.product_plane.data_plane import run_sample_backfill
-from trading_advisor_3000.product_plane.data_plane.canonical import RollMapEntry, SessionCalendarEntry
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows, write_delta_table_rows
-from trading_advisor_3000.product_plane.data_plane.schemas import historical_data_delta_schema_manifest
+from trading_advisor_3000.product_plane.data_plane.canonical import (
+    RollMapEntry,
+    SessionCalendarEntry,
+)
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    iter_delta_table_row_batches,
+    read_delta_table_rows,
+    write_delta_table_rows,
+)
+from trading_advisor_3000.product_plane.data_plane.schemas import (
+    historical_data_delta_schema_manifest,
+)
+from trading_advisor_3000.product_plane.research.continuous_front import (
+    continuous_front_store_contract,
+)
 from trading_advisor_3000.product_plane.research.datasets import (
     ContinuousFrontPolicy,
     ResearchDatasetManifest,
     load_materialized_research_dataset,
     materialize_research_dataset,
 )
-from trading_advisor_3000.product_plane.research.continuous_front import continuous_front_store_contract
-import trading_advisor_3000.product_plane.research.datasets.materialize as dataset_materialize_module
+from trading_advisor_3000.product_plane.research.datasets import (
+    materialize as dataset_materialize_module,
+)
 from trading_advisor_3000.product_plane.research.derived_indicators import (
     load_derived_indicator_frames,
     materialize_derived_indicator_frames,
 )
-from trading_advisor_3000.product_plane.research.indicators import load_indicator_frames, materialize_indicator_frames
+from trading_advisor_3000.product_plane.research.indicators import (
+    load_indicator_frames,
+    materialize_indicator_frames,
+)
 from trading_advisor_3000.product_plane.research.registry_store import research_registry_root
-from trading_advisor_3000.product_plane.research.strategies.compiler_bridge import REQUIRED_STG02_ADAPTER_KEYS
-from trading_advisor_3000.product_plane.contracts import CanonicalBar
-
+from trading_advisor_3000.product_plane.research.strategies.compiler_bridge import (
+    REQUIRED_STG02_ADAPTER_KEYS,
+)
 
 ROOT = Path(__file__).resolve().parents[3]
-RAW_FIXTURE = ROOT / "tests" / "product-plane" / "fixtures" / "data_plane" / "raw_backfill_sample.jsonl"
+RAW_FIXTURE = (
+    ROOT / "tests" / "product-plane" / "fixtures" / "data_plane" / "raw_backfill_sample.jsonl"
+)
 
 
-def _load_canonical_context(output_dir: Path) -> tuple[list[CanonicalBar], list[SessionCalendarEntry], list[RollMapEntry]]:
-    bars = [CanonicalBar.from_dict(row) for row in read_delta_table_rows(output_dir / "canonical_bars.delta")]
+def _read_batched_delta_rows(table_path: Path) -> list[dict[str, object]]:
+    return [row for batch in iter_delta_table_row_batches(table_path) for row in batch]
+
+
+def _load_canonical_context(
+    output_dir: Path,
+) -> tuple[list[CanonicalBar], list[SessionCalendarEntry], list[RollMapEntry]]:
+    bars = [
+        CanonicalBar.from_dict(row)
+        for row in _read_batched_delta_rows(output_dir / "canonical_bars.delta")
+    ]
     session_calendar = [
         SessionCalendarEntry(
             instrument_id=str(row["instrument_id"]),
@@ -56,7 +84,7 @@ def _load_canonical_context(output_dir: Path) -> tuple[list[CanonicalBar], list[
             session_open_ts=str(row["session_open_ts"]),
             session_close_ts=str(row["session_close_ts"]),
         )
-        for row in read_delta_table_rows(output_dir / "canonical_session_calendar.delta")
+        for row in _read_batched_delta_rows(output_dir / "canonical_session_calendar.delta")
     ]
     roll_map = [
         RollMapEntry(
@@ -65,7 +93,7 @@ def _load_canonical_context(output_dir: Path) -> tuple[list[CanonicalBar], list[
             active_contract_id=str(row["active_contract_id"]),
             reason=str(row["reason"]),
         )
-        for row in read_delta_table_rows(output_dir / "canonical_roll_map.delta")
+        for row in _read_batched_delta_rows(output_dir / "canonical_roll_map.delta")
     ]
     return bars, session_calendar, roll_map
 
@@ -77,7 +105,9 @@ def _load_materialized_dataset_rows(output_dir: Path, *, dataset_version: str) -
         raise AssertionError(f"missing research dataset manifest for {dataset_version}")
     return {
         "dataset_manifest": dict(manifest_rows[0]),
-        "instrument_tree": read_delta_table_rows(output_dir / "research_instrument_tree.delta", filters=filters),
+        "instrument_tree": read_delta_table_rows(
+            output_dir / "research_instrument_tree.delta", filters=filters
+        ),
         "bar_views": sorted(
             read_delta_table_rows(output_dir / "research_bar_views.delta", filters=filters),
             key=lambda row: (str(row["contract_id"]), str(row["timeframe"]), str(row["ts"])),
@@ -169,7 +199,8 @@ def _write_spark_front_outputs_from_canonical(
     contract = continuous_front_store_contract()
     canonical_rows = [
         row
-        for row in read_delta_table_rows(canonical_dir / "canonical_bars.delta")
+        for batch in iter_delta_table_row_batches(canonical_dir / "canonical_bars.delta")
+        for row in batch
         if not timeframes or str(row.get("timeframe")) in timeframes
     ]
     created_at = "2026-04-29T00:00:00Z"
@@ -282,7 +313,9 @@ def _write_spark_front_outputs_from_canonical(
     }
 
 
-def test_research_data_prep_materializes_dataset_indicator_and_derived_layers_only(tmp_path: Path) -> None:
+def test_research_data_prep_materializes_dataset_indicator_and_derived_layers_only(
+    tmp_path: Path,
+) -> None:
     canonical_dir = tmp_path / "canonical"
     run_sample_backfill(
         source_path=RAW_FIXTURE,
@@ -304,7 +337,9 @@ def test_research_data_prep_materializes_dataset_indicator_and_derived_layers_on
     assert set(dagster_report["materialized_assets"]) == set(RESEARCH_DATA_PREP_ASSETS)
     assert "research_strategy_families" not in dagster_report["rows_by_table"]
 
-    loaded_dataset = _load_materialized_dataset_rows(dagster_dir, dataset_version="dagster-dataset-v1")
+    loaded_dataset = _load_materialized_dataset_rows(
+        dagster_dir, dataset_version="dagster-dataset-v1"
+    )
     loaded_indicators = load_indicator_frames(
         output_dir=dagster_dir,
         dataset_version="dagster-dataset-v1",
@@ -326,7 +361,9 @@ def test_research_data_prep_materializes_dataset_indicator_and_derived_layers_on
     assert all(row.profile_version == "core_v1" for row in loaded_derived)
 
 
-def test_research_data_prep_can_source_indicators_from_continuous_front(tmp_path: Path, monkeypatch) -> None:
+def test_research_data_prep_can_source_indicators_from_continuous_front(
+    tmp_path: Path, monkeypatch
+) -> None:
     canonical_dir = tmp_path / "canonical-continuous"
     run_sample_backfill(
         source_path=RAW_FIXTURE,
@@ -369,9 +406,14 @@ def test_research_data_prep_can_source_indicators_from_continuous_front(tmp_path
         dagster_report["rows_by_table"]["research_bar_views"]
         == dagster_report["rows_by_table"]["continuous_front_bars"]
     )
-    loaded_dataset = load_materialized_research_dataset(output_dir=dagster_dir, dataset_version="dagster-continuous-v1")
+    loaded_dataset = load_materialized_research_dataset(
+        output_dir=dagster_dir, dataset_version="dagster-continuous-v1"
+    )
     assert loaded_dataset["dataset_manifest"]["source_table"] == "continuous_front_bars"
-    assert loaded_dataset["dataset_manifest"]["continuous_front_policy"]["roll_policy_mode"] == "calendar_expiry_v1"
+    assert (
+        loaded_dataset["dataset_manifest"]["continuous_front_policy"]["roll_policy_mode"]
+        == "calendar_expiry_v1"
+    )
     assert len(loaded_dataset["bar_views"]) == dagster_report["rows_by_table"]["research_bar_views"]
 
 
@@ -393,19 +435,25 @@ def test_research_data_prep_reuse_does_not_reload_full_frames(tmp_path: Path, mo
         indicator_profile_version="core_v1",
     )
 
-    original_dataset_reader = dataset_materialize_module.read_delta_table_rows
+    original_dataset_reader = dataset_materialize_module.read_filtered_delta_table_rows
 
     def _blocked_dataset_reader(table_path: Path, *args, **kwargs):
-        if Path(table_path).name == "research_bar_views.delta":
-            raise AssertionError("reuse path must not reload full research_bar_views")
+        if Path(table_path).name == "research_bar_views.delta" and not kwargs.get("filters"):
+            raise AssertionError("reuse path must not reload unfiltered research_bar_views")
         return original_dataset_reader(table_path, *args, **kwargs)
 
     def _blocked_frame_reload(*args, **kwargs):
         raise AssertionError("reuse path must validate existing frames without full reload")
 
-    monkeypatch.setattr(dataset_materialize_module, "read_delta_table_rows", _blocked_dataset_reader)
-    monkeypatch.setattr(research_assets, "reload_indicator_frames", _blocked_frame_reload, raising=False)
-    monkeypatch.setattr(research_assets, "reload_derived_indicator_frames", _blocked_frame_reload, raising=False)
+    monkeypatch.setattr(
+        dataset_materialize_module, "read_filtered_delta_table_rows", _blocked_dataset_reader
+    )
+    monkeypatch.setattr(
+        research_assets, "reload_indicator_frames", _blocked_frame_reload, raising=False
+    )
+    monkeypatch.setattr(
+        research_assets, "reload_derived_indicator_frames", _blocked_frame_reload, raising=False
+    )
 
     reuse_report = materialize_research_data_prep_assets(
         canonical_output_dir=canonical_dir,
@@ -451,11 +499,19 @@ def test_strategy_registry_refresh_is_separate_from_research_data_prep(tmp_path:
 
     assert registry_report["success"] is True
     assert set(registry_report["selected_assets"]) == set(STRATEGY_REGISTRY_REFRESH_ASSETS)
-    assert set(STRATEGY_REGISTRY_REFRESH_ASSETS).issubset(set(registry_report["materialized_assets"]))
+    assert set(STRATEGY_REGISTRY_REFRESH_ASSETS).issubset(
+        set(registry_report["materialized_assets"])
+    )
     assert "research_feature_frames" not in registry_report["materialized_assets"]
-    assert registry_report["rows_by_table"]["research_strategy_families"] == len(REQUIRED_STG02_ADAPTER_KEYS)
-    assert registry_report["rows_by_table"]["research_strategy_templates"] == len(REQUIRED_STG02_ADAPTER_KEYS)
-    assert registry_report["rows_by_table"]["research_strategy_template_modules"] >= len(REQUIRED_STG02_ADAPTER_KEYS)
+    assert registry_report["rows_by_table"]["research_strategy_families"] == len(
+        REQUIRED_STG02_ADAPTER_KEYS
+    )
+    assert registry_report["rows_by_table"]["research_strategy_templates"] == len(
+        REQUIRED_STG02_ADAPTER_KEYS
+    )
+    assert registry_report["rows_by_table"]["research_strategy_template_modules"] >= len(
+        REQUIRED_STG02_ADAPTER_KEYS
+    )
     registry_root = research_registry_root(canonical_output_dir=canonical_dir)
     family_rows = read_delta_table_rows(registry_root / "research_strategy_families.delta")
     assert {str(row["family_key"]) for row in family_rows} == set(REQUIRED_STG02_ADAPTER_KEYS)
@@ -468,8 +524,13 @@ def test_research_definitions_expose_product_jobs_and_moex_success_sensor(tmp_pa
     strategy_job = repository.get_job(STRATEGY_REGISTRY_REFRESH_JOB_NAME)
 
     assert set(data_prep_job.graph.node_dict) == set(RESEARCH_DATA_PREP_ASSETS)
-    assert set(strategy_job.graph.node_dict) == {"research_datasets", *STRATEGY_REGISTRY_REFRESH_ASSETS}
-    assert RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME in {sensor.name for sensor in repository.sensor_defs}
+    assert set(strategy_job.graph.node_dict) == {
+        "research_datasets",
+        *STRATEGY_REGISTRY_REFRESH_ASSETS,
+    }
+    assert RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME in {
+        sensor.name for sensor in repository.sensor_defs
+    }
 
     run_config = build_research_data_prep_run_config(
         canonical_output_dir=tmp_path / "canonical",
@@ -489,7 +550,9 @@ def test_research_definitions_expose_product_jobs_and_moex_success_sensor(tmp_pa
 
 
 def test_scheduled_research_refresh_uses_calendar_expiry_policy(monkeypatch) -> None:
-    monkeypatch.delenv(research_assets.RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_ENV, raising=False)
+    monkeypatch.delenv(
+        research_assets.RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_ENV, raising=False
+    )
 
     policy = research_assets.scheduled_continuous_front_policy_config()
 
@@ -535,15 +598,18 @@ def test_research_data_prep_defaults_follow_moex_historical_data_root(
     )
     op_config = run_config["ops"]["research_datasets"]["config"]
 
-    assert Path(str(op_config["canonical_output_dir"])) == (
-        tmp_path / "canonical" / "moex" / "baseline-4y-current"
-    ).resolve()
-    assert Path(str(op_config["materialized_output_dir"])) == (
-        tmp_path / "research" / "gold" / "current"
-    ).resolve()
-    assert Path(str(op_config["results_output_dir"])) == (
-        tmp_path / "research" / "runs" / "data-prep"
-    ).resolve()
+    assert (
+        Path(str(op_config["canonical_output_dir"]))
+        == (tmp_path / "canonical" / "moex" / "baseline-4y-current").resolve()
+    )
+    assert (
+        Path(str(op_config["materialized_output_dir"]))
+        == (tmp_path / "research" / "gold" / "current").resolve()
+    )
+    assert (
+        Path(str(op_config["results_output_dir"]))
+        == (tmp_path / "research" / "runs" / "data-prep").resolve()
+    )
     assert op_config["timeframes"] == ["15m", "1h", "4h", "1d"]
     assert op_config["warmup_bars"] == 300
     assert op_config["derived_indicator_set_version"] == "derived-v1"
@@ -605,7 +671,9 @@ def test_research_data_prep_matches_direct_materialization(tmp_path: Path) -> No
     )
 
     direct_dataset = _load_materialized_dataset_rows(direct_dir, dataset_version="same-dataset-v1")
-    dagster_dataset = _load_materialized_dataset_rows(dagster_dir, dataset_version="same-dataset-v1")
+    dagster_dataset = _load_materialized_dataset_rows(
+        dagster_dir, dataset_version="same-dataset-v1"
+    )
     direct_indicator_rows = [
         row.to_dict()
         for row in load_indicator_frames(
@@ -641,14 +709,23 @@ def test_research_data_prep_matches_direct_materialization(tmp_path: Path) -> No
         )
     ]
 
-    assert direct_dataset["dataset_manifest"]["bars_hash"] == dagster_dataset["dataset_manifest"]["bars_hash"]
+    assert (
+        direct_dataset["dataset_manifest"]["bars_hash"]
+        == dagster_dataset["dataset_manifest"]["bars_hash"]
+    )
     assert direct_dataset["bar_views"] == dagster_dataset["bar_views"]
     assert len(direct_indicator_rows) == len(dagster_indicator_rows)
-    assert [row["ts"] for row in direct_indicator_rows] == [row["ts"] for row in dagster_indicator_rows]
-    assert [row["profile_version"] for row in direct_indicator_rows] == [row["profile_version"] for row in dagster_indicator_rows]
+    assert [row["ts"] for row in direct_indicator_rows] == [
+        row["ts"] for row in dagster_indicator_rows
+    ]
+    assert [row["profile_version"] for row in direct_indicator_rows] == [
+        row["profile_version"] for row in dagster_indicator_rows
+    ]
     assert len(direct_derived_rows) == len(dagster_derived_rows)
     assert [row["ts"] for row in direct_derived_rows] == [row["ts"] for row in dagster_derived_rows]
-    assert [row["profile_version"] for row in direct_derived_rows] == [row["profile_version"] for row in dagster_derived_rows]
+    assert [row["profile_version"] for row in direct_derived_rows] == [
+        row["profile_version"] for row in dagster_derived_rows
+    ]
 
 
 def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_path: Path) -> None:
@@ -722,12 +799,22 @@ def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_pat
     assert backtest_report["rows_by_table"]["research_vbt_param_gate_events"] > 0
     assert "research_drawdown_records" in backtest_report["rows_by_table"]
     assert backtest_report["rows_by_table"]["research_strategy_rankings"] > 0
-    assert (Path(backtest_report["output_paths"]["research_backtest_batches"]) / "_delta_log").exists()
-    assert (Path(backtest_report["output_paths"]["research_optimizer_studies"]) / "_delta_log").exists()
-    assert (Path(backtest_report["output_paths"]["research_optimizer_trials"]) / "_delta_log").exists()
-    assert (Path(backtest_report["output_paths"]["research_strategy_rankings"]) / "_delta_log").exists()
+    assert (
+        Path(backtest_report["output_paths"]["research_backtest_batches"]) / "_delta_log"
+    ).exists()
+    assert (
+        Path(backtest_report["output_paths"]["research_optimizer_studies"]) / "_delta_log"
+    ).exists()
+    assert (
+        Path(backtest_report["output_paths"]["research_optimizer_trials"]) / "_delta_log"
+    ).exists()
+    assert (
+        Path(backtest_report["output_paths"]["research_strategy_rankings"]) / "_delta_log"
+    ).exists()
     assert read_delta_table_rows(Path(backtest_report["output_paths"]["research_backtest_runs"]))
-    optimizer_trials = read_delta_table_rows(Path(backtest_report["output_paths"]["research_optimizer_trials"]))
+    optimizer_trials = read_delta_table_rows(
+        Path(backtest_report["output_paths"]["research_optimizer_trials"])
+    )
     assert {row["trial_kind"] for row in optimizer_trials} >= {"optuna_trial"}
     assert "neighborhood_probe" not in {row["trial_kind"] for row in optimizer_trials}
     assert all(row["param_hash"] for row in optimizer_trials)
@@ -737,8 +824,13 @@ def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_pat
         else row["objective_components_json"]
         for row in optimizer_trials
     ]
-    assert all(row["signal_generator"] == "vectorbt.SignalFactory.from_choice_func" for row in optimizer_components)
-    assert read_delta_table_rows(Path(backtest_report["output_paths"]["research_strategy_rankings"]))
+    assert all(
+        row["signal_generator"] == "vectorbt.SignalFactory.from_choice_func"
+        for row in optimizer_components
+    )
+    assert read_delta_table_rows(
+        Path(backtest_report["output_paths"]["research_strategy_rankings"])
+    )
 
     projection_report = materialize_research_projection_assets(
         canonical_output_dir=canonical_dir,
@@ -770,10 +862,13 @@ def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_pat
     assert set(projection_report["selected_assets"]) == {"research_signal_candidates"}
     assert "research_signal_candidates" in projection_report["materialized_assets"]
     assert projection_report["rows_by_table"]["research_signal_candidates"] > 0
-    assert (Path(projection_report["output_paths"]["research_signal_candidates"]) / "_delta_log").exists()
-    candidate_rows = read_delta_table_rows(Path(projection_report["output_paths"]["research_signal_candidates"]))
+    assert (
+        Path(projection_report["output_paths"]["research_signal_candidates"]) / "_delta_log"
+    ).exists()
+    candidate_rows = read_delta_table_rows(
+        Path(projection_report["output_paths"]["research_signal_candidates"])
+    )
     assert isinstance(candidate_rows, list)
     assert candidate_rows
     assert all(float(row["score"]) > 0.0 for row in candidate_rows)
     assert all(str(row["campaign_run_id"]).startswith("crun_") for row in candidate_rows)
-

@@ -11,14 +11,21 @@ from pathlib import Path
 
 from dagster import AssetSelection, Config, Definitions, asset, define_asset_job, materialize
 
-from trading_advisor_3000.product_plane.data_plane.canonical import build_canonical_dataset, run_data_quality_checks
+from trading_advisor_3000.product_plane.data_plane.canonical import (
+    build_canonical_dataset,
+    run_data_quality_checks,
+)
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    count_delta_table_rows,
     has_delta_log,
+    iter_delta_table_row_batches,
     read_delta_table_rows,
     write_delta_table_rows,
 )
 from trading_advisor_3000.product_plane.data_plane.ingestion import ingest_raw_backfill
-from trading_advisor_3000.product_plane.data_plane.schemas import historical_data_delta_schema_manifest
+from trading_advisor_3000.product_plane.data_plane.schemas import (
+    historical_data_delta_schema_manifest,
+)
 
 
 @dataclass(frozen=True)
@@ -108,24 +115,34 @@ def _table_path(report: dict[str, object], table_name: str) -> Path:
         raise RuntimeError("historical-data proof report is missing `output_paths` mapping")
     path_value = output_paths.get(table_name)
     if not path_value:
-        raise RuntimeError(f"historical-data proof report is missing output path for `{table_name}`")
+        raise RuntimeError(
+            f"historical-data proof report is missing output path for `{table_name}`"
+        )
     return Path(str(path_value))
 
 
 def _schema_columns(report: dict[str, object], table_name: str) -> dict[str, str]:
     manifest = report.get("delta_schema_manifest")
     if not isinstance(manifest, dict):
-        raise RuntimeError("historical-data proof report is missing `delta_schema_manifest` mapping")
+        raise RuntimeError(
+            "historical-data proof report is missing `delta_schema_manifest` mapping"
+        )
     table_manifest = manifest.get(table_name)
     if not isinstance(table_manifest, dict):
-        raise RuntimeError(f"historical-data proof report is missing schema manifest entry for `{table_name}`")
+        raise RuntimeError(
+            f"historical-data proof report is missing schema manifest entry for `{table_name}`"
+        )
     columns = table_manifest.get("columns")
     if not isinstance(columns, dict):
-        raise RuntimeError(f"historical-data schema manifest is missing `columns` for `{table_name}`")
+        raise RuntimeError(
+            f"historical-data schema manifest is missing `columns` for `{table_name}`"
+        )
     normalized: dict[str, str] = {}
     for column_name, type_name in columns.items():
         if not isinstance(column_name, str) or not isinstance(type_name, str):
-            raise RuntimeError(f"historical-data schema manifest has non-string column contract for `{table_name}`")
+            raise RuntimeError(
+                f"historical-data schema manifest has non-string column contract for `{table_name}`"
+            )
         normalized[column_name] = type_name
     return normalized
 
@@ -134,7 +151,11 @@ def _load_rows(report: dict[str, object], table_name: str) -> list[dict[str, obj
     table_path = _table_path(report, table_name)
     if not has_delta_log(table_path):
         raise RuntimeError(f"missing `_delta_log` for `{table_name}` at {table_path.as_posix()}")
-    return read_delta_table_rows(table_path)
+    return _read_batched_delta_rows(table_path)
+
+
+def _read_batched_delta_rows(table_path: Path) -> list[dict[str, object]]:
+    return [row for batch in iter_delta_table_row_batches(table_path) for row in batch]
 
 
 def _load_dataset(report: dict[str, object]):
@@ -164,7 +185,7 @@ def _write_table(
     )
     if not has_delta_log(table_path):
         raise RuntimeError(f"missing `_delta_log` for `{table_name}` at {table_path.as_posix()}")
-    return read_delta_table_rows(table_path)
+    return _read_batched_delta_rows(table_path)
 
 
 @asset(group_name="historical_data_proof")
@@ -175,7 +196,9 @@ def raw_market_backfill(config: HistoricalDataProofMaterializationConfig) -> dic
     whitelist_contracts = _normalize_whitelist(config.whitelist_contracts)
 
     raw_output_path = Path(output_paths["raw_market_backfill"])
-    existing_raw_rows = read_delta_table_rows(raw_output_path) if has_delta_log(raw_output_path) else []
+    existing_raw_rows = (
+        read_delta_table_rows(raw_output_path) if has_delta_log(raw_output_path) else []
+    )
     ingestion_batch = ingest_raw_backfill(
         Path(config.source_path),
         whitelist_contracts=whitelist_contracts,
@@ -259,7 +282,9 @@ historical_data_proof_definitions = Definitions(
 )
 
 
-def assert_historical_data_proof_definitions_executable(definitions: Definitions | None = None) -> None:
+def assert_historical_data_proof_definitions_executable(
+    definitions: Definitions | None = None,
+) -> None:
     defs = definitions or historical_data_proof_definitions
     try:
         repository = defs.get_repository_def()
@@ -294,8 +319,7 @@ def historical_data_proof_output_paths(output_dir: Path) -> dict[str, str]:
 
 
 HISTORICAL_DATA_PROOF_ASSET_BY_NAME = {
-    asset_def.key.path[-1]: asset_def
-    for asset_def in HISTORICAL_DATA_PROOF_ASSETS
+    asset_def.key.path[-1]: asset_def for asset_def in HISTORICAL_DATA_PROOF_ASSETS
 }
 
 
@@ -374,19 +398,22 @@ def materialize_historical_data_proof_assets(
         path_text = output_paths[table_name]
         table_path = Path(path_text)
         if not has_delta_log(table_path):
-            raise RuntimeError(f"missing `_delta_log` for `{table_name}` at {table_path.as_posix()}")
-        rows_by_table[table_name] = len(read_delta_table_rows(table_path))
+            raise RuntimeError(
+                f"missing `_delta_log` for `{table_name}` at {table_path.as_posix()}"
+            )
+        rows_by_table[table_name] = count_delta_table_rows(table_path)
 
     unexpected_tables = [
         table_name
         for table_name in HISTORICAL_DATA_PROOF_TABLES
-        if table_name not in expected_materialized_assets and has_delta_log(Path(output_paths[table_name]))
+        if table_name not in expected_materialized_assets
+        and has_delta_log(Path(output_paths[table_name]))
     ]
     if unexpected_tables:
         unexpected_text = ", ".join(unexpected_tables)
         raise RuntimeError(
-            "historical-data Dagster materialization produced hidden side effects for non-selected assets: "
-            f"{unexpected_text}"
+            "historical-data Dagster materialization produced hidden side effects "
+            f"for non-selected assets: {unexpected_text}"
         )
 
     report["rows_by_table"] = rows_by_table

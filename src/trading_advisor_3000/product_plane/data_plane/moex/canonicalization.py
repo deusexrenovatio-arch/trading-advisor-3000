@@ -1,28 +1,27 @@
 from __future__ import annotations
 
+import json
+import os
+import subprocess
+import sys
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-import json
-import os
 from pathlib import Path
-import subprocess
-import sys
-from typing import Any
 
 from trading_advisor_3000.product_plane.contracts import CanonicalBar, Timeframe
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
     has_delta_log,
+    iter_delta_table_row_batches,
     read_delta_table_rows,
-    write_delta_table_rows,
+    write_delta_table_row_batches,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contracts import (
     STATUS_PASS_NOOP,
     build_parity_manifest_v1,
     normalize_changed_windows,
 )
-
 
 TARGET_TIMEFRAMES: tuple[Timeframe, ...] = (
     Timeframe.M5,
@@ -41,6 +40,40 @@ TARGET_MINUTES_BY_TIMEFRAME: dict[Timeframe, int] = {
     Timeframe.D1: 1440,
     Timeframe.W1: 10080,
 }
+
+
+def _iter_delta_rows_for_merge(table_path: Path) -> Iterable[dict[str, object]]:
+    for batch in iter_delta_table_row_batches(table_path):
+        yield from batch
+
+
+def _chunk_delta_row_payloads(
+    rows: list[dict[str, object]],
+    *,
+    chunk_size: int,
+) -> Iterable[list[dict[str, object]]]:
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be > 0")
+    for start in range(0, len(rows), chunk_size):
+        yield rows[start : start + chunk_size]
+
+
+def _require_spark_delta_output_path(
+    output_paths: dict[str, object],
+    key: str,
+) -> Path:
+    raw_value = output_paths.get(key)
+    path_text = str(raw_value).strip() if raw_value is not None else ""
+    if not path_text or path_text == ".":
+        raise ValueError(f"spark canonicalization report missing `{key}` output path")
+    table_path = Path(path_text)
+    if not has_delta_log(table_path):
+        raise FileNotFoundError(
+            f"spark canonicalization `{key}` output is missing `_delta_log`: "
+            f"{table_path.as_posix()}"
+        )
+    return table_path
+
 
 SOURCE_MINUTES_BY_LABEL: dict[str, int] = {
     "1m": 1,
@@ -163,7 +196,9 @@ def _parse_provenance(value: object, *, row_index: int) -> dict[str, object]:
             return {}
         payload = json.loads(text)
         if not isinstance(payload, dict):
-            raise ValueError(f"raw row[{row_index}] `provenance_json` must decode into a JSON object")
+            raise ValueError(
+                f"raw row[{row_index}] `provenance_json` must decode into a JSON object"
+            )
         return {str(key): item for key, item in payload.items()}
     if value is None:
         return {}
@@ -368,7 +403,13 @@ def _deduplicate_raw_rows(rows: list[RawCandle]) -> list[RawCandle]:
             dedup[key] = row
     return sorted(
         dedup.values(),
-        key=lambda item: (item.contract_id, item.instrument_id, item.source_interval, item.ts_open, item.ts_close),
+        key=lambda item: (
+            item.contract_id,
+            item.instrument_id,
+            item.source_interval,
+            item.ts_open,
+            item.ts_close,
+        ),
     )
 
 
@@ -400,7 +441,9 @@ def _group_by_contract(rows: list[RawCandle]) -> dict[tuple[str, str], list[RawC
         key = (row.contract_id, row.instrument_id)
         grouped.setdefault(key, []).append(row)
     for key in grouped:
-        grouped[key] = sorted(grouped[key], key=lambda item: (item.source_interval, item.ts_open, item.ts_close))
+        grouped[key] = sorted(
+            grouped[key], key=lambda item: (item.source_interval, item.ts_open, item.ts_close)
+        )
     return grouped
 
 
@@ -462,7 +505,8 @@ def run_qc_gates(
         previous_ts = last_ts_by_key.get(monotonic_key)
         if previous_ts is not None and bar.ts < previous_ts:
             monotonic_errors.append(
-                f"non-monotonic timeline: {bar.contract_id}/{bar.timeframe.value} ({previous_ts} -> {bar.ts})"
+                "non-monotonic timeline: "
+                f"{bar.contract_id}/{bar.timeframe.value} ({previous_ts} -> {bar.ts})"
             )
         last_ts_by_key[monotonic_key] = bar.ts
 
@@ -471,22 +515,36 @@ def run_qc_gates(
         if bar.low > min(bar.open, bar.close):
             ohlcv_errors.append(f"low violation: {bar.contract_id}/{bar.timeframe.value}/{bar.ts}")
         if bar.volume < 0:
-            ohlcv_errors.append(f"negative volume: {bar.contract_id}/{bar.timeframe.value}/{bar.ts}")
+            ohlcv_errors.append(
+                f"negative volume: {bar.contract_id}/{bar.timeframe.value}/{bar.ts}"
+            )
         if bar.open_interest < 0:
-            ohlcv_errors.append(f"negative open_interest: {bar.contract_id}/{bar.timeframe.value}/{bar.ts}")
+            ohlcv_errors.append(
+                f"negative open_interest: {bar.contract_id}/{bar.timeframe.value}/{bar.ts}"
+            )
 
         provenance = provenance_by_key.get(key)
         if provenance is None:
-            provenance_errors.append(f"missing provenance: {bar.contract_id}/{bar.timeframe.value}/{bar.ts}")
+            provenance_errors.append(
+                f"missing provenance: {bar.contract_id}/{bar.timeframe.value}/{bar.ts}"
+            )
             continue
         if not provenance.source_provider.strip():
-            provenance_errors.append(f"missing source_provider: {bar.contract_id}/{bar.timeframe.value}/{bar.ts}")
+            provenance_errors.append(
+                f"missing source_provider: {bar.contract_id}/{bar.timeframe.value}/{bar.ts}"
+            )
         if not provenance.source_timeframe.strip():
-            provenance_errors.append(f"missing source_timeframe: {bar.contract_id}/{bar.timeframe.value}/{bar.ts}")
+            provenance_errors.append(
+                f"missing source_timeframe: {bar.contract_id}/{bar.timeframe.value}/{bar.ts}"
+            )
         if provenance.source_interval <= 0:
-            provenance_errors.append(f"invalid source_interval: {bar.contract_id}/{bar.timeframe.value}/{bar.ts}")
+            provenance_errors.append(
+                f"invalid source_interval: {bar.contract_id}/{bar.timeframe.value}/{bar.ts}"
+            )
         if not provenance.source_run_id.strip():
-            provenance_errors.append(f"missing source_run_id: {bar.contract_id}/{bar.timeframe.value}/{bar.ts}")
+            provenance_errors.append(
+                f"missing source_run_id: {bar.contract_id}/{bar.timeframe.value}/{bar.ts}"
+            )
         if not provenance.source_ingest_run_id.strip():
             provenance_errors.append(
                 f"missing source_ingest_run_id: {bar.contract_id}/{bar.timeframe.value}/{bar.ts}"
@@ -552,7 +610,9 @@ def run_contract_compatibility_check(
     additional_properties = bool(payload.get("additionalProperties", True))
 
     if not isinstance(required, list) or not isinstance(properties, dict):
-        raise ValueError("canonical_bar.v1 schema must define `required` list and `properties` object")
+        raise ValueError(
+            "canonical_bar.v1 schema must define `required` list and `properties` object"
+        )
 
     required_fields = {str(item) for item in required}
     property_fields = {str(item) for item in properties}
@@ -675,7 +735,9 @@ def _build_snapshot_payload(
     }
     target_timeframe_values = tuple(item.value for item in TARGET_TIMEFRAMES)
     resampling_snapshot = {
-        "counts_by_timeframe": {key: counts_by_timeframe.get(key, 0) for key in target_timeframe_values},
+        "counts_by_timeframe": {
+            key: counts_by_timeframe.get(key, 0) for key in target_timeframe_values
+        },
         "stable_keys": keys,
         "source_intervals_by_timeframe": source_intervals_by_timeframe,
     }
@@ -719,7 +781,39 @@ def _canonical_provenance_key(row: CanonicalProvenance) -> tuple[str, str, str, 
     return (row.contract_id, row.instrument_id, row.timeframe, row.ts)
 
 
-def _canonical_provenance_from_dict(payload: dict[str, object], *, row_index: int) -> CanonicalProvenance:
+def _sample_canonical_keys(
+    keys: set[tuple[str, str, str, str]],
+    *,
+    limit: int = 20,
+) -> list[tuple[str, str, str, str]]:
+    return sorted(keys)[:limit]
+
+
+def _require_complete_scoped_output_keys(
+    *,
+    output_name: str,
+    scoped_keys: set[tuple[str, str, str, str]],
+    affected_keys: set[tuple[str, str, str, str]],
+) -> None:
+    missing_keys = affected_keys - scoped_keys
+    unexpected_keys = scoped_keys - affected_keys
+    if not missing_keys and not unexpected_keys:
+        return
+
+    details: list[str] = []
+    if missing_keys:
+        details.append(f"missing={_sample_canonical_keys(missing_keys)}")
+    if unexpected_keys:
+        details.append(f"unexpected={_sample_canonical_keys(unexpected_keys)}")
+    raise RuntimeError(
+        f"spark canonicalization produced incomplete {output_name} "
+        f"for affected keys: {', '.join(details)}"
+    )
+
+
+def _canonical_provenance_from_dict(
+    payload: dict[str, object], *, row_index: int
+) -> CanonicalProvenance:
     def _require_text(key: str) -> str:
         value = payload.get(key)
         if not isinstance(value, str) or not value.strip():
@@ -751,7 +845,9 @@ def _canonical_provenance_from_dict(payload: dict[str, object], *, row_index: in
     )
 
 
-def _canonical_provenance_from_dict_lenient(payload: dict[str, object], *, row_index: int) -> CanonicalProvenance:
+def _canonical_provenance_from_dict_lenient(
+    payload: dict[str, object], *, row_index: int
+) -> CanonicalProvenance:
     def _text(key: str) -> str:
         value = payload.get(key)
         if value is None:
@@ -789,7 +885,9 @@ def _build_selected_source_interval_map_from_available_intervals(
     available_intervals_by_contract: dict[tuple[str, str], set[int]],
 ) -> dict[tuple[str, str, str], int]:
     selected: dict[tuple[str, str, str], int] = {}
-    for (contract_id, instrument_id), available_intervals in sorted(available_intervals_by_contract.items()):
+    for (contract_id, instrument_id), available_intervals in sorted(
+        available_intervals_by_contract.items()
+    ):
         for timeframe in TARGET_TIMEFRAMES:
             target_minutes = TARGET_MINUTES_BY_TIMEFRAME[timeframe]
             source_interval = _select_source_interval(
@@ -802,7 +900,9 @@ def _build_selected_source_interval_map_from_available_intervals(
     return selected
 
 
-def _build_available_intervals_by_contract(rows: list[RawCandle]) -> dict[tuple[str, str], set[int]]:
+def _build_available_intervals_by_contract(
+    rows: list[RawCandle],
+) -> dict[tuple[str, str], set[int]]:
     grouped_rows = _group_by_contract(rows)
     return {
         (contract_id, instrument_id): {item.source_interval for item in contract_rows}
@@ -836,7 +936,9 @@ def _build_available_intervals_by_contract_from_projection(
             )
         except ValueError:
             continue
-        available_intervals_by_contract.setdefault((contract_id, instrument_id), set()).add(source_interval)
+        available_intervals_by_contract.setdefault((contract_id, instrument_id), set()).add(
+            source_interval
+        )
     return available_intervals_by_contract
 
 
@@ -854,7 +956,9 @@ def _build_resampling_skips_from_available_intervals(
     selected_source_intervals: dict[tuple[str, str, str], int],
 ) -> list[ResamplingSkip]:
     skips: list[ResamplingSkip] = []
-    for (contract_id, instrument_id), available_intervals in sorted(available_intervals_by_contract.items()):
+    for (contract_id, instrument_id), available_intervals in sorted(
+        available_intervals_by_contract.items()
+    ):
         sorted_intervals = tuple(sorted(available_intervals))
         for timeframe in TARGET_TIMEFRAMES:
             if (contract_id, instrument_id, timeframe.value) in selected_source_intervals:
@@ -915,7 +1019,9 @@ def _selected_source_interval_rows(
     selected_source_intervals: dict[tuple[str, str, str], int],
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
-    for (contract_id, instrument_id, timeframe), source_interval in sorted(selected_source_intervals.items()):
+    for (contract_id, instrument_id, timeframe), source_interval in sorted(
+        selected_source_intervals.items()
+    ):
         rows.append(
             {
                 "contract_id": contract_id,
@@ -1021,7 +1127,10 @@ def _prepare_changed_window_scope(raw_windows: list[dict[str, object]]) -> list[
 
 
 def _build_internal_id_filters(internal_ids: set[str]) -> list[list[tuple[str, str, object]]]:
-    return [[("internal_id", "=", internal_id)] for internal_id in sorted(item for item in internal_ids if item)]
+    return [
+        [("internal_id", "=", internal_id)]
+        for internal_id in sorted(item for item in internal_ids if item)
+    ]
 
 
 def _build_scoped_raw_read_filters(
@@ -1111,7 +1220,9 @@ def _scope_raw_rows_to_changed_windows(
             )
         except ValueError:
             continue
-        candidates = windows_by_key.get((internal_id, source_timeframe, source_interval, moex_secid))
+        candidates = windows_by_key.get(
+            (internal_id, source_timeframe, source_interval, moex_secid)
+        )
         if not candidates:
             continue
         ts_close_raw = raw_row.get("ts_close")
@@ -1122,7 +1233,9 @@ def _scope_raw_rows_to_changed_windows(
             start = _parse_iso_utc(window.window_start_utc)
             end = _parse_iso_utc(window.window_end_utc)
             if start <= ts_close <= end:
-                row_signature = json.dumps(raw_row, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                row_signature = json.dumps(
+                    raw_row, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                )
                 dedup_key = (
                     internal_id,
                     source_timeframe,
@@ -1169,7 +1282,9 @@ def _compute_affected_canonical_keys(
     keys: set[tuple[str, str, str, str]] = set()
     for row in scoped_rows:
         for timeframe in TARGET_TIMEFRAMES:
-            expected_interval = selected_source_intervals.get((row.contract_id, row.instrument_id, timeframe.value))
+            expected_interval = selected_source_intervals.get(
+                (row.contract_id, row.instrument_id, timeframe.value)
+            )
             if expected_interval != row.source_interval:
                 continue
             target_minutes = TARGET_MINUTES_BY_TIMEFRAME[timeframe]
@@ -1225,8 +1340,13 @@ def _rows_equal(
 ) -> bool:
     if len(left) != len(right):
         return False
-    left_norm = [json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":")) for item in left]
-    right_norm = [json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":")) for item in right]
+    left_norm = [
+        json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":")) for item in left
+    ]
+    right_norm = [
+        json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        for item in right
+    ]
     return left_norm == right_norm
 
 
@@ -1262,12 +1382,15 @@ def _build_raw_parity_report(
         key = (internal_id, source_timeframe, source_interval, moex_secid, ts_open, ts_close)
         if key in seen_keys:
             duplicate_errors.append(
-                f"duplicate raw key: {internal_id}/{source_timeframe}/{moex_secid}/{source_interval}/{ts_open}/{ts_close}"
+                "duplicate raw key: "
+                f"{internal_id}/{source_timeframe}/{moex_secid}/"
+                f"{source_interval}/{ts_open}/{ts_close}"
             )
         seen_keys.add(key)
         if _parse_iso_utc(ts_close) < _parse_iso_utc(ts_open):
             timestamp_drift_errors.append(
-                f"invalid raw window ordering: {internal_id}/{source_timeframe}/{moex_secid}/{ts_open}->{ts_close}"
+                "invalid raw window ordering: "
+                f"{internal_id}/{source_timeframe}/{moex_secid}/{ts_open}->{ts_close}"
             )
 
     failures: list[str] = []
@@ -1312,7 +1435,9 @@ def _build_canonical_parity_report(
             duplicate_errors.append(f"duplicate canonical key: {key[0]}/{key[2]}/{key[3]}")
         final_by_key[key] = row.to_dict()
         timeframe = Timeframe(str(row.timeframe.value))
-        expected_ts = _floor_to_bucket(row.ts, bucket_minutes=TARGET_MINUTES_BY_TIMEFRAME[timeframe])
+        expected_ts = _floor_to_bucket(
+            row.ts, bucket_minutes=TARGET_MINUTES_BY_TIMEFRAME[timeframe]
+        )
         if expected_ts != row.ts:
             timestamp_drift_errors.append(f"timestamp drift: {key[0]}/{key[2]}/{key[3]}")
 
@@ -1357,7 +1482,9 @@ def _build_canonical_parity_report(
     }
 
 
-def _status_for_publish_decision(*, publish_allowed: bool, changed_windows: list[ChangedWindowScope]) -> str:
+def _status_for_publish_decision(
+    *, publish_allowed: bool, changed_windows: list[ChangedWindowScope]
+) -> str:
     if not publish_allowed:
         return STATUS_BLOCKED
     if not changed_windows:
@@ -1377,7 +1504,9 @@ def run_moex_canonicalization(
         raise ValueError("`raw_ingest_run_report` must be object")
     repo_root = repo_root.resolve() if repo_root else Path(__file__).resolve().parents[5]
     if not has_delta_log(raw_table_path):
-        raise FileNotFoundError(f"canonicalization raw source table missing `_delta_log`: {raw_table_path.as_posix()}")
+        raise FileNotFoundError(
+            f"canonicalization raw source table missing `_delta_log`: {raw_table_path.as_posix()}"
+        )
 
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1399,13 +1528,20 @@ def run_moex_canonicalization(
     raw_report_status = str(raw_ingest_run_report.get("status", "")).strip()
     if raw_report_status not in {STATUS_PASS, STATUS_PASS_NOOP}:
         raise ValueError(
-            "canonicalization requires raw ingest status PASS or PASS-NOOP before canonical execution; "
+            "canonicalization requires raw ingest status PASS or PASS-NOOP "
+            "before canonical execution; "
             f"got `{raw_report_status or 'EMPTY'}`"
         )
     if raw_report_status == STATUS_PASS and not changed_window_scope:
-        raise ValueError("canonicalization scope mismatch: raw ingest status PASS requires non-empty changed_windows")
+        raise ValueError(
+            "canonicalization scope mismatch: raw ingest status PASS requires "
+            "non-empty changed_windows"
+        )
     if raw_report_status == STATUS_PASS_NOOP and changed_window_scope:
-        raise ValueError("canonicalization scope mismatch: raw ingest status PASS-NOOP requires empty changed_windows")
+        raise ValueError(
+            "canonicalization scope mismatch: raw ingest status PASS-NOOP "
+            "requires empty changed_windows"
+        )
 
     source_rows = _report_source_row_count(
         raw_ingest_run_report=raw_ingest_run_report,
@@ -1433,7 +1569,9 @@ def run_moex_canonicalization(
             columns=list(RAW_INTERVAL_PROJECTION_COLUMNS),
             filters=_build_internal_id_filters(affected_internal_ids),
         )
-    available_intervals_by_contract = _build_available_intervals_by_contract_from_projection(interval_projection_rows)
+    available_intervals_by_contract = _build_available_intervals_by_contract_from_projection(
+        interval_projection_rows
+    )
     selected_source_intervals = _build_selected_source_interval_map_from_available_intervals(
         available_intervals_by_contract
     )
@@ -1449,17 +1587,19 @@ def run_moex_canonicalization(
 
     existing_canonical_rows: list[CanonicalBar] = []
     if has_delta_log(bars_path):
-        for row_index, payload in enumerate(read_delta_table_rows(bars_path)):
+        for row_index, payload in enumerate(_iter_delta_rows_for_merge(bars_path)):
             if not isinstance(payload, dict):
                 continue
             existing_canonical_rows.append(CanonicalBar.from_dict(dict(payload)))
 
     existing_provenance_rows: list[CanonicalProvenance] = []
     if has_delta_log(provenance_path):
-        for row_index, payload in enumerate(read_delta_table_rows(provenance_path)):
+        for row_index, payload in enumerate(_iter_delta_rows_for_merge(provenance_path)):
             if not isinstance(payload, dict):
                 continue
-            existing_provenance_rows.append(_canonical_provenance_from_dict(dict(payload), row_index=row_index))
+            existing_provenance_rows.append(
+                _canonical_provenance_from_dict(dict(payload), row_index=row_index)
+            )
 
     scoped_canonical_rows: list[CanonicalBar] = []
     scoped_provenance_rows: list[CanonicalProvenance] = []
@@ -1474,19 +1614,30 @@ def run_moex_canonicalization(
             repo_root=repo_root,
         )
         spark_output_paths = spark_execution_report.get("output_paths", {})
-        if isinstance(spark_output_paths, dict):
-            scoped_bars_path = Path(str(spark_output_paths.get("canonical_bars", "")).strip())
-            scoped_provenance_path = Path(str(spark_output_paths.get("canonical_bar_provenance", "")).strip())
-            if scoped_bars_path.as_posix() and has_delta_log(scoped_bars_path):
-                for payload in read_delta_table_rows(scoped_bars_path):
-                    if isinstance(payload, dict):
-                        scoped_canonical_rows.append(CanonicalBar.from_dict(dict(payload)))
-            if scoped_provenance_path.as_posix() and has_delta_log(scoped_provenance_path):
-                for row_index, payload in enumerate(read_delta_table_rows(scoped_provenance_path)):
-                    if isinstance(payload, dict):
-                        scoped_provenance_rows.append(
-                            _canonical_provenance_from_dict_lenient(dict(payload), row_index=row_index)
-                        )
+        if not isinstance(spark_output_paths, dict):
+            raise ValueError("spark canonicalization report missing `output_paths`")
+        scoped_bars_path = _require_spark_delta_output_path(spark_output_paths, "canonical_bars")
+        scoped_provenance_path = _require_spark_delta_output_path(
+            spark_output_paths, "canonical_bar_provenance"
+        )
+        for payload in _iter_delta_rows_for_merge(scoped_bars_path):
+            if isinstance(payload, dict):
+                scoped_canonical_rows.append(CanonicalBar.from_dict(dict(payload)))
+        for row_index, payload in enumerate(_iter_delta_rows_for_merge(scoped_provenance_path)):
+            if isinstance(payload, dict):
+                scoped_provenance_rows.append(
+                    _canonical_provenance_from_dict_lenient(dict(payload), row_index=row_index)
+                )
+        _require_complete_scoped_output_keys(
+            output_name="canonical bars",
+            scoped_keys={_canonical_bar_key(row) for row in scoped_canonical_rows},
+            affected_keys=affected_keys,
+        )
+        _require_complete_scoped_output_keys(
+            output_name="canonical provenance",
+            scoped_keys={_canonical_provenance_key(row) for row in scoped_provenance_rows},
+            affected_keys=affected_keys,
+        )
 
     canonical_rows = _merge_scoped_canonical_rows(
         existing_rows=existing_canonical_rows,
@@ -1560,7 +1711,12 @@ def run_moex_canonicalization(
         item.to_dict()
         for item in sorted(
             existing_canonical_rows,
-            key=lambda entry: (entry.contract_id, entry.instrument_id, entry.timeframe.value, entry.ts),
+            key=lambda entry: (
+                entry.contract_id,
+                entry.instrument_id,
+                entry.timeframe.value,
+                entry.ts,
+            ),
         )
     ]
     existing_provenance_payload = [
@@ -1581,15 +1737,17 @@ def run_moex_canonicalization(
     )
 
     if mutation_required:
-        write_delta_table_rows(
+        write_delta_table_row_batches(
             table_path=bars_path,
-            rows=canonical_rows_payload,
+            row_batches=_chunk_delta_row_payloads(canonical_rows_payload, chunk_size=65_536),
             columns=CANONICAL_BAR_COLUMNS,
+            max_rows_per_delta_write=65_536,
         )
-        write_delta_table_rows(
+        write_delta_table_row_batches(
             table_path=provenance_path,
-            rows=provenance_rows_payload,
+            row_batches=_chunk_delta_row_payloads(provenance_rows_payload, chunk_size=65_536),
             columns=PROVENANCE_COLUMNS,
+            max_rows_per_delta_write=65_536,
         )
 
     output_paths: dict[str, str] = {}

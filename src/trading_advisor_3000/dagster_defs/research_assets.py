@@ -19,13 +19,18 @@ from dagster import (
 )
 
 from trading_advisor_3000.product_plane.contracts import CanonicalBar
-from trading_advisor_3000.product_plane.data_plane.canonical import RollMapEntry, SessionCalendarEntry
+from trading_advisor_3000.product_plane.data_plane.canonical import (
+    RollMapEntry,
+    SessionCalendarEntry,
+)
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
     ensure_delta_table_columns,
     has_delta_log,
+    iter_delta_table_row_batches,
     read_delta_table_frame,
     read_delta_table_rows,
+    read_filtered_delta_table_rows,
     write_delta_table_rows,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
@@ -65,17 +70,21 @@ from trading_advisor_3000.product_plane.research.derived_indicators import (
     research_derived_indicator_store_contract,
 )
 from trading_advisor_3000.product_plane.research.indicators import (
-    materialize_indicator_frames,
     indicator_store_contract,
+    materialize_indicator_frames,
 )
-from trading_advisor_3000.product_plane.research.registry_store import registry_output_paths, research_registry_root
+from trading_advisor_3000.product_plane.research.registry_store import (
+    registry_output_paths,
+    research_registry_root,
+)
+from trading_advisor_3000.product_plane.research.strategies.families import (
+    phase_stg02_family_adapters,
+)
 from trading_advisor_3000.product_plane.research.strategy_space import prepare_strategy_space
-from trading_advisor_3000.product_plane.research.strategies.families import phase_stg02_family_adapters
 from trading_advisor_3000.spark_jobs import run_continuous_front_spark_job
 
-from .moex_historical_assets import MOEX_BASELINE_UPDATE_JOB_NAME, moex_baseline_update_job
 from .historical_data_proof_assets import AssetSpec
-
+from .moex_historical_assets import MOEX_BASELINE_UPDATE_JOB_NAME, moex_baseline_update_job
 
 RESEARCH_DATA_PREP_JOB_NAME = "research_data_prep_job"
 STRATEGY_REGISTRY_REFRESH_JOB_NAME = "strategy_registry_refresh_job"
@@ -88,7 +97,9 @@ RESEARCH_DATA_PREP_MATERIALIZED_OUTPUT_DIR_ENV = "TA3000_RESEARCH_DATA_PREP_MATE
 RESEARCH_DATA_PREP_RESULTS_OUTPUT_DIR_ENV = "TA3000_RESEARCH_DATA_PREP_RESULTS_OUTPUT_DIR"
 RESEARCH_DATA_PREP_DATASET_VERSION_ENV = "TA3000_RESEARCH_DATA_PREP_DATASET_VERSION"
 RESEARCH_DATA_PREP_TIMEFRAMES_ENV = "TA3000_RESEARCH_DATA_PREP_TIMEFRAMES"
-RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_ENV = "TA3000_RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_JSON"
+RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_ENV = (
+    "TA3000_RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_JSON"
+)
 
 DEFAULT_MOEX_HISTORICAL_DATA_ROOT = Path("D:/TA3000-data/trading-advisor-3000-nightly")
 DEFAULT_RESEARCH_DATA_PREP_CANONICAL_OUTPUT_DIR = (
@@ -147,9 +158,7 @@ RESEARCH_BACKTEST_ASSETS = (
     "research_strategy_rankings",
 )
 
-RESEARCH_PROJECTION_ASSETS = (
-    "research_signal_candidates",
-)
+RESEARCH_PROJECTION_ASSETS = ("research_signal_candidates",)
 
 RESEARCH_ASSET_KEYS = (
     *RESEARCH_DATA_PREP_ASSETS,
@@ -171,7 +180,11 @@ RESEARCH_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     "research_instrument_tree": ("research_datasets",),
     "research_bar_views": ("research_datasets",),
     "research_indicator_frames": ("research_datasets", "research_bar_views"),
-    "research_derived_indicator_frames": ("research_datasets", "research_bar_views", "research_indicator_frames"),
+    "research_derived_indicator_frames": (
+        "research_datasets",
+        "research_bar_views",
+        "research_indicator_frames",
+    ),
     "research_strategy_families": ("research_datasets",),
     "research_strategy_templates": ("research_strategy_families",),
     "research_strategy_template_modules": ("research_strategy_templates",),
@@ -194,8 +207,16 @@ RESEARCH_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     "research_trade_records": ("research_backtest_batches",),
     "research_order_records": ("research_backtest_batches",),
     "research_drawdown_records": ("research_backtest_batches",),
-    "research_strategy_rankings": ("research_backtest_runs", "research_strategy_stats", "research_trade_records"),
-    "research_signal_candidates": ("research_datasets", "research_derived_indicator_frames", "research_strategy_rankings"),
+    "research_strategy_rankings": (
+        "research_backtest_runs",
+        "research_strategy_stats",
+        "research_trade_records",
+    ),
+    "research_signal_candidates": (
+        "research_datasets",
+        "research_derived_indicator_frames",
+        "research_strategy_rankings",
+    ),
 }
 
 
@@ -203,8 +224,15 @@ def research_asset_specs() -> list[AssetSpec]:
     return [
         AssetSpec(
             key="continuous_front_bars",
-            description="Materialize causal continuous-front bars from canonical bars after canonical refresh.",
-            inputs=("canonical_bars_delta", "canonical_session_calendar_delta", "canonical_roll_map_delta"),
+            description=(
+                "Materialize causal continuous-front bars from canonical bars after "
+                "canonical refresh."
+            ),
+            inputs=(
+                "canonical_bars_delta",
+                "canonical_session_calendar_delta",
+                "canonical_roll_map_delta",
+            ),
             outputs=("continuous_front_bars_delta",),
         ),
         AssetSpec(
@@ -215,13 +243,17 @@ def research_asset_specs() -> list[AssetSpec]:
         ),
         AssetSpec(
             key="continuous_front_adjustment_ladder",
-            description="Expose the as-of additive adjustment ladder consumed by research materialization.",
+            description=(
+                "Expose the as-of additive adjustment ladder consumed by research materialization."
+            ),
             inputs=("continuous_front_bars_delta",),
             outputs=("continuous_front_adjustment_ladder_delta",),
         ),
         AssetSpec(
             key="continuous_front_qc_report",
-            description="Publish fail-closed QC for each continuous-front run/instrument/timeframe.",
+            description=(
+                "Publish fail-closed QC for each continuous-front run/instrument/timeframe."
+            ),
             inputs=(
                 "continuous_front_bars_delta",
                 "continuous_front_roll_events_delta",
@@ -231,7 +263,10 @@ def research_asset_specs() -> list[AssetSpec]:
         ),
         AssetSpec(
             key="research_datasets",
-            description="Materialize versioned research dataset manifests from canonical or continuous-front bars.",
+            description=(
+                "Materialize versioned research dataset manifests from canonical or "
+                "continuous-front bars."
+            ),
             inputs=(
                 "continuous_front_qc_report_delta",
                 "canonical_bars_delta",
@@ -242,7 +277,10 @@ def research_asset_specs() -> list[AssetSpec]:
         ),
         AssetSpec(
             key="research_instrument_tree",
-            description="Materialize the dataset-scoped instrument tree with instrument, contract, timeframe, and lineage coverage.",
+            description=(
+                "Materialize the dataset-scoped instrument tree with instrument, "
+                "contract, timeframe, and lineage coverage."
+            ),
             inputs=("research_datasets_delta",),
             outputs=("research_instrument_tree_delta",),
         ),
@@ -260,25 +298,39 @@ def research_asset_specs() -> list[AssetSpec]:
         ),
         AssetSpec(
             key="research_derived_indicator_frames",
-            description="Materialize causal technical relationships from research bars and base indicators.",
-            inputs=("research_datasets_delta", "research_bar_views_delta", "research_indicator_frames_delta"),
+            description=(
+                "Materialize causal technical relationships from research bars and base indicators."
+            ),
+            inputs=(
+                "research_datasets_delta",
+                "research_bar_views_delta",
+                "research_indicator_frames_delta",
+            ),
             outputs=("research_derived_indicator_frames_delta",),
         ),
         AssetSpec(
             key="research_strategy_families",
-            description="Materialize Stage 2 strategy family registry rows from the frozen adapter inventory.",
+            description=(
+                "Materialize Stage 2 strategy family registry rows from the frozen "
+                "adapter inventory."
+            ),
             inputs=("research_datasets_delta",),
             outputs=("research_strategy_families_delta",),
         ),
         AssetSpec(
             key="research_strategy_templates",
-            description="Materialize Stage 2 strategy template registry rows emitted by compiler adapters.",
+            description=(
+                "Materialize Stage 2 strategy template registry rows emitted by compiler adapters."
+            ),
             inputs=("research_strategy_families_delta",),
             outputs=("research_strategy_templates_delta",),
         ),
         AssetSpec(
             key="research_strategy_template_modules",
-            description="Materialize Stage 2 strategy template-module rows with deterministic adapter provenance.",
+            description=(
+                "Materialize Stage 2 strategy template-module rows with "
+                "deterministic adapter provenance."
+            ),
             inputs=("research_strategy_templates_delta",),
             outputs=("research_strategy_template_modules_delta",),
         ),
@@ -295,19 +347,28 @@ def research_asset_specs() -> list[AssetSpec]:
         ),
         AssetSpec(
             key="research_strategy_search_specs",
-            description="Expose family-level StrategyFamilySearchSpec rows used by vectorbt parametric search.",
+            description=(
+                "Expose family-level StrategyFamilySearchSpec rows used by vectorbt "
+                "parametric search."
+            ),
             inputs=("research_backtest_batches_delta",),
             outputs=("research_strategy_search_specs_delta",),
         ),
         AssetSpec(
             key="research_vbt_search_runs",
-            description="Expose vectorbt family-search run rows grouped by search spec, clock, dataset, and chunk.",
+            description=(
+                "Expose vectorbt family-search run rows grouped by search spec, "
+                "clock, dataset, and chunk."
+            ),
             inputs=("research_backtest_batches_delta",),
             outputs=("research_vbt_search_runs_delta",),
         ),
         AssetSpec(
             key="research_optimizer_studies",
-            description="Expose Delta-first optimizer study provenance for adaptive family-search campaigns.",
+            description=(
+                "Expose Delta-first optimizer study provenance for adaptive "
+                "family-search campaigns."
+            ),
             inputs=("research_backtest_batches_delta",),
             outputs=("research_optimizer_studies_delta",),
         ),
@@ -331,13 +392,18 @@ def research_asset_specs() -> list[AssetSpec]:
         ),
         AssetSpec(
             key="research_vbt_ephemeral_indicator_cache",
-            description="Expose metadata for ephemeral vectorbt indicator inputs used by search surfaces.",
+            description=(
+                "Expose metadata for ephemeral vectorbt indicator inputs used by search surfaces."
+            ),
             inputs=("research_backtest_batches_delta",),
             outputs=("research_vbt_ephemeral_indicator_cache_delta",),
         ),
         AssetSpec(
             key="research_strategy_promotion_events",
-            description="Expose post-ranking promotion events from param_hash rows into StrategyInstance records.",
+            description=(
+                "Expose post-ranking promotion events from param_hash rows into "
+                "StrategyInstance records."
+            ),
             inputs=("research_backtest_batches_delta",),
             outputs=("research_strategy_promotion_events_delta",),
         ),
@@ -373,14 +439,25 @@ def research_asset_specs() -> list[AssetSpec]:
         ),
         AssetSpec(
             key="research_strategy_rankings",
-            description="Rank strategy variants over materialized backtest results using Stage 6 robustness policy.",
-            inputs=("research_backtest_runs_delta", "research_strategy_stats_delta", "research_trade_records_delta"),
+            description=(
+                "Rank strategy variants over materialized backtest results using "
+                "Stage 6 robustness policy."
+            ),
+            inputs=(
+                "research_backtest_runs_delta",
+                "research_strategy_stats_delta",
+                "research_trade_records_delta",
+            ),
             outputs=("research_strategy_rankings_delta",),
         ),
         AssetSpec(
             key="research_signal_candidates",
             description="Project runtime-compatible candidates from ranked research results.",
-            inputs=("research_datasets_delta", "research_derived_indicator_frames_delta", "research_strategy_rankings_delta"),
+            inputs=(
+                "research_datasets_delta",
+                "research_derived_indicator_frames_delta",
+                "research_strategy_rankings_delta",
+            ),
             outputs=("research_signal_candidates_delta",),
         ),
     ]
@@ -388,7 +465,9 @@ def research_asset_specs() -> list[AssetSpec]:
 
 def _default_strategy_space() -> dict[str, object]:
     return {
-        "family_keys": [adapter.family_manifest.family_key for adapter in phase_stg02_family_adapters()],
+        "family_keys": [
+            adapter.family_manifest.family_key for adapter in phase_stg02_family_adapters()
+        ],
         "template_ids": [],
         "exclude_template_manifest_hashes": [],
         "max_parameter_combinations": 250000,
@@ -460,7 +539,19 @@ def _config_value(config: dict[str, object], key: str, default: object | None = 
 
 
 def _canonical_table_path(config: dict[str, object], table_name: str) -> Path:
-    return Path(str(_config_value(config, "canonical_output_dir"))).resolve() / f"{table_name}.delta"
+    return (
+        Path(str(_config_value(config, "canonical_output_dir"))).resolve() / f"{table_name}.delta"
+    )
+
+
+def _read_canonical_context_rows(
+    table_path: Path,
+    *,
+    filters: list[tuple[str, str, object]] | None,
+) -> list[dict[str, object]]:
+    if filters:
+        return read_filtered_delta_table_rows(table_path, filters=filters)
+    return [row for batch in iter_delta_table_row_batches(table_path) for row in batch]
 
 
 def _resolve_research_output_dirs(
@@ -472,54 +563,95 @@ def _resolve_research_output_dirs(
     if research_output_dir is not None:
         if materialized_output_dir is not None or results_output_dir is not None:
             raise ValueError(
-                "research_output_dir cannot be combined with materialized_output_dir/results_output_dir"
+                "research_output_dir cannot be combined with "
+                "materialized_output_dir/results_output_dir"
             )
         resolved_root = research_output_dir.resolve()
         return resolved_root, resolved_root
     if materialized_output_dir is None or results_output_dir is None:
         raise ValueError(
-            "materialized_output_dir and results_output_dir are both required when research_output_dir is omitted"
+            "materialized_output_dir and results_output_dir are both required "
+            "when research_output_dir is omitted"
         )
     return materialized_output_dir.resolve(), results_output_dir.resolve()
 
 
-def _research_output_paths(*, registry_root: Path, materialized_output_dir: Path, results_output_dir: Path) -> dict[str, str]:
+def _research_output_paths(
+    *, registry_root: Path, materialized_output_dir: Path, results_output_dir: Path
+) -> dict[str, str]:
     resolved_materialized = materialized_output_dir.resolve()
     resolved_results = results_output_dir.resolve()
     registry_paths = registry_output_paths(registry_root=registry_root)
     return {
-        **{table_name: registry_paths[table_name] for table_name in STRATEGY_REGISTRY_REFRESH_ASSETS},
+        **{
+            table_name: registry_paths[table_name]
+            for table_name in STRATEGY_REGISTRY_REFRESH_ASSETS
+        },
         "continuous_front_bars": (resolved_materialized / "continuous_front_bars.delta").as_posix(),
-        "continuous_front_roll_events": (resolved_materialized / "continuous_front_roll_events.delta").as_posix(),
+        "continuous_front_roll_events": (
+            resolved_materialized / "continuous_front_roll_events.delta"
+        ).as_posix(),
         "continuous_front_adjustment_ladder": (
             resolved_materialized / "continuous_front_adjustment_ladder.delta"
         ).as_posix(),
-        "continuous_front_qc_report": (resolved_materialized / "continuous_front_qc_report.delta").as_posix(),
+        "continuous_front_qc_report": (
+            resolved_materialized / "continuous_front_qc_report.delta"
+        ).as_posix(),
         "research_datasets": (resolved_materialized / "research_datasets.delta").as_posix(),
-        "research_instrument_tree": (resolved_materialized / "research_instrument_tree.delta").as_posix(),
+        "research_instrument_tree": (
+            resolved_materialized / "research_instrument_tree.delta"
+        ).as_posix(),
         "research_bar_views": (resolved_materialized / "research_bar_views.delta").as_posix(),
-        "research_indicator_frames": (resolved_materialized / "research_indicator_frames.delta").as_posix(),
-        "research_derived_indicator_frames": (resolved_materialized / "research_derived_indicator_frames.delta").as_posix(),
+        "research_indicator_frames": (
+            resolved_materialized / "research_indicator_frames.delta"
+        ).as_posix(),
+        "research_derived_indicator_frames": (
+            resolved_materialized / "research_derived_indicator_frames.delta"
+        ).as_posix(),
         **{
             table_name: (resolved_materialized / f"{table_name}.delta").as_posix()
             for table_name in CF_INDICATOR_TABLES
         },
-        "research_strategy_search_specs": (resolved_results / "research_strategy_search_specs.delta").as_posix(),
-        "research_vbt_search_runs": (resolved_results / "research_vbt_search_runs.delta").as_posix(),
-        "research_optimizer_studies": (resolved_results / "research_optimizer_studies.delta").as_posix(),
-        "research_optimizer_trials": (resolved_results / "research_optimizer_trials.delta").as_posix(),
-        "research_vbt_param_results": (resolved_results / "research_vbt_param_results.delta").as_posix(),
-        "research_vbt_param_gate_events": (resolved_results / "research_vbt_param_gate_events.delta").as_posix(),
-        "research_vbt_ephemeral_indicator_cache": (resolved_results / "research_vbt_ephemeral_indicator_cache.delta").as_posix(),
-        "research_strategy_promotion_events": (resolved_results / "research_strategy_promotion_events.delta").as_posix(),
-        "research_backtest_batches": (resolved_results / "research_backtest_batches.delta").as_posix(),
+        "research_strategy_search_specs": (
+            resolved_results / "research_strategy_search_specs.delta"
+        ).as_posix(),
+        "research_vbt_search_runs": (
+            resolved_results / "research_vbt_search_runs.delta"
+        ).as_posix(),
+        "research_optimizer_studies": (
+            resolved_results / "research_optimizer_studies.delta"
+        ).as_posix(),
+        "research_optimizer_trials": (
+            resolved_results / "research_optimizer_trials.delta"
+        ).as_posix(),
+        "research_vbt_param_results": (
+            resolved_results / "research_vbt_param_results.delta"
+        ).as_posix(),
+        "research_vbt_param_gate_events": (
+            resolved_results / "research_vbt_param_gate_events.delta"
+        ).as_posix(),
+        "research_vbt_ephemeral_indicator_cache": (
+            resolved_results / "research_vbt_ephemeral_indicator_cache.delta"
+        ).as_posix(),
+        "research_strategy_promotion_events": (
+            resolved_results / "research_strategy_promotion_events.delta"
+        ).as_posix(),
+        "research_backtest_batches": (
+            resolved_results / "research_backtest_batches.delta"
+        ).as_posix(),
         "research_backtest_runs": (resolved_results / "research_backtest_runs.delta").as_posix(),
         "research_strategy_stats": (resolved_results / "research_strategy_stats.delta").as_posix(),
         "research_trade_records": (resolved_results / "research_trade_records.delta").as_posix(),
         "research_order_records": (resolved_results / "research_order_records.delta").as_posix(),
-        "research_drawdown_records": (resolved_results / "research_drawdown_records.delta").as_posix(),
-        "research_strategy_rankings": (resolved_results / "research_strategy_rankings.delta").as_posix(),
-        "research_signal_candidates": (resolved_results / "research_signal_candidates.delta").as_posix(),
+        "research_drawdown_records": (
+            resolved_results / "research_drawdown_records.delta"
+        ).as_posix(),
+        "research_strategy_rankings": (
+            resolved_results / "research_strategy_rankings.delta"
+        ).as_posix(),
+        "research_signal_candidates": (
+            resolved_results / "research_signal_candidates.delta"
+        ).as_posix(),
         "research_run_findings": (resolved_results / "research_run_findings.delta").as_posix(),
     }
 
@@ -595,7 +727,8 @@ def _write_contract_mode_continuous_front_placeholders(
         "output_paths": output_paths,
         "staged_output_paths": {},
         "rows_by_table": {
-            table_name: count_delta_table_rows(Path(path)) for table_name, path in output_paths.items()
+            table_name: count_delta_table_rows(Path(path))
+            for table_name, path in output_paths.items()
         },
         "qc_rows": [qc_row],
         "contract_check_errors": [],
@@ -620,7 +753,12 @@ def _require_delta_table_row(
     table_name: str,
     filters: list[tuple[str, str, object]],
 ) -> None:
-    if _delta_table_filtered_row_count(table_path=table_path, table_name=table_name, filters=filters) == 0:
+    if (
+        _delta_table_filtered_row_count(
+            table_path=table_path, table_name=table_name, filters=filters
+        )
+        == 0
+    ):
         criteria = ", ".join(f"{column}{operator}{value}" for column, operator, value in filters)
         raise RuntimeError(f"missing reusable `{table_name}` row matching {criteria}")
 
@@ -706,7 +844,9 @@ def _require_existing_data_prep(
     )
 
 
-def _dataset_manifest_row(*, materialized_output_dir: Path, dataset_version: str) -> dict[str, object]:
+def _dataset_manifest_row(
+    *, materialized_output_dir: Path, dataset_version: str
+) -> dict[str, object]:
     rows = read_delta_table_rows(
         materialized_output_dir / "research_datasets.delta",
         columns=list(research_dataset_store_contract()["research_datasets"]["columns"]),
@@ -717,7 +857,9 @@ def _dataset_manifest_row(*, materialized_output_dir: Path, dataset_version: str
     return dict(rows[0])
 
 
-def _materialized_table_manifest(research_datasets: dict[str, object], table_name: str) -> dict[str, object]:
+def _materialized_table_manifest(
+    research_datasets: dict[str, object], table_name: str
+) -> dict[str, object]:
     output_paths = research_datasets.get("output_paths", {})
     if isinstance(output_paths, Mapping) and table_name in output_paths:
         table_path = Path(str(output_paths[table_name]))
@@ -731,7 +873,9 @@ def _materialized_table_manifest(research_datasets: dict[str, object], table_nam
     }
 
 
-def _load_canonical_context(config: dict[str, object]) -> tuple[list[CanonicalBar], list[SessionCalendarEntry], list[RollMapEntry]]:
+def _load_canonical_context(
+    config: dict[str, object],
+) -> tuple[list[CanonicalBar], list[SessionCalendarEntry], list[RollMapEntry]]:
     bars_path = _canonical_table_path(config, "canonical_bars")
     calendar_path = _canonical_table_path(config, "canonical_session_calendar")
     roll_map_path = _canonical_table_path(config, "canonical_roll_map")
@@ -770,7 +914,7 @@ def _load_canonical_context(config: dict[str, object]) -> tuple[list[CanonicalBa
             session_open_ts=str(row["session_open_ts"]),
             session_close_ts=str(row["session_close_ts"]),
         )
-        for row in read_delta_table_rows(calendar_path, filters=calendar_filters or None)
+        for row in _read_canonical_context_rows(calendar_path, filters=calendar_filters or None)
         if (
             (not instrument_ids or str(row.get("instrument_id")) in instrument_ids)
             and (not timeframe_set or str(row.get("timeframe")) in timeframe_set)
@@ -806,7 +950,7 @@ def _load_canonical_context(config: dict[str, object]) -> tuple[list[CanonicalBa
             roll_map_filters.append(roll_map_instrument_filter)
         bars = [
             CanonicalBar.from_dict(row)
-            for row in read_delta_table_rows(bars_path, filters=bar_filters or None)
+            for row in _read_canonical_context_rows(bars_path, filters=bar_filters or None)
             if (
                 (not contract_ids or str(row.get("contract_id")) in contract_ids)
                 and (not instrument_ids or str(row.get("instrument_id")) in instrument_ids)
@@ -822,7 +966,7 @@ def _load_canonical_context(config: dict[str, object]) -> tuple[list[CanonicalBa
                 active_contract_id=str(row["active_contract_id"]),
                 reason=str(row["reason"]),
             )
-            for row in read_delta_table_rows(roll_map_path, filters=roll_map_filters or None)
+            for row in _read_canonical_context_rows(roll_map_path, filters=roll_map_filters or None)
             if not instrument_ids or str(row.get("instrument_id")) in instrument_ids
         ]
     return bars, session_calendar, roll_map
@@ -833,7 +977,9 @@ def _seed_manifest(config: dict[str, object]) -> ResearchDatasetManifest:
     return ResearchDatasetManifest(
         dataset_version=str(_config_value(config, "dataset_version")),
         dataset_name=str(_config_value(config, "dataset_name", "research-materialized")),
-        source_table="continuous_front_bars" if series_mode == "continuous_front" else "canonical_bars",
+        source_table="continuous_front_bars"
+        if series_mode == "continuous_front"
+        else "canonical_bars",
         universe_id=str(_config_value(config, "universe_id", "moex-futures")),
         timeframes=tuple(str(item) for item in _config_value(config, "timeframes")),
         base_timeframe=str(_config_value(config, "base_timeframe", "15m")),
@@ -842,13 +988,17 @@ def _seed_manifest(config: dict[str, object]) -> ResearchDatasetManifest:
         series_mode=series_mode,  # type: ignore[arg-type]
         split_method=str(_config_value(config, "split_method", "holdout")),  # type: ignore[arg-type]
         warmup_bars=int(_config_value(config, "warmup_bars", 200)),
-        source_tables=CONTINUOUS_FRONT_TABLES if series_mode == "continuous_front" else (
+        source_tables=CONTINUOUS_FRONT_TABLES
+        if series_mode == "continuous_front"
+        else (
             "canonical_bars",
             "canonical_session_calendar",
             "canonical_roll_map",
         ),
         continuous_front_policy=(
-            ContinuousFrontPolicy.from_config(dict(_config_value(config, "continuous_front_policy", {})))
+            ContinuousFrontPolicy.from_config(
+                dict(_config_value(config, "continuous_front_policy", {}))
+            )
             if series_mode == "continuous_front"
             else None
         ),
@@ -862,18 +1012,24 @@ def continuous_front_bars(context) -> dict[str, object]:
     materialized_output_dir = _materialized_output_dir(config)
     dataset_version = str(_config_value(config, "dataset_version"))
     series_mode = str(_config_value(config, "series_mode", "contract"))
-    policy = ContinuousFrontPolicy.from_config(dict(_config_value(config, "continuous_front_policy", {})))
+    policy = ContinuousFrontPolicy.from_config(
+        dict(_config_value(config, "continuous_front_policy", {}))
+    )
     run_id = str(_config_value(config, "campaign_run_id", "continuous_front_refresh"))
     if series_mode == "continuous_front":
         report = run_continuous_front_spark_job(
             dataset_version=dataset_version,
             canonical_bars_path=_canonical_table_path(config, "canonical_bars"),
-            canonical_session_calendar_path=_canonical_table_path(config, "canonical_session_calendar"),
+            canonical_session_calendar_path=_canonical_table_path(
+                config, "canonical_session_calendar"
+            ),
             canonical_roll_map_path=_canonical_table_path(config, "canonical_roll_map"),
             output_dir=materialized_output_dir,
             policy=policy,
             run_id=run_id,
-            instrument_ids=tuple(str(item) for item in _config_value(config, "dataset_instrument_ids", [])),
+            instrument_ids=tuple(
+                str(item) for item in _config_value(config, "dataset_instrument_ids", [])
+            ),
             timeframes=tuple(str(item) for item in _config_value(config, "timeframes", [])),
             start_ts=str(_config_value(config, "start_ts", "")) or None,
             end_ts=str(_config_value(config, "end_ts", "")) or None,
@@ -906,7 +1062,9 @@ def continuous_front_roll_events(continuous_front_bars: dict[str, object]) -> di
 
 
 @asset(group_name="research")
-def continuous_front_adjustment_ladder(continuous_front_bars: dict[str, object]) -> dict[str, object]:
+def continuous_front_adjustment_ladder(
+    continuous_front_bars: dict[str, object],
+) -> dict[str, object]:
     materialized_output_dir = Path(str(continuous_front_bars["materialized_output_dir"]))
     return _delta_table_summary(
         table_path=materialized_output_dir / "continuous_front_adjustment_ladder.delta",
@@ -945,7 +1103,9 @@ def research_datasets(context, continuous_front_qc_report: dict[str, object]) ->
     dataset_version = str(_config_value(config, "dataset_version"))
     indicator_set_version = str(_config_value(config, "indicator_set_version", "indicators-v1"))
     derived_indicator_set_version = str(
-        _config_value(config, "derived_indicator_set_version", DEFAULT_DERIVED_INDICATOR_SET_VERSION)
+        _config_value(
+            config, "derived_indicator_set_version", DEFAULT_DERIVED_INDICATOR_SET_VERSION
+        )
     )
 
     if _reuse_existing_materialization(config):
@@ -971,9 +1131,15 @@ def research_datasets(context, continuous_front_qc_report: dict[str, object]) ->
                 filters=[("dataset_version", "=", dataset_version)],
             ),
             "output_paths": {
-                "research_datasets": (materialized_output_dir / "research_datasets.delta").as_posix(),
-                "research_instrument_tree": (materialized_output_dir / "research_instrument_tree.delta").as_posix(),
-                "research_bar_views": (materialized_output_dir / "research_bar_views.delta").as_posix(),
+                "research_datasets": (
+                    materialized_output_dir / "research_datasets.delta"
+                ).as_posix(),
+                "research_instrument_tree": (
+                    materialized_output_dir / "research_instrument_tree.delta"
+                ).as_posix(),
+                "research_bar_views": (
+                    materialized_output_dir / "research_bar_views.delta"
+                ).as_posix(),
             },
         }
     else:
@@ -992,7 +1158,9 @@ def research_datasets(context, continuous_front_qc_report: dict[str, object]) ->
         else {"engine": "grid"}
     )
     return {
-        "canonical_output_dir": Path(str(_config_value(config, "canonical_output_dir"))).resolve().as_posix(),
+        "canonical_output_dir": Path(str(_config_value(config, "canonical_output_dir")))
+        .resolve()
+        .as_posix(),
         "registry_root": registry_root.as_posix(),
         "materialized_output_dir": materialized_output_dir.as_posix(),
         "results_output_dir": results_output_dir.as_posix(),
@@ -1000,18 +1168,32 @@ def research_datasets(context, continuous_front_qc_report: dict[str, object]) ->
         "campaign_run_id": str(_config_value(config, "campaign_run_id")),
         "dataset_version": dataset_version,
         "indicator_set_version": indicator_set_version,
-        "indicator_profile_version": str(_config_value(config, "indicator_profile_version", "core_v1")),
+        "indicator_profile_version": str(
+            _config_value(config, "indicator_profile_version", "core_v1")
+        ),
         "derived_indicator_set_version": derived_indicator_set_version,
-        "derived_indicator_profile_version": str(_config_value(config, "derived_indicator_profile_version", "core_v1")),
+        "derived_indicator_profile_version": str(
+            _config_value(config, "derived_indicator_profile_version", "core_v1")
+        ),
         "backtest_request": {
             "strategy_space_id": str(_config_value(config, "strategy_space_id")),
             "search_specs": [dict(item) for item in _config_value(config, "search_specs", [])],
             "combination_count": int(_config_value(config, "combination_count", 1)),
             "param_batch_size": int(_config_value(config, "param_batch_size", 25)),
             "series_batch_size": int(_config_value(config, "series_batch_size", 4)),
-            "timeframe": str(_config_value(config, "backtest_timeframe", str(_config_value(config, "base_timeframe", "15m")))),
-            "contract_ids": tuple(str(item) for item in _config_value(config, "backtest_contract_ids", [])),
-            "instrument_ids": tuple(str(item) for item in _config_value(config, "backtest_instrument_ids", [])),
+            "timeframe": str(
+                _config_value(
+                    config,
+                    "backtest_timeframe",
+                    str(_config_value(config, "base_timeframe", "15m")),
+                )
+            ),
+            "contract_ids": tuple(
+                str(item) for item in _config_value(config, "backtest_contract_ids", [])
+            ),
+            "instrument_ids": tuple(
+                str(item) for item in _config_value(config, "backtest_instrument_ids", [])
+            ),
             "optimizer_policy": optimizer_policy,
         },
         "engine_config": {
@@ -1022,19 +1204,34 @@ def research_datasets(context, continuous_front_qc_report: dict[str, object]) ->
         },
         "ranking_policy": {
             "policy_id": str(_config_value(config, "ranking_policy_id", "robust_oos_v1")),
-            "metric_order": tuple(str(item) for item in _config_value(config, "ranking_metric_order", ("total_return", "profit_factor", "max_drawdown"))),
-            "require_out_of_sample_pass": bool(_config_value(config, "require_out_of_sample_pass", True)),
+            "metric_order": tuple(
+                str(item)
+                for item in _config_value(
+                    config,
+                    "ranking_metric_order",
+                    ("total_return", "profit_factor", "max_drawdown"),
+                )
+            ),
+            "require_out_of_sample_pass": bool(
+                _config_value(config, "require_out_of_sample_pass", True)
+            ),
             "min_trade_count": int(_config_value(config, "min_trade_count", 4)),
             "min_fold_count": int(_config_value(config, "min_fold_count", 1)),
             "max_drawdown_cap": float(_config_value(config, "max_drawdown_cap", 0.35)),
             "min_positive_fold_ratio": float(_config_value(config, "min_positive_fold_ratio", 0.5)),
             "stress_slippage_bps": float(_config_value(config, "stress_slippage_bps", 7.5)),
-            "min_parameter_stability": float(_config_value(config, "min_parameter_stability", 0.35)),
+            "min_parameter_stability": float(
+                _config_value(config, "min_parameter_stability", 0.35)
+            ),
             "min_slippage_score": float(_config_value(config, "min_slippage_score", 0.45)),
         },
         "projection_request": {
-            "selection_policy": str(_config_value(config, "selection_policy", "top_robust_per_series")),
-            "max_candidates_per_partition": int(_config_value(config, "max_candidates_per_partition", 1)),
+            "selection_policy": str(
+                _config_value(config, "selection_policy", "top_robust_per_series")
+            ),
+            "max_candidates_per_partition": int(
+                _config_value(config, "max_candidates_per_partition", 1)
+            ),
             "min_robust_score": float(_config_value(config, "min_robust_score", 0.55)),
             "decision_lag_bars_max": int(_config_value(config, "decision_lag_bars_max", 1)),
         },
@@ -1145,17 +1342,22 @@ def _validate_strategy_seed_inventory(*, registry_root: Path) -> None:
     paths = {
         "research_strategy_families": registry_root / "research_strategy_families.delta",
         "research_strategy_templates": registry_root / "research_strategy_templates.delta",
-        "research_strategy_template_modules": registry_root / "research_strategy_template_modules.delta",
+        "research_strategy_template_modules": registry_root
+        / "research_strategy_template_modules.delta",
     }
     for table_name, table_path in paths.items():
         if not has_delta_log(table_path):
-            raise RuntimeError(f"missing strategy registry table: {table_name} at {table_path.as_posix()}")
+            raise RuntimeError(
+                f"missing strategy registry table: {table_name} at {table_path.as_posix()}"
+            )
 
     family_rows = read_delta_table_rows(paths["research_strategy_families"])
     template_rows = read_delta_table_rows(paths["research_strategy_templates"])
     module_rows = read_delta_table_rows(paths["research_strategy_template_modules"])
 
-    expected_adapter_keys = {adapter.family_manifest.family_key for adapter in phase_stg02_family_adapters()}
+    expected_adapter_keys = {
+        adapter.family_manifest.family_key for adapter in phase_stg02_family_adapters()
+    }
     actual_adapter_keys = {str(row.get("family_key", "")).strip() for row in family_rows}
     if actual_adapter_keys != expected_adapter_keys:
         raise RuntimeError(
@@ -1180,7 +1382,10 @@ def research_strategy_families(
 ) -> list[dict[str, object]]:
     registry_root = Path(str(research_datasets["registry_root"]))
     _validate_strategy_seed_inventory(registry_root=registry_root)
-    return [dict(row) for row in read_delta_table_rows(registry_root / "research_strategy_families.delta")]
+    return [
+        dict(row)
+        for row in read_delta_table_rows(registry_root / "research_strategy_families.delta")
+    ]
 
 
 @asset(group_name="research")
@@ -1190,7 +1395,10 @@ def research_strategy_templates(
 ) -> list[dict[str, object]]:
     del research_strategy_families
     registry_root = Path(str(research_datasets["registry_root"]))
-    return [dict(row) for row in read_delta_table_rows(registry_root / "research_strategy_templates.delta")]
+    return [
+        dict(row)
+        for row in read_delta_table_rows(registry_root / "research_strategy_templates.delta")
+    ]
 
 
 @asset(group_name="research")
@@ -1200,7 +1408,10 @@ def research_strategy_template_modules(
 ) -> list[dict[str, object]]:
     del research_strategy_templates
     registry_root = Path(str(research_datasets["registry_root"]))
-    return [dict(row) for row in read_delta_table_rows(registry_root / "research_strategy_template_modules.delta")]
+    return [
+        dict(row)
+        for row in read_delta_table_rows(registry_root / "research_strategy_template_modules.delta")
+    ]
 
 
 def _backtest_request_config(research_datasets: dict[str, object]) -> BacktestBatchRequest:
@@ -1212,8 +1423,7 @@ def _backtest_request_config(research_datasets: dict[str, object]) -> BacktestBa
         indicator_set_version=str(research_datasets["indicator_set_version"]),
         derived_indicator_set_version=str(research_datasets["derived_indicator_set_version"]),
         search_specs=tuple(
-            StrategyFamilySearchSpec.from_dict(item)
-            for item in payload["search_specs"]
+            StrategyFamilySearchSpec.from_dict(item) for item in payload["search_specs"]
         ),
         combination_count=int(payload["combination_count"]),
         param_batch_size=int(payload["param_batch_size"]),
@@ -1320,7 +1530,9 @@ RANKING_TRADE_COLUMNS = [
 ]
 
 
-def _backtest_result_table_path(research_backtest_batches: dict[str, object], table_name: str) -> Path:
+def _backtest_result_table_path(
+    research_backtest_batches: dict[str, object], table_name: str
+) -> Path:
     output_paths = research_backtest_batches.get("output_paths", {})
     if not isinstance(output_paths, Mapping):
         output_paths = {}
@@ -1331,7 +1543,9 @@ def _backtest_result_table_path(research_backtest_batches: dict[str, object], ta
     return Path(str(raw_path))
 
 
-def _backtest_result_table_manifest(research_backtest_batches: dict[str, object], table_name: str) -> dict[str, object]:
+def _backtest_result_table_manifest(
+    research_backtest_batches: dict[str, object], table_name: str
+) -> dict[str, object]:
     table_path = _backtest_result_table_path(research_backtest_batches, table_name)
     row_counts = research_backtest_batches.get("row_counts", {})
     if not isinstance(row_counts, Mapping):
@@ -1355,10 +1569,7 @@ def _backtest_result_rows(
         return []
     if columns is not None:
         frame = read_delta_table_frame(table_path, columns=list(columns))
-        return [
-            {str(key): item for key, item in row.items()}
-            for row in frame.to_dict("records")
-        ]
+        return [{str(key): item for key, item in row.items()} for row in frame.to_dict("records")]
     return read_delta_table_rows(table_path)
 
 
@@ -1406,8 +1617,12 @@ def research_backtest_batches(
 
 
 @asset(group_name="research")
-def research_strategy_search_specs(research_backtest_batches: dict[str, object]) -> dict[str, object]:
-    return _backtest_result_table_manifest(research_backtest_batches, "research_strategy_search_specs")
+def research_strategy_search_specs(
+    research_backtest_batches: dict[str, object],
+) -> dict[str, object]:
+    return _backtest_result_table_manifest(
+        research_backtest_batches, "research_strategy_search_specs"
+    )
 
 
 @asset(group_name="research")
@@ -1431,18 +1646,30 @@ def research_vbt_param_results(research_backtest_batches: dict[str, object]) -> 
 
 
 @asset(group_name="research")
-def research_vbt_param_gate_events(research_backtest_batches: dict[str, object]) -> dict[str, object]:
-    return _backtest_result_table_manifest(research_backtest_batches, "research_vbt_param_gate_events")
+def research_vbt_param_gate_events(
+    research_backtest_batches: dict[str, object],
+) -> dict[str, object]:
+    return _backtest_result_table_manifest(
+        research_backtest_batches, "research_vbt_param_gate_events"
+    )
 
 
 @asset(group_name="research")
-def research_vbt_ephemeral_indicator_cache(research_backtest_batches: dict[str, object]) -> dict[str, object]:
-    return _backtest_result_table_manifest(research_backtest_batches, "research_vbt_ephemeral_indicator_cache")
+def research_vbt_ephemeral_indicator_cache(
+    research_backtest_batches: dict[str, object],
+) -> dict[str, object]:
+    return _backtest_result_table_manifest(
+        research_backtest_batches, "research_vbt_ephemeral_indicator_cache"
+    )
 
 
 @asset(group_name="research")
-def research_strategy_promotion_events(research_backtest_batches: dict[str, object]) -> dict[str, object]:
-    return _backtest_result_table_manifest(research_backtest_batches, "research_strategy_promotion_events")
+def research_strategy_promotion_events(
+    research_backtest_batches: dict[str, object],
+) -> dict[str, object]:
+    return _backtest_result_table_manifest(
+        research_backtest_batches, "research_strategy_promotion_events"
+    )
 
 
 @asset(group_name="research")
@@ -1509,13 +1736,21 @@ def research_signal_candidates(
     materialized_output_dir = Path(str(research_datasets["materialized_output_dir"]))
     results_output_dir = Path(str(research_datasets["results_output_dir"]))
     ranking_table_path = Path(str(research_strategy_rankings["table_path"]))
-    ranking_rows = read_delta_table_rows(ranking_table_path) if has_delta_log(ranking_table_path) else []
+    projection_request = _projection_request(research_datasets)
+    ranking_rows = (
+        read_filtered_delta_table_rows(
+            ranking_table_path,
+            filters=[("ranking_policy_id", "=", projection_request.ranking_policy_id)],
+        )
+        if has_delta_log(ranking_table_path)
+        else []
+    )
     report = project_runtime_candidates(
         dataset_output_dir=materialized_output_dir,
         indicator_output_dir=materialized_output_dir,
         derived_indicator_output_dir=materialized_output_dir,
         output_dir=results_output_dir,
-        request=_projection_request(research_datasets),
+        request=projection_request,
         ranking_rows=ranking_rows,
         config=_engine_config(research_datasets),
     )
@@ -1652,15 +1887,21 @@ def scheduled_continuous_front_policy_config() -> dict[str, object]:
                 f"{RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_ENV} must contain a JSON object"
             ) from exc
         if not isinstance(payload, Mapping):
-            raise RuntimeError(f"{RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_ENV} must contain a JSON object")
-        unknown_keys = sorted(str(key) for key in payload if str(key) not in CALENDAR_EXPIRY_CONTINUOUS_FRONT_POLICY)
+            raise RuntimeError(
+                f"{RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_ENV} must contain a JSON object"
+            )
+        unknown_keys = sorted(
+            str(key) for key in payload if str(key) not in CALENDAR_EXPIRY_CONTINUOUS_FRONT_POLICY
+        )
         if unknown_keys:
             raise RuntimeError(
                 f"{RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_ENV} contains unsupported "
                 f"continuous_front policy keys: {', '.join(unknown_keys)}"
             )
         return ContinuousFrontPolicy.from_config(dict(payload)).to_config_dict()
-    return ContinuousFrontPolicy.from_config(CALENDAR_EXPIRY_CONTINUOUS_FRONT_POLICY).to_config_dict()
+    return ContinuousFrontPolicy.from_config(
+        CALENDAR_EXPIRY_CONTINUOUS_FRONT_POLICY
+    ).to_config_dict()
 
 
 def _moex_canonical_output_dir_from_run_config(run_config: object) -> Path | None:
@@ -1707,7 +1948,9 @@ def build_research_data_prep_run_config(
     resolved_canonical_output_dir = (
         canonical_output_dir.resolve()
         if canonical_output_dir is not None
-        else _env_path(RESEARCH_DATA_PREP_CANONICAL_OUTPUT_DIR_ENV, _default_research_canonical_output_dir())
+        else _env_path(
+            RESEARCH_DATA_PREP_CANONICAL_OUTPUT_DIR_ENV, _default_research_canonical_output_dir()
+        )
     )
     resolved_materialized_output_dir = (
         materialized_output_dir.resolve()
@@ -1720,11 +1963,17 @@ def build_research_data_prep_run_config(
     resolved_results_output_dir = (
         results_output_dir.resolve()
         if results_output_dir is not None
-        else _env_path(RESEARCH_DATA_PREP_RESULTS_OUTPUT_DIR_ENV, _default_research_results_output_dir())
+        else _env_path(
+            RESEARCH_DATA_PREP_RESULTS_OUTPUT_DIR_ENV, _default_research_results_output_dir()
+        )
     )
-    resolved_timeframes = tuple(timeframes) if timeframes is not None else _split_env_csv(
-        os.environ.get(RESEARCH_DATA_PREP_TIMEFRAMES_ENV, ""),
-        default=DEFAULT_RESEARCH_DATA_PREP_TIMEFRAMES,
+    resolved_timeframes = (
+        tuple(timeframes)
+        if timeframes is not None
+        else _split_env_csv(
+            os.environ.get(RESEARCH_DATA_PREP_TIMEFRAMES_ENV, ""),
+            default=DEFAULT_RESEARCH_DATA_PREP_TIMEFRAMES,
+        )
     )
     resolved_dataset_version = dataset_version or _env_text(
         RESEARCH_DATA_PREP_DATASET_VERSION_ENV,
@@ -1759,7 +2008,7 @@ def build_research_data_prep_run_config(
             },
             "research_datasets": {
                 "config": research_config,
-            }
+            },
         }
     }
 
@@ -1773,7 +2022,9 @@ def build_research_data_prep_run_config(
     description="Start research_data_prep_job after the canonical MOEX baseline update succeeds.",
 )
 def research_data_prep_after_moex_sensor(context):
-    canonical_output_dir = _moex_canonical_output_dir_from_run_config(context.dagster_run.run_config)
+    canonical_output_dir = _moex_canonical_output_dir_from_run_config(
+        context.dagster_run.run_config
+    )
     if canonical_output_dir is None:
         canonical_output_dir = _env_path(
             RESEARCH_DATA_PREP_CANONICAL_OUTPUT_DIR_ENV,
@@ -1953,7 +2204,8 @@ def _research_run_config(
         "dataset_name": dataset_name,
         "universe_id": universe_id,
         "timeframes": resolved_timeframes,
-        "base_timeframe": base_timeframe or (resolved_timeframes[0] if resolved_timeframes else "15m"),
+        "base_timeframe": base_timeframe
+        or (resolved_timeframes[0] if resolved_timeframes else "15m"),
         "start_ts": start_ts,
         "end_ts": end_ts,
         "warmup_bars": warmup_bars,
@@ -2057,7 +2309,9 @@ def _materialize_research_assets(
     raise_on_error: bool = True,
 ) -> dict[str, object]:
     assert_research_definitions_executable()
-    selected_assets = _resolve_selected_assets(selection, default_assets=default_assets, allowed_assets=allowed_assets)
+    selected_assets = _resolve_selected_assets(
+        selection, default_assets=default_assets, allowed_assets=allowed_assets
+    )
     expected_materialized_assets = _resolve_expected_materialization(selected_assets)
     resolved_materialized_output_dir, resolved_results_output_dir = _resolve_research_output_dirs(
         research_output_dir=research_output_dir,
@@ -2091,10 +2345,16 @@ def _materialize_research_assets(
         strategy_space_id = prepared_strategy_space.strategy_space_id
         search_specs = [spec.to_dict() for spec in prepared_strategy_space.family_search_specs]
         resolved_combination_count = 0
-        optimizer = dict((strategy_space or _default_strategy_space()).get("optimizer", {})) if isinstance(strategy_space or {}, dict) else {}
+        optimizer = (
+            dict((strategy_space or _default_strategy_space()).get("optimizer", {}))
+            if isinstance(strategy_space or {}, dict)
+            else {}
+        )
         if str(optimizer.get("engine", "grid")) == "optuna":
             per_spec_count = int(optimizer.get("n_trials", 0) or 0)
-            resolved_combination_count = per_spec_count * len(prepared_strategy_space.family_search_specs)
+            resolved_combination_count = per_spec_count * len(
+                prepared_strategy_space.family_search_specs
+            )
         else:
             for spec in prepared_strategy_space.family_search_specs:
                 count = 1
@@ -2170,7 +2430,7 @@ def _materialize_research_assets(
                 },
                 "research_datasets": {
                     "config": research_config,
-                }
+                },
             }
         },
         raise_on_error=raise_on_error,
@@ -2191,7 +2451,9 @@ def _materialize_research_assets(
     for asset_name in expected_materialized_assets:
         table_path = Path(output_paths[asset_name])
         if not has_delta_log(table_path):
-            raise RuntimeError(f"missing `_delta_log` for `{asset_name}` at {table_path.as_posix()}")
+            raise RuntimeError(
+                f"missing `_delta_log` for `{asset_name}` at {table_path.as_posix()}"
+            )
         rows_by_table[asset_name] = count_delta_table_rows(table_path)
     findings_path = Path(output_paths["research_run_findings"])
     if has_delta_log(findings_path):

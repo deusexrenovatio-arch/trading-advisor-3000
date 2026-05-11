@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import pytest
+
+from trading_advisor_3000.product_plane.data_plane import delta_runtime as delta_runtime_module
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
     delta_table_columns,
     ensure_delta_table_columns,
     read_delta_table_rows,
-    write_delta_table_rows,
+    read_filtered_delta_table_rows,
+    read_small_delta_table_rows,
     write_delta_table_row_batches,
+    write_delta_table_rows,
 )
 
 
@@ -50,13 +55,111 @@ def test_count_delta_table_rows_accepts_filters(tmp_path) -> None:
         ],
     )
 
-    assert count_delta_table_rows(
-        table_path,
-        filters=[
-            ("dataset_version", "=", "dataset-v1"),
-            ("indicator_set_version", "=", "indicators-v1"),
+    assert (
+        count_delta_table_rows(
+            table_path,
+            filters=[
+                ("dataset_version", "=", "dataset-v1"),
+                ("indicator_set_version", "=", "indicators-v1"),
+            ],
+        )
+        == 1
+    )
+
+
+def test_read_filtered_delta_table_rows_requires_filters(tmp_path) -> None:
+    table_path = tmp_path / "filtered_read.delta"
+    write_delta_table_rows(
+        table_path=table_path,
+        columns={"dataset_version": "string", "value": "int"},
+        rows=[
+            {"dataset_version": "dataset-v1", "value": 1},
+            {"dataset_version": "dataset-v2", "value": 2},
         ],
-    ) == 1
+    )
+
+    with pytest.raises(ValueError, match="filters are required"):
+        read_filtered_delta_table_rows(table_path, filters=[])
+
+    rows = read_filtered_delta_table_rows(
+        table_path,
+        filters=[("dataset_version", "=", "dataset-v1")],
+        limit=1,
+    )
+
+    assert rows == [{"dataset_version": "dataset-v1", "value": 1}]
+
+
+@pytest.mark.parametrize(
+    "filters",
+    [
+        "__no_filters_arg__",
+        None,
+        [],
+        [[]],
+        [("id", "in", [])],
+        [("id", "=", "a"), [("id", "=", "b")]],
+    ],
+)
+def test_read_delta_table_rows_rejects_unbounded_hot_tables(tmp_path, filters) -> None:
+    table_path = tmp_path / "canonical_bars.delta"
+    write_delta_table_rows(
+        table_path=table_path,
+        columns={"id": "string", "value": "int"},
+        rows=[{"id": "a", "value": 1}],
+    )
+
+    with pytest.raises(ValueError, match="hot Delta tables"):
+        if filters == "__no_filters_arg__":
+            read_delta_table_rows(table_path)
+        else:
+            read_delta_table_rows(table_path, filters=filters)
+
+    assert read_delta_table_rows(table_path, filters=[("id", "=", "a")]) == [
+        {"id": "a", "value": 1}
+    ]
+    assert read_delta_table_rows(table_path, limit=1) == [{"id": "a", "value": 1}]
+
+
+def test_read_delta_table_rows_applies_limit_before_full_materialization(
+    tmp_path, monkeypatch
+) -> None:
+    table_path = tmp_path / "canonical_bars.delta"
+    write_delta_table_rows(
+        table_path=table_path,
+        columns={"id": "string", "value": "int"},
+        rows=[{"id": "a", "value": 1}, {"id": "b", "value": 2}],
+    )
+
+    def fail_full_materialization(*args, **kwargs):  # noqa: ANN002, ANN003
+        raise AssertionError("limit read used full table materialization")
+
+    monkeypatch.setattr(
+        delta_runtime_module.DeltaTable,
+        "to_pyarrow_table",
+        fail_full_materialization,
+    )
+
+    rows = read_delta_table_rows(table_path, limit=1)
+
+    assert len(rows) == 1
+    assert rows[0] in (
+        {"id": "a", "value": 1},
+        {"id": "b", "value": 2},
+    )
+
+
+def test_read_small_delta_table_rows_rejects_hot_tables(tmp_path) -> None:
+    table_path = tmp_path / "research_datasets.delta"
+    write_delta_table_rows(
+        table_path=table_path,
+        columns={"dataset_version": "string"},
+        rows=[{"dataset_version": "dataset-v1"}],
+    )
+
+    assert read_small_delta_table_rows(table_path) == [{"dataset_version": "dataset-v1"}]
+    with pytest.raises(ValueError, match="hot Delta tables"):
+        read_small_delta_table_rows(tmp_path / "canonical_bars.delta")
 
 
 def test_write_delta_table_rows_overwrite_replaces_schema(tmp_path) -> None:

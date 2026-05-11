@@ -2,12 +2,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows
 from trading_advisor_3000.product_plane.data_plane import run_sample_backfill
-
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    iter_delta_table_row_batches,
+    read_delta_table_rows,
+)
 
 ROOT = Path(__file__).resolve().parents[3]
-SOURCE_FIXTURE = ROOT / "tests" / "product-plane" / "fixtures" / "data_plane" / "raw_backfill_sample.jsonl"
+SOURCE_FIXTURE = (
+    ROOT / "tests" / "product-plane" / "fixtures" / "data_plane" / "raw_backfill_sample.jsonl"
+)
+
+
+def _read_batched_delta_rows(table_path: Path) -> list[dict[str, object]]:
+    return [row for batch in iter_delta_table_row_batches(table_path) for row in batch]
 
 
 def test_sample_backfill_builds_canonical_rows_for_whitelist(tmp_path: Path) -> None:
@@ -26,7 +34,7 @@ def test_sample_backfill_builds_canonical_rows_for_whitelist(tmp_path: Path) -> 
     assert output_path.exists()
     assert (output_path / "_delta_log").exists()
 
-    rows = read_delta_table_rows(output_path)
+    rows = _read_batched_delta_rows(output_path)
     assert len(rows) == 2
     assert {row["contract_id"] for row in rows} == {"BR-6.26", "Si-6.26"}
     br_row = next(row for row in rows if row["contract_id"] == "BR-6.26")
@@ -84,7 +92,9 @@ def test_sample_backfill_is_incremental_append_only_and_idempotent(tmp_path: Pat
     assert len(raw_rows) == 2
 
 
-def test_sample_backfill_disprover_fails_when_physical_delta_data_is_deleted(tmp_path: Path) -> None:
+def test_sample_backfill_disprover_fails_when_physical_delta_data_is_deleted(
+    tmp_path: Path,
+) -> None:
     report = run_sample_backfill(
         source_path=SOURCE_FIXTURE,
         output_dir=tmp_path,
@@ -96,11 +106,11 @@ def test_sample_backfill_disprover_fails_when_physical_delta_data_is_deleted(tmp
     assert data_files, "expected physical Delta parquet files"
     data_files[0].unlink()
 
-    # Manifest-level metadata remains available, but runtime read must fail without physical table data.
+    # Manifest metadata remains available, but runtime read must fail without table data.
     assert "canonical_bars" in report["delta_schema_manifest"]
     assert (bars_path / "_delta_log").exists()
     try:
-        read_delta_table_rows(bars_path)
+        _read_batched_delta_rows(bars_path)
     except Exception:
         return
     raise AssertionError("expected Delta runtime read failure after deleting physical output")
