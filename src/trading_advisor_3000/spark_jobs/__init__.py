@@ -13,12 +13,12 @@ from .canonical_bars_job import (
     run_canonical_bars_spark_job,
     validate_spark_output_contract,
 )
-from .continuous_front_job import (
-    ContinuousFrontSparkJobSpec,
-    build_continuous_front_sql_plan,
-    run_continuous_front_spark_job,
-)
+from .continuous_front_job import run_continuous_front_spark_job
 from .moex_canonicalization_job import run_moex_canonicalization_spark_job
+from .moex_raw_ingest_job import (
+    compute_raw_watermarks_spark_delta,
+    run_moex_raw_ingest_spark_delta_job,
+)
 from .research_candidates_job import (
     ResearchSparkJobSpec,
     build_research_sql_plan,
@@ -28,13 +28,11 @@ from .research_candidates_job import (
 
 __all__ = [
     "DEFAULT_SPARK_MASTER",
-    "ContinuousFrontSparkJobSpec",
     "SparkJobSpec",
     "ResearchSparkJobSpec",
     "build_bars_sql_plan",
     "build_instruments_sql_plan",
     "build_contracts_sql_plan",
-    "build_continuous_front_sql_plan",
     "build_research_sql_plan",
     "build_session_calendar_sql_plan",
     "build_roll_map_sql_plan",
@@ -44,6 +42,8 @@ __all__ = [
     "run_canonical_bars_spark_job",
     "run_continuous_front_spark_job",
     "run_moex_canonicalization_spark_job",
+    "compute_raw_watermarks_spark_delta",
+    "run_moex_raw_ingest_spark_delta_job",
     "spark_candidate_id_expr",
     "validate_spark_output_contract",
 ]

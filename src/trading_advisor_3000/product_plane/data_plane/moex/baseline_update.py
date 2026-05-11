@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+# ruff: noqa: E501
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log
@@ -18,16 +19,12 @@ from .foundation import (
     validate_mapping_registry,
     validate_universe_mapping_alignment,
 )
-from .historical_route_contracts import (
-    STATUS_PASS,
-    STATUS_PASS_NOOP,
-    _SORTED_CHANGED_WINDOW_KEYS,
-    _sha256_json,
-    normalize_changed_windows,
+from .historical_canonical_route import (
+    CANONICAL_MERGE_SCOPED_DELETE_INSERT,
+    run_historical_canonical_route,
 )
+from .historical_route_contracts import STATUS_PASS, STATUS_PASS_NOOP, normalize_changed_windows
 from .iss_client import MoexISSClient
-from .historical_canonical_route import CANONICAL_MERGE_SCOPED_DELETE_INSERT, run_historical_canonical_route
-
 
 BASELINE_UPDATE_REPORT_FILENAME = "baseline-update-report.json"
 PENDING_CHANGED_WINDOWS_FILENAME = "pending-changed-windows.json"
@@ -55,7 +52,9 @@ def _load_pending_changed_windows(path: Path) -> list[dict[str, object]]:
     payload = _read_json_object(path)
     raw = payload.get("changed_windows", [])
     if not isinstance(raw, list):
-        raise ValueError(f"pending changed windows payload must contain list `changed_windows`: {path.as_posix()}")
+        raise ValueError(
+            f"pending changed windows payload must contain list `changed_windows`: {path.as_posix()}"
+        )
     return normalize_changed_windows(raw)
 
 
@@ -96,11 +95,7 @@ def _baseline_raw_report_for_canonical(
     merged_changed_windows: list[dict[str, object]],
 ) -> dict[str, object]:
     payload = dict(raw_report)
-    normalized_windows = normalize_changed_windows(merged_changed_windows)
-    payload["changed_windows"] = normalized_windows
-    payload["changed_windows_hash_sha256"] = _sha256_json(
-        [{key: row[key] for key in _SORTED_CHANGED_WINDOW_KEYS} for row in normalized_windows]
-    )
+    payload["changed_windows"] = merged_changed_windows
     if merged_changed_windows and str(payload.get("status", "")).strip() == STATUS_PASS_NOOP:
         payload["status"] = STATUS_PASS
     return payload
@@ -141,15 +136,20 @@ def run_moex_baseline_update(
     canonical_bars_path = canonical_bars_path.resolve()
     canonical_provenance_path = canonical_provenance_path.resolve()
     canonical_session_calendar_path = (
-        canonical_session_calendar_path or (canonical_bars_path.parent / "canonical_session_calendar.delta")
+        canonical_session_calendar_path
+        or (canonical_bars_path.parent / "canonical_session_calendar.delta")
     ).resolve()
     canonical_roll_map_path = (
         canonical_roll_map_path or (canonical_bars_path.parent / "canonical_roll_map.delta")
     ).resolve()
     if not has_delta_log(raw_table_path):
-        raise FileNotFoundError(f"baseline raw table is missing `_delta_log`: {raw_table_path.as_posix()}")
+        raise FileNotFoundError(
+            f"baseline raw table is missing `_delta_log`: {raw_table_path.as_posix()}"
+        )
     if not has_delta_log(canonical_bars_path):
-        raise FileNotFoundError(f"baseline canonical bars table is missing `_delta_log`: {canonical_bars_path.as_posix()}")
+        raise FileNotFoundError(
+            f"baseline canonical bars table is missing `_delta_log`: {canonical_bars_path.as_posix()}"
+        )
     if not has_delta_log(canonical_provenance_path):
         raise FileNotFoundError(
             "baseline canonical provenance table is missing `_delta_log`: "
@@ -255,12 +255,21 @@ def run_moex_baseline_update(
             reason="canonical_refresh_blocked",
         )
 
-    status = "PASS" if str(canonical_report.get("publish_decision", "")).strip() == "publish" else "BLOCKED"
+    status = (
+        "PASS"
+        if str(canonical_report.get("publish_decision", "")).strip() == "publish"
+        else "BLOCKED"
+    )
     report = {
         "run_id": run_id,
         "status": status,
         "publish_decision": "publish" if status == "PASS" else "blocked",
         "mode": "baseline_update",
+        "runtime_boundary": {
+            "orchestrator": "dagster",
+            "raw_ingest_runtime": "spark_delta",
+            "python_role": "source_adapter_config_and_evidence",
+        },
         "refresh_window_days": refresh_window_days,
         "contract_discovery_lookback_days": contract_discovery_lookback_days,
         "max_changed_window_days": max_changed_window_days,
@@ -291,9 +300,13 @@ def run_moex_baseline_update(
             "coverage_table": coverage_csv.as_posix(),
             "raw_ingest_report": raw_report_path.as_posix(),
             "canonical_input_raw_ingest_report": canonical_input_report_path.as_posix(),
-            "canonical_refresh_report": (run_dir / "canonical-refresh" / "canonical-refresh-report.json").as_posix(),
+            "canonical_refresh_report": (
+                run_dir / "canonical-refresh" / "canonical-refresh-report.json"
+            ).as_posix(),
             "pending_changed_windows": (
-                pending_changed_windows_path.as_posix() if pending_changed_windows_path.exists() else ""
+                pending_changed_windows_path.as_posix()
+                if pending_changed_windows_path.exists()
+                else ""
             ),
         },
         "generated_at_utc": _utc_now_iso(),

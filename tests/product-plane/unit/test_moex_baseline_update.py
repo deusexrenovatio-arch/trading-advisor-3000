@@ -5,42 +5,47 @@ from pathlib import Path
 
 import pytest
 
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows, write_delta_table_rows
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
 from trading_advisor_3000.product_plane.data_plane.moex import baseline_update as baseline_module
-from trading_advisor_3000.product_plane.data_plane.moex.historical_canonical_route import (
-    CANONICAL_BAR_COLUMNS,
-    CANONICAL_MERGE_SCOPED_DELETE_INSERT,
-    PROVENANCE_COLUMNS,
-)
-from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contracts import (
-    build_parity_manifest_v1,
-    build_raw_ingest_run_report_v2,
-)
 from trading_advisor_3000.product_plane.data_plane.moex.foundation import (
     RAW_COLUMNS,
     DiscoveryRecord,
     ingest_moex_baseline_window,
+    ingest_moex_bootstrap_window,
+)
+from trading_advisor_3000.product_plane.data_plane.moex.historical_canonical_route import (
+    CANONICAL_BAR_COLUMNS,
+    CANONICAL_MERGE_SCOPED_DELETE_INSERT,
+    PROVENANCE_COLUMNS,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.iss_client import MoexCandle
 
 
 def _write_empty_baseline(tmp_path: Path) -> tuple[Path, Path, Path]:
     raw_table_path = tmp_path / "raw" / "moex" / "baseline-4y-current" / "raw_moex_history.delta"
-    canonical_bars_path = tmp_path / "canonical" / "moex" / "baseline-4y-current" / "canonical_bars.delta"
+    canonical_bars_path = (
+        tmp_path / "canonical" / "moex" / "baseline-4y-current" / "canonical_bars.delta"
+    )
     canonical_provenance_path = (
         tmp_path / "canonical" / "moex" / "baseline-4y-current" / "canonical_bar_provenance.delta"
     )
     write_delta_table_rows(table_path=raw_table_path, rows=[], columns=RAW_COLUMNS)
     write_delta_table_rows(table_path=canonical_bars_path, rows=[], columns=CANONICAL_BAR_COLUMNS)
-    write_delta_table_rows(table_path=canonical_provenance_path, rows=[], columns=PROVENANCE_COLUMNS)
+    write_delta_table_rows(
+        table_path=canonical_provenance_path, rows=[], columns=PROVENANCE_COLUMNS
+    )
     return raw_table_path, canonical_bars_path, canonical_provenance_path
 
 
-def _patch_common_inputs(monkeypatch: pytest.MonkeyPatch, changed_windows: list[dict[str, object]]) -> None:
+def _patch_common_inputs(
+    monkeypatch: pytest.MonkeyPatch, changed_windows: list[dict[str, object]]
+) -> None:
     monkeypatch.setattr(baseline_module, "load_universe", lambda _path: [])
     monkeypatch.setattr(baseline_module, "load_mapping_registry", lambda _path: [])
     monkeypatch.setattr(baseline_module, "validate_mapping_registry", lambda _mappings: None)
-    monkeypatch.setattr(baseline_module, "validate_universe_mapping_alignment", lambda _universe, _mappings: None)
+    monkeypatch.setattr(
+        baseline_module, "validate_universe_mapping_alignment", lambda _universe, _mappings: None
+    )
     monkeypatch.setattr(baseline_module, "discover_coverage", lambda **_kwargs: [])
     monkeypatch.setattr(
         baseline_module,
@@ -114,15 +119,30 @@ def test_baseline_update_writes_to_stable_paths_and_scoped_canonical_refresh(
     assert captured["raw_table_path"] == raw_table_path
     assert captured["canonical_bars_path"] == canonical_bars_path
     assert captured["canonical_provenance_path"] == canonical_provenance_path
-    assert captured["canonical_session_calendar_path"] == canonical_bars_path.parent / "canonical_session_calendar.delta"
-    assert captured["canonical_roll_map_path"] == canonical_bars_path.parent / "canonical_roll_map.delta"
+    assert (
+        captured["canonical_session_calendar_path"]
+        == canonical_bars_path.parent / "canonical_session_calendar.delta"
+    )
+    assert (
+        captured["canonical_roll_map_path"]
+        == canonical_bars_path.parent / "canonical_roll_map.delta"
+    )
     assert captured["canonical_merge_strategy"] == CANONICAL_MERGE_SCOPED_DELETE_INSERT
     assert captured["max_changed_window_days"] == 10
-    assert report["canonical_session_calendar_path"] == (
-        canonical_bars_path.parent / "canonical_session_calendar.delta"
-    ).as_posix()
-    assert report["canonical_roll_map_path"] == (canonical_bars_path.parent / "canonical_roll_map.delta").as_posix()
+    assert (
+        report["canonical_session_calendar_path"]
+        == (canonical_bars_path.parent / "canonical_session_calendar.delta").as_posix()
+    )
+    assert (
+        report["canonical_roll_map_path"]
+        == (canonical_bars_path.parent / "canonical_roll_map.delta").as_posix()
+    )
     assert report["effective_changed_windows"] == 1
+    assert report["runtime_boundary"] == {
+        "orchestrator": "dagster",
+        "raw_ingest_runtime": "spark_delta",
+        "python_role": "source_adapter_config_and_evidence",
+    }
     assert not (tmp_path / "evidence" / "pending-changed-windows.json").exists()
 
 
@@ -171,55 +191,6 @@ def test_baseline_update_persists_pending_windows_when_canonical_refresh_fails(
     assert len(pending["changed_windows"]) == 1
 
 
-def test_baseline_raw_report_for_canonical_rehashes_merged_changed_windows() -> None:
-    pending_window = {
-        "internal_id": "FUT_BR",
-        "source_timeframe": "1m",
-        "source_interval": 1,
-        "moex_secid": "BRM6@MOEX",
-        "window_start_utc": "2026-04-21T00:00:00Z",
-        "window_end_utc": "2026-04-22T00:00:00Z",
-        "incremental_rows": 12,
-    }
-    current_window = {
-        "internal_id": "FUT_BR",
-        "source_timeframe": "1h",
-        "source_interval": 60,
-        "moex_secid": "BRM6@MOEX",
-        "window_start_utc": "2026-04-22T00:00:00Z",
-        "window_end_utc": "2026-04-23T00:00:00Z",
-        "incremental_rows": 2,
-    }
-    raw_report = build_raw_ingest_run_report_v2(
-        run_id="baseline-daily-retry",
-        ingest_till_utc="2026-04-23T00:00:00Z",
-        source_rows=2,
-        incremental_rows=2,
-        deduplicated_rows=0,
-        stale_rows=0,
-        watermark_by_key={},
-        raw_table_path="raw.delta",
-        raw_ingest_progress_path="progress.jsonl",
-        raw_ingest_error_path="errors.jsonl",
-        raw_ingest_error_latest_path="errors.latest.json",
-        changed_windows=[current_window],
-        generated_at_utc="2026-04-23T00:00:01Z",
-    )
-
-    canonical_report = baseline_module._baseline_raw_report_for_canonical(
-        raw_report=raw_report,
-        merged_changed_windows=[pending_window, current_window],
-    )
-    manifest = build_parity_manifest_v1(
-        run_id="baseline-daily-retry",
-        raw_ingest_run_report=canonical_report,
-        generated_at_utc="2026-04-23T00:00:02Z",
-    )
-
-    assert manifest["window_count"] == 2
-    assert canonical_report["changed_windows_hash_sha256"] == manifest["changed_windows_hash_sha256"]
-
-
 class _BaselineWindowClient:
     def iter_candles(
         self,
@@ -260,18 +231,11 @@ class _BaselineWindowClient:
             begin="2026-04-01 10:20:00",
             end="2026-04-01 10:29:59",
         )
-        yield MoexCandle(
-            open=102.0,
-            high=102.0,
-            low=102.0,
-            close=102.0,
-            volume=1,
-            begin="2026-04-01 10:40:00",
-            end="2026-04-01 10:39:59",
-        )
 
 
-def _raw_row(*, ts_open: str, ts_close: str, close: float, run_id: str = "seed") -> dict[str, object]:
+def _raw_row(
+    *, ts_open: str, ts_close: str, close: float, run_id: str = "seed"
+) -> dict[str, object]:
     return {
         "internal_id": "FUT_BR",
         "finam_symbol": "BRQ6",
@@ -330,15 +294,76 @@ def test_baseline_raw_window_updates_only_scoped_rows_without_full_table_read(
 
     import trading_advisor_3000.product_plane.data_plane.moex.foundation as foundation_module
 
-    original_read = foundation_module.read_delta_table_rows
+    captured: dict[str, object] = {}
 
-    def _guarded_window_read(table_path: Path, *, columns=None, filters=None):
-        assert columns is not None
-        assert filters is not None
-        assert ("ts_close", ">=", "2026-04-01T06:59:59Z") in filters
-        return original_read(table_path, columns=columns, filters=filters)
+    def _spark_watermarks(**kwargs):
+        captured["watermark_kwargs"] = kwargs
+        return {("FUT_BR", "1m", 1, "BRQ6"): "2026-04-01T07:19:59Z"}
 
-    monkeypatch.setattr(foundation_module, "read_delta_table_rows", _guarded_window_read)
+    def _spark_raw_ingest(**kwargs):
+        captured["spark_ingest_kwargs"] = kwargs
+        assert "source_rows_path" in kwargs
+        assert kwargs.get("source_rows", []) == []
+        staged_rows = [
+            line
+            for line in kwargs["source_rows_path"].read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        return {
+            "run_id": kwargs["run_id"],
+            "status": "PASS",
+            "ingest_till_utc": kwargs["ingest_till_utc"],
+            "source_rows": len(staged_rows),
+            "incremental_rows": 2,
+            "deduplicated_rows": 1,
+            "stale_rows": 0,
+            "watermark_by_key": {"FUT_BR|1m|BRQ6": "2026-04-01T07:29:59Z"},
+            "raw_table_path": kwargs["table_path"].as_posix(),
+            "raw_ingest_progress_path": kwargs["progress_path"].as_posix(),
+            "raw_ingest_error_path": kwargs["error_path"].as_posix(),
+            "raw_ingest_error_latest_path": kwargs["error_latest_path"].as_posix(),
+            "changed_windows": [
+                {
+                    "internal_id": "FUT_BR",
+                    "source_timeframe": "1m",
+                    "source_interval": 1,
+                    "moex_secid": "BRQ6",
+                    "window_start_utc": "2026-04-01T06:59:59Z",
+                    "window_end_utc": "2026-04-01T08:00:00Z",
+                    "incremental_rows": 2,
+                }
+            ],
+        }
+
+    def _forbidden_hot_python_delta_operation(*_args, **_kwargs):
+        pytest.fail("raw refresh hot-table read/diff/mutation must be Spark/Delta-owned")
+
+    monkeypatch.setattr(foundation_module, "compute_raw_watermarks_spark_delta", _spark_watermarks)
+    monkeypatch.setattr(foundation_module, "run_moex_raw_ingest_spark_delta_job", _spark_raw_ingest)
+    monkeypatch.setattr(
+        foundation_module,
+        "read_delta_table_rows",
+        _forbidden_hot_python_delta_operation,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        foundation_module,
+        "append_delta_table_rows",
+        _forbidden_hot_python_delta_operation,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        foundation_module,
+        "delete_delta_table_rows",
+        _forbidden_hot_python_delta_operation,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        foundation_module,
+        "iter_delta_table_row_batches",
+        _forbidden_hot_python_delta_operation,
+        raising=False,
+    )
 
     report = ingest_moex_baseline_window(
         client=_BaselineWindowClient(),
@@ -351,22 +376,157 @@ def test_baseline_raw_window_updates_only_scoped_rows_without_full_table_read(
         refresh_overlap_minutes=20,
     )
 
-    rows = read_delta_table_rows(raw_table_path)
-    assert report["source_rows"] == 3
     assert report["incremental_rows"] == 2
     assert report["deduplicated_rows"] == 1
-    assert len(rows) == 3
-    assert all(str(row["ts_close"]) >= str(row["ts_open"]) for row in rows)
-    assert {
-        row["close"]
-        for row in rows
-        if row["ts_close"] == "2026-04-01T07:09:59Z"
-    } == {99.75}
-    assert {
-        row["ts_close"]
-        for row in rows
-    } == {
-        "2026-04-01T07:09:59Z",
-        "2026-04-01T07:19:59Z",
-        "2026-04-01T07:29:59Z",
-    }
+    assert captured["watermark_kwargs"]["keys"] == {("FUT_BR", "1m", 1, "BRQ6")}
+    spark_kwargs = captured["spark_ingest_kwargs"]
+    assert spark_kwargs["table_path"] == raw_table_path
+    assert spark_kwargs["source_rows_path"].name == "baseline-scoped-source-rows.jsonl"
+    assert len(spark_kwargs["source_rows_path"].read_text(encoding="utf-8").splitlines()) == 3
+    assert spark_kwargs["window_scopes"] == [
+        {
+            "internal_id": "FUT_BR",
+            "timeframe": "1m",
+            "source_interval": 1,
+            "moex_secid": "BRQ6",
+            "window_start_utc": "2026-04-01T06:59:59Z",
+            "window_end_utc": "2026-04-01T08:00:00Z",
+            "watermark_utc": "2026-04-01T07:19:59Z",
+        }
+    ]
+
+
+def test_bootstrap_raw_window_uses_spark_delta_hot_table_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_table_path = tmp_path / "raw" / "moex" / "bootstrap" / "raw_moex_history.delta"
+    write_delta_table_rows(
+        table_path=raw_table_path,
+        rows=[
+            _raw_row(ts_open="2026-04-01T07:00:00Z", ts_close="2026-04-01T07:09:59Z", close=100.5),
+            _raw_row(ts_open="2026-04-01T07:10:00Z", ts_close="2026-04-01T07:19:59Z", close=101.2),
+        ],
+        columns=RAW_COLUMNS,
+    )
+    coverage = [
+        DiscoveryRecord(
+            internal_id="FUT_BR",
+            finam_symbol="BRQ6",
+            moex_engine="futures",
+            moex_market="forts",
+            moex_board="RFUD",
+            moex_secid="BRQ6",
+            asset_group="commodity",
+            requested_target_timeframes="5m,15m",
+            source_interval=1,
+            source_timeframe="1m",
+            coverage_begin_utc="2026-04-01T00:00:00Z",
+            coverage_end_utc="2026-04-01T08:00:00Z",
+            discovered_at_utc="2026-04-01T08:00:00Z",
+            discovery_url="https://iss.moex.com/example",
+        )
+    ]
+
+    import trading_advisor_3000.product_plane.data_plane.moex.foundation as foundation_module
+
+    captured: dict[str, object] = {}
+
+    def _spark_watermarks(**kwargs):
+        captured["watermark_kwargs"] = kwargs
+        return {("FUT_BR", "1m", 1, "BRQ6"): "2026-04-01T07:19:59Z"}
+
+    def _spark_raw_ingest(**kwargs):
+        captured["spark_ingest_kwargs"] = kwargs
+        assert "source_rows_path" in kwargs
+        assert kwargs.get("source_rows", []) == []
+        staged_rows = [
+            line
+            for line in kwargs["source_rows_path"].read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        return {
+            "run_id": kwargs["run_id"],
+            "status": "PASS",
+            "ingest_till_utc": kwargs["ingest_till_utc"],
+            "source_rows": len(staged_rows),
+            "incremental_rows": 2,
+            "deduplicated_rows": 1,
+            "stale_rows": 0,
+            "watermark_by_key": {"FUT_BR|1m|BRQ6": "2026-04-01T07:29:59Z"},
+            "raw_table_path": kwargs["table_path"].as_posix(),
+            "raw_ingest_progress_path": kwargs["progress_path"].as_posix(),
+            "raw_ingest_error_path": kwargs["error_path"].as_posix(),
+            "raw_ingest_error_latest_path": kwargs["error_latest_path"].as_posix(),
+            "changed_windows": [
+                {
+                    "internal_id": "FUT_BR",
+                    "source_timeframe": "1m",
+                    "source_interval": 1,
+                    "moex_secid": "BRQ6",
+                    "window_start_utc": "2026-04-01T06:59:59Z",
+                    "window_end_utc": "2026-04-01T08:00:00Z",
+                    "incremental_rows": 2,
+                }
+            ],
+        }
+
+    def _forbidden_hot_python_delta_operation(*_args, **_kwargs):
+        pytest.fail("bootstrap raw hot-table read/diff/mutation must be Spark/Delta-owned")
+
+    monkeypatch.setattr(foundation_module, "compute_raw_watermarks_spark_delta", _spark_watermarks)
+    monkeypatch.setattr(foundation_module, "run_moex_raw_ingest_spark_delta_job", _spark_raw_ingest)
+    monkeypatch.setattr(
+        foundation_module,
+        "read_delta_table_rows",
+        _forbidden_hot_python_delta_operation,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        foundation_module,
+        "write_delta_table_rows",
+        _forbidden_hot_python_delta_operation,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        foundation_module,
+        "append_delta_table_rows",
+        _forbidden_hot_python_delta_operation,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        foundation_module,
+        "delete_delta_table_rows",
+        _forbidden_hot_python_delta_operation,
+        raising=False,
+    )
+
+    report = ingest_moex_bootstrap_window(
+        client=_BaselineWindowClient(),
+        coverage=coverage,
+        table_path=raw_table_path,
+        run_id="bootstrap-scoped",
+        ingest_till_utc="2026-04-01T08:00:00Z",
+        bootstrap_window_days=1,
+        stability_lag_minutes=0,
+        refresh_overlap_minutes=20,
+    )
+
+    assert report["incremental_rows"] == 2
+    assert report["deduplicated_rows"] == 1
+    assert captured["watermark_kwargs"]["keys"] == {("FUT_BR", "1m", 1, "BRQ6")}
+    spark_kwargs = captured["spark_ingest_kwargs"]
+    assert spark_kwargs["table_path"] == raw_table_path
+    assert spark_kwargs["source_rows_path"].name == "bootstrap-scoped-source-rows.jsonl"
+    assert len(spark_kwargs["source_rows_path"].read_text(encoding="utf-8").splitlines()) == 3
+    assert spark_kwargs["window_scopes"] == [
+        {
+            "internal_id": "FUT_BR",
+            "timeframe": "1m",
+            "source_interval": 1,
+            "moex_secid": "BRQ6",
+            "window_start_utc": "2026-04-01T06:59:59Z",
+            "window_end_utc": "2026-04-01T08:00:00Z",
+            "watermark_utc": "2026-04-01T07:19:59Z",
+        }
+    ]

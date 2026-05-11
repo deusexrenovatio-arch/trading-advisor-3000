@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# ruff: noqa: E501
 import hashlib
 import json
 import re
@@ -9,7 +10,6 @@ from typing import Any, Mapping
 from uuid import uuid4
 
 from ..delta_runtime import append_delta_table_rows, has_delta_log, read_delta_table_rows
-
 
 RAW_INGEST_RUN_REPORT_VERSION = "raw_ingest_run_report.v2"
 PARITY_MANIFEST_VERSION = "parity_manifest.v1"
@@ -132,13 +132,17 @@ def _normalize_optional_sha256(value: object, field_name: str) -> str | None:
     return text
 
 
-def normalize_changed_windows(changed_windows: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...]) -> list[dict[str, Any]]:
+def normalize_changed_windows(
+    changed_windows: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...],
+) -> list[dict[str, Any]]:
     normalized_rows: list[dict[str, Any]] = []
     for index, item in enumerate(changed_windows):
         if not isinstance(item, Mapping):
             raise ValueError(f"`changed_windows[{index}]` must be object")
         row = {
-            "internal_id": _require_non_empty_text(item.get("internal_id"), f"changed_windows[{index}].internal_id"),
+            "internal_id": _require_non_empty_text(
+                item.get("internal_id"), f"changed_windows[{index}].internal_id"
+            ),
             "source_timeframe": _require_non_empty_text(
                 item.get("source_timeframe"),
                 f"changed_windows[{index}].source_timeframe",
@@ -147,16 +151,22 @@ def normalize_changed_windows(changed_windows: list[Mapping[str, Any]] | tuple[M
                 item.get("source_interval"),
                 f"changed_windows[{index}].source_interval",
             ),
-            "moex_secid": _require_non_empty_text(item.get("moex_secid"), f"changed_windows[{index}].moex_secid"),
+            "moex_secid": _require_non_empty_text(
+                item.get("moex_secid"), f"changed_windows[{index}].moex_secid"
+            ),
             "window_start_utc": _to_iso_utc(
                 _parse_iso_utc(
-                    _require_non_empty_text(item.get("window_start_utc"), f"changed_windows[{index}].window_start_utc"),
+                    _require_non_empty_text(
+                        item.get("window_start_utc"), f"changed_windows[{index}].window_start_utc"
+                    ),
                     field_name=f"changed_windows[{index}].window_start_utc",
                 )
             ),
             "window_end_utc": _to_iso_utc(
                 _parse_iso_utc(
-                    _require_non_empty_text(item.get("window_end_utc"), f"changed_windows[{index}].window_end_utc"),
+                    _require_non_empty_text(
+                        item.get("window_end_utc"), f"changed_windows[{index}].window_end_utc"
+                    ),
                     field_name=f"changed_windows[{index}].window_end_utc",
                 )
             ),
@@ -188,7 +198,9 @@ def normalize_changed_windows(changed_windows: list[Mapping[str, Any]] | tuple[M
         if existing is None:
             dedup[key] = row
             continue
-        existing["incremental_rows"] = int(existing["incremental_rows"]) + int(row["incremental_rows"])
+        existing["incremental_rows"] = int(existing["incremental_rows"]) + int(
+            row["incremental_rows"]
+        )
 
     merged = list(dedup.values())
     merged.sort(
@@ -239,8 +251,6 @@ def build_raw_ingest_run_report_v2(
     incremental_rows_int = _require_non_negative_int(incremental_rows, "incremental_rows")
     deduplicated_rows_int = _require_non_negative_int(deduplicated_rows, "deduplicated_rows")
     stale_rows_int = _require_non_negative_int(stale_rows, "stale_rows")
-    if source_rows_int < incremental_rows_int:
-        raise ValueError("`source_rows` cannot be lower than `incremental_rows`")
 
     status = derive_raw_ingest_status(incremental_rows=incremental_rows_int)
     if status == STATUS_PASS_NOOP and normalized_windows:
@@ -262,7 +272,7 @@ def build_raw_ingest_run_report_v2(
         "ingest_till_utc": ingest_till,
         "status": status,
         "status_semantics": {
-            "pass_condition": "incremental_rows > 0",
+            "pass_condition": "incremental_rows > 0, including source row changes or scoped target deletions",
             "pass_noop_condition": "incremental_rows == 0 and changed_windows == []",
             "blocked_condition": "ingest failures must fail closed and are not downgraded to PASS statuses",
             "failed_condition": "terminal ingest runtime failures produce FAILED and block canonical launch",
@@ -272,17 +282,22 @@ def build_raw_ingest_run_report_v2(
         "deduplicated_rows": deduplicated_rows_int,
         "stale_rows": stale_rows_int,
         "changed_windows": [
-            {key: row[key] for key in _SORTED_CHANGED_WINDOW_KEYS}
-            for row in normalized_windows
+            {key: row[key] for key in _SORTED_CHANGED_WINDOW_KEYS} for row in normalized_windows
         ],
         "changed_windows_hash_sha256": _sha256_json(
             [{key: row[key] for key in _SORTED_CHANGED_WINDOW_KEYS} for row in normalized_windows]
         ),
         "watermark_by_key": normalized_watermarks,
         "raw_table_path": _require_non_empty_text(raw_table_path, "raw_table_path"),
-        "raw_ingest_progress_path": _require_non_empty_text(raw_ingest_progress_path, "raw_ingest_progress_path"),
-        "raw_ingest_error_path": _require_non_empty_text(raw_ingest_error_path, "raw_ingest_error_path"),
-        "raw_ingest_error_latest_path": _require_non_empty_text(raw_ingest_error_latest_path, "raw_ingest_error_latest_path"),
+        "raw_ingest_progress_path": _require_non_empty_text(
+            raw_ingest_progress_path, "raw_ingest_progress_path"
+        ),
+        "raw_ingest_error_path": _require_non_empty_text(
+            raw_ingest_error_path, "raw_ingest_error_path"
+        ),
+        "raw_ingest_error_latest_path": _require_non_empty_text(
+            raw_ingest_error_latest_path, "raw_ingest_error_latest_path"
+        ),
     }
     return report
 
@@ -296,9 +311,17 @@ def build_parity_manifest_v1(
     window_policy_id: str = "fixed-proof-window.v1",
 ) -> dict[str, Any]:
     run_id_text = _require_non_empty_text(run_id, "run_id")
-    report_contract = _require_non_empty_text(raw_ingest_run_report.get("contract_version"), "raw_ingest_run_report.contract_version")
-    report_run_id = _require_non_empty_text(raw_ingest_run_report.get("run_id"), "raw_ingest_run_report.run_id")
-    source_windows = changed_windows if changed_windows is not None else raw_ingest_run_report.get("changed_windows", [])
+    report_contract = _require_non_empty_text(
+        raw_ingest_run_report.get("contract_version"), "raw_ingest_run_report.contract_version"
+    )
+    report_run_id = _require_non_empty_text(
+        raw_ingest_run_report.get("run_id"), "raw_ingest_run_report.run_id"
+    )
+    source_windows = (
+        changed_windows
+        if changed_windows is not None
+        else raw_ingest_run_report.get("changed_windows", [])
+    )
     if not isinstance(source_windows, (list, tuple)):
         raise ValueError("`changed_windows` must be list-like")
     normalized_windows = normalize_changed_windows(list(source_windows))
@@ -310,7 +333,9 @@ def build_parity_manifest_v1(
         "raw_ingest_run_report.changed_windows_hash_sha256",
     )
     if report_hash and report_hash != window_hash:
-        raise ValueError("`raw_ingest_run_report.changed_windows_hash_sha256` does not match deterministic hash rules")
+        raise ValueError(
+            "`raw_ingest_run_report.changed_windows_hash_sha256` does not match deterministic hash rules"
+        )
 
     status = STATUS_PASS if normalized_windows else STATUS_PASS_NOOP
     generated = _to_iso_utc(
@@ -329,8 +354,7 @@ def build_parity_manifest_v1(
         "raw_ingest_run_id": report_run_id,
         "window_count": len(normalized_windows),
         "changed_windows": [
-            {key: row[key] for key in _SORTED_CHANGED_WINDOW_KEYS}
-            for row in normalized_windows
+            {key: row[key] for key in _SORTED_CHANGED_WINDOW_KEYS} for row in normalized_windows
         ],
         "changed_windows_hash_sha256": window_hash,
         "deterministic_rules": {
@@ -365,7 +389,9 @@ def _sorted_ledger_rows(
     if route_id is not None:
         filtered = [row for row in filtered if str(row.get("route_id", "")).strip() == route_id]
     if lease_scope is not None:
-        filtered = [row for row in filtered if str(row.get("lease_scope", "")).strip() in {"", lease_scope}]
+        filtered = [
+            row for row in filtered if str(row.get("lease_scope", "")).strip() in {"", lease_scope}
+        ]
     return sorted(
         filtered,
         key=lambda row: (
@@ -389,8 +415,7 @@ def _normalize_lease_backend(value: object) -> str:
     lease_backend = _require_non_empty_text(value, "lease_backend")
     if lease_backend != LEASE_BACKEND_DELTA_LEDGER_CAS:
         raise ValueError(
-            "`lease_backend` must use canonical CAS backend "
-            f"`{LEASE_BACKEND_DELTA_LEDGER_CAS}`"
+            f"`lease_backend` must use canonical CAS backend `{LEASE_BACKEND_DELTA_LEDGER_CAS}`"
         )
     return lease_backend
 
@@ -524,7 +549,9 @@ def _build_ledger_row(
         "lease_timeout_sec": max(0, int(lease_timeout_sec)),
         "run_id": run_id or None,
         "retry_of_run_id": retry_of_run_id,
-        "changed_windows_hash": _normalize_optional_sha256(changed_windows_hash, "changed_windows_hash"),
+        "changed_windows_hash": _normalize_optional_sha256(
+            changed_windows_hash, "changed_windows_hash"
+        ),
         "metadata_json": dict(metadata or {}),
     }
 
@@ -585,9 +612,15 @@ def read_technical_route_run_ledger(
         payload["event_sequence"] = int(payload.get("event_sequence", 0) or 0)
         payload["lease_version"] = _read_lease_version(payload)
         payload["ttl_seconds"] = int(payload.get("ttl_seconds", 0) or 0)
-        payload["lease_timeout_sec"] = int(payload.get("lease_timeout_sec", payload["ttl_seconds"]) or 0)
-        payload["lease_scope"] = str(payload.get("lease_scope", "")).strip() or LEASE_SCOPE_AUTHORITATIVE_STORE_ROUTE
-        payload["lease_backend"] = str(payload.get("lease_backend", "")).strip() or LEASE_BACKEND_DELTA_LEDGER_CAS
+        payload["lease_timeout_sec"] = int(
+            payload.get("lease_timeout_sec", payload["ttl_seconds"]) or 0
+        )
+        payload["lease_scope"] = (
+            str(payload.get("lease_scope", "")).strip() or LEASE_SCOPE_AUTHORITATIVE_STORE_ROUTE
+        )
+        payload["lease_backend"] = (
+            str(payload.get("lease_backend", "")).strip() or LEASE_BACKEND_DELTA_LEDGER_CAS
+        )
         payload["lease_state"] = _derive_lease_state(payload)
         metadata_raw = payload.get("metadata_json")
         if isinstance(metadata_raw, str) and metadata_raw.strip():
@@ -637,7 +670,9 @@ def acquire_technical_route_lease(
     event_sequence = _next_event_sequence(rows)
     request_iso = _to_iso_utc(request_time)
     expires_iso = _to_iso_utc(request_time + timedelta(seconds=ttl_seconds_int))
-    next_lease_version = _max_lease_version(rows=rows, route_id=route_id_text, lease_scope=lease_scope_text) + 1
+    next_lease_version = (
+        _max_lease_version(rows=rows, route_id=route_id_text, lease_scope=lease_scope_text) + 1
+    )
 
     status = STATUS_PASS
     status_reason = "lease_acquired"
@@ -758,7 +793,9 @@ def heartbeat_technical_route_lease(
         lease_scope=lease_scope_text,
         as_of=request_time,
     )
-    max_version = _max_lease_version(rows=rows, route_id=route_id_text, lease_scope=lease_scope_text)
+    max_version = _max_lease_version(
+        rows=rows, route_id=route_id_text, lease_scope=lease_scope_text
+    )
     lease_version = max(1, max_version)
 
     status = STATUS_BLOCKED
@@ -857,7 +894,9 @@ def takeover_technical_route_lease(
     ttl_seconds_int = _require_non_negative_int(ttl_seconds, "ttl_seconds")
     if ttl_seconds_int <= 0:
         raise ValueError("`ttl_seconds` must be > 0")
-    expected_lease_version_int = _require_non_negative_int(expected_lease_version, "expected_lease_version")
+    expected_lease_version_int = _require_non_negative_int(
+        expected_lease_version, "expected_lease_version"
+    )
     if expected_lease_version_int <= 0:
         raise ValueError("`expected_lease_version` must be > 0")
     lease_scope_text = _normalize_lease_scope(lease_scope)
@@ -867,7 +906,9 @@ def takeover_technical_route_lease(
 
     rows = _load_technical_route_ledger_rows(ledger_table_path)
     event_sequence = _next_event_sequence(rows)
-    max_version = _max_lease_version(rows=rows, route_id=route_id_text, lease_scope=lease_scope_text)
+    max_version = _max_lease_version(
+        rows=rows, route_id=route_id_text, lease_scope=lease_scope_text
+    )
     latest = _latest_successful_row(rows=rows, route_id=route_id_text, lease_scope=lease_scope_text)
 
     status = STATUS_BLOCKED
@@ -978,7 +1019,9 @@ def release_technical_route_lease(
         as_of=request_time,
     )
     event_sequence = _next_event_sequence(rows)
-    max_lease_version = _max_lease_version(rows=rows, route_id=route_id_text, lease_scope=lease_scope_text)
+    max_lease_version = _max_lease_version(
+        rows=rows, route_id=route_id_text, lease_scope=lease_scope_text
+    )
     lease_version = max(1, max_lease_version)
 
     status = STATUS_PASS_NOOP
@@ -1081,7 +1124,9 @@ def record_technical_route_blocked_conflict(
         lease_scope=lease_scope_text,
         as_of=request_time,
     )
-    max_lease_version = _max_lease_version(rows=rows, route_id=route_id_text, lease_scope=lease_scope_text)
+    max_lease_version = _max_lease_version(
+        rows=rows, route_id=route_id_text, lease_scope=lease_scope_text
+    )
     lease_version = max(1, max_lease_version)
 
     resolved_blocking_holder = str(blocking_holder_id or "").strip() or None
@@ -1089,7 +1134,9 @@ def record_technical_route_blocked_conflict(
     previous_lease_owner: str | None = None
     expected_lease_version_int: int | None = None
     if expected_lease_version is not None:
-        expected_lease_version_int = _require_non_negative_int(expected_lease_version, "expected_lease_version")
+        expected_lease_version_int = _require_non_negative_int(
+            expected_lease_version, "expected_lease_version"
+        )
         if expected_lease_version_int <= 0:
             raise ValueError("`expected_lease_version` must be > 0")
 
