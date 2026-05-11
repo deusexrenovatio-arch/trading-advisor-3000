@@ -14,6 +14,7 @@ instances:
       host_root_default: D:/TA3000-data/trading-advisor-3000-nightly
     dagster:
       graphql_url: http://127.0.0.1:3000/graphql
+      graphql_port_env: TA3000_DAGSTER_PORT
       repository_location: trading_advisor_3000.dagster_defs:product_plane_definitions
       repository: __repository__
       job: moex_baseline_update_job

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # ruff: noqa: E501
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ RUNTIME_INSTANCES_REGISTRY_RELATIVE_PATH = (
 )
 PRODUCT_RUNTIME_ROLE = "product_runtime_staging"
 VERIFICATION_RUNTIME_ROLE = "disposable_verification_staging"
+_SAFE_RUN_ID_RE = re.compile(r"^[A-Za-z0-9_.=-]+$")
 
 
 @dataclass(frozen=True)
@@ -81,6 +83,13 @@ def _require_text(value: object, *, name: str) -> str:
     text = str(value or "").strip()
     if not text:
         raise ValueError(f"`{name}` must not be empty")
+    return text
+
+
+def validate_moex_runtime_run_id(value: object, *, name: str = "run_id") -> str:
+    text = _require_text(value, name=name)
+    if text in {".", ".."} or not _SAFE_RUN_ID_RE.fullmatch(text):
+        raise ValueError(f"`{name}` must be a single safe path segment")
     return text
 
 
@@ -177,7 +186,12 @@ def _validate_registry(registry: MoexRuntimeInstancesRegistry) -> None:
                 instance.paths.get("seed_from_instance"),
                 name=f"{instance.instance_id}.paths.seed_from_instance",
             )
-            registry.instance(str(instance.paths["seed_from_instance"]))
+            seed_instance = registry.instance(str(instance.paths["seed_from_instance"]))
+            if seed_instance.role != PRODUCT_RUNTIME_ROLE:
+                raise ValueError(
+                    f"verification instance `{instance.instance_id}` seed_from_instance "
+                    "must reference a product_runtime_staging instance"
+                )
 
 
 def render_moex_runtime_instance_paths(
@@ -190,7 +204,7 @@ def render_moex_runtime_instance_paths(
             instance.paths.get("data_root"), name=f"{instance.instance_id}.paths.data_root"
         )
     elif instance.role == VERIFICATION_RUNTIME_ROLE:
-        resolved_run_id = _require_text(run_id, name="run_id")
+        resolved_run_id = validate_moex_runtime_run_id(run_id)
         data_root = _require_text(
             instance.paths.get("run_root_template"),
             name=f"{instance.instance_id}.paths.run_root_template",
@@ -216,7 +230,8 @@ def build_moex_baseline_run_config_for_instance(
     run_id: str,
     ingest_till_utc: str,
 ) -> dict[str, Any]:
-    paths = render_moex_runtime_instance_paths(instance, run_id=run_id)
+    resolved_run_id = validate_moex_runtime_run_id(run_id)
+    paths = render_moex_runtime_instance_paths(instance, run_id=resolved_run_id)
     defaults = instance.launch_defaults
     return {
         "ops": {
@@ -249,7 +264,7 @@ def build_moex_baseline_run_config_for_instance(
                     "stability_lag_minutes": int(defaults.get("stability_lag_minutes", 20)),
                     "expand_contract_chain": bool(defaults.get("expand_contract_chain", True)),
                     "ingest_till_utc": _require_text(ingest_till_utc, name="ingest_till_utc"),
-                    "run_id": _require_text(run_id, name="run_id"),
+                    "run_id": resolved_run_id,
                 }
             }
         }

@@ -267,7 +267,7 @@ def run_moex_baseline_update(
         "mode": "baseline_update",
         "runtime_boundary": {
             "orchestrator": "dagster",
-            "raw_ingest_runtime": "spark_delta",
+            "hot_table_runtime": "spark_delta",
             "python_role": "source_adapter_config_and_evidence",
         },
         "refresh_window_days": refresh_window_days,

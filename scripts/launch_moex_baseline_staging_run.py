@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
@@ -37,11 +39,48 @@ def _default_ingest_till_utc() -> str:
     return datetime.now(tz=UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def _validate_graphql_url(url: str) -> str:
+    parsed = urllib.parse.urlsplit(url.strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("Dagster GraphQL URL must use http/https and include a host")
+    return urllib.parse.urlunsplit(parsed)
+
+
+def _apply_graphql_port_env(url: str, *, port_env: str) -> str:
+    env_name = port_env.strip()
+    raw_port = os.environ.get(env_name, "").strip() if env_name else ""
+    if not raw_port:
+        return url
+    try:
+        port = int(raw_port)
+    except ValueError as exc:
+        raise ValueError(f"{env_name} must be an integer port") from exc
+    if port <= 0 or port > 65535:
+        raise ValueError(f"{env_name} must be a valid TCP port")
+    parsed = urllib.parse.urlsplit(url)
+    host = parsed.hostname or ""
+    if not host:
+        return url
+    host_part = f"[{host}]" if ":" in host and not host.startswith("[") else host
+    return urllib.parse.urlunsplit(parsed._replace(netloc=f"{host_part}:{port}"))
+
+
+def _resolve_graphql_url(raw_url: str, *, dagster: dict[str, object], override: bool) -> str:
+    url = raw_url.strip()
+    if not override:
+        url = _apply_graphql_port_env(
+            url,
+            port_env=str(dagster.get("graphql_port_env", "") or ""),
+        )
+    return _validate_graphql_url(url)
+
+
 def _post_graphql(
     *, url: str, query: str, variables: dict[str, object], timeout_sec: int
 ) -> dict[str, object]:
+    graphql_url = _validate_graphql_url(url)
     request = urllib.request.Request(
-        url,
+        graphql_url,
         data=json.dumps({"query": query, "variables": variables}).encode(),
         headers={"Content-Type": "application/json"},
     )
@@ -54,6 +93,9 @@ def _post_graphql(
             return dict(json.loads(body))
         except json.JSONDecodeError:
             return {"errors": [{"message": body}]}
+    except urllib.error.URLError as exc:
+        reason = getattr(exc, "reason", exc)
+        return {"errors": [{"message": f"Dagster GraphQL request failed: {reason}"}]}
 
 
 def _launch_mutation() -> str:
@@ -129,6 +171,11 @@ def main() -> None:
         raise SystemExit(
             f"runtime instance `{dagster_owner.instance_id}` does not declare dagster.graphql_url"
         )
+    graphql_url = _resolve_graphql_url(
+        graphql_url,
+        dagster=dagster,
+        override=bool(str(args.graphql_url).strip()),
+    )
     run_id = _safe_run_id(str(args.run_id).strip() or _default_run_id())
     ingest_till_utc = str(args.ingest_till_utc).strip() or _default_ingest_till_utc()
     run_config = build_moex_baseline_run_config_for_instance(

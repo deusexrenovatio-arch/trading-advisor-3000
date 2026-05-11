@@ -140,7 +140,7 @@ def test_baseline_update_writes_to_stable_paths_and_scoped_canonical_refresh(
     assert report["effective_changed_windows"] == 1
     assert report["runtime_boundary"] == {
         "orchestrator": "dagster",
-        "raw_ingest_runtime": "spark_delta",
+        "hot_table_runtime": "spark_delta",
         "python_role": "source_adapter_config_and_evidence",
     }
     assert not (tmp_path / "evidence" / "pending-changed-windows.json").exists()

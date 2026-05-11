@@ -70,7 +70,7 @@ def _copy_tree(*, source: Path, target: Path, label: str, overwrite: bool) -> di
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists() and overwrite:
         shutil.rmtree(target)
-    shutil.copytree(source, target)
+    shutil.copytree(source, target, dirs_exist_ok=target.exists())
     return {
         "label": label,
         "source": source.as_posix(),

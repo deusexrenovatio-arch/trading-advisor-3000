@@ -275,6 +275,22 @@ def test_baseline_update_output_paths_keep_reports_inside_selected_staging_root(
     assert output_paths["canonical_session_calendar"].startswith(baseline_root.as_posix())
 
 
+def test_baseline_update_paths_reject_path_like_run_id(tmp_path: Path) -> None:
+    baseline_root = tmp_path / "staging" / "verification" / "proof-run-3"
+
+    with pytest.raises(ValueError, match="single safe path segment"):
+        build_moex_baseline_update_run_config(
+            baseline_root=baseline_root,
+            run_id="../escape",
+            ingest_till_utc="2026-04-15T00:00:00Z",
+        )
+    with pytest.raises(ValueError, match="single safe path segment"):
+        moex_baseline_update_output_paths(
+            baseline_root=baseline_root,
+            run_id="../escape",
+        )
+
+
 def test_dagster_route_canonical_refresh_is_blocked_when_raw_status_failed(tmp_path: Path) -> None:
     raw_table_path, raw_report_path = _write_raw_table_and_report(
         tmp_path, run_id="phase03-raw-failed"
@@ -499,7 +515,7 @@ def test_dagster_route_cutover_rejects_localhost_staging_binding_report(tmp_path
     )
 
     with pytest.raises(
-        ValueError, match="loopback or unspecified host|external staging Dagster host"
+        ValueError, match=r"loopback or unspecified host|external staging Dagster host"
     ):
         run_historical_dagster_cutover(
             raw_table_path=raw_table_path,

@@ -41,3 +41,10 @@ def test_raw_ingest_reconcile_uses_window_scoped_delete_before_append() -> None:
     assert ".delete(" in source
     assert "windows_to_reconcile_df.collect()" not in source
     assert ".whenMatchedUpdateAll()" not in source
+
+
+def test_raw_ingest_watermark_keys_include_source_interval() -> None:
+    source = inspect.getsource(moex_raw_ingest_job._collect_post_watermarks)
+
+    assert "KEY_SCOPE_COLUMNS" in source
+    assert 'row["source_interval"]' in source

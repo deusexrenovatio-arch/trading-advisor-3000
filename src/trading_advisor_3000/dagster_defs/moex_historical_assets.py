@@ -34,6 +34,9 @@ from trading_advisor_3000.product_plane.data_plane.moex.baseline_update import (
 from trading_advisor_3000.product_plane.data_plane.moex.historical_canonical_route import (
     run_historical_canonical_route,
 )
+from trading_advisor_3000.product_plane.data_plane.moex.runtime_instances import (
+    validate_moex_runtime_run_id,
+)
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     BASELINE_UPDATE_STORAGE_DIRNAME,
     CANONICAL_BASELINE_BARS_FILENAME,
@@ -281,9 +284,9 @@ def build_moex_baseline_update_run_config(
     stability_lag_minutes: int = DEFAULT_STABILITY_LAG_MINUTES,
     expand_contract_chain: bool = True,
 ) -> dict[str, object]:
-    resolved_run_id = run_id.strip()
-    if not resolved_run_id:
-        raise RuntimeError("build_moex_baseline_update_run_config requires run_id")
+    resolved_run_id = validate_moex_runtime_run_id(
+        run_id, name="build_moex_baseline_update_run_config.run_id"
+    )
     resolved_root = baseline_root.resolve()
     resolved_ingest_till_utc = (
         ingest_till_utc.strip()
@@ -661,7 +664,10 @@ def moex_baseline_update(context) -> dict[str, object]:
     evidence_root = Path(
         _text_value(op_config, "evidence_root") or default_paths["evidence_root"].as_posix()
     ).resolve()
-    run_id = _text_value(op_config, "run_id", "canonical_run_id") or _default_route_run_id()
+    run_id = validate_moex_runtime_run_id(
+        _text_value(op_config, "run_id", "canonical_run_id") or _default_route_run_id(),
+        name="moex_baseline_update.run_id",
+    )
     ingest_till_utc = _text_value(op_config, "ingest_till_utc") or datetime.now(tz=UTC).replace(
         microsecond=0
     ).isoformat().replace("+00:00", "Z")
@@ -717,7 +723,7 @@ def moex_baseline_update(context) -> dict[str, object]:
         {
             "mode": "baseline_update",
             "orchestrator": "dagster_asset",
-            "raw_ingest_runtime": "spark_delta",
+            "hot_table_runtime": "spark_delta",
             "source_rows": int(report.get("source_rows", 0) or 0),
             "incremental_rows": int(report.get("incremental_rows", 0) or 0),
             "current_changed_windows": int(report.get("current_changed_windows", 0) or 0),
@@ -926,9 +932,9 @@ def moex_historical_output_paths(output_dir: Path) -> dict[str, str]:
 
 
 def moex_baseline_update_output_paths(*, baseline_root: Path, run_id: str) -> dict[str, str]:
-    resolved_run_id = run_id.strip()
-    if not resolved_run_id:
-        raise RuntimeError("moex_baseline_update_output_paths requires run_id")
+    resolved_run_id = validate_moex_runtime_run_id(
+        run_id, name="moex_baseline_update_output_paths.run_id"
+    )
     paths = _baseline_paths_from_root(baseline_root.resolve())
     return {
         "raw_table": paths["raw_table_path"].as_posix(),
@@ -961,9 +967,9 @@ def execute_moex_baseline_update_job(
     extra_tags: dict[str, str] | None = None,
     raise_on_error: bool = False,
 ) -> dict[str, object]:
-    resolved_run_id = run_id.strip()
-    if not resolved_run_id:
-        raise RuntimeError("execute_moex_baseline_update_job requires run_id")
+    resolved_run_id = validate_moex_runtime_run_id(
+        run_id, name="execute_moex_baseline_update_job.run_id"
+    )
 
     assert_moex_historical_definitions_executable()
     definitions = build_moex_historical_definitions()
@@ -1018,7 +1024,7 @@ def execute_moex_baseline_update_job(
         "baseline_root": resolved_baseline_root.as_posix(),
         "runtime_boundary": {
             "orchestrator": "dagster",
-            "raw_ingest_runtime": "spark_delta",
+            "hot_table_runtime": "spark_delta",
             "python_role": "source_adapter_config_and_evidence",
         },
         "tags": tags,

@@ -3,7 +3,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-SCRIPT_PATH = Path.cwd() / "scripts" / "run_moex_baseline_update_staging_job.py"
+REPO_ROOT = Path(__file__).resolve().parents[3]
+SCRIPT_PATH = REPO_ROOT / "scripts" / "run_moex_baseline_update_staging_job.py"
 
 
 def _load_script_module():
@@ -78,3 +79,29 @@ def test_staging_job_seed_rejects_non_empty_target_without_overwrite(tmp_path: P
         assert "--overwrite-seed" in str(exc)
     else:
         raise AssertionError("expected non-empty seed target to be rejected")
+
+
+def test_staging_job_seed_allows_precreated_empty_target(tmp_path: Path) -> None:
+    module = _load_script_module()
+    source_root = tmp_path / "source-root"
+    target_root = tmp_path / "target-root"
+    _write_seed_fixture(source_root)
+    (target_root / "raw" / "moex" / "baseline-4y-current" / "raw_moex_history.delta").mkdir(
+        parents=True
+    )
+    (target_root / "canonical" / "moex" / "baseline-4y-current").mkdir(parents=True)
+
+    module._seed_baseline_root(
+        source_root=source_root,
+        target_root=target_root,
+        overwrite=False,
+    )
+
+    assert (
+        target_root
+        / "raw"
+        / "moex"
+        / "baseline-4y-current"
+        / "raw_moex_history.delta"
+        / "_delta_log"
+    ).exists()

@@ -346,7 +346,14 @@ def _collect_post_watermarks(*, raw_df: Any, keys_df: Any, functions: Any) -> di
         .agg(functions.max("ts_close").alias("ts_close"))
     )
     return {
-        f"{row['internal_id']}|{row['timeframe']}|{row['moex_secid']}": _to_iso_utc(row["ts_close"])
+        "|".join(
+            (
+                str(row["internal_id"]),
+                str(row["timeframe"]),
+                str(row["source_interval"]),
+                str(row["moex_secid"]),
+            )
+        ): _to_iso_utc(row["ts_close"])
         for row in watermark_df.collect()
         if row["ts_close"] is not None
     }

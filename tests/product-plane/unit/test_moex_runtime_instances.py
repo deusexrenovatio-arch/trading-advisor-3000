@@ -12,9 +12,11 @@ from trading_advisor_3000.product_plane.data_plane.moex.runtime_instances import
     render_moex_runtime_instance_paths,
 )
 
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
 
 def test_moex_runtime_instances_registry_declares_product_and_test_staging() -> None:
-    registry = load_moex_runtime_instances_registry(repo_root=Path.cwd())
+    registry = load_moex_runtime_instances_registry(repo_root=REPO_ROOT)
 
     product = registry.default_product_runtime()
     verification = registry.default_verification_runtime()
@@ -36,7 +38,7 @@ def test_moex_runtime_instances_registry_declares_product_and_test_staging() -> 
 
 
 def test_moex_runtime_instances_render_product_and_test_paths() -> None:
-    registry = load_moex_runtime_instances_registry(repo_root=Path.cwd())
+    registry = load_moex_runtime_instances_registry(repo_root=REPO_ROOT)
 
     product_paths = render_moex_runtime_instance_paths(
         registry.default_product_runtime(),
@@ -58,7 +60,7 @@ def test_moex_runtime_instances_render_product_and_test_paths() -> None:
 
 
 def test_moex_runtime_instances_build_baseline_run_config() -> None:
-    registry = load_moex_runtime_instances_registry(repo_root=Path.cwd())
+    registry = load_moex_runtime_instances_registry(repo_root=REPO_ROOT)
     instance = registry.default_product_runtime()
 
     run_config = build_moex_baseline_run_config_for_instance(
@@ -75,7 +77,34 @@ def test_moex_runtime_instances_build_baseline_run_config() -> None:
 
 
 def test_moex_runtime_instances_reject_unknown_instance() -> None:
-    registry = load_moex_runtime_instances_registry(repo_root=Path.cwd())
+    registry = load_moex_runtime_instances_registry(repo_root=REPO_ROOT)
 
     with pytest.raises(KeyError, match="unknown MOEX runtime instance"):
         registry.instance("missing")
+
+
+def test_moex_runtime_instances_reject_path_like_verification_run_id() -> None:
+    registry = load_moex_runtime_instances_registry(repo_root=REPO_ROOT)
+
+    with pytest.raises(ValueError, match="single safe path segment"):
+        render_moex_runtime_instance_paths(
+            registry.default_verification_runtime(),
+            run_id="../escape",
+        )
+
+
+def test_moex_runtime_instances_require_product_seed_instance(tmp_path: Path) -> None:
+    registry_path = (
+        REPO_ROOT / "deployment" / "runtime-instances" / "moex-runtime-instances.v1.yaml"
+    )
+    bad_registry_path = tmp_path / "moex-runtime-instances.v1.yaml"
+    bad_registry_path.write_text(
+        registry_path.read_text(encoding="utf-8").replace(
+            "seed_from_instance: moex_product_staging",
+            "seed_from_instance: moex_test_staging_on_demand",
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="seed_from_instance.*product_runtime_staging"):
+        load_moex_runtime_instances_registry(bad_registry_path, repo_root=REPO_ROOT)
