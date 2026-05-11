@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+# ruff: noqa: E402, E501
 import argparse
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 try:
     from scripts.proof_runtime_contract import (
@@ -37,8 +38,10 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from trading_advisor_3000.spark_jobs import DEFAULT_SPARK_MASTER
-from trading_advisor_3000.spark_jobs.moex_canonicalization_job import run_moex_canonicalization_spark_job
-
+from trading_advisor_3000.spark_jobs.moex_canonicalization_job import (
+    run_moex_canonicalization_spark_delta_job,
+    run_moex_canonicalization_spark_job,
+)
 
 DEFAULT_DOCKER_IMAGE = "ta3000-phase-proof:latest"
 DEFAULT_DOCKERFILE = Path("deployment/docker/phase-proofs/Dockerfile")
@@ -100,7 +103,9 @@ def _ensure_docker_image(image: str, dockerfile: Path) -> None:
 
 def _docker_python_command(
     *,
-    normalized_source_jsonl: Path,
+    normalized_source_jsonl: Path | None,
+    raw_table_path: Path | None,
+    changed_windows_jsonl: Path | None,
     selected_source_intervals_jsonl: Path,
     output_dir: Path,
     run_id: str,
@@ -113,8 +118,6 @@ def _docker_python_command(
         "scripts/run_moex_historical_canonical_route_spark.py",
         "--profile",
         "local",
-        "--normalized-source-jsonl",
-        _container_path(normalized_source_jsonl),
         "--selected-source-intervals-jsonl",
         _container_path(selected_source_intervals_jsonl),
         "--output-dir",
@@ -126,6 +129,21 @@ def _docker_python_command(
         "--spark-master",
         spark_master,
     ]
+    if raw_table_path is not None:
+        if changed_windows_jsonl is None:
+            raise RuntimeError("raw Delta canonicalization requires changed_windows_jsonl")
+        command.extend(
+            [
+                "--raw-table-path",
+                _container_path(raw_table_path),
+                "--changed-windows-jsonl",
+                _container_path(changed_windows_jsonl),
+            ]
+        )
+    else:
+        if normalized_source_jsonl is None:
+            raise RuntimeError("JSONL canonicalization requires normalized_source_jsonl")
+        command.extend(["--normalized-source-jsonl", _container_path(normalized_source_jsonl)])
     if output_json is not None:
         command.extend(["--output-json", _container_path(output_json)])
     return command
@@ -133,7 +151,9 @@ def _docker_python_command(
 
 def _docker_exec_args(
     *,
-    normalized_source_jsonl: Path,
+    normalized_source_jsonl: Path | None,
+    raw_table_path: Path | None,
+    changed_windows_jsonl: Path | None,
     selected_source_intervals_jsonl: Path,
     output_dir: Path,
     run_id: str,
@@ -143,6 +163,8 @@ def _docker_exec_args(
 ) -> list[str]:
     python_command = _docker_python_command(
         normalized_source_jsonl=normalized_source_jsonl,
+        raw_table_path=raw_table_path,
+        changed_windows_jsonl=changed_windows_jsonl,
         selected_source_intervals_jsonl=selected_source_intervals_jsonl,
         output_dir=output_dir,
         run_id=run_id,
@@ -163,7 +185,9 @@ def _docker_exec_args(
 
 def _run_in_docker(
     *,
-    normalized_source_jsonl: Path,
+    normalized_source_jsonl: Path | None,
+    raw_table_path: Path | None,
+    changed_windows_jsonl: Path | None,
     selected_source_intervals_jsonl: Path,
     output_dir: Path,
     run_id: str,
@@ -210,6 +234,8 @@ def _run_in_docker(
             image,
             *_docker_exec_args(
                 normalized_source_jsonl=normalized_source_jsonl,
+                raw_table_path=raw_table_path,
+                changed_windows_jsonl=changed_windows_jsonl,
                 selected_source_intervals_jsonl=selected_source_intervals_jsonl,
                 output_dir=output_dir,
                 run_id=run_id,
@@ -232,7 +258,9 @@ def _run_in_docker(
         raise RuntimeError(f"docker Spark canonicalization failed: {detail}")
 
     if output_json is None:
-        raise RuntimeError("docker Spark canonicalization requires output_json for deterministic capture")
+        raise RuntimeError(
+            "docker Spark canonicalization requires output_json for deterministic capture"
+        )
 
     payload = json.loads(output_json.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
@@ -240,11 +268,12 @@ def _run_in_docker(
     output_paths = payload.get("output_paths")
     if isinstance(output_paths, dict):
         payload["output_paths"] = {
-            str(key): _hostify_container_path(str(value))
-            for key, value in output_paths.items()
+            str(key): _hostify_container_path(str(value)) for key, value in output_paths.items()
         }
     payload["proof_profile"] = "docker-linux"
-    output_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    output_json.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     return payload
 
 
@@ -255,7 +284,9 @@ def main() -> None:
             "This is the canonical Spark resampling/provenance engine for the historical route."
         )
     )
-    parser.add_argument("--normalized-source-jsonl", required=True)
+    parser.add_argument("--normalized-source-jsonl", default="")
+    parser.add_argument("--raw-table-path", default="")
+    parser.add_argument("--changed-windows-jsonl", default="")
     parser.add_argument("--selected-source-intervals-jsonl", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--run-id", required=True)
@@ -268,15 +299,35 @@ def main() -> None:
     parser.add_argument("--docker-runtime-root", default=DEFAULT_DOCKER_RUNTIME_ROOT)
     args = parser.parse_args()
 
-    normalized_source_jsonl = _resolve_repo_path(Path(args.normalized_source_jsonl))
+    normalized_source_jsonl = (
+        _resolve_repo_path(Path(args.normalized_source_jsonl))
+        if str(args.normalized_source_jsonl).strip()
+        else None
+    )
+    raw_table_path = (
+        _resolve_repo_path(Path(args.raw_table_path)) if str(args.raw_table_path).strip() else None
+    )
+    changed_windows_jsonl = (
+        _resolve_repo_path(Path(args.changed_windows_jsonl))
+        if str(args.changed_windows_jsonl).strip()
+        else None
+    )
     selected_source_intervals_jsonl = _resolve_repo_path(Path(args.selected_source_intervals_jsonl))
     output_dir = _resolve_repo_path(Path(args.output_dir))
     output_json = _resolve_repo_path(Path(args.output_json)) if args.output_json else None
+    if raw_table_path is not None and changed_windows_jsonl is None:
+        raise SystemExit("--changed-windows-jsonl is required with --raw-table-path")
+    if raw_table_path is None and normalized_source_jsonl is None:
+        raise SystemExit("provide either --raw-table-path or --normalized-source-jsonl")
 
     if args.profile == "docker":
-        runtime_root = normalize_runtime_root(args.docker_runtime_root, field_name="docker runtime root")
+        runtime_root = normalize_runtime_root(
+            args.docker_runtime_root, field_name="docker runtime root"
+        )
         report = _run_in_docker(
             normalized_source_jsonl=normalized_source_jsonl,
+            raw_table_path=raw_table_path,
+            changed_windows_jsonl=changed_windows_jsonl,
             selected_source_intervals_jsonl=selected_source_intervals_jsonl,
             output_dir=output_dir,
             run_id=args.run_id,
@@ -287,6 +338,17 @@ def main() -> None:
             dockerfile=_resolve_repo_path(Path(args.dockerfile)),
             runtime_root=runtime_root,
         )
+    elif raw_table_path is not None:
+        report = run_moex_canonicalization_spark_delta_job(
+            raw_table_path=raw_table_path,
+            changed_windows_path=changed_windows_jsonl,
+            selected_source_intervals_path=selected_source_intervals_jsonl,
+            output_dir=output_dir,
+            build_run_id=args.run_id,
+            built_at_utc=args.built_at_utc,
+            spark_master=args.spark_master,
+        )
+        report["proof_profile"] = "local-spark"
     else:
         report = run_moex_canonicalization_spark_job(
             normalized_source_path=normalized_source_jsonl,

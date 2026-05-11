@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+# ruff: noqa: E501
+import json
+import subprocess
+import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-import json
 from pathlib import Path
-import subprocess
-import sys
 from uuid import uuid4
 
 from dagster import (
@@ -14,7 +15,6 @@ from dagster import (
     DagsterInstance,
     DefaultScheduleStatus,
     Definitions,
-    Field as DagsterField,
     RetryPolicy,
     ScheduleDefinition,
     asset,
@@ -22,10 +22,18 @@ from dagster import (
     define_asset_job,
     materialize,
 )
+from dagster import (
+    Field as DagsterField,
+)
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log
-from trading_advisor_3000.product_plane.data_plane.moex.baseline_update import run_moex_baseline_update
-from trading_advisor_3000.product_plane.data_plane.moex.historical_canonical_route import run_historical_canonical_route
+from trading_advisor_3000.product_plane.data_plane.moex.baseline_update import (
+    BASELINE_UPDATE_REPORT_FILENAME,
+    run_moex_baseline_update,
+)
+from trading_advisor_3000.product_plane.data_plane.moex.historical_canonical_route import (
+    run_historical_canonical_route,
+)
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     BASELINE_UPDATE_STORAGE_DIRNAME,
     CANONICAL_BASELINE_BARS_FILENAME,
@@ -35,19 +43,22 @@ from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     CANONICAL_BASELINE_SESSION_CALENDAR_FILENAME,
     CANONICAL_REFRESH_REPORT_FILENAME,
     CANONICAL_REFRESH_STORAGE_DIRNAME,
-    configured_moex_historical_data_root,
     RAW_BASELINE_TABLE_RELATIVE_PATH,
     RAW_INGEST_STORAGE_DIRNAME,
     ROUTE_REFRESH_REPORT_FILENAME,
     ROUTE_REFRESH_STORAGE_DIRNAME,
+    configured_moex_historical_data_root,
     resolve_external_root,
 )
 
-
 PASS_LIKE_RAW_STATUSES = {"PASS", "PASS-NOOP"}
 REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_MAPPING_REGISTRY = REPO_ROOT / "configs" / "moex_foundation" / "instrument_mapping_registry.v1.yaml"
-DEFAULT_UNIVERSE = REPO_ROOT / "configs" / "moex_foundation" / "universe" / "moex-futures-priority.v1.yaml"
+DEFAULT_MAPPING_REGISTRY = (
+    REPO_ROOT / "configs" / "moex_foundation" / "instrument_mapping_registry.v1.yaml"
+)
+DEFAULT_UNIVERSE = (
+    REPO_ROOT / "configs" / "moex_foundation" / "universe" / "moex-futures-priority.v1.yaml"
+)
 DEFAULT_TIMEFRAMES = "5m,15m,1h,4h,1d,1w"
 DEFAULT_WORKERS = 4
 DEFAULT_BATCH_SIZE = 250_000
@@ -138,7 +149,13 @@ def moex_historical_asset_specs() -> list[AssetSpec]:
                 "Daily baseline updater for MOEX historical data. "
                 "Appends/merges fresh raw bars into the stable raw baseline and Spark-refreshes only changed canonical windows."
             ),
-            inputs=("moex_iss", "mapping_registry", "universe", "baseline_raw", "baseline_canonical"),
+            inputs=(
+                "moex_iss",
+                "mapping_registry",
+                "universe",
+                "baseline_raw",
+                "baseline_canonical",
+            ),
             outputs=(
                 "baseline-update-report.json",
                 "canonical_session_calendar.delta",
@@ -178,7 +195,11 @@ def _route_artifact_root() -> Path:
 
 
 def _default_route_run_id(*, scheduled_execution_time: datetime | None = None) -> str:
-    anchor = scheduled_execution_time.astimezone(UTC) if scheduled_execution_time else datetime.now(tz=UTC)
+    anchor = (
+        scheduled_execution_time.astimezone(UTC)
+        if scheduled_execution_time
+        else datetime.now(tz=UTC)
+    )
     return anchor.strftime("%Y%m%dT%H%M%SZ")
 
 
@@ -193,8 +214,12 @@ def _build_nightly_schedule_run_config(context) -> dict[str, object]:
                     "mapping_registry_path": DEFAULT_MAPPING_REGISTRY.as_posix(),
                     "universe_path": DEFAULT_UNIVERSE.as_posix(),
                     "raw_ingest_root": (artifact_root / RAW_INGEST_STORAGE_DIRNAME).as_posix(),
-                    "canonicalization_root": (artifact_root / CANONICAL_REFRESH_STORAGE_DIRNAME).as_posix(),
-                    "route_refresh_root": (artifact_root / ROUTE_REFRESH_STORAGE_DIRNAME).as_posix(),
+                    "canonicalization_root": (
+                        artifact_root / CANONICAL_REFRESH_STORAGE_DIRNAME
+                    ).as_posix(),
+                    "route_refresh_root": (
+                        artifact_root / ROUTE_REFRESH_STORAGE_DIRNAME
+                    ).as_posix(),
                     "timeframes": DEFAULT_TIMEFRAMES,
                     "workers": DEFAULT_WORKERS,
                     "batch_size": DEFAULT_BATCH_SIZE,
@@ -210,7 +235,9 @@ def _build_nightly_schedule_run_config(context) -> dict[str, object]:
             },
             "moex_canonical_refresh": {
                 "config": {
-                    "canonicalization_root": (artifact_root / CANONICAL_REFRESH_STORAGE_DIRNAME).as_posix(),
+                    "canonicalization_root": (
+                        artifact_root / CANONICAL_REFRESH_STORAGE_DIRNAME
+                    ).as_posix(),
                     "canonical_run_id": run_id,
                 }
             },
@@ -231,9 +258,71 @@ def _baseline_paths_from_root(root: Path) -> dict[str, Path]:
         "raw_table_path": root / RAW_BASELINE_TABLE_RELATIVE_PATH,
         "canonical_bars_path": canonical_root / CANONICAL_BASELINE_BARS_FILENAME,
         "canonical_provenance_path": canonical_root / CANONICAL_BASELINE_PROVENANCE_FILENAME,
-        "canonical_session_calendar_path": canonical_root / CANONICAL_BASELINE_SESSION_CALENDAR_FILENAME,
+        "canonical_session_calendar_path": canonical_root
+        / CANONICAL_BASELINE_SESSION_CALENDAR_FILENAME,
         "canonical_roll_map_path": canonical_root / CANONICAL_BASELINE_ROLL_MAP_FILENAME,
         "evidence_root": root / BASELINE_UPDATE_STORAGE_DIRNAME,
+    }
+
+
+def build_moex_baseline_update_run_config(
+    *,
+    baseline_root: Path,
+    run_id: str,
+    ingest_till_utc: str | None = None,
+    mapping_registry_path: Path = DEFAULT_MAPPING_REGISTRY,
+    universe_path: Path = DEFAULT_UNIVERSE,
+    timeframes: str | Sequence[str] = DEFAULT_TIMEFRAMES,
+    refresh_window_days: int = DEFAULT_DAILY_REFRESH_WINDOW_DAYS,
+    contract_discovery_lookback_days: int = DEFAULT_CONTRACT_DISCOVERY_LOOKBACK_DAYS,
+    contract_discovery_step_days: int = DEFAULT_CONTRACT_DISCOVERY_STEP_DAYS,
+    refresh_overlap_minutes: int = DEFAULT_REFRESH_OVERLAP_MINUTES,
+    max_changed_window_days: int = DEFAULT_MAX_CHANGED_WINDOW_DAYS,
+    stability_lag_minutes: int = DEFAULT_STABILITY_LAG_MINUTES,
+    expand_contract_chain: bool = True,
+) -> dict[str, object]:
+    resolved_run_id = run_id.strip()
+    if not resolved_run_id:
+        raise RuntimeError("build_moex_baseline_update_run_config requires run_id")
+    resolved_root = baseline_root.resolve()
+    resolved_ingest_till_utc = (
+        ingest_till_utc.strip()
+        if ingest_till_utc and ingest_till_utc.strip()
+        else datetime.now(tz=UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    )
+    resolved_timeframes = (
+        timeframes.strip()
+        if isinstance(timeframes, str)
+        else ",".join(str(item).strip() for item in timeframes if str(item).strip())
+    )
+    paths = _baseline_paths_from_root(resolved_root)
+    return {
+        "ops": {
+            "moex_baseline_update": {
+                "config": {
+                    "mapping_registry_path": mapping_registry_path.resolve().as_posix(),
+                    "universe_path": universe_path.resolve().as_posix(),
+                    "raw_table_path": paths["raw_table_path"].as_posix(),
+                    "canonical_bars_path": paths["canonical_bars_path"].as_posix(),
+                    "canonical_provenance_path": paths["canonical_provenance_path"].as_posix(),
+                    "canonical_session_calendar_path": paths[
+                        "canonical_session_calendar_path"
+                    ].as_posix(),
+                    "canonical_roll_map_path": paths["canonical_roll_map_path"].as_posix(),
+                    "evidence_root": paths["evidence_root"].as_posix(),
+                    "timeframes": resolved_timeframes,
+                    "refresh_window_days": int(refresh_window_days),
+                    "contract_discovery_lookback_days": int(contract_discovery_lookback_days),
+                    "contract_discovery_step_days": int(contract_discovery_step_days),
+                    "refresh_overlap_minutes": int(refresh_overlap_minutes),
+                    "max_changed_window_days": int(max_changed_window_days),
+                    "stability_lag_minutes": int(stability_lag_minutes),
+                    "expand_contract_chain": bool(expand_contract_chain),
+                    "ingest_till_utc": resolved_ingest_till_utc,
+                    "run_id": resolved_run_id,
+                }
+            },
+        }
     }
 
 
@@ -241,38 +330,18 @@ def _build_baseline_daily_schedule_run_config(context) -> dict[str, object]:
     scheduled_execution_time = getattr(context, "scheduled_execution_time", None)
     run_id = _default_route_run_id(scheduled_execution_time=scheduled_execution_time)
     ingest_till_utc = (
-        scheduled_execution_time.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        scheduled_execution_time.astimezone(UTC)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
         if scheduled_execution_time is not None
         else datetime.now(tz=UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     )
-    artifact_root = _route_artifact_root()
-    paths = _baseline_paths_from_root(artifact_root)
-    return {
-        "ops": {
-            "moex_baseline_update": {
-                "config": {
-                    "mapping_registry_path": DEFAULT_MAPPING_REGISTRY.as_posix(),
-                    "universe_path": DEFAULT_UNIVERSE.as_posix(),
-                    "raw_table_path": paths["raw_table_path"].as_posix(),
-                    "canonical_bars_path": paths["canonical_bars_path"].as_posix(),
-                    "canonical_provenance_path": paths["canonical_provenance_path"].as_posix(),
-                    "canonical_session_calendar_path": paths["canonical_session_calendar_path"].as_posix(),
-                    "canonical_roll_map_path": paths["canonical_roll_map_path"].as_posix(),
-                    "evidence_root": paths["evidence_root"].as_posix(),
-                    "timeframes": DEFAULT_TIMEFRAMES,
-                    "refresh_window_days": DEFAULT_DAILY_REFRESH_WINDOW_DAYS,
-                    "contract_discovery_lookback_days": DEFAULT_CONTRACT_DISCOVERY_LOOKBACK_DAYS,
-                    "contract_discovery_step_days": DEFAULT_CONTRACT_DISCOVERY_STEP_DAYS,
-                    "refresh_overlap_minutes": DEFAULT_REFRESH_OVERLAP_MINUTES,
-                    "max_changed_window_days": DEFAULT_MAX_CHANGED_WINDOW_DAYS,
-                    "stability_lag_minutes": DEFAULT_STABILITY_LAG_MINUTES,
-                    "expand_contract_chain": True,
-                    "ingest_till_utc": ingest_till_utc,
-                    "run_id": run_id,
-                }
-            },
-        }
-    }
+    return build_moex_baseline_update_run_config(
+        baseline_root=_route_artifact_root(),
+        run_id=run_id,
+        ingest_till_utc=ingest_till_utc,
+    )
 
 
 def _op_config_from_context(context) -> dict[str, object]:
@@ -394,6 +463,11 @@ def build_moex_historical_dagster_binding_artifact() -> dict[str, object]:
             "max_retries": MOEX_HISTORICAL_RETRY_POLICY.max_retries,
             "delay": MOEX_HISTORICAL_RETRY_POLICY.delay,
         },
+        "runtime_boundary": {
+            "orchestrator": "dagster",
+            "hot_table_runtime": "spark_delta",
+            "python_role": "source_adapter_config_and_evidence",
+        },
     }
 
 
@@ -456,13 +530,17 @@ def _run_python_raw_ingest_route(op_config: dict[str, object]) -> dict[str, obje
     ingest_till_utc = _text_value(op_config, "ingest_till_utc")
 
     if not mapping_registry_path.exists():
-        raise RuntimeError(f"mapping registry path does not exist: {mapping_registry_path.as_posix()}")
+        raise RuntimeError(
+            f"mapping registry path does not exist: {mapping_registry_path.as_posix()}"
+        )
     if not universe_path.exists():
         raise RuntimeError(f"universe path does not exist: {universe_path.as_posix()}")
     if not run_id:
         raise RuntimeError("moex historical scheduled route requires non-empty `run_id`")
     if execution_mode not in {"sequential", "parallel"}:
-        raise RuntimeError("moex historical scheduled route requires `execution_mode` in {sequential, parallel}")
+        raise RuntimeError(
+            "moex historical scheduled route requires `execution_mode` in {sequential, parallel}"
+        )
 
     command = [
         sys.executable,
@@ -500,7 +578,9 @@ def _run_python_raw_ingest_route(op_config: dict[str, object]) -> dict[str, obje
         "--refresh-overlap-minutes",
         str(refresh_overlap_minutes),
     ]
-    command.append("--expand-contract-chain" if expand_contract_chain else "--no-expand-contract-chain")
+    command.append(
+        "--expand-contract-chain" if expand_contract_chain else "--no-expand-contract-chain"
+    )
     if ingest_till_utc:
         command.extend(["--ingest-till-utc", ingest_till_utc])
 
@@ -523,7 +603,9 @@ def _run_python_raw_ingest_route(op_config: dict[str, object]) -> dict[str, obje
         )
     route_report = _read_raw_ingest_report(route_report_path)
     raw_table_path = Path(str(route_report.get("raw_table_path", "")).strip()).resolve()
-    raw_ingest_report_path = Path(str(route_report.get("raw_ingest_report_path", "")).strip()).resolve()
+    raw_ingest_report_path = Path(
+        str(route_report.get("raw_ingest_report_path", "")).strip()
+    ).resolve()
     raw_ingest_root = Path(str(route_report.get("raw_ingest_root", "")).strip()).resolve()
     raw_ingest_run_report = _read_raw_ingest_report(raw_ingest_report_path)
     raw_status = str(raw_ingest_run_report.get("status", "")).strip()
@@ -554,12 +636,15 @@ def moex_baseline_update(context) -> dict[str, object]:
     mapping_registry_path = Path(
         _text_value(op_config, "mapping_registry_path") or DEFAULT_MAPPING_REGISTRY.as_posix()
     ).resolve()
-    universe_path = Path(_text_value(op_config, "universe_path") or DEFAULT_UNIVERSE.as_posix()).resolve()
+    universe_path = Path(
+        _text_value(op_config, "universe_path") or DEFAULT_UNIVERSE.as_posix()
+    ).resolve()
     raw_table_path = Path(
         _text_value(op_config, "raw_table_path") or default_paths["raw_table_path"].as_posix()
     ).resolve()
     canonical_bars_path = Path(
-        _text_value(op_config, "canonical_bars_path") or default_paths["canonical_bars_path"].as_posix()
+        _text_value(op_config, "canonical_bars_path")
+        or default_paths["canonical_bars_path"].as_posix()
     ).resolve()
     canonical_provenance_path = Path(
         _text_value(op_config, "canonical_provenance_path")
@@ -631,6 +716,8 @@ def moex_baseline_update(context) -> dict[str, object]:
     context.add_output_metadata(
         {
             "mode": "baseline_update",
+            "orchestrator": "dagster_asset",
+            "raw_ingest_runtime": "spark_delta",
             "source_rows": int(report.get("source_rows", 0) or 0),
             "incremental_rows": int(report.get("incremental_rows", 0) or 0),
             "current_changed_windows": int(report.get("current_changed_windows", 0) or 0),
@@ -638,10 +725,14 @@ def moex_baseline_update(context) -> dict[str, object]:
             "scoped_canonical_rows": int(
                 dict(report.get("canonical_report", {}) or {}).get("scoped_canonical_rows", 0) or 0
             ),
-            "canonical_rows": int(dict(report.get("canonical_report", {}) or {}).get("canonical_rows", 0) or 0),
+            "canonical_rows": int(
+                dict(report.get("canonical_report", {}) or {}).get("canonical_rows", 0) or 0
+            ),
             "raw_table_path": str(report.get("raw_table_path", "")),
             "canonical_bars_path": str(report.get("canonical_bars_path", "")),
-            "canonical_session_calendar_path": str(report.get("canonical_session_calendar_path", "")),
+            "canonical_session_calendar_path": str(
+                report.get("canonical_session_calendar_path", "")
+            ),
             "canonical_roll_map_path": str(report.get("canonical_roll_map_path", "")),
         }
     )
@@ -664,7 +755,9 @@ def moex_raw_ingest(context) -> dict[str, object]:
         if not has_delta_log(raw_table_path):
             raise RuntimeError(f"raw table is missing `_delta_log`: {raw_table_path.as_posix()}")
         if not raw_ingest_report_path.exists():
-            raise RuntimeError(f"raw ingest report path does not exist: {raw_ingest_report_path.as_posix()}")
+            raise RuntimeError(
+                f"raw ingest report path does not exist: {raw_ingest_report_path.as_posix()}"
+            )
 
         raw_ingest_run_report = _read_raw_ingest_report(raw_ingest_report_path)
         raw_status = str(raw_ingest_run_report.get("status", "")).strip()
@@ -822,9 +915,115 @@ def moex_historical_output_paths(output_dir: Path) -> dict[str, str]:
     return {
         "canonical_report": (resolved / CANONICAL_REFRESH_REPORT_FILENAME).as_posix(),
         "canonical_bars": (resolved / "delta" / "canonical_bars.delta").as_posix(),
-        "canonical_bar_provenance": (resolved / "delta" / "canonical_bar_provenance.delta").as_posix(),
-        "canonical_session_calendar": (resolved / "delta" / "canonical_session_calendar.delta").as_posix(),
+        "canonical_bar_provenance": (
+            resolved / "delta" / "canonical_bar_provenance.delta"
+        ).as_posix(),
+        "canonical_session_calendar": (
+            resolved / "delta" / "canonical_session_calendar.delta"
+        ).as_posix(),
         "canonical_roll_map": (resolved / "delta" / "canonical_roll_map.delta").as_posix(),
+    }
+
+
+def moex_baseline_update_output_paths(*, baseline_root: Path, run_id: str) -> dict[str, str]:
+    resolved_run_id = run_id.strip()
+    if not resolved_run_id:
+        raise RuntimeError("moex_baseline_update_output_paths requires run_id")
+    paths = _baseline_paths_from_root(baseline_root.resolve())
+    return {
+        "raw_table": paths["raw_table_path"].as_posix(),
+        "canonical_bars": paths["canonical_bars_path"].as_posix(),
+        "canonical_bar_provenance": paths["canonical_provenance_path"].as_posix(),
+        "canonical_session_calendar": paths["canonical_session_calendar_path"].as_posix(),
+        "canonical_roll_map": paths["canonical_roll_map_path"].as_posix(),
+        "evidence_root": paths["evidence_root"].as_posix(),
+        "baseline_update_report": (
+            paths["evidence_root"] / resolved_run_id / BASELINE_UPDATE_REPORT_FILENAME
+        ).as_posix(),
+    }
+
+
+def execute_moex_baseline_update_job(
+    *,
+    baseline_root: Path,
+    instance: DagsterInstance,
+    run_id: str,
+    ingest_till_utc: str | None = None,
+    staging_profile: str = "verification",
+    timeframes: str | Sequence[str] = DEFAULT_TIMEFRAMES,
+    refresh_window_days: int = DEFAULT_DAILY_REFRESH_WINDOW_DAYS,
+    contract_discovery_lookback_days: int = DEFAULT_CONTRACT_DISCOVERY_LOOKBACK_DAYS,
+    contract_discovery_step_days: int = DEFAULT_CONTRACT_DISCOVERY_STEP_DAYS,
+    refresh_overlap_minutes: int = DEFAULT_REFRESH_OVERLAP_MINUTES,
+    max_changed_window_days: int = DEFAULT_MAX_CHANGED_WINDOW_DAYS,
+    stability_lag_minutes: int = DEFAULT_STABILITY_LAG_MINUTES,
+    expand_contract_chain: bool = True,
+    extra_tags: dict[str, str] | None = None,
+    raise_on_error: bool = False,
+) -> dict[str, object]:
+    resolved_run_id = run_id.strip()
+    if not resolved_run_id:
+        raise RuntimeError("execute_moex_baseline_update_job requires run_id")
+
+    assert_moex_historical_definitions_executable()
+    definitions = build_moex_historical_definitions()
+    repository = definitions.get_repository_def()
+    job = repository.get_job(MOEX_BASELINE_UPDATE_JOB_NAME)
+    resolved_baseline_root = baseline_root.resolve()
+    run_config = build_moex_baseline_update_run_config(
+        baseline_root=resolved_baseline_root,
+        run_id=resolved_run_id,
+        ingest_till_utc=ingest_till_utc,
+        timeframes=timeframes,
+        refresh_window_days=refresh_window_days,
+        contract_discovery_lookback_days=contract_discovery_lookback_days,
+        contract_discovery_step_days=contract_discovery_step_days,
+        refresh_overlap_minutes=refresh_overlap_minutes,
+        max_changed_window_days=max_changed_window_days,
+        stability_lag_minutes=stability_lag_minutes,
+        expand_contract_chain=expand_contract_chain,
+    )
+    normalized_staging_profile = staging_profile.strip() or "verification"
+    tags: dict[str, str] = {
+        "ta3000/staging_profile": normalized_staging_profile,
+        "ta3000/runtime_boundary": "dagster+spark_delta",
+        **{str(key): str(value) for key, value in dict(extra_tags or {}).items()},
+    }
+
+    result = job.execute_in_process(
+        run_config=run_config,
+        instance=instance,
+        run_id=str(uuid4()),
+        raise_on_error=raise_on_error,
+        tags=tags,
+    )
+    output_paths = moex_baseline_update_output_paths(
+        baseline_root=resolved_baseline_root,
+        run_id=resolved_run_id,
+    )
+    baseline_report_path = Path(output_paths["baseline_update_report"])
+    if result.success and not baseline_report_path.exists():
+        raise RuntimeError(
+            "moex baseline Dagster job reported success but the baseline update report artifact is missing: "
+            f"{baseline_report_path.as_posix()}"
+        )
+
+    return {
+        "success": bool(result.success),
+        "dagster_run_id": result.run_id,
+        "logical_run_id": resolved_run_id,
+        "dagster_job_name": job.name,
+        "dagster_run_status": "SUCCESS" if result.success else "FAILURE",
+        "staging_profile": normalized_staging_profile,
+        "baseline_root": resolved_baseline_root.as_posix(),
+        "runtime_boundary": {
+            "orchestrator": "dagster",
+            "raw_ingest_runtime": "spark_delta",
+            "python_role": "source_adapter_config_and_evidence",
+        },
+        "tags": tags,
+        "output_paths": output_paths,
+        "baseline_update_report_exists": baseline_report_path.exists(),
     }
 
 
@@ -969,7 +1168,10 @@ def materialize_moex_historical_assets(
 
     raw_report = _read_raw_ingest_report(raw_ingest_report_path)
     raw_status = str(raw_report.get("status", "")).strip()
-    if "moex_canonical_refresh" in expected_materialized_assets and raw_status not in PASS_LIKE_RAW_STATUSES:
+    if (
+        "moex_canonical_refresh" in expected_materialized_assets
+        and raw_status not in PASS_LIKE_RAW_STATUSES
+    ):
         return {
             "success": False,
             "selected_assets": selected_assets,
