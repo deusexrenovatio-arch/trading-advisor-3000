@@ -1,18 +1,18 @@
 version: 1
-updated_at: '2026-05-07'
+updated_at: '2026-05-11'
 items:
-- id: TASK-2026-05-07-PUBLISH-CONTINUOUS-FRONT-CALENDAR-SESSION-ACTIVE
-  path: docs/tasks/active/TASK-2026-05-07-publish-continuous-front-calendar-session-active.md
+- id: TASK-2026-05-08-MAKE-MOEX-HISTORICAL-UPDATE-PATH-USE-SPARK-DELTA
+  path: docs/tasks/active/TASK-2026-05-08-make-moex-historical-update-path-use-spark-delta.md
   mode: legacy-full
   status: in_progress
-  started_at: '2026-05-07'
-- id: TASK-2026-05-07-SEPARATE-BRANCH-DIAGNOSTICS-FROM-PR-REQUIRED-CI-
-  path: docs/tasks/active/TASK-2026-05-07-separate-branch-diagnostics-from-pr-required-ci-.md
+  started_at: '2026-05-08'
+- id: TASK-2026-05-10-MOEX-RAW-SPARK-DELTA-REVIEW-FOLLOW-UP-SOURCE-ROW
+  path: docs/tasks/active/TASK-2026-05-10-moex-raw-spark-delta-review-follow-up-source-row.md
   mode: legacy-full
   status: in_progress
-  started_at: '2026-05-07'
-- id: TASK-2026-05-07-DELTA-NATIVE-CONTINUOUS-FRONT-SIDECAR
-  path: docs/tasks/active/TASK-2026-05-07-delta-native-continuous-front-sidecar.md
+  started_at: '2026-05-10'
+- id: TASK-2026-05-11-ASSEMBLE-MOEX-DELTA-SPARK-PHASE-1-PR-OVER-CURREN
+  path: docs/tasks/active/TASK-2026-05-11-assemble-moex-delta-spark-phase-1-pr-over-curren.md
   mode: legacy-full
   status: in_progress
-  started_at: '2026-05-07'
+  started_at: '2026-05-11'

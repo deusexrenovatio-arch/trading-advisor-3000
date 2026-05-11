@@ -8,9 +8,11 @@ Data ingestion, normalization, and canonical data-plane contracts.
 - This is the first context for authoritative data roots, table materialization, canonical bars, and storage verification.
 - Typical questions: where does canonical data live, which table/path is authoritative, what quality gate proves the data?
 - Not inside: research feature semantics, runtime execution orchestration, or operator API behavior unless they consume data outputs.
+- MOEX product and test staging instances are registered in `deployment/runtime-instances/moex-runtime-instances.v1.yaml`; read it before launching or verifying staging runs.
 
 ## Owned Paths
 - `src/trading_advisor_3000/product_plane/data_plane/`
+- `deployment/runtime-instances/moex-runtime-instances.v1.yaml`
 - `src/trading_advisor_3000/migrations/`
 - `tests/product-plane/integration/test_historical_data_plane.py`
 - `tests/product-plane/unit/test_historical_data_builder.py`
