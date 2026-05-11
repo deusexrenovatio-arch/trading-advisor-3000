@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-05-07'
+updated_at: '2026-05-08'
 items:
 - task_id: TASK-2026-03-16-BASELINE-SEED
   closed_at: '2026-03-16T10:00:00Z'
@@ -645,6 +645,33 @@ items:
   intent_sources:
   - request
   - session_handoff
+- task_id: TASK-2026-04-13-PROMOTE-MEMPALACE-INTO-THE-OFFICIAL-REPOSITORY-M
+  closed_at: '2026-04-13T13:29:27Z'
+  branch: codex/intake-human-checkpoint
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-OPS
+  - MCP contract hardening
+  - base-profile mempalace rollout
+  - and Codex config sync
+  route_match: matched
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: workflow_gap
+  incident_signature: none
+  improvement_action: docs
+  improvement_artifact: docs/runbooks/app/mcp-wave-rollout-runbook.md
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff
 - task_id: TASK-2026-04-13-CONTINUE-GOVERNED-MODULE-FOR-MOEX-HISTORICAL-ROU-1
   closed_at: '2026-04-13T14:12:40Z'
   branch: codex/intake-human-checkpoint
@@ -880,223 +907,9 @@ items:
   intent_sources:
   - request
   - session_handoff
-- task_id: TASK-2026-04-28-IMPLEMENT-PRODUCT-PLANE-CONTINUOUS-FRONT-CONTOUR
-  closed_at: '2026-04-28T16:49:59Z'
-  branch: codex/continuous-front-contour
-  goal_class: process
-  start_primary_context: CTX-OPS
-  start_contexts:
-  - CTX-OPS
-  final_contexts:
-  - product-plane research data-prep
-  - continuous_front contracts
-  - Dagster assets
-  - campaign config
-  - and docs.
-  route_match: matched
-  time_to_first_patch_sec: null
-  same_path_attempts: 1
-  decision_quality: correct_after_replan
-  primary_rework_cause: test_gap
-  incident_signature: continuous_front_policy_missing_from_loaded_manifest.
-  improvement_action: test
-  improvement_artifact: tests/product-plane/integration/test_research_dagster_jobs.py
-  linked_plan_id: null
-  linked_memory_id: null
-  outcome_status: completed
-  unmapped_files_count: 0
-  intent_sources:
-  - request
-  - session_handoff
-- task_id: TASK-2026-04-29-REPAIR-CONTINUOUS-FRONT-ACCEPTANCE-PROBLEMS-FROM
-  closed_at: '2026-04-29T10:08:53Z'
-  branch: codex/continuous-front-contour
-  goal_class: process
-  start_primary_context: CTX-OPS
-  start_contexts:
-  - CTX-OPS
-  final_contexts:
-  - CTX-RESEARCH
-  - CTX-OPS
-  - CTX-CONTRACTS
-  route_match: expanded
-  time_to_first_patch_sec: null
-  same_path_attempts: 1
-  decision_quality: environment_blocked
-  primary_rework_cause: environment
-  incident_signature: continuous_front_downstream_contract_collapse_and_spark_runtime_gap
-  improvement_action: env
-  improvement_artifact: docs/tasks/active/continuous-front-acceptance-problems-2026-04-29.md
-  linked_plan_id: null
-  linked_memory_id: null
-  outcome_status: partial
-  unmapped_files_count: 0
-  intent_sources:
-  - request
-  - session_handoff
-- task_id: TASK-2026-04-29-PUBLISH-WORK3-CONTINUOUS-FRONT-PR-STACK
-  closed_at: '2026-04-29T13:29:49Z'
-  branch: codex/continuous-front-03-docs-evidence
-  goal_class: process
-  start_primary_context: CTX-OPS
-  start_contexts:
-  - CTX-OPS
-  final_contexts:
-  - CTX-OPS
-  - CTX-CONTRACTS
-  - CTX-RESEARCH
-  - CTX-ARCHITECTURE
-  route_match: matched
-  time_to_first_patch_sec: null
-  same_path_attempts: 1
-  decision_quality: correct_after_replan
-  primary_rework_cause: test_gap
-  incident_signature: PR-stack-publication-continuous-front-work3.
-  improvement_action: test
-  improvement_artifact: 'draft PRs #73, #74, and #75.'
-  linked_plan_id: null
-  linked_memory_id: null
-  outcome_status: completed
-  unmapped_files_count: 0
-  intent_sources:
-  - request
-  - session_handoff
-- task_id: TASK-2026-04-29-IMPLEMENT-HYBRID-SPARK-TA-ROLL-AWARE-CONTINUOUS-
-  closed_at: '2026-04-29T15:38:14Z'
-  branch: codex/continuous-front-03-docs-evidence
-  goal_class: process
-  start_primary_context: CTX-OPS
-  start_contexts:
-  - CTX-OPS
-  final_contexts:
-  - CTX-RESEARCH
-  - CTX-DATA
-  - CTX-ORCHESTRATION
-  - CTX-CONTRACTS
-  route_match: expanded
-  time_to_first_patch_sec: null
-  same_path_attempts: 1
-  decision_quality: correct_first_time
-  primary_rework_cause: none
-  incident_signature: none
-  improvement_action: workflow
-  improvement_artifact: docs/tasks/active/TASK-2026-04-29-implement-hybrid-spark-ta-roll-aware-continuous-.md
-  linked_plan_id: null
-  linked_memory_id: null
-  outcome_status: completed
-  unmapped_files_count: 0
-  intent_sources:
-  - request
-  - session_handoff
-- task_id: TASK-2026-04-29-REFACTOR-CONTINUOUS-FRONT-INDICATOR-CALCULATION-
-  closed_at: '2026-04-29T16:44:43Z'
-  branch: codex/continuous-front-03-docs-evidence
-  goal_class: process
-  start_primary_context: CTX-OPS
-  start_contexts:
-  - CTX-OPS
-  final_contexts:
-  - CTX-RESEARCH
-  - CTX-CONTRACTS
-  - CTX-ARCHITECTURE
-  - CTX-ORCHESTRATION
-  route_match: expanded
-  time_to_first_patch_sec: null
-  same_path_attempts: 1
-  decision_quality: correct_after_replan
-  primary_rework_cause: none
-  incident_signature: none
-  improvement_action: architecture
-  improvement_artifact: src/trading_advisor_3000/product_plane/research/continuous_front_indicators/pandas_job.py
-  linked_plan_id: null
-  linked_memory_id: null
-  outcome_status: completed
-  unmapped_files_count: 0
-  intent_sources:
-  - request
-  - session_handoff
-- task_id: TASK-2026-04-29-FIX-CONTINUOUS-FRONT-INDICATOR-QC-AND-ROLL-BOUND
-  closed_at: '2026-04-29T17:40:48Z'
-  branch: codex/continuous-front-03-docs-evidence
-  goal_class: process
-  start_primary_context: CTX-OPS
-  start_contexts:
-  - CTX-OPS
-  final_contexts:
-  - CTX-RESEARCH
-  - CTX-CONTRACTS
-  - CTX-ARCHITECTURE
-  route_match: matched
-  time_to_first_patch_sec: null
-  same_path_attempts: 1
-  decision_quality: correct_after_replan
-  primary_rework_cause: none
-  incident_signature: none
-  improvement_action: test
-  improvement_artifact: tests/product-plane/continuous_front_indicators/test_rules_and_projection.py
-  linked_plan_id: null
-  linked_memory_id: null
-  outcome_status: completed
-  unmapped_files_count: 0
-  intent_sources:
-  - request
-  - session_handoff
-- task_id: TASK-2026-04-29-FIX-CONTINUOUS-FRONT-INDICATOR-FORMULA-GATE-PREF
-  closed_at: '2026-04-29T18:26:04Z'
-  branch: codex/continuous-front-03-docs-evidence
-  goal_class: process
-  start_primary_context: CTX-OPS
-  start_contexts:
-  - CTX-OPS
-  final_contexts:
-  - continuous-front indicators
-  - base indicator materialization
-  - derived indicator materialization
-  - Dagster research asset wiring.
-  route_match: matched
-  time_to_first_patch_sec: null
-  same_path_attempts: 1
-  decision_quality: correct_after_replan
-  primary_rework_cause: none
-  incident_signature: none
-  improvement_action: validator
-  improvement_artifact: tests/product-plane/continuous_front_indicators/test_rules_and_projection.py
-  linked_plan_id: null
-  linked_memory_id: null
-  outcome_status: completed
-  unmapped_files_count: 0
-  intent_sources:
-  - request
-  - session_handoff
-- task_id: TASK-2026-04-30-EXPAND-CONTINUOUS-FRONT-FORMULA-GATE-TO-VALIDATE
-  closed_at: '2026-04-30T10:06:43Z'
-  branch: codex/continuous-front-03-docs-evidence
-  goal_class: process
-  start_primary_context: CTX-OPS
-  start_contexts:
-  - CTX-OPS
-  final_contexts:
-  - CTX-RESEARCH
-  - CTX-CONTRACTS
-  - CTX-ARCHITECTURE
-  route_match: matched
-  time_to_first_patch_sec: null
-  same_path_attempts: 1
-  decision_quality: correct_after_replan
-  primary_rework_cause: none
-  incident_signature: none
-  improvement_action: validator
-  improvement_artifact: tests/product-plane/continuous_front_indicators/test_rules_and_projection.py
-  linked_plan_id: null
-  linked_memory_id: null
-  outcome_status: completed
-  unmapped_files_count: 0
-  intent_sources:
-  - request
-  - session_handoff
 - task_id: TASK-2026-05-05-PREPARE-SUPERPOWERS-SKILL-ROUTING-AND-SKILL-HARD
   closed_at: '2026-05-05T15:44:00Z'
-  branch: codex/superpowers-skill-routing-main
+  branch: codex/materialize-indicators-derived-job
   goal_class: process
   start_primary_context: CTX-OPS
   start_contexts:
@@ -1118,17 +931,19 @@ items:
   intent_sources:
   - request
   - session_handoff
-- task_id: TASK-2026-05-07-SLIM-CONTINUOUS-FRONT-INDICATOR-SIDECAR-PROOF-TO
-  closed_at: '2026-05-07T08:00:30Z'
-  branch: codex/continuous-front-proof-slim
+- task_id: TASK-2026-05-07-1-PLAN-DELTA-SPARK-MD
+  closed_at: '2026-05-07T18:36:44Z'
+  branch: codex/delta-spark-full-update
   goal_class: process
   start_primary_context: CTX-OPS
   start_contexts:
   - CTX-OPS
   final_contexts:
-  - product-plane research runtime
-  - task governance
-  - docs
+  - PLAN_delta_spark phase 1
+  - Serena raw ingest symbols
+  - targeted pytest
+  - loop gate
+  - PR gate.
   route_match: expanded
   time_to_first_patch_sec: null
   same_path_attempts: 1
@@ -1136,7 +951,7 @@ items:
   primary_rework_cause: workflow_gap
   incident_signature: none
   improvement_action: workflow
-  improvement_artifact: src/trading_advisor_3000/product_plane/research/continuous_front_indicators/pandas_job.py
+  improvement_artifact: Solution Intent added before terminal closeout.
   linked_plan_id: null
   linked_memory_id: null
   outcome_status: completed
@@ -1144,23 +959,29 @@ items:
   intent_sources:
   - request
   - session_handoff
-- task_id: TASK-2026-05-07-HARDEN-SUPERPOWERS-FIRST-ROUTING-AGAINST-BEHAVIO
-  closed_at: '2026-05-07T09:06:43Z'
-  branch: codex/superpowers-routing-hardening
+- task_id: TASK-2026-05-08-1-RAW-INGEST-DAGSTER-SPARK-DELTA-NATIVE
+  closed_at: '2026-05-08T11:50:57Z'
+  branch: codex/delta-spark-full-update
   goal_class: process
   start_primary_context: CTX-OPS
   start_contexts:
   - CTX-OPS
   final_contexts:
-  - CTX-OPS
-  route_match: matched
+  - PLAN_delta_spark phase 1
+  - CTX-DATA
+  - Serena raw ingest/Dagster symbols
+  - targeted pytest
+  - loop gate
+  - PR gate.
+  route_match: expanded
   time_to_first_patch_sec: null
   same_path_attempts: 1
   decision_quality: correct_after_replan
   primary_rework_cause: workflow_gap
-  incident_signature: behavior_change_routing_bypass
-  improvement_action: skill
-  improvement_artifact: docs/agent/skills-routing.md
+  incident_signature: none
+  improvement_action: workflow
+  improvement_artifact: Spark/Delta runtime boundary and Solution Intent evidence
+    recorded.
   linked_plan_id: null
   linked_memory_id: null
   outcome_status: completed
@@ -1168,24 +989,28 @@ items:
   intent_sources:
   - request
   - session_handoff
-- task_id: TASK-2026-05-07-WIRE-NIGHTLY-CONTINUOUS-FRONT-REFRESH-THROUGH-DA
-  closed_at: '2026-05-07T11:07:58Z'
-  branch: codex/continuous-front-nightly-wiring
+- task_id: TASK-2026-05-08-FIX-MOEX-PRODUCT-AND-VERIFICATION-STAGING-RUNTIM
+  closed_at: '2026-05-08T12:58:37Z'
+  branch: codex/delta-spark-full-update
   goal_class: process
   start_primary_context: CTX-OPS
   start_contexts:
   - CTX-OPS
   final_contexts:
-  - CTX-ORCHESTRATION
-  - CTX-DATA
-  route_match: matched
+  - MOEX runtime instances registry
+  - Docker staging mounts
+  - Dagster GraphQL launch helper
+  - targeted unit tests
+  - loop gate
+  - PR gate.
+  route_match: expanded
   time_to_first_patch_sec: null
   same_path_attempts: 1
   decision_quality: correct_after_replan
-  primary_rework_cause: none
+  primary_rework_cause: workflow_gap
   incident_signature: none
-  improvement_action: test
-  improvement_artifact: tests/product-plane/unit/test_continuous_front_spark_job.py
+  improvement_action: workflow
+  improvement_artifact: MOEX product/test staging runtime instance contract recorded.
   linked_plan_id: null
   linked_memory_id: null
   outcome_status: completed

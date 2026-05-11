@@ -1,10 +1,9 @@
+name: dagster-test-staging
+
 services:
-  dagster-webserver:
-    build:
-      context: ../../..
-      dockerfile: deployment/docker/dagster-staging/Dockerfile
+  dagster-test-webserver:
     image: ta3000-dagster-staging:latest
-    container_name: ta3000-dagster-webserver
+    container_name: ta3000-dagster-test-webserver
     working_dir: /workspace
     command:
       - dagster-webserver
@@ -21,18 +20,18 @@ services:
     environment:
       DAGSTER_HOME: /opt/dagster/dagster_home
       PYTHONPATH: /workspace/src
-      TA3000_MOEX_HISTORICAL_DATA_ROOT: /ta3000-data/moex-historical
+      TA3000_MOEX_HISTORICAL_DATA_ROOT: /ta3000-data/staging/test/moex-verification
       TA3000_MOEX_PRODUCT_RUNTIME_STAGING_ROOT: /ta3000-data/staging/product/moex-historical
       TA3000_MOEX_VERIFICATION_STAGING_ROOT: /ta3000-data/staging/test/moex-verification
       TA3000_MOEX_RUNTIME_INSTANCES_REGISTRY: /workspace/deployment/runtime-instances/moex-runtime-instances.v1.yaml
       TA3000_MOEX_CANONICALIZATION_SPARK_PROFILE: local
     ports:
-      - "${TA3000_DAGSTER_PORT:-3000}:3000"
+      - "${TA3000_DAGSTER_TEST_PORT:-3001}:3000"
     volumes:
-      - dagster-home:/opt/dagster/dagster_home
-      - "${TA3000_MOEX_HISTORICAL_DATA_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-nightly}:/ta3000-data/moex-historical"
-      - "${TA3000_MOEX_PRODUCT_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-nightly}:/ta3000-data/staging/product/moex-historical"
+      - dagster-test-home:/opt/dagster/dagster_home
+      - "../../..:/workspace:ro"
       - "${TA3000_MOEX_TEST_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-verification}:/ta3000-data/staging/test/moex-verification"
+      - "${TA3000_MOEX_PRODUCT_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-nightly}:/ta3000-data/staging/product/moex-historical:ro"
     healthcheck:
       test:
         - CMD
@@ -45,11 +44,11 @@ services:
       start_period: 20s
     restart: unless-stopped
     networks:
-      - ta3000-dagster-staging
+      - ta3000-dagster-test
 
-  dagster-daemon:
+  dagster-test-daemon:
     image: ta3000-dagster-staging:latest
-    container_name: ta3000-dagster-daemon
+    container_name: ta3000-dagster-test-daemon
     working_dir: /workspace
     command:
       - dagster-daemon
@@ -63,26 +62,26 @@ services:
     environment:
       DAGSTER_HOME: /opt/dagster/dagster_home
       PYTHONPATH: /workspace/src
-      TA3000_MOEX_HISTORICAL_DATA_ROOT: /ta3000-data/moex-historical
+      TA3000_MOEX_HISTORICAL_DATA_ROOT: /ta3000-data/staging/test/moex-verification
       TA3000_MOEX_PRODUCT_RUNTIME_STAGING_ROOT: /ta3000-data/staging/product/moex-historical
       TA3000_MOEX_VERIFICATION_STAGING_ROOT: /ta3000-data/staging/test/moex-verification
       TA3000_MOEX_RUNTIME_INSTANCES_REGISTRY: /workspace/deployment/runtime-instances/moex-runtime-instances.v1.yaml
       TA3000_MOEX_CANONICALIZATION_SPARK_PROFILE: local
     volumes:
-      - dagster-home:/opt/dagster/dagster_home
-      - "${TA3000_MOEX_HISTORICAL_DATA_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-nightly}:/ta3000-data/moex-historical"
-      - "${TA3000_MOEX_PRODUCT_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-nightly}:/ta3000-data/staging/product/moex-historical"
+      - dagster-test-home:/opt/dagster/dagster_home
+      - "../../..:/workspace:ro"
       - "${TA3000_MOEX_TEST_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-verification}:/ta3000-data/staging/test/moex-verification"
+      - "${TA3000_MOEX_PRODUCT_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-nightly}:/ta3000-data/staging/product/moex-historical:ro"
     depends_on:
-      dagster-webserver:
+      dagster-test-webserver:
         condition: service_healthy
     restart: unless-stopped
     networks:
-      - ta3000-dagster-staging
+      - ta3000-dagster-test
 
 volumes:
-  dagster-home:
+  dagster-test-home:
 
 networks:
-  ta3000-dagster-staging:
+  ta3000-dagster-test:
     driver: bridge

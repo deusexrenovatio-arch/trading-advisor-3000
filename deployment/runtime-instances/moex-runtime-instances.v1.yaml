@@ -1,0 +1,77 @@
+version: moex-runtime-instances.v1
+default_product_runtime_instance: moex_product_staging
+default_verification_instance: moex_test_staging_on_demand
+
+instances:
+  moex_product_staging:
+    role: product_runtime_staging
+    status: active
+    description: Stable MOEX product-runtime staging used by Dagster daily baseline refresh.
+    docker:
+      current_container_data_root: /ta3000-data/moex-historical
+      preferred_container_data_root: /ta3000-data/staging/product/moex-historical
+      host_root_env: TA3000_MOEX_PRODUCT_STAGING_ROOT_HOST
+      host_root_default: D:/TA3000-data/trading-advisor-3000-nightly
+    dagster:
+      graphql_url: http://127.0.0.1:3000/graphql
+      graphql_port_env: TA3000_DAGSTER_PORT
+      repository_location: trading_advisor_3000.dagster_defs:product_plane_definitions
+      repository: __repository__
+      job: moex_baseline_update_job
+      schedule: moex_baseline_daily_update_schedule
+    paths:
+      data_root: /ta3000-data/moex-historical
+      raw_table: /ta3000-data/moex-historical/raw/moex/baseline-4y-current/raw_moex_history.delta
+      canonical_root: /ta3000-data/moex-historical/canonical/moex/baseline-4y-current
+      canonical_bars: /ta3000-data/moex-historical/canonical/moex/baseline-4y-current/canonical_bars.delta
+      canonical_provenance: /ta3000-data/moex-historical/canonical/moex/baseline-4y-current/canonical_bar_provenance.delta
+      canonical_session_calendar: /ta3000-data/moex-historical/canonical/moex/baseline-4y-current/canonical_session_calendar.delta
+      canonical_roll_map: /ta3000-data/moex-historical/canonical/moex/baseline-4y-current/canonical_roll_map.delta
+      evidence_root: /ta3000-data/moex-historical/moex-baseline-update
+    launch_defaults:
+      mapping_registry_path: /workspace/configs/moex_foundation/instrument_mapping_registry.v1.yaml
+      universe_path: /workspace/configs/moex_foundation/universe/moex-futures-priority.v1.yaml
+      timeframes: 5m,15m,1h,4h,1d,1w
+      refresh_window_days: 7
+      contract_discovery_lookback_days: 45
+      contract_discovery_step_days: 14
+      refresh_overlap_minutes: 180
+      max_changed_window_days: 10
+      stability_lag_minutes: 20
+      expand_contract_chain: true
+    mutation_policy:
+      product_runtime_write: true
+      manual_launch_allowed: true
+      require_explicit_product_write: true
+
+  moex_test_staging_on_demand:
+    role: disposable_verification_staging
+    status: active
+    description: On-demand seeded verification staging for real Dagster/Spark runs without mutating product staging.
+    docker:
+      preferred_container_root: /ta3000-data/staging/test/moex-verification
+      host_root_env: TA3000_MOEX_TEST_STAGING_ROOT_HOST
+      host_root_default: D:/TA3000-data/trading-advisor-3000-verification
+    dagster:
+      use_instance: moex_product_staging
+    paths:
+      run_root_template: /ta3000-data/staging/test/moex-verification/{run_id}
+      seed_from_instance: moex_product_staging
+    lifecycle:
+      create_on_demand: true
+      ttl_days: 7
+    launch_defaults:
+      mapping_registry_path: /workspace/configs/moex_foundation/instrument_mapping_registry.v1.yaml
+      universe_path: /workspace/configs/moex_foundation/universe/moex-futures-priority.v1.yaml
+      timeframes: 1d
+      refresh_window_days: 1
+      contract_discovery_lookback_days: 7
+      contract_discovery_step_days: 7
+      refresh_overlap_minutes: 180
+      max_changed_window_days: 2
+      stability_lag_minutes: 20
+      expand_contract_chain: false
+    mutation_policy:
+      product_runtime_write: false
+      manual_launch_allowed: true
+      require_seed: true

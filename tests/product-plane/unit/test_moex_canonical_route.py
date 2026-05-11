@@ -1,19 +1,21 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
 
 from trading_advisor_3000.product_plane.contracts import CanonicalBar, Timeframe
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows, write_delta_table_rows
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
+from trading_advisor_3000.product_plane.data_plane.moex import (
+    historical_canonical_route as canonical_module,
+)
 from trading_advisor_3000.product_plane.data_plane.moex.foundation import RAW_COLUMNS
 from trading_advisor_3000.product_plane.data_plane.moex.historical_canonical_route import (
     CanonicalProvenance,
-    ChangedWindowScope,
-    _build_scoped_raw_read_filters,
-    run_historical_canonical_route,
     run_contract_compatibility_check,
+    run_historical_canonical_route,
     run_qc_gates,
     run_runtime_decoupling_check,
 )
@@ -196,7 +198,9 @@ def test_canonical_route_contract_compatibility_detects_schema_drift(tmp_path: P
     assert any("required fields mismatch" in item for item in report["errors"])
 
 
-def test_canonical_route_runtime_decoupling_check_fails_when_runtime_imports_spark(tmp_path: Path) -> None:
+def test_canonical_route_runtime_decoupling_check_fails_when_runtime_imports_spark(
+    tmp_path: Path,
+) -> None:
     runtime_file = tmp_path / "src" / "trading_advisor_3000" / "app" / "runtime" / "spark_bridge.py"
     runtime_file.parent.mkdir(parents=True, exist_ok=True)
     runtime_file.write_text(
@@ -210,12 +214,7 @@ def test_canonical_route_runtime_decoupling_check_fails_when_runtime_imports_spa
 
 def test_canonical_route_runtime_decoupling_prefers_product_plane_runtime(tmp_path: Path) -> None:
     runtime_file = (
-        tmp_path
-        / "src"
-        / "trading_advisor_3000"
-        / "product_plane"
-        / "runtime"
-        / "spark_bridge.py"
+        tmp_path / "src" / "trading_advisor_3000" / "product_plane" / "runtime" / "spark_bridge.py"
     )
     runtime_file.parent.mkdir(parents=True, exist_ok=True)
     runtime_file.write_text(
@@ -228,7 +227,9 @@ def test_canonical_route_runtime_decoupling_prefers_product_plane_runtime(tmp_pa
     assert report["violations"]
 
 
-def test_canonical_route_rejects_changed_window_wider_than_baseline_update_guard(tmp_path: Path) -> None:
+def test_canonical_route_rejects_changed_window_wider_than_baseline_update_guard(
+    tmp_path: Path,
+) -> None:
     raw_table_path = tmp_path / "raw_moex_history.delta"
     write_delta_table_rows(table_path=raw_table_path, rows=[], columns=RAW_COLUMNS)
 
@@ -257,53 +258,68 @@ def test_canonical_route_rejects_changed_window_wider_than_baseline_update_guard
         )
 
 
-def test_canonical_route_scoped_raw_filters_match_string_timestamp_schema(tmp_path: Path) -> None:
+def test_spark_canonicalization_uses_raw_delta_input_instead_of_source_jsonl(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     raw_table_path = tmp_path / "raw_moex_history.delta"
-    write_delta_table_rows(
-        table_path=raw_table_path,
-        rows=[
-            {
-                "internal_id": "FUT_BR",
-                "finam_symbol": "BRM6",
-                "moex_engine": "futures",
-                "moex_market": "forts",
-                "moex_board": "RFUD",
-                "moex_secid": "BRM6",
-                "asset_group": "commodity",
-                "timeframe": "1m",
-                "source_interval": 1,
-                "ts_open": "2026-05-04T07:00:00Z",
-                "ts_close": "2026-05-04T07:00:59Z",
-                "open": 100.0,
-                "high": 101.0,
-                "low": 99.0,
-                "close": 100.5,
-                "volume": 10,
-                "open_interest": None,
-                "ingest_run_id": "raw-pass",
-                "ingested_at_utc": "2026-05-04T07:01:00Z",
-                "provenance_json": {"source_provider": "moex_iss", "run_id": "raw-pass"},
-            }
-        ],
-        columns=RAW_COLUMNS,
-    )
+    captured: dict[str, object] = {}
 
-    filters = _build_scoped_raw_read_filters(
-        [
-            ChangedWindowScope(
+    def _fake_run(command, **_kwargs):
+        captured["command"] = list(command)
+        output_json = Path(command[command.index("--output-json") + 1])
+        output_json.parent.mkdir(parents=True, exist_ok=True)
+        output_json.write_text(
+            json.dumps(
+                {
+                    "engine": "spark",
+                    "input_mode": "raw_delta",
+                    "build_run_id": "canonical-direct-delta",
+                    "built_at_utc": "2026-04-02T11:00:00Z",
+                    "source_rows": 2,
+                    "selected_source_interval_rows": 1,
+                    "canonical_rows": 1,
+                    "provenance_rows": 1,
+                    "output_paths": {
+                        "canonical_bars": (tmp_path / "canonical_bars.delta").as_posix(),
+                        "canonical_bar_provenance": (
+                            tmp_path / "canonical_bar_provenance.delta"
+                        ).as_posix(),
+                    },
+                    "spark_profile": {"master": "local[2]", "delta_writer": "spark"},
+                },
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(canonical_module.subprocess, "run", _fake_run)
+
+    report = canonical_module._run_spark_canonicalization(
+        raw_table_path=raw_table_path,
+        changed_windows=[
+            canonical_module.ChangedWindowScope(
                 internal_id="FUT_BR",
                 source_timeframe="1m",
                 source_interval=1,
                 moex_secid="BRM6",
-                window_start_utc="2026-05-04T07:00:00Z",
-                window_end_utc="2026-05-04T07:01:00Z",
-                incremental_rows=1,
+                window_start_utc="2026-04-02T10:00:00Z",
+                window_end_utc="2026-04-02T10:20:00Z",
+                incremental_rows=2,
             )
-        ]
+        ],
+        selected_source_intervals={("BRM6@MOEX", "FUT_BR", "5m"): 1},
+        output_dir=tmp_path / "phase02",
+        run_id="canonical-direct-delta",
+        built_at_utc="2026-04-02T11:00:00Z",
+        repo_root=Path.cwd(),
     )
 
-    rows = read_delta_table_rows(raw_table_path, columns=["internal_id", "ts_close"], filters=filters)
-
-    assert rows == [{"internal_id": "FUT_BR", "ts_close": "2026-05-04T07:00:59Z"}]
-    assert filters[0][2][2] == "2026-05-04T07:00:00Z"
-    assert filters[0][3][2] == "2026-05-04T07:01:00Z"
+    command = captured["command"]
+    assert "--raw-table-path" in command
+    assert raw_table_path.as_posix() in command
+    assert "--changed-windows-jsonl" in command
+    assert "--normalized-source-jsonl" not in command
+    assert report["input_mode"] == "raw_delta"

@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-05-07'
+updated_at: '2026-05-08'
 items:
 - id: TASK-2026-03-16-SHELL-BOOTSTRAP
   path: docs/tasks/archive/TASK-2026-03-16-shell-bootstrap.md
@@ -145,6 +145,12 @@ items:
   status: completed
   started_at: '2026-04-13'
   completed_at: '2026-04-13'
+- id: TASK-2026-04-13-PROMOTE-MEMPALACE-INTO-THE-OFFICIAL-REPOSITORY-M
+  path: docs/tasks/archive/TASK-2026-04-13-promote-mempalace-into-the-official-repository-m.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-04-13'
+  completed_at: '2026-04-13'
 - id: TASK-2026-04-13-CONTINUE-GOVERNED-MODULE-FOR-MOEX-HISTORICAL-ROU-1
   path: docs/tasks/archive/TASK-2026-04-13-continue-governed-module-for-moex-historical-rou-1.md
   mode: legacy-full
@@ -199,75 +205,27 @@ items:
   status: completed
   started_at: '2026-04-27'
   completed_at: '2026-04-27'
-- id: TASK-2026-04-28-IMPLEMENT-PRODUCT-PLANE-CONTINUOUS-FRONT-CONTOUR
-  path: docs/tasks/archive/TASK-2026-04-28-implement-product-plane-continuous-front-contour.md
-  mode: legacy-full
-  status: completed
-  started_at: '2026-04-28'
-  completed_at: '2026-04-28'
-- id: TASK-2026-04-29-REPAIR-CONTINUOUS-FRONT-ACCEPTANCE-PROBLEMS-FROM
-  path: docs/tasks/archive/TASK-2026-04-29-repair-continuous-front-acceptance-problems-from.md
-  mode: tracked_session
-  status: completed
-  started_at: '2026-04-29'
-  completed_at: '2026-04-29'
-- id: TASK-2026-04-29-PUBLISH-WORK3-CONTINUOUS-FRONT-PR-STACK
-  path: docs/tasks/archive/TASK-2026-04-29-publish-work3-continuous-front-pr-stack.md
-  mode: legacy-full
-  status: completed
-  started_at: '2026-04-29'
-  completed_at: '2026-04-29'
-- id: TASK-2026-04-29-IMPLEMENT-HYBRID-SPARK-TA-ROLL-AWARE-CONTINUOUS-
-  path: docs/tasks/archive/TASK-2026-04-29-implement-hybrid-spark-ta-roll-aware-continuous-.md
-  mode: legacy-full
-  status: completed
-  started_at: '2026-04-29'
-  completed_at: '2026-04-29'
-- id: TASK-2026-04-29-REFACTOR-CONTINUOUS-FRONT-INDICATOR-CALCULATION-
-  path: docs/tasks/archive/TASK-2026-04-29-refactor-continuous-front-indicator-calculation-.md
-  mode: legacy-full
-  status: completed
-  started_at: '2026-04-29'
-  completed_at: '2026-04-29'
-- id: TASK-2026-04-29-FIX-CONTINUOUS-FRONT-INDICATOR-QC-AND-ROLL-BOUND
-  path: docs/tasks/archive/TASK-2026-04-29-fix-continuous-front-indicator-qc-and-roll-bound.md
-  mode: legacy-full
-  status: completed
-  started_at: '2026-04-29'
-  completed_at: '2026-04-29'
-- id: TASK-2026-04-29-FIX-CONTINUOUS-FRONT-INDICATOR-FORMULA-GATE-PREF
-  path: docs/tasks/archive/TASK-2026-04-29-fix-continuous-front-indicator-formula-gate-pref.md
-  mode: legacy-full
-  status: completed
-  started_at: '2026-04-29'
-  completed_at: '2026-04-29'
-- id: TASK-2026-04-30-EXPAND-CONTINUOUS-FRONT-FORMULA-GATE-TO-VALIDATE
-  path: docs/tasks/archive/TASK-2026-04-30-expand-continuous-front-formula-gate-to-validate.md
-  mode: legacy-full
-  status: completed
-  started_at: '2026-04-30'
-  completed_at: '2026-04-30'
 - id: TASK-2026-05-05-PREPARE-SUPERPOWERS-SKILL-ROUTING-AND-SKILL-HARD
   path: docs/tasks/archive/TASK-2026-05-05-prepare-superpowers-skill-routing-and-skill-hard.md
   mode: legacy-full
   status: completed
   started_at: '2026-05-05'
   completed_at: '2026-05-05'
-- id: TASK-2026-05-07-SLIM-CONTINUOUS-FRONT-INDICATOR-SIDECAR-PROOF-TO
-  path: docs/tasks/archive/TASK-2026-05-07-slim-continuous-front-indicator-sidecar-proof-to.md
+- id: TASK-2026-05-07-1-PLAN-DELTA-SPARK-MD
+  path: docs/tasks/archive/TASK-2026-05-07-1-plan-delta-spark-md.md
   mode: legacy-full
   status: completed
   started_at: '2026-05-07'
   completed_at: '2026-05-07'
-- id: TASK-2026-05-07-HARDEN-SUPERPOWERS-FIRST-ROUTING-AGAINST-BEHAVIO
-  path: docs/tasks/archive/TASK-2026-05-07-harden-superpowers-first-routing-against-behavio.md
+- id: TASK-2026-05-08-1-RAW-INGEST-DAGSTER-SPARK-DELTA-NATIVE
+  path: docs/tasks/archive/TASK-2026-05-08-1-raw-ingest-dagster-spark-delta-native.md
   mode: legacy-full
   status: completed
-  started_at: '2026-05-07'
-  completed_at: '2026-05-07'
-- id: TASK-2026-05-07-WIRE-NIGHTLY-CONTINUOUS-FRONT-REFRESH-THROUGH-DA
-  path: docs/tasks/archive/TASK-2026-05-07-wire-nightly-continuous-front-refresh-through-da.md
+  started_at: '2026-05-08'
+  completed_at: '2026-05-08'
+- id: TASK-2026-05-08-FIX-MOEX-PRODUCT-AND-VERIFICATION-STAGING-RUNTIM
+  path: docs/tasks/archive/TASK-2026-05-08-fix-moex-product-and-verification-staging-runtim.md
   mode: legacy-full
   status: completed
-  started_at: '2026-05-07'
-  completed_at: '2026-05-07'
+  started_at: '2026-05-08'
+  completed_at: '2026-05-08'
