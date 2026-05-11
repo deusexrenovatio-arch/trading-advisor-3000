@@ -378,6 +378,60 @@ def test_canonicalization_fails_closed_on_missing_spark_output_paths(
         )
 
 
+def test_canonicalization_fails_closed_on_incomplete_spark_outputs(
+    tmp_path: Path, monkeypatch
+) -> None:
+    raw_table_path = tmp_path / "raw_ingest" / "delta" / "raw_moex_history.delta"
+    rows = _raw_rows_with_daily_only_contract(with_source_provider=True)
+    _write_raw_table(raw_table_path, rows)
+    scoped_bars_path = tmp_path / "spark" / "canonical_bars.delta"
+    scoped_provenance_path = tmp_path / "spark" / "canonical_bar_provenance.delta"
+
+    def incomplete_spark_outputs(**kwargs):  # noqa: ANN003
+        return {
+            "output_paths": {
+                "canonical_bars": str(scoped_bars_path),
+                "canonical_bar_provenance": str(scoped_provenance_path),
+            }
+        }
+
+    def fake_spark_output_path(output_paths, key):  # noqa: ANN001
+        return scoped_bars_path if key == "canonical_bars" else scoped_provenance_path
+
+    original_iter_delta_rows = canonicalization_module._iter_delta_rows_for_merge
+
+    def fake_iter_delta_rows(table_path: Path):
+        if Path(table_path) in {scoped_bars_path, scoped_provenance_path}:
+            return iter(())
+        return original_iter_delta_rows(table_path)
+
+    monkeypatch.setattr(
+        canonicalization_module,
+        "_run_spark_canonicalization",
+        incomplete_spark_outputs,
+    )
+    monkeypatch.setattr(
+        canonicalization_module,
+        "_require_spark_delta_output_path",
+        fake_spark_output_path,
+    )
+    monkeypatch.setattr(
+        canonicalization_module,
+        "_iter_delta_rows_for_merge",
+        fake_iter_delta_rows,
+    )
+
+    with pytest.raises(RuntimeError, match="incomplete canonical bars"):
+        run_moex_canonicalization(
+            raw_table_path=raw_table_path,
+            output_dir=tmp_path / "canonicalization-incomplete-spark-output",
+            run_id="canonicalization-int-incomplete-spark-output",
+            raw_ingest_run_report=_build_raw_ingest_report_for_rows(
+                rows=rows, run_id="raw-ingest-pass1"
+            ),
+        )
+
+
 def test_canonicalization_pass_noop_skips_raw_table_read_entirely(
     tmp_path: Path, monkeypatch
 ) -> None:

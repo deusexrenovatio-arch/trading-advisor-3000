@@ -781,6 +781,36 @@ def _canonical_provenance_key(row: CanonicalProvenance) -> tuple[str, str, str, 
     return (row.contract_id, row.instrument_id, row.timeframe, row.ts)
 
 
+def _sample_canonical_keys(
+    keys: set[tuple[str, str, str, str]],
+    *,
+    limit: int = 20,
+) -> list[tuple[str, str, str, str]]:
+    return sorted(keys)[:limit]
+
+
+def _require_complete_scoped_output_keys(
+    *,
+    output_name: str,
+    scoped_keys: set[tuple[str, str, str, str]],
+    affected_keys: set[tuple[str, str, str, str]],
+) -> None:
+    missing_keys = affected_keys - scoped_keys
+    unexpected_keys = scoped_keys - affected_keys
+    if not missing_keys and not unexpected_keys:
+        return
+
+    details: list[str] = []
+    if missing_keys:
+        details.append(f"missing={_sample_canonical_keys(missing_keys)}")
+    if unexpected_keys:
+        details.append(f"unexpected={_sample_canonical_keys(unexpected_keys)}")
+    raise RuntimeError(
+        f"spark canonicalization produced incomplete {output_name} "
+        f"for affected keys: {', '.join(details)}"
+    )
+
+
 def _canonical_provenance_from_dict(
     payload: dict[str, object], *, row_index: int
 ) -> CanonicalProvenance:
@@ -1598,6 +1628,16 @@ def run_moex_canonicalization(
                 scoped_provenance_rows.append(
                     _canonical_provenance_from_dict_lenient(dict(payload), row_index=row_index)
                 )
+        _require_complete_scoped_output_keys(
+            output_name="canonical bars",
+            scoped_keys={_canonical_bar_key(row) for row in scoped_canonical_rows},
+            affected_keys=affected_keys,
+        )
+        _require_complete_scoped_output_keys(
+            output_name="canonical provenance",
+            scoped_keys={_canonical_provenance_key(row) for row in scoped_provenance_rows},
+            affected_keys=affected_keys,
+        )
 
     canonical_rows = _merge_scoped_canonical_rows(
         existing_rows=existing_canonical_rows,

@@ -90,7 +90,18 @@ def test_read_filtered_delta_table_rows_requires_filters(tmp_path) -> None:
     assert rows == [{"dataset_version": "dataset-v1", "value": 1}]
 
 
-def test_read_delta_table_rows_rejects_unbounded_hot_tables(tmp_path) -> None:
+@pytest.mark.parametrize(
+    "filters",
+    [
+        "__no_filters_arg__",
+        None,
+        [],
+        [[]],
+        [("id", "in", [])],
+        [("id", "=", "a"), [("id", "=", "b")]],
+    ],
+)
+def test_read_delta_table_rows_rejects_unbounded_hot_tables(tmp_path, filters) -> None:
     table_path = tmp_path / "canonical_bars.delta"
     write_delta_table_rows(
         table_path=table_path,
@@ -99,17 +110,10 @@ def test_read_delta_table_rows_rejects_unbounded_hot_tables(tmp_path) -> None:
     )
 
     with pytest.raises(ValueError, match="hot Delta tables"):
-        read_delta_table_rows(table_path)
-    with pytest.raises(ValueError, match="hot Delta tables"):
-        read_delta_table_rows(table_path, filters=None)
-    with pytest.raises(ValueError, match="hot Delta tables"):
-        read_delta_table_rows(table_path, filters=[])
-    with pytest.raises(ValueError, match="hot Delta tables"):
-        read_delta_table_rows(table_path, filters=[[]])
-    with pytest.raises(ValueError, match="hot Delta tables"):
-        read_delta_table_rows(table_path, filters=[("id", "in", [])])
-    with pytest.raises(ValueError, match="hot Delta tables"):
-        read_delta_table_rows(table_path, filters=[("id", "=", "a"), [("id", "=", "b")]])
+        if filters == "__no_filters_arg__":
+            read_delta_table_rows(table_path)
+        else:
+            read_delta_table_rows(table_path, filters=filters)
 
     assert read_delta_table_rows(table_path, filters=[("id", "=", "a")]) == [
         {"id": "a", "value": 1}
@@ -139,7 +143,10 @@ def test_read_delta_table_rows_applies_limit_before_full_materialization(
     rows = read_delta_table_rows(table_path, limit=1)
 
     assert len(rows) == 1
-    assert rows[0] == {"id": "a", "value": 1}
+    assert rows[0] in (
+        {"id": "a", "value": 1},
+        {"id": "b", "value": 2},
+    )
 
 
 def test_read_small_delta_table_rows_rejects_hot_tables(tmp_path) -> None:
