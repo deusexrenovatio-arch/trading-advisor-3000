@@ -111,6 +111,20 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
         + "\n",
         encoding="utf-8",
     )
+    with publish_scope_path.open("a", encoding="utf-8") as handle:
+        handle.write(
+            json.dumps(
+                {
+                    "instrument_id": "FUT_BR",
+                    "timeframe": "5m",
+                    "target_minutes": 5,
+                    "window_start_utc": "2026-04-05T10:00:00Z",
+                    "window_end_utc": "2026-04-05T10:05:00Z",
+                },
+                sort_keys=True,
+            )
+            + "\n"
+        )
     write_delta_table_rows(
         table_path=target_bars_path,
         rows=[
@@ -121,6 +135,7 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
                 close=99.0,
                 source_ts_open_first="unused",
             ),
+            _bar(ts="2026-04-05T10:00:00Z", close=87.0, volume=199),
         ],
         columns=canonical_columns,
     )
@@ -138,6 +153,12 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
                 ts="2026-04-01T10:00:00Z",
                 source_ts_open_first="2026-04-01T10:00:00Z",
                 source_ts_close_last="2026-04-01T10:05:00Z",
+            ),
+            _provenance(
+                ts="2026-04-05T10:00:00Z",
+                source_run_id="delete-only-stale",
+                source_ts_open_first="2026-04-05T10:00:00Z",
+                source_ts_close_last="2026-04-05T10:05:00Z",
             ),
         ],
         columns=CANONICAL_PROVENANCE_COLUMNS,
@@ -159,6 +180,13 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
                 "session_open_ts": "2026-04-02T00:00:00Z",
                 "session_close_ts": "2026-04-02T00:00:00Z",
             },
+            {
+                "instrument_id": "FUT_BR",
+                "timeframe": "5m",
+                "session_date": "2026-04-05",
+                "session_open_ts": "2026-04-05T00:00:00Z",
+                "session_close_ts": "2026-04-05T00:00:00Z",
+            },
         ],
         columns=session_columns,
     )
@@ -176,6 +204,12 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
                 "session_date": "2026-04-02",
                 "active_contract_id": "STALE",
                 "reason": "stale",
+            },
+            {
+                "instrument_id": "FUT_BR",
+                "session_date": "2026-04-05",
+                "active_contract_id": "STALE",
+                "reason": "delete-only-stale",
             },
         ],
         columns=roll_columns,
@@ -196,8 +230,8 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
     assert report["status"] == "PASS", report
     assert report["runtime_owner"] == "spark_delta"
     assert report["mutation_applied"] is True
-    assert report["publish_protocol"]["scoped_replacement"]["stale_bar_rows"] == 1
-    assert report["publish_protocol"]["scoped_replacement"]["stale_provenance_rows"] == 1
+    assert report["publish_protocol"]["scoped_replacement"]["stale_bar_rows"] == 2
+    assert report["publish_protocol"]["scoped_replacement"]["stale_provenance_rows"] == 2
     assert report["canonical_rows"] == 2
     assert report["provenance_rows"] == 2, report
     assert report["qc_report"]["status"] == "PASS"
@@ -220,10 +254,17 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
     sidecar_report = report["sidecar_refresh"]
     assert sidecar_report["mode"] == "scoped"
     assert sidecar_report["overlap_policy"] == SIDECAR_OVERLAP_POLICY
-    assert sidecar_report["affected_session_rows"] == 1
-    assert sidecar_report["overlap_session_rows"] == 3
+    assert sidecar_report["affected_session_rows"] == 2
+    assert sidecar_report["overlap_session_rows"] == 6
     assert count_delta_table_rows(session_calendar_path) == 2
     assert count_delta_table_rows(roll_map_path) == 2
+    assert not any(
+        str(row["session_date"]).startswith("2026-04-05")
+        for row in _read_rows(session_calendar_path)
+    )
+    assert not any(
+        str(row["session_date"]).startswith("2026-04-05") for row in _read_rows(roll_map_path)
+    )
     assert {row["active_contract_id"] for row in _read_rows(roll_map_path)} == {"BRM6@MOEX"}
 
 

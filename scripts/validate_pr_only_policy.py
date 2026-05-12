@@ -35,7 +35,7 @@ GITHUB_API_VERSION = "2026-03-10"
 GITHUB_API_ATTEMPTS = 3
 GITHUB_API_RETRY_DELAY_SECONDS = 1.0
 GITHUB_API_TIMEOUT_SECONDS = 15
-GITHUB_API_TRANSIENT_HTTP_CODES = {429, 500, 502, 503, 504}
+GITHUB_API_TRANSIENT_HTTP_CODES = {403, 429, 500, 502, 503, 504}
 
 
 def _read(path: Path) -> str:
@@ -112,7 +112,7 @@ def _github_api_retry_delay(exc: HTTPError, *, attempt: int) -> float:
             pass
 
     reset_at = exc.headers.get("X-RateLimit-Reset")
-    if exc.code == 429 and reset_at:
+    if exc.code in {403, 429} and reset_at:
         try:
             return max(float(reset_at) - time.time(), 0.0)
         except ValueError:

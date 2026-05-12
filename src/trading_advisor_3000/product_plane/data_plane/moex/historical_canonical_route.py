@@ -1636,10 +1636,12 @@ def _run_scoped_spark_delta_publish_route(
         )
         spark_output_paths = spark_execution_report.get("output_paths", {})
         if isinstance(spark_output_paths, dict):
-            scoped_bars_path = Path(str(spark_output_paths.get("canonical_bars", "")).strip())
-            scoped_provenance_path = Path(
-                str(spark_output_paths.get("canonical_bar_provenance", "")).strip()
-            )
+            raw_bars_path = str(spark_output_paths.get("canonical_bars", "")).strip()
+            raw_provenance_path = str(
+                spark_output_paths.get("canonical_bar_provenance", "")
+            ).strip()
+            scoped_bars_path = Path(raw_bars_path) if raw_bars_path else None
+            scoped_provenance_path = Path(raw_provenance_path) if raw_provenance_path else None
         publish_scope_path = output_dir / ".spark-canonicalization" / "publish-scope.jsonl"
 
     raw_parity_report = _build_spark_raw_parity_report(

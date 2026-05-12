@@ -78,6 +78,10 @@ def _hostify_container_path(value: str) -> str:
     )
 
 
+_PATH_FIELD_NAMES = {"path", "publish_scope_path", "recovery_manifest_path"}
+_PATH_CONTAINER_FIELD_NAMES = {"output_paths", "target_paths", "staged_paths"}
+
+
 def _ensure_docker_image(image: str, dockerfile: Path) -> None:
     inspect = subprocess.run(
         ["docker", "image", "inspect", image],
@@ -109,7 +113,31 @@ def _hostify_report(payload: dict[str, object]) -> dict[str, object]:
         for item in delta_log.values():
             if isinstance(item, dict) and isinstance(item.get("path"), str):
                 item["path"] = _hostify_container_path(str(item["path"]))
+    publish_protocol = payload.get("publish_protocol")
+    if isinstance(publish_protocol, dict):
+        payload["publish_protocol"] = _hostify_publish_protocol_paths(publish_protocol)
     return payload
+
+
+def _hostify_publish_protocol_paths(value: object, *, path_context: bool = False) -> object:
+    if isinstance(value, dict):
+        hostified: dict[str, object] = {}
+        for raw_key, raw_item in value.items():
+            key = str(raw_key)
+            child_path_context = path_context or key in _PATH_CONTAINER_FIELD_NAMES
+            if isinstance(raw_item, str) and (
+                child_path_context or key in _PATH_FIELD_NAMES or key.endswith("_path")
+            ):
+                hostified[key] = _hostify_container_path(raw_item) if raw_item.strip() else raw_item
+            else:
+                hostified[key] = _hostify_publish_protocol_paths(
+                    raw_item,
+                    path_context=child_path_context,
+                )
+        return hostified
+    if isinstance(value, list):
+        return [_hostify_publish_protocol_paths(item, path_context=path_context) for item in value]
+    return value
 
 
 def _write_report(path: Path | None, report: dict[str, object]) -> None:

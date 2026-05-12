@@ -158,6 +158,47 @@ def test_default_route_uses_scoped_spark_delta_publish_without_python_delta_read
     )
 
 
+def test_route_rejects_blank_spark_output_paths_before_publish(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_table_path = tmp_path / "raw_moex_history.delta"
+    write_delta_table_rows(table_path=raw_table_path, rows=[], columns=RAW_COLUMNS)
+
+    def _fake_spark_canonicalization(**_kwargs: object) -> dict[str, object]:
+        return {
+            "engine": "spark",
+            "input_mode": "raw_delta",
+            "source_rows": 1,
+            "source_providers": ["moex_iss"],
+            "unmatched_window_rows": 0,
+            "changed_window_rows": 1,
+            "selected_source_interval_rows": 6,
+            "canonical_rows": 6,
+            "provenance_rows": 6,
+            "output_paths": {
+                "canonical_bars": "   ",
+                "canonical_bar_provenance": "",
+            },
+            "spark_profile": {"master": "local[2]", "delta_writer": "spark"},
+        }
+
+    def _publish_must_not_run(**_kwargs: object) -> dict[str, object]:
+        raise AssertionError("publish must not run with blank Spark output paths")
+
+    monkeypatch.setattr(route_module, "_run_spark_canonicalization", _fake_spark_canonicalization)
+    monkeypatch.setattr(route_module, "_run_spark_canonical_publish", _publish_must_not_run)
+
+    with pytest.raises(RuntimeError, match="Spark output paths"):
+        route_module.run_historical_canonical_route(
+            raw_table_path=raw_table_path,
+            output_dir=tmp_path / "canonical",
+            run_id="phase02-blank-spark-output",
+            raw_ingest_run_report=_changed_raw_report(),
+            repo_root=Path.cwd(),
+        )
+
+
 def test_full_overwrite_is_not_supported_even_with_legacy_env(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -185,3 +226,35 @@ def test_docker_publish_requires_output_json_before_container(
 
     with pytest.raises(RuntimeError, match="requires --output-json"):
         publish_script._run_docker(SimpleNamespace(output_json=""))
+
+
+def test_docker_report_hostifies_publish_protocol_paths() -> None:
+    report = publish_script._hostify_report(
+        {
+            "publish_protocol": {
+                "recovery_manifest_path": "/workspace/out/recovery.json",
+                "publish_scope_path": "/workspace/out/publish-scope.jsonl",
+                "target_paths": {"canonical_bars": "/workspace/data/canonical_bars.delta"},
+                "staged_paths": {"canonical_bar_provenance": "/workspace/staged/provenance.delta"},
+                "nested": {"path": "/workspace/nested/path.delta"},
+            }
+        }
+    )
+
+    protocol = report["publish_protocol"]
+    assert isinstance(protocol, dict)
+    assert str(protocol["recovery_manifest_path"]).replace("\\", "/").endswith("/out/recovery.json")
+    assert (
+        str(protocol["publish_scope_path"]).replace("\\", "/").endswith("/out/publish-scope.jsonl")
+    )
+    assert (
+        str(protocol["target_paths"]["canonical_bars"])
+        .replace("\\", "/")
+        .endswith("/data/canonical_bars.delta")
+    )
+    assert (
+        str(protocol["staged_paths"]["canonical_bar_provenance"])
+        .replace("\\", "/")
+        .endswith("/staged/provenance.delta")
+    )
+    assert str(protocol["nested"]["path"]).replace("\\", "/").endswith("/nested/path.delta")

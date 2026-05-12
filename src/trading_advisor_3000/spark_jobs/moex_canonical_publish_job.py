@@ -27,6 +27,10 @@ PUBLISH_SCOPE_COLUMNS: dict[str, str] = {
     "window_start_utc": "timestamp",
     "window_end_utc": "timestamp",
 }
+SIDECAR_SESSION_SCOPE_COLUMNS: dict[str, str] = {
+    "instrument_id": "string",
+    "session_date": "date",
+}
 
 CANONICAL_PROVENANCE_COLUMNS: dict[str, str] = {
     "contract_id": "string",
@@ -528,6 +532,54 @@ def _expand_sidecar_sessions(*, affected_sessions_df: Any, functions: Any) -> An
     return affected_sessions_df.unionByName(previous_sessions).unionByName(next_sessions).distinct()
 
 
+def _sessions_from_bars(*, bars_df: Any, functions: Any) -> Any:
+    return (
+        bars_df.select(
+            "instrument_id",
+            functions.to_date(functions.col("ts")).alias("session_date"),
+        )
+        .where(functions.col("session_date").isNotNull())
+        .distinct()
+    )
+
+
+def _sessions_from_provenance(*, provenance_df: Any, functions: Any) -> Any:
+    return (
+        provenance_df.select(
+            "instrument_id",
+            functions.to_date(
+                functions.coalesce(functions.col("source_ts_open_first"), functions.col("ts"))
+            ).alias("session_date"),
+        )
+        .where(functions.col("session_date").isNotNull())
+        .distinct()
+    )
+
+
+def _materialize_sidecar_session_scope(*, dataframe: Any, table_path: Path) -> None:
+    _write_delta_dataframe(
+        dataframe=dataframe.select(*SIDECAR_SESSION_SCOPE_COLUMNS.keys()).distinct(),
+        table_path=table_path,
+        manifest_entry={"columns": dict(SIDECAR_SESSION_SCOPE_COLUMNS)},
+    )
+
+
+def _sidecar_stale_keys(
+    *,
+    target_dataframe: Any,
+    replacement_dataframe: Any,
+    scope_sessions_df: Any,
+    key_columns: tuple[str, ...],
+) -> Any:
+    scoped_target_keys_df = (
+        target_dataframe.join(scope_sessions_df, ["instrument_id", "session_date"], "inner")
+        .select(*key_columns)
+        .distinct()
+    )
+    replacement_keys_df = replacement_dataframe.select(*key_columns).distinct()
+    return scoped_target_keys_df.join(replacement_keys_df, list(key_columns), "left_anti")
+
+
 def run_moex_canonical_publish_spark_delta_job(
     *,
     staged_bars_path: Path,
@@ -646,6 +698,28 @@ def run_moex_canonical_publish_spark_delta_job(
                 table_path=stale_provenance_keys_path,
                 key_columns=CANONICAL_KEY_COLUMNS,
             )
+        affected_sessions_df = (
+            _sessions_from_provenance(
+                provenance_df=staged_provenance_df,
+                functions=functions,
+            )
+            .unionByName(_sessions_from_bars(bars_df=stale_bars_df, functions=functions))
+            .unionByName(
+                _sessions_from_provenance(
+                    provenance_df=stale_provenance_df,
+                    functions=functions,
+                )
+            )
+            .distinct()
+            .cache()
+        )
+        affected_session_rows = int(affected_sessions_df.count())
+        affected_sessions_path = output_dir / "sidecar-scope" / "affected_sessions.delta"
+        if affected_session_rows > 0:
+            _materialize_sidecar_session_scope(
+                dataframe=affected_sessions_df,
+                table_path=affected_sessions_path,
+            )
         mutation_applied = False
         recovery_manifest_path = output_dir / "publish-recovery-manifest.json"
         publish_protocol: dict[str, object] = {
@@ -676,6 +750,9 @@ def run_moex_canonical_publish_spark_delta_job(
                 "canonical_bars": staged_bars_path.as_posix(),
                 "canonical_bar_provenance": staged_provenance_path.as_posix(),
             },
+            "sidecar_scope_path": affected_sessions_path.as_posix()
+            if affected_session_rows > 0
+            else "",
         }
         _write_json(recovery_manifest_path, publish_protocol)
 
@@ -729,18 +806,13 @@ def run_moex_canonical_publish_spark_delta_job(
             schema=_schema_from_columns(CANONICAL_PROVENANCE_COLUMNS),
         ).select(*CANONICAL_PROVENANCE_COLUMNS.keys())
 
-        staged_joined_df = staged_bars_df.join(
-            staged_provenance_df,
-            list(CANONICAL_KEY_COLUMNS),
-            "inner",
-        )
-        affected_sessions_df = staged_joined_df.select(
-            "instrument_id",
-            functions.to_date(
-                functions.coalesce(functions.col("source_ts_open_first"), functions.col("ts"))
-            ).alias("session_date"),
-        ).distinct()
-        affected_session_rows = int(affected_sessions_df.count())
+        if affected_session_rows > 0:
+            affected_sessions_df = spark.read.format("delta").load(str(affected_sessions_path))
+        else:
+            affected_sessions_df = spark.createDataFrame(
+                [],
+                _schema_from_columns(SIDECAR_SESSION_SCOPE_COLUMNS),
+            )
         sidecar_scope_sessions_df = _expand_sidecar_sessions(
             affected_sessions_df=affected_sessions_df,
             functions=functions,
@@ -761,17 +833,63 @@ def run_moex_canonical_publish_spark_delta_job(
                 functions=functions,
             )
             if sidecars_exist:
-                _merge_upsert_delta_dataframe(
+                target_session_calendar_df = _table_or_empty(
+                    spark,
+                    table_path=session_calendar_path,
+                    schema=_schema_from_columns(manifest["canonical_session_calendar"]["columns"]),
+                ).select(*manifest["canonical_session_calendar"]["columns"].keys())
+                target_roll_map_df = _table_or_empty(
+                    spark,
+                    table_path=roll_map_path,
+                    schema=_schema_from_columns(manifest["canonical_roll_map"]["columns"]),
+                ).select(*manifest["canonical_roll_map"]["columns"].keys())
+                stale_session_calendar_df = _sidecar_stale_keys(
+                    target_dataframe=target_session_calendar_df,
+                    replacement_dataframe=session_calendar_df,
+                    scope_sessions_df=sidecar_scope_sessions_df,
+                    key_columns=("instrument_id", "timeframe", "session_date"),
+                ).cache()
+                stale_roll_map_df = _sidecar_stale_keys(
+                    target_dataframe=target_roll_map_df,
+                    replacement_dataframe=roll_map_df,
+                    scope_sessions_df=sidecar_scope_sessions_df,
+                    key_columns=("instrument_id", "session_date"),
+                ).cache()
+                stale_session_calendar_rows = int(stale_session_calendar_df.count())
+                stale_roll_map_rows = int(stale_roll_map_df.count())
+                stale_session_calendar_path = (
+                    output_dir / "stale-keys" / "canonical_session_calendar.delta"
+                )
+                stale_roll_map_path = output_dir / "stale-keys" / "canonical_roll_map.delta"
+                if stale_session_calendar_rows > 0:
+                    _materialize_stale_keys(
+                        dataframe=stale_session_calendar_df,
+                        table_path=stale_session_calendar_path,
+                        key_columns=("instrument_id", "timeframe", "session_date"),
+                    )
+                if stale_roll_map_rows > 0:
+                    _materialize_stale_keys(
+                        dataframe=stale_roll_map_df,
+                        table_path=stale_roll_map_path,
+                        key_columns=("instrument_id", "session_date"),
+                    )
+                _merge_replace_delta_dataframe(
                     spark=spark,
                     table_path=session_calendar_path,
-                    dataframe=session_calendar_df,
+                    staged_dataframe=session_calendar_df,
+                    stale_keys_path=stale_session_calendar_path,
+                    stale_key_count=stale_session_calendar_rows,
                     key_columns=("instrument_id", "timeframe", "session_date"),
+                    functions=functions,
                 )
-                _merge_upsert_delta_dataframe(
+                _merge_replace_delta_dataframe(
                     spark=spark,
                     table_path=roll_map_path,
-                    dataframe=roll_map_df,
+                    staged_dataframe=roll_map_df,
+                    stale_keys_path=stale_roll_map_path,
+                    stale_key_count=stale_roll_map_rows,
                     key_columns=("instrument_id", "session_date"),
+                    functions=functions,
                 )
             else:
                 _write_delta_dataframe(
