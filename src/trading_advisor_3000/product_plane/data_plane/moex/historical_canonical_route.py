@@ -2020,9 +2020,10 @@ def run_historical_canonical_route(
                 "gate_results": [],
             },
             "contract_compatibility_report": {
-                "status": "PASS",
+                "status": "SKIPPED",
                 "checked_rows": 0,
                 "errors": [],
+                "reason": "noop refresh did not produce Spark canonical rows",
             },
             "runtime_decoupling_proof": runtime_report,
             "real_bindings": _report_real_bindings(

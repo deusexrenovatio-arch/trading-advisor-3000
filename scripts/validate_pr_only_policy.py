@@ -132,23 +132,27 @@ def _github_api_get_json(url: str, token: str | None) -> Any:
 
     request = Request(url, headers=headers)
     last_error: BaseException | None = None
+    last_http_error_detail = "<no detail>"
     for attempt in range(1, GITHUB_API_ATTEMPTS + 1):
         try:
             with urlopen(request, timeout=GITHUB_API_TIMEOUT_SECONDS) as response:
                 payload = response.read().decode("utf-8")
                 return json.loads(payload)
         except HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace").strip()
+            detail = exc.read().decode("utf-8", errors="replace").strip() or "<no detail>"
             hint = ""
             if exc.code in {401, 403} and not token:
                 hint = (
                     " (public repositories can be read anonymously; "
                     "private repos require GH_TOKEN/GITHUB_TOKEN)"
                 )
-            if exc.code in GITHUB_API_TRANSIENT_HTTP_CODES and attempt < GITHUB_API_ATTEMPTS:
+            if exc.code in GITHUB_API_TRANSIENT_HTTP_CODES:
                 last_error = exc
-                time.sleep(_github_api_retry_delay(exc, attempt=attempt))
-                continue
+                last_http_error_detail = detail
+                if attempt < GITHUB_API_ATTEMPTS:
+                    time.sleep(_github_api_retry_delay(exc, attempt=attempt))
+                    continue
+                break
             raise RuntimeError(
                 f"GitHub API request failed for {url}: HTTP {exc.code}{hint}; {detail}"
             ) from exc
@@ -159,9 +163,8 @@ def _github_api_get_json(url: str, token: str | None) -> Any:
             time.sleep(GITHUB_API_RETRY_DELAY_SECONDS)
 
     if isinstance(last_error, HTTPError):
-        detail = last_error.read().decode("utf-8", errors="replace").strip()
         raise RuntimeError(
-            f"GitHub API request failed for {url}: HTTP {last_error.code}; {detail}"
+            f"GitHub API request failed for {url}: HTTP {last_error.code}; {last_http_error_detail}"
         ) from last_error
     if isinstance(last_error, URLError):
         raise RuntimeError(

@@ -330,3 +330,30 @@ def test_spark_publish_blocks_non_monotonic_provenance_without_mutating_target(
     assert "source_window_monotonicity" in report["qc_report"]["failed_gates"]
     assert count_delta_table_rows(target_bars_path) == 1
     assert _read_rows(target_bars_path)[0]["close"] == original_bar["close"]
+
+
+def test_spark_publish_blocks_zero_checked_contract_rows(tmp_path: Path) -> None:
+    if os.name == "nt" and not os.environ.get("HADOOP_HOME"):
+        pytest.skip(
+            "local Windows Spark execution requires HADOOP_HOME; "
+            "Docker/Linux proof profile runs this path"
+        )
+
+    report = run_moex_canonical_publish_spark_delta_job(
+        staged_bars_path=tmp_path / "missing" / "canonical_bars.delta",
+        staged_provenance_path=tmp_path / "missing" / "canonical_bar_provenance.delta",
+        target_bars_path=tmp_path / "target" / "canonical_bars.delta",
+        target_provenance_path=tmp_path / "target" / "canonical_bar_provenance.delta",
+        session_calendar_path=tmp_path / "target" / "canonical_session_calendar.delta",
+        roll_map_path=tmp_path / "target" / "canonical_roll_map.delta",
+        output_dir=tmp_path / "publish-proof",
+        run_id="spark-publish-zero-contract-rows",
+    )
+
+    contract_report = report["contract_compatibility_report"]
+    assert report["status"] == "BLOCKED", report
+    assert report["mutation_applied"] is False
+    assert contract_report["status"] == "FAIL"
+    assert contract_report["checked_rows"] == 0
+    assert "No canonical bars checked: 0 rows" in contract_report["errors"]
+    assert not has_delta_log(tmp_path / "target" / "canonical_bars.delta")

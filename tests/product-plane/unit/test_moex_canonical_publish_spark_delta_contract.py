@@ -43,6 +43,23 @@ def _changed_raw_report() -> dict[str, object]:
     )
 
 
+def _noop_raw_report() -> dict[str, object]:
+    return build_raw_ingest_run_report_v2(
+        run_id="phase01-noop",
+        ingest_till_utc="2026-04-02T10:05:00Z",
+        source_rows=0,
+        incremental_rows=0,
+        deduplicated_rows=0,
+        stale_rows=0,
+        watermark_by_key={},
+        raw_table_path="raw_moex_history.delta",
+        raw_ingest_progress_path="raw-progress.jsonl",
+        raw_ingest_error_path="raw-errors.jsonl",
+        raw_ingest_error_latest_path="raw-error.latest.json",
+        changed_windows=[],
+    )
+
+
 def test_default_route_uses_scoped_spark_delta_publish_without_python_delta_reads(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -156,6 +173,24 @@ def test_default_route_uses_scoped_spark_delta_publish_without_python_delta_read
         .replace("\\", "/")
         .endswith(".spark-canonicalization/publish-scope.jsonl")
     )
+
+
+def test_noop_route_marks_contract_report_skipped_not_passed(tmp_path: Path) -> None:
+    raw_table_path = tmp_path / "raw_moex_history.delta"
+    write_delta_table_rows(table_path=raw_table_path, rows=[], columns=RAW_COLUMNS)
+
+    report = route_module.run_historical_canonical_route(
+        raw_table_path=raw_table_path,
+        output_dir=tmp_path / "canonical",
+        run_id="phase02-noop-contract",
+        raw_ingest_run_report=_noop_raw_report(),
+        repo_root=Path.cwd(),
+    )
+
+    contract_report = report["contract_compatibility_report"]
+    assert contract_report["status"] == "SKIPPED"
+    assert contract_report["checked_rows"] == 0
+    assert contract_report["reason"] == "noop refresh did not produce Spark canonical rows"
 
 
 def test_route_rejects_blank_spark_output_paths_before_publish(

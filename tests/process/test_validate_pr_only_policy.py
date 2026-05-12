@@ -4,6 +4,8 @@ from io import BytesIO
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 
+import pytest
+
 from scripts import validate_pr_only_policy
 
 
@@ -215,3 +217,27 @@ def test_github_api_get_json_retries_rate_limited_403(monkeypatch) -> None:
     assert payload == [{"type": "required_status_checks"}]
     assert calls == 2
     assert sleeps == [20.0]
+
+
+def test_github_api_get_json_preserves_exhausted_http_error_detail(monkeypatch) -> None:
+    calls = 0
+
+    def _urlopen(_request: object, *, timeout: int) -> object:
+        nonlocal calls
+        assert timeout == validate_pr_only_policy.GITHUB_API_TIMEOUT_SECONDS
+        calls += 1
+        raise HTTPError(
+            "https://example.test",
+            503,
+            "temporary service unavailable",
+            {},
+            BytesIO(f"temporary-{calls}".encode("utf-8")),
+        )
+
+    monkeypatch.setattr(validate_pr_only_policy, "urlopen", _urlopen)
+    monkeypatch.setattr(validate_pr_only_policy.time, "sleep", lambda _seconds: None)
+
+    with pytest.raises(RuntimeError, match="temporary-3"):
+        validate_pr_only_policy._github_api_get_json("https://example.test", token=None)
+
+    assert calls == validate_pr_only_policy.GITHUB_API_ATTEMPTS

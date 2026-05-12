@@ -444,6 +444,9 @@ def _build_contract_compatibility_report(
     )
     missing_required_count = int(missing_required.count())
     unsupported_timeframe_count = int(unsupported_timeframes.count())
+    checked_rows = int(bars_df.count())
+    if checked_rows == 0:
+        errors.append("No canonical bars checked: 0 rows")
     if missing_required_count:
         errors.append(f"Spark canonical output has null required fields: {missing_required_count}")
     if unsupported_timeframe_count:
@@ -457,7 +460,7 @@ def _build_contract_compatibility_report(
         "schema_path": schema_path.as_posix(),
         "status": "PASS" if not errors else "FAIL",
         "errors": errors[:20],
-        "checked_rows": int(bars_df.count()),
+        "checked_rows": checked_rows,
         "required_fields": sorted(required_fields),
         "allowed_timeframes": sorted(allowed_timeframes),
     }
