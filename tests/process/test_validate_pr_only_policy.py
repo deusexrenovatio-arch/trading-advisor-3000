@@ -203,7 +203,7 @@ def test_github_api_get_json_retries_rate_limited_403(monkeypatch) -> None:
                 "https://example.test",
                 403,
                 "rate limited",
-                {"X-RateLimit-Reset": "120.0"},
+                {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "120.0"},
                 BytesIO(b"rate limited"),
             )
         return _Response()
@@ -230,7 +230,7 @@ def test_github_api_get_json_does_not_retry_plain_auth_403(monkeypatch) -> None:
             "https://example.test",
             403,
             "forbidden",
-            {},
+            {"X-RateLimit-Reset": "120.0"},
             BytesIO(b"forbidden"),
         )
 

@@ -133,8 +133,7 @@ def _is_rate_limited_github_http_error(exc: HTTPError) -> bool:
         return False
     retry_after = str(headers.get("Retry-After", "")).strip()
     remaining = str(headers.get("X-RateLimit-Remaining", "")).strip()
-    reset_at = str(headers.get("X-RateLimit-Reset", "")).strip()
-    return bool(retry_after) or remaining == "0" or bool(reset_at)
+    return bool(retry_after) or remaining == "0"
 
 
 def _is_transient_github_http_error(exc: HTTPError) -> bool:

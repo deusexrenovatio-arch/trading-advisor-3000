@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -173,6 +174,141 @@ def test_default_route_uses_scoped_spark_delta_publish_without_python_delta_read
         .replace("\\", "/")
         .endswith(".spark-canonicalization/publish-scope.jsonl")
     )
+
+
+def test_route_blocks_when_spark_publish_contract_report_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_table_path = tmp_path / "raw_moex_history.delta"
+    write_delta_table_rows(table_path=raw_table_path, rows=[], columns=RAW_COLUMNS)
+    staged_bars_path = tmp_path / "staged" / "canonical_bars.delta"
+    staged_provenance_path = tmp_path / "staged" / "canonical_bar_provenance.delta"
+
+    def _fake_spark_canonicalization(**_kwargs: object) -> dict[str, object]:
+        return {
+            "engine": "spark",
+            "input_mode": "raw_delta",
+            "source_rows": 1,
+            "source_providers": ["moex_iss"],
+            "unmatched_window_rows": 0,
+            "changed_window_rows": 1,
+            "selected_source_interval_rows": 6,
+            "canonical_rows": 6,
+            "provenance_rows": 6,
+            "output_paths": {
+                "canonical_bars": staged_bars_path.as_posix(),
+                "canonical_bar_provenance": staged_provenance_path.as_posix(),
+            },
+            "spark_profile": {"master": "local[2]", "delta_writer": "spark"},
+        }
+
+    def _fake_spark_publish(**kwargs: object) -> dict[str, object]:
+        return {
+            "run_id": kwargs["run_id"],
+            "runtime_owner": "spark_delta",
+            "status": "PASS",
+            "publish_decision": "publish",
+            "mutation_applied": False,
+            "canonical_rows": 6,
+            "provenance_rows": 6,
+            "qc_report": {
+                "run_id": kwargs["run_id"],
+                "runtime_owner": "spark_delta",
+                "status": "PASS",
+                "publish_decision": "publish",
+                "failed_gates": [],
+                "gate_results": [],
+            },
+        }
+
+    monkeypatch.setattr(route_module, "_run_spark_canonicalization", _fake_spark_canonicalization)
+    monkeypatch.setattr(route_module, "_run_spark_canonical_publish", _fake_spark_publish)
+
+    report = route_module.run_historical_canonical_route(
+        raw_table_path=raw_table_path,
+        output_dir=tmp_path / "canonical",
+        run_id="phase02-missing-contract-report",
+        raw_ingest_run_report=_changed_raw_report(),
+        repo_root=Path.cwd(),
+    )
+
+    assert report["status"] == "BLOCKED"
+    assert report["publish_decision"] == "blocked"
+    assert report["qc_report"]["status"] == "PASS"
+    assert report["contract_compatibility_report"]["status"] == "FAIL"
+    assert report["contract_compatibility_report"]["errors"] == [
+        "spark publish report missing contract_compatibility_report"
+    ]
+
+
+def test_route_blocks_when_spark_publish_qc_report_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_table_path = tmp_path / "raw_moex_history.delta"
+    write_delta_table_rows(table_path=raw_table_path, rows=[], columns=RAW_COLUMNS)
+    staged_bars_path = tmp_path / "staged" / "canonical_bars.delta"
+    staged_provenance_path = tmp_path / "staged" / "canonical_bar_provenance.delta"
+
+    def _fake_spark_canonicalization(**_kwargs: object) -> dict[str, object]:
+        return {
+            "engine": "spark",
+            "input_mode": "raw_delta",
+            "source_rows": 1,
+            "source_providers": ["moex_iss"],
+            "unmatched_window_rows": 0,
+            "changed_window_rows": 1,
+            "selected_source_interval_rows": 6,
+            "canonical_rows": 6,
+            "provenance_rows": 6,
+            "output_paths": {
+                "canonical_bars": staged_bars_path.as_posix(),
+                "canonical_bar_provenance": staged_provenance_path.as_posix(),
+            },
+            "spark_profile": {"master": "local[2]", "delta_writer": "spark"},
+        }
+
+    def _fake_spark_publish(**kwargs: object) -> dict[str, object]:
+        return {
+            "run_id": kwargs["run_id"],
+            "runtime_owner": "spark_delta",
+            "status": "PASS",
+            "publish_decision": "publish",
+            "mutation_applied": False,
+            "canonical_rows": 6,
+            "provenance_rows": 6,
+            "qc_report": {
+                "run_id": kwargs["run_id"],
+                "runtime_owner": "spark_delta",
+                "status": "FAIL",
+                "publish_decision": "blocked",
+                "failed_gates": ["row_count_match"],
+                "gate_results": [],
+            },
+            "contract_compatibility_report": {
+                "runtime_owner": "spark_delta",
+                "status": "PASS",
+                "checked_rows": 6,
+                "errors": [],
+            },
+        }
+
+    monkeypatch.setattr(route_module, "_run_spark_canonicalization", _fake_spark_canonicalization)
+    monkeypatch.setattr(route_module, "_run_spark_canonical_publish", _fake_spark_publish)
+
+    report = route_module.run_historical_canonical_route(
+        raw_table_path=raw_table_path,
+        output_dir=tmp_path / "canonical",
+        run_id="phase02-failing-qc-report",
+        raw_ingest_run_report=_changed_raw_report(),
+        repo_root=Path.cwd(),
+    )
+
+    assert report["status"] == "BLOCKED"
+    assert report["publish_decision"] == "blocked"
+    assert report["qc_report"]["status"] == "FAIL"
+    assert report["contract_compatibility_report"]["status"] == "PASS"
 
 
 def test_noop_route_marks_contract_report_skipped_not_passed(tmp_path: Path) -> None:
@@ -374,3 +510,28 @@ def test_docker_report_hostifies_publish_protocol_paths() -> None:
         .endswith("/staged/provenance.delta")
     )
     assert str(protocol["nested"]["path"]).replace("\\", "/").endswith("/nested/path.delta")
+
+
+def test_spark_publish_subprocess_timeout_is_reported(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _timeout(*_args: object, **_kwargs: object) -> object:
+        raise subprocess.TimeoutExpired(cmd=["publish"], timeout=1)
+
+    monkeypatch.setenv("TA3000_MOEX_CANONICALIZATION_SPARK_PROFILE", "docker")
+    monkeypatch.setattr(route_module.subprocess, "run", _timeout)
+
+    with pytest.raises(RuntimeError, match="spark canonical publish failed: subprocess timed out"):
+        route_module._run_spark_canonical_publish(
+            staged_bars_path=tmp_path / "staged_bars.delta",
+            staged_provenance_path=tmp_path / "staged_provenance.delta",
+            publish_scope_path=tmp_path / "publish-scope.jsonl",
+            target_bars_path=tmp_path / "target_bars.delta",
+            target_provenance_path=tmp_path / "target_provenance.delta",
+            session_calendar_path=tmp_path / "session_calendar.delta",
+            roll_map_path=tmp_path / "roll_map.delta",
+            output_dir=tmp_path / "out",
+            run_id="phase02-publish-timeout",
+            repo_root=Path.cwd(),
+        )

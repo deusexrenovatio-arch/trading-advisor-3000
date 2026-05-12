@@ -115,6 +115,7 @@ RAW_INTERVAL_PROJECTION_COLUMNS: tuple[str, ...] = (
 STATUS_PASS = "PASS"
 STATUS_BLOCKED = "BLOCKED"
 CANONICAL_MERGE_SCOPED_DELETE_INSERT = "scoped_delete_insert"
+SPARK_PUBLISH_SUBPROCESS_TIMEOUT_SECONDS = 1800
 
 
 def _utc_now_iso() -> str:
@@ -1155,13 +1156,20 @@ def _run_spark_canonical_publish(
         "--output-json",
         spark_report_path.as_posix(),
     ]
-    completed = subprocess.run(
-        command,
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=SPARK_PUBLISH_SUBPROCESS_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            "spark canonical publish failed: subprocess timed out after "
+            f"{SPARK_PUBLISH_SUBPROCESS_TIMEOUT_SECONDS} seconds"
+        ) from exc
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout).strip()
         raise RuntimeError(f"spark canonical publish failed: {detail}")
@@ -1695,12 +1703,38 @@ def _run_scoped_spark_delta_publish_route(
         qc_payload = spark_publish_report.get("qc_report")
         if isinstance(qc_payload, dict):
             qc_report = qc_payload
+        else:
+            qc_report = {
+                "run_id": run_id,
+                "runtime_owner": "spark_delta",
+                "status": "FAIL",
+                "publish_decision": "blocked",
+                "failed_gates": ["spark_publish_qc_report"],
+                "gate_results": [],
+            }
         contract_payload = spark_publish_report.get("contract_compatibility_report")
         if isinstance(contract_payload, dict):
             contract_report = contract_payload
+        else:
+            contract_report = {
+                "runtime_owner": "spark_delta",
+                "status": "FAIL",
+                "checked_rows": _int_report_value(spark_execution_report, "canonical_rows"),
+                "errors": ["spark publish report missing contract_compatibility_report"],
+                "mode": "spark_publish_contract_report_missing",
+            }
+        qc_passed = (
+            isinstance(qc_payload, dict) and str(qc_payload.get("status", "")).strip() == "PASS"
+        )
+        contract_passed = (
+            isinstance(contract_payload, dict)
+            and str(contract_payload.get("status", "")).strip() == "PASS"
+        )
         publish_allowed = (
             publish_allowed
             and str(spark_publish_report.get("publish_decision", "")).strip() == "publish"
+            and qc_passed
+            and contract_passed
         )
     else:
         qc_report = {
