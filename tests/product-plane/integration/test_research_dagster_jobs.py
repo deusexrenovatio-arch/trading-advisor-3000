@@ -542,6 +542,14 @@ def test_research_definitions_expose_product_jobs_and_moex_success_sensor(tmp_pa
     op_config = run_config["ops"]["research_datasets"]["config"]
     assert op_config["dataset_version"] == "sensor-data-v1"
     assert op_config["timeframes"] == ["15m"]
+    assert op_config["derived_indicator_set_version"] == "derived-v1"
+    assert op_config["derived_indicator_profile_version"] == "core_v1"
+    assert (
+        Path(str(op_config["volume_profile_raw_1m_table_path"]))
+        .as_posix()
+        .endswith("raw/moex/baseline-4y-current/raw_moex_history.delta")
+    )
+    assert op_config["volume_profile_tick_size_by_instrument"]["FUT_BR"] == 0.01
     assert run_config["ops"]["continuous_front_bars"]["config"]["series_mode"] == "continuous_front"
     assert op_config["continuous_front_policy"]["roll_policy_mode"] == "calendar_expiry_v1"
     assert op_config["continuous_front_policy"]["session_start_time"] == "09:00"
@@ -595,6 +603,7 @@ def test_research_data_prep_defaults_follow_moex_historical_data_root(
 
     run_config = build_research_data_prep_run_config(
         dataset_version="defaults-data-v1",
+        volume_profile_raw_1m_table_path="   ",
     )
     op_config = run_config["ops"]["research_datasets"]["config"]
 
@@ -613,6 +622,25 @@ def test_research_data_prep_defaults_follow_moex_historical_data_root(
     assert op_config["timeframes"] == ["15m", "1h", "4h", "1d"]
     assert op_config["warmup_bars"] == 300
     assert op_config["derived_indicator_set_version"] == "derived-v1"
+    assert op_config["derived_indicator_profile_version"] == "core_v1"
+    assert (
+        Path(str(op_config["volume_profile_raw_1m_table_path"]))
+        == (tmp_path / "raw" / "moex" / "baseline-4y-current" / "raw_moex_history.delta").resolve()
+    )
+    assert op_config["volume_profile_tick_size_by_instrument"]["FUT_BR"] == 0.01
+
+
+def test_research_data_prep_rejects_invalid_volume_profile_tick_size(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match="invalid volume profile tick_size for FUT_BR"):
+        build_research_data_prep_run_config(
+            canonical_output_dir=tmp_path / "canonical",
+            materialized_output_dir=tmp_path / "materialized",
+            results_output_dir=tmp_path / "results",
+            dataset_version="invalid-volume-profile-tick",
+            volume_profile_tick_size_by_instrument={"FUT_BR": 0.0},
+        )
 
 
 def test_research_data_prep_matches_direct_materialization(tmp_path: Path) -> None:

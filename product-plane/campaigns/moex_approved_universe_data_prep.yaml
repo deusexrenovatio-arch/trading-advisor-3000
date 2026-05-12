@@ -55,6 +55,23 @@ profiles:
   derived_indicator_set_version: derived-v1
   derived_indicator_profile_version: core_v1
 
+volume_profile:
+  raw_1m_table_path: D:/TA3000-data/trading-advisor-3000-nightly/raw/moex/baseline-4y-current/raw_moex_history.delta
+  tick_size_by_instrument:
+    FUT_BR: 0.01
+    FUT_NG: 0.001
+    FUT_GOLD: 0.1
+    FUT_SILV: 0.01
+    FUT_PLD: 0.01
+    FUT_PLT: 0.1
+    FUT_WHEAT: 10.0
+    FUT_RTS: 10.0
+    FUT_MIX: 25.0
+    FUT_MXI: 0.05
+    FUT_NASD: 1.0
+    FUT_SPYF: 0.01
+    FUT_RGBI: 1.0
+
 strategy_space:
   family_keys:
     - ma_cross

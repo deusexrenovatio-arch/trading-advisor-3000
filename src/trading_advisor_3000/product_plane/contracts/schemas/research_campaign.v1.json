@@ -106,6 +106,19 @@
       },
       "additionalProperties": false
     },
+    "volume_profile": {
+      "type": "object",
+      "required": ["tick_size_by_instrument"],
+      "properties": {
+        "raw_1m_table_path": {"type": ["string", "null"], "minLength": 1},
+        "tick_size_by_instrument": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"type": "number", "exclusiveMinimum": 0}
+        }
+      },
+      "additionalProperties": false
+    },
     "strategy_space": {
       "type": "object",
       "required": [

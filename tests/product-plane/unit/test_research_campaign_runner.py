@@ -1,6 +1,7 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -9,9 +10,11 @@ import yaml
 from trading_advisor_3000.dagster_defs.research_assets import _resolve_research_output_dirs
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
 from trading_advisor_3000.product_plane.research import campaigns
-from trading_advisor_3000.product_plane.research.backtests.results import backtest_store_contract, results_store_contract
+from trading_advisor_3000.product_plane.research.backtests.results import (
+    backtest_store_contract,
+    results_store_contract,
+)
 from trading_advisor_3000.product_plane.research.datasets import ContinuousFrontPolicy
-
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -99,7 +102,9 @@ def _load_json(path: Path) -> dict[str, object]:
     return payload
 
 
-def _seed_reusable_materialization(materialized_root: Path, *, materialization_key: str = "") -> None:
+def _seed_reusable_materialization(
+    materialized_root: Path, *, materialization_key: str = ""
+) -> None:
     for table_name in campaigns.DATA_PREP_TABLES:
         log_dir = materialized_root / f"{table_name}.delta" / "_delta_log"
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -132,32 +137,68 @@ def test_normalize_campaign_accepts_optuna_strategy_optimizer(tmp_path: Path) ->
     assert normalized["strategy_space"]["optimizer"] == strategy_space["optimizer"]
 
 
-def _mock_report(*, materialized_root: Path, results_root: Path, target_stage: str) -> dict[str, object]:
+def _mock_report(
+    *, materialized_root: Path, results_root: Path, target_stage: str
+) -> dict[str, object]:
     registry_root = campaigns.research_registry_root(materialized_root=materialized_root)
     output_paths = {
         "continuous_front_bars": (materialized_root / "continuous_front_bars.delta").as_posix(),
-        "continuous_front_roll_events": (materialized_root / "continuous_front_roll_events.delta").as_posix(),
-        "continuous_front_adjustment_ladder": (materialized_root / "continuous_front_adjustment_ladder.delta").as_posix(),
-        "continuous_front_qc_report": (materialized_root / "continuous_front_qc_report.delta").as_posix(),
+        "continuous_front_roll_events": (
+            materialized_root / "continuous_front_roll_events.delta"
+        ).as_posix(),
+        "continuous_front_adjustment_ladder": (
+            materialized_root / "continuous_front_adjustment_ladder.delta"
+        ).as_posix(),
+        "continuous_front_qc_report": (
+            materialized_root / "continuous_front_qc_report.delta"
+        ).as_posix(),
         "research_datasets": (materialized_root / "research_datasets.delta").as_posix(),
-        "research_instrument_tree": (materialized_root / "research_instrument_tree.delta").as_posix(),
+        "research_instrument_tree": (
+            materialized_root / "research_instrument_tree.delta"
+        ).as_posix(),
         "research_bar_views": (materialized_root / "research_bar_views.delta").as_posix(),
-        "research_indicator_frames": (materialized_root / "research_indicator_frames.delta").as_posix(),
-        "research_derived_indicator_frames": (materialized_root / "research_derived_indicator_frames.delta").as_posix(),
-        "research_strategy_families": (registry_root / "research_strategy_families.delta").as_posix(),
-        "research_strategy_templates": (registry_root / "research_strategy_templates.delta").as_posix(),
-        "research_strategy_template_modules": (registry_root / "research_strategy_template_modules.delta").as_posix(),
-        "research_strategy_search_specs": (results_root / "research_strategy_search_specs.delta").as_posix(),
+        "research_indicator_frames": (
+            materialized_root / "research_indicator_frames.delta"
+        ).as_posix(),
+        "research_derived_indicator_frames": (
+            materialized_root / "research_derived_indicator_frames.delta"
+        ).as_posix(),
+        "research_strategy_families": (
+            registry_root / "research_strategy_families.delta"
+        ).as_posix(),
+        "research_strategy_templates": (
+            registry_root / "research_strategy_templates.delta"
+        ).as_posix(),
+        "research_strategy_template_modules": (
+            registry_root / "research_strategy_template_modules.delta"
+        ).as_posix(),
+        "research_strategy_search_specs": (
+            results_root / "research_strategy_search_specs.delta"
+        ).as_posix(),
         "research_vbt_search_runs": (results_root / "research_vbt_search_runs.delta").as_posix(),
-        "research_optimizer_studies": (results_root / "research_optimizer_studies.delta").as_posix(),
+        "research_optimizer_studies": (
+            results_root / "research_optimizer_studies.delta"
+        ).as_posix(),
         "research_optimizer_trials": (results_root / "research_optimizer_trials.delta").as_posix(),
-        "research_vbt_param_results": (results_root / "research_vbt_param_results.delta").as_posix(),
-        "research_vbt_param_gate_events": (results_root / "research_vbt_param_gate_events.delta").as_posix(),
-        "research_vbt_ephemeral_indicator_cache": (results_root / "research_vbt_ephemeral_indicator_cache.delta").as_posix(),
-        "research_strategy_promotion_events": (results_root / "research_strategy_promotion_events.delta").as_posix(),
+        "research_vbt_param_results": (
+            results_root / "research_vbt_param_results.delta"
+        ).as_posix(),
+        "research_vbt_param_gate_events": (
+            results_root / "research_vbt_param_gate_events.delta"
+        ).as_posix(),
+        "research_vbt_ephemeral_indicator_cache": (
+            results_root / "research_vbt_ephemeral_indicator_cache.delta"
+        ).as_posix(),
+        "research_strategy_promotion_events": (
+            results_root / "research_strategy_promotion_events.delta"
+        ).as_posix(),
         "research_backtest_batches": (results_root / "research_backtest_batches.delta").as_posix(),
-        "research_strategy_rankings": (results_root / "research_strategy_rankings.delta").as_posix(),
-        "research_signal_candidates": (results_root / "research_signal_candidates.delta").as_posix(),
+        "research_strategy_rankings": (
+            results_root / "research_strategy_rankings.delta"
+        ).as_posix(),
+        "research_signal_candidates": (
+            results_root / "research_signal_candidates.delta"
+        ).as_posix(),
     }
     if target_stage == "data_prep":
         selected_assets = list(campaigns.DATA_PREP_TABLES)
@@ -247,7 +288,17 @@ def test_normalize_campaign_config_sorts_timeframes_and_filters(tmp_path: Path) 
     assert normalized["dataset"]["instrument_ids"] == ["BR", "Si"]
 
 
-def test_materialization_key_is_deterministic_for_semantically_equivalent_configs(tmp_path: Path) -> None:
+def test_normalize_campaign_config_keeps_absent_volume_profile_absent(tmp_path: Path) -> None:
+    raw = _campaign_payload(tmp_path)
+
+    normalized = campaigns.normalize_campaign_config(repo_root=ROOT, raw=raw)
+
+    assert "volume_profile" not in normalized
+
+
+def test_materialization_key_is_deterministic_for_semantically_equivalent_configs(
+    tmp_path: Path,
+) -> None:
     raw_a = _campaign_payload(tmp_path)
     raw_b = _campaign_payload(tmp_path)
     raw_b["dataset"]["timeframes"] = ["15m", "15m"]  # type: ignore[index]
@@ -257,8 +308,12 @@ def test_materialization_key_is_deterministic_for_semantically_equivalent_config
     normalized_a = campaigns.normalize_campaign_config(repo_root=ROOT, raw=raw_a)
     normalized_b = campaigns.normalize_campaign_config(repo_root=ROOT, raw=raw_b)
 
-    assert campaigns.build_config_fingerprint(normalized_a) == campaigns.build_config_fingerprint(normalized_b)
-    assert campaigns.build_materialization_key(normalized_a) == campaigns.build_materialization_key(normalized_b)
+    assert campaigns.build_config_fingerprint(normalized_a) == campaigns.build_config_fingerprint(
+        normalized_b
+    )
+    assert campaigns.build_materialization_key(normalized_a) == campaigns.build_materialization_key(
+        normalized_b
+    )
 
 
 def test_materialization_key_ignores_dataset_name_and_universe_id(tmp_path: Path) -> None:
@@ -270,7 +325,9 @@ def test_materialization_key_ignores_dataset_name_and_universe_id(tmp_path: Path
     normalized_a = campaigns.normalize_campaign_config(repo_root=ROOT, raw=raw_a)
     normalized_b = campaigns.normalize_campaign_config(repo_root=ROOT, raw=raw_b)
 
-    assert campaigns.build_materialization_key(normalized_a) == campaigns.build_materialization_key(normalized_b)
+    assert campaigns.build_materialization_key(normalized_a) == campaigns.build_materialization_key(
+        normalized_b
+    )
 
 
 def test_materialization_key_changes_when_continuous_front_policy_changes(tmp_path: Path) -> None:
@@ -278,19 +335,61 @@ def test_materialization_key_changes_when_continuous_front_policy_changes(tmp_pa
     raw_b = _campaign_payload(tmp_path)
     raw_a["dataset"]["series_mode"] = "continuous_front"  # type: ignore[index]
     raw_b["dataset"]["series_mode"] = "continuous_front"  # type: ignore[index]
-    raw_a["dataset"]["continuous_front_policy"] = ContinuousFrontPolicy(confirmation_bars=1).to_config_dict()  # type: ignore[index]
-    raw_b["dataset"]["continuous_front_policy"] = ContinuousFrontPolicy(confirmation_bars=3).to_config_dict()  # type: ignore[index]
+    raw_a["dataset"]["continuous_front_policy"] = ContinuousFrontPolicy(
+        confirmation_bars=1
+    ).to_config_dict()  # type: ignore[index]
+    raw_b["dataset"]["continuous_front_policy"] = ContinuousFrontPolicy(
+        confirmation_bars=3
+    ).to_config_dict()  # type: ignore[index]
 
     normalized_a = campaigns.normalize_campaign_config(repo_root=ROOT, raw=raw_a)
     normalized_b = campaigns.normalize_campaign_config(repo_root=ROOT, raw=raw_b)
 
-    assert campaigns.build_materialization_key(normalized_a) != campaigns.build_materialization_key(normalized_b)
+    assert campaigns.build_materialization_key(normalized_a) != campaigns.build_materialization_key(
+        normalized_b
+    )
+
+
+def test_materialization_key_changes_when_volume_profile_source_changes(tmp_path: Path) -> None:
+    raw_a = _campaign_payload(tmp_path)
+    raw_b = _campaign_payload(tmp_path)
+    raw_a["volume_profile"] = {
+        "raw_1m_table_path": (tmp_path / "raw-a" / "raw_moex_history.delta").as_posix(),
+        "tick_size_by_instrument": {"BR": 1.0},
+    }
+    raw_b["volume_profile"] = {
+        "raw_1m_table_path": (tmp_path / "raw-b" / "raw_moex_history.delta").as_posix(),
+        "tick_size_by_instrument": {"BR": 1.0},
+    }
+
+    normalized_a = campaigns.normalize_campaign_config(repo_root=ROOT, raw=raw_a)
+    normalized_b = campaigns.normalize_campaign_config(repo_root=ROOT, raw=raw_b)
+
+    assert campaigns.build_materialization_key(normalized_a) != campaigns.build_materialization_key(
+        normalized_b
+    )
+
+
+def test_volume_profile_tick_sizes_reject_non_finite_values(tmp_path: Path) -> None:
+    raw = _campaign_payload(tmp_path)
+    raw["volume_profile"] = {
+        "raw_1m_table_path": (tmp_path / "raw" / "raw_moex_history.delta").as_posix(),
+        "tick_size_by_instrument": {"BR": float("inf")},
+    }
+
+    with pytest.raises(
+        campaigns.CampaignBlockedError,
+        match=re.escape("volume_profile.tick_size_by_instrument values must be finite and > 0"),
+    ):
+        campaigns.normalize_campaign_config(repo_root=ROOT, raw=raw)
 
 
 def test_materialization_lock_records_continuous_front_policy(tmp_path: Path) -> None:
     raw = _campaign_payload(tmp_path, target_stage="data_prep")
     raw["dataset"]["series_mode"] = "continuous_front"  # type: ignore[index]
-    raw["dataset"]["continuous_front_policy"] = ContinuousFrontPolicy(confirmation_bars=3).to_config_dict()  # type: ignore[index]
+    raw["dataset"]["continuous_front_policy"] = ContinuousFrontPolicy(
+        confirmation_bars=3
+    ).to_config_dict()  # type: ignore[index]
     normalized = campaigns.normalize_campaign_config(repo_root=ROOT, raw=raw)
     materialized_root = tmp_path / "materialized-lock"
 
@@ -309,6 +408,47 @@ def test_materialization_lock_records_continuous_front_policy(tmp_path: Path) ->
 
     lock = _load_json(materialized_root / campaigns.MATERIALIZATION_LOCK_FILENAME)
     assert lock["continuous_front_policy"]["confirmation_bars"] == 3
+
+
+def test_run_campaign_forwards_volume_profile_config_to_data_prep(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload = _campaign_payload(tmp_path, target_stage="data_prep")
+    raw_1m_path = tmp_path / "raw" / "raw_moex_history.delta"
+    payload["volume_profile"] = {
+        "raw_1m_table_path": raw_1m_path.as_posix(),
+        "tick_size_by_instrument": {"Si": 10.0, "BR": 1.0},
+    }
+    config_path = tmp_path / "volume-profile-campaign.yaml"
+    _write_campaign(config_path, payload)
+    captured: dict[str, object] = {}
+
+    def _data_prep(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return _mock_report(
+            materialized_root=Path(str(kwargs["materialized_output_dir"])),
+            results_root=Path(str(kwargs["results_output_dir"])),
+            target_stage="data_prep",
+        )
+
+    monkeypatch.setattr(campaigns, "materialize_research_data_prep_assets", _data_prep)
+    monkeypatch.setattr(
+        campaigns, "validate_research_contracts", lambda **_: _passed_contract_validation()
+    )
+
+    summary = campaigns.run_campaign(config_path=config_path, repo_root=ROOT)
+
+    assert summary["status"] == "success"
+    assert captured["derived_indicator_profile_version"] == "core_v1"
+    assert captured["volume_profile_raw_1m_table_path"] == raw_1m_path.resolve().as_posix()
+    assert captured["volume_profile_tick_size_by_instrument"] == {"BR": 1.0, "Si": 10.0}
+    materialization_lock = _load_json(
+        Path(str(summary["materialized_root"])) / campaigns.MATERIALIZATION_LOCK_FILENAME
+    )
+    assert materialization_lock["volume_profile"] == {
+        "raw_1m_table_path": raw_1m_path.resolve().as_posix(),
+        "tick_size_by_instrument": {"BR": 1.0, "Si": 10.0},
+    }
 
 
 def test_research_output_dirs_fail_closed_for_partial_or_mixed_dir_inputs(tmp_path: Path) -> None:
@@ -384,7 +524,9 @@ def test_run_campaign_reuse_decision_respects_force_flag(
     force_rematerialize: bool,
     expected_reuse: bool,
 ) -> None:
-    payload = _campaign_payload(tmp_path, target_stage="backtest", force_rematerialize=force_rematerialize)
+    payload = _campaign_payload(
+        tmp_path, target_stage="backtest", force_rematerialize=force_rematerialize
+    )
     normalized = campaigns.normalize_campaign_config(repo_root=ROOT, raw=payload)
     materialization_key = campaigns.build_materialization_key(normalized)
     materialized_root = Path(str(normalized["materialized_root"]))
@@ -404,7 +546,9 @@ def test_run_campaign_reuse_decision_respects_force_flag(
         )
 
     monkeypatch.setattr(campaigns, "materialize_research_backtest_assets", _backtest)
-    monkeypatch.setattr(campaigns, "validate_research_contracts", lambda **_: _passed_contract_validation())
+    monkeypatch.setattr(
+        campaigns, "validate_research_contracts", lambda **_: _passed_contract_validation()
+    )
 
     summary = campaigns.run_campaign(config_path=config_path, repo_root=ROOT)
 
@@ -432,7 +576,9 @@ def test_run_campaign_persists_blocked_evidence_for_invalid_config(tmp_path: Pat
     assert campaign_lock["error"]["type"] == "SchemaValidationError"
 
 
-def test_run_campaign_writes_run_folder_layout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_campaign_writes_run_folder_layout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     payload = _campaign_payload(tmp_path, target_stage="data_prep")
     config_path = tmp_path / "campaign.yaml"
     _write_campaign(config_path, payload)
@@ -445,7 +591,9 @@ def test_run_campaign_writes_run_folder_layout(tmp_path: Path, monkeypatch: pyte
         )
 
     monkeypatch.setattr(campaigns, "materialize_research_data_prep_assets", _data_prep)
-    monkeypatch.setattr(campaigns, "validate_research_contracts", lambda **_: _passed_contract_validation())
+    monkeypatch.setattr(
+        campaigns, "validate_research_contracts", lambda **_: _passed_contract_validation()
+    )
 
     summary = campaigns.run_campaign(config_path=config_path, repo_root=ROOT)
     run_root = Path(str(summary["run_root"]))
@@ -462,11 +610,15 @@ def test_run_campaign_writes_run_folder_layout(tmp_path: Path, monkeypatch: pyte
     assert "backtest_runs_per_second" in summary["durations"]
     assert "research_strategy_families" not in summary["output_paths"]
     assert "research_campaigns" in summary["output_paths"]
-    materialization_lock = _load_json(Path(str(summary["materialized_root"])) / campaigns.MATERIALIZATION_LOCK_FILENAME)
+    materialization_lock = _load_json(
+        Path(str(summary["materialized_root"])) / campaigns.MATERIALIZATION_LOCK_FILENAME
+    )
     assert set(materialization_lock["output_paths"]) == set(campaigns.DATA_PREP_TABLES)
 
 
-def test_duration_metrics_use_backtest_batch_duration_for_backtest_throughput(tmp_path: Path) -> None:
+def test_duration_metrics_use_backtest_batch_duration_for_backtest_throughput(
+    tmp_path: Path,
+) -> None:
     results_root = tmp_path / "results"
     write_delta_table_rows(
         table_path=results_root / "research_backtest_batches.delta",
@@ -604,7 +756,7 @@ def test_result_digest_includes_ranking_policy_subscores(tmp_path: Path) -> None
                 "representative_backtest_run_id": "RUN",
                 "window_ids_json": ["wf-01"],
                 "created_at": "2026-04-29T00:00:00Z",
-            }
+            },
         ],
     )
 
@@ -706,7 +858,9 @@ def test_run_campaign_quarantines_uncommitted_publish_when_registry_publish_fail
         return original_write_campaign_run(**kwargs)
 
     monkeypatch.setattr(campaigns, "materialize_research_data_prep_assets", _data_prep)
-    monkeypatch.setattr(campaigns, "validate_research_contracts", lambda **_: _passed_contract_validation())
+    monkeypatch.setattr(
+        campaigns, "validate_research_contracts", lambda **_: _passed_contract_validation()
+    )
     monkeypatch.setattr(campaigns, "write_campaign_run", _write_campaign_run)
 
     summary = campaigns.run_campaign(config_path=config_path, repo_root=ROOT)
@@ -714,5 +868,6 @@ def test_run_campaign_quarantines_uncommitted_publish_when_registry_publish_fail
 
     assert summary["status"] == "failed"
     assert not (run_root / "results" / "publish-commit.json").exists()
-    assert (run_root / "results-quarantine" / "research_backtest_batches.delta" / "_delta_log").exists()
-
+    assert (
+        run_root / "results-quarantine" / "research_backtest_batches.delta" / "_delta_log"
+    ).exists()
