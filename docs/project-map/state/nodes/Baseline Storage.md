@@ -10,7 +10,7 @@ aliases:
 - Baseline Storage
 needs_user_attention: false
 confidence: medium
-last_verified: 2026-05-05
+last_verified: 2026-05-12
 update_rule: source-doc-backed
 state_source: STATUS.md, moex-baseline-storage-runbook.md
 tags:
@@ -28,12 +28,16 @@ proof_refs:
 - scripts/pin_moex_baseline_storage.ps1
 - tests/product-plane/unit/test_moex_t3_storage_binding.py
 - tests/product-plane/unit/test_moex_baseline_update.py
+- tests/product-plane/unit/test_moex_staging_roots.py
+- tests/product-plane/unit/test_hot_delta_table_guardrails.py
 ---
 
 # Baseline Storage
 
 Accepted raw/canonical baseline storage under the external TA3000 data root.
 Downstream consumers bind to stable baseline paths, not arbitrary rerun folders.
+New staging roots support proof and product-runtime update flows; they do not
+replace the accepted stable raw/canonical baseline paths.
 
 ## Graph Links
 

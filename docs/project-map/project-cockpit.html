@@ -392,8 +392,8 @@
 <li><a href="state/nodes/Backtest%20And%20Ranking.md">Backtest And Ranking</a> <strong>3.2/5</strong></li>
 <li><a href="state/nodes/Durable%20Signal%20Store.md">Durable Signal Store</a> <strong>3.3/5</strong></li>
 <li><a href="state/nodes/Strategy%20Registry.md">Strategy Registry</a> <strong>3.4/5</strong></li>
-<li><a href="state/nodes/Data%20Plane.md">Data Plane</a> <strong>3.8/5</strong></li>
-<li><a href="state/nodes/Research%20Data%20Prep.md">Research Data Prep</a> <strong>4.0/5</strong></li>
+<li><a href="state/nodes/Data%20Plane.md">Data Plane</a> <strong>4.0/5</strong></li>
+<li><a href="state/nodes/Research%20Data%20Prep.md">Research Data Prep</a> <strong>4.1/5</strong></li>
   </ul>
 </article>
 
@@ -432,11 +432,11 @@
     <li><a href="state/nodes/Signal%20Candidate%20Projection.md">Signal Candidate Projection</a> <strong>2.2/5</strong></li>
 <li><a href="state/nodes/Backtest%20And%20Ranking.md">Backtest And Ranking</a> <strong>3.2/5</strong></li>
 <li><a href="state/nodes/Strategy%20Registry.md">Strategy Registry</a> <strong>3.4/5</strong></li>
-<li><a href="state/nodes/Research%20Data%20Prep.md">Research Data Prep</a> <strong>4.0/5</strong></li>
+<li><a href="state/nodes/Research%20Data%20Prep.md">Research Data Prep</a> <strong>4.1/5</strong></li>
   </ul>
 </article>
 
-<article class="readiness-card readiness-medium">
+<article class="readiness-card readiness-high">
   <div class="card-topline">
     <span class="node-level">L1</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -444,12 +444,12 @@
   <h3><a href="state/nodes/Data%20Plane.md">Data Plane</a></h3>
   <div class="readiness-head">
     <span>1 scored blocks</span>
-    <strong>3.8/5</strong>
+    <strong>4.0/5</strong>
   </div>
-  <div class="readiness-bar" aria-hidden="true"><span style="width: 76%"></span></div>
-  <p>Weakest block: Data Plane (3.8/5).</p>
+  <div class="readiness-bar" aria-hidden="true"><span style="width: 80%"></span></div>
+  <p>Weakest block: Data Plane (4.0/5).</p>
   <ul class="readiness-breakdown">
-    <li><a href="state/nodes/Data%20Plane.md">Data Plane</a> <strong>3.8/5</strong></li>
+    <li><a href="state/nodes/Data%20Plane.md">Data Plane</a> <strong>4.0/5</strong></li>
   </ul>
 </article>
 
@@ -518,20 +518,20 @@
 </article>
 
 
-<article class="node-card filterable node-major" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="1" data-search="data plane data-plane product-plane attention review historical market ingestion, moex raw/canonical baseline, qc, and research handoff. dfd now uses short store names and keeps full paths in canonical status/runbook docs. raw data ingest, canonical data refresh... real materialized foundation canonical and research delta roots exist with row-count proof; strategy-readiness qc still incomplete. define strategy-ready data qc for target strategy families. docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/moex-nightly-v2-architecture.md docs/runbooks/app/moex-baseline-storage-runbook.md docs/obsidian/dfd/level-2-data-plane.md docs/obsidian/dfd/level-1-product-plane.md scripts/run_moex_raw_ingest.py scripts/run_moex_canonical_refresh.py tests/product-plane/unit/test_moex_canonical_route.py">
+<article class="node-card filterable node-major" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="1" data-search="data plane data-plane product-plane attention review historical market ingestion, moex raw/canonical baseline, qc, and research handoff. current main includes the moex delta/spark phase-1 route work: raw delta mutation, direct raw-delta canonicalization, product... real foundation plus spark/delta route canonical and research delta roots exist; pr prove the routine baseline update path against accepted stable roots. docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/moex-nightly-v2-architecture.md docs/runbooks/app/moex-baseline-storage-runbook.md docs/obsidian/dfd/level-2-data-plane.md docs/obsidian/dfd/level-1-product-plane.md scripts/run_moex_raw_ingest.py scripts/run_moex_canonical_refresh.py scripts/run_moex_baseline_update_staging_job.py tests/product-plane/unit/test_moex_canonical_route.py tests/product-plane/unit/test_hot_delta_table_guardrails.py">
   <div class="card-topline">
     <span class="node-level">L1</span>
     <span class="surface surface-product-plane">product-plane</span>
   </div>
   <h3><a href="state/nodes/Data%20Plane.md">Data Plane</a></h3>
-  <p>Historical market ingestion, MOEX raw/canonical baseline, QC, and research handoff. DFD now uses short store names and keeps full paths in canonical status/runbook docs. Raw Data Ingest, Canonical Data Refresh...</p>
+  <p>Historical market ingestion, MOEX raw/canonical baseline, QC, and research handoff. Current main includes the MOEX Delta/Spark phase-1 route work: raw Delta mutation, direct raw-Delta canonicalization, product...</p>
 
-  <div class="readiness readiness-medium">
+  <div class="readiness readiness-high">
     <div class="readiness-head">
       <span>Readiness</span>
-      <strong>3.8/5</strong>
+      <strong>4.0/5</strong>
     </div>
-    <div class="readiness-bar" aria-hidden="true"><span style="width: 76%"></span></div>
+    <div class="readiness-bar" aria-hidden="true"><span style="width: 80%"></span></div>
     <span class="readiness-label">Readiness roll-up</span>
     <span class="readiness-next">1 scored blocks; weakest: Data Plane</span>
   </div>
@@ -544,7 +544,7 @@
 
   <div class="meta-row">
     <span class="badge rollup-review">Review</span>
-    <span>6 source / 2 DFD / 3 proof</span>
+    <span>6 source / 2 DFD / 5 proof</span>
   </div>
 </article>
 
@@ -798,22 +798,22 @@
   </header>
   <div class="lane-grid">
 
-<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="1" data-search="data plane data-plane product-plane attention review historical market ingestion, moex raw/canonical baseline, qc, and research handoff. dfd now uses short store names and keeps full paths in canonical status/runbook docs. raw data ingest, canonical data refresh... real materialized foundation canonical and research delta roots exist with row-count proof; strategy-readiness qc still incomplete. define strategy-ready data qc for target strategy families. docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/moex-nightly-v2-architecture.md docs/runbooks/app/moex-baseline-storage-runbook.md docs/obsidian/dfd/level-2-data-plane.md docs/obsidian/dfd/level-1-product-plane.md scripts/run_moex_raw_ingest.py scripts/run_moex_canonical_refresh.py tests/product-plane/unit/test_moex_canonical_route.py">
+<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="1" data-search="data plane data-plane product-plane attention review historical market ingestion, moex raw/canonical baseline, qc, and research handoff. current main includes the moex delta/spark phase-1 route work: raw delta mutation, direct raw-delta canonicalization, product... real foundation plus spark/delta route canonical and research delta roots exist; pr prove the routine baseline update path against accepted stable roots. docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/moex-nightly-v2-architecture.md docs/runbooks/app/moex-baseline-storage-runbook.md docs/obsidian/dfd/level-2-data-plane.md docs/obsidian/dfd/level-1-product-plane.md scripts/run_moex_raw_ingest.py scripts/run_moex_canonical_refresh.py scripts/run_moex_baseline_update_staging_job.py tests/product-plane/unit/test_moex_canonical_route.py tests/product-plane/unit/test_hot_delta_table_guardrails.py">
   <div class="card-topline">
     <span class="node-level">L1</span>
     <span class="surface surface-product-plane">product-plane</span>
   </div>
   <h3><a href="state/nodes/Data%20Plane.md">Data Plane</a></h3>
-  <p>Historical market ingestion, MOEX raw/canonical baseline, QC, and research handoff. DFD now uses short store names and keeps full paths in canonical status/runbook docs. Raw Data Ingest, Canonical Data Refresh...</p>
+  <p>Historical market ingestion, MOEX raw/canonical baseline, QC, and research handoff. Current main includes the MOEX Delta/Spark phase-1 route work: raw Delta mutation, direct raw-Delta canonicalization, product...</p>
 
-  <div class="readiness readiness-medium">
+  <div class="readiness readiness-high">
     <div class="readiness-head">
       <span>Readiness</span>
-      <strong>3.8/5</strong>
+      <strong>4.0/5</strong>
     </div>
-    <div class="readiness-bar" aria-hidden="true"><span style="width: 76%"></span></div>
-    <span class="readiness-label">Real materialized foundation</span>
-    <span class="readiness-next">Next: Define strategy-ready data QC for target strategy families.</span>
+    <div class="readiness-bar" aria-hidden="true"><span style="width: 80%"></span></div>
+    <span class="readiness-label">Real foundation plus Spark/Delta route</span>
+    <span class="readiness-next">Next: Prove the routine baseline update path against accepted stable roots.</span>
   </div>
 
 
@@ -824,7 +824,7 @@
 
   <div class="meta-row">
     <span class="badge rollup-review">Review</span>
-    <span>6 source / 2 DFD / 3 proof</span>
+    <span>6 source / 2 DFD / 5 proof</span>
   </div>
 </article>
 
@@ -942,13 +942,13 @@
   </header>
   <div class="lane-grid">
 
-<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="2" data-search="canonical data refresh canonical-data-refresh product-plane attention review spark-owned canonical recompute, resampling, provenance rebuild, and canonical delta output for downstream research. update this node when canonical ownership, runtime owner, refresh scope, provenance, or acce... docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/native-runtime-ownership.md docs/architecture/product-plane/status.md docs/obsidian/dfd/level-2-data-plane.md scripts/run_moex_canonical_refresh.py scripts/run_moex_historical_canonical_route_spark.py tests/product-plane/unit/test_moex_canonical_route.py">
+<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="2" data-search="canonical data refresh canonical-data-refresh product-plane attention review spark-owned canonical recompute, resampling, provenance rebuild, and canonical delta output for downstream research. current main also routes canonicalization from raw delta with changed-window control. update... docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/native-runtime-ownership.md docs/architecture/product-plane/status.md docs/runbooks/app/moex-canonical-refresh-runbook.md docs/obsidian/dfd/level-2-data-plane.md scripts/run_moex_canonical_refresh.py scripts/run_moex_historical_canonical_route_spark.py tests/product-plane/unit/test_moex_canonical_route.py tests/product-plane/integration/test_moex_canonical_route_integration.py tests/product-plane/integration/test_moex_canonicalization_integration.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
   </div>
   <h3><a href="state/nodes/Canonical%20Data%20Refresh.md">Canonical Data Refresh</a></h3>
-  <p>Spark-owned canonical recompute, resampling, provenance rebuild, and canonical Delta output for downstream research. Update this node when canonical ownership, runtime owner, refresh scope, provenance, or acce...</p>
+  <p>Spark-owned canonical recompute, resampling, provenance rebuild, and canonical Delta output for downstream research. Current main also routes canonicalization from raw Delta with changed-window control. Update...</p>
 
 
   <div class="rollup-line">
@@ -958,17 +958,17 @@
 
   <div class="meta-row">
     <span class="badge rollup-review">Review</span>
-    <span>3 source / 1 DFD / 3 proof</span>
+    <span>4 source / 1 DFD / 5 proof</span>
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="2" data-search="moex historical route moex-historical-route product-plane attention review the governed historical-data route: dagster orchestration, python raw ingest, spark canonical refresh, and stable raw/canonical storage. update this node when the authoritative moex route decision, schedule, w... docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/moex-nightly-v2-architecture.md docs/architecture/product-plane/status.md docs/obsidian/dfd/level-2-data-plane.md scripts/run_moex_dagster_cutover.py scripts/prove_moex_dagster_route.py tests/product-plane/unit/test_moex_dagster_route_cutover.py">
+<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="2" data-search="moex historical route moex-historical-route product-plane attention review the governed historical-data route: dagster orchestration, python raw ingest, spark/delta raw and canonical processing, and stable raw/canonical storage. current main has product-runtime and disposable verific... docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/moex-nightly-v2-architecture.md docs/architecture/product-plane/status.md docs/obsidian/dfd/level-2-data-plane.md scripts/run_moex_dagster_cutover.py scripts/prove_moex_dagster_route.py scripts/run_moex_baseline_update_staging_job.py scripts/launch_moex_baseline_staging_run.py tests/product-plane/unit/test_moex_dagster_route_cutover.py tests/product-plane/unit/test_moex_runtime_instances.py tests/product-plane/unit/test_moex_staging_roots.py tests/product-plane/unit/test_moex_baseline_staging_job_script.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
   </div>
   <h3><a href="state/nodes/MOEX%20Historical%20Route.md">MOEX Historical Route</a></h3>
-  <p>The governed historical-data route: Dagster orchestration, Python raw ingest, Spark canonical refresh, and stable raw/canonical storage. Update this node when the authoritative MOEX route decision, schedule, w...</p>
+  <p>The governed historical-data route: Dagster orchestration, Python raw ingest, Spark/Delta raw and canonical processing, and stable raw/canonical storage. Current main has product-runtime and disposable verific...</p>
 
 
   <div class="rollup-line">
@@ -978,17 +978,17 @@
 
   <div class="meta-row">
     <span class="badge rollup-review">Review</span>
-    <span>3 source / 1 DFD / 3 proof</span>
+    <span>3 source / 1 DFD / 8 proof</span>
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="2" data-search="raw data ingest raw-data-ingest product-plane attention review source-aware moex extraction and raw delta mutation boundary. python owns the connector behavior, request diagnostics, retries, and raw writer discipline. update this node when raw writer ownership, source dia... docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/historical-data-plane.md docs/architecture/product-plane/status.md docs/obsidian/dfd/level-2-data-plane.md scripts/run_moex_raw_ingest.py tests/product-plane/integration/test_moex_raw_ingest.py tests/product-plane/unit/test_moex_raw_ingest_errors.py">
+<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="2" data-search="raw data ingest raw-data-ingest product-plane attention review source-aware moex extraction with spark/delta-backed raw mutation for the hot table path. python owns connector behavior, request diagnostics, retries, and handoff/report discipline. update this node when raw... docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/historical-data-plane.md docs/architecture/product-plane/status.md docs/runbooks/app/moex-raw-ingest-runbook.md docs/obsidian/dfd/level-2-data-plane.md scripts/run_moex_raw_ingest.py tests/product-plane/integration/test_moex_raw_ingest.py tests/product-plane/integration/test_moex_raw_ingest_spark_delta_job.py tests/product-plane/unit/test_moex_raw_ingest_errors.py tests/product-plane/unit/test_moex_raw_ingest_spark_delta_contract.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
   </div>
   <h3><a href="state/nodes/Raw%20Data%20Ingest.md">Raw Data Ingest</a></h3>
-  <p>Source-aware MOEX extraction and raw Delta mutation boundary. Python owns the connector behavior, request diagnostics, retries, and raw writer discipline. Update this node when raw writer ownership, source dia...</p>
+  <p>Source-aware MOEX extraction with Spark/Delta-backed raw mutation for the hot table path. Python owns connector behavior, request diagnostics, retries, and handoff/report discipline. Update this node when raw...</p>
 
 
   <div class="rollup-line">
@@ -998,17 +998,17 @@
 
   <div class="meta-row">
     <span class="badge rollup-review">Review</span>
-    <span>3 source / 1 DFD / 3 proof</span>
+    <span>4 source / 1 DFD / 5 proof</span>
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="ok" data-rollup="stable" data-surface="product-plane" data-level="2" data-search="baseline storage baseline-storage product-plane ok stable accepted raw/canonical baseline storage under the external ta3000 data root. downstream consumers bind to stable baseline paths, not arbitrary rerun folders. update this node when accepted data roots, pinned b... docs/architecture/product-plane/status.md docs/runbooks/app/moex-baseline-storage-runbook.md docs/obsidian/dfd/level-2-data-plane.md scripts/pin_moex_baseline_storage.ps1 tests/product-plane/unit/test_moex_t3_storage_binding.py tests/product-plane/unit/test_moex_baseline_update.py">
+<article class="node-card filterable" data-kind="node" data-state="ok" data-rollup="stable" data-surface="product-plane" data-level="2" data-search="baseline storage baseline-storage product-plane ok stable accepted raw/canonical baseline storage under the external ta3000 data root. downstream consumers bind to stable baseline paths, not arbitrary rerun folders. new staging roots support proof and product-runtime... docs/architecture/product-plane/status.md docs/runbooks/app/moex-baseline-storage-runbook.md docs/obsidian/dfd/level-2-data-plane.md scripts/pin_moex_baseline_storage.ps1 tests/product-plane/unit/test_moex_t3_storage_binding.py tests/product-plane/unit/test_moex_baseline_update.py tests/product-plane/unit/test_moex_staging_roots.py tests/product-plane/unit/test_hot_delta_table_guardrails.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
   </div>
   <h3><a href="state/nodes/Baseline%20Storage.md">Baseline Storage</a></h3>
-  <p>Accepted raw/canonical baseline storage under the external TA3000 data root. Downstream consumers bind to stable baseline paths, not arbitrary rerun folders. Update this node when accepted data roots, pinned b...</p>
+  <p>Accepted raw/canonical baseline storage under the external TA3000 data root. Downstream consumers bind to stable baseline paths, not arbitrary rerun folders. New staging roots support proof and product-runtime...</p>
 
 
   <div class="rollup-line">
@@ -1018,7 +1018,7 @@
 
   <div class="meta-row">
     <span class="badge rollup-stable">Stable</span>
-    <span>2 source / 1 DFD / 3 proof</span>
+    <span>2 source / 1 DFD / 5 proof</span>
   </div>
 </article>
 
@@ -1066,7 +1066,7 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="2" data-search="research data prep research-data-prep product-plane attention review materialized research datasets, bar views, indicator frames, and derived indicator frames built after accepted canonical data refresh. update this node when research materialization ownership, delta table set,... strongest current layer research gold frames and continuous-front frames are materialized and reusable. keep freshness tied to canonical refresh and campaign materialization locks. docs/architecture/product-plane/research-plane-platform.md docs/architecture/product-plane/native-runtime-ownership.md docs/obsidian/dfd/level-2-research-to-runtime.md tests/product-plane/integration/test_research_indicator_materialization.py tests/product-plane/integration/test_research_dagster_jobs.py tests/product-plane/unit/test_research_dataset_layer.py">
+<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="2" data-search="research data prep research-data-prep product-plane attention review materialized research datasets, bar views, indicator frames, and derived indicator frames built after accepted canonical data refresh. update this node when research materialization ownership, delta table set,... strong delta-backed layer research gold frames, continuous-front frames, and delta sidecar updates are materialized and reusable. keep freshness tied to canonical refresh and campaign materialization locks. docs/architecture/product-plane/research-plane-platform.md docs/architecture/product-plane/native-runtime-ownership.md docs/obsidian/dfd/level-2-research-to-runtime.md tests/product-plane/integration/test_research_indicator_materialization.py tests/product-plane/integration/test_research_dagster_jobs.py tests/product-plane/unit/test_research_dataset_layer.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -1077,10 +1077,10 @@
   <div class="readiness readiness-high">
     <div class="readiness-head">
       <span>Readiness</span>
-      <strong>4.0/5</strong>
+      <strong>4.1/5</strong>
     </div>
-    <div class="readiness-bar" aria-hidden="true"><span style="width: 80%"></span></div>
-    <span class="readiness-label">Strongest current layer</span>
+    <div class="readiness-bar" aria-hidden="true"><span style="width: 82%"></span></div>
+    <span class="readiness-label">Strong Delta-backed layer</span>
     <span class="readiness-next">Next: Keep freshness tied to canonical refresh and campaign materialization locks.</span>
   </div>
 
@@ -1499,7 +1499,7 @@
   <div class="evidence-grid">
     <div><h4>Source</h4><ul><li><a href="../architecture/trading-advisor-3000.md">trading-advisor-3000.md</a></li><li><a href="../architecture/repository-surfaces.md">repository-surfaces.md</a></li><li><a href="../architecture/product-plane/STATUS.md">STATUS.md</a></li><li><a href="../architecture/product-plane/moex-historical-route-decision.md">moex-historical-route-decision.md</a></li><li><a href="../architecture/product-plane/moex-nightly-v2-architecture.md">moex-nightly-v2-architecture.md</a></li><li><a href="../runbooks/app/moex-baseline-storage-runbook.md">moex-baseline-storage-runbook.md</a></li></ul></div>
     <div><h4>DFD</h4><ul><li><a href="../obsidian/dfd/level-2-data-plane.md">level-2-data-plane.md</a></li><li><a href="../obsidian/dfd/level-1-product-plane.md">level-1-product-plane.md</a></li></ul></div>
-    <div><h4>Proof</h4><ul><li><a href="../../scripts/run_moex_raw_ingest.py">run_moex_raw_ingest.py</a></li><li><a href="../../scripts/run_moex_canonical_refresh.py">run_moex_canonical_refresh.py</a></li><li><a href="../../tests/product-plane/unit/test_moex_canonical_route.py">test_moex_canonical_route.py</a></li></ul></div>
+    <div><h4>Proof</h4><ul><li><a href="../../scripts/run_moex_raw_ingest.py">run_moex_raw_ingest.py</a></li><li><a href="../../scripts/run_moex_canonical_refresh.py">run_moex_canonical_refresh.py</a></li><li><a href="../../scripts/run_moex_baseline_update_staging_job.py">run_moex_baseline_update_staging_job.py</a></li><li><a href="../../tests/product-plane/unit/test_moex_canonical_route.py">test_moex_canonical_route.py</a></li><li><a href="../../tests/product-plane/unit/test_hot_delta_table_guardrails.py">test_hot_delta_table_guardrails.py</a></li></ul></div>
   </div>
 </details>
 
@@ -1603,7 +1603,7 @@
   <div class="evidence-grid">
     <div><h4>Source</h4><ul><li><a href="../architecture/product-plane/STATUS.md">STATUS.md</a></li><li><a href="../runbooks/app/moex-baseline-storage-runbook.md">moex-baseline-storage-runbook.md</a></li></ul></div>
     <div><h4>DFD</h4><ul><li><a href="../obsidian/dfd/level-2-data-plane.md">level-2-data-plane.md</a></li></ul></div>
-    <div><h4>Proof</h4><ul><li><a href="../../scripts/pin_moex_baseline_storage.ps1">pin_moex_baseline_storage.ps1</a></li><li><a href="../../tests/product-plane/unit/test_moex_t3_storage_binding.py">test_moex_t3_storage_binding.py</a></li><li><a href="../../tests/product-plane/unit/test_moex_baseline_update.py">test_moex_baseline_update.py</a></li></ul></div>
+    <div><h4>Proof</h4><ul><li><a href="../../scripts/pin_moex_baseline_storage.ps1">pin_moex_baseline_storage.ps1</a></li><li><a href="../../tests/product-plane/unit/test_moex_t3_storage_binding.py">test_moex_t3_storage_binding.py</a></li><li><a href="../../tests/product-plane/unit/test_moex_baseline_update.py">test_moex_baseline_update.py</a></li><li><a href="../../tests/product-plane/unit/test_moex_staging_roots.py">test_moex_staging_roots.py</a></li><li><a href="../../tests/product-plane/unit/test_hot_delta_table_guardrails.py">test_hot_delta_table_guardrails.py</a></li></ul></div>
   </div>
 </details>
 
@@ -1621,15 +1621,15 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="attention" data-surface="product-plane" data-level="2" data-search="canonical data refresh canonical-data-refresh attention docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/native-runtime-ownership.md docs/architecture/product-plane/status.md docs/obsidian/dfd/level-2-data-plane.md">
+<details class="evidence-row filterable" data-kind="evidence" data-state="attention" data-surface="product-plane" data-level="2" data-search="canonical data refresh canonical-data-refresh attention docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/native-runtime-ownership.md docs/architecture/product-plane/status.md docs/runbooks/app/moex-canonical-refresh-runbook.md docs/obsidian/dfd/level-2-data-plane.md">
   <summary>
     <span>Canonical Data Refresh</span>
     <span>attention / L2</span>
   </summary>
   <div class="evidence-grid">
-    <div><h4>Source</h4><ul><li><a href="../architecture/product-plane/moex-historical-route-decision.md">moex-historical-route-decision.md</a></li><li><a href="../architecture/product-plane/native-runtime-ownership.md">native-runtime-ownership.md</a></li><li><a href="../architecture/product-plane/STATUS.md">STATUS.md</a></li></ul></div>
+    <div><h4>Source</h4><ul><li><a href="../architecture/product-plane/moex-historical-route-decision.md">moex-historical-route-decision.md</a></li><li><a href="../architecture/product-plane/native-runtime-ownership.md">native-runtime-ownership.md</a></li><li><a href="../architecture/product-plane/STATUS.md">STATUS.md</a></li><li><a href="../runbooks/app/moex-canonical-refresh-runbook.md">moex-canonical-refresh-runbook.md</a></li></ul></div>
     <div><h4>DFD</h4><ul><li><a href="../obsidian/dfd/level-2-data-plane.md">level-2-data-plane.md</a></li></ul></div>
-    <div><h4>Proof</h4><ul><li><a href="../../scripts/run_moex_canonical_refresh.py">run_moex_canonical_refresh.py</a></li><li><a href="../../scripts/run_moex_historical_canonical_route_spark.py">run_moex_historical_canonical_route_spark.py</a></li><li><a href="../../tests/product-plane/unit/test_moex_canonical_route.py">test_moex_canonical_route.py</a></li></ul></div>
+    <div><h4>Proof</h4><ul><li><a href="../../scripts/run_moex_canonical_refresh.py">run_moex_canonical_refresh.py</a></li><li><a href="../../scripts/run_moex_historical_canonical_route_spark.py">run_moex_historical_canonical_route_spark.py</a></li><li><a href="../../tests/product-plane/unit/test_moex_canonical_route.py">test_moex_canonical_route.py</a></li><li><a href="../../tests/product-plane/integration/test_moex_canonical_route_integration.py">test_moex_canonical_route_integration.py</a></li><li><a href="../../tests/product-plane/integration/test_moex_canonicalization_integration.py">test_moex_canonicalization_integration.py</a></li></ul></div>
   </div>
 </details>
 
@@ -1707,7 +1707,7 @@
   <div class="evidence-grid">
     <div><h4>Source</h4><ul><li><a href="../architecture/product-plane/moex-historical-route-decision.md">moex-historical-route-decision.md</a></li><li><a href="../architecture/product-plane/moex-nightly-v2-architecture.md">moex-nightly-v2-architecture.md</a></li><li><a href="../architecture/product-plane/STATUS.md">STATUS.md</a></li></ul></div>
     <div><h4>DFD</h4><ul><li><a href="../obsidian/dfd/level-2-data-plane.md">level-2-data-plane.md</a></li></ul></div>
-    <div><h4>Proof</h4><ul><li><a href="../../scripts/run_moex_dagster_cutover.py">run_moex_dagster_cutover.py</a></li><li><a href="../../scripts/prove_moex_dagster_route.py">prove_moex_dagster_route.py</a></li><li><a href="../../tests/product-plane/unit/test_moex_dagster_route_cutover.py">test_moex_dagster_route_cutover.py</a></li></ul></div>
+    <div><h4>Proof</h4><ul><li><a href="../../scripts/run_moex_dagster_cutover.py">run_moex_dagster_cutover.py</a></li><li><a href="../../scripts/prove_moex_dagster_route.py">prove_moex_dagster_route.py</a></li><li><a href="../../scripts/run_moex_baseline_update_staging_job.py">run_moex_baseline_update_staging_job.py</a></li><li><a href="../../scripts/launch_moex_baseline_staging_run.py">launch_moex_baseline_staging_run.py</a></li><li><a href="../../tests/product-plane/unit/test_moex_dagster_route_cutover.py">test_moex_dagster_route_cutover.py</a></li><li><a href="../../tests/product-plane/unit/test_moex_runtime_instances.py">test_moex_runtime_instances.py</a></li><li><a href="../../tests/product-plane/unit/test_moex_staging_roots.py">test_moex_staging_roots.py</a></li><li><a href="../../tests/product-plane/unit/test_moex_baseline_staging_job_script.py">test_moex_baseline_staging_job_script.py</a></li></ul></div>
   </div>
 </details>
 
@@ -1725,15 +1725,15 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="attention" data-surface="product-plane" data-level="2" data-search="raw data ingest raw-data-ingest attention docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/historical-data-plane.md docs/architecture/product-plane/status.md docs/obsidian/dfd/level-2-data-plane.md">
+<details class="evidence-row filterable" data-kind="evidence" data-state="attention" data-surface="product-plane" data-level="2" data-search="raw data ingest raw-data-ingest attention docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/historical-data-plane.md docs/architecture/product-plane/status.md docs/runbooks/app/moex-raw-ingest-runbook.md docs/obsidian/dfd/level-2-data-plane.md">
   <summary>
     <span>Raw Data Ingest</span>
     <span>attention / L2</span>
   </summary>
   <div class="evidence-grid">
-    <div><h4>Source</h4><ul><li><a href="../architecture/product-plane/moex-historical-route-decision.md">moex-historical-route-decision.md</a></li><li><a href="../architecture/product-plane/historical-data-plane.md">historical-data-plane.md</a></li><li><a href="../architecture/product-plane/STATUS.md">STATUS.md</a></li></ul></div>
+    <div><h4>Source</h4><ul><li><a href="../architecture/product-plane/moex-historical-route-decision.md">moex-historical-route-decision.md</a></li><li><a href="../architecture/product-plane/historical-data-plane.md">historical-data-plane.md</a></li><li><a href="../architecture/product-plane/STATUS.md">STATUS.md</a></li><li><a href="../runbooks/app/moex-raw-ingest-runbook.md">moex-raw-ingest-runbook.md</a></li></ul></div>
     <div><h4>DFD</h4><ul><li><a href="../obsidian/dfd/level-2-data-plane.md">level-2-data-plane.md</a></li></ul></div>
-    <div><h4>Proof</h4><ul><li><a href="../../scripts/run_moex_raw_ingest.py">run_moex_raw_ingest.py</a></li><li><a href="../../tests/product-plane/integration/test_moex_raw_ingest.py">test_moex_raw_ingest.py</a></li><li><a href="../../tests/product-plane/unit/test_moex_raw_ingest_errors.py">test_moex_raw_ingest_errors.py</a></li></ul></div>
+    <div><h4>Proof</h4><ul><li><a href="../../scripts/run_moex_raw_ingest.py">run_moex_raw_ingest.py</a></li><li><a href="../../tests/product-plane/integration/test_moex_raw_ingest.py">test_moex_raw_ingest.py</a></li><li><a href="../../tests/product-plane/integration/test_moex_raw_ingest_spark_delta_job.py">test_moex_raw_ingest_spark_delta_job.py</a></li><li><a href="../../tests/product-plane/unit/test_moex_raw_ingest_errors.py">test_moex_raw_ingest_errors.py</a></li><li><a href="../../tests/product-plane/unit/test_moex_raw_ingest_spark_delta_contract.py">test_moex_raw_ingest_spark_delta_contract.py</a></li></ul></div>
   </div>
 </details>
 

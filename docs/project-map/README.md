@@ -21,8 +21,8 @@ artifacts, or target-shape specs:
 - `docs/project-map/documentation-cleanup-candidates-2026-05-06.md` - working list for archive/rewrite decisions.
 - `docs/project-map/product-reset-audit-2026-05-05.md` - reset-frame product audit; use the 2026-05-06 data-to-signal audit for fresher Optuna and candidate-projection state.
 - `docs/project-map/documentation-reality-audit-2026-05-05.md` - documentation noise audit and cleanup policy.
-- `docs/project-map/status-inventory-2026-05-05.md` - code/worktree/data snapshot.
-- `docs/project-map/worktree-diff-digest-2026-05-05.md` - recovery triage for local worktrees.
+- `docs/project-map/status-inventory-2026-05-05.md` - 2026-05-05 code/worktree/data snapshot; use the data-to-signal audit update for post-PR #108 MOEX state.
+- `docs/project-map/worktree-diff-digest-2026-05-05.md` - historical recovery triage for local worktrees; the MOEX Spark/Dagster candidate was superseded by the merged PR #108 line.
 
 It is separate from DFD:
 

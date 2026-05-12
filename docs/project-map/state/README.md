@@ -19,7 +19,6 @@ visual entrypoint is the generated HTML cockpit.
 | Project node | `nodes/` | Stable area of the project |
 | Project item | `items/` | Idea, problem, risk, question, or task linked to a node |
 | Readiness scores | `readiness-scores.yaml` | Numeric readiness estimates linked to nodes and rolled up by level-1 spine |
-| Candidate report | `candidates/` | Advisory inbox for memory-recovered signals |
 | Project rule | root note | Governance for map updates |
 | HTML cockpit | `../project-cockpit.html` | Main readable visual projection |
 | Graph lens | Project Graph Lens | Secondary relationship radar |
@@ -65,8 +64,6 @@ For now this is hybrid:
 - Historical generated task-blocker items are archived under
   `docs/archive/historical-project-map-items/`; they are not part of the active
   map queue.
-- Memory-recovered candidates stay under `candidates/` until a human or agent
-  verifies them against current repo, artifacts, or an explicit decision.
 - If a high-severity open item is linked to a node, treat that node as needing
   attention even if the node card has not been manually updated yet.
 - The generated cockpit computes large-block roll-up status from node state,

@@ -16,8 +16,8 @@ Use these sources for current product-state questions:
 | --- | --- |
 | What is TA3000 now? | `docs/project-map/product-reality-audit-data-to-signal-2026-05-06.md` and `docs/project-map/product-reset-audit-2026-05-05.md` |
 | Where does the current data-to-signal chain break? | `docs/project-map/product-reality-audit-data-to-signal-2026-05-06.md` |
-| Which code/data state is authoritative? | `docs/project-map/status-inventory-2026-05-05.md` |
-| Which worktrees are candidates or noise? | `docs/project-map/worktree-diff-digest-2026-05-05.md` |
+| Which code/data state is authoritative? | `docs/project-map/product-reality-audit-data-to-signal-2026-05-06.md`, `docs/architecture/product-plane/STATUS.md`, and the authoritative data root; `docs/project-map/status-inventory-2026-05-05.md` is a dated snapshot |
+| Which worktrees are candidates or noise? | `docs/project-map/worktree-diff-digest-2026-05-05.md` as a dated recovery snapshot; its MOEX Spark/Dagster candidate line is superseded by merged PR #108 |
 | Which docs are current vs stale? | `docs/project-map/documentation-reality-audit-2026-05-05.md` |
 | Which project docs should be read as current? | `docs/project-map/documentation-currentness-map-2026-05-06.md` |
 | Which docs are cleanup/archive candidates? | `docs/project-map/documentation-cleanup-candidates-2026-05-06.md` |

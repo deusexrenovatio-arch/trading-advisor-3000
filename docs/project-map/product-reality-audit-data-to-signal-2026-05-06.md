@@ -26,7 +26,9 @@ target-shape specs are treated as historical evidence only.
 
 Evidence used:
 
-- current `origin/main` after PR #97 was merged;
+- current `origin/main` after PR #97 was merged for the initial audit;
+- rebase check against `origin/main` at `47dbe04e` after PR #108 on
+  2026-05-12 for newer MOEX Delta/Spark and project-map changes;
 - current product-plane status and research runbooks;
 - current code surfaces for data materialization, research campaigns, vectorbt /
   Optuna backtests, candidate projection, runtime replay, Telegram publication,
@@ -46,8 +48,8 @@ Not used as truth:
 
 | Layer | Current state | Product meaning |
 | --- | --- | --- |
-| Data Plane | Real and materialized | The product has a usable research data foundation. |
-| Research data prep | Real and materialized | The Research Factory can build working frames from canonical data. |
+| Data Plane | Real, materialized, and stronger after the MOEX Delta/Spark phase-1 merge | The product has a usable research data foundation and a better controlled refresh route, but final governed operating acceptance is still not landed. |
+| Research data prep | Real and materialized with continuous-front Delta sidecar improvements | The Research Factory can build working frames from canonical data; freshness still depends on accepted canonical refresh. |
 | Strategy registry / search | Implemented and populated | Strategy-family machinery exists; it is not just docs. |
 | Vectorbt / Optuna backtest path | Implemented and materially exercised | Current code has an active vectorbt and Optuna path. |
 | Strategy validation | Partly implemented | There are rankings and gates, but no accepted capital-allocation standard yet. |
@@ -55,6 +57,35 @@ Not used as truth:
 | Runtime signal lifecycle | Implemented | Candidate replay, Telegram publication lifecycle, and durable state exist. |
 | Telegram advisory product loop | Not proven | No current real candidate feed and no accepted live Telegram delivery proof. |
 | Paper / semi-auto / live execution | Downstream | Correctly remains after validated strategies and advisory proof. |
+
+## Mainline Update - 2026-05-12
+
+This branch was rebased onto current `origin/main` at `47dbe04e`, which includes
+the MOEX Delta/Spark phase-1 line.
+
+Changes now accounted for in this audit:
+
+- raw refresh reconciliation moved toward Spark/Delta-backed mutation and
+  direct raw-Delta canonicalization;
+- product-runtime and disposable verification staging roots were added for the
+  MOEX baseline route;
+- hot Delta table guardrails were added for route-sensitive data products;
+- continuous-front sidecar and session-active research updates landed before
+  this documentation branch was refreshed;
+- the old project-map candidate inbox was removed from active map state.
+
+Effect on readiness:
+
+- Data Plane readiness moves from `3.8` to `4.0`: the route is more real and
+  better governed, but final Dagster-only operating acceptance and refreshed
+  pinned baseline proof are still separate closure work.
+- Research data prep moves from `4.0` to `4.1`: continuous-front Delta outputs
+  are better integrated, but the research factory is still gated by canonical
+  freshness and strategy acceptance.
+- Signal candidate projection, advisory delivery, runtime product proof, and
+  execution readiness do not improve from these mainline changes. The blocking
+  gap remains a current non-empty `research_signal_candidates` output or a
+  precise no-signal proof.
 
 ## Readiness Scores
 
@@ -74,8 +105,8 @@ Scale:
 
 | Cockpit node | Score | Meaning | Next proof |
 | --- | ---: | --- | --- |
-| `data-plane` | 3.8 | Real materialized foundation. | Define strategy-ready data QC for target strategy families. |
-| `research-data-prep` | 4.0 | Strongest current layer. | Keep freshness tied to canonical refresh and campaign locks. |
+| `data-plane` | 4.0 | Real materialized foundation with stronger Spark/Delta staging route. | Prove the routine baseline update path against the accepted stable roots. |
+| `research-data-prep` | 4.1 | Strong current layer with continuous-front Delta sidecars. | Keep freshness tied to canonical refresh and campaign locks. |
 | `strategy-registry` | 3.4 | Implemented and populated. | Attach falsifiable research notes and acceptance criteria. |
 | `backtest-and-ranking` | 3.2 | Vectorbt/Optuna path materially exercised. | Add validation packet with OOS, costs, robustness, and rejections. |
 | `signal-candidate-projection` | 2.2 | Projection writes Delta, but current proof has zero candidates. | Produce non-empty fresh candidates or exact no-signal reasons. |
@@ -92,6 +123,9 @@ The runtime/Telegram chain is real as a technical surface. The missing product
 bridge is a current, non-empty `research_signal_candidates` output plus an
 accepted advisory signal contract and live delivery proof.
 
+The PR #108 data-plane improvements reduce refresh-route uncertainty. They do
+not by themselves close the signal-to-action gap.
+
 ## Physical Data Evidence
 
 Authoritative root:
@@ -107,6 +141,10 @@ Current root families exist:
 - `research/gold/current`;
 - `research/registry/current`;
 - `research/runs`.
+
+Row counts below are the physical evidence from the original audit snapshot.
+The 2026-05-12 mainline update changed the accepted route and staging/proof
+surfaces; it did not repin a fresher authoritative baseline in this audit.
 
 Canonical tables:
 

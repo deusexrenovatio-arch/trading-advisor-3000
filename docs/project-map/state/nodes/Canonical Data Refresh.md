@@ -10,7 +10,7 @@ aliases:
 - Canonical Data Refresh
 needs_user_attention: false
 confidence: medium
-last_verified: 2026-05-05
+last_verified: 2026-05-12
 update_rule: source-doc-backed
 state_source: moex-historical-route-decision.md, native-runtime-ownership.md, STATUS.md
 tags:
@@ -23,18 +23,22 @@ source_refs:
 - docs/architecture/product-plane/moex-historical-route-decision.md
 - docs/architecture/product-plane/native-runtime-ownership.md
 - docs/architecture/product-plane/STATUS.md
+- docs/runbooks/app/moex-canonical-refresh-runbook.md
 dfd_refs:
 - docs/obsidian/dfd/level-2-data-plane.md
 proof_refs:
 - scripts/run_moex_canonical_refresh.py
 - scripts/run_moex_historical_canonical_route_spark.py
 - tests/product-plane/unit/test_moex_canonical_route.py
+- tests/product-plane/integration/test_moex_canonical_route_integration.py
+- tests/product-plane/integration/test_moex_canonicalization_integration.py
 ---
 
 # Canonical Data Refresh
 
 Spark-owned canonical recompute, resampling, provenance rebuild, and canonical
-Delta output for downstream research.
+Delta output for downstream research. Current main also routes canonicalization
+from raw Delta with changed-window control.
 
 ## Graph Links
 

@@ -2,6 +2,7 @@ version: 1
 source: product-reality-audit-data-to-signal-2026-05-06
 source_refs:
   - docs/project-map/product-reality-audit-data-to-signal-2026-05-06.md
+last_reviewed: 2026-05-12
 aggregation:
   cockpit_level: 1
   method: unweighted_average
@@ -20,16 +21,16 @@ scale:
     "5": operationally routine for the current product goal
 scores:
   - node_id: data-plane
-    score: 3.8
-    label: Real materialized foundation
-    note: Canonical and research Delta roots exist with row-count proof; strategy-readiness QC still incomplete.
-    next_proof: Define strategy-ready data QC for target strategy families.
+    score: 4.0
+    label: Real foundation plus Spark/Delta route
+    note: Canonical and research Delta roots exist; PR #108 improved raw Delta, canonicalization, staging roots, and hot table guardrails. Final routine acceptance is still separate.
+    next_proof: Prove the routine baseline update path against accepted stable roots.
     source_refs:
       - docs/project-map/product-reality-audit-data-to-signal-2026-05-06.md
   - node_id: research-data-prep
-    score: 4.0
-    label: Strongest current layer
-    note: Research gold frames and continuous-front frames are materialized and reusable.
+    score: 4.1
+    label: Strong Delta-backed layer
+    note: Research gold frames, continuous-front frames, and Delta sidecar updates are materialized and reusable.
     next_proof: Keep freshness tied to canonical refresh and campaign materialization locks.
     source_refs:
       - docs/project-map/product-reality-audit-data-to-signal-2026-05-06.md
