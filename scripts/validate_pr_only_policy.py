@@ -5,12 +5,12 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
-
 
 REQUIRED_TOKENS = (
     "AI_SHELL_EMERGENCY_MAIN_PUSH",
@@ -32,6 +32,9 @@ REQUIRED_STATUS_CHECKS = (
 )
 GITHUB_API_ROOT = "https://api.github.com"
 GITHUB_API_VERSION = "2026-03-10"
+GITHUB_API_ATTEMPTS = 3
+GITHUB_API_RETRY_DELAY_SECONDS = 1.0
+GITHUB_API_TIMEOUT_SECONDS = 15
 
 
 def _read(path: Path) -> str:
@@ -77,11 +80,17 @@ def _resolve_github_repo_slug(repo_root: Path, explicit_repo: str | None) -> str
     )
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout).strip()
-        raise RuntimeError(f"unable to resolve `origin` remote for GitHub policy validation: {detail or 'git remote lookup failed'}")
+        fallback_detail = detail or "git remote lookup failed"
+        raise RuntimeError(
+            f"unable to resolve `origin` remote for GitHub policy validation: {fallback_detail}"
+        )
 
     slug = _parse_github_repo_slug(completed.stdout)
     if slug is None:
-        raise RuntimeError("`origin` remote is not a supported GitHub URL; cannot validate server-side main protection")
+        raise RuntimeError(
+            "`origin` remote is not a supported GitHub URL; "
+            "cannot validate server-side main protection"
+        )
     return slug
 
 
@@ -103,24 +112,41 @@ def _github_api_get_json(url: str, token: str | None) -> Any:
         headers["Authorization"] = f"Bearer {token}"
 
     request = Request(url, headers=headers)
-    try:
-        with urlopen(request, timeout=15) as response:
-            payload = response.read().decode("utf-8")
-    except HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace").strip()
-        hint = ""
-        if exc.code in {401, 403} and not token:
-            hint = " (public repositories can be read anonymously; private repos require GH_TOKEN/GITHUB_TOKEN)"
-        raise RuntimeError(f"GitHub API request failed for {url}: HTTP {exc.code}{hint}; {detail}") from exc
-    except URLError as exc:
-        raise RuntimeError(f"GitHub API request failed for {url}: {exc.reason}") from exc
+    last_error: URLError | TimeoutError | None = None
+    for attempt in range(1, GITHUB_API_ATTEMPTS + 1):
+        try:
+            with urlopen(request, timeout=GITHUB_API_TIMEOUT_SECONDS) as response:
+                payload = response.read().decode("utf-8")
+                return json.loads(payload)
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace").strip()
+            hint = ""
+            if exc.code in {401, 403} and not token:
+                hint = (
+                    " (public repositories can be read anonymously; "
+                    "private repos require GH_TOKEN/GITHUB_TOKEN)"
+                )
+            raise RuntimeError(
+                f"GitHub API request failed for {url}: HTTP {exc.code}{hint}; {detail}"
+            ) from exc
+        except (TimeoutError, URLError) as exc:
+            last_error = exc
+            if attempt == GITHUB_API_ATTEMPTS:
+                break
+            time.sleep(GITHUB_API_RETRY_DELAY_SECONDS)
 
-    return json.loads(payload)
+    if isinstance(last_error, URLError):
+        raise RuntimeError(
+            f"GitHub API request failed for {url}: {last_error.reason}"
+        ) from last_error
+    raise RuntimeError(f"GitHub API request failed for {url}: {last_error}") from last_error
 
 
 def _fetch_branch_rules(*, repo_slug: str, branch: str, token: str | None) -> list[dict[str, Any]]:
     branch_ref = quote(branch, safe="")
-    payload = _github_api_get_json(f"{GITHUB_API_ROOT}/repos/{repo_slug}/rules/branches/{branch_ref}", token)
+    payload = _github_api_get_json(
+        f"{GITHUB_API_ROOT}/repos/{repo_slug}/rules/branches/{branch_ref}", token
+    )
     if not isinstance(payload, list):
         raise RuntimeError(f"unexpected GitHub branch rules payload for `{repo_slug}` `{branch}`")
     rules: list[dict[str, Any]] = []
@@ -136,14 +162,19 @@ def _validate_github_branch_rules(*, repo_slug: str, branch: str, token: str | N
     rule_types = {str(item.get("type")) for item in rules if item.get("type")}
 
     if not rules:
-        errors.append(f"GitHub branch `{branch}` has no applied rules; main protection is not enforced server-side")
+        errors.append(
+            f"GitHub branch `{branch}` has no applied rules; "
+            "main protection is not enforced server-side"
+        )
         return errors
 
     for rule_type in REQUIRED_GITHUB_RULE_TYPES:
         if rule_type not in rule_types:
             errors.append(f"GitHub branch `{branch}` is missing required `{rule_type}` rule")
 
-    status_rule = next((item for item in rules if item.get("type") == "required_status_checks"), None)
+    status_rule = next(
+        (item for item in rules if item.get("type") == "required_status_checks"), None
+    )
     if status_rule is None:
         return errors
 
@@ -230,8 +261,12 @@ def run(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Validate PR-only main policy surfaces.")
     parser.add_argument("--repo-root", default=".")
-    parser.add_argument("--github-repo", default="", help="Optional GitHub repo slug override, e.g. owner/repo")
-    parser.add_argument("--github-branch", default="main", help="GitHub branch to validate, defaults to `main`")
+    parser.add_argument(
+        "--github-repo", default="", help="Optional GitHub repo slug override, e.g. owner/repo"
+    )
+    parser.add_argument(
+        "--github-branch", default="main", help="GitHub branch to validate, defaults to `main`"
+    )
     args = parser.parse_args()
     sys.exit(
         run(

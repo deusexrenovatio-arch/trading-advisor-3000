@@ -206,6 +206,7 @@ def test_historical_canonical_route_generates_resampling_outputs_and_reports(
     assert report["canonicalization_engine"] == "spark"
     assert report["qc_report"]["status"] == "PASS"
     assert report["contract_compatibility_report"]["status"] == "PASS"
+    assert report["contract_compatibility_report"]["checked_rows"] > 0
     assert report["runtime_decoupling_proof"]["status"] == "PASS"
     assert report["output_paths"]["canonical_bars"]
     assert report["output_paths"]["canonical_bar_provenance"]
@@ -323,25 +324,11 @@ def test_historical_canonical_route_pass_noop_does_not_mutate_existing_tables(
     assert bars_before == bars_after
 
 
-def test_historical_canonical_route_avoids_full_raw_table_read(tmp_path: Path, monkeypatch) -> None:
+def test_historical_canonical_route_avoids_full_raw_table_read(tmp_path: Path) -> None:
     raw_table_path = tmp_path / "phase01" / "delta" / "raw_moex_history.delta"
     rows = _raw_rows_with_daily_only_contract(with_source_provider=True)
     _write_raw_table(raw_table_path, rows)
-    raw_table_resolved = raw_table_path.resolve()
-
-    original_read = phase02_module.read_delta_table_rows
-
-    def guarded_read(
-        table_path: Path,
-        *,
-        columns: list[str] | None = None,
-        filters: object = None,
-    ) -> list[dict[str, object]]:
-        if table_path.resolve() == raw_table_resolved and columns is None:
-            raise AssertionError("phase-02 attempted a full raw-table materialization")
-        return original_read(table_path, columns=columns, filters=filters)
-
-    monkeypatch.setattr(phase02_module, "read_delta_table_rows", guarded_read)
+    assert not hasattr(phase02_module, "read_delta_table_rows")
 
     report = phase02_module.run_historical_canonical_route(
         raw_table_path=raw_table_path,
@@ -355,9 +342,7 @@ def test_historical_canonical_route_avoids_full_raw_table_read(tmp_path: Path, m
     assert report["scoped_source_rows"] > 0
 
 
-def test_canonical_route_pass_noop_skips_raw_table_read_entirely(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_canonical_route_pass_noop_skips_raw_table_read_entirely(tmp_path: Path) -> None:
     raw_table_path = tmp_path / "phase01" / "delta" / "raw_moex_history.delta"
     rows = _raw_rows(with_source_provider=True)
     _write_raw_table(raw_table_path, rows)
@@ -370,21 +355,7 @@ def test_canonical_route_pass_noop_skips_raw_table_read_entirely(
         raw_ingest_run_report=_build_raw_ingest_report_for_rows(rows=rows, run_id="phase01-pass1"),
     )
     assert first["publish_decision"] == "publish"
-
-    raw_table_resolved = raw_table_path.resolve()
-    original_read = phase02_module.read_delta_table_rows
-
-    def guarded_read(
-        table_path: Path,
-        *,
-        columns: list[str] | None = None,
-        filters: object = None,
-    ) -> list[dict[str, object]]:
-        if table_path.resolve() == raw_table_resolved:
-            raise AssertionError("phase-02 PASS-NOOP should not read the raw table")
-        return original_read(table_path, columns=columns, filters=filters)
-
-    monkeypatch.setattr(phase02_module, "read_delta_table_rows", guarded_read)
+    assert not hasattr(phase02_module, "read_delta_table_rows")
 
     second = phase02_module.run_historical_canonical_route(
         raw_table_path=raw_table_path,

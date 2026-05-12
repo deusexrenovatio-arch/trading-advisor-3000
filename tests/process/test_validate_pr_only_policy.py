@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.error import URLError
 
 from scripts import validate_pr_only_policy
 
@@ -43,7 +44,9 @@ def test_validate_pr_only_policy_passes_with_required_github_rules(
 ) -> None:
     _write_policy_files(tmp_path)
 
-    def _fake_fetch_branch_rules(*, repo_slug: str, branch: str, token: str | None) -> list[dict[str, object]]:
+    def _fake_fetch_branch_rules(
+        *, repo_slug: str, branch: str, token: str | None
+    ) -> list[dict[str, object]]:
         assert repo_slug == "deusexrenovatio-arch/trading-advisor-3000"
         assert branch == "main"
         return [
@@ -78,7 +81,9 @@ def test_validate_pr_only_policy_fails_closed_when_required_check_is_missing(
 ) -> None:
     _write_policy_files(tmp_path)
 
-    def _fake_fetch_branch_rules(*, repo_slug: str, branch: str, token: str | None) -> list[dict[str, object]]:
+    def _fake_fetch_branch_rules(
+        *, repo_slug: str, branch: str, token: str | None
+    ) -> list[dict[str, object]]:
         return [
             {"type": "pull_request"},
             {
@@ -102,3 +107,33 @@ def test_validate_pr_only_policy_fails_closed_when_required_check_is_missing(
     captured = capsys.readouterr()
     assert result == 1
     assert "GitHub required status checks are missing: pr-lane" in captured.out
+
+
+def test_github_api_get_json_retries_transient_url_error(monkeypatch) -> None:
+    calls = 0
+
+    class _Response:
+        def __enter__(self) -> "_Response":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'[{"type": "pull_request"}]'
+
+    def _urlopen(_request: object, *, timeout: int) -> _Response:
+        nonlocal calls
+        assert timeout == validate_pr_only_policy.GITHUB_API_TIMEOUT_SECONDS
+        calls += 1
+        if calls == 1:
+            raise URLError(TimeoutError("simulated SSL handshake timeout"))
+        return _Response()
+
+    monkeypatch.setattr(validate_pr_only_policy, "urlopen", _urlopen)
+    monkeypatch.setattr(validate_pr_only_policy.time, "sleep", lambda _seconds: None)
+
+    payload = validate_pr_only_policy._github_api_get_json("https://example.test", token=None)
+
+    assert payload == [{"type": "pull_request"}]
+    assert calls == 2

@@ -1,19 +1,22 @@
 from __future__ import annotations
 
+# ruff: noqa: E402,E501
 import argparse
-from datetime import UTC, datetime
 import json
-from pathlib import Path
 import re
 import sys
-
+from datetime import UTC, datetime
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from trading_advisor_3000.product_plane.data_plane.moex import run_historical_canonical_route
+from trading_advisor_3000.product_plane.data_plane.moex.historical_canonical_route import (
+    CANONICAL_MERGE_SCOPED_DELETE_INSERT,
+    run_historical_canonical_route,
+)
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     CANONICAL_REFRESH_REPORT_FILENAME,
     CANONICAL_REFRESH_STORAGE_DIRNAME,
@@ -186,13 +189,16 @@ def main() -> None:
         run_id=run_id,
         raw_ingest_run_report=raw_ingest_report_payload,
         repo_root=ROOT,
+        canonical_merge_strategy=CANONICAL_MERGE_SCOPED_DELETE_INSERT,
     )
     report["raw_source_resolution"] = raw_source
     report["raw_ingest_report_source_resolution"] = raw_ingest_source
     report["raw_ingest_report_path"] = raw_ingest_report_path.as_posix()
 
     report_path = output_dir / CANONICAL_REFRESH_REPORT_FILENAME
-    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    report_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
     if report.get("publish_decision") != "publish":

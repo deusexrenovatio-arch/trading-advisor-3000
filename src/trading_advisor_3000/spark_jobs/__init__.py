@@ -14,6 +14,7 @@ from .canonical_bars_job import (
     validate_spark_output_contract,
 )
 from .continuous_front_job import run_continuous_front_spark_job
+from .moex_canonical_publish_job import run_moex_canonical_publish_spark_delta_job
 from .moex_canonicalization_job import run_moex_canonicalization_spark_job
 from .moex_raw_ingest_job import (
     compute_raw_watermarks_spark_delta,
@@ -42,6 +43,7 @@ __all__ = [
     "run_canonical_bars_spark_job",
     "run_continuous_front_spark_job",
     "run_moex_canonicalization_spark_job",
+    "run_moex_canonical_publish_spark_delta_job",
     "compute_raw_watermarks_spark_delta",
     "run_moex_raw_ingest_spark_delta_job",
     "spark_candidate_id_expr",

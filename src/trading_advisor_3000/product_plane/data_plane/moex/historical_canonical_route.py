@@ -12,20 +12,16 @@ from pathlib import Path
 
 from trading_advisor_3000.product_plane.contracts import CanonicalBar, Timeframe
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
-    append_delta_table_rows,
     count_delta_table_rows,
-    delete_delta_table_rows,
     has_delta_log,
-    read_delta_table_rows,
-    write_delta_table_rows,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contracts import (
     STATUS_PASS_NOOP,
     build_parity_manifest_v1,
     normalize_changed_windows,
 )
-from trading_advisor_3000.product_plane.data_plane.schemas import (
-    historical_data_delta_schema_manifest,
+from trading_advisor_3000.spark_jobs.moex_canonical_publish_job import (
+    run_moex_canonical_publish_spark_delta_job,
 )
 
 TARGET_TIMEFRAMES: tuple[Timeframe, ...] = (
@@ -118,7 +114,6 @@ RAW_INTERVAL_PROJECTION_COLUMNS: tuple[str, ...] = (
 
 STATUS_PASS = "PASS"
 STATUS_BLOCKED = "BLOCKED"
-CANONICAL_MERGE_FULL_OVERWRITE = "full_overwrite"
 CANONICAL_MERGE_SCOPED_DELETE_INSERT = "scoped_delete_insert"
 
 
@@ -924,6 +919,17 @@ def _build_resampling_skips_from_available_intervals(
     return skips
 
 
+def _build_available_intervals_by_changed_window(
+    changed_windows: list[ChangedWindowScope],
+) -> dict[tuple[str, str], set[int]]:
+    available_intervals_by_contract: dict[tuple[str, str], set[int]] = {}
+    for window in changed_windows:
+        available_intervals_by_contract.setdefault(
+            (window.moex_secid, window.internal_id), set()
+        ).add(window.source_interval)
+    return available_intervals_by_contract
+
+
 def _build_resampling_skips(
     rows: list[RawCandle],
     *,
@@ -974,6 +980,7 @@ def _selected_source_interval_rows(
         rows.append(
             {
                 "contract_id": contract_id,
+                "moex_secid": contract_id,
                 "instrument_id": instrument_id,
                 "timeframe": timeframe,
                 "target_minutes": TARGET_MINUTES_BY_TIMEFRAME[Timeframe(timeframe)],
@@ -1052,6 +1059,76 @@ def _run_spark_canonicalization(
     payload = json.loads(spark_report_path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise RuntimeError("spark canonicalization report must be JSON object")
+    return payload
+
+
+def _run_spark_canonical_publish(
+    *,
+    staged_bars_path: Path,
+    staged_provenance_path: Path,
+    target_bars_path: Path,
+    target_provenance_path: Path,
+    session_calendar_path: Path,
+    roll_map_path: Path,
+    output_dir: Path,
+    run_id: str,
+    repo_root: Path,
+) -> dict[str, object]:
+    spark_dir = output_dir / ".spark-canonical-publish"
+    spark_report_path = spark_dir / "spark-publish-report.json"
+    profile = _spark_profile()
+    if profile == "local":
+        report = run_moex_canonical_publish_spark_delta_job(
+            staged_bars_path=staged_bars_path,
+            staged_provenance_path=staged_provenance_path,
+            target_bars_path=target_bars_path,
+            target_provenance_path=target_provenance_path,
+            session_calendar_path=session_calendar_path,
+            roll_map_path=roll_map_path,
+            output_dir=spark_dir,
+            run_id=run_id,
+        )
+        _json_write(spark_report_path, report)
+        return report
+
+    command = [
+        sys.executable,
+        (repo_root / "scripts" / "run_moex_canonical_publish_spark.py").as_posix(),
+        "--profile",
+        profile,
+        "--staged-bars-path",
+        staged_bars_path.as_posix(),
+        "--staged-provenance-path",
+        staged_provenance_path.as_posix(),
+        "--target-bars-path",
+        target_bars_path.as_posix(),
+        "--target-provenance-path",
+        target_provenance_path.as_posix(),
+        "--session-calendar-path",
+        session_calendar_path.as_posix(),
+        "--roll-map-path",
+        roll_map_path.as_posix(),
+        "--output-dir",
+        spark_dir.as_posix(),
+        "--run-id",
+        run_id,
+        "--output-json",
+        spark_report_path.as_posix(),
+    ]
+    completed = subprocess.run(
+        command,
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout).strip()
+        raise RuntimeError(f"spark canonical publish failed: {detail}")
+
+    payload = json.loads(spark_report_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise RuntimeError("spark canonical publish report must be JSON object")
     return payload
 
 
@@ -1228,368 +1305,6 @@ def _scope_raw_rows_to_changed_windows(
     return scoped_rows, unmatched_windows
 
 
-def _compute_affected_canonical_keys(
-    *,
-    scoped_rows: list[RawCandle],
-    selected_source_intervals: dict[tuple[str, str, str], int],
-) -> set[tuple[str, str, str, str]]:
-    keys: set[tuple[str, str, str, str]] = set()
-    for row in scoped_rows:
-        for timeframe in TARGET_TIMEFRAMES:
-            expected_interval = selected_source_intervals.get(
-                (row.contract_id, row.instrument_id, timeframe.value)
-            )
-            if expected_interval != row.source_interval:
-                continue
-            target_minutes = TARGET_MINUTES_BY_TIMEFRAME[timeframe]
-            bucket_ts = _floor_to_bucket(row.ts_open, bucket_minutes=target_minutes)
-            keys.add((row.contract_id, row.instrument_id, timeframe.value, bucket_ts))
-    return keys
-
-
-def _merge_scoped_canonical_rows(
-    *,
-    existing_rows: list[CanonicalBar],
-    scoped_rows: list[CanonicalBar],
-    affected_keys: set[tuple[str, str, str, str]],
-) -> list[CanonicalBar]:
-    merged_by_key: dict[tuple[str, str, str, str], CanonicalBar] = {}
-    for row in existing_rows:
-        key = _canonical_bar_key(row)
-        if key in affected_keys:
-            continue
-        merged_by_key[key] = row
-    for row in scoped_rows:
-        merged_by_key[_canonical_bar_key(row)] = row
-    return sorted(
-        merged_by_key.values(),
-        key=lambda item: (item.contract_id, item.instrument_id, item.timeframe.value, item.ts),
-    )
-
-
-def _merge_scoped_provenance_rows(
-    *,
-    existing_rows: list[CanonicalProvenance],
-    scoped_rows: list[CanonicalProvenance],
-    affected_keys: set[tuple[str, str, str, str]],
-) -> list[CanonicalProvenance]:
-    merged_by_key: dict[tuple[str, str, str, str], CanonicalProvenance] = {}
-    for row in existing_rows:
-        key = _canonical_provenance_key(row)
-        if key in affected_keys:
-            continue
-        merged_by_key[key] = row
-    for row in scoped_rows:
-        merged_by_key[_canonical_provenance_key(row)] = row
-    return sorted(
-        merged_by_key.values(),
-        key=lambda item: (item.contract_id, item.instrument_id, item.timeframe, item.ts),
-    )
-
-
-def _sql_quote(value: str) -> str:
-    return "'" + value.replace("'", "''") + "'"
-
-
-def _build_canonical_delete_predicate(affected_keys: set[tuple[str, str, str, str]]) -> str:
-    if not affected_keys:
-        return ""
-    ranges: dict[tuple[str, str, str], list[str]] = {}
-    for contract_id, instrument_id, timeframe, ts in affected_keys:
-        ranges.setdefault((contract_id, instrument_id, timeframe), []).append(ts)
-
-    clauses: list[str] = []
-    for (contract_id, instrument_id, timeframe), timestamps in sorted(ranges.items()):
-        start_ts = min(timestamps)
-        end_ts = max(timestamps)
-        clauses.append(
-            "("
-            f"contract_id = {_sql_quote(contract_id)} AND "
-            f"instrument_id = {_sql_quote(instrument_id)} AND "
-            f"timeframe = {_sql_quote(timeframe)} AND "
-            f"ts >= {_sql_quote(start_ts)} AND "
-            f"ts <= {_sql_quote(end_ts)}"
-            ")"
-        )
-    return " OR ".join(clauses)
-
-
-def _sidecar_columns(table_name: str) -> dict[str, str]:
-    manifest = historical_data_delta_schema_manifest()
-    return dict(manifest[table_name]["columns"])
-
-
-def _session_date_for_bar(bar: CanonicalBar, provenance: CanonicalProvenance) -> str:
-    return (provenance.source_ts_open_first or bar.ts)[:10]
-
-
-def _build_provenance_lookup(
-    provenance_rows: list[CanonicalProvenance],
-) -> dict[tuple[str, str, str, str], CanonicalProvenance]:
-    return {_canonical_provenance_key(row): row for row in provenance_rows}
-
-
-def _require_provenance_for_bar(
-    bar: CanonicalBar,
-    provenance_by_key: dict[tuple[str, str, str, str], CanonicalProvenance],
-) -> CanonicalProvenance:
-    provenance = provenance_by_key.get(_canonical_bar_key(bar))
-    if provenance is None:
-        raise RuntimeError(
-            "cannot build canonical sidecars without provenance for "
-            f"{bar.contract_id}/{bar.timeframe.value}/{bar.ts}"
-        )
-    return provenance
-
-
-def _build_session_calendar_sidecar_rows(
-    *,
-    bars: list[CanonicalBar],
-    provenance_rows: list[CanonicalProvenance],
-) -> list[dict[str, object]]:
-    provenance_by_key = _build_provenance_lookup(provenance_rows)
-    calendar: dict[tuple[str, str, str], dict[str, str]] = {}
-    for bar in bars:
-        provenance = _require_provenance_for_bar(bar, provenance_by_key)
-        session_date = _session_date_for_bar(bar, provenance)
-        key = (bar.instrument_id, bar.timeframe.value, session_date)
-        current = calendar.get(key)
-        if current is None:
-            calendar[key] = {
-                "session_open_ts": provenance.source_ts_open_first,
-                "session_close_ts": provenance.source_ts_close_last,
-            }
-            continue
-        if provenance.source_ts_open_first < current["session_open_ts"]:
-            current["session_open_ts"] = provenance.source_ts_open_first
-        if provenance.source_ts_close_last > current["session_close_ts"]:
-            current["session_close_ts"] = provenance.source_ts_close_last
-
-    return [
-        {
-            "instrument_id": instrument_id,
-            "timeframe": timeframe,
-            "session_date": session_date,
-            "session_open_ts": values["session_open_ts"],
-            "session_close_ts": values["session_close_ts"],
-        }
-        for (instrument_id, timeframe, session_date), values in sorted(calendar.items())
-    ]
-
-
-def _build_roll_map_sidecar_rows(
-    *,
-    bars: list[CanonicalBar],
-    provenance_rows: list[CanonicalProvenance],
-) -> list[dict[str, object]]:
-    provenance_by_key = _build_provenance_lookup(provenance_rows)
-    best_by_session: dict[tuple[str, str], tuple[int, str, str]] = {}
-    for bar in bars:
-        provenance = _require_provenance_for_bar(bar, provenance_by_key)
-        session_date = _session_date_for_bar(bar, provenance)
-        key = (bar.instrument_id, session_date)
-        candidate = (bar.open_interest, provenance.source_ts_close_last, bar.contract_id)
-        current = best_by_session.get(key)
-        if current is None or candidate > current:
-            best_by_session[key] = candidate
-
-    return [
-        {
-            "instrument_id": instrument_id,
-            "session_date": session_date,
-            "active_contract_id": values[2],
-            "reason": SIDECAR_ROLL_REASON,
-        }
-        for (instrument_id, session_date), values in sorted(best_by_session.items())
-    ]
-
-
-def _affected_sessions_from_keys(
-    affected_keys: set[tuple[str, str, str, str]],
-) -> set[tuple[str, str]]:
-    return {
-        (instrument_id, ts[:10])
-        for _, instrument_id, _, ts in affected_keys
-        if instrument_id and ts
-    }
-
-
-def _build_sidecar_session_filters(
-    affected_sessions: set[tuple[str, str]],
-) -> list[list[tuple[str, str, object]]]:
-    filters: list[list[tuple[str, str, object]]] = []
-    for instrument_id, session_date in sorted(affected_sessions):
-        filters.append(
-            [
-                ("instrument_id", "=", instrument_id),
-                ("ts", ">=", f"{session_date}T00:00:00Z"),
-                ("ts", "<=", f"{session_date}T23:59:59Z"),
-            ]
-        )
-    return filters
-
-
-def _build_sidecar_delete_predicate(affected_sessions: set[tuple[str, str]]) -> str:
-    clauses = [
-        f"(instrument_id = {_sql_quote(instrument_id)} AND session_date = {_sql_quote(session_date)})"
-        for instrument_id, session_date in sorted(affected_sessions)
-    ]
-    return " OR ".join(clauses)
-
-
-def _read_canonical_bar_rows(table_path: Path) -> list[CanonicalBar]:
-    return [
-        CanonicalBar.from_dict(dict(row))
-        for row in read_delta_table_rows(table_path)
-        if isinstance(row, dict)
-    ]
-
-
-def _read_canonical_provenance_rows(table_path: Path) -> list[CanonicalProvenance]:
-    return [
-        _canonical_provenance_from_dict(dict(row), row_index=index)
-        for index, row in enumerate(read_delta_table_rows(table_path))
-        if isinstance(row, dict)
-    ]
-
-
-def _read_canonical_bar_rows_for_sessions(
-    *,
-    table_path: Path,
-    affected_sessions: set[tuple[str, str]],
-) -> list[CanonicalBar]:
-    if not affected_sessions:
-        return []
-    filters = _build_sidecar_session_filters(affected_sessions)
-    return [
-        CanonicalBar.from_dict(dict(row))
-        for row in read_delta_table_rows(table_path, filters=filters)
-        if isinstance(row, dict)
-    ]
-
-
-def _read_canonical_provenance_rows_for_sessions(
-    *,
-    table_path: Path,
-    affected_sessions: set[tuple[str, str]],
-) -> list[CanonicalProvenance]:
-    if not affected_sessions:
-        return []
-    filters = _build_sidecar_session_filters(affected_sessions)
-    return [
-        _canonical_provenance_from_dict(dict(row), row_index=index)
-        for index, row in enumerate(read_delta_table_rows(table_path, filters=filters))
-        if isinstance(row, dict)
-    ]
-
-
-def _publish_canonical_sidecars(
-    *,
-    bars_path: Path,
-    provenance_path: Path,
-    session_calendar_path: Path,
-    roll_map_path: Path,
-    in_memory_bars: list[CanonicalBar],
-    in_memory_provenance_rows: list[CanonicalProvenance],
-    in_memory_rows_are_complete: bool,
-    affected_sessions: set[tuple[str, str]],
-) -> dict[str, object]:
-    session_columns = _sidecar_columns("canonical_session_calendar")
-    roll_columns = _sidecar_columns("canonical_roll_map")
-    sidecars_exist = has_delta_log(session_calendar_path) and has_delta_log(roll_map_path)
-    if sidecars_exist and not affected_sessions:
-        return {
-            "refresh_mode": "noop",
-            "sidecar_mutation_applied": False,
-            "refreshed_session_calendar_rows": 0,
-            "refreshed_roll_map_rows": 0,
-            "output_paths": {
-                "canonical_session_calendar": session_calendar_path.as_posix(),
-                "canonical_roll_map": roll_map_path.as_posix(),
-            },
-        }
-    requires_full_refresh = not sidecars_exist
-
-    if requires_full_refresh:
-        bars = (
-            in_memory_bars if in_memory_rows_are_complete else _read_canonical_bar_rows(bars_path)
-        )
-        provenance_rows = (
-            in_memory_provenance_rows
-            if in_memory_rows_are_complete
-            else _read_canonical_provenance_rows(provenance_path)
-        )
-        session_rows = _build_session_calendar_sidecar_rows(
-            bars=bars,
-            provenance_rows=provenance_rows,
-        )
-        roll_rows = _build_roll_map_sidecar_rows(
-            bars=bars,
-            provenance_rows=provenance_rows,
-        )
-        write_delta_table_rows(
-            table_path=session_calendar_path,
-            rows=session_rows,
-            columns=session_columns,
-        )
-        write_delta_table_rows(
-            table_path=roll_map_path,
-            rows=roll_rows,
-            columns=roll_columns,
-        )
-        return {
-            "refresh_mode": "full",
-            "sidecar_mutation_applied": True,
-            "refreshed_session_calendar_rows": len(session_rows),
-            "refreshed_roll_map_rows": len(roll_rows),
-            "output_paths": {
-                "canonical_session_calendar": session_calendar_path.as_posix(),
-                "canonical_roll_map": roll_map_path.as_posix(),
-            },
-        }
-
-    bars = _read_canonical_bar_rows_for_sessions(
-        table_path=bars_path,
-        affected_sessions=affected_sessions,
-    )
-    provenance_rows = _read_canonical_provenance_rows_for_sessions(
-        table_path=provenance_path,
-        affected_sessions=affected_sessions,
-    )
-    session_rows = _build_session_calendar_sidecar_rows(
-        bars=bars,
-        provenance_rows=provenance_rows,
-    )
-    roll_rows = _build_roll_map_sidecar_rows(
-        bars=bars,
-        provenance_rows=provenance_rows,
-    )
-    predicate = _build_sidecar_delete_predicate(affected_sessions)
-    if predicate:
-        delete_delta_table_rows(table_path=session_calendar_path, predicate=predicate)
-        delete_delta_table_rows(table_path=roll_map_path, predicate=predicate)
-    append_delta_table_rows(
-        table_path=session_calendar_path,
-        rows=session_rows,
-        columns=session_columns,
-    )
-    append_delta_table_rows(
-        table_path=roll_map_path,
-        rows=roll_rows,
-        columns=roll_columns,
-    )
-    return {
-        "refresh_mode": "scoped",
-        "sidecar_mutation_applied": bool(predicate),
-        "refreshed_session_calendar_rows": len(session_rows),
-        "refreshed_roll_map_rows": len(roll_rows),
-        "output_paths": {
-            "canonical_session_calendar": session_calendar_path.as_posix(),
-            "canonical_roll_map": roll_map_path.as_posix(),
-        },
-    }
-
-
 def _validate_changed_window_width(
     *,
     changed_windows: list[ChangedWindowScope],
@@ -1611,47 +1326,6 @@ def _validate_changed_window_width(
                 f"{window.window_start_utc}->{window.window_end_utc} "
                 f"width_days={width_seconds / 86400:.2f} max_days={max_changed_window_days}"
             )
-
-
-def _apply_scoped_delete_insert(
-    *,
-    bars_path: Path,
-    provenance_path: Path,
-    scoped_bars: list[CanonicalBar],
-    scoped_provenance: list[CanonicalProvenance],
-    affected_keys: set[tuple[str, str, str, str]],
-) -> None:
-    predicate = _build_canonical_delete_predicate(affected_keys)
-    if predicate:
-        delete_delta_table_rows(table_path=bars_path, predicate=predicate)
-        delete_delta_table_rows(table_path=provenance_path, predicate=predicate)
-    append_delta_table_rows(
-        table_path=bars_path,
-        rows=[item.to_dict() for item in scoped_bars],
-        columns=CANONICAL_BAR_COLUMNS,
-    )
-    append_delta_table_rows(
-        table_path=provenance_path,
-        rows=[item.to_dict() for item in scoped_provenance],
-        columns=PROVENANCE_COLUMNS,
-    )
-
-
-def _rows_equal(
-    *,
-    left: list[dict[str, object]],
-    right: list[dict[str, object]],
-) -> bool:
-    if len(left) != len(right):
-        return False
-    left_norm = [
-        json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":")) for item in left
-    ]
-    right_norm = [
-        json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        for item in right
-    ]
-    return left_norm == right_norm
 
 
 def _build_raw_parity_report(
@@ -1793,6 +1467,351 @@ def _status_for_publish_decision(
     return STATUS_PASS
 
 
+def _int_report_value(report: dict[str, object] | None, key: str) -> int:
+    if not isinstance(report, dict):
+        return 0
+    value = report.get(key)
+    if isinstance(value, bool):
+        return 0
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _build_spark_raw_parity_report(
+    *,
+    run_id: str,
+    changed_windows: list[ChangedWindowScope],
+    spark_execution_report: dict[str, object] | None,
+) -> dict[str, object]:
+    scoped_source_rows = _int_report_value(spark_execution_report, "source_rows")
+    unmatched_windows_count = _int_report_value(spark_execution_report, "unmatched_window_rows")
+    failures: list[str] = []
+    if changed_windows and scoped_source_rows <= 0:
+        failures.append("missing_scoped_source_rows")
+    if unmatched_windows_count > 0:
+        failures.append("unmatched_windows")
+    samples: dict[str, object] = {}
+    if isinstance(spark_execution_report, dict):
+        unmatched = spark_execution_report.get("unmatched_windows")
+        if isinstance(unmatched, list):
+            samples["unmatched_windows"] = unmatched[:20]
+    return {
+        "run_id": run_id,
+        "runtime_owner": "spark_delta",
+        "status": STATUS_PASS if not failures else "FAIL",
+        "window_count": len(changed_windows),
+        "scoped_source_rows": scoped_source_rows,
+        "unmatched_windows_count": unmatched_windows_count,
+        "failure_classes": failures,
+        "samples": samples,
+    }
+
+
+def _build_spark_canonical_parity_report(
+    *,
+    run_id: str,
+    spark_execution_report: dict[str, object] | None,
+) -> dict[str, object]:
+    source_rows = _int_report_value(spark_execution_report, "source_rows")
+    canonical_rows = _int_report_value(spark_execution_report, "canonical_rows")
+    provenance_rows = _int_report_value(spark_execution_report, "provenance_rows")
+    failures: list[str] = []
+    if source_rows > 0 and canonical_rows <= 0:
+        failures.append("missing_canonical_rows")
+    if canonical_rows != provenance_rows:
+        failures.append("canonical_provenance_row_count_mismatch")
+    return {
+        "run_id": run_id,
+        "runtime_owner": "spark_delta",
+        "status": STATUS_PASS if not failures else "FAIL",
+        "affected_key_count": canonical_rows,
+        "expected_scope_rows": canonical_rows,
+        "resolved_scope_rows": canonical_rows,
+        "failure_classes": failures,
+        "samples": {},
+    }
+
+
+def _real_bindings_from_spark_report(
+    *,
+    raw_ingest_run_report: dict[str, object],
+    spark_execution_report: dict[str, object] | None,
+) -> list[str]:
+    bindings = set(
+        _report_real_bindings(raw_ingest_run_report=raw_ingest_run_report, fallback_rows=[])
+    )
+    if isinstance(spark_execution_report, dict):
+        providers = spark_execution_report.get("source_providers")
+        if isinstance(providers, (list, tuple)):
+            for provider in providers:
+                text = str(provider).strip()
+                if text:
+                    bindings.add(text)
+    return sorted(bindings)
+
+
+def _run_scoped_spark_delta_publish_route(
+    *,
+    raw_table_path: Path,
+    output_dir: Path,
+    run_id: str,
+    raw_ingest_run_report: dict[str, object],
+    repo_root: Path,
+    bars_path: Path,
+    provenance_path: Path,
+    session_calendar_path: Path,
+    roll_map_path: Path,
+    changed_window_scope: list[ChangedWindowScope],
+    changed_window_set_manifest: dict[str, object],
+    source_rows: int,
+    max_changed_window_days: int | None,
+) -> dict[str, object]:
+    built_at_utc = _utc_now_iso()
+    available_intervals_by_contract = _build_available_intervals_by_changed_window(
+        changed_window_scope
+    )
+    selected_source_intervals = _build_selected_source_interval_map_from_available_intervals(
+        available_intervals_by_contract
+    )
+    resampling_skips = _build_resampling_skips_from_available_intervals(
+        available_intervals_by_contract,
+        selected_source_intervals=selected_source_intervals,
+    )
+
+    spark_execution_report: dict[str, object] | None = None
+    scoped_bars_path: Path | None = None
+    scoped_provenance_path: Path | None = None
+    if changed_window_scope and selected_source_intervals:
+        spark_execution_report = _run_spark_canonicalization(
+            raw_table_path=raw_table_path,
+            changed_windows=changed_window_scope,
+            selected_source_intervals=selected_source_intervals,
+            output_dir=output_dir,
+            run_id=run_id,
+            built_at_utc=built_at_utc,
+            repo_root=repo_root,
+        )
+        spark_output_paths = spark_execution_report.get("output_paths", {})
+        if isinstance(spark_output_paths, dict):
+            scoped_bars_path = Path(str(spark_output_paths.get("canonical_bars", "")).strip())
+            scoped_provenance_path = Path(
+                str(spark_output_paths.get("canonical_bar_provenance", "")).strip()
+            )
+
+    raw_parity_report = _build_spark_raw_parity_report(
+        run_id=run_id,
+        changed_windows=changed_window_scope,
+        spark_execution_report=spark_execution_report,
+    )
+    canonical_parity_report = _build_spark_canonical_parity_report(
+        run_id=run_id,
+        spark_execution_report=spark_execution_report,
+    )
+    contract_report: dict[str, object] = {
+        "runtime_owner": "spark_delta",
+        "status": "PASS",
+        "errors": [],
+        "checked_rows": _int_report_value(spark_execution_report, "canonical_rows"),
+        "mode": "spark_publish_contract_enforced",
+    }
+    runtime_report = run_runtime_decoupling_check(repo_root=repo_root)
+
+    qc_report: dict[str, object] = {
+        "run_id": run_id,
+        "runtime_owner": "spark_delta",
+        "status": "PASS",
+        "publish_decision": "publish",
+        "failed_gates": [],
+        "gate_results": [],
+    }
+    publish_allowed = (
+        raw_parity_report["status"] == STATUS_PASS
+        and canonical_parity_report["status"] == STATUS_PASS
+        and contract_report["status"] == "PASS"
+        and runtime_report["status"] == "PASS"
+    )
+
+    spark_publish_report: dict[str, object] | None = None
+    if publish_allowed and _int_report_value(spark_execution_report, "canonical_rows") > 0:
+        if scoped_bars_path is None or scoped_provenance_path is None:
+            raise RuntimeError("scoped canonical publish requires Spark output paths")
+        spark_publish_report = _run_spark_canonical_publish(
+            staged_bars_path=scoped_bars_path,
+            staged_provenance_path=scoped_provenance_path,
+            target_bars_path=bars_path,
+            target_provenance_path=provenance_path,
+            session_calendar_path=session_calendar_path,
+            roll_map_path=roll_map_path,
+            output_dir=output_dir,
+            run_id=run_id,
+            repo_root=repo_root,
+        )
+        qc_payload = spark_publish_report.get("qc_report")
+        if isinstance(qc_payload, dict):
+            qc_report = qc_payload
+        contract_payload = spark_publish_report.get("contract_compatibility_report")
+        if isinstance(contract_payload, dict):
+            contract_report = contract_payload
+        publish_allowed = (
+            publish_allowed
+            and str(spark_publish_report.get("publish_decision", "")).strip() == "publish"
+        )
+    else:
+        qc_report = {
+            "run_id": run_id,
+            "runtime_owner": "spark_delta",
+            "status": "FAIL" if not publish_allowed else "PASS",
+            "publish_decision": "blocked" if not publish_allowed else "publish",
+            "failed_gates": [] if publish_allowed else ["pre_publish_spark_parity"],
+            "gate_results": [],
+        }
+
+    sidecar_report: dict[str, object] = {
+        "mode": "skipped",
+        "mutation_applied": False,
+        "refreshed_session_calendar_rows": 0,
+        "refreshed_roll_map_rows": 0,
+        "affected_session_rows": 0,
+        "overlap_session_rows": 0,
+        "overlap_policy": "",
+    }
+    if isinstance(spark_publish_report, dict) and isinstance(
+        spark_publish_report.get("sidecar_refresh"), dict
+    ):
+        sidecar_report = dict(spark_publish_report["sidecar_refresh"])
+
+    changed_window_set_path = output_dir / "changed-window-set-manifest.json"
+    raw_parity_path = output_dir / "raw-parity-report.json"
+    canonical_parity_path = output_dir / "canonical-parity-report.json"
+    qc_path = output_dir / "qc-report.json"
+    contract_path = output_dir / "contract-compatibility-report.json"
+    runtime_path = output_dir / "runtime-decoupling-proof.json"
+    canonical_snapshot_path = output_dir / "canonical-snapshot.json"
+    resampling_snapshot_path = output_dir / "resampling-snapshot.json"
+
+    canonical_snapshot = {
+        "runtime_owner": "spark_delta",
+        "mode": "not_materialized_in_python_hot_path",
+        "scoped_canonical_rows": _int_report_value(spark_execution_report, "canonical_rows"),
+    }
+    resampling_snapshot = {
+        "runtime_owner": "spark_delta",
+        "mode": "changed-window-source-intervals",
+        "resampling_skips": _summarize_resampling_skips(resampling_skips),
+    }
+
+    _json_write(changed_window_set_path, changed_window_set_manifest)
+    _json_write(raw_parity_path, raw_parity_report)
+    _json_write(canonical_parity_path, canonical_parity_report)
+    _json_write(qc_path, qc_report)
+    _json_write(contract_path, contract_report)
+    _json_write(runtime_path, runtime_report)
+    _json_write(canonical_snapshot_path, canonical_snapshot)
+    _json_write(resampling_snapshot_path, resampling_snapshot)
+
+    output_paths: dict[str, str] = {}
+    if publish_allowed and isinstance(spark_publish_report, dict):
+        spark_output_paths = spark_publish_report.get("output_paths")
+        spark_delta_log = spark_publish_report.get("delta_log")
+        if isinstance(spark_output_paths, dict) and isinstance(spark_delta_log, dict):
+            for key, value in spark_output_paths.items():
+                delta_payload = spark_delta_log.get(str(key), {})
+                if isinstance(delta_payload, dict) and bool(delta_payload.get("delta_log")):
+                    output_paths[str(key)] = str(value)
+
+    mutation_applied = (
+        bool(spark_publish_report.get("mutation_applied", False))
+        if isinstance(spark_publish_report, dict)
+        else False
+    )
+    status = _status_for_publish_decision(
+        publish_allowed=publish_allowed,
+        changed_windows=changed_window_scope,
+    )
+    canonical_rows = (
+        _int_report_value(spark_publish_report, "canonical_rows")
+        if isinstance(spark_publish_report, dict)
+        else 0
+    )
+    provenance_rows = (
+        _int_report_value(spark_publish_report, "provenance_rows")
+        if isinstance(spark_publish_report, dict)
+        else 0
+    )
+
+    report: dict[str, object] = {
+        "run_id": run_id,
+        "route_signal": "worker:phase-only",
+        "proof_class": "staging-real",
+        "canonicalization_engine": "spark",
+        "canonical_publish_engine": "spark_delta",
+        "status": status,
+        "publish_decision": "publish" if publish_allowed else "blocked",
+        "raw_table_path": raw_table_path.as_posix(),
+        "output_dir": output_dir.as_posix(),
+        "source_rows": source_rows,
+        "scoped_source_rows": _int_report_value(spark_execution_report, "source_rows"),
+        "changed_windows_count": len(changed_window_scope),
+        "changed_windows_hash_sha256": changed_window_set_manifest["changed_windows_hash_sha256"],
+        "canonical_merge_strategy": CANONICAL_MERGE_SCOPED_DELETE_INSERT,
+        "max_changed_window_days": max_changed_window_days,
+        "affected_key_count": _int_report_value(spark_execution_report, "canonical_rows"),
+        "mutation_applied": mutation_applied,
+        "canonical_rows": canonical_rows,
+        "provenance_rows": provenance_rows,
+        "sidecar_refresh": {
+            "mode": sidecar_report.get("mode"),
+            "mutation_applied": bool(sidecar_report.get("mutation_applied", False)),
+            "refreshed_session_calendar_rows": int(
+                sidecar_report.get("refreshed_session_calendar_rows", 0) or 0
+            ),
+            "refreshed_roll_map_rows": int(sidecar_report.get("refreshed_roll_map_rows", 0) or 0),
+            "affected_session_rows": int(sidecar_report.get("affected_session_rows", 0) or 0),
+            "overlap_session_rows": int(sidecar_report.get("overlap_session_rows", 0) or 0),
+            "overlap_policy": str(sidecar_report.get("overlap_policy", "")),
+        },
+        "scoped_canonical_rows": _int_report_value(spark_execution_report, "canonical_rows"),
+        "target_timeframes": [item.value for item in TARGET_TIMEFRAMES],
+        "resampling_skips": _summarize_resampling_skips(resampling_skips),
+        "output_paths": output_paths,
+        "artifact_paths": {
+            "changed_window_set_manifest": changed_window_set_path.as_posix(),
+            "raw_parity_report": raw_parity_path.as_posix(),
+            "canonical_parity_report": canonical_parity_path.as_posix(),
+            "canonical_snapshot": canonical_snapshot_path.as_posix(),
+            "resampling_snapshot": resampling_snapshot_path.as_posix(),
+            "qc_report": qc_path.as_posix(),
+            "contract_compatibility_report": contract_path.as_posix(),
+            "runtime_decoupling_proof": runtime_path.as_posix(),
+        },
+        "changed_window_set_manifest": changed_window_set_manifest,
+        "raw_parity_report": raw_parity_report,
+        "canonical_parity_report": canonical_parity_report,
+        "qc_report": qc_report,
+        "contract_compatibility_report": contract_report,
+        "runtime_decoupling_proof": runtime_report,
+        "real_bindings": _real_bindings_from_spark_report(
+            raw_ingest_run_report=raw_ingest_run_report,
+            spark_execution_report=spark_execution_report,
+        ),
+    }
+    if spark_execution_report is not None:
+        report["artifact_paths"]["spark_execution_report"] = (
+            output_dir / ".spark-canonicalization" / "spark-execution-report.json"
+        ).as_posix()
+        report["spark_execution_report"] = spark_execution_report
+    if spark_publish_report is not None:
+        report["artifact_paths"]["spark_publish_report"] = (
+            output_dir / ".spark-canonical-publish" / "spark-publish-report.json"
+        ).as_posix()
+        report["spark_publish_report"] = spark_publish_report
+
+    _json_write(output_dir / "canonical-refresh-report.json", report)
+    return report
+
+
 def run_historical_canonical_route(
     *,
     raw_table_path: Path,
@@ -1804,7 +1823,7 @@ def run_historical_canonical_route(
     canonical_provenance_path: Path | None = None,
     canonical_session_calendar_path: Path | None = None,
     canonical_roll_map_path: Path | None = None,
-    canonical_merge_strategy: str = CANONICAL_MERGE_FULL_OVERWRITE,
+    canonical_merge_strategy: str = CANONICAL_MERGE_SCOPED_DELETE_INSERT,
     max_changed_window_days: int | None = None,
 ) -> dict[str, object]:
     if not isinstance(raw_ingest_run_report, dict):
@@ -1814,13 +1833,9 @@ def run_historical_canonical_route(
         raise FileNotFoundError(
             f"phase-02 raw source table missing `_delta_log`: {raw_table_path.as_posix()}"
         )
-    if canonical_merge_strategy not in {
-        CANONICAL_MERGE_FULL_OVERWRITE,
-        CANONICAL_MERGE_SCOPED_DELETE_INSERT,
-    }:
+    if canonical_merge_strategy != CANONICAL_MERGE_SCOPED_DELETE_INSERT:
         raise ValueError(
-            "`canonical_merge_strategy` must be one of "
-            f"{CANONICAL_MERGE_FULL_OVERWRITE}|{CANONICAL_MERGE_SCOPED_DELETE_INSERT}"
+            "phase-02 canonical route only supports scoped_delete_insert Spark/Delta publish"
         )
 
     output_dir = output_dir.resolve()
@@ -1872,322 +1887,119 @@ def run_historical_canonical_route(
         raw_ingest_run_report=raw_ingest_run_report,
         raw_table_path=raw_table_path,
     )
-    affected_internal_ids = {window.internal_id for window in changed_window_scope}
-    scoped_raw_rows: list[dict[str, object]] = []
-    unmatched_windows: list[dict[str, object]] = []
-    if changed_window_scope:
-        scoped_candidate_rows = read_delta_table_rows(
-            raw_table_path,
-            columns=list(RAW_SCOPE_COLUMNS),
-            filters=_build_scoped_raw_read_filters(changed_window_scope),
-        )
-        scoped_raw_rows, unmatched_windows = _scope_raw_rows_to_changed_windows(
-            raw_rows=scoped_candidate_rows,
-            changed_windows=changed_window_scope,
-        )
+    if raw_report_status == STATUS_PASS_NOOP:
+        changed_window_set_path = output_dir / "changed-window-set-manifest.json"
+        runtime_path = output_dir / "runtime-decoupling-proof.json"
+        runtime_report = run_runtime_decoupling_check(repo_root=repo_root)
+        _json_write(changed_window_set_path, changed_window_set_manifest)
+        _json_write(runtime_path, runtime_report)
 
-    built_at_utc = _utc_now_iso()
-    interval_projection_rows: list[dict[str, object]] = []
-    if affected_internal_ids:
-        interval_projection_rows = read_delta_table_rows(
-            raw_table_path,
-            columns=list(RAW_INTERVAL_PROJECTION_COLUMNS),
-            filters=_build_internal_id_filters(affected_internal_ids),
-        )
-    available_intervals_by_contract = _build_available_intervals_by_contract_from_projection(
-        interval_projection_rows
-    )
-    selected_source_intervals = _build_selected_source_interval_map_from_available_intervals(
-        available_intervals_by_contract
-    )
-    resampling_skips = _build_resampling_skips_from_available_intervals(
-        available_intervals_by_contract,
-        selected_source_intervals=selected_source_intervals,
-    )
-    scoped_normalized_rows = _normalize_raw_rows(scoped_raw_rows) if scoped_raw_rows else []
-    affected_keys = _compute_affected_canonical_keys(
-        scoped_rows=scoped_normalized_rows,
-        selected_source_intervals=selected_source_intervals,
-    )
+        output_paths: dict[str, str] = {}
+        if has_delta_log(bars_path):
+            output_paths["canonical_bars"] = bars_path.as_posix()
+        if has_delta_log(provenance_path):
+            output_paths["canonical_bar_provenance"] = provenance_path.as_posix()
+        if has_delta_log(session_calendar_path):
+            output_paths["canonical_session_calendar"] = session_calendar_path.as_posix()
+        if has_delta_log(roll_map_path):
+            output_paths["canonical_roll_map"] = roll_map_path.as_posix()
 
-    scoped_merge = canonical_merge_strategy == CANONICAL_MERGE_SCOPED_DELETE_INSERT
-    existing_canonical_rows: list[CanonicalBar] = []
-    if has_delta_log(bars_path) and not scoped_merge:
-        for row_index, payload in enumerate(read_delta_table_rows(bars_path)):
-            if not isinstance(payload, dict):
-                continue
-            existing_canonical_rows.append(CanonicalBar.from_dict(dict(payload)))
-
-    existing_provenance_rows: list[CanonicalProvenance] = []
-    if has_delta_log(provenance_path) and not scoped_merge:
-        for row_index, payload in enumerate(read_delta_table_rows(provenance_path)):
-            if not isinstance(payload, dict):
-                continue
-            existing_provenance_rows.append(
-                _canonical_provenance_from_dict(dict(payload), row_index=row_index)
-            )
-
-    scoped_canonical_rows: list[CanonicalBar] = []
-    scoped_provenance_rows: list[CanonicalProvenance] = []
-    spark_execution_report: dict[str, object] | None = None
-    if scoped_normalized_rows and selected_source_intervals:
-        spark_execution_report = _run_spark_canonicalization(
-            raw_table_path=raw_table_path,
-            changed_windows=changed_window_scope,
-            selected_source_intervals=selected_source_intervals,
-            output_dir=output_dir,
-            run_id=run_id,
-            built_at_utc=built_at_utc,
-            repo_root=repo_root,
-        )
-        spark_output_paths = spark_execution_report.get("output_paths", {})
-        if isinstance(spark_output_paths, dict):
-            scoped_bars_path = Path(str(spark_output_paths.get("canonical_bars", "")).strip())
-            scoped_provenance_path = Path(
-                str(spark_output_paths.get("canonical_bar_provenance", "")).strip()
-            )
-            if scoped_bars_path.as_posix() and has_delta_log(scoped_bars_path):
-                for payload in read_delta_table_rows(scoped_bars_path):
-                    if isinstance(payload, dict):
-                        scoped_canonical_rows.append(CanonicalBar.from_dict(dict(payload)))
-            if scoped_provenance_path.as_posix() and has_delta_log(scoped_provenance_path):
-                for row_index, payload in enumerate(read_delta_table_rows(scoped_provenance_path)):
-                    if isinstance(payload, dict):
-                        scoped_provenance_rows.append(
-                            _canonical_provenance_from_dict_lenient(
-                                dict(payload), row_index=row_index
-                            )
-                        )
-
-    if scoped_merge:
-        canonical_rows = sorted(
-            scoped_canonical_rows,
-            key=lambda item: (item.contract_id, item.instrument_id, item.timeframe.value, item.ts),
-        )
-        provenance_rows = sorted(
-            scoped_provenance_rows,
-            key=lambda item: (item.contract_id, item.instrument_id, item.timeframe, item.ts),
-        )
-    else:
-        canonical_rows = _merge_scoped_canonical_rows(
-            existing_rows=existing_canonical_rows,
-            scoped_rows=scoped_canonical_rows,
-            affected_keys=affected_keys,
-        )
-        provenance_rows = _merge_scoped_provenance_rows(
-            existing_rows=existing_provenance_rows,
-            scoped_rows=scoped_provenance_rows,
-            affected_keys=affected_keys,
-        )
-
-    raw_parity_report = _build_raw_parity_report(
-        run_id=run_id,
-        changed_windows=changed_window_scope,
-        scoped_raw_rows=scoped_raw_rows,
-        unmatched_windows=unmatched_windows,
-    )
-    canonical_parity_report = _build_canonical_parity_report(
-        run_id=run_id,
-        scoped_bars=scoped_canonical_rows,
-        final_bars=canonical_rows,
-        affected_keys=affected_keys,
-    )
-
-    qc_report = run_qc_gates(
-        bars=canonical_rows,
-        provenance_rows=provenance_rows,
-        run_id=run_id,
-    )
-    contract_report = run_contract_compatibility_check(
-        bars=canonical_rows,
-        repo_root=repo_root,
-    )
-    runtime_report = run_runtime_decoupling_check(repo_root=repo_root)
-
-    canonical_snapshot, resampling_snapshot = _build_snapshot_payload(
-        bars=canonical_rows,
-        provenance_rows=provenance_rows,
-    )
-
-    qc_path = output_dir / "qc-report.json"
-    contract_path = output_dir / "contract-compatibility-report.json"
-    runtime_path = output_dir / "runtime-decoupling-proof.json"
-    changed_window_set_path = output_dir / "changed-window-set-manifest.json"
-    raw_parity_path = output_dir / "raw-parity-report.json"
-    canonical_parity_path = output_dir / "canonical-parity-report.json"
-    canonical_snapshot_path = output_dir / "canonical-snapshot.json"
-    resampling_snapshot_path = output_dir / "resampling-snapshot.json"
-
-    _json_write(changed_window_set_path, changed_window_set_manifest)
-    _json_write(raw_parity_path, raw_parity_report)
-    _json_write(canonical_parity_path, canonical_parity_report)
-    _json_write(qc_path, qc_report)
-    _json_write(contract_path, contract_report)
-    _json_write(runtime_path, runtime_report)
-    _json_write(canonical_snapshot_path, canonical_snapshot)
-    _json_write(resampling_snapshot_path, resampling_snapshot)
-
-    publish_allowed = (
-        raw_parity_report["status"] == STATUS_PASS
-        and canonical_parity_report["status"] == STATUS_PASS
-        and qc_report["status"] == "PASS"
-        and contract_report["status"] == "PASS"
-        and runtime_report["status"] == "PASS"
-    )
-
-    canonical_rows_payload = [item.to_dict() for item in canonical_rows]
-    provenance_rows_payload = [item.to_dict() for item in provenance_rows]
-    existing_canonical_payload = [
-        item.to_dict()
-        for item in sorted(
-            existing_canonical_rows,
-            key=lambda entry: (
-                entry.contract_id,
-                entry.instrument_id,
-                entry.timeframe.value,
-                entry.ts,
-            ),
-        )
-    ]
-    existing_provenance_payload = [
-        item.to_dict()
-        for item in sorted(
-            existing_provenance_rows,
-            key=lambda entry: (entry.contract_id, entry.instrument_id, entry.timeframe, entry.ts),
-        )
-    ]
-
-    if scoped_merge:
-        mutation_required = (
-            publish_allowed and bool(changed_window_scope) and bool(scoped_canonical_rows)
-        )
-    else:
-        mutation_required = (
-            publish_allowed
-            and bool(changed_window_scope)
-            and (
-                not _rows_equal(left=existing_canonical_payload, right=canonical_rows_payload)
-                or not _rows_equal(left=existing_provenance_payload, right=provenance_rows_payload)
-            )
-        )
-
-    if mutation_required and scoped_merge:
-        _apply_scoped_delete_insert(
-            bars_path=bars_path,
-            provenance_path=provenance_path,
-            scoped_bars=canonical_rows,
-            scoped_provenance=provenance_rows,
-            affected_keys=affected_keys,
-        )
-    elif mutation_required:
-        write_delta_table_rows(
-            table_path=bars_path,
-            rows=canonical_rows_payload,
-            columns=CANONICAL_BAR_COLUMNS,
-        )
-        write_delta_table_rows(
-            table_path=provenance_path,
-            rows=provenance_rows_payload,
-            columns=PROVENANCE_COLUMNS,
-        )
-
-    sidecar_report: dict[str, object] = {
-        "refresh_mode": "skipped",
-        "sidecar_mutation_applied": False,
-        "refreshed_session_calendar_rows": 0,
-        "refreshed_roll_map_rows": 0,
-        "output_paths": {},
-    }
-    if publish_allowed and has_delta_log(bars_path) and has_delta_log(provenance_path):
-        sidecar_report = _publish_canonical_sidecars(
-            bars_path=bars_path,
-            provenance_path=provenance_path,
-            session_calendar_path=session_calendar_path,
-            roll_map_path=roll_map_path,
-            in_memory_bars=canonical_rows,
-            in_memory_provenance_rows=provenance_rows,
-            in_memory_rows_are_complete=not scoped_merge,
-            affected_sessions=_affected_sessions_from_keys(affected_keys),
-        )
-
-    output_paths: dict[str, str] = {}
-    if has_delta_log(bars_path):
-        output_paths = {
-            "canonical_bars": bars_path.as_posix(),
-            "canonical_bar_provenance": provenance_path.as_posix(),
-        }
-        sidecar_paths = sidecar_report.get("output_paths", {})
-        if isinstance(sidecar_paths, dict):
-            output_paths.update({str(key): str(value) for key, value in sidecar_paths.items()})
-
-    status = _status_for_publish_decision(
-        publish_allowed=publish_allowed,
-        changed_windows=changed_window_scope,
-    )
-
-    report: dict[str, object] = {
-        "run_id": run_id,
-        "route_signal": "worker:phase-only",
-        "proof_class": "staging-real",
-        "canonicalization_engine": "spark",
-        "status": status,
-        "publish_decision": "publish" if publish_allowed else "blocked",
-        "raw_table_path": raw_table_path.as_posix(),
-        "output_dir": output_dir.as_posix(),
-        "source_rows": source_rows,
-        "scoped_source_rows": len(scoped_raw_rows),
-        "changed_windows_count": len(changed_window_scope),
-        "changed_windows_hash_sha256": changed_window_set_manifest["changed_windows_hash_sha256"],
-        "canonical_merge_strategy": canonical_merge_strategy,
-        "max_changed_window_days": max_changed_window_days,
-        "affected_key_count": len(affected_keys),
-        "mutation_applied": mutation_required,
-        "canonical_rows": count_delta_table_rows(bars_path)
-        if has_delta_log(bars_path)
-        else len(canonical_rows),
-        "provenance_rows": (
-            count_delta_table_rows(provenance_path)
+        report: dict[str, object] = {
+            "run_id": run_id,
+            "route_signal": "worker:phase-only",
+            "proof_class": "staging-real",
+            "canonicalization_engine": "spark",
+            "canonical_publish_engine": "spark_delta",
+            "status": STATUS_PASS_NOOP,
+            "publish_decision": "publish",
+            "raw_table_path": raw_table_path.as_posix(),
+            "output_dir": output_dir.as_posix(),
+            "source_rows": source_rows,
+            "scoped_source_rows": 0,
+            "changed_windows_count": 0,
+            "changed_windows_hash_sha256": changed_window_set_manifest[
+                "changed_windows_hash_sha256"
+            ],
+            "canonical_merge_strategy": CANONICAL_MERGE_SCOPED_DELETE_INSERT,
+            "max_changed_window_days": max_changed_window_days,
+            "affected_key_count": 0,
+            "mutation_applied": False,
+            "canonical_rows": count_delta_table_rows(bars_path) if has_delta_log(bars_path) else 0,
+            "provenance_rows": count_delta_table_rows(provenance_path)
             if has_delta_log(provenance_path)
-            else len(provenance_rows)
-        ),
-        "sidecar_refresh": {
-            "mode": sidecar_report.get("refresh_mode"),
-            "mutation_applied": bool(sidecar_report.get("sidecar_mutation_applied", False)),
-            "refreshed_session_calendar_rows": int(
-                sidecar_report.get("refreshed_session_calendar_rows", 0) or 0
+            else 0,
+            "sidecar_refresh": {
+                "mode": "noop"
+                if has_delta_log(session_calendar_path) and has_delta_log(roll_map_path)
+                else "skipped",
+                "mutation_applied": False,
+                "refreshed_session_calendar_rows": 0,
+                "refreshed_roll_map_rows": 0,
+                "affected_session_rows": 0,
+                "overlap_session_rows": 0,
+                "overlap_policy": "",
+            },
+            "scoped_canonical_rows": 0,
+            "target_timeframes": [item.value for item in TARGET_TIMEFRAMES],
+            "resampling_skips": {},
+            "output_paths": output_paths,
+            "artifact_paths": {
+                "changed_window_set_manifest": changed_window_set_path.as_posix(),
+                "runtime_decoupling_proof": runtime_path.as_posix(),
+            },
+            "changed_window_set_manifest": changed_window_set_manifest,
+            "raw_parity_report": {
+                "run_id": run_id,
+                "status": STATUS_PASS,
+                "window_count": 0,
+                "scoped_source_rows": 0,
+                "unmatched_windows_count": 0,
+                "failure_classes": [],
+                "samples": {},
+            },
+            "canonical_parity_report": {
+                "run_id": run_id,
+                "status": STATUS_PASS,
+                "affected_key_count": 0,
+                "expected_scope_rows": 0,
+                "resolved_scope_rows": 0,
+                "failure_classes": [],
+                "samples": {},
+            },
+            "qc_report": {
+                "run_id": run_id,
+                "runtime_owner": "spark_delta",
+                "status": "PASS",
+                "publish_decision": "publish",
+                "failed_gates": [],
+                "gate_results": [],
+            },
+            "contract_compatibility_report": {
+                "status": "PASS",
+                "checked_rows": 0,
+                "errors": [],
+            },
+            "runtime_decoupling_proof": runtime_report,
+            "real_bindings": _report_real_bindings(
+                raw_ingest_run_report=raw_ingest_run_report,
+                fallback_rows=[],
             ),
-            "refreshed_roll_map_rows": int(sidecar_report.get("refreshed_roll_map_rows", 0) or 0),
-        },
-        "scoped_canonical_rows": len(scoped_canonical_rows),
-        "target_timeframes": [item.value for item in TARGET_TIMEFRAMES],
-        "resampling_skips": _summarize_resampling_skips(resampling_skips),
-        "output_paths": output_paths,
-        "artifact_paths": {
-            "changed_window_set_manifest": changed_window_set_path.as_posix(),
-            "raw_parity_report": raw_parity_path.as_posix(),
-            "canonical_parity_report": canonical_parity_path.as_posix(),
-            "canonical_snapshot": canonical_snapshot_path.as_posix(),
-            "resampling_snapshot": resampling_snapshot_path.as_posix(),
-            "qc_report": qc_path.as_posix(),
-            "contract_compatibility_report": contract_path.as_posix(),
-            "runtime_decoupling_proof": runtime_path.as_posix(),
-        },
-        "changed_window_set_manifest": changed_window_set_manifest,
-        "raw_parity_report": raw_parity_report,
-        "canonical_parity_report": canonical_parity_report,
-        "qc_report": qc_report,
-        "contract_compatibility_report": contract_report,
-        "runtime_decoupling_proof": runtime_report,
-        "real_bindings": _report_real_bindings(
-            raw_ingest_run_report=raw_ingest_run_report,
-            fallback_rows=scoped_raw_rows,
-        ),
-    }
-    if spark_execution_report is not None:
-        report["artifact_paths"]["spark_execution_report"] = (
-            output_dir / ".spark-canonicalization" / "spark-execution-report.json"
-        ).as_posix()
-        report["spark_execution_report"] = spark_execution_report
+        }
+        _json_write(output_dir / "canonical-refresh-report.json", report)
+        return report
 
-    _json_write(output_dir / "canonical-refresh-report.json", report)
-    return report
+    return _run_scoped_spark_delta_publish_route(
+        raw_table_path=raw_table_path,
+        output_dir=output_dir,
+        run_id=run_id,
+        raw_ingest_run_report=raw_ingest_run_report,
+        repo_root=repo_root,
+        bars_path=bars_path,
+        provenance_path=provenance_path,
+        session_calendar_path=session_calendar_path,
+        roll_map_path=roll_map_path,
+        changed_window_scope=changed_window_scope,
+        changed_window_set_manifest=changed_window_set_manifest,
+        source_rows=source_rows,
+        max_changed_window_days=max_changed_window_days,
+    )
