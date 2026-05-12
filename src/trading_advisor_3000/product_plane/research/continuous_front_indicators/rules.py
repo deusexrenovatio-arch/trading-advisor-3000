@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import UTC, datetime
 import hashlib
 import json
+from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from trading_advisor_3000.product_plane.research.derived_indicators.registry import (
     DerivedIndicatorProfile,
@@ -14,7 +14,6 @@ from trading_advisor_3000.product_plane.research.indicators.registry import (
     IndicatorSpec,
     default_indicator_profile,
 )
-
 
 DEFAULT_RULE_SET_VERSION = "roll_rules_hybrid_v1"
 ADAPTER_VERSION = "continuous_front_indicator_storage_hybrid_v2"
@@ -69,7 +68,10 @@ CALCULATION_GROUPS: dict[str, CalculationGroup] = {
         reset_on_roll=False,
         anchor_sensitive=False,
         pandas_ta_allowed=True,
-        description="Price-level outputs are computed on causal P0 prices and shifted only to the bar's known current anchor.",
+        description=(
+            "Price-level outputs are computed on causal P0 prices and shifted "
+            "only to the bar's known current anchor."
+        ),
     ),
     "price_range_on_p0": CalculationGroup(
         group_id="price_range_on_p0",
@@ -84,7 +86,9 @@ CALCULATION_GROUPS: dict[str, CalculationGroup] = {
         reset_on_roll=False,
         anchor_sensitive=False,
         pandas_ta_allowed=True,
-        description="Range and difference outputs use causal P0 and do not receive A_t post-transform.",
+        description=(
+            "Range and difference outputs use causal P0 and do not receive A_t post-transform."
+        ),
     ),
     "oscillator_on_p0": CalculationGroup(
         group_id="oscillator_on_p0",
@@ -99,7 +103,9 @@ CALCULATION_GROUPS: dict[str, CalculationGroup] = {
         reset_on_roll=False,
         anchor_sensitive=False,
         pandas_ta_allowed=True,
-        description="Shift-invariant oscillators and position codes are computed on causal P0 inputs.",
+        description=(
+            "Shift-invariant oscillators and position codes are computed on causal P0 inputs."
+        ),
     ),
     "anchor_sensitive_roll_aware": CalculationGroup(
         group_id="anchor_sensitive_roll_aware",
@@ -114,7 +120,10 @@ CALCULATION_GROUPS: dict[str, CalculationGroup] = {
         reset_on_roll=False,
         anchor_sensitive=True,
         pandas_ta_allowed=False,
-        description="Ratios whose denominator changes when a constant is added use custom current-anchor formulas.",
+        description=(
+            "Ratios whose denominator changes when a constant is added use "
+            "custom current-anchor formulas."
+        ),
     ),
     "price_volume_roll_aware": CalculationGroup(
         group_id="price_volume_roll_aware",
@@ -123,13 +132,19 @@ CALCULATION_GROUPS: dict[str, CalculationGroup] = {
         input_price_space="causal_zero_anchor_and_native_volume",
         output_price_space="flow_native_or_current_anchor_level",
         state_space="price_volume_flow",
-        state_transform_on_roll="price uses P0/current anchor, volume stays native, cumulative state follows reset policy",
+        state_transform_on_roll=(
+            "price uses P0/current anchor, volume stays native, cumulative "
+            "state follows reset policy"
+        ),
         contract_boundary_policy="explicit_flow_reset_policy",
         allow_cross_contract_window=True,
         reset_on_roll=True,
         anchor_sensitive=False,
         pandas_ta_allowed=False,
-        description="Price-volume flows keep native volume and make reset/carry behavior explicit at roll boundaries.",
+        description=(
+            "Price-volume flows keep native volume and make reset/carry "
+            "behavior explicit at roll boundaries."
+        ),
     ),
     "native_volume_oi_roll_aware": CalculationGroup(
         group_id="native_volume_oi_roll_aware",
@@ -144,7 +159,10 @@ CALCULATION_GROUPS: dict[str, CalculationGroup] = {
         reset_on_roll=True,
         anchor_sensitive=False,
         pandas_ta_allowed=False,
-        description="Native volume/OI windows are masked or reset instead of being blended across contracts.",
+        description=(
+            "Native volume/OI windows are masked or reset instead of being "
+            "blended across contracts."
+        ),
     ),
     "native_state_relationship_roll_aware": CalculationGroup(
         group_id="native_state_relationship_roll_aware",
@@ -153,7 +171,10 @@ CALCULATION_GROUPS: dict[str, CalculationGroup] = {
         input_price_space="target_anchor_price_and_native_state",
         output_price_space="dimensionless_or_points",
         state_space="derived_native_state_relationship",
-        state_transform_on_roll="derived windows over reset/native state are NULL when roll_epoch changes inside the window",
+        state_transform_on_roll=(
+            "derived windows over reset/native state are NULL when "
+            "roll_epoch changes inside the window"
+        ),
         contract_boundary_policy="mask_cross_contract_native_state_relationship_window",
         allow_cross_contract_window=False,
         reset_on_roll=True,
@@ -174,7 +195,10 @@ CALCULATION_GROUPS: dict[str, CalculationGroup] = {
         reset_on_roll=True,
         anchor_sensitive=False,
         pandas_ta_allowed=False,
-        description="Native price-grid levels remain contract-native unless a separate non-tradable projection is defined.",
+        description=(
+            "Native price-grid levels remain contract-native unless a "
+            "separate non-tradable projection is defined."
+        ),
     ),
     "pandas_window_derived_level": CalculationGroup(
         group_id="pandas_window_derived_level",
@@ -189,7 +213,10 @@ CALCULATION_GROUPS: dict[str, CalculationGroup] = {
         reset_on_roll=False,
         anchor_sensitive=False,
         pandas_ta_allowed=False,
-        description="Derived rolling/session/week levels are computed from causal normalized state before shifting to the bar's known current anchor.",
+        description=(
+            "Derived rolling/session/week levels are computed from causal "
+            "normalized state before shifting to the bar's known current anchor."
+        ),
     ),
     "derived_relationship_roll_aware": CalculationGroup(
         group_id="derived_relationship_roll_aware",
@@ -198,13 +225,20 @@ CALCULATION_GROUPS: dict[str, CalculationGroup] = {
         input_price_space="declared_source_price_space",
         output_price_space="dimensionless_points_or_degrees",
         state_space="derived_relationship",
-        state_transform_on_roll="validate price-space compatibility before distance, position, cross, angle slope, or movement divergence",
+        state_transform_on_roll=(
+            "validate price-space compatibility before distance, position, "
+            "cross, angle slope, or movement divergence"
+        ),
         contract_boundary_policy="validate_source_price_space",
         allow_cross_contract_window=True,
         reset_on_roll=False,
         anchor_sensitive=False,
         pandas_ta_allowed=False,
-        description="Derived relationships consume declared base/input spaces and fail closed on mismatches; slope outputs are angles and divergence outputs compare movement angles.",
+        description=(
+            "Derived relationships consume declared base/input spaces and fail "
+            "closed on mismatches; slope outputs are angles and divergence "
+            "outputs compare movement angles."
+        ),
     ),
     "mtf_causal_overlay": CalculationGroup(
         group_id="mtf_causal_overlay",
@@ -219,7 +253,10 @@ CALCULATION_GROUPS: dict[str, CalculationGroup] = {
         reset_on_roll=False,
         anchor_sensitive=False,
         pandas_ta_allowed=False,
-        description="MTF overlays use closed source bars only and require matching dataset/roll/indicator versions.",
+        description=(
+            "MTF overlays use closed source bars only and require matching "
+            "dataset/roll/indicator versions."
+        ),
     ),
 }
 
@@ -320,9 +357,26 @@ def _group_for_indicator_output(spec: IndicatorSpec, output_column: str) -> str:
         return "oscillator_on_p0"
     if operation in {"natr", "roc", "ppo", "realized_volatility", "ulcer_index"}:
         return "anchor_sensitive_roll_aware"
-    if operation in {"obv", "mfi", "cmf", "ad", "adosc", "force_index", "pvt"}:
+    if operation in {
+        "obv",
+        "mfi",
+        "cmf",
+        "ad",
+        "adosc",
+        "force_index",
+        "pvt",
+        "volume_profile",
+    }:
         return "price_volume_roll_aware"
-    if operation in {"pvo", "volume_norm", "oi_change", "oi_roc", "oi_z", "oi_relative_activity", "volume_oi_ratio"}:
+    if operation in {
+        "pvo",
+        "volume_norm",
+        "oi_change",
+        "oi_roc",
+        "oi_z",
+        "oi_relative_activity",
+        "volume_oi_ratio",
+    }:
         return "native_volume_oi_roll_aware"
     if operation == "vwma":
         return "price_level_post_transform"
@@ -394,9 +448,17 @@ def rules_for_indicator_profile(
 
 
 def _group_for_derived_output(column: str) -> str:
+    if column.startswith("vp_"):
+        return "price_volume_roll_aware"
     if column.startswith("mtf_"):
         return "mtf_causal_overlay"
-    if column in {"volume_change_1", "oi_change_1", "price_volume_corr_20", "price_oi_corr_20", "volume_oi_corr_20"}:
+    if column in {
+        "volume_change_1",
+        "oi_change_1",
+        "price_volume_corr_20",
+        "price_oi_corr_20",
+        "volume_oi_corr_20",
+    }:
         return "native_volume_oi_roll_aware"
     if column.startswith("divergence_price_"):
         source_column = column.removeprefix("divergence_price_").removesuffix("_score")
@@ -416,6 +478,8 @@ def _group_for_derived_output(column: str) -> str:
 
 
 def _warmup_for_derived_output(column: str, *, default: int) -> int:
+    if column.startswith("vp_"):
+        return 0
     if column.endswith("_change_1"):
         return 1
     if column.endswith("_slope_5"):
@@ -446,11 +510,22 @@ def rules_for_derived_profile(
                 output_family="derived",
                 formula_id=column,
                 calculation_group_id=group_id,
-                adapter_input_columns=("cf_indicator_input_frame", "continuous_front_indicator_frames"),
+                adapter_input_columns=(
+                    "cf_indicator_input_frame",
+                    "continuous_front_indicator_frames",
+                ),
                 adapter_output_columns=(column,),
                 warmup_bars=_warmup_for_derived_output(column, default=resolved.warmup_bars),
-                requires_base_columns=() if group_id == "pandas_window_derived_level" else ("declared_by_formula",),
-                requires_input_columns=("open0", "high0", "low0", "close0", "cumulative_additive_offset"),
+                requires_base_columns=()
+                if group_id == "pandas_window_derived_level"
+                else ("declared_by_formula",),
+                requires_input_columns=(
+                    "open0",
+                    "high0",
+                    "low0",
+                    "close0",
+                    "cumulative_additive_offset",
+                ),
             )
         )
     return tuple(rules)
@@ -468,18 +543,25 @@ def default_indicator_roll_rules(
     )
 
 
-def rules_to_rows(rules: tuple[IndicatorRollRule, ...], *, created_at_utc: str | None = None) -> list[dict[str, object]]:
+def rules_to_rows(
+    rules: tuple[IndicatorRollRule, ...], *, created_at_utc: str | None = None
+) -> list[dict[str, object]]:
     timestamp = created_at_utc or _utc_now_iso()
     return [rule.to_dict(created_at_utc=timestamp) for rule in rules]
 
 
 def rule_set_hash(rules: tuple[IndicatorRollRule, ...]) -> str:
-    payload = [rule.to_dict(include_created_at=False) for rule in sorted(rules, key=lambda item: item.output_column)]
+    payload = [
+        rule.to_dict(include_created_at=False)
+        for rule in sorted(rules, key=lambda item: item.output_column)
+    ]
     normalized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16].upper()
 
 
-def adapter_bundle_hash(rules: tuple[IndicatorRollRule, ...], *, dependency_lock_hash: str = "") -> str:
+def adapter_bundle_hash(
+    rules: tuple[IndicatorRollRule, ...], *, dependency_lock_hash: str = ""
+) -> str:
     payload = {
         "adapters": sorted({(rule.group.adapter_id, ADAPTER_VERSION) for rule in rules}),
         "rule_hashes": sorted(rule.rule_hash for rule in rules),
@@ -496,9 +578,9 @@ def assert_rule_coverage(*, output_columns: set[str], rules: tuple[IndicatorRoll
     if missing:
         raise ValueError("missing indicator roll rules for output columns: " + ", ".join(missing))
     duplicates = sorted(
-        column
-        for column in covered
-        if sum(1 for rule in rules if rule.output_column == column) > 1
+        column for column in covered if sum(1 for rule in rules if rule.output_column == column) > 1
     )
     if duplicates:
-        raise ValueError("duplicate indicator roll rules for output columns: " + ", ".join(duplicates))
+        raise ValueError(
+            "duplicate indicator roll rules for output columns: " + ", ".join(duplicates)
+        )
