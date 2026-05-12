@@ -196,10 +196,18 @@
       background: var(--panel-strong);
       border-width: 2px;
     }
-    .node-card[data-state="ok"] { border-color: color-mix(in srgb, var(--ok) 56%, var(--line)); }
-    .node-card[data-state="attention"] { border-color: color-mix(in srgb, var(--attention) 70%, var(--line)); }
-    .node-card[data-state="unknown"] { border-color: color-mix(in srgb, var(--unknown) 70%, var(--line)); }
-    .node-card[data-state="blocked"] { border-color: color-mix(in srgb, var(--blocked) 70%, var(--line)); }
+    .node-card[data-state="ok"] {
+      border-color: color-mix(in srgb, var(--ok) 56%, var(--line));
+    }
+    .node-card[data-state="attention"] {
+      border-color: color-mix(in srgb, var(--attention) 70%, var(--line));
+    }
+    .node-card[data-state="unknown"] {
+      border-color: color-mix(in srgb, var(--unknown) 70%, var(--line));
+    }
+    .node-card[data-state="blocked"] {
+      border-color: color-mix(in srgb, var(--blocked) 70%, var(--line));
+    }
     .item-card { border-color: color-mix(in srgb, var(--item) 58%, var(--line)); }
     .user-attention { box-shadow: inset 4px 0 0 var(--blocked); }
     .card-topline, .meta-row {
@@ -236,17 +244,32 @@
     .surface-product-plane { background: color-mix(in srgb, var(--product) 28%, #312c3d); }
     .surface-mixed { background: color-mix(in srgb, var(--mixed) 24%, #2b3934); }
     .state-ok { background: color-mix(in srgb, var(--ok) 32%, #26352d); }
-    .state-attention { background: color-mix(in srgb, var(--attention) 32%, #3f3824); color: #fff4bd; }
-    .state-needs-attention { background: color-mix(in srgb, var(--attention) 32%, #3f3824); color: #fff4bd; }
+    .state-attention {
+      background: color-mix(in srgb, var(--attention) 32%, #3f3824);
+      color: #fff4bd;
+    }
+    .state-needs-attention {
+      background: color-mix(in srgb, var(--attention) 32%, #3f3824);
+      color: #fff4bd;
+    }
     .state-unknown { background: color-mix(in srgb, var(--unknown) 32%, #3c3028); }
     .rollup-stable { background: color-mix(in srgb, var(--ok) 32%, #26352d); }
     .rollup-watch { background: color-mix(in srgb, var(--item) 26%, #29323a); }
-    .rollup-review { background: color-mix(in srgb, var(--attention) 32%, #3f3824); color: #fff4bd; }
+    .rollup-review {
+      background: color-mix(in srgb, var(--attention) 32%, #3f3824);
+      color: #fff4bd;
+    }
     .rollup-unknown { background: color-mix(in srgb, var(--unknown) 32%, #3c3028); }
-    .rollup-decision { background: color-mix(in srgb, var(--attention) 48%, #443824); color: #fff4bd; }
+    .rollup-decision {
+      background: color-mix(in srgb, var(--attention) 48%, #443824);
+      color: #fff4bd;
+    }
     .rollup-blocked { background: color-mix(in srgb, var(--blocked) 42%, #3d292c); }
     .priority-p0 { background: color-mix(in srgb, var(--blocked) 54%, #3d292c); }
-    .priority-p1 { background: color-mix(in srgb, var(--attention) 48%, #3f3824); color: #fff4bd; }
+    .priority-p1 {
+      background: color-mix(in srgb, var(--attention) 48%, #3f3824);
+      color: #fff4bd;
+    }
     .priority-p2 { background: color-mix(in srgb, var(--item) 34%, #29323a); }
     .priority-p3 { background: #363a42; }
     .severity-high { background: color-mix(in srgb, var(--blocked) 34%, #3d292c); }
@@ -297,10 +320,17 @@
       <div>
         <p class="eyebrow">Trading Advisor 3000</p>
         <h1>Project Cockpit</h1>
-        <p class="subtitle">Architecture and attention view generated from Obsidian project-map notes.</p>
+        <p class="subtitle">
+          Architecture and attention view generated from Obsidian project-map notes.
+        </p>
       </div>
       <form class="controls" id="filters">
-        <input id="search" type="search" placeholder="Search nodes, refs, items" aria-label="Search">
+        <input
+          id="search"
+          type="search"
+          placeholder="Search nodes, refs, items"
+          aria-label="Search"
+        >
         <select id="state" aria-label="State filter">
           <option value="">All states</option>
           <option value="attention">attention</option>
@@ -363,7 +393,9 @@
     <span>2 scored blocks</span>
     <strong>2.1/5</strong>
   </div>
-  <div class="readiness-bar" aria-hidden="true"><span style="width: 42%"></span></div>
+  <div class="readiness-bar" aria-hidden="true">
+    <span style="width: 42%"></span>
+  </div>
   <p>Weakest block: Execution Plane (1.8/5).</p>
   <ul class="readiness-breakdown">
     <li><a href="state/nodes/Execution%20Plane.md">Execution Plane</a> <strong>1.8/5</strong></li>
@@ -381,7 +413,9 @@
     <span>10 scored blocks</span>
     <strong>3.0/5</strong>
   </div>
-  <div class="readiness-bar" aria-hidden="true"><span style="width: 60%"></span></div>
+  <div class="readiness-bar" aria-hidden="true">
+    <span style="width: 60%"></span>
+  </div>
   <p>Weakest block: Execution Plane (1.8/5).</p>
   <ul class="readiness-breakdown">
     <li><a href="state/nodes/Execution%20Plane.md">Execution Plane</a> <strong>1.8/5</strong></li>
@@ -407,7 +441,9 @@
     <span>3 scored blocks</span>
     <strong>3.0/5</strong>
   </div>
-  <div class="readiness-bar" aria-hidden="true"><span style="width: 60%"></span></div>
+  <div class="readiness-bar" aria-hidden="true">
+    <span style="width: 60%"></span>
+  </div>
   <p>Weakest block: Runtime Plane (2.7/5).</p>
   <ul class="readiness-breakdown">
     <li><a href="state/nodes/Runtime%20Plane.md">Runtime Plane</a> <strong>2.7/5</strong></li>
@@ -426,7 +462,9 @@
     <span>4 scored blocks</span>
     <strong>3.2/5</strong>
   </div>
-  <div class="readiness-bar" aria-hidden="true"><span style="width: 64%"></span></div>
+  <div class="readiness-bar" aria-hidden="true">
+    <span style="width: 64%"></span>
+  </div>
   <p>Weakest block: Signal Candidate Projection (2.2/5).</p>
   <ul class="readiness-breakdown">
     <li><a href="state/nodes/Signal%20Candidate%20Projection.md">Signal Candidate Projection</a> <strong>2.2/5</strong></li>
@@ -446,7 +484,9 @@
     <span>1 scored blocks</span>
     <strong>4.0/5</strong>
   </div>
-  <div class="readiness-bar" aria-hidden="true"><span style="width: 80%"></span></div>
+  <div class="readiness-bar" aria-hidden="true">
+    <span style="width: 80%"></span>
+  </div>
   <p>Weakest block: Data Plane (4.0/5).</p>
   <ul class="readiness-breakdown">
     <li><a href="state/nodes/Data%20Plane.md">Data Plane</a> <strong>4.0/5</strong></li>
@@ -466,7 +506,9 @@
       </header>
       <div class="level-one-grid">
 
-<article class="node-card filterable node-major" data-kind="node" data-state="ok" data-rollup="stable" data-surface="shell" data-level="1" data-search="delivery shell delivery-shell shell ok stable control plane for policy, context routing, task lifecycle, gates, pr evidence, and handoff state. dfd shape was corrected from a linear workflow to a control-plane model. delivery gates, durable work state, and agents.md docs/dev_workflow.md docs/architecture/repository-surfaces.md docs/agent/entrypoint.md docs/agent/checks.md docs/agent/skills-routing.md docs/obsidian/dfd/level-1-delivery-shell.md scripts/run_loop_gate.py scripts/run_pr_gate.py scripts/validate_session_handoff.py">
+<article class="node-card filterable node-major" data-kind="node" data-state="ok"
+    data-rollup="stable" data-surface="shell"
+    data-level="1" data-search="delivery shell delivery-shell shell ok stable control plane for policy, context routing, task lifecycle, gates, pr evidence, and handoff state. dfd shape was corrected from a linear workflow to a control-plane model. delivery gates, durable work state, and agents.md docs/dev_workflow.md docs/architecture/repository-surfaces.md docs/agent/entrypoint.md docs/agent/checks.md docs/agent/skills-routing.md docs/obsidian/dfd/level-1-delivery-shell.md scripts/run_loop_gate.py scripts/run_pr_gate.py scripts/validate_session_handoff.py">
   <div class="card-topline">
     <span class="node-level">L1</span>
     <span class="surface surface-shell">shell</span>
@@ -487,7 +529,9 @@
 </article>
 
 
-<article class="node-card filterable node-major" data-kind="node" data-state="attention" data-rollup="unknown" data-surface="product-plane" data-level="1" data-search="product plane product-plane product-plane attention unknown application plane for contracts, data, research, runtime, execution, app docs, and product tests. status is broad and should be read through child nodes before making delivery claims. execution plane. use the... docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/native-runtime-ownership.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-1-product-plane.md scripts/validate_stack_conformance.py scripts/validate_product_surface_naming.py tests/product-plane">
+<article class="node-card filterable node-major" data-kind="node" data-state="attention"
+    data-rollup="unknown" data-surface="product-plane"
+    data-level="1" data-search="product plane product-plane product-plane attention unknown application plane for contracts, data, research, runtime, execution, app docs, and product tests. status is broad and should be read through child nodes before making delivery claims. execution plane. use the... docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/native-runtime-ownership.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-1-product-plane.md scripts/validate_stack_conformance.py scripts/validate_product_surface_naming.py tests/product-plane">
   <div class="card-topline">
     <span class="node-level">L1</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -500,7 +544,9 @@
       <span>Readiness</span>
       <strong>3.0/5</strong>
     </div>
-    <div class="readiness-bar" aria-hidden="true"><span style="width: 60%"></span></div>
+    <div class="readiness-bar" aria-hidden="true">
+      <span style="width: 60%"></span>
+    </div>
     <span class="readiness-label">Readiness roll-up</span>
     <span class="readiness-next">10 scored blocks; weakest: Execution Plane</span>
   </div>
@@ -518,7 +564,9 @@
 </article>
 
 
-<article class="node-card filterable node-major" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="1" data-search="data plane data-plane product-plane attention review historical market ingestion, moex raw/canonical baseline, qc, and research handoff. current main includes the moex delta/spark phase-1 route work: raw delta mutation, direct raw-delta canonicalization, product... real foundation plus spark/delta route canonical and research delta roots exist; pr prove the routine baseline update path against accepted stable roots. docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/moex-nightly-v2-architecture.md docs/runbooks/app/moex-baseline-storage-runbook.md docs/obsidian/dfd/level-2-data-plane.md docs/obsidian/dfd/level-1-product-plane.md scripts/run_moex_raw_ingest.py scripts/run_moex_canonical_refresh.py scripts/run_moex_baseline_update_staging_job.py tests/product-plane/unit/test_moex_canonical_route.py tests/product-plane/unit/test_hot_delta_table_guardrails.py">
+<article class="node-card filterable node-major" data-kind="node" data-state="attention"
+    data-rollup="review" data-surface="product-plane"
+    data-level="1" data-search="data plane data-plane product-plane attention review historical market ingestion, moex raw/canonical baseline, qc, and research handoff. current main includes the moex delta/spark phase-1 route work: raw delta mutation, direct raw-delta canonicalization, product... real foundation plus spark/delta route canonical and research delta roots exist; pr prove the routine baseline update path against accepted stable roots. docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/moex-nightly-v2-architecture.md docs/runbooks/app/moex-baseline-storage-runbook.md docs/obsidian/dfd/level-2-data-plane.md docs/obsidian/dfd/level-1-product-plane.md scripts/run_moex_raw_ingest.py scripts/run_moex_canonical_refresh.py scripts/run_moex_baseline_update_staging_job.py tests/product-plane/unit/test_moex_canonical_route.py tests/product-plane/unit/test_hot_delta_table_guardrails.py">
   <div class="card-topline">
     <span class="node-level">L1</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -531,7 +579,9 @@
       <span>Readiness</span>
       <strong>4.0/5</strong>
     </div>
-    <div class="readiness-bar" aria-hidden="true"><span style="width: 80%"></span></div>
+    <div class="readiness-bar" aria-hidden="true">
+      <span style="width: 80%"></span>
+    </div>
     <span class="readiness-label">Readiness roll-up</span>
     <span class="readiness-next">1 scored blocks; weakest: Data Plane</span>
   </div>
@@ -549,7 +599,9 @@
 </article>
 
 
-<article class="node-card filterable node-major" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="1" data-search="research plane research-plane product-plane attention review materialized research data prep, strategy registry, backtest outputs, rankings, findings, and candidate projection. research state should be checked through persisted delta tables and current status docs, not... docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/research-plane-platform.md docs/runbooks/app/research-plane-operations.md docs/obsidian/dfd/level-2-research-to-runtime.md docs/obsidian/dfd/level-1-product-plane.md tests/product-plane/integration/test_research_plane.py tests/product-plane/integration/test_research_campaign_route.py">
+<article class="node-card filterable node-major" data-kind="node" data-state="attention"
+    data-rollup="review" data-surface="product-plane"
+    data-level="1" data-search="research plane research-plane product-plane attention review materialized research data prep, strategy registry, backtest outputs, rankings, findings, and candidate projection. research state should be checked through persisted delta tables and current status docs, not... docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/research-plane-platform.md docs/runbooks/app/research-plane-operations.md docs/obsidian/dfd/level-2-research-to-runtime.md docs/obsidian/dfd/level-1-product-plane.md tests/product-plane/integration/test_research_plane.py tests/product-plane/integration/test_research_campaign_route.py">
   <div class="card-topline">
     <span class="node-level">L1</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -562,7 +614,9 @@
       <span>Readiness</span>
       <strong>3.2/5</strong>
     </div>
-    <div class="readiness-bar" aria-hidden="true"><span style="width: 64%"></span></div>
+    <div class="readiness-bar" aria-hidden="true">
+      <span style="width: 64%"></span>
+    </div>
     <span class="readiness-label">Readiness roll-up</span>
     <span class="readiness-next">4 scored blocks; weakest: Signal Candidate Projection</span>
   </div>
@@ -580,7 +634,9 @@
 </article>
 
 
-<article class="node-card filterable node-major" data-kind="node" data-state="unknown" data-rollup="unknown" data-surface="product-plane" data-level="1" data-search="runtime plane runtime-plane product-plane unknown unknown runtime signal lifecycle, durable signal store, publication state, and api runtime surface. state graph mvp marks this as unknown until the runtime-specific state view is reviewed against current proof. durabl... technical runtime, not product loop runtime and telegram adapter surfaces exist, but current advisory loop is not proven. bind non-empty candidates to advisory message delivery and monitoring. docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/runtime-lifecycle.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-research-to-runtime.md docs/obsidian/dfd/level-1-product-plane.md tests/product-plane/integration/test_runtime_lifecycle.py tests/product-plane/integration/test_runtime_postgres_store.py">
+<article class="node-card filterable node-major" data-kind="node" data-state="unknown"
+    data-rollup="unknown" data-surface="product-plane"
+    data-level="1" data-search="runtime plane runtime-plane product-plane unknown unknown runtime signal lifecycle, durable signal store, publication state, and api runtime surface. state graph mvp marks this as unknown until the runtime-specific state view is reviewed against current proof. durabl... technical runtime, not product loop runtime and telegram adapter surfaces exist, but current advisory loop is not proven. bind non-empty candidates to advisory message delivery and monitoring. docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/runtime-lifecycle.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-research-to-runtime.md docs/obsidian/dfd/level-1-product-plane.md tests/product-plane/integration/test_runtime_lifecycle.py tests/product-plane/integration/test_runtime_postgres_store.py">
   <div class="card-topline">
     <span class="node-level">L1</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -593,7 +649,9 @@
       <span>Readiness</span>
       <strong>3.0/5</strong>
     </div>
-    <div class="readiness-bar" aria-hidden="true"><span style="width: 60%"></span></div>
+    <div class="readiness-bar" aria-hidden="true">
+      <span style="width: 60%"></span>
+    </div>
     <span class="readiness-label">Readiness roll-up</span>
     <span class="readiness-next">3 scored blocks; weakest: Runtime Plane</span>
   </div>
@@ -611,7 +669,9 @@
 </article>
 
 
-<article class="node-card filterable node-major" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="1" data-search="execution plane execution-plane product-plane attention review paper execution, sidecar boundary, broker events, reconciliation, and position/risk snapshots. the current dfd intentionally does not invent a durable execution db. sidecar wire boundary, and broker process cl... downstream by design paper/live scaffolding exists, but live execution is intentionally behind strategy validation and advisory proof. keep live execution blocked until validated strategy and advisory loop are accepted. docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/execution-flow.md docs/architecture/product-plane/controlled-live-execution.md docs/architecture/product-plane/sidecar-wire-api-v1.md docs/obsidian/dfd/level-2-contracts-and-execution.md docs/obsidian/dfd/level-1-product-plane.md tests/product-plane/integration/test_execution_flow.py tests/product-plane/integration/test_real_execution_staging_rollout.py">
+<article class="node-card filterable node-major" data-kind="node" data-state="attention"
+    data-rollup="review" data-surface="product-plane"
+    data-level="1" data-search="execution plane execution-plane product-plane attention review paper execution, sidecar boundary, broker events, reconciliation, and position/risk snapshots. the current dfd intentionally does not invent a durable execution db. sidecar wire boundary, and broker process cl... downstream by design paper/live scaffolding exists, but live execution is intentionally behind strategy validation and advisory proof. keep live execution blocked until validated strategy and advisory loop are accepted. docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/execution-flow.md docs/architecture/product-plane/controlled-live-execution.md docs/architecture/product-plane/sidecar-wire-api-v1.md docs/obsidian/dfd/level-2-contracts-and-execution.md docs/obsidian/dfd/level-1-product-plane.md tests/product-plane/integration/test_execution_flow.py tests/product-plane/integration/test_real_execution_staging_rollout.py">
   <div class="card-topline">
     <span class="node-level">L1</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -624,7 +684,9 @@
       <span>Readiness</span>
       <strong>2.1/5</strong>
     </div>
-    <div class="readiness-bar" aria-hidden="true"><span style="width: 42%"></span></div>
+    <div class="readiness-bar" aria-hidden="true">
+      <span style="width: 42%"></span>
+    </div>
     <span class="readiness-label">Readiness roll-up</span>
     <span class="readiness-next">2 scored blocks; weakest: Execution Plane</span>
   </div>
@@ -642,7 +704,9 @@
 </article>
 
 
-<article class="node-card filterable node-major" data-kind="node" data-state="ok" data-rollup="stable" data-surface="product-plane" data-level="1" data-search="contract surfaces contract-surfaces product-plane ok stable release-blocking schemas, fixtures, contract tests, and compatibility inventory. dfd points at short contract store names; canonical contract truth stays in the contract-surfaces architecture document. contrac... docs/architecture/product-plane/contract_surfaces.md docs/architecture/product-plane/contract-change-policy.md docs/obsidian/dfd/level-2-contracts-and-execution.md docs/obsidian/dfd/level-1-product-plane.md src/trading_advisor_3000/product_plane/contracts/schemas/release_blocking_contracts.v1.yaml tests/product-plane/contracts">
+<article class="node-card filterable node-major" data-kind="node" data-state="ok"
+    data-rollup="stable" data-surface="product-plane"
+    data-level="1" data-search="contract surfaces contract-surfaces product-plane ok stable release-blocking schemas, fixtures, contract tests, and compatibility inventory. dfd points at short contract store names; canonical contract truth stays in the contract-surfaces architecture document. contrac... docs/architecture/product-plane/contract_surfaces.md docs/architecture/product-plane/contract-change-policy.md docs/obsidian/dfd/level-2-contracts-and-execution.md docs/obsidian/dfd/level-1-product-plane.md src/trading_advisor_3000/product_plane/contracts/schemas/release_blocking_contracts.v1.yaml tests/product-plane/contracts">
   <div class="card-topline">
     <span class="node-level">L1</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -663,7 +727,9 @@
 </article>
 
 
-<article class="node-card filterable node-major user-attention" data-kind="node" data-state="attention" data-rollup="decision" data-surface="mixed" data-level="1" data-search="project map project-map mixed attention decision obsidian-friendly dfd and project state graph layer. the state graph mvp needs user review before adding canvas projection or automation. dfd readability review, and canvas projection. use the items by node ba... docs/project-map/state/project map update rules.md docs/project-map/state/project-graph.md docs/project-map/readme.md docs/obsidian/readme.md docs/obsidian/dfd/readme.md docs/obsidian/dfd/level-0-system-context.md scripts/validate_docs_links.py scripts/validate_project_map.py">
+<article class="node-card filterable node-major user-attention" data-kind="node" data-state="attention"
+    data-rollup="decision" data-surface="mixed"
+    data-level="1" data-search="project map project-map mixed attention decision obsidian-friendly dfd and project state graph layer. the state graph mvp needs user review before adding canvas projection or automation. dfd readability review, and canvas projection. use the items by node ba... docs/project-map/state/project map update rules.md docs/project-map/state/project-graph.md docs/project-map/readme.md docs/obsidian/readme.md docs/obsidian/dfd/readme.md docs/obsidian/dfd/level-0-system-context.md scripts/validate_docs_links.py scripts/validate_project_map.py">
   <div class="card-topline">
     <span class="node-level">L1</span>
     <span class="surface surface-mixed">mixed</span>
@@ -704,7 +770,9 @@
   </header>
   <div class="lane-grid">
 
-<article class="node-card filterable" data-kind="node" data-state="ok" data-rollup="stable" data-surface="shell" data-level="2" data-search="agent entry and routing agent-entry-and-routing shell ok stable entry docs, domain routing, skill selection, and context-card orientation for agent work in the repository. update this node when agent entry docs, routing rules, skill rules, or context cards change. agents.md docs/agent/entrypoint.md docs/agent/domains.md docs/agent/skills-routing.md docs/agent-contexts/readme.md docs/obsidian/dfd/level-2-shell-context-and-task-lifecycle.md scripts/context_router.py scripts/validate_agent_contexts.py scripts/validate_skills.py">
+<article class="node-card filterable" data-kind="node" data-state="ok"
+    data-rollup="stable" data-surface="shell"
+    data-level="2" data-search="agent entry and routing agent-entry-and-routing shell ok stable entry docs, domain routing, skill selection, and context-card orientation for agent work in the repository. update this node when agent entry docs, routing rules, skill rules, or context cards change. agents.md docs/agent/entrypoint.md docs/agent/domains.md docs/agent/skills-routing.md docs/agent-contexts/readme.md docs/obsidian/dfd/level-2-shell-context-and-task-lifecycle.md scripts/context_router.py scripts/validate_agent_contexts.py scripts/validate_skills.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-shell">shell</span>
@@ -724,7 +792,9 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="ok" data-rollup="stable" data-surface="shell" data-level="2" data-search="delivery gates delivery-gates shell ok stable loop gate, pr gate, validation commands, and acceptance checks used to keep changes reviewable before they move toward main. update this node when canonical gate names, validation commands, or acceptance polic... docs/agent/checks.md docs/dev_workflow.md docs/agent/critical-contours.md docs/obsidian/dfd/level-2-shell-gate-runtime.md scripts/run_loop_gate.py scripts/run_pr_gate.py scripts/validate_critical_contour_closure.py">
+<article class="node-card filterable" data-kind="node" data-state="ok"
+    data-rollup="stable" data-surface="shell"
+    data-level="2" data-search="delivery gates delivery-gates shell ok stable loop gate, pr gate, validation commands, and acceptance checks used to keep changes reviewable before they move toward main. update this node when canonical gate names, validation commands, or acceptance polic... docs/agent/checks.md docs/dev_workflow.md docs/agent/critical-contours.md docs/obsidian/dfd/level-2-shell-gate-runtime.md scripts/run_loop_gate.py scripts/run_pr_gate.py scripts/validate_critical_contour_closure.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-shell">shell</span>
@@ -744,7 +814,9 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="ok" data-rollup="stable" data-surface="shell" data-level="2" data-search="durable work state durable-work-state shell ok stable task notes, handoff pointers, plan items, and evidence references that let work continue without relying only on chat memory. update this node when the canonical task-state, handoff, or plan storage model chan... docs/session_handoff.md docs/dev_workflow.md docs/agent/runtime.md docs/obsidian/dfd/level-2-shell-context-and-task-lifecycle.md scripts/validate_session_handoff.py scripts/validate_task_outcomes.py scripts/validate_plans.py">
+<article class="node-card filterable" data-kind="node" data-state="ok"
+    data-rollup="stable" data-surface="shell"
+    data-level="2" data-search="durable work state durable-work-state shell ok stable task notes, handoff pointers, plan items, and evidence references that let work continue without relying only on chat memory. update this node when the canonical task-state, handoff, or plan storage model chan... docs/session_handoff.md docs/dev_workflow.md docs/agent/runtime.md docs/obsidian/dfd/level-2-shell-context-and-task-lifecycle.md scripts/validate_session_handoff.py scripts/validate_task_outcomes.py scripts/validate_plans.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-shell">shell</span>
@@ -764,7 +836,9 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="ok" data-rollup="stable" data-surface="shell" data-level="2" data-search="validation reports validation-reports shell ok stable reports, validation artifacts, and gate outputs used as evidence that a change met its acceptance route. update this node when validation artifact locations or report semantics change. docs/agent/checks.md docs/dev_workflow.md docs/obsidian/dfd/level-2-shell-pr-and-evidence.md docs/obsidian/dfd/level-2-shell-gate-runtime.md scripts/run_loop_gate.py scripts/run_pr_gate.py scripts/validate_docs_links.py">
+<article class="node-card filterable" data-kind="node" data-state="ok"
+    data-rollup="stable" data-surface="shell"
+    data-level="2" data-search="validation reports validation-reports shell ok stable reports, validation artifacts, and gate outputs used as evidence that a change met its acceptance route. update this node when validation artifact locations or report semantics change. docs/agent/checks.md docs/dev_workflow.md docs/obsidian/dfd/level-2-shell-pr-and-evidence.md docs/obsidian/dfd/level-2-shell-gate-runtime.md scripts/run_loop_gate.py scripts/run_pr_gate.py scripts/validate_docs_links.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-shell">shell</span>
@@ -798,7 +872,9 @@
   </header>
   <div class="lane-grid">
 
-<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="1" data-search="data plane data-plane product-plane attention review historical market ingestion, moex raw/canonical baseline, qc, and research handoff. current main includes the moex delta/spark phase-1 route work: raw delta mutation, direct raw-delta canonicalization, product... real foundation plus spark/delta route canonical and research delta roots exist; pr prove the routine baseline update path against accepted stable roots. docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/moex-nightly-v2-architecture.md docs/runbooks/app/moex-baseline-storage-runbook.md docs/obsidian/dfd/level-2-data-plane.md docs/obsidian/dfd/level-1-product-plane.md scripts/run_moex_raw_ingest.py scripts/run_moex_canonical_refresh.py scripts/run_moex_baseline_update_staging_job.py tests/product-plane/unit/test_moex_canonical_route.py tests/product-plane/unit/test_hot_delta_table_guardrails.py">
+<article class="node-card filterable" data-kind="node" data-state="attention"
+    data-rollup="review" data-surface="product-plane"
+    data-level="1" data-search="data plane data-plane product-plane attention review historical market ingestion, moex raw/canonical baseline, qc, and research handoff. current main includes the moex delta/spark phase-1 route work: raw delta mutation, direct raw-delta canonicalization, product... real foundation plus spark/delta route canonical and research delta roots exist; pr prove the routine baseline update path against accepted stable roots. docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/moex-nightly-v2-architecture.md docs/runbooks/app/moex-baseline-storage-runbook.md docs/obsidian/dfd/level-2-data-plane.md docs/obsidian/dfd/level-1-product-plane.md scripts/run_moex_raw_ingest.py scripts/run_moex_canonical_refresh.py scripts/run_moex_baseline_update_staging_job.py tests/product-plane/unit/test_moex_canonical_route.py tests/product-plane/unit/test_hot_delta_table_guardrails.py">
   <div class="card-topline">
     <span class="node-level">L1</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -811,7 +887,9 @@
       <span>Readiness</span>
       <strong>4.0/5</strong>
     </div>
-    <div class="readiness-bar" aria-hidden="true"><span style="width: 80%"></span></div>
+    <div class="readiness-bar" aria-hidden="true">
+      <span style="width: 80%"></span>
+    </div>
     <span class="readiness-label">Real foundation plus Spark/Delta route</span>
     <span class="readiness-next">Next: Prove the routine baseline update path against accepted stable roots.</span>
   </div>
@@ -828,7 +906,9 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="1" data-search="execution plane execution-plane product-plane attention review paper execution, sidecar boundary, broker events, reconciliation, and position/risk snapshots. the current dfd intentionally does not invent a durable execution db. sidecar wire boundary, and broker process cl... downstream by design paper/live scaffolding exists, but live execution is intentionally behind strategy validation and advisory proof. keep live execution blocked until validated strategy and advisory loop are accepted. docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/execution-flow.md docs/architecture/product-plane/controlled-live-execution.md docs/architecture/product-plane/sidecar-wire-api-v1.md docs/obsidian/dfd/level-2-contracts-and-execution.md docs/obsidian/dfd/level-1-product-plane.md tests/product-plane/integration/test_execution_flow.py tests/product-plane/integration/test_real_execution_staging_rollout.py">
+<article class="node-card filterable" data-kind="node" data-state="attention"
+    data-rollup="review" data-surface="product-plane"
+    data-level="1" data-search="execution plane execution-plane product-plane attention review paper execution, sidecar boundary, broker events, reconciliation, and position/risk snapshots. the current dfd intentionally does not invent a durable execution db. sidecar wire boundary, and broker process cl... downstream by design paper/live scaffolding exists, but live execution is intentionally behind strategy validation and advisory proof. keep live execution blocked until validated strategy and advisory loop are accepted. docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/execution-flow.md docs/architecture/product-plane/controlled-live-execution.md docs/architecture/product-plane/sidecar-wire-api-v1.md docs/obsidian/dfd/level-2-contracts-and-execution.md docs/obsidian/dfd/level-1-product-plane.md tests/product-plane/integration/test_execution_flow.py tests/product-plane/integration/test_real_execution_staging_rollout.py">
   <div class="card-topline">
     <span class="node-level">L1</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -841,7 +921,9 @@
       <span>Readiness</span>
       <strong>1.8/5</strong>
     </div>
-    <div class="readiness-bar" aria-hidden="true"><span style="width: 36%"></span></div>
+    <div class="readiness-bar" aria-hidden="true">
+      <span style="width: 36%"></span>
+    </div>
     <span class="readiness-label">Downstream by design</span>
     <span class="readiness-next">Next: Keep live execution blocked until validated strategy and advisory loop are accepted.</span>
   </div>
@@ -858,7 +940,9 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="1" data-search="research plane research-plane product-plane attention review materialized research data prep, strategy registry, backtest outputs, rankings, findings, and candidate projection. research state should be checked through persisted delta tables and current status docs, not... docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/research-plane-platform.md docs/runbooks/app/research-plane-operations.md docs/obsidian/dfd/level-2-research-to-runtime.md docs/obsidian/dfd/level-1-product-plane.md tests/product-plane/integration/test_research_plane.py tests/product-plane/integration/test_research_campaign_route.py">
+<article class="node-card filterable" data-kind="node" data-state="attention"
+    data-rollup="review" data-surface="product-plane"
+    data-level="1" data-search="research plane research-plane product-plane attention review materialized research data prep, strategy registry, backtest outputs, rankings, findings, and candidate projection. research state should be checked through persisted delta tables and current status docs, not... docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/research-plane-platform.md docs/runbooks/app/research-plane-operations.md docs/obsidian/dfd/level-2-research-to-runtime.md docs/obsidian/dfd/level-1-product-plane.md tests/product-plane/integration/test_research_plane.py tests/product-plane/integration/test_research_campaign_route.py">
   <div class="card-topline">
     <span class="node-level">L1</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -878,7 +962,9 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="unknown" data-rollup="unknown" data-surface="product-plane" data-level="1" data-search="runtime plane runtime-plane product-plane unknown unknown runtime signal lifecycle, durable signal store, publication state, and api runtime surface. state graph mvp marks this as unknown until the runtime-specific state view is reviewed against current proof. durabl... technical runtime, not product loop runtime and telegram adapter surfaces exist, but current advisory loop is not proven. bind non-empty candidates to advisory message delivery and monitoring. docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/runtime-lifecycle.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-research-to-runtime.md docs/obsidian/dfd/level-1-product-plane.md tests/product-plane/integration/test_runtime_lifecycle.py tests/product-plane/integration/test_runtime_postgres_store.py">
+<article class="node-card filterable" data-kind="node" data-state="unknown"
+    data-rollup="unknown" data-surface="product-plane"
+    data-level="1" data-search="runtime plane runtime-plane product-plane unknown unknown runtime signal lifecycle, durable signal store, publication state, and api runtime surface. state graph mvp marks this as unknown until the runtime-specific state view is reviewed against current proof. durabl... technical runtime, not product loop runtime and telegram adapter surfaces exist, but current advisory loop is not proven. bind non-empty candidates to advisory message delivery and monitoring. docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/runtime-lifecycle.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-research-to-runtime.md docs/obsidian/dfd/level-1-product-plane.md tests/product-plane/integration/test_runtime_lifecycle.py tests/product-plane/integration/test_runtime_postgres_store.py">
   <div class="card-topline">
     <span class="node-level">L1</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -891,7 +977,9 @@
       <span>Readiness</span>
       <strong>2.7/5</strong>
     </div>
-    <div class="readiness-bar" aria-hidden="true"><span style="width: 54%"></span></div>
+    <div class="readiness-bar" aria-hidden="true">
+      <span style="width: 54%"></span>
+    </div>
     <span class="readiness-label">Technical runtime, not product loop</span>
     <span class="readiness-next">Next: Bind non-empty candidates to advisory message delivery and monitoring.</span>
   </div>
@@ -908,7 +996,9 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="ok" data-rollup="stable" data-surface="product-plane" data-level="1" data-search="contract surfaces contract-surfaces product-plane ok stable release-blocking schemas, fixtures, contract tests, and compatibility inventory. dfd points at short contract store names; canonical contract truth stays in the contract-surfaces architecture document. contrac... docs/architecture/product-plane/contract_surfaces.md docs/architecture/product-plane/contract-change-policy.md docs/obsidian/dfd/level-2-contracts-and-execution.md docs/obsidian/dfd/level-1-product-plane.md src/trading_advisor_3000/product_plane/contracts/schemas/release_blocking_contracts.v1.yaml tests/product-plane/contracts">
+<article class="node-card filterable" data-kind="node" data-state="ok"
+    data-rollup="stable" data-surface="product-plane"
+    data-level="1" data-search="contract surfaces contract-surfaces product-plane ok stable release-blocking schemas, fixtures, contract tests, and compatibility inventory. dfd points at short contract store names; canonical contract truth stays in the contract-surfaces architecture document. contrac... docs/architecture/product-plane/contract_surfaces.md docs/architecture/product-plane/contract-change-policy.md docs/obsidian/dfd/level-2-contracts-and-execution.md docs/obsidian/dfd/level-1-product-plane.md src/trading_advisor_3000/product_plane/contracts/schemas/release_blocking_contracts.v1.yaml tests/product-plane/contracts">
   <div class="card-topline">
     <span class="node-level">L1</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -942,7 +1032,9 @@
   </header>
   <div class="lane-grid">
 
-<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="2" data-search="canonical data refresh canonical-data-refresh product-plane attention review spark-owned canonical recompute, resampling, provenance rebuild, and canonical delta output for downstream research. current main also routes canonicalization from raw delta with changed-window control. update... docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/native-runtime-ownership.md docs/architecture/product-plane/status.md docs/runbooks/app/moex-canonical-refresh-runbook.md docs/obsidian/dfd/level-2-data-plane.md scripts/run_moex_canonical_refresh.py scripts/run_moex_historical_canonical_route_spark.py tests/product-plane/unit/test_moex_canonical_route.py tests/product-plane/integration/test_moex_canonical_route_integration.py tests/product-plane/integration/test_moex_canonicalization_integration.py">
+<article class="node-card filterable" data-kind="node" data-state="attention"
+    data-rollup="review" data-surface="product-plane"
+    data-level="2" data-search="canonical data refresh canonical-data-refresh product-plane attention review spark-owned canonical recompute, resampling, provenance rebuild, and canonical delta output for downstream research. current main also routes canonicalization from raw delta with changed-window control. update... docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/native-runtime-ownership.md docs/architecture/product-plane/status.md docs/runbooks/app/moex-canonical-refresh-runbook.md docs/obsidian/dfd/level-2-data-plane.md scripts/run_moex_canonical_refresh.py scripts/run_moex_historical_canonical_route_spark.py tests/product-plane/unit/test_moex_canonical_route.py tests/product-plane/integration/test_moex_canonical_route_integration.py tests/product-plane/integration/test_moex_canonicalization_integration.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -962,7 +1054,9 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="2" data-search="moex historical route moex-historical-route product-plane attention review the governed historical-data route: dagster orchestration, python raw ingest, spark/delta raw and canonical processing, and stable raw/canonical storage. current main has product-runtime and disposable verific... docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/moex-nightly-v2-architecture.md docs/architecture/product-plane/status.md docs/obsidian/dfd/level-2-data-plane.md scripts/run_moex_dagster_cutover.py scripts/prove_moex_dagster_route.py scripts/run_moex_baseline_update_staging_job.py scripts/launch_moex_baseline_staging_run.py tests/product-plane/unit/test_moex_dagster_route_cutover.py tests/product-plane/unit/test_moex_runtime_instances.py tests/product-plane/unit/test_moex_staging_roots.py tests/product-plane/unit/test_moex_baseline_staging_job_script.py">
+<article class="node-card filterable" data-kind="node" data-state="attention"
+    data-rollup="review" data-surface="product-plane"
+    data-level="2" data-search="moex historical route moex-historical-route product-plane attention review the governed historical-data route: dagster orchestration, python raw ingest, spark/delta raw and canonical processing, and stable raw/canonical storage. current main has product-runtime and disposable verific... docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/moex-nightly-v2-architecture.md docs/architecture/product-plane/status.md docs/obsidian/dfd/level-2-data-plane.md scripts/run_moex_dagster_cutover.py scripts/prove_moex_dagster_route.py scripts/run_moex_baseline_update_staging_job.py scripts/launch_moex_baseline_staging_run.py tests/product-plane/unit/test_moex_dagster_route_cutover.py tests/product-plane/unit/test_moex_runtime_instances.py tests/product-plane/unit/test_moex_staging_roots.py tests/product-plane/unit/test_moex_baseline_staging_job_script.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -982,7 +1076,9 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="2" data-search="raw data ingest raw-data-ingest product-plane attention review source-aware moex extraction with spark/delta-backed raw mutation for the hot table path. python owns connector behavior, request diagnostics, retries, and handoff/report discipline. update this node when raw... docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/historical-data-plane.md docs/architecture/product-plane/status.md docs/runbooks/app/moex-raw-ingest-runbook.md docs/obsidian/dfd/level-2-data-plane.md scripts/run_moex_raw_ingest.py tests/product-plane/integration/test_moex_raw_ingest.py tests/product-plane/integration/test_moex_raw_ingest_spark_delta_job.py tests/product-plane/unit/test_moex_raw_ingest_errors.py tests/product-plane/unit/test_moex_raw_ingest_spark_delta_contract.py">
+<article class="node-card filterable" data-kind="node" data-state="attention"
+    data-rollup="review" data-surface="product-plane"
+    data-level="2" data-search="raw data ingest raw-data-ingest product-plane attention review source-aware moex extraction with spark/delta-backed raw mutation for the hot table path. python owns connector behavior, request diagnostics, retries, and handoff/report discipline. update this node when raw... docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/historical-data-plane.md docs/architecture/product-plane/status.md docs/runbooks/app/moex-raw-ingest-runbook.md docs/obsidian/dfd/level-2-data-plane.md scripts/run_moex_raw_ingest.py tests/product-plane/integration/test_moex_raw_ingest.py tests/product-plane/integration/test_moex_raw_ingest_spark_delta_job.py tests/product-plane/unit/test_moex_raw_ingest_errors.py tests/product-plane/unit/test_moex_raw_ingest_spark_delta_contract.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -1002,7 +1098,9 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="ok" data-rollup="stable" data-surface="product-plane" data-level="2" data-search="baseline storage baseline-storage product-plane ok stable accepted raw/canonical baseline storage under the external ta3000 data root. downstream consumers bind to stable baseline paths, not arbitrary rerun folders. new staging roots support proof and product-runtime... docs/architecture/product-plane/status.md docs/runbooks/app/moex-baseline-storage-runbook.md docs/obsidian/dfd/level-2-data-plane.md scripts/pin_moex_baseline_storage.ps1 tests/product-plane/unit/test_moex_t3_storage_binding.py tests/product-plane/unit/test_moex_baseline_update.py tests/product-plane/unit/test_moex_staging_roots.py tests/product-plane/unit/test_hot_delta_table_guardrails.py">
+<article class="node-card filterable" data-kind="node" data-state="ok"
+    data-rollup="stable" data-surface="product-plane"
+    data-level="2" data-search="baseline storage baseline-storage product-plane ok stable accepted raw/canonical baseline storage under the external ta3000 data root. downstream consumers bind to stable baseline paths, not arbitrary rerun folders. new staging roots support proof and product-runtime... docs/architecture/product-plane/status.md docs/runbooks/app/moex-baseline-storage-runbook.md docs/obsidian/dfd/level-2-data-plane.md scripts/pin_moex_baseline_storage.ps1 tests/product-plane/unit/test_moex_t3_storage_binding.py tests/product-plane/unit/test_moex_baseline_update.py tests/product-plane/unit/test_moex_staging_roots.py tests/product-plane/unit/test_hot_delta_table_guardrails.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -1036,7 +1134,9 @@
   </header>
   <div class="lane-grid">
 
-<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="2" data-search="backtest and ranking backtest-and-ranking product-plane attention review vectorbt-owned portfolio simulation, persisted backtest runs, strategy stats, trades, orders, drawdowns, rankings, and findings. update this node when backtest runtime ownership, ranking policy, stored output... exercised research path vectorbt/optuna campaign evidence exists; capital-allocation validation is not accepted. add repeatable validation packet with oos, costs, robustness, and rejection evidence. docs/architecture/product-plane/research-plane-platform.md docs/architecture/product-plane/native-runtime-ownership.md docs/obsidian/dfd/level-2-research-to-runtime.md tests/product-plane/integration/test_research_vectorbt_backtests.py tests/product-plane/unit/test_research_backtest_layer.py tests/product-plane/unit/test_research_ranking_projection.py">
+<article class="node-card filterable" data-kind="node" data-state="attention"
+    data-rollup="review" data-surface="product-plane"
+    data-level="2" data-search="backtest and ranking backtest-and-ranking product-plane attention review vectorbt-owned portfolio simulation, persisted backtest runs, strategy stats, trades, orders, drawdowns, rankings, and findings. update this node when backtest runtime ownership, ranking policy, stored output... exercised research path vectorbt/optuna campaign evidence exists; capital-allocation validation is not accepted. add repeatable validation packet with oos, costs, robustness, and rejection evidence. docs/architecture/product-plane/research-plane-platform.md docs/architecture/product-plane/native-runtime-ownership.md docs/obsidian/dfd/level-2-research-to-runtime.md tests/product-plane/integration/test_research_vectorbt_backtests.py tests/product-plane/unit/test_research_backtest_layer.py tests/product-plane/unit/test_research_ranking_projection.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -1049,7 +1149,9 @@
       <span>Readiness</span>
       <strong>3.2/5</strong>
     </div>
-    <div class="readiness-bar" aria-hidden="true"><span style="width: 64%"></span></div>
+    <div class="readiness-bar" aria-hidden="true">
+      <span style="width: 64%"></span>
+    </div>
     <span class="readiness-label">Exercised research path</span>
     <span class="readiness-next">Next: Add repeatable validation packet with OOS, costs, robustness, and rejection evidence.</span>
   </div>
@@ -1066,7 +1168,9 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="2" data-search="research data prep research-data-prep product-plane attention review materialized research datasets, bar views, indicator frames, and derived indicator frames built after accepted canonical data refresh. update this node when research materialization ownership, delta table set,... strong delta-backed layer research gold frames, continuous-front frames, and delta sidecar updates are materialized and reusable. keep freshness tied to canonical refresh and campaign materialization locks. docs/architecture/product-plane/research-plane-platform.md docs/architecture/product-plane/native-runtime-ownership.md docs/obsidian/dfd/level-2-research-to-runtime.md tests/product-plane/integration/test_research_indicator_materialization.py tests/product-plane/integration/test_research_dagster_jobs.py tests/product-plane/unit/test_research_dataset_layer.py">
+<article class="node-card filterable" data-kind="node" data-state="attention"
+    data-rollup="review" data-surface="product-plane"
+    data-level="2" data-search="research data prep research-data-prep product-plane attention review materialized research datasets, bar views, indicator frames, and derived indicator frames built after accepted canonical data refresh. update this node when research materialization ownership, delta table set,... strong delta-backed layer research gold frames, continuous-front frames, and delta sidecar updates are materialized and reusable. keep freshness tied to canonical refresh and campaign materialization locks. docs/architecture/product-plane/research-plane-platform.md docs/architecture/product-plane/native-runtime-ownership.md docs/obsidian/dfd/level-2-research-to-runtime.md tests/product-plane/integration/test_research_indicator_materialization.py tests/product-plane/integration/test_research_dagster_jobs.py tests/product-plane/unit/test_research_dataset_layer.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -1079,7 +1183,9 @@
       <span>Readiness</span>
       <strong>4.1/5</strong>
     </div>
-    <div class="readiness-bar" aria-hidden="true"><span style="width: 82%"></span></div>
+    <div class="readiness-bar" aria-hidden="true">
+      <span style="width: 82%"></span>
+    </div>
     <span class="readiness-label">Strong Delta-backed layer</span>
     <span class="readiness-next">Next: Keep freshness tied to canonical refresh and campaign materialization locks.</span>
   </div>
@@ -1096,7 +1202,9 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="2" data-search="signal candidate projection signal-candidate-projection product-plane attention review contract-safe candidate projection from research outputs toward runtime consumption. runtime consumes projected candidates, not research internals. must satisfy release-blocking research and signal candidate c... writes table, no fresh candidates isolated projection proof created a delta table with _delta_log, but candidate rows were zero. produce non-empty fresh candidates or record exact no-signal reasons. docs/architecture/product-plane/research-plane-platform.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-research-to-runtime.md tests/product-plane/unit/test_research_ranking_projection.py tests/product-plane/contracts">
+<article class="node-card filterable" data-kind="node" data-state="attention"
+    data-rollup="review" data-surface="product-plane"
+    data-level="2" data-search="signal candidate projection signal-candidate-projection product-plane attention review contract-safe candidate projection from research outputs toward runtime consumption. runtime consumes projected candidates, not research internals. must satisfy release-blocking research and signal candidate c... writes table, no fresh candidates isolated projection proof created a delta table with _delta_log, but candidate rows were zero. produce non-empty fresh candidates or record exact no-signal reasons. docs/architecture/product-plane/research-plane-platform.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-research-to-runtime.md tests/product-plane/unit/test_research_ranking_projection.py tests/product-plane/contracts">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -1109,7 +1217,9 @@
       <span>Readiness</span>
       <strong>2.2/5</strong>
     </div>
-    <div class="readiness-bar" aria-hidden="true"><span style="width: 44%"></span></div>
+    <div class="readiness-bar" aria-hidden="true">
+      <span style="width: 44%"></span>
+    </div>
     <span class="readiness-label">Writes table, no fresh candidates</span>
     <span class="readiness-next">Next: Produce non-empty fresh candidates or record exact no-signal reasons.</span>
   </div>
@@ -1126,7 +1236,9 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="2" data-search="strategy registry strategy-registry product-plane attention review delta-backed strategy families, templates, modules, instances, campaigns, run indices, rankings, and strategy notes. update this node when strategy inventory, adapter count, registry tables, or campaign routin... implemented and populated strategy families/templates exist and are populated; hypothesis discipline is still uneven. attach falsifiable research notes and acceptance criteria to promoted families. docs/architecture/product-plane/research-plane-platform.md docs/obsidian/dfd/level-2-research-to-runtime.md tests/product-plane/unit/test_research_registry_store.py tests/product-plane/unit/test_research_campaign_runner.py">
+<article class="node-card filterable" data-kind="node" data-state="attention"
+    data-rollup="review" data-surface="product-plane"
+    data-level="2" data-search="strategy registry strategy-registry product-plane attention review delta-backed strategy families, templates, modules, instances, campaigns, run indices, rankings, and strategy notes. update this node when strategy inventory, adapter count, registry tables, or campaign routin... implemented and populated strategy families/templates exist and are populated; hypothesis discipline is still uneven. attach falsifiable research notes and acceptance criteria to promoted families. docs/architecture/product-plane/research-plane-platform.md docs/obsidian/dfd/level-2-research-to-runtime.md tests/product-plane/unit/test_research_registry_store.py tests/product-plane/unit/test_research_campaign_runner.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -1139,7 +1251,9 @@
       <span>Readiness</span>
       <strong>3.4/5</strong>
     </div>
-    <div class="readiness-bar" aria-hidden="true"><span style="width: 68%"></span></div>
+    <div class="readiness-bar" aria-hidden="true">
+      <span style="width: 68%"></span>
+    </div>
     <span class="readiness-label">Implemented and populated</span>
     <span class="readiness-next">Next: Attach falsifiable research notes and acceptance criteria to promoted families.</span>
   </div>
@@ -1170,7 +1284,9 @@
   </header>
   <div class="lane-grid">
 
-<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="2" data-search="live decision boundary live-decision-boundary product-plane attention review strict boundary between historical/batch context and intraday live decisions. live decisions require confirmed broker live data through the real execution boundary. update this node when live decision policy,... docs/architecture/product-plane/status.md docs/architecture/product-plane/controlled-live-execution.md docs/obsidian/dfd/level-2-contracts-and-execution.md tests/product-plane/integration/test_real_execution_staging_rollout.py tests/product-plane/unit/test_real_execution_runtime_profile_ops.py">
+<article class="node-card filterable" data-kind="node" data-state="attention"
+    data-rollup="review" data-surface="product-plane"
+    data-level="2" data-search="live decision boundary live-decision-boundary product-plane attention review strict boundary between historical/batch context and intraday live decisions. live decisions require confirmed broker live data through the real execution boundary. update this node when live decision policy,... docs/architecture/product-plane/status.md docs/architecture/product-plane/controlled-live-execution.md docs/obsidian/dfd/level-2-contracts-and-execution.md tests/product-plane/integration/test_real_execution_staging_rollout.py tests/product-plane/unit/test_real_execution_runtime_profile_ops.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -1190,7 +1306,9 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="ok" data-rollup="stable" data-surface="product-plane" data-level="2" data-search="durable signal store durable-signal-store product-plane ok stable durable runtime signal, event, publication, and migration-tracking boundary. production-like profiles block non-durable fallbacks. must satisfy release-blocking persistence and signal/event/publication contrac... durable runtime state exists staging/production profiles use postgressignalstore and block non-durable fallbacks. keep restart/recovery proof tied to real advisory replay. docs/architecture/product-plane/status.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-research-to-runtime.md docs/obsidian/dfd/level-2-contracts-and-execution.md tests/product-plane/integration/test_runtime_postgres_store.py tests/product-plane/unit/test_durable_runtime_bootstrap.py">
+<article class="node-card filterable" data-kind="node" data-state="ok"
+    data-rollup="stable" data-surface="product-plane"
+    data-level="2" data-search="durable signal store durable-signal-store product-plane ok stable durable runtime signal, event, publication, and migration-tracking boundary. production-like profiles block non-durable fallbacks. must satisfy release-blocking persistence and signal/event/publication contrac... durable runtime state exists staging/production profiles use postgressignalstore and block non-durable fallbacks. keep restart/recovery proof tied to real advisory replay. docs/architecture/product-plane/status.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-research-to-runtime.md docs/obsidian/dfd/level-2-contracts-and-execution.md tests/product-plane/integration/test_runtime_postgres_store.py tests/product-plane/unit/test_durable_runtime_bootstrap.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -1203,7 +1321,9 @@
       <span>Readiness</span>
       <strong>3.3/5</strong>
     </div>
-    <div class="readiness-bar" aria-hidden="true"><span style="width: 66%"></span></div>
+    <div class="readiness-bar" aria-hidden="true">
+      <span style="width: 66%"></span>
+    </div>
     <span class="readiness-label">Durable runtime state exists</span>
     <span class="readiness-next">Next: Keep restart/recovery proof tied to real advisory replay.</span>
   </div>
@@ -1220,7 +1340,9 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="ok" data-rollup="stable" data-surface="product-plane" data-level="2" data-search="runtime api runtime-api product-plane ok stable fastapi asgi runtime surface for health, readiness, replay, close/cancel, and operator-facing runtime projections. must satisfy release-blocking runtime api envelopes and does not bypass the live decision boun... docs/architecture/product-plane/status.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-research-to-runtime.md docs/obsidian/dfd/level-2-contracts-and-execution.md tests/product-plane/unit/test_runtime_api_smoke.py tests/product-plane/contracts">
+<article class="node-card filterable" data-kind="node" data-state="ok"
+    data-rollup="stable" data-surface="product-plane"
+    data-level="2" data-search="runtime api runtime-api product-plane ok stable fastapi asgi runtime surface for health, readiness, replay, close/cancel, and operator-facing runtime projections. must satisfy release-blocking runtime api envelopes and does not bypass the live decision boun... docs/architecture/product-plane/status.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-research-to-runtime.md docs/obsidian/dfd/level-2-contracts-and-execution.md tests/product-plane/unit/test_runtime_api_smoke.py tests/product-plane/contracts">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -1240,7 +1362,9 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="ok" data-rollup="stable" data-surface="product-plane" data-level="2" data-search="signal lifecycle signal-lifecycle product-plane ok stable candidate replay, active signal state, close/cancel/expire flow, publication lifecycle, and signal-event history. update this node when runtime state transitions, replay behavior, signal event contracts, or pu... runtime lifecycle implemented replay, publish/update/close/cancel/expire, and signal event history exist. replay real projected candidates through advisory mode with persisted state evidence. docs/architecture/product-plane/status.md docs/architecture/product-plane/runtime-lifecycle.md docs/obsidian/dfd/level-2-research-to-runtime.md tests/product-plane/integration/test_runtime_lifecycle.py tests/product-plane/unit/test_runtime_components.py">
+<article class="node-card filterable" data-kind="node" data-state="ok"
+    data-rollup="stable" data-surface="product-plane"
+    data-level="2" data-search="signal lifecycle signal-lifecycle product-plane ok stable candidate replay, active signal state, close/cancel/expire flow, publication lifecycle, and signal-event history. update this node when runtime state transitions, replay behavior, signal event contracts, or pu... runtime lifecycle implemented replay, publish/update/close/cancel/expire, and signal event history exist. replay real projected candidates through advisory mode with persisted state evidence. docs/architecture/product-plane/status.md docs/architecture/product-plane/runtime-lifecycle.md docs/obsidian/dfd/level-2-research-to-runtime.md tests/product-plane/integration/test_runtime_lifecycle.py tests/product-plane/unit/test_runtime_components.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -1253,7 +1377,9 @@
       <span>Readiness</span>
       <strong>3.1/5</strong>
     </div>
-    <div class="readiness-bar" aria-hidden="true"><span style="width: 62%"></span></div>
+    <div class="readiness-bar" aria-hidden="true">
+      <span style="width: 62%"></span>
+    </div>
     <span class="readiness-label">Runtime lifecycle implemented</span>
     <span class="readiness-next">Next: Replay real projected candidates through advisory mode with persisted state evidence.</span>
   </div>
@@ -1284,7 +1410,9 @@
   </header>
   <div class="lane-grid">
 
-<article class="node-card filterable" data-kind="node" data-state="attention" data-rollup="review" data-surface="product-plane" data-level="2" data-search="broker process closure broker-process-closure product-plane attention review real broker process boundary for stocksharp, quik, broker/finam session proof, submit/replace/cancel, updates, fills, and operational blockers. update this node when real broker acceptance, connector binding,... docs/architecture/product-plane/status.md docs/architecture/product-plane/controlled-live-execution.md docs/architecture/product-plane/f1e-real-broker-process-closure.md docs/obsidian/dfd/level-2-contracts-and-execution.md scripts/run_f1e_real_broker_process.py tests/product-plane/integration/test_real_execution_staging_rollout.py tests/product-plane/unit/test_live_broker_sync.py">
+<article class="node-card filterable" data-kind="node" data-state="attention"
+    data-rollup="review" data-surface="product-plane"
+    data-level="2" data-search="broker process closure broker-process-closure product-plane attention review real broker process boundary for stocksharp, quik, broker/finam session proof, submit/replace/cancel, updates, fills, and operational blockers. update this node when real broker acceptance, connector binding,... docs/architecture/product-plane/status.md docs/architecture/product-plane/controlled-live-execution.md docs/architecture/product-plane/f1e-real-broker-process-closure.md docs/obsidian/dfd/level-2-contracts-and-execution.md scripts/run_f1e_real_broker_process.py tests/product-plane/integration/test_real_execution_staging_rollout.py tests/product-plane/unit/test_live_broker_sync.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -1304,7 +1432,9 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="ok" data-rollup="stable" data-surface="product-plane" data-level="2" data-search="paper execution paper-execution product-plane ok stable paper broker flow from order intent to broker order/fill, position snapshot, event log, and reconciliation skeleton. shares release-blocking execution dto contracts. update this node when paper broker behavior... paper path exists paper broker flow and tests exist, but it is not the near-term product interface. connect paper mode only after advisory signal contract is accepted. docs/architecture/product-plane/status.md docs/architecture/product-plane/execution-flow.md docs/obsidian/dfd/level-2-contracts-and-execution.md tests/product-plane/integration/test_execution_flow.py tests/product-plane/unit/test_execution_reconciliation.py">
+<article class="node-card filterable" data-kind="node" data-state="ok"
+    data-rollup="stable" data-surface="product-plane"
+    data-level="2" data-search="paper execution paper-execution product-plane ok stable paper broker flow from order intent to broker order/fill, position snapshot, event log, and reconciliation skeleton. shares release-blocking execution dto contracts. update this node when paper broker behavior... paper path exists paper broker flow and tests exist, but it is not the near-term product interface. connect paper mode only after advisory signal contract is accepted. docs/architecture/product-plane/status.md docs/architecture/product-plane/execution-flow.md docs/obsidian/dfd/level-2-contracts-and-execution.md tests/product-plane/integration/test_execution_flow.py tests/product-plane/unit/test_execution_reconciliation.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -1317,7 +1447,9 @@
       <span>Readiness</span>
       <strong>2.5/5</strong>
     </div>
-    <div class="readiness-bar" aria-hidden="true"><span style="width: 50%"></span></div>
+    <div class="readiness-bar" aria-hidden="true">
+      <span style="width: 50%"></span>
+    </div>
     <span class="readiness-label">Paper path exists</span>
     <span class="readiness-next">Next: Connect paper mode only after advisory signal contract is accepted.</span>
   </div>
@@ -1334,7 +1466,9 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="ok" data-rollup="stable" data-surface="product-plane" data-level="2" data-search="sidecar wire boundary sidecar-wire-boundary product-plane ok stable http/json wire contract between the python execution bridge and the stocksharp sidecar gateway, including submit/cancel/replace, streams, probes, and kill-switch behavior. must satisfy release-blocking sidecar... docs/architecture/product-plane/sidecar-wire-api-v1.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-contracts-and-execution.md scripts/run_f1d_sidecar_immutable_evidence.py tests/product-plane/unit/test_real_execution_http_transport.py tests/product-plane/unit/test_dotnet_sidecar_assets.py">
+<article class="node-card filterable" data-kind="node" data-state="ok"
+    data-rollup="stable" data-surface="product-plane"
+    data-level="2" data-search="sidecar wire boundary sidecar-wire-boundary product-plane ok stable http/json wire contract between the python execution bridge and the stocksharp sidecar gateway, including submit/cancel/replace, streams, probes, and kill-switch behavior. must satisfy release-blocking sidecar... docs/architecture/product-plane/sidecar-wire-api-v1.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-contracts-and-execution.md scripts/run_f1d_sidecar_immutable_evidence.py tests/product-plane/unit/test_real_execution_http_transport.py tests/product-plane/unit/test_dotnet_sidecar_assets.py">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -1368,7 +1502,9 @@
   </header>
   <div class="lane-grid">
 
-<article class="node-card filterable" data-kind="node" data-state="ok" data-rollup="stable" data-surface="product-plane" data-level="2" data-search="contract change policy contract-change-policy product-plane ok stable rules for changing public product-plane payloads: schema, fixture, tests, inventory, and compatibility updates must move together. protects runtime api and sidecar wire transport from payload drift. update thi... docs/architecture/product-plane/contract-change-policy.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-contracts-and-execution.md tests/product-plane/contracts src/trading_advisor_3000/product_plane/contracts/schemas/release_blocking_contracts.v1.yaml">
+<article class="node-card filterable" data-kind="node" data-state="ok"
+    data-rollup="stable" data-surface="product-plane"
+    data-level="2" data-search="contract change policy contract-change-policy product-plane ok stable rules for changing public product-plane payloads: schema, fixture, tests, inventory, and compatibility updates must move together. protects runtime api and sidecar wire transport from payload drift. update thi... docs/architecture/product-plane/contract-change-policy.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-contracts-and-execution.md tests/product-plane/contracts src/trading_advisor_3000/product_plane/contracts/schemas/release_blocking_contracts.v1.yaml">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -1388,7 +1524,9 @@
   </div>
 </article>
 
-<article class="node-card filterable" data-kind="node" data-state="ok" data-rollup="stable" data-surface="product-plane" data-level="2" data-search="release blocking contracts release-blocking-contracts product-plane ok stable versioned schemas, fixtures, tests, inventory, and compatibility classes that block release-sensitive payload drift. governs signal candidate projection, runtime api envelopes, durable signal store payloads, p... docs/architecture/product-plane/contract_surfaces.md src/trading_advisor_3000/product_plane/contracts/schemas/release_blocking_contracts.v1.yaml docs/obsidian/dfd/level-2-contracts-and-execution.md tests/product-plane/contracts src/trading_advisor_3000/product_plane/contracts/schemas">
+<article class="node-card filterable" data-kind="node" data-state="ok"
+    data-rollup="stable" data-surface="product-plane"
+    data-level="2" data-search="release blocking contracts release-blocking-contracts product-plane ok stable versioned schemas, fixtures, tests, inventory, and compatibility classes that block release-sensitive payload drift. governs signal candidate projection, runtime api envelopes, durable signal store payloads, p... docs/architecture/product-plane/contract_surfaces.md src/trading_advisor_3000/product_plane/contracts/schemas/release_blocking_contracts.v1.yaml docs/obsidian/dfd/level-2-contracts-and-execution.md tests/product-plane/contracts src/trading_advisor_3000/product_plane/contracts/schemas">
   <div class="card-topline">
     <span class="node-level">L2</span>
     <span class="surface surface-product-plane">product-plane</span>
@@ -1422,7 +1560,9 @@
       </header>
       <div class="attention-grid">
 
-<article class="item-card filterable user-attention" data-kind="item" data-state="open" data-priority="p1" data-surface="item" data-level="item" data-search="decision needed: project map sync-node-state-project-map question open p1 medium sync-node-state docs/project-map/state/nodes/project map.md project map this item is generated from docs/project-map/state/nodes/project map.md. update the node evidence or close this item when the state is no longer current.">
+<article class="item-card filterable user-attention" data-kind="item"
+    data-state="open" data-priority="p1"
+    data-surface="item" data-level="item" data-search="decision needed: project map sync-node-state-project-map question open p1 medium sync-node-state docs/project-map/state/nodes/project map.md project map this item is generated from docs/project-map/state/nodes/project map.md. update the node evidence or close this item when the state is no longer current.">
   <div class="card-topline">
     <span class="item-type">question</span>
     <span>sync-node-state</span>
@@ -1438,7 +1578,9 @@
 </article>
 
 
-<article class="item-card filterable" data-kind="item" data-state="open" data-priority="p2" data-surface="item" data-level="item" data-search="verify unknown node: runtime plane sync-node-state-runtime-plane risk open p2 medium sync-node-state docs/project-map/state/nodes/runtime plane.md runtime plane this item is generated from docs/project-map/state/nodes/runtime plane.md. update the node evidence or close this item when the state is no longer current.">
+<article class="item-card filterable" data-kind="item"
+    data-state="open" data-priority="p2"
+    data-surface="item" data-level="item" data-search="verify unknown node: runtime plane sync-node-state-runtime-plane risk open p2 medium sync-node-state docs/project-map/state/nodes/runtime plane.md runtime plane this item is generated from docs/project-map/state/nodes/runtime plane.md. update the node evidence or close this item when the state is no longer current.">
   <div class="card-topline">
     <span class="item-type">risk</span>
     <span>sync-node-state</span>
@@ -1465,7 +1607,9 @@
       </header>
       <div class="evidence-list">
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="ok" data-surface="shell" data-level="1" data-search="delivery shell delivery-shell ok agents.md docs/dev_workflow.md docs/architecture/repository-surfaces.md docs/agent/entrypoint.md docs/agent/checks.md docs/agent/skills-routing.md docs/obsidian/dfd/level-1-delivery-shell.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="ok" data-surface="shell"
+    data-level="1" data-search="delivery shell delivery-shell ok agents.md docs/dev_workflow.md docs/architecture/repository-surfaces.md docs/agent/entrypoint.md docs/agent/checks.md docs/agent/skills-routing.md docs/obsidian/dfd/level-1-delivery-shell.md">
   <summary>
     <span>Delivery Shell</span>
     <span>ok / L1</span>
@@ -1478,7 +1622,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="attention" data-surface="product-plane" data-level="1" data-search="product plane product-plane attention docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/native-runtime-ownership.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-1-product-plane.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="attention" data-surface="product-plane"
+    data-level="1" data-search="product plane product-plane attention docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/native-runtime-ownership.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-1-product-plane.md">
   <summary>
     <span>Product Plane</span>
     <span>attention / L1</span>
@@ -1491,7 +1637,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="attention" data-surface="product-plane" data-level="1" data-search="data plane data-plane attention docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/moex-nightly-v2-architecture.md docs/runbooks/app/moex-baseline-storage-runbook.md docs/obsidian/dfd/level-2-data-plane.md docs/obsidian/dfd/level-1-product-plane.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="attention" data-surface="product-plane"
+    data-level="1" data-search="data plane data-plane attention docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/moex-nightly-v2-architecture.md docs/runbooks/app/moex-baseline-storage-runbook.md docs/obsidian/dfd/level-2-data-plane.md docs/obsidian/dfd/level-1-product-plane.md">
   <summary>
     <span>Data Plane</span>
     <span>attention / L1</span>
@@ -1504,7 +1652,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="attention" data-surface="product-plane" data-level="1" data-search="research plane research-plane attention docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/research-plane-platform.md docs/runbooks/app/research-plane-operations.md docs/obsidian/dfd/level-2-research-to-runtime.md docs/obsidian/dfd/level-1-product-plane.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="attention" data-surface="product-plane"
+    data-level="1" data-search="research plane research-plane attention docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/research-plane-platform.md docs/runbooks/app/research-plane-operations.md docs/obsidian/dfd/level-2-research-to-runtime.md docs/obsidian/dfd/level-1-product-plane.md">
   <summary>
     <span>Research Plane</span>
     <span>attention / L1</span>
@@ -1517,7 +1667,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="unknown" data-surface="product-plane" data-level="1" data-search="runtime plane runtime-plane unknown docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/runtime-lifecycle.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-research-to-runtime.md docs/obsidian/dfd/level-1-product-plane.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="unknown" data-surface="product-plane"
+    data-level="1" data-search="runtime plane runtime-plane unknown docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/runtime-lifecycle.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-research-to-runtime.md docs/obsidian/dfd/level-1-product-plane.md">
   <summary>
     <span>Runtime Plane</span>
     <span>unknown / L1</span>
@@ -1530,7 +1682,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="attention" data-surface="product-plane" data-level="1" data-search="execution plane execution-plane attention docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/execution-flow.md docs/architecture/product-plane/controlled-live-execution.md docs/architecture/product-plane/sidecar-wire-api-v1.md docs/obsidian/dfd/level-2-contracts-and-execution.md docs/obsidian/dfd/level-1-product-plane.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="attention" data-surface="product-plane"
+    data-level="1" data-search="execution plane execution-plane attention docs/architecture/trading-advisor-3000.md docs/architecture/repository-surfaces.md docs/architecture/product-plane/status.md docs/architecture/product-plane/execution-flow.md docs/architecture/product-plane/controlled-live-execution.md docs/architecture/product-plane/sidecar-wire-api-v1.md docs/obsidian/dfd/level-2-contracts-and-execution.md docs/obsidian/dfd/level-1-product-plane.md">
   <summary>
     <span>Execution Plane</span>
     <span>attention / L1</span>
@@ -1543,7 +1697,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="ok" data-surface="product-plane" data-level="1" data-search="contract surfaces contract-surfaces ok docs/architecture/product-plane/contract_surfaces.md docs/architecture/product-plane/contract-change-policy.md docs/obsidian/dfd/level-2-contracts-and-execution.md docs/obsidian/dfd/level-1-product-plane.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="ok" data-surface="product-plane"
+    data-level="1" data-search="contract surfaces contract-surfaces ok docs/architecture/product-plane/contract_surfaces.md docs/architecture/product-plane/contract-change-policy.md docs/obsidian/dfd/level-2-contracts-and-execution.md docs/obsidian/dfd/level-1-product-plane.md">
   <summary>
     <span>Contract Surfaces</span>
     <span>ok / L1</span>
@@ -1556,7 +1712,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="attention" data-surface="mixed" data-level="1" data-search="project map project-map attention docs/project-map/state/project map update rules.md docs/project-map/state/project-graph.md docs/project-map/readme.md docs/obsidian/readme.md docs/obsidian/dfd/readme.md docs/obsidian/dfd/level-0-system-context.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="attention" data-surface="mixed"
+    data-level="1" data-search="project map project-map attention docs/project-map/state/project map update rules.md docs/project-map/state/project-graph.md docs/project-map/readme.md docs/obsidian/readme.md docs/obsidian/dfd/readme.md docs/obsidian/dfd/level-0-system-context.md">
   <summary>
     <span>Project Map</span>
     <span>attention / L1</span>
@@ -1569,7 +1727,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="ok" data-surface="shell" data-level="2" data-search="agent entry and routing agent-entry-and-routing ok agents.md docs/agent/entrypoint.md docs/agent/domains.md docs/agent/skills-routing.md docs/agent-contexts/readme.md docs/obsidian/dfd/level-2-shell-context-and-task-lifecycle.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="ok" data-surface="shell"
+    data-level="2" data-search="agent entry and routing agent-entry-and-routing ok agents.md docs/agent/entrypoint.md docs/agent/domains.md docs/agent/skills-routing.md docs/agent-contexts/readme.md docs/obsidian/dfd/level-2-shell-context-and-task-lifecycle.md">
   <summary>
     <span>Agent Entry And Routing</span>
     <span>ok / L2</span>
@@ -1582,7 +1742,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="attention" data-surface="product-plane" data-level="2" data-search="backtest and ranking backtest-and-ranking attention docs/architecture/product-plane/research-plane-platform.md docs/architecture/product-plane/native-runtime-ownership.md docs/obsidian/dfd/level-2-research-to-runtime.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="attention" data-surface="product-plane"
+    data-level="2" data-search="backtest and ranking backtest-and-ranking attention docs/architecture/product-plane/research-plane-platform.md docs/architecture/product-plane/native-runtime-ownership.md docs/obsidian/dfd/level-2-research-to-runtime.md">
   <summary>
     <span>Backtest And Ranking</span>
     <span>attention / L2</span>
@@ -1595,7 +1757,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="ok" data-surface="product-plane" data-level="2" data-search="baseline storage baseline-storage ok docs/architecture/product-plane/status.md docs/runbooks/app/moex-baseline-storage-runbook.md docs/obsidian/dfd/level-2-data-plane.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="ok" data-surface="product-plane"
+    data-level="2" data-search="baseline storage baseline-storage ok docs/architecture/product-plane/status.md docs/runbooks/app/moex-baseline-storage-runbook.md docs/obsidian/dfd/level-2-data-plane.md">
   <summary>
     <span>Baseline Storage</span>
     <span>ok / L2</span>
@@ -1608,7 +1772,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="attention" data-surface="product-plane" data-level="2" data-search="broker process closure broker-process-closure attention docs/architecture/product-plane/status.md docs/architecture/product-plane/controlled-live-execution.md docs/architecture/product-plane/f1e-real-broker-process-closure.md docs/obsidian/dfd/level-2-contracts-and-execution.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="attention" data-surface="product-plane"
+    data-level="2" data-search="broker process closure broker-process-closure attention docs/architecture/product-plane/status.md docs/architecture/product-plane/controlled-live-execution.md docs/architecture/product-plane/f1e-real-broker-process-closure.md docs/obsidian/dfd/level-2-contracts-and-execution.md">
   <summary>
     <span>Broker Process Closure</span>
     <span>attention / L2</span>
@@ -1621,7 +1787,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="attention" data-surface="product-plane" data-level="2" data-search="canonical data refresh canonical-data-refresh attention docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/native-runtime-ownership.md docs/architecture/product-plane/status.md docs/runbooks/app/moex-canonical-refresh-runbook.md docs/obsidian/dfd/level-2-data-plane.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="attention" data-surface="product-plane"
+    data-level="2" data-search="canonical data refresh canonical-data-refresh attention docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/native-runtime-ownership.md docs/architecture/product-plane/status.md docs/runbooks/app/moex-canonical-refresh-runbook.md docs/obsidian/dfd/level-2-data-plane.md">
   <summary>
     <span>Canonical Data Refresh</span>
     <span>attention / L2</span>
@@ -1634,7 +1802,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="ok" data-surface="product-plane" data-level="2" data-search="contract change policy contract-change-policy ok docs/architecture/product-plane/contract-change-policy.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-contracts-and-execution.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="ok" data-surface="product-plane"
+    data-level="2" data-search="contract change policy contract-change-policy ok docs/architecture/product-plane/contract-change-policy.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-contracts-and-execution.md">
   <summary>
     <span>Contract Change Policy</span>
     <span>ok / L2</span>
@@ -1647,7 +1817,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="ok" data-surface="shell" data-level="2" data-search="delivery gates delivery-gates ok docs/agent/checks.md docs/dev_workflow.md docs/agent/critical-contours.md docs/obsidian/dfd/level-2-shell-gate-runtime.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="ok" data-surface="shell"
+    data-level="2" data-search="delivery gates delivery-gates ok docs/agent/checks.md docs/dev_workflow.md docs/agent/critical-contours.md docs/obsidian/dfd/level-2-shell-gate-runtime.md">
   <summary>
     <span>Delivery Gates</span>
     <span>ok / L2</span>
@@ -1660,7 +1832,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="ok" data-surface="product-plane" data-level="2" data-search="durable signal store durable-signal-store ok docs/architecture/product-plane/status.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-research-to-runtime.md docs/obsidian/dfd/level-2-contracts-and-execution.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="ok" data-surface="product-plane"
+    data-level="2" data-search="durable signal store durable-signal-store ok docs/architecture/product-plane/status.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-research-to-runtime.md docs/obsidian/dfd/level-2-contracts-and-execution.md">
   <summary>
     <span>Durable Signal Store</span>
     <span>ok / L2</span>
@@ -1673,7 +1847,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="ok" data-surface="shell" data-level="2" data-search="durable work state durable-work-state ok docs/session_handoff.md docs/dev_workflow.md docs/agent/runtime.md docs/obsidian/dfd/level-2-shell-context-and-task-lifecycle.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="ok" data-surface="shell"
+    data-level="2" data-search="durable work state durable-work-state ok docs/session_handoff.md docs/dev_workflow.md docs/agent/runtime.md docs/obsidian/dfd/level-2-shell-context-and-task-lifecycle.md">
   <summary>
     <span>Durable Work State</span>
     <span>ok / L2</span>
@@ -1686,7 +1862,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="attention" data-surface="product-plane" data-level="2" data-search="live decision boundary live-decision-boundary attention docs/architecture/product-plane/status.md docs/architecture/product-plane/controlled-live-execution.md docs/obsidian/dfd/level-2-contracts-and-execution.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="attention" data-surface="product-plane"
+    data-level="2" data-search="live decision boundary live-decision-boundary attention docs/architecture/product-plane/status.md docs/architecture/product-plane/controlled-live-execution.md docs/obsidian/dfd/level-2-contracts-and-execution.md">
   <summary>
     <span>Live Decision Boundary</span>
     <span>attention / L2</span>
@@ -1699,7 +1877,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="attention" data-surface="product-plane" data-level="2" data-search="moex historical route moex-historical-route attention docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/moex-nightly-v2-architecture.md docs/architecture/product-plane/status.md docs/obsidian/dfd/level-2-data-plane.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="attention" data-surface="product-plane"
+    data-level="2" data-search="moex historical route moex-historical-route attention docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/moex-nightly-v2-architecture.md docs/architecture/product-plane/status.md docs/obsidian/dfd/level-2-data-plane.md">
   <summary>
     <span>MOEX Historical Route</span>
     <span>attention / L2</span>
@@ -1712,7 +1892,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="ok" data-surface="product-plane" data-level="2" data-search="paper execution paper-execution ok docs/architecture/product-plane/status.md docs/architecture/product-plane/execution-flow.md docs/obsidian/dfd/level-2-contracts-and-execution.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="ok" data-surface="product-plane"
+    data-level="2" data-search="paper execution paper-execution ok docs/architecture/product-plane/status.md docs/architecture/product-plane/execution-flow.md docs/obsidian/dfd/level-2-contracts-and-execution.md">
   <summary>
     <span>Paper Execution</span>
     <span>ok / L2</span>
@@ -1725,7 +1907,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="attention" data-surface="product-plane" data-level="2" data-search="raw data ingest raw-data-ingest attention docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/historical-data-plane.md docs/architecture/product-plane/status.md docs/runbooks/app/moex-raw-ingest-runbook.md docs/obsidian/dfd/level-2-data-plane.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="attention" data-surface="product-plane"
+    data-level="2" data-search="raw data ingest raw-data-ingest attention docs/architecture/product-plane/moex-historical-route-decision.md docs/architecture/product-plane/historical-data-plane.md docs/architecture/product-plane/status.md docs/runbooks/app/moex-raw-ingest-runbook.md docs/obsidian/dfd/level-2-data-plane.md">
   <summary>
     <span>Raw Data Ingest</span>
     <span>attention / L2</span>
@@ -1738,7 +1922,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="ok" data-surface="product-plane" data-level="2" data-search="release blocking contracts release-blocking-contracts ok docs/architecture/product-plane/contract_surfaces.md src/trading_advisor_3000/product_plane/contracts/schemas/release_blocking_contracts.v1.yaml docs/obsidian/dfd/level-2-contracts-and-execution.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="ok" data-surface="product-plane"
+    data-level="2" data-search="release blocking contracts release-blocking-contracts ok docs/architecture/product-plane/contract_surfaces.md src/trading_advisor_3000/product_plane/contracts/schemas/release_blocking_contracts.v1.yaml docs/obsidian/dfd/level-2-contracts-and-execution.md">
   <summary>
     <span>Release Blocking Contracts</span>
     <span>ok / L2</span>
@@ -1751,7 +1937,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="attention" data-surface="product-plane" data-level="2" data-search="research data prep research-data-prep attention docs/architecture/product-plane/research-plane-platform.md docs/architecture/product-plane/native-runtime-ownership.md docs/obsidian/dfd/level-2-research-to-runtime.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="attention" data-surface="product-plane"
+    data-level="2" data-search="research data prep research-data-prep attention docs/architecture/product-plane/research-plane-platform.md docs/architecture/product-plane/native-runtime-ownership.md docs/obsidian/dfd/level-2-research-to-runtime.md">
   <summary>
     <span>Research Data Prep</span>
     <span>attention / L2</span>
@@ -1764,7 +1952,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="ok" data-surface="product-plane" data-level="2" data-search="runtime api runtime-api ok docs/architecture/product-plane/status.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-research-to-runtime.md docs/obsidian/dfd/level-2-contracts-and-execution.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="ok" data-surface="product-plane"
+    data-level="2" data-search="runtime api runtime-api ok docs/architecture/product-plane/status.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-research-to-runtime.md docs/obsidian/dfd/level-2-contracts-and-execution.md">
   <summary>
     <span>Runtime API</span>
     <span>ok / L2</span>
@@ -1777,7 +1967,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="ok" data-surface="product-plane" data-level="2" data-search="sidecar wire boundary sidecar-wire-boundary ok docs/architecture/product-plane/sidecar-wire-api-v1.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-contracts-and-execution.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="ok" data-surface="product-plane"
+    data-level="2" data-search="sidecar wire boundary sidecar-wire-boundary ok docs/architecture/product-plane/sidecar-wire-api-v1.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-contracts-and-execution.md">
   <summary>
     <span>Sidecar Wire Boundary</span>
     <span>ok / L2</span>
@@ -1790,7 +1982,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="attention" data-surface="product-plane" data-level="2" data-search="signal candidate projection signal-candidate-projection attention docs/architecture/product-plane/research-plane-platform.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-research-to-runtime.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="attention" data-surface="product-plane"
+    data-level="2" data-search="signal candidate projection signal-candidate-projection attention docs/architecture/product-plane/research-plane-platform.md docs/architecture/product-plane/contract_surfaces.md docs/obsidian/dfd/level-2-research-to-runtime.md">
   <summary>
     <span>Signal Candidate Projection</span>
     <span>attention / L2</span>
@@ -1803,7 +1997,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="ok" data-surface="product-plane" data-level="2" data-search="signal lifecycle signal-lifecycle ok docs/architecture/product-plane/status.md docs/architecture/product-plane/runtime-lifecycle.md docs/obsidian/dfd/level-2-research-to-runtime.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="ok" data-surface="product-plane"
+    data-level="2" data-search="signal lifecycle signal-lifecycle ok docs/architecture/product-plane/status.md docs/architecture/product-plane/runtime-lifecycle.md docs/obsidian/dfd/level-2-research-to-runtime.md">
   <summary>
     <span>Signal Lifecycle</span>
     <span>ok / L2</span>
@@ -1816,7 +2012,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="attention" data-surface="product-plane" data-level="2" data-search="strategy registry strategy-registry attention docs/architecture/product-plane/research-plane-platform.md docs/obsidian/dfd/level-2-research-to-runtime.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="attention" data-surface="product-plane"
+    data-level="2" data-search="strategy registry strategy-registry attention docs/architecture/product-plane/research-plane-platform.md docs/obsidian/dfd/level-2-research-to-runtime.md">
   <summary>
     <span>Strategy Registry</span>
     <span>attention / L2</span>
@@ -1829,7 +2027,9 @@
 </details>
 
 
-<details class="evidence-row filterable" data-kind="evidence" data-state="ok" data-surface="shell" data-level="2" data-search="validation reports validation-reports ok docs/agent/checks.md docs/dev_workflow.md docs/obsidian/dfd/level-2-shell-pr-and-evidence.md docs/obsidian/dfd/level-2-shell-gate-runtime.md">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="ok" data-surface="shell"
+    data-level="2" data-search="validation reports validation-reports ok docs/agent/checks.md docs/dev_workflow.md docs/obsidian/dfd/level-2-shell-pr-and-evidence.md docs/obsidian/dfd/level-2-shell-gate-runtime.md">
   <summary>
     <span>Validation Reports</span>
     <span>ok / L2</span>
@@ -1864,7 +2064,13 @@
         const matchesSurface = !surfaceValue || card.dataset.surface === surfaceValue;
         const matchesPriority = !priorityValue || card.dataset.priority === priorityValue;
         const matchesKind = !kindValue || card.dataset.kind === kindValue;
-        card.hidden = !(matchesQuery && matchesState && matchesSurface && matchesPriority && matchesKind);
+        card.hidden = !(
+          matchesQuery &&
+          matchesState &&
+          matchesSurface &&
+          matchesPriority &&
+          matchesKind
+        );
       }
     }
 

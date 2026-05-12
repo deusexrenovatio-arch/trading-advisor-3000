@@ -7,7 +7,6 @@ import argparse
 import difflib
 import os
 import re
-import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from html import escape
@@ -16,7 +15,6 @@ from typing import Any
 from urllib.parse import quote
 
 import yaml
-
 
 MAP_ROOT = Path("docs/project-map/state")
 NODE_ROOT = MAP_ROOT / "nodes"
@@ -237,7 +235,9 @@ def _load_nodes(repo_root: Path) -> list[ProjectNode]:
                 node_id=node_id,
                 surface=str(fm.get("surface") or "unknown"),
                 level=int(fm.get("level") or 1),
-                parent_node="" if fm.get("parent_node") is None else str(fm.get("parent_node") or ""),
+                parent_node=""
+                if fm.get("parent_node") is None
+                else str(fm.get("parent_node") or ""),
                 state=str(fm.get("state") or "unknown"),
                 confidence=str(fm.get("confidence") or "unknown"),
                 needs_user_attention=_as_bool(fm.get("needs_user_attention")),
@@ -247,11 +247,21 @@ def _load_nodes(repo_root: Path) -> list[ProjectNode]:
                 source_refs=_as_tuple(fm.get("source_refs")),
                 dfd_refs=_as_tuple(fm.get("dfd_refs")),
                 proof_refs=_as_tuple(fm.get("proof_refs")),
-                readiness_score=_as_float(readiness.get("score")) if isinstance(readiness, dict) else None,
-                readiness_label=str(readiness.get("label") or "") if isinstance(readiness, dict) else "",
-                readiness_note=str(readiness.get("note") or "") if isinstance(readiness, dict) else "",
-                readiness_next=str(readiness.get("next_proof") or "") if isinstance(readiness, dict) else "",
-                readiness_source_refs=_as_tuple(readiness.get("source_refs")) if isinstance(readiness, dict) else (),
+                readiness_score=_as_float(readiness.get("score"))
+                if isinstance(readiness, dict)
+                else None,
+                readiness_label=str(readiness.get("label") or "")
+                if isinstance(readiness, dict)
+                else "",
+                readiness_note=str(readiness.get("note") or "")
+                if isinstance(readiness, dict)
+                else "",
+                readiness_next=str(readiness.get("next_proof") or "")
+                if isinstance(readiness, dict)
+                else "",
+                readiness_source_refs=_as_tuple(readiness.get("source_refs"))
+                if isinstance(readiness, dict)
+                else (),
                 excerpt=_plain_excerpt(body),
             )
         )
@@ -275,7 +285,9 @@ def _load_items(repo_root: Path) -> list[ProjectItem]:
                 item_type=str(fm.get("item_type") or "item"),
                 linked_node=str(fm.get("linked_node") or ""),
                 status=str(fm.get("status") or "inbox"),
-                priority=str(fm.get("priority") or _priority_from_legacy(severity, needs_user_attention)),
+                priority=str(
+                    fm.get("priority") or _priority_from_legacy(severity, needs_user_attention)
+                ),
                 severity=severity,
                 needs_user_attention=needs_user_attention,
                 owner=str(fm.get("owner") or ""),
@@ -290,7 +302,9 @@ def _load_items(repo_root: Path) -> list[ProjectItem]:
 
 def _sort_nodes(nodes: list[ProjectNode]) -> list[ProjectNode]:
     order = {node_id: idx for idx, node_id in enumerate(LEVEL_1_ORDER)}
-    return sorted(nodes, key=lambda node: (node.level, order.get(node.node_id, 100), node.title.lower()))
+    return sorted(
+        nodes, key=lambda node: (node.level, order.get(node.node_id, 100), node.title.lower())
+    )
 
 
 def _sort_children(nodes: list[ProjectNode]) -> list[ProjectNode]:
@@ -319,7 +333,9 @@ def _children_by_parent(nodes: list[ProjectNode]) -> dict[str, list[ProjectNode]
     return children
 
 
-def _collect_descendants(node: ProjectNode, children: dict[str, list[ProjectNode]]) -> list[ProjectNode]:
+def _collect_descendants(
+    node: ProjectNode, children: dict[str, list[ProjectNode]]
+) -> list[ProjectNode]:
     descendants: list[ProjectNode] = []
     pending = list(children.get(node.node_id, []))
     while pending:
@@ -342,13 +358,20 @@ def _rollup_for(
     related_nodes = [node, *_collect_descendants(node, children)]
     related_ids = {related.node_id for related in related_nodes}
     related_items = [
-        item for node_id in related_ids for item in items_by_node.get(node_id, []) if item.status in ACTIVE_ITEM_STATUSES
+        item
+        for node_id in related_ids
+        for item in items_by_node.get(node_id, [])
+        if item.status in ACTIVE_ITEM_STATUSES
     ]
     state_counts = Counter(related.state for related in related_nodes)
     priority_counts = Counter(item.priority for item in related_items)
     readiness_nodes = [related for related in related_nodes if related.readiness_score is not None]
     readiness_score = _average_readiness(readiness_nodes)
-    weakest = min(readiness_nodes, key=lambda item: item.readiness_score or 0.0) if readiness_nodes else None
+    weakest = (
+        min(readiness_nodes, key=lambda item: item.readiness_score or 0.0)
+        if readiness_nodes
+        else None
+    )
     needs_user_attention = any(related.needs_user_attention for related in related_nodes) or any(
         item.needs_user_attention for item in related_items
     )
@@ -412,11 +435,17 @@ def _class_token(value: str) -> str:
 
 
 def _badge(label: str, value: str) -> str:
-    return f'<span class="badge {escape(label)}-{escape(_class_token(value))}">{escape(value)}</span>'
+    return (
+        f'<span class="badge {escape(label)}-{escape(_class_token(value))}">{escape(value)}</span>'
+    )
 
 
 def _priority_summary(priority_counts: Counter[str]) -> str:
-    parts = [f"{priority.upper()} {priority_counts[priority]}" for priority in PRIORITY_LABELS if priority_counts[priority]]
+    parts = [
+        f"{priority.upper()} {priority_counts[priority]}"
+        for priority in PRIORITY_LABELS
+        if priority_counts[priority]
+    ]
     return " / ".join(parts) if parts else "No active items"
 
 
@@ -455,7 +484,9 @@ def _sorted_l1_nodes(nodes: list[ProjectNode]) -> list[ProjectNode]:
     by_id = {node.node_id: node for node in nodes if node.level == 1}
     ordered = [by_id[node_id] for node_id in LEVEL_1_ORDER if node_id in by_id]
     ordered_ids = {node.node_id for node in ordered}
-    ordered.extend(_sort_nodes([node for node in nodes if node.level == 1 and node.node_id not in ordered_ids]))
+    ordered.extend(
+        _sort_nodes([node for node in nodes if node.level == 1 and node.node_id not in ordered_ids])
+    )
     return ordered
 
 
@@ -480,7 +511,9 @@ def _readiness_block(node: ProjectNode, *, rollup: BlockRollup | None = None) ->
       <span>Readiness</span>
       <strong>{escape(_format_score(score))}</strong>
     </div>
-    <div class="readiness-bar" aria-hidden="true"><span style="width: {_score_percent(score)}%"></span></div>
+    <div class="readiness-bar" aria-hidden="true">
+      <span style="width: {_score_percent(score)}%"></span>
+    </div>
     <span class="readiness-label">{escape(label)}</span>
     {next_line}
   </div>
@@ -498,19 +531,32 @@ def _render_readiness_snapshot(repo_root: Path, output: Path, nodes: list[Projec
         ]
         score = _average_readiness(scored)
         if score is not None:
-            scored_spines.append((spine, sorted(scored, key=lambda item: (item.readiness_score or 0.0, item.title)), score))
+            scored_spines.append(
+                (
+                    spine,
+                    sorted(scored, key=lambda item: (item.readiness_score or 0.0, item.title)),
+                    score,
+                )
+            )
     if not scored_spines:
         return '<p class="empty">No readiness scores yet.</p>'
     source_link = ""
     if (repo_root / READINESS_SCORES).exists():
-        source_link = f'<a class="doc-link" href="{_href(repo_root, output, READINESS_SCORES)}">readiness source</a>'
-    cards = []
-    for spine, scored, score in sorted(scored_spines, key=lambda item: (item[2], item[0].title.lower())):
-        weakest = scored[0]
-        breakdown = "\n".join(
-            f"<li>{_note_link(repo_root, output, item.path, item.title)} <strong>{escape(_format_score(item.readiness_score))}</strong></li>"
-            for item in scored
+        source_link = (
+            f'<a class="doc-link" href="{_href(repo_root, output, READINESS_SCORES)}">'
+            "readiness source</a>"
         )
+    cards = []
+    for spine, scored, score in sorted(
+        scored_spines, key=lambda item: (item[2], item[0].title.lower())
+    ):
+        weakest = scored[0]
+        breakdown_items = []
+        for item in scored:
+            item_link = _note_link(repo_root, output, item.path, item.title)
+            item_score = escape(_format_score(item.readiness_score))
+            breakdown_items.append(f"<li>{item_link} <strong>{item_score}</strong></li>")
+        breakdown = "\n".join(breakdown_items)
         cards.append(
             f"""
 <article class="readiness-card readiness-{escape(_readiness_tier(score))}">
@@ -523,7 +569,9 @@ def _render_readiness_snapshot(repo_root: Path, output: Path, nodes: list[Projec
     <span>{len(scored)} scored blocks</span>
     <strong>{escape(_format_score(score))}</strong>
   </div>
-  <div class="readiness-bar" aria-hidden="true"><span style="width: {_score_percent(score)}%"></span></div>
+  <div class="readiness-bar" aria-hidden="true">
+    <span style="width: {_score_percent(score)}%"></span>
+  </div>
   <p>Weakest block: {escape(weakest.title)} ({escape(_format_score(weakest.readiness_score))}).</p>
   <ul class="readiness-breakdown">
     {breakdown}
@@ -543,7 +591,11 @@ def _render_readiness_snapshot(repo_root: Path, output: Path, nodes: list[Projec
 
 
 def _state_summary(state_counts: Counter[str]) -> str:
-    parts = [f"{state} {state_counts[state]}" for state in ("blocked", "unknown", "attention", "ok") if state_counts[state]]
+    parts = [
+        f"{state} {state_counts[state]}"
+        for state in ("blocked", "unknown", "attention", "ok")
+        if state_counts[state]
+    ]
     return " / ".join(parts) if parts else "No child states"
 
 
@@ -576,7 +628,9 @@ def _node_card(
         " ".join(node.dfd_refs),
         " ".join(node.proof_refs),
     )
-    refs = f"{len(node.source_refs)} source / {len(node.dfd_refs)} DFD / {len(node.proof_refs)} proof"
+    refs = (
+        f"{len(node.source_refs)} source / {len(node.dfd_refs)} DFD / {len(node.proof_refs)} proof"
+    )
     rollup_meta = ""
     if rollup:
         rollup_meta = f"""
@@ -587,7 +641,9 @@ def _node_card(
 """
     readiness = _readiness_block(node, rollup=rollup if major else None)
     return f"""
-<article class="{classes}" data-kind="node" data-state="{escape(node.state)}" data-rollup="{escape(rollup_state)}" data-surface="{escape(node.surface)}" data-level="{node.level}" data-search="{search}">
+<article class="{classes}" data-kind="node" data-state="{escape(node.state)}"
+    data-rollup="{escape(rollup_state)}" data-surface="{escape(node.surface)}"
+    data-level="{node.level}" data-search="{search}">
   <div class="card-topline">
     <span class="node-level">L{node.level}</span>
     <span class="surface surface-{escape(node.surface)}">{escape(node.surface)}</span>
@@ -604,7 +660,9 @@ def _node_card(
 """
 
 
-def _item_card(repo_root: Path, output: Path, item: ProjectItem, node_by_id: dict[str, ProjectNode]) -> str:
+def _item_card(
+    repo_root: Path, output: Path, item: ProjectItem, node_by_id: dict[str, ProjectNode]
+) -> str:
     linked = node_by_id.get(item.linked_node)
     linked_title = linked.title if linked else item.linked_node
     search = _data_search(
@@ -620,12 +678,15 @@ def _item_card(repo_root: Path, output: Path, item: ProjectItem, node_by_id: dic
         item.excerpt,
     )
     attention_class = " user-attention" if item.needs_user_attention else ""
+    priority_label = escape(PRIORITY_LABELS.get(item.priority, item.priority))
     return f"""
-<article class="item-card filterable{attention_class}" data-kind="item" data-state="{escape(item.status)}" data-priority="{escape(item.priority)}" data-surface="item" data-level="item" data-search="{search}">
+<article class="item-card filterable{attention_class}" data-kind="item"
+    data-state="{escape(item.status)}" data-priority="{escape(item.priority)}"
+    data-surface="item" data-level="item" data-search="{search}">
   <div class="card-topline">
     <span class="item-type">{escape(item.item_type)}</span>
     <span>{escape(item.origin_kind)}</span>
-    <span class="priority priority-{escape(item.priority)}">{escape(PRIORITY_LABELS.get(item.priority, item.priority))}</span>
+    <span class="priority priority-{escape(item.priority)}">{priority_label}</span>
     <span class="severity severity-{escape(item.severity)}">{escape(item.severity)}</span>
   </div>
   <h3>{_note_link(repo_root, output, item.path, item.title)}</h3>
@@ -655,7 +716,8 @@ def _render_summary(nodes: list[ProjectNode], items: list[ProjectItem]) -> str:
         ("Unknown", str(state_counts.get("unknown", 0))),
     ]
     return "\n".join(
-        f'<div class="metric"><span>{escape(label)}</span><strong>{escape(value)}</strong></div>' for label, value in summary
+        f'<div class="metric"><span>{escape(label)}</span><strong>{escape(value)}</strong></div>'
+        for label, value in summary
     )
 
 
@@ -695,6 +757,16 @@ def _render_lanes(
         if not lane_children:
             continue
         rollup = _rollup_for(lane, children=children, items_by_node=items_by_node)
+        lane_state_label = escape(ROLLUP_LABELS.get(rollup.status, rollup.status))
+        lane_cards = "".join(
+            _node_card(
+                repo_root,
+                output,
+                child,
+                rollup=_rollup_for(child, children=children, items_by_node=items_by_node),
+            )
+            for child in lane_children
+        )
         html.append(
             f"""
 <section class="lane">
@@ -703,10 +775,10 @@ def _render_lanes(
       <p class="eyebrow">Capability lane</p>
       <h2>{escape(lane.title)}</h2>
     </div>
-    <span class="lane-state rollup-{escape(rollup.status)}">{escape(ROLLUP_LABELS.get(rollup.status, rollup.status))}</span>
+    <span class="lane-state rollup-{escape(rollup.status)}">{lane_state_label}</span>
   </header>
   <div class="lane-grid">
-    {"".join(_node_card(repo_root, output, child, rollup=_rollup_for(child, children=children, items_by_node=items_by_node)) for child in lane_children)}
+    {lane_cards}
   </div>
 </section>
 """
@@ -729,10 +801,18 @@ def _render_attention(
 def _render_evidence(repo_root: Path, output: Path, nodes: list[ProjectNode]) -> str:
     rows: list[str] = []
     for node in _sort_nodes(nodes):
-        search = _data_search(node.title, node.node_id, node.state, " ".join(node.source_refs), " ".join(node.dfd_refs))
+        search = _data_search(
+            node.title,
+            node.node_id,
+            node.state,
+            " ".join(node.source_refs),
+            " ".join(node.dfd_refs),
+        )
         rows.append(
             f"""
-<details class="evidence-row filterable" data-kind="evidence" data-state="{escape(node.state)}" data-surface="{escape(node.surface)}" data-level="{node.level}" data-search="{search}">
+<details class="evidence-row filterable" data-kind="evidence"
+    data-state="{escape(node.state)}" data-surface="{escape(node.surface)}"
+    data-level="{node.level}" data-search="{search}">
   <summary>
     <span>{escape(node.title)}</span>
     <span>{escape(node.state)} / L{node.level}</span>
@@ -758,14 +838,20 @@ def render(repo_root: Path, *, output: Path = OUTPUT) -> str:
     for item in items:
         items_by_node[item.linked_node].append(item)
     state_options = sorted({node.state for node in nodes} | {item.status for item in items})
-    priority_options = [priority for priority in PRIORITY_LABELS if any(item.priority == priority for item in items)]
+    priority_options = [
+        priority for priority in PRIORITY_LABELS if any(item.priority == priority for item in items)
+    ]
     surface_options = sorted({node.surface for node in nodes})
-    state_select = "\n".join(f'<option value="{escape(value)}">{escape(value)}</option>' for value in state_options)
+    state_select = "\n".join(
+        f'<option value="{escape(value)}">{escape(value)}</option>' for value in state_options
+    )
     priority_select = "\n".join(
         f'<option value="{escape(value)}">{escape(PRIORITY_LABELS.get(value, value))}</option>'
         for value in priority_options
     )
-    surface_select = "\n".join(f'<option value="{escape(value)}">{escape(value)}</option>' for value in surface_options)
+    surface_select = "\n".join(
+        f'<option value="{escape(value)}">{escape(value)}</option>' for value in surface_options
+    )
 
     html = f"""<!doctype html>
 <html lang="en">
@@ -965,10 +1051,18 @@ def render(repo_root: Path, *, output: Path = OUTPUT) -> str:
       background: var(--panel-strong);
       border-width: 2px;
     }}
-    .node-card[data-state="ok"] {{ border-color: color-mix(in srgb, var(--ok) 56%, var(--line)); }}
-    .node-card[data-state="attention"] {{ border-color: color-mix(in srgb, var(--attention) 70%, var(--line)); }}
-    .node-card[data-state="unknown"] {{ border-color: color-mix(in srgb, var(--unknown) 70%, var(--line)); }}
-    .node-card[data-state="blocked"] {{ border-color: color-mix(in srgb, var(--blocked) 70%, var(--line)); }}
+    .node-card[data-state="ok"] {{
+      border-color: color-mix(in srgb, var(--ok) 56%, var(--line));
+    }}
+    .node-card[data-state="attention"] {{
+      border-color: color-mix(in srgb, var(--attention) 70%, var(--line));
+    }}
+    .node-card[data-state="unknown"] {{
+      border-color: color-mix(in srgb, var(--unknown) 70%, var(--line));
+    }}
+    .node-card[data-state="blocked"] {{
+      border-color: color-mix(in srgb, var(--blocked) 70%, var(--line));
+    }}
     .item-card {{ border-color: color-mix(in srgb, var(--item) 58%, var(--line)); }}
     .user-attention {{ box-shadow: inset 4px 0 0 var(--blocked); }}
     .card-topline, .meta-row {{
@@ -1005,17 +1099,32 @@ def render(repo_root: Path, *, output: Path = OUTPUT) -> str:
     .surface-product-plane {{ background: color-mix(in srgb, var(--product) 28%, #312c3d); }}
     .surface-mixed {{ background: color-mix(in srgb, var(--mixed) 24%, #2b3934); }}
     .state-ok {{ background: color-mix(in srgb, var(--ok) 32%, #26352d); }}
-    .state-attention {{ background: color-mix(in srgb, var(--attention) 32%, #3f3824); color: #fff4bd; }}
-    .state-needs-attention {{ background: color-mix(in srgb, var(--attention) 32%, #3f3824); color: #fff4bd; }}
+    .state-attention {{
+      background: color-mix(in srgb, var(--attention) 32%, #3f3824);
+      color: #fff4bd;
+    }}
+    .state-needs-attention {{
+      background: color-mix(in srgb, var(--attention) 32%, #3f3824);
+      color: #fff4bd;
+    }}
     .state-unknown {{ background: color-mix(in srgb, var(--unknown) 32%, #3c3028); }}
     .rollup-stable {{ background: color-mix(in srgb, var(--ok) 32%, #26352d); }}
     .rollup-watch {{ background: color-mix(in srgb, var(--item) 26%, #29323a); }}
-    .rollup-review {{ background: color-mix(in srgb, var(--attention) 32%, #3f3824); color: #fff4bd; }}
+    .rollup-review {{
+      background: color-mix(in srgb, var(--attention) 32%, #3f3824);
+      color: #fff4bd;
+    }}
     .rollup-unknown {{ background: color-mix(in srgb, var(--unknown) 32%, #3c3028); }}
-    .rollup-decision {{ background: color-mix(in srgb, var(--attention) 48%, #443824); color: #fff4bd; }}
+    .rollup-decision {{
+      background: color-mix(in srgb, var(--attention) 48%, #443824);
+      color: #fff4bd;
+    }}
     .rollup-blocked {{ background: color-mix(in srgb, var(--blocked) 42%, #3d292c); }}
     .priority-p0 {{ background: color-mix(in srgb, var(--blocked) 54%, #3d292c); }}
-    .priority-p1 {{ background: color-mix(in srgb, var(--attention) 48%, #3f3824); color: #fff4bd; }}
+    .priority-p1 {{
+      background: color-mix(in srgb, var(--attention) 48%, #3f3824);
+      color: #fff4bd;
+    }}
     .priority-p2 {{ background: color-mix(in srgb, var(--item) 34%, #29323a); }}
     .priority-p3 {{ background: #363a42; }}
     .severity-high {{ background: color-mix(in srgb, var(--blocked) 34%, #3d292c); }}
@@ -1066,10 +1175,17 @@ def render(repo_root: Path, *, output: Path = OUTPUT) -> str:
       <div>
         <p class="eyebrow">Trading Advisor 3000</p>
         <h1>Project Cockpit</h1>
-        <p class="subtitle">Architecture and attention view generated from Obsidian project-map notes.</p>
+        <p class="subtitle">
+          Architecture and attention view generated from Obsidian project-map notes.
+        </p>
       </div>
       <form class="controls" id="filters">
-        <input id="search" type="search" placeholder="Search nodes, refs, items" aria-label="Search">
+        <input
+          id="search"
+          type="search"
+          placeholder="Search nodes, refs, items"
+          aria-label="Search"
+        >
         <select id="state" aria-label="State filter">
           <option value="">All states</option>
           {state_select}
@@ -1171,7 +1287,13 @@ def render(repo_root: Path, *, output: Path = OUTPUT) -> str:
         const matchesSurface = !surfaceValue || card.dataset.surface === surfaceValue;
         const matchesPriority = !priorityValue || card.dataset.priority === priorityValue;
         const matchesKind = !kindValue || card.dataset.kind === kindValue;
-        card.hidden = !(matchesQuery && matchesState && matchesSurface && matchesPriority && matchesKind);
+        card.hidden = !(
+          matchesQuery &&
+          matchesState &&
+          matchesSurface &&
+          matchesPriority &&
+          matchesKind
+        );
       }}
     }}
 

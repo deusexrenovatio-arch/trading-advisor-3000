@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
@@ -67,7 +66,13 @@ Short note body for {title}.
 
 def test_project_cockpit_renders_nodes_items_and_traceability(tmp_path: Path) -> None:
     _write_node(tmp_path, title="Product Plane", node_id="product-plane", state="attention")
-    _write_node(tmp_path, title="Research Data Prep", node_id="research-data-prep", level=2, parent="product-plane")
+    _write_node(
+        tmp_path,
+        title="Research Data Prep",
+        node_id="research-data-prep",
+        level=2,
+        parent="product-plane",
+    )
     readiness_path = tmp_path / "docs" / "project-map" / "state" / "readiness-scores.yaml"
     readiness_path.write_text(
         """version: 1
