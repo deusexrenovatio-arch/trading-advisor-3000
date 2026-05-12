@@ -15,10 +15,17 @@ from trading_advisor_3000.product_plane.research.derived_indicators import (
     load_derived_indicator_frames,
     research_derived_indicator_store_contract,
 )
+from trading_advisor_3000.product_plane.research.derived_indicators.materialize import (
+    _existing_partition_matches,
+    _source_bars_may_have_changed,
+)
 from trading_advisor_3000.product_plane.research.derived_indicators.store import (
     write_derived_indicator_frame_batches,
 )
-from trading_advisor_3000.product_plane.research.indicators import IndicatorFrameRow, build_indicator_frames
+from trading_advisor_3000.product_plane.research.indicators import (
+    IndicatorFrameRow,
+    build_indicator_frames,
+)
 
 
 def _angle_slope(current: float, previous: float, *, length: int) -> float:
@@ -143,6 +150,7 @@ def test_derived_indicator_store_contract_is_separate_wide_layer() -> None:
     assert registry.versions() == ("core_v1",)
     assert profile.output_columns == WIDE_TECHNICAL_GOLD_V2_DERIVED_COLUMNS
     assert derived_columns == WIDE_TECHNICAL_GOLD_V2_DERIVED_COLUMNS
+    assert not any(column.startswith("vp_") for column in columns)
     forbidden_feature_outputs = {
         "trend_state_fast_slow_code",
         "ma_stack_state_code",
@@ -201,7 +209,9 @@ def test_derived_indicator_build_keeps_feature_sets_out_of_layer_identity() -> N
     assert "feature_set_version" not in payload
 
 
-def test_continuous_front_derived_rows_keep_chronological_alignment_across_contract_chunks() -> None:
+def test_continuous_front_derived_rows_keep_chronological_alignment_across_contract_chunks() -> (
+    None
+):
     start = datetime(2026, 3, 16, 9, 0, tzinfo=UTC)
 
     def continuous_view(index: int) -> ResearchBarView:
@@ -317,9 +327,42 @@ def test_derived_indicator_batch_writer_coalesces_delta_writes(tmp_path) -> None
     assert "research_derived_indicator_frames" in paths
 
 
+def test_derived_legacy_partitions_rehash_when_source_table_is_newer() -> None:
+    assert _source_bars_may_have_changed(
+        source_bars_hash="legacy-bars-hash",
+        existing_row_count=12,
+        row_count=12,
+        existing_source_dataset_bars_hash="",
+        current_dataset_bars_hash="current-dataset-bars-hash",
+        table_exists=True,
+        legacy_table_covers_source_commit=False,
+    )
+
+
+def test_derived_legacy_partition_without_output_hash_is_not_reused_as_complete() -> None:
+    assert not _existing_partition_matches(
+        [
+            {
+                "source_bars_hash": "bars-hash",
+                "source_indicators_hash": "indicators-hash",
+                "profile_version": "core_v1",
+                "row_count": 12,
+                "output_columns_hash": "",
+            }
+        ],
+        source_bars_hash="bars-hash",
+        source_indicators_hash="indicators-hash",
+        profile_version="core_v1",
+        row_count=12,
+        output_columns_hash="TARGET-COLUMNS",
+    )
+
+
 def test_derived_indicator_build_produces_wide_v2_values_and_causal_mtf_overlay() -> None:
     bars_15m = [
-        _view(ts_index=index, close=90.0 + index * 0.05 + ((index % 16) - 8) * 0.06, timeframe="15m")
+        _view(
+            ts_index=index, close=90.0 + index * 0.05 + ((index % 16) - 8) * 0.06, timeframe="15m"
+        )
         for index in range(1200)
     ]
     bars_1h = [
@@ -375,10 +418,14 @@ def test_derived_indicator_build_produces_wide_v2_values_and_causal_mtf_overlay(
     ):
         assert tail.values[column] is not None
     assert tail.values["sma_20_slope_5"] == pytest.approx(
-        _angle_slope(indicator_15m[-1].values["sma_20"], indicator_15m[-6].values["sma_20"], length=5)
+        _angle_slope(
+            indicator_15m[-1].values["sma_20"], indicator_15m[-6].values["sma_20"], length=5
+        )
     )
     assert tail.values["ema_20_slope_5"] == pytest.approx(
-        _angle_slope(indicator_15m[-1].values["ema_20"], indicator_15m[-6].values["ema_20"], length=5)
+        _angle_slope(
+            indicator_15m[-1].values["ema_20"], indicator_15m[-6].values["ema_20"], length=5
+        )
     )
     assert tail.values["mtf_1h_to_15m_ema_20"] == pytest.approx(indicator_1h[-1].values["ema_20"])
     assert tail.values["mtf_1h_to_15m_ema_50"] == pytest.approx(indicator_1h[-1].values["ema_50"])

@@ -19,7 +19,6 @@ from trading_advisor_3000.product_plane.research.strategies import StrategySpec
 
 from .ranking import RankingPolicy, default_ranking_policy, score_optimizer_trial
 
-
 PRICE_INPUTS = ("open", "high", "low", "close")
 INDICATOR_SOURCE_PRIORITY = (
     "materialized_delta",
@@ -111,7 +110,9 @@ class IndicatorInputPlan:
                 alias=_input_alias(payload),
                 source=str(payload.get("source", "materialized_delta")),
                 missing_policy=str(payload.get("missing_policy", "materialized_required")),
-                params=dict(payload.get("params", {})) if isinstance(payload.get("params", {}), Mapping) else {},
+                params=dict(payload.get("params", {}))
+                if isinstance(payload.get("params", {}), Mapping)
+                else {},
                 provider=str(payload["provider"]) if payload.get("provider") is not None else None,
             )
         return cls(alias=_input_alias(payload))
@@ -147,8 +148,7 @@ class VectorBTIndicatorPlan:
             "optional_indicators": [item.to_dict() for item in self.optional_indicators],
             "source_priority": list(self.source_priority),
             "inputs_by_clock": {
-                str(layer): dict(payload)
-                for layer, payload in self.inputs_by_clock.items()
+                str(layer): dict(payload) for layer, payload in self.inputs_by_clock.items()
             },
         }
 
@@ -199,7 +199,9 @@ class StrategyFamilySearchSpec:
     parameter_constraints: tuple[str, ...] = ()
     clock_profile: Mapping[str, object] = field(default_factory=dict)
     required_inputs_by_clock: Mapping[str, Mapping[str, object]] = field(default_factory=dict)
-    parameter_space_by_role: Mapping[str, Mapping[str, tuple[object, ...]]] = field(default_factory=dict)
+    parameter_space_by_role: Mapping[str, Mapping[str, tuple[object, ...]]] = field(
+        default_factory=dict
+    )
     parameter_clock_map: tuple[Mapping[str, object], ...] = ()
     optional_indicator_plan: tuple[IndicatorInputPlan, ...] = ()
     exit_parameter_space: Mapping[str, tuple[object, ...]] = field(default_factory=dict)
@@ -226,9 +228,19 @@ class StrategyFamilySearchSpec:
             raise ValueError("parameter_mode must be `product` or `table`")
         if self.max_parameter_combinations <= 0:
             raise ValueError("max_parameter_combinations must be positive")
-        object.__setattr__(self, "required_price_inputs", _input_aliases(self.required_price_inputs))
-        object.__setattr__(self, "required_materialized_indicators", _input_aliases(self.required_materialized_indicators))
-        object.__setattr__(self, "required_materialized_derived", _input_aliases(self.required_materialized_derived))
+        object.__setattr__(
+            self, "required_price_inputs", _input_aliases(self.required_price_inputs)
+        )
+        object.__setattr__(
+            self,
+            "required_materialized_indicators",
+            _input_aliases(self.required_materialized_indicators),
+        )
+        object.__setattr__(
+            self,
+            "required_materialized_derived",
+            _input_aliases(self.required_materialized_derived),
+        )
         object.__setattr__(
             self,
             "optional_indicator_plan",
@@ -263,8 +275,12 @@ class StrategyFamilySearchSpec:
                 for role, space in self.parameter_space_by_role.items()
             },
             "parameter_clock_map": [dict(item) for item in self.parameter_clock_map],
-            "exit_parameter_space": {key: list(value) for key, value in self.exit_parameter_space.items()},
-            "risk_parameter_space": {key: list(value) for key, value in self.risk_parameter_space.items()},
+            "exit_parameter_space": {
+                key: list(value) for key, value in self.exit_parameter_space.items()
+            },
+            "risk_parameter_space": {
+                key: list(value) for key, value in self.risk_parameter_space.items()
+            },
             "execution_assumptions": dict(self.execution_assumptions),
             "max_parameter_combinations": self.max_parameter_combinations,
             "chunking_policy": dict(self.chunking_policy),
@@ -326,7 +342,9 @@ class StrategyFamilySearchSpec:
             parameter_mode=str(payload["parameter_mode"]),
             parameter_space=_space("parameter_space"),
             parameter_constraints=_tuple_value("parameter_constraints"),
-            clock_profile=dict(payload.get("clock_profile", {})) if isinstance(payload.get("clock_profile"), Mapping) else {},
+            clock_profile=dict(payload.get("clock_profile", {}))
+            if isinstance(payload.get("clock_profile"), Mapping)
+            else {},
             required_inputs_by_clock={
                 str(key): dict(value)
                 for key, value in payload.get("required_inputs_by_clock", {}).items()
@@ -357,8 +375,12 @@ class StrategyFamilySearchSpec:
             if isinstance(payload.get("execution_assumptions"), Mapping)
             else {},
             max_parameter_combinations=int(payload.get("max_parameter_combinations", 250_000)),
-            chunking_policy=dict(payload.get("chunking_policy", {})) if isinstance(payload.get("chunking_policy"), Mapping) else {},
-            selection_policy=dict(payload.get("selection_policy", {})) if isinstance(payload.get("selection_policy"), Mapping) else {},
+            chunking_policy=dict(payload.get("chunking_policy", {}))
+            if isinstance(payload.get("chunking_policy"), Mapping)
+            else {},
+            selection_policy=dict(payload.get("selection_policy", {}))
+            if isinstance(payload.get("selection_policy"), Mapping)
+            else {},
         )
 
 
@@ -379,7 +401,9 @@ class VectorBTInputBundle:
             return self.fields[name]
         raise KeyError(name)
 
-    def field_at(self, name: str, timeframe: str, *, align_to_execution: bool = False) -> pd.DataFrame:
+    def field_at(
+        self, name: str, timeframe: str, *, align_to_execution: bool = False
+    ) -> pd.DataFrame:
         native = self.timeframe_price.get(timeframe, {}).get(name)
         if native is None:
             native = self.timeframe_fields.get(timeframe, {}).get(name)
@@ -620,7 +644,9 @@ def param_hash(spec: StrategyFamilySearchSpec, params: Mapping[str, object]) -> 
                 },
                 "required_materialized_indicators": list(spec.required_materialized_indicators),
                 "required_materialized_derived": list(spec.required_materialized_derived),
-                "optional_indicator_plan": [item.to_dict() for item in spec.optional_indicator_plan],
+                "optional_indicator_plan": [
+                    item.to_dict() for item in spec.optional_indicator_plan
+                ],
             }
         )
     )
@@ -630,7 +656,9 @@ def search_spec_id(spec: StrategyFamilySearchSpec) -> str:
     return "SSPEC-" + _stable_hash(_canonical_json(spec.to_dict()))
 
 
-def _strategy_tuple_attr(strategy_spec: StrategySpec, name: str, default: tuple[object, ...] = ()) -> tuple[object, ...]:
+def _strategy_tuple_attr(
+    strategy_spec: StrategySpec, name: str, default: tuple[object, ...] = ()
+) -> tuple[object, ...]:
     raw_value = getattr(strategy_spec, name, default)
     if raw_value is None:
         return default
@@ -647,7 +675,9 @@ def _clock_profile_payload(strategy_spec: StrategySpec) -> dict[str, object]:
     raw_profile = getattr(strategy_spec, "clock_profile", None)
     if raw_profile is not None and hasattr(raw_profile, "to_dict"):
         return dict(raw_profile.to_dict())
-    allowed_clock_profiles = _strategy_tuple_attr(strategy_spec, "allowed_clock_profiles", ("research_clock_v1",))
+    allowed_clock_profiles = _strategy_tuple_attr(
+        strategy_spec, "allowed_clock_profiles", ("research_clock_v1",)
+    )
     name = str(allowed_clock_profiles[0]) if allowed_clock_profiles else "research_clock_v1"
     return {
         "name": name,
@@ -661,13 +691,17 @@ def _clock_profile_payload(strategy_spec: StrategySpec) -> dict[str, object]:
     }
 
 
-def _execution_timeframe_from_profile(clock_profile: Mapping[str, object], fallback: str = "15m") -> str:
+def _execution_timeframe_from_profile(
+    clock_profile: Mapping[str, object], fallback: str = "15m"
+) -> str:
     value = clock_profile.get("execution_tf") if isinstance(clock_profile, Mapping) else None
     resolved = str(value).strip() if value is not None else ""
     return resolved or fallback
 
 
-def _clock_timeframes_from_profile(clock_profile: Mapping[str, object], fallback: str = "15m") -> tuple[str, ...]:
+def _clock_timeframes_from_profile(
+    clock_profile: Mapping[str, object], fallback: str = "15m"
+) -> tuple[str, ...]:
     keys = ("regime_tf", "signal_tf", "trigger_tf", "execution_tf")
     values: list[str] = []
     for key in keys:
@@ -688,7 +722,13 @@ def _clock_layer_for_role(role: str) -> str:
     return role
 
 
-def _required_inputs_by_clock(strategy_spec: StrategySpec, clock_profile: Mapping[str, object]) -> dict[str, dict[str, object]]:
+def _required_inputs_by_clock(
+    strategy_spec: StrategySpec, clock_profile: Mapping[str, object]
+) -> dict[str, dict[str, object]]:
+    requirements = tuple(_strategy_indicator_requirements(strategy_spec))
+    if not requirements:
+        return {}
+
     layer_defaults = {
         "regime": str(clock_profile.get("regime_tf", "1d")),
         "signal": str(clock_profile.get("signal_tf", "15m")),
@@ -710,7 +750,7 @@ def _required_inputs_by_clock(strategy_spec: StrategySpec, clock_profile: Mappin
         if value not in items:
             items.append(value)
 
-    for requirement in _strategy_indicator_requirements(strategy_spec):
+    for requirement in requirements:
         layer = _clock_layer_for_role(str(requirement.role))
         payload = layers.setdefault(
             layer,
@@ -753,7 +793,9 @@ def strategy_spec_to_search_spec(
     required_derived: list[str] = []
     indicator_requirements = _strategy_indicator_requirements(strategy_spec)
     intent = getattr(strategy_spec, "intent", None)
-    allowed_clock_profiles = _strategy_tuple_attr(strategy_spec, "allowed_clock_profiles", ("research_clock_v1",))
+    allowed_clock_profiles = _strategy_tuple_attr(
+        strategy_spec, "allowed_clock_profiles", ("research_clock_v1",)
+    )
     market_regimes = _strategy_tuple_attr(strategy_spec, "market_regimes")
     parameter_constraints = _strategy_tuple_attr(strategy_spec, "parameter_constraints")
     optional_indicator_plan = _strategy_tuple_attr(strategy_spec, "optional_indicator_plan")
@@ -776,7 +818,21 @@ def strategy_spec_to_search_spec(
         for column in strategy_spec.required_columns:
             if column in PRICE_INPUTS:
                 continue
-            if column.startswith(("distance_", "cross_", "mtf_", "rolling_", "session_", "bb_position", "kc_position", "donchian_position", "close_slope", "roc_", "mom_")):
+            if column.startswith(
+                (
+                    "distance_",
+                    "cross_",
+                    "mtf_",
+                    "rolling_",
+                    "session_",
+                    "bb_position",
+                    "kc_position",
+                    "donchian_position",
+                    "close_slope",
+                    "roc_",
+                    "mom_",
+                )
+            ):
                 _append_unique(required_derived, column)
             else:
                 _append_unique(required_indicators, column)
@@ -787,14 +843,23 @@ def strategy_spec_to_search_spec(
         strategy_version_label=strategy_spec.version,
         intent=str(intent).strip() if intent else strategy_spec.description,
         allowed_clock_profiles=tuple(str(item) for item in allowed_clock_profiles),
-        allowed_market_states=tuple(market_regimes or strategy_spec.ranking_metadata.tags) or ("mixed_unknown",),
-        required_price_inputs=tuple(column for column in PRICE_INPUTS if column in strategy_spec.required_columns or column == "close"),
+        allowed_market_states=tuple(market_regimes or strategy_spec.ranking_metadata.tags)
+        or ("mixed_unknown",),
+        required_price_inputs=tuple(
+            column
+            for column in PRICE_INPUTS
+            if column in strategy_spec.required_columns or column == "close"
+        ),
         required_materialized_indicators=tuple(required_indicators),
         required_materialized_derived=tuple(required_derived),
         signal_surface_key=f"vbt_surface.{strategy_spec.signal_builder_key}_v1",
-        signal_surface_mode="indicator_factory" if strategy_spec.execution_mode == "signals" else "signal_factory",
+        signal_surface_mode="indicator_factory"
+        if strategy_spec.execution_mode == "signals"
+        else "signal_factory",
         parameter_mode="product",
-        parameter_space={parameter.name: tuple(parameter.values) for parameter in strategy_spec.parameter_grid},
+        parameter_space={
+            parameter.name: tuple(parameter.values) for parameter in strategy_spec.parameter_grid
+        },
         parameter_constraints=tuple(str(item) for item in parameter_constraints),
         clock_profile=clock_profile,
         required_inputs_by_clock=required_inputs_by_clock,
@@ -849,7 +914,9 @@ def build_input_bundle(
     else:
         clock_profile_name = str(clock_profile)
         clock_profile_contract = {"name": clock_profile_name}
-    available_timeframes = tuple(sorted({series.timeframe for series in series_frames}, key=_timeframe_sort_key))
+    available_timeframes = tuple(
+        sorted({series.timeframe for series in series_frames}, key=_timeframe_sort_key)
+    )
     execution_tf = (
         execution_timeframe
         or str(clock_profile_contract.get("execution_tf", "")).strip()
@@ -866,7 +933,10 @@ def build_input_bundle(
     for series in series_frames:
         key = (series.timeframe, series.instrument_id)
         if key in series_by_key:
-            raise ValueError(f"VectorBTInputBundle received duplicate series for {series.timeframe}:{series.instrument_id}")
+            raise ValueError(
+                "VectorBTInputBundle received duplicate series for "
+                f"{series.timeframe}:{series.instrument_id}"
+            )
         series_by_key[key] = series
 
     def _can_build_matrix(column: str, timeframe: str) -> bool:
@@ -882,7 +952,13 @@ def build_input_bundle(
             series = series_by_key[(timeframe, instrument_id)]
             if column not in series.frame.columns:
                 raise KeyError(column)
-            pieces[series.instrument_id] = pd.to_numeric(series.frame[column], errors="coerce")
+            raw = series.frame[column]
+            numeric = pd.to_numeric(raw, errors="coerce")
+            if column.startswith("vp_") and raw.notna().any() and numeric[raw.notna()].isna().any():
+                raise ValueError(
+                    f"VectorBTInputBundle profile input `{column}` contains non-numeric values"
+                )
+            pieces[series.instrument_id] = numeric
         matrix = pd.DataFrame(pieces).sort_index()
         matrix.index = pd.to_datetime(matrix.index, utc=True)
         return matrix
@@ -891,7 +967,9 @@ def build_input_bundle(
     fields_by_tf: dict[str, dict[str, pd.DataFrame]] = {}
     for timeframe in available_timeframes:
         local_frames = [series.frame for series in series_frames if series.timeframe == timeframe]
-        local_columns = set().union(*(set(frame.columns) for frame in local_frames)) if local_frames else set()
+        local_columns = (
+            set().union(*(set(frame.columns) for frame in local_frames)) if local_frames else set()
+        )
         price_by_tf[timeframe] = {
             column: _matrix(column, timeframe)
             for column in PRICE_INPUTS
@@ -900,7 +978,9 @@ def build_input_bundle(
         payload_columns = sorted(
             column
             for column in local_columns
-            if column not in METADATA_COLUMNS and column not in PRICE_INPUTS and _can_build_matrix(column, timeframe)
+            if column not in METADATA_COLUMNS
+            and column not in PRICE_INPUTS
+            and _can_build_matrix(column, timeframe)
         )
         fields_by_tf[timeframe] = {column: _matrix(column, timeframe) for column in payload_columns}
 
@@ -923,15 +1003,51 @@ def build_input_bundle(
     series_modes: dict[str, str] = {}
     series_ids: dict[str, str] = {}
     for series in execution_series:
-        source = series.signal_frame if series.signal_frame is not None else series.frame
-        available_columns = [column for column in execution_metadata_columns if column in source.columns]
-        metadata = source[available_columns].copy() if available_columns else pd.DataFrame(index=source.index)
-        metadata.index = pd.to_datetime(source["ts"] if "ts" in source.columns else source.index, utc=True)
+        execution_source = (
+            series.execution_frame
+            if series.execution_frame is not None
+            else series.signal_frame
+            if series.signal_frame is not None
+            else series.frame
+        )
+        signal_source = (
+            series.signal_frame
+            if series.signal_frame is not None
+            else series.frame
+            if series.frame is not None
+            else execution_source
+        )
+        available_columns = [
+            column for column in execution_metadata_columns if column in execution_source.columns
+        ]
+        metadata = (
+            execution_source[available_columns].copy()
+            if available_columns
+            else pd.DataFrame(index=execution_source.index)
+        )
+        metadata.index = pd.to_datetime(
+            execution_source["ts"] if "ts" in execution_source.columns else execution_source.index,
+            utc=True,
+        )
         execution_metadata[series.instrument_id] = metadata.reindex(close_index)
-        price_space = source["price_space"].iloc[0] if "price_space" in source.columns and not source.empty else "native"
+        price_space = (
+            signal_source["price_space"].iloc[0]
+            if "price_space" in signal_source.columns and not signal_source.empty
+            else "native"
+        )
         signal_price_spaces[series.instrument_id] = str(price_space or "native")
-        series_modes[series.instrument_id] = series.series_mode
-        series_ids[series.instrument_id] = series.series_id or series.contract_id
+        series_mode = (
+            execution_source["series_mode"].iloc[0]
+            if "series_mode" in execution_source.columns and not execution_source.empty
+            else series.series_mode
+        )
+        series_id = (
+            execution_source["series_id"].iloc[0]
+            if "series_id" in execution_source.columns and not execution_source.empty
+            else series.series_id or series.contract_id
+        )
+        series_modes[series.instrument_id] = str(series_mode or series.series_mode)
+        series_ids[series.instrument_id] = str(series_id or series.series_id or series.contract_id)
     return VectorBTInputBundle(
         index=close_index,
         instruments=instruments,
@@ -947,7 +1063,9 @@ def build_input_bundle(
             "execution_tf": execution_tf,
             "timezone": "UTC",
             "as_of_policy": "closed_bars_only",
-            "contract_ids": {series.instrument_id: series.contract_id for series in execution_series},
+            "contract_ids": {
+                series.instrument_id: series.contract_id for series in execution_series
+            },
             "series_ids": series_ids,
             "series_modes": series_modes,
             "signal_price_spaces": signal_price_spaces,
@@ -968,7 +1086,9 @@ def _payload_aliases(payload: Mapping[str, object], name: str) -> tuple[str, ...
     return tuple()
 
 
-def resolve_indicator_plan(bundle: VectorBTInputBundle, spec: StrategyFamilySearchSpec) -> VectorBTIndicatorPlan:
+def resolve_indicator_plan(
+    bundle: VectorBTInputBundle, spec: StrategyFamilySearchSpec
+) -> VectorBTIndicatorPlan:
     _validate_bundle_shape(bundle)
     if spec.clock_profile:
         expected_execution_tf = _execution_timeframe_from_profile(spec.clock_profile)
@@ -976,7 +1096,8 @@ def resolve_indicator_plan(bundle: VectorBTInputBundle, spec: StrategyFamilySear
         if actual_execution_tf != expected_execution_tf:
             raise InputPlanValidationError(
                 "CLOCK_PROFILE_MISMATCH",
-                f"{spec.family_key} expected execution timeframe {expected_execution_tf}, got {actual_execution_tf}",
+                f"{spec.family_key} expected execution timeframe "
+                f"{expected_execution_tf}, got {actual_execution_tf}",
             )
     if spec.required_inputs_by_clock:
         missing: list[str] = []
@@ -1009,8 +1130,12 @@ def resolve_indicator_plan(bundle: VectorBTInputBundle, spec: StrategyFamilySear
                 missing=missing,
             )
     missing_price = [column for column in spec.required_price_inputs if column not in bundle.price]
-    missing_indicators = [column for column in spec.required_materialized_indicators if column not in bundle.fields]
-    missing_derived = [column for column in spec.required_materialized_derived if column not in bundle.fields]
+    missing_indicators = [
+        column for column in spec.required_materialized_indicators if column not in bundle.fields
+    ]
+    missing_derived = [
+        column for column in spec.required_materialized_derived if column not in bundle.fields
+    ]
     if missing_price and not spec.required_inputs_by_clock:
         raise InputPlanValidationError(
             "MISSING_MATERIALIZED_INPUT",
@@ -1024,7 +1149,11 @@ def resolve_indicator_plan(bundle: VectorBTInputBundle, spec: StrategyFamilySear
             missing=missing_indicators,
         )
     if missing_derived and not spec.required_inputs_by_clock:
-        failure = "MISSING_MTF_INPUT" if any(column.startswith("mtf_") for column in missing_derived) else "MISSING_MATERIALIZED_INPUT"
+        failure = (
+            "MISSING_MTF_INPUT"
+            if any(column.startswith("mtf_") for column in missing_derived)
+            else "MISSING_MATERIALIZED_INPUT"
+        )
         raise InputPlanValidationError(
             failure,
             f"{failure}: {spec.family_key} missing derived inputs: {', '.join(missing_derived)}",
@@ -1042,7 +1171,8 @@ def resolve_indicator_plan(bundle: VectorBTInputBundle, spec: StrategyFamilySear
         if optional.source == "pandas_ta_direct_precompute":
             raise InputPlanValidationError(
                 "EPHEMERAL_PROVIDER_NOT_ALLOWED",
-                f"{spec.family_key} direct pandas-ta precompute is not allowed in the vectorbt hot path: {optional.alias}",
+                f"{spec.family_key} direct pandas-ta precompute is not allowed "
+                f"in the vectorbt hot path: {optional.alias}",
                 missing=(optional.alias,),
             )
     return VectorBTIndicatorPlan(
@@ -1109,7 +1239,9 @@ def _native_field(bundle: VectorBTInputBundle, name: str, layer: str) -> pd.Data
 
 def _has_native_field(bundle: VectorBTInputBundle, name: str, layer: str) -> bool:
     timeframe = _layer_timeframe(bundle, layer)
-    return name in bundle.timeframe_price.get(timeframe, {}) or name in bundle.timeframe_fields.get(timeframe, {}) or name in bundle.price or name in bundle.fields
+    return name in bundle.timeframe_price.get(timeframe, {}) or name in bundle.timeframe_fields.get(
+        timeframe, {}
+    )
 
 
 def _align_bool_frame_to_execution(bundle: VectorBTInputBundle, frame: pd.DataFrame) -> np.ndarray:
@@ -1118,21 +1250,49 @@ def _align_bool_frame_to_execution(bundle: VectorBTInputBundle, frame: pd.DataFr
     return frame.reindex(bundle.index, method="ffill").fillna(False).to_numpy(dtype=bool)
 
 
-def _align_bool_cube_to_execution(bundle: VectorBTInputBundle, values: np.ndarray, native_index: pd.Index) -> np.ndarray:
+def _align_bool_cube_to_execution(
+    bundle: VectorBTInputBundle, values: np.ndarray, native_index: pd.Index
+) -> np.ndarray:
     if pd.Index(native_index).equals(bundle.index):
         return values.astype(bool)
     aligned: list[np.ndarray] = []
     for offset in range(values.shape[2]):
         frame = pd.DataFrame(values[:, :, offset], index=native_index, columns=bundle.instruments)
-        aligned.append(frame.reindex(bundle.index, method="ffill").fillna(False).to_numpy(dtype=bool))
+        aligned.append(
+            frame.reindex(bundle.index, method="ffill").fillna(False).to_numpy(dtype=bool)
+        )
     return np.stack(aligned, axis=2)
 
 
-def _param_array(param_rows: Sequence[Mapping[str, object]], name: str, default: float) -> np.ndarray:
-    return np.asarray([float(row.get(name, default) if row.get(name, default) is not None else default) for row in param_rows], dtype=float)
+def _param_array(
+    param_rows: Sequence[Mapping[str, object]], name: str, default: float
+) -> np.ndarray:
+    return np.asarray(
+        [
+            float(row.get(name, default) if row.get(name, default) is not None else default)
+            for row in param_rows
+        ],
+        dtype=float,
+    )
 
 
-def _nullable_param_array(param_rows: Sequence[Mapping[str, object]], name: str, default: float) -> np.ndarray:
+def _param_alias_array(
+    param_rows: Sequence[Mapping[str, object]], names: Sequence[str], default: float
+) -> np.ndarray:
+    values: list[float] = []
+    for row in param_rows:
+        raw_value = None
+        for name in names:
+            raw_value = row.get(name)
+            if raw_value is not None:
+                break
+        values.append(float(raw_value if raw_value is not None else default))
+    return np.asarray(values, dtype=float)
+
+
+def _nullable_param_array(
+    param_rows: Sequence[Mapping[str, object]], name: str, default: float
+) -> np.ndarray:
     values: list[float] = []
     for row in param_rows:
         raw = row.get(name, default)
@@ -1140,13 +1300,20 @@ def _nullable_param_array(param_rows: Sequence[Mapping[str, object]], name: str,
     return np.asarray(values, dtype=float)
 
 
-def _percent_param_array(param_rows: Sequence[Mapping[str, object]], name: str, default: float) -> np.ndarray:
+def _percent_param_array(
+    param_rows: Sequence[Mapping[str, object]], name: str, default: float
+) -> np.ndarray:
     values = _param_array(param_rows, name, default)
     return np.asarray([value / 100.0 if value > 1.0 else value for value in values], dtype=float)
 
 
-def _param_texts(param_rows: Sequence[Mapping[str, object]], name: str, default: str) -> tuple[str, ...]:
-    return tuple(str(row.get(name, default) if row.get(name, default) is not None else default) for row in param_rows)
+def _param_texts(
+    param_rows: Sequence[Mapping[str, object]], name: str, default: str
+) -> tuple[str, ...]:
+    return tuple(
+        str(row.get(name, default) if row.get(name, default) is not None else default)
+        for row in param_rows
+    )
 
 
 def _parameter_space_default(
@@ -1158,7 +1325,11 @@ def _parameter_space_default(
         raw = parameter_space.get(name)
         if raw is None:
             continue
-        value = raw[0] if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes)) and raw else raw
+        value = (
+            raw[0]
+            if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes)) and raw
+            else raw
+        )
         try:
             return float(value)
         except (TypeError, ValueError):
@@ -1176,17 +1347,21 @@ def _rolling_confirm(signal: np.ndarray, confirm_bars: Sequence[int]) -> np.ndar
             result[:, :, offset] = signal[:, :, offset]
             continue
         frame = pd.DataFrame(signal[:, :, offset].astype(int))
-        result[:, :, offset] = (frame.rolling(window=bars, min_periods=bars).sum().to_numpy() >= bars)
+        result[:, :, offset] = frame.rolling(window=bars, min_periods=bars).sum().to_numpy() >= bars
     return result
 
 
 def _reshape_surface(values: np.ndarray) -> np.ndarray:
-    return np.transpose(values, (0, 2, 1)).reshape(values.shape[0], values.shape[2] * values.shape[1])
+    return np.transpose(values, (0, 2, 1)).reshape(
+        values.shape[0], values.shape[2] * values.shape[1]
+    )
 
 
 def _broadcast_stop(close: np.ndarray, atr: np.ndarray, param_values: np.ndarray) -> np.ndarray:
     safe_close = np.where(close == 0.0, np.nan, close)
-    return np.nan_to_num((atr[:, :, None] * param_values[None, None, :]) / safe_close[:, :, None], nan=0.0)
+    return np.nan_to_num(
+        (atr[:, :, None] * param_values[None, None, :]) / safe_close[:, :, None], nan=0.0
+    )
 
 
 @njit
@@ -1279,7 +1454,9 @@ def _run_signal_factory_from_state(
     return result.entries.to_numpy(dtype=bool), result.exits.to_numpy(dtype=bool)
 
 
-def _surface_input_names(bundle: VectorBTInputBundle, spec: StrategyFamilySearchSpec) -> tuple[str, ...]:
+def _surface_input_names(
+    bundle: VectorBTInputBundle, spec: StrategyFamilySearchSpec
+) -> tuple[str, ...]:
     names: list[str] = []
     for name in (
         *spec.required_price_inputs,
@@ -1295,25 +1472,35 @@ def _surface_input_names(bundle: VectorBTInputBundle, spec: StrategyFamilySearch
     return tuple(names)
 
 
-def _role_timeframes_from_spec(spec: StrategyFamilySearchSpec, bundle: VectorBTInputBundle | None = None) -> dict[str, str]:
+def _role_timeframes_from_spec(
+    spec: StrategyFamilySearchSpec, bundle: VectorBTInputBundle | None = None
+) -> dict[str, str]:
     if spec.required_inputs_by_clock:
         return {
             str(layer): str(payload.get("timeframe", ""))
             for layer, payload in spec.required_inputs_by_clock.items()
             if isinstance(payload, Mapping)
         }
-    execution_tf = str(bundle.metadata.get("execution_tf", "")) if bundle is not None else _execution_timeframe_from_profile(spec.clock_profile)
+    execution_tf = (
+        str(bundle.metadata.get("execution_tf", ""))
+        if bundle is not None
+        else _execution_timeframe_from_profile(spec.clock_profile)
+    )
     return {"execution": execution_tf}
 
 
-def resolve_mtf_signal_factory_inputs(bundle: VectorBTInputBundle, spec: StrategyFamilySearchSpec) -> MTFInputResolverResult:
+def resolve_mtf_signal_factory_inputs(
+    bundle: VectorBTInputBundle, spec: StrategyFamilySearchSpec
+) -> MTFInputResolverResult:
     indicator_plan = resolve_indicator_plan(bundle, spec)
     input_names: list[str] = []
     if spec.required_inputs_by_clock:
         for layer, payload in spec.required_inputs_by_clock.items():
             if not isinstance(payload, Mapping):
                 continue
-            timeframe = str(payload.get("timeframe", "")).strip() or str(bundle.metadata.get("execution_tf", ""))
+            timeframe = str(payload.get("timeframe", "")).strip() or str(
+                bundle.metadata.get("execution_tf", "")
+            )
             for payload_key in ("price_inputs", "materialized_indicators", "materialized_derived"):
                 for column in _payload_aliases(payload, payload_key):
                     bundle.field_at(column, timeframe, align_to_execution=True)
@@ -1385,12 +1572,15 @@ def build_signal_surface(
         diagnostics["state_builder"] = "ta3000.mtf_state_builder"
         diagnostics["clock_profile"] = dict(spec.clock_profile)
         diagnostics["required_inputs_by_clock"] = {
-            str(layer): dict(payload)
-            for layer, payload in spec.required_inputs_by_clock.items()
+            str(layer): dict(payload) for layer, payload in spec.required_inputs_by_clock.items()
         }
         diagnostics["event_alignment"] = "closed_layer_event_to_execution"
     elif surface_key in {"trend_movement_cross_v1", "channel_breakout_continuation_v1"}:
-        state_builder = _trend_movement_cross_state if surface_key == "trend_movement_cross_v1" else _channel_breakout_continuation_state
+        state_builder = (
+            _trend_movement_cross_state
+            if surface_key == "trend_movement_cross_v1"
+            else _channel_breakout_continuation_state
+        )
         long_state, short_state = state_builder(bundle, param_rows, config)
         diagnostics["state_builder"] = "ta3000.vectorized_state_builder"
     elif surface_key in {"ma_cross_v1", "ma_cross"}:
@@ -1424,22 +1614,24 @@ def build_signal_surface(
     elif direction_mode == "short_only":
         long_state = np.zeros_like(long_state, dtype=bool)
     entries, exits = _run_signal_factory_from_state(long_state, shift_bars=config.signal_shift_bars)
-    short_entries, short_exits = _run_signal_factory_from_state(short_state, shift_bars=config.signal_shift_bars)
-    stop_default = _parameter_space_default(spec.risk_parameter_space, ("stop_atr_mult", "stop_atr_multiple"), 1.0)
+    short_entries, short_exits = _run_signal_factory_from_state(
+        short_state, shift_bars=config.signal_shift_bars
+    )
+    stop_default = _parameter_space_default(
+        spec.risk_parameter_space, ("stop_atr_mult", "stop_atr_multiple"), 1.0
+    )
     target_default = _parameter_space_default(
         spec.risk_parameter_space,
         ("target_atr_mult", "atr_target_multiple"),
         2.0,
     )
-    stop_values = _param_array(param_rows, "stop_atr_mult", _param_array(param_rows, "stop_atr_multiple", stop_default)[0])
-    target_values = _param_array(
+    stop_values = _param_alias_array(
+        param_rows, ("stop_atr_mult", "stop_atr_multiple"), stop_default
+    )
+    target_values = _param_alias_array(
         param_rows,
-        "target_atr_mult",
-        _param_array(
-            param_rows,
-            "atr_target_multiple",
-            _param_array(param_rows, "trail_atr_mult", target_default)[0],
-        )[0],
+        ("target_atr_mult", "atr_target_multiple", "trail_atr_mult"),
+        target_default,
     )
     sl_stop = _broadcast_stop(close, atr, stop_values)
     tp_stop = _broadcast_stop(close, atr, target_values)
@@ -1451,7 +1643,9 @@ def build_signal_surface(
             return frame.astype(dtype)
         return frame
 
-    surface_id = "VSURF-" + _stable_hash(f"{search_run_id}|{spec.family_key}|{','.join(param_hashes)}")
+    surface_id = "VSURF-" + _stable_hash(
+        f"{search_run_id}|{spec.family_key}|{','.join(param_hashes)}"
+    )
     parameter_index = pd.DataFrame(
         [
             {
@@ -1518,8 +1712,13 @@ def _breakout_state(
         rolling_low = low.rolling(window=window, min_periods=window).min().shift(1)
         buffer = atr * float(row.get("entry_buffer_atr", 0.0))
         min_adx = float(row.get("min_adx", row.get("adx_min", 18.0)))
-        states_long.append(((adx >= min_adx) & (close >= (rolling_high + buffer))).to_numpy(dtype=bool))
-        states_short.append((((adx >= min_adx) & (close <= (rolling_low - buffer))).to_numpy(dtype=bool)) & bool(config.allow_short))
+        states_long.append(
+            ((adx >= min_adx) & (close >= (rolling_high + buffer))).to_numpy(dtype=bool)
+        )
+        states_short.append(
+            (((adx >= min_adx) & (close <= (rolling_low - buffer))).to_numpy(dtype=bool))
+            & bool(config.allow_short)
+        )
     return np.stack(states_long, axis=2), np.stack(states_short, axis=2)
 
 
@@ -1533,8 +1732,12 @@ def _mean_reversion_state(
     distance = _field_array(bundle, "distance_to_session_vwap")
     entry_rsi = _param_array(param_rows, "entry_rsi", 30.0)
     entry_distance = _param_array(param_rows, "entry_distance_atr", 0.75)
-    long_state = (rsi[:, :, None] <= entry_rsi[None, None, :]) & (distance[:, :, None] <= -entry_distance[None, None, :])
-    short_state = (rsi[:, :, None] >= (100.0 - entry_rsi[None, None, :])) & (distance[:, :, None] >= entry_distance[None, None, :])
+    long_state = (rsi[:, :, None] <= entry_rsi[None, None, :]) & (
+        distance[:, :, None] <= -entry_distance[None, None, :]
+    )
+    short_state = (rsi[:, :, None] >= (100.0 - entry_rsi[None, None, :])) & (
+        distance[:, :, None] >= entry_distance[None, None, :]
+    )
     return long_state, short_state
 
 
@@ -1558,8 +1761,12 @@ def _mtf_pullback_state(
     adx_min = _param_array(param_rows, "adx_min", 18.0)
     slope_min = _param_array(param_rows, "slope_min", 0.0)
     pullback_min = _param_array(param_rows, "pullback_atr_min", 0.0)
-    pullback_max = _param_array(param_rows, "pullback_atr_max", _param_array(param_rows, "pullback_depth", 0.8)[0])
-    rsi_long = _param_array(param_rows, "rsi_reclaim_long", _param_array(param_rows, "min_htf_rsi", 50.0)[0])
+    pullback_max = _param_array(
+        param_rows, "pullback_atr_max", _param_array(param_rows, "pullback_depth", 0.8)[0]
+    )
+    rsi_long = _param_array(
+        param_rows, "rsi_reclaim_long", _param_array(param_rows, "min_htf_rsi", 50.0)[0]
+    )
     rsi_short = _param_array(param_rows, "rsi_reclaim_short", 50.0)
     confirm = [int(row.get("confirmation_bars", 1)) for row in param_rows]
 
@@ -1600,8 +1807,12 @@ def _mtf_pullback_state(
         & (close_slope[:, :, None] <= -slope_min[None, None, :])
         & (ema_slope[:, :, None] <= -slope_min[None, None, :])
     )
-    trigger_long = _align_bool_cube_to_execution(bundle, _rolling_confirm(trigger_long_native, confirm), trigger_close_slope.index)
-    trigger_short = _align_bool_cube_to_execution(bundle, _rolling_confirm(trigger_short_native, confirm), trigger_close_slope.index)
+    trigger_long = _align_bool_cube_to_execution(
+        bundle, _rolling_confirm(trigger_long_native, confirm), trigger_close_slope.index
+    )
+    trigger_short = _align_bool_cube_to_execution(
+        bundle, _rolling_confirm(trigger_short_native, confirm), trigger_close_slope.index
+    )
     long_state = regime_up[:, :, None] & signal_long & trigger_long
     short_state = regime_down[:, :, None] & signal_short & trigger_short
     return long_state, short_state
@@ -1620,7 +1831,11 @@ def _squeeze_release_state(
         if _has_native_field(bundle, "bb_width_20_2", "signal")
         else _native_field(bundle, "natr_14", "signal")
         if _has_native_field(bundle, "natr_14", "signal")
-        else pd.DataFrame(np.zeros((len(signal_bb_position.index), len(bundle.instruments))), index=signal_bb_position.index, columns=bundle.instruments)
+        else pd.DataFrame(
+            np.zeros((len(signal_bb_position.index), len(bundle.instruments))),
+            index=signal_bb_position.index,
+            columns=bundle.instruments,
+        )
     )
     trigger_bb_position = (
         _native_field(bundle, "bb_position_20_2", "trigger")
@@ -1637,12 +1852,20 @@ def _squeeze_release_state(
     slope = (
         _native_field(bundle, "close_slope_20", "trigger")
         if _has_native_field(bundle, "close_slope_20", "trigger")
-        else pd.DataFrame(np.zeros((len(bundle.index), len(bundle.instruments))), index=bundle.index, columns=bundle.instruments)
+        else pd.DataFrame(
+            np.zeros((len(bundle.index), len(bundle.instruments))),
+            index=bundle.index,
+            columns=bundle.instruments,
+        )
     )
     volume_z = (
         _native_field(bundle, "volume_zscore_20", "trigger")
         if _has_native_field(bundle, "volume_zscore_20", "trigger")
-        else pd.DataFrame(np.zeros((len(bundle.index), len(bundle.instruments))), index=bundle.index, columns=bundle.instruments)
+        else pd.DataFrame(
+            np.zeros((len(bundle.index), len(bundle.instruments))),
+            index=bundle.index,
+            columns=bundle.instruments,
+        )
     )
     width_limit = _percent_param_array(param_rows, "bb_width_percentile_max", 0.20)
     volume_z_min = _nullable_param_array(param_rows, "volume_z_min", -np.inf)
@@ -1656,39 +1879,60 @@ def _squeeze_release_state(
         & (signal_kc_position >= 0.35)
         & (signal_kc_position <= 0.65)
     )
-    setup_native = np.zeros((len(signal_bb_position.index), len(bundle.instruments), len(param_rows)), dtype=bool)
+    setup_native = np.zeros(
+        (len(signal_bb_position.index), len(bundle.instruments), len(param_rows)), dtype=bool
+    )
     channel_mid_values = channel_mid.to_numpy(dtype=bool)
     width_values = signal_bb_width.to_numpy(dtype=float)
     for offset, bars in enumerate(min_squeeze):
         squeeze = channel_mid_values & (width_values <= width_limit[offset])
         frame = pd.DataFrame(squeeze.astype(int))
         setup_native[:, :, offset] = (
-            frame.rolling(window=max(1, bars), min_periods=max(1, bars)).sum().shift(1).fillna(0).to_numpy() >= bars
+            frame.rolling(window=max(1, bars), min_periods=max(1, bars))
+            .sum()
+            .shift(1)
+            .fillna(0)
+            .to_numpy()
+            >= bars
         )
     setup = _align_bool_cube_to_execution(bundle, setup_native, signal_bb_position.index)
     range_up = high_cross.to_numpy(dtype=float) > 0
     range_down = low_cross.to_numpy(dtype=float) < 0
-    band_up = (trigger_bb_position.to_numpy(dtype=float) >= 0.8) & (trigger_kc_position.to_numpy(dtype=float) >= 0.65)
-    band_down = (trigger_bb_position.to_numpy(dtype=float) <= 0.2) & (trigger_kc_position.to_numpy(dtype=float) <= 0.35)
+    band_up = (trigger_bb_position.to_numpy(dtype=float) >= 0.8) & (
+        trigger_kc_position.to_numpy(dtype=float) >= 0.65
+    )
+    band_down = (trigger_bb_position.to_numpy(dtype=float) <= 0.2) & (
+        trigger_kc_position.to_numpy(dtype=float) <= 0.35
+    )
     release_up = np.stack(
         [
-            band_up if mode == "band_break" else (range_up | band_up if mode == "movement_confirmed" else range_up)
+            band_up
+            if mode == "band_break"
+            else (range_up | band_up if mode == "movement_confirmed" else range_up)
             for mode in direction_modes
         ],
         axis=2,
     )
     release_down = np.stack(
         [
-            band_down if mode == "band_break" else (range_down | band_down if mode == "movement_confirmed" else range_down)
+            band_down
+            if mode == "band_break"
+            else (range_down | band_down if mode == "movement_confirmed" else range_down)
             for mode in direction_modes
         ],
         axis=2,
     )
-    needs_movement = np.asarray([mode == "movement_confirmed" for mode in direction_modes], dtype=bool)
+    needs_movement = np.asarray(
+        [mode == "movement_confirmed" for mode in direction_modes], dtype=bool
+    )
     slope_values = slope.to_numpy(dtype=float)
     volume_z_values = volume_z.to_numpy(dtype=float)
-    movement_long = (~needs_movement[None, None, :]) | (slope_values[:, :, None] >= slope_min[None, None, :])
-    movement_short = (~needs_movement[None, None, :]) | (slope_values[:, :, None] <= -slope_min[None, None, :])
+    movement_long = (~needs_movement[None, None, :]) | (
+        slope_values[:, :, None] >= slope_min[None, None, :]
+    )
+    movement_short = (~needs_movement[None, None, :]) | (
+        slope_values[:, :, None] <= -slope_min[None, None, :]
+    )
     raw_long = (
         setup
         & release_up
@@ -1729,10 +1973,20 @@ def _trend_movement_cross_state(
         if _has_native_field(bundle, "roc_10_change_1", "trigger")
         else close_slope
     )
-    mom = _native_field(bundle, "mom_10_change_1", "trigger") if _has_native_field(bundle, "mom_10_change_1", "trigger") else roc
-    zero_cross = pd.DataFrame(np.zeros_like(close_slope.to_numpy(dtype=float)), index=close_slope.index, columns=close_slope.columns)
+    mom = (
+        _native_field(bundle, "mom_10_change_1", "trigger")
+        if _has_native_field(bundle, "mom_10_change_1", "trigger")
+        else roc
+    )
+    zero_cross = pd.DataFrame(
+        np.zeros_like(close_slope.to_numpy(dtype=float)),
+        index=close_slope.index,
+        columns=close_slope.columns,
+    )
     cross_frames = [
-        _native_field(bundle, name, "trigger") if _has_native_field(bundle, name, "trigger") else zero_cross
+        _native_field(bundle, name, "trigger")
+        if _has_native_field(bundle, name, "trigger")
+        else zero_cross
         for name in (
             "cross_close_ema_20_code",
             "cross_close_sma_20_code",
@@ -1743,13 +1997,21 @@ def _trend_movement_cross_state(
         )
     ]
     adx_min = _param_array(param_rows, "adx_min", 18.0)
-    close_slope_min = _param_array(param_rows, "close_slope_min", _param_array(param_rows, "slope_min", 0.0)[0])
+    close_slope_min = _param_array(
+        param_rows, "close_slope_min", _param_array(param_rows, "slope_min", 0.0)[0]
+    )
     ema_slope_min = _param_array(param_rows, "ema_slope_min", close_slope_min[0])
-    roc_min = _param_array(param_rows, "roc_change_min", _param_array(param_rows, "roc_min", 0.0)[0])
+    roc_min = _param_array(
+        param_rows, "roc_change_min", _param_array(param_rows, "roc_min", 0.0)[0]
+    )
     mom_min = _param_array(param_rows, "mom_change_min", 0.0)
-    rsi_long = _param_array(param_rows, "rsi_min_long", _param_array(param_rows, "rsi_midline", 50.0)[0])
+    rsi_long = _param_array(
+        param_rows, "rsi_min_long", _param_array(param_rows, "rsi_midline", 50.0)[0]
+    )
     rsi_short = _param_array(param_rows, "rsi_max_short", 50.0)
-    require_cross = np.asarray([bool(row.get("require_cross_code", False)) for row in param_rows], dtype=bool)
+    require_cross = np.asarray(
+        [bool(row.get("require_cross_code", False)) for row in param_rows], dtype=bool
+    )
     regime_up = _align_bool_frame_to_execution(bundle, regime_ema_20 > regime_ema_50)
     regime_down = _align_bool_frame_to_execution(bundle, regime_ema_20 < regime_ema_50)
 
@@ -1812,16 +2074,28 @@ def _channel_breakout_continuation_state(
     high55 = _native_field(bundle, "donchian_high_55", "signal")
     low55 = _native_field(bundle, "donchian_low_55", "signal")
     slope = _native_field(bundle, "close_slope_20", "trigger")
-    roc = _native_field(bundle, "roc_10_change_1", "trigger") if _has_native_field(bundle, "roc_10_change_1", "trigger") else slope
+    roc = (
+        _native_field(bundle, "roc_10_change_1", "trigger")
+        if _has_native_field(bundle, "roc_10_change_1", "trigger")
+        else slope
+    )
     high_cross = (
         _native_field(bundle, "cross_close_rolling_high_20_code", "trigger")
         if _has_native_field(bundle, "cross_close_rolling_high_20_code", "trigger")
-        else pd.DataFrame(np.zeros((len(slope.index), len(bundle.instruments))), index=slope.index, columns=bundle.instruments)
+        else pd.DataFrame(
+            np.zeros((len(slope.index), len(bundle.instruments))),
+            index=slope.index,
+            columns=bundle.instruments,
+        )
     )
     low_cross = (
         _native_field(bundle, "cross_close_rolling_low_20_code", "trigger")
         if _has_native_field(bundle, "cross_close_rolling_low_20_code", "trigger")
-        else pd.DataFrame(np.zeros((len(slope.index), len(bundle.instruments))), index=slope.index, columns=bundle.instruments)
+        else pd.DataFrame(
+            np.zeros((len(slope.index), len(bundle.instruments))),
+            index=slope.index,
+            columns=bundle.instruments,
+        )
     )
     distance_high20 = _native_field(bundle, "distance_to_donchian_high_20_atr", "trigger")
     distance_low20 = _native_field(bundle, "distance_to_donchian_low_20_atr", "trigger")
@@ -1833,17 +2107,41 @@ def _channel_breakout_continuation_state(
     slope_min = _param_array(param_rows, "slope_min", 0.0)
     max_distance = _param_array(param_rows, "max_distance_after_breakout_atr", 1.0)
     confirm = [int(row.get("breakout_confirm_bars", 1)) for row in param_rows]
-    selected_high = np.stack([high55.to_numpy(dtype=float) if variant == "55" else high20.to_numpy(dtype=float) for variant in channel_variants], axis=2)
-    selected_low = np.stack([low55.to_numpy(dtype=float) if variant == "55" else low20.to_numpy(dtype=float) for variant in channel_variants], axis=2)
+    selected_high = np.stack(
+        [
+            high55.to_numpy(dtype=float) if variant == "55" else high20.to_numpy(dtype=float)
+            for variant in channel_variants
+        ],
+        axis=2,
+    )
+    selected_low = np.stack(
+        [
+            low55.to_numpy(dtype=float) if variant == "55" else low20.to_numpy(dtype=float)
+            for variant in channel_variants
+        ],
+        axis=2,
+    )
     selected_distance_high = np.stack(
-        [distance_high55.to_numpy(dtype=float) if variant == "55" else distance_high20.to_numpy(dtype=float) for variant in channel_variants],
+        [
+            distance_high55.to_numpy(dtype=float)
+            if variant == "55"
+            else distance_high20.to_numpy(dtype=float)
+            for variant in channel_variants
+        ],
         axis=2,
     )
     selected_distance_low = np.stack(
-        [distance_low55.to_numpy(dtype=float) if variant == "55" else distance_low20.to_numpy(dtype=float) for variant in channel_variants],
+        [
+            distance_low55.to_numpy(dtype=float)
+            if variant == "55"
+            else distance_low20.to_numpy(dtype=float)
+            for variant in channel_variants
+        ],
         axis=2,
     )
-    if _has_native_field(bundle, "ema_20", "regime") and _has_native_field(bundle, "ema_50", "regime"):
+    if _has_native_field(bundle, "ema_20", "regime") and _has_native_field(
+        bundle, "ema_50", "regime"
+    ):
         regime_ema_20 = _native_field(bundle, "ema_20", "regime")
         regime_ema_50 = _native_field(bundle, "ema_50", "regime")
         regime_up = _align_bool_frame_to_execution(bundle, regime_ema_20 > regime_ema_50)
@@ -1851,16 +2149,24 @@ def _channel_breakout_continuation_state(
     else:
         regime_up = np.ones((len(bundle.index), len(bundle.instruments)), dtype=bool)
         regime_down = np.ones((len(bundle.index), len(bundle.instruments)), dtype=bool)
-    if _has_native_field(bundle, "ema_20", "signal") and _has_native_field(bundle, "ema_50", "signal"):
+    if _has_native_field(bundle, "ema_20", "signal") and _has_native_field(
+        bundle, "ema_50", "signal"
+    ):
         signal_ema_20 = _native_field(bundle, "ema_20", "signal")
         signal_ema_50 = _native_field(bundle, "ema_50", "signal")
         signal_trend_up = (signal_ema_20 >= signal_ema_50).to_numpy(dtype=bool)
         signal_trend_down = (signal_ema_20 <= signal_ema_50).to_numpy(dtype=bool)
+        signal_index = signal_ema_20.index
     else:
-        signal_trend_up = np.ones((len(adx.index), len(bundle.instruments)), dtype=bool)
-        signal_trend_down = np.ones((len(adx.index), len(bundle.instruments)), dtype=bool)
+        signal_index = adx.index
+        signal_trend_up = np.ones((len(signal_index), len(bundle.instruments)), dtype=bool)
+        signal_trend_down = np.ones((len(signal_index), len(bundle.instruments)), dtype=bool)
     signal_adx = adx.to_numpy(dtype=float)
-    signal_close_frame = _native_field(bundle, "close", "signal") if _has_native_field(bundle, "close", "signal") else close.reindex(signal_ema_20.index, method="ffill")
+    signal_close_frame = (
+        _native_field(bundle, "close", "signal")
+        if _has_native_field(bundle, "close", "signal")
+        else close.reindex(signal_index, method="ffill")
+    )
     signal_close = signal_close_frame.to_numpy(dtype=float)
     signal_long_native = (
         signal_trend_up[:, :, None]
@@ -1872,8 +2178,8 @@ def _channel_breakout_continuation_state(
         & (signal_adx[:, :, None] >= adx_min[None, None, :])
         & (signal_close[:, :, None] <= selected_low)
     )
-    signal_long = _align_bool_cube_to_execution(bundle, signal_long_native, signal_ema_20.index)
-    signal_short = _align_bool_cube_to_execution(bundle, signal_short_native, signal_ema_20.index)
+    signal_long = _align_bool_cube_to_execution(bundle, signal_long_native, signal_index)
+    signal_short = _align_bool_cube_to_execution(bundle, signal_short_native, signal_index)
 
     trigger_slope = slope.to_numpy(dtype=float)
     trigger_roc = roc.to_numpy(dtype=float)
@@ -1891,8 +2197,12 @@ def _channel_breakout_continuation_state(
         & (trigger_low_cross[:, :, None] <= 0.0)
         & (np.abs(selected_distance_low) <= max_distance[None, None, :])
     )
-    trigger_long = _align_bool_cube_to_execution(bundle, _rolling_confirm(trigger_long_native, confirm), slope.index)
-    trigger_short = _align_bool_cube_to_execution(bundle, _rolling_confirm(trigger_short_native, confirm), slope.index)
+    trigger_long = _align_bool_cube_to_execution(
+        bundle, _rolling_confirm(trigger_long_native, confirm), slope.index
+    )
+    trigger_short = _align_bool_cube_to_execution(
+        bundle, _rolling_confirm(trigger_short_native, confirm), slope.index
+    )
     long_state = regime_up[:, :, None] & signal_long & trigger_long
     short_state = regime_down[:, :, None] & signal_short & trigger_short
     return long_state, short_state
@@ -1919,9 +2229,8 @@ def _range_vwap_band_reversion_state(
     rsi_oversold = _param_array(param_rows, "rsi_oversold", 30.0)
     rsi_overbought = _param_array(param_rows, "rsi_overbought", 70.0)
 
-    decision_native = (
-        (adx.to_numpy(dtype=float)[:, :, None] <= adx_max[None, None, :])
-        & (chop.to_numpy(dtype=float)[:, :, None] >= chop_min[None, None, :])
+    decision_native = (adx.to_numpy(dtype=float)[:, :, None] <= adx_max[None, None, :]) & (
+        chop.to_numpy(dtype=float)[:, :, None] >= chop_min[None, None, :]
     )
     decision = _align_bool_cube_to_execution(bundle, decision_native, adx.index)
     positions = np.stack(
@@ -1954,7 +2263,14 @@ def _recent_signal(signal: np.ndarray, windows: Sequence[int]) -> np.ndarray:
     result = np.zeros((signal.shape[0], signal.shape[1], len(windows)), dtype=bool)
     for offset, window in enumerate(windows):
         frame = pd.DataFrame(signal.astype(int))
-        result[:, :, offset] = frame.rolling(window=max(1, int(window)), min_periods=1).max().shift(1).fillna(0).to_numpy() > 0
+        result[:, :, offset] = (
+            frame.rolling(window=max(1, int(window)), min_periods=1)
+            .max()
+            .shift(1)
+            .fillna(0)
+            .to_numpy()
+            > 0
+        )
     return result
 
 
@@ -1979,9 +2295,8 @@ def _failed_breakout_reversal_state(
     recent_high_break = _recent_signal(high_cross.to_numpy(dtype=float) > 0, windows)
     recent_low_break = _recent_signal(low_cross.to_numpy(dtype=float) < 0, windows)
     position_mid = (
-        (rolling_position.to_numpy(dtype=float) + donchian_position.to_numpy(dtype=float))
-        / 2.0
-    )
+        rolling_position.to_numpy(dtype=float) + donchian_position.to_numpy(dtype=float)
+    ) / 2.0
     slope_values = slope.to_numpy(dtype=float)
     needs_momentum = np.asarray([mode == "close_back_plus_momentum" for mode in modes], dtype=bool)
     long_confirm = (~needs_momentum[None, None, :]) | (slope_values[:, :, None] >= 0.0)
@@ -2016,18 +2331,25 @@ def _divergence_reversal_state(
     short_min = _param_array(param_rows, "position_extreme_short_min", 0.90)
     modes = _param_texts(param_rows, "confirmation_mode", "slope_turn")
     scores = [
-        _native_field(bundle, _divergence_column_for_source(source), "signal")
-        for source in sources
+        _native_field(bundle, _divergence_column_for_source(source), "signal") for source in sources
     ]
     signal_index = scores[0].index if scores else bundle.index
     score_native = np.stack([frame.to_numpy(dtype=float) for frame in scores], axis=2)
-    decision_long = _align_bool_cube_to_execution(bundle, score_native >= min_scores[None, None, :], signal_index)
-    decision_short = _align_bool_cube_to_execution(bundle, score_native <= -min_scores[None, None, :], signal_index)
+    decision_long = _align_bool_cube_to_execution(
+        bundle, score_native >= min_scores[None, None, :], signal_index
+    )
+    decision_short = _align_bool_cube_to_execution(
+        bundle, score_native <= -min_scores[None, None, :], signal_index
+    )
     rolling_position = _native_field(bundle, "rolling_position_20", "trigger")
     bb_position = _native_field(bundle, "bb_position_20_2", "trigger")
     slope = _native_field(bundle, "close_slope_20", "trigger")
-    position_low = np.minimum(rolling_position.to_numpy(dtype=float), bb_position.to_numpy(dtype=float))
-    position_high = np.maximum(rolling_position.to_numpy(dtype=float), bb_position.to_numpy(dtype=float))
+    position_low = np.minimum(
+        rolling_position.to_numpy(dtype=float), bb_position.to_numpy(dtype=float)
+    )
+    position_high = np.maximum(
+        rolling_position.to_numpy(dtype=float), bb_position.to_numpy(dtype=float)
+    )
     slope_values = slope.to_numpy(dtype=float)
     cross_back_inside = np.asarray([mode == "cross_back_inside" for mode in modes], dtype=bool)
     oscillator_reclaim = np.asarray([mode == "oscillator_reclaim" for mode in modes], dtype=bool)
@@ -2038,11 +2360,18 @@ def _divergence_reversal_state(
     )
     short_confirm = (
         (slope_values[:, :, None] <= 0.0)
-        | (cross_back_inside[None, None, :] & (position_high[:, :, None] < short_min[None, None, :]))
+        | (
+            cross_back_inside[None, None, :]
+            & (position_high[:, :, None] < short_min[None, None, :])
+        )
         | oscillator_reclaim[None, None, :]
     )
-    long_state = decision_long & (position_low[:, :, None] <= long_max[None, None, :]) & long_confirm
-    short_state = decision_short & (position_high[:, :, None] >= short_min[None, None, :]) & short_confirm
+    long_state = (
+        decision_long & (position_low[:, :, None] <= long_max[None, None, :]) & long_confirm
+    )
+    short_state = (
+        decision_short & (position_high[:, :, None] >= short_min[None, None, :]) & short_confirm
+    )
     return long_state, short_state
 
 
@@ -2161,7 +2490,9 @@ def _metric_series(columns: pd.MultiIndex, value: object, default: float = 0.0) 
     elif isinstance(value, pd.Series):
         raw = value
     else:
-        raw = pd.Series(float(value) if value is not None and not pd.isna(value) else default, index=columns)
+        raw = pd.Series(
+            float(value) if value is not None and not pd.isna(value) else default, index=columns
+        )
     result = pd.to_numeric(pd.Series(raw), errors="coerce").reindex(columns).fillna(default)
     return result.astype(float)
 
@@ -2255,7 +2586,9 @@ def collect_surface_rows(
     timeframe = str(bundle.metadata["execution_tf"])
 
     for col_index, column in enumerate(columns):
-        family_key, surface_key, template_key, param_id, instrument_id = (str(item) for item in column)
+        family_key, _surface_key, template_key, param_id, instrument_id = (
+            str(item) for item in column
+        )
         params = dict(param_lookup[param_id])
         contract_id = _contract_id_for_instrument(bundle, instrument_id)
         metadata_by_instrument = bundle.metadata.get("execution_metadata", {})
@@ -2267,8 +2600,16 @@ def collect_surface_rows(
         series_ids = bundle.metadata.get("series_ids", {})
         series_modes = bundle.metadata.get("series_modes", {})
         signal_price_spaces = bundle.metadata.get("signal_price_spaces", {})
-        series_id = series_ids.get(instrument_id, contract_id) if isinstance(series_ids, Mapping) else contract_id
-        series_mode = series_modes.get(instrument_id, "contract") if isinstance(series_modes, Mapping) else "contract"
+        series_id = (
+            series_ids.get(instrument_id, contract_id)
+            if isinstance(series_ids, Mapping)
+            else contract_id
+        )
+        series_mode = (
+            series_modes.get(instrument_id, "contract")
+            if isinstance(series_modes, Mapping)
+            else "contract"
+        )
         signal_price_space = (
             signal_price_spaces.get(instrument_id, "native")
             if isinstance(signal_price_spaces, Mapping)
@@ -2480,9 +2821,19 @@ def _trade_rows(
         entry_idx = int(record.get("entry_idx", 0))
         exit_idx = int(record.get("exit_idx", entry_idx))
         entry_meta = _metadata_at(metadata_frame, entry_idx)
-        exit_meta = _metadata_at(metadata_frame, exit_idx) if 0 <= exit_idx < len(index) else entry_meta
-        entry_ts = pd.Timestamp(index[min(max(entry_idx, 0), len(index) - 1)]).isoformat().replace("+00:00", "Z")
-        exit_ts = pd.Timestamp(index[min(max(exit_idx, 0), len(index) - 1)]).isoformat().replace("+00:00", "Z")
+        exit_meta = (
+            _metadata_at(metadata_frame, exit_idx) if 0 <= exit_idx < len(index) else entry_meta
+        )
+        entry_ts = (
+            pd.Timestamp(index[min(max(entry_idx, 0), len(index) - 1)])
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+        exit_ts = (
+            pd.Timestamp(index[min(max(exit_idx, 0), len(index) - 1)])
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
         duration_bars = max(0, exit_idx - entry_idx)
         direction = "long" if int(record.get("direction", 0)) == 0 else "short"
         status = "closed" if int(record.get("status", 1)) == 1 else "open"
@@ -2521,12 +2872,20 @@ def _trade_rows(
                 "target_ref": run_row["target_ref"],
                 "signal_price_space": run_row.get("signal_price_space", "native"),
                 "execution_price_space": run_row.get("execution_price_space", "native"),
-                "entry_active_contract_id": str(entry_meta.get("active_contract_id", run_row["contract_id"])),
-                "exit_active_contract_id": str(exit_meta.get("active_contract_id", run_row["contract_id"])),
+                "entry_active_contract_id": str(
+                    entry_meta.get("active_contract_id", run_row["contract_id"])
+                ),
+                "exit_active_contract_id": str(
+                    exit_meta.get("active_contract_id", run_row["contract_id"])
+                ),
                 "entry_roll_epoch": int(entry_meta.get("roll_epoch", 0) or 0),
                 "exit_roll_epoch": int(exit_meta.get("roll_epoch", 0) or 0),
-                "entry_roll_event_id": None if entry_meta.get("roll_event_id") is None else str(entry_meta.get("roll_event_id")),
-                "exit_roll_event_id": None if exit_meta.get("roll_event_id") is None else str(exit_meta.get("roll_event_id")),
+                "entry_roll_event_id": None
+                if entry_meta.get("roll_event_id") is None
+                else str(entry_meta.get("roll_event_id")),
+                "exit_roll_event_id": None
+                if exit_meta.get("roll_event_id") is None
+                else str(exit_meta.get("roll_event_id")),
                 "entry_is_roll_bar": bool(entry_meta.get("is_roll_bar", False)),
                 "exit_is_roll_bar": bool(exit_meta.get("is_roll_bar", False)),
             }
@@ -2545,7 +2904,11 @@ def _order_rows(
     for record in records:
         bar_index = int(record.get("idx", 0))
         meta = _metadata_at(metadata_frame, bar_index)
-        ts = pd.Timestamp(index[min(max(bar_index, 0), len(index) - 1)]).isoformat().replace("+00:00", "Z")
+        ts = (
+            pd.Timestamp(index[min(max(bar_index, 0), len(index) - 1)])
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
         action = "buy" if int(record.get("side", 0)) == 0 else "sell"
         price = float(record.get("price", 0.0) or 0.0)
         size = float(record.get("size", 0.0) or 0.0)
@@ -2577,14 +2940,18 @@ def _order_rows(
                 "execution_price_space": run_row.get("execution_price_space", "native"),
                 "active_contract_id": str(meta.get("active_contract_id", run_row["contract_id"])),
                 "roll_epoch": int(meta.get("roll_epoch", 0) or 0),
-                "roll_event_id": None if meta.get("roll_event_id") is None else str(meta.get("roll_event_id")),
+                "roll_event_id": None
+                if meta.get("roll_event_id") is None
+                else str(meta.get("roll_event_id")),
                 "is_roll_bar": bool(meta.get("is_roll_bar", False)),
             }
         )
     return rows
 
 
-def _drawdown_rows(*, records: Sequence[dict[str, object]], run_row: Mapping[str, object], index: Sequence[object]) -> list[dict[str, object]]:
+def _drawdown_rows(
+    *, records: Sequence[dict[str, object]], run_row: Mapping[str, object], index: Sequence[object]
+) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for record in records:
         valley_idx = int(record.get("valley_idx", 0))
@@ -2600,7 +2967,9 @@ def _drawdown_rows(*, records: Sequence[dict[str, object]], run_row: Mapping[str
                 "strategy_instance_id": run_row["strategy_instance_id"],
                 "family_key": run_row["family_key"],
                 "timeframe": run_row["timeframe"],
-                "ts": pd.Timestamp(index[min(max(valley_idx, 0), len(index) - 1)]).isoformat().replace("+00:00", "Z"),
+                "ts": pd.Timestamp(index[min(max(valley_idx, 0), len(index) - 1)])
+                .isoformat()
+                .replace("+00:00", "Z"),
                 "equity": valley_val,
                 "drawdown": peak_val - valley_val,
                 "drawdown_pct": drawdown_pct,
@@ -2624,6 +2993,11 @@ def _optuna_ranking_policy(optimizer_policy: Mapping[str, object]) -> RankingPol
     defaults = default_ranking_policy()
     raw_policy = optimizer_policy.get("ranking_policy", {})
     source = raw_policy if isinstance(raw_policy, Mapping) and raw_policy else optimizer_policy
+
+    def _value_or_default(key: str, default: object) -> object:
+        value = source.get(key, None)
+        return default if value is None else value
+
     raw_metric_order = source.get("metric_order", defaults.metric_order)
     if isinstance(raw_metric_order, str):
         metric_order = tuple(item.strip() for item in raw_metric_order.split(",") if item.strip())
@@ -2634,17 +3008,21 @@ def _optuna_ranking_policy(optimizer_policy: Mapping[str, object]) -> RankingPol
     return RankingPolicy(
         policy_id=str(source.get("policy_id", defaults.policy_id)),
         metric_order=metric_order or defaults.metric_order,
-        require_out_of_sample_pass=bool(source.get("require_out_of_sample_pass", defaults.require_out_of_sample_pass)),
-        min_trade_count=int(source.get("min_trade_count", defaults.min_trade_count) or defaults.min_trade_count),
-        min_fold_count=int(source.get("min_fold_count", defaults.min_fold_count) or defaults.min_fold_count),
-        max_drawdown_cap=float(source.get("max_drawdown_cap", defaults.max_drawdown_cap) or defaults.max_drawdown_cap),
+        require_out_of_sample_pass=bool(
+            source.get("require_out_of_sample_pass", defaults.require_out_of_sample_pass)
+        ),
+        min_trade_count=int(_value_or_default("min_trade_count", defaults.min_trade_count)),
+        min_fold_count=int(_value_or_default("min_fold_count", defaults.min_fold_count)),
+        max_drawdown_cap=float(_value_or_default("max_drawdown_cap", defaults.max_drawdown_cap)),
         min_positive_fold_ratio=float(
             source.get("min_positive_fold_ratio", defaults.min_positive_fold_ratio)
             if source.get("min_positive_fold_ratio", None) is not None
             else defaults.min_positive_fold_ratio
         ),
         stress_slippage_bps=float(source.get("stress_slippage_bps", defaults.stress_slippage_bps)),
-        min_parameter_stability=float(source.get("min_parameter_stability", defaults.min_parameter_stability)),
+        min_parameter_stability=float(
+            _value_or_default("min_parameter_stability", defaults.min_parameter_stability)
+        ),
         min_slippage_score=float(source.get("min_slippage_score", defaults.min_slippage_score)),
     )
 
@@ -2664,7 +3042,9 @@ def _ranking_policy_payload(policy: RankingPolicy) -> dict[str, object]:
     }
 
 
-def _resolved_optuna_policy(optimizer_policy: Mapping[str, object], spec: StrategyFamilySearchSpec) -> dict[str, object]:
+def _resolved_optuna_policy(
+    optimizer_policy: Mapping[str, object], spec: StrategyFamilySearchSpec
+) -> dict[str, object]:
     n_trials = int(optimizer_policy.get("n_trials", 0) or 0)
     max_neighborhood_trials = int(optimizer_policy.get("max_neighborhood_trials", 64) or 0)
     ranking_policy = _optuna_ranking_policy(optimizer_policy)
@@ -2728,7 +3108,9 @@ _CLOCK_LAYER_PARAM_KEYS = {
 }
 
 
-def _effective_search_spec_for_params(spec: StrategyFamilySearchSpec, params: Mapping[str, object]) -> StrategyFamilySearchSpec:
+def _effective_search_spec_for_params(
+    spec: StrategyFamilySearchSpec, params: Mapping[str, object]
+) -> StrategyFamilySearchSpec:
     if not any(params.get(key) for key in _TRIAL_CLOCK_PARAM_KEYS):
         return spec
     payload = spec.to_dict()
@@ -2790,7 +3172,9 @@ def _parameter_space_diagnostics(
     spec: StrategyFamilySearchSpec,
     trial_rows: Sequence[Mapping[str, object]],
 ) -> dict[str, object]:
-    choice_counts = {str(name): len(tuple(values)) for name, values in sorted(spec.parameter_space.items())}
+    choice_counts = {
+        str(name): len(tuple(values)) for name, values in sorted(spec.parameter_space.items())
+    }
     fixed_parameters: dict[str, object] = {}
     active_parameters: list[str] = []
     for name, values in sorted(spec.parameter_space.items()):
@@ -2818,16 +3202,21 @@ def _parameter_space_diagnostics(
         "choice_counts": choice_counts,
         "active_parameters": active_parameters,
         "fixed_parameters": fixed_parameters,
-        "observed_unique_value_counts": {name: len(values) for name, values in sorted(observed.items())},
+        "observed_unique_value_counts": {
+            name: len(values) for name, values in sorted(observed.items())
+        },
         "observed_values": {
-            name: _sort_jsonable_values(values)
-            for name, values in sorted(observed.items())
+            name: _sort_jsonable_values(values) for name, values in sorted(observed.items())
         },
     }
 
 
-def _optimizer_trial_id(*, optimizer_study_id: str, trial_number: int, trial_kind: str, param_id: str) -> str:
-    return "OPTTRIAL-" + _stable_hash(f"{optimizer_study_id}|{trial_number}|{trial_kind}|{param_id}")
+def _optimizer_trial_id(
+    *, optimizer_study_id: str, trial_number: int, trial_kind: str, param_id: str
+) -> str:
+    return "OPTTRIAL-" + _stable_hash(
+        f"{optimizer_study_id}|{trial_number}|{trial_kind}|{param_id}"
+    )
 
 
 def _search_run_row(
@@ -2925,9 +3314,17 @@ def _run_optuna_family_search(
     ) -> tuple[tuple[str, ...], tuple[float, ...]]:
         raw_names = components.get("constraint_names", ())
         raw_values = components.get("constraint_values", ())
-        names = tuple(str(item) for item in raw_names) if isinstance(raw_names, Iterable) and not isinstance(raw_names, str) else tuple()
+        names = (
+            tuple(str(item) for item in raw_names)
+            if isinstance(raw_names, Iterable) and not isinstance(raw_names, str)
+            else tuple()
+        )
         try:
-            values = tuple(float(item) for item in raw_values) if isinstance(raw_values, Iterable) and not isinstance(raw_values, str) else tuple()
+            values = (
+                tuple(float(item) for item in raw_values)
+                if isinstance(raw_values, Iterable) and not isinstance(raw_values, str)
+                else tuple()
+            )
         except (TypeError, ValueError):
             values = tuple()
         if values:
@@ -2986,7 +3383,9 @@ def _run_optuna_family_search(
             "objective_components": component_payload,
         }
 
-    def _bundle_for_window(window_series: Sequence[ResearchSeriesFrame], effective_spec: StrategyFamilySearchSpec) -> VectorBTInputBundle:
+    def _bundle_for_window(
+        window_series: Sequence[ResearchSeriesFrame], effective_spec: StrategyFamilySearchSpec
+    ) -> VectorBTInputBundle:
         clock_profile_payload = (
             dict(effective_spec.clock_profile)
             if effective_spec.clock_profile
@@ -3001,7 +3400,9 @@ def _run_optuna_family_search(
             indicator_set_version=indicator_set_version,
             derived_indicator_set_version=derived_indicator_set_version,
             clock_profile=clock_profile_payload,
-            execution_timeframe=_execution_timeframe_from_profile(clock_profile_payload, window_series[0].timeframe),
+            execution_timeframe=_execution_timeframe_from_profile(
+                clock_profile_payload, window_series[0].timeframe
+            ),
         )
 
     def evaluate_batch(
@@ -3088,7 +3489,9 @@ def _run_optuna_family_search(
         for group_offset, group_items in enumerate(grouped.values(), start=1):
             effective_spec = group_items[0]["spec"]
             assert isinstance(effective_spec, StrategyFamilySearchSpec)
-            param_rows = tuple(dict(item["row"]) for item in group_items if isinstance(item["row"], Mapping))
+            param_rows = tuple(
+                dict(item["row"]) for item in group_items if isinstance(item["row"], Mapping)
+            )
             param_lookup = {str(item["param_hash"]): dict(item["row"]) for item in group_items}
             local_search_run_rows: list[dict[str, object]] = []
             local_run_rows: list[dict[str, object]] = []
@@ -3102,7 +3505,10 @@ def _run_optuna_family_search(
             try:
                 for window_id, window_series in windows:
                     bundle = _bundle_for_window(window_series, effective_spec)
-                    search_run_id = f"{search_run_id_base}-ASKTELL-{batch_index:04d}-{group_offset:02d}-{window_id}"
+                    search_run_id = (
+                        f"{search_run_id_base}-ASKTELL-{batch_index:04d}-"
+                        f"{group_offset:02d}-{window_id}"
+                    )
                     surface = build_signal_surface(
                         bundle=bundle,
                         spec=effective_spec,
@@ -3188,12 +3594,18 @@ def _run_optuna_family_search(
             order_rows.extend(local_order_rows)
             drawdown_rows.extend(local_drawdown_rows)
 
-            result_rows_by_hash: dict[str, list[dict[str, object]]] = {str(item["param_hash"]): [] for item in group_items}
+            result_rows_by_hash: dict[str, list[dict[str, object]]] = {
+                str(item["param_hash"]): [] for item in group_items
+            }
             for result_row in local_param_result_rows:
                 result_rows_by_hash.setdefault(str(result_row["param_hash"]), []).append(result_row)
-            trade_rows_by_hash: dict[str, list[dict[str, object]]] = {str(item["param_hash"]): [] for item in group_items}
+            trade_rows_by_hash: dict[str, list[dict[str, object]]] = {
+                str(item["param_hash"]): [] for item in group_items
+            }
             for trade_row in local_trade_rows:
-                trade_rows_by_hash.setdefault(str(trade_row.get("param_hash", "")), []).append(trade_row)
+                trade_rows_by_hash.setdefault(str(trade_row.get("param_hash", "")), []).append(
+                    trade_row
+                )
             for item in group_items:
                 candidate = dict(item["row"])
                 candidate_hash = str(item["param_hash"])
@@ -3257,7 +3669,9 @@ def _run_optuna_family_search(
         return resolved or (1.0,)
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
-    sampler = optuna.samplers.TPESampler(seed=int(policy["seed"]), constraints_func=_constraints_func)
+    sampler = optuna.samplers.TPESampler(
+        seed=int(policy["seed"]), constraints_func=_constraints_func
+    )
     study = optuna.create_study(direction=str(policy["direction"]), sampler=sampler)
 
     requested_trials = int(policy["n_trials"])
@@ -3281,10 +3695,18 @@ def _run_optuna_family_search(
             trial_number = int(trial.number)
             value = float(values.get(trial_number, -1.0))
             attrs = tell_attrs_by_trial.get(trial_number, {})
-            trial.set_user_attr(_OPTUNA_CONSTRAINT_NAMES_ATTR, tuple(attrs.get("constraint_names", ())))
-            trial.set_user_attr(_OPTUNA_CONSTRAINTS_ATTR, tuple(attrs.get("constraint_values", (1.0,))))
-            trial.set_user_attr("ta3000_constraints_passed", bool(attrs.get("constraints_passed", False)))
-            trial.set_user_attr("ta3000_objective_components", dict(attrs.get("objective_components", {})))
+            trial.set_user_attr(
+                _OPTUNA_CONSTRAINT_NAMES_ATTR, tuple(attrs.get("constraint_names", ()))
+            )
+            trial.set_user_attr(
+                _OPTUNA_CONSTRAINTS_ATTR, tuple(attrs.get("constraint_values", (1.0,)))
+            )
+            trial.set_user_attr(
+                "ta3000_constraints_passed", bool(attrs.get("constraints_passed", False))
+            )
+            trial.set_user_attr(
+                "ta3000_objective_components", dict(attrs.get("objective_components", {}))
+            )
             study.tell(trial, value)
         batch_rows = optimizer_trial_rows[trial_rows_before:]
         status_counts: dict[str, int] = {}
@@ -3303,15 +3725,8 @@ def _run_optuna_family_search(
             }
         )
 
-    completed = [
-        row
-        for row in optimizer_trial_rows
-        if str(row["status"]) == "completed"
-    ]
     completed_trials = [
-        row
-        for row in optimizer_trial_rows
-        if str(row["status"]) in {"completed", "duplicate"}
+        row for row in optimizer_trial_rows if str(row["status"]) in {"completed", "duplicate"}
     ]
     feasible_trial_numbers = {
         int(row["trial_number"])
@@ -3337,7 +3752,9 @@ def _run_optuna_family_search(
         if best_trial is not None
         else None
     )
-    study_status = "success" if best_row else ("no_feasible_trials" if completed_trials else "failed")
+    study_status = (
+        "success" if best_row else ("no_feasible_trials" if completed_trials else "failed")
+    )
     optimizer_study_rows = [
         {
             "optimizer_study_id": optimizer_study_id,
@@ -3366,7 +3783,9 @@ def _run_optuna_family_search(
                 "ask_tell_batch_size": batch_size,
                 "ask_tell_batch_count": batch_index,
                 "ask_tell_batch_summaries": ask_tell_batch_summaries,
-                "parameter_space_diagnostics": _parameter_space_diagnostics(search_spec, optimizer_trial_rows),
+                "parameter_space_diagnostics": _parameter_space_diagnostics(
+                    search_spec, optimizer_trial_rows
+                ),
             },
         }
     ]
@@ -3428,7 +3847,9 @@ def run_vectorbt_family_search(
     drawdown_rows: list[dict[str, object]] = []
     started_at = _created_at()
 
-    for window_id, window_series in _windowed_series(series_frames, config=config, split_windows=split_windows):
+    for window_id, window_series in _windowed_series(
+        series_frames, config=config, split_windows=split_windows
+    ):
         clock_profile_payload = (
             dict(search_spec.clock_profile)
             if search_spec.clock_profile
@@ -3443,10 +3864,12 @@ def run_vectorbt_family_search(
             indicator_set_version=indicator_set_version,
             derived_indicator_set_version=derived_indicator_set_version,
             clock_profile=clock_profile_payload,
-            execution_timeframe=_execution_timeframe_from_profile(clock_profile_payload, window_series[0].timeframe),
+            execution_timeframe=_execution_timeframe_from_profile(
+                clock_profile_payload, window_series[0].timeframe
+            ),
         )
         try:
-            indicator_plan = resolve_indicator_plan(bundle, search_spec)
+            resolve_indicator_plan(bundle, search_spec)
         except InputPlanValidationError as exc:
             search_run_id = f"{search_run_id_base}-{window_id}-FAILED"
             search_run_rows.append(
@@ -3484,7 +3907,9 @@ def run_vectorbt_family_search(
                         "missing": list(exc.missing),
                         "indicator_plan": {
                             "required_price_inputs": list(search_spec.required_price_inputs),
-                            "materialized_indicators": list(search_spec.required_materialized_indicators),
+                            "materialized_indicators": list(
+                                search_spec.required_materialized_indicators
+                            ),
                             "materialized_derived": list(search_spec.required_materialized_derived),
                         },
                     },
@@ -3561,7 +3986,9 @@ def run_vectorbt_family_search(
     }
 
 
-def _chunked(items: Sequence[dict[str, object]], chunk_size: int) -> tuple[tuple[dict[str, object], ...], ...]:
+def _chunked(
+    items: Sequence[dict[str, object]], chunk_size: int
+) -> tuple[tuple[dict[str, object], ...], ...]:
     size = max(1, int(chunk_size))
     return tuple(tuple(items[index : index + size]) for index in range(0, len(items), size))
 
@@ -3573,13 +4000,17 @@ def _windowed_series(
     split_windows: tuple[dict[str, object], ...] | None,
 ) -> tuple[tuple[str, tuple[ResearchSeriesFrame, ...]], ...]:
     per_series: list[tuple[ResearchSeriesFrame, tuple[tuple[str, pd.DataFrame], ...]]] = [
-        (series, _window_frames(series.frame, window_count=config.window_count, split_windows=split_windows))
+        (
+            series,
+            _window_frames(
+                series.frame, window_count=config.window_count, split_windows=split_windows
+            ),
+        )
         for series in series_frames
     ]
     first_window_ids = tuple(window_id for window_id, _ in per_series[0][1])
     available_by_series = [
-        {window_id: frame for window_id, frame in windows}
-        for _, windows in per_series
+        {window_id: frame for window_id, frame in windows} for _, windows in per_series
     ]
     common_window_ids = tuple(
         window_id
@@ -3587,11 +4018,15 @@ def _windowed_series(
         if all(window_id in windows for windows in available_by_series)
     )
     if not common_window_ids:
-        raise ValueError("split window layout has no common windows across selected research series")
+        raise ValueError(
+            "split window layout has no common windows across selected research series"
+        )
     resolved: list[tuple[str, tuple[ResearchSeriesFrame, ...]]] = []
     for window_id in common_window_ids:
         window_frames: list[ResearchSeriesFrame] = []
-        for series, windows in zip((item[0] for item in per_series), available_by_series, strict=True):
+        for series, windows in zip(
+            (item[0] for item in per_series), available_by_series, strict=True
+        ):
             window_frame = windows[window_id]
             signal_frame = (
                 series.signal_frame.loc[window_frame.index].copy()
@@ -3653,8 +4088,12 @@ def project_family_candidate(
             "execution_tf": input_series[0].timeframe,
         }
     )
-    execution_tf = _execution_timeframe_from_profile(clock_profile_payload, input_series[0].timeframe)
-    execution_series = next((item for item in input_series if item.timeframe == execution_tf), input_series[0])
+    execution_tf = _execution_timeframe_from_profile(
+        clock_profile_payload, input_series[0].timeframe
+    )
+    execution_series = next(
+        (item for item in input_series if item.timeframe == execution_tf), input_series[0]
+    )
     bundle = build_input_bundle(
         input_series,
         dataset_version=dataset_version,
@@ -3667,18 +4106,27 @@ def project_family_candidate(
         bundle=bundle,
         spec=search_spec,
         param_rows=(params,),
-        search_run_id="PROJECT-" + _stable_hash(f"{search_spec.family_key}|{execution_series.instrument_id}|{params}"),
+        search_run_id="PROJECT-"
+        + _stable_hash(f"{search_spec.family_key}|{execution_series.instrument_id}|{params}"),
         config=config,
     )
     close = _numeric_frame(bundle.field("close")).iloc[:, 0]
     long_entries = surface.entries.iloc[:, 0].fillna(False)
     short_entries = surface.short_entries.iloc[:, 0].fillna(False)
     entry_candidates: list[tuple[int, str]] = []
-    entry_candidates.extend((idx, "long") for idx, active in enumerate(long_entries.tolist()) if bool(active))
-    entry_candidates.extend((idx, "short") for idx, active in enumerate(short_entries.tolist()) if bool(active))
+    entry_candidates.extend(
+        (idx, "long") for idx, active in enumerate(long_entries.tolist()) if bool(active)
+    )
+    entry_candidates.extend(
+        (idx, "short") for idx, active in enumerate(short_entries.tolist()) if bool(active)
+    )
     if not entry_candidates:
         return None
-    signal_index, side = max(entry_candidates, key=lambda item: item[0])
+    signal_index = max(idx for idx, _side in entry_candidates)
+    latest_sides = {side for idx, side in entry_candidates if idx == signal_index}
+    if len(latest_sides) != 1:
+        return None
+    side = next(iter(latest_sides))
     freshness_bars = (len(close) - 1) - signal_index
     if freshness_bars > decision_lag_bars_max:
         return None
@@ -3699,7 +4147,9 @@ def project_family_candidate(
         return None
     risk_reward = reward_distance / max(risk_distance, 1e-9)
     freshness_score = max(0.0, 1.0 - (freshness_bars / max(decision_lag_bars_max + 1, 1)))
-    signal_strength = max(0.0, min(1.0, 0.35 + (0.35 * min(risk_reward / 2.0, 1.0)) + (0.30 * freshness_score)))
+    signal_strength = max(
+        0.0, min(1.0, 0.35 + (0.35 * min(risk_reward / 2.0, 1.0)) + (0.30 * freshness_score))
+    )
     ts_decision = str(execution_series.frame["ts"].iloc[signal_index])
     context_id = "ICTX-" + _stable_hash(
         f"{dataset_version}|{indicator_set_version}|{derived_indicator_set_version}|{execution_series.contract_id}|{execution_series.timeframe}|{ts_decision}"

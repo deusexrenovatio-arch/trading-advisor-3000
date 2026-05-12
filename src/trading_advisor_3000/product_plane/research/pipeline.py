@@ -1,22 +1,27 @@
 from __future__ import annotations
 
 import hashlib
+import math
+from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 from statistics import mean
 
 from trading_advisor_3000.product_plane.contracts import CanonicalBar
-from trading_advisor_3000.product_plane.data_plane.canonical import RollMapEntry, SessionCalendarEntry
+from trading_advisor_3000.product_plane.data_plane.canonical import (
+    RollMapEntry,
+    SessionCalendarEntry,
+)
 from trading_advisor_3000.product_plane.research.backtests import (
     BacktestBatchRequest,
     BacktestEngineConfig,
     CandidateProjectionRequest,
     RankingPolicy,
-    build_ephemeral_strategy_space,
     backtest_store_contract,
-    results_store_contract,
+    build_ephemeral_strategy_space,
     project_runtime_candidates,
     rank_backtest_results,
+    results_store_contract,
     run_backtest_batch,
 )
 from trading_advisor_3000.product_plane.research.datasets import (
@@ -29,9 +34,17 @@ from trading_advisor_3000.product_plane.research.derived_indicators import (
     materialize_derived_indicator_frames,
     research_derived_indicator_store_contract,
 )
-from trading_advisor_3000.product_plane.research.indicators import materialize_indicator_frames, indicator_store_contract
+from trading_advisor_3000.product_plane.research.indicators import (
+    indicator_store_contract,
+    materialize_indicator_frames,
+)
 from trading_advisor_3000.product_plane.research.io import ResearchFrameCache
-from trading_advisor_3000.product_plane.research.strategies import StrategyCatalog, StrategyRegistry, build_strategy_registry
+from trading_advisor_3000.product_plane.research.strategies import (
+    StrategyCatalog,
+    StrategyRegistry,
+    build_strategy_registry,
+)
+
 
 def _stable_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12].upper()
@@ -69,11 +82,15 @@ def _normalized_bars(
     return normalized
 
 
-def _inline_canonical_context(bars: list[CanonicalBar]) -> tuple[list[SessionCalendarEntry], list[RollMapEntry]]:
+def _inline_canonical_context(
+    bars: list[CanonicalBar],
+) -> tuple[list[SessionCalendarEntry], list[RollMapEntry]]:
     calendar: dict[tuple[str, str, str], dict[str, str]] = {}
     roll_map: dict[tuple[str, str], tuple[str, int, str]] = {}
 
-    for bar in sorted(bars, key=lambda item: (item.instrument_id, item.timeframe.value, item.ts, item.contract_id)):
+    for bar in sorted(
+        bars, key=lambda item: (item.instrument_id, item.timeframe.value, item.ts, item.contract_id)
+    ):
         session_date = bar.ts[:10]
         calendar_key = (bar.instrument_id, bar.timeframe.value, session_date)
         current_calendar = calendar.get(calendar_key)
@@ -90,8 +107,10 @@ def _inline_canonical_context(bars: list[CanonicalBar]) -> tuple[list[SessionCal
 
         roll_key = (bar.instrument_id, session_date)
         current_roll = roll_map.get(roll_key)
-        if current_roll is None or bar.open_interest > current_roll[1] or (
-            bar.open_interest == current_roll[1] and bar.ts > current_roll[2]
+        if (
+            current_roll is None
+            or bar.open_interest > current_roll[1]
+            or (bar.open_interest == current_roll[1] and bar.ts > current_roll[2])
         ):
             roll_map[roll_key] = (bar.contract_id, bar.open_interest, bar.ts)
 
@@ -194,11 +213,20 @@ def _compat_strategy_metrics(
     commission_total: float,
     slippage_total: float,
 ) -> dict[str, object]:
-    avg_score = mean(float(row.get("score", 0.0) or 0.0) for row in candidate_rows) if candidate_rows else 0.0
+    avg_score = (
+        mean(float(row.get("score", 0.0) or 0.0) for row in candidate_rows)
+        if candidate_rows
+        else 0.0
+    )
     avg_risk_reward = (
         mean(
             abs(float(row.get("target_ref", 0.0) or 0.0) - float(row.get("entry_ref", 0.0) or 0.0))
-            / max(abs(float(row.get("entry_ref", 0.0) or 0.0) - float(row.get("stop_ref", 0.0) or 0.0)), 1e-9)
+            / max(
+                abs(
+                    float(row.get("entry_ref", 0.0) or 0.0) - float(row.get("stop_ref", 0.0) or 0.0)
+                ),
+                1e-9,
+            )
             for row in candidate_rows
         )
         if candidate_rows
@@ -206,24 +234,15 @@ def _compat_strategy_metrics(
     )
     return {
         "walk_forward_windows": walk_forward_windows,
-        "session_hours_utc": None if session_hours_utc is None else [session_hours_utc[0], session_hours_utc[1]],
+        "session_hours_utc": None
+        if session_hours_utc is None
+        else [session_hours_utc[0], session_hours_utc[1]],
         "candidate_count": len(candidate_rows),
         "avg_score": avg_score,
         "avg_risk_reward": avg_risk_reward,
         "commission_total": commission_total,
         "slippage_total": slippage_total,
     }
-    return RankingPolicy(
-        policy_id=str(backtest_config.get("ranking_policy_id", "primary_entrypoint_v1")),
-        metric_order=metric_order,
-        require_out_of_sample_pass=bool(backtest_config.get("require_out_of_sample_pass", False)),
-        min_trade_count=int(backtest_config.get("min_trade_count", 1)),
-        max_drawdown_cap=float(backtest_config.get("max_drawdown_cap", 0.9)),
-        min_positive_fold_ratio=float(backtest_config.get("min_positive_fold_ratio", 0.0)),
-        stress_slippage_bps=float(backtest_config.get("stress_slippage_bps", 0.0)),
-        min_parameter_stability=float(backtest_config.get("min_parameter_stability", 0.0)),
-        min_slippage_score=float(backtest_config.get("min_slippage_score", 0.0)),
-    )
 
 
 def run_research_from_bars(
@@ -253,7 +272,9 @@ def run_research_from_bars(
         backtest_config.get("derived_indicator_set_version", DEFAULT_DERIVED_INDICATOR_SET_VERSION)
     )
     indicator_profile_version = str(backtest_config.get("indicator_profile_version", "core_v1"))
-    derived_indicator_profile_version = str(backtest_config.get("derived_indicator_profile_version", "core_v1"))
+    derived_indicator_profile_version = str(
+        backtest_config.get("derived_indicator_profile_version", "core_v1")
+    )
     session_hours_raw = backtest_config.get("session_hours_utc")
     session_hours_utc = (
         tuple(int(item) for item in session_hours_raw)
@@ -285,12 +306,37 @@ def run_research_from_bars(
         roll_map=roll_map,
         output_dir=materialized_dir,
     )
+    raw_volume_profile_path = backtest_config.get("volume_profile_raw_1m_table_path")
+    raw_volume_profile_path_text = (
+        str(raw_volume_profile_path).strip() if raw_volume_profile_path is not None else ""
+    )
+    volume_profile_raw_1m_table_path = (
+        Path(raw_volume_profile_path_text) if raw_volume_profile_path_text else None
+    )
+    raw_volume_profile_tick_sizes = backtest_config.get("volume_profile_tick_size_by_instrument")
+    volume_profile_tick_size_by_instrument: dict[str, float] = {}
+    if isinstance(raw_volume_profile_tick_sizes, Mapping):
+        for key, raw_value in dict(raw_volume_profile_tick_sizes).items():
+            instrument_id = str(key)
+            try:
+                tick_size = float(raw_value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"invalid volume profile tick_size for {instrument_id}: {raw_value!r}"
+                ) from exc
+            if not math.isfinite(tick_size) or tick_size <= 0:
+                raise ValueError(
+                    f"invalid volume profile tick_size for {instrument_id}: {raw_value!r}"
+                )
+            volume_profile_tick_size_by_instrument[instrument_id] = tick_size
     materialize_indicator_frames(
         dataset_output_dir=materialized_dir,
         indicator_output_dir=materialized_dir,
         dataset_version=dataset_version,
         indicator_set_version=indicator_set_version,
         profile_version=indicator_profile_version,
+        volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
+        volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument or None,
     )
     materialize_derived_indicator_frames(
         dataset_output_dir=materialized_dir,
@@ -309,7 +355,9 @@ def run_research_from_bars(
         strategy_version_labels=(strategy_version_id,),
         instances_per_strategy=instances_per_strategy,
     )
-    campaign_run_id = "crun_" + _stable_hash(f"{dataset_version}|{strategy_space.strategy_space_id}|{strategy_version_id}")
+    campaign_run_id = "crun_" + _stable_hash(
+        f"{dataset_version}|{strategy_space.strategy_space_id}|{strategy_version_id}"
+    )
     request = BacktestBatchRequest(
         campaign_run_id=campaign_run_id,
         strategy_space_id=strategy_space.strategy_space_id,
@@ -317,7 +365,9 @@ def run_research_from_bars(
         indicator_set_version=indicator_set_version,
         derived_indicator_set_version=derived_indicator_set_version,
         search_specs=strategy_space.search_specs,
-        combination_count=sum(len(spec.parameter_space.get("rows", ())) or 1 for spec in strategy_space.search_specs),
+        combination_count=sum(
+            len(spec.parameter_space.get("rows", ())) or 1 for spec in strategy_space.search_specs
+        ),
         param_batch_size=int(backtest_config.get("param_batch_size", 500)),
         series_batch_size=int(backtest_config.get("series_batch_size", 4)),
         timeframe=str(backtest_config.get("timeframe", base_timeframe)),
@@ -357,15 +407,21 @@ def run_research_from_bars(
         request=CandidateProjectionRequest(
             ranking_policy_id=ranking_policy.policy_id,
             selection_policy=str(backtest_config.get("selection_policy", "all_policy_pass")),
-            max_candidates_per_partition=int(backtest_config.get("max_candidates_per_partition", 4)),
+            max_candidates_per_partition=int(
+                backtest_config.get("max_candidates_per_partition", 4)
+            ),
             min_robust_score=float(backtest_config.get("min_robust_score", 0.0)),
-            decision_lag_bars_max=int(backtest_config.get("decision_lag_bars_max", max(1, len(normalized_bars)))),
+            decision_lag_bars_max=int(
+                backtest_config.get("decision_lag_bars_max", max(1, len(normalized_bars)))
+            ),
         ),
         ranking_rows=ranking_report["ranking_rows"],
         strategy_registry=strategy_registry,
         config=engine_config,
     )
-    candidate_contract_rows = [dict(payload) for payload in projection_report["candidate_contracts"]]
+    candidate_contract_rows = [
+        dict(payload) for payload in projection_report["candidate_contracts"]
+    ]
     candidate_rows = list(projection_report["candidate_rows"])
     commission_total = commission_per_trade * len(candidate_rows)
     slippage_total = sum(float(row["estimated_slippage"]) for row in candidate_rows)
@@ -389,16 +445,24 @@ def run_research_from_bars(
     output_paths = {
         "research_datasets": (materialized_dir / "research_datasets.delta").as_posix(),
         "research_bar_views": (materialized_dir / "research_bar_views.delta").as_posix(),
-        "research_indicator_frames": (materialized_dir / "research_indicator_frames.delta").as_posix(),
-        "research_derived_indicator_frames": (materialized_dir / "research_derived_indicator_frames.delta").as_posix(),
+        "research_indicator_frames": (
+            materialized_dir / "research_indicator_frames.delta"
+        ).as_posix(),
+        "research_derived_indicator_frames": (
+            materialized_dir / "research_derived_indicator_frames.delta"
+        ).as_posix(),
         "research_backtest_batches": str(batch_report["output_paths"]["research_backtest_batches"]),
         "research_backtest_runs": str(batch_report["output_paths"]["research_backtest_runs"]),
         "research_strategy_stats": str(batch_report["output_paths"]["research_strategy_stats"]),
         "research_trade_records": str(batch_report["output_paths"]["research_trade_records"]),
         "research_order_records": str(batch_report["output_paths"]["research_order_records"]),
         "research_drawdown_records": str(batch_report["output_paths"]["research_drawdown_records"]),
-        "research_strategy_rankings": str(ranking_report["output_paths"]["research_strategy_rankings"]),
-        "research_signal_candidates": str(projection_report["output_paths"]["research_signal_candidates"]),
+        "research_strategy_rankings": str(
+            ranking_report["output_paths"]["research_strategy_rankings"]
+        ),
+        "research_signal_candidates": str(
+            projection_report["output_paths"]["research_signal_candidates"]
+        ),
         "backtest_runs": str(batch_report["output_paths"]["research_backtest_runs"]),
         "signal_candidates": str(projection_report["output_paths"]["research_signal_candidates"]),
     }
