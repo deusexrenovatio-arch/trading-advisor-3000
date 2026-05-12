@@ -219,6 +219,34 @@ def test_github_api_get_json_retries_rate_limited_403(monkeypatch) -> None:
     assert sleeps == [20.0]
 
 
+def test_github_api_get_json_does_not_retry_plain_auth_403(monkeypatch) -> None:
+    calls = 0
+
+    def _urlopen(_request: object, *, timeout: int) -> object:
+        nonlocal calls
+        assert timeout == validate_pr_only_policy.GITHUB_API_TIMEOUT_SECONDS
+        calls += 1
+        raise HTTPError(
+            "https://example.test",
+            403,
+            "forbidden",
+            {},
+            BytesIO(b"forbidden"),
+        )
+
+    monkeypatch.setattr(validate_pr_only_policy, "urlopen", _urlopen)
+    monkeypatch.setattr(
+        validate_pr_only_policy.time,
+        "sleep",
+        lambda _seconds: pytest.fail("plain 403 must not retry"),
+    )
+
+    with pytest.raises(RuntimeError, match="private repos require"):
+        validate_pr_only_policy._github_api_get_json("https://example.test", token=None)
+
+    assert calls == 1
+
+
 def test_github_api_get_json_preserves_exhausted_http_error_detail(monkeypatch) -> None:
     calls = 0
 

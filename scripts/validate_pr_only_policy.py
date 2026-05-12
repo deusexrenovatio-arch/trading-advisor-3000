@@ -34,8 +34,9 @@ GITHUB_API_ROOT = "https://api.github.com"
 GITHUB_API_VERSION = "2026-03-10"
 GITHUB_API_ATTEMPTS = 3
 GITHUB_API_RETRY_DELAY_SECONDS = 1.0
+GITHUB_API_RATE_LIMIT_FALLBACK_DELAY_SECONDS = 60.0
 GITHUB_API_TIMEOUT_SECONDS = 15
-GITHUB_API_TRANSIENT_HTTP_CODES = {403, 429, 500, 502, 503, 504}
+GITHUB_API_TRANSIENT_HTTP_CODES = {429, 500, 502, 503, 504}
 
 
 def _read(path: Path) -> str:
@@ -118,7 +119,26 @@ def _github_api_retry_delay(exc: HTTPError, *, attempt: int) -> float:
         except ValueError:
             pass
 
-    return GITHUB_API_RETRY_DELAY_SECONDS * (2 ** (attempt - 1))
+    delay = GITHUB_API_RETRY_DELAY_SECONDS * (2 ** (attempt - 1))
+    if exc.code in {403, 429}:
+        return max(delay, GITHUB_API_RATE_LIMIT_FALLBACK_DELAY_SECONDS)
+    return delay
+
+
+def _is_rate_limited_github_http_error(exc: HTTPError) -> bool:
+    headers = exc.headers or {}
+    if exc.code == 429:
+        return True
+    if exc.code != 403:
+        return False
+    retry_after = str(headers.get("Retry-After", "")).strip()
+    remaining = str(headers.get("X-RateLimit-Remaining", "")).strip()
+    reset_at = str(headers.get("X-RateLimit-Reset", "")).strip()
+    return bool(retry_after) or remaining == "0" or bool(reset_at)
+
+
+def _is_transient_github_http_error(exc: HTTPError) -> bool:
+    return exc.code in GITHUB_API_TRANSIENT_HTTP_CODES or _is_rate_limited_github_http_error(exc)
 
 
 def _github_api_get_json(url: str, token: str | None) -> Any:
@@ -146,7 +166,7 @@ def _github_api_get_json(url: str, token: str | None) -> Any:
                     " (public repositories can be read anonymously; "
                     "private repos require GH_TOKEN/GITHUB_TOKEN)"
                 )
-            if exc.code in GITHUB_API_TRANSIENT_HTTP_CODES:
+            if _is_transient_github_http_error(exc):
                 last_error = exc
                 last_http_error_detail = detail
                 if attempt < GITHUB_API_ATTEMPTS:

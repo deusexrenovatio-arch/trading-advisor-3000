@@ -1655,10 +1655,10 @@ def _run_scoped_spark_delta_publish_route(
     )
     contract_report: dict[str, object] = {
         "runtime_owner": "spark_delta",
-        "status": "PASS",
+        "status": "NOT_RUN",
         "errors": [],
         "checked_rows": _int_report_value(spark_execution_report, "canonical_rows"),
-        "mode": "spark_publish_contract_enforced",
+        "mode": "pending_spark_publish_contract_report",
     }
     runtime_report = run_runtime_decoupling_check(repo_root=repo_root)
 
@@ -1673,7 +1673,6 @@ def _run_scoped_spark_delta_publish_route(
     publish_allowed = (
         raw_parity_report["status"] == STATUS_PASS
         and canonical_parity_report["status"] == STATUS_PASS
-        and contract_report["status"] == "PASS"
         and runtime_report["status"] == "PASS"
     )
 
@@ -1936,6 +1935,10 @@ def run_historical_canonical_route(
         changed_window_set_path = output_dir / "changed-window-set-manifest.json"
         runtime_path = output_dir / "runtime-decoupling-proof.json"
         runtime_report = run_runtime_decoupling_check(repo_root=repo_root)
+        runtime_pass = str(runtime_report.get("status", "")).strip() == STATUS_PASS
+        noop_status = STATUS_PASS_NOOP if runtime_pass else "BLOCKED"
+        noop_publish_decision = "publish" if runtime_pass else "blocked"
+        noop_failed_gates = [] if runtime_pass else ["runtime_decoupling"]
         _json_write(changed_window_set_path, changed_window_set_manifest)
         _json_write(runtime_path, runtime_report)
 
@@ -1955,8 +1958,8 @@ def run_historical_canonical_route(
             "proof_class": "staging-real",
             "canonicalization_engine": "spark",
             "canonical_publish_engine": "spark_delta",
-            "status": STATUS_PASS_NOOP,
-            "publish_decision": "publish",
+            "status": noop_status,
+            "publish_decision": noop_publish_decision,
             "raw_table_path": raw_table_path.as_posix(),
             "output_dir": output_dir.as_posix(),
             "source_rows": source_rows,
@@ -2014,9 +2017,9 @@ def run_historical_canonical_route(
             "qc_report": {
                 "run_id": run_id,
                 "runtime_owner": "spark_delta",
-                "status": "PASS",
-                "publish_decision": "publish",
-                "failed_gates": [],
+                "status": "PASS" if runtime_pass else "FAIL",
+                "publish_decision": noop_publish_decision,
+                "failed_gates": noop_failed_gates,
                 "gate_results": [],
             },
             "contract_compatibility_report": {

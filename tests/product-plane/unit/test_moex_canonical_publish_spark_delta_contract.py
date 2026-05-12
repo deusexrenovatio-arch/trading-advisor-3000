@@ -188,9 +188,39 @@ def test_noop_route_marks_contract_report_skipped_not_passed(tmp_path: Path) -> 
     )
 
     contract_report = report["contract_compatibility_report"]
+    assert report["status"] == "PASS-NOOP"
+    assert report["publish_decision"] == "publish"
     assert contract_report["status"] == "SKIPPED"
     assert contract_report["checked_rows"] == 0
     assert contract_report["reason"] == "noop refresh did not produce Spark canonical rows"
+
+
+def test_noop_route_blocks_when_runtime_decoupling_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_table_path = tmp_path / "raw_moex_history.delta"
+    write_delta_table_rows(table_path=raw_table_path, rows=[], columns=RAW_COLUMNS)
+    monkeypatch.setattr(
+        route_module,
+        "run_runtime_decoupling_check",
+        lambda *, repo_root: {"status": "FAIL", "errors": ["runtime leak"]},
+    )
+
+    report = route_module.run_historical_canonical_route(
+        raw_table_path=raw_table_path,
+        output_dir=tmp_path / "canonical",
+        run_id="phase02-noop-runtime-blocked",
+        raw_ingest_run_report=_noop_raw_report(),
+        repo_root=Path.cwd(),
+    )
+
+    assert report["status"] == "BLOCKED"
+    assert report["publish_decision"] == "blocked"
+    assert report["qc_report"]["status"] == "FAIL"
+    assert report["qc_report"]["failed_gates"] == ["runtime_decoupling"]
+    assert report["contract_compatibility_report"]["status"] == "SKIPPED"
+    assert report["runtime_decoupling_proof"]["status"] == "FAIL"
 
 
 def test_route_rejects_blank_spark_output_paths_before_publish(
@@ -232,6 +262,57 @@ def test_route_rejects_blank_spark_output_paths_before_publish(
             raw_ingest_run_report=_changed_raw_report(),
             repo_root=Path.cwd(),
         )
+
+
+def test_route_keeps_contract_report_not_run_when_pre_publish_gate_blocks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_table_path = tmp_path / "raw_moex_history.delta"
+    write_delta_table_rows(table_path=raw_table_path, rows=[], columns=RAW_COLUMNS)
+    staged_bars_path = tmp_path / "staged" / "canonical_bars.delta"
+    staged_provenance_path = tmp_path / "staged" / "canonical_bar_provenance.delta"
+
+    def _fake_spark_canonicalization(**_kwargs: object) -> dict[str, object]:
+        return {
+            "engine": "spark",
+            "input_mode": "raw_delta",
+            "source_rows": 1,
+            "source_providers": ["moex_iss"],
+            "unmatched_window_rows": 0,
+            "changed_window_rows": 1,
+            "selected_source_interval_rows": 6,
+            "canonical_rows": 6,
+            "provenance_rows": 6,
+            "output_paths": {
+                "canonical_bars": staged_bars_path.as_posix(),
+                "canonical_bar_provenance": staged_provenance_path.as_posix(),
+            },
+            "spark_profile": {"master": "local[2]", "delta_writer": "spark"},
+        }
+
+    def _publish_must_not_run(**_kwargs: object) -> dict[str, object]:
+        raise AssertionError("publish must not run when runtime decoupling fails")
+
+    monkeypatch.setattr(route_module, "_run_spark_canonicalization", _fake_spark_canonicalization)
+    monkeypatch.setattr(route_module, "_run_spark_canonical_publish", _publish_must_not_run)
+    monkeypatch.setattr(
+        route_module,
+        "run_runtime_decoupling_check",
+        lambda *, repo_root: {"status": "FAIL", "errors": ["runtime leak"]},
+    )
+
+    report = route_module.run_historical_canonical_route(
+        raw_table_path=raw_table_path,
+        output_dir=tmp_path / "canonical",
+        run_id="phase02-pre-publish-contract-not-run",
+        raw_ingest_run_report=_changed_raw_report(),
+        repo_root=Path.cwd(),
+    )
+
+    assert report["publish_decision"] == "blocked"
+    assert report["contract_compatibility_report"]["status"] == "NOT_RUN"
+    assert report["contract_compatibility_report"]["checked_rows"] == 6
 
 
 def test_full_overwrite_is_not_supported_even_with_legacy_env(
