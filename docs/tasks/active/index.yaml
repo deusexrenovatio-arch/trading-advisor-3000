@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-05-11'
+updated_at: '2026-05-12'
 items:
 - id: TASK-2026-05-08-MAKE-MOEX-HISTORICAL-UPDATE-PATH-USE-SPARK-DELTA
   path: docs/tasks/active/TASK-2026-05-08-make-moex-historical-update-path-use-spark-delta.md
@@ -16,3 +16,13 @@ items:
   mode: legacy-full
   status: in_progress
   started_at: '2026-05-11'
+- id: TASK-2026-05-12-PHASE-2-DELTA-SPARK-NATIVE-CANONICAL-PUBLISH
+  path: docs/tasks/active/TASK-2026-05-12-phase-2-delta-spark-native-canonical-publish.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-05-12'
+- id: TASK-2026-05-12-PHASE-2-SPARK-DELTA-CANONICAL-PUBLISH-REVIEW-CLO
+  path: docs/tasks/active/TASK-2026-05-12-phase-2-spark-delta-canonical-publish-review-clo.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-05-12'

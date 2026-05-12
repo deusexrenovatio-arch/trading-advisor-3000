@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .baseline_update import run_moex_baseline_update
+    from .dagster_cutover import run_moex_dagster_cutover
     from .foundation import (
         DiscoveryRecord,
         FoundationRunReport,
@@ -54,6 +55,7 @@ if TYPE_CHECKING:
 
 _MODULE_EXPORTS = {
     "run_moex_baseline_update": (".baseline_update", "run_moex_baseline_update"),
+    "run_moex_dagster_cutover": (".dagster_cutover", "run_moex_dagster_cutover"),
     "DiscoveryRecord": (".foundation", "DiscoveryRecord"),
     "FoundationRunReport": (".foundation", "FoundationRunReport"),
     "MoexISSClient": (".iss_client", "MoexISSClient"),

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+
+import pytest
 
 from scripts import validate_pr_only_policy
 
@@ -43,7 +47,9 @@ def test_validate_pr_only_policy_passes_with_required_github_rules(
 ) -> None:
     _write_policy_files(tmp_path)
 
-    def _fake_fetch_branch_rules(*, repo_slug: str, branch: str, token: str | None) -> list[dict[str, object]]:
+    def _fake_fetch_branch_rules(
+        *, repo_slug: str, branch: str, token: str | None
+    ) -> list[dict[str, object]]:
         assert repo_slug == "deusexrenovatio-arch/trading-advisor-3000"
         assert branch == "main"
         return [
@@ -78,7 +84,9 @@ def test_validate_pr_only_policy_fails_closed_when_required_check_is_missing(
 ) -> None:
     _write_policy_files(tmp_path)
 
-    def _fake_fetch_branch_rules(*, repo_slug: str, branch: str, token: str | None) -> list[dict[str, object]]:
+    def _fake_fetch_branch_rules(
+        *, repo_slug: str, branch: str, token: str | None
+    ) -> list[dict[str, object]]:
         return [
             {"type": "pull_request"},
             {
@@ -102,3 +110,162 @@ def test_validate_pr_only_policy_fails_closed_when_required_check_is_missing(
     captured = capsys.readouterr()
     assert result == 1
     assert "GitHub required status checks are missing: pr-lane" in captured.out
+
+
+def test_github_api_get_json_retries_transient_url_error(monkeypatch) -> None:
+    calls = 0
+
+    class _Response:
+        def __enter__(self) -> "_Response":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'[{"type": "pull_request"}]'
+
+    def _urlopen(_request: object, *, timeout: int) -> _Response:
+        nonlocal calls
+        assert timeout == validate_pr_only_policy.GITHUB_API_TIMEOUT_SECONDS
+        calls += 1
+        if calls == 1:
+            raise URLError(TimeoutError("simulated SSL handshake timeout"))
+        return _Response()
+
+    monkeypatch.setattr(validate_pr_only_policy, "urlopen", _urlopen)
+    monkeypatch.setattr(validate_pr_only_policy.time, "sleep", lambda _seconds: None)
+
+    payload = validate_pr_only_policy._github_api_get_json("https://example.test", token=None)
+
+    assert payload == [{"type": "pull_request"}]
+    assert calls == 2
+
+
+def test_github_api_get_json_retries_transient_http_error(monkeypatch) -> None:
+    calls = 0
+    sleeps: list[float] = []
+
+    class _Response:
+        def __enter__(self) -> "_Response":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'[{"type": "required_status_checks"}]'
+
+    def _urlopen(_request: object, *, timeout: int) -> _Response:
+        nonlocal calls
+        assert timeout == validate_pr_only_policy.GITHUB_API_TIMEOUT_SECONDS
+        calls += 1
+        if calls == 1:
+            raise HTTPError(
+                "https://example.test",
+                503,
+                "temporary service unavailable",
+                {},
+                BytesIO(b"temporary"),
+            )
+        return _Response()
+
+    monkeypatch.setattr(validate_pr_only_policy, "urlopen", _urlopen)
+    monkeypatch.setattr(validate_pr_only_policy.time, "sleep", sleeps.append)
+
+    payload = validate_pr_only_policy._github_api_get_json("https://example.test", token=None)
+
+    assert payload == [{"type": "required_status_checks"}]
+    assert calls == 2
+    assert sleeps == [validate_pr_only_policy.GITHUB_API_RETRY_DELAY_SECONDS]
+
+
+def test_github_api_get_json_retries_rate_limited_403(monkeypatch) -> None:
+    calls = 0
+    sleeps: list[float] = []
+
+    class _Response:
+        def __enter__(self) -> "_Response":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'[{"type": "required_status_checks"}]'
+
+    def _urlopen(_request: object, *, timeout: int) -> _Response:
+        nonlocal calls
+        assert timeout == validate_pr_only_policy.GITHUB_API_TIMEOUT_SECONDS
+        calls += 1
+        if calls == 1:
+            raise HTTPError(
+                "https://example.test",
+                403,
+                "rate limited",
+                {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "120.0"},
+                BytesIO(b"rate limited"),
+            )
+        return _Response()
+
+    monkeypatch.setattr(validate_pr_only_policy, "urlopen", _urlopen)
+    monkeypatch.setattr(validate_pr_only_policy.time, "time", lambda: 100.0)
+    monkeypatch.setattr(validate_pr_only_policy.time, "sleep", sleeps.append)
+
+    payload = validate_pr_only_policy._github_api_get_json("https://example.test", token=None)
+
+    assert payload == [{"type": "required_status_checks"}]
+    assert calls == 2
+    assert sleeps == [20.0]
+
+
+def test_github_api_get_json_does_not_retry_plain_auth_403(monkeypatch) -> None:
+    calls = 0
+
+    def _urlopen(_request: object, *, timeout: int) -> object:
+        nonlocal calls
+        assert timeout == validate_pr_only_policy.GITHUB_API_TIMEOUT_SECONDS
+        calls += 1
+        raise HTTPError(
+            "https://example.test",
+            403,
+            "forbidden",
+            {"X-RateLimit-Reset": "120.0"},
+            BytesIO(b"forbidden"),
+        )
+
+    monkeypatch.setattr(validate_pr_only_policy, "urlopen", _urlopen)
+    monkeypatch.setattr(
+        validate_pr_only_policy.time,
+        "sleep",
+        lambda _seconds: pytest.fail("plain 403 must not retry"),
+    )
+
+    with pytest.raises(RuntimeError, match="private repos require"):
+        validate_pr_only_policy._github_api_get_json("https://example.test", token=None)
+
+    assert calls == 1
+
+
+def test_github_api_get_json_preserves_exhausted_http_error_detail(monkeypatch) -> None:
+    calls = 0
+
+    def _urlopen(_request: object, *, timeout: int) -> object:
+        nonlocal calls
+        assert timeout == validate_pr_only_policy.GITHUB_API_TIMEOUT_SECONDS
+        calls += 1
+        raise HTTPError(
+            "https://example.test",
+            503,
+            "temporary service unavailable",
+            {},
+            BytesIO(f"temporary-{calls}".encode("utf-8")),
+        )
+
+    monkeypatch.setattr(validate_pr_only_policy, "urlopen", _urlopen)
+    monkeypatch.setattr(validate_pr_only_policy.time, "sleep", lambda _seconds: None)
+
+    with pytest.raises(RuntimeError, match="temporary-3"):
+        validate_pr_only_policy._github_api_get_json("https://example.test", token=None)
+
+    assert calls == validate_pr_only_policy.GITHUB_API_ATTEMPTS

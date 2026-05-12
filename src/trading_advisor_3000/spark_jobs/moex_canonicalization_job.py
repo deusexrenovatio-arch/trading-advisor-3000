@@ -310,6 +310,9 @@ def run_moex_canonicalization_spark_delta_job(
     _, window, F, _ = _load_spark_modules()
 
     try:
+        unmatched_window_rows = 0
+        unmatched_window_samples: list[str] = []
+        source_providers: list[str] = []
         if changed_window_row_count == 0 or selected_interval_row_count == 0:
             source_row_count = 0
             bars_df = spark.createDataFrame([], CANONICAL_BAR_SCHEMA)
@@ -343,9 +346,34 @@ def run_moex_canonicalization_spark_delta_job(
                 (F.to_timestamp(F.col("ts_close")) >= F.col("window_start_utc"))
                 & (F.to_timestamp(F.col("ts_close")) <= F.col("window_end_utc"))
             )
+            matched_windows_df = scoped_raw_df.select(
+                "internal_id",
+                "timeframe",
+                "source_interval",
+                "moex_secid",
+                "window_start_utc",
+                "window_end_utc",
+            ).distinct()
+            unmatched_windows_df = windows_df.join(
+                matched_windows_df,
+                on=[
+                    "internal_id",
+                    "timeframe",
+                    "source_interval",
+                    "moex_secid",
+                    "window_start_utc",
+                    "window_end_utc",
+                ],
+                how="left_anti",
+            )
+            unmatched_window_rows = int(unmatched_windows_df.count())
+            unmatched_window_samples = [
+                str(row.asDict()) for row in unmatched_windows_df.limit(20).collect()
+            ]
             provenance_text = F.col("provenance_json").cast("string")
             source_df = scoped_raw_df.select(
                 F.col("finam_symbol").cast("string").alias("contract_id"),
+                F.col("moex_secid").cast("string").alias("moex_secid"),
                 F.col("internal_id").cast("string").alias("instrument_id"),
                 F.col("timeframe").cast("string").alias("source_timeframe"),
                 F.when(F.col("timeframe") == F.lit("1d"), F.lit(1440))
@@ -381,20 +409,65 @@ def run_moex_canonicalization_spark_delta_job(
                 .drop("_rn")
             )
             source_row_count = int(source_df.count())
+            source_providers = sorted(
+                str(row["source_provider"]).strip()
+                for row in source_df.select("source_provider").distinct().collect()
+                if str(row["source_provider"]).strip()
+            )
 
-            selected_df = spark.read.json(str(selected_source_intervals_path)).select(
+            selected_raw_df = spark.read.json(str(selected_source_intervals_path))
+            selected_moex_secid = (
+                F.col("moex_secid").cast("string")
+                if "moex_secid" in selected_raw_df.columns
+                else F.lit(None).cast("string")
+            )
+            selected_df = selected_raw_df.select(
                 F.col("contract_id").cast("string").alias("contract_id"),
+                selected_moex_secid.alias("moex_secid"),
                 F.col("instrument_id").cast("string").alias("instrument_id"),
                 F.col("timeframe").cast("string").alias("timeframe"),
                 F.col("target_minutes").cast("int").alias("target_minutes"),
                 F.col("source_interval").cast("int").alias("source_interval"),
             )
 
+            source_alias = source_df.alias("source")
+            selected_alias = selected_df.alias("selected")
             joined = (
-                source_df.join(
-                    selected_df,
-                    on=["contract_id", "instrument_id", "source_interval"],
+                source_alias.join(
+                    selected_alias,
+                    (
+                        (F.col("source.instrument_id") == F.col("selected.instrument_id"))
+                        & (F.col("source.source_interval") == F.col("selected.source_interval"))
+                        & (
+                            (F.col("source.contract_id") == F.col("selected.contract_id"))
+                            | (F.col("source.moex_secid") == F.col("selected.contract_id"))
+                            | (
+                                F.col("selected.moex_secid").isNotNull()
+                                & (F.col("source.moex_secid") == F.col("selected.moex_secid"))
+                            )
+                        )
+                    ),
                     how="inner",
+                )
+                .select(
+                    F.col("source.contract_id").alias("contract_id"),
+                    F.col("source.instrument_id").alias("instrument_id"),
+                    F.col("source.source_timeframe").alias("source_timeframe"),
+                    F.col("source.source_interval").alias("source_interval"),
+                    F.col("source.ts_open").alias("ts_open"),
+                    F.col("source.ts_close").alias("ts_close"),
+                    F.col("source.open").alias("open"),
+                    F.col("source.high").alias("high"),
+                    F.col("source.low").alias("low"),
+                    F.col("source.close").alias("close"),
+                    F.col("source.volume").alias("volume"),
+                    F.col("source.open_interest").alias("open_interest"),
+                    F.col("source.open_interest_imputed").alias("open_interest_imputed"),
+                    F.col("source.source_provider").alias("source_provider"),
+                    F.col("source.source_run_id").alias("source_run_id"),
+                    F.col("source.source_ingest_run_id").alias("source_ingest_run_id"),
+                    F.col("selected.timeframe").alias("timeframe"),
+                    F.col("selected.target_minutes").alias("target_minutes"),
                 )
                 .withColumn(
                     "bucket_seconds",
@@ -506,6 +579,9 @@ def run_moex_canonicalization_spark_delta_job(
             "build_run_id": str(build_run_id).strip(),
             "built_at_utc": str(built_at_utc).strip(),
             "source_rows": source_row_count,
+            "source_providers": source_providers,
+            "unmatched_window_rows": unmatched_window_rows,
+            "unmatched_windows": unmatched_window_samples,
             "changed_window_rows": changed_window_row_count,
             "selected_source_interval_rows": selected_interval_row_count,
             "canonical_rows": int(bars_df.count()),

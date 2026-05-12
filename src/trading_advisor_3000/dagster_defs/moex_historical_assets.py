@@ -32,6 +32,7 @@ from trading_advisor_3000.product_plane.data_plane.moex.baseline_update import (
     run_moex_baseline_update,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.historical_canonical_route import (
+    CANONICAL_MERGE_SCOPED_DELETE_INSERT,
     run_historical_canonical_route,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.runtime_instances import (
@@ -140,6 +141,7 @@ MOEX_HISTORICAL_CUTOVER_JOB_NAME = "moex_historical_cutover_job"
 MOEX_BASELINE_UPDATE_JOB_NAME = "moex_baseline_update_job"
 MOEX_BASELINE_DAILY_SCHEDULE_NAME = "moex_baseline_daily_update_schedule"
 MOEX_BASELINE_DAILY_CRON = "0 2 * * *"
+MOEX_HISTORICAL_NIGHTLY_CRON = MOEX_BASELINE_DAILY_CRON
 MOEX_HISTORICAL_EXECUTION_TIMEZONE = "Europe/Moscow"
 MOEX_HISTORICAL_RETRY_POLICY = RetryPolicy(max_retries=3, delay=60)
 
@@ -818,6 +820,7 @@ def moex_canonical_refresh(context, moex_raw_ingest: dict[str, object]) -> dict[
         output_dir=output_dir,
         run_id=run_id,
         raw_ingest_run_report=raw_report,
+        canonical_merge_strategy=CANONICAL_MERGE_SCOPED_DELETE_INSERT,
     )
     publish_decision = str(report.get("publish_decision", "")).strip().lower()
     if publish_decision != "publish":

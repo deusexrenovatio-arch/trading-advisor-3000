@@ -1,26 +1,30 @@
 from __future__ import annotations
 
+# ruff: noqa: E402,E501
 import argparse
 import csv
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from datetime import UTC, datetime
 import json
 import os
-from pathlib import Path
 import sys
 import traceback
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
-from deltalake import DeltaTable, write_deltalake
 import pyarrow as pa
 import yaml
+from deltalake import DeltaTable, write_deltalake
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log, write_delta_table_rows
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    has_delta_log,
+    write_delta_table_rows,
+)
 from trading_advisor_3000.product_plane.data_plane.moex import build_raw_ingest_run_report_v2
 from trading_advisor_3000.product_plane.data_plane.moex.foundation import (
     RAW_COLUMNS,
@@ -35,8 +39,11 @@ from trading_advisor_3000.product_plane.data_plane.moex.foundation import (
     validate_mapping_registry,
     validate_universe_mapping_alignment,
 )
+from trading_advisor_3000.product_plane.data_plane.moex.historical_canonical_route import (
+    CANONICAL_MERGE_SCOPED_DELETE_INSERT,
+    run_historical_canonical_route,
+)
 from trading_advisor_3000.product_plane.data_plane.moex.iss_client import MoexISSClient
-from trading_advisor_3000.product_plane.data_plane.moex.historical_canonical_route import run_historical_canonical_route
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     CANONICAL_REFRESH_REPORT_FILENAME,
     CANONICAL_REFRESH_STORAGE_DIRNAME,
@@ -46,7 +53,6 @@ from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     ROUTE_REFRESH_STORAGE_DIRNAME,
     resolve_external_root,
 )
-
 
 DEFAULT_MAPPING_REGISTRY = Path("configs/moex_foundation/instrument_mapping_registry.v1.yaml")
 DEFAULT_UNIVERSE = Path("configs/moex_foundation/universe/moex-futures-priority.v1.yaml")
@@ -218,9 +224,13 @@ def _merge_jsonl_artifacts(
 
     if events:
         latest_payload = max(events, key=_event_sort_key)
-        latest_path.write_text(json.dumps(latest_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        latest_path.write_text(
+            json.dumps(latest_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
     elif empty_latest_payload is not None:
-        latest_path.write_text(json.dumps(empty_latest_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        latest_path.write_text(
+            json.dumps(empty_latest_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
     else:
         latest_path.unlink(missing_ok=True)
     return len(events)
@@ -274,7 +284,13 @@ def _run_shard_job(job: dict[str, object]) -> dict[str, object]:
         report = FoundationRunReport(
             run_id=str(job["run_id"]),
             route_signal="worker:phase-only",
-            timeframe_set=sorted({value for item in coverage for value in item.requested_target_timeframes.split(",")}),
+            timeframe_set=sorted(
+                {
+                    value
+                    for item in coverage
+                    for value in item.requested_target_timeframes.split(",")
+                }
+            ),
             source_interval_set=sorted({item.source_interval for item in coverage}),
             source_timeframe_set=sorted({item.source_timeframe for item in coverage}),
             expand_contract_chain=bool(job["expand_contract_chain"]),
@@ -329,8 +345,12 @@ def _run_shard_job(job: dict[str, object]) -> dict[str, object]:
             "error_type": type(exc).__name__,
             "error": str(exc),
             "traceback": traceback_text,
-            "progress_latest_path": progress_latest.as_posix() if progress_latest.exists() else None,
-            "ingest_error_latest_path": ingest_error_latest.as_posix() if ingest_error_latest.exists() else None,
+            "progress_latest_path": progress_latest.as_posix()
+            if progress_latest.exists()
+            else None,
+            "ingest_error_latest_path": ingest_error_latest.as_posix()
+            if ingest_error_latest.exists()
+            else None,
             "request_latest_path": request_latest.as_posix() if request_latest.exists() else None,
             "reported_at_utc": datetime.now(tz=UTC).isoformat().replace("+00:00", "Z"),
         }
@@ -346,8 +366,12 @@ def _run_shard_job(job: dict[str, object]) -> dict[str, object]:
             "error": f"{type(exc).__name__}: {exc}",
             "traceback": traceback_text,
             "shard_error_path": (output_dir / "shard-error.json").as_posix(),
-            "progress_latest_path": progress_latest.as_posix() if progress_latest.exists() else None,
-            "ingest_error_latest_path": ingest_error_latest.as_posix() if ingest_error_latest.exists() else None,
+            "progress_latest_path": progress_latest.as_posix()
+            if progress_latest.exists()
+            else None,
+            "ingest_error_latest_path": ingest_error_latest.as_posix()
+            if ingest_error_latest.exists()
+            else None,
             "request_latest_path": request_latest.as_posix() if request_latest.exists() else None,
         }
 
@@ -452,7 +476,9 @@ def _merge_coverage_reports(
     )
     json_path = output_dir / "coverage-report.json"
     csv_path = output_dir / "coverage-report.csv"
-    json_path.write_text(json.dumps(coverage_rows, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    json_path.write_text(
+        json.dumps(coverage_rows, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
 
     columns: list[str] = []
     for row in coverage_rows:
@@ -557,7 +583,9 @@ def _build_jobs(
         ]
         if not shard_coverage:
             missing_text = ", ".join(sorted(internal_ids))
-            raise RuntimeError(f"shared discovery produced no coverage rows for shard `{shard_id}`: {missing_text}")
+            raise RuntimeError(
+                f"shared discovery produced no coverage rows for shard `{shard_id}`: {missing_text}"
+            )
 
         _write_shard_universe(
             shards_dir / f"{shard_id}.universe.yaml",
@@ -623,7 +651,9 @@ def main() -> None:
     parser.add_argument("--timeframes", default=DEFAULT_TIMEFRAMES)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
-    parser.add_argument("--execution-mode", choices=("sequential", "parallel"), default=DEFAULT_EXECUTION_MODE)
+    parser.add_argument(
+        "--execution-mode", choices=("sequential", "parallel"), default=DEFAULT_EXECUTION_MODE
+    )
     parser.add_argument("--bootstrap-window-days", type=int, default=1461)
     parser.add_argument("--stability-lag-minutes", type=int, default=20)
     parser.add_argument(
@@ -723,7 +753,9 @@ def main() -> None:
             payload=payload,
         )
     )
-    shared_discovered_at_utc = datetime.now(tz=UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    shared_discovered_at_utc = (
+        datetime.now(tz=UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    )
     try:
         coverage = discover_coverage(
             client=shared_client,
@@ -737,7 +769,9 @@ def main() -> None:
             contract_discovery_step_days=int(args.contract_discovery_step_days),
             contract_discovery_lookback_days=contract_discovery_lookback_days,
         )
-        coverage_json, coverage_csv = _write_coverage_artifacts(coverage, output_dir=raw_ingest_run_dir)
+        coverage_json, coverage_csv = _write_coverage_artifacts(
+            coverage, output_dir=raw_ingest_run_dir
+        )
     except Exception as exc:  # noqa: BLE001 - discovery must emit a durable route failure report
         report = {
             "run_id": run_id,
@@ -751,7 +785,9 @@ def main() -> None:
             "moex_request_latest_path": shared_request_latest_path.as_posix(),
         }
         report_path = route_run_dir / ROUTE_REFRESH_REPORT_FILENAME
-        report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        report_path.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
         _safe_progress_print(json.dumps(report, ensure_ascii=False, indent=2))
         raise SystemExit("route refresh failed during shared contract discovery") from exc
 
@@ -776,7 +812,9 @@ def main() -> None:
     progress_path = route_run_dir / "route-progress.jsonl"
     if args.execution_mode == "parallel":
         with ProcessPoolExecutor(max_workers=len(jobs)) as executor:
-            future_by_shard = {executor.submit(_run_shard_job, job): job["shard_id"] for job in jobs}
+            future_by_shard = {
+                executor.submit(_run_shard_job, job): job["shard_id"] for job in jobs
+            }
             for future in as_completed(future_by_shard):
                 result = future.result()
                 shard_results.append(result)
@@ -826,7 +864,9 @@ def main() -> None:
             "failed_shards": failed_shards,
         }
         report_path = route_run_dir / ROUTE_REFRESH_REPORT_FILENAME
-        report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        report_path.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
         _safe_progress_print(json.dumps(report, ensure_ascii=False, indent=2))
         raise SystemExit("route refresh failed: at least one shard worker returned FAIL")
 
@@ -862,7 +902,10 @@ def main() -> None:
         empty_latest_payload={
             "run_id": run_id,
             "status": "NO-DATA",
-            "reported_at_utc": datetime.now(tz=UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "reported_at_utc": datetime.now(tz=UTC)
+            .replace(microsecond=0)
+            .isoformat()
+            .replace("+00:00", "Z"),
         },
     )
     raw_ingest_error_path = raw_ingest_run_dir / "raw-ingest-errors.jsonl"
@@ -878,7 +921,10 @@ def main() -> None:
         empty_latest_payload={
             "run_id": run_id,
             "status": "PASS",
-            "reported_at_utc": datetime.now(tz=UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "reported_at_utc": datetime.now(tz=UTC)
+            .replace(microsecond=0)
+            .isoformat()
+            .replace("+00:00", "Z"),
             "message": "no raw ingest errors recorded",
         },
     )
@@ -1014,7 +1060,9 @@ def main() -> None:
             },
         }
         report_path = route_run_dir / ROUTE_REFRESH_REPORT_FILENAME
-        report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        report_path.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
         _safe_progress_print(json.dumps(report, ensure_ascii=False, indent=2))
         return
 
@@ -1024,9 +1072,12 @@ def main() -> None:
         run_id=run_id,
         raw_ingest_run_report=raw_ingest_report_payload,
         repo_root=ROOT,
+        canonical_merge_strategy=CANONICAL_MERGE_SCOPED_DELETE_INSERT,
     )
 
-    route_status = "PASS" if str(canonical_report.get("publish_decision")) == "publish" else "BLOCKED"
+    route_status = (
+        "PASS" if str(canonical_report.get("publish_decision")) == "publish" else "BLOCKED"
+    )
     report = {
         "run_id": run_id,
         "status": route_status,
@@ -1061,7 +1112,9 @@ def main() -> None:
         },
     }
     report_path = route_run_dir / ROUTE_REFRESH_REPORT_FILENAME
-    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    report_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     _safe_progress_print(json.dumps(report, ensure_ascii=False, indent=2))
 
     if route_status != "PASS":
