@@ -123,6 +123,9 @@ def _run_local(args: argparse.Namespace) -> dict[str, object]:
     report = run_moex_canonical_publish_spark_delta_job(
         staged_bars_path=Path(args.staged_bars_path).resolve(),
         staged_provenance_path=Path(args.staged_provenance_path).resolve(),
+        publish_scope_path=Path(args.publish_scope_path).resolve()
+        if args.publish_scope_path
+        else None,
         target_bars_path=Path(args.target_bars_path).resolve(),
         target_provenance_path=Path(args.target_provenance_path).resolve(),
         session_calendar_path=Path(args.session_calendar_path).resolve(),
@@ -146,6 +149,8 @@ def _docker_exec_args(args: argparse.Namespace) -> list[str]:
         _container_path(Path(args.staged_bars_path).resolve()),
         "--staged-provenance-path",
         _container_path(Path(args.staged_provenance_path).resolve()),
+        "--publish-scope-path",
+        _container_path(Path(args.publish_scope_path).resolve()) if args.publish_scope_path else "",
         "--target-bars-path",
         _container_path(Path(args.target_bars_path).resolve()),
         "--target-provenance-path",
@@ -175,15 +180,17 @@ def _docker_exec_args(args: argparse.Namespace) -> list[str]:
 
 
 def _run_docker(args: argparse.Namespace) -> dict[str, object]:
+    if not str(args.output_json).strip():
+        raise RuntimeError("docker Spark canonical publish requires --output-json")
+
     image = str(args.docker_image).strip()
     dockerfile = _resolve_repo_path(Path(args.dockerfile))
     _ensure_docker_image(image, dockerfile)
 
     output_dir = Path(args.output_dir).resolve()
-    output_json = Path(args.output_json).resolve() if args.output_json else None
+    output_json = Path(args.output_json).resolve()
     ensure_output_directory_writable(output_dir)
-    if output_json is not None:
-        ensure_output_file_writable(output_json)
+    ensure_output_file_writable(output_json)
 
     repo_root = _repo_root().resolve()
     command = [
@@ -222,9 +229,6 @@ def _run_docker(args: argparse.Namespace) -> dict[str, object]:
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout).strip()
         raise RuntimeError(f"docker Spark canonical publish failed: {detail}")
-    if output_json is None:
-        raise RuntimeError("docker Spark canonical publish requires --output-json")
-
     payload = json.loads(output_json.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise RuntimeError("docker Spark canonical publish report must be a JSON object")
@@ -239,6 +243,7 @@ def main() -> None:
     parser.add_argument("--profile", choices=("local", "docker"), default="local")
     parser.add_argument("--staged-bars-path", required=True)
     parser.add_argument("--staged-provenance-path", required=True)
+    parser.add_argument("--publish-scope-path", default="")
     parser.add_argument("--target-bars-path", required=True)
     parser.add_argument("--target-provenance-path", required=True)
     parser.add_argument("--session-calendar-path", required=True)

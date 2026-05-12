@@ -20,6 +20,13 @@ from .canonical_bars_job import (
 CANONICAL_KEY_COLUMNS = ("contract_id", "instrument_id", "timeframe", "ts")
 SIDECAR_ROLL_REASON = "max_open_interest_then_latest_ts_close"
 SIDECAR_OVERLAP_POLICY = "affected_sessions_plus_minus_1_day"
+PUBLISH_SCOPE_COLUMNS: dict[str, str] = {
+    "instrument_id": "string",
+    "timeframe": "string",
+    "target_minutes": "int",
+    "window_start_utc": "timestamp",
+    "window_end_utc": "timestamp",
+}
 
 CANONICAL_PROVENANCE_COLUMNS: dict[str, str] = {
     "contract_id": "string",
@@ -84,6 +91,57 @@ def _merge_upsert_delta_dataframe(
     )
 
 
+def _merge_replace_delta_dataframe(
+    *,
+    spark: Any,
+    table_path: Path,
+    staged_dataframe: Any,
+    stale_keys_path: Path,
+    stale_key_count: int,
+    key_columns: tuple[str, ...],
+    functions: Any,
+) -> None:
+    if int(staged_dataframe.count()) > 0:
+        _merge_upsert_delta_dataframe(
+            spark=spark,
+            table_path=table_path,
+            dataframe=staged_dataframe,
+            key_columns=key_columns,
+        )
+
+    if stale_key_count == 0:
+        return
+
+    from delta.tables import DeltaTable  # type: ignore[import-not-found]
+
+    delete_source_df = spark.read.format("delta").load(str(stale_keys_path))
+    condition = " AND ".join(f"target.{column} <=> source.{column}" for column in key_columns)
+    (
+        DeltaTable.forPath(spark, str(table_path))
+        .alias("target")
+        .merge(delete_source_df.alias("source"), condition)
+        .whenMatchedDelete()
+        .execute()
+    )
+
+
+def _materialize_stale_keys(
+    *,
+    dataframe: Any,
+    table_path: Path,
+    key_columns: tuple[str, ...],
+) -> None:
+    table_path.parent.mkdir(parents=True, exist_ok=True)
+    (
+        dataframe.select(*key_columns)
+        .distinct()
+        .write.format("delta")
+        .mode("overwrite")
+        .option("overwriteSchema", "true")
+        .save(str(table_path))
+    )
+
+
 def _delta_table_version(spark: Any, table_path: Path) -> int | None:
     if not has_delta_log(table_path):
         return None
@@ -113,6 +171,99 @@ def _qc_gate(gate: str, violations: int, samples: list[str] | None = None) -> di
 
 def _collect_sample_strings(dataframe: Any, *, limit: int = 20) -> list[str]:
     return [str(row.asDict()) for row in dataframe.limit(limit).collect()]
+
+
+def _explicit_publish_scope_keys(
+    *,
+    spark: Any,
+    publish_scope_path: Path | None,
+    target_bars_df: Any,
+    functions: Any,
+) -> Any:
+    empty_keys_df = target_bars_df.select(*CANONICAL_KEY_COLUMNS).limit(0)
+    if publish_scope_path is None or not publish_scope_path.exists():
+        return empty_keys_df
+
+    scope_df = spark.read.json(str(publish_scope_path)).select(
+        functions.col("instrument_id").cast("string").alias("instrument_id"),
+        functions.col("timeframe").cast("string").alias("timeframe"),
+        functions.col("target_minutes").cast("int").alias("target_minutes"),
+        functions.to_timestamp(functions.col("window_start_utc")).alias("window_start_utc"),
+        functions.to_timestamp(functions.col("window_end_utc")).alias("window_end_utc"),
+    )
+    if int(scope_df.count()) == 0:
+        return empty_keys_df
+
+    scope_df = scope_df.withColumn(
+        "_canonical_scope_start",
+        functions.to_timestamp(
+            functions.from_unixtime(
+                functions.unix_timestamp(functions.col("window_start_utc"))
+                - (functions.col("target_minutes") * functions.lit(60))
+            )
+        ),
+    )
+    return (
+        target_bars_df.alias("target")
+        .join(scope_df.alias("scope"), ["instrument_id", "timeframe"], "inner")
+        .where(
+            (functions.col("target.ts") >= functions.col("scope._canonical_scope_start"))
+            & (functions.col("target.ts") <= functions.col("scope.window_end_utc"))
+        )
+        .select(
+            *[functions.col(f"target.{column}").alias(column) for column in CANONICAL_KEY_COLUMNS]
+        )
+        .distinct()
+    )
+
+
+def _staged_provenance_scope_keys(
+    *,
+    target_bars_df: Any,
+    staged_provenance_df: Any,
+    functions: Any,
+) -> Any:
+    if int(staged_provenance_df.count()) == 0:
+        return target_bars_df.select(*CANONICAL_KEY_COLUMNS).limit(0)
+
+    scope_df = staged_provenance_df.groupBy("contract_id", "instrument_id", "timeframe").agg(
+        functions.min("source_ts_open_first").alias("_scope_start"),
+        functions.max("source_ts_close_last").alias("_scope_end"),
+    )
+    return (
+        target_bars_df.alias("target")
+        .join(scope_df.alias("scope"), ["contract_id", "instrument_id", "timeframe"], "inner")
+        .where(
+            (functions.col("target.ts") >= functions.col("scope._scope_start"))
+            & (functions.col("target.ts") <= functions.col("scope._scope_end"))
+        )
+        .select(
+            *[functions.col(f"target.{column}").alias(column) for column in CANONICAL_KEY_COLUMNS]
+        )
+        .distinct()
+    )
+
+
+def _impacted_scope_keys(
+    *,
+    spark: Any,
+    publish_scope_path: Path | None,
+    target_bars_df: Any,
+    staged_provenance_df: Any,
+    functions: Any,
+) -> Any:
+    explicit_keys_df = _explicit_publish_scope_keys(
+        spark=spark,
+        publish_scope_path=publish_scope_path,
+        target_bars_df=target_bars_df,
+        functions=functions,
+    )
+    staged_scope_keys_df = _staged_provenance_scope_keys(
+        target_bars_df=target_bars_df,
+        staged_provenance_df=staged_provenance_df,
+        functions=functions,
+    )
+    return explicit_keys_df.unionByName(staged_scope_keys_df).distinct()
 
 
 def _build_qc_report(
@@ -387,6 +538,7 @@ def run_moex_canonical_publish_spark_delta_job(
     roll_map_path: Path,
     output_dir: Path,
     run_id: str,
+    publish_scope_path: Path | None = None,
     spark_master: str = DEFAULT_SPARK_MASTER,
     spark_session_factory: Callable[[str, str], object] | None = None,
 ) -> dict[str, object]:
@@ -421,14 +573,44 @@ def run_moex_canonical_publish_spark_delta_job(
             schema=_schema_from_columns(CANONICAL_PROVENANCE_COLUMNS),
         ).select(*CANONICAL_PROVENANCE_COLUMNS.keys())
 
-        affected_keys_df = staged_bars_df.select(*CANONICAL_KEY_COLUMNS).distinct().cache()
+        impacted_scope_keys_df = _impacted_scope_keys(
+            spark=spark,
+            publish_scope_path=publish_scope_path,
+            target_bars_df=target_bars_df,
+            staged_provenance_df=staged_provenance_df,
+            functions=functions,
+        ).cache()
+        staged_bar_keys_df = staged_bars_df.select(*CANONICAL_KEY_COLUMNS).distinct().cache()
+        staged_provenance_keys_df = (
+            staged_provenance_df.select(*CANONICAL_KEY_COLUMNS).distinct().cache()
+        )
+        stale_bars_df = (
+            target_bars_df.join(impacted_scope_keys_df, list(CANONICAL_KEY_COLUMNS), "inner")
+            .join(staged_bar_keys_df, list(CANONICAL_KEY_COLUMNS), "left_anti")
+            .cache()
+        )
+        stale_provenance_df = (
+            target_provenance_df.join(
+                impacted_scope_keys_df,
+                list(CANONICAL_KEY_COLUMNS),
+                "inner",
+            )
+            .join(staged_provenance_keys_df, list(CANONICAL_KEY_COLUMNS), "left_anti")
+            .cache()
+        )
+        replacement_bar_keys_df = staged_bar_keys_df.unionByName(
+            stale_bars_df.select(*CANONICAL_KEY_COLUMNS)
+        ).distinct()
+        replacement_provenance_keys_df = staged_provenance_keys_df.unionByName(
+            stale_provenance_df.select(*CANONICAL_KEY_COLUMNS)
+        ).distinct()
         candidate_bars_df = target_bars_df.join(
-            affected_keys_df,
+            replacement_bar_keys_df,
             list(CANONICAL_KEY_COLUMNS),
             "left_anti",
         ).unionByName(staged_bars_df)
         candidate_provenance_df = target_provenance_df.join(
-            affected_keys_df,
+            replacement_provenance_keys_df,
             list(CANONICAL_KEY_COLUMNS),
             "left_anti",
         ).unionByName(staged_provenance_df)
@@ -447,12 +629,37 @@ def run_moex_canonical_publish_spark_delta_job(
         )
         publish_allowed = qc_report["status"] == "PASS" and contract_report["status"] == "PASS"
         staged_rows = int(staged_bars_df.count())
+        impacted_scope_rows = int(impacted_scope_keys_df.count())
+        stale_bar_rows = int(stale_bars_df.count())
+        stale_provenance_rows = int(stale_provenance_df.count())
+        stale_bar_keys_path = output_dir / "stale-keys" / "canonical_bars.delta"
+        stale_provenance_keys_path = output_dir / "stale-keys" / "canonical_bar_provenance.delta"
+        if stale_bar_rows > 0:
+            _materialize_stale_keys(
+                dataframe=stale_bars_df,
+                table_path=stale_bar_keys_path,
+                key_columns=CANONICAL_KEY_COLUMNS,
+            )
+        if stale_provenance_rows > 0:
+            _materialize_stale_keys(
+                dataframe=stale_provenance_df,
+                table_path=stale_provenance_keys_path,
+                key_columns=CANONICAL_KEY_COLUMNS,
+            )
         mutation_applied = False
         recovery_manifest_path = output_dir / "publish-recovery-manifest.json"
         publish_protocol: dict[str, object] = {
-            "operation": "delta_merge_upsert",
+            "operation": "delta_merge_replace",
             "recoverable": True,
             "recovery_manifest_path": recovery_manifest_path.as_posix(),
+            "publish_scope_path": publish_scope_path.as_posix()
+            if publish_scope_path is not None
+            else "",
+            "scoped_replacement": {
+                "impacted_scope_key_rows": impacted_scope_rows,
+                "stale_bar_rows": stale_bar_rows,
+                "stale_provenance_rows": stale_provenance_rows,
+            },
             "pre_publish_versions": {
                 "canonical_bars": _delta_table_version(spark, target_bars_path),
                 "canonical_bar_provenance": _delta_table_version(spark, target_provenance_path),
@@ -472,13 +679,16 @@ def run_moex_canonical_publish_spark_delta_job(
         }
         _write_json(recovery_manifest_path, publish_protocol)
 
-        if publish_allowed and staged_rows > 0:
+        if publish_allowed and (staged_rows > 0 or stale_bar_rows > 0 or stale_provenance_rows > 0):
             if has_delta_log(target_bars_path):
-                _merge_upsert_delta_dataframe(
+                _merge_replace_delta_dataframe(
                     spark=spark,
                     table_path=target_bars_path,
-                    dataframe=staged_bars_df,
+                    staged_dataframe=staged_bars_df,
+                    stale_keys_path=stale_bar_keys_path,
+                    stale_key_count=stale_bar_rows,
                     key_columns=CANONICAL_KEY_COLUMNS,
+                    functions=functions,
                 )
             else:
                 _write_delta_dataframe(
@@ -488,11 +698,14 @@ def run_moex_canonical_publish_spark_delta_job(
                 )
 
             if has_delta_log(target_provenance_path):
-                _merge_upsert_delta_dataframe(
+                _merge_replace_delta_dataframe(
                     spark=spark,
                     table_path=target_provenance_path,
-                    dataframe=staged_provenance_df,
+                    staged_dataframe=staged_provenance_df,
+                    stale_keys_path=stale_provenance_keys_path,
+                    stale_key_count=stale_provenance_rows,
                     key_columns=CANONICAL_KEY_COLUMNS,
+                    functions=functions,
                 )
             else:
                 _write_delta_dataframe(
@@ -501,6 +714,9 @@ def run_moex_canonical_publish_spark_delta_job(
                     manifest_entry={"columns": dict(CANONICAL_PROVENANCE_COLUMNS)},
                 )
             mutation_applied = True
+
+        if mutation_applied:
+            spark.catalog.clearCache()
 
         final_bars_df = _table_or_empty(
             spark,

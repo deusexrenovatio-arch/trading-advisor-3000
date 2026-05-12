@@ -35,6 +35,7 @@ GITHUB_API_VERSION = "2026-03-10"
 GITHUB_API_ATTEMPTS = 3
 GITHUB_API_RETRY_DELAY_SECONDS = 1.0
 GITHUB_API_TIMEOUT_SECONDS = 15
+GITHUB_API_TRANSIENT_HTTP_CODES = {429, 500, 502, 503, 504}
 
 
 def _read(path: Path) -> str:
@@ -102,6 +103,24 @@ def _github_token() -> str | None:
     return None
 
 
+def _github_api_retry_delay(exc: HTTPError, *, attempt: int) -> float:
+    retry_after = exc.headers.get("Retry-After")
+    if retry_after:
+        try:
+            return max(float(retry_after), 0.0)
+        except ValueError:
+            pass
+
+    reset_at = exc.headers.get("X-RateLimit-Reset")
+    if exc.code == 429 and reset_at:
+        try:
+            return max(float(reset_at) - time.time(), 0.0)
+        except ValueError:
+            pass
+
+    return GITHUB_API_RETRY_DELAY_SECONDS * (2 ** (attempt - 1))
+
+
 def _github_api_get_json(url: str, token: str | None) -> Any:
     headers = {
         "Accept": "application/vnd.github+json",
@@ -112,7 +131,7 @@ def _github_api_get_json(url: str, token: str | None) -> Any:
         headers["Authorization"] = f"Bearer {token}"
 
     request = Request(url, headers=headers)
-    last_error: URLError | TimeoutError | None = None
+    last_error: BaseException | None = None
     for attempt in range(1, GITHUB_API_ATTEMPTS + 1):
         try:
             with urlopen(request, timeout=GITHUB_API_TIMEOUT_SECONDS) as response:
@@ -126,6 +145,10 @@ def _github_api_get_json(url: str, token: str | None) -> Any:
                     " (public repositories can be read anonymously; "
                     "private repos require GH_TOKEN/GITHUB_TOKEN)"
                 )
+            if exc.code in GITHUB_API_TRANSIENT_HTTP_CODES and attempt < GITHUB_API_ATTEMPTS:
+                last_error = exc
+                time.sleep(_github_api_retry_delay(exc, attempt=attempt))
+                continue
             raise RuntimeError(
                 f"GitHub API request failed for {url}: HTTP {exc.code}{hint}; {detail}"
             ) from exc
@@ -135,6 +158,11 @@ def _github_api_get_json(url: str, token: str | None) -> Any:
                 break
             time.sleep(GITHUB_API_RETRY_DELAY_SECONDS)
 
+    if isinstance(last_error, HTTPError):
+        detail = last_error.read().decode("utf-8", errors="replace").strip()
+        raise RuntimeError(
+            f"GitHub API request failed for {url}: HTTP {last_error.code}; {detail}"
+        ) from last_error
     if isinstance(last_error, URLError):
         raise RuntimeError(
             f"GitHub API request failed for {url}: {last_error.reason}"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -80,6 +81,7 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
 
     staged_bars_path = tmp_path / "staged" / "canonical_bars.delta"
     staged_provenance_path = tmp_path / "staged" / "canonical_bar_provenance.delta"
+    publish_scope_path = tmp_path / "staged" / "publish-scope.jsonl"
     target_bars_path = tmp_path / "target" / "canonical_bars.delta"
     target_provenance_path = tmp_path / "target" / "canonical_bar_provenance.delta"
     session_calendar_path = tmp_path / "target" / "canonical_session_calendar.delta"
@@ -92,13 +94,28 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
     )
     write_delta_table_rows(
         table_path=staged_provenance_path,
-        rows=[_provenance(source_row_count=5)],
+        rows=[_provenance(source_row_count=5, source_ts_close_last="2026-04-02T10:10:00Z")],
         columns=CANONICAL_PROVENANCE_COLUMNS,
+    )
+    publish_scope_path.write_text(
+        json.dumps(
+            {
+                "instrument_id": "FUT_BR",
+                "timeframe": "5m",
+                "target_minutes": 5,
+                "window_start_utc": "2026-04-02T10:00:00Z",
+                "window_end_utc": "2026-04-02T10:10:00Z",
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
     )
     write_delta_table_rows(
         table_path=target_bars_path,
         rows=[
             _bar(open=90.0, high=91.0, low=89.0, close=90.5, volume=1, open_interest=50),
+            _bar(ts="2026-04-02T10:05:00Z", close=88.0, volume=99),
             _bar(
                 ts="2026-04-01T10:00:00Z",
                 close=99.0,
@@ -111,6 +128,12 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
         table_path=target_provenance_path,
         rows=[
             _provenance(source_run_id="old"),
+            _provenance(
+                ts="2026-04-02T10:05:00Z",
+                source_run_id="stale",
+                source_ts_open_first="2026-04-02T10:05:00Z",
+                source_ts_close_last="2026-04-02T10:10:00Z",
+            ),
             _provenance(
                 ts="2026-04-01T10:00:00Z",
                 source_ts_open_first="2026-04-01T10:00:00Z",
@@ -161,6 +184,7 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
     report = run_moex_canonical_publish_spark_delta_job(
         staged_bars_path=staged_bars_path,
         staged_provenance_path=staged_provenance_path,
+        publish_scope_path=publish_scope_path,
         target_bars_path=target_bars_path,
         target_provenance_path=target_provenance_path,
         session_calendar_path=session_calendar_path,
@@ -172,12 +196,14 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
     assert report["status"] == "PASS", report
     assert report["runtime_owner"] == "spark_delta"
     assert report["mutation_applied"] is True
+    assert report["publish_protocol"]["scoped_replacement"]["stale_bar_rows"] == 1
+    assert report["publish_protocol"]["scoped_replacement"]["stale_provenance_rows"] == 1
     assert report["canonical_rows"] == 2
-    assert report["provenance_rows"] == 2
+    assert report["provenance_rows"] == 2, report
     assert report["qc_report"]["status"] == "PASS"
     assert report["contract_compatibility_report"]["status"] == "PASS"
     assert report["contract_compatibility_report"]["checked_rows"] == 2
-    assert report["publish_protocol"]["operation"] == "delta_merge_upsert"
+    assert report["publish_protocol"]["operation"] == "delta_merge_replace"
     assert report["publish_protocol"]["recoverable"] is True
     assert Path(str(report["publish_protocol"]["recovery_manifest_path"])).exists()
     assert report["delta_log"]["canonical_bars"]["delta_log"] is True
@@ -186,6 +212,7 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
     assert count_delta_table_rows(target_provenance_path) == 2
 
     final_bars = _read_rows(target_bars_path)
+    assert not any(str(row["ts"]).startswith("2026-04-02T10:05") for row in final_bars)
     affected_bar = next(row for row in final_bars if row["ts"] == "2026-04-02T10:00:00Z")
     assert affected_bar["close"] == 111.0
     assert affected_bar["volume"] == 55

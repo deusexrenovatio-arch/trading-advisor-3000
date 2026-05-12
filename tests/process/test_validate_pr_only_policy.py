@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 
 from scripts import validate_pr_only_policy
 
@@ -137,3 +138,41 @@ def test_github_api_get_json_retries_transient_url_error(monkeypatch) -> None:
 
     assert payload == [{"type": "pull_request"}]
     assert calls == 2
+
+
+def test_github_api_get_json_retries_transient_http_error(monkeypatch) -> None:
+    calls = 0
+    sleeps: list[float] = []
+
+    class _Response:
+        def __enter__(self) -> "_Response":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'[{"type": "required_status_checks"}]'
+
+    def _urlopen(_request: object, *, timeout: int) -> _Response:
+        nonlocal calls
+        assert timeout == validate_pr_only_policy.GITHUB_API_TIMEOUT_SECONDS
+        calls += 1
+        if calls == 1:
+            raise HTTPError(
+                "https://example.test",
+                503,
+                "temporary service unavailable",
+                {},
+                BytesIO(b"temporary"),
+            )
+        return _Response()
+
+    monkeypatch.setattr(validate_pr_only_policy, "urlopen", _urlopen)
+    monkeypatch.setattr(validate_pr_only_policy.time, "sleep", sleeps.append)
+
+    payload = validate_pr_only_policy._github_api_get_json("https://example.test", token=None)
+
+    assert payload == [{"type": "required_status_checks"}]
+    assert calls == 2
+    assert sleeps == [validate_pr_only_policy.GITHUB_API_RETRY_DELAY_SECONDS]

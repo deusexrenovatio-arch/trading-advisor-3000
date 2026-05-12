@@ -990,6 +990,34 @@ def _selected_source_interval_rows(
     return rows
 
 
+def _publish_scope_rows(
+    *,
+    changed_windows: list[ChangedWindowScope],
+    selected_source_intervals: dict[tuple[str, str, str], int],
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for window in changed_windows:
+        for (contract_id, instrument_id, timeframe), source_interval in sorted(
+            selected_source_intervals.items()
+        ):
+            if contract_id != window.moex_secid:
+                continue
+            if instrument_id != window.internal_id:
+                continue
+            if source_interval != window.source_interval:
+                continue
+            rows.append(
+                {
+                    "instrument_id": instrument_id,
+                    "timeframe": timeframe,
+                    "target_minutes": TARGET_MINUTES_BY_TIMEFRAME[Timeframe(timeframe)],
+                    "window_start_utc": window.window_start_utc,
+                    "window_end_utc": window.window_end_utc,
+                }
+            )
+    return rows
+
+
 def _spark_profile() -> str:
     explicit = os.environ.get("TA3000_MOEX_CANONICALIZATION_SPARK_PROFILE", "").strip().lower()
     if explicit:
@@ -1016,6 +1044,7 @@ def _run_spark_canonicalization(
     spark_dir = output_dir / ".spark-canonicalization"
     changed_windows_path = spark_dir / "changed-windows.jsonl"
     selected_source_intervals_path = spark_dir / "selected-source-intervals.jsonl"
+    publish_scope_path = spark_dir / "publish-scope.jsonl"
     spark_output_dir = spark_dir / "scoped-output"
     spark_report_path = spark_dir / "spark-execution-report.json"
 
@@ -1023,6 +1052,13 @@ def _run_spark_canonicalization(
     _jsonl_write(
         selected_source_intervals_path,
         _selected_source_interval_rows(selected_source_intervals),
+    )
+    _jsonl_write(
+        publish_scope_path,
+        _publish_scope_rows(
+            changed_windows=changed_windows,
+            selected_source_intervals=selected_source_intervals,
+        ),
     )
 
     command = [
@@ -1066,6 +1102,7 @@ def _run_spark_canonical_publish(
     *,
     staged_bars_path: Path,
     staged_provenance_path: Path,
+    publish_scope_path: Path | None,
     target_bars_path: Path,
     target_provenance_path: Path,
     session_calendar_path: Path,
@@ -1081,6 +1118,7 @@ def _run_spark_canonical_publish(
         report = run_moex_canonical_publish_spark_delta_job(
             staged_bars_path=staged_bars_path,
             staged_provenance_path=staged_provenance_path,
+            publish_scope_path=publish_scope_path,
             target_bars_path=target_bars_path,
             target_provenance_path=target_provenance_path,
             session_calendar_path=session_calendar_path,
@@ -1100,6 +1138,8 @@ def _run_spark_canonical_publish(
         staged_bars_path.as_posix(),
         "--staged-provenance-path",
         staged_provenance_path.as_posix(),
+        "--publish-scope-path",
+        publish_scope_path.as_posix() if publish_scope_path is not None else "",
         "--target-bars-path",
         target_bars_path.as_posix(),
         "--target-provenance-path",
@@ -1583,6 +1623,7 @@ def _run_scoped_spark_delta_publish_route(
     spark_execution_report: dict[str, object] | None = None
     scoped_bars_path: Path | None = None
     scoped_provenance_path: Path | None = None
+    publish_scope_path: Path | None = None
     if changed_window_scope and selected_source_intervals:
         spark_execution_report = _run_spark_canonicalization(
             raw_table_path=raw_table_path,
@@ -1599,6 +1640,7 @@ def _run_scoped_spark_delta_publish_route(
             scoped_provenance_path = Path(
                 str(spark_output_paths.get("canonical_bar_provenance", "")).strip()
             )
+        publish_scope_path = output_dir / ".spark-canonicalization" / "publish-scope.jsonl"
 
     raw_parity_report = _build_spark_raw_parity_report(
         run_id=run_id,
@@ -1634,12 +1676,13 @@ def _run_scoped_spark_delta_publish_route(
     )
 
     spark_publish_report: dict[str, object] | None = None
-    if publish_allowed and _int_report_value(spark_execution_report, "canonical_rows") > 0:
+    if publish_allowed and spark_execution_report is not None:
         if scoped_bars_path is None or scoped_provenance_path is None:
             raise RuntimeError("scoped canonical publish requires Spark output paths")
         spark_publish_report = _run_spark_canonical_publish(
             staged_bars_path=scoped_bars_path,
             staged_provenance_path=scoped_provenance_path,
+            publish_scope_path=publish_scope_path,
             target_bars_path=bars_path,
             target_provenance_path=provenance_path,
             session_calendar_path=session_calendar_path,

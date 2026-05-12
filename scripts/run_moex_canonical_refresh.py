@@ -129,7 +129,7 @@ def main() -> None:
     parser.add_argument(
         "--raw-ingest-report-path",
         default="",
-        help="Path to raw-ingest report JSON. If omitted, resolved from --phase01-root run folder.",
+        help="Path to raw-ingest report JSON. If omitted, resolved from --raw-ingest-root run folder.",
     )
     parser.add_argument(
         "--output-root",

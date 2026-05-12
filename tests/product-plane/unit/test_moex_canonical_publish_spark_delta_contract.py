@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from scripts import run_moex_canonical_publish_spark as publish_script
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
 from trading_advisor_3000.product_plane.data_plane.moex import (
     historical_canonical_route as route_module,
@@ -149,6 +151,11 @@ def test_default_route_uses_scoped_spark_delta_publish_without_python_delta_read
     assert report["real_bindings"] == ["moex_iss"]
     assert captured_publish["staged_bars_path"] == staged_bars_path
     assert captured_publish["staged_provenance_path"] == staged_provenance_path
+    assert (
+        str(captured_publish["publish_scope_path"])
+        .replace("\\", "/")
+        .endswith(".spark-canonicalization/publish-scope.jsonl")
+    )
 
 
 def test_full_overwrite_is_not_supported_even_with_legacy_env(
@@ -166,3 +173,15 @@ def test_full_overwrite_is_not_supported_even_with_legacy_env(
             raw_ingest_run_report=_changed_raw_report(),
             canonical_merge_strategy="full_overwrite",
         )
+
+
+def test_docker_publish_requires_output_json_before_container(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _unexpected_subprocess(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("docker container must not start without --output-json")
+
+    monkeypatch.setattr(publish_script.subprocess, "run", _unexpected_subprocess)
+
+    with pytest.raises(RuntimeError, match="requires --output-json"):
+        publish_script._run_docker(SimpleNamespace(output_json=""))
