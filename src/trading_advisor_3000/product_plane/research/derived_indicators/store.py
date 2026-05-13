@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
-from dataclasses import dataclass
 import hashlib
 import json
+from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
@@ -16,7 +16,6 @@ from trading_advisor_3000.product_plane.research.derived_indicators.registry imp
     DerivedIndicatorProfile,
     current_derived_indicator_profile,
 )
-
 
 DEFAULT_DERIVED_INDICATOR_SET_VERSION = "derived-v1"
 DEFAULT_DERIVED_INDICATOR_WRITE_BATCH_ROWS = 100_000
@@ -59,10 +58,14 @@ DERIVED_INDICATOR_RESERVED_COLUMNS = {
 
 
 def _derived_indicator_value_type(column: str) -> str:
-    return "int" if column.endswith("_code") or column.endswith("_flag") else "double"
+    if column.endswith("_code") or column.endswith("_flag"):
+        return "int"
+    return "double"
 
 
-def _derived_indicator_value_columns(profile: DerivedIndicatorProfile | None = None) -> dict[str, str]:
+def _derived_indicator_value_columns(
+    profile: DerivedIndicatorProfile | None = None,
+) -> dict[str, str]:
     profile = profile or current_derived_indicator_profile()
     int_columns = {
         column
@@ -70,12 +73,13 @@ def _derived_indicator_value_columns(profile: DerivedIndicatorProfile | None = N
         if column.endswith("_code") or column.endswith("_flag")
     }
     return {
-        column: "int" if column in int_columns else "double"
-        for column in profile.output_columns
+        column: "int" if column in int_columns else "double" for column in profile.output_columns
     }
 
 
-def _derived_indicator_frame_columns(profile: DerivedIndicatorProfile | None = None) -> dict[str, str]:
+def _derived_indicator_frame_columns(
+    profile: DerivedIndicatorProfile | None = None,
+) -> dict[str, str]:
     return {
         "dataset_version": "string",
         "indicator_set_version": "string",
@@ -238,8 +242,12 @@ class DerivedIndicatorFrameRow:
             source_bars_hash=str(payload["source_bars_hash"]),
             source_dataset_bars_hash=str(payload.get("source_dataset_bars_hash") or ""),
             source_indicators_hash=str(payload["source_indicators_hash"]),
-            source_indicator_profile_version=str(payload.get("source_indicator_profile_version") or ""),
-            source_indicator_output_columns_hash=str(payload.get("source_indicator_output_columns_hash") or ""),
+            source_indicator_profile_version=str(
+                payload.get("source_indicator_profile_version") or ""
+            ),
+            source_indicator_output_columns_hash=str(
+                payload.get("source_indicator_output_columns_hash") or ""
+            ),
             row_count=int(payload["row_count"]),
             warmup_span=int(payload["warmup_span"]),
             null_warmup_span=int(payload["null_warmup_span"]),
@@ -267,7 +275,8 @@ def research_derived_indicator_store_contract(
                 "timeframe",
             ],
             "constraints": [
-                "unique(dataset_version, indicator_set_version, derived_indicator_set_version, contract_id, timeframe, ts)"
+                "unique(dataset_version, indicator_set_version, "
+                "derived_indicator_set_version, contract_id, timeframe, ts)"
             ],
             "columns": _derived_indicator_frame_columns(profile=profile),
         }
@@ -298,7 +307,8 @@ def _partition_delete_predicate(partition: DerivedIndicatorFramePartitionKey) ->
     clauses = [
         f"dataset_version = {_quote_delta_sql_string(partition.dataset_version)}",
         f"indicator_set_version = {_quote_delta_sql_string(partition.indicator_set_version)}",
-        f"derived_indicator_set_version = {_quote_delta_sql_string(partition.derived_indicator_set_version)}",
+        "derived_indicator_set_version = "
+        f"{_quote_delta_sql_string(partition.derived_indicator_set_version)}",
         f"instrument_id = {_quote_delta_sql_string(partition.instrument_id)}",
         f"timeframe = {_quote_delta_sql_string(partition.timeframe)}",
     ]
@@ -307,10 +317,14 @@ def _partition_delete_predicate(partition: DerivedIndicatorFramePartitionKey) ->
     return "(" + " AND ".join(clauses) + ")"
 
 
-def _replace_partitions_predicate(partitions: tuple[DerivedIndicatorFramePartitionKey, ...]) -> str | None:
+def _replace_partitions_predicate(
+    partitions: tuple[DerivedIndicatorFramePartitionKey, ...],
+) -> str | None:
     if not partitions:
         return None
-    unique_partitions = tuple(sorted(set(partitions), key=lambda partition: partition.partition_path()))
+    unique_partitions = tuple(
+        sorted(set(partitions), key=lambda partition: partition.partition_path())
+    )
     return " OR ".join(_partition_delete_predicate(partition) for partition in unique_partitions)
 
 
@@ -351,7 +365,11 @@ def load_derived_indicator_partition_metadata(
 ) -> list[dict[str, object]]:
     path = output_dir / "research_derived_indicator_frames.delta"
     existing_columns = set(delta_table_columns(path))
-    read_columns = [column for column in DERIVED_INDICATOR_PARTITION_METADATA_COLUMNS if column in existing_columns]
+    read_columns = [
+        column
+        for column in DERIVED_INDICATOR_PARTITION_METADATA_COLUMNS
+        if column in existing_columns
+    ]
     metadata_by_partition: dict[tuple[object, ...], dict[str, object]] = {}
     for batch in iter_delta_table_row_batches(path, columns=read_columns):
         for row in batch:
@@ -431,7 +449,9 @@ def load_derived_indicator_partition_rows(
             )
         )
     )
-    rows = _read_rows_with_existing_columns(path=path, requested_columns=requested_columns, filters=filters)
+    rows = _read_rows_with_existing_columns(
+        path=path, requested_columns=requested_columns, filters=filters
+    )
     return sorted((DerivedIndicatorFrameRow.from_dict(row) for row in rows), key=lambda row: row.ts)
 
 
@@ -477,15 +497,18 @@ def load_derived_indicator_frames(
                 )
             )
         )
-        rows = _read_rows_with_existing_columns(path=path, requested_columns=requested_columns, filters=filters)
-    return [
-        DerivedIndicatorFrameRow.from_dict(row)
-        for row in rows
-    ]
+        rows = _read_rows_with_existing_columns(
+            path=path, requested_columns=requested_columns, filters=filters
+        )
+    return [DerivedIndicatorFrameRow.from_dict(row) for row in rows]
 
 
 def existing_derived_indicator_value_columns(*, output_dir: Path) -> tuple[str, ...]:
     path = output_dir / "research_derived_indicator_frames.delta"
     if not (path / "_delta_log").exists():
         return ()
-    return tuple(column for column in delta_table_columns(path) if column not in DERIVED_INDICATOR_RESERVED_COLUMNS)
+    return tuple(
+        column
+        for column in delta_table_columns(path)
+        if column not in DERIVED_INDICATOR_RESERVED_COLUMNS
+    )

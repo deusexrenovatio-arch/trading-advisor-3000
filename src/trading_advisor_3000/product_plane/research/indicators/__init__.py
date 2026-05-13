@@ -15,7 +15,17 @@ from .registry import (
     core_v1_indicator_profile,
     default_indicator_profile,
 )
-from .store import IndicatorFramePartitionKey, IndicatorFrameRow, load_indicator_frames, indicator_store_contract
+from .store import (
+    IndicatorFramePartitionKey,
+    IndicatorFrameRow,
+    indicator_store_contract,
+    load_indicator_frames,
+)
+from .volume_profile import (
+    VOLUME_PROFILE_INDICATOR_COLUMNS,
+    VOLUME_PROFILE_INT_COLUMNS,
+    compute_volume_profile_features,
+)
 
 __all__ = [
     "IndicatorParameter",
@@ -26,6 +36,8 @@ __all__ = [
     "IndicatorProfileRegistry",
     "IndicatorSpec",
     "MultiTimeframeBinding",
+    "VOLUME_PROFILE_INDICATOR_COLUMNS",
+    "VOLUME_PROFILE_INT_COLUMNS",
     "build_indicator_profile_registry",
     "build_indicator_frames",
     "core_intraday_v1_indicator_profile",
@@ -36,4 +48,5 @@ __all__ = [
     "materialize_indicator_frames",
     "default_indicator_profile",
     "indicator_store_contract",
+    "compute_volume_profile_features",
 ]

@@ -39,7 +39,9 @@ def validate_schema(schema: dict[str, Any], value: object, *, path: str = "$") -
             raise SchemaValidationError(f"{path}: value does not match any type in {schema_type!r}")
     elif isinstance(schema_type, str):
         if not _is_type(schema_type, value):
-            raise SchemaValidationError(f"{path}: expected type `{schema_type}`, got {type(value).__name__}")
+            raise SchemaValidationError(
+                f"{path}: expected type `{schema_type}`, got {type(value).__name__}"
+            )
         resolved_type = schema_type
     elif schema_type is not None:
         raise SchemaValidationError(f"{path}: unsupported type declaration {schema_type!r}")
@@ -91,6 +93,16 @@ def validate_schema(schema: dict[str, Any], value: object, *, path: str = "$") -
         for key in required:
             if key not in value:
                 raise SchemaValidationError(f"{path}: missing required field `{key}`")
+        min_properties = schema.get("minProperties")
+        if min_properties is not None:
+            if not isinstance(min_properties, int) or isinstance(min_properties, bool):
+                raise SchemaValidationError(f"{path}: minProperties must be integer")
+            if min_properties < 0:
+                raise SchemaValidationError(f"{path}: minProperties must be >= 0")
+            if len(value) < min_properties:
+                raise SchemaValidationError(
+                    f"{path}: expected at least {min_properties} properties"
+                )
 
         additional_properties = schema.get("additionalProperties", True)
         for key, item in value.items():

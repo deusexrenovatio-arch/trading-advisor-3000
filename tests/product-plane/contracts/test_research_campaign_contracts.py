@@ -3,10 +3,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 import yaml
 
-from trading_advisor_3000.product_plane.contracts.schema_validation import load_schema, validate_schema
-
+from trading_advisor_3000.product_plane.contracts.schema_validation import (
+    SchemaValidationError,
+    load_schema,
+    validate_schema,
+)
 
 ROOT = Path(__file__).resolve().parents[3]
 SCHEMAS = ROOT / "src" / "trading_advisor_3000" / "product_plane" / "contracts" / "schemas"
@@ -51,6 +55,34 @@ def test_research_campaign_v1_keeps_continuous_front_policy_fields_optional() ->
     validate_schema(schema, payload)
 
 
+def test_research_campaign_v1_rejects_empty_volume_profile_raw_path() -> None:
+    schema = load_schema(SCHEMAS / "research_campaign.v1.json")
+    payload = _load_json(FIXTURES / "research_campaign.v1.json")
+    payload["volume_profile"] = {"raw_1m_table_path": "", "tick_size_by_instrument": {"BR": 1.0}}
+
+    with pytest.raises(SchemaValidationError, match="raw_1m_table_path"):
+        validate_schema(schema, payload)
+
+
+def test_research_campaign_v1_requires_non_empty_volume_profile_tick_sizes() -> None:
+    schema = load_schema(SCHEMAS / "research_campaign.v1.json")
+    payload = _load_json(FIXTURES / "research_campaign.v1.json")
+    payload["volume_profile"] = {"tick_size_by_instrument": {}}
+
+    with pytest.raises(SchemaValidationError, match="tick_size_by_instrument"):
+        validate_schema(schema, payload)
+
+
+@pytest.mark.parametrize("min_properties", [True, -1])
+def test_schema_validator_rejects_invalid_min_properties_constraints(
+    min_properties: object,
+) -> None:
+    schema = {"type": "object", "minProperties": min_properties}
+
+    with pytest.raises(SchemaValidationError, match="minProperties"):
+        validate_schema(schema, {})
+
+
 def test_research_contract_schema_snapshots_exist() -> None:
     expected = {
         "research_campaign.v1.json": "contracts/research_campaign.v1.json",
@@ -70,7 +102,9 @@ def test_research_run_summary_schema_allows_missing_result_digest() -> None:
 
 def test_research_orchestration_contracts_are_not_listed_as_release_blocking() -> None:
     text = CONTRACT_SURFACES.read_text(encoding="utf-8")
-    release_blocking_section = text.split("## Release-Blocking Boundary Inventory", maxsplit=1)[1].split(
+    release_blocking_section = text.split("## Release-Blocking Boundary Inventory", maxsplit=1)[
+        1
+    ].split(
         "## Runtime API Inventory Scope Decision",
         maxsplit=1,
     )[0]

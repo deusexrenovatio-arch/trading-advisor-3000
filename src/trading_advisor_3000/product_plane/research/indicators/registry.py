@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .naming import indicator_column_name
+from .volume_profile import VOLUME_PROFILE_INDICATOR_COLUMNS
 
 
 @dataclass(frozen=True)
@@ -659,6 +660,15 @@ def core_v1_indicator_profile() -> IndicatorProfile:
                 output_columns=("volume_oi_ratio",),
                 warmup_bars=1,
             ),
+            _spec(
+                indicator_id="volume_profile",
+                category="volume",
+                operation_key="volume_profile",
+                parameters=(),
+                required_input_columns=("volume",),
+                output_columns=VOLUME_PROFILE_INDICATOR_COLUMNS,
+                warmup_bars=0,
+            ),
         ),
     )
 
@@ -691,10 +701,13 @@ def core_intraday_v1_indicator_profile() -> IndicatorProfile:
         "cci_20",
         "willr_14",
         "volume_norm_20",
+        "volume_profile",
     }
     return IndicatorProfile(
         version="core_intraday_v1",
-        description="Intraday-oriented indicator profile with the core fast and context indicators.",
+        description=(
+            "Intraday-oriented indicator profile with the core fast and context indicators."
+        ),
         indicators=tuple(spec for spec in base.indicators if spec.indicator_id in keep),
     )
 

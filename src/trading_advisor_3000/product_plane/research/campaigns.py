@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import shutil
 import traceback
 from collections.abc import Sequence
@@ -13,17 +14,24 @@ from typing import Any
 import yaml
 
 from trading_advisor_3000.dagster_defs import (
-    materialize_research_data_prep_assets,
     materialize_research_backtest_assets,
+    materialize_research_data_prep_assets,
     materialize_research_projection_assets,
 )
 from trading_advisor_3000.product_plane.contracts.schema_validation import (
     load_schema,
     validate_schema,
 )
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log, read_delta_table_frame, read_delta_table_rows
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    has_delta_log,
+    read_delta_table_frame,
+    read_delta_table_rows,
+)
 from trading_advisor_3000.product_plane.research.datasets import ContinuousFrontPolicy
-from trading_advisor_3000.product_plane.research.jobs._common import validate_research_contracts, write_json
+from trading_advisor_3000.product_plane.research.jobs._common import (
+    validate_research_contracts,
+    write_json,
+)
 from trading_advisor_3000.product_plane.research.registry_store import (
     append_rankings_index,
     append_run_stats_index,
@@ -36,9 +44,12 @@ from trading_advisor_3000.product_plane.research.registry_store import (
     write_strategy_note,
 )
 
-
-CAMPAIGN_SCHEMA = Path("src/trading_advisor_3000/product_plane/contracts/schemas/research_campaign.v1.json")
-RUN_SUMMARY_SCHEMA = Path("src/trading_advisor_3000/product_plane/contracts/schemas/research_run_summary.v1.json")
+CAMPAIGN_SCHEMA = Path(
+    "src/trading_advisor_3000/product_plane/contracts/schemas/research_campaign.v1.json"
+)
+RUN_SUMMARY_SCHEMA = Path(
+    "src/trading_advisor_3000/product_plane/contracts/schemas/research_run_summary.v1.json"
+)
 STATUS_VALUES = {"queued", "running", "success", "failed", "blocked"}
 TIMEFRAME_ORDER = {
     "1m": 1,
@@ -54,7 +65,13 @@ TIMEFRAME_ORDER = {
 TARGET_STEPS = {
     "data_prep": ("research_data_prep",),
     "backtest": ("research_data_prep", "strategy_registry_refresh", "backtest", "ranking"),
-    "projection": ("research_data_prep", "strategy_registry_refresh", "backtest", "ranking", "projection"),
+    "projection": (
+        "research_data_prep",
+        "strategy_registry_refresh",
+        "backtest",
+        "ranking",
+        "projection",
+    ),
 }
 DATA_PREP_TABLES = (
     "continuous_front_bars",
@@ -91,6 +108,8 @@ RESEARCH_DATA_PREP_KWARGS = {
     "indicator_profile_version",
     "derived_indicator_set_version",
     "derived_indicator_profile_version",
+    "volume_profile_raw_1m_table_path",
+    "volume_profile_tick_size_by_instrument",
     "code_version",
     "reuse_existing_materialization",
 }
@@ -122,7 +141,9 @@ def build_run_id() -> str:
 def load_campaign_file(*, config_path: Path) -> dict[str, Any]:
     payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
-        raise CampaignBlockedError(f"campaign config must decode into an object: {config_path.as_posix()}")
+        raise CampaignBlockedError(
+            f"campaign config must decode into an object: {config_path.as_posix()}"
+        )
     return {str(key): value for key, value in payload.items()}
 
 
@@ -130,11 +151,18 @@ def normalize_campaign_config(*, repo_root: Path, raw: dict[str, Any]) -> dict[s
     schema = load_schema(repo_root / CAMPAIGN_SCHEMA)
     validate_schema(schema, raw)
 
+    volume_profile = _normalize_volume_profile(raw.get("volume_profile"), repo_root=repo_root)
     normalized = {
         "campaign_name": _normalized_non_empty(raw["campaign_name"]),
-        "target_stage": _normalized_enum(raw["target_stage"], {"data_prep", "backtest", "projection"}, field="target_stage"),
-        "canonical_output_dir": resolve_path(repo_root=repo_root, raw=str(raw["canonical_output_dir"])).as_posix(),
-        "materialized_root": resolve_path(repo_root=repo_root, raw=str(raw["materialized_root"])).as_posix(),
+        "target_stage": _normalized_enum(
+            raw["target_stage"], {"data_prep", "backtest", "projection"}, field="target_stage"
+        ),
+        "canonical_output_dir": resolve_path(
+            repo_root=repo_root, raw=str(raw["canonical_output_dir"])
+        ).as_posix(),
+        "materialized_root": resolve_path(
+            repo_root=repo_root, raw=str(raw["materialized_root"])
+        ).as_posix(),
         "runs_root": resolve_path(repo_root=repo_root, raw=str(raw["runs_root"])).as_posix(),
         "dataset": _normalize_dataset(payload=_expect_dict(raw, "dataset")),
         "profiles": _normalize_profiles(_expect_dict(raw, "profiles")),
@@ -144,10 +172,14 @@ def normalize_campaign_config(*, repo_root: Path, raw: dict[str, Any]) -> dict[s
         "projection_policy": _normalize_projection_policy(_expect_dict(raw, "projection_policy")),
         "execution": _normalize_execution(_expect_dict(raw, "execution")),
     }
+    if volume_profile:
+        normalized["volume_profile"] = volume_profile
     if normalized["dataset"]["base_timeframe"] not in normalized["dataset"]["timeframes"]:
         raise CampaignBlockedError("dataset.base_timeframe must be included in dataset.timeframes")
     if normalized["backtest"]["backtest_timeframe"] not in normalized["dataset"]["timeframes"]:
-        raise CampaignBlockedError("backtest.backtest_timeframe must be included in dataset.timeframes")
+        raise CampaignBlockedError(
+            "backtest.backtest_timeframe must be included in dataset.timeframes"
+        )
     validate_schema(schema, normalized)
     return normalized
 
@@ -176,6 +208,7 @@ def build_materialization_key(normalized_config: dict[str, Any]) -> str:
         "indicator_profile_version": profiles["indicator_profile_version"],
         "derived_indicator_set_version": profiles["derived_indicator_set_version"],
         "derived_indicator_profile_version": profiles["derived_indicator_profile_version"],
+        "volume_profile": dict(normalized_config.get("volume_profile", {})),
     }
     return _stable_hash(payload)
 
@@ -204,7 +237,9 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
         run_id=run_id,
     )
     warnings.extend(provisional_warnings)
-    _write_status(run_root / "status.json", run_id=run_id, campaign_name=campaign_name, status="queued")
+    _write_status(
+        run_root / "status.json", run_id=run_id, campaign_name=campaign_name, status="queued"
+    )
     final_results_root = run_root / "results"
     staging_results_root = run_root / "results-staging"
 
@@ -232,7 +267,9 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
         )
         _write_logs(run_root=run_root, stdout_lines=stdout_lines, stderr_lines=stderr_lines)
         _write_terminal_artifacts(run_root=run_root, summary=summary)
-        _write_status(run_root / "status.json", run_id=run_id, campaign_name=campaign_name, status="blocked")
+        _write_status(
+            run_root / "status.json", run_id=run_id, campaign_name=campaign_name, status="blocked"
+        )
         return summary
 
     try:
@@ -261,7 +298,9 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
         )
         _write_logs(run_root=run_root, stdout_lines=stdout_lines, stderr_lines=stderr_lines)
         _write_terminal_artifacts(run_root=run_root, summary=summary)
-        _write_status(run_root / "status.json", run_id=run_id, campaign_name=campaign_name, status="blocked")
+        _write_status(
+            run_root / "status.json", run_id=run_id, campaign_name=campaign_name, status="blocked"
+        )
         return summary
 
     campaign_name = str(normalized_config["campaign_name"])
@@ -275,7 +314,9 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
         materialized_root,
         materialization_key=materialization_key,
     )
-    reuse_existing_materialization = materialization_exists and not bool(normalized_config["execution"]["force_rematerialize"])
+    reuse_existing_materialization = materialization_exists and not bool(
+        normalized_config["execution"]["force_rematerialize"]
+    )
     write_json(
         run_root / "campaign.lock.json",
         {
@@ -294,7 +335,9 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
             "created_at": utc_now_iso(),
         },
     )
-    _write_status(run_root / "status.json", run_id=run_id, campaign_name=campaign_name, status="running")
+    _write_status(
+        run_root / "status.json", run_id=run_id, campaign_name=campaign_name, status="running"
+    )
     write_campaign_definition(
         registry_root=registry_root,
         campaign_id=campaign_id,
@@ -304,8 +347,12 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
         dataset_version=str(normalized_config["dataset"]["dataset_version"]),
         indicator_set_version=str(normalized_config["profiles"]["indicator_set_version"]),
         indicator_profile_version=str(normalized_config["profiles"]["indicator_profile_version"]),
-        derived_indicator_set_version=str(normalized_config["profiles"]["derived_indicator_set_version"]),
-        derived_indicator_profile_version=str(normalized_config["profiles"]["derived_indicator_profile_version"]),
+        derived_indicator_set_version=str(
+            normalized_config["profiles"]["derived_indicator_set_version"]
+        ),
+        derived_indicator_profile_version=str(
+            normalized_config["profiles"]["derived_indicator_profile_version"]
+        ),
         strategy_space=dict(normalized_config["strategy_space"]),
         backtest_policy=dict(normalized_config["backtest"]),
         ranking_policy=dict(normalized_config["ranking_policy"]),
@@ -341,7 +388,9 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
         )
         warnings.extend(list(contract_validation.get("warnings", [])))
         if contract_validation["status"] != "passed":
-            raise CampaignBlockedError("; ".join(contract_validation["errors"]) or "research contract validation failed")
+            raise CampaignBlockedError(
+                "; ".join(contract_validation["errors"]) or "research contract validation failed"
+            )
         if "research_data_prep" in executed_steps:
             _write_materialization_lock(
                 materialized_root=materialized_root,
@@ -358,7 +407,9 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
             output_paths=dict(report["output_paths"]),
         )
         registry_paths = _campaign_registry_output_paths(registry_root=registry_root)
-        index_paths = _publish_global_indices(registry_root=registry_root, results_root=final_results_root)
+        index_paths = _publish_global_indices(
+            registry_root=registry_root, results_root=final_results_root
+        )
         total_seconds = round(perf_counter() - started, 6)
         duration_metrics = _build_duration_metrics(
             total_seconds=total_seconds,
@@ -443,11 +494,16 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
         )
         write_json(
             run_root / "artifacts-index.json",
-            _build_artifacts_index({**published_output_paths, **registry_paths, **index_paths}, report.get("rows_by_table", {})),
+            _build_artifacts_index(
+                {**published_output_paths, **registry_paths, **index_paths},
+                report.get("rows_by_table", {}),
+            ),
         )
         _write_logs(run_root=run_root, stdout_lines=stdout_lines, stderr_lines=stderr_lines)
         _write_terminal_artifacts(run_root=run_root, summary=summary)
-        _write_status(run_root / "status.json", run_id=run_id, campaign_name=campaign_name, status="success")
+        _write_status(
+            run_root / "status.json", run_id=run_id, campaign_name=campaign_name, status="success"
+        )
         return summary
     except CampaignBlockedError as exc:
         stderr_lines.append(traceback.format_exc())
@@ -459,7 +515,9 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
             campaign_name=campaign_name,
             target_stage=stage,
             config_fingerprint=config_fingerprint,
-            strategy_space_id=str(report.get("strategy_space_id", "")) if "report" in locals() else "",
+            strategy_space_id=str(report.get("strategy_space_id", ""))
+            if "report" in locals()
+            else "",
             materialization_key=materialization_key,
             materialized_root=materialized_root,
             final_results_root=final_results_root,
@@ -489,7 +547,9 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
             campaign_name=campaign_name,
             normalized_config=normalized_config,
             materialization_key=materialization_key,
-            strategy_space_id=str(report.get("strategy_space_id", "")) if "report" in locals() else "",
+            strategy_space_id=str(report.get("strategy_space_id", ""))
+            if "report" in locals()
+            else "",
             materialized_root=materialized_root,
             run_root=run_root,
             executed_steps=executed_steps,
@@ -501,7 +561,9 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
         )
         _write_logs(run_root=run_root, stdout_lines=stdout_lines, stderr_lines=stderr_lines)
         _write_terminal_artifacts(run_root=run_root, summary=summary)
-        _write_status(run_root / "status.json", run_id=run_id, campaign_name=campaign_name, status="blocked")
+        _write_status(
+            run_root / "status.json", run_id=run_id, campaign_name=campaign_name, status="blocked"
+        )
         return summary
     except Exception as exc:  # noqa: BLE001
         stderr_lines.append(traceback.format_exc())
@@ -513,7 +575,9 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
             campaign_name=campaign_name,
             target_stage=stage,
             config_fingerprint=config_fingerprint,
-            strategy_space_id=str(report.get("strategy_space_id", "")) if "report" in locals() else "",
+            strategy_space_id=str(report.get("strategy_space_id", ""))
+            if "report" in locals()
+            else "",
             materialization_key=materialization_key,
             materialized_root=materialized_root,
             final_results_root=final_results_root,
@@ -543,7 +607,9 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
             campaign_name=campaign_name,
             normalized_config=normalized_config,
             materialization_key=materialization_key,
-            strategy_space_id=str(report.get("strategy_space_id", "")) if "report" in locals() else "",
+            strategy_space_id=str(report.get("strategy_space_id", ""))
+            if "report" in locals()
+            else "",
             materialized_root=materialized_root,
             run_root=run_root,
             executed_steps=executed_steps,
@@ -555,7 +621,9 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
         )
         _write_logs(run_root=run_root, stdout_lines=stdout_lines, stderr_lines=stderr_lines)
         _write_terminal_artifacts(run_root=run_root, summary=summary)
-        _write_status(run_root / "status.json", run_id=run_id, campaign_name=campaign_name, status="failed")
+        _write_status(
+            run_root / "status.json", run_id=run_id, campaign_name=campaign_name, status="failed"
+        )
         return summary
 
 
@@ -578,14 +646,20 @@ def _build_prevalidation_failure_summary(
         campaign_run_id="",
         campaign_name=campaign_name,
         target_stage=_raw_target_stage(raw_config),
-        canonical_output_dir=_resolved_optional_path(repo_root=repo_root, raw=raw_config.get("canonical_output_dir")),
+        canonical_output_dir=_resolved_optional_path(
+            repo_root=repo_root, raw=raw_config.get("canonical_output_dir")
+        ),
         registry_root="",
         materialization_key="",
         strategy_space_id="",
-        materialized_root=_resolved_optional_path(repo_root=repo_root, raw=raw_config.get("materialized_root")),
+        materialized_root=_resolved_optional_path(
+            repo_root=repo_root, raw=raw_config.get("materialized_root")
+        ),
         run_root=run_root.as_posix(),
         dataset_version=_raw_dataset_version(raw_config),
-        config_fingerprint=_raw_config_fingerprint(raw_config=raw_config, config_path=resolved_config_path),
+        config_fingerprint=_raw_config_fingerprint(
+            raw_config=raw_config, config_path=resolved_config_path
+        ),
         executed_steps=[],
         reused_steps=[],
         durations={"total_seconds": round(perf_counter() - started, 6)},
@@ -620,7 +694,9 @@ def _dispatch_campaign(
     stage = str(normalized_config["target_stage"])
     raise_on_error = bool(normalized_config["execution"]["raise_on_error"])
     if stage == "data_prep":
-        data_prep = {key: value for key, value in common.items() if key in RESEARCH_DATA_PREP_KWARGS}
+        data_prep = {
+            key: value for key, value in common.items() if key in RESEARCH_DATA_PREP_KWARGS
+        }
         return materialize_research_data_prep_assets(**data_prep, raise_on_error=raise_on_error)
     if stage == "backtest":
         return materialize_research_backtest_assets(**common, raise_on_error=raise_on_error)
@@ -643,6 +719,7 @@ def _dagster_common_kwargs(
     backtest = dict(normalized_config["backtest"])
     ranking = dict(normalized_config["ranking_policy"])
     projection = dict(normalized_config["projection_policy"])
+    volume_profile = dict(normalized_config.get("volume_profile", {}))
     return {
         "canonical_output_dir": Path(str(normalized_config["canonical_output_dir"])),
         "materialized_output_dir": materialized_root,
@@ -666,6 +743,10 @@ def _dagster_common_kwargs(
         "indicator_profile_version": str(profiles["indicator_profile_version"]),
         "derived_indicator_set_version": str(profiles["derived_indicator_set_version"]),
         "derived_indicator_profile_version": str(profiles["derived_indicator_profile_version"]),
+        "volume_profile_raw_1m_table_path": str(volume_profile.get("raw_1m_table_path") or ""),
+        "volume_profile_tick_size_by_instrument": dict(
+            volume_profile.get("tick_size_by_instrument", {})
+        ),
         "code_version": "product-plane-run-campaign",
         "strategy_space": dict(normalized_config["strategy_space"]),
         "param_batch_size": int(backtest["param_batch_size"]),
@@ -817,9 +898,13 @@ def _write_prevalidation_lock(
         {
             "run_id": run_id,
             "config_path": resolved_config_path.as_posix(),
-            "config_fingerprint": _raw_config_fingerprint(raw_config=raw_config, config_path=resolved_config_path),
+            "config_fingerprint": _raw_config_fingerprint(
+                raw_config=raw_config, config_path=resolved_config_path
+            ),
             "materialization_key": "",
-            "materialized_output_dir": _resolved_optional_path(repo_root=repo_root, raw=raw_config.get("materialized_root")),
+            "materialized_output_dir": _resolved_optional_path(
+                repo_root=repo_root, raw=raw_config.get("materialized_root")
+            ),
             "results_output_dir": results_root.as_posix(),
             "reuse_existing_materialization": False,
             "campaign": raw_config,
@@ -848,17 +933,39 @@ def _build_duration_metrics(
     throughput_seconds = backtest_seconds or total_seconds
     metrics = {
         "total_seconds": total_seconds,
-        "optimizer_trials_per_second": _rate(rows_by_table.get("research_optimizer_trials", 0), throughput_seconds),
-        "backtest_runs_per_second": _rate(rows_by_table.get("research_backtest_runs", 0), throughput_seconds),
-        "strategy_stats_per_second": _rate(rows_by_table.get("research_strategy_stats", 0), throughput_seconds),
-        "trade_records_per_second": _rate(rows_by_table.get("research_trade_records", 0), throughput_seconds),
-        "order_records_per_second": _rate(rows_by_table.get("research_order_records", 0), throughput_seconds),
-        "campaign_optimizer_trials_per_second": _rate(rows_by_table.get("research_optimizer_trials", 0), total_seconds),
-        "campaign_backtest_runs_per_second": _rate(rows_by_table.get("research_backtest_runs", 0), total_seconds),
-        "campaign_strategy_stats_per_second": _rate(rows_by_table.get("research_strategy_stats", 0), total_seconds),
-        "campaign_trade_records_per_second": _rate(rows_by_table.get("research_trade_records", 0), total_seconds),
-        "campaign_order_records_per_second": _rate(rows_by_table.get("research_order_records", 0), total_seconds),
-        "ranking_rows_per_campaign_second": _rate(rows_by_table.get("research_strategy_rankings", 0), total_seconds),
+        "optimizer_trials_per_second": _rate(
+            rows_by_table.get("research_optimizer_trials", 0), throughput_seconds
+        ),
+        "backtest_runs_per_second": _rate(
+            rows_by_table.get("research_backtest_runs", 0), throughput_seconds
+        ),
+        "strategy_stats_per_second": _rate(
+            rows_by_table.get("research_strategy_stats", 0), throughput_seconds
+        ),
+        "trade_records_per_second": _rate(
+            rows_by_table.get("research_trade_records", 0), throughput_seconds
+        ),
+        "order_records_per_second": _rate(
+            rows_by_table.get("research_order_records", 0), throughput_seconds
+        ),
+        "campaign_optimizer_trials_per_second": _rate(
+            rows_by_table.get("research_optimizer_trials", 0), total_seconds
+        ),
+        "campaign_backtest_runs_per_second": _rate(
+            rows_by_table.get("research_backtest_runs", 0), total_seconds
+        ),
+        "campaign_strategy_stats_per_second": _rate(
+            rows_by_table.get("research_strategy_stats", 0), total_seconds
+        ),
+        "campaign_trade_records_per_second": _rate(
+            rows_by_table.get("research_trade_records", 0), total_seconds
+        ),
+        "campaign_order_records_per_second": _rate(
+            rows_by_table.get("research_order_records", 0), total_seconds
+        ),
+        "ranking_rows_per_campaign_second": _rate(
+            rows_by_table.get("research_strategy_rankings", 0), total_seconds
+        ),
     }
     if backtest_seconds is not None:
         metrics["backtest_duration_seconds"] = round(backtest_seconds, 6)
@@ -960,14 +1067,18 @@ def _build_result_digest(
     reused_steps: Sequence[str] = (),
     force_rematerialize: bool = False,
 ) -> dict[str, Any] | None:
-    data_prep_proof = _build_data_prep_proof_digest(
-        materialized_root=materialized_root,
-        output_paths=output_paths or {},
-        rows_by_table=rows_by_table or {},
-        executed_steps=executed_steps,
-        reused_steps=reused_steps,
-        force_rematerialize=force_rematerialize,
-    ) if materialized_root is not None else None
+    data_prep_proof = (
+        _build_data_prep_proof_digest(
+            materialized_root=materialized_root,
+            output_paths=output_paths or {},
+            rows_by_table=rows_by_table or {},
+            executed_steps=executed_steps,
+            reused_steps=reused_steps,
+            force_rematerialize=force_rematerialize,
+        )
+        if materialized_root is not None
+        else None
+    )
     if target_stage == "data_prep":
         return {"data_prep_proof": data_prep_proof} if data_prep_proof is not None else None
 
@@ -1007,7 +1118,9 @@ def _build_result_digest(
         "runtime_metrics": duration_metrics or {},
         "rows_by_table": dict(rows_by_table or {}),
         "optimizer": _optimizer_digest(results_root),
-        "projection_qualified_count": sum(1 for row in ranking_rows if bool(row.get("qualifies_for_projection", False))),
+        "projection_qualified_count": sum(
+            1 for row in ranking_rows if bool(row.get("qualifies_for_projection", False))
+        ),
         "ranking_top_rows": ranking_top_rows,
         "best_overall_rows": ranking_top_rows,
         "projection_eligible_top_rows": projection_eligible_top_rows,
@@ -1042,8 +1155,12 @@ def _digest_ranking_row(row: dict[str, Any]) -> dict[str, Any]:
         "rank": int(row.get("rank", 0)),
         "score_total": round(float(row.get("score_total", 0.0) or 0.0), 6),
         "objective_score": round(float(row.get("objective_score", 0.0) or 0.0), 6),
-        "parameter_stability_score": round(float(row.get("parameter_stability_score", 0.0) or 0.0), 6),
-        "slippage_sensitivity_score": round(float(row.get("slippage_sensitivity_score", 0.0) or 0.0), 6),
+        "parameter_stability_score": round(
+            float(row.get("parameter_stability_score", 0.0) or 0.0), 6
+        ),
+        "slippage_sensitivity_score": round(
+            float(row.get("slippage_sensitivity_score", 0.0) or 0.0), 6
+        ),
         "qualifies_for_projection": bool(row.get("qualifies_for_projection", False)),
         "policy_failure_reasons": _json_value(row.get("policy_failure_reasons_json", ())),
     }
@@ -1090,10 +1207,7 @@ def _read_projected_delta_records(path: Path, *, columns: list[str]) -> list[dic
     if not has_delta_log(path):
         return []
     frame = read_delta_table_frame(path, columns=columns)
-    return [
-        {str(key): value for key, value in row.items()}
-        for row in frame.to_dict("records")
-    ]
+    return [{str(key): value for key, value in row.items()} for row in frame.to_dict("records")]
 
 
 def _publish_staged_results(
@@ -1272,7 +1386,9 @@ def _publish_global_indices(*, registry_root: Path, results_root: Path) -> dict[
                 )
             ],
         )
-        published_paths["research_run_stats_index"] = (registry_root / "research_run_stats_index.delta").as_posix()
+        published_paths["research_run_stats_index"] = (
+            registry_root / "research_run_stats_index.delta"
+        ).as_posix()
     if has_delta_log(ranking_path):
         append_rankings_index(
             registry_root=registry_root,
@@ -1316,11 +1432,15 @@ def _publish_global_indices(*, registry_root: Path, results_root: Path) -> dict[
                 )
             ],
         )
-        published_paths["research_rankings_index"] = (registry_root / "research_rankings_index.delta").as_posix()
+        published_paths["research_rankings_index"] = (
+            registry_root / "research_rankings_index.delta"
+        ).as_posix()
     return published_paths
 
 
-def _build_artifacts_index(output_paths: dict[str, Any], rows_by_table: dict[str, Any]) -> dict[str, Any]:
+def _build_artifacts_index(
+    output_paths: dict[str, Any], rows_by_table: dict[str, Any]
+) -> dict[str, Any]:
     artifacts: list[dict[str, Any]] = []
     for name, raw_path in sorted(output_paths.items()):
         path = Path(str(raw_path))
@@ -1335,7 +1455,9 @@ def _build_artifacts_index(output_paths: dict[str, Any], rows_by_table: dict[str
     return {"artifacts": artifacts}
 
 
-def _prepare_run_root(*, repo_root: Path, runs_root_raw: str, campaign_name: str, run_id: str) -> Path:
+def _prepare_run_root(
+    *, repo_root: Path, runs_root_raw: str, campaign_name: str, run_id: str
+) -> Path:
     runs_root = resolve_path(repo_root=repo_root, raw=runs_root_raw)
     run_root = runs_root / campaign_name / run_id
     run_root.mkdir(parents=True, exist_ok=False)
@@ -1353,7 +1475,9 @@ def _prepare_provisional_run_root(
     campaign_name = _raw_campaign_name(raw_config)
     runs_root = _blocked_runs_root(repo_root=repo_root, raw_config=raw_config)
     if runs_root == (repo_root / "artifacts" / "research-campaign-invalid").resolve():
-        warnings.append("runs_root missing or invalid; blocked evidence stored under repo-local blocked root")
+        warnings.append(
+            "runs_root missing or invalid; blocked evidence stored under repo-local blocked root"
+        )
     run_root = runs_root / campaign_name / run_id
     run_root.mkdir(parents=True, exist_ok=False)
     (run_root / "logs").mkdir(parents=True, exist_ok=True)
@@ -1398,14 +1522,22 @@ def _normalize_dataset(*, payload: dict[str, Any]) -> dict[str, Any]:
         "dataset_version": _normalized_non_empty(payload["dataset_version"]),
         "dataset_name": _normalized_non_empty(payload["dataset_name"]),
         "universe_id": _normalized_non_empty(payload["universe_id"]),
-        "series_mode": _normalized_enum(payload["series_mode"], {"contract", "continuous_front"}, field="dataset.series_mode"),
+        "series_mode": _normalized_enum(
+            payload["series_mode"], {"contract", "continuous_front"}, field="dataset.series_mode"
+        ),
         "continuous_front_policy": continuous_front_policy,
         "timeframes": timeframes,
         "base_timeframe": _normalized_non_empty(payload["base_timeframe"]),
         "start_ts": _normalized_optional_string(payload.get("start_ts")),
         "end_ts": _normalized_optional_string(payload.get("end_ts")),
-        "warmup_bars": _normalized_non_negative_int(payload["warmup_bars"], field="dataset.warmup_bars"),
-        "split_method": _normalized_enum(payload["split_method"], {"full", "holdout", "walk_forward"}, field="dataset.split_method"),
+        "warmup_bars": _normalized_non_negative_int(
+            payload["warmup_bars"], field="dataset.warmup_bars"
+        ),
+        "split_method": _normalized_enum(
+            payload["split_method"],
+            {"full", "holdout", "walk_forward"},
+            field="dataset.split_method",
+        ),
         "contract_ids": _sorted_unique_strings(payload["contract_ids"]),
         "instrument_ids": _sorted_unique_strings(payload["instrument_ids"]),
     }
@@ -1415,21 +1547,65 @@ def _normalize_profiles(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "indicator_set_version": _normalized_non_empty(payload["indicator_set_version"]),
         "indicator_profile_version": _normalized_non_empty(payload["indicator_profile_version"]),
-        "derived_indicator_set_version": _normalized_non_empty(payload["derived_indicator_set_version"]),
-        "derived_indicator_profile_version": _normalized_non_empty(payload["derived_indicator_profile_version"]),
+        "derived_indicator_set_version": _normalized_non_empty(
+            payload["derived_indicator_set_version"]
+        ),
+        "derived_indicator_profile_version": _normalized_non_empty(
+            payload["derived_indicator_profile_version"]
+        ),
+    }
+
+
+def _normalize_volume_profile(payload: object, *, repo_root: Path) -> dict[str, Any]:
+    if payload is None:
+        return {}
+    if not isinstance(payload, dict):
+        raise CampaignBlockedError("volume_profile must be an object")
+    raw_1m_table_path = (
+        _resolved_optional_path(repo_root=repo_root, raw=payload.get("raw_1m_table_path")) or None
+    )
+    raw_tick_sizes = payload.get("tick_size_by_instrument", {})
+    if raw_tick_sizes is None:
+        raw_tick_sizes = {}
+    if not isinstance(raw_tick_sizes, dict):
+        raise CampaignBlockedError("volume_profile.tick_size_by_instrument must be an object")
+    tick_size_by_instrument: dict[str, float] = {}
+    for raw_instrument_id, raw_tick_size in sorted(
+        raw_tick_sizes.items(), key=lambda item: str(item[0])
+    ):
+        instrument_id = _normalized_non_empty(raw_instrument_id)
+        try:
+            tick_size = float(raw_tick_size)
+        except (TypeError, ValueError) as exc:
+            raise CampaignBlockedError(
+                "volume_profile.tick_size_by_instrument values must be numeric"
+            ) from exc
+        if not math.isfinite(tick_size) or tick_size <= 0:
+            raise CampaignBlockedError(
+                "volume_profile.tick_size_by_instrument values must be finite and > 0"
+            )
+        tick_size_by_instrument[instrument_id] = tick_size
+    return {
+        "raw_1m_table_path": raw_1m_table_path,
+        "tick_size_by_instrument": tick_size_by_instrument,
     }
 
 
 def _normalize_strategy_space(payload: dict[str, Any]) -> dict[str, Any]:
     retired_fields = sorted(
         field
-        for field in ("include_instance_ids", "exclude_manifest_hashes", "materialize_instances", "max_instance_count")
+        for field in (
+            "include_instance_ids",
+            "exclude_manifest_hashes",
+            "materialize_instances",
+            "max_instance_count",
+        )
         if field in payload
     )
     if retired_fields:
         raise CampaignBlockedError(
-            "strategy_space uses retired per-instance fields; use family/template search fields instead: "
-            + ", ".join(retired_fields)
+            "strategy_space uses retired per-instance fields; "
+            "use family/template search fields instead: " + ", ".join(retired_fields)
         )
     search_space_overrides = payload.get("search_space_overrides", {})
     if not isinstance(search_space_overrides, dict):
@@ -1437,7 +1613,9 @@ def _normalize_strategy_space(payload: dict[str, Any]) -> dict[str, Any]:
     normalized_overrides: dict[str, dict[str, list[object]]] = {}
     for selector, raw_override in search_space_overrides.items():
         if not isinstance(raw_override, dict):
-            raise CampaignBlockedError("strategy_space.search_space_overrides entries must be objects")
+            raise CampaignBlockedError(
+                "strategy_space.search_space_overrides entries must be objects"
+            )
         normalized_overrides[str(selector)] = {
             str(param): list(values if isinstance(values, list) else [values])
             for param, values in raw_override.items()
@@ -1449,7 +1627,9 @@ def _normalize_strategy_space(payload: dict[str, Any]) -> dict[str, Any]:
     normalized = {
         "family_keys": family_keys,
         "template_ids": template_ids,
-        "exclude_template_manifest_hashes": _sorted_unique_strings(payload["exclude_template_manifest_hashes"]),
+        "exclude_template_manifest_hashes": _sorted_unique_strings(
+            payload["exclude_template_manifest_hashes"]
+        ),
         "max_parameter_combinations": _normalized_positive_int(
             payload["max_parameter_combinations"],
             field="strategy_space.max_parameter_combinations",
@@ -1460,27 +1640,45 @@ def _normalize_strategy_space(payload: dict[str, Any]) -> dict[str, Any]:
         optimizer = payload["optimizer"]
         if not isinstance(optimizer, dict):
             raise CampaignBlockedError("strategy_space.optimizer must be an object")
-        normalized["optimizer"] = _normalize_strategy_optimizer({str(key): value for key, value in optimizer.items()})
+        normalized["optimizer"] = _normalize_strategy_optimizer(
+            {str(key): value for key, value in optimizer.items()}
+        )
     return normalized
 
 
 def _normalize_strategy_optimizer(payload: dict[str, Any]) -> dict[str, Any]:
-    engine = _normalized_enum(payload.get("engine", "grid"), {"grid", "optuna"}, field="strategy_space.optimizer.engine")
+    engine = _normalized_enum(
+        payload.get("engine", "grid"), {"grid", "optuna"}, field="strategy_space.optimizer.engine"
+    )
     if engine == "grid":
         return {"engine": "grid"}
     return {
         "engine": "optuna",
-        "sampler": _normalized_enum(payload.get("sampler", "tpe"), {"tpe"}, field="strategy_space.optimizer.sampler"),
-        "seed": _normalized_non_negative_int(payload.get("seed", 0), field="strategy_space.optimizer.seed"),
-        "n_trials": _normalized_positive_int(payload.get("n_trials", 0), field="strategy_space.optimizer.n_trials"),
+        "sampler": _normalized_enum(
+            payload.get("sampler", "tpe"), {"tpe"}, field="strategy_space.optimizer.sampler"
+        ),
+        "seed": _normalized_non_negative_int(
+            payload.get("seed", 0), field="strategy_space.optimizer.seed"
+        ),
+        "n_trials": _normalized_positive_int(
+            payload.get("n_trials", 0), field="strategy_space.optimizer.n_trials"
+        ),
         "objective": _normalized_enum(
             payload.get("objective", "robust_oos_trial_v1"),
             {"robust_oos_trial_v1"},
             field="strategy_space.optimizer.objective",
         ),
-        "direction": _normalized_enum(payload.get("direction", "maximize"), {"maximize"}, field="strategy_space.optimizer.direction"),
-        "top_k": _normalized_positive_int(payload.get("top_k", 8), field="strategy_space.optimizer.top_k"),
-        "radius": _normalized_non_negative_int(payload.get("radius", 1), field="strategy_space.optimizer.radius"),
+        "direction": _normalized_enum(
+            payload.get("direction", "maximize"),
+            {"maximize"},
+            field="strategy_space.optimizer.direction",
+        ),
+        "top_k": _normalized_positive_int(
+            payload.get("top_k", 8), field="strategy_space.optimizer.top_k"
+        ),
+        "radius": _normalized_non_negative_int(
+            payload.get("radius", 1), field="strategy_space.optimizer.radius"
+        ),
         "max_neighborhood_trials": _normalized_non_negative_int(
             payload.get("max_neighborhood_trials", 64),
             field="strategy_space.optimizer.max_neighborhood_trials",
@@ -1490,13 +1688,21 @@ def _normalize_strategy_optimizer(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _normalize_backtest(payload: dict[str, Any]) -> dict[str, Any]:
     return {
-        "param_batch_size": _normalized_positive_int(payload["param_batch_size"], field="backtest.param_batch_size"),
-        "series_batch_size": _normalized_positive_int(payload["series_batch_size"], field="backtest.series_batch_size"),
+        "param_batch_size": _normalized_positive_int(
+            payload["param_batch_size"], field="backtest.param_batch_size"
+        ),
+        "series_batch_size": _normalized_positive_int(
+            payload["series_batch_size"], field="backtest.series_batch_size"
+        ),
         "backtest_timeframe": _normalized_non_empty(payload["backtest_timeframe"]),
         "fees_bps": _normalized_non_negative_number(payload["fees_bps"], field="backtest.fees_bps"),
-        "slippage_bps": _normalized_non_negative_number(payload["slippage_bps"], field="backtest.slippage_bps"),
+        "slippage_bps": _normalized_non_negative_number(
+            payload["slippage_bps"], field="backtest.slippage_bps"
+        ),
         "allow_short": bool(payload["allow_short"]),
-        "window_count": _normalized_positive_int(payload["window_count"], field="backtest.window_count"),
+        "window_count": _normalized_positive_int(
+            payload["window_count"], field="backtest.window_count"
+        ),
     }
 
 
@@ -1508,16 +1714,28 @@ def _normalize_ranking_policy(payload: dict[str, Any]) -> dict[str, Any]:
         "policy_id": _normalized_non_empty(payload["policy_id"]),
         "metric_order": metric_order,
         "require_out_of_sample_pass": bool(payload["require_out_of_sample_pass"]),
-        "min_trade_count": _normalized_positive_int(payload["min_trade_count"], field="ranking_policy.min_trade_count"),
+        "min_trade_count": _normalized_positive_int(
+            payload["min_trade_count"], field="ranking_policy.min_trade_count"
+        ),
         "min_fold_count": _normalized_positive_int(
             payload.get("min_fold_count", 1),
             field="ranking_policy.min_fold_count",
         ),
-        "max_drawdown_cap": _normalized_non_negative_number(payload["max_drawdown_cap"], field="ranking_policy.max_drawdown_cap"),
-        "min_positive_fold_ratio": _normalized_ratio(payload["min_positive_fold_ratio"], field="ranking_policy.min_positive_fold_ratio"),
-        "stress_slippage_bps": _normalized_non_negative_number(payload["stress_slippage_bps"], field="ranking_policy.stress_slippage_bps"),
-        "min_parameter_stability": _normalized_ratio(payload["min_parameter_stability"], field="ranking_policy.min_parameter_stability"),
-        "min_slippage_score": _normalized_ratio(payload["min_slippage_score"], field="ranking_policy.min_slippage_score"),
+        "max_drawdown_cap": _normalized_non_negative_number(
+            payload["max_drawdown_cap"], field="ranking_policy.max_drawdown_cap"
+        ),
+        "min_positive_fold_ratio": _normalized_ratio(
+            payload["min_positive_fold_ratio"], field="ranking_policy.min_positive_fold_ratio"
+        ),
+        "stress_slippage_bps": _normalized_non_negative_number(
+            payload["stress_slippage_bps"], field="ranking_policy.stress_slippage_bps"
+        ),
+        "min_parameter_stability": _normalized_ratio(
+            payload["min_parameter_stability"], field="ranking_policy.min_parameter_stability"
+        ),
+        "min_slippage_score": _normalized_ratio(
+            payload["min_slippage_score"], field="ranking_policy.min_slippage_score"
+        ),
     }
 
 
@@ -1528,7 +1746,9 @@ def _normalize_projection_policy(payload: dict[str, Any]) -> dict[str, Any]:
             payload["max_candidates_per_partition"],
             field="projection_policy.max_candidates_per_partition",
         ),
-        "min_robust_score": _normalized_ratio(payload["min_robust_score"], field="projection_policy.min_robust_score"),
+        "min_robust_score": _normalized_ratio(
+            payload["min_robust_score"], field="projection_policy.min_robust_score"
+        ),
         "decision_lag_bars_max": _normalized_non_negative_int(
             payload["decision_lag_bars_max"],
             field="projection_policy.decision_lag_bars_max",
@@ -1688,7 +1908,9 @@ def _has_reusable_materialization(
     *,
     materialization_key: str | None = None,
 ) -> bool:
-    if not all(has_delta_log(materialized_root / f"{table_name}.delta") for table_name in DATA_PREP_TABLES):
+    if not all(
+        has_delta_log(materialized_root / f"{table_name}.delta") for table_name in DATA_PREP_TABLES
+    ):
         return False
     if materialization_key is None:
         return True
@@ -1707,6 +1929,7 @@ def _write_materialization_lock(
 ) -> None:
     dataset = dict(normalized_config["dataset"])
     profiles = dict(normalized_config["profiles"])
+    volume_profile = dict(normalized_config.get("volume_profile", {}))
     data_prep_output_paths = {
         table_name: path
         for table_name, path in dict(report.get("output_paths", {})).items()
@@ -1730,6 +1953,7 @@ def _write_materialization_lock(
             "indicator_profile_version": str(profiles["indicator_profile_version"]),
             "derived_indicator_set_version": str(profiles["derived_indicator_set_version"]),
             "derived_indicator_profile_version": str(profiles["derived_indicator_profile_version"]),
+            "volume_profile": volume_profile,
             "rows_by_table": dict(report.get("rows_by_table", {})),
             "output_paths": data_prep_output_paths,
             "created_at": utc_now_iso(),

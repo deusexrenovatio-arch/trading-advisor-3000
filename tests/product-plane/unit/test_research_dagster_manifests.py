@@ -1,34 +1,56 @@
 from __future__ import annotations
 
-from trading_advisor_3000.dagster_defs import research_asset_specs
-from trading_advisor_3000.dagster_defs import research_assets
+from pathlib import Path
+
+from dagster import build_op_context
+
+from trading_advisor_3000.dagster_defs import research_asset_specs, research_assets
 from trading_advisor_3000.product_plane.contracts import CanonicalBar
-from trading_advisor_3000.product_plane.data_plane.canonical import RollMapEntry, SessionCalendarEntry
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows, write_delta_table_rows
+from trading_advisor_3000.product_plane.data_plane.canonical import (
+    RollMapEntry,
+    SessionCalendarEntry,
+)
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    read_delta_table_rows,
+    write_delta_table_rows,
+)
 from trading_advisor_3000.product_plane.research.backtests.results import backtest_store_contract
+from trading_advisor_3000.product_plane.research.continuous_front import (
+    continuous_front_store_contract,
+)
 from trading_advisor_3000.product_plane.research.datasets import (
     ResearchDatasetManifest,
     materialize_research_dataset,
     research_dataset_store_contract,
 )
-from trading_advisor_3000.product_plane.research.datasets import materialize as dataset_materialize_module
-from trading_advisor_3000.product_plane.research.derived_indicators import research_derived_indicator_store_contract
-from trading_advisor_3000.product_plane.research.derived_indicators import store as derived_store_module
+from trading_advisor_3000.product_plane.research.datasets import (
+    materialize as dataset_materialize_module,
+)
+from trading_advisor_3000.product_plane.research.derived_indicators import (
+    research_derived_indicator_store_contract,
+)
+from trading_advisor_3000.product_plane.research.derived_indicators import (
+    store as derived_store_module,
+)
 from trading_advisor_3000.product_plane.research.derived_indicators.store import (
     DerivedIndicatorFramePartitionKey,
     DerivedIndicatorFrameRow,
     write_derived_indicator_frames,
 )
 from trading_advisor_3000.product_plane.research.ids import candidate_id
-from trading_advisor_3000.product_plane.research.indicators import build_indicator_profile_registry, indicator_store_contract
+from trading_advisor_3000.product_plane.research.indicators import (
+    build_indicator_profile_registry,
+    indicator_store_contract,
+)
 from trading_advisor_3000.product_plane.research.indicators import store as indicator_store_module
 from trading_advisor_3000.product_plane.research.indicators.store import (
     IndicatorFramePartitionKey,
     IndicatorFrameRow,
     write_indicator_frames,
 )
-from trading_advisor_3000.product_plane.research.continuous_front import continuous_front_store_contract
-from trading_advisor_3000.product_plane.research.strategies.families import phase_stg02_family_adapters
+from trading_advisor_3000.product_plane.research.strategies.families import (
+    phase_stg02_family_adapters,
+)
 
 
 def test_research_dagster_asset_specs_declared() -> None:
@@ -44,20 +66,20 @@ def test_research_dagster_asset_specs_declared() -> None:
         "research_bar_views",
         "research_indicator_frames",
         "research_derived_indicator_frames",
-            "research_strategy_families",
-            "research_strategy_templates",
-            "research_strategy_template_modules",
-            "research_strategy_search_specs",
-            "research_vbt_search_runs",
-            "research_optimizer_studies",
-            "research_optimizer_trials",
-            "research_vbt_param_results",
-            "research_vbt_param_gate_events",
-            "research_vbt_ephemeral_indicator_cache",
-            "research_strategy_promotion_events",
-            "research_backtest_batches",
-            "research_backtest_runs",
-            "research_strategy_stats",
+        "research_strategy_families",
+        "research_strategy_templates",
+        "research_strategy_template_modules",
+        "research_strategy_search_specs",
+        "research_vbt_search_runs",
+        "research_optimizer_studies",
+        "research_optimizer_trials",
+        "research_vbt_param_results",
+        "research_vbt_param_gate_events",
+        "research_vbt_ephemeral_indicator_cache",
+        "research_strategy_promotion_events",
+        "research_backtest_batches",
+        "research_backtest_runs",
+        "research_strategy_stats",
         "research_trade_records",
         "research_order_records",
         "research_drawdown_records",
@@ -71,7 +93,9 @@ def test_research_dagster_asset_specs_declared() -> None:
         "canonical_roll_map_delta",
     }
     assert set(specs["continuous_front_roll_events"].inputs) == {"continuous_front_bars_delta"}
-    assert set(specs["continuous_front_adjustment_ladder"].inputs) == {"continuous_front_bars_delta"}
+    assert set(specs["continuous_front_adjustment_ladder"].inputs) == {
+        "continuous_front_bars_delta"
+    }
     assert set(specs["continuous_front_qc_report"].inputs) == {
         "continuous_front_bars_delta",
         "continuous_front_roll_events_delta",
@@ -89,21 +113,31 @@ def test_research_dagster_asset_specs_declared() -> None:
     }
     assert set(specs["research_strategy_families"].inputs) == {"research_datasets_delta"}
     assert set(specs["research_strategy_templates"].inputs) == {"research_strategy_families_delta"}
-    assert set(specs["research_strategy_template_modules"].inputs) == {"research_strategy_templates_delta"}
+    assert set(specs["research_strategy_template_modules"].inputs) == {
+        "research_strategy_templates_delta"
+    }
     assert set(specs["research_backtest_batches"].inputs) == {
         "research_datasets_delta",
         "research_indicator_frames_delta",
         "research_derived_indicator_frames_delta",
         "research_strategy_template_modules_delta",
     }
-    assert set(specs["research_strategy_search_specs"].inputs) == {"research_backtest_batches_delta"}
+    assert set(specs["research_strategy_search_specs"].inputs) == {
+        "research_backtest_batches_delta"
+    }
     assert set(specs["research_vbt_search_runs"].inputs) == {"research_backtest_batches_delta"}
     assert set(specs["research_optimizer_studies"].inputs) == {"research_backtest_batches_delta"}
     assert set(specs["research_optimizer_trials"].inputs) == {"research_backtest_batches_delta"}
     assert set(specs["research_vbt_param_results"].inputs) == {"research_backtest_batches_delta"}
-    assert set(specs["research_vbt_param_gate_events"].inputs) == {"research_backtest_batches_delta"}
-    assert set(specs["research_vbt_ephemeral_indicator_cache"].inputs) == {"research_backtest_batches_delta"}
-    assert set(specs["research_strategy_promotion_events"].inputs) == {"research_backtest_batches_delta"}
+    assert set(specs["research_vbt_param_gate_events"].inputs) == {
+        "research_backtest_batches_delta"
+    }
+    assert set(specs["research_vbt_ephemeral_indicator_cache"].inputs) == {
+        "research_backtest_batches_delta"
+    }
+    assert set(specs["research_strategy_promotion_events"].inputs) == {
+        "research_backtest_batches_delta"
+    }
     assert set(specs["research_strategy_rankings"].inputs) == {
         "research_backtest_runs_delta",
         "research_strategy_stats_delta",
@@ -116,7 +150,224 @@ def test_research_dagster_asset_specs_declared() -> None:
     }
 
 
-def test_backtest_result_manifest_fanout_does_not_reload_large_delta_tables(tmp_path, monkeypatch) -> None:
+def test_research_config_schema_keeps_volume_profile_keys_optional() -> None:
+    schema = research_assets._research_config_schema()
+
+    assert schema["volume_profile_raw_1m_table_path"].is_required is False
+    assert schema["volume_profile_raw_1m_table_path"].default_value == ""
+    assert schema["volume_profile_tick_size_by_instrument"].is_required is False
+    assert schema["volume_profile_tick_size_by_instrument"].default_value == {}
+
+
+def test_research_run_config_uses_volume_profile_defaults_for_falsy_inputs(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("TA3000_MOEX_HISTORICAL_DATA_ROOT", tmp_path.as_posix())
+
+    config = research_assets._research_run_config(  # type: ignore[attr-defined]
+        canonical_output_dir=tmp_path / "canonical",
+        registry_root=tmp_path / "registry",
+        materialized_output_dir=tmp_path / "materialized",
+        results_output_dir=tmp_path / "results",
+        campaign_run_id="crun-defaults",
+        dataset_version="dataset-defaults",
+        timeframes=("15m",),
+        indicator_set_version="indicators-v1",
+        indicator_profile_version="core_v1",
+        derived_indicator_set_version="derived-v1",
+        derived_indicator_profile_version="core_v1",
+        volume_profile_raw_1m_table_path="   ",
+        volume_profile_tick_size_by_instrument={},
+    )
+
+    assert (
+        Path(str(config["volume_profile_raw_1m_table_path"]))
+        == (tmp_path / "raw" / "moex" / "baseline-4y-current" / "raw_moex_history.delta").resolve()
+    )
+    assert config["volume_profile_tick_size_by_instrument"]["FUT_BR"] == 0.01
+
+
+def test_research_dataset_asset_persists_absolute_volume_profile_raw_path(
+    tmp_path, monkeypatch
+) -> None:
+    config = research_assets._research_run_config(  # type: ignore[attr-defined]
+        canonical_output_dir=tmp_path / "canonical",
+        registry_root=tmp_path / "registry",
+        materialized_output_dir=tmp_path / "materialized",
+        results_output_dir=tmp_path / "results",
+        campaign_run_id="crun-relative-raw",
+        dataset_version="dataset-relative-raw",
+        timeframes=("15m",),
+        indicator_set_version="indicators-v1",
+        indicator_profile_version="core_v1",
+        derived_indicator_set_version="derived-v1",
+        derived_indicator_profile_version="core_v1",
+    )
+    config["volume_profile_raw_1m_table_path"] = "relative/raw_moex_history.delta"
+
+    monkeypatch.setattr(research_assets, "_load_canonical_context", lambda _config: ([], [], []))
+    monkeypatch.setattr(
+        research_assets,
+        "materialize_research_dataset",
+        lambda **_: {
+            "dataset_manifest": {"dataset_version": "dataset-relative-raw"},
+            "output_paths": {},
+        },
+    )
+
+    payload = research_assets.research_datasets(
+        build_op_context(op_config=config),
+        {"continuous_front_status": "PASS"},
+    )
+
+    assert Path(str(payload["volume_profile_raw_1m_table_path"])).is_absolute()
+
+
+def test_dagster_indicator_asset_passes_volume_profile_source_config(tmp_path, monkeypatch) -> None:
+    raw_1m_path = tmp_path / "raw_moex_history.delta"
+    captured: dict[str, object] = {}
+
+    def _fake_materialize_indicator_frames(**kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(
+        research_assets, "materialize_indicator_frames", _fake_materialize_indicator_frames
+    )
+    monkeypatch.setattr(
+        research_assets,
+        "_delta_table_summary",
+        lambda **_: {"table_name": "research_indicator_frames", "row_count": 1},
+    )
+
+    manifest = research_assets.research_indicator_frames(
+        {
+            "materialized_output_dir": tmp_path.as_posix(),
+            "dataset_version": "dataset-v1",
+            "indicator_set_version": "indicators-v1",
+            "indicator_profile_version": "core_v1",
+            "volume_profile_raw_1m_table_path": raw_1m_path.as_posix(),
+            "volume_profile_tick_size_by_instrument": {"BR": 1.0},
+            "reuse_existing_materialization": False,
+        },
+        {},
+    )
+
+    assert manifest["table_name"] == "research_indicator_frames"
+    assert captured["volume_profile_raw_1m_table_path"] == raw_1m_path
+    assert captured["volume_profile_tick_size_by_instrument"] == {"BR": 1.0}
+
+
+def test_dagster_indicator_asset_filters_invalid_volume_profile_tick_sizes(
+    tmp_path, monkeypatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_materialize_indicator_frames(**kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(
+        research_assets, "materialize_indicator_frames", _fake_materialize_indicator_frames
+    )
+    monkeypatch.setattr(
+        research_assets,
+        "_delta_table_summary",
+        lambda **_: {"table_name": "research_indicator_frames", "row_count": 1},
+    )
+
+    research_assets.research_indicator_frames(
+        {
+            "materialized_output_dir": tmp_path.as_posix(),
+            "dataset_version": "dataset-v1",
+            "indicator_set_version": "indicators-v1",
+            "indicator_profile_version": "core_v1",
+            "volume_profile_tick_size_by_instrument": {
+                "BR": 1.0,
+                "ZERO": 0,
+                "NEGATIVE": -1,
+                "NAN": float("nan"),
+                "TEXT": "bad",
+            },
+            "reuse_existing_materialization": False,
+        },
+        {},
+    )
+
+    assert captured["volume_profile_tick_size_by_instrument"] == {"BR": 1.0}
+
+
+def test_reused_dagster_indicator_asset_validates_existing_volume_profile_identity(
+    tmp_path, monkeypatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_materialize_indicator_frames(**kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(
+        research_assets, "materialize_indicator_frames", _fake_materialize_indicator_frames
+    )
+    monkeypatch.setattr(
+        research_assets,
+        "_delta_table_summary",
+        lambda **_: {"table_name": "research_indicator_frames", "row_count": 1},
+    )
+
+    research_assets.research_indicator_frames(
+        {
+            "materialized_output_dir": tmp_path.as_posix(),
+            "dataset_version": "dataset-v1",
+            "indicator_set_version": "indicators-v1",
+            "indicator_profile_version": "core_v1",
+            "volume_profile_raw_1m_table_path": (tmp_path / "raw.delta").as_posix(),
+            "volume_profile_tick_size_by_instrument": {"BR": 1.0},
+            "reuse_existing_materialization": True,
+        },
+        {},
+    )
+
+    assert captured["dataset_version"] == "dataset-v1"
+    assert captured["volume_profile_tick_size_by_instrument"] == {"BR": 1.0}
+
+
+def test_reused_dagster_derived_asset_validates_existing_indicator_identity(
+    tmp_path, monkeypatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_materialize_derived_indicator_frames(**kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(
+        research_assets,
+        "materialize_derived_indicator_frames",
+        _fake_materialize_derived_indicator_frames,
+    )
+    monkeypatch.setattr(
+        research_assets,
+        "_delta_table_summary",
+        lambda **_: {"table_name": "research_derived_indicator_frames", "row_count": 1},
+    )
+
+    research_assets.research_derived_indicator_frames(
+        {
+            "materialized_output_dir": tmp_path.as_posix(),
+            "dataset_version": "dataset-v1",
+            "indicator_set_version": "indicators-v1",
+            "derived_indicator_set_version": "derived-v1",
+            "derived_indicator_profile_version": "core_v1",
+            "reuse_existing_materialization": True,
+        },
+        {},
+        {},
+    )
+
+    assert captured["dataset_version"] == "dataset-v1"
+    assert captured["derived_indicator_set_version"] == "derived-v1"
+
+
+def test_backtest_result_manifest_fanout_does_not_reload_large_delta_tables(
+    tmp_path, monkeypatch
+) -> None:
     table_path = tmp_path / "research_order_records.delta"
     (table_path / "_delta_log").mkdir(parents=True, exist_ok=True)
     (table_path / "_delta_log" / "00000000000000000000.json").write_text("{}", encoding="utf-8")
@@ -143,7 +394,9 @@ def test_backtest_result_manifest_fanout_does_not_reload_large_delta_tables(tmp_
     }
 
 
-def test_backtest_ranking_inputs_use_projected_delta_columns_without_row_reload(tmp_path, monkeypatch) -> None:
+def test_backtest_ranking_inputs_use_projected_delta_columns_without_row_reload(
+    tmp_path, monkeypatch
+) -> None:
     table_path = tmp_path / "research_trade_records.delta"
     write_delta_table_rows(
         table_path=table_path,
@@ -212,7 +465,9 @@ def test_backtest_ranking_inputs_use_projected_delta_columns_without_row_reload(
     ]
 
 
-def test_dagster_backtest_handoff_passes_delta_manifests_into_ranking(tmp_path, monkeypatch) -> None:
+def test_dagster_backtest_handoff_passes_delta_manifests_into_ranking(
+    tmp_path, monkeypatch
+) -> None:
     results_dir = tmp_path / "results"
     ranking_path = results_dir / "research_strategy_rankings.delta"
     for table_name in (
@@ -287,7 +542,9 @@ def test_dagster_backtest_handoff_passes_delta_manifests_into_ranking(tmp_path, 
     }
 
 
-def test_reused_data_prep_validation_does_not_reload_materialized_research_rows(tmp_path, monkeypatch) -> None:
+def test_reused_data_prep_validation_does_not_reload_materialized_research_rows(
+    tmp_path, monkeypatch
+) -> None:
     dataset_contract = research_dataset_store_contract()
     indicator_contract = indicator_store_contract()
     derived_contract = research_derived_indicator_store_contract()
@@ -392,7 +649,9 @@ def test_reused_data_prep_validation_does_not_reload_materialized_research_rows(
     assert row_load_paths == ["research_datasets.delta"]
 
 
-def test_research_dataset_materialization_replaces_delta_version_without_existing_row_reload(tmp_path, monkeypatch) -> None:
+def test_research_dataset_materialization_replaces_delta_version_without_existing_row_reload(
+    tmp_path, monkeypatch
+) -> None:
     bars = [
         CanonicalBar.from_dict(
             {
@@ -409,7 +668,11 @@ def test_research_dataset_materialization_replaces_delta_version_without_existin
             }
         )
     ]
-    calendar = [SessionCalendarEntry("FUT_BR", "15m", "2026-04-30", "2026-04-30T10:00:00Z", "2026-04-30T10:00:00Z")]
+    calendar = [
+        SessionCalendarEntry(
+            "FUT_BR", "15m", "2026-04-30", "2026-04-30T10:00:00Z", "2026-04-30T10:00:00Z"
+        )
+    ]
     roll_map = [RollMapEntry("FUT_BR", "2026-04-30", "BRQ2@MOEX", "test")]
     manifest = ResearchDatasetManifest(
         dataset_version="native-dataset-v1",
@@ -432,9 +695,17 @@ def test_research_dataset_materialization_replaces_delta_version_without_existin
     )
 
     def _forbidden_existing_reload(*_: object, **__: object) -> None:
-        raise AssertionError("dataset materialization must not reload existing Delta rows before replacement")
+        raise AssertionError(
+            "dataset materialization must not reload existing Delta rows before replacement"
+        )
 
-    monkeypatch.setattr(dataset_materialize_module, "read_delta_table_rows", _forbidden_existing_reload)
+    for reader_name in (
+        "read_delta_table_rows",
+        "read_small_delta_table_rows",
+        "read_filtered_delta_table_rows",
+    ):
+        if hasattr(dataset_materialize_module, reader_name):
+            monkeypatch.setattr(dataset_materialize_module, reader_name, _forbidden_existing_reload)
     materialize_research_dataset(
         manifest_seed=manifest,
         bars=bars,
@@ -443,12 +714,17 @@ def test_research_dataset_materialization_replaces_delta_version_without_existin
         output_dir=tmp_path,
     )
 
-    rows = read_delta_table_rows(tmp_path / "research_bar_views.delta", filters=[("dataset_version", "=", "native-dataset-v1")])
+    rows = read_delta_table_rows(
+        tmp_path / "research_bar_views.delta",
+        filters=[("dataset_version", "=", "native-dataset-v1")],
+    )
     assert len(rows) == 1
     assert rows[0]["contract_id"] == "BRQ2@MOEX"
 
 
-def test_indicator_store_replaces_partition_with_delta_delete_append_without_row_reload(tmp_path, monkeypatch) -> None:
+def test_indicator_store_replaces_partition_with_delta_delete_append_without_row_reload(
+    tmp_path, monkeypatch
+) -> None:
     path = tmp_path / "research_indicator_frames.delta"
     columns = indicator_store_contract()["research_indicator_frames"]["columns"]
     partition = IndicatorFramePartitionKey(
@@ -502,9 +778,13 @@ def test_indicator_store_replaces_partition_with_delta_delete_append_without_row
     assert rows[0]["source_bars_hash"] == "NEW"
 
 
-def test_derived_store_replaces_partition_with_delta_delete_append_without_row_reload(tmp_path, monkeypatch) -> None:
+def test_derived_store_replaces_partition_with_delta_delete_append_without_row_reload(
+    tmp_path, monkeypatch
+) -> None:
     path = tmp_path / "research_derived_indicator_frames.delta"
-    columns = research_derived_indicator_store_contract()["research_derived_indicator_frames"]["columns"]
+    columns = research_derived_indicator_store_contract()["research_derived_indicator_frames"][
+        "columns"
+    ]
     partition = DerivedIndicatorFramePartitionKey(
         dataset_version="dataset-v1",
         indicator_set_version="indicators-v1",
@@ -553,7 +833,9 @@ def test_derived_store_replaces_partition_with_delta_delete_append_without_row_r
         raise AssertionError("derived partition replacement must not reload existing rows")
 
     monkeypatch.setattr(derived_store_module, "read_delta_table_rows", _forbidden_row_reload)
-    write_derived_indicator_frames(output_dir=tmp_path, rows=[replacement], replace_partitions=(partition,))
+    write_derived_indicator_frames(
+        output_dir=tmp_path, rows=[replacement], replace_partitions=(partition,)
+    )
 
     rows = read_delta_table_rows(path, filters=[("dataset_version", "=", "dataset-v1")])
     assert len(rows) == 1
@@ -561,14 +843,18 @@ def test_derived_store_replaces_partition_with_delta_delete_append_without_row_r
     assert rows[0]["source_bars_hash"] == "NEW"
 
 
-def test_research_contract_lineage_is_consistent_across_dataset_indicator_and_derived_layers() -> None:
+def test_research_contract_lineage_is_consistent_across_dataset_indicator_and_derived_layers() -> (
+    None
+):
     dataset_manifest = research_dataset_store_contract()
     continuous_manifest = continuous_front_store_contract()
     indicator_manifest = indicator_store_contract()
     derived_manifest = research_derived_indicator_store_contract()
 
     assert "continuous_front_bars" in continuous_manifest
-    assert {"research_datasets", "research_instrument_tree", "research_bar_views"} == set(dataset_manifest)
+    assert {"research_datasets", "research_instrument_tree", "research_bar_views"} == set(
+        dataset_manifest
+    )
     assert "research_indicator_frames" in indicator_manifest
     assert "research_derived_indicator_frames" in derived_manifest
     indicator_columns = set(indicator_manifest["research_indicator_frames"]["columns"])
@@ -638,4 +924,3 @@ def test_research_default_strategy_space_follows_frozen_stg02_adapter_inventory(
     )
     assert default_strategy_space["max_parameter_combinations"] == 250000
     assert "materialize_instances" not in default_strategy_space
-

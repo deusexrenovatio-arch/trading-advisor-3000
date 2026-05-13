@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
-from dataclasses import dataclass
 import hashlib
 import json
+import math
+from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
@@ -12,8 +13,13 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     read_delta_table_rows,
     write_delta_table_row_batches,
 )
-from trading_advisor_3000.product_plane.research.indicators.registry import IndicatorProfile, default_indicator_profile
-
+from trading_advisor_3000.product_plane.research.indicators.registry import (
+    IndicatorProfile,
+    default_indicator_profile,
+)
+from trading_advisor_3000.product_plane.research.indicators.volume_profile import (
+    VOLUME_PROFILE_INT_COLUMNS,
+)
 
 DEFAULT_INDICATOR_WRITE_BATCH_ROWS = 100_000
 INDICATOR_PARTITION_METADATA_COLUMNS = (
@@ -143,11 +149,19 @@ class IndicatorFrameRow:
             "created_at",
             "output_columns_hash",
         }
-        values = {
-            key: (None if payload[key] is None else float(payload[key]))
-            for key in payload
-            if key not in reserved
-        }
+        values = {}
+        for key in payload:
+            if key in reserved:
+                continue
+            if payload[key] is None:
+                values[key] = None
+            elif key in VOLUME_PROFILE_INT_COLUMNS:
+                numeric = float(payload[key])
+                if not math.isfinite(numeric) or not numeric.is_integer():
+                    raise ValueError(f"volume profile integer column `{key}` must be integral")
+                values[key] = int(numeric)
+            else:
+                values[key] = float(payload[key])
         return cls(
             dataset_version=str(payload["dataset_version"]),
             indicator_set_version=str(payload["indicator_set_version"]),
@@ -172,7 +186,9 @@ def indicator_output_columns_hash(output_columns: tuple[str, ...]) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16].upper()
 
 
-def indicator_store_contract(profile: IndicatorProfile | None = None) -> dict[str, dict[str, object]]:
+def indicator_store_contract(
+    profile: IndicatorProfile | None = None,
+) -> dict[str, dict[str, object]]:
     profile = profile or default_indicator_profile()
     columns = {
         "dataset_version": "string",
@@ -182,7 +198,10 @@ def indicator_store_contract(profile: IndicatorProfile | None = None) -> dict[st
         "instrument_id": "string",
         "timeframe": "string",
         "ts": "timestamp",
-        **{column: "double" for column in profile.expected_output_columns()},
+        **{
+            column: "int" if column in VOLUME_PROFILE_INT_COLUMNS else "double"
+            for column in profile.expected_output_columns()
+        },
         "source_bars_hash": "string",
         "source_dataset_bars_hash": "string",
         "row_count": "int",
@@ -194,8 +213,15 @@ def indicator_store_contract(profile: IndicatorProfile | None = None) -> dict[st
     return {
         "research_indicator_frames": {
             "format": "delta",
-            "partition_by": ["dataset_version", "indicator_set_version", "instrument_id", "timeframe"],
-            "constraints": ["unique(dataset_version, indicator_set_version, contract_id, timeframe, ts)"],
+            "partition_by": [
+                "dataset_version",
+                "indicator_set_version",
+                "instrument_id",
+                "timeframe",
+            ],
+            "constraints": [
+                "unique(dataset_version, indicator_set_version, contract_id, timeframe, ts)"
+            ],
             "columns": columns,
         }
     }
@@ -236,7 +262,9 @@ def _partition_delete_predicate(partition: IndicatorFramePartitionKey) -> str:
 def _replace_partitions_predicate(partitions: tuple[IndicatorFramePartitionKey, ...]) -> str | None:
     if not partitions:
         return None
-    unique_partitions = tuple(sorted(set(partitions), key=lambda partition: partition.partition_path()))
+    unique_partitions = tuple(
+        sorted(set(partitions), key=lambda partition: partition.partition_path())
+    )
     return " OR ".join(_partition_delete_predicate(partition) for partition in unique_partitions)
 
 
@@ -290,11 +318,16 @@ def load_indicator_partition_metadata(
 ) -> list[dict[str, object]]:
     path = output_dir / "research_indicator_frames.delta"
     existing_columns = set(delta_table_columns(path))
-    read_columns = [column for column in INDICATOR_PARTITION_METADATA_COLUMNS if column in existing_columns]
+    read_columns = [
+        column for column in INDICATOR_PARTITION_METADATA_COLUMNS if column in existing_columns
+    ]
     metadata_by_partition: dict[tuple[object, ...], dict[str, object]] = {}
     for batch in iter_delta_table_row_batches(path, columns=read_columns):
         for row in batch:
-            if row.get("dataset_version") != dataset_version or row.get("indicator_set_version") != indicator_set_version:
+            if (
+                row.get("dataset_version") != dataset_version
+                or row.get("indicator_set_version") != indicator_set_version
+            ):
                 continue
             for column in INDICATOR_PARTITION_METADATA_COLUMNS:
                 row.setdefault(column, None)
@@ -345,7 +378,9 @@ def load_indicator_partition_rows(
             )
         )
     )
-    rows = _read_rows_with_existing_columns(path=path, requested_columns=requested_columns, filters=filters)
+    rows = _read_rows_with_existing_columns(
+        path=path, requested_columns=requested_columns, filters=filters
+    )
     return sorted((IndicatorFrameRow.from_dict(row) for row in rows), key=lambda row: row.ts)
 
 
@@ -385,15 +420,16 @@ def load_indicator_frames(
                 )
             )
         )
-        rows = _read_rows_with_existing_columns(path=path, requested_columns=requested_columns, filters=filters)
-    return [
-        IndicatorFrameRow.from_dict(row)
-        for row in rows
-    ]
+        rows = _read_rows_with_existing_columns(
+            path=path, requested_columns=requested_columns, filters=filters
+        )
+    return [IndicatorFrameRow.from_dict(row) for row in rows]
 
 
 def existing_indicator_value_columns(*, output_dir: Path) -> tuple[str, ...]:
     path = output_dir / "research_indicator_frames.delta"
     if not (path / "_delta_log").exists():
         return ()
-    return tuple(column for column in delta_table_columns(path) if column not in INDICATOR_RESERVED_COLUMNS)
+    return tuple(
+        column for column in delta_table_columns(path) if column not in INDICATOR_RESERVED_COLUMNS
+    )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
@@ -11,6 +12,7 @@ from dagster import (
     DagsterRunStatus,
     DefaultSensorStatus,
     Definitions,
+    Field,
     RunRequest,
     asset,
     define_asset_job,
@@ -36,6 +38,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     CANONICAL_BASELINE_ROOT_RELATIVE_PATH,
     MOEX_HISTORICAL_DATA_ROOT_ENV,
+    RAW_BASELINE_TABLE_RELATIVE_PATH,
 )
 from trading_advisor_3000.product_plane.research.backtests import (
     BacktestBatchRequest,
@@ -100,6 +103,7 @@ RESEARCH_DATA_PREP_TIMEFRAMES_ENV = "TA3000_RESEARCH_DATA_PREP_TIMEFRAMES"
 RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_ENV = (
     "TA3000_RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_JSON"
 )
+RESEARCH_VOLUME_PROFILE_RAW_1M_TABLE_PATH_ENV = "TA3000_RESEARCH_VOLUME_PROFILE_RAW_1M_TABLE_PATH"
 
 DEFAULT_MOEX_HISTORICAL_DATA_ROOT = Path("D:/TA3000-data/trading-advisor-3000-nightly")
 DEFAULT_RESEARCH_DATA_PREP_CANONICAL_OUTPUT_DIR = (
@@ -116,6 +120,21 @@ DEFAULT_RESEARCH_DATA_PREP_DATASET_NAME = "moex-research-current"
 DEFAULT_RESEARCH_DATA_PREP_TIMEFRAMES = ("15m", "1h", "4h", "1d")
 DEFAULT_RESEARCH_DATA_PREP_BASE_TIMEFRAME = "15m"
 DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS = 300
+DEFAULT_VOLUME_PROFILE_TICK_SIZE_BY_INSTRUMENT = {
+    "FUT_BR": 0.01,
+    "FUT_NG": 0.001,
+    "FUT_GOLD": 0.1,
+    "FUT_SILV": 0.01,
+    "FUT_PLD": 0.01,
+    "FUT_PLT": 0.1,
+    "FUT_WHEAT": 10.0,
+    "FUT_RTS": 10.0,
+    "FUT_MIX": 25.0,
+    "FUT_MXI": 0.05,
+    "FUT_NASD": 1.0,
+    "FUT_SPYF": 0.01,
+    "FUT_RGBI": 1.0,
+}
 
 RESEARCH_DATA_PREP_ASSETS = (
     "continuous_front_bars",
@@ -500,6 +519,8 @@ def _research_config_schema() -> dict[str, object]:
         "indicator_profile_version": str,
         "derived_indicator_set_version": str,
         "derived_indicator_profile_version": str,
+        "volume_profile_raw_1m_table_path": Field(str, default_value="", is_required=False),
+        "volume_profile_tick_size_by_instrument": Field(dict, default_value={}, is_required=False),
         "code_version": str,
         "strategy_space": dict,
         "strategy_space_id": str,
@@ -1157,6 +1178,9 @@ def research_datasets(context, continuous_front_qc_report: dict[str, object]) ->
         if isinstance(strategy_space_config, Mapping)
         else {"engine": "grid"}
     )
+    resolved_volume_profile_raw_1m_table_path = _resolve_volume_profile_raw_1m_table_path(
+        _config_value(config, "volume_profile_raw_1m_table_path", "")
+    )
     return {
         "canonical_output_dir": Path(str(_config_value(config, "canonical_output_dir")))
         .resolve()
@@ -1174,6 +1198,11 @@ def research_datasets(context, continuous_front_qc_report: dict[str, object]) ->
         "derived_indicator_set_version": derived_indicator_set_version,
         "derived_indicator_profile_version": str(
             _config_value(config, "derived_indicator_profile_version", "core_v1")
+        ),
+        "volume_profile_raw_1m_table_path": resolved_volume_profile_raw_1m_table_path,
+        "volume_profile_tick_size_by_instrument": _normalize_volume_profile_tick_sizes(
+            _config_value(config, "volume_profile_tick_size_by_instrument", {}),
+            strict=False,
         ),
         "backtest_request": {
             "strategy_space_id": str(_config_value(config, "strategy_space_id")),
@@ -1274,14 +1303,29 @@ def research_indicator_frames(
     dataset_version = str(research_datasets["dataset_version"])
     indicator_set_version = str(research_datasets["indicator_set_version"])
     profile_version = str(research_datasets["indicator_profile_version"])
-    if not bool(research_datasets.get("reuse_existing_materialization")):
-        materialize_indicator_frames(
-            dataset_output_dir=materialized_output_dir,
-            indicator_output_dir=materialized_output_dir,
-            dataset_version=dataset_version,
-            indicator_set_version=indicator_set_version,
-            profile_version=profile_version,
-        )
+    volume_profile_raw_1m_table_path = str(
+        research_datasets.get("volume_profile_raw_1m_table_path", "") or ""
+    ).strip()
+    raw_1m_table_path = (
+        Path(volume_profile_raw_1m_table_path) if volume_profile_raw_1m_table_path else None
+    )
+    if raw_1m_table_path is not None and not has_delta_log(raw_1m_table_path):
+        default_raw_1m_table_path = _default_volume_profile_raw_1m_table_path().resolve()
+        if raw_1m_table_path.resolve() == default_raw_1m_table_path:
+            raw_1m_table_path = None
+    tick_size_by_instrument = _normalize_volume_profile_tick_sizes(
+        research_datasets.get("volume_profile_tick_size_by_instrument", {}),
+        strict=False,
+    )
+    materialize_indicator_frames(
+        dataset_output_dir=materialized_output_dir,
+        indicator_output_dir=materialized_output_dir,
+        dataset_version=dataset_version,
+        indicator_set_version=indicator_set_version,
+        profile_version=profile_version,
+        volume_profile_raw_1m_table_path=raw_1m_table_path,
+        volume_profile_tick_size_by_instrument=tick_size_by_instrument or None,
+    )
     return _materialized_table_manifest(research_datasets, "research_indicator_frames")
 
 
@@ -1298,16 +1342,16 @@ def research_derived_indicator_frames(
     indicator_set_version = str(research_datasets["indicator_set_version"])
     derived_indicator_set_version = str(research_datasets["derived_indicator_set_version"])
     profile_version = str(research_datasets["derived_indicator_profile_version"])
+    materialize_derived_indicator_frames(
+        dataset_output_dir=materialized_output_dir,
+        indicator_output_dir=materialized_output_dir,
+        derived_indicator_output_dir=materialized_output_dir,
+        dataset_version=dataset_version,
+        indicator_set_version=indicator_set_version,
+        derived_indicator_set_version=derived_indicator_set_version,
+        profile_version=profile_version,
+    )
     if not bool(research_datasets.get("reuse_existing_materialization")):
-        materialize_derived_indicator_frames(
-            dataset_output_dir=materialized_output_dir,
-            indicator_output_dir=materialized_output_dir,
-            derived_indicator_output_dir=materialized_output_dir,
-            dataset_version=dataset_version,
-            indicator_set_version=indicator_set_version,
-            derived_indicator_set_version=derived_indicator_set_version,
-            profile_version=profile_version,
-        )
         dataset_manifest = dict(research_datasets.get("dataset_manifest") or {})
         if str(dataset_manifest.get("series_mode")) == "continuous_front":
             continuous_front_indicator_run_id = str(
@@ -1873,6 +1917,48 @@ def _default_research_results_output_dir() -> Path:
     return _default_moex_historical_data_root() / "research" / "runs" / "data-prep"
 
 
+def _default_volume_profile_raw_1m_table_path() -> Path:
+    return _default_moex_historical_data_root() / RAW_BASELINE_TABLE_RELATIVE_PATH
+
+
+def _default_volume_profile_tick_size_by_instrument() -> dict[str, float]:
+    return dict(DEFAULT_VOLUME_PROFILE_TICK_SIZE_BY_INSTRUMENT)
+
+
+def _normalize_volume_profile_tick_sizes(
+    raw_tick_sizes: object, *, strict: bool
+) -> dict[str, float]:
+    if raw_tick_sizes is None:
+        return {}
+    if not isinstance(raw_tick_sizes, Mapping):
+        if strict:
+            raise ValueError("volume profile tick sizes must be a mapping")
+        return {}
+    resolved: dict[str, float] = {}
+    for instrument_id, tick_size in raw_tick_sizes.items():
+        try:
+            resolved_tick_size = float(tick_size)
+        except (TypeError, ValueError) as exc:
+            if strict:
+                raise ValueError(f"invalid volume profile tick_size for {instrument_id!s}") from exc
+            continue
+        if not math.isfinite(resolved_tick_size) or resolved_tick_size <= 0:
+            if strict:
+                raise ValueError(f"invalid volume profile tick_size for {instrument_id!s}")
+            continue
+        resolved[str(instrument_id)] = resolved_tick_size
+    return resolved
+
+
+def _resolve_volume_profile_raw_1m_table_path(raw_path: object) -> str:
+    if isinstance(raw_path, str):
+        trimmed = raw_path.strip()
+        path: object = trimmed or _default_volume_profile_raw_1m_table_path()
+    else:
+        path = raw_path or _default_volume_profile_raw_1m_table_path()
+    return Path(path).resolve().as_posix()
+
+
 def _env_text(env_name: str, default: str) -> str:
     return os.environ.get(env_name, "").strip() or default
 
@@ -1944,6 +2030,8 @@ def build_research_data_prep_run_config(
     indicator_profile_version: str = "core_v1",
     derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
     derived_indicator_profile_version: str = "core_v1",
+    volume_profile_raw_1m_table_path: str | Path | None = None,
+    volume_profile_tick_size_by_instrument: Mapping[str, float] | None = None,
 ) -> dict[str, object]:
     resolved_canonical_output_dir = (
         canonical_output_dir.resolve()
@@ -1979,6 +2067,23 @@ def build_research_data_prep_run_config(
         RESEARCH_DATA_PREP_DATASET_VERSION_ENV,
         DEFAULT_RESEARCH_DATA_PREP_DATASET_VERSION,
     )
+    normalized_volume_profile_raw_1m_table_path = (
+        volume_profile_raw_1m_table_path.strip()
+        if isinstance(volume_profile_raw_1m_table_path, str)
+        else volume_profile_raw_1m_table_path
+    )
+    resolved_volume_profile_raw_1m_table_path = (
+        Path(normalized_volume_profile_raw_1m_table_path).resolve()
+        if normalized_volume_profile_raw_1m_table_path
+        else _env_path(
+            RESEARCH_VOLUME_PROFILE_RAW_1M_TABLE_PATH_ENV,
+            _default_volume_profile_raw_1m_table_path(),
+        )
+    )
+    resolved_volume_profile_tick_size_by_instrument = _normalize_volume_profile_tick_sizes(
+        volume_profile_tick_size_by_instrument or _default_volume_profile_tick_size_by_instrument(),
+        strict=True,
+    )
     registry_root = research_registry_root(materialized_root=resolved_materialized_output_dir)
     research_config = _research_run_config(
         canonical_output_dir=resolved_canonical_output_dir,
@@ -1997,6 +2102,8 @@ def build_research_data_prep_run_config(
         indicator_profile_version=indicator_profile_version,
         derived_indicator_set_version=derived_indicator_set_version,
         derived_indicator_profile_version=derived_indicator_profile_version,
+        volume_profile_raw_1m_table_path=resolved_volume_profile_raw_1m_table_path,
+        volume_profile_tick_size_by_instrument=resolved_volume_profile_tick_size_by_instrument,
         code_version="research-data-prep-after-moex",
         strategy_space_id="",
         combination_count=0,
@@ -2156,6 +2263,8 @@ def _research_run_config(
     indicator_profile_version: str,
     derived_indicator_set_version: str,
     derived_indicator_profile_version: str,
+    volume_profile_raw_1m_table_path: str | Path | None = None,
+    volume_profile_tick_size_by_instrument: Mapping[str, float] | None = None,
     code_version: str = "research-orchestration",
     strategy_space: dict[str, object] | None = None,
     strategy_space_id: str = "",
@@ -2188,6 +2297,13 @@ def _research_run_config(
 ) -> dict[str, object]:
     resolved_strategy_space = dict(strategy_space or _default_strategy_space())
     resolved_timeframes = [str(item) for item in timeframes]
+    resolved_volume_profile_raw_1m_table_path = _resolve_volume_profile_raw_1m_table_path(
+        volume_profile_raw_1m_table_path
+    )
+    resolved_volume_profile_tick_size_by_instrument = _normalize_volume_profile_tick_sizes(
+        volume_profile_tick_size_by_instrument or _default_volume_profile_tick_size_by_instrument(),
+        strict=True,
+    )
     resolved_materialized_output_dir, resolved_results_output_dir = _resolve_research_output_dirs(
         research_output_dir=research_output_dir,
         materialized_output_dir=materialized_output_dir,
@@ -2220,6 +2336,8 @@ def _research_run_config(
         "indicator_profile_version": indicator_profile_version,
         "derived_indicator_set_version": derived_indicator_set_version,
         "derived_indicator_profile_version": derived_indicator_profile_version,
+        "volume_profile_raw_1m_table_path": resolved_volume_profile_raw_1m_table_path,
+        "volume_profile_tick_size_by_instrument": resolved_volume_profile_tick_size_by_instrument,
         "code_version": code_version,
         "strategy_space": resolved_strategy_space,
         "strategy_space_id": strategy_space_id,
@@ -2279,6 +2397,8 @@ def _materialize_research_assets(
     indicator_profile_version: str = "core_v1",
     derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
     derived_indicator_profile_version: str = "core_v1",
+    volume_profile_raw_1m_table_path: str | Path | None = None,
+    volume_profile_tick_size_by_instrument: Mapping[str, float] | None = None,
     code_version: str = "research-orchestration",
     strategy_space: dict[str, object] | None = None,
     combination_count: int = 1,
@@ -2389,6 +2509,8 @@ def _materialize_research_assets(
         indicator_profile_version=indicator_profile_version,
         derived_indicator_set_version=derived_indicator_set_version,
         derived_indicator_profile_version=derived_indicator_profile_version,
+        volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
+        volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
         code_version=code_version,
         strategy_space=dict(strategy_space or _default_strategy_space()),
         strategy_space_id=strategy_space_id,
@@ -2491,6 +2613,8 @@ def materialize_research_data_prep_assets(
     indicator_profile_version: str = "core_v1",
     derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
     derived_indicator_profile_version: str = "core_v1",
+    volume_profile_raw_1m_table_path: str | Path | None = None,
+    volume_profile_tick_size_by_instrument: Mapping[str, float] | None = None,
     code_version: str = "research-data-prep-orchestration",
     reuse_existing_materialization: bool = False,
     selection: Sequence[str] | None = None,
@@ -2523,6 +2647,8 @@ def materialize_research_data_prep_assets(
         indicator_profile_version=indicator_profile_version,
         derived_indicator_set_version=derived_indicator_set_version,
         derived_indicator_profile_version=derived_indicator_profile_version,
+        volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
+        volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
         code_version=code_version,
         reuse_existing_materialization=reuse_existing_materialization,
         raise_on_error=raise_on_error,
@@ -2554,6 +2680,8 @@ def materialize_strategy_registry_refresh_assets(
     indicator_profile_version: str = "core_v1",
     derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
     derived_indicator_profile_version: str = "core_v1",
+    volume_profile_raw_1m_table_path: str | Path | None = None,
+    volume_profile_tick_size_by_instrument: Mapping[str, float] | None = None,
     code_version: str = "strategy-registry-refresh-orchestration",
     strategy_space: dict[str, object] | None = None,
     combination_count: int = 1,
@@ -2597,6 +2725,8 @@ def materialize_strategy_registry_refresh_assets(
         indicator_profile_version=indicator_profile_version,
         derived_indicator_set_version=derived_indicator_set_version,
         derived_indicator_profile_version=derived_indicator_profile_version,
+        volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
+        volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
         code_version=code_version,
         strategy_space=strategy_space,
         combination_count=combination_count,
@@ -2639,6 +2769,8 @@ def materialize_research_backtest_assets(
     indicator_profile_version: str = "core_v1",
     derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
     derived_indicator_profile_version: str = "core_v1",
+    volume_profile_raw_1m_table_path: str | Path | None = None,
+    volume_profile_tick_size_by_instrument: Mapping[str, float] | None = None,
     code_version: str = "research-backtest-orchestration",
     strategy_space: dict[str, object] | None = None,
     combination_count: int = 1,
@@ -2696,6 +2828,8 @@ def materialize_research_backtest_assets(
         indicator_profile_version=indicator_profile_version,
         derived_indicator_set_version=derived_indicator_set_version,
         derived_indicator_profile_version=derived_indicator_profile_version,
+        volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
+        volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
         code_version=code_version,
         strategy_space=strategy_space,
         combination_count=combination_count,
@@ -2752,6 +2886,8 @@ def materialize_research_projection_assets(
     indicator_profile_version: str = "core_v1",
     derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
     derived_indicator_profile_version: str = "core_v1",
+    volume_profile_raw_1m_table_path: str | Path | None = None,
+    volume_profile_tick_size_by_instrument: Mapping[str, float] | None = None,
     code_version: str = "research-projection-orchestration",
     strategy_space: dict[str, object] | None = None,
     combination_count: int = 1,
@@ -2809,6 +2945,8 @@ def materialize_research_projection_assets(
         indicator_profile_version=indicator_profile_version,
         derived_indicator_set_version=derived_indicator_set_version,
         derived_indicator_profile_version=derived_indicator_profile_version,
+        volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
+        volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
         code_version=code_version,
         strategy_space=strategy_space,
         combination_count=combination_count,

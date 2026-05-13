@@ -2,12 +2,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from trading_advisor_3000.product_plane.contracts import CanonicalBar
-from trading_advisor_3000.product_plane.data_plane.canonical import RollMapEntry, SessionCalendarEntry
-from trading_advisor_3000.product_plane.research.datasets import ResearchDatasetManifest, materialize_research_dataset
+from trading_advisor_3000.product_plane.data_plane.canonical import (
+    RollMapEntry,
+    SessionCalendarEntry,
+)
+from trading_advisor_3000.product_plane.research.datasets import (
+    ResearchDatasetManifest,
+    materialize_research_dataset,
+)
 from trading_advisor_3000.product_plane.research.derived_indicators import (
     DerivedIndicatorProfile,
     current_derived_indicator_profile,
+)
+from trading_advisor_3000.product_plane.research.derived_indicators.materialize import (
     materialize_derived_indicator_frames,
     reload_derived_indicator_frames,
 )
@@ -17,12 +27,19 @@ from trading_advisor_3000.product_plane.research.indicators import (
     IndicatorSpec,
     default_indicator_profile,
     materialize_indicator_frames,
+)
+from trading_advisor_3000.product_plane.research.indicators.materialize import (
     reload_indicator_frames,
 )
 
 
-def _canonical_bar(*, contract_id: str = "BR-6.26", instrument_id: str = "BR", index: int, close: float) -> CanonicalBar:
-    ts = f"2026-03-{1 + (index // 48):02d}T{9 + ((index % 48) // 4):02d}:{((index % 4) * 15):02d}:00Z"
+def _canonical_bar(
+    *, contract_id: str = "BR-6.26", instrument_id: str = "BR", index: int, close: float
+) -> CanonicalBar:
+    day = 1 + (index // 48)
+    hour = 9 + ((index % 48) // 4)
+    minute = (index % 4) * 15
+    ts = f"2026-03-{day:02d}T{hour:02d}:{minute:02d}:00Z"
     return CanonicalBar.from_dict(
         {
             "contract_id": contract_id,
@@ -42,8 +59,12 @@ def _canonical_bar(*, contract_id: str = "BR-6.26", instrument_id: str = "BR", i
 def test_indicator_materialization_and_reload_from_dataset_layer(tmp_path: Path) -> None:
     bars = [_canonical_bar(index=index, close=80.0 + index * 0.25) for index in range(72)]
     session_calendar = [
-        SessionCalendarEntry("BR", "15m", "2026-03-01", "2026-03-01T09:00:00Z", "2026-03-01T20:45:00Z"),
-        SessionCalendarEntry("BR", "15m", "2026-03-02", "2026-03-02T09:00:00Z", "2026-03-02T20:45:00Z"),
+        SessionCalendarEntry(
+            "BR", "15m", "2026-03-01", "2026-03-01T09:00:00Z", "2026-03-01T20:45:00Z"
+        ),
+        SessionCalendarEntry(
+            "BR", "15m", "2026-03-02", "2026-03-02T09:00:00Z", "2026-03-02T20:45:00Z"
+        ),
     ]
     roll_map = [
         RollMapEntry("BR", "2026-03-01", "BR-6.26", "test"),
@@ -97,14 +118,32 @@ def test_indicator_materialization_and_reload_from_dataset_layer(tmp_path: Path)
 
 def test_indicator_materialization_recomputes_only_affected_partitions(tmp_path: Path) -> None:
     bars_v1 = [
-        *[_canonical_bar(contract_id="BR-6.26", instrument_id="BR", index=index, close=80.0 + index * 0.2) for index in range(60)],
-        *[_canonical_bar(contract_id="Si-6.26", instrument_id="Si", index=index, close=90000.0 + index * 2) for index in range(60)],
+        *[
+            _canonical_bar(
+                contract_id="BR-6.26", instrument_id="BR", index=index, close=80.0 + index * 0.2
+            )
+            for index in range(60)
+        ],
+        *[
+            _canonical_bar(
+                contract_id="Si-6.26", instrument_id="Si", index=index, close=90000.0 + index * 2
+            )
+            for index in range(60)
+        ],
     ]
     session_calendar = [
-        SessionCalendarEntry("BR", "15m", "2026-03-01", "2026-03-01T09:00:00Z", "2026-03-01T20:45:00Z"),
-        SessionCalendarEntry("Si", "15m", "2026-03-01", "2026-03-01T09:00:00Z", "2026-03-01T20:45:00Z"),
-        SessionCalendarEntry("BR", "15m", "2026-03-02", "2026-03-02T09:00:00Z", "2026-03-02T20:45:00Z"),
-        SessionCalendarEntry("Si", "15m", "2026-03-02", "2026-03-02T09:00:00Z", "2026-03-02T20:45:00Z"),
+        SessionCalendarEntry(
+            "BR", "15m", "2026-03-01", "2026-03-01T09:00:00Z", "2026-03-01T20:45:00Z"
+        ),
+        SessionCalendarEntry(
+            "Si", "15m", "2026-03-01", "2026-03-01T09:00:00Z", "2026-03-01T20:45:00Z"
+        ),
+        SessionCalendarEntry(
+            "BR", "15m", "2026-03-02", "2026-03-02T09:00:00Z", "2026-03-02T20:45:00Z"
+        ),
+        SessionCalendarEntry(
+            "Si", "15m", "2026-03-02", "2026-03-02T09:00:00Z", "2026-03-02T20:45:00Z"
+        ),
     ]
     roll_map = [
         RollMapEntry("BR", "2026-03-01", "BR-6.26", "test"),
@@ -147,11 +186,17 @@ def test_indicator_materialization_recomputes_only_affected_partitions(tmp_path:
         dataset_version="dataset-inc-v1",
         indicator_set_version="indicators-v1",
     )
-    first_br_created_at = {row.ts: row.created_at for row in first_rows if row.instrument_id == "BR"}
-    first_si_created_at = {row.ts: row.created_at for row in first_rows if row.instrument_id == "Si"}
+    first_br_created_at = {
+        row.ts: row.created_at for row in first_rows if row.instrument_id == "BR"
+    }
+    first_si_created_at = {
+        row.ts: row.created_at for row in first_rows if row.instrument_id == "Si"
+    }
 
     bars_v2 = [
-        row if not (row.instrument_id == "BR" and row.ts == "2026-03-02T11:45:00Z") else CanonicalBar.from_dict(
+        row
+        if not (row.instrument_id == "BR" and row.ts == "2026-03-02T11:45:00Z")
+        else CanonicalBar.from_dict(
             {
                 "contract_id": row.contract_id,
                 "instrument_id": row.instrument_id,
@@ -188,16 +233,24 @@ def test_indicator_materialization_recomputes_only_affected_partitions(tmp_path:
         dataset_version="dataset-inc-v1",
         indicator_set_version="indicators-v1",
     )
-    second_br_created_at = {row.ts: row.created_at for row in second_rows if row.instrument_id == "BR"}
-    second_si_created_at = {row.ts: row.created_at for row in second_rows if row.instrument_id == "Si"}
+    second_br_created_at = {
+        row.ts: row.created_at for row in second_rows if row.instrument_id == "BR"
+    }
+    second_si_created_at = {
+        row.ts: row.created_at for row in second_rows if row.instrument_id == "Si"
+    }
     assert first_si_created_at == second_si_created_at
     assert first_br_created_at != second_br_created_at
 
 
-def test_indicator_materialization_extends_profile_without_recomputing_existing_columns(tmp_path: Path) -> None:
+def test_indicator_materialization_extends_profile_without_recomputing_existing_columns(
+    tmp_path: Path,
+) -> None:
     bars = [_canonical_bar(index=index, close=80.0 + index * 0.25) for index in range(40)]
     session_calendar = [
-        SessionCalendarEntry("BR", "15m", "2026-03-01", "2026-03-01T09:00:00Z", "2026-03-01T20:45:00Z"),
+        SessionCalendarEntry(
+            "BR", "15m", "2026-03-01", "2026-03-01T09:00:00Z", "2026-03-01T20:45:00Z"
+        ),
     ]
     roll_map = [RollMapEntry("BR", "2026-03-01", "BR-6.26", "test")]
     dataset_dir = tmp_path / "dataset-profile-extension"
@@ -289,16 +342,36 @@ def test_indicator_materialization_extends_profile_without_recomputing_existing_
     assert second_rows[-1].profile_version == "test_profile_v2"
 
 
-def test_derived_indicator_materialization_recomputes_only_affected_partitions(tmp_path: Path) -> None:
+def test_derived_indicator_materialization_recomputes_only_affected_partitions(
+    tmp_path: Path,
+) -> None:
     bars_v1 = [
-        *[_canonical_bar(contract_id="BR-6.26", instrument_id="BR", index=index, close=80.0 + index * 0.2) for index in range(60)],
-        *[_canonical_bar(contract_id="Si-6.26", instrument_id="Si", index=index, close=90000.0 + index * 2) for index in range(60)],
+        *[
+            _canonical_bar(
+                contract_id="BR-6.26", instrument_id="BR", index=index, close=80.0 + index * 0.2
+            )
+            for index in range(60)
+        ],
+        *[
+            _canonical_bar(
+                contract_id="Si-6.26", instrument_id="Si", index=index, close=90000.0 + index * 2
+            )
+            for index in range(60)
+        ],
     ]
     session_calendar = [
-        SessionCalendarEntry("BR", "15m", "2026-03-01", "2026-03-01T09:00:00Z", "2026-03-01T20:45:00Z"),
-        SessionCalendarEntry("Si", "15m", "2026-03-01", "2026-03-01T09:00:00Z", "2026-03-01T20:45:00Z"),
-        SessionCalendarEntry("BR", "15m", "2026-03-02", "2026-03-02T09:00:00Z", "2026-03-02T20:45:00Z"),
-        SessionCalendarEntry("Si", "15m", "2026-03-02", "2026-03-02T09:00:00Z", "2026-03-02T20:45:00Z"),
+        SessionCalendarEntry(
+            "BR", "15m", "2026-03-01", "2026-03-01T09:00:00Z", "2026-03-01T20:45:00Z"
+        ),
+        SessionCalendarEntry(
+            "Si", "15m", "2026-03-01", "2026-03-01T09:00:00Z", "2026-03-01T20:45:00Z"
+        ),
+        SessionCalendarEntry(
+            "BR", "15m", "2026-03-02", "2026-03-02T09:00:00Z", "2026-03-02T20:45:00Z"
+        ),
+        SessionCalendarEntry(
+            "Si", "15m", "2026-03-02", "2026-03-02T09:00:00Z", "2026-03-02T20:45:00Z"
+        ),
     ]
     roll_map = [
         RollMapEntry("BR", "2026-03-01", "BR-6.26", "test"),
@@ -349,11 +422,17 @@ def test_derived_indicator_materialization_recomputes_only_affected_partitions(t
         dataset_version="dataset-derived-inc-v1",
         indicator_set_version="indicators-v1",
     )
-    first_br_created_at = {row.ts: row.created_at for row in first_rows if row.instrument_id == "BR"}
-    first_si_created_at = {row.ts: row.created_at for row in first_rows if row.instrument_id == "Si"}
+    first_br_created_at = {
+        row.ts: row.created_at for row in first_rows if row.instrument_id == "BR"
+    }
+    first_si_created_at = {
+        row.ts: row.created_at for row in first_rows if row.instrument_id == "Si"
+    }
 
     bars_v2 = [
-        row if not (row.instrument_id == "BR" and row.ts == "2026-03-02T11:45:00Z") else CanonicalBar.from_dict(
+        row
+        if not (row.instrument_id == "BR" and row.ts == "2026-03-02T11:45:00Z")
+        else CanonicalBar.from_dict(
             {
                 "contract_id": row.contract_id,
                 "instrument_id": row.instrument_id,
@@ -400,18 +479,28 @@ def test_derived_indicator_materialization_recomputes_only_affected_partitions(t
         dataset_version="dataset-derived-inc-v1",
         indicator_set_version="indicators-v1",
     )
-    second_br_created_at = {row.ts: row.created_at for row in second_rows if row.instrument_id == "BR"}
-    second_si_created_at = {row.ts: row.created_at for row in second_rows if row.instrument_id == "Si"}
+    second_br_created_at = {
+        row.ts: row.created_at for row in second_rows if row.instrument_id == "BR"
+    }
+    second_si_created_at = {
+        row.ts: row.created_at for row in second_rows if row.instrument_id == "Si"
+    }
     assert len(second_rows) == len(bars_v2)
     assert first_si_created_at == second_si_created_at
     assert first_br_created_at != second_br_created_at
 
 
-def test_derived_indicator_materialization_reuses_when_unrelated_base_indicator_is_added(tmp_path: Path) -> None:
+def test_derived_indicator_materialization_reuses_when_unrelated_base_indicator_is_added(
+    tmp_path: Path,
+) -> None:
     bars = [_canonical_bar(index=index, close=80.0 + index * 0.25) for index in range(60)]
     session_calendar = [
-        SessionCalendarEntry("BR", "15m", "2026-03-01", "2026-03-01T09:00:00Z", "2026-03-01T20:45:00Z"),
-        SessionCalendarEntry("BR", "15m", "2026-03-02", "2026-03-02T09:00:00Z", "2026-03-02T20:45:00Z"),
+        SessionCalendarEntry(
+            "BR", "15m", "2026-03-01", "2026-03-01T09:00:00Z", "2026-03-01T20:45:00Z"
+        ),
+        SessionCalendarEntry(
+            "BR", "15m", "2026-03-02", "2026-03-02T09:00:00Z", "2026-03-02T20:45:00Z"
+        ),
     ]
     roll_map = [
         RollMapEntry("BR", "2026-03-01", "BR-6.26", "test"),
@@ -500,11 +589,98 @@ def test_derived_indicator_materialization_reuses_when_unrelated_base_indicator_
     assert {row.ts: row.created_at for row in second_rows} == first_created_at
 
 
-def test_derived_indicator_materialization_extends_profile_without_recomputing_existing_columns(tmp_path: Path) -> None:
+def test_derived_indicator_materialization_fails_when_required_source_columns_are_absent(
+    tmp_path: Path,
+) -> None:
     bars = [_canonical_bar(index=index, close=80.0 + index * 0.25) for index in range(60)]
     session_calendar = [
-        SessionCalendarEntry("BR", "15m", "2026-03-01", "2026-03-01T09:00:00Z", "2026-03-01T20:45:00Z"),
-        SessionCalendarEntry("BR", "15m", "2026-03-02", "2026-03-02T09:00:00Z", "2026-03-02T20:45:00Z"),
+        SessionCalendarEntry(
+            "BR",
+            "15m",
+            "2026-03-01",
+            "2026-03-01T09:00:00Z",
+            "2026-03-01T20:45:00Z",
+        ),
+        SessionCalendarEntry(
+            "BR",
+            "15m",
+            "2026-03-02",
+            "2026-03-02T09:00:00Z",
+            "2026-03-02T20:45:00Z",
+        ),
+    ]
+    roll_map = [
+        RollMapEntry("BR", "2026-03-01", "BR-6.26", "test"),
+        RollMapEntry("BR", "2026-03-02", "BR-6.26", "test"),
+    ]
+    dataset_dir = tmp_path / "dataset-derived-missing-source"
+    indicator_dir = tmp_path / "indicators-derived-missing-source"
+    derived_dir = tmp_path / "derived-missing-source"
+    materialize_research_dataset(
+        manifest_seed=ResearchDatasetManifest(
+            dataset_version="dataset-derived-missing-source-v1",
+            dataset_name="derived missing source sample",
+            universe_id="moex-futures",
+            timeframes=("15m",),
+            base_timeframe="15m",
+            start_ts="2026-03-01T09:00:00Z",
+            end_ts="2026-03-02T11:45:00Z",
+            warmup_bars=0,
+            split_method="full",
+            code_version="test",
+        ),
+        bars=bars,
+        session_calendar=session_calendar,
+        roll_map=roll_map,
+        output_dir=dataset_dir,
+    )
+    minimal_indicator_profile = IndicatorProfile(
+        version="minimal_for_derived_failure",
+        description="Minimal profile missing required derived source columns.",
+        indicators=(
+            IndicatorSpec(
+                indicator_id="ema_20_only",
+                category="trend",
+                operation_key="ema",
+                parameters=(IndicatorParameter("length", 20),),
+                required_input_columns=("close",),
+                output_columns=("ema_20",),
+                warmup_bars=20,
+            ),
+        ),
+    )
+    materialize_indicator_frames(
+        dataset_output_dir=dataset_dir,
+        indicator_output_dir=indicator_dir,
+        dataset_version="dataset-derived-missing-source-v1",
+        indicator_set_version="indicators-v1",
+        profile=minimal_indicator_profile,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="derived indicator materialization requires source indicator columns",
+    ):
+        materialize_derived_indicator_frames(
+            dataset_output_dir=dataset_dir,
+            indicator_output_dir=indicator_dir,
+            derived_indicator_output_dir=derived_dir,
+            dataset_version="dataset-derived-missing-source-v1",
+            indicator_set_version="indicators-v1",
+        )
+
+
+def test_derived_indicator_materialization_extends_profile_without_recomputing_existing_columns(
+    tmp_path: Path,
+) -> None:
+    bars = [_canonical_bar(index=index, close=80.0 + index * 0.25) for index in range(60)]
+    session_calendar = [
+        SessionCalendarEntry(
+            "BR", "15m", "2026-03-01", "2026-03-01T09:00:00Z", "2026-03-01T20:45:00Z"
+        ),
+        SessionCalendarEntry(
+            "BR", "15m", "2026-03-02", "2026-03-02T09:00:00Z", "2026-03-02T20:45:00Z"
+        ),
     ]
     roll_map = [
         RollMapEntry("BR", "2026-03-01", "BR-6.26", "test"),
