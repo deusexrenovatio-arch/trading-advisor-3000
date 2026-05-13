@@ -10,7 +10,7 @@ from trading_advisor_3000.dagster_defs import (
 )
 from trading_advisor_3000.dagster_defs import materialize_historical_data_proof_assets
 from trading_advisor_3000.product_plane.data_plane import run_sample_backfill
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import iter_delta_table_row_batches
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows
 
 ROOT = Path(__file__).resolve().parents[3]
 SOURCE_FIXTURE = (
@@ -30,8 +30,8 @@ def _sorted_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
     return sorted(rows, key=lambda item: json.dumps(item, ensure_ascii=False, sort_keys=True))
 
 
-def _read_batched_delta_rows(table_path: Path) -> list[dict[str, object]]:
-    return [row for batch in iter_delta_table_row_batches(table_path) for row in batch]
+def _read_bounded_delta_rows(table_path: Path) -> list[dict[str, object]]:
+    return read_delta_table_rows(table_path, limit=10_000)
 
 
 def test_historical_data_dagster_materialization_executes_and_matches_data_plane_outputs(
@@ -62,8 +62,8 @@ def test_historical_data_dagster_materialization_executes_and_matches_data_plane
         dagster_path = Path(str(dagster_report["output_paths"][table_name]))
         python_path = Path(str(python_report["output_paths"][table_name]))
         assert (dagster_path / "_delta_log").exists()
-        assert _sorted_rows(_read_batched_delta_rows(dagster_path)) == _sorted_rows(
-            _read_batched_delta_rows(python_path)
+        assert _sorted_rows(_read_bounded_delta_rows(dagster_path)) == _sorted_rows(
+            _read_bounded_delta_rows(python_path)
         )
 
 
@@ -93,8 +93,8 @@ def test_historical_data_dagster_partial_selection_materializes_only_selected_as
 
     bars_path = Path(str(dagster_report["output_paths"]["canonical_bars"]))
     python_bars_path = Path(str(python_report["output_paths"]["canonical_bars"]))
-    assert _sorted_rows(_read_batched_delta_rows(bars_path)) == _sorted_rows(
-        _read_batched_delta_rows(python_bars_path)
+    assert _sorted_rows(_read_bounded_delta_rows(bars_path)) == _sorted_rows(
+        _read_bounded_delta_rows(python_bars_path)
     )
 
     assert (

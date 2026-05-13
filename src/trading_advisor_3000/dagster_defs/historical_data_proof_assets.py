@@ -185,7 +185,7 @@ def _write_table(
     )
     if not has_delta_log(table_path):
         raise RuntimeError(f"missing `_delta_log` for `{table_name}` at {table_path.as_posix()}")
-    return _read_batched_delta_rows(table_path)
+    return read_delta_table_rows(table_path, limit=len(rows))
 
 
 @asset(group_name="historical_data_proof")
