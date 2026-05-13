@@ -79,7 +79,8 @@ def _view(
         oc_range=0.5,
         bar_index=0,
         slice_role="analysis",
-        series_id="FUT_BR|15m|continuous_front",
+        contour_id="pit_active_front",
+        series_id="FUT_BR",
         series_mode="continuous_front",
         roll_epoch=roll_epoch,
         is_roll_bar=is_roll_bar,
@@ -127,6 +128,9 @@ def _indicator_row(
     values.update(extra_values or {})
     return IndicatorFrameRow(
         dataset_version=view.dataset_version,
+        contour_id=view.contour_id,
+        series_mode=view.series_mode,
+        series_id=view.series_id,
         indicator_set_version="indicators-v1",
         profile_version="core_v1",
         contract_id=view.contract_id,
@@ -169,6 +173,7 @@ def _write_continuous_front_materialized_inputs(materialized_dir: Path) -> list[
         rows=[
             {
                 "dataset_version": "cf-dataset-v1",
+                "contour_id": "pit_active_front",
                 "dataset_name": "cf",
                 "source_table": "continuous_front_bars",
                 "series_mode": "continuous_front",
@@ -232,7 +237,8 @@ def _write_materialized_indicator_frames(
     views: list[ResearchBarView],
 ) -> tuple[list[IndicatorFrameRow], list[object]]:
     ladder_rows = read_delta_table_rows(
-        materialized_dir / "continuous_front_adjustment_ladder.delta"
+        materialized_dir / "continuous_front_adjustment_ladder.delta",
+        filters=[("dataset_version", "=", "cf-dataset-v1")],
     )
     indicator_rows = build_indicator_frames(
         dataset_version="cf-dataset-v1",
@@ -297,6 +303,9 @@ def test_roll_rule_catalog_covers_every_base_and_derived_output() -> None:
         "null_warmup_span",
         "created_at",
         "output_columns_hash",
+        "contour_id",
+        "series_mode",
+        "series_id",
     }
 
     assert expected_base <= columns
@@ -675,7 +684,8 @@ def test_continuous_front_indicator_job_writes_governed_sidecar_tables(tmp_path:
         assert has_delta_log(materialized_dir / f"{table_name}.delta")
     assert read_delta_table_rows(materialized_dir / "indicator_roll_rules.delta")
     acceptance = read_delta_table_rows(
-        materialized_dir / "continuous_front_indicator_acceptance_report.delta"
+        materialized_dir / "continuous_front_indicator_acceptance_report.delta",
+        filters=[("dataset_version", "=", "cf-dataset-v1"), ("run_id", "=", "cf-indicator-test")],
     )[0]
     assert acceptance["publish_status"] == "accepted"
     assert acceptance["prefix_invariance_fail_count"] == 0
@@ -683,7 +693,8 @@ def test_continuous_front_indicator_job_writes_governed_sidecar_tables(tmp_path:
     assert acceptance["pandas_ta_parity_fail_count"] == 0
     assert acceptance["lineage_fail_count"] == 0
     manifest = read_delta_table_rows(
-        materialized_dir / "continuous_front_indicator_run_manifest.delta"
+        materialized_dir / "continuous_front_indicator_run_manifest.delta",
+        filters=[("dataset_version", "=", "cf-dataset-v1"), ("run_id", "=", "cf-indicator-test")],
     )[0]
     assert manifest["created_by_pipeline"] == "spark_delta_governed"
     assert manifest["spark_app_id"]
@@ -711,7 +722,8 @@ def test_continuous_front_indicator_job_writes_governed_sidecar_tables(tmp_path:
     qc_groups = {
         row["check_group"]
         for row in read_delta_table_rows(
-            materialized_dir / "continuous_front_indicator_qc_observations.delta"
+            materialized_dir / "continuous_front_indicator_qc_observations.delta",
+            filters=[("run_id", "=", "cf-indicator-test")],
         )
     }
     assert {
@@ -755,10 +767,16 @@ def test_continuous_front_indicator_job_reads_materialized_frames_without_recomp
 
     assert report["publish_status"] == "accepted"
     assert len(
-        read_delta_table_rows(materialized_dir / "continuous_front_indicator_frames.delta")
+        read_delta_table_rows(
+            materialized_dir / "continuous_front_indicator_frames.delta",
+            filters=[("dataset_version", "=", "cf-dataset-v1")],
+        )
     ) == len(indicator_rows)
     assert len(
-        read_delta_table_rows(materialized_dir / "continuous_front_derived_indicator_frames.delta")
+        read_delta_table_rows(
+            materialized_dir / "continuous_front_derived_indicator_frames.delta",
+            filters=[("dataset_version", "=", "cf-dataset-v1")],
+        )
     ) == len(derived_rows)
 
 
@@ -797,7 +815,11 @@ def test_continuous_front_indicator_job_avoids_full_row_python_loaders(
 
     assert report["publish_status"] == "accepted"
     manifest = read_delta_table_rows(
-        materialized_dir / "continuous_front_indicator_run_manifest.delta"
+        materialized_dir / "continuous_front_indicator_run_manifest.delta",
+        filters=[
+            ("dataset_version", "=", "cf-dataset-v1"),
+            ("run_id", "=", "cf-indicator-delta-native"),
+        ],
     )[0]
     assert "delta_native" in str(manifest["calculation_engines_json"])
 

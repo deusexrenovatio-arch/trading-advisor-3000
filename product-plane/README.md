@@ -35,7 +35,7 @@ Use these documents when the task touches research:
 - `docs/checklists/app/research-plane-acceptance-checklist.md`
 
 Historical note:
-- `run_research_from_bars(...)` remains only as a thin programmatic adapter over the materialized research route.
+- The old inline `run_research_from_bars(...)` route is removed.
 - Operator-facing execution stays on `run_campaign`, while scheduled freshness remains Dagster-owned through `research_data_prep_job`.
 
 ## Boundary reminder

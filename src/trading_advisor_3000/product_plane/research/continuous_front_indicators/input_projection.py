@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
 import hashlib
 import json
 import math
+from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows, write_delta_table_rows
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    read_delta_table_rows,
+    write_delta_table_rows,
+)
 from trading_advisor_3000.product_plane.research.datasets import ResearchBarView
 
 from .contracts import continuous_front_indicator_store_contract
@@ -33,7 +36,8 @@ def _series_ladder_rows(
             (
                 row
                 for row in ladder_rows
-                if str(row.get("instrument_id")) == instrument_id and str(row.get("timeframe")) == timeframe
+                if str(row.get("instrument_id")) == instrument_id
+                and str(row.get("timeframe")) == timeframe
             ),
             key=lambda row: int(row["roll_sequence"]),
         )
@@ -47,10 +51,7 @@ def _offset_by_roll_sequence(ladder_rows: Sequence[dict[str, object]]) -> dict[i
         sequence = int(row["roll_sequence"])
         running += float(row["additive_gap"])
         offsets[sequence] = running
-    return {
-        sequence: offset
-        for sequence, offset in offsets.items()
-    }
+    return {sequence: offset for sequence, offset in offsets.items()}
 
 
 def _normal_float(value: object) -> float:
@@ -74,7 +75,11 @@ def _bar_close_ts(ts: str, timeframe: str) -> str:
 
 
 def _input_row_hash(row: dict[str, object]) -> str:
-    payload = {key: value for key, value in row.items() if key not in {"created_at_utc", "input_front_row_hash"}}
+    payload = {
+        key: value
+        for key, value in row.items()
+        if key not in {"created_at_utc", "input_front_row_hash"}
+    }
     return _stable_hash(payload)
 
 
@@ -90,7 +95,9 @@ def build_cf_indicator_input_rows(
     created_at_utc: str | None = None,
 ) -> list[dict[str, object]]:
     created_at = created_at_utc or _utc_now_iso()
-    ordered = sorted(bar_views, key=lambda row: (row.instrument_id, row.timeframe, row.ts, row.contract_id))
+    ordered = sorted(
+        bar_views, key=lambda row: (row.instrument_id, row.timeframe, row.ts, row.contract_id)
+    )
     grouped: dict[tuple[str, str], list[ResearchBarView]] = {}
     for row in ordered:
         grouped.setdefault((row.instrument_id, row.timeframe), []).append(row)
@@ -109,7 +116,11 @@ def build_cf_indicator_input_rows(
                 f"{instrument_id}|{timeframe}"
             )
         ladder_sequences = {int(row["roll_sequence"]) for row in ladder}
-        missing_sequences = [sequence for sequence in range(1, max_roll_epoch + 1) if sequence not in ladder_sequences]
+        missing_sequences = [
+            sequence
+            for sequence in range(1, max_roll_epoch + 1)
+            if sequence not in ladder_sequences
+        ]
         if missing_sequences:
             joined = ", ".join(str(sequence) for sequence in missing_sequences)
             raise ValueError(
@@ -123,18 +134,30 @@ def build_cf_indicator_input_rows(
             ts_close = _bar_close_ts(source.ts, timeframe)
             roll_seq = int(source.roll_epoch or 0)
             offset = offsets.get(roll_seq, float(source.cumulative_additive_offset or 0.0))
-            native_open = _normal_float(source.native_open if source.native_open is not None else source.open)
-            native_high = _normal_float(source.native_high if source.native_high is not None else source.high)
-            native_low = _normal_float(source.native_low if source.native_low is not None else source.low)
-            native_close = _normal_float(source.native_close if source.native_close is not None else source.close)
+            native_open = _normal_float(
+                source.native_open if source.native_open is not None else source.open
+            )
+            native_high = _normal_float(
+                source.native_high if source.native_high is not None else source.high
+            )
+            native_low = _normal_float(
+                source.native_low if source.native_low is not None else source.low
+            )
+            native_close = _normal_float(
+                source.native_close if source.native_close is not None else source.close
+            )
             open0 = native_open - offset
             high0 = native_high - offset
             low0 = native_low - offset
             close0 = native_close - offset
             true_range0 = max(
                 high0 - low0,
-                abs(high0 - prev_close0) if prev_close0 is not None and math.isfinite(prev_close0) else high0 - low0,
-                abs(low0 - prev_close0) if prev_close0 is not None and math.isfinite(prev_close0) else high0 - low0,
+                abs(high0 - prev_close0)
+                if prev_close0 is not None and math.isfinite(prev_close0)
+                else high0 - low0,
+                abs(low0 - prev_close0)
+                if prev_close0 is not None and math.isfinite(prev_close0)
+                else high0 - low0,
             )
             payload = {
                 "dataset_version": dataset_version,
@@ -179,15 +202,19 @@ def build_cf_indicator_input_rows(
     return rows
 
 
-def load_research_bar_views(*, dataset_output_dir: Path, dataset_version: str) -> list[ResearchBarView]:
+def load_research_bar_views(
+    *, dataset_output_dir: Path, dataset_version: str, contour_id: str = "pit_active_front"
+) -> list[ResearchBarView]:
     rows = read_delta_table_rows(
         dataset_output_dir / "research_bar_views.delta",
-        filters=[("dataset_version", "=", dataset_version)],
+        filters=[("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
     )
     return [ResearchBarView.from_dict(row) for row in rows]
 
 
-def load_adjustment_ladder_rows(*, dataset_output_dir: Path, dataset_version: str) -> tuple[dict[str, object], ...]:
+def load_adjustment_ladder_rows(
+    *, dataset_output_dir: Path, dataset_version: str
+) -> tuple[dict[str, object], ...]:
     table_path = dataset_output_dir / "continuous_front_adjustment_ladder.delta"
     if not (table_path / "_delta_log").exists():
         return ()
@@ -203,9 +230,14 @@ def materialize_cf_indicator_input_frame(
     source_canonical_version: str = "",
     roll_policy_version: str = "",
     adjustment_policy_version: str = "",
+    contour_id: str = "pit_active_front",
 ) -> dict[str, object]:
     rows = build_cf_indicator_input_rows(
-        bar_views=load_research_bar_views(dataset_output_dir=dataset_output_dir, dataset_version=dataset_version),
+        bar_views=load_research_bar_views(
+            dataset_output_dir=dataset_output_dir,
+            dataset_version=dataset_version,
+            contour_id=contour_id,
+        ),
         adjustment_ladder_rows=load_adjustment_ladder_rows(
             dataset_output_dir=dataset_output_dir,
             dataset_version=dataset_version,

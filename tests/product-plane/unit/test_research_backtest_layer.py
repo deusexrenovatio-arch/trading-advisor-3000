@@ -405,6 +405,7 @@ def test_backtest_loader_uses_native_delta_projection_without_python_row_reload(
         rows=[
             {
                 "dataset_version": "dataset-v1",
+                "contour_id": "native_tradable",
                 "dataset_name": "dataset",
                 "source_table": "canonical_bars",
                 "series_mode": "contract",
@@ -432,6 +433,7 @@ def test_backtest_loader_uses_native_delta_projection_without_python_row_reload(
         rows=[
             {
                 "dataset_version": "dataset-v1",
+                "contour_id": "native_tradable",
                 "contract_id": "BR-6.26",
                 "instrument_id": "FUT_BR",
                 "timeframe": "15m",
@@ -451,6 +453,7 @@ def test_backtest_loader_uses_native_delta_projection_without_python_row_reload(
             },
             {
                 "dataset_version": "dataset-v1",
+                "contour_id": "native_tradable",
                 "contract_id": "BR-6.26",
                 "instrument_id": "FUT_BR",
                 "timeframe": "15m",
@@ -468,6 +471,28 @@ def test_backtest_loader_uses_native_delta_projection_without_python_row_reload(
                 "bar_index": 1,
                 "slice_role": "warmup",
             },
+            {
+                "dataset_version": "dataset-v1",
+                "contour_id": "pit_active_front",
+                "contract_id": "BR-7.26",
+                "instrument_id": "FUT_BR",
+                "timeframe": "15m",
+                "ts": "2026-04-01T10:00:00Z",
+                "open": 200.0,
+                "high": 201.0,
+                "low": 199.0,
+                "close": 200.5,
+                "volume": 21_000,
+                "open_interest": 30_100,
+                "session_date": "2026-04-01",
+                "session_open_ts": "2026-04-01T07:00:00Z",
+                "session_close_ts": "2026-04-01T21:00:00Z",
+                "active_contract_id": "BR-7.26",
+                "series_id": "FUT_BR",
+                "series_mode": "continuous_front",
+                "bar_index": 0,
+                "slice_role": "analysis",
+            },
         ],
     )
     write_delta_table_rows(
@@ -476,6 +501,9 @@ def test_backtest_loader_uses_native_delta_projection_without_python_row_reload(
         rows=[
             {
                 "dataset_version": "dataset-v1",
+                "contour_id": "native_tradable",
+                "series_mode": "contract",
+                "series_id": "BR-6.26",
                 "indicator_set_version": "indicators-v1",
                 "profile_version": "core_v1",
                 "contract_id": "BR-6.26",
@@ -499,6 +527,9 @@ def test_backtest_loader_uses_native_delta_projection_without_python_row_reload(
         rows=[
             {
                 "dataset_version": "dataset-v1",
+                "contour_id": "native_tradable",
+                "series_mode": "contract",
+                "series_id": "BR-6.26",
                 "indicator_set_version": "indicators-v1",
                 "derived_indicator_set_version": "derived-v1",
                 "profile_version": "core_v1",
@@ -524,6 +555,7 @@ def test_backtest_loader_uses_native_delta_projection_without_python_row_reload(
         derived_indicator_output_dir=materialized,
         request=ResearchSliceRequest(
             dataset_version="dataset-v1",
+            contour_id="native_tradable",
             indicator_set_version="indicators-v1",
             derived_indicator_set_version="derived-v1",
             timeframe="15m",
@@ -536,8 +568,10 @@ def test_backtest_loader_uses_native_delta_projection_without_python_row_reload(
 
     assert cache_hit is False
     assert len(frames) == 1
+    assert frames[0].series_mode == "contract"
     frame = frames[0].frame
     assert len(frame) == 1
+    assert frame["close"].tolist() == [100.0]
     assert {"close", "rsi_14", "distance_to_session_vwap"} <= set(frame.columns)
     assert {
         "open",

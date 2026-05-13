@@ -14,8 +14,14 @@ SOURCE_FIXTURE = (
 )
 
 
-def _read_batched_delta_rows(table_path: Path) -> list[dict[str, object]]:
-    return [row for batch in iter_delta_table_row_batches(table_path) for row in batch]
+def _read_batched_delta_rows(
+    table_path: Path,
+    *,
+    filters: list[tuple[str, str, object]] | None = None,
+) -> list[dict[str, object]]:
+    return [
+        row for batch in iter_delta_table_row_batches(table_path, filters=filters) for row in batch
+    ]
 
 
 def test_sample_backfill_builds_canonical_rows_for_whitelist(tmp_path: Path) -> None:
@@ -34,7 +40,7 @@ def test_sample_backfill_builds_canonical_rows_for_whitelist(tmp_path: Path) -> 
     assert output_path.exists()
     assert (output_path / "_delta_log").exists()
 
-    rows = _read_batched_delta_rows(output_path)
+    rows = _read_batched_delta_rows(output_path, filters=[("timeframe", "=", "15m")])
     assert len(rows) == 2
     assert {row["contract_id"] for row in rows} == {"BR-6.26", "Si-6.26"}
     br_row = next(row for row in rows if row["contract_id"] == "BR-6.26")
@@ -110,7 +116,7 @@ def test_sample_backfill_disprover_fails_when_physical_delta_data_is_deleted(
     assert "canonical_bars" in report["delta_schema_manifest"]
     assert (bars_path / "_delta_log").exists()
     try:
-        _read_batched_delta_rows(bars_path)
+        _read_batched_delta_rows(bars_path, filters=[("timeframe", "=", "15m")])
     except Exception:
         return
     raise AssertionError("expected Delta runtime read failure after deleting physical output")

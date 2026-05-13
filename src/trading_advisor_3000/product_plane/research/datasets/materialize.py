@@ -7,12 +7,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from trading_advisor_3000.product_plane.contracts import CanonicalBar
-from trading_advisor_3000.product_plane.data_plane.canonical import (
-    RollMapEntry,
-    SessionCalendarEntry,
-)
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     delta_equals_predicate,
+    ensure_delta_table_columns,
+    has_delta_log,
     read_filtered_delta_table_rows,
     read_small_delta_table_rows,
     replace_delta_table_rows,
@@ -27,17 +25,18 @@ from .splitters import (
     build_walk_forward_windows,
     split_config_to_dict,
 )
-from .views import ResearchBarView, build_research_bar_views
+from .views import ResearchBarView
 
 
 def research_dataset_store_contract() -> dict[str, dict[str, object]]:
     return {
         "research_datasets": {
             "format": "delta",
-            "partition_by": ["dataset_version"],
-            "constraints": ["unique(dataset_version)"],
+            "partition_by": ["dataset_version", "contour_id"],
+            "constraints": ["unique(dataset_version, contour_id)"],
             "columns": {
                 "dataset_version": "string",
+                "contour_id": "string",
                 "dataset_name": "string",
                 "source_table": "string",
                 "series_mode": "string",
@@ -50,6 +49,10 @@ def research_dataset_store_contract() -> dict[str, dict[str, object]]:
                 "split_method": "string",
                 "split_params_json": "json",
                 "bars_hash": "string",
+                "run_id": "string",
+                "as_of_ts": "timestamp",
+                "source_delta_versions_json": "json",
+                "source_delta_hashes_json": "json",
                 "created_at": "timestamp",
                 "code_version": "string",
                 "notes_json": "json",
@@ -60,10 +63,11 @@ def research_dataset_store_contract() -> dict[str, dict[str, object]]:
         },
         "research_instrument_tree": {
             "format": "delta",
-            "partition_by": ["dataset_version", "asset_group"],
-            "constraints": ["unique(dataset_version, instrument_id)"],
+            "partition_by": ["dataset_version", "contour_id", "asset_group"],
+            "constraints": ["unique(dataset_version, contour_id, instrument_id, internal_id)"],
             "columns": {
                 "dataset_version": "string",
+                "contour_id": "string",
                 "universe_id": "string",
                 "asset_class": "string",
                 "asset_group": "string",
@@ -83,10 +87,13 @@ def research_dataset_store_contract() -> dict[str, dict[str, object]]:
         },
         "research_bar_views": {
             "format": "delta",
-            "partition_by": ["dataset_version", "instrument_id", "timeframe"],
-            "constraints": ["unique(dataset_version, contract_id, timeframe, ts)"],
+            "partition_by": ["dataset_version", "contour_id", "instrument_id", "timeframe"],
+            "constraints": [
+                "unique(dataset_version, contour_id, series_mode, series_id, timeframe, ts)"
+            ],
             "columns": {
                 "dataset_version": "string",
+                "contour_id": "string",
                 "contract_id": "string",
                 "instrument_id": "string",
                 "timeframe": "string",
@@ -146,6 +153,7 @@ def _utc_now_iso() -> str:
 def _stable_hash_rows(rows: list[CanonicalBar]) -> str:
     payload = [
         {
+            "contour_id": row.contour_id,
             "contract_id": row.contract_id,
             "instrument_id": row.instrument_id,
             "timeframe": row.timeframe.value,
@@ -166,6 +174,7 @@ def _stable_hash_rows(rows: list[CanonicalBar]) -> str:
 def _stable_hash_views(rows: list[ResearchBarView]) -> str:
     payload = [
         {
+            "contour_id": row.contour_id,
             "contract_id": row.contract_id,
             "instrument_id": row.instrument_id,
             "timeframe": row.timeframe,
@@ -271,6 +280,7 @@ def build_research_instrument_tree(
         rows.append(
             {
                 "dataset_version": manifest.dataset_version,
+                "contour_id": manifest.contour_id,
                 "universe_id": manifest.universe_id,
                 "asset_class": metadata["asset_class"],
                 "asset_group": metadata["asset_group"],
@@ -360,14 +370,9 @@ def _build_split_payload(
 def build_research_dataset_manifest(
     *,
     manifest_seed: ResearchDatasetManifest,
-    bars: list[CanonicalBar],
     selected_views: list[ResearchBarView],
     split_config: HoldoutSplitConfig | WalkForwardSplitConfig | None = None,
 ) -> ResearchDatasetManifest:
-    selected_keys = {(view.contract_id, view.timeframe, view.ts) for view in selected_views}
-    selected_bars = [
-        row for row in bars if (row.contract_id, row.timeframe.value, row.ts) in selected_keys
-    ]
     split_payload = _build_split_payload(
         selected_views=selected_views,
         split_method=manifest_seed.split_method,
@@ -382,6 +387,7 @@ def build_research_dataset_manifest(
     }
     return ResearchDatasetManifest(
         dataset_version=manifest_seed.dataset_version,
+        contour_id=manifest_seed.contour_id,
         dataset_name=manifest_seed.dataset_name,
         source_table=manifest_seed.source_table,
         universe_id=manifest_seed.universe_id,
@@ -395,7 +401,11 @@ def build_research_dataset_manifest(
         source_tables=manifest_seed.source_tables,
         continuous_front_policy=manifest_seed.continuous_front_policy,
         split_params={**split_payload, "series_mode": manifest_seed.series_mode},
-        bars_hash=_stable_hash_rows(selected_bars),
+        bars_hash=_stable_hash_views(selected_views),
+        run_id=manifest_seed.run_id,
+        as_of_ts=manifest_seed.as_of_ts,
+        source_delta_versions=manifest_seed.source_delta_versions,
+        source_delta_hashes=manifest_seed.source_delta_hashes,
         created_at=_utc_now_iso(),
         code_version=manifest_seed.code_version,
         notes=notes,
@@ -405,11 +415,10 @@ def build_research_dataset_manifest(
 def materialize_research_dataset(
     *,
     manifest_seed: ResearchDatasetManifest,
-    bars: list[CanonicalBar],
-    session_calendar: list[SessionCalendarEntry],
-    roll_map: list[RollMapEntry],
     output_dir: Path,
-    split_config: HoldoutSplitConfig | WalkForwardSplitConfig | None = None,
+    bar_view_count: int = 0,
+    instrument_tree_count: int = 0,
+    output_paths: dict[str, str] | None = None,
 ) -> dict[str, object]:
     contract = research_dataset_store_contract()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -417,51 +426,65 @@ def materialize_research_dataset(
     instrument_tree_path = output_dir / "research_instrument_tree.delta"
     bar_views_path = output_dir / "research_bar_views.delta"
 
-    selected_views = build_research_bar_views(
+    manifest = ResearchDatasetManifest(
         dataset_version=manifest_seed.dataset_version,
-        bars=bars,
-        session_calendar=session_calendar,
-        roll_map=roll_map,
-        manifest=manifest_seed,
-    )
-    manifest = build_research_dataset_manifest(
-        manifest_seed=manifest_seed,
-        bars=bars,
-        selected_views=selected_views,
-        split_config=split_config,
-    )
-    instrument_tree_rows = build_research_instrument_tree(
-        manifest=manifest,
-        selected_views=selected_views,
+        contour_id=manifest_seed.contour_id,
+        dataset_name=manifest_seed.dataset_name,
+        source_table=manifest_seed.source_table,
+        universe_id=manifest_seed.universe_id,
+        timeframes=manifest_seed.timeframes,
+        base_timeframe=manifest_seed.base_timeframe,
+        start_ts=manifest_seed.start_ts,
+        end_ts=manifest_seed.end_ts,
+        series_mode=manifest_seed.series_mode,
+        split_method=manifest_seed.split_method,
+        warmup_bars=manifest_seed.warmup_bars,
+        source_tables=manifest_seed.source_tables,
+        continuous_front_policy=manifest_seed.continuous_front_policy,
+        split_params=manifest_seed.split_params,
+        bars_hash=manifest_seed.bars_hash,
+        run_id=manifest_seed.run_id,
+        as_of_ts=manifest_seed.as_of_ts,
+        source_delta_versions=manifest_seed.source_delta_versions,
+        source_delta_hashes=manifest_seed.source_delta_hashes,
+        created_at=manifest_seed.created_at or _utc_now_iso(),
+        code_version=manifest_seed.code_version,
+        notes={
+            **manifest_seed.notes,
+            "lineage_key": manifest_seed.lineage_key(),
+            "view_row_count": bar_view_count,
+        },
     )
 
-    dataset_predicate = delta_equals_predicate({"dataset_version": manifest.dataset_version})
+    dataset_predicate = delta_equals_predicate(
+        {"dataset_version": manifest.dataset_version, "contour_id": manifest.contour_id}
+    )
+    if has_delta_log(datasets_path):
+        ensure_delta_table_columns(
+            table_path=datasets_path,
+            columns=contract["research_datasets"]["columns"],
+        )
     replace_delta_table_rows(
         table_path=datasets_path,
         rows=[manifest.to_dict()],
         columns=contract["research_datasets"]["columns"],
         predicate=dataset_predicate,
     )
-    replace_delta_table_rows(
-        table_path=instrument_tree_path,
-        rows=instrument_tree_rows,
-        columns=contract["research_instrument_tree"]["columns"],
-        predicate=dataset_predicate,
-    )
-    replace_delta_table_rows(
-        table_path=bar_views_path,
-        rows=[row.to_dict() for row in selected_views],
-        columns=contract["research_bar_views"]["columns"],
-        predicate=dataset_predicate,
-    )
+    resolved_output_paths = output_paths or {}
     return {
         "dataset_manifest": manifest.to_dict(),
-        "instrument_tree_count": len(instrument_tree_rows),
-        "bar_view_count": len(selected_views),
+        "instrument_tree_count": instrument_tree_count,
+        "bar_view_count": bar_view_count,
         "output_paths": {
-            "research_datasets": datasets_path.as_posix(),
-            "research_instrument_tree": instrument_tree_path.as_posix(),
-            "research_bar_views": bar_views_path.as_posix(),
+            "research_datasets": resolved_output_paths.get(
+                "research_datasets", datasets_path.as_posix()
+            ),
+            "research_instrument_tree": resolved_output_paths.get(
+                "research_instrument_tree", instrument_tree_path.as_posix()
+            ),
+            "research_bar_views": resolved_output_paths.get(
+                "research_bar_views", bar_views_path.as_posix()
+            ),
         },
         "delta_manifest": contract,
     }
@@ -483,6 +506,8 @@ def _normalize_loaded_manifest_row(row: dict[str, object]) -> dict[str, object]:
         "split_params_json",
         "notes_json",
         "source_tables",
+        "source_delta_versions_json",
+        "source_delta_hashes_json",
         "continuous_front_policy",
     ):
         if field_name in payload:
@@ -491,7 +516,7 @@ def _normalize_loaded_manifest_row(row: dict[str, object]) -> dict[str, object]:
 
 
 def load_materialized_research_dataset(
-    *, output_dir: Path, dataset_version: str
+    *, output_dir: Path, dataset_version: str, contour_id: str = "native_tradable"
 ) -> dict[str, object]:
     datasets_path = output_dir / "research_datasets.delta"
     instrument_tree_path = output_dir / "research_instrument_tree.delta"
@@ -504,15 +529,21 @@ def load_materialized_research_dataset(
     )
     bar_view_rows = read_filtered_delta_table_rows(
         bar_views_path,
-        filters=[("dataset_version", "=", dataset_version)],
+        filters=[("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
     )
-    manifest_rows = [row for row in manifests if row.get("dataset_version") == dataset_version]
+    manifest_rows = [
+        row
+        for row in manifests
+        if row.get("dataset_version") == dataset_version and row.get("contour_id") == contour_id
+    ]
     if not manifest_rows:
         raise KeyError(f"dataset_version not found: {dataset_version}")
     return {
         "dataset_manifest": _normalize_loaded_manifest_row(manifest_rows[0]),
         "instrument_tree": [
-            row for row in instrument_rows if row.get("dataset_version") == dataset_version
+            row
+            for row in instrument_rows
+            if row.get("dataset_version") == dataset_version and row.get("contour_id") == contour_id
         ],
         "bar_views": [ResearchBarView.from_dict(row) for row in bar_view_rows],
     }

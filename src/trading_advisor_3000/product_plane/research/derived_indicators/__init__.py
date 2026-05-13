@@ -20,6 +20,7 @@ def __getattr__(name: str) -> Any:
     if name in {
         "build_derived_indicator_frames",
         "materialize_derived_indicator_frames",
+        "reload_derived_indicator_frames",
     }:
         from . import materialize as _materialize
 
@@ -35,6 +36,7 @@ def __getattr__(name: str) -> Any:
         return getattr(_store, name)
     raise AttributeError(name)
 
+
 __all__ = [
     "DEFAULT_DERIVED_INDICATOR_SET_VERSION",
     "DerivedIndicatorProfile",
@@ -48,5 +50,6 @@ __all__ = [
     "current_derived_indicator_profile",
     "load_derived_indicator_frames",
     "materialize_derived_indicator_frames",
+    "reload_derived_indicator_frames",
     "research_derived_indicator_store_contract",
 ]

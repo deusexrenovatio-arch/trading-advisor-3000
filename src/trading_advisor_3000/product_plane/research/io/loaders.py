@@ -9,11 +9,11 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_del
 
 from .cache import ResearchCacheKey, ResearchFrameCache
 
-
-KEY_COLUMNS = ("contract_id", "instrument_id", "timeframe", "ts")
-MANIFEST_METADATA_COLUMNS = ("dataset_version", "series_mode")
+KEY_COLUMNS = ("contour_id", "contract_id", "instrument_id", "timeframe", "ts")
+MANIFEST_METADATA_COLUMNS = ("dataset_version", "contour_id", "series_mode")
 BAR_METADATA_COLUMNS = (
     "dataset_version",
+    "contour_id",
     "session_date",
     "session_open_ts",
     "session_close_ts",
@@ -40,18 +40,33 @@ BAR_METADATA_COLUMNS = (
     "execution_close",
     "bar_index",
 )
-INDICATOR_METADATA_COLUMNS = ("dataset_version", "indicator_set_version")
-DERIVED_METADATA_COLUMNS = ("dataset_version", "indicator_set_version", "derived_indicator_set_version")
+INDICATOR_METADATA_COLUMNS = (
+    "dataset_version",
+    "contour_id",
+    "series_mode",
+    "series_id",
+    "indicator_set_version",
+)
+DERIVED_METADATA_COLUMNS = (
+    "dataset_version",
+    "contour_id",
+    "series_mode",
+    "series_id",
+    "indicator_set_version",
+    "derived_indicator_set_version",
+)
 
 
 @dataclass(frozen=True)
 class ResearchSliceRequest:
     dataset_version: str
     indicator_set_version: str
+    contour_id: str = "native_tradable"
     derived_indicator_set_version: str = "derived-v1"
     timeframe: str = ""
     contract_ids: tuple[str, ...] = ()
     instrument_ids: tuple[str, ...] = ()
+    series_ids: tuple[str, ...] = ()
     analysis_only: bool = True
     warmup_bars: int = 0
     price_columns: tuple[str, ...] = ()
@@ -87,20 +102,34 @@ def _delta_filters(
     include_derived_version: bool = False,
 ) -> list[tuple[str, str, object]]:
     filters: list[tuple[str, str, object]] = [("dataset_version", "=", request.dataset_version)]
+    filters.append(("contour_id", "=", request.contour_id))
     if request.analysis_only and not include_indicator_version and not include_derived_version:
         filters.append(("slice_role", "=", "analysis"))
     if request.timeframe:
         filters.append(("timeframe", "=", request.timeframe))
     if request.contract_ids:
         values = sorted(set(request.contract_ids))
-        filters.append(("contract_id", "=", values[0]) if len(values) == 1 else ("contract_id", "in", values))
+        filters.append(
+            ("contract_id", "=", values[0]) if len(values) == 1 else ("contract_id", "in", values)
+        )
     if request.instrument_ids:
         values = sorted(set(request.instrument_ids))
-        filters.append(("instrument_id", "=", values[0]) if len(values) == 1 else ("instrument_id", "in", values))
+        filters.append(
+            ("instrument_id", "=", values[0])
+            if len(values) == 1
+            else ("instrument_id", "in", values)
+        )
+    if request.series_ids:
+        values = sorted(set(request.series_ids))
+        filters.append(
+            ("series_id", "=", values[0]) if len(values) == 1 else ("series_id", "in", values)
+        )
     if include_indicator_version:
         filters.append(("indicator_set_version", "=", request.indicator_set_version))
     if include_derived_version:
-        filters.append(("derived_indicator_set_version", "=", request.derived_indicator_set_version))
+        filters.append(
+            ("derived_indicator_set_version", "=", request.derived_indicator_set_version)
+        )
     return filters
 
 
@@ -118,6 +147,9 @@ def _projected_columns(
 def _indicator_payload_columns(frame: pd.DataFrame) -> list[str]:
     reserved = {
         "dataset_version",
+        "contour_id",
+        "series_mode",
+        "series_id",
         "indicator_set_version",
         "profile_version",
         "contract_id",
@@ -132,12 +164,24 @@ def _indicator_payload_columns(frame: pd.DataFrame) -> list[str]:
         "created_at",
         "output_columns_hash",
     }
-    return [column for column in frame.columns if column not in reserved]
+    return [column for column in frame.columns if not _is_reserved_column(column, reserved)]
+
+
+def _is_reserved_column(column: str, reserved: set[str]) -> bool:
+    if column in reserved:
+        return True
+    for suffix in ("_x", "_y"):
+        if column.endswith(suffix) and column[: -len(suffix)] in reserved:
+            return True
+    return False
 
 
 def _derived_payload_columns(frame: pd.DataFrame, *, existing: set[str]) -> list[str]:
     reserved = {
         "dataset_version",
+        "contour_id",
+        "series_mode",
+        "series_id",
         "indicator_set_version",
         "derived_indicator_set_version",
         "profile_version",
@@ -148,13 +192,19 @@ def _derived_payload_columns(frame: pd.DataFrame, *, existing: set[str]) -> list
         "source_bars_hash",
         "source_dataset_bars_hash",
         "source_indicators_hash",
+        "source_indicator_profile_version",
+        "source_indicator_output_columns_hash",
         "row_count",
         "warmup_span",
         "null_warmup_span",
         "created_at",
         "output_columns_hash",
     }
-    return [column for column in frame.columns if column not in reserved and column not in existing]
+    return [
+        column
+        for column in frame.columns
+        if not _is_reserved_column(column, reserved) and column not in existing
+    ]
 
 
 def _dataset_series_mode(dataset_manifest: dict[str, object]) -> str:
@@ -165,7 +215,10 @@ def _series_group_columns(bar_frame: pd.DataFrame, *, series_mode: str) -> list[
     if series_mode == "continuous_front":
         if "series_id" not in bar_frame.columns:
             bar_frame["series_id"] = (
-                bar_frame["instrument_id"].astype(str) + "|" + bar_frame["timeframe"].astype(str) + "|continuous_front"
+                bar_frame["instrument_id"].astype(str)
+                + "|"
+                + bar_frame["timeframe"].astype(str)
+                + "|continuous_front"
             )
         return ["series_id", "instrument_id", "timeframe"]
     return ["contract_id", "instrument_id", "timeframe"]
@@ -219,7 +272,9 @@ def load_backtest_frames(
     filter_tokens = (
         *sorted(request.contract_ids),
         *sorted(request.instrument_ids),
+        *sorted(request.series_ids),
         request.dataset_version,
+        request.contour_id,
         request.indicator_set_version,
         request.derived_indicator_set_version,
         "analysis" if request.analysis_only else "all",
@@ -242,7 +297,10 @@ def load_backtest_frames(
     manifest_frame = read_delta_table_frame(
         dataset_output_dir / "research_datasets.delta",
         columns=list(MANIFEST_METADATA_COLUMNS),
-        filters=[("dataset_version", "=", request.dataset_version)],
+        filters=[
+            ("dataset_version", "=", request.dataset_version),
+            ("contour_id", "=", request.contour_id),
+        ],
     )
     series_mode = (
         _dataset_series_mode(dict(manifest_frame.iloc[0]))
@@ -324,7 +382,9 @@ def load_backtest_frames(
                 timeframe=str(timeframe),
             )
             if not local_derived.empty:
-                derived_columns = _derived_payload_columns(local_derived, existing=set(merged.columns))
+                derived_columns = _derived_payload_columns(
+                    local_derived, existing=set(merged.columns)
+                )
                 merged = merged.merge(
                     local_derived[[*_merge_keys(series_mode=series_mode), *derived_columns]],
                     on=_merge_keys(series_mode=series_mode),

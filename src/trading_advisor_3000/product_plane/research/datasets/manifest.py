@@ -7,9 +7,9 @@ from typing import Literal
 
 from .continuous import ContinuousFrontPolicy
 
-
 DatasetSeriesMode = Literal["contract", "continuous_front"]
 DatasetSplitMethod = Literal["full", "holdout", "walk_forward"]
+DatasetContourId = Literal["native_tradable", "pit_active_front"]
 
 _DEFAULT_SOURCES = (
     "canonical_bars",
@@ -23,6 +23,7 @@ class ResearchDatasetManifest:
     dataset_version: str
     universe_id: str
     timeframes: tuple[str, ...]
+    contour_id: DatasetContourId = "native_tradable"
     dataset_name: str | None = None
     source_table: str = "canonical_bars"
     base_timeframe: str | None = None
@@ -35,11 +36,17 @@ class ResearchDatasetManifest:
     continuous_front_policy: ContinuousFrontPolicy | None = None
     split_params: dict[str, object] = field(default_factory=dict)
     bars_hash: str | None = None
+    run_id: str = ""
+    as_of_ts: str | None = None
+    source_delta_versions: dict[str, object] = field(default_factory=dict)
+    source_delta_hashes: dict[str, object] = field(default_factory=dict)
     created_at: str | None = None
     code_version: str = "working-tree"
     notes: dict[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if self.contour_id not in {"native_tradable", "pit_active_front"}:
+            raise ValueError("contour_id must be native_tradable or pit_active_front")
         if not self.dataset_version.strip():
             raise ValueError("dataset_version must be non-empty")
         if not self.universe_id.strip():
@@ -58,6 +65,7 @@ class ResearchDatasetManifest:
     def lineage_key(self) -> str:
         parts = [
             self.dataset_version,
+            self.contour_id,
             self.universe_id,
             self.source_table,
             self.series_mode,
@@ -79,6 +87,7 @@ class ResearchDatasetManifest:
     def to_dict(self) -> dict[str, object]:
         payload: dict[str, object] = {
             "dataset_version": self.dataset_version,
+            "contour_id": self.contour_id,
             "dataset_name": self.resolved_dataset_name(),
             "source_table": self.source_table,
             "series_mode": self.series_mode,
@@ -91,6 +100,10 @@ class ResearchDatasetManifest:
             "warmup_bars": self.warmup_bars,
             "split_params_json": self.split_params,
             "bars_hash": self.bars_hash,
+            "run_id": self.run_id,
+            "as_of_ts": self.as_of_ts,
+            "source_delta_versions_json": self.source_delta_versions,
+            "source_delta_hashes_json": self.source_delta_hashes,
             "created_at": self.created_at,
             "code_version": self.code_version,
             "notes_json": self.notes,
@@ -102,5 +115,7 @@ class ResearchDatasetManifest:
         return payload
 
     def manifest_hash(self) -> str:
-        normalized = json.dumps(self.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        normalized = json.dumps(
+            self.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        )
         return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16].upper()

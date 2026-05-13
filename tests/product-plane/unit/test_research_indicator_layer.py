@@ -724,6 +724,9 @@ def test_indicator_store_contract_contains_stage3_metadata_columns() -> None:
     columns = contract["research_indicator_frames"]["columns"]
     assert {
         "dataset_version",
+        "contour_id",
+        "series_mode",
+        "series_id",
         "indicator_set_version",
         "profile_version",
         "source_bars_hash",
@@ -734,6 +737,18 @@ def test_indicator_store_contract_contains_stage3_metadata_columns() -> None:
         "created_at",
         "output_columns_hash",
     } <= set(columns)
+    assert contract["research_indicator_frames"]["partition_by"] == [
+        "dataset_version",
+        "contour_id",
+        "indicator_set_version",
+        "instrument_id",
+        "timeframe",
+    ]
+    assert (
+        "unique(dataset_version, contour_id, series_mode, series_id, "
+        "indicator_set_version, timeframe, ts)"
+        in contract["research_indicator_frames"]["constraints"]
+    )
 
 
 def test_indicator_build_is_point_in_time_safe_for_existing_prefix() -> None:

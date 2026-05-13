@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import math
+from dataclasses import replace
 from pathlib import Path
 
 from trading_advisor_3000.product_plane.contracts import CanonicalBar
@@ -9,15 +13,20 @@ from trading_advisor_3000.product_plane.data_plane.canonical import (
     SessionCalendarEntry,
 )
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    delta_equals_predicate,
     iter_delta_table_row_batches,
     read_filtered_delta_table_rows,
     read_small_delta_table_rows,
+    replace_delta_table_rows,
 )
 from trading_advisor_3000.product_plane.research.datasets import (
     ContinuousFrontPolicy,
     ResearchBarView,
     ResearchDatasetManifest,
-    materialize_research_dataset,
+    research_dataset_store_contract,
+)
+from trading_advisor_3000.product_plane.research.datasets import (
+    materialize_research_dataset as _materialize_research_dataset_manifest,
 )
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -82,6 +91,161 @@ def _load_research_dataset(output_dir: Path, dataset_version: str) -> dict[str, 
         "instrument_tree": instrument_tree,
         "bar_views": bar_views,
     }
+
+
+def materialize_research_dataset(
+    *,
+    manifest_seed: ResearchDatasetManifest,
+    bars: list[CanonicalBar],
+    session_calendar: list[SessionCalendarEntry],
+    roll_map: list[RollMapEntry],
+    output_dir: Path,
+) -> dict[str, object]:
+    contract = research_dataset_store_contract()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    manifest = manifest_seed
+    calendar_by_key = {
+        (row.instrument_id, row.timeframe, row.session_date): row for row in session_calendar
+    }
+    active_by_key = {
+        (row.instrument_id, row.session_date): row.active_contract_id for row in roll_map
+    }
+    sorted_bars = sorted(
+        bars,
+        key=lambda row: (
+            row.instrument_id,
+            row.contract_id,
+            str(row.timeframe.value),
+            row.ts,
+        ),
+    )
+    previous_close_by_series: dict[tuple[str, str], float] = {}
+    index_by_series: dict[tuple[str, str], int] = {}
+    view_rows: list[dict[str, object]] = []
+    for bar in sorted_bars:
+        timeframe = str(bar.timeframe.value)
+        session_date = bar.ts[:10]
+        calendar = calendar_by_key[(bar.instrument_id, timeframe, session_date)]
+        active_contract_id = active_by_key.get((bar.instrument_id, session_date), bar.contract_id)
+        series_id = (
+            bar.instrument_id if manifest.series_mode == "continuous_front" else bar.contract_id
+        )
+        series_key = (series_id, timeframe)
+        previous_close = previous_close_by_series.get(series_key)
+        ret_1 = None if previous_close in {None, 0.0} else (bar.close / previous_close) - 1.0
+        log_ret_1 = None if previous_close in {None, 0.0} else math.log(bar.close / previous_close)
+        bar_index = index_by_series.get(series_key, 0)
+        view = ResearchBarView(
+            dataset_version=manifest.dataset_version,
+            contour_id=manifest.contour_id,
+            contract_id=bar.contract_id,
+            instrument_id=bar.instrument_id,
+            timeframe=timeframe,
+            ts=bar.ts,
+            open=bar.open,
+            high=bar.high,
+            low=bar.low,
+            close=bar.close,
+            volume=bar.volume,
+            open_interest=bar.open_interest,
+            session_date=session_date,
+            session_open_ts=calendar.session_open_ts,
+            session_close_ts=calendar.session_close_ts,
+            active_contract_id=active_contract_id,
+            ret_1=ret_1,
+            log_ret_1=log_ret_1,
+            true_range=max(
+                bar.high - bar.low,
+                abs(bar.high - (previous_close or bar.close)),
+                abs(bar.low - (previous_close or bar.close)),
+            ),
+            hl_range=bar.high - bar.low,
+            oc_range=bar.close - bar.open,
+            bar_index=bar_index,
+            slice_role="train",
+            series_id=series_id,
+            series_mode=manifest.series_mode,
+            price_space="continuous" if manifest.series_mode == "continuous_front" else "native",
+        )
+        view_rows.append(view.to_dict())
+        previous_close_by_series[series_key] = bar.close
+        index_by_series[series_key] = bar_index + 1
+
+    bars_hash = (
+        hashlib.sha256(
+            json.dumps(view_rows, sort_keys=True, separators=(",", ":"), default=str).encode(
+                "utf-8"
+            )
+        )
+        .hexdigest()[:16]
+        .upper()
+    )
+    split_params = manifest.split_params
+    if not split_params and manifest.split_method == "full" and view_rows:
+        split_params = {
+            "windows": [
+                {
+                    "window_id": "full-01",
+                    "train_start_ts": min(str(row["ts"]) for row in view_rows),
+                    "train_end_ts": max(str(row["ts"]) for row in view_rows),
+                    "test_start_ts": None,
+                    "test_end_ts": None,
+                }
+            ]
+        }
+    manifest = replace(manifest, bars_hash=bars_hash, split_params=split_params)
+
+    grouped: dict[tuple[str, str], list[dict[str, object]]] = {}
+    for row in view_rows:
+        grouped.setdefault((str(row["instrument_id"]), str(row["timeframe"])), []).append(row)
+    tree_rows = [
+        {
+            "dataset_version": manifest.dataset_version,
+            "contour_id": manifest.contour_id,
+            "universe_id": manifest.universe_id,
+            "asset_class": "futures",
+            "asset_group": instrument_id,
+            "internal_id": instrument_id,
+            "instrument_id": instrument_id,
+            "source_instrument_id": instrument_id,
+            "contract_ids_json": sorted({str(row["contract_id"]) for row in rows}),
+            "active_contract_ids_json": sorted({str(row["active_contract_id"]) for row in rows}),
+            "timeframes_json": [timeframe],
+            "row_count": len(rows),
+            "first_ts": min(str(row["ts"]) for row in rows),
+            "last_ts": max(str(row["ts"]) for row in rows),
+            "source_bars_hash": "test-fixture",
+            "lineage_key": manifest.lineage_key(),
+            "created_at": "2026-04-29T00:00:00Z",
+        }
+        for (instrument_id, timeframe), rows in sorted(grouped.items())
+    ]
+    predicate = delta_equals_predicate(
+        {"dataset_version": manifest.dataset_version, "contour_id": manifest.contour_id}
+    )
+    replace_delta_table_rows(
+        table_path=output_dir / "research_bar_views.delta",
+        rows=view_rows,
+        columns=contract["research_bar_views"]["columns"],
+        predicate=predicate,
+    )
+    replace_delta_table_rows(
+        table_path=output_dir / "research_instrument_tree.delta",
+        rows=tree_rows,
+        columns=contract["research_instrument_tree"]["columns"],
+        predicate=predicate,
+    )
+    return _materialize_research_dataset_manifest(
+        manifest_seed=manifest,
+        output_dir=output_dir,
+        bar_view_count=len(view_rows),
+        instrument_tree_count=len(tree_rows),
+        output_paths={
+            "research_bar_views": (output_dir / "research_bar_views.delta").as_posix(),
+            "research_instrument_tree": (output_dir / "research_instrument_tree.delta").as_posix(),
+            "research_datasets": (output_dir / "research_datasets.delta").as_posix(),
+        },
+    )
 
 
 def test_research_dataset_materialization_and_reload_by_dataset_version(tmp_path: Path) -> None:
@@ -161,6 +325,8 @@ def test_research_dataset_materialization_supports_continuous_front_mode(tmp_pat
             dataset_name="continuous front sample",
             universe_id="moex-futures",
             timeframes=("15m",),
+            contour_id="pit_active_front",
+            source_table="continuous_front_bars",
             base_timeframe="15m",
             start_ts="2026-03-16T10:00:00Z",
             end_ts="2026-03-17T10:00:00Z",

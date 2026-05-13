@@ -8,8 +8,14 @@ from time import perf_counter
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows
 from trading_advisor_3000.product_plane.research.io.cache import ResearchFrameCache
-from trading_advisor_3000.product_plane.research.io.loaders import ResearchSliceRequest, load_backtest_frames
-from trading_advisor_3000.product_plane.research.strategies import StrategyRegistry, build_strategy_registry
+from trading_advisor_3000.product_plane.research.io.loaders import (
+    ResearchSliceRequest,
+    load_backtest_frames,
+)
+from trading_advisor_3000.product_plane.research.strategies import (
+    StrategyRegistry,
+    build_strategy_registry,
+)
 
 from .engine import (
     BacktestEngineConfig,
@@ -38,15 +44,21 @@ def _manifest_split_windows(dataset_manifest: dict[str, object]) -> tuple[dict[s
     return tuple(item for item in windows if isinstance(item, dict))
 
 
-def _load_dataset_manifest(*, output_dir: Path, dataset_version: str) -> dict[str, object]:
+def _load_dataset_manifest(
+    *, output_dir: Path, dataset_version: str, contour_id: str = "native_tradable"
+) -> dict[str, object]:
     rows = read_delta_table_rows(
         output_dir / "research_datasets.delta",
-        filters=[("dataset_version", "=", dataset_version)],
+        filters=[("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
     )
     if not rows:
-        raise ValueError(f"materialized research dataset `{dataset_version}` is missing")
+        raise ValueError(
+            f"materialized research dataset `{dataset_version}` / `{contour_id}` is missing"
+        )
     if len(rows) > 1:
-        raise ValueError(f"materialized research dataset `{dataset_version}` is not unique")
+        raise ValueError(
+            f"materialized research dataset `{dataset_version}` / `{contour_id}` is not unique"
+        )
     return dict(rows[0])
 
 
@@ -56,13 +68,18 @@ def _spec_execution_timeframe(spec: StrategyFamilySearchSpec, fallback: str = "1
     return resolved or fallback
 
 
-def _spec_required_timeframes(spec: StrategyFamilySearchSpec, fallback: str = "15m") -> tuple[str, ...]:
+def _spec_required_timeframes(
+    spec: StrategyFamilySearchSpec, fallback: str = "15m"
+) -> tuple[str, ...]:
     if spec.required_inputs_by_clock:
         timeframes: list[str] = []
         for payload in spec.required_inputs_by_clock.values():
             if not isinstance(payload, dict):
                 continue
-            has_inputs = any(payload.get(key) for key in ("price_inputs", "materialized_indicators", "materialized_derived"))
+            has_inputs = any(
+                payload.get(key)
+                for key in ("price_inputs", "materialized_indicators", "materialized_derived")
+            )
             value = str(payload.get("timeframe", "")).strip()
             if has_inputs and value and value not in timeframes:
                 timeframes.append(value)
@@ -79,7 +96,9 @@ def _spec_required_timeframes(spec: StrategyFamilySearchSpec, fallback: str = "1
     return tuple(timeframes) or (fallback,)
 
 
-def _loader_timeframe_for_specs(search_specs: tuple[StrategyFamilySearchSpec, ...], requested_timeframe: str) -> str:
+def _loader_timeframe_for_specs(
+    search_specs: tuple[StrategyFamilySearchSpec, ...], requested_timeframe: str
+) -> str:
     fallback = requested_timeframe or "15m"
     required = {
         timeframe
@@ -111,6 +130,7 @@ class BacktestBatchRequest:
     indicator_set_version: str
     search_specs: tuple[StrategyFamilySearchSpec, ...]
     combination_count: int
+    contour_id: str = "native_tradable"
     derived_indicator_set_version: str = "derived-v1"
     param_batch_size: int = 500
     series_batch_size: int = 8
@@ -142,6 +162,7 @@ class BacktestBatchRequest:
                 self.campaign_run_id,
                 self.strategy_space_id,
                 self.dataset_version,
+                self.contour_id,
                 self.indicator_set_version,
                 self.derived_indicator_set_version,
                 *[search_spec_id(spec) for spec in self.search_specs],
@@ -232,6 +253,7 @@ def run_backtest_batch(
     dataset_manifest = _load_dataset_manifest(
         output_dir=dataset_output_dir,
         dataset_version=request.dataset_version,
+        contour_id=request.contour_id,
     )
     split_windows = _manifest_split_windows(dataset_manifest)
     input_columns = loader_columns_for_search_specs(request.search_specs)
@@ -241,6 +263,7 @@ def run_backtest_batch(
         derived_indicator_output_dir=derived_indicator_output_dir,
         request=ResearchSliceRequest(
             dataset_version=request.dataset_version,
+            contour_id=request.contour_id,
             indicator_set_version=request.indicator_set_version,
             derived_indicator_set_version=request.derived_indicator_set_version,
             timeframe=_loader_timeframe_for_specs(request.search_specs, request.timeframe),
@@ -271,7 +294,9 @@ def run_backtest_batch(
     started = perf_counter()
 
     for search_spec in request.search_specs:
-        for series_chunk in _chunked_series_for_spec(selected_series, request.series_batch_size, search_spec, request.timeframe):
+        for series_chunk in _chunked_series_for_spec(
+            selected_series, request.series_batch_size, search_spec, request.timeframe
+        ):
             report = run_vectorbt_family_search(
                 series_frames=series_chunk,
                 search_spec=search_spec,
@@ -389,8 +414,7 @@ def _search_spec_row(spec: StrategyFamilySearchSpec) -> dict[str, object]:
 
 def _chunked_series(items: list[object], chunk_size: int) -> tuple[tuple[object, ...], ...]:
     return tuple(
-        tuple(items[index : index + chunk_size])
-        for index in range(0, len(items), chunk_size)
+        tuple(items[index : index + chunk_size]) for index in range(0, len(items), chunk_size)
     ) or (tuple(),)
 
 
@@ -400,7 +424,9 @@ def _chunked_series_for_spec(
     spec: StrategyFamilySearchSpec,
     fallback_timeframe: str,
 ) -> tuple[tuple[object, ...], ...]:
-    series_items = [item for item in items if hasattr(item, "instrument_id") and hasattr(item, "timeframe")]
+    series_items = [
+        item for item in items if hasattr(item, "instrument_id") and hasattr(item, "timeframe")
+    ]
     execution_tf = _spec_execution_timeframe(spec, fallback=fallback_timeframe or "15m")
     required_timeframes = set(_spec_required_timeframes(spec, fallback=execution_tf))
     execution_series_keys: list[tuple[str, str]] = []

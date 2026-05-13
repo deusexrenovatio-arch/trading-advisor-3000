@@ -85,11 +85,10 @@ Campaign contracts:
 - `research_campaign.v1.json`
 - `research_run_summary.v1.json`
 
-### Programmatic API
+### Removed Legacy API
 - `trading_advisor_3000.product_plane.research.run_research_from_bars(...)`
 
-This API remains as a thin programmatic adapter over the materialized research path.
-It is not an independent operator route for research campaigns.
+The inline Python L0 route is removed. Research L0 materialization goes through Dagster and the Spark/Delta `research_bar_views` job.
 
 ### Scheduled Freshness Contour
 - `research_data_prep_job`

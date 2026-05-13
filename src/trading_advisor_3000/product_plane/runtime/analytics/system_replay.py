@@ -3,13 +3,22 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from trading_advisor_3000.product_plane.contracts import CanonicalBar, DecisionCandidate, Mode, OrderIntent
+from trading_advisor_3000.product_plane.contracts import (
+    CanonicalBar,
+    DecisionCandidate,
+    IndicatorContextRef,
+    Mode,
+    OrderIntent,
+    TradeSide,
+)
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
 from trading_advisor_3000.product_plane.execution.intents import PaperBrokerEngine
 from trading_advisor_3000.product_plane.interfaces.api import RuntimeAPI
 from trading_advisor_3000.product_plane.research import (
     build_forward_observations,
-    run_research_from_bars,
+    candidate_id_from_signal,
 )
+from trading_advisor_3000.product_plane.research.backtests import results_store_contract
 from trading_advisor_3000.product_plane.runtime.analytics.outcomes import (
     build_signal_outcomes,
     shadow_replay_outcome_store_contract,
@@ -40,6 +49,90 @@ def _bar_close_index(bars: list[CanonicalBar]) -> dict[tuple[str, str, str], flo
     return index
 
 
+def _shadow_replay_candidates(
+    *,
+    bars: list[CanonicalBar],
+    instrument_by_contract: dict[str, str],
+    strategy_version_id: str,
+    dataset_version: str,
+    horizon_bars: int,
+) -> list[DecisionCandidate]:
+    grouped: dict[tuple[str, str], list[CanonicalBar]] = {}
+    for bar in sorted(bars, key=lambda item: (item.contract_id, item.timeframe.value, item.ts)):
+        grouped.setdefault((bar.contract_id, bar.timeframe.value), []).append(bar)
+
+    candidates: list[DecisionCandidate] = []
+    for (contract_id, timeframe), series in sorted(grouped.items()):
+        if len(series) <= horizon_bars:
+            continue
+        index = min(max(1, horizon_bars), len(series) - horizon_bars - 1)
+        bar = series[index]
+        risk = max(abs(bar.close) * 0.01, 0.01)
+        signal_id = f"SHADOW-{dataset_version}-{contract_id}-{timeframe}-{index}"
+        candidates.append(
+            DecisionCandidate(
+                signal_id=signal_id,
+                contract_id=contract_id,
+                timeframe=bar.timeframe,
+                strategy_version_id=strategy_version_id,
+                mode=Mode.SHADOW,
+                side=TradeSide.LONG,
+                entry_ref=bar.close,
+                stop_ref=bar.close - risk,
+                target_ref=bar.close + (2.0 * risk),
+                confidence=0.6,
+                ts_decision=bar.ts,
+                indicator_context=IndicatorContextRef(
+                    dataset_version=dataset_version,
+                    snapshot_id=(
+                        f"{instrument_by_contract.get(contract_id, bar.instrument_id)}:"
+                        f"{timeframe}:{bar.ts}"
+                    ),
+                ),
+            )
+        )
+    return candidates
+
+
+def _candidate_rows(
+    *,
+    candidates: list[DecisionCandidate],
+    instrument_by_contract: dict[str, str],
+    dataset_version: str,
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for candidate in candidates:
+        rows.append(
+            {
+                "candidate_id": candidate_id_from_signal(candidate),
+                "campaign_run_id": "shadow-replay",
+                "ranking_id": f"shadow-replay:{candidate.signal_id}",
+                "backtest_run_id": "shadow-replay",
+                "strategy_instance_id": candidate.strategy_version_id,
+                "strategy_template_id": candidate.strategy_version_id,
+                "family_id": "shadow-replay",
+                "family_key": "shadow-replay",
+                "signal_id": candidate.signal_id,
+                "contract_id": candidate.contract_id,
+                "instrument_id": instrument_by_contract.get(
+                    candidate.contract_id, candidate.contract_id
+                ),
+                "timeframe": candidate.timeframe.value,
+                "ts_signal": candidate.ts_decision,
+                "side": candidate.side.value,
+                "entry_ref": candidate.entry_ref,
+                "stop_ref": candidate.stop_ref,
+                "target_ref": candidate.target_ref,
+                "score": candidate.confidence,
+                "estimated_commission": 0.0,
+                "estimated_slippage": 0.0,
+                "window_id": dataset_version,
+                "indicator_context_json": candidate.indicator_context.to_dict(),
+            }
+        )
+    return rows
+
+
 def run_system_shadow_replay(
     *,
     bars: list[CanonicalBar],
@@ -52,14 +145,23 @@ def run_system_shadow_replay(
     runtime_allowed_contracts: set[str] | None = None,
 ) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
-    research_report = run_research_from_bars(
+    candidates = _shadow_replay_candidates(
         bars=bars,
         instrument_by_contract=instrument_by_contract,
         strategy_version_id=strategy_version_id,
         dataset_version=dataset_version,
-        output_dir=output_dir,
+        horizon_bars=horizon_bars,
     )
-    candidates = [DecisionCandidate.from_dict(item) for item in research_report["signal_contract_rows"]]
+    signal_candidates_path = output_dir / "research_signal_candidates.delta"
+    write_delta_table_rows(
+        table_path=signal_candidates_path,
+        rows=_candidate_rows(
+            candidates=candidates,
+            instrument_by_contract=instrument_by_contract,
+            dataset_version=dataset_version,
+        ),
+        columns=results_store_contract()["research_signal_candidates"]["columns"],
+    )
 
     runtime_stack = build_runtime_stack(telegram_channel=telegram_channel)
     activated_from = min((item.ts_decision for item in candidates), default="1970-01-01T00:00:00Z")
@@ -80,11 +182,15 @@ def run_system_shadow_replay(
         str(item["signal_id"]): str(item["candidate_id"])
         for item in runtime_payload["replay_report"].get("accepted_candidates", [])
     }
-    accepted_signal_ids = set(str(item) for item in runtime_payload["replay_report"]["accepted_signal_ids"])
+    accepted_signal_ids = set(
+        str(item) for item in runtime_payload["replay_report"].get("accepted_signal_ids", [])
+    )
     publication_signal_ids = {str(item["signal_id"]) for item in runtime_payload["publications"]}
     runtime_signal_ids = sorted(accepted_signal_ids & publication_signal_ids)
     runtime_candidates = [item for item in candidates if item.signal_id in runtime_signal_ids]
-    runtime_candidate_ids = sorted({accepted_candidates[item.signal_id] for item in runtime_candidates})
+    runtime_candidate_ids = sorted(
+        {accepted_candidates[item.signal_id] for item in runtime_candidates}
+    )
 
     forward_observations = build_forward_observations(
         candidates=runtime_candidates,
@@ -223,7 +329,8 @@ def run_system_shadow_replay(
         "prometheus_metrics": prometheus_metrics,
         "loki_lines": loki_lines,
         "output_paths": {
-            **research_report["output_paths"],
+            "signal_candidates": signal_candidates_path.as_posix(),
+            "research_signal_candidates": signal_candidates_path.as_posix(),
             "research_forward_observations": forward_path.as_posix(),
             "analytics_signal_outcomes": outcomes_path.as_posix(),
             "analytics_strategy_metrics_daily": strategy_metrics_path.as_posix(),
@@ -233,7 +340,7 @@ def run_system_shadow_replay(
             "observability_loki_events": loki_path.as_posix(),
         },
         "delta_manifest": {
-            **research_report["delta_manifest"],
+            **results_store_contract(),
             **shadow_replay_outcome_store_contract(),
             **review_observability_store_contract(),
         },
