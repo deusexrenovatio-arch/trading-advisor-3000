@@ -179,10 +179,12 @@ def build_cf_indicator_input_rows(
     return rows
 
 
-def load_research_bar_views(*, dataset_output_dir: Path, dataset_version: str) -> list[ResearchBarView]:
+def load_research_bar_views(
+    *, dataset_output_dir: Path, dataset_version: str, contour_id: str = "pit_active_front"
+) -> list[ResearchBarView]:
     rows = read_delta_table_rows(
         dataset_output_dir / "research_bar_views.delta",
-        filters=[("dataset_version", "=", dataset_version)],
+        filters=[("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
     )
     return [ResearchBarView.from_dict(row) for row in rows]
 
@@ -203,9 +205,14 @@ def materialize_cf_indicator_input_frame(
     source_canonical_version: str = "",
     roll_policy_version: str = "",
     adjustment_policy_version: str = "",
+    contour_id: str = "pit_active_front",
 ) -> dict[str, object]:
     rows = build_cf_indicator_input_rows(
-        bar_views=load_research_bar_views(dataset_output_dir=dataset_output_dir, dataset_version=dataset_version),
+        bar_views=load_research_bar_views(
+            dataset_output_dir=dataset_output_dir,
+            dataset_version=dataset_version,
+            contour_id=contour_id,
+        ),
         adjustment_ladder_rows=load_adjustment_ladder_rows(
             dataset_output_dir=dataset_output_dir,
             dataset_version=dataset_version,

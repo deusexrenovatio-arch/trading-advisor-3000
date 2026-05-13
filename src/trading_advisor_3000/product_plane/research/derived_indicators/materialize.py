@@ -59,6 +59,16 @@ from .store import (
 class DerivedSeriesKey:
     instrument_id: str
     contract_id: str | None
+    contour_id: str = "native_tradable"
+    series_mode: str = "contract"
+    series_id: str = ""
+
+
+def _resolved_series_mode(row_series_mode: object, *, requested_series_mode: str) -> str:
+    row_mode = str(row_series_mode or "")
+    if requested_series_mode == "continuous_front" and row_mode in {"", "contract"}:
+        return "continuous_front"
+    return row_mode or requested_series_mode
 
 
 DERIVED_SOURCE_INDICATOR_COLUMNS: tuple[str, ...] = tuple(
@@ -179,16 +189,38 @@ def _timeframe_delta(timeframe: str) -> pd.Timedelta:
 
 
 def _series_key_from_bar(row: ResearchBarView, *, series_mode: str) -> DerivedSeriesKey:
+    resolved_series_mode = _resolved_series_mode(
+        row.series_mode, requested_series_mode=series_mode
+    )
+    fallback_series_id = (
+        row.instrument_id
+        if resolved_series_mode == "continuous_front"
+        else row.contract_id
+    )
     return DerivedSeriesKey(
         instrument_id=row.instrument_id,
-        contract_id=None if series_mode == "continuous_front" else row.contract_id,
+        contract_id=None if resolved_series_mode == "continuous_front" else row.contract_id,
+        contour_id=row.contour_id,
+        series_mode=resolved_series_mode,
+        series_id=row.series_id or fallback_series_id,
     )
 
 
 def _series_key_from_indicator(row: IndicatorFrameRow, *, series_mode: str) -> DerivedSeriesKey:
+    resolved_series_mode = _resolved_series_mode(
+        row.series_mode, requested_series_mode=series_mode
+    )
+    fallback_series_id = (
+        row.instrument_id
+        if resolved_series_mode == "continuous_front"
+        else row.contract_id
+    )
     return DerivedSeriesKey(
         instrument_id=row.instrument_id,
-        contract_id=None if series_mode == "continuous_front" else row.contract_id,
+        contract_id=None if resolved_series_mode == "continuous_front" else row.contract_id,
+        contour_id=row.contour_id,
+        series_mode=resolved_series_mode,
+        series_id=row.series_id or fallback_series_id,
     )
 
 
@@ -214,10 +246,12 @@ def _group_bar_views(
     return grouped
 
 
-def _load_dataset_manifest(*, output_dir: Path, dataset_version: str) -> dict[str, object]:
+def _load_dataset_manifest(
+    *, output_dir: Path, dataset_version: str, contour_id: str = "native_tradable"
+) -> dict[str, object]:
     rows = read_delta_table_rows(
         output_dir / "research_datasets.delta",
-        filters=[("dataset_version", "=", dataset_version)],
+        filters=[("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
     )
     if not rows:
         raise KeyError(f"dataset_version not found: {dataset_version}")
@@ -225,9 +259,20 @@ def _load_dataset_manifest(*, output_dir: Path, dataset_version: str) -> dict[st
 
 
 def _series_key_from_bar_row(row: dict[str, object], *, series_mode: str) -> DerivedSeriesKey:
+    resolved_series_mode = _resolved_series_mode(
+        row.get("series_mode"), requested_series_mode=series_mode
+    )
+    fallback_series_id = (
+        str(row["instrument_id"])
+        if resolved_series_mode == "continuous_front"
+        else str(row["contract_id"])
+    )
     return DerivedSeriesKey(
         instrument_id=str(row["instrument_id"]),
-        contract_id=None if series_mode == "continuous_front" else str(row["contract_id"]),
+        contract_id=None if resolved_series_mode == "continuous_front" else str(row["contract_id"]),
+        contour_id=str(row.get("contour_id") or "native_tradable"),
+        series_mode=resolved_series_mode,
+        series_id=str(row.get("series_id") or fallback_series_id),
     )
 
 
@@ -235,16 +280,24 @@ def _load_bar_partition_counts(
     *,
     dataset_output_dir: Path,
     dataset_version: str,
+    contour_id: str,
     series_mode: str,
 ) -> dict[DerivedSeriesKey, dict[str, int]]:
     counts: dict[DerivedSeriesKey, dict[str, int]] = {}
     for batch in iter_delta_table_row_batches(
         dataset_output_dir / "research_bar_views.delta",
-        columns=["dataset_version", "contract_id", "instrument_id", "timeframe"],
+        columns=[
+            "dataset_version",
+            "contour_id",
+            "series_mode",
+            "series_id",
+            "contract_id",
+            "instrument_id",
+            "timeframe",
+        ],
+        filters=[("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
     ):
         for row in batch:
-            if row.get("dataset_version") != dataset_version:
-                continue
             series_key = _series_key_from_bar_row(row, series_mode=series_mode)
             timeframe = str(row["timeframe"])
             counts.setdefault(series_key, {})[timeframe] = (
@@ -257,16 +310,22 @@ def _load_bar_partition_rows(
     *,
     dataset_output_dir: Path,
     dataset_version: str,
+    contour_id: str,
     series_key: DerivedSeriesKey,
     timeframe: str,
 ) -> list[ResearchBarView]:
     filters: list[tuple[str, str, object]] = [
         ("dataset_version", "=", dataset_version),
+        ("contour_id", "=", contour_id),
         ("instrument_id", "=", series_key.instrument_id),
         ("timeframe", "=", timeframe),
     ]
     if series_key.contract_id is not None:
         filters.append(("contract_id", "=", series_key.contract_id))
+    if series_key.series_mode:
+        filters.append(("series_mode", "=", series_key.series_mode))
+    if series_key.series_id:
+        filters.append(("series_id", "=", series_key.series_id))
     rows = read_delta_table_rows(dataset_output_dir / "research_bar_views.delta", filters=filters)
     return [
         ResearchBarView.from_dict(row) for row in sorted(rows, key=lambda item: str(item["ts"]))
@@ -306,9 +365,20 @@ def _group_indicator_rows(
 def _indicator_metadata_key(
     row: dict[str, object], *, series_mode: str
 ) -> tuple[DerivedSeriesKey, str]:
+    resolved_series_mode = _resolved_series_mode(
+        row.get("series_mode"), requested_series_mode=series_mode
+    )
+    fallback_series_id = (
+        str(row.get("instrument_id") or "")
+        if resolved_series_mode == "continuous_front"
+        else str(row.get("contract_id") or "")
+    )
     series_key = DerivedSeriesKey(
         instrument_id=str(row["instrument_id"]),
-        contract_id=None if series_mode == "continuous_front" else str(row["contract_id"]),
+        contract_id=None if resolved_series_mode == "continuous_front" else str(row["contract_id"]),
+        contour_id=str(row.get("contour_id") or "native_tradable"),
+        series_mode=resolved_series_mode,
+        series_id=str(row.get("series_id") or fallback_series_id),
     )
     return series_key, str(row["timeframe"])
 
@@ -337,19 +407,33 @@ def _indicator_partition_key(
         timeframe=timeframe,
         instrument_id=series_key.instrument_id,
         contract_id=series_key.contract_id,
+        contour_id=series_key.contour_id,
+        series_mode=series_key.series_mode,
+        series_id=series_key.series_id,
     )
 
 
 def _metadata_partition_key(
     row: dict[str, object], *, series_mode: str
 ) -> DerivedIndicatorFramePartitionKey:
+    resolved_series_mode = _resolved_series_mode(
+        row.get("series_mode"), requested_series_mode=series_mode
+    )
+    fallback_series_id = (
+        str(row.get("instrument_id") or "")
+        if resolved_series_mode == "continuous_front"
+        else str(row.get("contract_id") or "")
+    )
     return DerivedIndicatorFramePartitionKey(
         dataset_version=str(row["dataset_version"]),
         indicator_set_version=str(row["indicator_set_version"]),
         derived_indicator_set_version=str(row["derived_indicator_set_version"]),
         timeframe=str(row["timeframe"]),
         instrument_id=str(row["instrument_id"]),
-        contract_id=None if series_mode == "continuous_front" else str(row["contract_id"]),
+        contract_id=None if resolved_series_mode == "continuous_front" else str(row["contract_id"]),
+        contour_id=str(row.get("contour_id") or "native_tradable"),
+        series_mode=resolved_series_mode,
+        series_id=str(row.get("series_id") or fallback_series_id),
     )
 
 
@@ -379,6 +463,9 @@ def _derived_partition_key(
         timeframe=timeframe,
         instrument_id=series_key.instrument_id,
         contract_id=series_key.contract_id,
+        contour_id=series_key.contour_id,
+        series_mode=series_key.series_mode,
+        series_id=series_key.series_id,
     )
 
 
@@ -1126,6 +1213,9 @@ def _build_partition_rows(
         rows.append(
             DerivedIndicatorFrameRow(
                 dataset_version=dataset_version,
+                contour_id=original.contour_id,
+                series_mode=original.series_mode,
+                series_id=original.series_id,
                 indicator_set_version=indicator_set_version,
                 derived_indicator_set_version=derived_indicator_set_version,
                 profile_version=profile.version,
@@ -1205,11 +1295,14 @@ def materialize_derived_indicator_frames(
     dataset_version: str,
     indicator_set_version: str,
     derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
+    contour_id: str = "native_tradable",
     profile: DerivedIndicatorProfile | None = None,
     profile_version: str | None = None,
 ) -> dict[str, object]:
     dataset_manifest = _load_dataset_manifest(
-        output_dir=dataset_output_dir, dataset_version=dataset_version
+        output_dir=dataset_output_dir,
+        dataset_version=dataset_version,
+        contour_id=contour_id,
     )
     series_mode = str(dataset_manifest.get("series_mode", "contract"))
     adjustment_ladder_rows = (
@@ -1225,6 +1318,7 @@ def materialize_derived_indicator_frames(
     partition_counts = _load_bar_partition_counts(
         dataset_output_dir=dataset_output_dir,
         dataset_version=dataset_version,
+        contour_id=contour_id,
         series_mode=series_mode,
     )
     bar_rows_cache: dict[tuple[DerivedSeriesKey, str], list[ResearchBarView]] = {}
@@ -1235,6 +1329,7 @@ def materialize_derived_indicator_frames(
             bar_rows_cache[cache_key] = _load_bar_partition_rows(
                 dataset_output_dir=dataset_output_dir,
                 dataset_version=dataset_version,
+                contour_id=contour_id,
                 series_key=series_key,
                 timeframe=timeframe,
             )
@@ -1248,6 +1343,7 @@ def materialize_derived_indicator_frames(
             output_dir=indicator_output_dir,
             dataset_version=dataset_version,
             indicator_set_version=indicator_set_version,
+            contour_id=contour_id,
         )
         if indicator_table_exists
         else []
@@ -1317,6 +1413,7 @@ def materialize_derived_indicator_frames(
             dataset_version=dataset_version,
             indicator_set_version=indicator_set_version,
             derived_indicator_set_version=derived_indicator_set_version,
+            contour_id=contour_id,
         )
         if table_exists
         else []

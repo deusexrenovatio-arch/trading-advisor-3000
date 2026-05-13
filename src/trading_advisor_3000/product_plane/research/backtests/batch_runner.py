@@ -38,15 +38,17 @@ def _manifest_split_windows(dataset_manifest: dict[str, object]) -> tuple[dict[s
     return tuple(item for item in windows if isinstance(item, dict))
 
 
-def _load_dataset_manifest(*, output_dir: Path, dataset_version: str) -> dict[str, object]:
+def _load_dataset_manifest(
+    *, output_dir: Path, dataset_version: str, contour_id: str = "native_tradable"
+) -> dict[str, object]:
     rows = read_delta_table_rows(
         output_dir / "research_datasets.delta",
-        filters=[("dataset_version", "=", dataset_version)],
+        filters=[("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
     )
     if not rows:
-        raise ValueError(f"materialized research dataset `{dataset_version}` is missing")
+        raise ValueError(f"materialized research dataset `{dataset_version}` / `{contour_id}` is missing")
     if len(rows) > 1:
-        raise ValueError(f"materialized research dataset `{dataset_version}` is not unique")
+        raise ValueError(f"materialized research dataset `{dataset_version}` / `{contour_id}` is not unique")
     return dict(rows[0])
 
 
@@ -111,6 +113,7 @@ class BacktestBatchRequest:
     indicator_set_version: str
     search_specs: tuple[StrategyFamilySearchSpec, ...]
     combination_count: int
+    contour_id: str = "native_tradable"
     derived_indicator_set_version: str = "derived-v1"
     param_batch_size: int = 500
     series_batch_size: int = 8
@@ -142,6 +145,7 @@ class BacktestBatchRequest:
                 self.campaign_run_id,
                 self.strategy_space_id,
                 self.dataset_version,
+                self.contour_id,
                 self.indicator_set_version,
                 self.derived_indicator_set_version,
                 *[search_spec_id(spec) for spec in self.search_specs],
@@ -232,6 +236,7 @@ def run_backtest_batch(
     dataset_manifest = _load_dataset_manifest(
         output_dir=dataset_output_dir,
         dataset_version=request.dataset_version,
+        contour_id=request.contour_id,
     )
     split_windows = _manifest_split_windows(dataset_manifest)
     input_columns = loader_columns_for_search_specs(request.search_specs)
@@ -241,6 +246,7 @@ def run_backtest_batch(
         derived_indicator_output_dir=derived_indicator_output_dir,
         request=ResearchSliceRequest(
             dataset_version=request.dataset_version,
+            contour_id=request.contour_id,
             indicator_set_version=request.indicator_set_version,
             derived_indicator_set_version=request.derived_indicator_set_version,
             timeframe=_loader_timeframe_for_specs(request.search_specs, request.timeframe),

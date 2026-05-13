@@ -339,8 +339,18 @@ def _enforce_hot_delta_read_bound(
         filters=filters, limit=limit
     ):
         raise ValueError(
-            "hot Delta tables require filters, limit, batched reads, "
-            "or Spark/Delta-native operations"
+            "hot Delta tables require filters, limit, or Spark/Delta-native operations"
+        )
+
+
+def _enforce_hot_delta_batch_bound(
+    table_path: Path,
+    *,
+    filters: DeltaReadFilters,
+) -> None:
+    if is_hot_delta_table_path(table_path) and not _filters_have_effective_clause(filters):
+        raise ValueError(
+            "hot Delta table batch iteration requires filters or Spark/Delta-native operations"
         )
 
 
@@ -519,6 +529,7 @@ def iter_delta_table_row_batches(
     table = DeltaTable(str(table_path))
     dataset = table.to_pyarrow_dataset()
     normalized_filters = _normalize_filters_for_schema(filters, dataset.schema)
+    _enforce_hot_delta_batch_bound(table_path, filters=normalized_filters)
     scanner = dataset.scanner(
         columns=columns,
         filter=_filters_to_dataset_expression(normalized_filters),
@@ -620,7 +631,6 @@ def read_small_delta_table_rows(
 ) -> list[dict[str, object]]:
     if is_hot_delta_table_path(table_path):
         raise ValueError(
-            "hot Delta tables require filtered reads, batched reads, "
-            "or Spark/Delta-native operations"
+            "hot Delta tables require filtered reads or Spark/Delta-native operations"
         )
     return read_delta_table_rows(table_path, columns=columns, limit=limit)

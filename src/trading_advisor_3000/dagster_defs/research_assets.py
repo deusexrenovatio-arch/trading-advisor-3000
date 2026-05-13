@@ -20,16 +20,10 @@ from dagster import (
     run_status_sensor,
 )
 
-from trading_advisor_3000.product_plane.contracts import CanonicalBar
-from trading_advisor_3000.product_plane.data_plane.canonical import (
-    RollMapEntry,
-    SessionCalendarEntry,
-)
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
     ensure_delta_table_columns,
     has_delta_log,
-    iter_delta_table_row_batches,
     read_delta_table_frame,
     read_delta_table_rows,
     read_filtered_delta_table_rows,
@@ -53,7 +47,6 @@ from trading_advisor_3000.product_plane.research.backtests import (
 from trading_advisor_3000.product_plane.research.continuous_front import (
     CONTINUOUS_FRONT_TABLES,
     continuous_front_store_contract,
-    load_continuous_front_as_research_context,
 )
 from trading_advisor_3000.product_plane.research.continuous_front_indicators import (
     CF_INDICATOR_TABLES,
@@ -64,7 +57,6 @@ from trading_advisor_3000.product_plane.research.datasets import (
     CALENDAR_EXPIRY_CONTINUOUS_FRONT_POLICY,
     ContinuousFrontPolicy,
     ResearchDatasetManifest,
-    materialize_research_dataset,
     research_dataset_store_contract,
 )
 from trading_advisor_3000.product_plane.research.derived_indicators import (
@@ -84,7 +76,7 @@ from trading_advisor_3000.product_plane.research.strategies.families import (
     phase_stg02_family_adapters,
 )
 from trading_advisor_3000.product_plane.research.strategy_space import prepare_strategy_space
-from trading_advisor_3000.spark_jobs import run_continuous_front_spark_job
+from trading_advisor_3000.spark_jobs import run_continuous_front_spark_job, run_research_bar_views_spark_job
 
 from .historical_data_proof_assets import AssetSpec
 from .moex_historical_assets import MOEX_BASELINE_UPDATE_JOB_NAME, moex_baseline_update_job
@@ -565,16 +557,6 @@ def _canonical_table_path(config: dict[str, object], table_name: str) -> Path:
     )
 
 
-def _read_canonical_context_rows(
-    table_path: Path,
-    *,
-    filters: list[tuple[str, str, object]] | None,
-) -> list[dict[str, object]]:
-    if filters:
-        return read_filtered_delta_table_rows(table_path, filters=filters)
-    return [row for batch in iter_delta_table_row_batches(table_path) for row in batch]
-
-
 def _resolve_research_output_dirs(
     *,
     research_output_dir: Path | None = None,
@@ -677,13 +659,21 @@ def _research_output_paths(
     }
 
 
-def _delta_table_summary(*, table_path: Path, table_name: str) -> dict[str, object]:
+def _delta_table_summary(
+    *, table_path: Path, table_name: str, filters: list[tuple[str, str, object]] | None = None
+) -> dict[str, object]:
     if not has_delta_log(table_path):
         raise RuntimeError(f"missing `_delta_log` for `{table_name}` at {table_path.as_posix()}")
+    row_count = (
+        count_delta_table_rows(table_path, filters=filters)
+        if filters
+        else count_delta_table_rows(table_path)
+    )
     return {
         "table": table_name,
         "path": table_path.as_posix(),
-        "row_count": count_delta_table_rows(table_path),
+        "row_count": row_count,
+        "filters": filters or [],
     }
 
 
@@ -817,6 +807,7 @@ def _require_existing_data_prep(
     dataset_version: str,
     indicator_set_version: str,
     derived_indicator_set_version: str,
+    contour_id: str = "native_tradable",
 ) -> None:
     dataset_path = materialized_output_dir / "research_datasets.delta"
     instrument_tree_path = materialized_output_dir / "research_instrument_tree.delta"
@@ -832,25 +823,29 @@ def _require_existing_data_prep(
     ):
         if not has_delta_log(path):
             raise RuntimeError(f"missing reusable research data prep table: {path.as_posix()}")
-        if count_delta_table_rows(path) <= 0:
-            raise RuntimeError(f"empty reusable research data prep table: {path.as_posix()}")
 
     _ensure_reusable_data_prep_schema(materialized_output_dir=materialized_output_dir)
     _require_delta_table_row(
         table_path=dataset_path,
         table_name="research_datasets",
-        filters=[("dataset_version", "=", dataset_version)],
+        filters=[("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
     )
     _require_delta_table_row(
         table_path=bar_views_path,
         table_name="research_bar_views",
-        filters=[("dataset_version", "=", dataset_version)],
+        filters=[("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
+    )
+    _require_delta_table_row(
+        table_path=instrument_tree_path,
+        table_name="research_instrument_tree",
+        filters=[("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
     )
     _require_delta_table_row(
         table_path=indicator_path,
         table_name="research_indicator_frames",
         filters=[
             ("dataset_version", "=", dataset_version),
+            ("contour_id", "=", contour_id),
             ("indicator_set_version", "=", indicator_set_version),
         ],
     )
@@ -859,6 +854,7 @@ def _require_existing_data_prep(
         table_name="research_derived_indicator_frames",
         filters=[
             ("dataset_version", "=", dataset_version),
+            ("contour_id", "=", contour_id),
             ("indicator_set_version", "=", indicator_set_version),
             ("derived_indicator_set_version", "=", derived_indicator_set_version),
         ],
@@ -866,16 +862,67 @@ def _require_existing_data_prep(
 
 
 def _dataset_manifest_row(
-    *, materialized_output_dir: Path, dataset_version: str
+    *, materialized_output_dir: Path, dataset_version: str, contour_id: str = "native_tradable"
 ) -> dict[str, object]:
     rows = read_delta_table_rows(
         materialized_output_dir / "research_datasets.delta",
         columns=list(research_dataset_store_contract()["research_datasets"]["columns"]),
-        filters=[("dataset_version", "=", dataset_version)],
+        filters=[("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
     )
     if not rows:
         raise RuntimeError(f"dataset_version not found: {dataset_version}")
     return dict(rows[0])
+
+
+def _research_materialized_table_filters(
+    *,
+    table_name: str,
+    dataset_version: str,
+    contour_id: str,
+    indicator_set_version: str = "indicators-v1",
+    derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
+) -> list[tuple[str, str, object]] | None:
+    if table_name in {"research_datasets", "research_instrument_tree", "research_bar_views"}:
+        return [("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)]
+    if table_name == "research_indicator_frames":
+        return [
+            ("dataset_version", "=", dataset_version),
+            ("contour_id", "=", contour_id),
+            ("indicator_set_version", "=", indicator_set_version),
+        ]
+    if table_name == "research_derived_indicator_frames":
+        return [
+            ("dataset_version", "=", dataset_version),
+            ("contour_id", "=", contour_id),
+            ("indicator_set_version", "=", indicator_set_version),
+            ("derived_indicator_set_version", "=", derived_indicator_set_version),
+        ]
+    if table_name in CONTINUOUS_FRONT_TABLES:
+        return [("dataset_version", "=", dataset_version)]
+    return None
+
+
+def _count_materialized_table_rows(
+    *,
+    table_path: Path,
+    table_name: str,
+    dataset_version: str,
+    contour_id: str,
+    indicator_set_version: str = "indicators-v1",
+    derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
+) -> int:
+    filters = _research_materialized_table_filters(
+        table_name=table_name,
+        dataset_version=dataset_version,
+        contour_id=contour_id,
+        indicator_set_version=indicator_set_version,
+        derived_indicator_set_version=derived_indicator_set_version,
+    )
+    return (
+        count_delta_table_rows(table_path, filters=filters)
+        if filters
+        else count_delta_table_rows(table_path)
+    )
 
 
 def _materialized_table_manifest(
@@ -886,117 +933,39 @@ def _materialized_table_manifest(
         table_path = Path(str(output_paths[table_name]))
     else:
         table_path = Path(str(research_datasets["materialized_output_dir"])) / f"{table_name}.delta"
+    dataset_version = str(research_datasets.get("dataset_version", ""))
+    contour_id = str(research_datasets.get("contour_id", "native_tradable"))
+    filters = _research_materialized_table_filters(
+        table_name=table_name,
+        dataset_version=dataset_version,
+        contour_id=contour_id,
+        indicator_set_version=str(research_datasets.get("indicator_set_version", "indicators-v1")),
+        derived_indicator_set_version=str(
+            research_datasets.get("derived_indicator_set_version", DEFAULT_DERIVED_INDICATOR_SET_VERSION)
+        ),
+    )
+    row_count = (
+        count_delta_table_rows(table_path, filters=filters)
+        if has_delta_log(table_path) and filters
+        else count_delta_table_rows(table_path)
+        if has_delta_log(table_path)
+        else 0
+    )
     return {
         "table_name": table_name,
         "table_path": table_path.as_posix(),
-        "row_count": count_delta_table_rows(table_path) if has_delta_log(table_path) else 0,
+        "row_count": row_count,
+        "filters": filters or [],
         "has_delta_log": has_delta_log(table_path),
     }
 
 
-def _load_canonical_context(
-    config: dict[str, object],
-) -> tuple[list[CanonicalBar], list[SessionCalendarEntry], list[RollMapEntry]]:
-    bars_path = _canonical_table_path(config, "canonical_bars")
-    calendar_path = _canonical_table_path(config, "canonical_session_calendar")
-    roll_map_path = _canonical_table_path(config, "canonical_roll_map")
-    for path in (bars_path, calendar_path, roll_map_path):
-        if not has_delta_log(path):
-            raise RuntimeError(f"missing canonical delta table: {path.as_posix()}")
-
-    contract_ids = {str(item) for item in _config_value(config, "dataset_contract_ids", [])}
-    instrument_ids = {str(item) for item in _config_value(config, "dataset_instrument_ids", [])}
-    timeframes = tuple(str(item) for item in _config_value(config, "timeframes", []))
-    timeframe_set = set(timeframes)
-    start_ts = str(_config_value(config, "start_ts", "") or "")
-    end_ts = str(_config_value(config, "end_ts", "") or "")
-    warmup_bars = int(_config_value(config, "warmup_bars", 0))
-
-    def _value_filter(column: str, values: Sequence[str]) -> tuple[str, str, object] | None:
-        resolved = tuple(str(value) for value in values if str(value))
-        if not resolved:
-            return None
-        if len(resolved) == 1:
-            return (column, "=", resolved[0])
-        return (column, "in", sorted(resolved))
-
-    calendar_filters: list[tuple[str, str, object]] = []
-    for maybe_filter in (
-        _value_filter("instrument_id", sorted(instrument_ids)),
-        _value_filter("timeframe", timeframes),
-    ):
-        if maybe_filter is not None:
-            calendar_filters.append(maybe_filter)
-    session_calendar = [
-        SessionCalendarEntry(
-            instrument_id=str(row["instrument_id"]),
-            timeframe=str(row["timeframe"]),
-            session_date=str(row["session_date"]),
-            session_open_ts=str(row["session_open_ts"]),
-            session_close_ts=str(row["session_close_ts"]),
-        )
-        for row in _read_canonical_context_rows(calendar_path, filters=calendar_filters or None)
-        if (
-            (not instrument_ids or str(row.get("instrument_id")) in instrument_ids)
-            and (not timeframe_set or str(row.get("timeframe")) in timeframe_set)
-        )
-    ]
-    if str(_config_value(config, "series_mode", "contract")) == "continuous_front":
-        bars, roll_map = load_continuous_front_as_research_context(
-            continuous_front_output_dir=_materialized_output_dir(config),
-            dataset_version=str(_config_value(config, "dataset_version")),
-            instrument_ids=tuple(instrument_ids),
-            timeframes=tuple(timeframes),
-            start_ts=str(_config_value(config, "start_ts", "")) or None,
-            end_ts=str(_config_value(config, "end_ts", "")) or None,
-        )
-        if contract_ids:
-            bars = [row for row in bars if row.contract_id in contract_ids]
-    else:
-        bar_filters: list[tuple[str, str, object]] = []
-        for maybe_filter in (
-            _value_filter("contract_id", sorted(contract_ids)),
-            _value_filter("instrument_id", sorted(instrument_ids)),
-            _value_filter("timeframe", timeframes),
-        ):
-            if maybe_filter is not None:
-                bar_filters.append(maybe_filter)
-        if start_ts and warmup_bars <= 0:
-            bar_filters.append(("ts", ">=", start_ts))
-        if end_ts:
-            bar_filters.append(("ts", "<=", end_ts))
-        roll_map_filters: list[tuple[str, str, object]] = []
-        roll_map_instrument_filter = _value_filter("instrument_id", sorted(instrument_ids))
-        if roll_map_instrument_filter is not None:
-            roll_map_filters.append(roll_map_instrument_filter)
-        bars = [
-            CanonicalBar.from_dict(row)
-            for row in _read_canonical_context_rows(bars_path, filters=bar_filters or None)
-            if (
-                (not contract_ids or str(row.get("contract_id")) in contract_ids)
-                and (not instrument_ids or str(row.get("instrument_id")) in instrument_ids)
-                and (not timeframe_set or str(row.get("timeframe")) in timeframe_set)
-                and (not start_ts or warmup_bars > 0 or str(row.get("ts")) >= start_ts)
-                and (not end_ts or str(row.get("ts")) <= end_ts)
-            )
-        ]
-        roll_map = [
-            RollMapEntry(
-                instrument_id=str(row["instrument_id"]),
-                session_date=str(row["session_date"]),
-                active_contract_id=str(row["active_contract_id"]),
-                reason=str(row["reason"]),
-            )
-            for row in _read_canonical_context_rows(roll_map_path, filters=roll_map_filters or None)
-            if not instrument_ids or str(row.get("instrument_id")) in instrument_ids
-        ]
-    return bars, session_calendar, roll_map
-
-
 def _seed_manifest(config: dict[str, object]) -> ResearchDatasetManifest:
     series_mode = str(_config_value(config, "series_mode", "contract"))
+    contour_id = "pit_active_front" if series_mode == "continuous_front" else "native_tradable"
     return ResearchDatasetManifest(
         dataset_version=str(_config_value(config, "dataset_version")),
+        contour_id=contour_id,  # type: ignore[arg-type]
         dataset_name=str(_config_value(config, "dataset_name", "research-materialized")),
         source_table="continuous_front_bars"
         if series_mode == "continuous_front"
@@ -1023,6 +992,7 @@ def _seed_manifest(config: dict[str, object]) -> ResearchDatasetManifest:
             if series_mode == "continuous_front"
             else None
         ),
+        run_id=str(_config_value(config, "campaign_run_id", "research_data_prep")),
         code_version=str(_config_value(config, "code_version", "research-data-prep")),
     )
 
@@ -1079,6 +1049,7 @@ def continuous_front_roll_events(continuous_front_bars: dict[str, object]) -> di
     return _delta_table_summary(
         table_path=materialized_output_dir / "continuous_front_roll_events.delta",
         table_name="continuous_front_roll_events",
+        filters=[("dataset_version", "=", str(continuous_front_bars["dataset_version"]))],
     )
 
 
@@ -1090,6 +1061,7 @@ def continuous_front_adjustment_ladder(
     return _delta_table_summary(
         table_path=materialized_output_dir / "continuous_front_adjustment_ladder.delta",
         table_name="continuous_front_adjustment_ladder",
+        filters=[("dataset_version", "=", str(continuous_front_bars["dataset_version"]))],
     )
 
 
@@ -1103,6 +1075,7 @@ def continuous_front_qc_report(
     summary = _delta_table_summary(
         table_path=materialized_output_dir / "continuous_front_qc_report.delta",
         table_name="continuous_front_qc_report",
+        filters=[("dataset_version", "=", str(continuous_front_bars["dataset_version"]))],
     )
     summary["continuous_front_status"] = continuous_front_bars["status"]
     summary["roll_events"] = continuous_front_roll_events
@@ -1128,11 +1101,19 @@ def research_datasets(context, continuous_front_qc_report: dict[str, object]) ->
             config, "derived_indicator_set_version", DEFAULT_DERIVED_INDICATOR_SET_VERSION
         )
     )
+    series_mode = str(_config_value(config, "series_mode", "contract"))
+    contour_id = "pit_active_front" if series_mode == "continuous_front" else "native_tradable"
+    research_l0_contours = (
+        ("pit_active_front", "native_tradable")
+        if series_mode == "continuous_front"
+        else ("native_tradable",)
+    )
 
     if _reuse_existing_materialization(config):
         _require_existing_data_prep(
             materialized_output_dir=materialized_output_dir,
             dataset_version=dataset_version,
+            contour_id=contour_id,
             indicator_set_version=indicator_set_version,
             derived_indicator_set_version=derived_indicator_set_version,
         )
@@ -1140,16 +1121,17 @@ def research_datasets(context, continuous_front_qc_report: dict[str, object]) ->
             "dataset_manifest": _dataset_manifest_row(
                 materialized_output_dir=materialized_output_dir,
                 dataset_version=dataset_version,
+                contour_id=contour_id,
             ),
             "instrument_tree_count": _delta_table_filtered_row_count(
                 table_path=materialized_output_dir / "research_instrument_tree.delta",
                 table_name="research_instrument_tree",
-                filters=[("dataset_version", "=", dataset_version)],
+                filters=[("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
             ),
             "bar_view_count": _delta_table_filtered_row_count(
                 table_path=materialized_output_dir / "research_bar_views.delta",
                 table_name="research_bar_views",
-                filters=[("dataset_version", "=", dataset_version)],
+                filters=[("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
             ),
             "output_paths": {
                 "research_datasets": (
@@ -1164,13 +1146,23 @@ def research_datasets(context, continuous_front_qc_report: dict[str, object]) ->
             },
         }
     else:
-        bars, session_calendar, roll_map = _load_canonical_context(config)
-        report = materialize_research_dataset(
-            manifest_seed=_seed_manifest(config),
-            bars=bars,
-            session_calendar=session_calendar,
-            roll_map=roll_map,
+        report = run_research_bar_views_spark_job(
+            canonical_bars_path=_canonical_table_path(config, "canonical_bars"),
+            canonical_session_calendar_path=_canonical_table_path(config, "canonical_session_calendar"),
+            canonical_roll_map_path=_canonical_table_path(config, "canonical_roll_map"),
+            continuous_front_bars_path=materialized_output_dir / "continuous_front_bars.delta",
             output_dir=materialized_output_dir,
+            dataset_version=dataset_version,
+            dataset_name=str(_config_value(config, "dataset_name", "research-materialized")),
+            universe_id=str(_config_value(config, "universe_id", "moex-futures")),
+            run_id=str(_config_value(config, "campaign_run_id", "research_data_prep")),
+            instrument_ids=tuple(str(item) for item in _config_value(config, "dataset_instrument_ids", [])),
+            contract_ids=tuple(str(item) for item in _config_value(config, "dataset_contract_ids", [])),
+            timeframes=tuple(str(item) for item in _config_value(config, "timeframes", [])),
+            start_ts=str(_config_value(config, "start_ts", "")) or None,
+            end_ts=str(_config_value(config, "end_ts", "")) or None,
+            warmup_bars=int(_config_value(config, "warmup_bars", 0)),
+            contours=research_l0_contours,
         )
     strategy_space_config = _config_value(config, "strategy_space", {})
     optimizer_policy = (
@@ -1191,6 +1183,7 @@ def research_datasets(context, continuous_front_qc_report: dict[str, object]) ->
         "reuse_existing_materialization": _reuse_existing_materialization(config),
         "campaign_run_id": str(_config_value(config, "campaign_run_id")),
         "dataset_version": dataset_version,
+        "contour_id": contour_id,
         "indicator_set_version": indicator_set_version,
         "indicator_profile_version": str(
             _config_value(config, "indicator_profile_version", "core_v1")
@@ -1317,15 +1310,17 @@ def research_indicator_frames(
         research_datasets.get("volume_profile_tick_size_by_instrument", {}),
         strict=False,
     )
-    materialize_indicator_frames(
-        dataset_output_dir=materialized_output_dir,
-        indicator_output_dir=materialized_output_dir,
-        dataset_version=dataset_version,
-        indicator_set_version=indicator_set_version,
-        profile_version=profile_version,
-        volume_profile_raw_1m_table_path=raw_1m_table_path,
-        volume_profile_tick_size_by_instrument=tick_size_by_instrument or None,
-    )
+    if not bool(research_datasets.get("reuse_existing_materialization")):
+        materialize_indicator_frames(
+            dataset_output_dir=materialized_output_dir,
+            indicator_output_dir=materialized_output_dir,
+            dataset_version=dataset_version,
+            contour_id=str(research_datasets.get("contour_id", "native_tradable")),
+            indicator_set_version=indicator_set_version,
+            profile_version=profile_version,
+            volume_profile_raw_1m_table_path=raw_1m_table_path,
+            volume_profile_tick_size_by_instrument=tick_size_by_instrument or None,
+        )
     return _materialized_table_manifest(research_datasets, "research_indicator_frames")
 
 
@@ -1342,16 +1337,17 @@ def research_derived_indicator_frames(
     indicator_set_version = str(research_datasets["indicator_set_version"])
     derived_indicator_set_version = str(research_datasets["derived_indicator_set_version"])
     profile_version = str(research_datasets["derived_indicator_profile_version"])
-    materialize_derived_indicator_frames(
-        dataset_output_dir=materialized_output_dir,
-        indicator_output_dir=materialized_output_dir,
-        derived_indicator_output_dir=materialized_output_dir,
-        dataset_version=dataset_version,
-        indicator_set_version=indicator_set_version,
-        derived_indicator_set_version=derived_indicator_set_version,
-        profile_version=profile_version,
-    )
     if not bool(research_datasets.get("reuse_existing_materialization")):
+        materialize_derived_indicator_frames(
+            dataset_output_dir=materialized_output_dir,
+            indicator_output_dir=materialized_output_dir,
+            derived_indicator_output_dir=materialized_output_dir,
+            dataset_version=dataset_version,
+            contour_id=str(research_datasets.get("contour_id", "native_tradable")),
+            indicator_set_version=indicator_set_version,
+            derived_indicator_set_version=derived_indicator_set_version,
+            profile_version=profile_version,
+        )
         dataset_manifest = dict(research_datasets.get("dataset_manifest") or {})
         if str(dataset_manifest.get("series_mode")) == "continuous_front":
             continuous_front_indicator_run_id = str(
@@ -1360,6 +1356,7 @@ def research_derived_indicator_frames(
             run_continuous_front_indicator_pandas_job(
                 materialized_output_dir=materialized_output_dir,
                 dataset_version=dataset_version,
+                contour_id=str(research_datasets.get("contour_id", "pit_active_front")),
                 indicator_set_version=indicator_set_version,
                 derived_set_version=derived_indicator_set_version,
                 run_id=continuous_front_indicator_run_id,
@@ -1464,6 +1461,7 @@ def _backtest_request_config(research_datasets: dict[str, object]) -> BacktestBa
         campaign_run_id=str(research_datasets["campaign_run_id"]),
         strategy_space_id=str(payload["strategy_space_id"]),
         dataset_version=str(research_datasets["dataset_version"]),
+        contour_id=str(research_datasets.get("contour_id", "native_tradable")),
         indicator_set_version=str(research_datasets["indicator_set_version"]),
         derived_indicator_set_version=str(research_datasets["derived_indicator_set_version"]),
         search_specs=tuple(
@@ -2567,24 +2565,45 @@ def _materialize_research_assets(
     }
     if not result.success:
         report["rows_by_table"] = {}
+        report["total_rows_by_table"] = {}
         return report
 
     rows_by_table: dict[str, int] = {}
+    total_rows_by_table: dict[str, int] = {}
+    contour_id = "pit_active_front" if series_mode == "continuous_front" else "native_tradable"
     for asset_name in expected_materialized_assets:
         table_path = Path(output_paths[asset_name])
         if not has_delta_log(table_path):
             raise RuntimeError(
                 f"missing `_delta_log` for `{asset_name}` at {table_path.as_posix()}"
             )
-        rows_by_table[asset_name] = count_delta_table_rows(table_path)
+        total_rows_by_table[asset_name] = count_delta_table_rows(table_path)
+        rows_by_table[asset_name] = _count_materialized_table_rows(
+            table_path=table_path,
+            table_name=asset_name,
+            dataset_version=dataset_version,
+            contour_id=contour_id,
+            indicator_set_version=indicator_set_version,
+            derived_indicator_set_version=derived_indicator_set_version,
+        )
     findings_path = Path(output_paths["research_run_findings"])
     if has_delta_log(findings_path):
         rows_by_table["research_run_findings"] = count_delta_table_rows(findings_path)
+        total_rows_by_table["research_run_findings"] = rows_by_table["research_run_findings"]
     for table_name in CF_INDICATOR_TABLES:
         table_path = Path(output_paths[table_name])
         if has_delta_log(table_path):
-            rows_by_table[table_name] = count_delta_table_rows(table_path)
+            total_rows_by_table[table_name] = count_delta_table_rows(table_path)
+            rows_by_table[table_name] = _count_materialized_table_rows(
+                table_path=table_path,
+                table_name=table_name,
+                dataset_version=dataset_version,
+                contour_id=contour_id,
+                indicator_set_version=indicator_set_version,
+                derived_indicator_set_version=derived_indicator_set_version,
+            )
     report["rows_by_table"] = rows_by_table
+    report["total_rows_by_table"] = total_rows_by_table
     return report
 
 

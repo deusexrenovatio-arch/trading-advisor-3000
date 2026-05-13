@@ -160,12 +160,20 @@ DERIVED_SOURCE_RESERVED_COLUMNS = (
 
 
 def _load_dataset_manifest(
-    *, materialized_output_dir: Path, dataset_version: str
+    *, materialized_output_dir: Path, dataset_version: str, contour_id: str = "pit_active_front"
 ) -> dict[str, object]:
     rows = read_delta_table_rows(
         materialized_output_dir / "research_datasets.delta",
-        filters=[("dataset_version", "=", dataset_version)],
+        filters=[("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
     )
+    if not rows:
+        candidates = read_delta_table_rows(
+            materialized_output_dir / "research_datasets.delta",
+            filters=[("dataset_version", "=", dataset_version)],
+        )
+        rows = [
+            row for row in candidates if str(row.get("series_mode")) == "continuous_front"
+        ]
     if not rows:
         raise KeyError(f"dataset_version not found: {dataset_version}")
     return dict(rows[0])
@@ -421,12 +429,13 @@ def _iter_research_bar_view_rows(
     *,
     materialized_output_dir: Path,
     dataset_version: str,
+    contour_id: str,
 ) -> Iterator[dict[str, object]]:
     table_path = materialized_output_dir / "research_bar_views.delta"
     table = _read_filtered_arrow_table(
         table_path,
         columns=BAR_VIEW_INPUT_COLUMNS,
-        filters=[("dataset_version", "=", dataset_version)],
+        filters=[("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
     ).sort_by(
         [
             ("instrument_id", "ascending"),
@@ -442,6 +451,7 @@ def _iter_cf_indicator_input_row_batches(
     *,
     materialized_output_dir: Path,
     dataset_version: str,
+    contour_id: str,
     source_canonical_version: str,
     roll_policy_version: str,
     adjustment_policy_version: str,
@@ -460,6 +470,7 @@ def _iter_cf_indicator_input_row_batches(
     for source in _iter_research_bar_view_rows(
         materialized_output_dir=materialized_output_dir,
         dataset_version=dataset_version,
+        contour_id=contour_id,
     ):
         instrument_id = str(source["instrument_id"])
         timeframe = str(source["timeframe"])
@@ -559,6 +570,7 @@ def _write_cf_indicator_input_frame_delta(
     materialized_output_dir: Path,
     output_dir: Path,
     dataset_version: str,
+    contour_id: str,
     source_canonical_version: str,
     roll_policy_version: str,
     adjustment_policy_version: str,
@@ -570,6 +582,7 @@ def _write_cf_indicator_input_frame_delta(
         row_batches=_iter_cf_indicator_input_row_batches(
             materialized_output_dir=materialized_output_dir,
             dataset_version=dataset_version,
+            contour_id=contour_id,
             source_canonical_version=source_canonical_version,
             roll_policy_version=roll_policy_version,
             adjustment_policy_version=adjustment_policy_version,
@@ -586,6 +599,7 @@ def _joined_base_arrow_table(
     materialized_output_dir: Path,
     output_dir: Path,
     dataset_version: str,
+    contour_id: str,
     indicator_set_version: str,
     indicator_value_columns: tuple[str, ...],
 ) -> pa.Table:
@@ -601,6 +615,7 @@ def _joined_base_arrow_table(
         columns=(*BASE_SOURCE_RESERVED_COLUMNS, *indicator_value_columns),
         filters=[
             ("dataset_version", "=", dataset_version),
+            ("contour_id", "=", contour_id),
             ("indicator_set_version", "=", indicator_set_version),
         ],
     )
@@ -614,6 +629,7 @@ def _joined_derived_arrow_table(
     materialized_output_dir: Path,
     output_dir: Path,
     dataset_version: str,
+    contour_id: str,
     indicator_set_version: str,
     derived_set_version: str,
     derived_value_columns: tuple[str, ...],
@@ -635,6 +651,7 @@ def _joined_derived_arrow_table(
         columns=(*DERIVED_SOURCE_RESERVED_COLUMNS, *derived_value_columns),
         filters=[
             ("dataset_version", "=", dataset_version),
+            ("contour_id", "=", contour_id),
             ("indicator_set_version", "=", indicator_set_version),
             ("derived_indicator_set_version", "=", derived_set_version),
         ],
@@ -755,6 +772,7 @@ def _write_base_sidecar_delta(
     materialized_output_dir: Path,
     output_dir: Path,
     dataset_version: str,
+    contour_id: str,
     roll_policy_version: str,
     adjustment_policy_version: str,
     indicator_set_version: str,
@@ -769,6 +787,7 @@ def _write_base_sidecar_delta(
         materialized_output_dir=materialized_output_dir,
         output_dir=output_dir,
         dataset_version=dataset_version,
+        contour_id=contour_id,
         indicator_set_version=indicator_set_version,
         indicator_value_columns=indicator_value_columns,
     )
@@ -797,6 +816,7 @@ def _write_derived_sidecar_delta(
     materialized_output_dir: Path,
     output_dir: Path,
     dataset_version: str,
+    contour_id: str,
     roll_policy_version: str,
     adjustment_policy_version: str,
     indicator_set_version: str,
@@ -812,6 +832,7 @@ def _write_derived_sidecar_delta(
         materialized_output_dir=materialized_output_dir,
         output_dir=output_dir,
         dataset_version=dataset_version,
+        contour_id=contour_id,
         indicator_set_version=indicator_set_version,
         derived_set_version=derived_set_version,
         derived_value_columns=derived_value_columns,
@@ -1645,6 +1666,7 @@ def run_continuous_front_indicator_pandas_job(
     dataset_version: str,
     indicator_set_version: str,
     derived_set_version: str,
+    contour_id: str = "pit_active_front",
     output_dir: Path | None = None,
     rule_set_version: str = DEFAULT_RULE_SET_VERSION,
     run_id: str = "continuous_front_indicator_refresh",
@@ -1653,7 +1675,9 @@ def run_continuous_front_indicator_pandas_job(
 ) -> dict[str, object]:
     resolved_output_dir = output_dir or materialized_output_dir
     manifest = _load_dataset_manifest(
-        materialized_output_dir=materialized_output_dir, dataset_version=dataset_version
+        materialized_output_dir=materialized_output_dir,
+        dataset_version=dataset_version,
+        contour_id=contour_id,
     )
     if str(manifest.get("series_mode")) != "continuous_front":
         raise RuntimeError(
@@ -1682,6 +1706,7 @@ def run_continuous_front_indicator_pandas_job(
         materialized_output_dir=materialized_output_dir,
         output_dir=resolved_output_dir,
         dataset_version=dataset_version,
+        contour_id=contour_id,
         source_canonical_version=str(manifest.get("source_table") or ""),
         roll_policy_version=roll_policy_version,
         adjustment_policy_version=adjustment_policy_version,
@@ -1692,6 +1717,7 @@ def run_continuous_front_indicator_pandas_job(
         materialized_output_dir=materialized_output_dir,
         output_dir=resolved_output_dir,
         dataset_version=dataset_version,
+        contour_id=contour_id,
         roll_policy_version=roll_policy_version,
         adjustment_policy_version=adjustment_policy_version,
         indicator_set_version=indicator_set_version,
@@ -1706,6 +1732,7 @@ def run_continuous_front_indicator_pandas_job(
         materialized_output_dir=materialized_output_dir,
         output_dir=resolved_output_dir,
         dataset_version=dataset_version,
+        contour_id=contour_id,
         roll_policy_version=roll_policy_version,
         adjustment_policy_version=adjustment_policy_version,
         indicator_set_version=indicator_set_version,
@@ -1970,9 +1997,20 @@ def run_continuous_front_indicator_pandas_job(
             contract=contract,
         ),
     }
-    rows_by_table = {
-        table_name: count_delta_table_rows(Path(path)) for table_name, path in output_paths.items()
-    }
+    rows_by_table: dict[str, int] = {}
+    for table_name, path in output_paths.items():
+        table_path = Path(path)
+        columns = set(delta_table_columns(table_path)) if has_delta_log(table_path) else set()
+        filters: list[tuple[str, str, object]] = []
+        if "dataset_version" in columns:
+            filters.append(("dataset_version", "=", dataset_version))
+        if "contour_id" in columns:
+            filters.append(("contour_id", "=", contour_id))
+        rows_by_table[table_name] = (
+            count_delta_table_rows(table_path, filters=filters)
+            if filters
+            else count_delta_table_rows(table_path)
+        )
     return {
         "success": publish_status == "accepted",
         "status": "PASS" if publish_status == "accepted" else "QUARANTINED",

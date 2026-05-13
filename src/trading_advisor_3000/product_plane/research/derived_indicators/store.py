@@ -8,6 +8,8 @@ from pathlib import Path
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     delta_table_columns,
+    ensure_delta_table_columns,
+    has_delta_log,
     iter_delta_table_row_batches,
     read_delta_table_rows,
     write_delta_table_row_batches,
@@ -21,6 +23,9 @@ DEFAULT_DERIVED_INDICATOR_SET_VERSION = "derived-v1"
 DEFAULT_DERIVED_INDICATOR_WRITE_BATCH_ROWS = 100_000
 DERIVED_INDICATOR_PARTITION_METADATA_COLUMNS = (
     "dataset_version",
+    "contour_id",
+    "series_mode",
+    "series_id",
     "indicator_set_version",
     "derived_indicator_set_version",
     "profile_version",
@@ -37,6 +42,9 @@ DERIVED_INDICATOR_PARTITION_METADATA_COLUMNS = (
 )
 DERIVED_INDICATOR_RESERVED_COLUMNS = {
     "dataset_version",
+    "contour_id",
+    "series_mode",
+    "series_id",
     "indicator_set_version",
     "derived_indicator_set_version",
     "profile_version",
@@ -82,6 +90,9 @@ def _derived_indicator_frame_columns(
 ) -> dict[str, str]:
     return {
         "dataset_version": "string",
+        "contour_id": "string",
+        "series_mode": "string",
+        "series_id": "string",
         "indicator_set_version": "string",
         "derived_indicator_set_version": "string",
         "profile_version": "string",
@@ -111,11 +122,17 @@ class DerivedIndicatorFramePartitionKey:
     timeframe: str
     instrument_id: str
     contract_id: str | None = None
+    contour_id: str = "native_tradable"
+    series_mode: str = "contract"
+    series_id: str = ""
 
     def partition_path(self) -> str:
         contract_token = self.contract_id or "continuous-front"
         return (
             f"dataset_version={self.dataset_version}/"
+            f"contour_id={self.contour_id}/"
+            f"series_mode={self.series_mode}/"
+            f"series_id={self.series_id or 'contract'}/"
             f"indicator_set_version={self.indicator_set_version}/"
             f"derived_indicator_set_version={self.derived_indicator_set_version}/"
             f"instrument_id={self.instrument_id}/"
@@ -125,6 +142,12 @@ class DerivedIndicatorFramePartitionKey:
 
     def matches_row(self, row: dict[str, object]) -> bool:
         if str(row.get("dataset_version")) != self.dataset_version:
+            return False
+        if str(row.get("contour_id", "native_tradable")) != self.contour_id:
+            return False
+        if str(row.get("series_mode", "contract")) != self.series_mode:
+            return False
+        if self.series_id and str(row.get("series_id", "")) != self.series_id:
             return False
         if str(row.get("indicator_set_version")) != self.indicator_set_version:
             return False
@@ -160,6 +183,9 @@ class DerivedIndicatorFrameRow:
     source_dataset_bars_hash: str = ""
     source_indicator_profile_version: str = ""
     source_indicator_output_columns_hash: str = ""
+    contour_id: str = "native_tradable"
+    series_mode: str = "contract"
+    series_id: str = ""
 
     def partition_key(self, *, series_mode: str) -> DerivedIndicatorFramePartitionKey:
         return DerivedIndicatorFramePartitionKey(
@@ -169,11 +195,17 @@ class DerivedIndicatorFrameRow:
             timeframe=self.timeframe,
             instrument_id=self.instrument_id,
             contract_id=None if series_mode == "continuous_front" else self.contract_id,
+            contour_id=self.contour_id,
+            series_mode=self.series_mode,
+            series_id=self.series_id,
         )
 
     def to_dict(self) -> dict[str, object]:
         return {
             "dataset_version": self.dataset_version,
+            "contour_id": self.contour_id,
+            "series_mode": self.series_mode,
+            "series_id": self.series_id,
             "indicator_set_version": self.indicator_set_version,
             "derived_indicator_set_version": self.derived_indicator_set_version,
             "profile_version": self.profile_version,
@@ -198,6 +230,9 @@ class DerivedIndicatorFrameRow:
     def from_dict(cls, payload: dict[str, object]) -> "DerivedIndicatorFrameRow":
         reserved = {
             "dataset_version",
+            "contour_id",
+            "series_mode",
+            "series_id",
             "indicator_set_version",
             "derived_indicator_set_version",
             "profile_version",
@@ -229,6 +264,9 @@ class DerivedIndicatorFrameRow:
             values[key] = float(value)
         return cls(
             dataset_version=str(payload["dataset_version"]),
+            contour_id=str(payload.get("contour_id") or "native_tradable"),
+            series_mode=str(payload.get("series_mode") or "contract"),
+            series_id=str(payload.get("series_id") or payload.get("contract_id") or ""),
             indicator_set_version=str(payload["indicator_set_version"]),
             derived_indicator_set_version=str(
                 payload.get("derived_indicator_set_version", DEFAULT_DERIVED_INDICATOR_SET_VERSION)
@@ -269,14 +307,14 @@ def research_derived_indicator_store_contract(
             "format": "delta",
             "partition_by": [
                 "dataset_version",
+                "contour_id",
                 "indicator_set_version",
                 "derived_indicator_set_version",
                 "instrument_id",
                 "timeframe",
             ],
             "constraints": [
-                "unique(dataset_version, indicator_set_version, "
-                "derived_indicator_set_version, contract_id, timeframe, ts)"
+                "unique(dataset_version, contour_id, series_mode, series_id, indicator_set_version, derived_indicator_set_version, timeframe, ts)"
             ],
             "columns": _derived_indicator_frame_columns(profile=profile),
         }
@@ -306,6 +344,9 @@ def _quote_delta_sql_string(value: str) -> str:
 def _partition_delete_predicate(partition: DerivedIndicatorFramePartitionKey) -> str:
     clauses = [
         f"dataset_version = {_quote_delta_sql_string(partition.dataset_version)}",
+        f"contour_id = {_quote_delta_sql_string(partition.contour_id)}",
+        f"series_mode = {_quote_delta_sql_string(partition.series_mode)}",
+        f"series_id = {_quote_delta_sql_string(partition.series_id)}",
         f"indicator_set_version = {_quote_delta_sql_string(partition.indicator_set_version)}",
         "derived_indicator_set_version = "
         f"{_quote_delta_sql_string(partition.derived_indicator_set_version)}",
@@ -339,6 +380,8 @@ def write_derived_indicator_frame_batches(
     contract = research_derived_indicator_store_contract(profile=profile)
     path = output_dir / "research_derived_indicator_frames.delta"
     columns = contract["research_derived_indicator_frames"]["columns"]
+    if has_delta_log(path):
+        ensure_delta_table_columns(table_path=path, columns=dict(columns))
     replace_predicate = (
         _replace_partitions_predicate(replace_partitions)
         if replace_partitions is not None
@@ -362,6 +405,7 @@ def load_derived_indicator_partition_metadata(
     dataset_version: str,
     indicator_set_version: str,
     derived_indicator_set_version: str,
+    contour_id: str = "native_tradable",
 ) -> list[dict[str, object]]:
     path = output_dir / "research_derived_indicator_frames.delta"
     existing_columns = set(delta_table_columns(path))
@@ -371,18 +415,24 @@ def load_derived_indicator_partition_metadata(
         if column in existing_columns
     ]
     metadata_by_partition: dict[tuple[object, ...], dict[str, object]] = {}
-    for batch in iter_delta_table_row_batches(path, columns=read_columns):
+    for batch in iter_delta_table_row_batches(
+        path,
+        columns=read_columns,
+        filters=[
+            ("dataset_version", "=", dataset_version),
+            ("contour_id", "=", contour_id),
+            ("indicator_set_version", "=", indicator_set_version),
+            ("derived_indicator_set_version", "=", derived_indicator_set_version),
+        ],
+    ):
         for row in batch:
-            if (
-                row.get("dataset_version") != dataset_version
-                or row.get("indicator_set_version") != indicator_set_version
-                or row.get("derived_indicator_set_version") != derived_indicator_set_version
-            ):
-                continue
             for column in DERIVED_INDICATOR_PARTITION_METADATA_COLUMNS:
                 row.setdefault(column, None)
             key = (
                 row.get("dataset_version"),
+                row.get("contour_id", "native_tradable"),
+                row.get("series_mode", "contract"),
+                row.get("series_id", ""),
                 row.get("indicator_set_version"),
                 row.get("derived_indicator_set_version"),
                 row.get("contract_id"),
@@ -417,6 +467,9 @@ def load_derived_indicator_partition_rows(
     path = output_dir / "research_derived_indicator_frames.delta"
     filters: list[tuple[str, str, object]] = [
         ("dataset_version", "=", partition.dataset_version),
+        ("contour_id", "=", partition.contour_id),
+        ("series_mode", "=", partition.series_mode),
+        ("series_id", "=", partition.series_id),
         ("indicator_set_version", "=", partition.indicator_set_version),
         ("derived_indicator_set_version", "=", partition.derived_indicator_set_version),
         ("instrument_id", "=", partition.instrument_id),
@@ -428,6 +481,9 @@ def load_derived_indicator_partition_rows(
         dict.fromkeys(
             (
                 "dataset_version",
+                "contour_id",
+                "series_mode",
+                "series_id",
                 "indicator_set_version",
                 "derived_indicator_set_version",
                 "profile_version",
@@ -461,11 +517,13 @@ def load_derived_indicator_frames(
     dataset_version: str,
     indicator_set_version: str,
     derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
+    contour_id: str = "native_tradable",
     value_columns: tuple[str, ...] | None = None,
 ) -> list[DerivedIndicatorFrameRow]:
     path = output_dir / "research_derived_indicator_frames.delta"
     filters = [
         ("dataset_version", "=", dataset_version),
+        ("contour_id", "=", contour_id),
         ("indicator_set_version", "=", indicator_set_version),
         ("derived_indicator_set_version", "=", derived_indicator_set_version),
     ]
@@ -476,6 +534,9 @@ def load_derived_indicator_frames(
             dict.fromkeys(
                 (
                     "dataset_version",
+                    "contour_id",
+                    "series_mode",
+                    "series_id",
                     "indicator_set_version",
                     "derived_indicator_set_version",
                     "profile_version",

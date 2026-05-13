@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-import shutil
 from typing import Callable
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
@@ -173,6 +172,64 @@ def _policy_timestamp() -> str:
     from datetime import UTC, datetime
 
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _spark_sql_literal(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(value)
+    text = str(value).replace("'", "''")
+    return f"'{text}'"
+
+
+def _scoped_delete_condition(filters: list[tuple[str, str, object]]) -> str:
+    clauses: list[str] = []
+    for column, operator, value in filters:
+        normalized_operator = str(operator).strip().lower()
+        if value is None:
+            continue
+        if normalized_operator in {"in", "not in"}:
+            scoped_values = tuple(item for item in value if item is not None) if isinstance(value, (list, tuple, set)) else ()
+            if not scoped_values:
+                continue
+            literals = ", ".join(_spark_sql_literal(item) for item in scoped_values)
+            sql_operator = "IN" if normalized_operator == "in" else "NOT IN"
+            clauses.append(f"{column} {sql_operator} ({literals})")
+            continue
+        if normalized_operator not in {"=", ">=", "<=", ">", "<"}:
+            raise ValueError(f"unsupported scoped Delta delete operator: {operator}")
+        clauses.append(f"{column} {normalized_operator} {_spark_sql_literal(value)}")
+    if not clauses:
+        raise ValueError("scoped Delta delete requires at least one scope value")
+    return " AND ".join(clauses)
+
+
+def _continuous_front_replace_filters(
+    *,
+    table_name: str,
+    dataset_version: str,
+    instrument_ids: tuple[str, ...],
+    timeframes: tuple[str, ...],
+    start_ts: str | None,
+    end_ts: str | None,
+) -> list[tuple[str, str, object]]:
+    filters: list[tuple[str, str, object]] = [("dataset_version", "=", dataset_version)]
+    if instrument_ids:
+        filters.append(("instrument_id", "in", [*instrument_ids]))
+    if timeframes:
+        filters.append(("timeframe", "in", [*timeframes]))
+    time_column_by_table = {
+        "continuous_front_bars": "ts",
+        "continuous_front_roll_events": "effective_ts",
+        "continuous_front_adjustment_ladder": "effective_ts",
+    }
+    time_column = time_column_by_table.get(table_name)
+    if time_column and start_ts:
+        filters.append((time_column, ">=", start_ts))
+    if time_column and end_ts:
+        filters.append((time_column, "<=", end_ts))
+    return filters
 
 
 def _load_filtered_bars(
@@ -873,20 +930,16 @@ def _cast_dataframe_to_contract(dataframe, manifest_entry: dict[str, object]):
     return dataframe.select(*selected)
 
 
-def _write_empty_spark_delta_table(*, spark: object, table_path: Path, manifest_entry: dict[str, object]) -> None:
-    dataframe = spark.createDataFrame([], schema=_spark_schema(dict(manifest_entry["columns"])))
-    writer = dataframe.write.format("delta").mode("overwrite").option("overwriteSchema", "true")
-    partition_by = list(manifest_entry.get("partition_by") or [])
-    if partition_by:
-        writer = writer.partitionBy(*partition_by)
-    writer.save(str(table_path))
-
-
 def _write_spark_dataframe_tables(
     *,
     spark: object,
     output_dir: Path,
     tables: dict[str, object],
+    dataset_version: str,
+    instrument_ids: tuple[str, ...] = (),
+    timeframes: tuple[str, ...] = (),
+    start_ts: str | None = None,
+    end_ts: str | None = None,
 ) -> dict[str, str]:
     output_dir.mkdir(parents=True, exist_ok=True)
     contract = continuous_front_store_contract()
@@ -894,18 +947,36 @@ def _write_spark_dataframe_tables(
     for table_name in CONTINUOUS_FRONT_TABLES:
         table_path = output_dir / f"{table_name}.delta"
         table_path.parent.mkdir(parents=True, exist_ok=True)
-        if table_path.exists():
-            shutil.rmtree(table_path)
         dataframe = tables.get(table_name)
         if dataframe is None:
-            _write_empty_spark_delta_table(spark=spark, table_path=table_path, manifest_entry=dict(contract[table_name]))
+            casted = spark.createDataFrame([], schema=_spark_schema(dict(contract[table_name]["columns"])))
         else:
             casted = _cast_dataframe_to_contract(dataframe, dict(contract[table_name]))
+        if not has_delta_log(table_path):
             writer = casted.write.format("delta").mode("overwrite").option("overwriteSchema", "true")
             partition_by = list(contract[table_name].get("partition_by") or [])
             if partition_by:
                 writer = writer.partitionBy(*partition_by)
             writer.save(str(table_path))
+        else:
+            spark.createDataFrame(
+                [], schema=_spark_schema(dict(contract[table_name]["columns"]))
+            ).write.format("delta").mode("append").option("mergeSchema", "true").save(str(table_path))
+            from delta.tables import DeltaTable  # type: ignore[import-not-found]
+
+            DeltaTable.forPath(spark, str(table_path)).delete(
+                _scoped_delete_condition(
+                    _continuous_front_replace_filters(
+                        table_name=table_name,
+                        dataset_version=dataset_version,
+                        instrument_ids=instrument_ids,
+                        timeframes=timeframes,
+                        start_ts=start_ts,
+                        end_ts=end_ts,
+                    )
+                )
+            )
+            casted.write.format("delta").mode("append").option("mergeSchema", "true").save(str(table_path))
         output_paths[table_name] = table_path.as_posix()
     return output_paths
 
@@ -980,7 +1051,16 @@ def run_continuous_front_spark_job(
         )
 
         staging_dir = output_dir / "_staging" / "continuous_front_spark" / run_id
-        staged_output_paths = _write_spark_dataframe_tables(spark=spark, output_dir=staging_dir, tables=tables)
+        staged_output_paths = _write_spark_dataframe_tables(
+            spark=spark,
+            output_dir=staging_dir,
+            tables=tables,
+            dataset_version=dataset_version,
+            instrument_ids=instrument_ids,
+            timeframes=timeframes,
+            start_ts=start_ts,
+            end_ts=end_ts,
+        )
         qc_rows = _qc_rows_from_spark(tables["continuous_front_qc_report"])
         blocking_rows = [row for row in qc_rows if row.get("status") == "BLOCKED"]
         if blocking_rows:
@@ -989,12 +1069,26 @@ def run_continuous_front_spark_job(
             )
             raise RuntimeError(f"continuous_front Spark QC failed closed: {blocked}")
 
-        output_paths = _write_spark_dataframe_tables(spark=spark, output_dir=output_dir, tables=tables)
+        output_paths = _write_spark_dataframe_tables(
+            spark=spark,
+            output_dir=output_dir,
+            tables=tables,
+            dataset_version=dataset_version,
+            instrument_ids=instrument_ids,
+            timeframes=timeframes,
+            start_ts=start_ts,
+            end_ts=end_ts,
+        )
         contract_errors = _validate_spark_promoted_contracts(output_paths)
         if contract_errors:
             raise RuntimeError("continuous_front Spark contract validation failed: " + "; ".join(contract_errors))
 
-        rows_by_table = {table_name: count_delta_table_rows(Path(path)) for table_name, path in output_paths.items()}
+        rows_by_table = {
+            table_name: count_delta_table_rows(
+                Path(path), filters=[("dataset_version", "=", dataset_version)]
+            )
+            for table_name, path in output_paths.items()
+        }
         return {
             "success": True,
             "status": "PASS",
