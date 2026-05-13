@@ -1591,6 +1591,7 @@ def materialize_indicator_frames(
                 series = _load_bar_partition_rows(
                     dataset_output_dir=dataset_output_dir,
                     dataset_version=dataset_version,
+                    contour_id=contour_id,
                     partition=partition_key,
                 )
             series_ladder_rows = _ladder_rows_for_series(

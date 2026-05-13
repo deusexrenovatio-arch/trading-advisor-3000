@@ -201,10 +201,9 @@ def test_research_dataset_asset_persists_absolute_volume_profile_raw_path(
     )
     config["volume_profile_raw_1m_table_path"] = "relative/raw_moex_history.delta"
 
-    monkeypatch.setattr(research_assets, "_load_canonical_context", lambda _config: ([], [], []))
     monkeypatch.setattr(
         research_assets,
-        "materialize_research_dataset",
+        "run_research_bar_views_spark_job",
         lambda **_: {
             "dataset_manifest": {"dataset_version": "dataset-relative-raw"},
             "output_paths": {},

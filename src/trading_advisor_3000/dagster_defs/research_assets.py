@@ -1310,17 +1310,16 @@ def research_indicator_frames(
         research_datasets.get("volume_profile_tick_size_by_instrument", {}),
         strict=False,
     )
-    if not bool(research_datasets.get("reuse_existing_materialization")):
-        materialize_indicator_frames(
-            dataset_output_dir=materialized_output_dir,
-            indicator_output_dir=materialized_output_dir,
-            dataset_version=dataset_version,
-            contour_id=str(research_datasets.get("contour_id", "native_tradable")),
-            indicator_set_version=indicator_set_version,
-            profile_version=profile_version,
-            volume_profile_raw_1m_table_path=raw_1m_table_path,
-            volume_profile_tick_size_by_instrument=tick_size_by_instrument or None,
-        )
+    materialize_indicator_frames(
+        dataset_output_dir=materialized_output_dir,
+        indicator_output_dir=materialized_output_dir,
+        dataset_version=dataset_version,
+        contour_id=str(research_datasets.get("contour_id", "native_tradable")),
+        indicator_set_version=indicator_set_version,
+        profile_version=profile_version,
+        volume_profile_raw_1m_table_path=raw_1m_table_path,
+        volume_profile_tick_size_by_instrument=tick_size_by_instrument or None,
+    )
     return _materialized_table_manifest(research_datasets, "research_indicator_frames")
 
 
@@ -1337,17 +1336,17 @@ def research_derived_indicator_frames(
     indicator_set_version = str(research_datasets["indicator_set_version"])
     derived_indicator_set_version = str(research_datasets["derived_indicator_set_version"])
     profile_version = str(research_datasets["derived_indicator_profile_version"])
+    materialize_derived_indicator_frames(
+        dataset_output_dir=materialized_output_dir,
+        indicator_output_dir=materialized_output_dir,
+        derived_indicator_output_dir=materialized_output_dir,
+        dataset_version=dataset_version,
+        contour_id=str(research_datasets.get("contour_id", "native_tradable")),
+        indicator_set_version=indicator_set_version,
+        derived_indicator_set_version=derived_indicator_set_version,
+        profile_version=profile_version,
+    )
     if not bool(research_datasets.get("reuse_existing_materialization")):
-        materialize_derived_indicator_frames(
-            dataset_output_dir=materialized_output_dir,
-            indicator_output_dir=materialized_output_dir,
-            derived_indicator_output_dir=materialized_output_dir,
-            dataset_version=dataset_version,
-            contour_id=str(research_datasets.get("contour_id", "native_tradable")),
-            indicator_set_version=indicator_set_version,
-            derived_indicator_set_version=derived_indicator_set_version,
-            profile_version=profile_version,
-        )
         dataset_manifest = dict(research_datasets.get("dataset_manifest") or {})
         if str(dataset_manifest.get("series_mode")) == "continuous_front":
             continuous_front_indicator_run_id = str(
