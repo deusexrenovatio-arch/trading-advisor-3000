@@ -20,7 +20,7 @@ Updated: 2026-05-12 12:31 UTC
 
 ## Solution Intent
 - Solution Class: target
-- Critical Contour: data-integration-closure
+- Critical Contour: data-integration-closure, runtime-publication-closure
 - Forbidden Shortcuts: fixture path, tests/product-plane/fixtures/, sample artifact, synthetic upstream, scaffold-only
 - Closure Evidence: behavioral Spark/Delta integration proof writes the canonical dataset as Delta with `_delta_log`, keeps downstream research sidecars refreshed with scoped overlap, preserves the runtime-ready surface through Dagster/manual route callers, and is checked by `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`.
 - Shortcut Waiver: none
