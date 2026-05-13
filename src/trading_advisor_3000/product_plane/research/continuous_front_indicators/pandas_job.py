@@ -235,9 +235,9 @@ def _read_filtered_arrow_table(
     columns: Iterable[str],
     filters: list[tuple[str, str, object]],
 ) -> pa.Table:
-    available_columns = _available_columns(table_path, columns)
-    available = set(available_columns)
-    scoped_filters = [item for item in filters if item[0] in available]
+    existing_columns = set(delta_table_columns(table_path))
+    available_columns = [column for column in columns if column in existing_columns]
+    scoped_filters = [item for item in filters if item[0] in existing_columns]
     return read_delta_table_arrow(
         table_path,
         columns=available_columns,
