@@ -22,6 +22,7 @@ from dagster import (
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
+    delta_table_columns,
     ensure_delta_table_columns,
     has_delta_log,
     read_delta_table_frame,
@@ -905,6 +906,16 @@ def _research_materialized_table_filters(
     return None
 
 
+def _filters_for_existing_materialized_columns(
+    table_path: Path, filters: list[tuple[str, str, object]] | None
+) -> list[tuple[str, str, object]] | None:
+    if not filters or not has_delta_log(table_path):
+        return filters
+    existing_columns = set(delta_table_columns(table_path))
+    scoped_filters = [item for item in filters if item[0] in existing_columns]
+    return scoped_filters or None
+
+
 def _count_materialized_table_rows(
     *,
     table_path: Path,
@@ -921,9 +932,10 @@ def _count_materialized_table_rows(
         indicator_set_version=indicator_set_version,
         derived_indicator_set_version=derived_indicator_set_version,
     )
+    scoped_filters = _filters_for_existing_materialized_columns(table_path, filters)
     return (
-        count_delta_table_rows(table_path, filters=filters)
-        if filters
+        count_delta_table_rows(table_path, filters=scoped_filters)
+        if scoped_filters
         else count_delta_table_rows(table_path)
     )
 
@@ -949,9 +961,10 @@ def _materialized_table_manifest(
             )
         ),
     )
+    scoped_filters = _filters_for_existing_materialized_columns(table_path, filters)
     row_count = (
-        count_delta_table_rows(table_path, filters=filters)
-        if has_delta_log(table_path) and filters
+        count_delta_table_rows(table_path, filters=scoped_filters)
+        if has_delta_log(table_path) and scoped_filters
         else count_delta_table_rows(table_path)
         if has_delta_log(table_path)
         else 0
@@ -960,7 +973,7 @@ def _materialized_table_manifest(
         "table_name": table_name,
         "table_path": table_path.as_posix(),
         "row_count": row_count,
-        "filters": filters or [],
+        "filters": scoped_filters or [],
         "has_delta_log": has_delta_log(table_path),
     }
 
