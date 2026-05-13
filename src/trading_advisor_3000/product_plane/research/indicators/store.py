@@ -130,7 +130,7 @@ class IndicatorFrameRow:
         return IndicatorFramePartitionKey(
             dataset_version=self.dataset_version,
             contour_id=self.contour_id,
-            series_mode=self.series_mode,
+            series_mode=series_mode,
             series_id=self.series_id,
             indicator_set_version=self.indicator_set_version,
             timeframe=self.timeframe,

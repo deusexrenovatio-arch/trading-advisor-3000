@@ -183,7 +183,7 @@ def run_system_shadow_replay(
         for item in runtime_payload["replay_report"].get("accepted_candidates", [])
     }
     accepted_signal_ids = set(
-        str(item) for item in runtime_payload["replay_report"]["accepted_signal_ids"]
+        str(item) for item in runtime_payload["replay_report"].get("accepted_signal_ids", [])
     )
     publication_signal_ids = {str(item["signal_id"]) for item in runtime_payload["publications"]}
     runtime_signal_ids = sorted(accepted_signal_ids & publication_signal_ids)

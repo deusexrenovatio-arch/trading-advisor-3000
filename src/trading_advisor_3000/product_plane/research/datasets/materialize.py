@@ -174,6 +174,7 @@ def _stable_hash_rows(rows: list[CanonicalBar]) -> str:
 def _stable_hash_views(rows: list[ResearchBarView]) -> str:
     payload = [
         {
+            "contour_id": row.contour_id,
             "contract_id": row.contract_id,
             "instrument_id": row.instrument_id,
             "timeframe": row.timeframe,

@@ -147,6 +147,9 @@ def _projected_columns(
 def _indicator_payload_columns(frame: pd.DataFrame) -> list[str]:
     reserved = {
         "dataset_version",
+        "contour_id",
+        "series_mode",
+        "series_id",
         "indicator_set_version",
         "profile_version",
         "contract_id",
@@ -161,12 +164,24 @@ def _indicator_payload_columns(frame: pd.DataFrame) -> list[str]:
         "created_at",
         "output_columns_hash",
     }
-    return [column for column in frame.columns if column not in reserved]
+    return [column for column in frame.columns if not _is_reserved_column(column, reserved)]
+
+
+def _is_reserved_column(column: str, reserved: set[str]) -> bool:
+    if column in reserved:
+        return True
+    for suffix in ("_x", "_y"):
+        if column.endswith(suffix) and column[: -len(suffix)] in reserved:
+            return True
+    return False
 
 
 def _derived_payload_columns(frame: pd.DataFrame, *, existing: set[str]) -> list[str]:
     reserved = {
         "dataset_version",
+        "contour_id",
+        "series_mode",
+        "series_id",
         "indicator_set_version",
         "derived_indicator_set_version",
         "profile_version",
@@ -177,13 +192,19 @@ def _derived_payload_columns(frame: pd.DataFrame, *, existing: set[str]) -> list
         "source_bars_hash",
         "source_dataset_bars_hash",
         "source_indicators_hash",
+        "source_indicator_profile_version",
+        "source_indicator_output_columns_hash",
         "row_count",
         "warmup_span",
         "null_warmup_span",
         "created_at",
         "output_columns_hash",
     }
-    return [column for column in frame.columns if column not in reserved and column not in existing]
+    return [
+        column
+        for column in frame.columns
+        if not _is_reserved_column(column, reserved) and column not in existing
+    ]
 
 
 def _dataset_series_mode(dataset_manifest: dict[str, object]) -> str:

@@ -29,7 +29,14 @@ def _sorted_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
 
 
 def _read_bounded_delta_rows(table_path: Path) -> list[dict[str, object]]:
-    return read_delta_table_rows(table_path, limit=10_000)
+    limit = 10_000
+    rows = read_delta_table_rows(table_path, limit=limit)
+    if len(rows) == limit:
+        raise AssertionError(
+            f"bounded comparison cap reached for {table_path.as_posix()}; "
+            "increase limit or switch to an exact-count read for this test"
+        )
+    return rows
 
 
 def _run_spark_proof(tmp_path: Path) -> dict[str, object]:

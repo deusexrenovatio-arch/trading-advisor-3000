@@ -71,6 +71,16 @@ def _delta_log_hash(table_path: Path) -> str:
     return digest.hexdigest()[:16].upper()
 
 
+def _combined_source_hash(source_hashes: dict[str, str], keys: tuple[str, ...]) -> str:
+    digest = hashlib.sha256()
+    for key in keys:
+        digest.update(key.encode("utf-8"))
+        digest.update(b":")
+        digest.update(source_hashes.get(key, "").encode("utf-8"))
+        digest.update(b"|")
+    return digest.hexdigest()[:16].upper()
+
+
 def _schema_from_contract(table_name: str) -> str:
     contract = research_dataset_store_contract()[table_name]["columns"]
     spark_types = {
@@ -617,6 +627,8 @@ def run_research_bar_views_spark_job(
     spark_master: str = DEFAULT_SPARK_MASTER,
     spark_session_factory: Callable[[str, str], object] | None = None,
 ) -> dict[str, object]:
+    if not contours:
+        raise ValueError("research L0 contours cannot be empty")
     invalid = sorted(set(contours) - set(RESEARCH_L0_CONTOURS))
     if invalid:
         raise ValueError(f"unsupported research L0 contours: {', '.join(invalid)}")
@@ -786,11 +798,16 @@ def run_research_bar_views_spark_job(
                     "canonical_session_calendar",
                     "canonical_roll_map",
                 ),
-                bars_hash=source_delta_hashes[
-                    "continuous_front_bars"
+                bars_hash=_combined_source_hash(
+                    source_delta_hashes,
+                    ("continuous_front_bars", "canonical_session_calendar")
                     if contour_id == "pit_active_front"
-                    else "canonical_bars"
-                ],
+                    else (
+                        "canonical_bars",
+                        "canonical_session_calendar",
+                        "canonical_roll_map",
+                    ),
+                ),
                 run_id=run_id,
                 as_of_ts=_utc_now_iso(),
                 source_delta_versions=source_delta_versions,

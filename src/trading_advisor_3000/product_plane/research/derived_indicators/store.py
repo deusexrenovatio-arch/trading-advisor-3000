@@ -416,15 +416,19 @@ def load_derived_indicator_partition_metadata(
         if column in existing_columns
     ]
     metadata_by_partition: dict[tuple[object, ...], dict[str, object]] = {}
-    for batch in iter_delta_table_row_batches(
+    filters = _filters_for_existing_columns(
         path,
-        columns=read_columns,
-        filters=[
+        [
             ("dataset_version", "=", dataset_version),
             ("contour_id", "=", contour_id),
             ("indicator_set_version", "=", indicator_set_version),
             ("derived_indicator_set_version", "=", derived_indicator_set_version),
         ],
+    )
+    for batch in iter_delta_table_row_batches(
+        path,
+        columns=read_columns,
+        filters=filters,
     ):
         for row in batch:
             for column in DERIVED_INDICATOR_PARTITION_METADATA_COLUMNS:
@@ -444,6 +448,13 @@ def load_derived_indicator_partition_metadata(
     return list(metadata_by_partition.values())
 
 
+def _filters_for_existing_columns(
+    path: Path, filters: list[tuple[str, str, object]]
+) -> list[tuple[str, str, object]]:
+    existing_columns = set(delta_table_columns(path))
+    return [item for item in filters if item[0] in existing_columns]
+
+
 def _read_rows_with_existing_columns(
     *,
     path: Path,
@@ -452,7 +463,11 @@ def _read_rows_with_existing_columns(
 ) -> list[dict[str, object]]:
     existing_columns = set(delta_table_columns(path))
     read_columns = [column for column in requested_columns if column in existing_columns]
-    rows = read_delta_table_rows(path, columns=read_columns, filters=filters)
+    rows = read_delta_table_rows(
+        path,
+        columns=read_columns,
+        filters=[item for item in filters if item[0] in existing_columns],
+    )
     for row in rows:
         for column in requested_columns:
             row.setdefault(column, None)
@@ -529,7 +544,10 @@ def load_derived_indicator_frames(
         ("derived_indicator_set_version", "=", derived_indicator_set_version),
     ]
     if value_columns is None:
-        rows = read_delta_table_rows(path, filters=filters)
+        rows = read_delta_table_rows(
+            path,
+            filters=_filters_for_existing_columns(path, filters),
+        )
     else:
         requested_columns = tuple(
             dict.fromkeys(

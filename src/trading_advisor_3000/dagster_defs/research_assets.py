@@ -900,7 +900,7 @@ def _research_materialized_table_filters(
             ("indicator_set_version", "=", indicator_set_version),
             ("derived_indicator_set_version", "=", derived_indicator_set_version),
         ]
-    if table_name in CONTINUOUS_FRONT_TABLES:
+    if table_name in CONTINUOUS_FRONT_TABLES or table_name in CF_INDICATOR_TABLES:
         return [("dataset_version", "=", dataset_version)]
     return None
 
@@ -1108,6 +1108,14 @@ def research_datasets(context, continuous_front_qc_report: dict[str, object]) ->
     )
     series_mode = str(_config_value(config, "series_mode", "contract"))
     contour_id = "pit_active_front" if series_mode == "continuous_front" else "native_tradable"
+    dataset_contract_ids = tuple(
+        str(item) for item in _config_value(config, "dataset_contract_ids", [])
+    )
+    if series_mode == "continuous_front" and dataset_contract_ids:
+        raise ValueError(
+            "dataset_contract_ids is not supported for series_mode=continuous_front; "
+            "filter continuous-front research datasets by dataset_instrument_ids/timeframes"
+        )
     research_l0_contours = (
         ("pit_active_front", "native_tradable")
         if series_mode == "continuous_front"
@@ -1172,9 +1180,7 @@ def research_datasets(context, continuous_front_qc_report: dict[str, object]) ->
             instrument_ids=tuple(
                 str(item) for item in _config_value(config, "dataset_instrument_ids", [])
             ),
-            contract_ids=tuple(
-                str(item) for item in _config_value(config, "dataset_contract_ids", [])
-            ),
+            contract_ids=dataset_contract_ids,
             timeframes=tuple(str(item) for item in _config_value(config, "timeframes", [])),
             start_ts=str(_config_value(config, "start_ts", "")) or None,
             end_ts=str(_config_value(config, "end_ts", "")) or None,

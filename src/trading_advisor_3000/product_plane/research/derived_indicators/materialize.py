@@ -1137,6 +1137,7 @@ def _build_partition_rows(
     dataset_version: str,
     indicator_set_version: str,
     derived_indicator_set_version: str,
+    series_mode: str,
     profile: DerivedIndicatorProfile,
     local_series: list[ResearchBarView],
     local_indicator_rows: list[IndicatorFrameRow],
@@ -1202,16 +1203,17 @@ def _build_partition_rows(
 
     rows: list[DerivedIndicatorFrameRow] = []
     for original, values, existing in prepared_values:
+        series_key = _series_key_from_bar(original, series_mode=series_mode)
         rows.append(
             DerivedIndicatorFrameRow(
                 dataset_version=dataset_version,
                 contour_id=original.contour_id,
-                series_mode=original.series_mode,
-                series_id=original.series_id,
+                series_mode=series_key.series_mode,
+                series_id=series_key.series_id,
                 indicator_set_version=indicator_set_version,
                 derived_indicator_set_version=derived_indicator_set_version,
                 profile_version=profile.version,
-                contract_id=original.contract_id,
+                contract_id=series_key.contract_id,
                 instrument_id=original.instrument_id,
                 timeframe=original.timeframe,
                 ts=original.ts,
@@ -1267,6 +1269,7 @@ def build_derived_indicator_frames(
                     dataset_version=dataset_version,
                     indicator_set_version=indicator_set_version,
                     derived_indicator_set_version=derived_indicator_set_version,
+                    series_mode=series_mode,
                     profile=profile,
                     local_series=local_series,
                     local_indicator_rows=indicators_by_timeframe.get(timeframe, []),
@@ -1598,6 +1601,7 @@ def materialize_derived_indicator_frames(
                         dataset_version=dataset_version,
                         indicator_set_version=indicator_set_version,
                         derived_indicator_set_version=derived_indicator_set_version,
+                        series_mode=series_mode,
                         profile=resolved_profile,
                         local_series=local_series,
                         local_indicator_rows=_load_indicator_rows(series_key, timeframe),

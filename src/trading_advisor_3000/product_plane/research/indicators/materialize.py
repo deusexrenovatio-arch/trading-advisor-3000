@@ -551,6 +551,8 @@ def _load_bar_partition_rows(
     contour_id: str,
     partition: IndicatorFramePartitionKey,
 ) -> list[ResearchBarView]:
+    table_path = dataset_output_dir / "research_bar_views.delta"
+    available_columns = set(delta_table_columns(table_path))
     filters: list[tuple[str, str, object]] = [
         ("dataset_version", "=", dataset_version),
         ("contour_id", "=", contour_id),
@@ -563,7 +565,8 @@ def _load_bar_partition_rows(
         filters.append(("series_mode", "=", partition.series_mode))
     if partition.series_id:
         filters.append(("series_id", "=", partition.series_id))
-    rows = read_delta_table_rows(dataset_output_dir / "research_bar_views.delta", filters=filters)
+    filters = [item for item in filters if item[0] in available_columns]
+    rows = read_delta_table_rows(table_path, filters=filters)
     return [
         ResearchBarView.from_dict(row) for row in sorted(rows, key=lambda item: str(item["ts"]))
     ]
@@ -1344,15 +1347,21 @@ def _build_partition_rows(
 
     rows: list[IndicatorFrameRow] = []
     for original, values, existing in prepared_values:
+        series_key = _series_group_key(
+            original,
+            dataset_version=dataset_version,
+            indicator_set_version=indicator_set_version,
+            series_mode=series_mode,
+        )
         rows.append(
             IndicatorFrameRow(
                 dataset_version=dataset_version,
                 contour_id=original.contour_id,
-                series_mode=original.series_mode,
-                series_id=original.series_id,
+                series_mode=series_key.series_mode,
+                series_id=series_key.series_id,
                 indicator_set_version=indicator_set_version,
                 profile_version=profile.version,
-                contract_id=original.contract_id,
+                contract_id=series_key.contract_id,
                 instrument_id=original.instrument_id,
                 timeframe=original.timeframe,
                 ts=original.ts,
@@ -1728,9 +1737,11 @@ def reload_indicator_frames(
     indicator_output_dir: Path,
     dataset_version: str,
     indicator_set_version: str,
+    contour_id: str = "native_tradable",
 ) -> list[IndicatorFrameRow]:
     return load_indicator_frames(
         output_dir=indicator_output_dir,
         dataset_version=dataset_version,
         indicator_set_version=indicator_set_version,
+        contour_id=contour_id,
     )

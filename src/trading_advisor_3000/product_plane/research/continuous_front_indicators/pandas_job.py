@@ -162,18 +162,23 @@ DERIVED_SOURCE_RESERVED_COLUMNS = (
 def _load_dataset_manifest(
     *, materialized_output_dir: Path, dataset_version: str, contour_id: str = "pit_active_front"
 ) -> dict[str, object]:
+    table_path = materialized_output_dir / "research_datasets.delta"
+    available_columns = set(delta_table_columns(table_path))
+    filters: list[tuple[str, str, object]] = [("dataset_version", "=", dataset_version)]
+    if "contour_id" in available_columns:
+        filters.append(("contour_id", "=", contour_id))
     rows = read_delta_table_rows(
-        materialized_output_dir / "research_datasets.delta",
-        filters=[("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
+        table_path,
+        filters=filters,
     )
-    if not rows:
+    if not rows and "contour_id" not in available_columns:
         candidates = read_delta_table_rows(
-            materialized_output_dir / "research_datasets.delta",
+            table_path,
             filters=[("dataset_version", "=", dataset_version)],
         )
         rows = [row for row in candidates if str(row.get("series_mode")) == "continuous_front"]
     if not rows:
-        raise KeyError(f"dataset_version not found: {dataset_version}")
+        raise KeyError(f"dataset_version/contour_id not found: {dataset_version}/{contour_id}")
     return dict(rows[0])
 
 
@@ -230,10 +235,13 @@ def _read_filtered_arrow_table(
     columns: Iterable[str],
     filters: list[tuple[str, str, object]],
 ) -> pa.Table:
+    available_columns = _available_columns(table_path, columns)
+    available = set(available_columns)
+    scoped_filters = [item for item in filters if item[0] in available]
     return read_delta_table_arrow(
         table_path,
-        columns=_available_columns(table_path, columns),
-        filters=filters,
+        columns=available_columns,
+        filters=scoped_filters,
     )
 
 
