@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from datetime import UTC, datetime
 from pathlib import Path
 
+from trading_advisor_3000.product_plane.contracts import CanonicalBar
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     delta_equals_predicate,
     ensure_delta_table_columns,

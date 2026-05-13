@@ -157,7 +157,8 @@ def test_derived_indicator_store_contract_is_separate_wide_layer() -> None:
         "timeframe",
     ]
     assert (
-        "unique(dataset_version, contour_id, series_mode, series_id, indicator_set_version, derived_indicator_set_version, timeframe, ts)"
+        "unique(dataset_version, contour_id, series_mode, series_id, "
+        "indicator_set_version, derived_indicator_set_version, timeframe, ts)"
         in contract["research_derived_indicator_frames"]["constraints"]
     )
     assert contract["research_derived_indicator_frames"]["format"] == "delta"

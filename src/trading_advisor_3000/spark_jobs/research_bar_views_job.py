@@ -125,7 +125,8 @@ def _apply_filters(dataframe, *, instrument_ids: tuple[str, ...], timeframes: tu
 def _with_l0_metrics(
     dataframe, *, series_columns: tuple[str, ...], start_ts: str | None, warmup_bars: int
 ):
-    from pyspark.sql import Window, functions as F  # type: ignore[import-not-found]
+    from pyspark.sql import Window  # type: ignore[import-not-found]
+    from pyspark.sql import functions as F
 
     series_order = Window.partitionBy(*series_columns).orderBy("ts")
     prev_close = F.lag("close").over(series_order)

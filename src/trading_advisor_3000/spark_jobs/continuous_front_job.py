@@ -365,7 +365,8 @@ def _with_maturity_columns(dataframe):
 
 
 def _calendar_expiry_active_timeline(*, keyed, contract_keyed, policy: ContinuousFrontPolicy):
-    from pyspark.sql import Window, functions as F  # type: ignore[import-not-found]
+    from pyspark.sql import Window  # type: ignore[import-not-found]
+    from pyspark.sql import functions as F
 
     grouped = Window.partitionBy("instrument_id", "timeframe")
     keyed_with_session = keyed.withColumn("session_date", _session_date(policy)).withColumn(
@@ -505,7 +506,8 @@ def _calendar_expiry_active_timeline(*, keyed, contract_keyed, policy: Continuou
 
 
 def _active_timeline(*, bars, policy: ContinuousFrontPolicy, calendar_bars=None):
-    from pyspark.sql import Window, functions as F  # type: ignore[import-not-found]
+    from pyspark.sql import Window  # type: ignore[import-not-found]
+    from pyspark.sql import functions as F
 
     keyed = _with_maturity_columns(bars)
     if policy.roll_policy_mode == "calendar_expiry_v1":
@@ -521,7 +523,8 @@ def _active_timeline(*, bars, policy: ContinuousFrontPolicy, calendar_bars=None)
         "volume",
     }:
         raise RuntimeError(
-            "continuous_front Spark native contour supports only open_interest/volume ranking metrics"
+            "continuous_front Spark native contour supports only "
+            "open_interest/volume ranking metrics"
         )
 
     by_ts = Window.partitionBy("instrument_id", "timeframe", "ts")
@@ -640,7 +643,8 @@ def _build_spark_native_tables(
     start_ts: str | None,
     end_ts: str | None,
 ):
-    from pyspark.sql import Window, functions as F  # type: ignore[import-not-found]
+    from pyspark.sql import Window  # type: ignore[import-not-found]
+    from pyspark.sql import functions as F
 
     created_at = _policy_timestamp()
     raw_bars = _load_filtered_bars(

@@ -745,7 +745,8 @@ def test_indicator_store_contract_contains_stage3_metadata_columns() -> None:
         "timeframe",
     ]
     assert (
-        "unique(dataset_version, contour_id, series_mode, series_id, indicator_set_version, timeframe, ts)"
+        "unique(dataset_version, contour_id, series_mode, series_id, "
+        "indicator_set_version, timeframe, ts)"
         in contract["research_indicator_frames"]["constraints"]
     )
 

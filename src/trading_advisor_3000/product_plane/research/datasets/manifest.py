@@ -7,7 +7,6 @@ from typing import Literal
 
 from .continuous import ContinuousFrontPolicy
 
-
 DatasetSeriesMode = Literal["contract", "continuous_front"]
 DatasetSplitMethod = Literal["full", "holdout", "walk_forward"]
 DatasetContourId = Literal["native_tradable", "pit_active_front"]

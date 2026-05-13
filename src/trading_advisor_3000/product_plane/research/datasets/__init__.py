@@ -3,8 +3,8 @@ from __future__ import annotations
 from .continuous import CALENDAR_EXPIRY_CONTINUOUS_FRONT_POLICY, ContinuousFrontPolicy
 from .manifest import ResearchDatasetManifest
 from .materialize import (
-    build_research_instrument_tree,
     build_research_dataset_manifest,
+    build_research_instrument_tree,
     load_materialized_research_dataset,
     materialize_research_dataset,
     research_dataset_store_contract,

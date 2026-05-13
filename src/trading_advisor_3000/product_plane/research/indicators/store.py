@@ -259,7 +259,8 @@ def indicator_store_contract(
                 "timeframe",
             ],
             "constraints": [
-                "unique(dataset_version, contour_id, series_mode, series_id, indicator_set_version, timeframe, ts)"
+                "unique(dataset_version, contour_id, series_mode, series_id, "
+                "indicator_set_version, timeframe, ts)"
             ],
             "columns": columns,
         }

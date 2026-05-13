@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import math
 import hashlib
 import json
+import math
 from dataclasses import replace
 from pathlib import Path
 
@@ -23,8 +23,10 @@ from trading_advisor_3000.product_plane.research.datasets import (
     ContinuousFrontPolicy,
     ResearchBarView,
     ResearchDatasetManifest,
-    materialize_research_dataset as _materialize_research_dataset_manifest,
     research_dataset_store_contract,
+)
+from trading_advisor_3000.product_plane.research.datasets import (
+    materialize_research_dataset as _materialize_research_dataset_manifest,
 )
 
 ROOT = Path(__file__).resolve().parents[3]

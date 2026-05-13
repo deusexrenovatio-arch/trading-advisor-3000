@@ -84,7 +84,10 @@ def _shadow_replay_candidates(
                 ts_decision=bar.ts,
                 indicator_context=IndicatorContextRef(
                     dataset_version=dataset_version,
-                    snapshot_id=f"{instrument_by_contract.get(contract_id, bar.instrument_id)}:{timeframe}:{bar.ts}",
+                    snapshot_id=(
+                        f"{instrument_by_contract.get(contract_id, bar.instrument_id)}:"
+                        f"{timeframe}:{bar.ts}"
+                    ),
                 ),
             )
         )

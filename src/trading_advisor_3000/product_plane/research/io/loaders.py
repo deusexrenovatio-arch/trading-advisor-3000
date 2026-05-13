@@ -9,7 +9,6 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_del
 
 from .cache import ResearchCacheKey, ResearchFrameCache
 
-
 KEY_COLUMNS = ("contour_id", "contract_id", "instrument_id", "timeframe", "ts")
 MANIFEST_METADATA_COLUMNS = ("dataset_version", "contour_id", "series_mode")
 BAR_METADATA_COLUMNS = (
