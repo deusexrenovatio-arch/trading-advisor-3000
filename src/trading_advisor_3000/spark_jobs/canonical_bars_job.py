@@ -16,7 +16,7 @@ from typing import Any, Callable
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
     has_delta_log,
-    iter_delta_table_row_batches,
+    read_delta_table_rows,
 )
 from trading_advisor_3000.product_plane.data_plane.schemas import (
     historical_data_delta_schema_manifest,
@@ -247,21 +247,17 @@ def validate_spark_output_contract(
             errors.append(f"missing `_delta_log` for `{table_name}` at {path.as_posix()}")
             continue
         expected_columns = set((delta_schema_manifest[table_name].get("columns") or {}).keys())
-        row_index = 0
-        for batch in iter_delta_table_row_batches(path):
-            for row in batch:
-                row_index += 1
-                keys = set(row.keys())
-                missing = sorted(expected_columns - keys)
-                extra = sorted(keys - expected_columns)
-                if missing:
-                    errors.append(
-                        f"{table_name} row {row_index} missing columns: {', '.join(missing)}"
-                    )
-                if extra:
-                    errors.append(
-                        f"{table_name} row {row_index} has unsupported columns: {', '.join(extra)}"
-                    )
+        row_count = count_delta_table_rows(path)
+        for row_index, row in enumerate(read_delta_table_rows(path, limit=row_count), start=1):
+            keys = set(row.keys())
+            missing = sorted(expected_columns - keys)
+            extra = sorted(keys - expected_columns)
+            if missing:
+                errors.append(f"{table_name} row {row_index} missing columns: {', '.join(missing)}")
+            if extra:
+                errors.append(
+                    f"{table_name} row {row_index} has unsupported columns: {', '.join(extra)}"
+                )
     return errors
 
 

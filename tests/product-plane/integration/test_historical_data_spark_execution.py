@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from trading_advisor_3000.product_plane.data_plane import run_sample_backfill
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import iter_delta_table_row_batches
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows
 from trading_advisor_3000.spark_jobs import build_sql_plan, run_canonical_bars_spark_job
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -28,8 +28,8 @@ def _sorted_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
     return sorted(rows, key=lambda item: json.dumps(item, ensure_ascii=False, sort_keys=True))
 
 
-def _read_batched_delta_rows(table_path: Path) -> list[dict[str, object]]:
-    return [row for batch in iter_delta_table_row_batches(table_path) for row in batch]
+def _read_bounded_delta_rows(table_path: Path) -> list[dict[str, object]]:
+    return read_delta_table_rows(table_path, limit=10_000)
 
 
 def _run_spark_proof(tmp_path: Path) -> dict[str, object]:
@@ -84,8 +84,8 @@ def test_historical_data_spark_job_executes_and_matches_contract_outputs(tmp_pat
         spark_path = Path(str(spark_report["output_paths"][table_name]))
         python_path = Path(str(python_report["output_paths"][table_name]))
         assert (spark_path / "_delta_log").exists()
-        assert _sorted_rows(_read_batched_delta_rows(spark_path)) == _sorted_rows(
-            _read_batched_delta_rows(python_path)
+        assert _sorted_rows(_read_bounded_delta_rows(spark_path)) == _sorted_rows(
+            _read_bounded_delta_rows(python_path)
         )
 
 
