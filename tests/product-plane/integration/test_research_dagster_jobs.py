@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -51,6 +52,24 @@ from trading_advisor_3000.product_plane.research.strategies.compiler_bridge impo
 ROOT = Path(__file__).resolve().parents[3]
 RAW_FIXTURE = (
     ROOT / "tests" / "product-plane" / "fixtures" / "data_plane" / "raw_backfill_sample.jsonl"
+)
+
+
+def _windows_hadoop_nativeio_unavailable() -> bool:
+    if os.name != "nt":
+        return False
+    hadoop_home = os.environ.get("HADOOP_HOME")
+    if not hadoop_home:
+        return True
+    return not (Path(hadoop_home) / "bin" / "hadoop.dll").exists()
+
+
+requires_spark_delta_runtime = pytest.mark.skipif(
+    _windows_hadoop_nativeio_unavailable(),
+    reason=(
+        "local Windows Spark/Delta requires Hadoop NativeIO; "
+        "Docker/Linux staging proof runs this route"
+    ),
 )
 
 
@@ -289,6 +308,7 @@ def _write_spark_front_outputs_from_canonical(
     }
 
 
+@requires_spark_delta_runtime
 def test_research_data_prep_materializes_dataset_indicator_and_derived_layers_only(
     tmp_path: Path,
 ) -> None:
@@ -346,6 +366,7 @@ def test_research_data_prep_materializes_dataset_indicator_and_derived_layers_on
     assert all(row.profile_version == "core_v1" for row in loaded_derived)
 
 
+@requires_spark_delta_runtime
 def test_research_data_prep_can_source_indicators_from_continuous_front(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -418,6 +439,7 @@ def test_research_data_prep_can_source_indicators_from_continuous_front(
     assert len(native_dataset["bar_views"]) > 0
 
 
+@requires_spark_delta_runtime
 def test_research_data_prep_reuse_does_not_reload_full_frames(tmp_path: Path, monkeypatch) -> None:
     canonical_dir = tmp_path / "canonical"
     run_sample_backfill(
@@ -472,6 +494,7 @@ def test_research_data_prep_reuse_does_not_reload_full_frames(tmp_path: Path, mo
     assert reuse_report["rows_by_table"]["research_derived_indicator_frames"] == 2
 
 
+@requires_spark_delta_runtime
 def test_strategy_registry_refresh_is_separate_from_research_data_prep(tmp_path: Path) -> None:
     canonical_dir = tmp_path / "canonical-strategy"
     run_sample_backfill(
@@ -644,6 +667,7 @@ def test_research_data_prep_rejects_invalid_volume_profile_tick_size(
         )
 
 
+@requires_spark_delta_runtime
 def test_research_data_prep_uses_spark_l0_materialization(tmp_path: Path) -> None:
     canonical_dir = tmp_path / "canonical-spark-l0"
     run_sample_backfill(
@@ -694,6 +718,7 @@ def test_research_data_prep_uses_spark_l0_materialization(tmp_path: Path) -> Non
     assert {row["contour_id"] for row in dagster_derived_rows} == {"native_tradable"}
 
 
+@requires_spark_delta_runtime
 def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_path: Path) -> None:
     canonical_dir = tmp_path / "canonical-stage7"
     _write_rich_stage7_canonical_context(canonical_dir)
