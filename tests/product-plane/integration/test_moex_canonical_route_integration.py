@@ -4,6 +4,8 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     iter_delta_table_row_batches,
     write_delta_table_rows,
@@ -14,6 +16,9 @@ from trading_advisor_3000.product_plane.data_plane.moex import (
 )
 from trading_advisor_3000.product_plane.data_plane.moex import (
     historical_canonical_route as phase02_module,
+)
+from trading_advisor_3000.product_plane.data_plane.moex.session_buckets import (
+    CanonicalBucketBuildError,
 )
 
 RAW_COLUMNS: dict[str, str] = {
@@ -271,25 +276,24 @@ def test_historical_canonical_route_is_fail_closed_when_qc_fails(tmp_path: Path)
     assert payload["publish_decision"] == "blocked"
 
 
-def test_historical_canonical_route_reports_skips_for_incompatible_daily_only_contract(
+def test_historical_canonical_route_blocks_clearing_d1_without_intraday_source(
     tmp_path: Path,
 ) -> None:
     raw_table_path = tmp_path / "phase01" / "delta" / "raw_moex_history.delta"
     rows = _raw_rows_with_daily_only_contract(with_source_provider=True)
     _write_raw_table(raw_table_path, rows)
 
-    report = run_historical_canonical_route(
-        raw_table_path=raw_table_path,
-        output_dir=tmp_path / "phase02-mixed",
-        run_id="phase02-int-mixed",
-        raw_ingest_run_report=_build_raw_ingest_report_for_rows(rows=rows, run_id="phase01-pass1"),
-    )
-
-    assert report["status"] == "PASS"
-    assert report["publish_decision"] == "publish"
-    assert report["canonicalization_engine"] == "spark"
-    assert int(report["resampling_skips"]["count"]) > 0
-    assert "5m" in report["resampling_skips"]["by_timeframe"]
+    with pytest.raises(
+        CanonicalBucketBuildError, match="aggregate policy requires compatible intraday source"
+    ):
+        run_historical_canonical_route(
+            raw_table_path=raw_table_path,
+            output_dir=tmp_path / "phase02-mixed",
+            run_id="phase02-int-mixed",
+            raw_ingest_run_report=_build_raw_ingest_report_for_rows(
+                rows=rows, run_id="phase01-pass1"
+            ),
+        )
 
 
 def test_historical_canonical_route_pass_noop_does_not_mutate_existing_tables(

@@ -20,6 +20,11 @@ from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contrac
     build_parity_manifest_v1,
     normalize_changed_windows,
 )
+from trading_advisor_3000.product_plane.data_plane.moex.session_buckets import (
+    CANONICAL_BUCKET_POLICY_VERSION,
+    CanonicalBucket,
+    build_canonical_bucket_rows,
+)
 from trading_advisor_3000.spark_jobs.moex_canonical_publish_job import (
     run_moex_canonical_publish_spark_delta_job,
 )
@@ -1037,6 +1042,7 @@ def _run_spark_canonicalization(
     raw_table_path: Path,
     changed_windows: list[ChangedWindowScope],
     selected_source_intervals: dict[tuple[str, str, str], int],
+    canonical_buckets: list[CanonicalBucket],
     output_dir: Path,
     run_id: str,
     built_at_utc: str,
@@ -1046,6 +1052,7 @@ def _run_spark_canonicalization(
     changed_windows_path = spark_dir / "changed-windows.jsonl"
     selected_source_intervals_path = spark_dir / "selected-source-intervals.jsonl"
     publish_scope_path = spark_dir / "publish-scope.jsonl"
+    canonical_buckets_path = spark_dir / "canonical-buckets.jsonl"
     spark_output_dir = spark_dir / "scoped-output"
     spark_report_path = spark_dir / "spark-execution-report.json"
 
@@ -1061,6 +1068,7 @@ def _run_spark_canonicalization(
             selected_source_intervals=selected_source_intervals,
         ),
     )
+    _jsonl_write(canonical_buckets_path, (row.to_dict() for row in canonical_buckets))
 
     command = [
         sys.executable,
@@ -1073,6 +1081,8 @@ def _run_spark_canonicalization(
         changed_windows_path.as_posix(),
         "--selected-source-intervals-jsonl",
         selected_source_intervals_path.as_posix(),
+        "--canonical-buckets-jsonl",
+        canonical_buckets_path.as_posix(),
         "--output-dir",
         spark_output_dir.as_posix(),
         "--run-id",
@@ -1096,6 +1106,12 @@ def _run_spark_canonicalization(
     payload = json.loads(spark_report_path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise RuntimeError("spark canonicalization report must be JSON object")
+    payload.setdefault("bucket_mode", "canonical_bucket_map")
+    payload.setdefault("canonical_bucket_rows", len(canonical_buckets))
+    payload.setdefault("policy_version", CANONICAL_BUCKET_POLICY_VERSION)
+    output_paths = payload.setdefault("output_paths", {})
+    if isinstance(output_paths, dict):
+        output_paths.setdefault("canonical_buckets", canonical_buckets_path.as_posix())
     return payload
 
 
@@ -1627,6 +1643,12 @@ def _run_scoped_spark_delta_publish_route(
         available_intervals_by_contract,
         selected_source_intervals=selected_source_intervals,
     )
+    canonical_buckets = build_canonical_bucket_rows(
+        changed_windows=changed_window_scope,
+        selected_source_intervals=selected_source_intervals,
+        available_intervals_by_contract=available_intervals_by_contract,
+        target_timeframes=tuple(item.value for item in TARGET_TIMEFRAMES),
+    )
 
     spark_execution_report: dict[str, object] | None = None
     scoped_bars_path: Path | None = None
@@ -1637,6 +1659,7 @@ def _run_scoped_spark_delta_publish_route(
             raw_table_path=raw_table_path,
             changed_windows=changed_window_scope,
             selected_source_intervals=selected_source_intervals,
+            canonical_buckets=canonical_buckets,
             output_dir=output_dir,
             run_id=run_id,
             built_at_utc=built_at_utc,
@@ -1825,6 +1848,9 @@ def _run_scoped_spark_delta_publish_route(
         "proof_class": "staging-real",
         "canonicalization_engine": "spark",
         "canonical_publish_engine": "spark_delta",
+        "bucket_mode": "canonical_bucket_map",
+        "canonical_bucket_rows": len(canonical_buckets),
+        "policy_version": CANONICAL_BUCKET_POLICY_VERSION,
         "status": status,
         "publish_decision": "publish" if publish_allowed else "blocked",
         "raw_table_path": raw_table_path.as_posix(),
@@ -1878,6 +1904,9 @@ def _run_scoped_spark_delta_publish_route(
     if spark_execution_report is not None:
         report["artifact_paths"]["spark_execution_report"] = (
             output_dir / ".spark-canonicalization" / "spark-execution-report.json"
+        ).as_posix()
+        report["artifact_paths"]["canonical_buckets_jsonl"] = (
+            output_dir / ".spark-canonicalization" / "canonical-buckets.jsonl"
         ).as_posix()
         report["spark_execution_report"] = spark_execution_report
     if spark_publish_report is not None:

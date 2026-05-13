@@ -19,6 +19,7 @@ from trading_advisor_3000.product_plane.data_plane.moex.historical_canonical_rou
     run_qc_gates,
     run_runtime_decoupling_check,
 )
+from trading_advisor_3000.product_plane.data_plane.moex.session_buckets import CanonicalBucket
 
 
 def _provenance(**overrides: object) -> CanonicalProvenance:
@@ -311,6 +312,22 @@ def test_spark_canonicalization_uses_raw_delta_input_instead_of_source_jsonl(
             )
         ],
         selected_source_intervals={("BRM6@MOEX", "FUT_BR", "5m"): 1},
+        canonical_buckets=[
+            CanonicalBucket(
+                contract_id="BRM6@MOEX",
+                instrument_id="FUT_BR",
+                timeframe="5m",
+                source_interval=1,
+                target_minutes=5,
+                bucket_start_ts="2026-04-02T10:00:00Z",
+                bucket_end_ts="2026-04-02T10:05:00Z",
+                canonical_ts="2026-04-02T10:00:00Z",
+                policy_id="moex:5m:session_segment:aggregate_intraday:unified_session:v1",
+                anchor_type="session_segment",
+                source_mode="aggregate_intraday",
+                session_model="unified_session",
+            )
+        ],
         output_dir=tmp_path / "phase02",
         run_id="canonical-direct-delta",
         built_at_utc="2026-04-02T11:00:00Z",
@@ -321,5 +338,11 @@ def test_spark_canonicalization_uses_raw_delta_input_instead_of_source_jsonl(
     assert "--raw-table-path" in command
     assert raw_table_path.as_posix() in command
     assert "--changed-windows-jsonl" in command
+    assert "--canonical-buckets-jsonl" in command
+    bucket_path = Path(command[command.index("--canonical-buckets-jsonl") + 1])
+    assert bucket_path.name == "canonical-buckets.jsonl"
+    assert bucket_path.read_text(encoding="utf-8").strip()
     assert "--normalized-source-jsonl" not in command
     assert report["input_mode"] == "raw_delta"
+    assert report["bucket_mode"] == "canonical_bucket_map"
+    assert report["canonical_bucket_rows"] == 1
