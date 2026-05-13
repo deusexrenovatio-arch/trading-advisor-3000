@@ -107,6 +107,7 @@ def _docker_python_command(
     raw_table_path: Path | None,
     changed_windows_jsonl: Path | None,
     selected_source_intervals_jsonl: Path,
+    canonical_buckets_jsonl: Path | None,
     output_dir: Path,
     run_id: str,
     built_at_utc: str,
@@ -120,6 +121,8 @@ def _docker_python_command(
         "local",
         "--selected-source-intervals-jsonl",
         _container_path(selected_source_intervals_jsonl),
+        "--canonical-buckets-jsonl",
+        _container_path(canonical_buckets_jsonl) if canonical_buckets_jsonl is not None else "",
         "--output-dir",
         _container_path(output_dir),
         "--run-id",
@@ -155,6 +158,7 @@ def _docker_exec_args(
     raw_table_path: Path | None,
     changed_windows_jsonl: Path | None,
     selected_source_intervals_jsonl: Path,
+    canonical_buckets_jsonl: Path | None,
     output_dir: Path,
     run_id: str,
     built_at_utc: str,
@@ -166,6 +170,7 @@ def _docker_exec_args(
         raw_table_path=raw_table_path,
         changed_windows_jsonl=changed_windows_jsonl,
         selected_source_intervals_jsonl=selected_source_intervals_jsonl,
+        canonical_buckets_jsonl=canonical_buckets_jsonl,
         output_dir=output_dir,
         run_id=run_id,
         built_at_utc=built_at_utc,
@@ -189,6 +194,7 @@ def _run_in_docker(
     raw_table_path: Path | None,
     changed_windows_jsonl: Path | None,
     selected_source_intervals_jsonl: Path,
+    canonical_buckets_jsonl: Path | None,
     output_dir: Path,
     run_id: str,
     built_at_utc: str,
@@ -237,6 +243,7 @@ def _run_in_docker(
                 raw_table_path=raw_table_path,
                 changed_windows_jsonl=changed_windows_jsonl,
                 selected_source_intervals_jsonl=selected_source_intervals_jsonl,
+                canonical_buckets_jsonl=canonical_buckets_jsonl,
                 output_dir=output_dir,
                 run_id=run_id,
                 built_at_utc=built_at_utc,
@@ -288,6 +295,7 @@ def main() -> None:
     parser.add_argument("--raw-table-path", default="")
     parser.add_argument("--changed-windows-jsonl", default="")
     parser.add_argument("--selected-source-intervals-jsonl", required=True)
+    parser.add_argument("--canonical-buckets-jsonl", default="")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--built-at-utc", required=True)
@@ -313,6 +321,11 @@ def main() -> None:
         else None
     )
     selected_source_intervals_jsonl = _resolve_repo_path(Path(args.selected_source_intervals_jsonl))
+    canonical_buckets_jsonl = (
+        _resolve_repo_path(Path(args.canonical_buckets_jsonl))
+        if str(args.canonical_buckets_jsonl).strip()
+        else None
+    )
     output_dir = _resolve_repo_path(Path(args.output_dir))
     output_json = _resolve_repo_path(Path(args.output_json)) if args.output_json else None
     if raw_table_path is not None and changed_windows_jsonl is None:
@@ -329,6 +342,7 @@ def main() -> None:
             raw_table_path=raw_table_path,
             changed_windows_jsonl=changed_windows_jsonl,
             selected_source_intervals_jsonl=selected_source_intervals_jsonl,
+            canonical_buckets_jsonl=canonical_buckets_jsonl,
             output_dir=output_dir,
             run_id=args.run_id,
             built_at_utc=args.built_at_utc,
@@ -343,6 +357,7 @@ def main() -> None:
             raw_table_path=raw_table_path,
             changed_windows_path=changed_windows_jsonl,
             selected_source_intervals_path=selected_source_intervals_jsonl,
+            canonical_buckets_path=canonical_buckets_jsonl,
             output_dir=output_dir,
             build_run_id=args.run_id,
             built_at_utc=args.built_at_utc,
@@ -353,6 +368,7 @@ def main() -> None:
         report = run_moex_canonicalization_spark_job(
             normalized_source_path=normalized_source_jsonl,
             selected_source_intervals_path=selected_source_intervals_jsonl,
+            canonical_buckets_path=canonical_buckets_jsonl,
             output_dir=output_dir,
             build_run_id=args.run_id,
             built_at_utc=args.built_at_utc,

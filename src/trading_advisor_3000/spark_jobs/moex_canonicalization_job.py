@@ -49,7 +49,13 @@ CANONICAL_PROVENANCE_SCHEMA = (
     "source_ts_close_last timestamp, "
     "open_interest_imputed int, "
     "build_run_id string, "
-    "built_at_utc timestamp"
+    "built_at_utc timestamp, "
+    "policy_id string, "
+    "anchor_type string, "
+    "source_mode string, "
+    "session_model string, "
+    "bucket_start_ts timestamp, "
+    "bucket_end_ts timestamp"
 )
 
 CANONICAL_BAR_MANIFEST = {
@@ -84,6 +90,12 @@ CANONICAL_PROVENANCE_MANIFEST = {
         "open_interest_imputed": "int",
         "build_run_id": "string",
         "built_at_utc": "timestamp",
+        "policy_id": "string",
+        "anchor_type": "string",
+        "source_mode": "string",
+        "session_model": "string",
+        "bucket_start_ts": "timestamp",
+        "bucket_end_ts": "timestamp",
     }
 }
 
@@ -106,6 +118,7 @@ def run_moex_canonicalization_spark_job(
     output_dir: Path,
     build_run_id: str,
     built_at_utc: str,
+    canonical_buckets_path: Path | None = None,
     spark_master: str = DEFAULT_SPARK_MASTER,
     spark_session_factory: Callable[[str, str], object] | None = None,
 ) -> dict[str, object]:
@@ -115,13 +128,17 @@ def run_moex_canonicalization_spark_job(
 
     source_row_count = _count_jsonl_rows(normalized_source_path)
     selected_interval_row_count = _count_jsonl_rows(selected_source_intervals_path)
+    use_bucket_map = canonical_buckets_path is not None
+    canonical_bucket_row_count = _count_jsonl_rows(canonical_buckets_path) if use_bucket_map else 0
+    if source_row_count > 0 and use_bucket_map and canonical_bucket_row_count == 0:
+        raise ValueError("canonical bucket map is required for route-mode MOEX canonicalization")
 
     spark_session_factory = spark_session_factory or _create_spark_session
     spark = spark_session_factory("ta3000-moex-canonicalization", spark_master)
     _, window, F, _ = _load_spark_modules()
 
     try:
-        if source_row_count == 0 or selected_interval_row_count == 0:
+        if source_row_count == 0 or (not use_bucket_map and selected_interval_row_count == 0):
             bars_df = spark.createDataFrame([], CANONICAL_BAR_SCHEMA)
             provenance_df = spark.createDataFrame([], CANONICAL_PROVENANCE_SCHEMA)
         else:
@@ -144,37 +161,118 @@ def run_moex_canonicalization_spark_job(
                 F.col("source_ingest_run_id").cast("string").alias("source_ingest_run_id"),
             )
 
-            selected_df = spark.read.json(str(selected_source_intervals_path)).select(
-                F.col("contract_id").cast("string").alias("contract_id"),
-                F.col("instrument_id").cast("string").alias("instrument_id"),
-                F.col("timeframe").cast("string").alias("timeframe"),
-                F.col("target_minutes").cast("int").alias("target_minutes"),
-                F.col("source_interval").cast("int").alias("source_interval"),
-            )
+            if use_bucket_map:
+                bucket_df = spark.read.json(str(canonical_buckets_path)).select(
+                    F.col("contract_id").cast("string").alias("contract_id"),
+                    F.col("instrument_id").cast("string").alias("instrument_id"),
+                    F.col("timeframe").cast("string").alias("timeframe"),
+                    F.col("source_interval").cast("int").alias("source_interval"),
+                    F.col("target_minutes").cast("int").alias("target_minutes"),
+                    F.to_timestamp(F.col("bucket_start_ts")).alias("bucket_start_ts"),
+                    F.to_timestamp(F.col("bucket_end_ts")).alias("bucket_end_ts"),
+                    F.to_timestamp(F.col("canonical_ts")).alias("canonical_ts"),
+                    F.col("policy_id").cast("string").alias("policy_id"),
+                    F.col("anchor_type").cast("string").alias("anchor_type"),
+                    F.col("source_mode").cast("string").alias("source_mode"),
+                    F.col("session_model").cast("string").alias("session_model"),
+                )
+                joined = (
+                    source_df.alias("s")
+                    .join(
+                        bucket_df.alias("b"),
+                        (
+                            (F.col("s.contract_id") == F.col("b.contract_id"))
+                            & (F.col("s.instrument_id") == F.col("b.instrument_id"))
+                            & (F.col("s.source_interval") == F.col("b.source_interval"))
+                            & (F.col("s.ts_open") >= F.col("b.bucket_start_ts"))
+                            & (F.col("s.ts_open") < F.col("b.bucket_end_ts"))
+                        ),
+                        how="inner",
+                    )
+                    .select(
+                        F.col("s.contract_id").alias("contract_id"),
+                        F.col("s.instrument_id").alias("instrument_id"),
+                        F.col("b.timeframe").alias("timeframe"),
+                        F.col("b.target_minutes").alias("target_minutes"),
+                        F.col("s.source_timeframe").alias("source_timeframe"),
+                        F.col("s.source_interval").alias("source_interval"),
+                        F.col("s.ts_open").alias("ts_open"),
+                        F.col("s.ts_close").alias("ts_close"),
+                        F.col("s.open").alias("open"),
+                        F.col("s.high").alias("high"),
+                        F.col("s.low").alias("low"),
+                        F.col("s.close").alias("close"),
+                        F.col("s.volume").alias("volume"),
+                        F.col("s.open_interest").alias("open_interest"),
+                        F.col("s.open_interest_imputed").alias("open_interest_imputed"),
+                        F.col("s.source_provider").alias("source_provider"),
+                        F.col("s.source_run_id").alias("source_run_id"),
+                        F.col("s.source_ingest_run_id").alias("source_ingest_run_id"),
+                        F.col("b.canonical_ts").alias("canonical_ts"),
+                        F.col("b.policy_id").alias("policy_id"),
+                        F.col("b.anchor_type").alias("anchor_type"),
+                        F.col("b.source_mode").alias("source_mode"),
+                        F.col("b.session_model").alias("session_model"),
+                        F.col("b.bucket_start_ts").alias("bucket_start_ts"),
+                        F.col("b.bucket_end_ts").alias("bucket_end_ts"),
+                    )
+                )
+            else:
+                selected_df = spark.read.json(str(selected_source_intervals_path)).select(
+                    F.col("contract_id").cast("string").alias("contract_id"),
+                    F.col("instrument_id").cast("string").alias("instrument_id"),
+                    F.col("timeframe").cast("string").alias("timeframe"),
+                    F.col("target_minutes").cast("int").alias("target_minutes"),
+                    F.col("source_interval").cast("int").alias("source_interval"),
+                )
 
-            joined = (
-                source_df.join(
-                    selected_df,
-                    on=["contract_id", "instrument_id", "source_interval"],
-                    how="inner",
+                joined = (
+                    source_df.join(
+                        selected_df,
+                        on=["contract_id", "instrument_id", "source_interval"],
+                        how="inner",
+                    )
+                    .withColumn(
+                        "bucket_seconds",
+                        (
+                            F.floor(
+                                F.unix_timestamp(F.col("ts_open"))
+                                / (F.col("target_minutes") * F.lit(60))
+                            )
+                            * (F.col("target_minutes") * F.lit(60))
+                        ).cast("long"),
+                    )
+                    .withColumn(
+                        "canonical_ts",
+                        F.to_timestamp(F.from_unixtime(F.col("bucket_seconds"))),
+                    )
+                    .withColumn("policy_id", F.lit("legacy:calendar_floor:v1"))
+                    .withColumn("anchor_type", F.lit("calendar_day"))
+                    .withColumn("source_mode", F.lit("aggregate_raw"))
+                    .withColumn("session_model", F.lit("legacy_session"))
+                    .withColumn("bucket_start_ts", F.col("canonical_ts"))
+                    .withColumn(
+                        "bucket_end_ts",
+                        F.to_timestamp(
+                            F.from_unixtime(
+                                F.col("bucket_seconds") + (F.col("target_minutes") * F.lit(60))
+                            )
+                        ),
+                    )
                 )
-                .withColumn(
-                    "bucket_seconds",
-                    (
-                        F.floor(
-                            F.unix_timestamp(F.col("ts_open"))
-                            / (F.col("target_minutes") * F.lit(60))
-                        )
-                        * (F.col("target_minutes") * F.lit(60))
-                    ).cast("long"),
-                )
-                .withColumn(
-                    "bucket_ts",
-                    F.to_timestamp(F.from_unixtime(F.col("bucket_seconds"))),
-                )
-            )
 
-            partition_columns = ["contract_id", "instrument_id", "timeframe", "bucket_ts"]
+            partition_columns = [
+                "contract_id",
+                "instrument_id",
+                "timeframe",
+                "canonical_ts",
+                "policy_id",
+                "anchor_type",
+                "source_mode",
+                "session_model",
+                "bucket_start_ts",
+                "bucket_end_ts",
+            ]
             first_window = window.partitionBy(*partition_columns).orderBy(
                 F.col("ts_open").asc(),
                 F.col("ts_close").asc(),
@@ -224,7 +322,7 @@ def run_moex_canonicalization_spark_job(
                 "contract_id",
                 "instrument_id",
                 "timeframe",
-                F.col("bucket_ts").alias("ts"),
+                F.col("canonical_ts").alias("ts"),
                 "open",
                 "high",
                 "low",
@@ -237,7 +335,7 @@ def run_moex_canonicalization_spark_job(
                 "contract_id",
                 "instrument_id",
                 "timeframe",
-                F.col("bucket_ts").alias("ts"),
+                F.col("canonical_ts").alias("ts"),
                 "source_provider",
                 "source_timeframe",
                 F.col("selected_source_interval").alias("source_interval"),
@@ -249,6 +347,12 @@ def run_moex_canonicalization_spark_job(
                 "open_interest_imputed",
                 F.lit(str(build_run_id).strip()).alias("build_run_id"),
                 F.to_timestamp(F.lit(str(built_at_utc).strip())).alias("built_at_utc"),
+                "policy_id",
+                "anchor_type",
+                "source_mode",
+                "session_model",
+                "bucket_start_ts",
+                "bucket_end_ts",
             )
 
         _write_delta_dataframe(
@@ -267,6 +371,8 @@ def run_moex_canonicalization_spark_job(
             "input_mode": "normalized_jsonl",
             "build_run_id": str(build_run_id).strip(),
             "built_at_utc": str(built_at_utc).strip(),
+            "bucket_mode": "canonical_bucket_map" if use_bucket_map else "calendar_floor_legacy",
+            "canonical_bucket_rows": canonical_bucket_row_count,
             "source_rows": source_row_count,
             "selected_source_interval_rows": selected_interval_row_count,
             "canonical_rows": int(bars_df.count()),
@@ -295,6 +401,7 @@ def run_moex_canonicalization_spark_delta_job(
     output_dir: Path,
     build_run_id: str,
     built_at_utc: str,
+    canonical_buckets_path: Path | None = None,
     spark_master: str = DEFAULT_SPARK_MASTER,
     spark_session_factory: Callable[[str, str], object] | None = None,
 ) -> dict[str, object]:
@@ -304,6 +411,10 @@ def run_moex_canonicalization_spark_delta_job(
 
     changed_window_row_count = _count_jsonl_rows(changed_windows_path)
     selected_interval_row_count = _count_jsonl_rows(selected_source_intervals_path)
+    use_bucket_map = canonical_buckets_path is not None
+    canonical_bucket_row_count = _count_jsonl_rows(canonical_buckets_path) if use_bucket_map else 0
+    if changed_window_row_count > 0 and use_bucket_map and canonical_bucket_row_count == 0:
+        raise ValueError("canonical bucket map is required for route-mode MOEX canonicalization")
 
     spark_session_factory = spark_session_factory or _create_spark_session
     spark = spark_session_factory("ta3000-moex-canonicalization", spark_master)
@@ -313,7 +424,11 @@ def run_moex_canonicalization_spark_delta_job(
         unmatched_window_rows = 0
         unmatched_window_samples: list[str] = []
         source_providers: list[str] = []
-        if changed_window_row_count == 0 or selected_interval_row_count == 0:
+        if (
+            changed_window_row_count == 0
+            or selected_interval_row_count == 0
+            or (use_bucket_map and canonical_bucket_row_count == 0)
+        ):
             source_row_count = 0
             bars_df = spark.createDataFrame([], CANONICAL_BAR_SCHEMA)
             provenance_df = spark.createDataFrame([], CANONICAL_PROVENANCE_SCHEMA)
@@ -415,77 +530,161 @@ def run_moex_canonicalization_spark_delta_job(
                 if str(row["source_provider"]).strip()
             )
 
-            selected_raw_df = spark.read.json(str(selected_source_intervals_path))
-            selected_moex_secid = (
-                F.col("moex_secid").cast("string")
-                if "moex_secid" in selected_raw_df.columns
-                else F.lit(None).cast("string")
-            )
-            selected_df = selected_raw_df.select(
-                F.col("contract_id").cast("string").alias("contract_id"),
-                selected_moex_secid.alias("moex_secid"),
-                F.col("instrument_id").cast("string").alias("instrument_id"),
-                F.col("timeframe").cast("string").alias("timeframe"),
-                F.col("target_minutes").cast("int").alias("target_minutes"),
-                F.col("source_interval").cast("int").alias("source_interval"),
-            )
-
-            source_alias = source_df.alias("source")
-            selected_alias = selected_df.alias("selected")
-            joined = (
-                source_alias.join(
-                    selected_alias,
-                    (
-                        (F.col("source.instrument_id") == F.col("selected.instrument_id"))
-                        & (F.col("source.source_interval") == F.col("selected.source_interval"))
-                        & (
-                            (F.col("source.contract_id") == F.col("selected.contract_id"))
-                            | (F.col("source.moex_secid") == F.col("selected.contract_id"))
-                            | (
-                                F.col("selected.moex_secid").isNotNull()
-                                & (F.col("source.moex_secid") == F.col("selected.moex_secid"))
+            if use_bucket_map:
+                bucket_df = spark.read.json(str(canonical_buckets_path)).select(
+                    F.col("contract_id").cast("string").alias("contract_id"),
+                    F.col("instrument_id").cast("string").alias("instrument_id"),
+                    F.col("timeframe").cast("string").alias("timeframe"),
+                    F.col("source_interval").cast("int").alias("source_interval"),
+                    F.col("target_minutes").cast("int").alias("target_minutes"),
+                    F.to_timestamp(F.col("bucket_start_ts")).alias("bucket_start_ts"),
+                    F.to_timestamp(F.col("bucket_end_ts")).alias("bucket_end_ts"),
+                    F.to_timestamp(F.col("canonical_ts")).alias("canonical_ts"),
+                    F.col("policy_id").cast("string").alias("policy_id"),
+                    F.col("anchor_type").cast("string").alias("anchor_type"),
+                    F.col("source_mode").cast("string").alias("source_mode"),
+                    F.col("session_model").cast("string").alias("session_model"),
+                )
+                joined = (
+                    source_df.alias("source")
+                    .join(
+                        bucket_df.alias("bucket"),
+                        (
+                            (F.col("source.instrument_id") == F.col("bucket.instrument_id"))
+                            & (F.col("source.source_interval") == F.col("bucket.source_interval"))
+                            & (
+                                (F.col("source.contract_id") == F.col("bucket.contract_id"))
+                                | (F.col("source.moex_secid") == F.col("bucket.contract_id"))
                             )
-                        )
-                    ),
-                    how="inner",
+                            & (F.col("source.ts_open") >= F.col("bucket.bucket_start_ts"))
+                            & (F.col("source.ts_open") < F.col("bucket.bucket_end_ts"))
+                        ),
+                        how="inner",
+                    )
+                    .select(
+                        F.col("source.contract_id").alias("contract_id"),
+                        F.col("source.instrument_id").alias("instrument_id"),
+                        F.col("source.source_timeframe").alias("source_timeframe"),
+                        F.col("source.source_interval").alias("source_interval"),
+                        F.col("source.ts_open").alias("ts_open"),
+                        F.col("source.ts_close").alias("ts_close"),
+                        F.col("source.open").alias("open"),
+                        F.col("source.high").alias("high"),
+                        F.col("source.low").alias("low"),
+                        F.col("source.close").alias("close"),
+                        F.col("source.volume").alias("volume"),
+                        F.col("source.open_interest").alias("open_interest"),
+                        F.col("source.open_interest_imputed").alias("open_interest_imputed"),
+                        F.col("source.source_provider").alias("source_provider"),
+                        F.col("source.source_run_id").alias("source_run_id"),
+                        F.col("source.source_ingest_run_id").alias("source_ingest_run_id"),
+                        F.col("bucket.timeframe").alias("timeframe"),
+                        F.col("bucket.target_minutes").alias("target_minutes"),
+                        F.col("bucket.canonical_ts").alias("canonical_ts"),
+                        F.col("bucket.policy_id").alias("policy_id"),
+                        F.col("bucket.anchor_type").alias("anchor_type"),
+                        F.col("bucket.source_mode").alias("source_mode"),
+                        F.col("bucket.session_model").alias("session_model"),
+                        F.col("bucket.bucket_start_ts").alias("bucket_start_ts"),
+                        F.col("bucket.bucket_end_ts").alias("bucket_end_ts"),
+                    )
                 )
-                .select(
-                    F.col("source.contract_id").alias("contract_id"),
-                    F.col("source.instrument_id").alias("instrument_id"),
-                    F.col("source.source_timeframe").alias("source_timeframe"),
-                    F.col("source.source_interval").alias("source_interval"),
-                    F.col("source.ts_open").alias("ts_open"),
-                    F.col("source.ts_close").alias("ts_close"),
-                    F.col("source.open").alias("open"),
-                    F.col("source.high").alias("high"),
-                    F.col("source.low").alias("low"),
-                    F.col("source.close").alias("close"),
-                    F.col("source.volume").alias("volume"),
-                    F.col("source.open_interest").alias("open_interest"),
-                    F.col("source.open_interest_imputed").alias("open_interest_imputed"),
-                    F.col("source.source_provider").alias("source_provider"),
-                    F.col("source.source_run_id").alias("source_run_id"),
-                    F.col("source.source_ingest_run_id").alias("source_ingest_run_id"),
-                    F.col("selected.timeframe").alias("timeframe"),
-                    F.col("selected.target_minutes").alias("target_minutes"),
+            else:
+                selected_raw_df = spark.read.json(str(selected_source_intervals_path))
+                selected_moex_secid = (
+                    F.col("moex_secid").cast("string")
+                    if "moex_secid" in selected_raw_df.columns
+                    else F.lit(None).cast("string")
                 )
-                .withColumn(
-                    "bucket_seconds",
-                    (
-                        F.floor(
-                            F.unix_timestamp(F.col("ts_open"))
-                            / (F.col("target_minutes") * F.lit(60))
-                        )
-                        * (F.col("target_minutes") * F.lit(60))
-                    ).cast("long"),
+                selected_df = selected_raw_df.select(
+                    F.col("contract_id").cast("string").alias("contract_id"),
+                    selected_moex_secid.alias("moex_secid"),
+                    F.col("instrument_id").cast("string").alias("instrument_id"),
+                    F.col("timeframe").cast("string").alias("timeframe"),
+                    F.col("target_minutes").cast("int").alias("target_minutes"),
+                    F.col("source_interval").cast("int").alias("source_interval"),
                 )
-                .withColumn(
-                    "bucket_ts",
-                    F.to_timestamp(F.from_unixtime(F.col("bucket_seconds"))),
-                )
-            )
 
-            partition_columns = ["contract_id", "instrument_id", "timeframe", "bucket_ts"]
+                source_alias = source_df.alias("source")
+                selected_alias = selected_df.alias("selected")
+                joined = (
+                    source_alias.join(
+                        selected_alias,
+                        (
+                            (F.col("source.instrument_id") == F.col("selected.instrument_id"))
+                            & (F.col("source.source_interval") == F.col("selected.source_interval"))
+                            & (
+                                (F.col("source.contract_id") == F.col("selected.contract_id"))
+                                | (F.col("source.moex_secid") == F.col("selected.contract_id"))
+                                | (
+                                    F.col("selected.moex_secid").isNotNull()
+                                    & (F.col("source.moex_secid") == F.col("selected.moex_secid"))
+                                )
+                            )
+                        ),
+                        how="inner",
+                    )
+                    .select(
+                        F.col("source.contract_id").alias("contract_id"),
+                        F.col("source.instrument_id").alias("instrument_id"),
+                        F.col("source.source_timeframe").alias("source_timeframe"),
+                        F.col("source.source_interval").alias("source_interval"),
+                        F.col("source.ts_open").alias("ts_open"),
+                        F.col("source.ts_close").alias("ts_close"),
+                        F.col("source.open").alias("open"),
+                        F.col("source.high").alias("high"),
+                        F.col("source.low").alias("low"),
+                        F.col("source.close").alias("close"),
+                        F.col("source.volume").alias("volume"),
+                        F.col("source.open_interest").alias("open_interest"),
+                        F.col("source.open_interest_imputed").alias("open_interest_imputed"),
+                        F.col("source.source_provider").alias("source_provider"),
+                        F.col("source.source_run_id").alias("source_run_id"),
+                        F.col("source.source_ingest_run_id").alias("source_ingest_run_id"),
+                        F.col("selected.timeframe").alias("timeframe"),
+                        F.col("selected.target_minutes").alias("target_minutes"),
+                    )
+                    .withColumn(
+                        "bucket_seconds",
+                        (
+                            F.floor(
+                                F.unix_timestamp(F.col("ts_open"))
+                                / (F.col("target_minutes") * F.lit(60))
+                            )
+                            * (F.col("target_minutes") * F.lit(60))
+                        ).cast("long"),
+                    )
+                    .withColumn(
+                        "canonical_ts",
+                        F.to_timestamp(F.from_unixtime(F.col("bucket_seconds"))),
+                    )
+                    .withColumn("policy_id", F.lit("legacy:calendar_floor:v1"))
+                    .withColumn("anchor_type", F.lit("calendar_day"))
+                    .withColumn("source_mode", F.lit("aggregate_raw"))
+                    .withColumn("session_model", F.lit("legacy_session"))
+                    .withColumn("bucket_start_ts", F.col("canonical_ts"))
+                    .withColumn(
+                        "bucket_end_ts",
+                        F.to_timestamp(
+                            F.from_unixtime(
+                                F.col("bucket_seconds") + (F.col("target_minutes") * F.lit(60))
+                            )
+                        ),
+                    )
+                )
+
+            partition_columns = [
+                "contract_id",
+                "instrument_id",
+                "timeframe",
+                "canonical_ts",
+                "policy_id",
+                "anchor_type",
+                "source_mode",
+                "session_model",
+                "bucket_start_ts",
+                "bucket_end_ts",
+            ]
             first_window = window.partitionBy(*partition_columns).orderBy(
                 F.col("ts_open").asc(),
                 F.col("ts_close").asc(),
@@ -535,7 +734,7 @@ def run_moex_canonicalization_spark_delta_job(
                 "contract_id",
                 "instrument_id",
                 "timeframe",
-                F.col("bucket_ts").alias("ts"),
+                F.col("canonical_ts").alias("ts"),
                 "open",
                 "high",
                 "low",
@@ -548,7 +747,7 @@ def run_moex_canonicalization_spark_delta_job(
                 "contract_id",
                 "instrument_id",
                 "timeframe",
-                F.col("bucket_ts").alias("ts"),
+                F.col("canonical_ts").alias("ts"),
                 "source_provider",
                 "source_timeframe",
                 F.col("selected_source_interval").alias("source_interval"),
@@ -560,6 +759,12 @@ def run_moex_canonicalization_spark_delta_job(
                 "open_interest_imputed",
                 F.lit(str(build_run_id).strip()).alias("build_run_id"),
                 F.to_timestamp(F.lit(str(built_at_utc).strip())).alias("built_at_utc"),
+                "policy_id",
+                "anchor_type",
+                "source_mode",
+                "session_model",
+                "bucket_start_ts",
+                "bucket_end_ts",
             )
 
         _write_delta_dataframe(
@@ -584,6 +789,8 @@ def run_moex_canonicalization_spark_delta_job(
             "unmatched_windows": unmatched_window_samples,
             "changed_window_rows": changed_window_row_count,
             "selected_source_interval_rows": selected_interval_row_count,
+            "bucket_mode": "canonical_bucket_map" if use_bucket_map else "calendar_floor_legacy",
+            "canonical_bucket_rows": canonical_bucket_row_count,
             "canonical_rows": int(bars_df.count()),
             "provenance_rows": int(provenance_df.count()),
             "output_paths": {

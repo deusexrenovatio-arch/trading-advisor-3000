@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
 import subprocess
 import sys
-
+from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCRIPTS_ROOT = REPO_ROOT / "scripts"
@@ -33,7 +32,14 @@ def test_canonical_refresh_cli_help_is_operator_clear() -> None:
     assert "spark" in help_text
 
 
-def test_dagster_route_cli_help_requires_staging_binding_and_hides_integration_downgrade_flag() -> None:
+def test_historical_canonical_spark_cli_accepts_canonical_bucket_map() -> None:
+    help_text = _help_text("run_moex_historical_canonical_route_spark.py")
+    assert "--canonical-buckets-jsonl" in help_text
+
+
+def test_dagster_route_cli_help_requires_staging_binding_and_hides_integration_downgrade_flag() -> (
+    None
+):
     help_text = _help_text("prove_moex_dagster_route.py")
     assert "--staging-binding-report-path" in help_text
     assert "--allow-integration-proof" not in help_text

@@ -116,6 +116,12 @@ PROVENANCE_COLUMNS: dict[str, str] = {
     "open_interest_imputed": "int",
     "build_run_id": "string",
     "built_at_utc": "timestamp",
+    "policy_id": "string",
+    "anchor_type": "string",
+    "source_mode": "string",
+    "session_model": "string",
+    "bucket_start_ts": "timestamp",
+    "bucket_end_ts": "timestamp",
 }
 
 RAW_SCOPE_COLUMNS: tuple[str, ...] = (
@@ -266,6 +272,12 @@ class CanonicalProvenance:
     open_interest_imputed: int
     build_run_id: str
     built_at_utc: str
+    policy_id: str = ""
+    anchor_type: str = ""
+    source_mode: str = ""
+    session_model: str = ""
+    bucket_start_ts: str = ""
+    bucket_end_ts: str = ""
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -284,6 +296,12 @@ class CanonicalProvenance:
             "open_interest_imputed": self.open_interest_imputed,
             "build_run_id": self.build_run_id,
             "built_at_utc": self.built_at_utc,
+            "policy_id": self.policy_id,
+            "anchor_type": self.anchor_type,
+            "source_mode": self.source_mode,
+            "session_model": self.session_model,
+            "bucket_start_ts": self.bucket_start_ts,
+            "bucket_end_ts": self.bucket_end_ts,
         }
 
 
@@ -477,11 +495,13 @@ def run_qc_gates(
     bars: list[CanonicalBar],
     provenance_rows: list[CanonicalProvenance],
     run_id: str,
+    require_policy_metadata: bool = False,
 ) -> dict[str, object]:
     unique_errors: list[str] = []
     monotonic_errors: list[str] = []
     ohlcv_errors: list[str] = []
     provenance_errors: list[str] = []
+    policy_metadata_errors: list[str] = []
 
     seen_keys: set[tuple[str, str, str]] = set()
     last_ts_by_key: dict[tuple[str, str], str] = {}
@@ -549,6 +569,24 @@ def run_qc_gates(
             provenance_errors.append(
                 f"missing source_ingest_run_id: {bar.contract_id}/{bar.timeframe.value}/{bar.ts}"
             )
+        if require_policy_metadata:
+            missing_policy_fields = [
+                field
+                for field in (
+                    "policy_id",
+                    "anchor_type",
+                    "source_mode",
+                    "session_model",
+                    "bucket_start_ts",
+                    "bucket_end_ts",
+                )
+                if not str(getattr(provenance, field)).strip()
+            ]
+            if missing_policy_fields:
+                policy_metadata_errors.append(
+                    "missing policy metadata "
+                    f"{missing_policy_fields}: {bar.contract_id}/{bar.timeframe.value}/{bar.ts}"
+                )
 
     for item in duplicate_provenance:
         provenance_errors.append(f"duplicate provenance key: {item}")
@@ -577,6 +615,13 @@ def run_qc_gates(
             "status": "PASS" if not provenance_errors else "FAIL",
             "violations": len(provenance_errors),
             "samples": _sample_errors(provenance_errors),
+        },
+        {
+            "gate": "policy_metadata_completeness",
+            "status": "PASS" if not policy_metadata_errors else "FAIL",
+            "violations": len(policy_metadata_errors),
+            "samples": _sample_errors(policy_metadata_errors),
+            "enforced": require_policy_metadata,
         },
     ]
     failed_gates = [item["gate"] for item in gate_results if item["status"] == "FAIL"]
@@ -826,6 +871,12 @@ def _canonical_provenance_from_dict(
             raise ValueError(f"provenance row[{row_index}] `{key}` must be integer")
         return int(value)
 
+    def _optional_text(key: str) -> str:
+        value = payload.get(key)
+        if value is None:
+            return ""
+        return str(value).strip()
+
     return CanonicalProvenance(
         contract_id=_require_text("contract_id"),
         instrument_id=_require_text("instrument_id"),
@@ -842,6 +893,12 @@ def _canonical_provenance_from_dict(
         open_interest_imputed=_require_int_value("open_interest_imputed"),
         build_run_id=_require_text("build_run_id"),
         built_at_utc=_require_text("built_at_utc"),
+        policy_id=_optional_text("policy_id"),
+        anchor_type=_optional_text("anchor_type"),
+        source_mode=_optional_text("source_mode"),
+        session_model=_optional_text("session_model"),
+        bucket_start_ts=_optional_text("bucket_start_ts"),
+        bucket_end_ts=_optional_text("bucket_end_ts"),
     )
 
 
@@ -878,6 +935,12 @@ def _canonical_provenance_from_dict_lenient(
         open_interest_imputed=_int_value("open_interest_imputed"),
         build_run_id=_text("build_run_id"),
         built_at_utc=_text("built_at_utc"),
+        policy_id=_text("policy_id"),
+        anchor_type=_text("anchor_type"),
+        source_mode=_text("source_mode"),
+        session_model=_text("session_model"),
+        bucket_start_ts=_text("bucket_start_ts"),
+        bucket_end_ts=_text("bucket_end_ts"),
     )
 
 
