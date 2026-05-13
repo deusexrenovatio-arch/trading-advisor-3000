@@ -171,9 +171,7 @@ def _load_dataset_manifest(
             materialized_output_dir / "research_datasets.delta",
             filters=[("dataset_version", "=", dataset_version)],
         )
-        rows = [
-            row for row in candidates if str(row.get("series_mode")) == "continuous_front"
-        ]
+        rows = [row for row in candidates if str(row.get("series_mode")) == "continuous_front"]
     if not rows:
         raise KeyError(f"dataset_version not found: {dataset_version}")
     return dict(rows[0])

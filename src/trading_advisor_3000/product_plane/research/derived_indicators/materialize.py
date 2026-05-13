@@ -189,13 +189,9 @@ def _timeframe_delta(timeframe: str) -> pd.Timedelta:
 
 
 def _series_key_from_bar(row: ResearchBarView, *, series_mode: str) -> DerivedSeriesKey:
-    resolved_series_mode = _resolved_series_mode(
-        row.series_mode, requested_series_mode=series_mode
-    )
+    resolved_series_mode = _resolved_series_mode(row.series_mode, requested_series_mode=series_mode)
     fallback_series_id = (
-        row.instrument_id
-        if resolved_series_mode == "continuous_front"
-        else row.contract_id
+        row.instrument_id if resolved_series_mode == "continuous_front" else row.contract_id
     )
     return DerivedSeriesKey(
         instrument_id=row.instrument_id,
@@ -207,13 +203,9 @@ def _series_key_from_bar(row: ResearchBarView, *, series_mode: str) -> DerivedSe
 
 
 def _series_key_from_indicator(row: IndicatorFrameRow, *, series_mode: str) -> DerivedSeriesKey:
-    resolved_series_mode = _resolved_series_mode(
-        row.series_mode, requested_series_mode=series_mode
-    )
+    resolved_series_mode = _resolved_series_mode(row.series_mode, requested_series_mode=series_mode)
     fallback_series_id = (
-        row.instrument_id
-        if resolved_series_mode == "continuous_front"
-        else row.contract_id
+        row.instrument_id if resolved_series_mode == "continuous_front" else row.contract_id
     )
     return DerivedSeriesKey(
         instrument_id=row.instrument_id,

@@ -101,7 +101,9 @@ def _spark_type(type_name: str):
 def _spark_schema(columns: dict[str, str]):
     from pyspark.sql import types as T  # type: ignore[import-not-found]
 
-    return T.StructType([T.StructField(name, _spark_type(type_name), True) for name, type_name in columns.items()])
+    return T.StructType(
+        [T.StructField(name, _spark_type(type_name), True) for name, type_name in columns.items()]
+    )
 
 
 def _spark_sql_type(type_name: str) -> str:
@@ -125,7 +127,11 @@ def _spark_sql_type(type_name: str) -> str:
 
 def _require_spark_native_policy(policy: ContinuousFrontPolicy) -> None:
     unsupported: list[str] = []
-    if policy.roll_policy_mode not in {"calendar_expiry_v1", "liquidity_oi_v1", "liquidity_volume_oi_v1"}:
+    if policy.roll_policy_mode not in {
+        "calendar_expiry_v1",
+        "liquidity_oi_v1",
+        "liquidity_volume_oi_v1",
+    }:
         unsupported.append(f"roll_policy_mode={policy.roll_policy_mode}")
     if policy.adjustment_mode != "additive":
         unsupported.append(f"adjustment_mode={policy.adjustment_mode}")
@@ -159,7 +165,9 @@ def _require_spark_native_policy(policy: ContinuousFrontPolicy) -> None:
     if not policy.effective_after_watermark:
         unsupported.append("effective_after_watermark=False")
     if unsupported:
-        raise RuntimeError("continuous_front Spark native contour does not support: " + ", ".join(unsupported))
+        raise RuntimeError(
+            "continuous_front Spark native contour does not support: " + ", ".join(unsupported)
+        )
 
 
 def _metric_columns(policy: ContinuousFrontPolicy) -> tuple[str, str]:
@@ -190,7 +198,11 @@ def _scoped_delete_condition(filters: list[tuple[str, str, object]]) -> str:
         if value is None:
             continue
         if normalized_operator in {"in", "not in"}:
-            scoped_values = tuple(item for item in value if item is not None) if isinstance(value, (list, tuple, set)) else ()
+            scoped_values = (
+                tuple(item for item in value if item is not None)
+                if isinstance(value, (list, tuple, set))
+                else ()
+            )
             if not scoped_values:
                 continue
             literals = ", ".join(_spark_sql_literal(item) for item in scoped_values)
@@ -243,17 +255,21 @@ def _load_filtered_bars(
 ):
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
-    bars = spark.read.format("delta").load(str(canonical_bars_path)).select(
-        "contract_id",
-        "instrument_id",
-        "timeframe",
-        "ts",
-        "open",
-        "high",
-        "low",
-        "close",
-        "volume",
-        "open_interest",
+    bars = (
+        spark.read.format("delta")
+        .load(str(canonical_bars_path))
+        .select(
+            "contract_id",
+            "instrument_id",
+            "timeframe",
+            "ts",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "open_interest",
+        )
     )
     if instrument_ids:
         bars = bars.where(F.col("instrument_id").isin(list(instrument_ids)))
@@ -323,22 +339,28 @@ def _with_maturity_columns(dataframe):
         .when(month_code == "X", F.lit(11))
         .when(month_code == "Z", F.lit(12))
     )
-    raw_year = F.when(code_year != "", code_year).otherwise(F.when(numeric_year != "", numeric_year))
+    raw_year = F.when(code_year != "", code_year).otherwise(
+        F.when(numeric_year != "", numeric_year)
+    )
     maturity_year = (
         F.when(F.length(raw_year) == 1, F.lit(2020) + raw_year.cast("int"))
         .when(raw_year.cast("int") < 70, F.lit(2000) + raw_year.cast("int"))
         .otherwise(F.lit(1900) + raw_year.cast("int"))
     )
     maturity_month = F.when(month_code != "", month_from_code).otherwise(numeric_month.cast("int"))
-    return dataframe.withColumn("maturity_year", maturity_year).withColumn(
-        "maturity_month",
-        maturity_month,
-    ).withColumn(
-        "maturity_rank",
-        F.when(
-            F.col("maturity_year").isNotNull() & F.col("maturity_month").between(1, 12),
-            F.col("maturity_year") * F.lit(12) + F.col("maturity_month"),
-        ),
+    return (
+        dataframe.withColumn("maturity_year", maturity_year)
+        .withColumn(
+            "maturity_month",
+            maturity_month,
+        )
+        .withColumn(
+            "maturity_rank",
+            F.when(
+                F.col("maturity_year").isNotNull() & F.col("maturity_month").between(1, 12),
+                F.col("maturity_year") * F.lit(12) + F.col("maturity_month"),
+            ),
+        )
     )
 
 
@@ -364,16 +386,15 @@ def _calendar_expiry_active_timeline(*, keyed, contract_keyed, policy: Continuou
         F.row_number().over(contract_date_order),
     )
     roll_start_rank = F.lit(policy.calendar_roll_offset_trading_days + 1)
-    contract_rolls_base = (
-        ranked_contract_dates.groupBy("instrument_id", "timeframe", "contract_id", "maturity_rank")
-        .agg(
-            F.min("session_date").alias("first_session_date"),
-            F.max("session_date").alias("last_session_date"),
-            F.count(F.lit(1)).cast("long").alias("contract_session_count"),
-            F.max(F.when(F.col("session_desc_rank") == roll_start_rank, F.col("session_date"))).alias(
-                "offset_roll_start_session_date"
-            ),
-        )
+    contract_rolls_base = ranked_contract_dates.groupBy(
+        "instrument_id", "timeframe", "contract_id", "maturity_rank"
+    ).agg(
+        F.min("session_date").alias("first_session_date"),
+        F.max("session_date").alias("last_session_date"),
+        F.count(F.lit(1)).cast("long").alias("contract_session_count"),
+        F.max(F.when(F.col("session_desc_rank") == roll_start_rank, F.col("session_date"))).alias(
+            "offset_roll_start_session_date"
+        ),
     )
     contract_rolls = (
         contract_rolls_base.withColumn(
@@ -426,7 +447,9 @@ def _calendar_expiry_active_timeline(*, keyed, contract_keyed, policy: Continuou
         F.col("active_contract_id").asc(),
     )
     active_sessions = (
-        active_session_candidates.withColumn("active_session_rank", F.row_number().over(active_session_order))
+        active_session_candidates.withColumn(
+            "active_session_rank", F.row_number().over(active_session_order)
+        )
         .where(F.col("active_session_rank") == 1)
         .drop("active_session_rank")
     )
@@ -459,7 +482,8 @@ def _calendar_expiry_active_timeline(*, keyed, contract_keyed, policy: Continuou
         .withColumn(
             "decision_ts",
             F.when(
-                previous_contract_id.isNotNull() & (previous_contract_id != F.col("active_contract_id")),
+                previous_contract_id.isNotNull()
+                & (previous_contract_id != F.col("active_contract_id")),
                 previous_ts,
             ),
         )
@@ -487,10 +511,15 @@ def _active_timeline(*, bars, policy: ContinuousFrontPolicy, calendar_bars=None)
     if policy.roll_policy_mode == "calendar_expiry_v1":
         contract_source = calendar_bars if calendar_bars is not None else bars
         contract_keyed = _with_maturity_columns(contract_source)
-        return _calendar_expiry_active_timeline(keyed=keyed, contract_keyed=contract_keyed, policy=policy)
+        return _calendar_expiry_active_timeline(
+            keyed=keyed, contract_keyed=contract_keyed, policy=policy
+        )
 
     primary_metric, secondary_metric = _metric_columns(policy)
-    if primary_metric not in {"open_interest", "volume"} or secondary_metric not in {"open_interest", "volume"}:
+    if primary_metric not in {"open_interest", "volume"} or secondary_metric not in {
+        "open_interest",
+        "volume",
+    }:
         raise RuntimeError(
             "continuous_front Spark native contour supports only open_interest/volume ranking metrics"
         )
@@ -503,13 +532,29 @@ def _active_timeline(*, bars, policy: ContinuousFrontPolicy, calendar_bars=None)
         F.col("contract_id").desc(),
     )
     ranked = (
-        keyed.withColumn("metric_total", F.sum(F.greatest(F.col(primary_metric).cast("double"), F.lit(0.0))).over(by_ts))
-        .withColumn("candidate_metric", F.greatest(F.col(primary_metric).cast("double"), F.lit(0.0)))
-        .withColumn("candidate_share", F.when(F.col("metric_total") <= 0.0, F.lit(1.0)).otherwise(F.col("candidate_metric") / F.col("metric_total")))
+        keyed.withColumn(
+            "metric_total",
+            F.sum(F.greatest(F.col(primary_metric).cast("double"), F.lit(0.0))).over(by_ts),
+        )
+        .withColumn(
+            "candidate_metric", F.greatest(F.col(primary_metric).cast("double"), F.lit(0.0))
+        )
+        .withColumn(
+            "candidate_share",
+            F.when(F.col("metric_total") <= 0.0, F.lit(1.0)).otherwise(
+                F.col("candidate_metric") / F.col("metric_total")
+            ),
+        )
         .withColumn("liquidity_rank", F.row_number().over(candidate_order))
         .withColumn("ts_index", F.dense_rank().over(series_order))
-        .withColumn("series_input_row_count", F.count(F.lit(1)).over(Window.partitionBy("instrument_id", "timeframe")))
-        .withColumn("first_maturity_rank", F.min("maturity_rank").over(Window.partitionBy("instrument_id", "timeframe")))
+        .withColumn(
+            "series_input_row_count",
+            F.count(F.lit(1)).over(Window.partitionBy("instrument_id", "timeframe")),
+        )
+        .withColumn(
+            "first_maturity_rank",
+            F.min("maturity_rank").over(Window.partitionBy("instrument_id", "timeframe")),
+        )
     )
     candidates = ranked.where(F.col("liquidity_rank") == 1).select(
         "instrument_id",
@@ -524,49 +569,61 @@ def _active_timeline(*, bars, policy: ContinuousFrontPolicy, calendar_bars=None)
         "first_maturity_rank",
     )
     recent_series_window = series_order.rowsBetween(-(policy.confirmation_bars - 1), 0)
-    candidates = candidates.withColumn(
-        "confirmation_count",
-        F.count("candidate_maturity_rank").over(recent_series_window),
-    ).withColumn(
-        "confirmation_distinct_maturity_count",
-        F.size(F.array_distinct(F.collect_list("candidate_maturity_rank").over(recent_series_window))),
-    ).withColumn(
-        "confirmed_candidate_maturity_rank",
-        F.when(
-            (F.col("ts_index") > 1)
-            & (F.col("candidate_share") >= F.lit(policy.candidate_share_min))
-            & (F.col("confirmation_count") >= F.lit(policy.confirmation_bars))
-            & (F.col("confirmation_distinct_maturity_count") == F.lit(1)),
-            F.col("candidate_maturity_rank"),
-        ),
+    candidates = (
+        candidates.withColumn(
+            "confirmation_count",
+            F.count("candidate_maturity_rank").over(recent_series_window),
+        )
+        .withColumn(
+            "confirmation_distinct_maturity_count",
+            F.size(
+                F.array_distinct(
+                    F.collect_list("candidate_maturity_rank").over(recent_series_window)
+                )
+            ),
+        )
+        .withColumn(
+            "confirmed_candidate_maturity_rank",
+            F.when(
+                (F.col("ts_index") > 1)
+                & (F.col("candidate_share") >= F.lit(policy.candidate_share_min))
+                & (F.col("confirmation_count") >= F.lit(policy.confirmation_bars))
+                & (F.col("confirmation_distinct_maturity_count") == F.lit(1)),
+                F.col("candidate_maturity_rank"),
+            ),
+        )
     )
     timeline = candidates.withColumn(
         "effective_candidate_maturity_rank",
         F.lag("confirmed_candidate_maturity_rank").over(series_order),
     ).withColumn(
         "decision_ts",
-        F.lag(F.when(F.col("confirmed_candidate_maturity_rank").isNotNull(), F.col("ts"))).over(series_order),
+        F.lag(F.when(F.col("confirmed_candidate_maturity_rank").isNotNull(), F.col("ts"))).over(
+            series_order
+        ),
     )
     active_maturity = F.greatest(
         F.col("first_maturity_rank"),
-        F.max("effective_candidate_maturity_rank").over(series_order.rowsBetween(Window.unboundedPreceding, 0)),
+        F.max("effective_candidate_maturity_rank").over(
+            series_order.rowsBetween(Window.unboundedPreceding, 0)
+        ),
     )
     return (
         timeline.withColumn("active_maturity_rank", active_maturity)
         .withColumn("active_contract_id", F.lit(None).cast("string"))
         .withColumn("old_reference_ts", F.col("decision_ts"))
         .select(
-        "instrument_id",
-        "timeframe",
-        "ts",
-        "ts_index",
-        "series_input_row_count",
-        "candidate_contract_id",
-        "candidate_maturity_rank",
-        "active_contract_id",
-        "active_maturity_rank",
-        "decision_ts",
-        "old_reference_ts",
+            "instrument_id",
+            "timeframe",
+            "ts",
+            "ts_index",
+            "series_input_row_count",
+            "candidate_contract_id",
+            "candidate_maturity_rank",
+            "active_contract_id",
+            "active_maturity_rank",
+            "decision_ts",
+            "old_reference_ts",
         )
     )
 
@@ -610,17 +667,17 @@ def _build_spark_native_tables(
     timeline = _active_timeline(bars=bars, policy=policy, calendar_bars=calendar_bars)
     tl = timeline.alias("tl")
     kb = keyed_bars.select(
-            "contract_id",
-            "instrument_id",
-            "timeframe",
-            "ts",
-            "open",
-            "high",
-            "low",
-            "close",
-            "volume",
-            "open_interest",
-            "maturity_rank",
+        "contract_id",
+        "instrument_id",
+        "timeframe",
+        "ts",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "open_interest",
+        "maturity_rank",
     ).alias("kb")
     active_joined = tl.join(
         kb,
@@ -651,7 +708,9 @@ def _build_spark_native_tables(
         F.col("tl.active_maturity_rank").alias("active_maturity_rank"),
         F.col("tl.decision_ts").alias("decision_ts"),
         F.col("tl.old_reference_ts").alias("old_reference_ts"),
-        F.coalesce(F.col("tl.active_contract_id"), F.col("kb.contract_id")).alias("active_contract_id"),
+        F.coalesce(F.col("tl.active_contract_id"), F.col("kb.contract_id")).alias(
+            "active_contract_id"
+        ),
         F.col("kb.open").alias("native_open"),
         F.col("kb.high").alias("native_high"),
         F.col("kb.low").alias("native_low"),
@@ -661,7 +720,9 @@ def _build_spark_native_tables(
     )
     series_order = Window.partitionBy("instrument_id", "timeframe").orderBy("ts")
     previous_active = F.lag("active_contract_id").over(series_order)
-    timeline_with_rolls = active_joined.withColumn("previous_active_contract_id", previous_active).withColumn(
+    timeline_with_rolls = active_joined.withColumn(
+        "previous_active_contract_id", previous_active
+    ).withColumn(
         "is_roll_bar",
         F.col("active_contract_id").isNotNull()
         & F.col("previous_active_contract_id").isNotNull()
@@ -730,7 +791,17 @@ def _build_spark_native_tables(
             F.col("new_reference_price"),
         )
         .withColumn("roll_sequence", F.row_number().over(event_order))
-        .withColumn("roll_event_id", F.concat_ws("-", F.lit("CFRSPARK"), F.lit(dataset_version), F.col("instrument_id"), F.col("timeframe"), F.format_string("%04d", F.col("roll_sequence"))))
+        .withColumn(
+            "roll_event_id",
+            F.concat_ws(
+                "-",
+                F.lit("CFRSPARK"),
+                F.lit(dataset_version),
+                F.col("instrument_id"),
+                F.col("timeframe"),
+                F.format_string("%04d", F.col("roll_sequence")),
+            ),
+        )
         .withColumn("additive_gap", F.col("new_reference_price") - F.col("old_reference_price"))
         .withColumn("dataset_version", F.lit(dataset_version))
         .withColumn("roll_policy_version", F.lit(policy.roll_policy_version))
@@ -742,9 +813,9 @@ def _build_spark_native_tables(
         .withColumn("roll_reason", F.lit(policy.roll_policy_mode))
         .withColumn(
             "causality_watermark_ts",
-            F.when(F.lit(policy.roll_policy_mode == "calendar_expiry_v1"), F.col("effective_ts")).otherwise(
-                F.col("decision_ts")
-            ),
+            F.when(
+                F.lit(policy.roll_policy_mode == "calendar_expiry_v1"), F.col("effective_ts")
+            ).otherwise(F.col("decision_ts")),
         )
         .withColumn("created_at", F.lit(created_at))
     )
@@ -778,74 +849,112 @@ def _build_spark_native_tables(
         F.col("roll_event_id").alias("event_roll_event_id"),
         F.col("roll_sequence").alias("event_roll_sequence"),
     )
-    bar_base = timeline_with_rolls.alias("bar").where(F.col("active_contract_id").isNotNull()).join(
-        event_for_bars.alias("event"),
-        (F.col("bar.instrument_id") == F.col("event.event_instrument_id"))
-        & (F.col("bar.timeframe") == F.col("event.event_timeframe"))
-        & (F.col("bar.ts") == F.col("event.event_effective_ts")),
-        "left",
+    bar_base = (
+        timeline_with_rolls.alias("bar")
+        .where(F.col("active_contract_id").isNotNull())
+        .join(
+            event_for_bars.alias("event"),
+            (F.col("bar.instrument_id") == F.col("event.event_instrument_id"))
+            & (F.col("bar.timeframe") == F.col("event.event_timeframe"))
+            & (F.col("bar.ts") == F.col("event.event_effective_ts")),
+            "left",
+        )
     )
     bar_order = Window.partitionBy("instrument_id", "timeframe").orderBy("ts")
-    roll_epoch = F.sum(F.when(F.col("event_roll_sequence").isNotNull(), F.lit(1)).otherwise(F.lit(0))).over(
-        bar_order.rowsBetween(Window.unboundedPreceding, 0)
-    )
+    roll_epoch = F.sum(
+        F.when(F.col("event_roll_sequence").isNotNull(), F.lit(1)).otherwise(F.lit(0))
+    ).over(bar_order.rowsBetween(Window.unboundedPreceding, 0))
     bars_with_offsets = (
         bar_base.withColumn("roll_epoch", roll_epoch)
         .withColumn("cumulative_additive_offset", F.lit(0.0))
-        .withColumn("roll_event_id", F.last("event_roll_event_id", True).over(bar_order.rowsBetween(Window.unboundedPreceding, 0)))
-        .withColumn("previous_contract_id", F.last("event_old_contract_id", True).over(bar_order.rowsBetween(Window.unboundedPreceding, 0)))
-        .withColumn("bars_since_roll", F.row_number().over(Window.partitionBy("instrument_id", "timeframe", "roll_epoch").orderBy("ts")) - F.lit(1))
-    )
-    continuous_bars = (
-        bars_with_offsets.select(
-            F.lit(dataset_version).alias("dataset_version"),
-            F.lit(policy.roll_policy_version).alias("roll_policy_version"),
-            F.lit(policy.adjustment_policy_version).alias("adjustment_policy_version"),
-            F.col("instrument_id"),
-            F.col("timeframe"),
-            F.col("ts"),
-            F.col("active_contract_id"),
-            "previous_contract_id",
-            F.col("candidate_contract_id"),
-            "roll_epoch",
+        .withColumn(
             "roll_event_id",
-            F.col("is_roll_bar"),
-            F.col("is_roll_bar").alias("is_first_bar_after_roll"),
-            "bars_since_roll",
-            "native_open",
-            "native_high",
-            "native_low",
-            "native_close",
-            F.col("native_volume").cast("long").alias("native_volume"),
-            F.col("native_open_interest").cast("long").alias("native_open_interest"),
-            F.col("native_open").alias("continuous_open"),
-            F.col("native_high").alias("continuous_high"),
-            F.col("native_low").alias("continuous_low"),
-            F.col("native_close").alias("continuous_close"),
-            F.lit(policy.adjustment_mode).alias("adjustment_mode"),
-            "cumulative_additive_offset",
-            F.lit(None).cast("double").alias("ratio_factor"),
-            F.lit(policy.price_space).alias("price_space"),
-            F.when(
-                F.lit(policy.roll_policy_mode == "calendar_expiry_v1") & F.col("is_roll_bar"),
-                F.col("ts"),
-            )
-            .otherwise(F.coalesce(F.col("decision_ts"), F.col("ts")))
-            .alias("causality_watermark_ts"),
-            F.col("series_input_row_count").cast("long").alias("input_row_count"),
-            F.lit(created_at).alias("created_at"),
+            F.last("event_roll_event_id", True).over(
+                bar_order.rowsBetween(Window.unboundedPreceding, 0)
+            ),
         )
+        .withColumn(
+            "previous_contract_id",
+            F.last("event_old_contract_id", True).over(
+                bar_order.rowsBetween(Window.unboundedPreceding, 0)
+            ),
+        )
+        .withColumn(
+            "bars_since_roll",
+            F.row_number().over(
+                Window.partitionBy("instrument_id", "timeframe", "roll_epoch").orderBy("ts")
+            )
+            - F.lit(1),
+        )
+    )
+    continuous_bars = bars_with_offsets.select(
+        F.lit(dataset_version).alias("dataset_version"),
+        F.lit(policy.roll_policy_version).alias("roll_policy_version"),
+        F.lit(policy.adjustment_policy_version).alias("adjustment_policy_version"),
+        F.col("instrument_id"),
+        F.col("timeframe"),
+        F.col("ts"),
+        F.col("active_contract_id"),
+        "previous_contract_id",
+        F.col("candidate_contract_id"),
+        "roll_epoch",
+        "roll_event_id",
+        F.col("is_roll_bar"),
+        F.col("is_roll_bar").alias("is_first_bar_after_roll"),
+        "bars_since_roll",
+        "native_open",
+        "native_high",
+        "native_low",
+        "native_close",
+        F.col("native_volume").cast("long").alias("native_volume"),
+        F.col("native_open_interest").cast("long").alias("native_open_interest"),
+        F.col("native_open").alias("continuous_open"),
+        F.col("native_high").alias("continuous_high"),
+        F.col("native_low").alias("continuous_low"),
+        F.col("native_close").alias("continuous_close"),
+        F.lit(policy.adjustment_mode).alias("adjustment_mode"),
+        "cumulative_additive_offset",
+        F.lit(None).cast("double").alias("ratio_factor"),
+        F.lit(policy.price_space).alias("price_space"),
+        F.when(
+            F.lit(policy.roll_policy_mode == "calendar_expiry_v1") & F.col("is_roll_bar"),
+            F.col("ts"),
+        )
+        .otherwise(F.coalesce(F.col("decision_ts"), F.col("ts")))
+        .alias("causality_watermark_ts"),
+        F.col("series_input_row_count").cast("long").alias("input_row_count"),
+        F.lit(created_at).alias("created_at"),
     )
     base_qc = keyed_bars.withColumn(
         "duplicate_row_count",
-        F.count(F.lit(1)).over(Window.partitionBy("contract_id", "instrument_id", "timeframe", "ts")),
+        F.count(F.lit(1)).over(
+            Window.partitionBy("contract_id", "instrument_id", "timeframe", "ts")
+        ),
     )
     qc_failures = base_qc.groupBy("instrument_id", "timeframe").agg(
         F.count(F.lit(1)).cast("long").alias("input_row_count"),
-        F.sum(F.when(F.col("duplicate_row_count") > 1, F.lit(1)).otherwise(F.lit(0))).cast("long").alias("duplicate_key_count"),
-        F.sum(F.when((F.col("high") < F.greatest(F.col("open"), F.col("close"))) | (F.col("low") > F.least(F.col("open"), F.col("close"))), F.lit(1)).otherwise(F.lit(0))).cast("long").alias("ohlc_error_count"),
-        F.sum(F.when((F.col("volume") < 0) | (F.col("open_interest") < 0), F.lit(1)).otherwise(F.lit(0))).cast("long").alias("negative_volume_oi_count"),
-        F.sum(F.when(F.col("maturity_rank").isNull(), F.lit(1)).otherwise(F.lit(0))).cast("long").alias("maturity_parse_error_count"),
+        F.sum(F.when(F.col("duplicate_row_count") > 1, F.lit(1)).otherwise(F.lit(0)))
+        .cast("long")
+        .alias("duplicate_key_count"),
+        F.sum(
+            F.when(
+                (F.col("high") < F.greatest(F.col("open"), F.col("close")))
+                | (F.col("low") > F.least(F.col("open"), F.col("close"))),
+                F.lit(1),
+            ).otherwise(F.lit(0))
+        )
+        .cast("long")
+        .alias("ohlc_error_count"),
+        F.sum(
+            F.when((F.col("volume") < 0) | (F.col("open_interest") < 0), F.lit(1)).otherwise(
+                F.lit(0)
+            )
+        )
+        .cast("long")
+        .alias("negative_volume_oi_count"),
+        F.sum(F.when(F.col("maturity_rank").isNull(), F.lit(1)).otherwise(F.lit(0)))
+        .cast("long")
+        .alias("maturity_parse_error_count"),
     )
     output_duplicate_qc = (
         continuous_bars.withColumn(
@@ -860,11 +969,20 @@ def _build_spark_native_tables(
         )
     )
     missing_active = timeline_with_rolls.groupBy("instrument_id", "timeframe").agg(
-        F.sum(F.when(F.col("active_contract_id").isNull(), F.lit(1)).otherwise(F.lit(0))).cast("long").alias("missing_active_bar_count")
+        F.sum(F.when(F.col("active_contract_id").isNull(), F.lit(1)).otherwise(F.lit(0)))
+        .cast("long")
+        .alias("missing_active_bar_count")
     )
     event_qc = roll_events.groupBy("instrument_id", "timeframe").agg(
         F.count(F.lit(1)).cast("long").alias("roll_event_count"),
-        F.sum(F.when(F.col("old_reference_price").isNull() | F.col("new_reference_price").isNull(), F.lit(1)).otherwise(F.lit(0))).cast("long").alias("missing_reference_price_count"),
+        F.sum(
+            F.when(
+                F.col("old_reference_price").isNull() | F.col("new_reference_price").isNull(),
+                F.lit(1),
+            ).otherwise(F.lit(0))
+        )
+        .cast("long")
+        .alias("missing_reference_price_count"),
         F.max(F.abs(F.col("additive_gap"))).alias("gap_abs_max"),
         F.avg(F.abs(F.col("additive_gap"))).alias("gap_abs_mean"),
     )
@@ -891,9 +1009,16 @@ def _build_spark_native_tables(
                 + F.coalesce(F.col("output_duplicate_key_count"), F.lit(0))
             ).cast("long"),
         )
-        .withColumn("missing_active_bar_count", F.coalesce("missing_active_bar_count", F.lit(0)).cast("long"))
+        .withColumn(
+            "missing_active_bar_count",
+            F.coalesce("missing_active_bar_count", F.lit(0)).cast("long"),
+        )
         .withColumn("roll_event_count", F.coalesce("roll_event_count", F.lit(0)).cast("long"))
-        .withColumn("missing_reference_price_count", F.coalesce("missing_reference_price_count", F.lit(0)).cast("long") + F.col("maturity_parse_error_count"))
+        .withColumn(
+            "missing_reference_price_count",
+            F.coalesce("missing_reference_price_count", F.lit(0)).cast("long")
+            + F.col("maturity_parse_error_count"),
+        )
         .withColumn("output_row_count", F.coalesce("output_row_count", F.lit(0)).cast("long"))
         .withColumn("gap_abs_max", F.coalesce("gap_abs_max", F.lit(0.0)))
         .withColumn("gap_abs_mean", F.coalesce("gap_abs_mean", F.lit(0.0)))
@@ -903,9 +1028,14 @@ def _build_spark_native_tables(
             .when(F.col("duplicate_key_count") > 0, F.lit("duplicate_key_count"))
             .when(F.col("ohlc_error_count") > 0, F.lit("ohlc_error_count"))
             .when(F.col("negative_volume_oi_count") > 0, F.lit("negative_volume_oi_count"))
-            .when(F.col("missing_reference_price_count") > 0, F.lit("missing_reference_price_count")),
+            .when(
+                F.col("missing_reference_price_count") > 0, F.lit("missing_reference_price_count")
+            ),
         )
-        .withColumn("status", F.when(F.col("blocked_reason").isNotNull(), F.lit("BLOCKED")).otherwise(F.lit("PASS")))
+        .withColumn(
+            "status",
+            F.when(F.col("blocked_reason").isNotNull(), F.lit("BLOCKED")).otherwise(F.lit("PASS")),
+        )
         .drop("output_duplicate_key_count")
     )
     return {
@@ -949,11 +1079,15 @@ def _write_spark_dataframe_tables(
         table_path.parent.mkdir(parents=True, exist_ok=True)
         dataframe = tables.get(table_name)
         if dataframe is None:
-            casted = spark.createDataFrame([], schema=_spark_schema(dict(contract[table_name]["columns"])))
+            casted = spark.createDataFrame(
+                [], schema=_spark_schema(dict(contract[table_name]["columns"]))
+            )
         else:
             casted = _cast_dataframe_to_contract(dataframe, dict(contract[table_name]))
         if not has_delta_log(table_path):
-            writer = casted.write.format("delta").mode("overwrite").option("overwriteSchema", "true")
+            writer = (
+                casted.write.format("delta").mode("overwrite").option("overwriteSchema", "true")
+            )
             partition_by = list(contract[table_name].get("partition_by") or [])
             if partition_by:
                 writer = writer.partitionBy(*partition_by)
@@ -961,7 +1095,9 @@ def _write_spark_dataframe_tables(
         else:
             spark.createDataFrame(
                 [], schema=_spark_schema(dict(contract[table_name]["columns"]))
-            ).write.format("delta").mode("append").option("mergeSchema", "true").save(str(table_path))
+            ).write.format("delta").mode("append").option("mergeSchema", "true").save(
+                str(table_path)
+            )
             from delta.tables import DeltaTable  # type: ignore[import-not-found]
 
             DeltaTable.forPath(spark, str(table_path)).delete(
@@ -976,7 +1112,9 @@ def _write_spark_dataframe_tables(
                     )
                 )
             )
-            casted.write.format("delta").mode("append").option("mergeSchema", "true").save(str(table_path))
+            casted.write.format("delta").mode("append").option("mergeSchema", "true").save(
+                str(table_path)
+            )
         output_paths[table_name] = table_path.as_posix()
     return output_paths
 
@@ -1033,11 +1171,19 @@ def run_continuous_front_spark_job(
     spark_factory = spark_session_factory or _create_spark_session
     spark = spark_factory(spec.app_name, spark_master)
     try:
-        for table_path in (canonical_bars_path, canonical_session_calendar_path, canonical_roll_map_path):
+        for table_path in (
+            canonical_bars_path,
+            canonical_session_calendar_path,
+            canonical_roll_map_path,
+        ):
             if not has_delta_log(table_path):
                 raise RuntimeError(f"missing canonical delta table: {table_path.as_posix()}")
-        spark.read.format("delta").load(str(canonical_session_calendar_path)).select("instrument_id").count()
-        spark.read.format("delta").load(str(canonical_roll_map_path)).select("instrument_id").count()
+        spark.read.format("delta").load(str(canonical_session_calendar_path)).select(
+            "instrument_id"
+        ).count()
+        spark.read.format("delta").load(str(canonical_roll_map_path)).select(
+            "instrument_id"
+        ).count()
         tables = _build_spark_native_tables(
             spark=spark,
             canonical_bars_path=canonical_bars_path,
@@ -1065,7 +1211,8 @@ def run_continuous_front_spark_job(
         blocking_rows = [row for row in qc_rows if row.get("status") == "BLOCKED"]
         if blocking_rows:
             blocked = "; ".join(
-                f"{row.get('instrument_id')}|{row.get('timeframe')}:{row.get('blocked_reason')}" for row in blocking_rows
+                f"{row.get('instrument_id')}|{row.get('timeframe')}:{row.get('blocked_reason')}"
+                for row in blocking_rows
             )
             raise RuntimeError(f"continuous_front Spark QC failed closed: {blocked}")
 
@@ -1081,7 +1228,9 @@ def run_continuous_front_spark_job(
         )
         contract_errors = _validate_spark_promoted_contracts(output_paths)
         if contract_errors:
-            raise RuntimeError("continuous_front Spark contract validation failed: " + "; ".join(contract_errors))
+            raise RuntimeError(
+                "continuous_front Spark contract validation failed: " + "; ".join(contract_errors)
+            )
 
         rows_by_table = {
             table_name: count_delta_table_rows(

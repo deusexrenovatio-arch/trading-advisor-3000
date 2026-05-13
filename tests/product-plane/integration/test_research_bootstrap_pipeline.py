@@ -125,7 +125,9 @@ def materialize_research_dataset(
         session_date = bar.ts[:10]
         calendar = calendar_by_key[(bar.instrument_id, timeframe, session_date)]
         active_contract_id = active_by_key.get((bar.instrument_id, session_date), bar.contract_id)
-        series_id = bar.instrument_id if manifest.series_mode == "continuous_front" else bar.contract_id
+        series_id = (
+            bar.instrument_id if manifest.series_mode == "continuous_front" else bar.contract_id
+        )
         series_key = (series_id, timeframe)
         previous_close = previous_close_by_series.get(series_key)
         ret_1 = None if previous_close in {None, 0.0} else (bar.close / previous_close) - 1.0
@@ -150,7 +152,11 @@ def materialize_research_dataset(
             active_contract_id=active_contract_id,
             ret_1=ret_1,
             log_ret_1=log_ret_1,
-            true_range=max(bar.high - bar.low, abs(bar.high - (previous_close or bar.close)), abs(bar.low - (previous_close or bar.close))),
+            true_range=max(
+                bar.high - bar.low,
+                abs(bar.high - (previous_close or bar.close)),
+                abs(bar.low - (previous_close or bar.close)),
+            ),
             hl_range=bar.high - bar.low,
             oc_range=bar.close - bar.open,
             bar_index=bar_index,
@@ -163,9 +169,15 @@ def materialize_research_dataset(
         previous_close_by_series[series_key] = bar.close
         index_by_series[series_key] = bar_index + 1
 
-    bars_hash = hashlib.sha256(
-        json.dumps(view_rows, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
-    ).hexdigest()[:16].upper()
+    bars_hash = (
+        hashlib.sha256(
+            json.dumps(view_rows, sort_keys=True, separators=(",", ":"), default=str).encode(
+                "utf-8"
+            )
+        )
+        .hexdigest()[:16]
+        .upper()
+    )
     split_params = manifest.split_params
     if not split_params and manifest.split_method == "full" and view_rows:
         split_params = {

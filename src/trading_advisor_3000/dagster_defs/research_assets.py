@@ -76,7 +76,10 @@ from trading_advisor_3000.product_plane.research.strategies.families import (
     phase_stg02_family_adapters,
 )
 from trading_advisor_3000.product_plane.research.strategy_space import prepare_strategy_space
-from trading_advisor_3000.spark_jobs import run_continuous_front_spark_job, run_research_bar_views_spark_job
+from trading_advisor_3000.spark_jobs import (
+    run_continuous_front_spark_job,
+    run_research_bar_views_spark_job,
+)
 
 from .historical_data_proof_assets import AssetSpec
 from .moex_historical_assets import MOEX_BASELINE_UPDATE_JOB_NAME, moex_baseline_update_job
@@ -941,7 +944,9 @@ def _materialized_table_manifest(
         contour_id=contour_id,
         indicator_set_version=str(research_datasets.get("indicator_set_version", "indicators-v1")),
         derived_indicator_set_version=str(
-            research_datasets.get("derived_indicator_set_version", DEFAULT_DERIVED_INDICATOR_SET_VERSION)
+            research_datasets.get(
+                "derived_indicator_set_version", DEFAULT_DERIVED_INDICATOR_SET_VERSION
+            )
         ),
     )
     row_count = (
@@ -1126,12 +1131,18 @@ def research_datasets(context, continuous_front_qc_report: dict[str, object]) ->
             "instrument_tree_count": _delta_table_filtered_row_count(
                 table_path=materialized_output_dir / "research_instrument_tree.delta",
                 table_name="research_instrument_tree",
-                filters=[("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
+                filters=[
+                    ("dataset_version", "=", dataset_version),
+                    ("contour_id", "=", contour_id),
+                ],
             ),
             "bar_view_count": _delta_table_filtered_row_count(
                 table_path=materialized_output_dir / "research_bar_views.delta",
                 table_name="research_bar_views",
-                filters=[("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
+                filters=[
+                    ("dataset_version", "=", dataset_version),
+                    ("contour_id", "=", contour_id),
+                ],
             ),
             "output_paths": {
                 "research_datasets": (
@@ -1148,7 +1159,9 @@ def research_datasets(context, continuous_front_qc_report: dict[str, object]) ->
     else:
         report = run_research_bar_views_spark_job(
             canonical_bars_path=_canonical_table_path(config, "canonical_bars"),
-            canonical_session_calendar_path=_canonical_table_path(config, "canonical_session_calendar"),
+            canonical_session_calendar_path=_canonical_table_path(
+                config, "canonical_session_calendar"
+            ),
             canonical_roll_map_path=_canonical_table_path(config, "canonical_roll_map"),
             continuous_front_bars_path=materialized_output_dir / "continuous_front_bars.delta",
             output_dir=materialized_output_dir,
@@ -1156,8 +1169,12 @@ def research_datasets(context, continuous_front_qc_report: dict[str, object]) ->
             dataset_name=str(_config_value(config, "dataset_name", "research-materialized")),
             universe_id=str(_config_value(config, "universe_id", "moex-futures")),
             run_id=str(_config_value(config, "campaign_run_id", "research_data_prep")),
-            instrument_ids=tuple(str(item) for item in _config_value(config, "dataset_instrument_ids", [])),
-            contract_ids=tuple(str(item) for item in _config_value(config, "dataset_contract_ids", [])),
+            instrument_ids=tuple(
+                str(item) for item in _config_value(config, "dataset_instrument_ids", [])
+            ),
+            contract_ids=tuple(
+                str(item) for item in _config_value(config, "dataset_contract_ids", [])
+            ),
             timeframes=tuple(str(item) for item in _config_value(config, "timeframes", [])),
             start_ts=str(_config_value(config, "start_ts", "")) or None,
             end_ts=str(_config_value(config, "end_ts", "")) or None,

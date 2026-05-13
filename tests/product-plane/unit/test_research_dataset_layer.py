@@ -16,7 +16,9 @@ from trading_advisor_3000.product_plane.research.datasets import (
 from trading_advisor_3000.spark_jobs import research_bar_views_job as spark_l0_job
 
 
-def _view(*, contour_id: str, series_mode: str, series_id: str, contract_id: str) -> ResearchBarView:
+def _view(
+    *, contour_id: str, series_mode: str, series_id: str, contract_id: str
+) -> ResearchBarView:
     return ResearchBarView(
         dataset_version="dataset-v1",
         contour_id=contour_id,
@@ -64,7 +66,12 @@ def test_research_dataset_contract_uses_contour_aware_l0_key() -> None:
     contract = research_dataset_store_contract()["research_bar_views"]
 
     assert "contour_id" in contract["columns"]
-    assert contract["partition_by"] == ["dataset_version", "contour_id", "instrument_id", "timeframe"]
+    assert contract["partition_by"] == [
+        "dataset_version",
+        "contour_id",
+        "instrument_id",
+        "timeframe",
+    ]
     assert (
         "unique(dataset_version, contour_id, series_mode, series_id, timeframe, ts)"
         in contract["constraints"]
@@ -94,11 +101,16 @@ def test_benchmark_python_l0_bootstrap_route_is_removed(tmp_path) -> None:
     import trading_advisor_3000.product_plane.research.jobs as research_jobs
 
     assert not hasattr(research_jobs, "run_benchmark_job")
-    assert importlib.util.find_spec("trading_advisor_3000.product_plane.research.jobs.benchmark") is None
+    assert (
+        importlib.util.find_spec("trading_advisor_3000.product_plane.research.jobs.benchmark")
+        is None
+    )
 
 
 def test_spark_l0_writer_preserves_existing_delta_tables() -> None:
-    source = Path("src/trading_advisor_3000/spark_jobs/research_bar_views_job.py").read_text(encoding="utf-8")
+    source = Path("src/trading_advisor_3000/spark_jobs/research_bar_views_job.py").read_text(
+        encoding="utf-8"
+    )
 
     assert "shutil.rmtree" not in source
     assert "_scoped_delete_condition(replace_scope)" in source
@@ -106,17 +118,19 @@ def test_spark_l0_writer_preserves_existing_delta_tables() -> None:
     assert ".merge(" in source
     assert ".whenMatchedUpdateAll()" in source
     assert ".whenNotMatchedInsertAll()" in source
-    assert "\"total_rows_by_table\"" in source
+    assert '"total_rows_by_table"' in source
 
 
 def test_spark_l0_instrument_tree_preserves_business_identity_rules() -> None:
-    source = Path("src/trading_advisor_3000/spark_jobs/research_bar_views_job.py").read_text(encoding="utf-8")
+    source = Path("src/trading_advisor_3000/spark_jobs/research_bar_views_job.py").read_text(
+        encoding="utf-8"
+    )
 
     assert "FUT_" in source
     assert "commodity" in source
     assert "index" in source
-    assert "\"lineage_key\"" in source
-    assert ".withColumn(\"universe_id\"" in source
+    assert '"lineage_key"' in source
+    assert '.withColumn("universe_id"' in source
     assert 'F.first("series_id").alias("internal_id")' not in source
 
 

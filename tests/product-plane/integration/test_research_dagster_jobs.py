@@ -39,7 +39,9 @@ from trading_advisor_3000.product_plane.research.datasets import (
 from trading_advisor_3000.product_plane.research.datasets import (
     materialize as dataset_materialize_module,
 )
-from trading_advisor_3000.product_plane.research.derived_indicators import load_derived_indicator_frames
+from trading_advisor_3000.product_plane.research.derived_indicators import (
+    load_derived_indicator_frames,
+)
 from trading_advisor_3000.product_plane.research.indicators import load_indicator_frames
 from trading_advisor_3000.product_plane.research.registry_store import research_registry_root
 from trading_advisor_3000.product_plane.research.strategies.compiler_bridge import (
@@ -62,7 +64,9 @@ def _load_materialized_dataset_rows(
     filters = [("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)]
     manifest_rows = read_delta_table_rows(output_dir / "research_datasets.delta", filters=filters)
     if not manifest_rows:
-        raise AssertionError(f"missing research dataset manifest for {dataset_version}/{contour_id}")
+        raise AssertionError(
+            f"missing research dataset manifest for {dataset_version}/{contour_id}"
+        )
     return {
         "dataset_manifest": dict(manifest_rows[0]),
         "instrument_tree": read_delta_table_rows(
@@ -163,10 +167,16 @@ def _write_spark_front_outputs_from_canonical(
     timeframes: tuple[str, ...],
 ) -> dict[str, object]:
     contract = continuous_front_store_contract()
-    filters = [("timeframe", "in", [*timeframes])] if timeframes else [("instrument_id", "in", ["BR", "Si"])]
+    filters = (
+        [("timeframe", "in", [*timeframes])]
+        if timeframes
+        else [("instrument_id", "in", ["BR", "Si"])]
+    )
     canonical_rows = [
         row
-        for batch in iter_delta_table_row_batches(canonical_dir / "canonical_bars.delta", filters=filters)
+        for batch in iter_delta_table_row_batches(
+            canonical_dir / "canonical_bars.delta", filters=filters
+        )
         for row in batch
     ]
     created_at = "2026-04-29T00:00:00Z"
@@ -323,7 +333,9 @@ def test_research_data_prep_materializes_dataset_indicator_and_derived_layers_on
         "FUT_BR",
         "FUT_SI",
     }
-    assert {row["instrument_id"]: row["asset_group"] for row in loaded_dataset["instrument_tree"]} == {
+    assert {
+        row["instrument_id"]: row["asset_group"] for row in loaded_dataset["instrument_tree"]
+    } == {
         "BR": "commodity",
         "Si": "unknown",
     }
@@ -375,12 +387,14 @@ def test_research_data_prep_can_source_indicators_from_continuous_front(
     assert spark_calls
     assert dagster_report["rows_by_table"]["continuous_front_bars"] > 0
     assert dagster_report["rows_by_table"]["continuous_front_qc_report"] > 0
-    assert dagster_report["rows_by_table"]["research_bar_views"] == dagster_report["rows_by_table"][
-        "continuous_front_bars"
-    ]
-    assert dagster_report["total_rows_by_table"]["research_bar_views"] >= dagster_report["rows_by_table"][
-        "research_bar_views"
-    ]
+    assert (
+        dagster_report["rows_by_table"]["research_bar_views"]
+        == dagster_report["rows_by_table"]["continuous_front_bars"]
+    )
+    assert (
+        dagster_report["total_rows_by_table"]["research_bar_views"]
+        >= dagster_report["rows_by_table"]["research_bar_views"]
+    )
     loaded_dataset = load_materialized_research_dataset(
         output_dir=dagster_dir,
         dataset_version="dagster-continuous-v1",
@@ -391,9 +405,9 @@ def test_research_data_prep_can_source_indicators_from_continuous_front(
         loaded_dataset["dataset_manifest"]["continuous_front_policy"]["roll_policy_mode"]
         == "calendar_expiry_v1"
     )
-    assert len(loaded_dataset["bar_views"]) == dagster_report["rows_by_table"][
-        "continuous_front_bars"
-    ]
+    assert (
+        len(loaded_dataset["bar_views"]) == dagster_report["rows_by_table"]["continuous_front_bars"]
+    )
     assert all(row.contour_id == "pit_active_front" for row in loaded_dataset["bar_views"])
     native_dataset = load_materialized_research_dataset(
         output_dir=dagster_dir,

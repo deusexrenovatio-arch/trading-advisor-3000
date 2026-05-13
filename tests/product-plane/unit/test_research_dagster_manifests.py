@@ -580,10 +580,10 @@ def test_reused_data_prep_validation_does_not_reload_materialized_research_rows(
         table_path=tmp_path / "research_bar_views.delta",
         columns=dataset_contract["research_bar_views"]["columns"],
         rows=[
-                {
-                    "dataset_version": "dataset-v1",
-                    "contour_id": "native_tradable",
-                    "contract_id": "BRQ2@MOEX",
+            {
+                "dataset_version": "dataset-v1",
+                "contour_id": "native_tradable",
+                "contract_id": "BRQ2@MOEX",
                 "instrument_id": "FUT_BR",
                 "timeframe": "15m",
                 "ts": "2026-04-30T10:00:00Z",
@@ -684,7 +684,9 @@ def test_reused_data_prep_validation_does_not_reload_materialized_research_rows(
     ) in count_filters
 
 
-def test_research_dataset_materialization_replaces_delta_version_without_existing_row_reload(tmp_path, monkeypatch) -> None:
+def test_research_dataset_materialization_replaces_delta_version_without_existing_row_reload(
+    tmp_path, monkeypatch
+) -> None:
     manifest = ResearchDatasetManifest(
         dataset_version="native-dataset-v1",
         contour_id="native_tradable",
@@ -711,11 +713,11 @@ def test_research_dataset_materialization_replaces_delta_version_without_existin
             "dataset materialization must not reload existing Delta rows before replacement"
         )
 
-    monkeypatch.setattr(dataset_materialize_module, "read_filtered_delta_table_rows", _forbidden_existing_reload)
+    monkeypatch.setattr(
+        dataset_materialize_module, "read_filtered_delta_table_rows", _forbidden_existing_reload
+    )
     materialize_research_dataset(
-        manifest_seed=ResearchDatasetManifest(
-            **{**manifest.__dict__, "bars_hash": "NEW"}
-        ),
+        manifest_seed=ResearchDatasetManifest(**{**manifest.__dict__, "bars_hash": "NEW"}),
         output_dir=tmp_path,
         bar_view_count=2,
         instrument_tree_count=1,
@@ -723,7 +725,10 @@ def test_research_dataset_materialization_replaces_delta_version_without_existin
 
     rows = read_delta_table_rows(
         tmp_path / "research_datasets.delta",
-        filters=[("dataset_version", "=", "native-dataset-v1"), ("contour_id", "=", "native_tradable")],
+        filters=[
+            ("dataset_version", "=", "native-dataset-v1"),
+            ("contour_id", "=", "native_tradable"),
+        ],
     )
     assert len(rows) == 1
     assert rows[0]["bars_hash"] == "NEW"

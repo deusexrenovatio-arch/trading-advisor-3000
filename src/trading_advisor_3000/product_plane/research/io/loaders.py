@@ -41,7 +41,13 @@ BAR_METADATA_COLUMNS = (
     "execution_close",
     "bar_index",
 )
-INDICATOR_METADATA_COLUMNS = ("dataset_version", "contour_id", "series_mode", "series_id", "indicator_set_version")
+INDICATOR_METADATA_COLUMNS = (
+    "dataset_version",
+    "contour_id",
+    "series_mode",
+    "series_id",
+    "indicator_set_version",
+)
 DERIVED_METADATA_COLUMNS = (
     "dataset_version",
     "contour_id",
@@ -104,17 +110,27 @@ def _delta_filters(
         filters.append(("timeframe", "=", request.timeframe))
     if request.contract_ids:
         values = sorted(set(request.contract_ids))
-        filters.append(("contract_id", "=", values[0]) if len(values) == 1 else ("contract_id", "in", values))
+        filters.append(
+            ("contract_id", "=", values[0]) if len(values) == 1 else ("contract_id", "in", values)
+        )
     if request.instrument_ids:
         values = sorted(set(request.instrument_ids))
-        filters.append(("instrument_id", "=", values[0]) if len(values) == 1 else ("instrument_id", "in", values))
+        filters.append(
+            ("instrument_id", "=", values[0])
+            if len(values) == 1
+            else ("instrument_id", "in", values)
+        )
     if request.series_ids:
         values = sorted(set(request.series_ids))
-        filters.append(("series_id", "=", values[0]) if len(values) == 1 else ("series_id", "in", values))
+        filters.append(
+            ("series_id", "=", values[0]) if len(values) == 1 else ("series_id", "in", values)
+        )
     if include_indicator_version:
         filters.append(("indicator_set_version", "=", request.indicator_set_version))
     if include_derived_version:
-        filters.append(("derived_indicator_set_version", "=", request.derived_indicator_set_version))
+        filters.append(
+            ("derived_indicator_set_version", "=", request.derived_indicator_set_version)
+        )
     return filters
 
 
@@ -179,7 +195,10 @@ def _series_group_columns(bar_frame: pd.DataFrame, *, series_mode: str) -> list[
     if series_mode == "continuous_front":
         if "series_id" not in bar_frame.columns:
             bar_frame["series_id"] = (
-                bar_frame["instrument_id"].astype(str) + "|" + bar_frame["timeframe"].astype(str) + "|continuous_front"
+                bar_frame["instrument_id"].astype(str)
+                + "|"
+                + bar_frame["timeframe"].astype(str)
+                + "|continuous_front"
             )
         return ["series_id", "instrument_id", "timeframe"]
     return ["contract_id", "instrument_id", "timeframe"]
@@ -258,7 +277,10 @@ def load_backtest_frames(
     manifest_frame = read_delta_table_frame(
         dataset_output_dir / "research_datasets.delta",
         columns=list(MANIFEST_METADATA_COLUMNS),
-        filters=[("dataset_version", "=", request.dataset_version), ("contour_id", "=", request.contour_id)],
+        filters=[
+            ("dataset_version", "=", request.dataset_version),
+            ("contour_id", "=", request.contour_id),
+        ],
     )
     series_mode = (
         _dataset_series_mode(dict(manifest_frame.iloc[0]))
@@ -340,7 +362,9 @@ def load_backtest_frames(
                 timeframe=str(timeframe),
             )
             if not local_derived.empty:
-                derived_columns = _derived_payload_columns(local_derived, existing=set(merged.columns))
+                derived_columns = _derived_payload_columns(
+                    local_derived, existing=set(merged.columns)
+                )
                 merged = merged.merge(
                     local_derived[[*_merge_keys(series_mode=series_mode), *derived_columns]],
                     on=_merge_keys(series_mode=series_mode),

@@ -630,7 +630,5 @@ def read_small_delta_table_rows(
     limit: int | None = None,
 ) -> list[dict[str, object]]:
     if is_hot_delta_table_path(table_path):
-        raise ValueError(
-            "hot Delta tables require filtered reads or Spark/Delta-native operations"
-        )
+        raise ValueError("hot Delta tables require filtered reads or Spark/Delta-native operations")
     return read_delta_table_rows(table_path, columns=columns, limit=limit)

@@ -69,7 +69,10 @@ def test_continuous_front_spark_job_uses_native_spark_contour(
             "blocked_reason": None,
         }
     ]
-    fake_tables = {table_name: _FakeDataFrame(qc_rows if table_name == "continuous_front_qc_report" else []) for table_name in CONTINUOUS_FRONT_TABLES}
+    fake_tables = {
+        table_name: _FakeDataFrame(qc_rows if table_name == "continuous_front_qc_report" else [])
+        for table_name in CONTINUOUS_FRONT_TABLES
+    }
 
     def _native_builder(**kwargs: object) -> dict[str, _FakeDataFrame]:
         native_builder_calls.append(str(kwargs["dataset_version"]))
@@ -78,7 +81,10 @@ def test_continuous_front_spark_job_uses_native_spark_contour(
     def _write_tables(**kwargs: object) -> dict[str, str]:
         output_dir = Path(str(kwargs["output_dir"]))
         written_roots.append(output_dir)
-        return {table_name: (output_dir / f"{table_name}.delta").as_posix() for table_name in CONTINUOUS_FRONT_TABLES}
+        return {
+            table_name: (output_dir / f"{table_name}.delta").as_posix()
+            for table_name in CONTINUOUS_FRONT_TABLES
+        }
 
     monkeypatch.setattr(job, "_build_spark_native_tables", _native_builder)
     monkeypatch.setattr(job, "_write_spark_dataframe_tables", _write_tables)
@@ -118,14 +124,20 @@ def test_continuous_front_spark_job_uses_native_spark_contour(
     assert str(calendar_path) in fake_spark.read.loaded_paths
     assert str(roll_map_path) in fake_spark.read.loaded_paths
     assert fake_spark.stopped is True
-    assert "materialize_continuous_front" not in job.run_continuous_front_spark_job.__code__.co_names
-    assert "build_continuous_front_tables" not in job.run_continuous_front_spark_job.__code__.co_names
+    assert (
+        "materialize_continuous_front" not in job.run_continuous_front_spark_job.__code__.co_names
+    )
+    assert (
+        "build_continuous_front_tables" not in job.run_continuous_front_spark_job.__code__.co_names
+    )
     assert "toLocalIterator" not in job.run_continuous_front_spark_job.__code__.co_names
     assert "collect" not in job.run_continuous_front_spark_job.__code__.co_names
 
 
 def test_continuous_front_spark_writer_uses_scoped_replace_without_destructive_delete() -> None:
-    source = Path("src/trading_advisor_3000/spark_jobs/continuous_front_job.py").read_text(encoding="utf-8")
+    source = Path("src/trading_advisor_3000/spark_jobs/continuous_front_job.py").read_text(
+        encoding="utf-8"
+    )
 
     assert "shutil.rmtree" not in source
     assert ".delete(" in source
@@ -165,8 +177,7 @@ def test_continuous_front_qc_replace_scope_uses_available_dimensions_only() -> N
     condition = job._scoped_delete_condition(filters)  # type: ignore[attr-defined]
 
     assert condition == (
-        "dataset_version = 'dataset-v1' AND instrument_id IN ('FUT_BR') "
-        "AND timeframe IN ('15m')"
+        "dataset_version = 'dataset-v1' AND instrument_id IN ('FUT_BR') AND timeframe IN ('15m')"
     )
     assert "ts" not in condition
 
@@ -189,7 +200,9 @@ def test_continuous_front_spark_job_rejects_unsupported_policy(
 def test_continuous_front_spark_job_rejects_calendar_expiry_policy_variant(
     tmp_path: Path,
 ) -> None:
-    with pytest.raises(RuntimeError, match=r"calendar_expiry_v1\.calendar_roll_offset_trading_days=3"):
+    with pytest.raises(
+        RuntimeError, match=r"calendar_expiry_v1\.calendar_roll_offset_trading_days=3"
+    ):
         job.run_continuous_front_spark_job(
             canonical_bars_path=tmp_path / "canonical_bars.delta",
             canonical_session_calendar_path=tmp_path / "canonical_session_calendar.delta",
@@ -275,8 +288,12 @@ def test_spark_native_adjustment_uses_backward_current_anchor(
             row.asDict(recursive=True)
             for row in tables["continuous_front_bars"].orderBy("ts").toLocalIterator()
         ]
-        event = next(tables["continuous_front_roll_events"].toLocalIterator()).asDict(recursive=True)
-        ladder = next(tables["continuous_front_adjustment_ladder"].toLocalIterator()).asDict(recursive=True)
+        event = next(tables["continuous_front_roll_events"].toLocalIterator()).asDict(
+            recursive=True
+        )
+        ladder = next(tables["continuous_front_adjustment_ladder"].toLocalIterator()).asDict(
+            recursive=True
+        )
 
         assert [row["active_contract_id"] for row in front] == [
             "BRK2@MOEX",
@@ -284,9 +301,13 @@ def test_spark_native_adjustment_uses_backward_current_anchor(
             "BRM2@MOEX",
             "BRM2@MOEX",
         ]
-        assert [row["continuous_close"] for row in front] == pytest.approx([100.0, 101.0, 112.0, 113.0])
+        assert [row["continuous_close"] for row in front] == pytest.approx(
+            [100.0, 101.0, 112.0, 113.0]
+        )
         assert [row["native_close"] for row in front] == pytest.approx([100.0, 101.0, 112.0, 113.0])
-        assert [row["cumulative_additive_offset"] for row in front] == pytest.approx([0.0, 0.0, 0.0, 0.0])
+        assert [row["cumulative_additive_offset"] for row in front] == pytest.approx(
+            [0.0, 0.0, 0.0, 0.0]
+        )
         assert event["old_reference_price"] == pytest.approx(101.0)
         assert event["new_reference_price"] == pytest.approx(111.0)
         assert event["additive_gap"] == pytest.approx(10.0)
@@ -462,7 +483,9 @@ def test_calendar_expiry_spark_policy_uses_active_contract_session_bars(
         ]
         events = [
             row.asDict(recursive=True)
-            for row in tables["continuous_front_roll_events"].orderBy("effective_ts").toLocalIterator()
+            for row in tables["continuous_front_roll_events"]
+            .orderBy("effective_ts")
+            .toLocalIterator()
         ]
         qc = next(tables["continuous_front_qc_report"].toLocalIterator()).asDict(recursive=True)
 
@@ -474,7 +497,9 @@ def test_calendar_expiry_spark_policy_uses_active_contract_session_bars(
             "BRV5@MOEX",
             "BRV5@MOEX",
         ]
-        assert [row["native_close"] for row in front] == pytest.approx([100.0, 111.0, 112.0, 113.0, 114.0, 115.0])
+        assert [row["native_close"] for row in front] == pytest.approx(
+            [100.0, 111.0, 112.0, 113.0, 114.0, 115.0]
+        )
         assert len({(row["timeframe"], row["ts"]) for row in front}) == len(front)
         assert all(str(row["ts"]) != "2025-09-24 05:45:00" for row in front)
         assert len(events) == 1

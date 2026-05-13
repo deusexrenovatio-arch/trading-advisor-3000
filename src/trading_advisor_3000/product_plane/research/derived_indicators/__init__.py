@@ -36,6 +36,7 @@ def __getattr__(name: str) -> Any:
         return getattr(_store, name)
     raise AttributeError(name)
 
+
 __all__ = [
     "DEFAULT_DERIVED_INDICATOR_SET_VERSION",
     "DerivedIndicatorProfile",

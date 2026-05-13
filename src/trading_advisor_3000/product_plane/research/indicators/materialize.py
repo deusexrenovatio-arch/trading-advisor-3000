@@ -388,13 +388,9 @@ def _compute_volume_profile_columns(
 def _series_group_key(
     row: ResearchBarView, *, dataset_version: str, indicator_set_version: str, series_mode: str
 ) -> IndicatorFramePartitionKey:
-    resolved_series_mode = _resolved_series_mode(
-        row.series_mode, requested_series_mode=series_mode
-    )
+    resolved_series_mode = _resolved_series_mode(row.series_mode, requested_series_mode=series_mode)
     fallback_series_id = (
-        row.instrument_id
-        if resolved_series_mode == "continuous_front"
-        else row.contract_id
+        row.instrument_id if resolved_series_mode == "continuous_front" else row.contract_id
     )
     return IndicatorFramePartitionKey(
         dataset_version=dataset_version,

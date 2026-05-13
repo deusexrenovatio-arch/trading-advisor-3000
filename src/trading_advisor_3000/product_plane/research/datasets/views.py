@@ -91,14 +91,22 @@ class ResearchBarView:
             "native_high": self.native_high if self.native_high is not None else self.high,
             "native_low": self.native_low if self.native_low is not None else self.low,
             "native_close": self.native_close if self.native_close is not None else self.close,
-            "continuous_open": self.continuous_open if self.continuous_open is not None else self.open,
-            "continuous_high": self.continuous_high if self.continuous_high is not None else self.high,
+            "continuous_open": self.continuous_open
+            if self.continuous_open is not None
+            else self.open,
+            "continuous_high": self.continuous_high
+            if self.continuous_high is not None
+            else self.high,
             "continuous_low": self.continuous_low if self.continuous_low is not None else self.low,
-            "continuous_close": self.continuous_close if self.continuous_close is not None else self.close,
+            "continuous_close": self.continuous_close
+            if self.continuous_close is not None
+            else self.close,
             "execution_open": self.execution_open if self.execution_open is not None else self.open,
             "execution_high": self.execution_high if self.execution_high is not None else self.high,
             "execution_low": self.execution_low if self.execution_low is not None else self.low,
-            "execution_close": self.execution_close if self.execution_close is not None else self.close,
+            "execution_close": self.execution_close
+            if self.execution_close is not None
+            else self.close,
             "previous_contract_id": self.previous_contract_id,
             "candidate_contract_id": self.candidate_contract_id,
             "adjustment_mode": self.adjustment_mode,
@@ -135,15 +143,23 @@ class ResearchBarView:
             series_id=str(payload.get("series_id") or payload["contract_id"]),
             series_mode=str(payload.get("series_mode") or "contract"),
             roll_epoch=int(payload.get("roll_epoch") or 0),
-            roll_event_id=None if payload.get("roll_event_id") is None else str(payload["roll_event_id"]),
+            roll_event_id=None
+            if payload.get("roll_event_id") is None
+            else str(payload["roll_event_id"]),
             is_roll_bar=bool(payload.get("is_roll_bar") or False),
             is_first_bar_after_roll=bool(payload.get("is_first_bar_after_roll") or False),
             bars_since_roll=int(payload.get("bars_since_roll") or 0),
             price_space=str(payload.get("price_space") or "native"),
-            native_open=None if payload.get("native_open") is None else float(payload["native_open"]),
-            native_high=None if payload.get("native_high") is None else float(payload["native_high"]),
+            native_open=None
+            if payload.get("native_open") is None
+            else float(payload["native_open"]),
+            native_high=None
+            if payload.get("native_high") is None
+            else float(payload["native_high"]),
             native_low=None if payload.get("native_low") is None else float(payload["native_low"]),
-            native_close=None if payload.get("native_close") is None else float(payload["native_close"]),
+            native_close=None
+            if payload.get("native_close") is None
+            else float(payload["native_close"]),
             continuous_open=None
             if payload.get("continuous_open") is None
             else float(payload["continuous_open"]),
@@ -156,10 +172,18 @@ class ResearchBarView:
             continuous_close=None
             if payload.get("continuous_close") is None
             else float(payload["continuous_close"]),
-            execution_open=None if payload.get("execution_open") is None else float(payload["execution_open"]),
-            execution_high=None if payload.get("execution_high") is None else float(payload["execution_high"]),
-            execution_low=None if payload.get("execution_low") is None else float(payload["execution_low"]),
-            execution_close=None if payload.get("execution_close") is None else float(payload["execution_close"]),
+            execution_open=None
+            if payload.get("execution_open") is None
+            else float(payload["execution_open"]),
+            execution_high=None
+            if payload.get("execution_high") is None
+            else float(payload["execution_high"]),
+            execution_low=None
+            if payload.get("execution_low") is None
+            else float(payload["execution_low"]),
+            execution_close=None
+            if payload.get("execution_close") is None
+            else float(payload["execution_close"]),
             previous_contract_id=None
             if payload.get("previous_contract_id") is None
             else str(payload["previous_contract_id"]),
@@ -168,5 +192,7 @@ class ResearchBarView:
             else str(payload["candidate_contract_id"]),
             adjustment_mode=str(payload.get("adjustment_mode") or ""),
             cumulative_additive_offset=float(payload.get("cumulative_additive_offset") or 0.0),
-            ratio_factor=None if payload.get("ratio_factor") is None else float(payload["ratio_factor"]),
+            ratio_factor=None
+            if payload.get("ratio_factor") is None
+            else float(payload["ratio_factor"]),
         )

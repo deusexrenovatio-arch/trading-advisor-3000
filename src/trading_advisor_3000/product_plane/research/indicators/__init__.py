@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 from .bootstrap import IndicatorMaterializationRequest
-from .materialize import build_indicator_frames, materialize_indicator_frames, reload_indicator_frames
+from .materialize import (
+    build_indicator_frames,
+    materialize_indicator_frames,
+    reload_indicator_frames,
+)
 from .mtf import MultiTimeframeBinding
 from .naming import indicator_column_name
 from .registry import (

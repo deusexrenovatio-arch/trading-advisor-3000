@@ -499,12 +499,12 @@ def test_backtest_loader_uses_native_delta_projection_without_python_row_reload(
         table_path=materialized / "research_indicator_frames.delta",
         columns=indicator_contract["research_indicator_frames"]["columns"],
         rows=[
-                {
-                    "dataset_version": "dataset-v1",
-                    "contour_id": "native_tradable",
-                    "series_mode": "contract",
-                    "series_id": "BR-6.26",
-                    "indicator_set_version": "indicators-v1",
+            {
+                "dataset_version": "dataset-v1",
+                "contour_id": "native_tradable",
+                "series_mode": "contract",
+                "series_id": "BR-6.26",
+                "indicator_set_version": "indicators-v1",
                 "profile_version": "core_v1",
                 "contract_id": "BR-6.26",
                 "instrument_id": "FUT_BR",
@@ -525,12 +525,12 @@ def test_backtest_loader_uses_native_delta_projection_without_python_row_reload(
         table_path=materialized / "research_derived_indicator_frames.delta",
         columns=derived_contract["research_derived_indicator_frames"]["columns"],
         rows=[
-                {
-                    "dataset_version": "dataset-v1",
-                    "contour_id": "native_tradable",
-                    "series_mode": "contract",
-                    "series_id": "BR-6.26",
-                    "indicator_set_version": "indicators-v1",
+            {
+                "dataset_version": "dataset-v1",
+                "contour_id": "native_tradable",
+                "series_mode": "contract",
+                "series_id": "BR-6.26",
+                "indicator_set_version": "indicators-v1",
                 "derived_indicator_set_version": "derived-v1",
                 "profile_version": "core_v1",
                 "contract_id": "BR-6.26",

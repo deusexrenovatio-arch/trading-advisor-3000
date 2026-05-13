@@ -86,7 +86,9 @@ def research_dataset_store_contract() -> dict[str, dict[str, object]]:
         "research_bar_views": {
             "format": "delta",
             "partition_by": ["dataset_version", "contour_id", "instrument_id", "timeframe"],
-            "constraints": ["unique(dataset_version, contour_id, series_mode, series_id, timeframe, ts)"],
+            "constraints": [
+                "unique(dataset_version, contour_id, series_mode, series_id, timeframe, ts)"
+            ],
             "columns": {
                 "dataset_version": "string",
                 "contour_id": "string",

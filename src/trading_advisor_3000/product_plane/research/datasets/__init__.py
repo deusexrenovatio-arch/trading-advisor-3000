@@ -10,7 +10,13 @@ from .materialize import (
     research_dataset_store_contract,
 )
 from .resample import ResamplePlan
-from .splitters import DatasetWindow, HoldoutSplitConfig, WalkForwardSplitConfig, build_holdout_window, build_walk_forward_windows
+from .splitters import (
+    DatasetWindow,
+    HoldoutSplitConfig,
+    WalkForwardSplitConfig,
+    build_holdout_window,
+    build_walk_forward_windows,
+)
 from .store import ResearchDatasetPartitionKey
 from .views import ResearchBarView
 

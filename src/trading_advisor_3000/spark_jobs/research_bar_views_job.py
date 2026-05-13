@@ -122,21 +122,37 @@ def _apply_filters(dataframe, *, instrument_ids: tuple[str, ...], timeframes: tu
     return filtered
 
 
-def _with_l0_metrics(dataframe, *, series_columns: tuple[str, ...], start_ts: str | None, warmup_bars: int):
+def _with_l0_metrics(
+    dataframe, *, series_columns: tuple[str, ...], start_ts: str | None, warmup_bars: int
+):
     from pyspark.sql import Window, functions as F  # type: ignore[import-not-found]
 
     series_order = Window.partitionBy(*series_columns).orderBy("ts")
     prev_close = F.lag("close").over(series_order)
     base = (
         dataframe.withColumn("prev_close", prev_close)
-        .withColumn("ret_1", F.when(prev_close.isNull() | (prev_close == 0), F.lit(None)).otherwise(F.col("close") / prev_close - F.lit(1.0)))
-        .withColumn("log_ret_1", F.when(prev_close.isNull() | (prev_close == 0), F.lit(None)).otherwise(F.log(F.col("close") / prev_close)))
+        .withColumn(
+            "ret_1",
+            F.when(prev_close.isNull() | (prev_close == 0), F.lit(None)).otherwise(
+                F.col("close") / prev_close - F.lit(1.0)
+            ),
+        )
+        .withColumn(
+            "log_ret_1",
+            F.when(prev_close.isNull() | (prev_close == 0), F.lit(None)).otherwise(
+                F.log(F.col("close") / prev_close)
+            ),
+        )
         .withColumn(
             "true_range",
             F.greatest(
                 F.col("high") - F.col("low"),
-                F.when(prev_close.isNull(), F.col("high") - F.col("low")).otherwise(F.abs(F.col("high") - prev_close)),
-                F.when(prev_close.isNull(), F.col("high") - F.col("low")).otherwise(F.abs(F.col("low") - prev_close)),
+                F.when(prev_close.isNull(), F.col("high") - F.col("low")).otherwise(
+                    F.abs(F.col("high") - prev_close)
+                ),
+                F.when(prev_close.isNull(), F.col("high") - F.col("low")).otherwise(
+                    F.abs(F.col("low") - prev_close)
+                ),
             ),
         )
         .withColumn("hl_range", F.col("high") - F.col("low"))
@@ -149,11 +165,16 @@ def _with_l0_metrics(dataframe, *, series_columns: tuple[str, ...], start_ts: st
         )
         base = base.withColumn("analysis_start_index", analysis_rank).where(
             F.col("analysis_start_index").isNotNull()
-            & (F.col("bar_index") >= F.greatest(F.lit(0), F.col("analysis_start_index") - F.lit(warmup_bars)))
+            & (
+                F.col("bar_index")
+                >= F.greatest(F.lit(0), F.col("analysis_start_index") - F.lit(warmup_bars))
+            )
         )
         return base.withColumn(
             "slice_role",
-            F.when(F.col("bar_index") < F.col("analysis_start_index"), F.lit("warmup")).otherwise(F.lit("analysis")),
+            F.when(F.col("bar_index") < F.col("analysis_start_index"), F.lit("warmup")).otherwise(
+                F.lit("analysis")
+            ),
         )
     return base.withColumn("slice_role", F.lit("analysis"))
 
@@ -180,17 +201,25 @@ def _native_bar_views(
         bars = bars.where(F.col("contract_id").isin([*contract_ids]))
     if end_ts:
         bars = bars.where(F.col("ts") <= F.lit(end_ts))
-    calendar = spark.read.format("delta").load(str(canonical_session_calendar_path)).select(
-        F.col("instrument_id").alias("cal_instrument_id"),
-        F.col("timeframe").alias("cal_timeframe"),
-        F.col("session_date").alias("cal_session_date"),
-        F.col("session_open_ts"),
-        F.col("session_close_ts"),
+    calendar = (
+        spark.read.format("delta")
+        .load(str(canonical_session_calendar_path))
+        .select(
+            F.col("instrument_id").alias("cal_instrument_id"),
+            F.col("timeframe").alias("cal_timeframe"),
+            F.col("session_date").alias("cal_session_date"),
+            F.col("session_open_ts"),
+            F.col("session_close_ts"),
+        )
     )
-    roll_map = spark.read.format("delta").load(str(canonical_roll_map_path)).select(
-        F.col("instrument_id").alias("roll_instrument_id"),
-        F.col("session_date").alias("roll_session_date"),
-        F.col("active_contract_id").alias("roll_active_contract_id"),
+    roll_map = (
+        spark.read.format("delta")
+        .load(str(canonical_roll_map_path))
+        .select(
+            F.col("instrument_id").alias("roll_instrument_id"),
+            F.col("session_date").alias("roll_session_date"),
+            F.col("active_contract_id").alias("roll_active_contract_id"),
+        )
     )
     with_session = (
         bars.withColumn("session_date", F.to_date("ts"))
@@ -224,7 +253,9 @@ def _native_bar_views(
         "session_date",
         "session_open_ts",
         "session_close_ts",
-        F.coalesce(F.col("roll_active_contract_id"), F.col("contract_id")).alias("active_contract_id"),
+        F.coalesce(F.col("roll_active_contract_id"), F.col("contract_id")).alias(
+            "active_contract_id"
+        ),
         F.col("contract_id").alias("series_id"),
         F.lit("contract").alias("series_mode"),
         F.lit(0).alias("roll_epoch"),
@@ -277,12 +308,16 @@ def _pit_active_front_bar_views(
     bars = _apply_filters(bars, instrument_ids=instrument_ids, timeframes=timeframes)
     if end_ts:
         bars = bars.where(F.col("ts") <= F.lit(end_ts))
-    calendar = spark.read.format("delta").load(str(canonical_session_calendar_path)).select(
-        F.col("instrument_id").alias("cal_instrument_id"),
-        F.col("timeframe").alias("cal_timeframe"),
-        F.col("session_date").alias("cal_session_date"),
-        F.col("session_open_ts"),
-        F.col("session_close_ts"),
+    calendar = (
+        spark.read.format("delta")
+        .load(str(canonical_session_calendar_path))
+        .select(
+            F.col("instrument_id").alias("cal_instrument_id"),
+            F.col("timeframe").alias("cal_timeframe"),
+            F.col("session_date").alias("cal_session_date"),
+            F.col("session_open_ts"),
+            F.col("session_close_ts"),
+        )
     )
     with_session = bars.withColumn("session_date", F.to_date("ts")).join(
         calendar,
@@ -351,7 +386,10 @@ def _instrument_tree_from_bar_views(bar_views, *, universe_id: str):
         F.substring(normalized_instrument, 5, 1024),
     ).otherwise(normalized_instrument)
     asset_group = (
-        F.when(bare_instrument.isin("BR", "NG", "GOLD", "SILV", "PLD", "PLT", "WHEAT"), F.lit("commodity"))
+        F.when(
+            bare_instrument.isin("BR", "NG", "GOLD", "SILV", "PLD", "PLT", "WHEAT"),
+            F.lit("commodity"),
+        )
         .when(bare_instrument.isin("RTS", "MIX", "MXI", "NASD", "SPYF", "RGBI"), F.lit("index"))
         .otherwise(F.lit("unknown"))
     )
@@ -384,27 +422,26 @@ def _instrument_tree_from_bar_views(bar_views, *, universe_id: str):
             F.count(F.lit(1)).cast("long").alias("row_count"),
             F.min("ts").alias("first_ts"),
             F.max("ts").alias("last_ts"),
-            F.sha2(F.concat_ws("|", F.sort_array(F.collect_list("row_hash_input"))), 256).alias("source_bars_hash"),
+            F.sha2(F.concat_ws("|", F.sort_array(F.collect_list("row_hash_input"))), 256).alias(
+                "source_bars_hash"
+            ),
             F.lit(_utc_now_iso()).alias("created_at"),
         )
     )
-    return (
-        aggregated.withColumn(
-            "lineage_key",
-            F.sha2(
-                F.concat_ws(
-                    "|",
-                    F.col("dataset_version"),
-                    F.col("contour_id"),
-                    F.col("internal_id"),
-                    F.concat_ws(",", F.col("contract_ids_json")),
-                    F.concat_ws(",", F.col("timeframes_json")),
-                ),
-                256,
+    return aggregated.withColumn(
+        "lineage_key",
+        F.sha2(
+            F.concat_ws(
+                "|",
+                F.col("dataset_version"),
+                F.col("contour_id"),
+                F.col("internal_id"),
+                F.concat_ws(",", F.col("contract_ids_json")),
+                F.concat_ws(",", F.col("timeframes_json")),
             ),
-        )
-        .withColumn("universe_id", F.lit(universe_id))
-    )
+            256,
+        ),
+    ).withColumn("universe_id", F.lit(universe_id))
 
 
 def _spark_sql_literal(value: object) -> str:
@@ -423,7 +460,11 @@ def _scoped_delete_condition(scope: list[tuple[str, str, object]]) -> str:
         if value is None:
             continue
         if normalized_operator in {"in", "not in"}:
-            scoped_values = tuple(item for item in value if item is not None) if isinstance(value, (list, tuple, set)) else ()
+            scoped_values = (
+                tuple(item for item in value if item is not None)
+                if isinstance(value, (list, tuple, set))
+                else ()
+            )
             if not scoped_values:
                 continue
             literals = ", ".join(_spark_sql_literal(item) for item in scoped_values)
@@ -496,9 +537,9 @@ def _write_spark_delta_table(
         writer.save(str(table_path))
         return
 
-    _empty_dataframe(dataframe.sparkSession, table_name).write.format("delta").mode("append").option(
-        "mergeSchema", "true"
-    ).save(str(table_path))
+    _empty_dataframe(dataframe.sparkSession, table_name).write.format("delta").mode(
+        "append"
+    ).option("mergeSchema", "true").save(str(table_path))
 
     from delta.tables import DeltaTable  # type: ignore[import-not-found]
 
@@ -578,11 +619,17 @@ def run_research_bar_views_spark_job(
     invalid = sorted(set(contours) - set(RESEARCH_L0_CONTOURS))
     if invalid:
         raise ValueError(f"unsupported research L0 contours: {', '.join(invalid)}")
-    for table_path in (canonical_bars_path, canonical_session_calendar_path, canonical_roll_map_path):
+    for table_path in (
+        canonical_bars_path,
+        canonical_session_calendar_path,
+        canonical_roll_map_path,
+    ):
         if not has_delta_log(table_path):
             raise RuntimeError(f"missing canonical delta table: {table_path.as_posix()}")
     if "pit_active_front" in contours and not has_delta_log(continuous_front_bars_path):
-        raise RuntimeError(f"missing continuous-front delta table: {continuous_front_bars_path.as_posix()}")
+        raise RuntimeError(
+            f"missing continuous-front delta table: {continuous_front_bars_path.as_posix()}"
+        )
 
     spec = ResearchBarViewsSparkJobSpec()
     spark_factory = spark_session_factory or _create_spark_session
@@ -619,7 +666,9 @@ def run_research_bar_views_spark_job(
                     warmup_bars=warmup_bars,
                 )
             )
-        bar_views = contour_frames[0] if contour_frames else _empty_dataframe(spark, "research_bar_views")
+        bar_views = (
+            contour_frames[0] if contour_frames else _empty_dataframe(spark, "research_bar_views")
+        )
         for frame in contour_frames[1:]:
             bar_views = bar_views.unionByName(frame, allowMissingColumns=True)
 
@@ -645,9 +694,13 @@ def run_research_bar_views_spark_job(
         )
         from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
-        tree_source = spark.read.format("delta").load(output_paths["research_bar_views"]).where(
-            (F.col("dataset_version") == F.lit(dataset_version))
-            & (F.col("contour_id").isin([*contours]))
+        tree_source = (
+            spark.read.format("delta")
+            .load(output_paths["research_bar_views"])
+            .where(
+                (F.col("dataset_version") == F.lit(dataset_version))
+                & (F.col("contour_id").isin([*contours]))
+            )
         )
         if instrument_ids:
             tree_source = tree_source.where(F.col("instrument_id").isin([*instrument_ids]))
@@ -664,7 +717,9 @@ def run_research_bar_views_spark_job(
         )
         contract_errors = _validate_tables(output_paths)
         if contract_errors:
-            raise RuntimeError("research bar views Spark contract validation failed: " + "; ".join(contract_errors))
+            raise RuntimeError(
+                "research bar views Spark contract validation failed: " + "; ".join(contract_errors)
+            )
 
         source_delta_versions = {
             "canonical_bars": _latest_delta_version(canonical_bars_path),
@@ -686,22 +741,32 @@ def run_research_bar_views_spark_job(
         for contour_id in contours:
             bar_count = count_delta_table_rows(
                 Path(output_paths["research_bar_views"]),
-                filters=[("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
+                filters=[
+                    ("dataset_version", "=", dataset_version),
+                    ("contour_id", "=", contour_id),
+                ],
             )
             tree_count = count_delta_table_rows(
                 Path(output_paths["research_instrument_tree"]),
-                filters=[("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
+                filters=[
+                    ("dataset_version", "=", dataset_version),
+                    ("contour_id", "=", contour_id),
+                ],
             )
             continuous_front_policy = None
             if contour_id == "pit_active_front":
-                from trading_advisor_3000.product_plane.research.datasets import ContinuousFrontPolicy
+                from trading_advisor_3000.product_plane.research.datasets import (
+                    ContinuousFrontPolicy,
+                )
 
                 continuous_front_policy = ContinuousFrontPolicy()
             manifest = ResearchDatasetManifest(
                 dataset_version=dataset_version,
                 contour_id=contour_id,  # type: ignore[arg-type]
                 dataset_name=dataset_name,
-                source_table="continuous_front_bars" if contour_id == "pit_active_front" else "canonical_bars",
+                source_table="continuous_front_bars"
+                if contour_id == "pit_active_front"
+                else "canonical_bars",
                 universe_id=universe_id,
                 timeframes=timeframes or tuple(),
                 base_timeframe=timeframes[0] if timeframes else None,
@@ -721,7 +786,9 @@ def run_research_bar_views_spark_job(
                     "canonical_roll_map",
                 ),
                 bars_hash=source_delta_hashes[
-                    "continuous_front_bars" if contour_id == "pit_active_front" else "canonical_bars"
+                    "continuous_front_bars"
+                    if contour_id == "pit_active_front"
+                    else "canonical_bars"
                 ],
                 run_id=run_id,
                 as_of_ts=_utc_now_iso(),
@@ -740,7 +807,10 @@ def run_research_bar_views_spark_job(
             )
 
         primary_contour = contours[0] if contours else "native_tradable"
-        scoped_filters = [("dataset_version", "=", dataset_version), ("contour_id", "=", primary_contour)]
+        scoped_filters = [
+            ("dataset_version", "=", dataset_version),
+            ("contour_id", "=", primary_contour),
+        ]
         rows_by_table = {
             "research_bar_views": count_delta_table_rows(
                 Path(output_paths["research_bar_views"]), filters=scoped_filters
@@ -754,7 +824,9 @@ def run_research_bar_views_spark_job(
         }
         total_rows_by_table = {
             "research_bar_views": count_delta_table_rows(Path(output_paths["research_bar_views"])),
-            "research_instrument_tree": count_delta_table_rows(Path(output_paths["research_instrument_tree"])),
+            "research_instrument_tree": count_delta_table_rows(
+                Path(output_paths["research_instrument_tree"])
+            ),
             "research_datasets": count_delta_table_rows(Path(output_paths["research_datasets"])),
         }
         primary_report = contour_reports[primary_contour]

@@ -14,7 +14,10 @@ from trading_advisor_3000.product_plane.contracts import (
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
 from trading_advisor_3000.product_plane.execution.intents import PaperBrokerEngine
 from trading_advisor_3000.product_plane.interfaces.api import RuntimeAPI
-from trading_advisor_3000.product_plane.research import build_forward_observations, candidate_id_from_signal
+from trading_advisor_3000.product_plane.research import (
+    build_forward_observations,
+    candidate_id_from_signal,
+)
 from trading_advisor_3000.product_plane.research.backtests import results_store_contract
 from trading_advisor_3000.product_plane.runtime.analytics.outcomes import (
     build_signal_outcomes,
@@ -108,7 +111,9 @@ def _candidate_rows(
                 "family_key": "shadow-replay",
                 "signal_id": candidate.signal_id,
                 "contract_id": candidate.contract_id,
-                "instrument_id": instrument_by_contract.get(candidate.contract_id, candidate.contract_id),
+                "instrument_id": instrument_by_contract.get(
+                    candidate.contract_id, candidate.contract_id
+                ),
                 "timeframe": candidate.timeframe.value,
                 "ts_signal": candidate.ts_decision,
                 "side": candidate.side.value,
@@ -174,11 +179,15 @@ def run_system_shadow_replay(
         str(item["signal_id"]): str(item["candidate_id"])
         for item in runtime_payload["replay_report"].get("accepted_candidates", [])
     }
-    accepted_signal_ids = set(str(item) for item in runtime_payload["replay_report"]["accepted_signal_ids"])
+    accepted_signal_ids = set(
+        str(item) for item in runtime_payload["replay_report"]["accepted_signal_ids"]
+    )
     publication_signal_ids = {str(item["signal_id"]) for item in runtime_payload["publications"]}
     runtime_signal_ids = sorted(accepted_signal_ids & publication_signal_ids)
     runtime_candidates = [item for item in candidates if item.signal_id in runtime_signal_ids]
-    runtime_candidate_ids = sorted({accepted_candidates[item.signal_id] for item in runtime_candidates})
+    runtime_candidate_ids = sorted(
+        {accepted_candidates[item.signal_id] for item in runtime_candidates}
+    )
 
     forward_observations = build_forward_observations(
         candidates=runtime_candidates,

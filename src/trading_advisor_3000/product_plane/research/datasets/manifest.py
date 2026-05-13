@@ -116,5 +116,7 @@ class ResearchDatasetManifest:
         return payload
 
     def manifest_hash(self) -> str:
-        normalized = json.dumps(self.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        normalized = json.dumps(
+            self.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        )
         return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16].upper()
