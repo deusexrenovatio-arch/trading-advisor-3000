@@ -7,6 +7,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
     delta_table_columns,
     ensure_delta_table_columns,
+    iter_delta_table_row_batches,
     read_delta_table_rows,
     read_filtered_delta_table_rows,
     read_small_delta_table_rows,
@@ -119,6 +120,35 @@ def test_read_delta_table_rows_rejects_unbounded_hot_tables(tmp_path, filters) -
         {"id": "a", "value": 1}
     ]
     assert read_delta_table_rows(table_path, limit=1) == [{"id": "a", "value": 1}]
+
+
+def test_iter_delta_table_row_batches_rejects_unbounded_hot_tables(tmp_path) -> None:
+    table_path = tmp_path / "research_bar_views.delta"
+    write_delta_table_rows(
+        table_path=table_path,
+        columns={"dataset_version": "string", "contour_id": "string", "value": "int"},
+        rows=[
+            {"dataset_version": "dataset-v1", "contour_id": "native_tradable", "value": 1},
+            {"dataset_version": "dataset-v1", "contour_id": "pit_active_front", "value": 2},
+        ],
+    )
+
+    with pytest.raises(ValueError, match="batch iteration requires filters"):
+        list(iter_delta_table_row_batches(table_path))
+
+    rows = [
+        row
+        for batch in iter_delta_table_row_batches(
+            table_path,
+            filters=[
+                ("dataset_version", "=", "dataset-v1"),
+                ("contour_id", "=", "native_tradable"),
+            ],
+        )
+        for row in batch
+    ]
+
+    assert rows == [{"dataset_version": "dataset-v1", "contour_id": "native_tradable", "value": 1}]
 
 
 def test_read_delta_table_rows_applies_limit_before_full_materialization(

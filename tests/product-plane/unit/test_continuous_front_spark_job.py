@@ -83,7 +83,7 @@ def test_continuous_front_spark_job_uses_native_spark_contour(
     monkeypatch.setattr(job, "_build_spark_native_tables", _native_builder)
     monkeypatch.setattr(job, "_write_spark_dataframe_tables", _write_tables)
     monkeypatch.setattr(job, "_validate_spark_promoted_contracts", lambda _paths: [])
-    monkeypatch.setattr(job, "count_delta_table_rows", lambda _path: 1)
+    monkeypatch.setattr(job, "count_delta_table_rows", lambda _path, **_kwargs: 1)
 
     report = job.run_continuous_front_spark_job(
         canonical_bars_path=canonical_bars_path,
@@ -122,6 +122,53 @@ def test_continuous_front_spark_job_uses_native_spark_contour(
     assert "build_continuous_front_tables" not in job.run_continuous_front_spark_job.__code__.co_names
     assert "toLocalIterator" not in job.run_continuous_front_spark_job.__code__.co_names
     assert "collect" not in job.run_continuous_front_spark_job.__code__.co_names
+
+
+def test_continuous_front_spark_writer_uses_scoped_replace_without_destructive_delete() -> None:
+    source = Path("src/trading_advisor_3000/spark_jobs/continuous_front_job.py").read_text(encoding="utf-8")
+
+    assert "shutil.rmtree" not in source
+    assert ".delete(" in source
+    assert "_continuous_front_replace_filters(" in source
+    assert 'filters=[("dataset_version", "=", dataset_version)]' in source
+
+
+def test_continuous_front_partial_replace_scope_tracks_request_filters() -> None:
+    filters = job._continuous_front_replace_filters(  # type: ignore[attr-defined]
+        table_name="continuous_front_bars",
+        dataset_version="dataset-v1",
+        instrument_ids=("FUT_BR",),
+        timeframes=("15m",),
+        start_ts="2026-05-12T00:00:00Z",
+        end_ts="2026-05-12T23:59:59Z",
+    )
+
+    condition = job._scoped_delete_condition(filters)  # type: ignore[attr-defined]
+
+    assert condition == (
+        "dataset_version = 'dataset-v1' AND instrument_id IN ('FUT_BR') "
+        "AND timeframe IN ('15m') AND ts >= '2026-05-12T00:00:00Z' "
+        "AND ts <= '2026-05-12T23:59:59Z'"
+    )
+
+
+def test_continuous_front_qc_replace_scope_uses_available_dimensions_only() -> None:
+    filters = job._continuous_front_replace_filters(  # type: ignore[attr-defined]
+        table_name="continuous_front_qc_report",
+        dataset_version="dataset-v1",
+        instrument_ids=("FUT_BR",),
+        timeframes=("15m",),
+        start_ts="2026-05-12T00:00:00Z",
+        end_ts="2026-05-12T23:59:59Z",
+    )
+
+    condition = job._scoped_delete_condition(filters)  # type: ignore[attr-defined]
+
+    assert condition == (
+        "dataset_version = 'dataset-v1' AND instrument_id IN ('FUT_BR') "
+        "AND timeframe IN ('15m')"
+    )
+    assert "ts" not in condition
 
 
 def test_continuous_front_spark_job_rejects_unsupported_policy(

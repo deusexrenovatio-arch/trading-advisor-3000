@@ -1,15 +1,11 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from dagster import build_op_context
 
 from trading_advisor_3000.dagster_defs import research_asset_specs, research_assets
-from trading_advisor_3000.product_plane.contracts import CanonicalBar
-from trading_advisor_3000.product_plane.data_plane.canonical import (
-    RollMapEntry,
-    SessionCalendarEntry,
-)
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     read_delta_table_rows,
     write_delta_table_rows,
@@ -554,6 +550,7 @@ def test_reused_data_prep_validation_does_not_reload_materialized_research_rows(
         rows=[
             {
                 "dataset_version": "dataset-v1",
+                "contour_id": "native_tradable",
                 "dataset_name": "dataset",
                 "source_table": "canonical_bars",
                 "universe_id": "universe-v1",
@@ -570,15 +567,24 @@ def test_reused_data_prep_validation_does_not_reload_materialized_research_rows(
     write_delta_table_rows(
         table_path=tmp_path / "research_instrument_tree.delta",
         columns=dataset_contract["research_instrument_tree"]["columns"],
-        rows=[{"dataset_version": "dataset-v1", "instrument_id": "FUT_BR", "row_count": 1}],
+        rows=[
+            {
+                "dataset_version": "dataset-v1",
+                "contour_id": "native_tradable",
+                "instrument_id": "FUT_BR",
+                "internal_id": "FUT_BR",
+                "row_count": 1,
+            }
+        ],
     )
     write_delta_table_rows(
         table_path=tmp_path / "research_bar_views.delta",
         columns=dataset_contract["research_bar_views"]["columns"],
         rows=[
-            {
-                "dataset_version": "dataset-v1",
-                "contract_id": "BRQ2@MOEX",
+                {
+                    "dataset_version": "dataset-v1",
+                    "contour_id": "native_tradable",
+                    "contract_id": "BRQ2@MOEX",
                 "instrument_id": "FUT_BR",
                 "timeframe": "15m",
                 "ts": "2026-04-30T10:00:00Z",
@@ -599,12 +605,15 @@ def test_reused_data_prep_validation_does_not_reload_materialized_research_rows(
         rows=[
             {
                 "dataset_version": "dataset-v1",
+                "contour_id": "native_tradable",
                 "indicator_set_version": "indicators-v1",
                 "profile_version": "core_v1",
                 "contract_id": "BRQ2@MOEX",
                 "instrument_id": "FUT_BR",
                 "timeframe": "15m",
                 "ts": "2026-04-30T10:00:00Z",
+                "series_mode": "contract",
+                "series_id": "BRQ2@MOEX",
             }
         ],
     )
@@ -614,6 +623,7 @@ def test_reused_data_prep_validation_does_not_reload_materialized_research_rows(
         rows=[
             {
                 "dataset_version": "dataset-v1",
+                "contour_id": "native_tradable",
                 "indicator_set_version": "indicators-v1",
                 "derived_indicator_set_version": "derived-v1",
                 "profile_version": "core_v1",
@@ -621,18 +631,27 @@ def test_reused_data_prep_validation_does_not_reload_materialized_research_rows(
                 "instrument_id": "FUT_BR",
                 "timeframe": "15m",
                 "ts": "2026-04-30T10:00:00Z",
+                "series_mode": "contract",
+                "series_id": "BRQ2@MOEX",
             }
         ],
     )
 
     row_load_paths: list[str] = []
     original_read_rows = research_assets.read_delta_table_rows
+    count_filters = []
+    original_count_rows = research_assets.count_delta_table_rows
 
     def _tracked_row_read(table_path, *args, **kwargs):
         row_load_paths.append(table_path.name)
         return original_read_rows(table_path, *args, **kwargs)
 
+    def _tracked_count_rows(table_path, *args, **kwargs):
+        count_filters.append((table_path.name, kwargs.get("filters")))
+        return original_count_rows(table_path, *args, **kwargs)
+
     monkeypatch.setattr(research_assets, "read_delta_table_rows", _tracked_row_read)
+    monkeypatch.setattr(research_assets, "count_delta_table_rows", _tracked_count_rows)
 
     research_assets._require_existing_data_prep(  # type: ignore[attr-defined]
         materialized_output_dir=tmp_path,
@@ -647,35 +666,29 @@ def test_reused_data_prep_validation_does_not_reload_materialized_research_rows(
 
     assert manifest["dataset_version"] == "dataset-v1"
     assert row_load_paths == ["research_datasets.delta"]
+    assert (
+        "research_indicator_frames.delta",
+        [
+            ("dataset_version", "=", "dataset-v1"),
+            ("contour_id", "=", "native_tradable"),
+            ("indicator_set_version", "=", "indicators-v1"),
+        ],
+    ) in count_filters
+    assert (
+        "research_derived_indicator_frames.delta",
+        [
+            ("dataset_version", "=", "dataset-v1"),
+            ("contour_id", "=", "native_tradable"),
+            ("indicator_set_version", "=", "indicators-v1"),
+            ("derived_indicator_set_version", "=", "derived-v1"),
+        ],
+    ) in count_filters
 
 
-def test_research_dataset_materialization_replaces_delta_version_without_existing_row_reload(
-    tmp_path, monkeypatch
-) -> None:
-    bars = [
-        CanonicalBar.from_dict(
-            {
-                "contract_id": "BRQ2@MOEX",
-                "instrument_id": "FUT_BR",
-                "timeframe": "15m",
-                "ts": "2026-04-30T10:00:00Z",
-                "open": 100.0,
-                "high": 101.0,
-                "low": 99.0,
-                "close": 100.5,
-                "volume": 10,
-                "open_interest": 100,
-            }
-        )
-    ]
-    calendar = [
-        SessionCalendarEntry(
-            "FUT_BR", "15m", "2026-04-30", "2026-04-30T10:00:00Z", "2026-04-30T10:00:00Z"
-        )
-    ]
-    roll_map = [RollMapEntry("FUT_BR", "2026-04-30", "BRQ2@MOEX", "test")]
+def test_research_dataset_materialization_replaces_delta_version_without_existing_row_reload(tmp_path, monkeypatch) -> None:
     manifest = ResearchDatasetManifest(
         dataset_version="native-dataset-v1",
+        contour_id="native_tradable",
         dataset_name="native dataset",
         universe_id="moex-futures",
         timeframes=("15m",),
@@ -684,14 +697,14 @@ def test_research_dataset_materialization_replaces_delta_version_without_existin
         end_ts="2026-04-30T10:00:00Z",
         warmup_bars=0,
         split_method="full",
+        bars_hash="OLD",
         code_version="test",
     )
     materialize_research_dataset(
         manifest_seed=manifest,
-        bars=bars,
-        session_calendar=calendar,
-        roll_map=roll_map,
         output_dir=tmp_path,
+        bar_view_count=1,
+        instrument_tree_count=1,
     )
 
     def _forbidden_existing_reload(*_: object, **__: object) -> None:
@@ -699,27 +712,77 @@ def test_research_dataset_materialization_replaces_delta_version_without_existin
             "dataset materialization must not reload existing Delta rows before replacement"
         )
 
-    for reader_name in (
-        "read_delta_table_rows",
-        "read_small_delta_table_rows",
-        "read_filtered_delta_table_rows",
-    ):
-        if hasattr(dataset_materialize_module, reader_name):
-            monkeypatch.setattr(dataset_materialize_module, reader_name, _forbidden_existing_reload)
+    monkeypatch.setattr(dataset_materialize_module, "read_filtered_delta_table_rows", _forbidden_existing_reload)
     materialize_research_dataset(
-        manifest_seed=manifest,
-        bars=bars,
-        session_calendar=calendar,
-        roll_map=roll_map,
+        manifest_seed=ResearchDatasetManifest(
+            **{**manifest.__dict__, "bars_hash": "NEW"}
+        ),
         output_dir=tmp_path,
+        bar_view_count=2,
+        instrument_tree_count=1,
     )
 
     rows = read_delta_table_rows(
-        tmp_path / "research_bar_views.delta",
-        filters=[("dataset_version", "=", "native-dataset-v1")],
+        tmp_path / "research_datasets.delta",
+        filters=[("dataset_version", "=", "native-dataset-v1"), ("contour_id", "=", "native_tradable")],
     )
     assert len(rows) == 1
-    assert rows[0]["contract_id"] == "BRQ2@MOEX"
+    assert rows[0]["bars_hash"] == "NEW"
+    assert json.loads(rows[0]["notes_json"])["view_row_count"] == 2
+
+
+def test_research_dataset_materialization_migrates_legacy_manifest_schema(tmp_path) -> None:
+    legacy_columns = dict(research_dataset_store_contract()["research_datasets"]["columns"])
+    for column in (
+        "contour_id",
+        "run_id",
+        "as_of_ts",
+        "source_delta_versions_json",
+        "source_delta_hashes_json",
+    ):
+        legacy_columns.pop(column)
+    write_delta_table_rows(
+        table_path=tmp_path / "research_datasets.delta",
+        columns=legacy_columns,
+        rows=[
+            {
+                "dataset_version": "dataset-v1",
+                "dataset_name": "legacy",
+                "source_table": "canonical_bars",
+                "universe_id": "moex-futures",
+                "timeframes_json": ["15m"],
+                "base_timeframe": "15m",
+                "series_mode": "contract",
+                "split_method": "full",
+                "warmup_bars": 0,
+                "source_tables": ["canonical_bars"],
+                "bars_hash": "OLD",
+                "lineage_key": "legacy",
+            }
+        ],
+    )
+
+    materialize_research_dataset(
+        manifest_seed=ResearchDatasetManifest(
+            dataset_version="dataset-v1",
+            contour_id="native_tradable",
+            dataset_name="native dataset",
+            universe_id="moex-futures",
+            timeframes=("15m",),
+            base_timeframe="15m",
+            bars_hash="NEW",
+        ),
+        output_dir=tmp_path,
+        bar_view_count=1,
+        instrument_tree_count=1,
+    )
+
+    rows = read_delta_table_rows(
+        tmp_path / "research_datasets.delta",
+        filters=[("dataset_version", "=", "dataset-v1"), ("contour_id", "=", "native_tradable")],
+    )
+    assert len(rows) == 1
+    assert rows[0]["bars_hash"] == "NEW"
 
 
 def test_indicator_store_replaces_partition_with_delta_delete_append_without_row_reload(

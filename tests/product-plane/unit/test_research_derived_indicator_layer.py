@@ -126,6 +126,9 @@ def test_derived_indicator_store_contract_is_separate_wide_layer() -> None:
         if column
         not in {
             "dataset_version",
+            "contour_id",
+            "series_mode",
+            "series_id",
             "indicator_set_version",
             "derived_indicator_set_version",
             "profile_version",
@@ -144,6 +147,18 @@ def test_derived_indicator_store_contract_is_separate_wide_layer() -> None:
             "created_at",
             "output_columns_hash",
         }
+    )
+    assert contract["research_derived_indicator_frames"]["partition_by"] == [
+        "dataset_version",
+        "contour_id",
+        "indicator_set_version",
+        "derived_indicator_set_version",
+        "instrument_id",
+        "timeframe",
+    ]
+    assert (
+        "unique(dataset_version, contour_id, series_mode, series_id, indicator_set_version, derived_indicator_set_version, timeframe, ts)"
+        in contract["research_derived_indicator_frames"]["constraints"]
     )
     assert contract["research_derived_indicator_frames"]["format"] == "delta"
     assert "feature_set_version" not in columns
@@ -263,6 +278,9 @@ def test_continuous_front_derived_rows_keep_chronological_alignment_across_contr
     indicators = [
         IndicatorFrameRow(
             dataset_version=row.dataset_version,
+            contour_id=row.contour_id,
+            series_mode=row.series_mode,
+            series_id=row.series_id,
             indicator_set_version="indicators-v1",
             profile_version="core_v1",
             contract_id=row.contract_id,

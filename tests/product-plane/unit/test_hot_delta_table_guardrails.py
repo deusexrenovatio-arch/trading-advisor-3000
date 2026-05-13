@@ -9,7 +9,11 @@ from trading_advisor_3000.product_plane.data_plane.hot_delta_tables import (
 
 SOURCE_ROOT = Path(__file__).parents[3] / "src" / "trading_advisor_3000"
 
-UNBOUNDED_READ_APIS = {"read_delta_table_frame", "read_delta_table_rows"}
+UNBOUNDED_READ_APIS = {
+    "iter_delta_table_row_batches",
+    "read_delta_table_frame",
+    "read_delta_table_rows",
+}
 FULL_WRITE_APIS = {"write_delta_table_rows"}
 BOUNDED_READ_KEYWORDS = {"filters", "limit"}
 
