@@ -11,7 +11,7 @@ import pandas_ta_classic as ta
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     delta_table_columns,
-    iter_delta_table_row_batches,
+    read_delta_table_arrow,
     read_delta_table_rows,
 )
 from trading_advisor_3000.product_plane.research.continuous_front_indicators.rules import (
@@ -519,10 +519,21 @@ def _load_bar_partition_counts(
     indicator_set_version: str,
     series_mode: str,
 ) -> dict[IndicatorFramePartitionKey, int]:
-    counts: dict[IndicatorFramePartitionKey, int] = {}
-    for batch in iter_delta_table_row_batches(
-        dataset_output_dir / "research_bar_views.delta",
-        columns=[
+    table_path = dataset_output_dir / "research_bar_views.delta"
+    requested_columns = [
+        "dataset_version",
+        "contour_id",
+        "series_mode",
+        "series_id",
+        "contract_id",
+        "instrument_id",
+        "timeframe",
+    ]
+    available_columns = set(delta_table_columns(table_path))
+    read_columns = [column for column in requested_columns if column in available_columns]
+    group_columns = [
+        column
+        for column in (
             "dataset_version",
             "contour_id",
             "series_mode",
@@ -530,17 +541,32 @@ def _load_bar_partition_counts(
             "contract_id",
             "instrument_id",
             "timeframe",
-        ],
-        filters=[("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
-    ):
-        for row in batch:
-            key = _bar_partition_key_from_row(
-                row,
-                dataset_version=dataset_version,
-                indicator_set_version=indicator_set_version,
-                series_mode=series_mode,
-            )
-            counts[key] = counts.get(key, 0) + 1
+        )
+        if column in read_columns
+    ]
+    if not group_columns:
+        return {}
+    filters = [
+        item
+        for item in (
+            ("dataset_version", "=", dataset_version),
+            ("contour_id", "=", contour_id),
+        )
+        if item[0] in available_columns
+    ]
+    table = read_delta_table_arrow(table_path, columns=read_columns, filters=filters)
+    if table.num_rows == 0:
+        return {}
+    grouped = table.group_by(group_columns).aggregate([([], "count_all")])
+    counts: dict[IndicatorFramePartitionKey, int] = {}
+    for row in grouped.to_pylist():
+        key = _bar_partition_key_from_row(
+            row,
+            dataset_version=dataset_version,
+            indicator_set_version=indicator_set_version,
+            series_mode=series_mode,
+        )
+        counts[key] = int(row.get("count_all") or 0)
     return counts
 
 
@@ -1509,6 +1535,7 @@ def materialize_indicator_frames(
     refreshed_partitions = 0
     extended_partitions = 0
     recomputed_partitions = 0
+    volume_profile_missing_source_partitions = 0
     volume_profile_source_cache: dict[
         tuple[IndicatorFramePartitionKey, str],
         Mapping[tuple[str, str], Sequence[Mapping[str, object]]] | None,
@@ -1606,6 +1633,8 @@ def materialize_indicator_frames(
             )
             target_bars_hash = _bars_hash(series, adjustment_ladder_rows=series_ladder_rows)
             local_volume_profile_source_rows = _load_volume_profile_rows(partition_key, series)
+            if local_volume_profile_source_rows is None:
+                volume_profile_missing_source_partitions += 1
             source_hash = (
                 _volume_profile_source_hash(
                     target_bars_hash=target_bars_hash,
@@ -1716,6 +1745,11 @@ def materialize_indicator_frames(
         )
 
     current_total_rows = sum(partition_counts.values())
+    volume_profile_source_status = "not_required"
+    if _profile_requires_volume_profile(resolved_profile):
+        volume_profile_source_status = (
+            "missing_source" if volume_profile_missing_source_partitions else "configured"
+        )
     return {
         "indicator_row_count": current_total_rows,
         "refreshed_row_count": refreshed_row_count,
@@ -1725,6 +1759,8 @@ def materialize_indicator_frames(
         "recomputed_partition_count": recomputed_partitions,
         "deleted_partition_count": len(deleted_partitions),
         "write_batch_count": batch_count,
+        "volume_profile_source_status": volume_profile_source_status,
+        "volume_profile_missing_source_partition_count": volume_profile_missing_source_partitions,
         "profile_version": resolved_profile.version,
         "output_columns_hash": target_output_columns_hash,
         "output_paths": output_paths,

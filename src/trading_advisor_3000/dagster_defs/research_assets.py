@@ -52,7 +52,7 @@ from trading_advisor_3000.product_plane.research.continuous_front import (
 from trading_advisor_3000.product_plane.research.continuous_front_indicators import (
     CF_INDICATOR_TABLES,
     continuous_front_indicator_store_contract,
-    run_continuous_front_indicator_pandas_job,
+    run_continuous_front_base_indicator_sidecar_job,
 )
 from trading_advisor_3000.product_plane.research.datasets import (
     CALENDAR_EXPIRY_CONTINUOUS_FRONT_POLICY,
@@ -1356,6 +1356,29 @@ def research_indicator_frames(
         volume_profile_raw_1m_table_path=raw_1m_table_path,
         volume_profile_tick_size_by_instrument=tick_size_by_instrument or None,
     )
+    dataset_manifest = dict(research_datasets.get("dataset_manifest") or {})
+    if str(dataset_manifest.get("series_mode")) == "continuous_front" and not bool(
+        research_datasets.get("reuse_existing_materialization")
+    ):
+        continuous_front_indicator_run_id = str(
+            research_datasets.get("campaign_run_id") or "continuous_front_base_indicator_refresh"
+        )
+        run_continuous_front_base_indicator_sidecar_job(
+            materialized_output_dir=materialized_output_dir,
+            dataset_version=dataset_version,
+            contour_id=str(research_datasets.get("contour_id", "pit_active_front")),
+            indicator_set_version=indicator_set_version,
+            derived_set_version=str(research_datasets.get("derived_indicator_set_version") or ""),
+            run_id=continuous_front_indicator_run_id,
+            calculation_app_id=(
+                "spark-dagster-continuous-front-base-indicators-"
+                f"{continuous_front_indicator_run_id}"
+            ),
+            event_log_path=(
+                "dagster://continuous_front_base_indicator_refresh/"
+                f"{continuous_front_indicator_run_id}/spark-event-log"
+            ),
+        )
     return _materialized_table_manifest(research_datasets, "research_indicator_frames")
 
 
@@ -1382,24 +1405,6 @@ def research_derived_indicator_frames(
         derived_indicator_set_version=derived_indicator_set_version,
         profile_version=profile_version,
     )
-    if not bool(research_datasets.get("reuse_existing_materialization")):
-        dataset_manifest = dict(research_datasets.get("dataset_manifest") or {})
-        if str(dataset_manifest.get("series_mode")) == "continuous_front":
-            continuous_front_indicator_run_id = str(
-                research_datasets.get("campaign_run_id") or "continuous_front_indicator_refresh"
-            )
-            run_continuous_front_indicator_pandas_job(
-                materialized_output_dir=materialized_output_dir,
-                dataset_version=dataset_version,
-                contour_id=str(research_datasets.get("contour_id", "pit_active_front")),
-                indicator_set_version=indicator_set_version,
-                derived_set_version=derived_indicator_set_version,
-                run_id=continuous_front_indicator_run_id,
-                calculation_app_id=f"spark-dagster-continuous-front-indicators-{continuous_front_indicator_run_id}",
-                event_log_path=(
-                    f"dagster://continuous_front_indicator_refresh/{continuous_front_indicator_run_id}/spark-event-log"
-                ),
-            )
     summary = _delta_table_summary(
         table_path=materialized_output_dir / "research_derived_indicator_frames.delta",
         table_name="research_derived_indicator_frames",

@@ -19,6 +19,7 @@ from trading_advisor_3000.product_plane.research.continuous_front_indicators imp
     build_cf_indicator_input_rows,
     continuous_front_indicator_store_contract,
     default_indicator_roll_rules,
+    run_continuous_front_base_indicator_sidecar_job,
     run_continuous_front_indicator_pandas_job,
 )
 from trading_advisor_3000.product_plane.research.continuous_front_indicators.pandas_job import (
@@ -734,6 +735,29 @@ def test_continuous_front_indicator_job_writes_governed_sidecar_tables(tmp_path:
         "anti_bypass",
     } <= qc_groups
     assert set(continuous_front_indicator_store_contract()) == set(CF_INDICATOR_TABLES)
+
+
+def test_continuous_front_base_indicator_sidecar_job_does_not_write_derived_output(
+    tmp_path: Path,
+) -> None:
+    materialized_dir = tmp_path / "materialized"
+    views = _write_continuous_front_materialized_inputs(materialized_dir)
+    indicator_rows, _ = _write_materialized_indicator_frames(materialized_dir, views)
+
+    report = run_continuous_front_base_indicator_sidecar_job(
+        materialized_output_dir=materialized_dir,
+        dataset_version="cf-dataset-v1",
+        indicator_set_version="indicators-v1",
+        derived_set_version="derived-v1",
+        run_id="cf-base-indicator-sidecar",
+        calculation_app_id="spark-test-continuous-front-base-indicators",
+        event_log_path="file:///tmp/spark-events/cf-base-indicator-sidecar",
+    )
+
+    assert report["publish_status"] == "accepted"
+    assert report["rows_by_table"]["continuous_front_indicator_frames"] == len(indicator_rows)
+    assert "continuous_front_derived_indicator_frames" not in report["output_paths"]
+    assert not has_delta_log(materialized_dir / "continuous_front_derived_indicator_frames.delta")
 
 
 def test_continuous_front_indicator_job_reads_materialized_frames_without_recompute(

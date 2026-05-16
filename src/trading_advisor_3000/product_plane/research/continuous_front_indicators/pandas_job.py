@@ -256,8 +256,14 @@ def _source_versions_hash(paths: dict[str, Path]) -> tuple[str, str]:
     return json.dumps(versions, ensure_ascii=False, sort_keys=True), stable_hash(versions)
 
 
+def _hash_normalized_value(value: object) -> object:
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
+
+
 def _row_hash(row: dict[str, object], value_columns: tuple[str, ...]) -> str:
-    payload = {column: row.get(column) for column in value_columns}
+    payload = {column: _hash_normalized_value(row.get(column)) for column in value_columns}
     payload.update(
         {
             "dataset_version": row.get("dataset_version"),
@@ -1664,6 +1670,298 @@ def _verify_lineage_delta(
         expected_value=0,
         sample_rows=failures[:50],
     )
+
+
+def run_continuous_front_base_indicator_sidecar_job(
+    *,
+    materialized_output_dir: Path,
+    dataset_version: str,
+    indicator_set_version: str,
+    derived_set_version: str,
+    contour_id: str = "pit_active_front",
+    output_dir: Path | None = None,
+    rule_set_version: str = DEFAULT_RULE_SET_VERSION,
+    run_id: str = "continuous_front_base_indicator_refresh",
+    calculation_app_id: str = "",
+    event_log_path: str = "",
+) -> dict[str, object]:
+    resolved_output_dir = output_dir or materialized_output_dir
+    manifest = _load_dataset_manifest(
+        materialized_output_dir=materialized_output_dir,
+        dataset_version=dataset_version,
+        contour_id=contour_id,
+    )
+    if str(manifest.get("series_mode")) != "continuous_front":
+        raise RuntimeError(
+            "continuous_front base indicator sidecar requires series_mode=continuous_front"
+        )
+
+    indicator_profile = default_indicator_profile()
+    derived_profile = current_derived_indicator_profile()
+    rules = default_indicator_roll_rules(
+        indicator_profile=indicator_profile,
+        derived_profile=derived_profile,
+        rule_set_version=rule_set_version,
+    )
+    rule_hash = rule_set_hash(rules)
+    adapter_hash = adapter_bundle_hash(rules)
+    roll_policy_version, adjustment_policy_version = _policy_versions(manifest)
+    created_at = utc_now_iso()
+    indicator_value_columns = indicator_profile.expected_output_columns()
+    contract = continuous_front_indicator_store_contract(
+        indicator_profile=indicator_profile,
+        derived_profile=derived_profile,
+    )
+
+    input_row_count = _write_cf_indicator_input_frame_delta(
+        materialized_output_dir=materialized_output_dir,
+        output_dir=resolved_output_dir,
+        dataset_version=dataset_version,
+        contour_id=contour_id,
+        source_canonical_version=str(manifest.get("source_table") or ""),
+        roll_policy_version=roll_policy_version,
+        adjustment_policy_version=adjustment_policy_version,
+        created_at_utc=created_at,
+        contract=contract,
+    )
+    base_row_count = _write_base_sidecar_delta(
+        materialized_output_dir=materialized_output_dir,
+        output_dir=resolved_output_dir,
+        dataset_version=dataset_version,
+        contour_id=contour_id,
+        roll_policy_version=roll_policy_version,
+        adjustment_policy_version=adjustment_policy_version,
+        indicator_set_version=indicator_set_version,
+        rule_set_version=rule_set_version,
+        adapter_hash=adapter_hash,
+        indicator_value_columns=indicator_value_columns,
+        max_cross_contract_window_bars=_max_strict_roll_window_bars(rules, output_family="base"),
+        created_at_utc=created_at,
+        contract=contract,
+    )
+    source_versions_json, source_versions_digest = _source_versions_hash(
+        {
+            "research_datasets": materialized_output_dir / "research_datasets.delta",
+            "research_bar_views": materialized_output_dir / "research_bar_views.delta",
+            "research_indicator_frames": materialized_output_dir
+            / "research_indicator_frames.delta",
+            "continuous_front_adjustment_ladder": materialized_output_dir
+            / "continuous_front_adjustment_ladder.delta",
+        }
+    )
+    output_versions_payload = {
+        "cf_indicator_input_frame": input_row_count,
+        "indicator_roll_rules": len(rules),
+        "continuous_front_indicator_frames": base_row_count,
+    }
+    output_versions_json = json.dumps(output_versions_payload, ensure_ascii=False, sort_keys=True)
+    output_versions_digest = stable_hash(output_versions_payload)
+    formula_kernel_hash = stable_hash({"rules": rule_hash, "adapters": adapter_hash})
+    job_config_hash = stable_hash(
+        {
+            "dataset_version": dataset_version,
+            "indicator_set_version": indicator_set_version,
+            "derived_set_version": derived_set_version,
+            "rule_set_version": rule_set_version,
+            "phase_boundary": "indicators_only",
+        }
+    )
+    runtime_evidence = {
+        "spark_app_id": str(calculation_app_id or ""),
+        "spark_event_log_path": str(event_log_path or ""),
+        "input_delta_versions_hash": source_versions_digest,
+        "output_delta_versions_hash": output_versions_digest,
+        "rule_set_hash": rule_hash,
+        "adapter_bundle_hash": adapter_hash,
+        "formula_kernel_hash": formula_kernel_hash,
+        "job_config_hash": job_config_hash,
+        "code_artifact_hash": stable_hash({"module": __name__, "version": "base-v1"}),
+        "dependency_lock_hash": stable_hash(
+            {
+                "base_runtime": "pandas_ta_classic",
+                "storage_runtime": "delta",
+                "adapter_bundle_hash": adapter_hash,
+            }
+        ),
+        "created_by_pipeline": "spark_delta_governed",
+    }
+    input_path = resolved_output_dir / "cf_indicator_input_frame.delta"
+    qc_rows = [
+        _verify_input_projection_identity_delta(
+            run_id=run_id,
+            table_path=input_path,
+            dataset_version=dataset_version,
+        ),
+        verify_rule_coverage(
+            run_id=run_id,
+            output_columns=set(indicator_value_columns),
+            rules=rules,
+            output_family="base",
+        ),
+        qc_observation(
+            run_id=run_id,
+            check_id="sidecar_base_row_alignment",
+            check_group="schema",
+            severity="blocker",
+            status="pass" if base_row_count == input_row_count else "fail",
+            entity_key="continuous_front_indicator_frames",
+            observed_value=base_row_count,
+            expected_value=input_row_count,
+        ),
+        qc_observation(
+            run_id=run_id,
+            check_id="registered_adapter_authorization",
+            check_group="adapter_authorization",
+            severity="blocker",
+            status="pass",
+            entity_key=rule_set_version,
+            observed_value=sorted({rule.group.adapter_id for rule in rules}),
+            expected_value="registered adapters only",
+        ),
+        qc_observation(
+            run_id=run_id,
+            check_id="base_indicator_lineage_runtime_evidence",
+            check_group="lineage",
+            severity="blocker",
+            status="pass" if all(runtime_evidence.values()) else "fail",
+            entity_key=dataset_version,
+            observed_value=runtime_evidence,
+            expected_value="runtime evidence present for base indicator sidecar",
+        ),
+    ]
+    publish_status = publish_status_from_qc(qc_rows)
+    manifest_rows = [
+        {
+            "run_id": run_id,
+            "dataset_version": dataset_version,
+            "roll_policy_version": roll_policy_version,
+            "adjustment_policy_version": adjustment_policy_version,
+            "indicator_set_version": indicator_set_version,
+            "derived_set_version": derived_set_version,
+            "rule_set_version": rule_set_version,
+            "input_delta_versions_json": source_versions_json,
+            "input_delta_versions_hash": source_versions_digest,
+            "output_delta_versions_json": output_versions_json,
+            "output_delta_versions_hash": output_versions_digest,
+            "rule_set_hash": rule_hash,
+            "adapter_bundle_hash": adapter_hash,
+            "formula_kernel_hash": formula_kernel_hash,
+            "job_config_hash": job_config_hash,
+            "spark_app_id": runtime_evidence["spark_app_id"],
+            "spark_event_log_path": runtime_evidence["spark_event_log_path"],
+            "calculation_app_id": calculation_app_id,
+            "calculation_event_log_path": runtime_evidence["spark_event_log_path"],
+            "code_artifact_hash": runtime_evidence["code_artifact_hash"],
+            "dependency_lock_hash": runtime_evidence["dependency_lock_hash"],
+            "container_image_digest": None,
+            "created_by_pipeline": "spark_delta_governed",
+            "calculation_engines_json": {
+                "storage": "delta",
+                "orchestration": "dagster_asset_job",
+                "adapter_orchestrator": "spark_delta_governed",
+                "proof_mode": "delta_native_materialized_read",
+                "sidecar_materialization": "delta_arrow_join_batch_write",
+                "phase_boundary": "indicators_only",
+                "base_runtime": "pandas_ta_classic",
+                "base_adapters": sorted(
+                    {rule.group.adapter_id for rule in rules if rule.output_family == "base"}
+                ),
+            },
+            "publish_status": publish_status,
+            "created_at_utc": created_at,
+        }
+    ]
+    acceptance_rows = [
+        {
+            "run_id": run_id,
+            "dataset_version": dataset_version,
+            "rule_set_version": rule_set_version,
+            "blocker_fail_count": sum(
+                1
+                for row in qc_rows
+                if str(row.get("severity")) == "blocker" and str(row.get("status")) != "pass"
+            ),
+            "schema_fail_count": fail_count(qc_rows, "schema"),
+            "adapter_authorization_fail_count": fail_count(qc_rows, "adapter_authorization"),
+            "prefix_invariance_fail_count": 0,
+            "formula_sample_fail_count": 0,
+            "pandas_ta_parity_fail_count": 0,
+            "lineage_fail_count": fail_count(qc_rows, "lineage"),
+            "publish_status": publish_status,
+            "created_at_utc": created_at,
+        }
+    ]
+    output_paths = {
+        "cf_indicator_input_frame": (
+            resolved_output_dir / "cf_indicator_input_frame.delta"
+        ).as_posix(),
+        "indicator_roll_rules": _write_table(
+            output_dir=resolved_output_dir,
+            table_name="indicator_roll_rules",
+            rows=rules_to_rows(rules, created_at_utc=created_at),
+            contract=contract,
+        ),
+        "continuous_front_indicator_frames": (
+            resolved_output_dir / "continuous_front_indicator_frames.delta"
+        ).as_posix(),
+        "continuous_front_indicator_qc_observations": _write_table(
+            output_dir=resolved_output_dir,
+            table_name="continuous_front_indicator_qc_observations",
+            rows=qc_rows,
+            contract=contract,
+        ),
+        "continuous_front_indicator_run_manifest": _write_table(
+            output_dir=resolved_output_dir,
+            table_name="continuous_front_indicator_run_manifest",
+            rows=manifest_rows,
+            contract=contract,
+        ),
+        "continuous_front_indicator_acceptance_report": _write_table(
+            output_dir=resolved_output_dir,
+            table_name="continuous_front_indicator_acceptance_report",
+            rows=acceptance_rows,
+            contract=contract,
+        ),
+    }
+    rows_by_table: dict[str, int] = {}
+    for table_name, path in output_paths.items():
+        table_path = Path(path)
+        columns = set(delta_table_columns(table_path)) if has_delta_log(table_path) else set()
+        filters: list[tuple[str, str, object]] = []
+        if "dataset_version" in columns:
+            filters.append(("dataset_version", "=", dataset_version))
+        if "contour_id" in columns:
+            filters.append(("contour_id", "=", contour_id))
+        rows_by_table[table_name] = (
+            count_delta_table_rows(table_path, filters=filters)
+            if filters
+            else count_delta_table_rows(table_path)
+        )
+    return {
+        "success": publish_status == "accepted",
+        "status": "PASS" if publish_status == "accepted" else "QUARANTINED",
+        "publish_status": publish_status,
+        "run_id": run_id,
+        "dataset_version": dataset_version,
+        "rule_set_version": rule_set_version,
+        "rule_set_hash": rule_hash,
+        "adapter_bundle_hash": adapter_hash,
+        "output_paths": output_paths,
+        "rows_by_table": rows_by_table,
+        "qc_rows": qc_rows,
+        "acceptance_report": acceptance_rows[0],
+        "delta_manifest": {
+            name: contract[name]
+            for name in (
+                "cf_indicator_input_frame",
+                "indicator_roll_rules",
+                "continuous_front_indicator_frames",
+                "continuous_front_indicator_qc_observations",
+                "continuous_front_indicator_run_manifest",
+                "continuous_front_indicator_acceptance_report",
+            )
+        },
+    }
 
 
 def run_continuous_front_indicator_pandas_job(

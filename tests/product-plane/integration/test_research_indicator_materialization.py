@@ -410,6 +410,124 @@ def test_indicator_materialization_recomputes_only_affected_partitions(tmp_path:
     assert first_br_created_at != second_br_created_at
 
 
+def test_indicator_planning_uses_delta_native_aggregates_not_python_row_batches(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bars = [
+        *[
+            _canonical_bar(
+                contract_id="BR-6.26",
+                instrument_id="BR",
+                index=index,
+                close=80.0 + index * 0.2,
+            )
+            for index in range(60)
+        ],
+        *[
+            _canonical_bar(
+                contract_id="Si-6.26",
+                instrument_id="Si",
+                index=index,
+                close=90000.0 + index * 2,
+            )
+            for index in range(60)
+        ],
+    ]
+    session_calendar = [
+        SessionCalendarEntry(
+            "BR",
+            "15m",
+            "2026-03-01",
+            "2026-03-01T09:00:00Z",
+            "2026-03-01T20:45:00Z",
+        ),
+        SessionCalendarEntry(
+            "Si",
+            "15m",
+            "2026-03-01",
+            "2026-03-01T09:00:00Z",
+            "2026-03-01T20:45:00Z",
+        ),
+        SessionCalendarEntry(
+            "BR",
+            "15m",
+            "2026-03-02",
+            "2026-03-02T09:00:00Z",
+            "2026-03-02T20:45:00Z",
+        ),
+        SessionCalendarEntry(
+            "Si",
+            "15m",
+            "2026-03-02",
+            "2026-03-02T09:00:00Z",
+            "2026-03-02T20:45:00Z",
+        ),
+    ]
+    roll_map = [
+        RollMapEntry("BR", "2026-03-01", "BR-6.26", "test"),
+        RollMapEntry("Si", "2026-03-01", "Si-6.26", "test"),
+        RollMapEntry("BR", "2026-03-02", "BR-6.26", "test"),
+        RollMapEntry("Si", "2026-03-02", "Si-6.26", "test"),
+    ]
+    dataset_dir = tmp_path / "dataset-delta-native-planning"
+    indicator_dir = tmp_path / "indicators-delta-native-planning"
+    materialize_research_dataset(
+        manifest_seed=ResearchDatasetManifest(
+            dataset_version="dataset-delta-native-planning-v1",
+            dataset_name="delta native planning sample",
+            universe_id="moex-futures",
+            timeframes=("15m",),
+            base_timeframe="15m",
+            start_ts="2026-03-01T09:00:00Z",
+            end_ts="2026-03-01T23:45:00Z",
+            warmup_bars=0,
+            split_method="full",
+            code_version="test",
+        ),
+        bars=bars,
+        session_calendar=session_calendar,
+        roll_map=roll_map,
+        output_dir=dataset_dir,
+    )
+
+    def fail_python_row_batch_planner(*args: object, **kwargs: object) -> object:
+        raise AssertionError("indicator planning must not iterate Delta rows in Python")
+
+    import trading_advisor_3000.product_plane.research.indicators.materialize as materialize_module
+    import trading_advisor_3000.product_plane.research.indicators.store as store_module
+
+    monkeypatch.setattr(
+        materialize_module,
+        "iter_delta_table_row_batches",
+        fail_python_row_batch_planner,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        store_module,
+        "iter_delta_table_row_batches",
+        fail_python_row_batch_planner,
+        raising=False,
+    )
+
+    first_report = materialize_indicator_frames(
+        dataset_output_dir=dataset_dir,
+        indicator_output_dir=indicator_dir,
+        dataset_version="dataset-delta-native-planning-v1",
+        indicator_set_version="indicators-v1",
+    )
+    second_report = materialize_indicator_frames(
+        dataset_output_dir=dataset_dir,
+        indicator_output_dir=indicator_dir,
+        dataset_version="dataset-delta-native-planning-v1",
+        indicator_set_version="indicators-v1",
+    )
+
+    assert first_report["refreshed_partition_count"] == 2
+    assert second_report["reused_partition_count"] == 2
+    assert second_report["refreshed_partition_count"] == 0
+
+
 def test_indicator_materialization_extends_profile_without_recomputing_existing_columns(
     tmp_path: Path,
 ) -> None:

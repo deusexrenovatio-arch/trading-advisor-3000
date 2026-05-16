@@ -11,7 +11,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     delta_table_columns,
     ensure_delta_table_columns,
     has_delta_log,
-    iter_delta_table_row_batches,
+    read_delta_table_arrow,
     read_delta_table_rows,
     write_delta_table_row_batches,
 )
@@ -367,36 +367,62 @@ def load_indicator_partition_metadata(
     read_columns = [
         column for column in INDICATOR_PARTITION_METADATA_COLUMNS if column in existing_columns
     ]
-    metadata_by_partition: dict[tuple[object, ...], dict[str, object]] = {}
-    for batch in iter_delta_table_row_batches(
-        path,
-        columns=read_columns,
-        filters=[
+    group_columns = [
+        column
+        for column in (
+            "dataset_version",
+            "contour_id",
+            "series_mode",
+            "series_id",
+            "indicator_set_version",
+            "contract_id",
+            "instrument_id",
+            "timeframe",
+        )
+        if column in read_columns
+    ]
+    if not group_columns:
+        return []
+    aggregate_columns = [column for column in read_columns if column not in group_columns]
+    filters = [
+        item
+        for item in (
             ("dataset_version", "=", dataset_version),
             ("contour_id", "=", contour_id),
             ("indicator_set_version", "=", indicator_set_version),
-        ],
-    ):
-        for row in batch:
-            if (
-                row.get("dataset_version") != dataset_version
-                or str(row.get("contour_id") or "native_tradable") != contour_id
-                or row.get("indicator_set_version") != indicator_set_version
-            ):
-                continue
-            for column in INDICATOR_PARTITION_METADATA_COLUMNS:
-                row.setdefault(column, None)
-            key = (
-                row.get("dataset_version"),
-                row.get("contour_id", "native_tradable"),
-                row.get("series_mode", "contract"),
-                row.get("series_id", ""),
-                row.get("indicator_set_version"),
-                row.get("contract_id"),
-                row.get("instrument_id"),
-                row.get("timeframe"),
-            )
-            metadata_by_partition.setdefault(key, row)
+        )
+        if item[0] in existing_columns
+    ]
+    table = read_delta_table_arrow(path, columns=read_columns, filters=filters)
+    if table.num_rows == 0:
+        return []
+    grouped = table.group_by(group_columns).aggregate(
+        [(column, "max") for column in aggregate_columns]
+    )
+    metadata_by_partition: dict[tuple[object, ...], dict[str, object]] = {}
+    for grouped_row in grouped.to_pylist():
+        row = {column: grouped_row.get(column) for column in group_columns}
+        for column in aggregate_columns:
+            row[column] = grouped_row.get(f"{column}_max")
+        if (
+            row.get("dataset_version") != dataset_version
+            or str(row.get("contour_id") or "native_tradable") != contour_id
+            or row.get("indicator_set_version") != indicator_set_version
+        ):
+            continue
+        for column in INDICATOR_PARTITION_METADATA_COLUMNS:
+            row.setdefault(column, None)
+        key = (
+            row.get("dataset_version"),
+            row.get("contour_id", "native_tradable"),
+            row.get("series_mode", "contract"),
+            row.get("series_id", ""),
+            row.get("indicator_set_version"),
+            row.get("contract_id"),
+            row.get("instrument_id"),
+            row.get("timeframe"),
+        )
+        metadata_by_partition.setdefault(key, row)
     return list(metadata_by_partition.values())
 
 

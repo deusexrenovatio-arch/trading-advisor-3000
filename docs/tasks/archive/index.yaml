@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-05-08'
+updated_at: '2026-05-16'
 items:
 - id: TASK-2026-03-16-SHELL-BOOTSTRAP
   path: docs/tasks/archive/TASK-2026-03-16-shell-bootstrap.md
@@ -229,3 +229,9 @@ items:
   status: completed
   started_at: '2026-05-08'
   completed_at: '2026-05-08'
+- id: TASK-2026-05-16-PHASE-4-RESEARCH-INDICATORS-ON-TEST-SPARK-STAGIN
+  path: docs/tasks/archive/TASK-2026-05-16-phase-4-research-indicators-on-test-spark-stagin.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-05-16'
+  completed_at: '2026-05-16'
