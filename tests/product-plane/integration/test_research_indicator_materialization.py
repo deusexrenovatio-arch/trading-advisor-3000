@@ -18,6 +18,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     replace_delta_table_rows,
 )
 from trading_advisor_3000.product_plane.research.datasets import (
+    ContinuousFrontPolicy,
     ResearchBarView,
     ResearchDatasetManifest,
     research_dataset_store_contract,
@@ -526,6 +527,211 @@ def test_indicator_planning_uses_delta_native_aggregates_not_python_row_batches(
     assert first_report["refreshed_partition_count"] == 2
     assert second_report["reused_partition_count"] == 2
     assert second_report["refreshed_partition_count"] == 0
+
+
+def test_indicator_materialization_streams_fresh_partitions_into_writer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bars = [
+        *[
+            _canonical_bar(
+                contract_id="BR-6.26",
+                instrument_id="BR",
+                index=index,
+                close=80.0 + index * 0.2,
+            )
+            for index in range(60)
+        ],
+        *[
+            _canonical_bar(
+                contract_id="Si-6.26",
+                instrument_id="Si",
+                index=index,
+                close=90000.0 + index * 2,
+            )
+            for index in range(60)
+        ],
+    ]
+    session_calendar = [
+        SessionCalendarEntry(
+            "BR",
+            "15m",
+            "2026-03-01",
+            "2026-03-01T09:00:00Z",
+            "2026-03-01T20:45:00Z",
+        ),
+        SessionCalendarEntry(
+            "Si",
+            "15m",
+            "2026-03-01",
+            "2026-03-01T09:00:00Z",
+            "2026-03-01T20:45:00Z",
+        ),
+        SessionCalendarEntry(
+            "BR",
+            "15m",
+            "2026-03-02",
+            "2026-03-02T09:00:00Z",
+            "2026-03-02T20:45:00Z",
+        ),
+        SessionCalendarEntry(
+            "Si",
+            "15m",
+            "2026-03-02",
+            "2026-03-02T09:00:00Z",
+            "2026-03-02T20:45:00Z",
+        ),
+    ]
+    roll_map = [
+        RollMapEntry("BR", "2026-03-01", "BR-6.26", "test"),
+        RollMapEntry("Si", "2026-03-01", "Si-6.26", "test"),
+        RollMapEntry("BR", "2026-03-02", "BR-6.26", "test"),
+        RollMapEntry("Si", "2026-03-02", "Si-6.26", "test"),
+    ]
+    dataset_dir = tmp_path / "dataset-streaming-indicators"
+    indicator_dir = tmp_path / "indicators-streaming-indicators"
+    materialize_research_dataset(
+        manifest_seed=ResearchDatasetManifest(
+            dataset_version="dataset-streaming-indicators-v1",
+            dataset_name="streaming indicator sample",
+            universe_id="moex-futures",
+            timeframes=("15m",),
+            base_timeframe="15m",
+            start_ts="2026-03-01T09:00:00Z",
+            end_ts="2026-03-01T23:45:00Z",
+            warmup_bars=0,
+            split_method="full",
+            code_version="test",
+        ),
+        bars=bars,
+        session_calendar=session_calendar,
+        roll_map=roll_map,
+        output_dir=dataset_dir,
+    )
+
+    import trading_advisor_3000.product_plane.research.indicators.materialize as materialize_module
+
+    loaded_partitions: list[str] = []
+    loaded_at_writer_entry: list[str] = []
+    loaded_after_first_batch: list[str] = []
+    real_load_partition_rows = materialize_module._load_bar_partition_rows
+
+    def tracking_load_partition_rows(*args: object, **kwargs: object) -> object:
+        partition = kwargs["partition"]
+        loaded_partitions.append(partition.instrument_id)
+        return real_load_partition_rows(*args, **kwargs)
+
+    def fake_build_partition_rows(*args: object, **kwargs: object) -> list[object]:
+        return [object()]
+
+    def capture_writer(*args: object, **kwargs: object) -> tuple[dict[str, str], int, int]:
+        loaded_at_writer_entry.extend(loaded_partitions)
+        row_batches = iter(kwargs["row_batches"])
+        first_batch = next(row_batches)
+        loaded_after_first_batch.extend(loaded_partitions)
+        return (
+            {"research_indicator_frames": (indicator_dir / "stub.delta").as_posix()},
+            len(first_batch),
+            1,
+        )
+
+    monkeypatch.setattr(
+        materialize_module,
+        "_load_bar_partition_rows",
+        tracking_load_partition_rows,
+    )
+    monkeypatch.setattr(
+        materialize_module,
+        "_build_partition_rows",
+        fake_build_partition_rows,
+    )
+    monkeypatch.setattr(
+        materialize_module,
+        "write_indicator_frame_batches",
+        capture_writer,
+    )
+
+    report = materialize_indicator_frames(
+        dataset_output_dir=dataset_dir,
+        indicator_output_dir=indicator_dir,
+        dataset_version="dataset-streaming-indicators-v1",
+        indicator_set_version="indicators-v1",
+    )
+
+    assert report["refreshed_partition_count"] == 2
+    assert loaded_at_writer_entry == []
+    assert loaded_after_first_batch == ["BR"]
+
+
+def test_continuous_front_partition_counts_span_roll_contracts(tmp_path: Path) -> None:
+    import trading_advisor_3000.product_plane.research.indicators.materialize as materialize_module
+
+    bars = [
+        *[
+            _canonical_bar(
+                contract_id="BR-3.26",
+                instrument_id="BR",
+                index=index,
+                close=78.0 + index * 0.1,
+            )
+            for index in range(4)
+        ],
+        *[
+            _canonical_bar(
+                contract_id="BR-6.26",
+                instrument_id="BR",
+                index=index,
+                close=80.0 + index * 0.1,
+            )
+            for index in range(4, 10)
+        ],
+    ]
+    session_calendar = [
+        SessionCalendarEntry(
+            "BR",
+            "15m",
+            "2026-03-01",
+            "2026-03-01T09:00:00Z",
+            "2026-03-01T20:45:00Z",
+        ),
+    ]
+    roll_map = [RollMapEntry("BR", "2026-03-01", "BR-6.26", "test")]
+    dataset_dir = tmp_path / "dataset-continuous-front-counts"
+    materialize_research_dataset(
+        manifest_seed=ResearchDatasetManifest(
+            dataset_version="dataset-continuous-front-counts-v1",
+            dataset_name="continuous front partition count sample",
+            universe_id="moex-futures",
+            timeframes=("15m",),
+            contour_id="pit_active_front",
+            base_timeframe="15m",
+            start_ts="2026-03-01T09:00:00Z",
+            end_ts="2026-03-01T11:15:00Z",
+            series_mode="continuous_front",
+            continuous_front_policy=ContinuousFrontPolicy.from_config({}),
+            warmup_bars=0,
+            split_method="full",
+            code_version="test",
+        ),
+        bars=bars,
+        session_calendar=session_calendar,
+        roll_map=roll_map,
+        output_dir=dataset_dir,
+    )
+
+    counts = materialize_module._load_bar_partition_counts(
+        dataset_output_dir=dataset_dir,
+        dataset_version="dataset-continuous-front-counts-v1",
+        contour_id="pit_active_front",
+        indicator_set_version="indicators-v1",
+        series_mode="continuous_front",
+    )
+
+    assert list(counts.values()) == [10]
+    partition = next(iter(counts))
+    assert partition.contract_id is None
+    assert partition.series_mode == "continuous_front"
 
 
 def test_indicator_materialization_extends_profile_without_recomputing_existing_columns(

@@ -1045,3 +1045,30 @@ items:
   intent_sources:
   - request
   - session_handoff
+- task_id: TASK-2026-05-16-FIX-PHASE-4-RESEARCH-INDICATORS-FULL-PATH-PERFOR
+  closed_at: '2026-05-16T16:09:30Z'
+  branch: codex/delta_spark_phase4
+  goal_class: process
+  start_primary_context: CTX-OPS
+  start_contexts:
+  - CTX-OPS
+  final_contexts:
+  - CTX-DATA
+  - CTX-RESEARCH
+  - CTX-OPS
+  route_match: expanded
+  time_to_first_patch_sec: null
+  same_path_attempts: 1
+  decision_quality: correct_after_replan
+  primary_rework_cause: test_gap
+  incident_signature: full-path staging spent too long in Python/Pandas before first
+    indicator Delta output.
+  improvement_action: workflow
+  improvement_artifact: docs/tasks/archive/TASK-2026-05-16-fix-phase-4-research-indicators-full-path-perfor.md
+  linked_plan_id: null
+  linked_memory_id: null
+  outcome_status: completed
+  unmapped_files_count: 0
+  intent_sources:
+  - request
+  - session_handoff

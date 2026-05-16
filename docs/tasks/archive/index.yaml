@@ -235,3 +235,9 @@ items:
   status: completed
   started_at: '2026-05-16'
   completed_at: '2026-05-16'
+- id: TASK-2026-05-16-FIX-PHASE-4-RESEARCH-INDICATORS-FULL-PATH-PERFOR
+  path: docs/tasks/archive/TASK-2026-05-16-fix-phase-4-research-indicators-full-path-perfor.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-05-16'
+  completed_at: '2026-05-16'

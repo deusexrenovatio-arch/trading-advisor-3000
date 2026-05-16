@@ -8,12 +8,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    append_delta_table_rows,
+    delete_delta_table_rows,
     delta_table_columns,
     ensure_delta_table_columns,
     has_delta_log,
     read_delta_table_arrow,
     read_delta_table_rows,
     write_delta_table_row_batches,
+    write_delta_table_rows,
 )
 from trading_advisor_3000.product_plane.research.indicators.registry import (
     IndicatorProfile,
@@ -337,6 +340,58 @@ def write_indicator_frame_batches(
         replace_predicate=replace_predicate,
         preserve_existing_table=replace_partitions is not None,
     )
+    return {"research_indicator_frames": path.as_posix()}, row_count, batch_count
+
+
+def write_indicator_frame_partition_batches(
+    *,
+    output_dir: Path,
+    partition_row_batches: Iterable[tuple[IndicatorFramePartitionKey, list[IndicatorFrameRow]]],
+    delete_partitions: tuple[IndicatorFramePartitionKey, ...] = (),
+    max_rows_per_delta_write: int = DEFAULT_INDICATOR_WRITE_BATCH_ROWS,
+    profile: IndicatorProfile | None = None,
+) -> tuple[dict[str, str], int, int]:
+    if max_rows_per_delta_write <= 0:
+        raise ValueError("max_rows_per_delta_write must be > 0")
+    contract = indicator_store_contract(profile=profile)
+    path = output_dir / "research_indicator_frames.delta"
+    columns = contract["research_indicator_frames"]["columns"]
+    if has_delta_log(path):
+        ensure_delta_table_columns(table_path=path, columns=dict(columns))
+
+    row_count = 0
+    batch_count = 0
+    wrote_table = has_delta_log(path)
+    for partition, batch in partition_row_batches:
+        rows = [row.to_dict() for row in batch]
+        if has_delta_log(path):
+            delete_delta_table_rows(
+                table_path=path,
+                predicate=_partition_delete_predicate(partition),
+            )
+            wrote_table = True
+        for offset in range(0, len(rows), max_rows_per_delta_write):
+            chunk = rows[offset : offset + max_rows_per_delta_write]
+            if not chunk:
+                continue
+            if wrote_table:
+                append_delta_table_rows(table_path=path, rows=chunk, columns=columns)
+            else:
+                write_delta_table_rows(table_path=path, rows=chunk, columns=columns)
+                wrote_table = True
+            row_count += len(chunk)
+            batch_count += 1
+
+    for partition in delete_partitions:
+        if has_delta_log(path):
+            delete_delta_table_rows(
+                table_path=path,
+                predicate=_partition_delete_predicate(partition),
+            )
+
+    if not wrote_table:
+        write_delta_table_rows(table_path=path, rows=[], columns=columns)
+
     return {"research_indicator_frames": path.as_posix()}, row_count, batch_count
 
 

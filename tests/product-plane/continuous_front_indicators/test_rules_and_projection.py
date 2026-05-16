@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import ast
+import warnings
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
@@ -43,6 +45,9 @@ from trading_advisor_3000.product_plane.research.indicators import (
     build_indicator_frames,
     default_indicator_profile,
     indicator_store_contract,
+)
+from trading_advisor_3000.product_plane.research.indicators import (
+    materialize as indicator_materialize,
 )
 
 
@@ -510,6 +515,63 @@ def test_base_indicators_use_their_declared_roll_calculation_group() -> None:
     assert values_by_ts["2026-03-16T09:45:00Z"]["roc_2"] == pytest.approx(
         ((113.0 / 111.0) - 1.0) * 100.0
     )
+
+
+def test_continuous_front_profile_frame_avoids_fragmented_column_inserts() -> None:
+    start = datetime(2026, 3, 1, 9, 0, tzinfo=UTC)
+    rows = [
+        _view(
+            ts=(start + timedelta(minutes=15 * index)).isoformat().replace("+00:00", "Z"),
+            close=80.0 + index * 0.1,
+            roll_epoch=0,
+            active_contract_id="BRK6@MOEX",
+            bars_since_roll=index,
+        )
+        for index in range(160)
+    ]
+    frame = pd.DataFrame([row.to_dict() for row in rows])
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", pd.errors.PerformanceWarning)
+        computed = indicator_materialize._compute_continuous_front_profile_frame(
+            frame,
+            default_indicator_profile(),
+            adjustment_ladder_rows=(),
+        )
+
+    fragmentation_warnings = [
+        warning for warning in caught if issubclass(warning.category, pd.errors.PerformanceWarning)
+    ]
+    assert "rsi_14" in computed.columns
+    assert fragmentation_warnings == []
+
+
+def test_default_profile_frame_avoids_fragmented_column_inserts() -> None:
+    start = datetime(2026, 3, 1, 9, 0, tzinfo=UTC)
+    rows = [
+        _view(
+            ts=(start + timedelta(minutes=15 * index)).isoformat().replace("+00:00", "Z"),
+            close=80.0 + index * 0.1,
+            roll_epoch=0,
+            active_contract_id="BRK6@MOEX",
+            bars_since_roll=index,
+        )
+        for index in range(220)
+    ]
+    frame = pd.DataFrame([row.to_dict() for row in rows])
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", pd.errors.PerformanceWarning)
+        computed = indicator_materialize._compute_profile_frame(
+            frame,
+            default_indicator_profile(),
+        )
+
+    fragmentation_warnings = [
+        warning for warning in caught if issubclass(warning.category, pd.errors.PerformanceWarning)
+    ]
+    assert "rsi_14" in computed.columns
+    assert fragmentation_warnings == []
 
 
 def test_one_bar_native_oi_change_is_null_on_roll_boundary() -> None:
