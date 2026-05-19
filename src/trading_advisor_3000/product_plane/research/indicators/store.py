@@ -16,7 +16,6 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     read_delta_table_arrow,
     read_delta_table_rows,
     write_delta_table_row_batches,
-    write_delta_table_rows,
 )
 from trading_advisor_3000.product_plane.research.indicators.registry import (
     IndicatorProfile,
@@ -374,11 +373,8 @@ def write_indicator_frame_partition_batches(
             chunk = rows[offset : offset + max_rows_per_delta_write]
             if not chunk:
                 continue
-            if wrote_table:
-                append_delta_table_rows(table_path=path, rows=chunk, columns=columns)
-            else:
-                write_delta_table_rows(table_path=path, rows=chunk, columns=columns)
-                wrote_table = True
+            append_delta_table_rows(table_path=path, rows=chunk, columns=columns)
+            wrote_table = True
             row_count += len(chunk)
             batch_count += 1
 
@@ -390,7 +386,12 @@ def write_indicator_frame_partition_batches(
             )
 
     if not wrote_table:
-        write_delta_table_rows(table_path=path, rows=[], columns=columns)
+        write_delta_table_row_batches(
+            table_path=path,
+            row_batches=(),
+            columns=columns,
+            max_rows_per_delta_write=max_rows_per_delta_write,
+        )
 
     return {"research_indicator_frames": path.as_posix()}, row_count, batch_count
 

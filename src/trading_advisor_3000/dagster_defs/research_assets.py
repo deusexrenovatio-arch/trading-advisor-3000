@@ -64,6 +64,7 @@ from trading_advisor_3000.product_plane.research.derived_indicators import (
     DEFAULT_DERIVED_INDICATOR_SET_VERSION,
     materialize_derived_indicator_frames,
     research_derived_indicator_store_contract,
+    research_derived_source_frame_store_contract,
 )
 from trading_advisor_3000.product_plane.research.indicators import (
     indicator_store_contract,
@@ -612,6 +613,9 @@ def _research_output_paths(
         "research_indicator_frames": (
             resolved_materialized / "research_indicator_frames.delta"
         ).as_posix(),
+        "research_derived_source_frames": (
+            resolved_materialized / "research_derived_source_frames.delta"
+        ).as_posix(),
         "research_derived_indicator_frames": (
             resolved_materialized / "research_derived_indicator_frames.delta"
         ).as_posix(),
@@ -889,6 +893,12 @@ def _research_materialized_table_filters(
     if table_name in {"research_datasets", "research_instrument_tree", "research_bar_views"}:
         return [("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)]
     if table_name == "research_indicator_frames":
+        return [
+            ("dataset_version", "=", dataset_version),
+            ("contour_id", "=", contour_id),
+            ("indicator_set_version", "=", indicator_set_version),
+        ]
+    if table_name == "research_derived_source_frames":
         return [
             ("dataset_version", "=", dataset_version),
             ("contour_id", "=", contour_id),
@@ -1306,6 +1316,7 @@ def research_datasets(context, continuous_front_qc_report: dict[str, object]) ->
             **continuous_front_store_contract(),
             **research_dataset_store_contract(),
             **indicator_store_contract(),
+            **research_derived_source_frame_store_contract(),
             **research_derived_indicator_store_contract(),
             **continuous_front_indicator_store_contract(),
         },
@@ -1405,20 +1416,33 @@ def research_derived_indicator_frames(
     indicator_set_version = str(research_datasets["indicator_set_version"])
     derived_indicator_set_version = str(research_datasets["derived_indicator_set_version"])
     profile_version = str(research_datasets["derived_indicator_profile_version"])
-    materialize_derived_indicator_frames(
-        dataset_output_dir=materialized_output_dir,
-        indicator_output_dir=materialized_output_dir,
-        derived_indicator_output_dir=materialized_output_dir,
-        dataset_version=dataset_version,
-        contour_id=str(research_datasets.get("contour_id", "native_tradable")),
-        indicator_set_version=indicator_set_version,
-        derived_indicator_set_version=derived_indicator_set_version,
-        profile_version=profile_version,
+    materialize_report = (
+        materialize_derived_indicator_frames(
+            dataset_output_dir=materialized_output_dir,
+            indicator_output_dir=materialized_output_dir,
+            derived_indicator_output_dir=materialized_output_dir,
+            dataset_version=dataset_version,
+            contour_id=str(research_datasets.get("contour_id", "native_tradable")),
+            indicator_set_version=indicator_set_version,
+            derived_indicator_set_version=derived_indicator_set_version,
+            profile_version=profile_version,
+        )
+        or {}
     )
     summary = _delta_table_summary(
         table_path=materialized_output_dir / "research_derived_indicator_frames.delta",
         table_name="research_derived_indicator_frames",
     )
+    source_frame_path = materialized_output_dir / "research_derived_source_frames.delta"
+    if has_delta_log(source_frame_path):
+        summary["source_frame"] = _delta_table_summary(
+            table_path=source_frame_path,
+            table_name="research_derived_source_frames",
+        )
+    if isinstance(materialize_report, Mapping):
+        summary["source_frame_report"] = materialize_report.get("source_frame_report", {})
+        summary["output_paths"] = materialize_report.get("output_paths", {})
+        summary["delta_manifest"] = materialize_report.get("delta_manifest", {})
     for table_name in CF_INDICATOR_TABLES:
         table_path = materialized_output_dir / f"{table_name}.delta"
         if has_delta_log(table_path):
@@ -2652,6 +2676,19 @@ def _materialize_research_assets(
                 indicator_set_version=indicator_set_version,
                 derived_indicator_set_version=derived_indicator_set_version,
             )
+    source_frame_path = Path(output_paths["research_derived_source_frames"])
+    if has_delta_log(source_frame_path):
+        total_rows_by_table["research_derived_source_frames"] = count_delta_table_rows(
+            source_frame_path
+        )
+        rows_by_table["research_derived_source_frames"] = _count_materialized_table_rows(
+            table_path=source_frame_path,
+            table_name="research_derived_source_frames",
+            dataset_version=dataset_version,
+            contour_id=contour_id,
+            indicator_set_version=indicator_set_version,
+            derived_indicator_set_version=derived_indicator_set_version,
+        )
     report["rows_by_table"] = rows_by_table
     report["total_rows_by_table"] = total_rows_by_table
     return report

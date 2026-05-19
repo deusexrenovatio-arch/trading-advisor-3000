@@ -183,6 +183,7 @@ def test_hot_delta_table_inventory_is_explicit() -> None:
         "canonical_roll_map.delta",
         "research_bar_views.delta",
         "research_indicator_frames.delta",
+        "research_derived_source_frames.delta",
         "research_derived_indicator_frames.delta",
         "continuous_front_bars.delta",
         "continuous_front_adjustment_ladder.delta",

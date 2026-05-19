@@ -37,10 +37,18 @@ from trading_advisor_3000.product_plane.research.indicators import (
 )
 from trading_advisor_3000.product_plane.research.indicators.store import (
     existing_indicator_value_columns,
-    load_indicator_partition_metadata,
-    load_indicator_partition_rows,
+)
+from trading_advisor_3000.spark_jobs.research_derived_source_frames_job import (
+    run_research_derived_source_frames_spark_job,
 )
 
+from .source_frames import (
+    DERIVED_SOURCE_FRAME_TABLE,
+    DerivedSourceFramePartitionKey,
+    load_derived_source_frame_partition_metadata,
+    load_derived_source_frame_partition_rows,
+    research_derived_source_frame_store_contract,
+)
 from .store import (
     DEFAULT_DERIVED_INDICATOR_SET_VERSION,
     DerivedIndicatorFramePartitionKey,
@@ -322,6 +330,79 @@ def _load_bar_partition_rows(
     return [
         ResearchBarView.from_dict(row) for row in sorted(rows, key=lambda item: str(item["ts"]))
     ]
+
+
+def _source_frame_partition_key(
+    *,
+    dataset_version: str,
+    indicator_set_version: str,
+    series_key: DerivedSeriesKey,
+    timeframe: str,
+) -> DerivedSourceFramePartitionKey:
+    return DerivedSourceFramePartitionKey(
+        dataset_version=dataset_version,
+        indicator_set_version=indicator_set_version,
+        timeframe=timeframe,
+        instrument_id=series_key.instrument_id,
+        contract_id=series_key.contract_id,
+        contour_id=series_key.contour_id,
+        series_mode=series_key.series_mode,
+        series_id=series_key.series_id,
+    )
+
+
+def _series_key_from_source_metadata(
+    row: dict[str, object], *, requested_series_mode: str
+) -> DerivedSeriesKey:
+    series_mode = _resolved_series_mode(
+        row.get("series_mode"), requested_series_mode=requested_series_mode
+    )
+    contract_id = None if series_mode == "continuous_front" else str(row.get("contract_id") or "")
+    return DerivedSeriesKey(
+        instrument_id=str(row["instrument_id"]),
+        contract_id=contract_id,
+        contour_id=str(row.get("contour_id") or "native_tradable"),
+        series_mode=series_mode,
+        series_id=str(row.get("series_id") or contract_id or row["instrument_id"]),
+    )
+
+
+def _source_frame_rows_to_inputs(
+    *,
+    rows: list[dict[str, object]],
+    source_indicator_columns: tuple[str, ...],
+) -> tuple[list[ResearchBarView], list[IndicatorFrameRow], pd.DataFrame]:
+    bar_rows = [ResearchBarView.from_dict(row) for row in rows]
+    indicator_rows: list[IndicatorFrameRow] = []
+    for row in rows:
+        values: dict[str, float | int | None] = {}
+        for column in source_indicator_columns:
+            value = row.get(column)
+            values[column] = None if value is None else float(value)
+        indicator_rows.append(
+            IndicatorFrameRow(
+                dataset_version=str(row["dataset_version"]),
+                contour_id=str(row.get("contour_id") or "native_tradable"),
+                series_mode=str(row.get("series_mode") or "contract"),
+                series_id=str(row.get("series_id") or row.get("contract_id") or ""),
+                indicator_set_version=str(row["indicator_set_version"]),
+                profile_version=str(row.get("indicator_profile_version") or ""),
+                contract_id=str(row.get("contract_id") or ""),
+                instrument_id=str(row["instrument_id"]),
+                timeframe=str(row["timeframe"]),
+                ts=str(row["ts"]),
+                values=values,
+                source_bars_hash=str(row.get("indicator_source_bars_hash") or ""),
+                source_dataset_bars_hash=str(row.get("indicator_source_dataset_bars_hash") or ""),
+                row_count=int(row.get("indicator_row_count") or len(rows)),
+                warmup_span=int(row.get("indicator_warmup_span") or 0),
+                null_warmup_span=int(row.get("indicator_null_warmup_span") or 0),
+                created_at=str(row.get("indicator_created_at") or ""),
+                output_columns_hash=str(row.get("indicator_output_columns_hash") or ""),
+            )
+        )
+    frame = pd.DataFrame(rows).sort_values("ts").reset_index(drop=True)
+    return bar_rows, indicator_rows, frame
 
 
 def _latest_delta_commit_timestamp(table_path: Path) -> int | None:
@@ -1142,17 +1223,19 @@ def _build_partition_rows(
     local_series: list[ResearchBarView],
     local_indicator_rows: list[IndicatorFrameRow],
     source_frames: dict[str, pd.DataFrame],
+    base_frame: pd.DataFrame | None = None,
     source_dataset_bars_hash: str = "",
     output_columns_hash: str | None = None,
     compute_profile: DerivedIndicatorProfile | None = None,
     existing_rows: list[DerivedIndicatorFrameRow] | None = None,
     adjustment_ladder_rows: tuple[dict[str, object], ...] = (),
 ) -> list[DerivedIndicatorFrameRow]:
-    base_frame = _prepare_base_frame(
-        bars=local_series,
-        indicators=local_indicator_rows,
-        adjustment_ladder_rows=adjustment_ladder_rows,
-    )
+    if base_frame is None:
+        base_frame = _prepare_base_frame(
+            bars=local_series,
+            indicators=local_indicator_rows,
+            adjustment_ladder_rows=adjustment_ladder_rows,
+        )
     current_timeframe = local_series[0].timeframe
     compute_profile = compute_profile or profile
     computed = _compute_derived_frame(
@@ -1213,7 +1296,7 @@ def _build_partition_rows(
                 indicator_set_version=indicator_set_version,
                 derived_indicator_set_version=derived_indicator_set_version,
                 profile_version=profile.version,
-                contract_id=series_key.contract_id,
+                contract_id=original.contract_id,
                 instrument_id=original.instrument_id,
                 timeframe=original.timeframe,
                 ts=original.ts,
@@ -1310,50 +1393,14 @@ def materialize_derived_indicator_frames(
     current_dataset_bars_hash = str(dataset_manifest.get("bars_hash") or "")
     registry: DerivedIndicatorProfileRegistry = build_derived_indicator_profile_registry()
     resolved_profile = profile or registry.get(profile_version or "core_v1")
-    partition_counts = _load_bar_partition_counts(
-        dataset_output_dir=dataset_output_dir,
-        dataset_version=dataset_version,
-        contour_id=contour_id,
-        series_mode=series_mode,
-    )
-    bar_rows_cache: dict[tuple[DerivedSeriesKey, str], list[ResearchBarView]] = {}
-
-    def _load_bars(series_key: DerivedSeriesKey, timeframe: str) -> list[ResearchBarView]:
-        cache_key = (series_key, timeframe)
-        if cache_key not in bar_rows_cache:
-            bar_rows_cache[cache_key] = _load_bar_partition_rows(
-                dataset_output_dir=dataset_output_dir,
-                dataset_version=dataset_version,
-                contour_id=contour_id,
-                series_key=series_key,
-                timeframe=timeframe,
-            )
-        return bar_rows_cache[cache_key]
-
+    required_source_indicator_columns = _source_indicator_columns_for_profile(resolved_profile)
     indicator_table_exists = (
         indicator_output_dir / "research_indicator_frames.delta" / "_delta_log"
     ).exists()
-    indicator_metadata = (
-        load_indicator_partition_metadata(
-            output_dir=indicator_output_dir,
-            dataset_version=dataset_version,
-            indicator_set_version=indicator_set_version,
-            contour_id=contour_id,
-        )
-        if indicator_table_exists
-        else []
-    )
-    indicator_by_partition = _group_indicator_partition_metadata(
-        rows=indicator_metadata, series_mode=series_mode
-    )
     available_indicator_columns = (
         set(existing_indicator_value_columns(output_dir=indicator_output_dir))
         if indicator_table_exists
         else set()
-    )
-    required_source_indicator_columns = _source_indicator_columns_for_profile(resolved_profile)
-    required_indicator_columns_available = (
-        set(required_source_indicator_columns) <= available_indicator_columns
     )
     missing_required_indicator_columns = tuple(
         column
@@ -1365,30 +1412,73 @@ def materialize_derived_indicator_frames(
         raise ValueError(
             f"derived indicator materialization requires source indicator columns: {missing_joined}"
         )
-    indicator_rows_cache: dict[tuple[DerivedSeriesKey, str], list[IndicatorFrameRow]] = {}
 
-    def _load_indicator_rows(
+    source_frame_report = run_research_derived_source_frames_spark_job(
+        bar_views_path=dataset_output_dir / "research_bar_views.delta",
+        indicator_frames_path=indicator_output_dir / "research_indicator_frames.delta",
+        output_dir=derived_indicator_output_dir,
+        dataset_version=dataset_version,
+        contour_id=contour_id,
+        indicator_set_version=indicator_set_version,
+        derived_profile_version=resolved_profile.version,
+        source_indicator_columns=required_source_indicator_columns,
+    )
+    source_metadata = load_derived_source_frame_partition_metadata(
+        output_dir=derived_indicator_output_dir,
+        dataset_version=dataset_version,
+        indicator_set_version=indicator_set_version,
+        contour_id=contour_id,
+    )
+    partition_counts: dict[DerivedSeriesKey, dict[str, int]] = {}
+    for row in source_metadata:
+        series_key = _series_key_from_source_metadata(row, requested_series_mode=series_mode)
+        timeframe = str(row["timeframe"])
+        row_count = int(row.get("partition_row_count") or row.get("joined_row_count") or 0)
+        partition_counts.setdefault(series_key, {})[timeframe] = row_count
+
+    source_rows_cache: dict[
+        tuple[DerivedSeriesKey, str],
+        tuple[list[ResearchBarView], list[IndicatorFrameRow], pd.DataFrame],
+    ] = {}
+
+    def _load_source_inputs(
         series_key: DerivedSeriesKey, timeframe: str
-    ) -> list[IndicatorFrameRow]:
+    ) -> tuple[list[ResearchBarView], list[IndicatorFrameRow], pd.DataFrame]:
         cache_key = (series_key, timeframe)
-        if cache_key not in indicator_rows_cache:
-            indicator_rows_cache[cache_key] = load_indicator_partition_rows(
-                output_dir=indicator_output_dir,
-                partition=_indicator_partition_key(
+        if cache_key not in source_rows_cache:
+            rows = load_derived_source_frame_partition_rows(
+                output_dir=derived_indicator_output_dir,
+                partition=_source_frame_partition_key(
                     dataset_version=dataset_version,
                     indicator_set_version=indicator_set_version,
                     series_key=series_key,
                     timeframe=timeframe,
                 ),
-                value_columns=required_source_indicator_columns,
+                source_indicator_columns=required_source_indicator_columns,
             )
-        return indicator_rows_cache[cache_key]
+            if not rows:
+                raise ValueError(
+                    "derived indicator source-frame partition is empty for "
+                    f"{series_key.instrument_id}|{series_key.series_id}|{timeframe}"
+                )
+            local_series, local_indicator_rows, base_frame = _source_frame_rows_to_inputs(
+                rows=rows,
+                source_indicator_columns=required_source_indicator_columns,
+            )
+            base_frame = _with_continuous_front_projection(
+                base_frame,
+                adjustment_ladder_rows=adjustment_ladder_rows
+                if series_mode == "continuous_front"
+                else (),
+            )
+            source_rows_cache[cache_key] = (local_series, local_indicator_rows, base_frame)
+        return source_rows_cache[cache_key]
 
     table_exists = (
         derived_indicator_output_dir / "research_derived_indicator_frames.delta" / "_delta_log"
     ).exists()
     source_table_commit_ts = _latest_delta_commit_timestamp(
-        dataset_output_dir / "research_bar_views.delta"
+        derived_indicator_output_dir / "research_derived_source_frames.delta"
     )
     derived_table_commit_ts = (
         _latest_delta_commit_timestamp(
@@ -1428,11 +1518,13 @@ def materialize_derived_indicator_frames(
     refresh_plan: list[
         tuple[
             DerivedSeriesKey,
-            dict[str, list[ResearchBarView]],
+            dict[str, pd.DataFrame],
             list[
                 tuple[
                     str,
                     list[ResearchBarView],
+                    list[IndicatorFrameRow],
+                    pd.DataFrame,
                     DerivedIndicatorProfile,
                     list[DerivedIndicatorFrameRow] | None,
                 ]
@@ -1452,6 +1544,8 @@ def materialize_derived_indicator_frames(
             tuple[
                 str,
                 list[ResearchBarView],
+                list[IndicatorFrameRow],
+                pd.DataFrame,
                 DerivedIndicatorProfile,
                 list[DerivedIndicatorFrameRow] | None,
             ]
@@ -1480,8 +1574,14 @@ def materialize_derived_indicator_frames(
             existing_source_dataset_bars_hash = (
                 str(head.get("source_dataset_bars_hash") or "") if head else ""
             )
-            local_series: list[ResearchBarView] | None = None
-            source_bars_hash = str(head.get("source_bars_hash") or "") if head else ""
+            local_series, local_indicator_rows, source_base_frame = _load_source_inputs(
+                series_key, timeframe
+            )
+            source_bars_hash = _bars_hash(local_series)
+            source_indicators_hash = _indicator_hash(
+                local_indicator_rows,
+                value_columns=required_source_indicator_columns,
+            )
             source_bars_may_have_changed = _source_bars_may_have_changed(
                 source_bars_hash=source_bars_hash,
                 existing_row_count=existing_row_count,
@@ -1492,33 +1592,21 @@ def materialize_derived_indicator_frames(
                 legacy_table_covers_source_commit=legacy_table_covers_source_commit,
             )
             if source_bars_may_have_changed:
-                local_series = _load_bars(series_key, timeframe)
                 source_bars_hash = _bars_hash(local_series)
-            indicator_partition_metadata = indicator_by_partition.get((series_key, timeframe))
-            indicator_source_unchanged = bool(indicator_partition_metadata) and (
-                int(indicator_partition_metadata.get("row_count", -1) or -1) == row_count
-                and required_indicator_columns_available
-            )
             source_indicator_profile_version = (
-                str(indicator_partition_metadata.get("profile_version") or "")
-                if indicator_partition_metadata
-                else ""
+                local_indicator_rows[0].profile_version if local_indicator_rows else ""
             )
             source_indicator_output_columns_hash = (
-                str(indicator_partition_metadata.get("output_columns_hash") or "")
-                if indicator_partition_metadata
-                else ""
+                local_indicator_rows[0].output_columns_hash if local_indicator_rows else ""
             )
             stored_indicator_metadata_matches = bool(head) and (
                 head.get("source_indicator_profile_version") == source_indicator_profile_version
                 and head.get("source_indicator_output_columns_hash")
                 == source_indicator_output_columns_hash
             )
-            if indicator_source_unchanged and head and stored_indicator_metadata_matches:
-                source_indicators_hash = str(head.get("source_indicators_hash"))
-            else:
+            if not stored_indicator_metadata_matches and head:
                 source_indicators_hash = _indicator_hash(
-                    _load_indicator_rows(series_key, timeframe),
+                    local_indicator_rows,
                     value_columns=required_source_indicator_columns,
                 )
             if _existing_partition_matches(
@@ -1541,8 +1629,6 @@ def materialize_derived_indicator_frames(
             can_extend_from_existing = bool(
                 source_unchanged and missing_columns and partition_reusable_existing_columns
             )
-            if local_series is None:
-                local_series = _load_bars(series_key, timeframe)
             if can_extend_from_existing:
                 compute_profile = _profile_for_output_columns(resolved_profile, missing_columns)
                 existing_rows = load_derived_indicator_partition_rows(
@@ -1557,13 +1643,23 @@ def materialize_derived_indicator_frames(
                 recomputed_partitions += 1
 
             replace_partitions.append(partition_key)
-            refreshed_timeframes.append((timeframe, local_series, compute_profile, existing_rows))
+            refreshed_timeframes.append(
+                (
+                    timeframe,
+                    local_series,
+                    local_indicator_rows,
+                    source_base_frame,
+                    compute_profile,
+                    existing_rows,
+                )
+            )
             refreshed_partitions += 1
         if refreshed_timeframes:
-            bars_by_timeframe = {
-                timeframe: _load_bars(series_key, timeframe) for timeframe in counts_by_timeframe
+            source_frames = {
+                timeframe: _load_source_inputs(series_key, timeframe)[2]
+                for timeframe in counts_by_timeframe
             }
-            refresh_plan.append((series_key, bars_by_timeframe, refreshed_timeframes))
+            refresh_plan.append((series_key, source_frames, refreshed_timeframes))
 
     deleted_partitions = tuple(
         partition for partition in existing_by_partition if partition not in current_partitions
@@ -1576,27 +1672,28 @@ def materialize_derived_indicator_frames(
         for row_count in counts_by_timeframe.values()
     )
     output_paths = {
+        DERIVED_SOURCE_FRAME_TABLE: (
+            derived_indicator_output_dir / "research_derived_source_frames.delta"
+        ).as_posix(),
         "research_derived_indicator_frames": (
             derived_indicator_output_dir / "research_derived_indicator_frames.delta"
-        ).as_posix()
+        ).as_posix(),
     }
     refreshed_row_count = 0
     batch_count = 0
     if replace_partitions or not table_exists:
 
         def _row_batches() -> Iterator[list[DerivedIndicatorFrameRow]]:
-            for series_key, bars_by_timeframe, refreshed_timeframes in refresh_plan:
-                source_frames = {
-                    timeframe: _prepare_base_frame(
-                        bars=bars_by_timeframe[timeframe],
-                        indicators=_load_indicator_rows(series_key, timeframe),
-                        adjustment_ladder_rows=adjustment_ladder_rows
-                        if series_mode == "continuous_front"
-                        else (),
-                    )
-                    for timeframe in bars_by_timeframe
-                }
-                for timeframe, local_series, compute_profile, existing_rows in refreshed_timeframes:
+            for series_key, source_frames, refreshed_timeframes in refresh_plan:
+                del series_key
+                for (
+                    timeframe,
+                    local_series,
+                    local_indicator_rows,
+                    source_base_frame,
+                    compute_profile,
+                    existing_rows,
+                ) in refreshed_timeframes:
                     yield _build_partition_rows(
                         dataset_version=dataset_version,
                         indicator_set_version=indicator_set_version,
@@ -1604,8 +1701,9 @@ def materialize_derived_indicator_frames(
                         series_mode=series_mode,
                         profile=resolved_profile,
                         local_series=local_series,
-                        local_indicator_rows=_load_indicator_rows(series_key, timeframe),
+                        local_indicator_rows=local_indicator_rows,
                         source_frames=source_frames,
+                        base_frame=source_base_frame,
                         source_dataset_bars_hash=current_dataset_bars_hash,
                         output_columns_hash=target_output_columns_hash,
                         compute_profile=compute_profile,
@@ -1615,18 +1713,27 @@ def materialize_derived_indicator_frames(
                         else (),
                     )
 
-        output_paths, refreshed_row_count, batch_count = write_derived_indicator_frame_batches(
-            output_dir=derived_indicator_output_dir,
-            row_batches=_row_batches(),
-            replace_partitions=tuple(replace_partitions),
-            profile=resolved_profile,
+        derived_output_paths, refreshed_row_count, batch_count = (
+            write_derived_indicator_frame_batches(
+                output_dir=derived_indicator_output_dir,
+                row_batches=_row_batches(),
+                replace_partitions=tuple(replace_partitions),
+                profile=resolved_profile,
+            )
         )
+        output_paths.update(derived_output_paths)
+    source_rows_by_table = dict(source_frame_report.get("rows_by_table", {}))
+    source_frame_row_count = int(
+        source_rows_by_table.get(DERIVED_SOURCE_FRAME_TABLE, current_total_rows) or 0
+    )
     return {
         "dataset_version": dataset_version,
         "indicator_set_version": indicator_set_version,
         "derived_indicator_set_version": derived_indicator_set_version,
         "profile_version": resolved_profile.version,
         "derived_indicator_row_count": current_total_rows,
+        "source_frame_row_count": source_frame_row_count,
+        "source_frame_report": source_frame_report,
         "refreshed_row_count": refreshed_row_count,
         "refreshed_partition_count": refreshed_partitions,
         "reused_partition_count": reused_partitions,
@@ -1635,9 +1742,15 @@ def materialize_derived_indicator_frames(
         "deleted_partition_count": len(deleted_partitions),
         "write_batch_count": batch_count,
         "output_columns_hash": target_output_columns_hash,
-        "loaded_indicator_partition_count": len(indicator_rows_cache),
+        "loaded_indicator_partition_count": 0,
+        "loaded_source_frame_partition_count": len(source_rows_cache),
         "output_paths": output_paths,
-        "delta_manifest": research_derived_indicator_store_contract(profile=resolved_profile),
+        "delta_manifest": {
+            **research_derived_source_frame_store_contract(
+                source_indicator_columns=required_source_indicator_columns
+            ),
+            **research_derived_indicator_store_contract(profile=resolved_profile),
+        },
     }
 
 
