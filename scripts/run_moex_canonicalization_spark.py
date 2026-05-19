@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+# ruff: noqa: E402
 import argparse
 import json
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 try:
     from scripts.proof_runtime_contract import (
@@ -36,12 +37,14 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from trading_advisor_3000.spark_jobs import DEFAULT_SPARK_MASTER
-from trading_advisor_3000.spark_jobs.moex_canonicalization_job import run_moex_canonicalization_spark_job
-
+from trading_advisor_3000.spark_jobs.moex_canonicalization_job import (
+    run_moex_canonicalization_spark_job,
+)
 
 DEFAULT_DOCKER_IMAGE = "ta3000-phase-proof:latest"
 DEFAULT_DOCKERFILE = Path("deployment/docker/phase-proofs/Dockerfile")
 DEFAULT_DOCKER_RUNTIME_ROOT = "/tmp/ta3000-phase-proof"
+SPARK_DOCKER_SUBPROCESS_TIMEOUT_SECONDS = 1800
 
 
 def _repo_root() -> Path:
@@ -84,6 +87,7 @@ def _docker_python_command(
     *,
     normalized_source_jsonl: Path,
     selected_source_intervals_jsonl: Path,
+    session_intervals_path: Path | None,
     output_dir: Path,
     run_id: str,
     built_at_utc: str,
@@ -108,6 +112,8 @@ def _docker_python_command(
         "--spark-master",
         spark_master,
     ]
+    if session_intervals_path is not None:
+        command.extend(["--session-intervals-path", _container_path(session_intervals_path)])
     if output_json is not None:
         command.extend(["--output-json", _container_path(output_json)])
     return command
@@ -117,6 +123,7 @@ def _docker_exec_args(
     *,
     normalized_source_jsonl: Path,
     selected_source_intervals_jsonl: Path,
+    session_intervals_path: Path | None,
     output_dir: Path,
     run_id: str,
     built_at_utc: str,
@@ -126,6 +133,7 @@ def _docker_exec_args(
     python_command = _docker_python_command(
         normalized_source_jsonl=normalized_source_jsonl,
         selected_source_intervals_jsonl=selected_source_intervals_jsonl,
+        session_intervals_path=session_intervals_path,
         output_dir=output_dir,
         run_id=run_id,
         built_at_utc=built_at_utc,
@@ -147,6 +155,7 @@ def _run_in_docker(
     *,
     normalized_source_jsonl: Path,
     selected_source_intervals_jsonl: Path,
+    session_intervals_path: Path | None,
     output_dir: Path,
     run_id: str,
     built_at_utc: str,
@@ -181,6 +190,7 @@ def _run_in_docker(
         *_docker_exec_args(
             normalized_source_jsonl=normalized_source_jsonl,
             selected_source_intervals_jsonl=selected_source_intervals_jsonl,
+            session_intervals_path=session_intervals_path,
             output_dir=output_dir,
             run_id=run_id,
             built_at_utc=built_at_utc,
@@ -195,13 +205,16 @@ def _run_in_docker(
         capture_output=True,
         text=True,
         check=False,
+        timeout=SPARK_DOCKER_SUBPROCESS_TIMEOUT_SECONDS,
     )
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout).strip()
         raise RuntimeError(f"docker Spark canonicalization failed: {detail}")
 
     if output_json is None:
-        raise RuntimeError("docker Spark canonicalization requires output_json for deterministic capture")
+        raise RuntimeError(
+            "docker Spark canonicalization requires output_json for deterministic capture"
+        )
 
     payload = json.loads(output_json.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
@@ -209,11 +222,12 @@ def _run_in_docker(
     output_paths = payload.get("output_paths")
     if isinstance(output_paths, dict):
         payload["output_paths"] = {
-            str(key): _hostify_container_path(str(value))
-            for key, value in output_paths.items()
+            str(key): _hostify_container_path(str(value)) for key, value in output_paths.items()
         }
     payload["proof_profile"] = "docker-linux"
-    output_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    output_json.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     return payload
 
 
@@ -226,6 +240,7 @@ def main() -> None:
     )
     parser.add_argument("--normalized-source-jsonl", required=True)
     parser.add_argument("--selected-source-intervals-jsonl", required=True)
+    parser.add_argument("--session-intervals-path", default="")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--built-at-utc", required=True)
@@ -239,14 +254,22 @@ def main() -> None:
 
     normalized_source_jsonl = _resolve_repo_path(Path(args.normalized_source_jsonl))
     selected_source_intervals_jsonl = _resolve_repo_path(Path(args.selected_source_intervals_jsonl))
+    session_intervals_path = (
+        _resolve_repo_path(Path(args.session_intervals_path))
+        if str(args.session_intervals_path).strip()
+        else None
+    )
     output_dir = _resolve_repo_path(Path(args.output_dir))
     output_json = _resolve_repo_path(Path(args.output_json)) if args.output_json else None
 
     if args.profile == "docker":
-        runtime_root = normalize_runtime_root(args.docker_runtime_root, field_name="docker runtime root")
+        runtime_root = normalize_runtime_root(
+            args.docker_runtime_root, field_name="docker runtime root"
+        )
         report = _run_in_docker(
             normalized_source_jsonl=normalized_source_jsonl,
             selected_source_intervals_jsonl=selected_source_intervals_jsonl,
+            session_intervals_path=session_intervals_path,
             output_dir=output_dir,
             run_id=args.run_id,
             built_at_utc=args.built_at_utc,
@@ -260,6 +283,7 @@ def main() -> None:
         report = run_moex_canonicalization_spark_job(
             normalized_source_path=normalized_source_jsonl,
             selected_source_intervals_path=selected_source_intervals_jsonl,
+            session_intervals_path=session_intervals_path,
             output_dir=output_dir,
             build_run_id=args.run_id,
             built_at_utc=args.built_at_utc,

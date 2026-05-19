@@ -61,6 +61,36 @@ def _noop_raw_report() -> dict[str, object]:
     )
 
 
+def _session_intervals_path(tmp_path: Path) -> Path:
+    path = tmp_path / "official" / "canonical_session_intervals.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        '{"instrument_id":"FUT_BR","session_date":"2026-04-02",'
+        '"interval_id":"FUT_BR-2026-04-02-regular-1","interval_seq":1,'
+        '"expected_open_ts":"2026-04-02T10:00:00Z",'
+        '"expected_close_ts":"2026-04-02T18:45:00Z",'
+        '"session_class":"regular","interval_type":"regular_trading",'
+        '"policy_id":"moex-official-session-v1",'
+        '"source_id":"moex-official-schedule-fixture",'
+        '"source_document_hash":"sha256:fixture"}\n',
+        encoding="utf-8",
+    )
+    return path
+
+
+def _passing_session_admission_report() -> dict[str, object]:
+    return {
+        "mode": "official_session_intervals",
+        "official_session_interval_rows": 1,
+        "missing_official_coverage_rows": 0,
+        "admitted_source_rows": 1,
+        "rejected_out_of_session_rows": 0,
+        "rejected_non_1m_source_rows": 0,
+        "selected_source_interval_rows": 6,
+        "rejected_samples": [],
+    }
+
+
 def test_default_route_uses_scoped_spark_delta_publish_without_python_delta_reads(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -80,6 +110,7 @@ def test_default_route_uses_scoped_spark_delta_publish_without_python_delta_read
             "unmatched_window_rows": 0,
             "changed_window_rows": 1,
             "selected_source_interval_rows": 6,
+            "session_admission_report": _passing_session_admission_report(),
             "canonical_rows": 6,
             "provenance_rows": 6,
             "output_paths": {
@@ -157,6 +188,7 @@ def test_default_route_uses_scoped_spark_delta_publish_without_python_delta_read
         output_dir=tmp_path / "canonical",
         run_id="phase02-scoped-default",
         raw_ingest_run_report=_changed_raw_report(),
+        canonical_session_intervals_path=_session_intervals_path(tmp_path),
         repo_root=Path.cwd(),
     )
 
@@ -174,6 +206,41 @@ def test_default_route_uses_scoped_spark_delta_publish_without_python_delta_read
         .replace("\\", "/")
         .endswith(".spark-canonicalization/publish-scope.jsonl")
     )
+
+
+def test_default_route_blocks_when_manual_session_intervals_are_absent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_table_path = tmp_path / "raw_moex_history.delta"
+    write_delta_table_rows(table_path=raw_table_path, rows=[], columns=RAW_COLUMNS)
+
+    def _unexpected_spark_canonicalization(**_kwargs: object) -> dict[str, object]:
+        pytest.fail("canonical route must block before Spark when session intervals are absent")
+
+    def _unexpected_spark_publish(**_kwargs: object) -> dict[str, object]:
+        pytest.fail("canonical publish must not run when session intervals are absent")
+
+    monkeypatch.setattr(
+        route_module, "_run_spark_canonicalization", _unexpected_spark_canonicalization
+    )
+    monkeypatch.setattr(route_module, "_run_spark_canonical_publish", _unexpected_spark_publish)
+
+    report = route_module.run_historical_canonical_route(
+        raw_table_path=raw_table_path,
+        output_dir=tmp_path / "canonical",
+        run_id="phase02-no-session-intervals",
+        raw_ingest_run_report=_changed_raw_report(),
+        repo_root=Path.cwd(),
+    )
+
+    assert report["status"] == "BLOCKED"
+    assert report["publish_decision"] == "blocked"
+    assert report["session_intervals_path"] == ""
+    assert report["session_intervals_mode"] == "manual_session_intervals_missing_blocked"
+    assert report["session_admission_gate"]["failed_gates"] == ["official_schedule_missing_input"]
+    assert report["qc_report"]["failed_gates"] == ["official_schedule_missing_input"]
+    assert "spark_execution_report" not in report
 
 
 def test_route_blocks_when_spark_publish_contract_report_missing(
@@ -194,6 +261,7 @@ def test_route_blocks_when_spark_publish_contract_report_missing(
             "unmatched_window_rows": 0,
             "changed_window_rows": 1,
             "selected_source_interval_rows": 6,
+            "session_admission_report": _passing_session_admission_report(),
             "canonical_rows": 6,
             "provenance_rows": 6,
             "output_paths": {
@@ -230,6 +298,7 @@ def test_route_blocks_when_spark_publish_contract_report_missing(
         output_dir=tmp_path / "canonical",
         run_id="phase02-missing-contract-report",
         raw_ingest_run_report=_changed_raw_report(),
+        canonical_session_intervals_path=_session_intervals_path(tmp_path),
         repo_root=Path.cwd(),
     )
 
@@ -260,6 +329,7 @@ def test_route_blocks_when_spark_publish_qc_report_fails(
             "unmatched_window_rows": 0,
             "changed_window_rows": 1,
             "selected_source_interval_rows": 6,
+            "session_admission_report": _passing_session_admission_report(),
             "canonical_rows": 6,
             "provenance_rows": 6,
             "output_paths": {
@@ -302,6 +372,7 @@ def test_route_blocks_when_spark_publish_qc_report_fails(
         output_dir=tmp_path / "canonical",
         run_id="phase02-failing-qc-report",
         raw_ingest_run_report=_changed_raw_report(),
+        canonical_session_intervals_path=_session_intervals_path(tmp_path),
         repo_root=Path.cwd(),
     )
 
@@ -375,6 +446,7 @@ def test_route_rejects_blank_spark_output_paths_before_publish(
             "unmatched_window_rows": 0,
             "changed_window_rows": 1,
             "selected_source_interval_rows": 6,
+            "session_admission_report": _passing_session_admission_report(),
             "canonical_rows": 6,
             "provenance_rows": 6,
             "output_paths": {
@@ -396,6 +468,7 @@ def test_route_rejects_blank_spark_output_paths_before_publish(
             output_dir=tmp_path / "canonical",
             run_id="phase02-blank-spark-output",
             raw_ingest_run_report=_changed_raw_report(),
+            canonical_session_intervals_path=_session_intervals_path(tmp_path),
             repo_root=Path.cwd(),
         )
 
@@ -418,6 +491,7 @@ def test_route_keeps_contract_report_not_run_when_pre_publish_gate_blocks(
             "unmatched_window_rows": 0,
             "changed_window_rows": 1,
             "selected_source_interval_rows": 6,
+            "session_admission_report": _passing_session_admission_report(),
             "canonical_rows": 6,
             "provenance_rows": 6,
             "output_paths": {
@@ -443,6 +517,7 @@ def test_route_keeps_contract_report_not_run_when_pre_publish_gate_blocks(
         output_dir=tmp_path / "canonical",
         run_id="phase02-pre-publish-contract-not-run",
         raw_ingest_run_report=_changed_raw_report(),
+        canonical_session_intervals_path=_session_intervals_path(tmp_path),
         repo_root=Path.cwd(),
     )
 
@@ -530,6 +605,7 @@ def test_spark_publish_subprocess_timeout_is_reported(
             target_bars_path=tmp_path / "target_bars.delta",
             target_provenance_path=tmp_path / "target_provenance.delta",
             session_calendar_path=tmp_path / "session_calendar.delta",
+            session_intervals_path=_session_intervals_path(tmp_path),
             roll_map_path=tmp_path / "roll_map.delta",
             output_dir=tmp_path / "out",
             run_id="phase02-publish-timeout",

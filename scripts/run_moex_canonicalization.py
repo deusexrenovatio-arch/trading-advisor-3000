@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+# ruff: noqa: E402,E501
 import argparse
-from datetime import UTC, datetime
 import json
-from pathlib import Path
 import re
 import sys
-
+from datetime import UTC, datetime
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -14,7 +14,6 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from trading_advisor_3000.product_plane.data_plane.moex import run_moex_canonicalization
-
 
 DEFAULT_RAW_INGEST_ROOT = Path("artifacts/codex/moex-raw-ingest")
 DEFAULT_OUTPUT_ROOT = Path("artifacts/codex/moex-canonicalization")
@@ -118,6 +117,14 @@ def main() -> None:
         help="Path to raw-ingest report JSON. If omitted, resolved from --raw-ingest-root run folder.",
     )
     parser.add_argument(
+        "--session-intervals-path",
+        default="",
+        help=(
+            "Optional canonical_session_intervals input. When omitted, canonicalization "
+            "runs without session admission and leaves session data to manual backfill."
+        ),
+    )
+    parser.add_argument(
         "--output-root",
         default=DEFAULT_OUTPUT_ROOT.as_posix(),
         help="Root folder for canonicalization run artifacts.",
@@ -161,6 +168,9 @@ def main() -> None:
         output_dir=output_dir,
         run_id=run_id,
         raw_ingest_run_report=raw_ingest_report_payload,
+        session_intervals_path=_resolve(Path(args.session_intervals_path))
+        if str(args.session_intervals_path).strip()
+        else None,
         repo_root=ROOT,
     )
     report["raw_source_resolution"] = raw_source
@@ -168,7 +178,9 @@ def main() -> None:
     report["raw_ingest_report_path"] = raw_ingest_report_path.as_posix()
 
     report_path = output_dir / "canonicalization-report.json"
-    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    report_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
     if report.get("publish_decision") != "publish":

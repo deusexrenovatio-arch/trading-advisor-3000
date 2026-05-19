@@ -157,6 +157,9 @@ def _run_local(args: argparse.Namespace) -> dict[str, object]:
         target_bars_path=Path(args.target_bars_path).resolve(),
         target_provenance_path=Path(args.target_provenance_path).resolve(),
         session_calendar_path=Path(args.session_calendar_path).resolve(),
+        session_intervals_path=Path(args.session_intervals_path).resolve()
+        if str(args.session_intervals_path).strip()
+        else None,
         roll_map_path=Path(args.roll_map_path).resolve(),
         output_dir=Path(args.output_dir).resolve(),
         run_id=args.run_id,
@@ -194,6 +197,13 @@ def _docker_exec_args(args: argparse.Namespace) -> list[str]:
         "--spark-master",
         args.spark_master,
     ]
+    if str(args.session_intervals_path).strip():
+        python_command.extend(
+            [
+                "--session-intervals-path",
+                _container_path(Path(args.session_intervals_path).resolve()),
+            ]
+        )
     if args.output_json:
         python_command.extend(["--output-json", _container_path(Path(args.output_json).resolve())])
     owner = docker_host_owner()
@@ -275,6 +285,7 @@ def main() -> None:
     parser.add_argument("--target-bars-path", required=True)
     parser.add_argument("--target-provenance-path", required=True)
     parser.add_argument("--session-calendar-path", required=True)
+    parser.add_argument("--session-intervals-path", default="")
     parser.add_argument("--roll-map-path", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--run-id", required=True)

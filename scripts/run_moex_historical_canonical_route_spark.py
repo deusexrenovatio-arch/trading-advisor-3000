@@ -47,6 +47,7 @@ DEFAULT_DOCKER_IMAGE = "ta3000-phase-proof:latest"
 DEFAULT_DOCKERFILE = Path("deployment/docker/phase-proofs/Dockerfile")
 DEFAULT_DOCKER_RUNTIME_ROOT = "/tmp/ta3000-phase-proof"
 DEFAULT_DOCKER_DATA_ROOT = "/ta3000-data/moex-historical"
+SPARK_DOCKER_SUBPROCESS_TIMEOUT_SECONDS = 1800
 MOEX_HISTORICAL_DATA_ROOT_ENV = "TA3000_MOEX_HISTORICAL_DATA_ROOT"
 
 
@@ -107,6 +108,7 @@ def _docker_python_command(
     raw_table_path: Path | None,
     changed_windows_jsonl: Path | None,
     selected_source_intervals_jsonl: Path,
+    session_intervals_path: Path | None,
     output_dir: Path,
     run_id: str,
     built_at_utc: str,
@@ -129,6 +131,8 @@ def _docker_python_command(
         "--spark-master",
         spark_master,
     ]
+    if session_intervals_path is not None:
+        command.extend(["--session-intervals-path", _container_path(session_intervals_path)])
     if raw_table_path is not None:
         if changed_windows_jsonl is None:
             raise RuntimeError("raw Delta canonicalization requires changed_windows_jsonl")
@@ -155,6 +159,7 @@ def _docker_exec_args(
     raw_table_path: Path | None,
     changed_windows_jsonl: Path | None,
     selected_source_intervals_jsonl: Path,
+    session_intervals_path: Path | None,
     output_dir: Path,
     run_id: str,
     built_at_utc: str,
@@ -166,6 +171,7 @@ def _docker_exec_args(
         raw_table_path=raw_table_path,
         changed_windows_jsonl=changed_windows_jsonl,
         selected_source_intervals_jsonl=selected_source_intervals_jsonl,
+        session_intervals_path=session_intervals_path,
         output_dir=output_dir,
         run_id=run_id,
         built_at_utc=built_at_utc,
@@ -189,6 +195,7 @@ def _run_in_docker(
     raw_table_path: Path | None,
     changed_windows_jsonl: Path | None,
     selected_source_intervals_jsonl: Path,
+    session_intervals_path: Path | None,
     output_dir: Path,
     run_id: str,
     built_at_utc: str,
@@ -237,6 +244,7 @@ def _run_in_docker(
                 raw_table_path=raw_table_path,
                 changed_windows_jsonl=changed_windows_jsonl,
                 selected_source_intervals_jsonl=selected_source_intervals_jsonl,
+                session_intervals_path=session_intervals_path,
                 output_dir=output_dir,
                 run_id=run_id,
                 built_at_utc=built_at_utc,
@@ -252,6 +260,7 @@ def _run_in_docker(
         capture_output=True,
         text=True,
         check=False,
+        timeout=SPARK_DOCKER_SUBPROCESS_TIMEOUT_SECONDS,
     )
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout).strip()
@@ -288,6 +297,7 @@ def main() -> None:
     parser.add_argument("--raw-table-path", default="")
     parser.add_argument("--changed-windows-jsonl", default="")
     parser.add_argument("--selected-source-intervals-jsonl", required=True)
+    parser.add_argument("--session-intervals-path", default="")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--built-at-utc", required=True)
@@ -313,6 +323,11 @@ def main() -> None:
         else None
     )
     selected_source_intervals_jsonl = _resolve_repo_path(Path(args.selected_source_intervals_jsonl))
+    session_intervals_path = (
+        _resolve_repo_path(Path(args.session_intervals_path))
+        if str(args.session_intervals_path).strip()
+        else None
+    )
     output_dir = _resolve_repo_path(Path(args.output_dir))
     output_json = _resolve_repo_path(Path(args.output_json)) if args.output_json else None
     if raw_table_path is not None and changed_windows_jsonl is None:
@@ -329,6 +344,7 @@ def main() -> None:
             raw_table_path=raw_table_path,
             changed_windows_jsonl=changed_windows_jsonl,
             selected_source_intervals_jsonl=selected_source_intervals_jsonl,
+            session_intervals_path=session_intervals_path,
             output_dir=output_dir,
             run_id=args.run_id,
             built_at_utc=args.built_at_utc,
@@ -343,6 +359,7 @@ def main() -> None:
             raw_table_path=raw_table_path,
             changed_windows_path=changed_windows_jsonl,
             selected_source_intervals_path=selected_source_intervals_jsonl,
+            session_intervals_path=session_intervals_path,
             output_dir=output_dir,
             build_run_id=args.run_id,
             built_at_utc=args.built_at_utc,
@@ -353,6 +370,7 @@ def main() -> None:
         report = run_moex_canonicalization_spark_job(
             normalized_source_path=normalized_source_jsonl,
             selected_source_intervals_path=selected_source_intervals_jsonl,
+            session_intervals_path=session_intervals_path,
             output_dir=output_dir,
             build_run_id=args.run_id,
             built_at_utc=args.built_at_utc,

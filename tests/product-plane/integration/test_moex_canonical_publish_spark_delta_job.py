@@ -21,6 +21,20 @@ from trading_advisor_3000.spark_jobs.moex_canonical_publish_job import (
     run_moex_canonical_publish_spark_delta_job,
 )
 
+SESSION_INTERVAL_COLUMNS: dict[str, str] = {
+    "instrument_id": "string",
+    "session_date": "date",
+    "interval_id": "string",
+    "interval_seq": "int",
+    "expected_open_ts": "timestamp",
+    "expected_close_ts": "timestamp",
+    "session_class": "string",
+    "interval_type": "string",
+    "policy_id": "string",
+    "source_id": "string",
+    "source_document_hash": "string",
+}
+
 
 def _read_rows(path: Path) -> list[dict[str, object]]:
     return [row for batch in iter_delta_table_row_batches(path) for row in batch]
@@ -65,6 +79,30 @@ def _provenance(**overrides: object) -> dict[str, object]:
     return payload
 
 
+def _write_session_intervals(path: Path, session_dates: list[str]) -> Path:
+    write_delta_table_rows(
+        table_path=path,
+        rows=[
+            {
+                "instrument_id": "FUT_BR",
+                "session_date": session_date,
+                "interval_id": f"FUT_BR-{session_date}-regular-1",
+                "interval_seq": 1,
+                "expected_open_ts": f"{session_date}T10:00:00Z",
+                "expected_close_ts": f"{session_date}T18:45:00Z",
+                "session_class": "regular",
+                "interval_type": "regular_trading",
+                "policy_id": "moex-official-session-v1",
+                "source_id": "moex-official-schedule-fixture",
+                "source_document_hash": "sha256:fixture",
+            }
+            for session_date in session_dates
+        ],
+        columns=SESSION_INTERVAL_COLUMNS,
+    )
+    return path
+
+
 def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
     tmp_path: Path,
 ) -> None:
@@ -85,6 +123,10 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
     target_bars_path = tmp_path / "target" / "canonical_bars.delta"
     target_provenance_path = tmp_path / "target" / "canonical_bar_provenance.delta"
     session_calendar_path = tmp_path / "target" / "canonical_session_calendar.delta"
+    session_intervals_path = _write_session_intervals(
+        tmp_path / "official" / "canonical_session_intervals.delta",
+        ["2026-04-01", "2026-04-02", "2026-04-05"],
+    )
     roll_map_path = tmp_path / "target" / "canonical_roll_map.delta"
 
     write_delta_table_rows(
@@ -222,6 +264,7 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
         target_bars_path=target_bars_path,
         target_provenance_path=target_provenance_path,
         session_calendar_path=session_calendar_path,
+        session_intervals_path=session_intervals_path,
         roll_map_path=roll_map_path,
         output_dir=tmp_path / "publish-proof",
         run_id="spark-publish-proof",
@@ -285,6 +328,10 @@ def test_spark_publish_blocks_non_monotonic_provenance_without_mutating_target(
     target_bars_path = tmp_path / "target" / "canonical_bars.delta"
     target_provenance_path = tmp_path / "target" / "canonical_bar_provenance.delta"
     session_calendar_path = tmp_path / "target" / "canonical_session_calendar.delta"
+    session_intervals_path = _write_session_intervals(
+        tmp_path / "official" / "canonical_session_intervals.delta",
+        ["2026-04-02"],
+    )
     roll_map_path = tmp_path / "target" / "canonical_roll_map.delta"
 
     original_bar = _bar(open=90.0, high=91.0, low=89.0, close=90.5, volume=1)
@@ -320,6 +367,7 @@ def test_spark_publish_blocks_non_monotonic_provenance_without_mutating_target(
         target_bars_path=target_bars_path,
         target_provenance_path=target_provenance_path,
         session_calendar_path=session_calendar_path,
+        session_intervals_path=session_intervals_path,
         roll_map_path=roll_map_path,
         output_dir=tmp_path / "publish-proof",
         run_id="spark-publish-monotonicity-blocked",
@@ -345,6 +393,10 @@ def test_spark_publish_blocks_zero_checked_contract_rows(tmp_path: Path) -> None
         target_bars_path=tmp_path / "target" / "canonical_bars.delta",
         target_provenance_path=tmp_path / "target" / "canonical_bar_provenance.delta",
         session_calendar_path=tmp_path / "target" / "canonical_session_calendar.delta",
+        session_intervals_path=_write_session_intervals(
+            tmp_path / "official" / "canonical_session_intervals.delta",
+            ["2026-04-02"],
+        ),
         roll_map_path=tmp_path / "target" / "canonical_roll_map.delta",
         output_dir=tmp_path / "publish-proof",
         run_id="spark-publish-zero-contract-rows",

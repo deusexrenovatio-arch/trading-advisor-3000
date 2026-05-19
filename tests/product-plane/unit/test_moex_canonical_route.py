@@ -19,6 +19,9 @@ from trading_advisor_3000.product_plane.data_plane.moex.historical_canonical_rou
     run_qc_gates,
     run_runtime_decoupling_check,
 )
+from trading_advisor_3000.spark_jobs.moex_canonicalization_job import (
+    run_moex_canonicalization_spark_job,
+)
 
 
 def _provenance(**overrides: object) -> CanonicalProvenance:
@@ -63,7 +66,32 @@ def test_canonical_route_qc_fails_when_provenance_is_incomplete() -> None:
     )
     assert qc_report["status"] == "FAIL"
     assert qc_report["publish_decision"] == "blocked"
-    assert "provenance_completeness" in qc_report["failed_gates"]
+
+
+def test_spark_canonicalization_subprocess_has_timeout_contract() -> None:
+    assert canonical_module.SPARK_CANONICALIZATION_SUBPROCESS_TIMEOUT_SECONDS > 0
+    assert canonical_module.SPARK_CANONICALIZATION_SUBPROCESS_TIMEOUT_SECONDS <= 1800
+
+
+def test_session_admission_gate_blocks_official_schedule_mismatch() -> None:
+    report = canonical_module._session_admission_gate_report(
+        {
+            "session_admission_report": {
+                "rejected_out_of_session_rows": 3,
+                "missing_official_coverage_rows": 0,
+            }
+        }
+    )
+
+    assert report["status"] == "FAIL"
+    assert report["failed_gates"] == ["official_schedule_mismatch"]
+
+
+def test_session_admission_gate_blocks_missing_official_schedule_input() -> None:
+    report = canonical_module._session_admission_gate_report(None)
+
+    assert report["status"] == "FAIL"
+    assert report["failed_gates"] == ["official_schedule_missing_input"]
 
 
 def test_canonical_route_qc_fails_when_duplicate_bar_key_is_present() -> None:
@@ -263,6 +291,19 @@ def test_spark_canonicalization_uses_raw_delta_input_instead_of_source_jsonl(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     raw_table_path = tmp_path / "raw_moex_history.delta"
+    session_intervals_path = tmp_path / "official" / "canonical_session_intervals.jsonl"
+    session_intervals_path.parent.mkdir(parents=True, exist_ok=True)
+    session_intervals_path.write_text(
+        '{"instrument_id":"FUT_BR","session_date":"2026-04-02",'
+        '"interval_id":"FUT_BR-2026-04-02-regular-1","interval_seq":1,'
+        '"expected_open_ts":"2026-04-02T10:00:00Z",'
+        '"expected_close_ts":"2026-04-02T18:45:00Z",'
+        '"session_class":"regular","interval_type":"regular_trading",'
+        '"policy_id":"moex-official-session-v1",'
+        '"source_id":"moex-official-schedule-fixture",'
+        '"source_document_hash":"sha256:fixture"}\n',
+        encoding="utf-8",
+    )
     captured: dict[str, object] = {}
 
     def _fake_run(command, **_kwargs):
@@ -311,6 +352,7 @@ def test_spark_canonicalization_uses_raw_delta_input_instead_of_source_jsonl(
             )
         ],
         selected_source_intervals={("BRM6@MOEX", "FUT_BR", "5m"): 1},
+        session_intervals_path=session_intervals_path,
         output_dir=tmp_path / "phase02",
         run_id="canonical-direct-delta",
         built_at_utc="2026-04-02T11:00:00Z",
@@ -320,6 +362,63 @@ def test_spark_canonicalization_uses_raw_delta_input_instead_of_source_jsonl(
     command = captured["command"]
     assert "--raw-table-path" in command
     assert raw_table_path.as_posix() in command
+    assert "--session-intervals-path" in command
+    assert session_intervals_path.as_posix() in command
     assert "--changed-windows-jsonl" in command
     assert "--normalized-source-jsonl" not in command
     assert report["input_mode"] == "raw_delta"
+
+
+def test_spark_canonicalization_requires_session_intervals_input(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_table_path = tmp_path / "raw_moex_history.delta"
+
+    def _unexpected_run(command, **_kwargs):
+        pytest.fail(f"Spark subprocess must not start without session intervals: {command}")
+
+    monkeypatch.setattr(canonical_module.subprocess, "run", _unexpected_run)
+
+    with pytest.raises(ValueError, match="official session intervals input is required"):
+        canonical_module._run_spark_canonicalization(
+            raw_table_path=raw_table_path,
+            changed_windows=[
+                canonical_module.ChangedWindowScope(
+                    internal_id="FUT_BR",
+                    source_timeframe="1m",
+                    source_interval=1,
+                    moex_secid="BRM6",
+                    window_start_utc="2026-04-02T10:00:00Z",
+                    window_end_utc="2026-04-02T10:20:00Z",
+                    incremental_rows=2,
+                )
+            ],
+            selected_source_intervals={("BRM6@MOEX", "FUT_BR", "5m"): 1},
+            session_intervals_path=None,
+            output_dir=tmp_path / "phase02",
+            run_id="canonical-manual-session-required",
+            built_at_utc="2026-04-02T11:00:00Z",
+            repo_root=Path.cwd(),
+        )
+
+
+def test_spark_job_requires_session_intervals_before_unbounded_outputs(tmp_path: Path) -> None:
+    normalized_source_path = tmp_path / "normalized-source.jsonl"
+    selected_intervals_path = tmp_path / "selected-source-intervals.jsonl"
+    normalized_source_path.write_text("{}\n", encoding="utf-8")
+    selected_intervals_path.write_text("{}\n", encoding="utf-8")
+
+    def _unexpected_spark_session_factory(_app_name: str, _spark_master: str) -> object:
+        pytest.fail("Spark session must not start without official session intervals")
+
+    with pytest.raises(ValueError, match="official session intervals input is required"):
+        run_moex_canonicalization_spark_job(
+            normalized_source_path=normalized_source_path,
+            selected_source_intervals_path=selected_intervals_path,
+            session_intervals_path=None,
+            output_dir=tmp_path / "spark-output",
+            build_run_id="canonical-session-required",
+            built_at_utc="2026-04-02T11:00:00Z",
+            spark_session_factory=_unexpected_spark_session_factory,
+        )

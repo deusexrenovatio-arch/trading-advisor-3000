@@ -16,6 +16,7 @@ from .canonical_bars_job import (
     _load_spark_modules,
     _write_delta_dataframe,
 )
+from .moex_canonicalization_job import _prepare_official_session_intervals
 
 CANONICAL_KEY_COLUMNS = ("contract_id", "instrument_id", "timeframe", "ts")
 SIDECAR_ROLL_REASON = "max_open_interest_then_latest_ts_close"
@@ -468,9 +469,11 @@ def _build_contract_compatibility_report(
 
 def _sidecar_frames(
     *,
+    spark: Any,
     bars_df: Any,
     provenance_df: Any,
     affected_sessions_df: Any,
+    session_intervals_path: Path,
     sidecars_exist: bool,
     window: Any,
     functions: Any,
@@ -496,14 +499,30 @@ def _sidecar_frames(
     else:
         refresh_mode = "full"
 
-    session_calendar_df = with_session.groupBy(
-        "instrument_id",
-        "timeframe",
-        "session_date",
-    ).agg(
-        functions.min("source_ts_open_first").alias("session_open_ts"),
-        functions.max("source_ts_close_last").alias("session_close_ts"),
+    official_intervals_df = _prepare_official_session_intervals(
+        spark=spark,
+        session_intervals_path=session_intervals_path,
+        functions=functions,
+        window=window,
     )
+    official_session_bounds_df = official_intervals_df.groupBy("instrument_id", "session_date").agg(
+        functions.min("expected_open_ts").alias("session_open_ts"),
+        functions.max("expected_close_ts").alias("session_close_ts"),
+    )
+    session_scope_df = with_session.select("instrument_id", "timeframe", "session_date").distinct()
+    session_calendar_df = session_scope_df.join(
+        official_session_bounds_df,
+        on=["instrument_id", "session_date"],
+        how="inner",
+    )
+    expected_session_rows = int(session_scope_df.count())
+    resolved_session_rows = int(session_calendar_df.count())
+    if expected_session_rows != resolved_session_rows:
+        raise ValueError(
+            "official session interval coverage is incomplete for canonical sidecars: "
+            f"expected_session_rows={expected_session_rows}; "
+            f"resolved_session_rows={resolved_session_rows}"
+        )
 
     roll_window = window.partitionBy("instrument_id", "session_date").orderBy(
         functions.col("open_interest").desc(),
@@ -590,6 +609,7 @@ def run_moex_canonical_publish_spark_delta_job(
     target_bars_path: Path,
     target_provenance_path: Path,
     session_calendar_path: Path,
+    session_intervals_path: Path | None,
     roll_map_path: Path,
     output_dir: Path,
     run_id: str,
@@ -826,11 +846,17 @@ def run_moex_canonical_publish_spark_delta_job(
         refreshed_session_rows = 0
         refreshed_roll_rows = 0
         refresh_mode = "noop"
-        if publish_allowed and (not sidecars_exist or affected_session_rows > 0):
+        if (
+            publish_allowed
+            and session_intervals_path is not None
+            and (not sidecars_exist or affected_session_rows > 0)
+        ):
             session_calendar_df, roll_map_df, refresh_mode = _sidecar_frames(
+                spark=spark,
                 bars_df=final_bars_df,
                 provenance_df=final_provenance_df,
                 affected_sessions_df=sidecar_scope_sessions_df,
+                session_intervals_path=session_intervals_path,
                 sidecars_exist=sidecars_exist,
                 window=window,
                 functions=functions,
@@ -908,9 +934,28 @@ def run_moex_canonical_publish_spark_delta_job(
             refreshed_session_rows = int(session_calendar_df.count())
             refreshed_roll_rows = int(roll_map_df.count())
             sidecar_mutation = True
+        elif publish_allowed and session_intervals_path is None:
+            refresh_mode = "skipped_manual_session_backfill_required"
 
         canonical_rows = int(final_bars_df.count())
         provenance_rows = int(final_provenance_df.count())
+        output_paths = {
+            "canonical_bars": target_bars_path.as_posix(),
+            "canonical_bar_provenance": target_provenance_path.as_posix(),
+        }
+        delta_log = {
+            "canonical_bars": _delta_log_payload(target_bars_path),
+            "canonical_bar_provenance": _delta_log_payload(target_provenance_path),
+        }
+        if session_intervals_path is not None:
+            output_paths["canonical_session_intervals"] = session_intervals_path.as_posix()
+            delta_log["canonical_session_intervals"] = _delta_log_payload(session_intervals_path)
+        if has_delta_log(session_calendar_path):
+            output_paths["canonical_session_calendar"] = session_calendar_path.as_posix()
+            delta_log["canonical_session_calendar"] = _delta_log_payload(session_calendar_path)
+        if has_delta_log(roll_map_path):
+            output_paths["canonical_roll_map"] = roll_map_path.as_posix()
+            delta_log["canonical_roll_map"] = _delta_log_payload(roll_map_path)
         return {
             "run_id": run_id,
             "runtime_owner": "spark_delta",
@@ -932,18 +977,8 @@ def run_moex_canonical_publish_spark_delta_job(
                 "overlap_session_rows": sidecar_scope_session_rows,
                 "overlap_policy": SIDECAR_OVERLAP_POLICY,
             },
-            "output_paths": {
-                "canonical_bars": target_bars_path.as_posix(),
-                "canonical_bar_provenance": target_provenance_path.as_posix(),
-                "canonical_session_calendar": session_calendar_path.as_posix(),
-                "canonical_roll_map": roll_map_path.as_posix(),
-            },
-            "delta_log": {
-                "canonical_bars": _delta_log_payload(target_bars_path),
-                "canonical_bar_provenance": _delta_log_payload(target_provenance_path),
-                "canonical_session_calendar": _delta_log_payload(session_calendar_path),
-                "canonical_roll_map": _delta_log_payload(roll_map_path),
-            },
+            "output_paths": output_paths,
+            "delta_log": delta_log,
             "spark_profile": {
                 "master": spark_master,
                 "delta_writer": "spark",

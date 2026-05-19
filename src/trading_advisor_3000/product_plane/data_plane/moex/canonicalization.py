@@ -40,11 +40,29 @@ TARGET_MINUTES_BY_TIMEFRAME: dict[Timeframe, int] = {
     Timeframe.D1: 1440,
     Timeframe.W1: 10080,
 }
+SPARK_CANONICALIZATION_SUBPROCESS_TIMEOUT_SECONDS = 1800
 
 
-def _iter_delta_rows_for_merge(table_path: Path) -> Iterable[dict[str, object]]:
-    for batch in iter_delta_table_row_batches(table_path):
+def _iter_delta_rows_for_merge(
+    table_path: Path,
+    *,
+    filters: list[tuple[str, str, object]] | list[list[tuple[str, str, object]]] | None = None,
+) -> Iterable[dict[str, object]]:
+    for batch in iter_delta_table_row_batches(table_path, filters=filters):
         yield from batch
+
+
+def _delta_filters_for_canonical_keys(
+    keys: set[tuple[str, str, str, str]],
+) -> list[list[tuple[str, str, object]]]:
+    return [
+        [
+            ("contract_id", "=", contract_id),
+            ("instrument_id", "=", instrument_id),
+            ("timeframe", "=", timeframe),
+        ]
+        for contract_id, instrument_id, timeframe, _ts in sorted(keys)
+    ]
 
 
 def _chunk_delta_row_payloads(
@@ -73,6 +91,21 @@ def _require_spark_delta_output_path(
             f"{table_path.as_posix()}"
         )
     return table_path
+
+
+def _require_session_intervals_input(session_intervals_path: Path | None) -> Path:
+    if session_intervals_path is None:
+        raise ValueError(
+            "official session intervals input is required; canonicalization no longer "
+            "derives trading sessions from raw candle min/max timestamps"
+        )
+    table_path = Path(session_intervals_path)
+    if has_delta_log(table_path) or table_path.exists():
+        return table_path
+    raise FileNotFoundError(
+        "official session intervals input is missing `_delta_log` or JSONL source: "
+        f"{table_path.as_posix()}"
+    )
 
 
 SOURCE_MINUTES_BY_LABEL: dict[str, int] = {
@@ -900,6 +933,21 @@ def _build_selected_source_interval_map_from_available_intervals(
     return selected
 
 
+def _build_raw_1m_source_interval_map_from_available_intervals(
+    available_intervals_by_contract: dict[tuple[str, str], set[int]],
+) -> dict[tuple[str, str, str], int]:
+    selected: dict[tuple[str, str, str], int] = {}
+    for (
+        contract_id,
+        instrument_id,
+    ), available_intervals in available_intervals_by_contract.items():
+        if 1 not in available_intervals:
+            continue
+        for timeframe in TARGET_TIMEFRAMES:
+            selected[(contract_id, instrument_id, timeframe.value)] = 1
+    return selected
+
+
 def _build_available_intervals_by_contract(
     rows: list[RawCandle],
 ) -> dict[tuple[str, str], set[int]]:
@@ -1051,11 +1099,14 @@ def _run_spark_canonicalization(
     *,
     scoped_rows: list[RawCandle],
     selected_source_intervals: dict[tuple[str, str, str], int],
+    session_intervals_path: Path | None,
     output_dir: Path,
     run_id: str,
     built_at_utc: str,
     repo_root: Path,
 ) -> dict[str, object]:
+    if session_intervals_path is None:
+        raise ValueError("official session intervals input is required for Spark canonicalization")
     spark_dir = output_dir / ".spark-canonicalization"
     normalized_source_path = spark_dir / "normalized-scoped-raw.jsonl"
     selected_source_intervals_path = spark_dir / "selected-source-intervals.jsonl"
@@ -1086,12 +1137,15 @@ def _run_spark_canonicalization(
         "--output-json",
         spark_report_path.as_posix(),
     ]
+    if session_intervals_path is not None:
+        command.extend(["--session-intervals-path", session_intervals_path.as_posix()])
     completed = subprocess.run(
         command,
         cwd=repo_root,
         capture_output=True,
         text=True,
         check=False,
+        timeout=SPARK_CANONICALIZATION_SUBPROCESS_TIMEOUT_SECONDS,
     )
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout).strip()
@@ -1434,11 +1488,9 @@ def _build_canonical_parity_report(
         if key in final_by_key:
             duplicate_errors.append(f"duplicate canonical key: {key[0]}/{key[2]}/{key[3]}")
         final_by_key[key] = row.to_dict()
-        timeframe = Timeframe(str(row.timeframe.value))
-        expected_ts = _floor_to_bucket(
-            row.ts, bucket_minutes=TARGET_MINUTES_BY_TIMEFRAME[timeframe]
-        )
-        if expected_ts != row.ts:
+        try:
+            _parse_iso_utc(row.ts)
+        except ValueError:
             timestamp_drift_errors.append(f"timestamp drift: {key[0]}/{key[2]}/{key[3]}")
 
     missing_bar_errors: list[str] = []
@@ -1492,12 +1544,43 @@ def _status_for_publish_decision(
     return STATUS_PASS
 
 
+def _session_admission_gate_report(
+    spark_execution_report: dict[str, object] | None,
+) -> dict[str, object]:
+    admission = (
+        spark_execution_report.get("session_admission_report")
+        if isinstance(spark_execution_report, dict)
+        else None
+    )
+    if not isinstance(admission, dict):
+        return {
+            "status": "FAIL",
+            "failed_gates": ["official_schedule_missing_input"],
+            "rejected_out_of_session_rows": 0,
+            "missing_official_coverage_rows": 0,
+        }
+    rejected_rows = int(admission.get("rejected_out_of_session_rows") or 0)
+    missing_coverage_rows = int(admission.get("missing_official_coverage_rows") or 0)
+    failed_gates: list[str] = []
+    if missing_coverage_rows:
+        failed_gates.append("official_schedule_missing_coverage")
+    if rejected_rows:
+        failed_gates.append("official_schedule_mismatch")
+    return {
+        "status": STATUS_PASS if not failed_gates else "FAIL",
+        "failed_gates": failed_gates,
+        "rejected_out_of_session_rows": rejected_rows,
+        "missing_official_coverage_rows": missing_coverage_rows,
+    }
+
+
 def run_moex_canonicalization(
     *,
     raw_table_path: Path,
     output_dir: Path,
     run_id: str,
     raw_ingest_run_report: dict[str, object],
+    session_intervals_path: Path | None = None,
     repo_root: Path | None = None,
 ) -> dict[str, object]:
     if not isinstance(raw_ingest_run_report, dict):
@@ -1507,6 +1590,11 @@ def run_moex_canonicalization(
         raise FileNotFoundError(
             f"canonicalization raw source table missing `_delta_log`: {raw_table_path.as_posix()}"
         )
+    official_session_intervals_path = (
+        _require_session_intervals_input(session_intervals_path)
+        if session_intervals_path is not None
+        else None
+    )
 
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1547,6 +1635,125 @@ def run_moex_canonicalization(
         raw_ingest_run_report=raw_ingest_run_report,
         raw_table_path=raw_table_path,
     )
+    if raw_report_status == STATUS_PASS_NOOP:
+        built_at_utc = _utc_now_iso()
+        output_paths: dict[str, str] = {}
+        if has_delta_log(bars_path):
+            output_paths = {
+                "canonical_bars": bars_path.as_posix(),
+                "canonical_bar_provenance": provenance_path.as_posix(),
+            }
+        canonical_rows_count = count_delta_table_rows(bars_path) if has_delta_log(bars_path) else 0
+        provenance_rows_count = (
+            count_delta_table_rows(provenance_path) if has_delta_log(provenance_path) else 0
+        )
+
+        raw_parity_report = _build_raw_parity_report(
+            run_id=run_id,
+            changed_windows=[],
+            scoped_raw_rows=[],
+            unmatched_windows=[],
+        )
+        canonical_parity_report = _build_canonical_parity_report(
+            run_id=run_id,
+            scoped_bars=[],
+            final_bars=[],
+            affected_keys=set(),
+        )
+        qc_report = {
+            "run_id": run_id,
+            "status": "SKIPPED",
+            "publish_decision": "publish",
+            "reason": "raw ingest PASS-NOOP did not produce changed windows",
+            "failed_gates": [],
+        }
+        contract_report = {
+            "runtime_owner": "python",
+            "status": "SKIPPED",
+            "checked_rows": 0,
+            "reason": "noop refresh did not produce canonical rows",
+            "errors": [],
+        }
+        runtime_report = run_runtime_decoupling_check(repo_root=repo_root)
+
+        qc_path = output_dir / "qc-report.json"
+        contract_path = output_dir / "contract-compatibility-report.json"
+        runtime_path = output_dir / "runtime-decoupling-proof.json"
+        changed_window_set_path = output_dir / "changed-window-set-manifest.json"
+        raw_parity_path = output_dir / "raw-parity-report.json"
+        canonical_parity_path = output_dir / "canonical-parity-report.json"
+        canonical_snapshot_path = output_dir / "canonical-snapshot.json"
+        resampling_snapshot_path = output_dir / "resampling-snapshot.json"
+
+        _json_write(changed_window_set_path, changed_window_set_manifest)
+        _json_write(raw_parity_path, raw_parity_report)
+        _json_write(canonical_parity_path, canonical_parity_report)
+        _json_write(qc_path, qc_report)
+        _json_write(contract_path, contract_report)
+        _json_write(runtime_path, runtime_report)
+        _json_write(
+            canonical_snapshot_path,
+            {"built_at_utc": built_at_utc, "bars": [], "provenance": []},
+        )
+        _json_write(resampling_snapshot_path, {"built_at_utc": built_at_utc, "rows": []})
+
+        report: dict[str, object] = {
+            "run_id": run_id,
+            "route_signal": "worker:capability-only",
+            "proof_class": "staging-real",
+            "canonicalization_engine": "spark",
+            "status": STATUS_PASS_NOOP,
+            "publish_decision": "publish",
+            "raw_table_path": raw_table_path.as_posix(),
+            "session_intervals_path": (
+                official_session_intervals_path.as_posix()
+                if official_session_intervals_path is not None
+                else ""
+            ),
+            "session_intervals_mode": (
+                "official_manual_input"
+                if official_session_intervals_path is not None
+                else "not_applied_manual_backfill_missing"
+            ),
+            "output_dir": output_dir.as_posix(),
+            "source_rows": source_rows,
+            "scoped_source_rows": 0,
+            "changed_windows_count": 0,
+            "changed_windows_hash_sha256": changed_window_set_manifest[
+                "changed_windows_hash_sha256"
+            ],
+            "affected_key_count": 0,
+            "mutation_applied": False,
+            "canonical_rows": canonical_rows_count,
+            "provenance_rows": provenance_rows_count,
+            "scoped_canonical_rows": 0,
+            "target_timeframes": [item.value for item in TARGET_TIMEFRAMES],
+            "resampling_skips": {"count": 0, "by_timeframe": {}},
+            "output_paths": output_paths,
+            "artifact_paths": {
+                "changed_window_set_manifest": changed_window_set_path.as_posix(),
+                "raw_parity_report": raw_parity_path.as_posix(),
+                "canonical_parity_report": canonical_parity_path.as_posix(),
+                "canonical_snapshot": canonical_snapshot_path.as_posix(),
+                "resampling_snapshot": resampling_snapshot_path.as_posix(),
+                "qc_report": qc_path.as_posix(),
+                "contract_compatibility_report": contract_path.as_posix(),
+                "runtime_decoupling_proof": runtime_path.as_posix(),
+            },
+            "changed_window_set_manifest": changed_window_set_manifest,
+            "raw_parity_report": raw_parity_report,
+            "canonical_parity_report": canonical_parity_report,
+            "qc_report": qc_report,
+            "contract_compatibility_report": contract_report,
+            "runtime_decoupling_proof": runtime_report,
+            "real_bindings": _report_real_bindings(
+                raw_ingest_run_report=raw_ingest_run_report,
+                fallback_rows=[],
+            ),
+        }
+        _json_write(output_dir / "canonicalization-report.json", report)
+        return report
+
     affected_internal_ids = {window.internal_id for window in changed_window_scope}
     scoped_raw_rows: list[dict[str, object]] = []
     unmatched_windows: list[dict[str, object]] = []
@@ -1572,7 +1779,7 @@ def run_moex_canonicalization(
     available_intervals_by_contract = _build_available_intervals_by_contract_from_projection(
         interval_projection_rows
     )
-    selected_source_intervals = _build_selected_source_interval_map_from_available_intervals(
+    selected_source_intervals = _build_raw_1m_source_interval_map_from_available_intervals(
         available_intervals_by_contract
     )
     resampling_skips = _build_resampling_skips_from_available_intervals(
@@ -1604,10 +1811,15 @@ def run_moex_canonicalization(
     scoped_canonical_rows: list[CanonicalBar] = []
     scoped_provenance_rows: list[CanonicalProvenance] = []
     spark_execution_report: dict[str, object] | None = None
-    if scoped_normalized_rows and selected_source_intervals:
+    if (
+        scoped_normalized_rows
+        and selected_source_intervals
+        and official_session_intervals_path is not None
+    ):
         spark_execution_report = _run_spark_canonicalization(
             scoped_rows=scoped_normalized_rows,
             selected_source_intervals=selected_source_intervals,
+            session_intervals_path=official_session_intervals_path,
             output_dir=output_dir,
             run_id=run_id,
             built_at_utc=built_at_utc,
@@ -1620,24 +1832,31 @@ def run_moex_canonicalization(
         scoped_provenance_path = _require_spark_delta_output_path(
             spark_output_paths, "canonical_bar_provenance"
         )
-        for payload in _iter_delta_rows_for_merge(scoped_bars_path):
+        scoped_output_filters = _delta_filters_for_canonical_keys(affected_keys)
+        for payload in _iter_delta_rows_for_merge(
+            scoped_bars_path,
+            filters=scoped_output_filters,
+        ):
             if isinstance(payload, dict):
                 scoped_canonical_rows.append(CanonicalBar.from_dict(dict(payload)))
-        for row_index, payload in enumerate(_iter_delta_rows_for_merge(scoped_provenance_path)):
+        for row_index, payload in enumerate(
+            _iter_delta_rows_for_merge(
+                scoped_provenance_path,
+                filters=scoped_output_filters,
+            )
+        ):
             if isinstance(payload, dict):
                 scoped_provenance_rows.append(
                     _canonical_provenance_from_dict_lenient(dict(payload), row_index=row_index)
                 )
-        _require_complete_scoped_output_keys(
-            output_name="canonical bars",
-            scoped_keys={_canonical_bar_key(row) for row in scoped_canonical_rows},
-            affected_keys=affected_keys,
-        )
+        scoped_bar_keys = {_canonical_bar_key(row) for row in scoped_canonical_rows}
+        scoped_provenance_keys = {_canonical_provenance_key(row) for row in scoped_provenance_rows}
         _require_complete_scoped_output_keys(
             output_name="canonical provenance",
-            scoped_keys={_canonical_provenance_key(row) for row in scoped_provenance_rows},
-            affected_keys=affected_keys,
+            scoped_keys=scoped_provenance_keys,
+            affected_keys=scoped_bar_keys,
         )
+        affected_keys = scoped_bar_keys
 
     canonical_rows = _merge_scoped_canonical_rows(
         existing_rows=existing_canonical_rows,
@@ -1668,6 +1887,7 @@ def run_moex_canonicalization(
         provenance_rows=provenance_rows,
         run_id=run_id,
     )
+    session_admission_gate = _session_admission_gate_report(spark_execution_report)
     contract_report = run_contract_compatibility_check(
         bars=canonical_rows,
         repo_root=repo_root,
@@ -1701,6 +1921,7 @@ def run_moex_canonicalization(
         raw_parity_report["status"] == STATUS_PASS
         and canonical_parity_report["status"] == STATUS_PASS
         and qc_report["status"] == "PASS"
+        and session_admission_gate["status"] == STATUS_PASS
         and contract_report["status"] == "PASS"
         and runtime_report["status"] == "PASS"
     )
@@ -1770,6 +1991,16 @@ def run_moex_canonicalization(
         "status": status,
         "publish_decision": "publish" if publish_allowed else "blocked",
         "raw_table_path": raw_table_path.as_posix(),
+        "session_intervals_path": (
+            official_session_intervals_path.as_posix()
+            if official_session_intervals_path is not None
+            else ""
+        ),
+        "session_intervals_mode": (
+            "official_manual_input"
+            if official_session_intervals_path is not None
+            else "manual_session_intervals_missing_blocked"
+        ),
         "output_dir": output_dir.as_posix(),
         "source_rows": source_rows,
         "scoped_source_rows": len(scoped_raw_rows),
@@ -1797,6 +2028,8 @@ def run_moex_canonicalization(
         "raw_parity_report": raw_parity_report,
         "canonical_parity_report": canonical_parity_report,
         "qc_report": qc_report,
+        "session_admission_gate": session_admission_gate,
+        "spark_execution_report": spark_execution_report,
         "contract_compatibility_report": contract_report,
         "runtime_decoupling_proof": runtime_report,
         "real_bindings": _report_real_bindings(
