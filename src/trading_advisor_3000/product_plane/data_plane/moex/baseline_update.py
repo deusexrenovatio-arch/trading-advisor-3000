@@ -28,6 +28,8 @@ from .iss_client import MoexISSClient
 
 BASELINE_UPDATE_REPORT_FILENAME = "baseline-update-report.json"
 PENDING_CHANGED_WINDOWS_FILENAME = "pending-changed-windows.json"
+SESSION_SCHEDULE_MODE_MANUAL_OPTIONAL = "manual_backfill_optional"
+SESSION_SCHEDULE_MODE_MANUAL_REQUIRED = "manual_backfill_required"
 
 
 def _utc_now_iso() -> str:
@@ -108,6 +110,7 @@ def run_moex_baseline_update(
     raw_table_path: Path,
     canonical_bars_path: Path,
     canonical_provenance_path: Path,
+    canonical_session_intervals_path: Path | None = None,
     canonical_session_calendar_path: Path | None = None,
     canonical_roll_map_path: Path | None = None,
     evidence_dir: Path,
@@ -139,6 +142,11 @@ def run_moex_baseline_update(
         canonical_session_calendar_path
         or (canonical_bars_path.parent / "canonical_session_calendar.delta")
     ).resolve()
+    canonical_session_intervals_path = (
+        canonical_session_intervals_path.resolve()
+        if canonical_session_intervals_path is not None
+        else None
+    )
     canonical_roll_map_path = (
         canonical_roll_map_path or (canonical_bars_path.parent / "canonical_roll_map.delta")
     ).resolve()
@@ -231,6 +239,7 @@ def run_moex_baseline_update(
             repo_root=repo_root,
             canonical_bars_path=canonical_bars_path,
             canonical_provenance_path=canonical_provenance_path,
+            canonical_session_intervals_path=canonical_session_intervals_path,
             canonical_session_calendar_path=canonical_session_calendar_path,
             canonical_roll_map_path=canonical_roll_map_path,
             canonical_merge_strategy=CANONICAL_MERGE_SCOPED_DELETE_INSERT,
@@ -277,6 +286,14 @@ def run_moex_baseline_update(
         "raw_table_path": raw_table_path.as_posix(),
         "canonical_bars_path": canonical_bars_path.as_posix(),
         "canonical_provenance_path": canonical_provenance_path.as_posix(),
+        "session_schedule_mode": SESSION_SCHEDULE_MODE_MANUAL_REQUIRED,
+        "session_schedule_required": True,
+        "raw_session_schedule_path": "",
+        "canonical_session_intervals_path": (
+            canonical_session_intervals_path.as_posix()
+            if canonical_session_intervals_path is not None
+            else ""
+        ),
         "canonical_session_calendar_path": canonical_session_calendar_path.as_posix(),
         "canonical_roll_map_path": canonical_roll_map_path.as_posix(),
         "source_rows": raw_report.get("source_rows", 0),
@@ -300,6 +317,8 @@ def run_moex_baseline_update(
             "coverage_table": coverage_csv.as_posix(),
             "raw_ingest_report": raw_report_path.as_posix(),
             "canonical_input_raw_ingest_report": canonical_input_report_path.as_posix(),
+            "session_schedule_report": "",
+            "official_session_schedule_report": "",
             "canonical_refresh_report": (
                 run_dir / "canonical-refresh" / "canonical-refresh-report.json"
             ).as_posix(),

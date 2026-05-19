@@ -15,6 +15,7 @@ SOURCE_FIXTURE = (
 )
 WHITELIST = {"BR-6.26", "Si-6.26"}
 COMPARE_TABLES = (
+    "canonical_session_intervals",
     "canonical_bars",
     "canonical_instruments",
     "canonical_contracts",

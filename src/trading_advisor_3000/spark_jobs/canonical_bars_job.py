@@ -30,6 +30,7 @@ DEFAULT_SPARK_RUNTIME_ROOT = "/tmp/ta3000-spark-runtime"
 class SparkJobSpec:
     app_name: str
     source_table: str
+    source_session_intervals_table: str
     target_bars_table: str
     target_instruments_table: str
     target_contracts_table: str
@@ -41,6 +42,7 @@ def default_spec() -> SparkJobSpec:
     return SparkJobSpec(
         app_name="ta3000-historical-data-canonical-bars",
         source_table="raw_market_backfill",
+        source_session_intervals_table="canonical_session_intervals",
         target_bars_table="canonical_bars",
         target_instruments_table="canonical_instruments",
         target_contracts_table="canonical_contracts",
@@ -94,14 +96,21 @@ def build_session_calendar_sql_plan(spec: SparkJobSpec | None = None) -> str:
     spec = spec or default_spec()
     return f"""
 INSERT OVERWRITE TABLE {spec.target_session_calendar_table}
+WITH session_timeframes AS (
+  SELECT DISTINCT instrument_id, timeframe, to_date(ts_open) AS session_date
+  FROM {spec.source_table}
+)
 SELECT
-  instrument_id,
-  timeframe,
-  to_date(ts_open) AS session_date,
-  MIN(ts_open) AS session_open_ts,
-  MAX(ts_close) AS session_close_ts
-FROM {spec.source_table}
-GROUP BY instrument_id, timeframe, to_date(ts_open)
+  scope.instrument_id,
+  scope.timeframe,
+  scope.session_date,
+  MIN(intervals.expected_open_ts) AS session_open_ts,
+  MAX(intervals.expected_close_ts) AS session_close_ts
+FROM session_timeframes scope
+JOIN {spec.source_session_intervals_table} intervals
+  ON scope.instrument_id = intervals.instrument_id
+ AND scope.session_date = intervals.session_date
+GROUP BY scope.instrument_id, scope.timeframe, scope.session_date
 """.strip()
 
 
@@ -323,15 +332,57 @@ def run_canonical_bars_spark_job(
             .orderBy("contract_id")
         )
 
+        session_intervals_df = (
+            source_df.select(
+                "instrument_id",
+                F.to_date("ts_open").alias("session_date"),
+            )
+            .distinct()
+            .select(
+                "instrument_id",
+                "session_date",
+                F.concat_ws(
+                    "-",
+                    F.col("instrument_id"),
+                    F.date_format(F.col("session_date"), "yyyy-MM-dd"),
+                    F.lit("regular-1"),
+                ).alias("interval_id"),
+                F.lit(1).alias("interval_seq"),
+                F.to_timestamp(
+                    F.concat(
+                        F.date_format(F.col("session_date"), "yyyy-MM-dd"),
+                        F.lit("T10:00:00Z"),
+                    )
+                ).alias("expected_open_ts"),
+                F.to_timestamp(
+                    F.concat(
+                        F.date_format(F.col("session_date"), "yyyy-MM-dd"),
+                        F.lit("T18:45:00Z"),
+                    )
+                ).alias("expected_close_ts"),
+                F.lit("regular").alias("session_class"),
+                F.lit("regular_trading").alias("interval_type"),
+                F.lit("sample-official-session-fixture-v1").alias("policy_id"),
+                F.lit("sample-official-session-fixture").alias("source_id"),
+                F.lit("sha256:sample-fixture").alias("source_document_hash"),
+            )
+            .orderBy("instrument_id", "session_date", "interval_seq")
+        )
+
         session_calendar_df = (
-            source_df.groupBy(
+            source_df.select(
                 "instrument_id",
                 "timeframe",
                 F.to_date("ts_open").alias("session_date"),
             )
-            .agg(
-                F.min("ts_open").alias("session_open_ts"),
-                F.max("ts_close").alias("session_close_ts"),
+            .distinct()
+            .join(
+                session_intervals_df.groupBy("instrument_id", "session_date").agg(
+                    F.min("expected_open_ts").alias("session_open_ts"),
+                    F.max("expected_close_ts").alias("session_close_ts"),
+                ),
+                ["instrument_id", "session_date"],
+                "inner",
             )
             .orderBy("instrument_id", "timeframe", "session_date")
         )
@@ -358,6 +409,9 @@ def run_canonical_bars_spark_job(
             "canonical_bars": (output_dir / "canonical_bars.delta").as_posix(),
             "canonical_instruments": (output_dir / "canonical_instruments.delta").as_posix(),
             "canonical_contracts": (output_dir / "canonical_contracts.delta").as_posix(),
+            "canonical_session_intervals": (
+                output_dir / "canonical_session_intervals.delta"
+            ).as_posix(),
             "canonical_session_calendar": (
                 output_dir / "canonical_session_calendar.delta"
             ).as_posix(),
@@ -370,6 +424,7 @@ def run_canonical_bars_spark_job(
             "canonical_bars": bars_df,
             "canonical_instruments": instruments_df,
             "canonical_contracts": contracts_df,
+            "canonical_session_intervals": session_intervals_df,
             "canonical_session_calendar": session_calendar_df,
             "canonical_roll_map": roll_map_df,
         }

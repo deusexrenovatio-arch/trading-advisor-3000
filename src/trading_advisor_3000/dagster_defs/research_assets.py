@@ -87,6 +87,10 @@ from .historical_data_proof_assets import AssetSpec
 from .moex_historical_assets import MOEX_BASELINE_UPDATE_JOB_NAME, moex_baseline_update_job
 
 RESEARCH_DATA_PREP_JOB_NAME = "research_data_prep_job"
+MOEX_CF_REBUILD_JOB_NAME = "moex_cf_rebuild_job"
+MOEX_RESEARCH_BAR_REBUILD_JOB_NAME = "moex_research_bar_rebuild_job"
+MOEX_INDICATOR_REBUILD_JOB_NAME = "moex_indicator_rebuild_job"
+MOEX_DERIVED_INDICATOR_REBUILD_JOB_NAME = "moex_derived_indicator_rebuild_job"
 STRATEGY_REGISTRY_REFRESH_JOB_NAME = "strategy_registry_refresh_job"
 RESEARCH_BACKTEST_JOB_NAME = "research_backtest_job"
 RESEARCH_PROJECTION_JOB_NAME = "research_projection_job"
@@ -144,6 +148,19 @@ RESEARCH_DATA_PREP_ASSETS = (
     "research_indicator_frames",
     "research_derived_indicator_frames",
 )
+MOEX_CF_REBUILD_ASSETS = (
+    "continuous_front_bars",
+    "continuous_front_roll_events",
+    "continuous_front_adjustment_ladder",
+    "continuous_front_qc_report",
+)
+MOEX_RESEARCH_BAR_REBUILD_ASSETS = (
+    "research_datasets",
+    "research_instrument_tree",
+    "research_bar_views",
+)
+MOEX_INDICATOR_REBUILD_ASSETS = ("research_indicator_frames",)
+MOEX_DERIVED_INDICATOR_REBUILD_ASSETS = ("research_derived_indicator_frames",)
 
 STRATEGY_REGISTRY_REFRESH_ASSETS = (
     "research_strategy_families",
@@ -988,6 +1005,99 @@ def _materialized_table_manifest(
     }
 
 
+def _existing_research_dataset_context(config: dict[str, object]) -> dict[str, object]:
+    materialized_output_dir = _materialized_output_dir(config)
+    results_output_dir = _results_output_dir(config)
+    registry_root = Path(str(_config_value(config, "registry_root"))).resolve()
+    dataset_version = str(_config_value(config, "dataset_version"))
+    indicator_set_version = str(_config_value(config, "indicator_set_version", "indicators-v1"))
+    derived_indicator_set_version = str(
+        _config_value(
+            config, "derived_indicator_set_version", DEFAULT_DERIVED_INDICATOR_SET_VERSION
+        )
+    )
+    series_mode = str(_config_value(config, "series_mode", "contract"))
+    contour_id = "pit_active_front" if series_mode == "continuous_front" else "native_tradable"
+    return {
+        "canonical_output_dir": Path(str(_config_value(config, "canonical_output_dir")))
+        .resolve()
+        .as_posix(),
+        "registry_root": registry_root.as_posix(),
+        "materialized_output_dir": materialized_output_dir.as_posix(),
+        "results_output_dir": results_output_dir.as_posix(),
+        "reuse_existing_materialization": bool(
+            _config_value(config, "reuse_existing_materialization", False)
+        ),
+        "campaign_run_id": str(_config_value(config, "campaign_run_id")),
+        "dataset_version": dataset_version,
+        "contour_id": contour_id,
+        "indicator_set_version": indicator_set_version,
+        "indicator_profile_version": str(
+            _config_value(config, "indicator_profile_version", "core_v1")
+        ),
+        "derived_indicator_set_version": derived_indicator_set_version,
+        "derived_indicator_profile_version": str(
+            _config_value(config, "derived_indicator_profile_version", "core_v1")
+        ),
+        "volume_profile_raw_1m_table_path": _resolve_volume_profile_raw_1m_table_path(
+            _config_value(config, "volume_profile_raw_1m_table_path", "")
+        ),
+        "volume_profile_tick_size_by_instrument": _normalize_volume_profile_tick_sizes(
+            _config_value(config, "volume_profile_tick_size_by_instrument", {}),
+            strict=False,
+        ),
+        "dataset_manifest": _dataset_manifest_row(
+            materialized_output_dir=materialized_output_dir,
+            dataset_version=dataset_version,
+            contour_id=contour_id,
+        ),
+        "output_paths": _research_output_paths(
+            registry_root=registry_root,
+            materialized_output_dir=materialized_output_dir,
+            results_output_dir=results_output_dir,
+        ),
+    }
+
+
+def _continuous_front_qc_order_key(row: dict[str, object]) -> tuple[datetime, str]:
+    for field_name in ("completed_at", "started_at"):
+        value = row.get(field_name)
+        if isinstance(value, datetime):
+            resolved = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+            return resolved.astimezone(UTC), str(row.get("run_id", ""))
+        raw_value = str(value or "").strip()
+        if not raw_value:
+            continue
+        try:
+            parsed = datetime.fromisoformat(raw_value.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        resolved = parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+        return resolved.astimezone(UTC), str(row.get("run_id", ""))
+    return datetime.min.replace(tzinfo=UTC), str(row.get("run_id", ""))
+
+
+def _continuous_front_status_from_store(
+    *, materialized_output_dir: Path, dataset_version: str
+) -> str:
+    qc_path = materialized_output_dir / "continuous_front_qc_report.delta"
+    if not has_delta_log(qc_path):
+        return ""
+    rows = read_delta_table_rows(
+        qc_path,
+        filters=[("dataset_version", "=", dataset_version)],
+    )
+    if not rows:
+        return ""
+    latest_row = max(rows, key=_continuous_front_qc_order_key)
+    latest_run_id = str(latest_row.get("run_id", "")).strip()
+    latest_rows = [row for row in rows if str(row.get("run_id", "")).strip() == latest_run_id]
+    statuses = {str(row.get("status", "")).strip().upper() for row in latest_rows} - {""}
+    if statuses == {"PASS"}:
+        return "PASS"
+    return sorted(statuses)[0] if statuses else ""
+
+
 def _seed_manifest(config: dict[str, object]) -> ResearchDatasetManifest:
     series_mode = str(_config_value(config, "series_mode", "contract"))
     contour_id = "pit_active_front" if series_mode == "continuous_front" else "native_tradable"
@@ -1111,14 +1221,13 @@ def continuous_front_qc_report(
     return summary
 
 
-@asset(group_name="research", config_schema=_research_config_schema())
-def research_datasets(context, continuous_front_qc_report: dict[str, object]) -> dict[str, object]:
+@asset(
+    group_name="research",
+    config_schema=_research_config_schema(),
+    deps=[continuous_front_qc_report],
+)
+def research_datasets(context) -> dict[str, object]:
     config = dict(context.op_execution_context.op_config)
-    if (
-        str(_config_value(config, "series_mode", "contract")) == "continuous_front"
-        and str(continuous_front_qc_report.get("continuous_front_status")) != "PASS"
-    ):
-        raise RuntimeError("continuous_front research dataset materialization requires PASS QC")
     registry_root = Path(str(_config_value(config, "registry_root"))).resolve()
     materialized_output_dir = _materialized_output_dir(config)
     results_output_dir = _results_output_dir(config)
@@ -1130,6 +1239,12 @@ def research_datasets(context, continuous_front_qc_report: dict[str, object]) ->
         )
     )
     series_mode = str(_config_value(config, "series_mode", "contract"))
+    continuous_front_status = _continuous_front_status_from_store(
+        materialized_output_dir=materialized_output_dir,
+        dataset_version=dataset_version,
+    )
+    if series_mode == "continuous_front" and continuous_front_status != "PASS":
+        raise RuntimeError("continuous_front research dataset materialization requires PASS QC")
     contour_id = "pit_active_front" if series_mode == "continuous_front" else "native_tradable"
     dataset_contract_ids = tuple(
         str(item) for item in _config_value(config, "dataset_contract_ids", [])
@@ -1333,12 +1448,14 @@ def research_bar_views(research_datasets: dict[str, object]) -> dict[str, object
     return _materialized_table_manifest(research_datasets, "research_bar_views")
 
 
-@asset(group_name="research")
-def research_indicator_frames(
-    research_datasets: dict[str, object],
-    research_bar_views: dict[str, object],
-) -> dict[str, object]:
-    del research_bar_views
+@asset(
+    group_name="research",
+    config_schema=_research_config_schema(),
+    deps=[research_datasets, research_bar_views],
+)
+def research_indicator_frames(context) -> dict[str, object]:
+    config = dict(context.op_execution_context.op_config)
+    research_datasets = _existing_research_dataset_context(config)
     materialized_output_dir = Path(str(research_datasets["materialized_output_dir"]))
     dataset_version = str(research_datasets["dataset_version"])
     indicator_set_version = str(research_datasets["indicator_set_version"])
@@ -1403,14 +1520,14 @@ def research_indicator_frames(
     return _materialized_table_manifest(research_datasets, "research_indicator_frames")
 
 
-@asset(group_name="research")
-def research_derived_indicator_frames(
-    research_datasets: dict[str, object],
-    research_bar_views: dict[str, object],
-    research_indicator_frames: dict[str, object],
-) -> dict[str, object]:
-    del research_bar_views
-    del research_indicator_frames
+@asset(
+    group_name="research",
+    config_schema=_research_config_schema(),
+    deps=[research_datasets, research_bar_views, research_indicator_frames],
+)
+def research_derived_indicator_frames(context) -> dict[str, object]:
+    config = dict(context.op_execution_context.op_config)
+    research_datasets = _existing_research_dataset_context(config)
     materialized_output_dir = Path(str(research_datasets["materialized_output_dir"]))
     dataset_version = str(research_datasets["dataset_version"])
     indicator_set_version = str(research_datasets["indicator_set_version"])
@@ -1925,6 +2042,35 @@ research_data_prep_job = define_asset_job(
     ),
 )
 
+moex_cf_rebuild_job = define_asset_job(
+    name=MOEX_CF_REBUILD_JOB_NAME,
+    selection=AssetSelection.assets(
+        continuous_front_bars,
+        continuous_front_roll_events,
+        continuous_front_adjustment_ladder,
+        continuous_front_qc_report,
+    ),
+)
+
+moex_research_bar_rebuild_job = define_asset_job(
+    name=MOEX_RESEARCH_BAR_REBUILD_JOB_NAME,
+    selection=AssetSelection.assets(
+        research_datasets,
+        research_instrument_tree,
+        research_bar_views,
+    ),
+)
+
+moex_indicator_rebuild_job = define_asset_job(
+    name=MOEX_INDICATOR_REBUILD_JOB_NAME,
+    selection=AssetSelection.assets(research_indicator_frames),
+)
+
+moex_derived_indicator_rebuild_job = define_asset_job(
+    name=MOEX_DERIVED_INDICATOR_REBUILD_JOB_NAME,
+    selection=AssetSelection.assets(research_derived_indicator_frames),
+)
+
 strategy_registry_refresh_job = define_asset_job(
     name=STRATEGY_REGISTRY_REFRESH_JOB_NAME,
     selection=AssetSelection.assets(
@@ -2188,6 +2334,12 @@ def build_research_data_prep_run_config(
             "research_datasets": {
                 "config": research_config,
             },
+            "research_indicator_frames": {
+                "config": research_config,
+            },
+            "research_derived_indicator_frames": {
+                "config": research_config,
+            },
         }
     }
 
@@ -2235,12 +2387,15 @@ def research_data_prep_after_moex_sensor(context):
 research_definitions = Definitions(
     assets=list(RESEARCH_ASSETS),
     jobs=[
-        research_data_prep_job,
+        moex_cf_rebuild_job,
+        moex_research_bar_rebuild_job,
+        moex_indicator_rebuild_job,
+        moex_derived_indicator_rebuild_job,
         strategy_registry_refresh_job,
         research_backtest_job,
         research_projection_job,
     ],
-    sensors=[research_data_prep_after_moex_sensor],
+    sensors=[],
 )
 
 
@@ -2248,7 +2403,10 @@ def assert_research_definitions_executable(definitions: Definitions | None = Non
     defs = definitions or research_definitions
     repository = defs.get_repository_def()
     expected_by_job = {
-        RESEARCH_DATA_PREP_JOB_NAME: set(RESEARCH_DATA_PREP_ASSETS),
+        MOEX_CF_REBUILD_JOB_NAME: set(MOEX_CF_REBUILD_ASSETS),
+        MOEX_RESEARCH_BAR_REBUILD_JOB_NAME: set(MOEX_RESEARCH_BAR_REBUILD_ASSETS),
+        MOEX_INDICATOR_REBUILD_JOB_NAME: set(MOEX_INDICATOR_REBUILD_ASSETS),
+        MOEX_DERIVED_INDICATOR_REBUILD_JOB_NAME: set(MOEX_DERIVED_INDICATOR_REBUILD_ASSETS),
         STRATEGY_REGISTRY_REFRESH_JOB_NAME: set(STRATEGY_REGISTRY_REFRESH_EXECUTION_ASSETS),
         RESEARCH_BACKTEST_JOB_NAME: set(RESEARCH_BACKTEST_ASSETS),
         RESEARCH_PROJECTION_JOB_NAME: set(RESEARCH_PROJECTION_ASSETS),
@@ -2498,13 +2656,18 @@ def _materialize_research_assets(
     min_robust_score: float = 0.55,
     decision_lag_bars_max: int = 1,
     reuse_existing_materialization: bool = False,
+    expand_dependencies: bool = True,
     raise_on_error: bool = True,
 ) -> dict[str, object]:
     assert_research_definitions_executable()
     selected_assets = _resolve_selected_assets(
         selection, default_assets=default_assets, allowed_assets=allowed_assets
     )
-    expected_materialized_assets = _resolve_expected_materialization(selected_assets)
+    expected_materialized_assets = (
+        _resolve_expected_materialization(selected_assets)
+        if expand_dependencies
+        else list(selected_assets)
+    )
     resolved_materialized_output_dir, resolved_results_output_dir = _resolve_research_output_dirs(
         research_output_dir=research_output_dir,
         materialized_output_dir=materialized_output_dir,
@@ -2614,17 +2777,29 @@ def _materialize_research_assets(
         reuse_existing_materialization=reuse_existing_materialization,
     )
 
+    op_configs = {
+        "continuous_front_bars": {
+            "config": research_config,
+        },
+        "research_datasets": {
+            "config": research_config,
+        },
+        "research_indicator_frames": {
+            "config": research_config,
+        },
+        "research_derived_indicator_frames": {
+            "config": research_config,
+        },
+    }
+
     result = materialize(
         assets=list(RESEARCH_ASSETS),
         selection=expected_materialized_assets,
         run_config={
             "ops": {
-                "continuous_front_bars": {
-                    "config": research_config,
-                },
-                "research_datasets": {
-                    "config": research_config,
-                },
+                op_name: op_config
+                for op_name, op_config in op_configs.items()
+                if op_name in expected_materialized_assets
             }
         },
         raise_on_error=raise_on_error,
@@ -2756,6 +2931,284 @@ def materialize_research_data_prep_assets(
         volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
         volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
         code_version=code_version,
+        reuse_existing_materialization=reuse_existing_materialization,
+        raise_on_error=raise_on_error,
+    )
+
+
+def _materialize_moex_layer_rebuild_assets(
+    *,
+    canonical_output_dir: Path,
+    research_output_dir: Path | None = None,
+    materialized_output_dir: Path | None = None,
+    results_output_dir: Path | None = None,
+    campaign_id: str = "camp_moex_data_rebuild",
+    campaign_run_id: str = "crun_moex_data_rebuild",
+    dataset_version: str,
+    dataset_name: str,
+    universe_id: str = "moex-futures",
+    timeframes: Sequence[str],
+    base_timeframe: str = "",
+    start_ts: str = "",
+    end_ts: str = "",
+    warmup_bars: int = DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS,
+    split_method: str = "holdout",
+    series_mode: str = "continuous_front",
+    continuous_front_policy: dict[str, object] | None = None,
+    dataset_contract_ids: Sequence[str] = (),
+    dataset_instrument_ids: Sequence[str] = (),
+    indicator_set_version: str = "indicators-v1",
+    indicator_profile_version: str = "core_v1",
+    derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
+    derived_indicator_profile_version: str = "core_v1",
+    volume_profile_raw_1m_table_path: str | Path | None = None,
+    volume_profile_tick_size_by_instrument: Mapping[str, float] | None = None,
+    code_version: str,
+    default_assets: Sequence[str],
+    allowed_assets: Sequence[str],
+    reuse_existing_materialization: bool = False,
+    selection: Sequence[str] | None = None,
+    raise_on_error: bool = True,
+) -> dict[str, object]:
+    return _materialize_research_assets(
+        canonical_output_dir=canonical_output_dir,
+        research_output_dir=research_output_dir,
+        materialized_output_dir=materialized_output_dir,
+        results_output_dir=results_output_dir,
+        campaign_id=campaign_id,
+        campaign_run_id=campaign_run_id,
+        dataset_version=dataset_version,
+        dataset_name=dataset_name,
+        universe_id=universe_id,
+        timeframes=timeframes,
+        base_timeframe=base_timeframe,
+        start_ts=start_ts,
+        end_ts=end_ts,
+        warmup_bars=warmup_bars,
+        split_method=split_method,
+        series_mode=series_mode,
+        continuous_front_policy=continuous_front_policy,
+        dataset_contract_ids=dataset_contract_ids,
+        dataset_instrument_ids=dataset_instrument_ids,
+        default_assets=default_assets,
+        allowed_assets=allowed_assets,
+        selection=selection,
+        indicator_set_version=indicator_set_version,
+        indicator_profile_version=indicator_profile_version,
+        derived_indicator_set_version=derived_indicator_set_version,
+        derived_indicator_profile_version=derived_indicator_profile_version,
+        volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
+        volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
+        code_version=code_version,
+        reuse_existing_materialization=reuse_existing_materialization,
+        expand_dependencies=False,
+        raise_on_error=raise_on_error,
+    )
+
+
+def materialize_moex_cf_rebuild_assets(
+    *,
+    canonical_output_dir: Path,
+    research_output_dir: Path | None = None,
+    materialized_output_dir: Path | None = None,
+    results_output_dir: Path | None = None,
+    campaign_id: str = "camp_moex_cf_rebuild",
+    campaign_run_id: str = "crun_moex_cf_rebuild",
+    dataset_version: str,
+    dataset_name: str = "moex-cf-rebuild",
+    universe_id: str = "moex-futures",
+    timeframes: Sequence[str],
+    base_timeframe: str = "",
+    series_mode: str = "continuous_front",
+    continuous_front_policy: dict[str, object] | None = None,
+    indicator_set_version: str = "indicators-v1",
+    indicator_profile_version: str = "core_v1",
+    derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
+    derived_indicator_profile_version: str = "core_v1",
+    volume_profile_raw_1m_table_path: str | Path | None = None,
+    volume_profile_tick_size_by_instrument: Mapping[str, float] | None = None,
+    reuse_existing_materialization: bool = False,
+    raise_on_error: bool = True,
+) -> dict[str, object]:
+    return _materialize_moex_layer_rebuild_assets(
+        canonical_output_dir=canonical_output_dir,
+        research_output_dir=research_output_dir,
+        materialized_output_dir=materialized_output_dir,
+        results_output_dir=results_output_dir,
+        campaign_id=campaign_id,
+        campaign_run_id=campaign_run_id,
+        dataset_version=dataset_version,
+        dataset_name=dataset_name,
+        universe_id=universe_id,
+        timeframes=timeframes,
+        base_timeframe=base_timeframe,
+        series_mode=series_mode,
+        continuous_front_policy=continuous_front_policy,
+        indicator_set_version=indicator_set_version,
+        indicator_profile_version=indicator_profile_version,
+        derived_indicator_set_version=derived_indicator_set_version,
+        derived_indicator_profile_version=derived_indicator_profile_version,
+        volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
+        volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
+        code_version="moex-cf-rebuild-orchestration",
+        default_assets=MOEX_CF_REBUILD_ASSETS,
+        allowed_assets=MOEX_CF_REBUILD_ASSETS,
+        reuse_existing_materialization=reuse_existing_materialization,
+        raise_on_error=raise_on_error,
+    )
+
+
+def materialize_moex_research_bar_rebuild_assets(
+    *,
+    canonical_output_dir: Path,
+    research_output_dir: Path | None = None,
+    materialized_output_dir: Path | None = None,
+    results_output_dir: Path | None = None,
+    campaign_id: str = "camp_moex_research_bar_rebuild",
+    campaign_run_id: str = "crun_moex_research_bar_rebuild",
+    dataset_version: str,
+    dataset_name: str = "moex-research-bar-rebuild",
+    universe_id: str = "moex-futures",
+    timeframes: Sequence[str],
+    base_timeframe: str = "",
+    series_mode: str = "continuous_front",
+    continuous_front_policy: dict[str, object] | None = None,
+    indicator_set_version: str = "indicators-v1",
+    indicator_profile_version: str = "core_v1",
+    derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
+    derived_indicator_profile_version: str = "core_v1",
+    volume_profile_raw_1m_table_path: str | Path | None = None,
+    volume_profile_tick_size_by_instrument: Mapping[str, float] | None = None,
+    reuse_existing_materialization: bool = False,
+    raise_on_error: bool = True,
+) -> dict[str, object]:
+    return _materialize_moex_layer_rebuild_assets(
+        canonical_output_dir=canonical_output_dir,
+        research_output_dir=research_output_dir,
+        materialized_output_dir=materialized_output_dir,
+        results_output_dir=results_output_dir,
+        campaign_id=campaign_id,
+        campaign_run_id=campaign_run_id,
+        dataset_version=dataset_version,
+        dataset_name=dataset_name,
+        universe_id=universe_id,
+        timeframes=timeframes,
+        base_timeframe=base_timeframe,
+        series_mode=series_mode,
+        continuous_front_policy=continuous_front_policy,
+        indicator_set_version=indicator_set_version,
+        indicator_profile_version=indicator_profile_version,
+        derived_indicator_set_version=derived_indicator_set_version,
+        derived_indicator_profile_version=derived_indicator_profile_version,
+        volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
+        volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
+        code_version="moex-research-bar-rebuild-orchestration",
+        default_assets=MOEX_RESEARCH_BAR_REBUILD_ASSETS,
+        allowed_assets=MOEX_RESEARCH_BAR_REBUILD_ASSETS,
+        reuse_existing_materialization=reuse_existing_materialization,
+        raise_on_error=raise_on_error,
+    )
+
+
+def materialize_moex_indicator_rebuild_assets(
+    *,
+    canonical_output_dir: Path,
+    research_output_dir: Path | None = None,
+    materialized_output_dir: Path | None = None,
+    results_output_dir: Path | None = None,
+    campaign_id: str = "camp_moex_indicator_rebuild",
+    campaign_run_id: str = "crun_moex_indicator_rebuild",
+    dataset_version: str,
+    dataset_name: str = "moex-indicator-rebuild",
+    universe_id: str = "moex-futures",
+    timeframes: Sequence[str],
+    base_timeframe: str = "",
+    series_mode: str = "continuous_front",
+    continuous_front_policy: dict[str, object] | None = None,
+    indicator_set_version: str = "indicators-v1",
+    indicator_profile_version: str = "core_v1",
+    derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
+    derived_indicator_profile_version: str = "core_v1",
+    volume_profile_raw_1m_table_path: str | Path | None = None,
+    volume_profile_tick_size_by_instrument: Mapping[str, float] | None = None,
+    reuse_existing_materialization: bool = False,
+    raise_on_error: bool = True,
+) -> dict[str, object]:
+    return _materialize_moex_layer_rebuild_assets(
+        canonical_output_dir=canonical_output_dir,
+        research_output_dir=research_output_dir,
+        materialized_output_dir=materialized_output_dir,
+        results_output_dir=results_output_dir,
+        campaign_id=campaign_id,
+        campaign_run_id=campaign_run_id,
+        dataset_version=dataset_version,
+        dataset_name=dataset_name,
+        universe_id=universe_id,
+        timeframes=timeframes,
+        base_timeframe=base_timeframe,
+        series_mode=series_mode,
+        continuous_front_policy=continuous_front_policy,
+        indicator_set_version=indicator_set_version,
+        indicator_profile_version=indicator_profile_version,
+        derived_indicator_set_version=derived_indicator_set_version,
+        derived_indicator_profile_version=derived_indicator_profile_version,
+        volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
+        volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
+        code_version="moex-indicator-rebuild-orchestration",
+        default_assets=MOEX_INDICATOR_REBUILD_ASSETS,
+        allowed_assets=MOEX_INDICATOR_REBUILD_ASSETS,
+        reuse_existing_materialization=reuse_existing_materialization,
+        raise_on_error=raise_on_error,
+    )
+
+
+def materialize_moex_derived_indicator_rebuild_assets(
+    *,
+    canonical_output_dir: Path,
+    research_output_dir: Path | None = None,
+    materialized_output_dir: Path | None = None,
+    results_output_dir: Path | None = None,
+    campaign_id: str = "camp_moex_derived_rebuild",
+    campaign_run_id: str = "crun_moex_derived_rebuild",
+    dataset_version: str,
+    dataset_name: str = "moex-derived-rebuild",
+    universe_id: str = "moex-futures",
+    timeframes: Sequence[str],
+    base_timeframe: str = "",
+    series_mode: str = "continuous_front",
+    continuous_front_policy: dict[str, object] | None = None,
+    indicator_set_version: str = "indicators-v1",
+    indicator_profile_version: str = "core_v1",
+    derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
+    derived_indicator_profile_version: str = "core_v1",
+    volume_profile_raw_1m_table_path: str | Path | None = None,
+    volume_profile_tick_size_by_instrument: Mapping[str, float] | None = None,
+    reuse_existing_materialization: bool = False,
+    raise_on_error: bool = True,
+) -> dict[str, object]:
+    return _materialize_moex_layer_rebuild_assets(
+        canonical_output_dir=canonical_output_dir,
+        research_output_dir=research_output_dir,
+        materialized_output_dir=materialized_output_dir,
+        results_output_dir=results_output_dir,
+        campaign_id=campaign_id,
+        campaign_run_id=campaign_run_id,
+        dataset_version=dataset_version,
+        dataset_name=dataset_name,
+        universe_id=universe_id,
+        timeframes=timeframes,
+        base_timeframe=base_timeframe,
+        series_mode=series_mode,
+        continuous_front_policy=continuous_front_policy,
+        indicator_set_version=indicator_set_version,
+        indicator_profile_version=indicator_profile_version,
+        derived_indicator_set_version=derived_indicator_set_version,
+        derived_indicator_profile_version=derived_indicator_profile_version,
+        volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
+        volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
+        code_version="moex-derived-rebuild-orchestration",
+        default_assets=MOEX_DERIVED_INDICATOR_REBUILD_ASSETS,
+        allowed_assets=MOEX_DERIVED_INDICATOR_REBUILD_ASSETS,
         reuse_existing_materialization=reuse_existing_materialization,
         raise_on_error=raise_on_error,
     )

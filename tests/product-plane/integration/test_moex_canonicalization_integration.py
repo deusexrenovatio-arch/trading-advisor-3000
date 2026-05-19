@@ -36,13 +36,34 @@ RAW_COLUMNS: dict[str, str] = {
     "provenance_json": "json",
 }
 
+SESSION_INTERVAL_COLUMNS: dict[str, str] = {
+    "instrument_id": "string",
+    "session_date": "date",
+    "interval_id": "string",
+    "interval_seq": "int",
+    "expected_open_ts": "timestamp",
+    "expected_close_ts": "timestamp",
+    "session_class": "string",
+    "interval_type": "string",
+    "policy_id": "string",
+    "source_id": "string",
+    "source_document_hash": "string",
+}
+
 
 def _iso(dt: datetime) -> str:
     return dt.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _read_batched_delta_rows(table_path: Path) -> list[dict[str, object]]:
-    return [row for batch in iter_delta_table_row_batches(table_path) for row in batch]
+    return [
+        row
+        for batch in iter_delta_table_row_batches(
+            table_path,
+            filters=[("timeframe", "in", ["5m", "15m", "1h", "4h", "1d", "1w"])],
+        )
+        for row in batch
+    ]
 
 
 def _raw_rows(*, with_source_provider: bool) -> list[dict[str, object]]:
@@ -115,6 +136,37 @@ def _raw_rows_with_daily_only_contract(*, with_source_provider: bool) -> list[di
 
 def _write_raw_table(path: Path, rows: list[dict[str, object]]) -> None:
     write_delta_table_rows(table_path=path, rows=rows, columns=RAW_COLUMNS)
+
+
+def _session_intervals_for_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    sessions = sorted(
+        {
+            (str(row["internal_id"]), str(row["ts_open"])[:10])
+            for row in rows
+            if str(row["timeframe"]) == "1m"
+        }
+    )
+    return [
+        {
+            "instrument_id": instrument_id,
+            "session_date": session_date,
+            "interval_id": f"{instrument_id}-{session_date}-regular-1",
+            "interval_seq": 1,
+            "expected_open_ts": f"{session_date}T10:00:00Z",
+            "expected_close_ts": f"{session_date}T18:45:00Z",
+            "session_class": "regular",
+            "interval_type": "regular_trading",
+            "policy_id": "moex-official-session-v1",
+            "source_id": "moex-official-schedule-fixture",
+            "source_document_hash": "sha256:fixture",
+        }
+        for instrument_id, session_date in sessions
+    ]
+
+
+def _write_session_intervals(path: Path, rows: list[dict[str, object]]) -> Path:
+    write_delta_table_rows(table_path=path, rows=rows, columns=SESSION_INTERVAL_COLUMNS)
+    return path
 
 
 def _build_raw_ingest_report_for_rows(
@@ -190,6 +242,10 @@ def test_canonicalization_generates_resampling_outputs_and_reports(tmp_path: Pat
     raw_table_path = tmp_path / "raw_ingest" / "delta" / "raw_moex_history.delta"
     rows = _raw_rows(with_source_provider=True)
     _write_raw_table(raw_table_path, rows)
+    session_intervals_path = _write_session_intervals(
+        tmp_path / "official" / "canonical_session_intervals.delta",
+        _session_intervals_for_rows(rows),
+    )
 
     report = run_moex_canonicalization(
         raw_table_path=raw_table_path,
@@ -198,6 +254,7 @@ def test_canonicalization_generates_resampling_outputs_and_reports(tmp_path: Pat
         raw_ingest_run_report=_build_raw_ingest_report_for_rows(
             rows=rows, run_id="raw-ingest-pass1"
         ),
+        session_intervals_path=session_intervals_path,
     )
 
     assert report["status"] == "PASS"
@@ -237,6 +294,10 @@ def test_canonicalization_is_fail_closed_when_qc_fails(tmp_path: Path) -> None:
     raw_table_path = tmp_path / "raw_ingest" / "delta" / "raw_moex_history.delta"
     rows = _raw_rows(with_source_provider=False)
     _write_raw_table(raw_table_path, rows)
+    session_intervals_path = _write_session_intervals(
+        tmp_path / "official" / "canonical_session_intervals.delta",
+        _session_intervals_for_rows(rows),
+    )
 
     report = run_moex_canonicalization(
         raw_table_path=raw_table_path,
@@ -245,6 +306,7 @@ def test_canonicalization_is_fail_closed_when_qc_fails(tmp_path: Path) -> None:
         raw_ingest_run_report=_build_raw_ingest_report_for_rows(
             rows=rows, run_id="raw-ingest-pass1"
         ),
+        session_intervals_path=session_intervals_path,
     )
 
     assert report["status"] == "BLOCKED"
@@ -259,12 +321,219 @@ def test_canonicalization_is_fail_closed_when_qc_fails(tmp_path: Path) -> None:
     assert payload["publish_decision"] == "blocked"
 
 
+def test_canonicalization_blocks_without_official_session_intervals(tmp_path: Path) -> None:
+    raw_table_path = tmp_path / "raw_ingest" / "delta" / "raw_moex_history.delta"
+    rows = _raw_rows(with_source_provider=True)
+    _write_raw_table(raw_table_path, rows)
+
+    report = run_moex_canonicalization(
+        raw_table_path=raw_table_path,
+        output_dir=tmp_path / "canonicalization-missing-sessions",
+        run_id="canonicalization-missing-sessions",
+        raw_ingest_run_report=_build_raw_ingest_report_for_rows(
+            rows=rows, run_id="raw-ingest-pass1"
+        ),
+    )
+
+    assert report["status"] == "BLOCKED"
+    assert report["publish_decision"] == "blocked"
+    assert report["session_intervals_path"] == ""
+    assert report["session_intervals_mode"] == "manual_session_intervals_missing_blocked"
+    assert report["session_admission_gate"]["failed_gates"] == ["official_schedule_missing_input"]
+    assert report["spark_execution_report"] is None
+
+
+def test_canonicalization_rejects_raw_minutes_outside_official_intervals(
+    tmp_path: Path,
+) -> None:
+    raw_table_path = tmp_path / "raw_ingest" / "delta" / "raw_moex_history.delta"
+    rows = _raw_rows(with_source_provider=True)
+    _write_raw_table(raw_table_path, rows)
+    session_intervals_path = _write_session_intervals(
+        tmp_path / "official" / "canonical_session_intervals.delta",
+        [
+            {
+                "instrument_id": "FUT_BR",
+                "session_date": "2026-04-02",
+                "interval_id": "FUT_BR-2026-04-02-regular-1",
+                "interval_seq": 1,
+                "expected_open_ts": "2026-04-02T10:00:00Z",
+                "expected_close_ts": "2026-04-02T10:10:00Z",
+                "session_class": "partial_or_gap",
+                "interval_type": "regular_trading",
+                "policy_id": "moex-official-session-v1",
+                "source_id": "moex-official-schedule-fixture",
+                "source_document_hash": "sha256:fixture",
+            }
+        ],
+    )
+
+    report = run_moex_canonicalization(
+        raw_table_path=raw_table_path,
+        output_dir=tmp_path / "canonicalization-session-bounded",
+        run_id="canonicalization-session-bounded",
+        raw_ingest_run_report=_build_raw_ingest_report_for_rows(
+            rows=rows, run_id="raw-ingest-pass1"
+        ),
+        session_intervals_path=session_intervals_path,
+    )
+
+    admission = report["spark_execution_report"]["session_admission_report"]
+    assert admission["admitted_source_rows"] == 10
+    assert admission["rejected_out_of_session_rows"] == 10
+    assert report["publish_decision"] == "blocked"
+    assert report["session_admission_gate"]["failed_gates"] == ["official_schedule_mismatch"]
+
+
+def test_canonicalization_admits_moex_opening_minute_begin_end_label(
+    tmp_path: Path,
+) -> None:
+    raw_table_path = tmp_path / "raw_ingest" / "delta" / "raw_moex_history.delta"
+    rows: list[dict[str, object]] = []
+    start = datetime(2026, 4, 2, 9, 59, tzinfo=UTC)
+    for minute in range(2):
+        ts_open = start + timedelta(minutes=minute)
+        rows.append(
+            {
+                "internal_id": "FUT_BR",
+                "finam_symbol": "BRM6@MOEX",
+                "timeframe": "1m",
+                "source_interval": 1,
+                "ts_open": _iso(ts_open),
+                "ts_close": _iso(ts_open + timedelta(seconds=59)),
+                "open": 100.0 + minute,
+                "high": 101.0 + minute,
+                "low": 99.0 + minute,
+                "close": 100.5 + minute,
+                "volume": 10 + minute,
+                "open_interest": None,
+                "ingest_run_id": "raw-ingest-open-minute",
+                "ingested_at_utc": _iso(ts_open + timedelta(minutes=2)),
+                "provenance_json": {
+                    "source_provider": "moex_iss",
+                    "source_interval": 1,
+                    "source_timeframe": "1m",
+                    "run_id": "raw-ingest-open-minute",
+                    "discovery_url": "https://iss.moex.com/iss/engines/futures/markets/forts/boards/RFUD/securities/BRM6/candleborders.json",
+                },
+            }
+        )
+    _write_raw_table(raw_table_path, rows)
+    session_intervals_path = _write_session_intervals(
+        tmp_path / "official" / "canonical_session_intervals.delta",
+        [
+            {
+                "instrument_id": "FUT_BR",
+                "session_date": "2026-04-02",
+                "interval_id": "FUT_BR-2026-04-02-regular-1",
+                "interval_seq": 1,
+                "expected_open_ts": "2026-04-02T10:00:00Z",
+                "expected_close_ts": "2026-04-02T10:05:00Z",
+                "session_class": "regular",
+                "interval_type": "regular_trading",
+                "policy_id": "moex-official-session-v1",
+                "source_id": "moex-official-schedule-fixture",
+                "source_document_hash": "sha256:fixture",
+            }
+        ],
+    )
+
+    report = run_moex_canonicalization(
+        raw_table_path=raw_table_path,
+        output_dir=tmp_path / "canonicalization-open-minute",
+        run_id="canonicalization-open-minute",
+        raw_ingest_run_report=_build_raw_ingest_report_for_rows(
+            rows=rows, run_id="raw-ingest-open-minute"
+        ),
+        session_intervals_path=session_intervals_path,
+    )
+
+    admission = report["spark_execution_report"]["session_admission_report"]
+    assert admission["admission_open_tolerance_seconds"] == 60
+    assert admission["admitted_source_rows"] == 2
+    assert admission["rejected_out_of_session_rows"] == 0
+    assert report["publish_decision"] == "publish"
+
+
+def test_canonicalization_uses_moscow_session_date_for_utc_boundary(
+    tmp_path: Path,
+) -> None:
+    raw_table_path = tmp_path / "raw_ingest" / "delta" / "raw_moex_history.delta"
+    start = datetime(2026, 4, 21, 21, 15, tzinfo=UTC)
+    rows = []
+    for minute in range(10):
+        ts_open = start + timedelta(minutes=minute)
+        rows.append(
+            {
+                "internal_id": "FUT_BR",
+                "finam_symbol": "BRM6@MOEX",
+                "timeframe": "1m",
+                "source_interval": 1,
+                "ts_open": _iso(ts_open),
+                "ts_close": _iso(ts_open + timedelta(minutes=1)),
+                "open": 100.0 + minute,
+                "high": 101.0 + minute,
+                "low": 99.0 + minute,
+                "close": 100.5 + minute,
+                "volume": 10 + minute,
+                "open_interest": None,
+                "ingest_run_id": "raw-ingest-boundary",
+                "ingested_at_utc": _iso(ts_open + timedelta(minutes=2)),
+                "provenance_json": {
+                    "source_provider": "moex_iss",
+                    "source_interval": 1,
+                    "source_timeframe": "1m",
+                    "run_id": "raw-ingest-boundary",
+                    "discovery_url": "https://iss.moex.com/iss/engines/futures/markets/forts/boards/RFUD/securities/BRM6/candleborders.json",
+                },
+            }
+        )
+    _write_raw_table(raw_table_path, rows)
+    session_intervals_path = _write_session_intervals(
+        tmp_path / "official" / "canonical_session_intervals.delta",
+        [
+            {
+                "instrument_id": "FUT_BR",
+                "session_date": "2026-04-22",
+                "interval_id": "FUT_BR-2026-04-22-overnight-1",
+                "interval_seq": 1,
+                "expected_open_ts": "2026-04-21T21:15:00Z",
+                "expected_close_ts": "2026-04-21T21:25:00Z",
+                "session_class": "regular",
+                "interval_type": "evening_session",
+                "policy_id": "moex-official-session-v1",
+                "source_id": "moex-official-schedule-fixture",
+                "source_document_hash": "sha256:fixture",
+            }
+        ],
+    )
+
+    report = run_moex_canonicalization(
+        raw_table_path=raw_table_path,
+        output_dir=tmp_path / "canonicalization-session-boundary",
+        run_id="canonicalization-session-boundary",
+        raw_ingest_run_report=_build_raw_ingest_report_for_rows(
+            rows=rows, run_id="raw-ingest-boundary"
+        ),
+        session_intervals_path=session_intervals_path,
+    )
+
+    admission = report["spark_execution_report"]["session_admission_report"]
+    assert admission["missing_official_coverage_rows"] == 0
+    assert admission["rejected_out_of_session_rows"] == 0
+    assert report["publish_decision"] == "publish"
+
+
 def test_canonicalization_reports_skips_for_incompatible_daily_only_contract(
     tmp_path: Path,
 ) -> None:
     raw_table_path = tmp_path / "raw_ingest" / "delta" / "raw_moex_history.delta"
     rows = _raw_rows_with_daily_only_contract(with_source_provider=True)
     _write_raw_table(raw_table_path, rows)
+    session_intervals_path = _write_session_intervals(
+        tmp_path / "official" / "canonical_session_intervals.delta",
+        _session_intervals_for_rows(rows),
+    )
 
     report = run_moex_canonicalization(
         raw_table_path=raw_table_path,
@@ -273,6 +542,7 @@ def test_canonicalization_reports_skips_for_incompatible_daily_only_contract(
         raw_ingest_run_report=_build_raw_ingest_report_for_rows(
             rows=rows, run_id="raw-ingest-pass1"
         ),
+        session_intervals_path=session_intervals_path,
     )
 
     assert report["status"] == "PASS"
@@ -287,6 +557,10 @@ def test_canonicalization_pass_noop_does_not_mutate_existing_tables(tmp_path: Pa
     rows = _raw_rows(with_source_provider=True)
     _write_raw_table(raw_table_path, rows)
     output_dir = tmp_path / "canonicalization-noop"
+    session_intervals_path = _write_session_intervals(
+        tmp_path / "official" / "canonical_session_intervals.delta",
+        _session_intervals_for_rows(rows),
+    )
 
     first = run_moex_canonicalization(
         raw_table_path=raw_table_path,
@@ -295,6 +569,7 @@ def test_canonicalization_pass_noop_does_not_mutate_existing_tables(tmp_path: Pa
         raw_ingest_run_report=_build_raw_ingest_report_for_rows(
             rows=rows, run_id="raw-ingest-pass1"
         ),
+        session_intervals_path=session_intervals_path,
     )
     bars_before = _read_batched_delta_rows(Path(str(first["output_paths"]["canonical_bars"])))
 
@@ -303,6 +578,7 @@ def test_canonicalization_pass_noop_does_not_mutate_existing_tables(tmp_path: Pa
         output_dir=output_dir,
         run_id="canonicalization-int-noop",
         raw_ingest_run_report=_build_raw_ingest_report_noop(run_id="raw-ingest-pass2"),
+        session_intervals_path=session_intervals_path,
     )
     bars_after = _read_batched_delta_rows(Path(str(second["output_paths"]["canonical_bars"])))
 
@@ -317,6 +593,10 @@ def test_canonicalization_avoids_full_raw_table_read(tmp_path: Path, monkeypatch
     rows = _raw_rows_with_daily_only_contract(with_source_provider=True)
     _write_raw_table(raw_table_path, rows)
     raw_table_resolved = raw_table_path.resolve()
+    session_intervals_path = _write_session_intervals(
+        tmp_path / "official" / "canonical_session_intervals.delta",
+        _session_intervals_for_rows(rows),
+    )
 
     original_read = canonicalization_module.read_delta_table_rows
 
@@ -339,6 +619,7 @@ def test_canonicalization_avoids_full_raw_table_read(tmp_path: Path, monkeypatch
         raw_ingest_run_report=_build_raw_ingest_report_for_rows(
             rows=rows, run_id="raw-ingest-pass1"
         ),
+        session_intervals_path=session_intervals_path,
     )
 
     assert report["status"] == "PASS"
@@ -352,6 +633,10 @@ def test_canonicalization_fails_closed_on_missing_spark_output_paths(
     raw_table_path = tmp_path / "raw_ingest" / "delta" / "raw_moex_history.delta"
     rows = _raw_rows_with_daily_only_contract(with_source_provider=True)
     _write_raw_table(raw_table_path, rows)
+    session_intervals_path = _write_session_intervals(
+        tmp_path / "official" / "canonical_session_intervals.delta",
+        _session_intervals_for_rows(rows),
+    )
 
     def missing_spark_outputs(**kwargs):  # noqa: ANN003
         return {
@@ -375,6 +660,7 @@ def test_canonicalization_fails_closed_on_missing_spark_output_paths(
             raw_ingest_run_report=_build_raw_ingest_report_for_rows(
                 rows=rows, run_id="raw-ingest-pass1"
             ),
+            session_intervals_path=session_intervals_path,
         )
 
 
@@ -386,6 +672,10 @@ def test_canonicalization_fails_closed_on_incomplete_spark_outputs(
     _write_raw_table(raw_table_path, rows)
     scoped_bars_path = tmp_path / "spark" / "canonical_bars.delta"
     scoped_provenance_path = tmp_path / "spark" / "canonical_bar_provenance.delta"
+    session_intervals_path = _write_session_intervals(
+        tmp_path / "official" / "canonical_session_intervals.delta",
+        _session_intervals_for_rows(rows),
+    )
 
     def incomplete_spark_outputs(**kwargs):  # noqa: ANN003
         return {
@@ -429,6 +719,7 @@ def test_canonicalization_fails_closed_on_incomplete_spark_outputs(
             raw_ingest_run_report=_build_raw_ingest_report_for_rows(
                 rows=rows, run_id="raw-ingest-pass1"
             ),
+            session_intervals_path=session_intervals_path,
         )
 
 
@@ -439,6 +730,10 @@ def test_canonicalization_pass_noop_skips_raw_table_read_entirely(
     rows = _raw_rows(with_source_provider=True)
     _write_raw_table(raw_table_path, rows)
     output_dir = tmp_path / "canonicalization-noop-skip-raw"
+    session_intervals_path = _write_session_intervals(
+        tmp_path / "official" / "canonical_session_intervals.delta",
+        _session_intervals_for_rows(rows),
+    )
 
     first = canonicalization_module.run_moex_canonicalization(
         raw_table_path=raw_table_path,
@@ -447,6 +742,7 @@ def test_canonicalization_pass_noop_skips_raw_table_read_entirely(
         raw_ingest_run_report=_build_raw_ingest_report_for_rows(
             rows=rows, run_id="raw-ingest-pass1"
         ),
+        session_intervals_path=session_intervals_path,
     )
     assert first["publish_decision"] == "publish"
 
@@ -470,6 +766,7 @@ def test_canonicalization_pass_noop_skips_raw_table_read_entirely(
         output_dir=output_dir,
         run_id="canonicalization-int-noop-skip-raw",
         raw_ingest_run_report=_build_raw_ingest_report_noop(run_id="raw-ingest-pass2"),
+        session_intervals_path=session_intervals_path,
     )
 
     assert second["status"] == "PASS-NOOP"

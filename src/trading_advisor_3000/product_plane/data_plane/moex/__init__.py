@@ -51,6 +51,10 @@ if TYPE_CHECKING:
         load_moex_runtime_instances_registry,
         render_moex_runtime_instance_paths,
     )
+    from .session_schedule import (
+        materialize_official_session_schedule_for_changed_windows,
+        materialize_reconstructed_session_schedule_for_changed_windows,
+    )
 
 
 _MODULE_EXPORTS = {
@@ -59,6 +63,14 @@ _MODULE_EXPORTS = {
     "DiscoveryRecord": (".foundation", "DiscoveryRecord"),
     "FoundationRunReport": (".foundation", "FoundationRunReport"),
     "MoexISSClient": (".iss_client", "MoexISSClient"),
+    "materialize_official_session_schedule_for_changed_windows": (
+        ".session_schedule",
+        "materialize_official_session_schedule_for_changed_windows",
+    ),
+    "materialize_reconstructed_session_schedule_for_changed_windows": (
+        ".session_schedule",
+        "materialize_reconstructed_session_schedule_for_changed_windows",
+    ),
     "acquire_technical_route_lease": (
         ".historical_route_contracts",
         "acquire_technical_route_lease",

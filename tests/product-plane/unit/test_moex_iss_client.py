@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from urllib import parse
 from urllib.error import URLError
-from datetime import date
 
-from trading_advisor_3000.product_plane.data_plane.moex.iss_client import MoexISSClient, MoexRequestError
+import pytest
+
+from trading_advisor_3000.product_plane.data_plane.moex.iss_client import (
+    MoexISSClient,
+    MoexRequestError,
+)
 
 
 class _AdaptiveSplitClient(MoexISSClient):
@@ -40,7 +45,15 @@ class _AdaptiveSplitClient(MoexISSClient):
             "candles": {
                 "columns": ["open", "close", "high", "low", "volume", "begin", "end"],
                 "data": [
-                    [100.0, 101.0, 101.5, 99.5, 10, f"{params['from']} 10:00:00", f"{params['till']} 10:09:59"],
+                    [
+                        100.0,
+                        101.0,
+                        101.5,
+                        99.5,
+                        10,
+                        f"{params['from']} 10:00:00",
+                        f"{params['till']} 10:09:59",
+                    ],
                 ],
             }
         }
@@ -63,7 +76,9 @@ def test_iter_candles_splits_failing_window_and_recovers() -> None:
     )
 
     assert len(candles) == 2
-    requested_windows = {(row["from"], row["till"]) for row in client.requests if row["start"] == "0"}
+    requested_windows = {
+        (row["from"], row["till"]) for row in client.requests if row["start"] == "0"
+    }
     assert ("2026-04-01", "2026-04-04") in requested_windows
     assert ("2026-04-01", "2026-04-02") in requested_windows
     assert ("2026-04-03", "2026-04-04") in requested_windows
@@ -72,7 +87,8 @@ def test_iter_candles_splits_failing_window_and_recovers() -> None:
 
 class _JsonResponse:
     def __init__(self, payload: dict[str, object]) -> None:
-        self._payload = json.dumps(payload)
+        self._payload = json.dumps(payload).encode("utf-8")
+        self.headers = {"Content-Type": "application/json; charset=utf-8"}
 
     def __enter__(self) -> "_JsonResponse":
         return self
@@ -81,8 +97,51 @@ class _JsonResponse:
         del exc_type, exc, tb
         return False
 
-    def read(self, *_args, **_kwargs) -> str:
+    def read(self, *_args, **_kwargs) -> bytes:
         return self._payload
+
+
+class _TextResponse:
+    def __init__(self, body: str, *, content_type: str) -> None:
+        self._body = body.encode("utf-8")
+        self.headers = {"Content-Type": content_type}
+
+    def __enter__(self) -> "_TextResponse":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        del exc_type, exc, tb
+        return False
+
+    def read(self, *_args, **_kwargs) -> bytes:
+        return self._body
+
+
+def test_futures_session_schedule_fails_closed_on_subscription_html(monkeypatch) -> None:
+    events: list[dict[str, object]] = []
+    client = MoexISSClient(max_retries=0, request_event_hook=events.append)
+
+    def _fake_urlopen(_req, timeout: float):  # noqa: ANN001 - urllib signature
+        del timeout
+        return _TextResponse(
+            "<html><body>Информация доступна только подписчикам.</body></html>",
+            content_type="text/html",
+        )
+
+    monkeypatch.setattr(
+        "trading_advisor_3000.product_plane.data_plane.moex.iss_client.request.urlopen",
+        _fake_urlopen,
+    )
+
+    with pytest.raises(MoexRequestError) as exc_info:
+        client.fetch_futures_session_schedule(
+            date_from=date(2026, 5, 18),
+            date_till=date(2026, 5, 18),
+        )
+
+    assert "subscription-only HTML" in exc_info.value.last_error_message
+    assert exc_info.value.url.startswith("https://iss.moex.com/iss/calendars/futures/session.json")
+    assert events[-1]["status"] == "fail"
 
 
 def test_history_board_securities_uses_stronger_retry_budget(monkeypatch) -> None:
@@ -105,11 +164,17 @@ def test_history_board_securities_uses_stronger_retry_budget(monkeypatch) -> Non
             raise URLError("flaky history page")
         payload = {
             "history": {
-                "columns": ["BOARDID", "TRADEDATE", "SECID", "SHORTNAME", "ASSETCODE", "VOLUME", "NUMTRADES"],
+                "columns": [
+                    "BOARDID",
+                    "TRADEDATE",
+                    "SECID",
+                    "SHORTNAME",
+                    "ASSETCODE",
+                    "VOLUME",
+                    "NUMTRADES",
+                ],
                 "data": (
-                    [["RFUD", "2026-04-01", "BRQ6", "Brent", "BR", 10, 1]]
-                    if start == "0"
-                    else []
+                    [["RFUD", "2026-04-01", "BRQ6", "Brent", "BR", 10, 1]] if start == "0" else []
                 ),
             }
         }
@@ -138,7 +203,8 @@ def test_history_board_securities_uses_stronger_retry_budget(monkeypatch) -> Non
     retry_events = [
         event
         for event in events
-        if event.get("event") == "moex_http" and event.get("operation") == "history_board_securities"
+        if event.get("event") == "moex_http"
+        and event.get("operation") == "history_board_securities"
     ]
     assert retry_events
     assert max(int(event.get("attempt_limit", 0)) for event in retry_events) == 5

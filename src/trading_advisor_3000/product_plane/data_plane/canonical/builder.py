@@ -145,26 +145,57 @@ def _build_contracts(rows: list[dict[str, object]]) -> list[CanonicalContract]:
     ]
 
 
-def _build_session_calendar(rows: list[dict[str, object]]) -> list[SessionCalendarEntry]:
-    calendar: dict[tuple[str, str, str], dict[str, str]] = {}
-    for row in rows:
-        instrument_id = str(row["instrument_id"])
-        timeframe = str(row["timeframe"])
-        ts_open = str(row["ts_open"])
-        ts_close = str(row["ts_close"])
-        session_date = ts_open[:10]
-        key = (instrument_id, timeframe, session_date)
-        current = calendar.get(key)
+def _build_session_calendar(
+    rows: list[dict[str, object]],
+    *,
+    session_intervals: list[dict[str, object]] | None,
+) -> list[SessionCalendarEntry]:
+    if rows and not session_intervals:
+        raise ValueError(
+            "official session intervals are required; session calendar must not be derived "
+            "from raw candle min/max timestamps"
+        )
+    required_scope = {
+        (str(row["instrument_id"]), str(row["timeframe"]), str(row["ts_open"])[:10]) for row in rows
+    }
+    bounds_by_session: dict[tuple[str, str], dict[str, str]] = {}
+    for index, interval in enumerate(session_intervals or []):
+        source_id = str(interval.get("source_id", "")).strip()
+        source_document_hash = str(interval.get("source_document_hash", "")).strip()
+        if not source_id or not source_document_hash:
+            raise ValueError(f"session interval[{index}] missing official source provenance")
+        instrument_id = str(interval["instrument_id"])
+        session_date = str(interval["session_date"])[:10]
+        expected_open_ts = str(interval["expected_open_ts"])
+        expected_close_ts = str(interval["expected_close_ts"])
+        if expected_open_ts >= expected_close_ts:
+            raise ValueError(f"session interval[{index}] has invalid open/close ordering")
+        key = (instrument_id, session_date)
+        current = bounds_by_session.get(key)
         if current is None:
-            calendar[key] = {
-                "session_open_ts": ts_open,
-                "session_close_ts": ts_close,
+            bounds_by_session[key] = {
+                "session_open_ts": expected_open_ts,
+                "session_close_ts": expected_close_ts,
             }
             continue
-        if ts_open < current["session_open_ts"]:
-            current["session_open_ts"] = ts_open
-        if ts_close > current["session_close_ts"]:
-            current["session_close_ts"] = ts_close
+        if expected_open_ts < current["session_open_ts"]:
+            current["session_open_ts"] = expected_open_ts
+        if expected_close_ts > current["session_close_ts"]:
+            current["session_close_ts"] = expected_close_ts
+
+    calendar: dict[tuple[str, str, str], dict[str, str]] = {}
+    missing_sessions: list[str] = []
+    for instrument_id, timeframe, session_date in sorted(required_scope):
+        bounds = bounds_by_session.get((instrument_id, session_date))
+        if bounds is None:
+            missing_sessions.append(f"{instrument_id}/{session_date}")
+            continue
+        calendar[(instrument_id, timeframe, session_date)] = bounds
+    if missing_sessions:
+        raise ValueError(
+            "official session interval coverage is incomplete: "
+            + ", ".join(sorted(set(missing_sessions))[:20])
+        )
 
     return [
         SessionCalendarEntry(
@@ -213,17 +244,24 @@ def _build_roll_map(rows: list[dict[str, object]]) -> list[RollMapEntry]:
     ]
 
 
-def build_canonical_dataset(rows: list[dict[str, object]]) -> CanonicalDataset:
+def build_canonical_dataset(
+    rows: list[dict[str, object]],
+    *,
+    session_intervals: list[dict[str, object]] | None = None,
+) -> CanonicalDataset:
     deduplicated_rows = _deduplicate_rows(rows)
     bars = _build_bars(deduplicated_rows)
     return CanonicalDataset(
         bars=bars,
         instruments=_build_instruments(deduplicated_rows),
         contracts=_build_contracts(deduplicated_rows),
-        session_calendar=_build_session_calendar(deduplicated_rows),
+        session_calendar=_build_session_calendar(
+            deduplicated_rows,
+            session_intervals=session_intervals,
+        ),
         roll_map=_build_roll_map(deduplicated_rows),
     )
 
 
 def build_canonical_bars(rows: list[dict[str, object]]) -> list[CanonicalBar]:
-    return build_canonical_dataset(rows).bars
+    return _build_bars(_deduplicate_rows(rows))

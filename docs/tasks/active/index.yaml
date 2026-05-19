@@ -31,3 +31,13 @@ items:
   mode: legacy-full
   status: completed
   started_at: '2026-05-19'
+- id: TASK-2026-05-17-IMPLEMENT-OFFICIAL-MOEX-SESSION-BOUNDED-CANONICA
+  path: docs/tasks/active/TASK-2026-05-17-implement-official-moex-session-bounded-canonica.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-05-17'
+- id: TASK-2026-05-18-FIX-MOEX-OFFICIAL-SESSION-SOURCE-BLOCKERS-DAGSTE
+  path: docs/tasks/active/TASK-2026-05-18-fix-moex-official-session-source-blockers-dagste.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-05-18'

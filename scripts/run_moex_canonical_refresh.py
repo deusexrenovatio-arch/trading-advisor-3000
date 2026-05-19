@@ -140,6 +140,14 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--session-intervals-path",
+        default="",
+        help=(
+            "Optional canonical_session_intervals input. When omitted, canonical refresh "
+            "runs without session admission and leaves session sidecars to manual backfill."
+        ),
+    )
+    parser.add_argument(
         "--run-id",
         default="",
         help="Optional run id; defaults to current UTC timestamp.",
@@ -189,6 +197,15 @@ def main() -> None:
         run_id=run_id,
         raw_ingest_run_report=raw_ingest_report_payload,
         repo_root=ROOT,
+        canonical_session_intervals_path=(
+            resolve_external_file_path(
+                args.session_intervals_path,
+                repo_root=ROOT,
+                field_name="--session-intervals-path",
+            )
+            if str(args.session_intervals_path).strip()
+            else None
+        ),
         canonical_merge_strategy=CANONICAL_MERGE_SCOPED_DELETE_INSERT,
     )
     report["raw_source_resolution"] = raw_source

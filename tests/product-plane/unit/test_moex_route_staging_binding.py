@@ -33,7 +33,9 @@ def _run_ids() -> dict[str, str]:
     }
 
 
-def test_build_route_staging_binding_report_copies_artifacts_and_emits_report(tmp_path: Path) -> None:
+def test_build_route_staging_binding_report_copies_artifacts_and_emits_report(
+    tmp_path: Path,
+) -> None:
     artifact_paths = _artifact_paths(tmp_path)
     run_ids = _run_ids()
 
@@ -41,7 +43,7 @@ def test_build_route_staging_binding_report_copies_artifacts_and_emits_report(tm
         return {
             "run_id": run_id,
             "status": "SUCCESS",
-            "job_name": "moex_historical_cutover_job",
+            "job_name": "moex_data_rebuild_job",
             "start_time": 1.0,
             "end_time": 2.0,
             "update_time": 3.0,
@@ -68,7 +70,7 @@ def test_build_route_staging_binding_report_copies_artifacts_and_emits_report(tm
     assert report["proof_class"] == "staging-real"
     assert report["environment"] == "staging-real"
     assert report["run_ids"] == run_ids
-    assert "dagster://staging/moex-historical-cutover" in report["real_bindings"]
+    assert "dagster://staging/moex-data-rebuild" in report["real_bindings"]
     assert "delta-ledger-cas://technical-route-run-ledger" in report["real_bindings"]
     assert "delta://baseline/moex" in report["real_bindings"]
 
@@ -79,18 +81,20 @@ def test_build_route_staging_binding_report_copies_artifacts_and_emits_report(tm
 
     verification = json.loads(verification_path.read_text(encoding="utf-8"))
     assert verification["status"] == "PASS"
-    assert verification["job_name"] == "moex_historical_cutover_job"
+    assert verification["job_name"] == "moex_data_rebuild_job"
     assert verification["run_summaries"]["nightly_1"]["status"] == "SUCCESS"
 
 
-def test_build_route_staging_binding_report_fails_closed_when_run_is_not_success(tmp_path: Path) -> None:
+def test_build_route_staging_binding_report_fails_closed_when_run_is_not_success(
+    tmp_path: Path,
+) -> None:
     artifact_paths = _artifact_paths(tmp_path)
 
     def fake_fetcher(run_id: str) -> dict[str, object]:
         return {
             "run_id": run_id,
             "status": "FAILURE",
-            "job_name": "moex_historical_cutover_job",
+            "job_name": "moex_data_rebuild_job",
             "start_time": 1.0,
             "end_time": 2.0,
             "update_time": 3.0,
@@ -114,7 +118,9 @@ def test_build_route_staging_binding_report_rejects_localhost_dagster_url(tmp_pa
     def fake_fetcher(run_id: str) -> dict[str, object]:
         raise AssertionError(f"collector must fail before querying run `{run_id}`")
 
-    with pytest.raises(ValueError, match="loopback or unspecified host|external staging Dagster host"):
+    with pytest.raises(
+        ValueError, match="loopback or unspecified host|external staging Dagster host"
+    ):
         build_route_staging_binding_report(
             dagster_url="http://127.0.0.1:3011",
             output_dir=tmp_path / "bundle",

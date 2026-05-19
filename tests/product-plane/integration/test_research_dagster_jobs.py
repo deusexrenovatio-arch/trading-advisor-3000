@@ -6,8 +6,17 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from dagster import DagsterInstance
 
 from trading_advisor_3000.dagster_defs import (
+    MOEX_CF_REBUILD_ASSETS,
+    MOEX_CF_REBUILD_JOB_NAME,
+    MOEX_DERIVED_INDICATOR_REBUILD_ASSETS,
+    MOEX_DERIVED_INDICATOR_REBUILD_JOB_NAME,
+    MOEX_INDICATOR_REBUILD_ASSETS,
+    MOEX_INDICATOR_REBUILD_JOB_NAME,
+    MOEX_RESEARCH_BAR_REBUILD_ASSETS,
+    MOEX_RESEARCH_BAR_REBUILD_JOB_NAME,
     RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME,
     RESEARCH_DATA_PREP_ASSETS,
     RESEARCH_DATA_PREP_JOB_NAME,
@@ -36,6 +45,7 @@ from trading_advisor_3000.product_plane.research.continuous_front import (
 from trading_advisor_3000.product_plane.research.datasets import (
     ContinuousFrontPolicy,
     load_materialized_research_dataset,
+    research_dataset_store_contract,
 )
 from trading_advisor_3000.product_plane.research.datasets import (
     materialize as dataset_materialize_module,
@@ -308,6 +318,169 @@ def _write_spark_front_outputs_from_canonical(
     }
 
 
+def _write_research_bar_outputs_from_front(
+    *,
+    continuous_front_bars_path: Path,
+    output_dir: Path,
+    dataset_version: str,
+    dataset_name: str,
+    universe_id: str,
+    run_id: str,
+    timeframes: tuple[str, ...],
+) -> dict[str, object]:
+    contract = research_dataset_store_contract()
+    front_rows = read_delta_table_rows(
+        continuous_front_bars_path,
+        filters=[("dataset_version", "=", dataset_version)],
+    )
+    if timeframes:
+        allowed_timeframes = set(timeframes)
+        front_rows = [row for row in front_rows if str(row["timeframe"]) in allowed_timeframes]
+    created_at = "2026-04-29T00:00:00Z"
+    contour_id = "pit_active_front"
+    instruments = sorted({str(row["instrument_id"]) for row in front_rows})
+    dataset_row = {
+        "dataset_version": dataset_version,
+        "contour_id": contour_id,
+        "dataset_name": dataset_name,
+        "source_table": "continuous_front_bars",
+        "series_mode": "continuous_front",
+        "universe_id": universe_id,
+        "timeframes_json": list(timeframes),
+        "base_timeframe": timeframes[0] if timeframes else "15m",
+        "start_ts": min(str(row["ts"]) for row in front_rows),
+        "end_ts": max(str(row["ts"]) for row in front_rows),
+        "warmup_bars": 0,
+        "split_method": "holdout",
+        "split_params_json": {"series_mode": "continuous_front"},
+        "bars_hash": "sha256:isolated-rebuild-bars",
+        "run_id": run_id,
+        "as_of_ts": created_at,
+        "source_delta_versions_json": {},
+        "source_delta_hashes_json": {},
+        "created_at": created_at,
+        "code_version": "isolated-rebuild-test",
+        "notes_json": {"lineage_key": "isolated-rebuild-test"},
+        "source_tables": ["continuous_front_bars"],
+        "continuous_front_policy": {"roll_policy_mode": "calendar_expiry_v1"},
+        "lineage_key": "isolated-rebuild-test",
+    }
+    instrument_rows = []
+    for instrument_id in instruments:
+        instrument_front_rows = [
+            row for row in front_rows if str(row["instrument_id"]) == instrument_id
+        ]
+        instrument_rows.append(
+            {
+                "dataset_version": dataset_version,
+                "contour_id": contour_id,
+                "universe_id": universe_id,
+                "asset_class": "future",
+                "asset_group": "unknown",
+                "internal_id": f"FUT_{instrument_id.upper()}",
+                "instrument_id": instrument_id,
+                "source_instrument_id": instrument_id,
+                "contract_ids_json": sorted(
+                    {str(row["active_contract_id"]) for row in instrument_front_rows}
+                ),
+                "active_contract_ids_json": sorted(
+                    {str(row["active_contract_id"]) for row in instrument_front_rows}
+                ),
+                "timeframes_json": sorted({str(row["timeframe"]) for row in instrument_front_rows}),
+                "row_count": len(instrument_front_rows),
+                "first_ts": min(str(row["ts"]) for row in instrument_front_rows),
+                "last_ts": max(str(row["ts"]) for row in instrument_front_rows),
+                "source_bars_hash": "sha256:isolated-rebuild-bars",
+                "lineage_key": "isolated-rebuild-test",
+                "created_at": created_at,
+            }
+        )
+    bar_rows = []
+    for index, row in enumerate(front_rows):
+        ts = str(row["ts"])
+        bar_rows.append(
+            {
+                "dataset_version": dataset_version,
+                "contour_id": contour_id,
+                "contract_id": str(row["active_contract_id"]),
+                "instrument_id": str(row["instrument_id"]),
+                "timeframe": str(row["timeframe"]),
+                "ts": ts,
+                "open": float(row["continuous_open"]),
+                "high": float(row["continuous_high"]),
+                "low": float(row["continuous_low"]),
+                "close": float(row["continuous_close"]),
+                "volume": int(row["native_volume"]),
+                "open_interest": int(row["native_open_interest"]),
+                "session_date": ts[:10],
+                "session_open_ts": f"{ts[:10]}T09:00:00Z",
+                "session_close_ts": f"{ts[:10]}T23:45:00Z",
+                "active_contract_id": str(row["active_contract_id"]),
+                "series_id": f"{row['instrument_id']}:continuous_front:{row['timeframe']}",
+                "series_mode": "continuous_front",
+                "roll_epoch": int(row["roll_epoch"]),
+                "roll_event_id": row.get("roll_event_id"),
+                "is_roll_bar": bool(row["is_roll_bar"]),
+                "is_first_bar_after_roll": bool(row["is_first_bar_after_roll"]),
+                "bars_since_roll": int(row["bars_since_roll"]),
+                "price_space": str(row["price_space"]),
+                "native_open": float(row["native_open"]),
+                "native_high": float(row["native_high"]),
+                "native_low": float(row["native_low"]),
+                "native_close": float(row["native_close"]),
+                "continuous_open": float(row["continuous_open"]),
+                "continuous_high": float(row["continuous_high"]),
+                "continuous_low": float(row["continuous_low"]),
+                "continuous_close": float(row["continuous_close"]),
+                "execution_open": float(row["continuous_open"]),
+                "execution_high": float(row["continuous_high"]),
+                "execution_low": float(row["continuous_low"]),
+                "execution_close": float(row["continuous_close"]),
+                "previous_contract_id": row.get("previous_contract_id"),
+                "candidate_contract_id": row.get("candidate_contract_id"),
+                "adjustment_mode": str(row["adjustment_mode"]),
+                "cumulative_additive_offset": float(row["cumulative_additive_offset"]),
+                "ratio_factor": row.get("ratio_factor"),
+                "ret_1": None,
+                "log_ret_1": None,
+                "true_range": float(row["continuous_high"]) - float(row["continuous_low"]),
+                "hl_range": float(row["continuous_high"]) - float(row["continuous_low"]),
+                "oc_range": abs(float(row["continuous_open"]) - float(row["continuous_close"])),
+                "bar_index": index,
+                "slice_role": "train",
+            }
+        )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_paths = {
+        "research_datasets": (output_dir / "research_datasets.delta").as_posix(),
+        "research_instrument_tree": (output_dir / "research_instrument_tree.delta").as_posix(),
+        "research_bar_views": (output_dir / "research_bar_views.delta").as_posix(),
+    }
+    write_delta_table_rows(
+        table_path=Path(output_paths["research_datasets"]),
+        rows=[dataset_row],
+        columns=contract["research_datasets"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=Path(output_paths["research_instrument_tree"]),
+        rows=instrument_rows,
+        columns=contract["research_instrument_tree"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=Path(output_paths["research_bar_views"]),
+        rows=bar_rows,
+        columns=contract["research_bar_views"]["columns"],
+    )
+    return {
+        "success": True,
+        "dataset_manifest": dataset_row,
+        "instrument_tree_count": len(instrument_rows),
+        "bar_view_count": len(bar_rows),
+        "output_paths": output_paths,
+        "delta_manifest": contract,
+    }
+
+
 @requires_spark_delta_runtime
 def test_research_data_prep_materializes_dataset_indicator_and_derived_layers_only(
     tmp_path: Path,
@@ -439,6 +612,119 @@ def test_research_data_prep_can_source_indicators_from_continuous_front(
     assert len(native_dataset["bar_views"]) > 0
 
 
+def test_isolated_moex_data_layer_rebuild_jobs_update_only_their_layer(
+    tmp_path: Path, monkeypatch
+) -> None:
+    canonical_dir = tmp_path / "canonical-isolated"
+    _write_rich_stage7_canonical_context(canonical_dir)
+    materialized_dir = tmp_path / "research-current"
+    results_dir = tmp_path / "research-runs"
+    dataset_version = "isolated-data-layer-v1"
+
+    def _spark_entrypoint(**kwargs: object) -> dict[str, object]:
+        return _write_spark_front_outputs_from_canonical(
+            canonical_dir=Path(str(kwargs["canonical_bars_path"])).parent,
+            output_dir=Path(str(kwargs["output_dir"])),
+            dataset_version=str(kwargs["dataset_version"]),
+            run_id=str(kwargs["run_id"]),
+            policy=kwargs["policy"],  # type: ignore[arg-type]
+            timeframes=tuple(str(item) for item in kwargs["timeframes"]),  # type: ignore[index]
+        )
+
+    monkeypatch.setattr(research_assets, "run_continuous_front_spark_job", _spark_entrypoint)
+
+    def _bar_views_entrypoint(**kwargs: object) -> dict[str, object]:
+        return _write_research_bar_outputs_from_front(
+            continuous_front_bars_path=Path(str(kwargs["continuous_front_bars_path"])),
+            output_dir=Path(str(kwargs["output_dir"])),
+            dataset_version=str(kwargs["dataset_version"]),
+            dataset_name=str(kwargs["dataset_name"]),
+            universe_id=str(kwargs["universe_id"]),
+            run_id=str(kwargs["run_id"]),
+            timeframes=tuple(str(item) for item in kwargs["timeframes"]),  # type: ignore[index]
+        )
+
+    monkeypatch.setattr(research_assets, "run_research_bar_views_spark_job", _bar_views_entrypoint)
+
+    run_config = build_research_data_prep_run_config(
+        canonical_output_dir=canonical_dir,
+        materialized_output_dir=materialized_dir,
+        results_output_dir=results_dir,
+        dataset_version=dataset_version,
+        timeframes=("15m",),
+        series_mode="continuous_front",
+        continuous_front_policy=ContinuousFrontPolicy().to_config_dict(),
+        campaign_run_id="isolated-data-layer-run",
+    )
+    repository = build_research_definitions().get_repository_def()
+    instance = DagsterInstance.ephemeral()
+
+    def _run_config_for_ops(*op_names: str) -> dict[str, object]:
+        ops = dict(run_config["ops"])
+        return {"ops": {op_name: ops[op_name] for op_name in op_names if op_name in ops}}
+
+    cf_result = repository.get_job(MOEX_CF_REBUILD_JOB_NAME).execute_in_process(
+        run_config=_run_config_for_ops("continuous_front_bars"),
+        instance=instance,
+        raise_on_error=True,
+    )
+    assert cf_result.success
+    assert read_delta_table_rows(
+        materialized_dir / "continuous_front_bars.delta",
+        filters=[("dataset_version", "=", dataset_version)],
+    )
+    assert not (materialized_dir / "research_datasets.delta" / "_delta_log").exists()
+
+    bar_result = repository.get_job(MOEX_RESEARCH_BAR_REBUILD_JOB_NAME).execute_in_process(
+        run_config=_run_config_for_ops("research_datasets"),
+        instance=instance,
+        raise_on_error=True,
+    )
+    assert bar_result.success
+    assert read_delta_table_rows(
+        materialized_dir / "research_bar_views.delta",
+        filters=[
+            ("dataset_version", "=", dataset_version),
+            ("contour_id", "=", "pit_active_front"),
+        ],
+    )
+    assert not (materialized_dir / "research_indicator_frames.delta" / "_delta_log").exists()
+
+    indicator_result = repository.get_job(MOEX_INDICATOR_REBUILD_JOB_NAME).execute_in_process(
+        run_config=_run_config_for_ops("research_indicator_frames"),
+        instance=instance,
+        raise_on_error=True,
+    )
+    assert indicator_result.success
+    assert read_delta_table_rows(
+        materialized_dir / "research_indicator_frames.delta",
+        filters=[
+            ("dataset_version", "=", dataset_version),
+            ("contour_id", "=", "pit_active_front"),
+            ("indicator_set_version", "=", "indicators-v1"),
+        ],
+    )
+    assert not (
+        materialized_dir / "research_derived_indicator_frames.delta" / "_delta_log"
+    ).exists()
+
+    derived_result = repository.get_job(MOEX_DERIVED_INDICATOR_REBUILD_JOB_NAME).execute_in_process(
+        run_config=_run_config_for_ops("research_derived_indicator_frames"),
+        instance=instance,
+        raise_on_error=True,
+    )
+    assert derived_result.success
+    assert read_delta_table_rows(
+        materialized_dir / "research_derived_indicator_frames.delta",
+        filters=[
+            ("dataset_version", "=", dataset_version),
+            ("contour_id", "=", "pit_active_front"),
+            ("indicator_set_version", "=", "indicators-v1"),
+            ("derived_indicator_set_version", "=", "derived-v1"),
+        ],
+    )
+
+
 @requires_spark_delta_runtime
 def test_research_data_prep_reuse_does_not_reload_full_frames(tmp_path: Path, monkeypatch) -> None:
     canonical_dir = tmp_path / "canonical"
@@ -541,18 +827,28 @@ def test_strategy_registry_refresh_is_separate_from_research_data_prep(tmp_path:
     assert {str(row["family_key"]) for row in family_rows} == set(REQUIRED_STG02_ADAPTER_KEYS)
 
 
-def test_research_definitions_expose_product_jobs_and_moex_success_sensor(tmp_path: Path) -> None:
+def test_research_definitions_expose_isolated_data_layer_jobs_without_moex_success_sensor(
+    tmp_path: Path,
+) -> None:
     definitions = build_research_definitions()
     repository = definitions.get_repository_def()
-    data_prep_job = repository.get_job(RESEARCH_DATA_PREP_JOB_NAME)
+    cf_job = repository.get_job(MOEX_CF_REBUILD_JOB_NAME)
+    research_bar_job = repository.get_job(MOEX_RESEARCH_BAR_REBUILD_JOB_NAME)
+    indicator_job = repository.get_job(MOEX_INDICATOR_REBUILD_JOB_NAME)
+    derived_job = repository.get_job(MOEX_DERIVED_INDICATOR_REBUILD_JOB_NAME)
     strategy_job = repository.get_job(STRATEGY_REGISTRY_REFRESH_JOB_NAME)
 
-    assert set(data_prep_job.graph.node_dict) == set(RESEARCH_DATA_PREP_ASSETS)
+    job_names = {job.name for job in repository.get_all_jobs()}
+    assert RESEARCH_DATA_PREP_JOB_NAME not in job_names
+    assert set(cf_job.graph.node_dict) == set(MOEX_CF_REBUILD_ASSETS)
+    assert set(research_bar_job.graph.node_dict) == set(MOEX_RESEARCH_BAR_REBUILD_ASSETS)
+    assert set(indicator_job.graph.node_dict) == set(MOEX_INDICATOR_REBUILD_ASSETS)
+    assert set(derived_job.graph.node_dict) == set(MOEX_DERIVED_INDICATOR_REBUILD_ASSETS)
     assert set(strategy_job.graph.node_dict) == {
         "research_datasets",
         *STRATEGY_REGISTRY_REFRESH_ASSETS,
     }
-    assert RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME in {
+    assert RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME not in {
         sensor.name for sensor in repository.sensor_defs
     }
 

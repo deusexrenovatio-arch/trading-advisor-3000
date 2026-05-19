@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from trading_advisor_3000.product_plane.contracts import CanonicalBar, Timeframe
+from trading_advisor_3000.product_plane.data_plane.moex import canonicalization as canonical_module
 from trading_advisor_3000.product_plane.data_plane.moex.canonicalization import (
     CanonicalProvenance,
     run_contract_compatibility_check,
@@ -79,6 +80,31 @@ def test_canonicalization_qc_fails_when_duplicate_bar_key_is_present() -> None:
     assert "unique_bar_key" in qc_report["failed_gates"]
 
 
+def test_canonical_parity_rejects_bucket_misaligned_timestamp() -> None:
+    bar = CanonicalBar(
+        contract_id="BRM6@MOEX",
+        instrument_id="FUT_BR",
+        timeframe=Timeframe.M15,
+        ts="2026-04-02T10:03:00Z",
+        open=100.0,
+        high=101.0,
+        low=99.0,
+        close=100.5,
+        volume=100,
+        open_interest=0,
+    )
+
+    report = canonical_module._build_canonical_parity_report(
+        run_id="canonicalization-misaligned-ts",
+        scoped_bars=[bar],
+        final_bars=[bar],
+        affected_keys={canonical_module._canonical_bar_key(bar)},
+    )
+
+    assert report["status"] == "FAIL"
+    assert "timestamp_drift" in report["failure_classes"]
+
+
 def test_canonicalization_contract_compatibility_detects_schema_drift(tmp_path: Path) -> None:
     schema_path = (
         tmp_path
@@ -151,7 +177,9 @@ def test_canonicalization_contract_compatibility_detects_schema_drift(tmp_path: 
     assert any("required fields mismatch" in item for item in report["errors"])
 
 
-def test_canonicalization_runtime_decoupling_check_fails_when_runtime_imports_spark(tmp_path: Path) -> None:
+def test_canonicalization_runtime_decoupling_check_fails_when_runtime_imports_spark(
+    tmp_path: Path,
+) -> None:
     runtime_file = tmp_path / "src" / "trading_advisor_3000" / "app" / "runtime" / "spark_bridge.py"
     runtime_file.parent.mkdir(parents=True, exist_ok=True)
     runtime_file.write_text(
@@ -165,12 +193,7 @@ def test_canonicalization_runtime_decoupling_check_fails_when_runtime_imports_sp
 
 def test_canonicalization_runtime_decoupling_prefers_product_plane_runtime(tmp_path: Path) -> None:
     runtime_file = (
-        tmp_path
-        / "src"
-        / "trading_advisor_3000"
-        / "product_plane"
-        / "runtime"
-        / "spark_bridge.py"
+        tmp_path / "src" / "trading_advisor_3000" / "product_plane" / "runtime" / "spark_bridge.py"
     )
     runtime_file.parent.mkdir(parents=True, exist_ok=True)
     runtime_file.write_text(

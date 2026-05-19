@@ -688,6 +688,14 @@ def main() -> None:
         ),
     )
     parser.add_argument("--refresh-overlap-minutes", type=int, default=180)
+    parser.add_argument(
+        "--session-intervals-path",
+        default="",
+        help=(
+            "Optional canonical_session_intervals input. When omitted, canonical refresh "
+            "runs without session admission and leaves session sidecars to manual backfill."
+        ),
+    )
     parser.add_argument("--ingest-till-utc", default="")
     args = parser.parse_args()
 
@@ -1072,6 +1080,9 @@ def main() -> None:
         run_id=run_id,
         raw_ingest_run_report=raw_ingest_report_payload,
         repo_root=ROOT,
+        canonical_session_intervals_path=_resolve(Path(args.session_intervals_path))
+        if str(args.session_intervals_path).strip()
+        else None,
         canonical_merge_strategy=CANONICAL_MERGE_SCOPED_DELETE_INSERT,
     )
 

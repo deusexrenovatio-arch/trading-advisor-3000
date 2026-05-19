@@ -35,13 +35,36 @@ RAW_COLUMNS: dict[str, str] = {
     "provenance_json": "json",
 }
 
+SESSION_INTERVAL_COLUMNS: dict[str, str] = {
+    "instrument_id": "string",
+    "session_date": "date",
+    "interval_id": "string",
+    "interval_seq": "int",
+    "expected_open_ts": "timestamp",
+    "expected_close_ts": "timestamp",
+    "session_class": "string",
+    "interval_type": "string",
+    "policy_id": "string",
+    "source_id": "string",
+    "source_document_hash": "string",
+}
+
 
 def _iso(dt: datetime) -> str:
     return dt.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _read_batched_delta_rows(table_path: Path) -> list[dict[str, object]]:
-    return [row for batch in iter_delta_table_row_batches(table_path) for row in batch]
+    filters = None
+    if table_path.name == "canonical_bars.delta":
+        filters = [("timeframe", "in", ["5m", "15m", "1h", "4h", "1d", "1w"])]
+    elif table_path.name == "canonical_session_calendar.delta":
+        filters = [("timeframe", "in", ["5m", "15m", "1h", "4h", "1d", "1w"])]
+    elif table_path.name == "canonical_roll_map.delta":
+        filters = [("instrument_id", "=", "FUT_BR")]
+    return [
+        row for batch in iter_delta_table_row_batches(table_path, filters=filters) for row in batch
+    ]
 
 
 def _raw_rows(*, with_source_provider: bool) -> list[dict[str, object]]:
@@ -116,6 +139,37 @@ def _raw_rows_with_daily_only_contract(*, with_source_provider: bool) -> list[di
 
 def _write_raw_table(path: Path, rows: list[dict[str, object]]) -> None:
     write_delta_table_rows(table_path=path, rows=rows, columns=RAW_COLUMNS)
+
+
+def _session_intervals_for_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    sessions = sorted(
+        {
+            (str(row["internal_id"]), str(row["ts_open"])[:10])
+            for row in rows
+            if str(row["timeframe"]) == "1m"
+        }
+    )
+    return [
+        {
+            "instrument_id": instrument_id,
+            "session_date": session_date,
+            "interval_id": f"{instrument_id}-{session_date}-regular-1",
+            "interval_seq": 1,
+            "expected_open_ts": f"{session_date}T10:00:00Z",
+            "expected_close_ts": f"{session_date}T18:45:00Z",
+            "session_class": "regular",
+            "interval_type": "regular_trading",
+            "policy_id": "moex-official-session-v1",
+            "source_id": "moex-official-schedule-fixture",
+            "source_document_hash": "sha256:fixture",
+        }
+        for instrument_id, session_date in sessions
+    ]
+
+
+def _write_session_intervals(path: Path, rows: list[dict[str, object]]) -> Path:
+    write_delta_table_rows(table_path=path, rows=rows, columns=SESSION_INTERVAL_COLUMNS)
+    return path
 
 
 def _build_raw_ingest_report_for_rows(
@@ -193,12 +247,17 @@ def test_historical_canonical_route_generates_resampling_outputs_and_reports(
     raw_table_path = tmp_path / "phase01" / "delta" / "raw_moex_history.delta"
     rows = _raw_rows(with_source_provider=True)
     _write_raw_table(raw_table_path, rows)
+    session_intervals_path = _write_session_intervals(
+        tmp_path / "official" / "canonical_session_intervals.delta",
+        _session_intervals_for_rows(rows),
+    )
 
     report = run_historical_canonical_route(
         raw_table_path=raw_table_path,
         output_dir=tmp_path / "phase02",
         run_id="phase02-int-pass",
         raw_ingest_run_report=_build_raw_ingest_report_for_rows(rows=rows, run_id="phase01-pass1"),
+        canonical_session_intervals_path=session_intervals_path,
     )
 
     assert report["status"] == "PASS"
@@ -251,12 +310,17 @@ def test_historical_canonical_route_is_fail_closed_when_qc_fails(tmp_path: Path)
     raw_table_path = tmp_path / "phase01" / "delta" / "raw_moex_history.delta"
     rows = _raw_rows(with_source_provider=False)
     _write_raw_table(raw_table_path, rows)
+    session_intervals_path = _write_session_intervals(
+        tmp_path / "official" / "canonical_session_intervals.delta",
+        _session_intervals_for_rows(rows),
+    )
 
     report = run_historical_canonical_route(
         raw_table_path=raw_table_path,
         output_dir=tmp_path / "phase02-blocked",
         run_id="phase02-int-fail",
         raw_ingest_run_report=_build_raw_ingest_report_for_rows(rows=rows, run_id="phase01-pass1"),
+        canonical_session_intervals_path=session_intervals_path,
     )
 
     assert report["status"] == "BLOCKED"
@@ -277,12 +341,17 @@ def test_historical_canonical_route_reports_skips_for_incompatible_daily_only_co
     raw_table_path = tmp_path / "phase01" / "delta" / "raw_moex_history.delta"
     rows = _raw_rows_with_daily_only_contract(with_source_provider=True)
     _write_raw_table(raw_table_path, rows)
+    session_intervals_path = _write_session_intervals(
+        tmp_path / "official" / "canonical_session_intervals.delta",
+        _session_intervals_for_rows(rows),
+    )
 
     report = run_historical_canonical_route(
         raw_table_path=raw_table_path,
         output_dir=tmp_path / "phase02-mixed",
         run_id="phase02-int-mixed",
         raw_ingest_run_report=_build_raw_ingest_report_for_rows(rows=rows, run_id="phase01-pass1"),
+        canonical_session_intervals_path=session_intervals_path,
     )
 
     assert report["status"] == "PASS"
@@ -299,12 +368,17 @@ def test_historical_canonical_route_pass_noop_does_not_mutate_existing_tables(
     rows = _raw_rows(with_source_provider=True)
     _write_raw_table(raw_table_path, rows)
     output_dir = tmp_path / "phase02-noop"
+    session_intervals_path = _write_session_intervals(
+        tmp_path / "official" / "canonical_session_intervals.delta",
+        _session_intervals_for_rows(rows),
+    )
 
     first = run_historical_canonical_route(
         raw_table_path=raw_table_path,
         output_dir=output_dir,
         run_id="phase02-int-first",
         raw_ingest_run_report=_build_raw_ingest_report_for_rows(rows=rows, run_id="phase01-pass1"),
+        canonical_session_intervals_path=session_intervals_path,
     )
     bars_before = _read_batched_delta_rows(Path(str(first["output_paths"]["canonical_bars"])))
 
@@ -313,6 +387,7 @@ def test_historical_canonical_route_pass_noop_does_not_mutate_existing_tables(
         output_dir=output_dir,
         run_id="phase02-int-noop",
         raw_ingest_run_report=_build_raw_ingest_report_noop(run_id="phase01-pass2"),
+        canonical_session_intervals_path=session_intervals_path,
     )
     bars_after = _read_batched_delta_rows(Path(str(second["output_paths"]["canonical_bars"])))
 
@@ -328,6 +403,10 @@ def test_historical_canonical_route_avoids_full_raw_table_read(tmp_path: Path) -
     raw_table_path = tmp_path / "phase01" / "delta" / "raw_moex_history.delta"
     rows = _raw_rows_with_daily_only_contract(with_source_provider=True)
     _write_raw_table(raw_table_path, rows)
+    session_intervals_path = _write_session_intervals(
+        tmp_path / "official" / "canonical_session_intervals.delta",
+        _session_intervals_for_rows(rows),
+    )
     assert not hasattr(phase02_module, "read_delta_table_rows")
 
     report = phase02_module.run_historical_canonical_route(
@@ -335,6 +414,7 @@ def test_historical_canonical_route_avoids_full_raw_table_read(tmp_path: Path) -
         output_dir=tmp_path / "phase02-guarded",
         run_id="phase02-int-guarded",
         raw_ingest_run_report=_build_raw_ingest_report_for_rows(rows=rows, run_id="phase01-pass1"),
+        canonical_session_intervals_path=session_intervals_path,
     )
 
     assert report["status"] == "PASS"
@@ -347,12 +427,17 @@ def test_canonical_route_pass_noop_skips_raw_table_read_entirely(tmp_path: Path)
     rows = _raw_rows(with_source_provider=True)
     _write_raw_table(raw_table_path, rows)
     output_dir = tmp_path / "phase02-noop-skip-raw"
+    session_intervals_path = _write_session_intervals(
+        tmp_path / "official" / "canonical_session_intervals.delta",
+        _session_intervals_for_rows(rows),
+    )
 
     first = phase02_module.run_historical_canonical_route(
         raw_table_path=raw_table_path,
         output_dir=output_dir,
         run_id="phase02-int-first-noop-guard",
         raw_ingest_run_report=_build_raw_ingest_report_for_rows(rows=rows, run_id="phase01-pass1"),
+        canonical_session_intervals_path=session_intervals_path,
     )
     assert first["publish_decision"] == "publish"
     assert not hasattr(phase02_module, "read_delta_table_rows")
@@ -362,6 +447,7 @@ def test_canonical_route_pass_noop_skips_raw_table_read_entirely(tmp_path: Path)
         output_dir=output_dir,
         run_id="phase02-int-noop-skip-raw",
         raw_ingest_run_report=_build_raw_ingest_report_noop(run_id="phase01-pass2"),
+        canonical_session_intervals_path=session_intervals_path,
     )
 
     assert second["status"] == "PASS-NOOP"

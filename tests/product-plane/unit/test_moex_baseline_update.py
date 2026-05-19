@@ -66,6 +66,14 @@ def _patch_common_inputs(
             "changed_windows": changed_windows,
         },
     )
+    monkeypatch.setattr(
+        baseline_module,
+        "materialize_reconstructed_session_schedule_for_changed_windows",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("baseline update must not materialize session schedule")
+        ),
+        raising=False,
+    )
 
 
 def test_baseline_update_writes_to_stable_paths_and_scoped_canonical_refresh(
@@ -123,6 +131,7 @@ def test_baseline_update_writes_to_stable_paths_and_scoped_canonical_refresh(
         captured["canonical_session_calendar_path"]
         == canonical_bars_path.parent / "canonical_session_calendar.delta"
     )
+    assert captured.get("canonical_session_intervals_path") is None
     assert (
         captured["canonical_roll_map_path"]
         == canonical_bars_path.parent / "canonical_roll_map.delta"
@@ -133,6 +142,12 @@ def test_baseline_update_writes_to_stable_paths_and_scoped_canonical_refresh(
         report["canonical_session_calendar_path"]
         == (canonical_bars_path.parent / "canonical_session_calendar.delta").as_posix()
     )
+    assert report["session_schedule_mode"] == "manual_backfill_required"
+    assert report["session_schedule_required"] is True
+    assert report["canonical_session_intervals_path"] == ""
+    assert report["raw_session_schedule_path"] == ""
+    assert report["artifact_paths"]["session_schedule_report"] == ""
+    assert report["artifact_paths"]["official_session_schedule_report"] == ""
     assert (
         report["canonical_roll_map_path"]
         == (canonical_bars_path.parent / "canonical_roll_map.delta").as_posix()

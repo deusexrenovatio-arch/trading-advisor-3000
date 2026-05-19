@@ -14,6 +14,16 @@ class HotDeltaTable:
 
 HOT_DELTA_TABLES: tuple[HotDeltaTable, ...] = (
     HotDeltaTable("raw_moex_history", "raw_moex_history.delta", "raw_moex"),
+    HotDeltaTable(
+        "raw_moex_session_schedule",
+        "raw_moex_session_schedule.delta",
+        "raw_moex",
+    ),
+    HotDeltaTable(
+        "canonical_session_intervals",
+        "canonical_session_intervals.delta",
+        "canonical_sidecar",
+    ),
     HotDeltaTable("canonical_bars", "canonical_bars.delta", "canonical"),
     HotDeltaTable("canonical_bar_provenance", "canonical_bar_provenance.delta", "canonical"),
     HotDeltaTable(

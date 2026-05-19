@@ -14,6 +14,7 @@ from trading_advisor_3000.product_plane.contracts import CanonicalBar, Timeframe
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
     has_delta_log,
+    iter_delta_table_row_batches,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contracts import (
     STATUS_PASS_NOOP,
@@ -115,7 +116,23 @@ RAW_INTERVAL_PROJECTION_COLUMNS: tuple[str, ...] = (
 STATUS_PASS = "PASS"
 STATUS_BLOCKED = "BLOCKED"
 CANONICAL_MERGE_SCOPED_DELETE_INSERT = "scoped_delete_insert"
+SPARK_CANONICALIZATION_SUBPROCESS_TIMEOUT_SECONDS = 1800
 SPARK_PUBLISH_SUBPROCESS_TIMEOUT_SECONDS = 1800
+
+
+def _require_session_intervals_input(session_intervals_path: Path | None) -> Path:
+    if session_intervals_path is None:
+        raise ValueError(
+            "official session intervals input is required; canonicalization no longer "
+            "derives trading sessions from raw candle min/max timestamps"
+        )
+    table_path = Path(session_intervals_path)
+    if has_delta_log(table_path) or table_path.is_file():
+        return table_path
+    raise FileNotFoundError(
+        "official session intervals input is missing `_delta_log` or JSONL source: "
+        f"{table_path.as_posix()}"
+    )
 
 
 def _utc_now_iso() -> str:
@@ -845,6 +862,30 @@ def _build_selected_source_interval_map_from_available_intervals(
     return selected
 
 
+def _build_raw_1m_source_interval_map_from_available_intervals(
+    available_intervals_by_contract: dict[tuple[str, str], set[int]],
+    *,
+    raw_available_intervals_by_contract: dict[tuple[str, str], set[int]] | None = None,
+) -> dict[tuple[str, str, str], int]:
+    selected: dict[tuple[str, str, str], int] = {}
+    raw_available_intervals_by_contract = raw_available_intervals_by_contract or {}
+    all_contract_keys = set(available_intervals_by_contract) | set(
+        raw_available_intervals_by_contract
+    )
+    for contract_id, instrument_id in sorted(all_contract_keys):
+        available_intervals = set(
+            available_intervals_by_contract.get((contract_id, instrument_id), set())
+        )
+        available_intervals.update(
+            raw_available_intervals_by_contract.get((contract_id, instrument_id), set())
+        )
+        if 1 not in available_intervals:
+            continue
+        for timeframe in TARGET_TIMEFRAMES:
+            selected[(contract_id, instrument_id, timeframe.value)] = 1
+    return selected
+
+
 def _build_available_intervals_by_contract(
     rows: list[RawCandle],
 ) -> dict[tuple[str, str], set[int]]:
@@ -884,6 +925,40 @@ def _build_available_intervals_by_contract_from_projection(
         available_intervals_by_contract.setdefault((contract_id, instrument_id), set()).add(
             source_interval
         )
+    return available_intervals_by_contract
+
+
+def _build_raw_available_intervals_by_contract(
+    *,
+    raw_table_path: Path,
+    affected_internal_ids: set[str],
+) -> dict[tuple[str, str], set[int]]:
+    available_intervals_by_contract: dict[tuple[str, str], set[int]] = {}
+    if not affected_internal_ids:
+        return available_intervals_by_contract
+    for batch in iter_delta_table_row_batches(
+        raw_table_path,
+        columns=list(RAW_INTERVAL_PROJECTION_COLUMNS),
+        filters=_build_internal_id_filters(affected_internal_ids),
+    ):
+        for row_index, payload in enumerate(batch):
+            if not isinstance(payload, dict):
+                continue
+            contract_id = str(payload.get("finam_symbol", "")).strip()
+            instrument_id = str(payload.get("internal_id", "")).strip()
+            if not contract_id or not instrument_id:
+                continue
+            try:
+                source_interval = _normalize_source_interval(
+                    source_timeframe=str(payload.get("timeframe", "")).strip(),
+                    source_interval_raw=payload.get("source_interval"),
+                    row_index=row_index,
+                )
+            except ValueError:
+                continue
+            available_intervals_by_contract.setdefault((contract_id, instrument_id), set()).add(
+                source_interval
+            )
     return available_intervals_by_contract
 
 
@@ -998,14 +1073,12 @@ def _publish_scope_rows(
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for window in changed_windows:
-        for (contract_id, instrument_id, timeframe), source_interval in sorted(
+        for (contract_id, instrument_id, timeframe), _source_interval in sorted(
             selected_source_intervals.items()
         ):
             if contract_id != window.moex_secid:
                 continue
             if instrument_id != window.internal_id:
-                continue
-            if source_interval != window.source_interval:
                 continue
             rows.append(
                 {
@@ -1037,11 +1110,14 @@ def _run_spark_canonicalization(
     raw_table_path: Path,
     changed_windows: list[ChangedWindowScope],
     selected_source_intervals: dict[tuple[str, str, str], int],
+    session_intervals_path: Path | None,
     output_dir: Path,
     run_id: str,
     built_at_utc: str,
     repo_root: Path,
 ) -> dict[str, object]:
+    if session_intervals_path is None:
+        raise ValueError("official session intervals input is required for Spark canonicalization")
     spark_dir = output_dir / ".spark-canonicalization"
     changed_windows_path = spark_dir / "changed-windows.jsonl"
     selected_source_intervals_path = spark_dir / "selected-source-intervals.jsonl"
@@ -1082,13 +1158,22 @@ def _run_spark_canonicalization(
         "--output-json",
         spark_report_path.as_posix(),
     ]
-    completed = subprocess.run(
-        command,
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    if session_intervals_path is not None:
+        command.extend(["--session-intervals-path", session_intervals_path.as_posix()])
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=SPARK_CANONICALIZATION_SUBPROCESS_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            "spark canonicalization failed: subprocess timed out after "
+            f"{SPARK_CANONICALIZATION_SUBPROCESS_TIMEOUT_SECONDS} seconds"
+        ) from exc
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout).strip()
         raise RuntimeError(f"spark canonicalization failed: {detail}")
@@ -1107,6 +1192,7 @@ def _run_spark_canonical_publish(
     target_bars_path: Path,
     target_provenance_path: Path,
     session_calendar_path: Path,
+    session_intervals_path: Path | None,
     roll_map_path: Path,
     output_dir: Path,
     run_id: str,
@@ -1123,6 +1209,7 @@ def _run_spark_canonical_publish(
             target_bars_path=target_bars_path,
             target_provenance_path=target_provenance_path,
             session_calendar_path=session_calendar_path,
+            session_intervals_path=session_intervals_path,
             roll_map_path=roll_map_path,
             output_dir=spark_dir,
             run_id=run_id,
@@ -1156,6 +1243,8 @@ def _run_spark_canonical_publish(
         "--output-json",
         spark_report_path.as_posix(),
     ]
+    if session_intervals_path is not None:
+        command.extend(["--session-intervals-path", session_intervals_path.as_posix()])
     try:
         completed = subprocess.run(
             command,
@@ -1515,6 +1604,53 @@ def _status_for_publish_decision(
     return STATUS_PASS
 
 
+def _session_admission_gate_report(
+    spark_execution_report: dict[str, object] | None,
+    *,
+    missing_report_gate: str | None = "official_schedule_missing_input",
+) -> dict[str, object]:
+    admission = (
+        spark_execution_report.get("session_admission_report")
+        if isinstance(spark_execution_report, dict)
+        else None
+    )
+    if not isinstance(admission, dict):
+        if missing_report_gate is None:
+            return {
+                "status": STATUS_PASS,
+                "failed_gates": [],
+                "rejected_out_of_session_rows": 0,
+                "missing_official_coverage_rows": 0,
+            }
+        return {
+            "status": "FAIL",
+            "failed_gates": [missing_report_gate],
+            "rejected_out_of_session_rows": 0,
+            "missing_official_coverage_rows": 0,
+        }
+    try:
+        rejected_rows = int(admission.get("rejected_out_of_session_rows") or 0)
+        missing_coverage_rows = int(admission.get("missing_official_coverage_rows") or 0)
+    except (TypeError, ValueError):
+        return {
+            "status": "FAIL",
+            "failed_gates": ["official_schedule_invalid_report"],
+            "rejected_out_of_session_rows": 0,
+            "missing_official_coverage_rows": 0,
+        }
+    failed_gates: list[str] = []
+    if missing_coverage_rows:
+        failed_gates.append("official_schedule_missing_coverage")
+    if rejected_rows:
+        failed_gates.append("official_schedule_mismatch")
+    return {
+        "status": STATUS_PASS if not failed_gates else "FAIL",
+        "failed_gates": failed_gates,
+        "rejected_out_of_session_rows": rejected_rows,
+        "missing_official_coverage_rows": missing_coverage_rows,
+    }
+
+
 def _int_report_value(report: dict[str, object] | None, key: str) -> int:
     if not isinstance(report, dict):
         return 0
@@ -1610,6 +1746,7 @@ def _run_scoped_spark_delta_publish_route(
     bars_path: Path,
     provenance_path: Path,
     session_calendar_path: Path,
+    session_intervals_path: Path | None,
     roll_map_path: Path,
     changed_window_scope: list[ChangedWindowScope],
     changed_window_set_manifest: dict[str, object],
@@ -1620,8 +1757,13 @@ def _run_scoped_spark_delta_publish_route(
     available_intervals_by_contract = _build_available_intervals_by_changed_window(
         changed_window_scope
     )
-    selected_source_intervals = _build_selected_source_interval_map_from_available_intervals(
-        available_intervals_by_contract
+    raw_available_intervals_by_contract = _build_raw_available_intervals_by_contract(
+        raw_table_path=raw_table_path,
+        affected_internal_ids={window.internal_id for window in changed_window_scope},
+    )
+    selected_source_intervals = _build_raw_1m_source_interval_map_from_available_intervals(
+        available_intervals_by_contract,
+        raw_available_intervals_by_contract=raw_available_intervals_by_contract,
     )
     resampling_skips = _build_resampling_skips_from_available_intervals(
         available_intervals_by_contract,
@@ -1632,11 +1774,12 @@ def _run_scoped_spark_delta_publish_route(
     scoped_bars_path: Path | None = None
     scoped_provenance_path: Path | None = None
     publish_scope_path: Path | None = None
-    if changed_window_scope and selected_source_intervals:
+    if changed_window_scope and selected_source_intervals and session_intervals_path is not None:
         spark_execution_report = _run_spark_canonicalization(
             raw_table_path=raw_table_path,
             changed_windows=changed_window_scope,
             selected_source_intervals=selected_source_intervals,
+            session_intervals_path=session_intervals_path,
             output_dir=output_dir,
             run_id=run_id,
             built_at_utc=built_at_utc,
@@ -1651,6 +1794,12 @@ def _run_scoped_spark_delta_publish_route(
             scoped_bars_path = Path(raw_bars_path) if raw_bars_path else None
             scoped_provenance_path = Path(raw_provenance_path) if raw_provenance_path else None
         publish_scope_path = output_dir / ".spark-canonicalization" / "publish-scope.jsonl"
+
+    missing_session_gate: str | None = "official_schedule_missing_input"
+    if not changed_window_scope:
+        missing_session_gate = None
+    elif not selected_source_intervals:
+        missing_session_gate = "raw_source_interval_missing"
 
     raw_parity_report = _build_spark_raw_parity_report(
         run_id=run_id,
@@ -1669,18 +1818,25 @@ def _run_scoped_spark_delta_publish_route(
         "mode": "pending_spark_publish_contract_report",
     }
     runtime_report = run_runtime_decoupling_check(repo_root=repo_root)
+    session_admission_gate = _session_admission_gate_report(
+        spark_execution_report,
+        missing_report_gate=missing_session_gate,
+    )
 
     qc_report: dict[str, object] = {
         "run_id": run_id,
         "runtime_owner": "spark_delta",
-        "status": "PASS",
-        "publish_decision": "publish",
-        "failed_gates": [],
+        "status": session_admission_gate["status"],
+        "publish_decision": (
+            "publish" if session_admission_gate["status"] == STATUS_PASS else "blocked"
+        ),
+        "failed_gates": list(session_admission_gate["failed_gates"]),
         "gate_results": [],
     }
     publish_allowed = (
         raw_parity_report["status"] == STATUS_PASS
         and canonical_parity_report["status"] == STATUS_PASS
+        and session_admission_gate["status"] == STATUS_PASS
         and runtime_report["status"] == "PASS"
     )
 
@@ -1695,6 +1851,7 @@ def _run_scoped_spark_delta_publish_route(
             target_bars_path=bars_path,
             target_provenance_path=provenance_path,
             session_calendar_path=session_calendar_path,
+            session_intervals_path=session_intervals_path,
             roll_map_path=roll_map_path,
             output_dir=output_dir,
             run_id=run_id,
@@ -1737,12 +1894,15 @@ def _run_scoped_spark_delta_publish_route(
             and contract_passed
         )
     else:
+        failed_gates = list(session_admission_gate["failed_gates"])
+        if not publish_allowed and not failed_gates:
+            failed_gates = ["pre_publish_spark_parity"]
         qc_report = {
             "run_id": run_id,
             "runtime_owner": "spark_delta",
             "status": "FAIL" if not publish_allowed else "PASS",
             "publish_decision": "blocked" if not publish_allowed else "publish",
-            "failed_gates": [] if publish_allowed else ["pre_publish_spark_parity"],
+            "failed_gates": [] if publish_allowed else failed_gates,
             "gate_results": [],
         }
 
@@ -1828,6 +1988,14 @@ def _run_scoped_spark_delta_publish_route(
         "status": status,
         "publish_decision": "publish" if publish_allowed else "blocked",
         "raw_table_path": raw_table_path.as_posix(),
+        "session_intervals_path": (
+            session_intervals_path.as_posix() if session_intervals_path is not None else ""
+        ),
+        "session_intervals_mode": (
+            "official_manual_input"
+            if session_intervals_path is not None
+            else "manual_session_intervals_missing_blocked"
+        ),
         "output_dir": output_dir.as_posix(),
         "source_rows": source_rows,
         "scoped_source_rows": _int_report_value(spark_execution_report, "source_rows"),
@@ -1868,6 +2036,7 @@ def _run_scoped_spark_delta_publish_route(
         "raw_parity_report": raw_parity_report,
         "canonical_parity_report": canonical_parity_report,
         "qc_report": qc_report,
+        "session_admission_gate": session_admission_gate,
         "contract_compatibility_report": contract_report,
         "runtime_decoupling_proof": runtime_report,
         "real_bindings": _real_bindings_from_spark_report(
@@ -1899,6 +2068,7 @@ def run_historical_canonical_route(
     repo_root: Path | None = None,
     canonical_bars_path: Path | None = None,
     canonical_provenance_path: Path | None = None,
+    canonical_session_intervals_path: Path | None = None,
     canonical_session_calendar_path: Path | None = None,
     canonical_roll_map_path: Path | None = None,
     canonical_merge_strategy: str = CANONICAL_MERGE_SCOPED_DELETE_INSERT,
@@ -1926,6 +2096,11 @@ def run_historical_canonical_route(
         canonical_session_calendar_path
         or (output_dir / "delta" / "canonical_session_calendar.delta")
     ).resolve()
+    session_intervals_path = (
+        canonical_session_intervals_path.resolve()
+        if canonical_session_intervals_path is not None
+        else None
+    )
     roll_map_path = (
         canonical_roll_map_path or (output_dir / "delta" / "canonical_roll_map.delta")
     ).resolve()
@@ -1960,6 +2135,11 @@ def run_historical_canonical_route(
         raise ValueError(
             "phase-02 scope mismatch: raw ingest status PASS-NOOP requires empty changed_windows"
         )
+    official_session_intervals_path = (
+        session_intervals_path
+        if raw_report_status == STATUS_PASS_NOOP
+        else _require_session_intervals_input(session_intervals_path)
+    )
 
     source_rows = _report_source_row_count(
         raw_ingest_run_report=raw_ingest_run_report,
@@ -1995,6 +2175,16 @@ def run_historical_canonical_route(
             "status": noop_status,
             "publish_decision": noop_publish_decision,
             "raw_table_path": raw_table_path.as_posix(),
+            "session_intervals_path": (
+                official_session_intervals_path.as_posix()
+                if official_session_intervals_path is not None
+                else ""
+            ),
+            "session_intervals_mode": (
+                "official_manual_input"
+                if official_session_intervals_path is not None
+                else "not_applied_manual_backfill_missing"
+            ),
             "output_dir": output_dir.as_posix(),
             "source_rows": source_rows,
             "scoped_source_rows": 0,
@@ -2080,6 +2270,7 @@ def run_historical_canonical_route(
         bars_path=bars_path,
         provenance_path=provenance_path,
         session_calendar_path=session_calendar_path,
+        session_intervals_path=official_session_intervals_path,
         roll_map_path=roll_map_path,
         changed_window_scope=changed_window_scope,
         changed_window_set_manifest=changed_window_set_manifest,

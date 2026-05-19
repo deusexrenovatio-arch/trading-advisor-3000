@@ -38,6 +38,7 @@ class AssetSpec:
 
 HISTORICAL_DATA_PROOF_TABLES = (
     "raw_market_backfill",
+    "canonical_session_intervals",
     "canonical_bars",
     "canonical_instruments",
     "canonical_contracts",
@@ -47,11 +48,12 @@ HISTORICAL_DATA_PROOF_TABLES = (
 
 HISTORICAL_DATA_PROOF_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     "raw_market_backfill": tuple(),
-    "canonical_bars": ("raw_market_backfill",),
-    "canonical_instruments": ("raw_market_backfill",),
-    "canonical_contracts": ("raw_market_backfill",),
-    "canonical_session_calendar": ("raw_market_backfill",),
-    "canonical_roll_map": ("raw_market_backfill",),
+    "canonical_session_intervals": ("raw_market_backfill",),
+    "canonical_bars": ("raw_market_backfill", "canonical_session_intervals"),
+    "canonical_instruments": ("raw_market_backfill", "canonical_session_intervals"),
+    "canonical_contracts": ("raw_market_backfill", "canonical_session_intervals"),
+    "canonical_session_calendar": ("raw_market_backfill", "canonical_session_intervals"),
+    "canonical_roll_map": ("raw_market_backfill", "canonical_session_intervals"),
 }
 
 
@@ -64,33 +66,39 @@ def historical_data_proof_asset_specs() -> list[AssetSpec]:
             outputs=("raw_market_backfill_delta",),
         ),
         AssetSpec(
+            key="canonical_session_intervals",
+            description="Build fixture-backed official session intervals for proof assets.",
+            inputs=("raw_market_backfill_delta",),
+            outputs=("canonical_session_intervals_delta",),
+        ),
+        AssetSpec(
             key="canonical_bars",
             description="Build canonical OHLCV bars from raw backfill.",
-            inputs=("raw_market_backfill_delta",),
+            inputs=("raw_market_backfill_delta", "canonical_session_intervals_delta"),
             outputs=("canonical_bars_delta",),
         ),
         AssetSpec(
             key="canonical_instruments",
             description="Build canonical instruments table from raw backfill.",
-            inputs=("raw_market_backfill_delta",),
+            inputs=("raw_market_backfill_delta", "canonical_session_intervals_delta"),
             outputs=("canonical_instruments_delta",),
         ),
         AssetSpec(
             key="canonical_contracts",
             description="Build canonical contracts table from raw backfill.",
-            inputs=("raw_market_backfill_delta",),
+            inputs=("raw_market_backfill_delta", "canonical_session_intervals_delta"),
             outputs=("canonical_contracts_delta",),
         ),
         AssetSpec(
             key="canonical_session_calendar",
-            description="Build canonical session calendar from raw backfill.",
-            inputs=("raw_market_backfill_delta",),
+            description="Build canonical session calendar from explicit session intervals.",
+            inputs=("raw_market_backfill_delta", "canonical_session_intervals_delta"),
             outputs=("canonical_session_calendar_delta",),
         ),
         AssetSpec(
             key="canonical_roll_map",
             description="Build canonical roll map by instrument/session.",
-            inputs=("raw_market_backfill_delta",),
+            inputs=("raw_market_backfill_delta", "canonical_session_intervals_delta"),
             outputs=("canonical_roll_map_delta",),
         ),
     ]
@@ -158,13 +166,40 @@ def _read_batched_delta_rows(table_path: Path) -> list[dict[str, object]]:
     return [row for batch in iter_delta_table_row_batches(table_path) for row in batch]
 
 
-def _load_dataset(report: dict[str, object]):
+def _fixture_session_intervals_for_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    sessions = sorted({(str(row["instrument_id"]), str(row["ts_open"])[:10]) for row in rows})
+    return [
+        {
+            "instrument_id": instrument_id,
+            "session_date": session_date,
+            "interval_id": f"{instrument_id}-{session_date}-regular-1",
+            "interval_seq": 1,
+            "expected_open_ts": f"{session_date}T10:00:00Z",
+            "expected_close_ts": f"{session_date}T18:45:00Z",
+            "session_class": "regular",
+            "interval_type": "regular_trading",
+            "policy_id": "sample-official-session-fixture-v1",
+            "source_id": "sample-official-session-fixture",
+            "source_document_hash": "sha256:sample-fixture",
+        }
+        for instrument_id, session_date in sessions
+    ]
+
+
+def _load_dataset(
+    report: dict[str, object],
+    *,
+    session_intervals: list[dict[str, object]],
+):
     raw_rows = _load_rows(report, "raw_market_backfill")
     whitelist_values = report.get("whitelist_contracts")
     if not isinstance(whitelist_values, list):
         raise RuntimeError("historical-data proof report is missing `whitelist_contracts` list")
     whitelist_contracts = _normalize_whitelist([str(item) for item in whitelist_values])
-    dataset = build_canonical_dataset(raw_rows)
+    dataset = build_canonical_dataset(
+        raw_rows,
+        session_intervals=session_intervals,
+    )
     quality_errors = run_data_quality_checks(dataset.bars, whitelist_contracts=whitelist_contracts)
     if quality_errors:
         raise ValueError("data quality failed: " + "; ".join(quality_errors))
@@ -226,42 +261,84 @@ def raw_market_backfill(config: HistoricalDataProofMaterializationConfig) -> dic
 
 
 @asset(group_name="historical_data_proof")
-def canonical_bars(raw_market_backfill: dict[str, object]) -> list[dict[str, object]]:
-    dataset = _load_dataset(raw_market_backfill)
+def canonical_session_intervals(raw_market_backfill: dict[str, object]) -> list[dict[str, object]]:
+    raw_rows = _load_rows(raw_market_backfill, "raw_market_backfill")
+    rows = _fixture_session_intervals_for_rows(raw_rows)
+    return _write_table(
+        raw_market_backfill,
+        table_name="canonical_session_intervals",
+        rows=rows,
+    )
+
+
+@asset(group_name="historical_data_proof")
+def canonical_bars(
+    raw_market_backfill: dict[str, object],
+    canonical_session_intervals: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    dataset = _load_dataset(
+        raw_market_backfill,
+        session_intervals=canonical_session_intervals,
+    )
     rows = [item.to_dict() for item in dataset.bars]
     return _write_table(raw_market_backfill, table_name="canonical_bars", rows=rows)
 
 
 @asset(group_name="historical_data_proof")
-def canonical_instruments(raw_market_backfill: dict[str, object]) -> list[dict[str, object]]:
-    dataset = _load_dataset(raw_market_backfill)
+def canonical_instruments(
+    raw_market_backfill: dict[str, object],
+    canonical_session_intervals: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    dataset = _load_dataset(
+        raw_market_backfill,
+        session_intervals=canonical_session_intervals,
+    )
     rows = [item.to_dict() for item in dataset.instruments]
     return _write_table(raw_market_backfill, table_name="canonical_instruments", rows=rows)
 
 
 @asset(group_name="historical_data_proof")
-def canonical_contracts(raw_market_backfill: dict[str, object]) -> list[dict[str, object]]:
-    dataset = _load_dataset(raw_market_backfill)
+def canonical_contracts(
+    raw_market_backfill: dict[str, object],
+    canonical_session_intervals: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    dataset = _load_dataset(
+        raw_market_backfill,
+        session_intervals=canonical_session_intervals,
+    )
     rows = [item.to_dict() for item in dataset.contracts]
     return _write_table(raw_market_backfill, table_name="canonical_contracts", rows=rows)
 
 
 @asset(group_name="historical_data_proof")
-def canonical_session_calendar(raw_market_backfill: dict[str, object]) -> list[dict[str, object]]:
-    dataset = _load_dataset(raw_market_backfill)
+def canonical_session_calendar(
+    raw_market_backfill: dict[str, object],
+    canonical_session_intervals: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    dataset = _load_dataset(
+        raw_market_backfill,
+        session_intervals=canonical_session_intervals,
+    )
     rows = [item.to_dict() for item in dataset.session_calendar]
     return _write_table(raw_market_backfill, table_name="canonical_session_calendar", rows=rows)
 
 
 @asset(group_name="historical_data_proof")
-def canonical_roll_map(raw_market_backfill: dict[str, object]) -> list[dict[str, object]]:
-    dataset = _load_dataset(raw_market_backfill)
+def canonical_roll_map(
+    raw_market_backfill: dict[str, object],
+    canonical_session_intervals: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    dataset = _load_dataset(
+        raw_market_backfill,
+        session_intervals=canonical_session_intervals,
+    )
     rows = [item.to_dict() for item in dataset.roll_map]
     return _write_table(raw_market_backfill, table_name="canonical_roll_map", rows=rows)
 
 
 HISTORICAL_DATA_PROOF_ASSETS = (
     raw_market_backfill,
+    canonical_session_intervals,
     canonical_bars,
     canonical_instruments,
     canonical_contracts,
