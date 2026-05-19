@@ -4,6 +4,14 @@ Updated: 2026-05-19 10:34 UTC
 ## Goal
 - Deliver: Prepare codex/moex-session-canonicalization branch for final commit and integration checks
 
+## Solution Intent
+- Solution Class: target
+- Critical Contour: data-integration-closure
+- Forbidden Shortcuts: synthetic upstream, scaffold-only, sample artifact, fixture path
+- Closure Evidence: integration test evidence covers the official-session-bounded canonical dataset path, downstream research handoff compatibility, runtime-ready surface contracts, Dagster rebuild wiring, Moscow session-date handling, generated governance state, and post-rebase formatting/lint compliance against `origin/main..HEAD`.
+- Shortcut Waiver: none
+- Design Checkpoint: chosen path=publish the complete rebased branch with explicit local gate evidence; why_not_shortcut=integration prep must validate the full branch diff, not only the final governance tail; future_shape=PR-only integration can review product-plane data changes and shell state as one mixed branch without moving domain logic into shell control-plane files.
+
 ## Task Request Contract
 - Objective: make the current branch review-ready by validating and committing the remaining lifecycle, task, memory, plan, and governance-report state.
 - Change Surface: shell; CTX-OPS / PROCESS-STATE plus generated governance evidence only.
