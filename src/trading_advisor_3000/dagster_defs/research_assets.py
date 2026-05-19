@@ -2752,23 +2752,29 @@ def _materialize_research_assets(
         reuse_existing_materialization=reuse_existing_materialization,
     )
 
+    op_configs = {
+        "continuous_front_bars": {
+            "config": research_config,
+        },
+        "research_datasets": {
+            "config": research_config,
+        },
+        "research_indicator_frames": {
+            "config": research_config,
+        },
+        "research_derived_indicator_frames": {
+            "config": research_config,
+        },
+    }
+
     result = materialize(
         assets=list(RESEARCH_ASSETS),
         selection=expected_materialized_assets,
         run_config={
             "ops": {
-                "continuous_front_bars": {
-                    "config": research_config,
-                },
-                "research_datasets": {
-                    "config": research_config,
-                },
-                "research_indicator_frames": {
-                    "config": research_config,
-                },
-                "research_derived_indicator_frames": {
-                    "config": research_config,
-                },
+                op_name: op_config
+                for op_name, op_config in op_configs.items()
+                if op_name in expected_materialized_assets
             }
         },
         raise_on_error=raise_on_error,

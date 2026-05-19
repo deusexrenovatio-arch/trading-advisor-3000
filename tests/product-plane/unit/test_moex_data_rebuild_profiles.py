@@ -337,3 +337,31 @@ def test_moex_data_rebuild_job_dispatches_data_layer_profile_in_order(
     report = result.output_for_node("moex_data_rebuild")
     assert report["profile_name"] == "data_layer_rebuild"
     assert Path(str(report["manifest_path"])).exists()
+
+
+def test_moex_layer_materialization_filters_run_config_to_selected_assets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    class _Result:
+        success = False
+
+    def _fake_materialize(**kwargs: object) -> _Result:
+        captured.update(kwargs)
+        return _Result()
+
+    monkeypatch.setattr(research_assets, "assert_research_definitions_executable", lambda: None)
+    monkeypatch.setattr(research_assets, "materialize", _fake_materialize)
+
+    report = research_assets.materialize_moex_cf_rebuild_assets(
+        canonical_output_dir=tmp_path / "canonical",
+        research_output_dir=tmp_path / "research",
+        dataset_version="run-data-layer",
+        timeframes=("15m",),
+        raise_on_error=False,
+    )
+
+    assert report["success"] is False
+    assert captured["selection"] == list(research_assets.MOEX_CF_REBUILD_ASSETS)
+    assert set(captured["run_config"]["ops"]) == {"continuous_front_bars"}
