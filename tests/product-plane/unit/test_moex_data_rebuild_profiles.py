@@ -241,9 +241,10 @@ def test_moex_canonical_rebuild_publish_mode_controls_target_paths(
         }
     )
     staging_call = captured[-1]
-    assert Path(str(staging_call["canonical_bars_path"])) == (
-        staging_root / "delta" / "canonical_bars.delta"
-    ).resolve()
+    assert (
+        Path(str(staging_call["canonical_bars_path"]))
+        == (staging_root / "delta" / "canonical_bars.delta").resolve()
+    )
     assert staging_report["manifest"]["promoted_outputs"] == {}
     assert staging_report["manifest"]["staged_outputs"]["canonical_bars"].endswith(
         "canonical-staging/delta/canonical_bars.delta"
@@ -261,9 +262,10 @@ def test_moex_canonical_rebuild_publish_mode_controls_target_paths(
         }
     )
     promote_call = captured[-1]
-    assert Path(str(promote_call["canonical_bars_path"])) == (
-        target_root / "canonical_bars.delta"
-    ).resolve()
+    assert (
+        Path(str(promote_call["canonical_bars_path"]))
+        == (target_root / "canonical_bars.delta").resolve()
+    )
     assert promote_report["manifest"]["staged_outputs"]["canonical_bars"].endswith(
         "canonical-staging/delta/canonical_bars.delta"
     )

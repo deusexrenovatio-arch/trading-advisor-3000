@@ -480,9 +480,7 @@ def test_default_catalog_uses_updated_2026_02_23_holiday_weekend_session(
         limit=10,
     )
     payload = json.loads(str(raw_rows[0]["raw_payload_json"]))
-    assert report["calendar_exception_ids"] == [
-        "moex-forts-holiday-weekend-session-2026-02-23"
-    ]
+    assert report["calendar_exception_ids"] == ["moex-forts-holiday-weekend-session-2026-02-23"]
     assert payload["exception_id"] == "moex-forts-holiday-weekend-session-2026-02-23"
     assert interval_rows[0]["interval_type"] == "holiday_weekend_session"
     assert interval_rows[0]["expected_open_ts"] == "2026-02-23T07:00:00Z"

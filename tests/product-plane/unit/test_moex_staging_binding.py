@@ -33,7 +33,9 @@ def _run_ids() -> dict[str, str]:
     }
 
 
-def test_build_moex_staging_binding_report_copies_artifacts_and_emits_report(tmp_path: Path) -> None:
+def test_build_moex_staging_binding_report_copies_artifacts_and_emits_report(
+    tmp_path: Path,
+) -> None:
     artifact_paths = _artifact_paths(tmp_path)
     run_ids = _run_ids()
 
@@ -83,7 +85,9 @@ def test_build_moex_staging_binding_report_copies_artifacts_and_emits_report(tmp
     assert verification["run_summaries"]["nightly_1"]["status"] == "SUCCESS"
 
 
-def test_build_moex_staging_binding_report_fails_closed_when_run_is_not_success(tmp_path: Path) -> None:
+def test_build_moex_staging_binding_report_fails_closed_when_run_is_not_success(
+    tmp_path: Path,
+) -> None:
     artifact_paths = _artifact_paths(tmp_path)
 
     def fake_fetcher(run_id: str) -> dict[str, object]:
@@ -114,7 +118,9 @@ def test_build_moex_staging_binding_report_rejects_localhost_dagster_url(tmp_pat
     def fake_fetcher(run_id: str) -> dict[str, object]:
         raise AssertionError(f"collector must fail before querying run `{run_id}`")
 
-    with pytest.raises(ValueError, match="loopback or unspecified host|external staging Dagster host"):
+    with pytest.raises(
+        ValueError, match="loopback or unspecified host|external staging Dagster host"
+    ):
         build_moex_staging_binding_report(
             dagster_url="http://127.0.0.1:3011",
             output_dir=tmp_path / "bundle",

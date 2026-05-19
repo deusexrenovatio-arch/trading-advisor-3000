@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 import ipaddress
 import json
-from pathlib import Path
 import shutil
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Callable
 from urllib import error, request
 from urllib.parse import urlparse
-
 
 STAGING_RUN_ID_KEYS = ("nightly_1", "nightly_2", "repair", "backfill", "recovery")
 DEFAULT_DAGSTER_BINDING = "dagster://staging/moex-data-rebuild"
@@ -66,7 +65,9 @@ def validate_external_dagster_url(dagster_url: str) -> str:
 
     host = parsed.hostname.strip().lower()
     if host in _LOCAL_DAGSTER_HOSTS:
-        raise ValueError("`dagster_url` must reference external staging Dagster host, not local host")
+        raise ValueError(
+            "`dagster_url` must reference external staging Dagster host, not local host"
+        )
 
     try:
         ip = ipaddress.ip_address(host)
@@ -74,7 +75,9 @@ def validate_external_dagster_url(dagster_url: str) -> str:
         return normalized
 
     if ip.is_loopback or ip.is_unspecified:
-        raise ValueError("`dagster_url` must not use loopback or unspecified host for staging-real evidence")
+        raise ValueError(
+            "`dagster_url` must not use loopback or unspecified host for staging-real evidence"
+        )
     return normalized
 
 
@@ -240,14 +243,18 @@ def build_moex_staging_binding_report(
     output_dir.mkdir(parents=True, exist_ok=True)
     copied_artifact_root = output_dir / "staging-artifacts"
 
-    run_fetcher = fetch_run_summary
-    if run_fetcher is None:
-        run_fetcher = lambda current_run_id: fetch_dagster_run_summary(
-            dagster_url=dagster_url_normalized,
-            run_id=current_run_id,
-            request_timeout_sec=request_timeout_sec,
-            token=token,
-        )
+    if fetch_run_summary is None:
+
+        def run_fetcher(current_run_id: str) -> dict[str, object]:
+            return fetch_dagster_run_summary(
+                dagster_url=dagster_url_normalized,
+                run_id=current_run_id,
+                request_timeout_sec=request_timeout_sec,
+                token=token,
+            )
+
+    else:
+        run_fetcher = fetch_run_summary
 
     run_summaries: dict[str, dict[str, object]] = {}
     for mode in STAGING_RUN_ID_KEYS:

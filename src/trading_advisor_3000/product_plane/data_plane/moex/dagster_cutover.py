@@ -184,7 +184,9 @@ def _readiness_gate(*, observed_at_utc: str) -> dict[str, object]:
     }
 
 
-def _validate_nightly_cycle_sequence(*, first_observed_utc: datetime, second_observed_utc: datetime) -> None:
+def _validate_nightly_cycle_sequence(
+    *, first_observed_utc: datetime, second_observed_utc: datetime
+) -> None:
     if second_observed_utc <= first_observed_utc:
         raise ValueError(
             "dagster cutover requires two nightly readiness timestamps in strictly increasing order"
@@ -321,7 +323,9 @@ def _run_single_writer_probe(
         lease_token=str(acquire_a.get("lease_token", "")).strip(),
         requested_at_utc=(
             _parse_iso_utc(requested_at_utc, field_name="requested_at_utc") + timedelta(minutes=1)
-        ).isoformat().replace("+00:00", "Z"),
+        )
+        .isoformat()
+        .replace("+00:00", "Z"),
         run_id="dagster-cutover-single-writer-probe-A-release",
         changed_windows_hash=changed_windows_hash,
     )
@@ -353,7 +357,9 @@ def _run_route_cycle(
     changed_windows_hash: str | None,
     enforce_readiness_target: bool,
 ) -> dict[str, object]:
-    request_utc = _parse_iso_utc(cycle.requested_at_utc, field_name=f"{cycle.mode}.requested_at_utc")
+    request_utc = _parse_iso_utc(
+        cycle.requested_at_utc, field_name=f"{cycle.mode}.requested_at_utc"
+    )
     request_iso = request_utc.isoformat().replace("+00:00", "Z")
 
     acquire = acquire_technical_route_lease(
@@ -400,13 +406,17 @@ def _run_route_cycle(
         cycle_report["status"] = STATUS_BLOCKED
         cycle_report["publish_decision"] = "blocked"
         cycle_report["reasons"] = ["single-writer lease conflict"]
-        cycle_report["readiness_gate"] = _readiness_gate(observed_at_utc=cycle.readiness_observed_at_utc)
+        cycle_report["readiness_gate"] = _readiness_gate(
+            observed_at_utc=cycle.readiness_observed_at_utc
+        )
         return cycle_report
     if acquire_status not in PASS_LIKE_STATUSES:
         cycle_report["status"] = STATUS_FAILED
         cycle_report["publish_decision"] = "blocked"
         cycle_report["reasons"] = [f"unexpected lease acquire status={acquire_status or 'EMPTY'}"]
-        cycle_report["readiness_gate"] = _readiness_gate(observed_at_utc=cycle.readiness_observed_at_utc)
+        cycle_report["readiness_gate"] = _readiness_gate(
+            observed_at_utc=cycle.readiness_observed_at_utc
+        )
         return cycle_report
 
     lease_token = str(acquire.get("lease_token", "")).strip()
@@ -429,7 +439,9 @@ def _run_route_cycle(
         cycle_report["status"] = STATUS_BLOCKED
         cycle_report["publish_decision"] = "blocked"
         cycle_report["reasons"] = ["lease heartbeat failed before materialization"]
-        cycle_report["readiness_gate"] = _readiness_gate(observed_at_utc=cycle.readiness_observed_at_utc)
+        cycle_report["readiness_gate"] = _readiness_gate(
+            observed_at_utc=cycle.readiness_observed_at_utc
+        )
         return cycle_report
 
     cycle_output_dir = output_dir / cycle.mode / cycle.run_id
@@ -577,7 +589,9 @@ def _run_recovery_drill(
         holder_id="dagster-recovery-owner",
         owner_job="dagster-moex-recovery",
         lease_token=str(takeover.get("lease_token", "")).strip(),
-        requested_at_utc=(stale_takeover_time + timedelta(seconds=30)).isoformat().replace("+00:00", "Z"),
+        requested_at_utc=(stale_takeover_time + timedelta(seconds=30))
+        .isoformat()
+        .replace("+00:00", "Z"),
         run_id=f"{run_id}-recovery-release",
         changed_windows_hash=changed_windows_hash,
         metadata={"mode": "recovery-release"},
@@ -602,12 +616,16 @@ def _run_recovery_drill(
         {
             "stage": "replay",
             "status": "SUCCESS" if replay_stage_ok else "FAILED",
-            "at_utc": (stale_takeover_time + timedelta(seconds=10)).isoformat().replace("+00:00", "Z"),
+            "at_utc": (stale_takeover_time + timedelta(seconds=10))
+            .isoformat()
+            .replace("+00:00", "Z"),
         },
         {
             "stage": "recover",
             "status": "SUCCESS" if recover_stage_ok else "FAILED",
-            "at_utc": (stale_takeover_time + timedelta(seconds=30)).isoformat().replace("+00:00", "Z"),
+            "at_utc": (stale_takeover_time + timedelta(seconds=30))
+            .isoformat()
+            .replace("+00:00", "Z"),
         },
     ]
 
@@ -663,7 +681,9 @@ def run_moex_dagster_cutover(
     if not raw_table_resolved.exists():
         raise FileNotFoundError(f"raw table path does not exist: {raw_table_resolved.as_posix()}")
     if not raw_ingest_report_resolved.exists():
-        raise FileNotFoundError(f"raw ingest report path does not exist: {raw_ingest_report_resolved.as_posix()}")
+        raise FileNotFoundError(
+            f"raw ingest report path does not exist: {raw_ingest_report_resolved.as_posix()}"
+        )
 
     raw_status = _read_raw_status(raw_ingest_report_resolved)
     if raw_status not in PASS_LIKE_STATUSES:
@@ -726,13 +746,17 @@ def run_moex_dagster_cutover(
         CutoverCycle(
             mode="nightly",
             run_id=f"{run_id}-nightly-1",
-            requested_at_utc=(cycle_1_time - timedelta(minutes=20)).isoformat().replace("+00:00", "Z"),
+            requested_at_utc=(cycle_1_time - timedelta(minutes=20))
+            .isoformat()
+            .replace("+00:00", "Z"),
             readiness_observed_at_utc=cycle_1_time.isoformat().replace("+00:00", "Z"),
         ),
         CutoverCycle(
             mode="nightly",
             run_id=f"{run_id}-nightly-2",
-            requested_at_utc=(cycle_2_time - timedelta(minutes=20)).isoformat().replace("+00:00", "Z"),
+            requested_at_utc=(cycle_2_time - timedelta(minutes=20))
+            .isoformat()
+            .replace("+00:00", "Z"),
             readiness_observed_at_utc=cycle_2_time.isoformat().replace("+00:00", "Z"),
             retry_of_run_id=f"{run_id}-nightly-1",
         ),
@@ -741,14 +765,18 @@ def run_moex_dagster_cutover(
         mode="repair",
         run_id=f"{run_id}-repair-1",
         requested_at_utc=(cycle_2_time + timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
-        readiness_observed_at_utc=(cycle_2_time + timedelta(hours=1, minutes=10)).isoformat().replace("+00:00", "Z"),
+        readiness_observed_at_utc=(cycle_2_time + timedelta(hours=1, minutes=10))
+        .isoformat()
+        .replace("+00:00", "Z"),
         retry_of_run_id=f"{run_id}-nightly-2",
     )
     backfill_cycle = CutoverCycle(
         mode="backfill",
         run_id=f"{run_id}-backfill-1",
         requested_at_utc=(cycle_2_time + timedelta(hours=2)).isoformat().replace("+00:00", "Z"),
-        readiness_observed_at_utc=(cycle_2_time + timedelta(hours=2, minutes=10)).isoformat().replace("+00:00", "Z"),
+        readiness_observed_at_utc=(cycle_2_time + timedelta(hours=2, minutes=10))
+        .isoformat()
+        .replace("+00:00", "Z"),
         retry_of_run_id=f"{run_id}-repair-1",
     )
 
@@ -862,14 +890,17 @@ def run_moex_dagster_cutover(
     if require_staging_real and proof_class != "staging-real":
         status = "BLOCKED"
         reasons.append(
-            "staging-real proof requires --staging-binding-report-path from a real Dagster environment"
+            "staging-real proof requires --staging-binding-report-path from "
+            "a real Dagster environment"
         )
 
     ledger_rows = read_technical_route_run_ledger(
         ledger_table_path=ledger_table_path,
         route_id=CANONICAL_ROUTE_ID,
     )
-    real_bindings: set[str] = set(_normalize_bindings((staging_binding or {}).get("real_bindings", [])))
+    real_bindings: set[str] = set(
+        _normalize_bindings((staging_binding or {}).get("real_bindings", []))
+    )
     if not real_bindings:
         real_bindings.add(LOCAL_DAGSTER_BINDING)
     real_bindings.add("delta-ledger-cas://technical-route-run-ledger")
@@ -877,7 +908,9 @@ def run_moex_dagster_cutover(
         materialization = cycle_report.get("materialization")
         if not isinstance(materialization, dict):
             continue
-        canonicalization_report_path = Path(str(materialization.get("output_paths", {}).get("canonicalization_report", "")))
+        canonicalization_report_path = Path(
+            str(materialization.get("output_paths", {}).get("canonicalization_report", ""))
+        )
         if not canonicalization_report_path.exists():
             continue
         canonicalization_report = _json_load(canonicalization_report_path)

@@ -512,9 +512,8 @@ def build_moex_data_rebuild_op_config(
             f"unknown MOEX data rebuild downstream_mode `{resolved_downstream_mode}`; "
             f"allowed modes: {', '.join(MOEX_REBUILD_DOWNSTREAM_MODES)}"
         )
-    requires_existing_raw_artifacts = (
-        resolved_source_mode == "existing_raw_delta"
-        and bool(set(profile.stage_names).intersection({"sessions", "canonical"}))
+    requires_existing_raw_artifacts = resolved_source_mode == "existing_raw_delta" and bool(
+        set(profile.stage_names).intersection({"sessions", "canonical"})
     )
     if requires_existing_raw_artifacts and (
         raw_table_path is None or raw_ingest_report_path is None
@@ -1056,9 +1055,7 @@ def moex_canonical_refresh(context, moex_raw_ingest: dict[str, object]) -> dict[
         output_dir=output_dir,
         run_id=run_id,
         raw_ingest_run_report=raw_report,
-        canonical_bars_path=Path(canonical_bars_text).resolve()
-        if canonical_bars_text
-        else None,
+        canonical_bars_path=Path(canonical_bars_text).resolve() if canonical_bars_text else None,
         canonical_provenance_path=Path(canonical_provenance_text).resolve()
         if canonical_provenance_text
         else None,
@@ -1228,7 +1225,9 @@ def _collect_manifest_outputs(
         if not raw_staged_output_paths and not raw_promoted_output_paths:
             raw_output_paths = report.get("output_paths", {})
             if isinstance(raw_output_paths, Mapping):
-                target = staged_output_paths if publish_mode == "staging_only" else promoted_output_paths
+                target = (
+                    staged_output_paths if publish_mode == "staging_only" else promoted_output_paths
+                )
                 for key, value in raw_output_paths.items():
                     target[str(key)] = str(value)
         for row_count_key in ("rows_by_table", "total_rows_by_table"):
@@ -1276,9 +1275,7 @@ def _run_existing_raw_canonical_rebuild(
         selection=MOEX_HISTORICAL_ASSET_KEYS,
         raise_on_error=True,
     )
-    report["staged_output_paths"] = {
-        key: value.as_posix() for key, value in staging_paths.items()
-    }
+    report["staged_output_paths"] = {key: value.as_posix() for key, value in staging_paths.items()}
     report["promoted_output_paths"] = (
         {key: value.as_posix() for key, value in publish_paths.items()}
         if publish_mode == "promote"
@@ -1378,13 +1375,10 @@ def _research_rebuild_kwargs(op_config: dict[str, object], *, run_id: str) -> di
         "continuous_front_policy": (
             dict(continuous_front_policy) if isinstance(continuous_front_policy, dict) else None
         ),
-        "indicator_set_version": _text_value(op_config, "indicator_set_version")
-        or "indicators-v1",
+        "indicator_set_version": _text_value(op_config, "indicator_set_version") or "indicators-v1",
         "indicator_profile_version": _text_value(op_config, "indicator_profile_version")
         or "core_v1",
-        "derived_indicator_set_version": _text_value(
-            op_config, "derived_indicator_set_version"
-        )
+        "derived_indicator_set_version": _text_value(op_config, "derived_indicator_set_version")
         or "derived-v1",
         "derived_indicator_profile_version": _text_value(
             op_config, "derived_indicator_profile_version"
@@ -1392,9 +1386,7 @@ def _research_rebuild_kwargs(op_config: dict[str, object], *, run_id: str) -> di
         or "core_v1",
         "volume_profile_raw_1m_table_path": volume_profile_raw_1m_table_path,
         "volume_profile_tick_size_by_instrument": (
-            dict(volume_profile_tick_sizes)
-            if isinstance(volume_profile_tick_sizes, dict)
-            else None
+            dict(volume_profile_tick_sizes) if isinstance(volume_profile_tick_sizes, dict) else None
         ),
         "reuse_existing_materialization": _bool_value(
             op_config, "reuse_existing_materialization", default=False
@@ -1804,14 +1796,14 @@ def execute_moex_data_rebuild_job(
             "moex data rebuild Dagster job reported success but the canonical refresh report artifact is missing: "
             f"{canonical_report_path.as_posix()}"
         )
-    reported_output_paths: dict[str, object] = {
-        "canonical_report": output_paths["canonical_report"]
-    } if "canonical_report" in output_paths else {}
+    reported_output_paths: dict[str, object] = (
+        {"canonical_report": output_paths["canonical_report"]}
+        if "canonical_report" in output_paths
+        else {}
+    )
     manifest_payload = op_report.get("manifest")
     if isinstance(manifest_payload, dict):
-        manifest_outputs_key = (
-            "promoted_outputs" if publish_mode == "promote" else "staged_outputs"
-        )
+        manifest_outputs_key = "promoted_outputs" if publish_mode == "promote" else "staged_outputs"
         manifest_outputs = manifest_payload.get(manifest_outputs_key, {})
         if isinstance(manifest_outputs, dict):
             reported_output_paths.update(dict(manifest_outputs))
