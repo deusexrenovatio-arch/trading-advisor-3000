@@ -15,7 +15,10 @@ from trading_advisor_3000.product_plane.data_plane.canonical import (
 )
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     delta_equals_predicate,
+    delta_table_columns,
+    read_delta_table_rows,
     replace_delta_table_rows,
+    write_delta_table_rows,
 )
 from trading_advisor_3000.product_plane.research.datasets import (
     ContinuousFrontPolicy,
@@ -30,9 +33,17 @@ from trading_advisor_3000.product_plane.research.derived_indicators import (
     DerivedIndicatorProfile,
     current_derived_indicator_profile,
 )
+from trading_advisor_3000.product_plane.research.derived_indicators import (
+    materialize as derived_materialize_module,
+)
 from trading_advisor_3000.product_plane.research.derived_indicators.materialize import (
     materialize_derived_indicator_frames,
     reload_derived_indicator_frames,
+)
+from trading_advisor_3000.product_plane.research.derived_indicators.source_frames import (
+    DERIVED_SOURCE_FRAME_DELTA,
+    DERIVED_SOURCE_FRAME_TABLE,
+    research_derived_source_frame_store_contract,
 )
 from trading_advisor_3000.product_plane.research.indicators import (
     IndicatorParameter,
@@ -221,6 +232,129 @@ def materialize_research_dataset(
             "research_instrument_tree": (output_dir / "research_instrument_tree.delta").as_posix(),
             "research_datasets": (output_dir / "research_datasets.delta").as_posix(),
         },
+    )
+
+
+def _write_test_derived_source_frames(
+    *,
+    dataset_output_dir: Path,
+    indicator_output_dir: Path,
+    source_frame_output_dir: Path,
+    dataset_version: str,
+    contour_id: str,
+    indicator_set_version: str,
+    derived_profile_version: str,
+    source_indicator_columns: tuple[str, ...],
+) -> dict[str, object]:
+    missing_columns = tuple(
+        column
+        for column in source_indicator_columns
+        if column
+        not in set(delta_table_columns(indicator_output_dir / "research_indicator_frames.delta"))
+    )
+    if missing_columns:
+        raise ValueError(
+            "derived source-frame requires source indicator columns: " + ", ".join(missing_columns)
+        )
+    bar_rows = read_delta_table_rows(
+        dataset_output_dir / "research_bar_views.delta",
+        filters=[("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
+    )
+    indicator_rows = read_delta_table_rows(
+        indicator_output_dir / "research_indicator_frames.delta",
+        filters=[
+            ("dataset_version", "=", dataset_version),
+            ("contour_id", "=", contour_id),
+            ("indicator_set_version", "=", indicator_set_version),
+        ],
+    )
+    join_keys = (
+        "dataset_version",
+        "contour_id",
+        "series_mode",
+        "series_id",
+        "contract_id",
+        "instrument_id",
+        "timeframe",
+        "ts",
+    )
+    indicators_by_key = {tuple(row.get(key) for key in join_keys): row for row in indicator_rows}
+    source_rows = []
+    for bar in bar_rows:
+        indicator = indicators_by_key[tuple(bar.get(key) for key in join_keys)]
+        source_rows.append(
+            {
+                **bar,
+                "indicator_set_version": indicator_set_version,
+                "derived_profile_version": derived_profile_version,
+                **{column: indicator.get(column) for column in source_indicator_columns},
+                "indicator_profile_version": indicator["profile_version"],
+                "indicator_source_bars_hash": indicator["source_bars_hash"],
+                "indicator_source_dataset_bars_hash": indicator.get("source_dataset_bars_hash", ""),
+                "indicator_row_count": indicator["row_count"],
+                "indicator_warmup_span": indicator["warmup_span"],
+                "indicator_null_warmup_span": indicator["null_warmup_span"],
+                "indicator_created_at": indicator["created_at"],
+                "indicator_output_columns_hash": indicator.get("output_columns_hash", ""),
+                "source_indicator_columns_hash": "TEST",
+                "source_l0_delta_version": 0,
+                "source_l1_delta_version": 0,
+                "source_l0_delta_hash": "test-l0",
+                "source_l1_delta_hash": "test-l1",
+                "l0_row_count": len(bar_rows),
+                "l1_row_count": len(indicator_rows),
+                "joined_row_count": len(source_rows) + 1,
+                "duplicate_indicator_key_count": 0,
+                "missing_indicator_key_count": 0,
+                "source_bars_hash": "",
+                "source_indicators_hash": "",
+                "source_frame_created_at": "2026-04-29T00:00:00Z",
+            }
+        )
+    contract = research_derived_source_frame_store_contract(
+        source_indicator_columns=source_indicator_columns
+    )
+    write_delta_table_rows(
+        table_path=source_frame_output_dir / DERIVED_SOURCE_FRAME_DELTA,
+        rows=source_rows,
+        columns=contract[DERIVED_SOURCE_FRAME_TABLE]["columns"],
+    )
+    return {
+        "status": "PASS",
+        "rows_by_table": {DERIVED_SOURCE_FRAME_TABLE: len(source_rows)},
+        "source_delta_versions": {"research_bar_views": 0, "research_indicator_frames": 0},
+        "source_delta_hashes": {
+            "research_bar_views": "test-l0",
+            "research_indicator_frames": "test-l1",
+        },
+        "output_paths": {
+            DERIVED_SOURCE_FRAME_TABLE: (
+                source_frame_output_dir / DERIVED_SOURCE_FRAME_DELTA
+            ).as_posix()
+        },
+        "delta_manifest": contract,
+    }
+
+
+@pytest.fixture(autouse=True)
+def _fixture_source_frame_runner(monkeypatch: pytest.MonkeyPatch):
+    def _fake_source_frame_runner(**kwargs: object) -> dict[str, object]:
+        return _write_test_derived_source_frames(
+            dataset_output_dir=Path(str(kwargs["bar_views_path"])).parent,
+            indicator_output_dir=Path(str(kwargs["indicator_frames_path"])).parent,
+            source_frame_output_dir=Path(str(kwargs["output_dir"])),
+            dataset_version=str(kwargs["dataset_version"]),
+            contour_id=str(kwargs["contour_id"]),
+            indicator_set_version=str(kwargs["indicator_set_version"]),
+            derived_profile_version=str(kwargs["derived_profile_version"]),
+            source_indicator_columns=tuple(kwargs["source_indicator_columns"]),  # type: ignore[arg-type]
+        )
+
+    monkeypatch.setattr(
+        derived_materialize_module,
+        "run_research_derived_source_frames_spark_job",
+        _fake_source_frame_runner,
+        raising=False,
     )
 
 
@@ -1256,3 +1390,88 @@ def test_derived_indicator_materialization_extends_profile_without_recomputing_e
     assert {row.ts: row.values["session_vwap"] for row in second_rows} == first_session_vwap
     assert second_rows[-1].values["distance_to_close_atr"] == 0.0
     assert second_rows[-1].profile_version == "core_v1_plus_new_derived"
+
+
+def test_derived_materialization_uses_source_frame_without_l0_l1_python_join(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bars = [_canonical_bar(index=index, close=80.0 + index * 0.25) for index in range(60)]
+    session_calendar = [
+        SessionCalendarEntry(
+            "BR", "15m", "2026-03-01", "2026-03-01T09:00:00Z", "2026-03-01T20:45:00Z"
+        ),
+        SessionCalendarEntry(
+            "BR", "15m", "2026-03-02", "2026-03-02T09:00:00Z", "2026-03-02T20:45:00Z"
+        ),
+    ]
+    roll_map = [
+        RollMapEntry("BR", "2026-03-01", "BR-6.26", "test"),
+        RollMapEntry("BR", "2026-03-02", "BR-6.26", "test"),
+    ]
+    dataset_dir = tmp_path / "dataset-source-frame"
+    indicator_dir = tmp_path / "indicators-source-frame"
+    derived_dir = tmp_path / "derived-source-frame"
+    materialize_research_dataset(
+        manifest_seed=ResearchDatasetManifest(
+            dataset_version="dataset-source-frame-v1",
+            dataset_name="derived source-frame sample",
+            universe_id="moex-futures",
+            timeframes=("15m",),
+            base_timeframe="15m",
+            start_ts="2026-03-01T09:00:00Z",
+            end_ts="2026-03-02T11:45:00Z",
+            warmup_bars=0,
+            split_method="full",
+            code_version="test",
+        ),
+        bars=bars,
+        session_calendar=session_calendar,
+        roll_map=roll_map,
+        output_dir=dataset_dir,
+    )
+    materialize_indicator_frames(
+        dataset_output_dir=dataset_dir,
+        indicator_output_dir=indicator_dir,
+        dataset_version="dataset-source-frame-v1",
+        indicator_set_version="indicators-v1",
+    )
+
+    def _fake_source_frame_runner(**kwargs: object) -> dict[str, object]:
+        return _write_test_derived_source_frames(
+            dataset_output_dir=Path(str(kwargs["bar_views_path"])).parent,
+            indicator_output_dir=Path(str(kwargs["indicator_frames_path"])).parent,
+            source_frame_output_dir=Path(str(kwargs["output_dir"])),
+            dataset_version=str(kwargs["dataset_version"]),
+            contour_id=str(kwargs["contour_id"]),
+            indicator_set_version=str(kwargs["indicator_set_version"]),
+            derived_profile_version=str(kwargs["derived_profile_version"]),
+            source_indicator_columns=tuple(kwargs["source_indicator_columns"]),  # type: ignore[arg-type]
+        )
+
+    def _blocked_loader(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("production L2 must read ready source-frame partitions")
+
+    monkeypatch.setattr(
+        derived_materialize_module,
+        "run_research_derived_source_frames_spark_job",
+        _fake_source_frame_runner,
+        raising=False,
+    )
+    monkeypatch.setattr(derived_materialize_module, "_load_bar_partition_rows", _blocked_loader)
+    monkeypatch.setattr(
+        derived_materialize_module,
+        "load_indicator_partition_rows",
+        _blocked_loader,
+        raising=False,
+    )
+
+    report = materialize_derived_indicator_frames(
+        dataset_output_dir=dataset_dir,
+        indicator_output_dir=indicator_dir,
+        derived_indicator_output_dir=derived_dir,
+        dataset_version="dataset-source-frame-v1",
+        indicator_set_version="indicators-v1",
+    )
+
+    assert report["derived_indicator_row_count"] == len(bars)
+    assert report["source_frame_row_count"] == len(bars)

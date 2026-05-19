@@ -1408,7 +1408,7 @@ def _build_partition_rows(
                 series_id=series_key.series_id,
                 indicator_set_version=indicator_set_version,
                 profile_version=profile.version,
-                contract_id=series_key.contract_id,
+                contract_id=original.contract_id,
                 instrument_id=original.instrument_id,
                 timeframe=original.timeframe,
                 ts=original.ts,

@@ -27,6 +27,9 @@ from .research_candidates_job import (
     default_research_spec,
     spark_candidate_id_expr,
 )
+from .research_derived_source_frames_job import (
+    run_research_derived_source_frames_spark_job,
+)
 
 __all__ = [
     "DEFAULT_SPARK_MASTER",
@@ -46,6 +49,7 @@ __all__ = [
     "run_moex_canonicalization_spark_job",
     "run_moex_canonical_publish_spark_delta_job",
     "run_research_bar_views_spark_job",
+    "run_research_derived_source_frames_spark_job",
     "compute_raw_watermarks_spark_delta",
     "run_moex_raw_ingest_spark_delta_job",
     "spark_candidate_id_expr",

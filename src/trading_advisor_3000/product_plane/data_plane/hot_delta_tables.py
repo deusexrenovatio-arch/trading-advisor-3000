@@ -25,6 +25,9 @@ HOT_DELTA_TABLES: tuple[HotDeltaTable, ...] = (
     HotDeltaTable("research_bar_views", "research_bar_views.delta", "research"),
     HotDeltaTable("research_indicator_frames", "research_indicator_frames.delta", "research"),
     HotDeltaTable(
+        "research_derived_source_frames", "research_derived_source_frames.delta", "research"
+    ),
+    HotDeltaTable(
         "research_derived_indicator_frames", "research_derived_indicator_frames.delta", "research"
     ),
     HotDeltaTable("continuous_front_bars", "continuous_front_bars.delta", "continuous_front"),

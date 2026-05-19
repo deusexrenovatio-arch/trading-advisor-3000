@@ -19,6 +19,9 @@ from trading_advisor_3000.product_plane.research.derived_indicators.materialize 
     _existing_partition_matches,
     _source_bars_may_have_changed,
 )
+from trading_advisor_3000.product_plane.research.derived_indicators.source_frames import (
+    research_derived_source_frame_store_contract,
+)
 from trading_advisor_3000.product_plane.research.derived_indicators.store import (
     write_derived_indicator_frame_batches,
 )
@@ -112,6 +115,46 @@ def _indicator_row(*, ts_index: int, close: float) -> IndicatorFrameRow:
         null_warmup_span=0,
         created_at="2026-03-16T12:00:00Z",
     )
+
+
+def test_derived_source_frame_store_contract_is_internal_l2_join_layer() -> None:
+    contract = research_derived_source_frame_store_contract(
+        source_indicator_columns=("atr_14", "rsi_14")
+    )
+    table = contract["research_derived_source_frames"]
+    columns = table["columns"]
+
+    assert table["format"] == "delta"
+    assert table["partition_by"] == [
+        "dataset_version",
+        "contour_id",
+        "indicator_set_version",
+        "instrument_id",
+        "timeframe",
+    ]
+    assert (
+        "unique(dataset_version, contour_id, series_mode, series_id, "
+        "indicator_set_version, timeframe, ts)" in table["constraints"]
+    )
+    for column in (
+        "open",
+        "high",
+        "low",
+        "close",
+        "atr_14",
+        "rsi_14",
+        "source_l0_delta_version",
+        "source_l1_delta_version",
+        "source_l0_delta_hash",
+        "source_l1_delta_hash",
+        "l0_row_count",
+        "l1_row_count",
+        "joined_row_count",
+        "duplicate_indicator_key_count",
+        "missing_indicator_key_count",
+        "source_indicator_columns_hash",
+    ):
+        assert column in columns
 
 
 def test_derived_indicator_store_contract_is_separate_wide_layer() -> None:
@@ -308,6 +351,9 @@ def test_continuous_front_derived_rows_keep_chronological_alignment_across_contr
     )
 
     assert [row.ts for row in rows] == [row.ts for row in bars]
+    assert [row.contract_id for row in rows[:2]] == ["ZZ_OLD@MOEX", "ZZ_OLD@MOEX"]
+    assert [row.contract_id for row in rows[30:32]] == ["AA_NEW@MOEX", "AA_NEW@MOEX"]
+    assert rows[0].partition_key(series_mode="continuous_front").contract_id is None
     probe = rows[35].to_dict()
     assert probe["ts"] == bars[35].ts
     assert probe["rolling_high_20"] == pytest.approx(129.6)

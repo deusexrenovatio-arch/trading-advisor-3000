@@ -26,11 +26,24 @@ def __getattr__(name: str) -> Any:
 
         return getattr(_materialize, name)
     if name in {
+        "DerivedSourceFramePartitionKey",
         "DerivedIndicatorFramePartitionKey",
         "DerivedIndicatorFrameRow",
+        "load_derived_source_frame_partition_metadata",
+        "load_derived_source_frame_partition_rows",
         "load_derived_indicator_frames",
+        "research_derived_source_frame_store_contract",
         "research_derived_indicator_store_contract",
     }:
+        if name in {
+            "DerivedSourceFramePartitionKey",
+            "load_derived_source_frame_partition_metadata",
+            "load_derived_source_frame_partition_rows",
+            "research_derived_source_frame_store_contract",
+        }:
+            from . import source_frames as _source_frames
+
+            return getattr(_source_frames, name)
         from . import store as _store
 
         return getattr(_store, name)
@@ -40,6 +53,7 @@ def __getattr__(name: str) -> Any:
 __all__ = [
     "DEFAULT_DERIVED_INDICATOR_SET_VERSION",
     "DerivedIndicatorProfile",
+    "DerivedSourceFramePartitionKey",
     "DerivedIndicatorFramePartitionKey",
     "DerivedIndicatorFrameRow",
     "DerivedIndicatorProfileRegistry",
@@ -48,8 +62,11 @@ __all__ = [
     "build_derived_indicator_frames",
     "core_v1_derived_indicator_profile",
     "current_derived_indicator_profile",
+    "load_derived_source_frame_partition_metadata",
+    "load_derived_source_frame_partition_rows",
     "load_derived_indicator_frames",
     "materialize_derived_indicator_frames",
     "reload_derived_indicator_frames",
+    "research_derived_source_frame_store_contract",
     "research_derived_indicator_store_contract",
 ]

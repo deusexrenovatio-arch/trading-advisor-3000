@@ -822,6 +822,13 @@ def test_continuous_front_indicators_apply_ladder_as_of_current_roll_epoch() -> 
     assert values_by_ts["2026-03-16T09:15:00Z"] == pytest.approx(100.5)
     assert values_by_ts["2026-03-16T09:30:00Z"] == pytest.approx(111.5)
     assert values_by_ts["2026-03-16T09:45:00Z"] == pytest.approx(112.5)
+    assert [row.contract_id for row in rows] == [
+        "BRK2@MOEX",
+        "BRK2@MOEX",
+        "BRM2@MOEX",
+        "BRM2@MOEX",
+    ]
+    assert rows[0].partition_key(series_mode="continuous_front").contract_id is None
 
 
 def test_continuous_front_indicators_require_ladder_for_rolled_series() -> None:
