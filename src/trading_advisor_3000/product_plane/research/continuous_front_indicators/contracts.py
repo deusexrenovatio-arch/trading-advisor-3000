@@ -9,7 +9,6 @@ from trading_advisor_3000.product_plane.research.indicators.registry import (
     default_indicator_profile,
 )
 
-
 CF_INDICATOR_TABLES = (
     "cf_indicator_input_frame",
     "indicator_roll_rules",
@@ -50,7 +49,10 @@ def continuous_front_indicator_store_contract(
                 "timeframe",
             ],
             "constraints": [
-                "unique(dataset_version, roll_policy_version, adjustment_policy_version, instrument_id, timeframe, ts)"
+                (
+                    "unique(dataset_version, roll_policy_version, adjustment_policy_version, "
+                    "instrument_id, timeframe, ts)"
+                )
             ],
             "columns": {
                 "dataset_version": "string",
@@ -138,7 +140,10 @@ def continuous_front_indicator_store_contract(
                 "timeframe",
             ],
             "constraints": [
-                "unique(dataset_version, roll_policy_version, adjustment_policy_version, indicator_set_version, rule_set_version, instrument_id, timeframe, ts)"
+                (
+                    "unique(dataset_version, roll_policy_version, adjustment_policy_version, "
+                    "indicator_set_version, rule_set_version, instrument_id, timeframe, ts)"
+                )
             ],
             "columns": {
                 "dataset_version": "string",
@@ -157,6 +162,7 @@ def continuous_front_indicator_store_contract(
                 "cumulative_additive_offset": "double",
                 "source_input_row_hash": "string",
                 "indicator_row_hash": "string",
+                "indicator_row_hash_version": "string",
                 "adapter_bundle_hash": "string",
                 "cross_contract_window_any": "boolean",
                 **_indicator_value_columns(indicator_profile),
@@ -176,7 +182,11 @@ def continuous_front_indicator_store_contract(
                 "timeframe",
             ],
             "constraints": [
-                "unique(dataset_version, roll_policy_version, adjustment_policy_version, indicator_set_version, derived_set_version, rule_set_version, instrument_id, timeframe, ts)"
+                (
+                    "unique(dataset_version, roll_policy_version, adjustment_policy_version, "
+                    "indicator_set_version, derived_set_version, rule_set_version, instrument_id, "
+                    "timeframe, ts)"
+                )
             ],
             "columns": {
                 "dataset_version": "string",
@@ -196,7 +206,9 @@ def continuous_front_indicator_store_contract(
                 "cumulative_additive_offset": "double",
                 "source_input_row_hash": "string",
                 "source_base_indicator_row_hash": "string",
+                "source_base_indicator_row_hash_version": "string",
                 "derived_row_hash": "string",
+                "derived_row_hash_version": "string",
                 "adapter_bundle_hash": "string",
                 "cross_contract_window_any": "boolean",
                 **_derived_value_columns(derived_profile),
@@ -269,6 +281,8 @@ def continuous_front_indicator_store_contract(
                 "formula_sample_fail_count": "int",
                 "pandas_ta_parity_fail_count": "int",
                 "lineage_fail_count": "int",
+                "run_type": "string",
+                "skipped_qc_groups_json": "string",
                 "publish_status": "string",
                 "created_at_utc": "timestamp",
             },

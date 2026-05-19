@@ -78,6 +78,12 @@ FORMULA_SAMPLE_MAX_ROWS_PER_COLUMN = 5
 FORMULA_SAMPLE_MAX_FAILURES = 50
 SIDECAR_WRITE_BATCH_ROWS = 100_000
 ARROW_SCAN_BATCH_ROWS = 65_536
+ROW_HASH_VERSION = "continuous-front-indicator-row-hash-v2"
+BASE_ONLY_SKIPPED_QC_GROUPS = (
+    "prefix_invariance",
+    "formula_sample",
+    "pandas_ta_parity",
+)
 
 BAR_VIEW_INPUT_COLUMNS = (
     "dataset_version",
@@ -262,8 +268,15 @@ def _hash_normalized_value(value: object) -> object:
     return value
 
 
-def _row_hash(row: dict[str, object], value_columns: tuple[str, ...]) -> str:
-    payload = {column: _hash_normalized_value(row.get(column)) for column in value_columns}
+def _row_hash(
+    row: dict[str, object],
+    value_columns: tuple[str, ...],
+    *,
+    hash_version: str = ROW_HASH_VERSION,
+    normalize_integer_floats: bool = True,
+) -> str:
+    normalize = _hash_normalized_value if normalize_integer_floats else (lambda value: value)
+    payload = {column: normalize(row.get(column)) for column in value_columns}
     payload.update(
         {
             "dataset_version": row.get("dataset_version"),
@@ -272,7 +285,32 @@ def _row_hash(row: dict[str, object], value_columns: tuple[str, ...]) -> str:
             "ts": row.get("ts"),
         }
     )
+    if hash_version:
+        payload["_hash_version"] = hash_version
     return stable_hash(payload)
+
+
+def _legacy_row_hash(row: dict[str, object], value_columns: tuple[str, ...]) -> str:
+    return _row_hash(
+        row,
+        value_columns,
+        hash_version="",
+        normalize_integer_floats=False,
+    )
+
+
+def _row_hash_matches(
+    row: dict[str, object], value_columns: tuple[str, ...], stored_hash: object
+) -> bool:
+    observed_hash = str(stored_hash or "")
+    if not observed_hash:
+        return False
+    if observed_hash == _row_hash(row, value_columns):
+        return True
+    stored_version = str(
+        row.get("indicator_row_hash_version") or row.get("derived_row_hash_version") or ""
+    )
+    return not stored_version and observed_hash == _legacy_row_hash(row, value_columns)
 
 
 def _row_key(row: dict[str, object]) -> tuple[str, str, str]:
@@ -340,6 +378,7 @@ def _base_sidecar_rows(
             "cumulative_additive_offset": input_row["cumulative_additive_offset"],
             "source_input_row_hash": input_row["input_front_row_hash"],
             "indicator_row_hash": _row_hash(source, value_columns),
+            "indicator_row_hash_version": ROW_HASH_VERSION,
             "adapter_bundle_hash": adapter_hash,
             "cross_contract_window_any": _cross_contract_window_any(
                 input_row,
@@ -399,7 +438,11 @@ def _derived_sidecar_rows(
             "source_base_indicator_row_hash": ""
             if base_row is None
             else str(base_row["indicator_row_hash"]),
+            "source_base_indicator_row_hash_version": ""
+            if base_row is None
+            else str(base_row.get("indicator_row_hash_version") or ""),
             "derived_row_hash": _row_hash(source, value_columns),
+            "derived_row_hash_version": ROW_HASH_VERSION,
             "adapter_bundle_hash": adapter_hash,
             "cross_contract_window_any": _cross_contract_window_any(
                 input_row,
@@ -654,7 +697,13 @@ def _joined_derived_arrow_table(
     )
     base_hash_table = _read_filtered_arrow_table(
         output_dir / "continuous_front_indicator_frames.delta",
-        columns=("instrument_id", "timeframe", "ts", "indicator_row_hash"),
+        columns=(
+            "instrument_id",
+            "timeframe",
+            "ts",
+            "indicator_row_hash",
+            "indicator_row_hash_version",
+        ),
         filters=[("dataset_version", "=", dataset_version)],
     )
     derived_path = materialized_output_dir / "research_derived_indicator_frames.delta"
@@ -718,6 +767,7 @@ def _iter_base_sidecar_row_batches(
         for column in value_columns:
             row[column] = source.get(column)
         row["indicator_row_hash"] = _row_hash(row, value_columns)
+        row["indicator_row_hash_version"] = ROW_HASH_VERSION
         output_batch.append(row)
         if len(output_batch) >= SIDECAR_WRITE_BATCH_ROWS:
             yield output_batch
@@ -761,6 +811,9 @@ def _iter_derived_sidecar_row_batches(
             "cumulative_additive_offset": source["cumulative_additive_offset"],
             "source_input_row_hash": source["input_front_row_hash"],
             "source_base_indicator_row_hash": source["indicator_row_hash"],
+            "source_base_indicator_row_hash_version": str(
+                source.get("indicator_row_hash_version") or ""
+            ),
             "adapter_bundle_hash": adapter_hash,
             "cross_contract_window_any": _cross_contract_window_any(
                 source,
@@ -771,6 +824,7 @@ def _iter_derived_sidecar_row_batches(
         for column in value_columns:
             row[column] = source.get(column)
         row["derived_row_hash"] = _row_hash(row, value_columns)
+        row["derived_row_hash_version"] = ROW_HASH_VERSION
         output_batch.append(row)
         if len(output_batch) >= SIDECAR_WRITE_BATCH_ROWS:
             yield output_batch
@@ -1205,7 +1259,7 @@ def _verify_lineage(
             or str(row.get("source_input_row_hash")) not in input_hashes
         ):
             failures.append({"key": _row_key(row), "failure": "invalid_base_input_hash"})
-        if row.get("indicator_row_hash") != _row_hash(row, indicator_value_columns):
+        if not _row_hash_matches(row, indicator_value_columns, row.get("indicator_row_hash")):
             failures.append({"key": _row_key(row), "failure": "invalid_base_row_hash"})
     for row in derived_rows:
         if (
@@ -1218,7 +1272,7 @@ def _verify_lineage(
             or str(row.get("source_base_indicator_row_hash")) not in base_hashes
         ):
             failures.append({"key": _row_key(row), "failure": "invalid_derived_base_hash"})
-        if row.get("derived_row_hash") != _row_hash(row, derived_value_columns):
+        if not _row_hash_matches(row, derived_value_columns, row.get("derived_row_hash")):
             failures.append({"key": _row_key(row), "failure": "invalid_derived_row_hash"})
         if len(failures) >= 50:
             break
@@ -1619,6 +1673,7 @@ def _verify_lineage_delta(
             "ts",
             "source_input_row_hash",
             "indicator_row_hash",
+            "indicator_row_hash_version",
             *indicator_value_columns,
         ),
         filters=[("dataset_version", "=", dataset_version)],
@@ -1630,7 +1685,7 @@ def _verify_lineage_delta(
             failures.append({"key": _row_key(row), "failure": "missing_base_input_hash"})
         elif input_hashes and str(row.get("source_input_row_hash")) not in input_hashes:
             failures.append({"key": _row_key(row), "failure": "invalid_base_input_hash"})
-        if row.get("indicator_row_hash") != _row_hash(row, indicator_value_columns):
+        if not _row_hash_matches(row, indicator_value_columns, row.get("indicator_row_hash")):
             failures.append({"key": _row_key(row), "failure": "invalid_base_row_hash"})
 
     derived_sample = _first_delta_rows(
@@ -1642,7 +1697,9 @@ def _verify_lineage_delta(
             "ts",
             "source_input_row_hash",
             "source_base_indicator_row_hash",
+            "source_base_indicator_row_hash_version",
             "derived_row_hash",
+            "derived_row_hash_version",
             *derived_value_columns,
         ),
         filters=[("dataset_version", "=", dataset_version)],
@@ -1655,7 +1712,7 @@ def _verify_lineage_delta(
             failures.append({"key": _row_key(row), "failure": "missing_derived_base_hash"})
         elif base_hashes and str(row.get("source_base_indicator_row_hash")) not in base_hashes:
             failures.append({"key": _row_key(row), "failure": "invalid_derived_base_hash"})
-        if row.get("derived_row_hash") != _row_hash(row, derived_value_columns):
+        if not _row_hash_matches(row, derived_value_columns, row.get("derived_row_hash")):
             failures.append({"key": _row_key(row), "failure": "invalid_derived_row_hash"})
         if len(failures) >= 50:
             break
@@ -1883,10 +1940,12 @@ def run_continuous_front_base_indicator_sidecar_job(
             ),
             "schema_fail_count": fail_count(qc_rows, "schema"),
             "adapter_authorization_fail_count": fail_count(qc_rows, "adapter_authorization"),
-            "prefix_invariance_fail_count": 0,
-            "formula_sample_fail_count": 0,
-            "pandas_ta_parity_fail_count": 0,
+            "prefix_invariance_fail_count": fail_count(qc_rows, "prefix_invariance"),
+            "formula_sample_fail_count": fail_count(qc_rows, "formula_sample"),
+            "pandas_ta_parity_fail_count": fail_count(qc_rows, "pandas_ta_parity"),
             "lineage_fail_count": fail_count(qc_rows, "lineage"),
+            "run_type": "base_only",
+            "skipped_qc_groups_json": json.dumps(BASE_ONLY_SKIPPED_QC_GROUPS, ensure_ascii=False),
             "publish_status": publish_status,
             "created_at_utc": created_at,
         }
@@ -2261,6 +2320,8 @@ def run_continuous_front_indicator_pandas_job(
             "formula_sample_fail_count": fail_count(qc_rows, "formula_sample"),
             "pandas_ta_parity_fail_count": fail_count(qc_rows, "pandas_ta_parity"),
             "lineage_fail_count": fail_count(qc_rows, "lineage"),
+            "run_type": "full",
+            "skipped_qc_groups_json": "[]",
             "publish_status": publish_status,
             "created_at_utc": created_at,
         }

@@ -1363,7 +1363,7 @@ def research_indicator_frames(
         continuous_front_indicator_run_id = str(
             research_datasets.get("campaign_run_id") or "continuous_front_base_indicator_refresh"
         )
-        run_continuous_front_base_indicator_sidecar_job(
+        sidecar_result = run_continuous_front_base_indicator_sidecar_job(
             materialized_output_dir=materialized_output_dir,
             dataset_version=dataset_version,
             contour_id=str(research_datasets.get("contour_id", "pit_active_front")),
@@ -1379,6 +1379,16 @@ def research_indicator_frames(
                 f"{continuous_front_indicator_run_id}/spark-event-log"
             ),
         )
+        if (
+            not bool(sidecar_result.get("success"))
+            or str(sidecar_result.get("publish_status")) != "accepted"
+        ):
+            raise RuntimeError(
+                "continuous-front base indicator sidecar failed or was quarantined "
+                f"for run_id={continuous_front_indicator_run_id}: "
+                f"status={sidecar_result.get('status')} "
+                f"publish_status={sidecar_result.get('publish_status')}"
+            )
     return _materialized_table_manifest(research_datasets, "research_indicator_frames")
 
 

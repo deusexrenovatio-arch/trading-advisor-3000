@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from scripts.cleanup_research_indicator_staging import (
     build_cleanup_inventory,
     delete_cleanup_inventory,
@@ -31,10 +33,28 @@ def test_research_indicator_staging_cleanup_is_allowlisted_and_protects_current(
     assert "raw_baseline.delta" not in relative_paths
     assert not any("current" in item["path"] for item in inventory)
 
-    deleted = delete_cleanup_inventory(inventory)
+    deleted = delete_cleanup_inventory(inventory, root=staging_root)
 
     assert deleted == len(inventory)
     assert not allowed_stale_delta.exists()
     assert not allowed_status.exists()
     assert protected_current_delta.exists()
     assert protected_raw.exists()
+
+
+def test_research_indicator_staging_cleanup_rejects_inventory_paths_outside_root(
+    tmp_path: Path,
+) -> None:
+    staging_root = tmp_path / "research" / "gold" / "staging" / "phase4"
+    outside_root = tmp_path / "research" / "gold" / "current"
+    staging_root.mkdir(parents=True)
+    outside_target = outside_root / "research_indicator_frames.delta"
+    outside_target.mkdir(parents=True)
+
+    with pytest.raises(ValueError, match="outside root"):
+        delete_cleanup_inventory(
+            [{"path": outside_target.as_posix(), "relative_path": "../current"}],
+            root=staging_root,
+        )
+
+    assert outside_target.exists()

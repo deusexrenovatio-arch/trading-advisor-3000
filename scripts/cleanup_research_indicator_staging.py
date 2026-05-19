@@ -81,11 +81,38 @@ def build_cleanup_inventory(root: Path) -> list[dict[str, str]]:
     return inventory
 
 
-def delete_cleanup_inventory(inventory: Iterable[dict[str, str]]) -> int:
+def _cleanup_item_path(root: Path, item: dict[str, str]) -> Path:
+    resolved_root = root.resolve()
+    raw_path = Path(item["path"])
+    candidate = raw_path if raw_path.is_absolute() else resolved_root / raw_path
+
+    if candidate.is_symlink():
+        resolved_parent = candidate.parent.resolve()
+        if not resolved_parent.is_relative_to(resolved_root):
+            raise ValueError(f"cleanup inventory path is outside root: {candidate.as_posix()}")
+        if candidate.resolve() == resolved_root:
+            raise ValueError(f"cleanup inventory path is root: {candidate.as_posix()}")
+        return candidate
+
+    resolved_candidate = candidate.resolve()
+    if not resolved_candidate.is_relative_to(resolved_root):
+        raise ValueError(f"cleanup inventory path is outside root: {resolved_candidate.as_posix()}")
+    if resolved_candidate == resolved_root:
+        raise ValueError(f"cleanup inventory path is root: {resolved_candidate.as_posix()}")
+    if _is_protected(resolved_candidate):
+        raise ValueError(f"cleanup inventory path is protected: {resolved_candidate.as_posix()}")
+    return resolved_candidate
+
+
+def delete_cleanup_inventory(inventory: Iterable[dict[str, str]], *, root: Path) -> int:
     deleted = 0
     for item in inventory:
-        path = Path(item["path"])
+        path = _cleanup_item_path(root, item)
         if not path.exists():
+            continue
+        if path.is_symlink():
+            path.unlink()
+            deleted += 1
             continue
         if path.is_dir():
             shutil.rmtree(path)
@@ -104,7 +131,7 @@ def main() -> int:
     args = parser.parse_args()
 
     inventory = build_cleanup_inventory(args.root)
-    deleted = delete_cleanup_inventory(inventory) if args.apply else 0
+    deleted = delete_cleanup_inventory(inventory, root=args.root) if args.apply else 0
     print(
         json.dumps(
             {
