@@ -1,8 +1,8 @@
 # Session Handoff
-Updated: 2026-05-19 13:52 UTC
+Updated: 2026-05-19 14:15 UTC
 
 ## Active Task Note
-- Path: docs/tasks/active/TASK-2026-05-19-integrate-phase-5-spark-delta-source-frame-for-r.md
+- Path: docs/tasks/archive/TASK-2026-05-19-prepare-codex-moex-session-canonicalization-bran.md
 - Mode: legacy-full
 - Status: completed
 
