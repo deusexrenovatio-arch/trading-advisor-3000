@@ -1,5 +1,5 @@
 # Task Note
-Updated: 2026-05-19 10:34 UTC
+Updated: 2026-05-19 11:21 UTC
 
 ## Goal
 - Deliver: Prepare codex/moex-session-canonicalization branch for final commit and integration checks
@@ -25,6 +25,7 @@ Updated: 2026-05-19 10:34 UTC
 - Branch `codex/moex-session-canonicalization` is ahead of `origin/main` and has an uncommitted CTX-OPS tail from session/task state plus generated governance reports.
 - Context routing selected CTX-OPS. Serena is skipped for this task because the active delta is docs/state/generated governance artifacts rather than product or shell source code.
 - Changed-file boring checks, loop gate, and PR gate passed on the current branch tail.
+- Post-push branch-lane requires `docs/session_handoff.md` and the archived task note to move in the same push delta when closeout evidence is adjusted.
 
 ## First-Time-Right Report
 1. Confirmed coverage: objective and acceptance path are explicit.
