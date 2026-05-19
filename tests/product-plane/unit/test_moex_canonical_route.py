@@ -83,6 +83,31 @@ def test_raw_1m_source_interval_map_uses_raw_availability_union() -> None:
     assert selected[("BRM6@MOEX", "FUT_BR", "1w")] == 1
 
 
+def test_raw_available_intervals_scanner_normalizes_delta_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _fake_iter_batches(*_args: object, **_kwargs: object) -> list[list[dict[str, object]]]:
+        return [
+            [
+                {
+                    "finam_symbol": "BRM6@MOEX",
+                    "internal_id": "FUT_BR",
+                    "timeframe": "1m",
+                    "source_interval": 1,
+                }
+            ]
+        ]
+
+    monkeypatch.setattr(canonical_module, "iter_delta_table_row_batches", _fake_iter_batches)
+
+    available = canonical_module._build_raw_available_intervals_by_contract(
+        raw_table_path=tmp_path / "raw.delta",
+        affected_internal_ids={"FUT_BR"},
+    )
+
+    assert available == {("BRM6@MOEX", "FUT_BR"): {1}}
+
+
 def test_session_admission_gate_blocks_official_schedule_mismatch() -> None:
     report = canonical_module._session_admission_gate_report(
         {

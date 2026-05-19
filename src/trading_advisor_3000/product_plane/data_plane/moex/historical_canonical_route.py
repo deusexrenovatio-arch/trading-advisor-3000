@@ -950,8 +950,8 @@ def _build_raw_available_intervals_by_contract(
                 continue
             try:
                 source_interval = _normalize_source_interval(
-                    payload.get("source_interval"),
-                    timeframe=str(payload.get("timeframe", "")),
+                    source_timeframe=str(payload.get("timeframe", "")).strip(),
+                    source_interval_raw=payload.get("source_interval"),
                     row_index=row_index,
                 )
             except ValueError:
