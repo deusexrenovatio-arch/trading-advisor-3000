@@ -306,7 +306,7 @@ def test_dagster_indicator_asset_fails_on_quarantined_continuous_front_sidecar(
         },
     )
 
-    with pytest.raises(RuntimeError, match="cf-base-run|quarantined"):
+    with pytest.raises(RuntimeError, match=r"(?=.*cf-base-run)(?=.*quarantined)"):
         research_assets.research_indicator_frames(
             {
                 "materialized_output_dir": tmp_path.as_posix(),
