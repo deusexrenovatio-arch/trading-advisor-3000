@@ -1160,14 +1160,20 @@ def _run_spark_canonicalization(
     ]
     if session_intervals_path is not None:
         command.extend(["--session-intervals-path", session_intervals_path.as_posix()])
-    completed = subprocess.run(
-        command,
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=SPARK_CANONICALIZATION_SUBPROCESS_TIMEOUT_SECONDS,
-    )
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=SPARK_CANONICALIZATION_SUBPROCESS_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            "spark canonicalization failed: subprocess timed out after "
+            f"{SPARK_CANONICALIZATION_SUBPROCESS_TIMEOUT_SECONDS} seconds"
+        ) from exc
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout).strip()
         raise RuntimeError(f"spark canonicalization failed: {detail}")
@@ -1622,8 +1628,16 @@ def _session_admission_gate_report(
             "rejected_out_of_session_rows": 0,
             "missing_official_coverage_rows": 0,
         }
-    rejected_rows = int(admission.get("rejected_out_of_session_rows") or 0)
-    missing_coverage_rows = int(admission.get("missing_official_coverage_rows") or 0)
+    try:
+        rejected_rows = int(admission.get("rejected_out_of_session_rows") or 0)
+        missing_coverage_rows = int(admission.get("missing_official_coverage_rows") or 0)
+    except (TypeError, ValueError):
+        return {
+            "status": "FAIL",
+            "failed_gates": ["official_schedule_invalid_report"],
+            "rejected_out_of_session_rows": 0,
+            "missing_official_coverage_rows": 0,
+        }
     failed_gates: list[str] = []
     if missing_coverage_rows:
         failed_gates.append("official_schedule_missing_coverage")

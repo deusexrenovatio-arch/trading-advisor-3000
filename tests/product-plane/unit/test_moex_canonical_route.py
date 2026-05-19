@@ -166,6 +166,20 @@ def test_session_admission_gate_reports_raw_interval_selection_blocker() -> None
     assert report["failed_gates"] == ["raw_source_interval_missing"]
 
 
+def test_session_admission_gate_fails_on_malformed_counts() -> None:
+    report = canonical_module._session_admission_gate_report(
+        {
+            "session_admission_report": {
+                "rejected_out_of_session_rows": "bad-count",
+                "missing_official_coverage_rows": 0,
+            }
+        }
+    )
+
+    assert report["status"] == "FAIL"
+    assert report["failed_gates"] == ["official_schedule_invalid_report"]
+
+
 def test_canonical_route_qc_fails_when_duplicate_bar_key_is_present() -> None:
     bar = CanonicalBar(
         contract_id="BRM6@MOEX",
@@ -470,6 +484,38 @@ def test_spark_canonicalization_requires_session_intervals_input(
             session_intervals_path=None,
             output_dir=tmp_path / "phase02",
             run_id="canonical-manual-session-required",
+            built_at_utc="2026-04-02T11:00:00Z",
+            repo_root=Path.cwd(),
+        )
+
+
+def test_spark_canonicalization_timeout_raises_controlled_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _timeout_run(command, **_kwargs):
+        raise subprocess.TimeoutExpired(command, timeout=1)
+
+    monkeypatch.setattr(canonical_module.subprocess, "run", _timeout_run)
+
+    with pytest.raises(RuntimeError, match="spark canonicalization failed: subprocess timed out"):
+        canonical_module._run_spark_canonicalization(
+            raw_table_path=tmp_path / "raw_moex_history.delta",
+            changed_windows=[
+                canonical_module.ChangedWindowScope(
+                    internal_id="FUT_BR",
+                    source_timeframe="1m",
+                    source_interval=1,
+                    moex_secid="BRM6@MOEX",
+                    window_start_utc="2026-04-02T10:00:00Z",
+                    window_end_utc="2026-04-02T10:20:00Z",
+                    incremental_rows=2,
+                )
+            ],
+            selected_source_intervals={("BRM6@MOEX", "FUT_BR", "5m"): 1},
+            session_intervals_path=tmp_path / "canonical_session_intervals.delta",
+            output_dir=tmp_path / "phase02",
+            run_id="canonical-timeout",
             built_at_utc="2026-04-02T11:00:00Z",
             repo_root=Path.cwd(),
         )
