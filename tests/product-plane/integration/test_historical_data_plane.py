@@ -50,11 +50,15 @@ def test_sample_backfill_builds_canonical_rows_for_whitelist(tmp_path: Path) -> 
     assert br_row["open_interest"] == 21000
     assert (Path(str(report["output_paths"]["canonical_instruments"])) / "_delta_log").exists()
     assert (Path(str(report["output_paths"]["canonical_contracts"])) / "_delta_log").exists()
+    assert (
+        Path(str(report["output_paths"]["canonical_session_intervals"])) / "_delta_log"
+    ).exists()
     assert (Path(str(report["output_paths"]["canonical_session_calendar"])) / "_delta_log").exists()
     assert (Path(str(report["output_paths"]["canonical_roll_map"])) / "_delta_log").exists()
     assert "canonical_bars" in report["delta_schema_manifest"]
     assert "canonical_instruments" in report["delta_schema_manifest"]
     assert "canonical_contracts" in report["delta_schema_manifest"]
+    assert "canonical_session_intervals" in report["delta_schema_manifest"]
     assert "canonical_session_calendar" in report["delta_schema_manifest"]
     assert "canonical_roll_map" in report["delta_schema_manifest"]
 

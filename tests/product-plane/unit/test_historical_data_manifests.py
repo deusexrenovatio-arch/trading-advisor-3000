@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from trading_advisor_3000.product_plane.data_plane.schemas import historical_data_delta_schema_manifest
 from trading_advisor_3000.dagster_defs.historical_data_proof_assets import (
     HISTORICAL_DATA_PROOF_ASSETS,
     build_historical_data_proof_definitions,
     historical_data_proof_asset_specs,
+)
+from trading_advisor_3000.product_plane.data_plane.schemas import (
+    historical_data_delta_schema_manifest,
 )
 from trading_advisor_3000.spark_jobs.canonical_bars_job import (
     build_contracts_sql_plan,
@@ -19,6 +21,8 @@ def test_delta_schema_manifest_contains_required_tables() -> None:
     manifest = historical_data_delta_schema_manifest()
     assert {
         "raw_market_backfill",
+        "raw_moex_session_schedule",
+        "canonical_session_intervals",
         "canonical_bars",
         "canonical_instruments",
         "canonical_contracts",
@@ -27,7 +31,9 @@ def test_delta_schema_manifest_contains_required_tables() -> None:
     } <= set(manifest)
     assert manifest["canonical_bars"]["format"] == "delta"
     canonical_columns = manifest["canonical_bars"]["columns"]
-    assert {"contract_id", "instrument_id", "timeframe", "ts", "open_interest"} <= set(canonical_columns)
+    assert {"contract_id", "instrument_id", "timeframe", "ts", "open_interest"} <= set(
+        canonical_columns
+    )
     assert "ts_open" not in canonical_columns
     assert "ts_close" not in canonical_columns
 
@@ -36,6 +42,7 @@ def test_dagster_asset_specs_declared() -> None:
     keys = {spec.key for spec in historical_data_proof_asset_specs()}
     assert keys == {
         "raw_market_backfill",
+        "canonical_session_intervals",
         "canonical_bars",
         "canonical_instruments",
         "canonical_contracts",
@@ -51,6 +58,7 @@ def test_historical_data_dagster_definitions_load_with_materialization_job() -> 
     assert job.name == "historical_data_proof_materialization_job"
     assert {asset.key.path[-1] for asset in HISTORICAL_DATA_PROOF_ASSETS} == {
         "raw_market_backfill",
+        "canonical_session_intervals",
         "canonical_bars",
         "canonical_instruments",
         "canonical_contracts",
@@ -73,7 +81,9 @@ def test_spark_sql_plan_contains_dedup_window() -> None:
     assert "GROUP BY contract_id" in contracts_sql
 
     calendar_sql = build_session_calendar_sql_plan()
-    assert "to_date(ts_open) AS session_date" in calendar_sql
+    assert "JOIN canonical_session_intervals intervals" in calendar_sql
+    assert "MIN(intervals.expected_open_ts) AS session_open_ts" in calendar_sql
+    assert "MAX(intervals.expected_close_ts) AS session_close_ts" in calendar_sql
 
     roll_sql = build_roll_map_sql_plan()
     assert "ORDER BY open_interest DESC, ts_close DESC" in roll_sql

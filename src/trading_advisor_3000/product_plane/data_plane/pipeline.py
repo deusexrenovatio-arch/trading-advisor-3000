@@ -13,6 +13,26 @@ from .ingestion import ingest_raw_backfill
 from .schemas import historical_data_delta_schema_manifest
 
 
+def _fixture_session_intervals_for_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    sessions = sorted({(str(row["instrument_id"]), str(row["ts_open"])[:10]) for row in rows})
+    return [
+        {
+            "instrument_id": instrument_id,
+            "session_date": session_date,
+            "interval_id": f"{instrument_id}-{session_date}-regular-1",
+            "interval_seq": 1,
+            "expected_open_ts": f"{session_date}T10:00:00Z",
+            "expected_close_ts": f"{session_date}T18:45:00Z",
+            "session_class": "regular",
+            "interval_type": "regular_trading",
+            "policy_id": "sample-official-session-fixture-v1",
+            "source_id": "sample-official-session-fixture",
+            "source_document_hash": "sha256:sample-fixture",
+        }
+        for instrument_id, session_date in sessions
+    ]
+
+
 def run_sample_backfill(
     *,
     source_path: Path,
@@ -37,7 +57,11 @@ def run_sample_backfill(
         columns=delta_schema_manifest["raw_market_backfill"]["columns"],
     )
 
-    dataset = build_canonical_dataset(ingestion_batch.rows)
+    session_intervals = _fixture_session_intervals_for_rows(ingestion_batch.rows)
+    dataset = build_canonical_dataset(
+        ingestion_batch.rows,
+        session_intervals=session_intervals,
+    )
     quality_errors = run_data_quality_checks(dataset.bars, whitelist_contracts=whitelist_contracts)
     if quality_errors:
         raise ValueError("data quality failed: " + "; ".join(quality_errors))
@@ -45,6 +69,7 @@ def run_sample_backfill(
     bars_output_path = output_dir / "canonical_bars.delta"
     instruments_output_path = output_dir / "canonical_instruments.delta"
     contracts_output_path = output_dir / "canonical_contracts.delta"
+    session_intervals_output_path = output_dir / "canonical_session_intervals.delta"
     session_calendar_output_path = output_dir / "canonical_session_calendar.delta"
     roll_map_output_path = output_dir / "canonical_roll_map.delta"
 
@@ -64,6 +89,12 @@ def run_sample_backfill(
         table_path=contracts_output_path,
         row_batches=iter([[item.to_dict() for item in dataset.contracts]]),
         columns=delta_schema_manifest["canonical_contracts"]["columns"],
+        max_rows_per_delta_write=65_536,
+    )
+    write_delta_table_row_batches(
+        table_path=session_intervals_output_path,
+        row_batches=iter([session_intervals]),
+        columns=delta_schema_manifest["canonical_session_intervals"]["columns"],
         max_rows_per_delta_write=65_536,
     )
     write_delta_table_row_batches(
@@ -93,6 +124,7 @@ def run_sample_backfill(
             "canonical_bars": bars_output_path.as_posix(),
             "canonical_instruments": instruments_output_path.as_posix(),
             "canonical_contracts": contracts_output_path.as_posix(),
+            "canonical_session_intervals": session_intervals_output_path.as_posix(),
             "canonical_session_calendar": session_calendar_output_path.as_posix(),
             "canonical_roll_map": roll_map_output_path.as_posix(),
         },

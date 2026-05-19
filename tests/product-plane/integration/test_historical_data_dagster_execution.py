@@ -18,6 +18,7 @@ SOURCE_FIXTURE = (
 )
 WHITELIST = {"BR-6.26", "Si-6.26"}
 COMPARE_TABLES = (
+    "canonical_session_intervals",
     "canonical_bars",
     "canonical_instruments",
     "canonical_contracts",
@@ -84,11 +85,20 @@ def test_historical_data_dagster_partial_selection_materializes_only_selected_as
 
     assert dagster_report["success"] is True
     assert dagster_report["selected_assets"] == ["canonical_bars"]
-    assert set(dagster_report["materialized_assets"]) == {"raw_market_backfill", "canonical_bars"}
+    assert set(dagster_report["materialized_assets"]) == {
+        "raw_market_backfill",
+        "canonical_session_intervals",
+        "canonical_bars",
+    }
 
     rows_by_table = dict(dagster_report["rows_by_table"])
-    assert set(rows_by_table) == {"raw_market_backfill", "canonical_bars"}
+    assert set(rows_by_table) == {
+        "raw_market_backfill",
+        "canonical_session_intervals",
+        "canonical_bars",
+    }
     assert rows_by_table["raw_market_backfill"] == 2
+    assert rows_by_table["canonical_session_intervals"] == 2
     assert rows_by_table["canonical_bars"] == 2
 
     bars_path = Path(str(dagster_report["output_paths"]["canonical_bars"]))
@@ -99,6 +109,9 @@ def test_historical_data_dagster_partial_selection_materializes_only_selected_as
 
     assert (
         Path(str(dagster_report["output_paths"]["raw_market_backfill"])) / "_delta_log"
+    ).exists()
+    assert (
+        Path(str(dagster_report["output_paths"]["canonical_session_intervals"])) / "_delta_log"
     ).exists()
     assert (Path(str(dagster_report["output_paths"]["canonical_bars"])) / "_delta_log").exists()
 
