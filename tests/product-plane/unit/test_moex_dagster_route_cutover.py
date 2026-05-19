@@ -162,6 +162,42 @@ def _write_staging_binding_report(tmp_path: Path) -> Path:
     return report_path
 
 
+def _install_successful_cutover_execution(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    executed_runs: list[str] = []
+
+    def _fake_execute_cutover_job(**kwargs: object) -> dict[str, object]:
+        run_id = str(kwargs["run_id"])
+        executed_runs.append(run_id)
+        canonical_output_dir = Path(str(kwargs["canonical_output_dir"]))
+        canonical_report_path = canonical_output_dir / "canonical-refresh-report.json"
+        canonical_report_path.parent.mkdir(parents=True, exist_ok=True)
+        canonical_report_path.write_text(
+            json.dumps(
+                {
+                    "run_id": run_id,
+                    "publish_decision": "publish",
+                    "real_bindings": ["spark-delta://unit-cutover-canonical"],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return {
+            "success": True,
+            "run_id": run_id,
+            "output_paths": {"canonical_report": canonical_report_path.as_posix()},
+        }
+
+    monkeypatch.setattr(
+        "trading_advisor_3000.product_plane.data_plane.moex.historical_dagster_cutover"
+        ".execute_moex_historical_cutover_job",
+        _fake_execute_cutover_job,
+    )
+    return executed_runs
+
+
 def test_historical_dagster_cutover_definitions_are_executable(
     tmp_path: Path,
 ) -> None:
@@ -194,8 +230,12 @@ def test_historical_dagster_cutover_definitions_are_executable(
     assert isinstance(run_request.run_config, dict)
     assert run_request.run_config.get("ops")
     op_config = run_request.run_config["ops"]["moex_baseline_update"]["config"]
+    assert "raw_session_schedule_path" not in op_config
     assert op_config["canonical_session_calendar_path"].endswith(
         "canonical/moex/baseline-4y-current/canonical_session_calendar.delta"
+    )
+    assert op_config["canonical_session_intervals_path"].endswith(
+        "canonical/moex/baseline-4y-current/canonical_session_intervals.delta"
     )
     assert op_config["canonical_roll_map_path"].endswith(
         "canonical/moex/baseline-4y-current/canonical_roll_map.delta"
@@ -244,6 +284,17 @@ def test_baseline_update_run_config_can_target_verification_staging_root(tmp_pat
             baseline_root / "raw" / "moex" / "baseline-4y-current" / "raw_moex_history.delta"
         ).as_posix()
     )
+    assert "raw_session_schedule_path" not in op_config
+    assert (
+        op_config["canonical_session_intervals_path"]
+        == (
+            baseline_root
+            / "canonical"
+            / "moex"
+            / "baseline-4y-current"
+            / "canonical_session_intervals.delta"
+        ).as_posix()
+    )
     assert (
         op_config["canonical_bars_path"]
         == (
@@ -272,6 +323,8 @@ def test_baseline_update_output_paths_keep_reports_inside_selected_staging_root(
         ).as_posix()
     )
     assert output_paths["raw_table"].startswith(baseline_root.as_posix())
+    assert "raw_session_schedule" not in output_paths
+    assert "canonical_session_intervals" not in output_paths
     assert output_paths["canonical_session_calendar"].startswith(baseline_root.as_posix())
 
 
@@ -313,10 +366,24 @@ def test_dagster_route_canonical_refresh_is_blocked_when_raw_status_failed(tmp_p
 
 def test_dagster_route_cutover_blocks_when_second_nightly_misses_morning_target(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     raw_table_path, raw_report_path = _write_raw_table_and_report(
         tmp_path, run_id="phase03-nightly-target-blocked"
     )
+    executed_runs: list[str] = []
+
+    def _fake_execute_cutover_job(**kwargs: object) -> dict[str, object]:
+        run_id = str(kwargs["run_id"])
+        executed_runs.append(run_id)
+        return {"success": True, "run_id": run_id, "output_paths": {}}
+
+    monkeypatch.setattr(
+        "trading_advisor_3000.product_plane.data_plane.moex.historical_dagster_cutover"
+        ".execute_moex_historical_cutover_job",
+        _fake_execute_cutover_job,
+    )
+
     report = run_historical_dagster_cutover(
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_report_path,
@@ -330,6 +397,8 @@ def test_dagster_route_cutover_blocks_when_second_nightly_misses_morning_target(
     assert report["status"] == "BLOCKED"
     assert report["publish_decision"] == "blocked"
     assert any("morning readiness target missed" in reason for reason in report["reasons"])
+    assert "phase03-nightly-target-blocked-nightly-2" not in executed_runs
+    assert not any(run_id.endswith("-repair-1") for run_id in executed_runs)
 
 
 def test_dagster_route_cutover_rejects_non_increasing_nightly_sequence(tmp_path: Path) -> None:
@@ -425,10 +494,15 @@ def test_dagster_route_cutover_rejects_retry_backoff_drift(tmp_path: Path) -> No
         )
 
 
-def test_dagster_route_cutover_passes_with_two_nightly_cycles_and_recovery(tmp_path: Path) -> None:
+def test_dagster_route_cutover_passes_with_two_nightly_cycles_and_recovery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     raw_table_path, raw_report_path = _write_raw_table_and_report(
         tmp_path, run_id="phase03-cutover-pass"
     )
+    _install_successful_cutover_execution(monkeypatch)
+
     report = run_historical_dagster_cutover(
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_report_path,
@@ -454,10 +528,13 @@ def test_dagster_route_cutover_passes_with_two_nightly_cycles_and_recovery(tmp_p
 
 def test_dagster_route_cutover_blocks_when_staging_real_is_required_without_external_binding(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     raw_table_path, raw_report_path = _write_raw_table_and_report(
         tmp_path, run_id="phase03-staging-required"
     )
+    _install_successful_cutover_execution(monkeypatch)
+
     report = run_historical_dagster_cutover(
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_report_path,
@@ -479,11 +556,14 @@ def test_dagster_route_cutover_blocks_when_staging_real_is_required_without_exte
 
 def test_dagster_route_cutover_promotes_to_staging_real_when_external_binding_report_is_provided(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     raw_table_path, raw_report_path = _write_raw_table_and_report(
         tmp_path, run_id="phase03-staging-binding"
     )
+    _install_successful_cutover_execution(monkeypatch)
     staging_binding_report_path = _write_staging_binding_report(tmp_path)
+
     report = run_historical_dagster_cutover(
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_report_path,

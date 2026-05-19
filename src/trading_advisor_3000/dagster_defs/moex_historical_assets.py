@@ -45,6 +45,7 @@ from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     CANONICAL_BASELINE_ROLL_MAP_FILENAME,
     CANONICAL_BASELINE_ROOT_RELATIVE_PATH,
     CANONICAL_BASELINE_SESSION_CALENDAR_FILENAME,
+    CANONICAL_BASELINE_SESSION_INTERVALS_FILENAME,
     CANONICAL_REFRESH_REPORT_FILENAME,
     CANONICAL_REFRESH_STORAGE_DIRNAME,
     RAW_BASELINE_TABLE_RELATIVE_PATH,
@@ -98,6 +99,7 @@ MOEX_HISTORICAL_OP_CONFIG_SCHEMA = {
     "raw_table_path": DagsterField(str, is_required=False),
     "raw_ingest_report_path": DagsterField(str, is_required=False),
     "canonical_output_dir": DagsterField(str, is_required=False),
+    "canonical_session_intervals_path": DagsterField(str, is_required=False),
     "canonical_run_id": DagsterField(str, is_required=False),
     "mapping_registry_path": DagsterField(str, is_required=False),
     "universe_path": DagsterField(str, is_required=False),
@@ -123,6 +125,7 @@ MOEX_BASELINE_UPDATE_OP_CONFIG_SCHEMA = {
     "raw_table_path": DagsterField(str, is_required=False),
     "canonical_bars_path": DagsterField(str, is_required=False),
     "canonical_provenance_path": DagsterField(str, is_required=False),
+    "canonical_session_intervals_path": DagsterField(str, is_required=False),
     "canonical_session_calendar_path": DagsterField(str, is_required=False),
     "canonical_roll_map_path": DagsterField(str, is_required=False),
     "evidence_root": DagsterField(str, is_required=False),
@@ -259,10 +262,13 @@ def _split_timeframes(raw: str) -> set[str]:
 
 def _baseline_paths_from_root(root: Path) -> dict[str, Path]:
     canonical_root = root / CANONICAL_BASELINE_ROOT_RELATIVE_PATH
+    raw_table_path = root / RAW_BASELINE_TABLE_RELATIVE_PATH
     return {
-        "raw_table_path": root / RAW_BASELINE_TABLE_RELATIVE_PATH,
+        "raw_table_path": raw_table_path,
         "canonical_bars_path": canonical_root / CANONICAL_BASELINE_BARS_FILENAME,
         "canonical_provenance_path": canonical_root / CANONICAL_BASELINE_PROVENANCE_FILENAME,
+        "canonical_session_intervals_path": canonical_root
+        / CANONICAL_BASELINE_SESSION_INTERVALS_FILENAME,
         "canonical_session_calendar_path": canonical_root
         / CANONICAL_BASELINE_SESSION_CALENDAR_FILENAME,
         "canonical_roll_map_path": canonical_root / CANONICAL_BASELINE_ROLL_MAP_FILENAME,
@@ -310,6 +316,9 @@ def build_moex_baseline_update_run_config(
                     "raw_table_path": paths["raw_table_path"].as_posix(),
                     "canonical_bars_path": paths["canonical_bars_path"].as_posix(),
                     "canonical_provenance_path": paths["canonical_provenance_path"].as_posix(),
+                    "canonical_session_intervals_path": paths[
+                        "canonical_session_intervals_path"
+                    ].as_posix(),
                     "canonical_session_calendar_path": paths[
                         "canonical_session_calendar_path"
                     ].as_posix(),
@@ -408,13 +417,19 @@ def build_moex_historical_op_config(
     raw_ingest_report_path: Path,
     canonical_output_dir: Path,
     canonical_run_id: str,
+    canonical_session_intervals_path: Path | None = None,
 ) -> dict[str, str]:
-    return {
+    config = {
         "raw_table_path": raw_table_path.resolve().as_posix(),
         "raw_ingest_report_path": raw_ingest_report_path.resolve().as_posix(),
         "canonical_output_dir": canonical_output_dir.resolve().as_posix(),
         "canonical_run_id": str(canonical_run_id).strip(),
     }
+    if canonical_session_intervals_path is not None:
+        config["canonical_session_intervals_path"] = (
+            canonical_session_intervals_path.resolve().as_posix()
+        )
+    return config
 
 
 def build_moex_historical_run_config(
@@ -423,12 +438,14 @@ def build_moex_historical_run_config(
     raw_ingest_report_path: Path,
     canonical_output_dir: Path,
     canonical_run_id: str,
+    canonical_session_intervals_path: Path | None = None,
 ) -> dict[str, object]:
     op_config = build_moex_historical_op_config(
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_ingest_report_path,
         canonical_output_dir=canonical_output_dir,
         canonical_run_id=canonical_run_id,
+        canonical_session_intervals_path=canonical_session_intervals_path,
     )
     return {
         "ops": {
@@ -655,6 +672,12 @@ def moex_baseline_update(context) -> dict[str, object]:
         _text_value(op_config, "canonical_provenance_path")
         or default_paths["canonical_provenance_path"].as_posix()
     ).resolve()
+    canonical_session_intervals_text = _text_value(op_config, "canonical_session_intervals_path")
+    canonical_session_intervals_path = (
+        Path(canonical_session_intervals_text).resolve()
+        if canonical_session_intervals_text
+        else None
+    )
     canonical_session_calendar_path = Path(
         _text_value(op_config, "canonical_session_calendar_path")
         or default_paths["canonical_session_calendar_path"].as_posix()
@@ -680,6 +703,7 @@ def moex_baseline_update(context) -> dict[str, object]:
         raw_table_path=raw_table_path,
         canonical_bars_path=canonical_bars_path,
         canonical_provenance_path=canonical_provenance_path,
+        canonical_session_intervals_path=canonical_session_intervals_path,
         canonical_session_calendar_path=canonical_session_calendar_path,
         canonical_roll_map_path=canonical_roll_map_path,
         evidence_dir=evidence_root,
@@ -738,6 +762,9 @@ def moex_baseline_update(context) -> dict[str, object]:
             ),
             "raw_table_path": str(report.get("raw_table_path", "")),
             "canonical_bars_path": str(report.get("canonical_bars_path", "")),
+            "canonical_session_intervals_path": str(
+                report.get("canonical_session_intervals_path", "")
+            ),
             "canonical_session_calendar_path": str(
                 report.get("canonical_session_calendar_path", "")
             ),
@@ -814,12 +841,17 @@ def moex_canonical_refresh(context, moex_raw_ingest: dict[str, object]) -> dict[
         raise RuntimeError("moex canonical refresh step requires non-empty `canonical_run_id`")
 
     output_dir = Path(output_dir_text).resolve()
+    session_intervals_text = _text_value(op_config, "canonical_session_intervals_path")
+    session_intervals_path = (
+        Path(session_intervals_text).resolve() if session_intervals_text else None
+    )
 
     report = run_historical_canonical_route(
         raw_table_path=raw_table_path,
         output_dir=output_dir,
         run_id=run_id,
         raw_ingest_run_report=raw_report,
+        canonical_session_intervals_path=session_intervals_path,
         canonical_merge_strategy=CANONICAL_MERGE_SCOPED_DELETE_INSERT,
     )
     publish_decision = str(report.get("publish_decision", "")).strip().lower()
@@ -926,6 +958,9 @@ def moex_historical_output_paths(output_dir: Path) -> dict[str, str]:
         "canonical_bars": (resolved / "delta" / "canonical_bars.delta").as_posix(),
         "canonical_bar_provenance": (
             resolved / "delta" / "canonical_bar_provenance.delta"
+        ).as_posix(),
+        "canonical_session_intervals": (
+            resolved / "delta" / "canonical_session_intervals.delta"
         ).as_posix(),
         "canonical_session_calendar": (
             resolved / "delta" / "canonical_session_calendar.delta"
@@ -1044,6 +1079,7 @@ def execute_moex_historical_cutover_job(
     canonical_run_id: str,
     instance: DagsterInstance,
     run_id: str,
+    canonical_session_intervals_path: Path | None = None,
     extra_tags: dict[str, str] | None = None,
     scheduled_execution_time: datetime | None = None,
     raise_on_error: bool = False,
@@ -1062,6 +1098,7 @@ def execute_moex_historical_cutover_job(
         raw_ingest_report_path=raw_ingest_report_path,
         canonical_output_dir=canonical_output_dir,
         canonical_run_id=resolved_canonical_run_id,
+        canonical_session_intervals_path=canonical_session_intervals_path,
     )
     tags: dict[str, str] = dict(extra_tags or {})
     schedule_payload: dict[str, object] | None = None
