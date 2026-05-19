@@ -1,0 +1,1029 @@
+{
+  "catalog_id": "moex-futures-session-rules.v1",
+  "timezone": "Europe/Moscow",
+  "prepared_at_utc": "2026-05-18T00:00:00Z",
+  "scope": "research/canonical baseline session reconstruction",
+  "production_calendar_sources": [
+    {
+      "year": 2020,
+      "source_title": "Consultant Plus 2020 production calendar and Russian Government decree No. 875",
+      "source_url": "https://www.consultant.ru/law/ref/calendar/proizvodstvennye/2020b/"
+    },
+    {
+      "year": 2021,
+      "source_title": "Consultant Plus 2021 production calendar and Russian Government decree No. 1648",
+      "source_url": "https://www.consultant.ru/law/ref/calendar/proizvodstvennye/2021/"
+    },
+    {
+      "year": 2022,
+      "source_title": "Russian Government decree No. 1564 on 2022 day-off transfers",
+      "source_url": "https://www.consultant.ru/document/cons_doc_LAW_395538/"
+    },
+    {
+      "year": 2023,
+      "source_title": "Russian Government decree No. 1505 on 2023 day-off transfers",
+      "source_url": "https://www.consultant.ru/document/cons_doc_LAW_425407/"
+    },
+    {
+      "year": 2024,
+      "source_title": "Russian Government decree No. 1314 on 2024 day-off transfers",
+      "source_url": "https://www.consultant.ru/document/cons_doc_LAW_455140/"
+    },
+    {
+      "year": 2025,
+      "source_title": "Russian Government decree No. 1335 on 2025 day-off transfers",
+      "source_url": "https://www.consultant.ru/document/cons_doc_LAW_487367/"
+    },
+    {
+      "year": 2026,
+      "source_title": "Russian Government decree No. 1466 on 2026 day-off transfers",
+      "source_url": "https://normativ.kontur.ru/document?documentId=501815&moduleId=1"
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "moex-forts-main-evening-2020",
+      "effective_from": "2020-06-18",
+      "effective_to": "2021-02-28",
+      "weekdays": [1, 2, 3, 4, 5],
+      "applies_to": {
+        "engine": "futures",
+        "market": "forts"
+      },
+      "source_title": "MOEX 2020 derivatives trading calendar",
+      "source_date": "2020-01-01",
+      "source_urls": [
+        "https://www.moex.com/a7079",
+        "https://www.moex.com/a7116"
+      ],
+      "source_quality": "public_moex_calendar",
+      "confidence": "medium",
+      "notes": "MOEX 2020 archive states derivatives market trading hours from 10:00 to 23:50 MSK; option-expiration days are represented as separate 19:05 special-open exceptions.",
+      "trading_intervals": [
+        {
+          "interval_type": "main_session",
+          "type": "main_session",
+          "time_from": "10:00:00",
+          "time_till": "18:50:00",
+          "session_class": "regular"
+        },
+        {
+          "interval_type": "evening_session",
+          "type": "evening_session",
+          "time_from": "19:00:00",
+          "time_till": "23:50:00",
+          "session_class": "regular"
+        }
+      ]
+    },
+    {
+      "rule_id": "moex-forts-early-morning-main-evening-2021",
+      "effective_from": "2021-03-01",
+      "effective_to": "2022-02-24",
+      "weekdays": [1, 2, 3, 4, 5],
+      "applies_to": {
+        "engine": "futures",
+        "market": "forts"
+      },
+      "source_title": "MOEX public news: derivatives trading starts at 07:00",
+      "source_date": "2021-03-01",
+      "source_urls": [
+        "https://www.moex.com/n32803",
+        "https://www.moex.com/n32758",
+        "https://fs.moex.com/f/14100/o-perenose-nachala-torgov-na-0700-chasov-utra.pdf",
+        "https://www.moex.com/a7399"
+      ],
+      "source_quality": "public_moex_news",
+      "confidence": "high",
+      "notes": "MOEX announced that derivatives trading starts at 07:00 MSK from 2021-03-01; the official 2021 calendar states derivatives trading hours through 23:50 MSK.",
+      "trading_intervals": [
+        {
+          "interval_type": "morning_session",
+          "type": "morning_session",
+          "time_from": "07:00:00",
+          "time_till": "10:00:00",
+          "session_class": "regular"
+        },
+        {
+          "interval_type": "main_session",
+          "type": "main_session",
+          "time_from": "10:00:00",
+          "time_till": "18:50:00",
+          "session_class": "regular"
+        },
+        {
+          "interval_type": "evening_session",
+          "type": "evening_session",
+          "time_from": "19:00:00",
+          "time_till": "23:50:00",
+          "session_class": "regular"
+        }
+      ]
+    },
+    {
+      "rule_id": "moex-forts-main-only-2022-02-25",
+      "effective_from": "2022-02-25",
+      "effective_to": "2022-07-11",
+      "weekdays": [1, 2, 3, 4, 5],
+      "applies_to": {
+        "engine": "futures",
+        "market": "forts"
+      },
+      "source_title": "MOEX public news: morning session cancelled on futures market",
+      "source_date": "2022-02-24",
+      "source_urls": ["https://www.moex.com/n41782"],
+      "source_quality": "public_moex_news",
+      "confidence": "medium",
+      "notes": "Backfill regime before evening session resumed; morning session was not conducted and futures started at 10:00 MSK.",
+      "trading_intervals": [
+        {
+          "interval_type": "main_session",
+          "type": "main_session",
+          "time_from": "10:00:00",
+          "time_till": "18:50:00",
+          "session_class": "regular"
+        }
+      ]
+    },
+    {
+      "rule_id": "moex-forts-main-evening-2022-07-12",
+      "effective_from": "2022-07-12",
+      "effective_to": "2022-09-11",
+      "weekdays": [1, 2, 3, 4, 5],
+      "applies_to": {
+        "engine": "futures",
+        "market": "forts"
+      },
+      "source_title": "MOEX public news: evening session resumes on derivatives market",
+      "source_date": "2022-07-05",
+      "source_urls": ["https://www.moex.com/n49786"],
+      "source_quality": "public_moex_news",
+      "confidence": "high",
+      "notes": "Clearing periods excluded from canonical trading intervals.",
+      "trading_intervals": [
+        {
+          "interval_type": "main_session",
+          "type": "main_session",
+          "time_from": "10:00:00",
+          "time_till": "18:50:00",
+          "session_class": "regular"
+        },
+        {
+          "interval_type": "evening_session",
+          "type": "evening_session",
+          "time_from": "19:05:00",
+          "time_till": "23:50:00",
+          "session_class": "regular"
+        }
+      ]
+    },
+    {
+      "rule_id": "moex-forts-morning-main-evening-2022-09-12",
+      "effective_from": "2022-09-12",
+      "effective_to": "2026-03-22",
+      "weekdays": [1, 2, 3, 4, 5],
+      "applies_to": {
+        "engine": "futures",
+        "market": "forts"
+      },
+      "source_title": "MOEX public news: morning trading resumes on derivatives market",
+      "source_date": "2022-09-01",
+      "source_urls": [
+        "https://www.moex.com/n51095",
+        "https://www.moex.com/n76476"
+      ],
+      "source_quality": "public_moex_news",
+      "confidence": "high",
+      "notes": "MOEX announced futures trading from 09:00 to 23:50 from 2022-09-12; 2025 announcement corroborates the 15-hour regime.",
+      "trading_intervals": [
+        {
+          "interval_type": "morning_session",
+          "type": "morning_session",
+          "time_from": "09:00:00",
+          "time_till": "10:00:00",
+          "session_class": "regular"
+        },
+        {
+          "interval_type": "main_session",
+          "type": "main_session",
+          "time_from": "10:00:00",
+          "time_till": "19:00:00",
+          "session_class": "regular"
+        },
+        {
+          "interval_type": "evening_session",
+          "type": "evening_session",
+          "time_from": "19:05:00",
+          "time_till": "23:50:00",
+          "session_class": "regular"
+        }
+      ]
+    },
+    {
+      "rule_id": "moex-forts-unified-weekday-2026-03-23",
+      "effective_from": "2026-03-23",
+      "effective_to": null,
+      "weekdays": [1, 2, 3, 4, 5],
+      "applies_to": {
+        "engine": "futures",
+        "market": "forts"
+      },
+      "source_title": "MOEX public futures trading sessions page",
+      "source_date": "2026-05-18",
+      "source_urls": ["https://www.moex.com/torgovye-sessii-na-srochnom-rynke/"],
+      "source_quality": "public_moex_page",
+      "confidence": "high",
+      "notes": "Current public page states morning, main, and evening trading sessions in GMT+3.",
+      "trading_intervals": [
+        {
+          "interval_type": "morning_session",
+          "type": "morning_session",
+          "time_from": "09:00:00",
+          "time_till": "10:00:00",
+          "session_class": "regular"
+        },
+        {
+          "interval_type": "main_session",
+          "type": "main_session",
+          "time_from": "10:00:00",
+          "time_till": "19:00:00",
+          "session_class": "regular"
+        },
+        {
+          "interval_type": "evening_session",
+          "type": "evening_session",
+          "time_from": "19:00:00",
+          "time_till": "23:50:00",
+          "session_class": "regular"
+        }
+      ]
+    },
+    {
+      "rule_id": "moex-forts-weekend-public-2025-08-16",
+      "effective_from": "2025-08-16",
+      "effective_to": "2025-12-31",
+      "weekdays": [6, 7],
+      "excluded_dates": [
+        "2025-09-20",
+        "2025-09-21",
+        "2025-10-25",
+        "2025-10-26",
+        "2025-11-02",
+        "2025-12-06",
+        "2025-12-07"
+      ],
+      "applies_to": {
+        "engine": "futures",
+        "market": "forts"
+      },
+      "source_title": "MOEX public news: weekend trading starts on derivatives market",
+      "source_date": "2025-06-20",
+      "source_urls": [
+        "https://www.moex.com/n91270",
+        "https://www.moex.com/n92346",
+        "https://www.moex.com/n94726"
+      ],
+      "source_quality": "public_moex_news",
+      "confidence": "medium",
+      "notes": "Futures weekend trading starts from 2025-08-16; remaining 2025 excluded dates use the published synchronized weekend schedule and technical-work announcement.",
+      "trading_intervals": [
+        {
+          "interval_type": "weekend_session",
+          "type": "weekend_session",
+          "time_from": "10:00:00",
+          "time_till": "19:00:00",
+          "session_class": "weekend"
+        }
+      ]
+    },
+    {
+      "rule_id": "moex-forts-weekend-public-2026",
+      "effective_from": "2026-01-01",
+      "effective_to": null,
+      "weekdays": [6, 7],
+      "excluded_dates": [
+        "2026-01-03",
+        "2026-01-04",
+        "2026-01-10",
+        "2026-01-11",
+        "2026-02-14",
+        "2026-02-15",
+        "2026-03-07",
+        "2026-03-08",
+        "2026-03-21",
+        "2026-03-22",
+        "2026-05-09",
+        "2026-05-10",
+        "2026-06-20",
+        "2026-06-21",
+        "2026-08-01",
+        "2026-08-02",
+        "2026-08-15",
+        "2026-08-16",
+        "2026-09-12",
+        "2026-09-13",
+        "2026-10-24",
+        "2026-10-25",
+        "2026-12-05",
+        "2026-12-06"
+      ],
+      "applies_to": {
+        "engine": "futures",
+        "market": "forts"
+      },
+      "source_title": "MOEX public news: 2026 weekend trading calendar",
+      "source_date": "2025-11-25",
+      "source_urls": ["https://www.moex.com/n95564"],
+      "source_quality": "public_moex_news",
+      "confidence": "high",
+      "notes": "Weekend sessions are public-rule backed, with MOEX-published excluded weekends.",
+      "trading_intervals": [
+        {
+          "interval_type": "weekend_session",
+          "type": "weekend_session",
+          "time_from": "10:00:00",
+          "time_till": "19:00:00",
+          "session_class": "weekend"
+        }
+      ]
+    }
+  ],
+  "calendar_exceptions": [
+    {
+      "exception_id": "moex-forts-option-expiration-evening-delay-2020-current",
+      "action": "special_open",
+      "dates": [
+        "2020-06-18",
+        "2020-06-23",
+        "2020-06-25",
+        "2020-06-30",
+        "2020-07-02",
+        "2020-07-08",
+        "2020-07-09",
+        "2020-07-15",
+        "2020-07-16",
+        "2020-07-22",
+        "2020-07-23",
+        "2020-07-28",
+        "2020-07-29",
+        "2020-07-30",
+        "2020-08-05",
+        "2020-08-06",
+        "2020-08-12",
+        "2020-08-13",
+        "2020-08-17",
+        "2020-08-19",
+        "2020-08-20",
+        "2020-08-25",
+        "2020-08-26",
+        "2020-08-27",
+        "2020-09-02",
+        "2020-09-03",
+        "2020-09-09",
+        "2020-09-10",
+        "2020-09-16",
+        "2020-09-17",
+        "2020-09-23",
+        "2020-09-24",
+        "2020-09-25",
+        "2020-09-30",
+        "2020-10-01",
+        "2020-10-07",
+        "2020-10-08",
+        "2020-10-14",
+        "2020-10-15",
+        "2020-10-21",
+        "2020-10-22",
+        "2020-10-27",
+        "2020-10-28",
+        "2020-10-29",
+        "2020-11-03",
+        "2020-11-05",
+        "2020-11-11",
+        "2020-11-12",
+        "2020-11-17",
+        "2020-11-18",
+        "2020-11-19",
+        "2020-11-25",
+        "2020-11-26",
+        "2020-12-02",
+        "2020-12-03",
+        "2020-12-09",
+        "2020-12-10",
+        "2020-12-16",
+        "2020-12-17",
+        "2020-12-23",
+        "2020-12-24",
+        "2020-12-30"
+      ],
+      "applies_to": {"engine": "futures", "market": "forts"},
+      "source_title": "MOEX public news: 2020 option-expiration evening session delay",
+      "source_date": "2020-05-18",
+      "source_urls": [
+        "https://www.moex.com/n28466",
+        "https://www.moex.com/n28871",
+        "https://www.moex.com/n29290",
+        "https://www.moex.com/n29733",
+        "https://www.moex.com/n30128",
+        "https://www.moex.com/n30594",
+        "https://www.moex.com/n31185"
+      ],
+      "source_quality": "public_moex_news",
+      "confidence": "high",
+      "trading_intervals": [
+        {"type": "main_session", "time_from": "10:00:00", "time_till": "18:50:00", "session_class": "regular"},
+        {"type": "evening_session", "time_from": "19:05:00", "time_till": "23:50:00", "session_class": "option_expiration"}
+      ]
+    },
+    {
+      "exception_id": "moex-forts-option-expiration-evening-delay-2021-pre-morning",
+      "action": "special_open",
+      "dates": [
+        "2021-02-03",
+        "2021-02-04",
+        "2021-02-10",
+        "2021-02-11",
+        "2021-02-17",
+        "2021-02-18",
+        "2021-02-22",
+        "2021-02-24",
+        "2021-02-25"
+      ],
+      "applies_to": {"engine": "futures", "market": "forts"},
+      "source_title": "MOEX public news: 2021 option-expiration evening session delay before morning launch",
+      "source_date": "2021-01-18",
+      "source_urls": ["https://www.moex.com/n32178"],
+      "source_quality": "public_moex_news",
+      "confidence": "high",
+      "trading_intervals": [
+        {"type": "main_session", "time_from": "10:00:00", "time_till": "18:50:00", "session_class": "regular"},
+        {"type": "evening_session", "time_from": "19:05:00", "time_till": "23:50:00", "session_class": "option_expiration"}
+      ]
+    },
+    {
+      "exception_id": "moex-forts-option-expiration-evening-delay-2021-2022-morning",
+      "action": "special_open",
+      "dates": [
+        "2021-03-03",
+        "2021-03-04",
+        "2021-03-10",
+        "2021-03-11",
+        "2021-03-17",
+        "2021-03-18",
+        "2021-03-24",
+        "2021-03-25",
+        "2021-03-26",
+        "2021-03-31",
+        "2021-04-01",
+        "2021-04-07",
+        "2021-04-08",
+        "2021-04-14",
+        "2021-04-15",
+        "2021-04-21",
+        "2021-04-22",
+        "2021-04-27",
+        "2021-04-28",
+        "2021-04-29",
+        "2021-05-05",
+        "2021-05-06",
+        "2021-05-12",
+        "2021-05-13",
+        "2021-05-17",
+        "2021-05-19",
+        "2021-05-20",
+        "2021-05-25",
+        "2021-05-26",
+        "2021-05-27",
+        "2021-07-01",
+        "2021-07-07",
+        "2021-07-08",
+        "2021-07-14",
+        "2021-07-15",
+        "2021-07-21",
+        "2021-07-22",
+        "2021-07-27",
+        "2021-07-28",
+        "2021-07-29",
+        "2021-08-04",
+        "2021-08-05",
+        "2021-08-11",
+        "2021-08-12",
+        "2021-08-17",
+        "2021-08-18",
+        "2021-08-19",
+        "2021-08-25",
+        "2021-08-26",
+        "2021-09-01",
+        "2021-09-02",
+        "2021-09-08",
+        "2021-09-09",
+        "2021-09-15",
+        "2021-09-16",
+        "2021-09-17",
+        "2021-09-22",
+        "2021-09-23",
+        "2021-09-27",
+        "2021-09-29",
+        "2021-09-30",
+        "2021-10-06",
+        "2021-10-07",
+        "2021-10-13",
+        "2021-10-14",
+        "2021-10-15",
+        "2021-10-20",
+        "2021-10-21",
+        "2021-10-26",
+        "2021-10-27",
+        "2021-10-28",
+        "2021-11-03",
+        "2021-11-10",
+        "2021-11-11",
+        "2021-11-16",
+        "2021-11-17",
+        "2021-11-18",
+        "2021-11-24",
+        "2021-11-25",
+        "2021-12-01",
+        "2021-12-02",
+        "2021-12-08",
+        "2021-12-09",
+        "2021-12-15",
+        "2021-12-16",
+        "2021-12-22",
+        "2021-12-23",
+        "2021-12-28",
+        "2021-12-29",
+        "2021-12-30",
+        "2022-01-05",
+        "2022-01-06",
+        "2022-01-12",
+        "2022-01-13",
+        "2022-01-14",
+        "2022-01-19",
+        "2022-01-20",
+        "2022-01-26",
+        "2022-01-27",
+        "2022-02-02",
+        "2022-02-03",
+        "2022-02-09",
+        "2022-02-10",
+        "2022-02-16",
+        "2022-02-17",
+        "2022-02-23",
+        "2022-02-24"
+      ],
+      "applies_to": {"engine": "futures", "market": "forts"},
+      "source_title": "MOEX public news: 2021-2022 option-expiration evening session delay after morning launch",
+      "source_date": "2021-02-15",
+      "source_urls": [
+        "https://www.moex.com/n32589",
+        "https://www.moex.com/n33063",
+        "https://www.moex.com/n33610",
+        "https://www.moex.com/n34600",
+        "https://www.moex.com/n35104",
+        "https://www.moex.com/n35682",
+        "https://www.moex.com/n36398",
+        "https://www.moex.com/n36929",
+        "https://www.moex.com/n37765",
+        "https://www.moex.com/n38820",
+        "https://www.moex.com/n39645"
+      ],
+      "source_quality": "public_moex_news",
+      "confidence": "medium",
+      "notes": "Known public MOEX monthly announcements are encoded explicitly; missing month announcements fall back to the standard 19:00 evening start, which is permissive for canonical acceptance.",
+      "trading_intervals": [
+        {"type": "morning_session", "time_from": "07:00:00", "time_till": "10:00:00", "session_class": "regular"},
+        {"type": "main_session", "time_from": "10:00:00", "time_till": "18:50:00", "session_class": "regular"},
+        {"type": "evening_session", "time_from": "19:05:00", "time_till": "23:50:00", "session_class": "option_expiration"}
+      ]
+    },
+    {
+      "exception_id": "moex-forts-closed-holidays-2020",
+      "action": "closed",
+      "dates": [
+        "2020-01-01",
+        "2020-01-02",
+        "2020-01-04",
+        "2020-01-05",
+        "2020-01-07",
+        "2020-02-24",
+        "2020-03-09",
+        "2020-06-12",
+        "2020-06-24",
+        "2020-07-01",
+        "2020-11-04",
+        "2020-12-31"
+      ],
+      "applies_to": {"engine": "futures", "market": "forts"},
+      "source_title": "MOEX public news: 2020 holiday and non-business trading closures",
+      "source_date": "2020-06-03",
+      "source_urls": [
+        "https://www.moex.com/n25097",
+        "https://www.moex.com/n28671",
+        "https://www.moex.com/n30851",
+        "https://www.moex.com/n31902"
+      ],
+      "source_quality": "public_moex_news",
+      "confidence": "high"
+    },
+    {
+      "exception_id": "moex-forts-open-holidays-2021",
+      "action": "open_standard",
+      "dates": [
+        "2021-01-04",
+        "2021-01-05",
+        "2021-01-06",
+        "2021-01-08",
+        "2021-02-22",
+        "2021-05-10",
+        "2021-06-14",
+        "2021-11-05"
+      ],
+      "applies_to": {"engine": "futures", "market": "forts"},
+      "source_title": "MOEX public news: 2021 holiday trading calendar",
+      "source_date": "2021-02-09",
+      "source_urls": [
+        "https://www.moex.com/n30445",
+        "https://www.moex.com/n32519",
+        "https://www.moex.com/n36985"
+      ],
+      "source_quality": "public_moex_news",
+      "confidence": "high"
+    },
+    {
+      "exception_id": "moex-forts-working-saturday-2021",
+      "action": "special_open",
+      "dates": ["2021-02-20"],
+      "applies_to": {"engine": "futures", "market": "forts"},
+      "source_title": "MOEX public news: 2021 working Saturday",
+      "source_date": "2020-10-05",
+      "source_urls": ["https://www.moex.com/n30445"],
+      "source_quality": "public_moex_news",
+      "confidence": "high",
+      "trading_intervals": [
+        {"type": "main_session", "time_from": "10:00:00", "time_till": "18:50:00", "session_class": "regular"},
+        {"type": "evening_session", "time_from": "19:05:00", "time_till": "23:50:00", "session_class": "regular"}
+      ]
+    },
+    {
+      "exception_id": "moex-forts-closed-holidays-2021",
+      "action": "closed",
+      "dates": [
+        "2021-01-01",
+        "2021-01-07",
+        "2021-02-23",
+        "2021-03-08",
+        "2021-05-03",
+        "2021-11-04",
+        "2021-12-31"
+      ],
+      "applies_to": {"engine": "futures", "market": "forts"},
+      "source_title": "MOEX public news: 2021 non-trading holidays",
+      "source_date": "2021-10-19",
+      "source_urls": [
+        "https://www.moex.com/n30445",
+        "https://www.moex.com/n36985",
+        "https://www.moex.com/n39197"
+      ],
+      "source_quality": "public_moex_news",
+      "confidence": "high"
+    },
+    {
+      "exception_id": "moex-forts-open-holidays-2022",
+      "action": "open_standard",
+      "dates": [
+        "2022-01-03",
+        "2022-01-04",
+        "2022-01-05",
+        "2022-01-06",
+        "2022-01-07",
+        "2022-02-23",
+        "2022-03-07",
+        "2022-03-08",
+        "2022-05-03",
+        "2022-05-09",
+        "2022-05-10",
+        "2022-06-13",
+        "2022-11-04"
+      ],
+      "applies_to": {"engine": "futures", "market": "forts"},
+      "source_title": "MOEX public news: 2022 holiday trading calendar",
+      "source_date": "2021-12-29",
+      "source_urls": ["https://www.moex.com/n39319"],
+      "source_quality": "public_moex_news",
+      "confidence": "high"
+    },
+    {
+      "exception_id": "moex-forts-working-saturday-2022",
+      "action": "special_open",
+      "dates": ["2022-03-05"],
+      "applies_to": {"engine": "futures", "market": "forts"},
+      "source_title": "MOEX public news: 2022 working Saturday",
+      "source_date": "2021-12-29",
+      "source_urls": ["https://www.moex.com/n39319"],
+      "source_quality": "public_moex_news",
+      "confidence": "high",
+      "trading_intervals": [
+        {"type": "main_session", "time_from": "10:00:00", "time_till": "18:50:00", "session_class": "regular"}
+      ]
+    },
+    {
+      "exception_id": "moex-forts-open-holidays-2023",
+      "action": "open_standard",
+      "dates": [
+        "2023-01-03",
+        "2023-01-04",
+        "2023-01-05",
+        "2023-01-06",
+        "2023-02-24",
+        "2023-05-08",
+        "2023-11-06"
+      ],
+      "applies_to": {"engine": "futures", "market": "forts"},
+      "source_title": "MOEX public news: 2023 holiday trading calendar",
+      "source_date": "2022-10-03",
+      "source_urls": ["https://www.moex.com/n51887"],
+      "source_quality": "public_moex_news",
+      "confidence": "high"
+    },
+    {
+      "exception_id": "moex-forts-closed-holidays-2023",
+      "action": "closed",
+      "dates": [
+        "2023-01-01",
+        "2023-01-02",
+        "2023-01-07",
+        "2023-02-23",
+        "2023-03-08",
+        "2023-05-01",
+        "2023-05-09",
+        "2023-06-12",
+        "2023-11-04"
+      ],
+      "applies_to": {"engine": "futures", "market": "forts"},
+      "source_title": "MOEX public news: 2023 non-trading holidays",
+      "source_date": "2022-10-03",
+      "source_urls": ["https://www.moex.com/n51887"],
+      "source_quality": "public_moex_news",
+      "confidence": "high"
+    },
+    {
+      "exception_id": "moex-forts-open-holidays-2024",
+      "action": "open_standard",
+      "dates": [
+        "2024-01-03",
+        "2024-01-04",
+        "2024-01-05",
+        "2024-01-08",
+        "2024-04-29",
+        "2024-04-30",
+        "2024-05-10",
+        "2024-12-30"
+      ],
+      "applies_to": {"engine": "futures", "market": "forts"},
+      "source_title": "MOEX public news: 2024 holiday trading calendar",
+      "source_date": "2023-09-20",
+      "source_urls": ["https://www.moex.com/n64121"],
+      "source_quality": "public_moex_news",
+      "confidence": "high"
+    },
+    {
+      "exception_id": "moex-forts-working-saturdays-2024",
+      "action": "special_open",
+      "dates": ["2024-04-27", "2024-11-02", "2024-12-28"],
+      "applies_to": {"engine": "futures", "market": "forts"},
+      "source_title": "MOEX public news: 2024 working Saturdays",
+      "source_date": "2023-09-20",
+      "source_urls": [
+        "https://www.moex.com/n64121",
+        "https://www.moex.com/n74370",
+        "https://www.moex.com/n75066"
+      ],
+      "source_quality": "public_moex_news",
+      "confidence": "high",
+      "trading_intervals": [
+        {"type": "morning_session", "time_from": "09:00:00", "time_till": "10:00:00", "session_class": "regular"},
+        {"type": "main_session", "time_from": "10:00:00", "time_till": "19:00:00", "session_class": "regular"},
+        {"type": "evening_session", "time_from": "19:05:00", "time_till": "23:50:00", "session_class": "regular"}
+      ]
+    },
+    {
+      "exception_id": "moex-forts-closed-holidays-2024",
+      "action": "closed",
+      "dates": [
+        "2024-01-01",
+        "2024-01-02",
+        "2024-01-07",
+        "2024-02-23",
+        "2024-03-08",
+        "2024-05-01",
+        "2024-05-09",
+        "2024-06-12",
+        "2024-11-03",
+        "2024-11-04",
+        "2024-12-29",
+        "2024-12-31"
+      ],
+      "applies_to": {"engine": "futures", "market": "forts"},
+      "source_title": "MOEX public news: 2024 non-trading holidays",
+      "source_date": "2023-09-20",
+      "source_urls": [
+        "https://www.moex.com/n64121",
+        "https://www.moex.com/n75066"
+      ],
+      "source_quality": "public_moex_news",
+      "confidence": "high"
+    },
+    {
+      "exception_id": "moex-forts-open-holidays-2025",
+      "action": "open_standard",
+      "dates": [
+        "2025-01-03",
+        "2025-01-06",
+        "2025-01-08",
+        "2025-05-02",
+        "2025-05-08",
+        "2025-06-13",
+        "2025-11-03"
+      ],
+      "applies_to": {"engine": "futures", "market": "forts"},
+      "source_title": "MOEX public news: 2025 holiday trading calendar",
+      "source_date": "2024-10-02",
+      "source_urls": [
+        "https://www.moex.com/n73701",
+        "https://www.moex.com/n89673",
+        "https://www.moex.com/n90507"
+      ],
+      "source_quality": "public_moex_news",
+      "confidence": "high"
+    },
+    {
+      "exception_id": "moex-forts-working-saturdays-2025",
+      "action": "special_open",
+      "dates": ["2025-11-01"],
+      "applies_to": {"engine": "futures", "market": "forts"},
+      "source_title": "MOEX public news: 2025 working Saturday",
+      "source_date": "2024-10-02",
+      "source_urls": ["https://www.moex.com/n73701"],
+      "source_quality": "public_moex_news",
+      "confidence": "high",
+      "trading_intervals": [
+        {"type": "morning_session", "time_from": "09:00:00", "time_till": "10:00:00", "session_class": "regular"},
+        {"type": "main_session", "time_from": "10:00:00", "time_till": "19:00:00", "session_class": "regular"},
+        {"type": "evening_session", "time_from": "19:05:00", "time_till": "23:50:00", "session_class": "regular"}
+      ]
+    },
+    {
+      "exception_id": "moex-forts-closed-holidays-2025",
+      "action": "closed",
+      "dates": [
+        "2025-01-01",
+        "2025-01-02",
+        "2025-01-04",
+        "2025-01-05",
+        "2025-01-07",
+        "2025-02-23",
+        "2025-03-08",
+        "2025-05-01",
+        "2025-05-09",
+        "2025-06-12",
+        "2025-11-04",
+        "2025-12-31"
+      ],
+      "applies_to": {"engine": "futures", "market": "forts"},
+      "source_title": "MOEX public news: 2025 non-trading holidays",
+      "source_date": "2024-10-02",
+      "source_urls": [
+        "https://www.moex.com/n73701",
+        "https://www.moex.com/n75066"
+      ],
+      "source_quality": "public_moex_news",
+      "confidence": "high"
+    },
+    {
+      "exception_id": "moex-forts-weekend-excluded-2025",
+      "action": "closed",
+      "dates": [
+        "2025-09-20",
+        "2025-09-21",
+        "2025-10-25",
+        "2025-10-26",
+        "2025-11-02",
+        "2025-12-06",
+        "2025-12-07"
+      ],
+      "applies_to": {"engine": "futures", "market": "forts"},
+      "source_title": "MOEX public news: excluded weekend sessions in 2025",
+      "source_date": "2025-10-24",
+      "source_urls": [
+        "https://www.moex.com/n94726",
+        "https://www.moex.com/n77967"
+      ],
+      "source_quality": "public_moex_news",
+      "confidence": "medium",
+      "notes": "Futures weekend sessions were synchronized with the published 2025 weekend schedule after the derivatives launch."
+    },
+    {
+      "exception_id": "moex-forts-open-holidays-2026",
+      "action": "open_standard",
+      "dates": ["2026-01-05", "2026-01-06", "2026-01-08", "2026-01-09", "2026-03-09", "2026-05-11"],
+      "applies_to": {"engine": "futures", "market": "forts"},
+      "source_title": "MOEX public news: 2026 holiday trading calendar",
+      "source_date": "2025-10-06",
+      "source_urls": ["https://www.moex.com/n94172"],
+      "source_quality": "public_moex_news",
+      "confidence": "high"
+    },
+    {
+      "exception_id": "moex-forts-extended-holiday-weekend-session-2026",
+      "action": "special_open",
+      "dates": ["2026-05-01", "2026-06-12", "2026-11-04"],
+      "applies_to": {"engine": "futures", "market": "forts"},
+      "source_title": "MOEX public news: extended futures holiday weekend session in 2026",
+      "source_date": "2026-04-07",
+      "source_urls": ["https://www.moex.com/n99076"],
+      "source_quality": "public_moex_news",
+      "confidence": "high",
+      "notes": "Continuous trading interval starts at 10:00; 09:50-10:00 opening auction is excluded from canonical interval.",
+      "trading_intervals": [
+        {"type": "holiday_weekend_session", "time_from": "10:00:00", "time_till": "23:50:00", "session_class": "weekend_extended"}
+      ]
+    },
+    {
+      "exception_id": "moex-forts-holiday-weekend-session-2026-02-23",
+      "action": "special_open",
+      "dates": ["2026-02-23"],
+      "applies_to": {"engine": "futures", "market": "forts"},
+      "source_title": "MOEX public news: holiday weekend session on 2026-02-23",
+      "source_date": "2025-12-30",
+      "source_urls": ["https://www.moex.com/n96571"],
+      "source_quality": "public_moex_news",
+      "confidence": "high",
+      "notes": "MOEX 2025-12-30 holiday schedule supersedes the 2025-10-06 closed-holiday listing for 2026-02-23. Canonical interval starts at 10:00 to preserve the futures weekend candle bucket boundary; the MOEX-published 09:50-10:00 pre-trading segment is not a separate canonical interval.",
+      "trading_intervals": [
+        {"type": "holiday_weekend_session", "time_from": "10:00:00", "time_till": "19:00:00", "session_class": "weekend"}
+      ]
+    },
+    {
+      "exception_id": "moex-forts-weekend-excluded-2026",
+      "action": "closed",
+      "dates": [
+        "2026-01-03",
+        "2026-01-04",
+        "2026-01-10",
+        "2026-01-11",
+        "2026-02-14",
+        "2026-02-15",
+        "2026-03-07",
+        "2026-03-08",
+        "2026-03-21",
+        "2026-03-22",
+        "2026-05-09",
+        "2026-05-10",
+        "2026-06-20",
+        "2026-06-21",
+        "2026-08-01",
+        "2026-08-02",
+        "2026-08-15",
+        "2026-08-16",
+        "2026-09-12",
+        "2026-09-13",
+        "2026-10-24",
+        "2026-10-25",
+        "2026-12-05",
+        "2026-12-06"
+      ],
+      "applies_to": {"engine": "futures", "market": "forts"},
+      "source_title": "MOEX public news: excluded weekend sessions in 2026",
+      "source_date": "2025-11-25",
+      "source_urls": ["https://www.moex.com/n95564"],
+      "source_quality": "public_moex_news",
+      "confidence": "high"
+    },
+    {
+      "exception_id": "moex-forts-closed-holidays-2026",
+      "action": "closed",
+      "dates": [
+        "2026-01-01",
+        "2026-01-02",
+        "2026-01-03",
+        "2026-01-04",
+        "2026-01-07",
+        "2026-03-08",
+        "2026-05-09",
+        "2026-12-31"
+      ],
+      "applies_to": {"engine": "futures", "market": "forts"},
+      "source_title": "MOEX public news: 2026 non-trading holidays",
+      "source_date": "2025-10-06",
+      "source_urls": [
+        "https://www.moex.com/n94172",
+        "https://www.moex.com/n95564",
+        "https://www.moex.com/n96571"
+      ],
+      "source_quality": "public_moex_news",
+      "confidence": "high",
+      "notes": "The 2025-12-30 MOEX update moved 2026-02-23 from closed to holiday weekend trading for the Securities and Derivatives Markets."
+    }
+  ]
+}

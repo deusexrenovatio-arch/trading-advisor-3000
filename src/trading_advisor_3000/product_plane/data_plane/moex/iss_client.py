@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
 import json
-from datetime import UTC, date, datetime, timedelta
 import random
 import time
+
+# ruff: noqa: E501
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from urllib import parse, request
 from urllib.error import HTTPError, URLError
-
 
 DEFAULT_CANDLE_CHUNK_DAYS_BY_INTERVAL: dict[int, int] = {
     1: 7,
@@ -52,6 +53,18 @@ class HistorySecurity:
     numtrades: int
 
 
+@dataclass(frozen=True)
+class FuturesSessionScheduleRow:
+    tradedate: str
+    secid: str
+    boardid: str
+    session_type: str
+    time_from: str
+    time_till: str
+    updatetime: str
+    payload: dict[str, Any]
+
+
 class MoexRequestError(RuntimeError):
     def __init__(
         self,
@@ -74,7 +87,9 @@ def _utc_now_iso() -> str:
     return datetime.now(tz=UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def _iter_date_windows(date_from: date, date_till: date, *, chunk_days: int) -> Iterator[tuple[date, date]]:
+def _iter_date_windows(
+    date_from: date, date_till: date, *, chunk_days: int
+) -> Iterator[tuple[date, date]]:
     if chunk_days <= 0:
         raise ValueError("chunk_days must be > 0")
     current = date_from
@@ -101,7 +116,9 @@ def _rows_to_dicts(block: dict[str, Any]) -> list[dict[str, Any]]:
     return result
 
 
-def select_interval_borders(payload: dict[str, Any], required_intervals: set[int]) -> dict[int, CandleBorder]:
+def select_interval_borders(
+    payload: dict[str, Any], required_intervals: set[int]
+) -> dict[int, CandleBorder]:
     borders_block = payload.get("borders")
     if not isinstance(borders_block, dict):
         raise ValueError("MOEX candleborders payload is missing `borders` block")
@@ -110,13 +127,21 @@ def select_interval_borders(payload: dict[str, Any], required_intervals: set[int
         raw_interval = row.get("interval")
         raw_begin = row.get("begin")
         raw_end = row.get("end")
-        if isinstance(raw_interval, int) and isinstance(raw_begin, str) and isinstance(raw_end, str):
-            interval_map[raw_interval] = CandleBorder(interval=raw_interval, begin=raw_begin, end=raw_end)
+        if (
+            isinstance(raw_interval, int)
+            and isinstance(raw_begin, str)
+            and isinstance(raw_end, str)
+        ):
+            interval_map[raw_interval] = CandleBorder(
+                interval=raw_interval, begin=raw_begin, end=raw_end
+            )
 
     missing = sorted(required_intervals - set(interval_map))
     if missing:
         missing_text = ", ".join(str(item) for item in missing)
-        raise ValueError(f"MOEX candleborders payload is missing required intervals: {missing_text}")
+        raise ValueError(
+            f"MOEX candleborders payload is missing required intervals: {missing_text}"
+        )
     return {interval: interval_map[interval] for interval in sorted(required_intervals)}
 
 
@@ -189,7 +214,9 @@ class MoexISSClient:
         except Exception:
             return
 
-    def _request_policy(self, *, operation: str, context: dict[str, Any]) -> tuple[float, int, float]:
+    def _request_policy(
+        self, *, operation: str, context: dict[str, Any]
+    ) -> tuple[float, int, float]:
         timeout_seconds = float(self.timeout_seconds)
         max_retries = int(self.max_retries)
         retry_backoff_seconds = float(self.retry_backoff_seconds)
@@ -210,7 +237,9 @@ class MoexISSClient:
         if retry_backoff_seconds <= 0:
             return 0.0
         base = retry_backoff_seconds * (2**attempt)
-        jitter = random.uniform(0.0, base * self.retry_jitter_ratio) if self.retry_jitter_ratio else 0.0
+        jitter = (
+            random.uniform(0.0, base * self.retry_jitter_ratio) if self.retry_jitter_ratio else 0.0
+        )
         return base + jitter
 
     def _get_json(
@@ -236,7 +265,30 @@ class MoexISSClient:
             started = time.perf_counter()
             try:
                 with request.urlopen(req, timeout=timeout_seconds) as response:
-                    payload = json.load(response)
+                    content_type = str(
+                        getattr(response, "headers", {}).get("Content-Type", "") or ""
+                    ).strip()
+                    raw_body = response.read()
+                body_text = (
+                    raw_body.decode("utf-8", errors="replace")
+                    if isinstance(raw_body, bytes)
+                    else str(raw_body)
+                )
+                if content_type and "json" not in content_type.lower():
+                    body_prefix = " ".join(body_text[:240].split())
+                    if (
+                        "Информация доступна только" in body_text
+                        or "available only to" in body_text
+                    ):
+                        raise ValueError(
+                            "MOEX ISS endpoint returned subscription-only HTML instead of JSON; "
+                            f"content_type={content_type}; url={url}; body_prefix={body_prefix}"
+                        )
+                    raise ValueError(
+                        "MOEX ISS endpoint returned non-JSON response; "
+                        f"content_type={content_type}; url={url}; body_prefix={body_prefix}"
+                    )
+                payload = json.loads(body_text)
                 if not isinstance(payload, dict):
                     raise ValueError(f"MOEX response must be JSON object: {url}")
                 self._emit_request_event(
@@ -255,7 +307,14 @@ class MoexISSClient:
                     }
                 )
                 return payload
-            except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as exc:
+            except (
+                HTTPError,
+                URLError,
+                TimeoutError,
+                OSError,
+                json.JSONDecodeError,
+                ValueError,
+            ) as exc:
                 last_error = exc
                 will_retry = attempt < max_retries
                 retry_sleep_seconds = (
@@ -288,7 +347,9 @@ class MoexISSClient:
                     break
                 time.sleep(retry_sleep_seconds)
         assert last_error is not None
-        raise MoexRequestError(url=url, params=params, attempts=max_retries + 1, last_error=last_error) from last_error
+        raise MoexRequestError(
+            url=url, params=params, attempts=max_retries + 1, last_error=last_error
+        ) from last_error
 
     def fetch_candleborders(
         self,
@@ -326,7 +387,9 @@ class MoexISSClient:
         date_till: date,
         start: int,
     ) -> list[MoexCandle]:
-        path = f"/iss/engines/{engine}/markets/{market}/boards/{board}/securities/{secid}/candles.json"
+        path = (
+            f"/iss/engines/{engine}/markets/{market}/boards/{board}/securities/{secid}/candles.json"
+        )
         params = {
             "iss.meta": "off",
             "interval": str(interval),
@@ -364,7 +427,10 @@ class MoexISSClient:
             raw_end = row.get("end")
             if not isinstance(raw_begin, str) or not isinstance(raw_end, str):
                 continue
-            if not all(isinstance(value, (int, float)) for value in (raw_open, raw_close, raw_high, raw_low)):
+            if not all(
+                isinstance(value, (int, float))
+                for value in (raw_open, raw_close, raw_high, raw_low)
+            ):
                 continue
             if not isinstance(raw_volume, int):
                 continue
@@ -524,7 +590,9 @@ class MoexISSClient:
         chunk_days = self.candle_chunk_days_by_interval.get(interval)
         if chunk_days is None:
             chunk_days = max((date_till - date_from).days + 1, 1)
-        for window_from, window_till in _iter_date_windows(date_from, date_till, chunk_days=chunk_days):
+        for window_from, window_till in _iter_date_windows(
+            date_from, date_till, chunk_days=chunk_days
+        ):
             self._emit_request_event(
                 {
                     "event": "moex_candles_chunk",
@@ -602,7 +670,9 @@ class MoexISSClient:
             )
             block = payload.get("history")
             if not isinstance(block, dict):
-                raise ValueError(f"MOEX history payload is missing `history` block for {board} {trade_date.isoformat()}")
+                raise ValueError(
+                    f"MOEX history payload is missing `history` block for {board} {trade_date.isoformat()}"
+                )
 
             page: list[HistorySecurity] = []
             for row in _rows_to_dicts(block):
@@ -615,10 +685,15 @@ class MoexISSClient:
                 assetcode = str(row.get("ASSETCODE", "")).strip()
                 raw_volume = row.get("VOLUME")
                 raw_numtrades = row.get("NUMTRADES")
-                volume = int(raw_volume) if isinstance(raw_volume, (int, float)) and not isinstance(raw_volume, bool) else 0
+                volume = (
+                    int(raw_volume)
+                    if isinstance(raw_volume, (int, float)) and not isinstance(raw_volume, bool)
+                    else 0
+                )
                 numtrades = (
                     int(raw_numtrades)
-                    if isinstance(raw_numtrades, (int, float)) and not isinstance(raw_numtrades, bool)
+                    if isinstance(raw_numtrades, (int, float))
+                    and not isinstance(raw_numtrades, bool)
                     else 0
                 )
                 page.append(
@@ -650,3 +725,74 @@ class MoexISSClient:
             securities.extend(page)
             start += len(page)
         return securities
+
+    def fetch_futures_session_schedule(
+        self,
+        *,
+        date_from: date,
+        date_till: date,
+    ) -> list[FuturesSessionScheduleRow]:
+        path = "/iss/calendars/futures/session.json"
+        start = 0
+        rows: list[FuturesSessionScheduleRow] = []
+        while True:
+            payload = self._get_json(
+                path,
+                params={
+                    "iss.meta": "off",
+                    "iss.only": "session_schedule",
+                    "from": date_from.isoformat(),
+                    "till": date_till.isoformat(),
+                    "start": str(start),
+                },
+                event_context={
+                    "operation": "futures_session_schedule",
+                    "date_from": date_from.isoformat(),
+                    "date_till": date_till.isoformat(),
+                    "page_start": start,
+                },
+            )
+            block = payload.get("session_schedule")
+            if not isinstance(block, dict):
+                raise ValueError(
+                    "MOEX futures calendar payload is missing `session_schedule` block"
+                )
+
+            page: list[FuturesSessionScheduleRow] = []
+            for row in _rows_to_dicts(block):
+                tradedate = str(row.get("tradedate") or row.get("TRADEDATE") or "").strip()
+                session_type = str(row.get("type") or row.get("TYPE") or "").strip()
+                time_from = str(row.get("time_from") or row.get("TIME_FROM") or "").strip()
+                time_till = str(row.get("time_till") or row.get("TIME_TILL") or "").strip()
+                if not tradedate or not session_type or not time_from or not time_till:
+                    continue
+                page.append(
+                    FuturesSessionScheduleRow(
+                        tradedate=tradedate,
+                        secid=str(row.get("secid") or row.get("SECID") or "-").strip() or "-",
+                        boardid=str(row.get("boardid") or row.get("BOARDID") or "-").strip() or "-",
+                        session_type=session_type,
+                        time_from=time_from,
+                        time_till=time_till,
+                        updatetime=str(
+                            row.get("updatetime") or row.get("UPDATETIME") or ""
+                        ).strip(),
+                        payload=dict(row),
+                    )
+                )
+
+            if not page:
+                break
+            self._emit_request_event(
+                {
+                    "event": "moex_futures_session_schedule_page",
+                    "status": "parsed",
+                    "date_from": date_from.isoformat(),
+                    "date_till": date_till.isoformat(),
+                    "page_start": start,
+                    "row_count": len(page),
+                }
+            )
+            rows.extend(page)
+            start += len(page)
+        return rows

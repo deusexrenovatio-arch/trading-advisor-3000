@@ -34,6 +34,7 @@ RAW_BASELINE_TABLE_RELATIVE_PATH = (
 CANONICAL_BASELINE_ROOT_RELATIVE_PATH = Path("canonical") / "moex" / "baseline-4y-current"
 CANONICAL_BASELINE_BARS_FILENAME = "canonical_bars.delta"
 CANONICAL_BASELINE_PROVENANCE_FILENAME = "canonical_bar_provenance.delta"
+CANONICAL_BASELINE_SESSION_INTERVALS_FILENAME = "canonical_session_intervals.delta"
 CANONICAL_BASELINE_SESSION_CALENDAR_FILENAME = "canonical_session_calendar.delta"
 CANONICAL_BASELINE_ROLL_MAP_FILENAME = "canonical_roll_map.delta"
 PRODUCT_RUNTIME_STAGING_RELATIVE_PATH = Path("staging") / "product-runtime"
