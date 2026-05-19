@@ -127,7 +127,7 @@ def _require_session_intervals_input(session_intervals_path: Path | None) -> Pat
             "derives trading sessions from raw candle min/max timestamps"
         )
     table_path = Path(session_intervals_path)
-    if has_delta_log(table_path) or table_path.exists():
+    if has_delta_log(table_path) or table_path.is_file():
         return table_path
     raise FileNotFoundError(
         "official session intervals input is missing `_delta_log` or JSONL source: "
@@ -2136,9 +2136,9 @@ def run_historical_canonical_route(
             "phase-02 scope mismatch: raw ingest status PASS-NOOP requires empty changed_windows"
         )
     official_session_intervals_path = (
-        _require_session_intervals_input(session_intervals_path)
-        if session_intervals_path is not None and raw_report_status != STATUS_PASS_NOOP
-        else session_intervals_path
+        session_intervals_path
+        if raw_report_status == STATUS_PASS_NOOP
+        else _require_session_intervals_input(session_intervals_path)
     )
 
     source_rows = _report_source_row_count(

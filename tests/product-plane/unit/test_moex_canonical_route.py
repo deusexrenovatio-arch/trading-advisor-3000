@@ -9,6 +9,9 @@ import pytest
 from trading_advisor_3000.product_plane.contracts import CanonicalBar, Timeframe
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
 from trading_advisor_3000.product_plane.data_plane.moex import (
+    build_raw_ingest_run_report_v2,
+)
+from trading_advisor_3000.product_plane.data_plane.moex import (
     historical_canonical_route as canonical_module,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.foundation import RAW_COLUMNS
@@ -71,6 +74,14 @@ def test_canonical_route_qc_fails_when_provenance_is_incomplete() -> None:
 def test_spark_canonicalization_subprocess_has_timeout_contract() -> None:
     assert canonical_module.SPARK_CANONICALIZATION_SUBPROCESS_TIMEOUT_SECONDS > 0
     assert canonical_module.SPARK_CANONICALIZATION_SUBPROCESS_TIMEOUT_SECONDS <= 1800
+
+
+def test_session_intervals_input_rejects_existing_directory(tmp_path: Path) -> None:
+    intervals_dir = tmp_path / "canonical_session_intervals.delta"
+    intervals_dir.mkdir()
+
+    with pytest.raises(FileNotFoundError, match="missing `_delta_log` or JSONL source"):
+        canonical_module._require_session_intervals_input(intervals_dir)
 
 
 def test_raw_1m_source_interval_map_uses_raw_availability_union() -> None:
@@ -369,6 +380,42 @@ def test_canonical_route_rejects_changed_window_wider_than_baseline_update_guard
                 ],
             },
             max_changed_window_days=10,
+        )
+
+
+def test_canonical_route_requires_session_intervals_for_non_noop(tmp_path: Path) -> None:
+    raw_table_path = tmp_path / "raw_moex_history.delta"
+    write_delta_table_rows(table_path=raw_table_path, rows=[], columns=RAW_COLUMNS)
+
+    with pytest.raises(ValueError, match="official session intervals input is required"):
+        run_historical_canonical_route(
+            raw_table_path=raw_table_path,
+            output_dir=tmp_path / "canonical",
+            run_id="missing-session-intervals",
+            raw_ingest_run_report=build_raw_ingest_run_report_v2(
+                run_id="missing-session-intervals",
+                ingest_till_utc="2026-04-02T10:20:00Z",
+                source_rows=1,
+                incremental_rows=1,
+                deduplicated_rows=0,
+                stale_rows=0,
+                watermark_by_key={"FUT_BR|1m|BRM6@MOEX": "2026-04-02T10:20:00Z"},
+                raw_table_path=raw_table_path.as_posix(),
+                raw_ingest_progress_path=(tmp_path / "progress.jsonl").as_posix(),
+                raw_ingest_error_path=(tmp_path / "errors.jsonl").as_posix(),
+                raw_ingest_error_latest_path=(tmp_path / "error.latest.json").as_posix(),
+                changed_windows=[
+                    {
+                        "internal_id": "FUT_BR",
+                        "source_timeframe": "1m",
+                        "source_interval": 1,
+                        "moex_secid": "BRM6@MOEX",
+                        "window_start_utc": "2026-04-02T10:00:00Z",
+                        "window_end_utc": "2026-04-02T10:20:00Z",
+                        "incremental_rows": 1,
+                    }
+                ],
+            ),
         )
 
 
