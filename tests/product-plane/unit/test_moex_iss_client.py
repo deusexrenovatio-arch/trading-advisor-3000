@@ -87,7 +87,7 @@ def test_iter_candles_splits_failing_window_and_recovers() -> None:
 
 class _JsonResponse:
     def __init__(self, payload: dict[str, object]) -> None:
-        self._payload = json.dumps(payload)
+        self._payload = json.dumps(payload).encode("utf-8")
         self.headers = {"Content-Type": "application/json; charset=utf-8"}
 
     def __enter__(self) -> "_JsonResponse":
@@ -97,13 +97,13 @@ class _JsonResponse:
         del exc_type, exc, tb
         return False
 
-    def read(self, *_args, **_kwargs) -> str:
+    def read(self, *_args, **_kwargs) -> bytes:
         return self._payload
 
 
 class _TextResponse:
     def __init__(self, body: str, *, content_type: str) -> None:
-        self._body = body
+        self._body = body.encode("utf-8")
         self.headers = {"Content-Type": content_type}
 
     def __enter__(self) -> "_TextResponse":
@@ -113,7 +113,7 @@ class _TextResponse:
         del exc_type, exc, tb
         return False
 
-    def read(self, *_args, **_kwargs) -> str:
+    def read(self, *_args, **_kwargs) -> bytes:
         return self._body
 
 

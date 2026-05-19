@@ -1151,6 +1151,7 @@ def _canonical_rebuild_staging_paths(staging_output_dir: Path) -> dict[str, Path
     return {
         "canonical_bars": Path(output_paths["canonical_bars"]).resolve(),
         "canonical_bar_provenance": Path(output_paths["canonical_bar_provenance"]).resolve(),
+        "canonical_session_intervals": Path(output_paths["canonical_session_intervals"]).resolve(),
         "canonical_session_calendar": Path(output_paths["canonical_session_calendar"]).resolve(),
         "canonical_roll_map": Path(output_paths["canonical_roll_map"]).resolve(),
     }
@@ -1161,6 +1162,9 @@ def _canonical_rebuild_target_paths(op_config: dict[str, object]) -> dict[str, P
     explicit_paths = {
         "canonical_bars": _optional_path_value(op_config, "canonical_bars_path"),
         "canonical_bar_provenance": _optional_path_value(op_config, "canonical_provenance_path"),
+        "canonical_session_intervals": _optional_path_value(
+            op_config, "canonical_session_intervals_path"
+        ),
         "canonical_session_calendar": _optional_path_value(
             op_config, "canonical_session_calendar_path"
         ),
@@ -1180,6 +1184,8 @@ def _canonical_rebuild_target_paths(op_config: dict[str, object]) -> dict[str, P
     return {
         "canonical_bars": target_output_dir / CANONICAL_BASELINE_BARS_FILENAME,
         "canonical_bar_provenance": target_output_dir / CANONICAL_BASELINE_PROVENANCE_FILENAME,
+        "canonical_session_intervals": target_output_dir
+        / CANONICAL_BASELINE_SESSION_INTERVALS_FILENAME,
         "canonical_session_calendar": target_output_dir
         / CANONICAL_BASELINE_SESSION_CALENDAR_FILENAME,
         "canonical_roll_map": target_output_dir / CANONICAL_BASELINE_ROLL_MAP_FILENAME,
@@ -1196,7 +1202,8 @@ def _canonical_publish_paths(
     if target_paths is None:
         raise RuntimeError(
             "canonical rebuild publish_mode=promote requires canonical_target_output_dir "
-            "or explicit target paths for canonical bars, provenance, session calendar, and roll map"
+            "or explicit target paths for canonical bars, provenance, session intervals, "
+            "session calendar, and roll map"
         )
     return staging_paths, target_paths
 
@@ -1253,7 +1260,6 @@ def _run_existing_raw_canonical_rebuild(
         publish_mode=publish_mode,
         staging_output_dir=staging_output_dir,
     )
-    session_intervals_path = _optional_path_value(op_config, "canonical_session_intervals_path")
     report = materialize_moex_historical_assets(
         raw_table_path=_required_path_value(
             op_config,
@@ -1269,7 +1275,7 @@ def _run_existing_raw_canonical_rebuild(
         canonical_run_id=run_id,
         canonical_bars_path=publish_paths["canonical_bars"],
         canonical_provenance_path=publish_paths["canonical_bar_provenance"],
-        canonical_session_intervals_path=session_intervals_path,
+        canonical_session_intervals_path=publish_paths["canonical_session_intervals"],
         canonical_session_calendar_path=publish_paths["canonical_session_calendar"],
         canonical_roll_map_path=publish_paths["canonical_roll_map"],
         selection=MOEX_HISTORICAL_ASSET_KEYS,
@@ -1303,6 +1309,9 @@ def _run_full_raw_to_canonical_rebuild(
     asset_op_config["canonical_bars_path"] = publish_paths["canonical_bars"].as_posix()
     asset_op_config["canonical_provenance_path"] = publish_paths[
         "canonical_bar_provenance"
+    ].as_posix()
+    asset_op_config["canonical_session_intervals_path"] = publish_paths[
+        "canonical_session_intervals"
     ].as_posix()
     asset_op_config["canonical_session_calendar_path"] = publish_paths[
         "canonical_session_calendar"
@@ -1525,7 +1534,10 @@ def moex_data_rebuild_job():
     moex_data_rebuild()
 
 
-moex_historical_cutover_job = moex_data_rebuild_job
+@job(name=MOEX_HISTORICAL_CUTOVER_JOB_NAME)
+def moex_historical_cutover_job():
+    moex_data_rebuild()
+
 
 moex_data_rebuild_preview_schedule = ScheduleDefinition(
     name="moex_data_rebuild_preview_schedule",
@@ -1536,7 +1548,15 @@ moex_data_rebuild_preview_schedule = ScheduleDefinition(
     default_status=DefaultScheduleStatus.STOPPED,
     description="Manual proof-only schedule definition for data rebuild tests; not registered as an active nightly schedule.",
 )
-moex_historical_cutover_preview_schedule = moex_data_rebuild_preview_schedule
+moex_historical_cutover_preview_schedule = ScheduleDefinition(
+    name="moex_historical_cutover_preview_schedule",
+    job=moex_historical_cutover_job,
+    cron_schedule=MOEX_BASELINE_DAILY_CRON,
+    run_config_fn=_build_nightly_schedule_run_config,
+    execution_timezone=MOEX_HISTORICAL_EXECUTION_TIMEZONE,
+    default_status=DefaultScheduleStatus.STOPPED,
+    description="Manual proof-only schedule definition for historical cutover tests; not registered as an active nightly schedule.",
+)
 
 moex_baseline_daily_update_schedule = ScheduleDefinition(
     name=MOEX_BASELINE_DAILY_SCHEDULE_NAME,
@@ -1554,8 +1574,15 @@ moex_baseline_daily_update_schedule = ScheduleDefinition(
 
 moex_historical_definitions = Definitions(
     assets=list(MOEX_HISTORICAL_ASSETS),
-    schedules=[moex_baseline_daily_update_schedule],
-    jobs=[moex_baseline_update_job, moex_data_rebuild_job],
+    schedules=[
+        moex_baseline_daily_update_schedule,
+        moex_historical_cutover_preview_schedule,
+    ],
+    jobs=[
+        moex_baseline_update_job,
+        moex_data_rebuild_job,
+        moex_historical_cutover_job,
+    ],
 )
 
 

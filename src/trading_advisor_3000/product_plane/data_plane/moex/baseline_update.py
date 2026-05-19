@@ -29,6 +29,7 @@ from .iss_client import MoexISSClient
 BASELINE_UPDATE_REPORT_FILENAME = "baseline-update-report.json"
 PENDING_CHANGED_WINDOWS_FILENAME = "pending-changed-windows.json"
 SESSION_SCHEDULE_MODE_MANUAL_OPTIONAL = "manual_backfill_optional"
+SESSION_SCHEDULE_MODE_MANUAL_REQUIRED = "manual_backfill_required"
 
 
 def _utc_now_iso() -> str:
@@ -285,8 +286,8 @@ def run_moex_baseline_update(
         "raw_table_path": raw_table_path.as_posix(),
         "canonical_bars_path": canonical_bars_path.as_posix(),
         "canonical_provenance_path": canonical_provenance_path.as_posix(),
-        "session_schedule_mode": SESSION_SCHEDULE_MODE_MANUAL_OPTIONAL,
-        "session_schedule_required": False,
+        "session_schedule_mode": SESSION_SCHEDULE_MODE_MANUAL_REQUIRED,
+        "session_schedule_required": True,
         "raw_session_schedule_path": "",
         "canonical_session_intervals_path": (
             canonical_session_intervals_path.as_posix()

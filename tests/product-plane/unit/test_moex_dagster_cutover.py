@@ -195,9 +195,10 @@ def test_dagster_cutover_dagster_cutover_definitions_are_executable() -> None:
     repository = definitions.get_repository_def()
     job_names = {job.name for job in repository.get_all_jobs()}
     assert "moex_data_rebuild_job" in job_names
-    assert "moex_historical_cutover_job" not in job_names
+    assert "moex_historical_cutover_job" in job_names
     schedule_names = {schedule_def.name for schedule_def in repository.schedule_defs}
     assert "moex_baseline_daily_update_schedule" in schedule_names
+    assert "moex_historical_cutover_preview_schedule" in schedule_names
     assert "moex_historical_nightly_schedule" not in schedule_names
     binding = build_moex_historical_dagster_binding_artifact()
     assert binding["schedule"]["cron"] == "0 2 * * *"
@@ -434,7 +435,7 @@ def test_dagster_cutover_cutover_rejects_localhost_staging_binding_report(tmp_pa
     )
 
     with pytest.raises(
-        ValueError, match="loopback or unspecified host|external staging Dagster host"
+        ValueError, match=r"loopback or unspecified host|external staging Dagster host"
     ):
         run_moex_dagster_cutover(
             raw_table_path=raw_table_path,

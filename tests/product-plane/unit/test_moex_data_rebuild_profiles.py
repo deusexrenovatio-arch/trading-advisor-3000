@@ -214,6 +214,9 @@ def test_moex_canonical_rebuild_publish_mode_controls_target_paths(
                 "canonical_bar_provenance": Path(
                     str(kwargs["canonical_provenance_path"])
                 ).as_posix(),
+                "canonical_session_intervals": Path(
+                    str(kwargs["canonical_session_intervals_path"])
+                ).as_posix(),
                 "canonical_session_calendar": Path(
                     str(kwargs["canonical_session_calendar_path"])
                 ).as_posix(),
@@ -266,11 +269,18 @@ def test_moex_canonical_rebuild_publish_mode_controls_target_paths(
         Path(str(promote_call["canonical_bars_path"]))
         == (target_root / "canonical_bars.delta").resolve()
     )
+    assert (
+        Path(str(promote_call["canonical_session_intervals_path"]))
+        == (target_root / "canonical_session_intervals.delta").resolve()
+    )
     assert promote_report["manifest"]["staged_outputs"]["canonical_bars"].endswith(
         "canonical-staging/delta/canonical_bars.delta"
     )
     assert promote_report["manifest"]["promoted_outputs"]["canonical_bars"].endswith(
         "canonical-current/canonical_bars.delta"
+    )
+    assert promote_report["manifest"]["promoted_outputs"]["canonical_session_intervals"].endswith(
+        "canonical-current/canonical_session_intervals.delta"
     )
 
 

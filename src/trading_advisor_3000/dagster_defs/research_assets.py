@@ -1025,7 +1025,9 @@ def _existing_research_dataset_context(config: dict[str, object]) -> dict[str, o
         "registry_root": registry_root.as_posix(),
         "materialized_output_dir": materialized_output_dir.as_posix(),
         "results_output_dir": results_output_dir.as_posix(),
-        "reuse_existing_materialization": True,
+        "reuse_existing_materialization": bool(
+            _config_value(config, "reuse_existing_materialization", False)
+        ),
         "campaign_run_id": str(_config_value(config, "campaign_run_id")),
         "dataset_version": dataset_version,
         "contour_id": contour_id,
@@ -1057,6 +1059,24 @@ def _existing_research_dataset_context(config: dict[str, object]) -> dict[str, o
     }
 
 
+def _continuous_front_qc_order_key(row: dict[str, object]) -> tuple[datetime, str]:
+    for field_name in ("completed_at", "started_at"):
+        value = row.get(field_name)
+        if isinstance(value, datetime):
+            resolved = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+            return resolved.astimezone(UTC), str(row.get("run_id", ""))
+        raw_value = str(value or "").strip()
+        if not raw_value:
+            continue
+        try:
+            parsed = datetime.fromisoformat(raw_value.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        resolved = parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+        return resolved.astimezone(UTC), str(row.get("run_id", ""))
+    return datetime.min.replace(tzinfo=UTC), str(row.get("run_id", ""))
+
+
 def _continuous_front_status_from_store(
     *, materialized_output_dir: Path, dataset_version: str
 ) -> str:
@@ -1067,8 +1087,13 @@ def _continuous_front_status_from_store(
         qc_path,
         filters=[("dataset_version", "=", dataset_version)],
     )
-    statuses = {str(row.get("status", "")).strip().upper() for row in rows}
-    if "PASS" in statuses:
+    if not rows:
+        return ""
+    latest_row = max(rows, key=_continuous_front_qc_order_key)
+    latest_run_id = str(latest_row.get("run_id", "")).strip()
+    latest_rows = [row for row in rows if str(row.get("run_id", "")).strip() == latest_run_id]
+    statuses = {str(row.get("status", "")).strip().upper() for row in latest_rows} - {""}
+    if statuses == {"PASS"}:
         return "PASS"
     return sorted(statuses)[0] if statuses else ""
 

@@ -935,12 +935,21 @@ def _build_selected_source_interval_map_from_available_intervals(
 
 def _build_raw_1m_source_interval_map_from_available_intervals(
     available_intervals_by_contract: dict[tuple[str, str], set[int]],
+    *,
+    raw_available_intervals_by_contract: dict[tuple[str, str], set[int]] | None = None,
 ) -> dict[tuple[str, str, str], int]:
     selected: dict[tuple[str, str, str], int] = {}
-    for (
-        contract_id,
-        instrument_id,
-    ), available_intervals in available_intervals_by_contract.items():
+    raw_available_intervals_by_contract = raw_available_intervals_by_contract or {}
+    all_contract_keys = set(available_intervals_by_contract) | set(
+        raw_available_intervals_by_contract
+    )
+    for contract_id, instrument_id in sorted(all_contract_keys):
+        available_intervals = set(
+            available_intervals_by_contract.get((contract_id, instrument_id), set())
+        )
+        available_intervals.update(
+            raw_available_intervals_by_contract.get((contract_id, instrument_id), set())
+        )
         if 1 not in available_intervals:
             continue
         for timeframe in TARGET_TIMEFRAMES:
@@ -1489,8 +1498,12 @@ def _build_canonical_parity_report(
             duplicate_errors.append(f"duplicate canonical key: {key[0]}/{key[2]}/{key[3]}")
         final_by_key[key] = row.to_dict()
         try:
-            _parse_iso_utc(row.ts)
+            parsed_ts = _parse_iso_utc(row.ts)
         except ValueError:
+            timestamp_drift_errors.append(f"timestamp drift: {key[0]}/{key[2]}/{key[3]}")
+            continue
+        expected_interval_seconds = TARGET_MINUTES_BY_TIMEFRAME[row.timeframe] * 60
+        if int(parsed_ts.timestamp()) % expected_interval_seconds != 0:
             timestamp_drift_errors.append(f"timestamp drift: {key[0]}/{key[2]}/{key[3]}")
 
     missing_bar_errors: list[str] = []
@@ -1832,6 +1845,7 @@ def run_moex_canonicalization(
         scoped_provenance_path = _require_spark_delta_output_path(
             spark_output_paths, "canonical_bar_provenance"
         )
+        original_affected_keys = set(affected_keys)
         scoped_output_filters = _delta_filters_for_canonical_keys(affected_keys)
         for payload in _iter_delta_rows_for_merge(
             scoped_bars_path,
@@ -1851,6 +1865,11 @@ def run_moex_canonicalization(
                 )
         scoped_bar_keys = {_canonical_bar_key(row) for row in scoped_canonical_rows}
         scoped_provenance_keys = {_canonical_provenance_key(row) for row in scoped_provenance_rows}
+        _require_complete_scoped_output_keys(
+            output_name="canonical bars",
+            scoped_keys=scoped_bar_keys,
+            affected_keys=original_affected_keys,
+        )
         _require_complete_scoped_output_keys(
             output_name="canonical provenance",
             scoped_keys=scoped_provenance_keys,

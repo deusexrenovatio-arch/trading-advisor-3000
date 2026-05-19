@@ -14,6 +14,7 @@ from trading_advisor_3000.product_plane.contracts import CanonicalBar, Timeframe
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
     has_delta_log,
+    iter_delta_table_row_batches,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contracts import (
     STATUS_PASS_NOOP,
@@ -863,12 +864,21 @@ def _build_selected_source_interval_map_from_available_intervals(
 
 def _build_raw_1m_source_interval_map_from_available_intervals(
     available_intervals_by_contract: dict[tuple[str, str], set[int]],
+    *,
+    raw_available_intervals_by_contract: dict[tuple[str, str], set[int]] | None = None,
 ) -> dict[tuple[str, str, str], int]:
     selected: dict[tuple[str, str, str], int] = {}
-    for (
-        contract_id,
-        instrument_id,
-    ), available_intervals in available_intervals_by_contract.items():
+    raw_available_intervals_by_contract = raw_available_intervals_by_contract or {}
+    all_contract_keys = set(available_intervals_by_contract) | set(
+        raw_available_intervals_by_contract
+    )
+    for contract_id, instrument_id in sorted(all_contract_keys):
+        available_intervals = set(
+            available_intervals_by_contract.get((contract_id, instrument_id), set())
+        )
+        available_intervals.update(
+            raw_available_intervals_by_contract.get((contract_id, instrument_id), set())
+        )
         if 1 not in available_intervals:
             continue
         for timeframe in TARGET_TIMEFRAMES:
@@ -915,6 +925,40 @@ def _build_available_intervals_by_contract_from_projection(
         available_intervals_by_contract.setdefault((contract_id, instrument_id), set()).add(
             source_interval
         )
+    return available_intervals_by_contract
+
+
+def _build_raw_available_intervals_by_contract(
+    *,
+    raw_table_path: Path,
+    affected_internal_ids: set[str],
+) -> dict[tuple[str, str], set[int]]:
+    available_intervals_by_contract: dict[tuple[str, str], set[int]] = {}
+    if not affected_internal_ids:
+        return available_intervals_by_contract
+    for batch in iter_delta_table_row_batches(
+        raw_table_path,
+        columns=list(RAW_INTERVAL_PROJECTION_COLUMNS),
+        filters=_build_internal_id_filters(affected_internal_ids),
+    ):
+        for row_index, payload in enumerate(batch):
+            if not isinstance(payload, dict):
+                continue
+            contract_id = str(payload.get("finam_symbol", "")).strip()
+            instrument_id = str(payload.get("internal_id", "")).strip()
+            if not contract_id or not instrument_id:
+                continue
+            try:
+                source_interval = _normalize_source_interval(
+                    payload.get("source_interval"),
+                    timeframe=str(payload.get("timeframe", "")),
+                    row_index=row_index,
+                )
+            except ValueError:
+                continue
+            available_intervals_by_contract.setdefault((contract_id, instrument_id), set()).add(
+                source_interval
+            )
     return available_intervals_by_contract
 
 
@@ -1692,8 +1736,13 @@ def _run_scoped_spark_delta_publish_route(
     available_intervals_by_contract = _build_available_intervals_by_changed_window(
         changed_window_scope
     )
+    raw_available_intervals_by_contract = _build_raw_available_intervals_by_contract(
+        raw_table_path=raw_table_path,
+        affected_internal_ids={window.internal_id for window in changed_window_scope},
+    )
     selected_source_intervals = _build_raw_1m_source_interval_map_from_available_intervals(
-        available_intervals_by_contract
+        available_intervals_by_contract,
+        raw_available_intervals_by_contract=raw_available_intervals_by_contract,
     )
     resampling_skips = _build_resampling_skips_from_available_intervals(
         available_intervals_by_contract,

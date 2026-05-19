@@ -73,6 +73,16 @@ def test_spark_canonicalization_subprocess_has_timeout_contract() -> None:
     assert canonical_module.SPARK_CANONICALIZATION_SUBPROCESS_TIMEOUT_SECONDS <= 1800
 
 
+def test_raw_1m_source_interval_map_uses_raw_availability_union() -> None:
+    selected = canonical_module._build_raw_1m_source_interval_map_from_available_intervals(
+        {("BRM6@MOEX", "FUT_BR"): {5}},
+        raw_available_intervals_by_contract={("BRM6@MOEX", "FUT_BR"): {1}},
+    )
+
+    assert selected[("BRM6@MOEX", "FUT_BR", "5m")] == 1
+    assert selected[("BRM6@MOEX", "FUT_BR", "1w")] == 1
+
+
 def test_session_admission_gate_blocks_official_schedule_mismatch() -> None:
     report = canonical_module._session_admission_gate_report(
         {

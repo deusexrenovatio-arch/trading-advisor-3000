@@ -142,8 +142,8 @@ def test_baseline_update_writes_to_stable_paths_and_scoped_canonical_refresh(
         report["canonical_session_calendar_path"]
         == (canonical_bars_path.parent / "canonical_session_calendar.delta").as_posix()
     )
-    assert report["session_schedule_mode"] == "manual_backfill_optional"
-    assert report["session_schedule_required"] is False
+    assert report["session_schedule_mode"] == "manual_backfill_required"
+    assert report["session_schedule_required"] is True
     assert report["canonical_session_intervals_path"] == ""
     assert report["raw_session_schedule_path"] == ""
     assert report["artifact_paths"]["session_schedule_report"] == ""

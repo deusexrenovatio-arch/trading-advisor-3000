@@ -92,3 +92,4 @@ def test_backfill_accepts_range_that_covers_current_data(tmp_path: Path) -> None
     assert coverage["current_data_date_from"] == "2020-06-18"
     assert coverage["current_data_date_till"] == "2026-05-17"
     assert coverage["timestamp_column"] == "ts"
+    assert coverage["current_data_rows_scanned"] == 2

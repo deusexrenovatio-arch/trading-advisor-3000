@@ -115,19 +115,27 @@ def _validate_backfill_covers_current_data(
         )
     table = DeltaTable(str(current_data_path))
     resolved_timestamp_column = _resolve_timestamp_column(table, timestamp_column)
-    timestamp_table = table.to_pyarrow_table(columns=[resolved_timestamp_column])
-    values = [
-        value
-        for value in timestamp_table.column(resolved_timestamp_column).to_pylist()
-        if value is not None
-    ]
-    if not values:
+    scanner = table.to_pyarrow_dataset().scanner(
+        columns=[resolved_timestamp_column],
+        batch_size=65_536,
+    )
+    current_min = None
+    current_max = None
+    timestamp_count = 0
+    for batch in scanner.to_batches():
+        for value in batch.column(0).to_pylist():
+            if value is None:
+                continue
+            timestamp_count += 1
+            current_min = value if current_min is None or value < current_min else current_min
+            current_max = value if current_max is None or value > current_max else current_max
+    if timestamp_count == 0 or current_min is None or current_max is None:
         raise ValueError(
             f"current data table has no timestamp values: {current_data_path.as_posix()}"
         )
 
-    current_date_from = _parse_utc_timestamp_date(min(values))
-    current_date_till = _parse_utc_timestamp_date(max(values))
+    current_date_from = _parse_utc_timestamp_date(current_min)
+    current_date_till = _parse_utc_timestamp_date(current_max)
     coverage = {
         "current_data_path": current_data_path.as_posix(),
         "timestamp_column": resolved_timestamp_column,
@@ -135,7 +143,7 @@ def _validate_backfill_covers_current_data(
         "current_data_date_till": current_date_till.isoformat(),
         "requested_date_from": date_from.isoformat(),
         "requested_date_till": date_till.isoformat(),
-        "current_data_rows_scanned": len(values),
+        "current_data_rows_scanned": timestamp_count,
     }
     if date_from > current_date_from or date_till < current_date_till:
         raise ValueError(

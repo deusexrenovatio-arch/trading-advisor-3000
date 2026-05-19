@@ -50,6 +50,68 @@ from trading_advisor_3000.product_plane.research.strategies.families import (
 )
 
 
+def _full_research_config(tmp_path: Path, **overrides: object) -> dict[str, object]:
+    config = research_assets._research_run_config(  # type: ignore[attr-defined]
+        canonical_output_dir=tmp_path / "canonical",
+        registry_root=tmp_path / "registry",
+        materialized_output_dir=tmp_path / "materialized",
+        results_output_dir=tmp_path / "results",
+        campaign_run_id="crun-test",
+        dataset_version="dataset-v1",
+        timeframes=("15m",),
+        indicator_set_version="indicators-v1",
+        indicator_profile_version="core_v1",
+        derived_indicator_set_version="derived-v1",
+        derived_indicator_profile_version="core_v1",
+    )
+    config.update(overrides)
+    return config
+
+
+def _stub_existing_research_context(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    dataset_manifest: dict[str, object] | None = None,
+) -> None:
+    def _fake_existing_context(config: dict[str, object]) -> dict[str, object]:
+        return {
+            "materialized_output_dir": tmp_path.as_posix(),
+            "dataset_version": str(config.get("dataset_version", "dataset-v1")),
+            "indicator_set_version": str(config.get("indicator_set_version", "indicators-v1")),
+            "indicator_profile_version": str(config.get("indicator_profile_version", "core_v1")),
+            "derived_indicator_set_version": str(
+                config.get("derived_indicator_set_version", "derived-v1")
+            ),
+            "derived_indicator_profile_version": str(
+                config.get("derived_indicator_profile_version", "core_v1")
+            ),
+            "volume_profile_raw_1m_table_path": (
+                research_assets._resolve_volume_profile_raw_1m_table_path(  # type: ignore[attr-defined]
+                    config.get("volume_profile_raw_1m_table_path", "")
+                )
+            ),
+            "volume_profile_tick_size_by_instrument": (
+                research_assets._normalize_volume_profile_tick_sizes(  # type: ignore[attr-defined]
+                    config.get("volume_profile_tick_size_by_instrument", {}),
+                    strict=False,
+                )
+            ),
+            "reuse_existing_materialization": bool(
+                config.get("reuse_existing_materialization", False)
+            ),
+            "campaign_run_id": str(config.get("campaign_run_id", "crun-test")),
+            "dataset_manifest": dataset_manifest
+            or {"series_mode": str(config.get("series_mode", "contract"))},
+        }
+
+    monkeypatch.setattr(
+        research_assets,
+        "_existing_research_dataset_context",
+        _fake_existing_context,
+    )
+
+
 def test_research_dagster_asset_specs_declared() -> None:
     specs = {spec.key: spec for spec in research_asset_specs()}
     keys = set(specs)
@@ -211,17 +273,74 @@ def test_research_dataset_asset_persists_absolute_volume_profile_raw_path(
         },
     )
 
-    payload = research_assets.research_datasets(
-        build_op_context(op_config=config),
-        {"continuous_front_status": "PASS"},
-    )
+    payload = research_assets.research_datasets(build_op_context(op_config=config))
 
     assert Path(str(payload["volume_profile_raw_1m_table_path"])).is_absolute()
+
+
+def test_existing_research_dataset_context_preserves_reuse_flag(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        research_assets,
+        "_dataset_manifest_row",
+        lambda **_: {"dataset_version": "dataset-reuse-flag"},
+    )
+    config = research_assets._research_run_config(  # type: ignore[attr-defined]
+        canonical_output_dir=tmp_path / "canonical",
+        registry_root=tmp_path / "registry",
+        materialized_output_dir=tmp_path / "materialized",
+        results_output_dir=tmp_path / "results",
+        campaign_run_id="crun-reuse-flag",
+        dataset_version="dataset-reuse-flag",
+        timeframes=("15m",),
+        indicator_set_version="indicators-v1",
+        indicator_profile_version="core_v1",
+        derived_indicator_set_version="derived-v1",
+        derived_indicator_profile_version="core_v1",
+        reuse_existing_materialization=False,
+    )
+
+    payload = research_assets._existing_research_dataset_context(config)  # type: ignore[attr-defined]
+    assert payload["reuse_existing_materialization"] is False
+
+    config["reuse_existing_materialization"] = True
+    payload = research_assets._existing_research_dataset_context(config)  # type: ignore[attr-defined]
+    assert payload["reuse_existing_materialization"] is True
+
+
+def test_continuous_front_status_from_store_uses_latest_qc_run(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(research_assets, "has_delta_log", lambda _path: True)
+    monkeypatch.setattr(
+        research_assets,
+        "read_delta_table_rows",
+        lambda *_args, **_kwargs: [
+            {
+                "dataset_version": "dataset-v1",
+                "run_id": "old-run",
+                "completed_at": "2026-05-18T10:00:00Z",
+                "status": "PASS",
+            },
+            {
+                "dataset_version": "dataset-v1",
+                "run_id": "latest-run",
+                "completed_at": "2026-05-18T11:00:00Z",
+                "status": "BLOCKED",
+            },
+        ],
+    )
+
+    assert (
+        research_assets._continuous_front_status_from_store(  # type: ignore[attr-defined]
+            materialized_output_dir=tmp_path,
+            dataset_version="dataset-v1",
+        )
+        == "BLOCKED"
+    )
 
 
 def test_dagster_indicator_asset_passes_volume_profile_source_config(tmp_path, monkeypatch) -> None:
     raw_1m_path = tmp_path / "raw_moex_history.delta"
     captured: dict[str, object] = {}
+    _stub_existing_research_context(monkeypatch, tmp_path)
 
     def _fake_materialize_indicator_frames(**kwargs: object) -> None:
         captured.update(kwargs)
@@ -236,16 +355,14 @@ def test_dagster_indicator_asset_passes_volume_profile_source_config(tmp_path, m
     )
 
     manifest = research_assets.research_indicator_frames(
-        {
-            "materialized_output_dir": tmp_path.as_posix(),
-            "dataset_version": "dataset-v1",
-            "indicator_set_version": "indicators-v1",
-            "indicator_profile_version": "core_v1",
-            "volume_profile_raw_1m_table_path": raw_1m_path.as_posix(),
-            "volume_profile_tick_size_by_instrument": {"BR": 1.0},
-            "reuse_existing_materialization": False,
-        },
-        {},
+        build_op_context(
+            op_config=_full_research_config(
+                tmp_path,
+                volume_profile_raw_1m_table_path=raw_1m_path.as_posix(),
+                volume_profile_tick_size_by_instrument={"BR": 1.0},
+                reuse_existing_materialization=False,
+            )
+        )
     )
 
     assert manifest["table_name"] == "research_indicator_frames"
@@ -257,6 +374,7 @@ def test_dagster_indicator_asset_filters_invalid_volume_profile_tick_sizes(
     tmp_path, monkeypatch
 ) -> None:
     captured: dict[str, object] = {}
+    _stub_existing_research_context(monkeypatch, tmp_path)
 
     def _fake_materialize_indicator_frames(**kwargs: object) -> None:
         captured.update(kwargs)
@@ -271,21 +389,19 @@ def test_dagster_indicator_asset_filters_invalid_volume_profile_tick_sizes(
     )
 
     research_assets.research_indicator_frames(
-        {
-            "materialized_output_dir": tmp_path.as_posix(),
-            "dataset_version": "dataset-v1",
-            "indicator_set_version": "indicators-v1",
-            "indicator_profile_version": "core_v1",
-            "volume_profile_tick_size_by_instrument": {
-                "BR": 1.0,
-                "ZERO": 0,
-                "NEGATIVE": -1,
-                "NAN": float("nan"),
-                "TEXT": "bad",
-            },
-            "reuse_existing_materialization": False,
-        },
-        {},
+        build_op_context(
+            op_config=_full_research_config(
+                tmp_path,
+                volume_profile_tick_size_by_instrument={
+                    "BR": 1.0,
+                    "ZERO": 0,
+                    "NEGATIVE": -1,
+                    "NAN": float("nan"),
+                    "TEXT": "bad",
+                },
+                reuse_existing_materialization=False,
+            )
+        )
     )
 
     assert captured["volume_profile_tick_size_by_instrument"] == {"BR": 1.0}
@@ -294,6 +410,11 @@ def test_dagster_indicator_asset_filters_invalid_volume_profile_tick_sizes(
 def test_dagster_indicator_asset_fails_on_quarantined_continuous_front_sidecar(
     tmp_path, monkeypatch
 ) -> None:
+    _stub_existing_research_context(
+        monkeypatch,
+        tmp_path,
+        dataset_manifest={"series_mode": "continuous_front"},
+    )
     monkeypatch.setattr(research_assets, "materialize_indicator_frames", lambda **_: None)
     monkeypatch.setattr(
         research_assets,
@@ -308,17 +429,13 @@ def test_dagster_indicator_asset_fails_on_quarantined_continuous_front_sidecar(
 
     with pytest.raises(RuntimeError, match=r"(?=.*cf-base-run)(?=.*quarantined)"):
         research_assets.research_indicator_frames(
-            {
-                "materialized_output_dir": tmp_path.as_posix(),
-                "dataset_version": "dataset-v1",
-                "indicator_set_version": "indicators-v1",
-                "indicator_profile_version": "core_v1",
-                "derived_indicator_set_version": "derived-v1",
-                "dataset_manifest": {"series_mode": "continuous_front"},
-                "campaign_run_id": "cf-base-run",
-                "reuse_existing_materialization": False,
-            },
-            {},
+            build_op_context(
+                op_config=_full_research_config(
+                    tmp_path,
+                    campaign_run_id="cf-base-run",
+                    reuse_existing_materialization=False,
+                )
+            )
         )
 
 
@@ -326,6 +443,7 @@ def test_reused_dagster_indicator_asset_validates_existing_volume_profile_identi
     tmp_path, monkeypatch
 ) -> None:
     captured: dict[str, object] = {}
+    _stub_existing_research_context(monkeypatch, tmp_path)
 
     def _fake_materialize_indicator_frames(**kwargs: object) -> None:
         captured.update(kwargs)
@@ -340,16 +458,14 @@ def test_reused_dagster_indicator_asset_validates_existing_volume_profile_identi
     )
 
     research_assets.research_indicator_frames(
-        {
-            "materialized_output_dir": tmp_path.as_posix(),
-            "dataset_version": "dataset-v1",
-            "indicator_set_version": "indicators-v1",
-            "indicator_profile_version": "core_v1",
-            "volume_profile_raw_1m_table_path": (tmp_path / "raw.delta").as_posix(),
-            "volume_profile_tick_size_by_instrument": {"BR": 1.0},
-            "reuse_existing_materialization": True,
-        },
-        {},
+        build_op_context(
+            op_config=_full_research_config(
+                tmp_path,
+                volume_profile_raw_1m_table_path=(tmp_path / "raw.delta").as_posix(),
+                volume_profile_tick_size_by_instrument={"BR": 1.0},
+                reuse_existing_materialization=True,
+            )
+        )
     )
 
     assert captured["dataset_version"] == "dataset-v1"
@@ -360,6 +476,7 @@ def test_reused_dagster_derived_asset_validates_existing_indicator_identity(
     tmp_path, monkeypatch
 ) -> None:
     captured: dict[str, object] = {}
+    _stub_existing_research_context(monkeypatch, tmp_path)
 
     def _fake_materialize_derived_indicator_frames(**kwargs: object) -> None:
         captured.update(kwargs)
@@ -376,16 +493,12 @@ def test_reused_dagster_derived_asset_validates_existing_indicator_identity(
     )
 
     research_assets.research_derived_indicator_frames(
-        {
-            "materialized_output_dir": tmp_path.as_posix(),
-            "dataset_version": "dataset-v1",
-            "indicator_set_version": "indicators-v1",
-            "derived_indicator_set_version": "derived-v1",
-            "derived_indicator_profile_version": "core_v1",
-            "reuse_existing_materialization": True,
-        },
-        {},
-        {},
+        build_op_context(
+            op_config=_full_research_config(
+                tmp_path,
+                reuse_existing_materialization=True,
+            )
+        )
     )
 
     assert captured["dataset_version"] == "dataset-v1"

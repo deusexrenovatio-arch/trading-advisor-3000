@@ -263,6 +263,10 @@ def main() -> None:
     output_json = _resolve_repo_path(Path(args.output_json)) if args.output_json else None
 
     if args.profile == "docker":
+        if output_json is None:
+            raise RuntimeError(
+                "docker Spark canonicalization requires output_json for deterministic capture"
+            )
         runtime_root = normalize_runtime_root(
             args.docker_runtime_root, field_name="docker runtime root"
         )
