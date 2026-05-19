@@ -7,7 +7,11 @@ import yaml
 from trading_advisor_3000.dagster_defs import (
     MOEX_BASELINE_DAILY_SCHEDULE_NAME,
     MOEX_BASELINE_UPDATE_JOB_NAME,
-    MOEX_HISTORICAL_CUTOVER_JOB_NAME,
+    MOEX_CF_REBUILD_JOB_NAME,
+    MOEX_DATA_REBUILD_JOB_NAME,
+    MOEX_DERIVED_INDICATOR_REBUILD_JOB_NAME,
+    MOEX_INDICATOR_REBUILD_JOB_NAME,
+    MOEX_RESEARCH_BAR_REBUILD_JOB_NAME,
     PRODUCT_PLANE_NIGHTLY_JOB_NAMES,
     RESEARCH_BACKTEST_JOB_NAME,
     RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME,
@@ -19,7 +23,7 @@ from trading_advisor_3000.dagster_defs import (
 )
 
 
-def test_product_plane_definitions_wire_nightly_baseline_to_research_refresh() -> None:
+def test_product_plane_definitions_expose_manual_data_rebuild_jobs_without_auto_refresh() -> None:
     definitions = build_product_plane_definitions()
     assert_product_plane_definitions_executable(definitions)
 
@@ -27,8 +31,13 @@ def test_product_plane_definitions_wire_nightly_baseline_to_research_refresh() -
     job_names = {job.name for job in repository.get_all_jobs()}
     assert set(PRODUCT_PLANE_NIGHTLY_JOB_NAMES).issubset(job_names)
     assert MOEX_BASELINE_UPDATE_JOB_NAME in job_names
-    assert MOEX_HISTORICAL_CUTOVER_JOB_NAME in job_names
-    assert RESEARCH_DATA_PREP_JOB_NAME in job_names
+    assert MOEX_DATA_REBUILD_JOB_NAME in job_names
+    assert "moex_historical_cutover_job" not in job_names
+    assert RESEARCH_DATA_PREP_JOB_NAME not in job_names
+    assert MOEX_CF_REBUILD_JOB_NAME in job_names
+    assert MOEX_RESEARCH_BAR_REBUILD_JOB_NAME in job_names
+    assert MOEX_INDICATOR_REBUILD_JOB_NAME in job_names
+    assert MOEX_DERIVED_INDICATOR_REBUILD_JOB_NAME in job_names
     assert STRATEGY_REGISTRY_REFRESH_JOB_NAME in job_names
     assert RESEARCH_BACKTEST_JOB_NAME in job_names
     assert RESEARCH_PROJECTION_JOB_NAME in job_names
@@ -36,7 +45,7 @@ def test_product_plane_definitions_wire_nightly_baseline_to_research_refresh() -
     schedule_names = {schedule.name for schedule in repository.schedule_defs}
     sensor_names = {sensor.name for sensor in repository.sensor_defs}
     assert MOEX_BASELINE_DAILY_SCHEDULE_NAME in schedule_names
-    assert RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME in sensor_names
+    assert RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME not in sensor_names
 
 
 def test_dagster_staging_runtime_loads_product_plane_definitions() -> None:

@@ -18,7 +18,6 @@ from dagster import (
     RetryPolicy,
     ScheduleDefinition,
     asset,
-    build_schedule_context,
     define_asset_job,
     materialize,
 )
@@ -30,6 +29,12 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delt
 from trading_advisor_3000.product_plane.data_plane.moex.baseline_update import (
     BASELINE_UPDATE_REPORT_FILENAME,
     run_moex_baseline_update,
+)
+from trading_advisor_3000.product_plane.data_plane.moex.data_rebuild_profiles import (
+    MOEX_REBUILD_DOWNSTREAM_MODES,
+    MOEX_REBUILD_PUBLISH_MODES,
+    MOEX_REBUILD_SOURCE_MODES,
+    resolve_moex_data_rebuild_profile,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.historical_canonical_route import (
     CANONICAL_MERGE_SCOPED_DELETE_INSERT,
@@ -118,6 +123,14 @@ MOEX_HISTORICAL_OP_CONFIG_SCHEMA = {
     "refresh_overlap_minutes": DagsterField(int, is_required=False),
     "ingest_till_utc": DagsterField(str, is_required=False),
     "run_id": DagsterField(str, is_required=False),
+    "profile_name": DagsterField(str, is_required=False),
+    "source_mode": DagsterField(str, is_required=False),
+    "publish_mode": DagsterField(str, is_required=False),
+    "downstream_mode": DagsterField(str, is_required=False),
+    "raw_root": DagsterField(str, is_required=False),
+    "canonical_root": DagsterField(str, is_required=False),
+    "session_root": DagsterField(str, is_required=False),
+    "research_root": DagsterField(str, is_required=False),
 }
 MOEX_BASELINE_UPDATE_OP_CONFIG_SCHEMA = {
     "mapping_registry_path": DagsterField(str, is_required=False),
@@ -140,6 +153,7 @@ MOEX_BASELINE_UPDATE_OP_CONFIG_SCHEMA = {
     "ingest_till_utc": DagsterField(str, is_required=False),
     "run_id": DagsterField(str, is_required=False),
 }
+MOEX_DATA_REBUILD_JOB_NAME = "moex_data_rebuild_job"
 MOEX_HISTORICAL_CUTOVER_JOB_NAME = "moex_historical_cutover_job"
 MOEX_BASELINE_UPDATE_JOB_NAME = "moex_baseline_update_job"
 MOEX_BASELINE_DAILY_SCHEDULE_NAME = "moex_baseline_daily_update_schedule"
@@ -432,6 +446,114 @@ def build_moex_historical_op_config(
     return config
 
 
+def build_moex_data_rebuild_op_config(
+    *,
+    profile_name: str,
+    canonical_run_id: str,
+    canonical_output_dir: Path,
+    raw_table_path: Path | None = None,
+    raw_ingest_report_path: Path | None = None,
+    canonical_session_intervals_path: Path | None = None,
+    source_mode: str | None = None,
+    publish_mode: str = "promote",
+    downstream_mode: str = "invalidate",
+    raw_root: Path | None = None,
+    canonical_root: Path | None = None,
+    session_root: Path | None = None,
+    research_root: Path | None = None,
+) -> dict[str, str]:
+    profile = resolve_moex_data_rebuild_profile(profile_name)
+    resolved_source_mode = (source_mode or profile.source_mode).strip()
+    if resolved_source_mode not in MOEX_REBUILD_SOURCE_MODES:
+        raise ValueError(
+            f"unknown MOEX data rebuild source_mode `{resolved_source_mode}`; "
+            f"allowed modes: {', '.join(MOEX_REBUILD_SOURCE_MODES)}"
+        )
+    resolved_publish_mode = publish_mode.strip() or "promote"
+    if resolved_publish_mode not in MOEX_REBUILD_PUBLISH_MODES:
+        raise ValueError(
+            f"unknown MOEX data rebuild publish_mode `{resolved_publish_mode}`; "
+            f"allowed modes: {', '.join(MOEX_REBUILD_PUBLISH_MODES)}"
+        )
+    resolved_downstream_mode = downstream_mode.strip() or "invalidate"
+    if resolved_downstream_mode not in MOEX_REBUILD_DOWNSTREAM_MODES:
+        raise ValueError(
+            f"unknown MOEX data rebuild downstream_mode `{resolved_downstream_mode}`; "
+            f"allowed modes: {', '.join(MOEX_REBUILD_DOWNSTREAM_MODES)}"
+        )
+    if resolved_source_mode == "existing_raw_delta" and (
+        raw_table_path is None or raw_ingest_report_path is None
+    ):
+        raise ValueError(
+            "canonical_from_existing_raw rebuild requires raw_table_path and raw_ingest_report_path"
+        )
+    config: dict[str, str] = {
+        "profile_name": profile.name,
+        "source_mode": resolved_source_mode,
+        "publish_mode": resolved_publish_mode,
+        "downstream_mode": resolved_downstream_mode,
+        "canonical_output_dir": canonical_output_dir.resolve().as_posix(),
+        "canonical_run_id": str(canonical_run_id).strip(),
+    }
+    if raw_table_path is not None:
+        config["raw_table_path"] = raw_table_path.resolve().as_posix()
+    if raw_ingest_report_path is not None:
+        config["raw_ingest_report_path"] = raw_ingest_report_path.resolve().as_posix()
+    if canonical_session_intervals_path is not None:
+        config["canonical_session_intervals_path"] = (
+            canonical_session_intervals_path.resolve().as_posix()
+        )
+    optional_roots = {
+        "raw_root": raw_root,
+        "canonical_root": canonical_root,
+        "session_root": session_root,
+        "research_root": research_root,
+    }
+    for key, value in optional_roots.items():
+        if value is not None:
+            config[key] = value.resolve().as_posix()
+    return config
+
+
+def build_moex_data_rebuild_run_config(
+    *,
+    profile_name: str,
+    canonical_run_id: str,
+    canonical_output_dir: Path,
+    raw_table_path: Path | None = None,
+    raw_ingest_report_path: Path | None = None,
+    canonical_session_intervals_path: Path | None = None,
+    source_mode: str | None = None,
+    publish_mode: str = "promote",
+    downstream_mode: str = "invalidate",
+    raw_root: Path | None = None,
+    canonical_root: Path | None = None,
+    session_root: Path | None = None,
+    research_root: Path | None = None,
+) -> dict[str, object]:
+    op_config = build_moex_data_rebuild_op_config(
+        profile_name=profile_name,
+        raw_table_path=raw_table_path,
+        raw_ingest_report_path=raw_ingest_report_path,
+        canonical_output_dir=canonical_output_dir,
+        canonical_run_id=canonical_run_id,
+        canonical_session_intervals_path=canonical_session_intervals_path,
+        source_mode=source_mode,
+        publish_mode=publish_mode,
+        downstream_mode=downstream_mode,
+        raw_root=raw_root,
+        canonical_root=canonical_root,
+        session_root=session_root,
+        research_root=research_root,
+    )
+    return {
+        "ops": {
+            "moex_raw_ingest": {"config": dict(op_config)},
+            "moex_canonical_refresh": {"config": dict(op_config)},
+        }
+    }
+
+
 def build_moex_historical_run_config(
     *,
     raw_table_path: Path,
@@ -440,19 +562,14 @@ def build_moex_historical_run_config(
     canonical_run_id: str,
     canonical_session_intervals_path: Path | None = None,
 ) -> dict[str, object]:
-    op_config = build_moex_historical_op_config(
+    return build_moex_data_rebuild_run_config(
+        profile_name="canonical_from_existing_raw",
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_ingest_report_path,
         canonical_output_dir=canonical_output_dir,
         canonical_run_id=canonical_run_id,
         canonical_session_intervals_path=canonical_session_intervals_path,
     )
-    return {
-        "ops": {
-            "moex_raw_ingest": {"config": dict(op_config)},
-            "moex_canonical_refresh": {"config": dict(op_config)},
-        }
-    }
 
 
 def _merge_run_config(left: dict[str, object], right: dict[str, object]) -> dict[str, object]:
@@ -886,21 +1003,23 @@ moex_baseline_update_job = define_asset_job(
     op_retry_policy=MOEX_HISTORICAL_RETRY_POLICY,
 )
 
-moex_historical_cutover_job = define_asset_job(
-    name=MOEX_HISTORICAL_CUTOVER_JOB_NAME,
+moex_data_rebuild_job = define_asset_job(
+    name=MOEX_DATA_REBUILD_JOB_NAME,
     selection=AssetSelection.groups("moex_historical_cutover"),
     op_retry_policy=MOEX_HISTORICAL_RETRY_POLICY,
 )
+moex_historical_cutover_job = moex_data_rebuild_job
 
-moex_historical_cutover_preview_schedule = ScheduleDefinition(
-    name="moex_historical_cutover_preview_schedule",
-    job=moex_historical_cutover_job,
+moex_data_rebuild_preview_schedule = ScheduleDefinition(
+    name="moex_data_rebuild_preview_schedule",
+    job=moex_data_rebuild_job,
     cron_schedule=MOEX_BASELINE_DAILY_CRON,
     run_config_fn=_build_nightly_schedule_run_config,
     execution_timezone=MOEX_HISTORICAL_EXECUTION_TIMEZONE,
     default_status=DefaultScheduleStatus.STOPPED,
-    description="Manual proof-only schedule definition for cutover tests; not registered as an active nightly schedule.",
+    description="Manual proof-only schedule definition for data rebuild tests; not registered as an active nightly schedule.",
 )
+moex_historical_cutover_preview_schedule = moex_data_rebuild_preview_schedule
 
 moex_baseline_daily_update_schedule = ScheduleDefinition(
     name=MOEX_BASELINE_DAILY_SCHEDULE_NAME,
@@ -919,7 +1038,7 @@ moex_baseline_daily_update_schedule = ScheduleDefinition(
 moex_historical_definitions = Definitions(
     assets=list(MOEX_HISTORICAL_ASSETS),
     schedules=[moex_baseline_daily_update_schedule],
-    jobs=[moex_baseline_update_job, moex_historical_cutover_job],
+    jobs=[moex_baseline_update_job, moex_data_rebuild_job],
 )
 
 
@@ -928,11 +1047,11 @@ def assert_moex_historical_definitions_executable(definitions: Definitions | Non
     try:
         repository = defs.get_repository_def()
         repository.get_job(MOEX_BASELINE_UPDATE_JOB_NAME)
-        job = repository.get_job(MOEX_HISTORICAL_CUTOVER_JOB_NAME)
+        job = repository.get_job(MOEX_DATA_REBUILD_JOB_NAME)
     except Exception as exc:
         raise RuntimeError(
             "moex historical Dagster definitions are metadata-only or incomplete: "
-            "missing executable baseline update or cutover job."
+            "missing executable baseline update or data rebuild job."
         ) from exc
 
     expected_nodes = set(MOEX_HISTORICAL_ASSET_KEYS)
@@ -1071,7 +1190,7 @@ def execute_moex_baseline_update_job(
     }
 
 
-def execute_moex_historical_cutover_job(
+def execute_moex_data_rebuild_job(
     *,
     raw_table_path: Path,
     raw_ingest_report_path: Path,
@@ -1079,6 +1198,10 @@ def execute_moex_historical_cutover_job(
     canonical_run_id: str,
     instance: DagsterInstance,
     run_id: str,
+    profile_name: str = "canonical_from_existing_raw",
+    source_mode: str | None = None,
+    publish_mode: str = "promote",
+    downstream_mode: str = "invalidate",
     canonical_session_intervals_path: Path | None = None,
     extra_tags: dict[str, str] | None = None,
     scheduled_execution_time: datetime | None = None,
@@ -1086,44 +1209,35 @@ def execute_moex_historical_cutover_job(
 ) -> dict[str, object]:
     resolved_canonical_run_id = canonical_run_id.strip()
     if not resolved_canonical_run_id:
-        raise RuntimeError("execute_moex_historical_cutover_job requires canonical_run_id")
+        raise RuntimeError("execute_moex_data_rebuild_job requires canonical_run_id")
 
     assert_moex_historical_definitions_executable()
     definitions = build_moex_historical_definitions()
     repository = definitions.get_repository_def()
-    job = repository.get_job(MOEX_HISTORICAL_CUTOVER_JOB_NAME)
+    job = repository.get_job(MOEX_DATA_REBUILD_JOB_NAME)
 
-    run_config = build_moex_historical_run_config(
+    run_config = build_moex_data_rebuild_run_config(
+        profile_name=profile_name,
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_ingest_report_path,
         canonical_output_dir=canonical_output_dir,
         canonical_run_id=resolved_canonical_run_id,
         canonical_session_intervals_path=canonical_session_intervals_path,
+        source_mode=source_mode,
+        publish_mode=publish_mode,
+        downstream_mode=downstream_mode,
     )
     tags: dict[str, str] = dict(extra_tags or {})
     schedule_payload: dict[str, object] | None = None
 
     if scheduled_execution_time is not None:
-        schedule_context = build_schedule_context(
-            instance=instance,
-            scheduled_execution_time=scheduled_execution_time,
-            repository_def=repository,
-        )
-        execution_data = moex_historical_cutover_preview_schedule.evaluate_tick(schedule_context)
-        run_requests = list(getattr(execution_data, "run_requests", []) or [])
-        if len(run_requests) != 1:
-            raise RuntimeError(
-                "moex historical nightly schedule must resolve exactly one run request for governed execution"
-            )
-        request = run_requests[0]
-        schedule_run_config = request.run_config if isinstance(request.run_config, dict) else {}
-        run_config = _merge_run_config(schedule_run_config, run_config)
         tags = {
-            **{str(key): str(value) for key, value in dict(request.tags).items()},
+            "dagster/schedule_name": moex_data_rebuild_preview_schedule.name,
+            "dagster/scheduled_execution_time": scheduled_execution_time.isoformat(),
             **tags,
         }
         schedule_payload = {
-            "name": moex_historical_cutover_preview_schedule.name,
+            "name": moex_data_rebuild_preview_schedule.name,
             "cron": MOEX_BASELINE_DAILY_CRON,
             "execution_timezone": MOEX_HISTORICAL_EXECUTION_TIMEZONE,
             "scheduled_execution_time": scheduled_execution_time.isoformat(),
@@ -1140,7 +1254,7 @@ def execute_moex_historical_cutover_job(
     canonical_report_path = Path(output_paths["canonical_report"])
     if result.success and not canonical_report_path.exists():
         raise RuntimeError(
-            "moex historical Dagster job reported success but the canonical refresh report artifact is missing: "
+            "moex data rebuild Dagster job reported success but the canonical refresh report artifact is missing: "
             f"{canonical_report_path.as_posix()}"
         )
 
@@ -1150,12 +1264,51 @@ def execute_moex_historical_cutover_job(
         "logical_run_id": run_id,
         "dagster_job_name": job.name,
         "dagster_run_status": "SUCCESS" if result.success else "FAILURE",
+        "profile_name": profile_name,
+        "source_mode": source_mode or resolve_moex_data_rebuild_profile(profile_name).source_mode,
+        "publish_mode": publish_mode,
+        "downstream_mode": downstream_mode,
         "schedule": schedule_payload,
         "tags": tags,
         "materialized_assets": list(MOEX_HISTORICAL_ASSET_KEYS),
         "output_paths": output_paths,
         "canonical_report_exists": canonical_report_path.exists(),
     }
+
+
+def execute_moex_historical_cutover_job(
+    *,
+    raw_table_path: Path,
+    raw_ingest_report_path: Path,
+    canonical_output_dir: Path,
+    canonical_run_id: str,
+    instance: DagsterInstance,
+    run_id: str,
+    profile_name: str = "canonical_from_existing_raw",
+    source_mode: str | None = None,
+    publish_mode: str = "promote",
+    downstream_mode: str = "invalidate",
+    canonical_session_intervals_path: Path | None = None,
+    extra_tags: dict[str, str] | None = None,
+    scheduled_execution_time: datetime | None = None,
+    raise_on_error: bool = False,
+) -> dict[str, object]:
+    return execute_moex_data_rebuild_job(
+        raw_table_path=raw_table_path,
+        raw_ingest_report_path=raw_ingest_report_path,
+        canonical_output_dir=canonical_output_dir,
+        canonical_run_id=canonical_run_id,
+        instance=instance,
+        run_id=run_id,
+        profile_name=profile_name,
+        source_mode=source_mode,
+        publish_mode=publish_mode,
+        downstream_mode=downstream_mode,
+        canonical_session_intervals_path=canonical_session_intervals_path,
+        extra_tags=extra_tags,
+        scheduled_execution_time=scheduled_execution_time,
+        raise_on_error=raise_on_error,
+    )
 
 
 def _resolve_selected_assets(selection: Sequence[str] | None) -> list[str]:

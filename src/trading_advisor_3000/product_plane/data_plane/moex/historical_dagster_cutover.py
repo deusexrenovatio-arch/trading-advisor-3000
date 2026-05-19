@@ -13,7 +13,7 @@ from trading_advisor_3000.dagster_defs.moex_historical_assets import (
     MOEX_HISTORICAL_RETRY_POLICY,
     assert_moex_historical_definitions_executable,
     build_moex_historical_dagster_binding_artifact,
-    execute_moex_historical_cutover_job,
+    execute_moex_data_rebuild_job,
     moex_historical_asset_specs,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contracts import (
@@ -39,7 +39,7 @@ READINESS_TIMEZONE = "Europe/Moscow"
 READINESS_TARGET_HOUR = 6
 PASS_LIKE_STATUSES = {STATUS_PASS, STATUS_PASS_NOOP}
 STAGING_RUN_ID_KEYS = ("nightly_1", "nightly_2", "repair", "backfill", "recovery")
-LOCAL_DAGSTER_BINDING = "dagster://local-temp/moex-historical-cutover"
+LOCAL_DAGSTER_BINDING = "dagster://local-temp/moex-data-rebuild"
 CANONICAL_RETRY_BACKOFF_SECONDS = (60, 300, 900)
 
 
@@ -207,7 +207,7 @@ def _build_graph_definition_artifact() -> dict[str, object]:
     specs = moex_historical_asset_specs()
     return {
         "route_id": CANONICAL_ROUTE_ID,
-        "job_name": "moex_historical_cutover_job",
+        "job_name": "moex_data_rebuild_job",
         "graph_edges": [
             {"from": "moex_raw_ingest", "to": "moex_canonical_refresh"},
         ],
@@ -445,7 +445,7 @@ def _run_route_cycle(
         return cycle_report
 
     cycle_output_dir = output_dir / cycle.mode / cycle.run_id
-    materialization = execute_moex_historical_cutover_job(
+    materialization = execute_moex_data_rebuild_job(
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_ingest_report_path,
         canonical_output_dir=cycle_output_dir,
@@ -564,7 +564,7 @@ def _run_recovery_drill(
         metadata={"mode": "recovery-takeover"},
     )
 
-    materialization = execute_moex_historical_cutover_job(
+    materialization = execute_moex_data_rebuild_job(
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_ingest_report_path,
         canonical_output_dir=output_dir / "recovery" / replay_run_id,

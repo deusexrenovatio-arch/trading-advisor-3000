@@ -145,7 +145,7 @@ def test_dagster_cutover_dagster_cutover_materializes_route_and_emits_recovery_a
         assert cycle["status"] == "PASS"
         materialization = cycle["materialization"]
         assert materialization["success"] is True
-        assert str(materialization["dagster_job_name"]) == "moex_historical_cutover_job"
+        assert str(materialization["dagster_job_name"]) == "moex_data_rebuild_job"
         assert str(materialization["dagster_run_id"]).strip()
         canonicalization_report_path = Path(
             str(materialization["output_paths"]["canonicalization_report"])

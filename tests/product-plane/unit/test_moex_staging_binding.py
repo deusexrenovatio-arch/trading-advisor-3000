@@ -41,7 +41,7 @@ def test_build_moex_staging_binding_report_copies_artifacts_and_emits_report(tmp
         return {
             "run_id": run_id,
             "status": "SUCCESS",
-            "job_name": "moex_historical_cutover_job",
+            "job_name": "moex_data_rebuild_job",
             "start_time": 1.0,
             "end_time": 2.0,
             "update_time": 3.0,
@@ -68,7 +68,7 @@ def test_build_moex_staging_binding_report_copies_artifacts_and_emits_report(tmp
     assert report["proof_class"] == "staging-real"
     assert report["environment"] == "staging-real"
     assert report["run_ids"] == run_ids
-    assert "dagster://staging/moex-historical-cutover" in report["real_bindings"]
+    assert "dagster://staging/moex-data-rebuild" in report["real_bindings"]
     assert "delta-ledger-cas://technical-route-run-ledger" in report["real_bindings"]
     assert "delta://baseline/moex" in report["real_bindings"]
 
@@ -79,7 +79,7 @@ def test_build_moex_staging_binding_report_copies_artifacts_and_emits_report(tmp
 
     verification = json.loads(verification_path.read_text(encoding="utf-8"))
     assert verification["status"] == "PASS"
-    assert verification["job_name"] == "moex_historical_cutover_job"
+    assert verification["job_name"] == "moex_data_rebuild_job"
     assert verification["run_summaries"]["nightly_1"]["status"] == "SUCCESS"
 
 
@@ -90,7 +90,7 @@ def test_build_moex_staging_binding_report_fails_closed_when_run_is_not_success(
         return {
             "run_id": run_id,
             "status": "FAILURE",
-            "job_name": "moex_historical_cutover_job",
+            "job_name": "moex_data_rebuild_job",
             "start_time": 1.0,
             "end_time": 2.0,
             "update_time": 3.0,

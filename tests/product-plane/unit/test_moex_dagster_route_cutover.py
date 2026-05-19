@@ -150,7 +150,7 @@ def _write_staging_binding_report(tmp_path: Path) -> Path:
             "artifacts/codex/moex-staging-binding/recovery.json",
         ],
         "real_bindings": [
-            "dagster://staging/moex-historical-cutover",
+            "dagster://staging/moex-data-rebuild",
             "delta-ledger-cas://technical-route-run-ledger",
         ],
     }
@@ -192,7 +192,7 @@ def _install_successful_cutover_execution(monkeypatch: pytest.MonkeyPatch) -> li
 
     monkeypatch.setattr(
         "trading_advisor_3000.product_plane.data_plane.moex.historical_dagster_cutover"
-        ".execute_moex_historical_cutover_job",
+        ".execute_moex_data_rebuild_job",
         _fake_execute_cutover_job,
     )
     return executed_runs
@@ -207,6 +207,14 @@ def test_historical_dagster_cutover_definitions_are_executable(
     assert specs["moex_canonical_refresh"].inputs == ("raw_ingest_owner_payload",)
     definitions = build_moex_historical_definitions()
     repository = definitions.get_repository_def()
+    job_names = {job.name for job in repository.get_all_jobs()}
+    assert "moex_data_rebuild_job" in job_names
+    assert "moex_historical_cutover_job" not in job_names
+    data_rebuild_job = repository.get_job("moex_data_rebuild_job")
+    assert set(data_rebuild_job.graph.node_dict) == {
+        "moex_raw_ingest",
+        "moex_canonical_refresh",
+    }
     schedule_names = {schedule_def.name for schedule_def in repository.schedule_defs}
     assert "moex_baseline_daily_update_schedule" in schedule_names
     assert "moex_historical_nightly_schedule" not in schedule_names
@@ -380,7 +388,7 @@ def test_dagster_route_cutover_blocks_when_second_nightly_misses_morning_target(
 
     monkeypatch.setattr(
         "trading_advisor_3000.product_plane.data_plane.moex.historical_dagster_cutover"
-        ".execute_moex_historical_cutover_job",
+        ".execute_moex_data_rebuild_job",
         _fake_execute_cutover_job,
     )
 
@@ -579,7 +587,7 @@ def test_dagster_route_cutover_promotes_to_staging_real_when_external_binding_re
     assert report["status"] == "PASS"
     assert report["proof_class"] == "staging-real"
     assert report["staging_binding"]["orchestrator"] == "dagster-daemon"
-    assert "dagster://staging/moex-historical-cutover" in report["real_bindings"]
+    assert "dagster://staging/moex-data-rebuild" in report["real_bindings"]
 
 
 def test_dagster_route_cutover_rejects_localhost_staging_binding_report(tmp_path: Path) -> None:

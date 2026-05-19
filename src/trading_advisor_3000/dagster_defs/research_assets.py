@@ -87,6 +87,10 @@ from .historical_data_proof_assets import AssetSpec
 from .moex_historical_assets import MOEX_BASELINE_UPDATE_JOB_NAME, moex_baseline_update_job
 
 RESEARCH_DATA_PREP_JOB_NAME = "research_data_prep_job"
+MOEX_CF_REBUILD_JOB_NAME = "moex_cf_rebuild_job"
+MOEX_RESEARCH_BAR_REBUILD_JOB_NAME = "moex_research_bar_rebuild_job"
+MOEX_INDICATOR_REBUILD_JOB_NAME = "moex_indicator_rebuild_job"
+MOEX_DERIVED_INDICATOR_REBUILD_JOB_NAME = "moex_derived_indicator_rebuild_job"
 STRATEGY_REGISTRY_REFRESH_JOB_NAME = "strategy_registry_refresh_job"
 RESEARCH_BACKTEST_JOB_NAME = "research_backtest_job"
 RESEARCH_PROJECTION_JOB_NAME = "research_projection_job"
@@ -144,6 +148,19 @@ RESEARCH_DATA_PREP_ASSETS = (
     "research_indicator_frames",
     "research_derived_indicator_frames",
 )
+MOEX_CF_REBUILD_ASSETS = (
+    "continuous_front_bars",
+    "continuous_front_roll_events",
+    "continuous_front_adjustment_ladder",
+    "continuous_front_qc_report",
+)
+MOEX_RESEARCH_BAR_REBUILD_ASSETS = (
+    "research_datasets",
+    "research_instrument_tree",
+    "research_bar_views",
+)
+MOEX_INDICATOR_REBUILD_ASSETS = ("research_indicator_frames",)
+MOEX_DERIVED_INDICATOR_REBUILD_ASSETS = ("research_derived_indicator_frames",)
 
 STRATEGY_REGISTRY_REFRESH_ASSETS = (
     "research_strategy_families",
@@ -988,6 +1005,74 @@ def _materialized_table_manifest(
     }
 
 
+def _existing_research_dataset_context(config: dict[str, object]) -> dict[str, object]:
+    materialized_output_dir = _materialized_output_dir(config)
+    results_output_dir = _results_output_dir(config)
+    registry_root = Path(str(_config_value(config, "registry_root"))).resolve()
+    dataset_version = str(_config_value(config, "dataset_version"))
+    indicator_set_version = str(_config_value(config, "indicator_set_version", "indicators-v1"))
+    derived_indicator_set_version = str(
+        _config_value(
+            config, "derived_indicator_set_version", DEFAULT_DERIVED_INDICATOR_SET_VERSION
+        )
+    )
+    series_mode = str(_config_value(config, "series_mode", "contract"))
+    contour_id = "pit_active_front" if series_mode == "continuous_front" else "native_tradable"
+    return {
+        "canonical_output_dir": Path(str(_config_value(config, "canonical_output_dir")))
+        .resolve()
+        .as_posix(),
+        "registry_root": registry_root.as_posix(),
+        "materialized_output_dir": materialized_output_dir.as_posix(),
+        "results_output_dir": results_output_dir.as_posix(),
+        "reuse_existing_materialization": True,
+        "campaign_run_id": str(_config_value(config, "campaign_run_id")),
+        "dataset_version": dataset_version,
+        "contour_id": contour_id,
+        "indicator_set_version": indicator_set_version,
+        "indicator_profile_version": str(
+            _config_value(config, "indicator_profile_version", "core_v1")
+        ),
+        "derived_indicator_set_version": derived_indicator_set_version,
+        "derived_indicator_profile_version": str(
+            _config_value(config, "derived_indicator_profile_version", "core_v1")
+        ),
+        "volume_profile_raw_1m_table_path": _resolve_volume_profile_raw_1m_table_path(
+            _config_value(config, "volume_profile_raw_1m_table_path", "")
+        ),
+        "volume_profile_tick_size_by_instrument": _normalize_volume_profile_tick_sizes(
+            _config_value(config, "volume_profile_tick_size_by_instrument", {}),
+            strict=False,
+        ),
+        "dataset_manifest": _dataset_manifest_row(
+            materialized_output_dir=materialized_output_dir,
+            dataset_version=dataset_version,
+            contour_id=contour_id,
+        ),
+        "output_paths": _research_output_paths(
+            registry_root=registry_root,
+            materialized_output_dir=materialized_output_dir,
+            results_output_dir=results_output_dir,
+        ),
+    }
+
+
+def _continuous_front_status_from_store(
+    *, materialized_output_dir: Path, dataset_version: str
+) -> str:
+    qc_path = materialized_output_dir / "continuous_front_qc_report.delta"
+    if not has_delta_log(qc_path):
+        return ""
+    rows = read_delta_table_rows(
+        qc_path,
+        filters=[("dataset_version", "=", dataset_version)],
+    )
+    statuses = {str(row.get("status", "")).strip().upper() for row in rows}
+    if "PASS" in statuses:
+        return "PASS"
+    return sorted(statuses)[0] if statuses else ""
+
+
 def _seed_manifest(config: dict[str, object]) -> ResearchDatasetManifest:
     series_mode = str(_config_value(config, "series_mode", "contract"))
     contour_id = "pit_active_front" if series_mode == "continuous_front" else "native_tradable"
@@ -1111,14 +1196,13 @@ def continuous_front_qc_report(
     return summary
 
 
-@asset(group_name="research", config_schema=_research_config_schema())
-def research_datasets(context, continuous_front_qc_report: dict[str, object]) -> dict[str, object]:
+@asset(
+    group_name="research",
+    config_schema=_research_config_schema(),
+    deps=[continuous_front_qc_report],
+)
+def research_datasets(context) -> dict[str, object]:
     config = dict(context.op_execution_context.op_config)
-    if (
-        str(_config_value(config, "series_mode", "contract")) == "continuous_front"
-        and str(continuous_front_qc_report.get("continuous_front_status")) != "PASS"
-    ):
-        raise RuntimeError("continuous_front research dataset materialization requires PASS QC")
     registry_root = Path(str(_config_value(config, "registry_root"))).resolve()
     materialized_output_dir = _materialized_output_dir(config)
     results_output_dir = _results_output_dir(config)
@@ -1130,6 +1214,12 @@ def research_datasets(context, continuous_front_qc_report: dict[str, object]) ->
         )
     )
     series_mode = str(_config_value(config, "series_mode", "contract"))
+    continuous_front_status = _continuous_front_status_from_store(
+        materialized_output_dir=materialized_output_dir,
+        dataset_version=dataset_version,
+    )
+    if series_mode == "continuous_front" and continuous_front_status != "PASS":
+        raise RuntimeError("continuous_front research dataset materialization requires PASS QC")
     contour_id = "pit_active_front" if series_mode == "continuous_front" else "native_tradable"
     dataset_contract_ids = tuple(
         str(item) for item in _config_value(config, "dataset_contract_ids", [])
@@ -1333,12 +1423,14 @@ def research_bar_views(research_datasets: dict[str, object]) -> dict[str, object
     return _materialized_table_manifest(research_datasets, "research_bar_views")
 
 
-@asset(group_name="research")
-def research_indicator_frames(
-    research_datasets: dict[str, object],
-    research_bar_views: dict[str, object],
-) -> dict[str, object]:
-    del research_bar_views
+@asset(
+    group_name="research",
+    config_schema=_research_config_schema(),
+    deps=[research_datasets, research_bar_views],
+)
+def research_indicator_frames(context) -> dict[str, object]:
+    config = dict(context.op_execution_context.op_config)
+    research_datasets = _existing_research_dataset_context(config)
     materialized_output_dir = Path(str(research_datasets["materialized_output_dir"]))
     dataset_version = str(research_datasets["dataset_version"])
     indicator_set_version = str(research_datasets["indicator_set_version"])
@@ -1403,14 +1495,14 @@ def research_indicator_frames(
     return _materialized_table_manifest(research_datasets, "research_indicator_frames")
 
 
-@asset(group_name="research")
-def research_derived_indicator_frames(
-    research_datasets: dict[str, object],
-    research_bar_views: dict[str, object],
-    research_indicator_frames: dict[str, object],
-) -> dict[str, object]:
-    del research_bar_views
-    del research_indicator_frames
+@asset(
+    group_name="research",
+    config_schema=_research_config_schema(),
+    deps=[research_datasets, research_bar_views, research_indicator_frames],
+)
+def research_derived_indicator_frames(context) -> dict[str, object]:
+    config = dict(context.op_execution_context.op_config)
+    research_datasets = _existing_research_dataset_context(config)
     materialized_output_dir = Path(str(research_datasets["materialized_output_dir"]))
     dataset_version = str(research_datasets["dataset_version"])
     indicator_set_version = str(research_datasets["indicator_set_version"])
@@ -1925,6 +2017,35 @@ research_data_prep_job = define_asset_job(
     ),
 )
 
+moex_cf_rebuild_job = define_asset_job(
+    name=MOEX_CF_REBUILD_JOB_NAME,
+    selection=AssetSelection.assets(
+        continuous_front_bars,
+        continuous_front_roll_events,
+        continuous_front_adjustment_ladder,
+        continuous_front_qc_report,
+    ),
+)
+
+moex_research_bar_rebuild_job = define_asset_job(
+    name=MOEX_RESEARCH_BAR_REBUILD_JOB_NAME,
+    selection=AssetSelection.assets(
+        research_datasets,
+        research_instrument_tree,
+        research_bar_views,
+    ),
+)
+
+moex_indicator_rebuild_job = define_asset_job(
+    name=MOEX_INDICATOR_REBUILD_JOB_NAME,
+    selection=AssetSelection.assets(research_indicator_frames),
+)
+
+moex_derived_indicator_rebuild_job = define_asset_job(
+    name=MOEX_DERIVED_INDICATOR_REBUILD_JOB_NAME,
+    selection=AssetSelection.assets(research_derived_indicator_frames),
+)
+
 strategy_registry_refresh_job = define_asset_job(
     name=STRATEGY_REGISTRY_REFRESH_JOB_NAME,
     selection=AssetSelection.assets(
@@ -2188,6 +2309,12 @@ def build_research_data_prep_run_config(
             "research_datasets": {
                 "config": research_config,
             },
+            "research_indicator_frames": {
+                "config": research_config,
+            },
+            "research_derived_indicator_frames": {
+                "config": research_config,
+            },
         }
     }
 
@@ -2235,12 +2362,15 @@ def research_data_prep_after_moex_sensor(context):
 research_definitions = Definitions(
     assets=list(RESEARCH_ASSETS),
     jobs=[
-        research_data_prep_job,
+        moex_cf_rebuild_job,
+        moex_research_bar_rebuild_job,
+        moex_indicator_rebuild_job,
+        moex_derived_indicator_rebuild_job,
         strategy_registry_refresh_job,
         research_backtest_job,
         research_projection_job,
     ],
-    sensors=[research_data_prep_after_moex_sensor],
+    sensors=[],
 )
 
 
@@ -2248,7 +2378,10 @@ def assert_research_definitions_executable(definitions: Definitions | None = Non
     defs = definitions or research_definitions
     repository = defs.get_repository_def()
     expected_by_job = {
-        RESEARCH_DATA_PREP_JOB_NAME: set(RESEARCH_DATA_PREP_ASSETS),
+        MOEX_CF_REBUILD_JOB_NAME: set(MOEX_CF_REBUILD_ASSETS),
+        MOEX_RESEARCH_BAR_REBUILD_JOB_NAME: set(MOEX_RESEARCH_BAR_REBUILD_ASSETS),
+        MOEX_INDICATOR_REBUILD_JOB_NAME: set(MOEX_INDICATOR_REBUILD_ASSETS),
+        MOEX_DERIVED_INDICATOR_REBUILD_JOB_NAME: set(MOEX_DERIVED_INDICATOR_REBUILD_ASSETS),
         STRATEGY_REGISTRY_REFRESH_JOB_NAME: set(STRATEGY_REGISTRY_REFRESH_EXECUTION_ASSETS),
         RESEARCH_BACKTEST_JOB_NAME: set(RESEARCH_BACKTEST_ASSETS),
         RESEARCH_PROJECTION_JOB_NAME: set(RESEARCH_PROJECTION_ASSETS),
@@ -2623,6 +2756,12 @@ def _materialize_research_assets(
                     "config": research_config,
                 },
                 "research_datasets": {
+                    "config": research_config,
+                },
+                "research_indicator_frames": {
+                    "config": research_config,
+                },
+                "research_derived_indicator_frames": {
                     "config": research_config,
                 },
             }

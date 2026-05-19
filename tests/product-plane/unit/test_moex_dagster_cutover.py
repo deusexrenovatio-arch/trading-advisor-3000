@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-
-from dagster import DagsterInstance, build_schedule_context
 
 from trading_advisor_3000.dagster_defs import (
     assert_moex_historical_definitions_executable,
@@ -16,8 +14,10 @@ from trading_advisor_3000.dagster_defs import (
     moex_historical_asset_specs,
 )
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
-from trading_advisor_3000.product_plane.data_plane.moex import build_raw_ingest_run_report_v2, run_moex_dagster_cutover
-
+from trading_advisor_3000.product_plane.data_plane.moex import (
+    build_raw_ingest_run_report_v2,
+    run_moex_dagster_cutover,
+)
 
 RAW_COLUMNS: dict[str, str] = {
     "internal_id": "string",
@@ -105,12 +105,16 @@ def _write_raw_table_and_report(tmp_path: Path, *, run_id: str) -> tuple[Path, P
         raw_table_path=raw_table_path.as_posix(),
         raw_ingest_progress_path=(tmp_path / "raw_ingest" / "raw-ingest-progress.jsonl").as_posix(),
         raw_ingest_error_path=(tmp_path / "raw_ingest" / "raw-ingest-errors.jsonl").as_posix(),
-        raw_ingest_error_latest_path=(tmp_path / "raw_ingest" / "raw-ingest-error.latest.json").as_posix(),
+        raw_ingest_error_latest_path=(
+            tmp_path / "raw_ingest" / "raw-ingest-error.latest.json"
+        ).as_posix(),
         changed_windows=changed_windows,
     )
     raw_report_path = tmp_path / "raw_ingest" / "raw-ingest-report.json"
     raw_report_path.parent.mkdir(parents=True, exist_ok=True)
-    raw_report_path.write_text(json.dumps(raw_report_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    raw_report_path.write_text(
+        json.dumps(raw_report_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     return raw_table_path, raw_report_path
 
 
@@ -133,14 +137,53 @@ def _write_staging_binding_report(tmp_path: Path) -> Path:
             "artifacts/codex/moex-dagster-cutover-staging/recovery.json",
         ],
         "real_bindings": [
-            "dagster://staging/moex-historical-cutover",
+            "dagster://staging/moex-data-rebuild",
             "delta-ledger-cas://technical-route-run-ledger",
         ],
     }
     report_path = tmp_path / "dagster_cutover" / "staging-binding-report.json"
     report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    report_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     return report_path
+
+
+@pytest.fixture(autouse=True)
+def _install_fast_data_rebuild_execution(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _fake_execute_data_rebuild_job(**kwargs: object) -> dict[str, object]:
+        run_id = str(kwargs["run_id"])
+        canonical_output_dir = Path(str(kwargs["canonical_output_dir"]))
+        canonical_report_path = canonical_output_dir / "canonical-refresh-report.json"
+        canonical_report_path.parent.mkdir(parents=True, exist_ok=True)
+        canonical_report_path.write_text(
+            json.dumps(
+                {
+                    "run_id": run_id,
+                    "publish_decision": "publish",
+                    "real_bindings": ["spark-delta://unit-data-rebuild-canonical"],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return {
+            "success": True,
+            "run_id": run_id,
+            "dagster_job_name": "moex_data_rebuild_job",
+            "output_paths": {
+                "canonical_report": canonical_report_path.as_posix(),
+                "canonicalization_report": canonical_report_path.as_posix(),
+            },
+        }
+
+    monkeypatch.setattr(
+        "trading_advisor_3000.product_plane.data_plane.moex.dagster_cutover"
+        ".execute_moex_data_rebuild_job",
+        _fake_execute_data_rebuild_job,
+    )
 
 
 def test_dagster_cutover_dagster_cutover_definitions_are_executable() -> None:
@@ -150,31 +193,28 @@ def test_dagster_cutover_dagster_cutover_definitions_are_executable() -> None:
     assert specs["moex_canonical_refresh"].inputs == ("raw_ingest_owner_payload",)
     definitions = build_moex_historical_definitions()
     repository = definitions.get_repository_def()
+    job_names = {job.name for job in repository.get_all_jobs()}
+    assert "moex_data_rebuild_job" in job_names
+    assert "moex_historical_cutover_job" not in job_names
     schedule_names = {schedule_def.name for schedule_def in repository.schedule_defs}
-    assert "moex_historical_nightly_schedule" in schedule_names
+    assert "moex_baseline_daily_update_schedule" in schedule_names
+    assert "moex_historical_nightly_schedule" not in schedule_names
     binding = build_moex_historical_dagster_binding_artifact()
     assert binding["schedule"]["cron"] == "0 2 * * *"
     assert binding["retry_policy"]["max_retries"] == 3
 
-    schedule_def = repository.get_schedule_def("moex_historical_nightly_schedule")
-    schedule_context = build_schedule_context(
-        instance=DagsterInstance.ephemeral(),
-        repository_def=repository,
-        scheduled_execution_time=datetime(2026, 4, 15, 2, 0, tzinfo=UTC),
+
+def test_dagster_cutover_canonical_refresh_is_blocked_when_raw_status_failed(
+    tmp_path: Path,
+) -> None:
+    raw_table_path, raw_report_path = _write_raw_table_and_report(
+        tmp_path, run_id="dagster-cutover-raw-failed"
     )
-    execution_data = schedule_def.evaluate_tick(schedule_context)
-    run_requests = list(getattr(execution_data, "run_requests", []) or [])
-    assert len(run_requests) == 1
-    run_request = run_requests[0]
-    assert isinstance(run_request.run_config, dict)
-    assert run_request.run_config.get("ops")
-
-
-def test_dagster_cutover_canonical_refresh_is_blocked_when_raw_status_failed(tmp_path: Path) -> None:
-    raw_table_path, raw_report_path = _write_raw_table_and_report(tmp_path, run_id="dagster-cutover-raw-failed")
     payload = json.loads(raw_report_path.read_text(encoding="utf-8"))
     payload["status"] = "FAILED"
-    raw_report_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    raw_report_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
 
     report = materialize_moex_historical_assets(
         raw_table_path=raw_table_path,
@@ -186,8 +226,12 @@ def test_dagster_cutover_canonical_refresh_is_blocked_when_raw_status_failed(tmp
     assert report["success"] is False
 
 
-def test_dagster_cutover_cutover_blocks_when_second_nightly_misses_morning_target(tmp_path: Path) -> None:
-    raw_table_path, raw_report_path = _write_raw_table_and_report(tmp_path, run_id="dagster-cutover-nightly-target-blocked")
+def test_dagster_cutover_cutover_blocks_when_second_nightly_misses_morning_target(
+    tmp_path: Path,
+) -> None:
+    raw_table_path, raw_report_path = _write_raw_table_and_report(
+        tmp_path, run_id="dagster-cutover-nightly-target-blocked"
+    )
     report = run_moex_dagster_cutover(
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_report_path,
@@ -204,7 +248,9 @@ def test_dagster_cutover_cutover_blocks_when_second_nightly_misses_morning_targe
 
 
 def test_dagster_cutover_cutover_rejects_non_increasing_nightly_sequence(tmp_path: Path) -> None:
-    raw_table_path, raw_report_path = _write_raw_table_and_report(tmp_path, run_id="dagster-cutover-nightly-order")
+    raw_table_path, raw_report_path = _write_raw_table_and_report(
+        tmp_path, run_id="dagster-cutover-nightly-order"
+    )
 
     with pytest.raises(ValueError, match="strictly increasing order"):
         run_moex_dagster_cutover(
@@ -219,8 +265,12 @@ def test_dagster_cutover_cutover_rejects_non_increasing_nightly_sequence(tmp_pat
         )
 
 
-def test_dagster_cutover_cutover_rejects_non_consecutive_local_nightly_cycles(tmp_path: Path) -> None:
-    raw_table_path, raw_report_path = _write_raw_table_and_report(tmp_path, run_id="dagster-cutover-nightly-gap")
+def test_dagster_cutover_cutover_rejects_non_consecutive_local_nightly_cycles(
+    tmp_path: Path,
+) -> None:
+    raw_table_path, raw_report_path = _write_raw_table_and_report(
+        tmp_path, run_id="dagster-cutover-nightly-gap"
+    )
 
     with pytest.raises(ValueError, match="two consecutive nightly cycles"):
         run_moex_dagster_cutover(
@@ -236,7 +286,9 @@ def test_dagster_cutover_cutover_rejects_non_consecutive_local_nightly_cycles(tm
 
 
 def test_dagster_cutover_cutover_rejects_non_canonical_schedule_cron(tmp_path: Path) -> None:
-    raw_table_path, raw_report_path = _write_raw_table_and_report(tmp_path, run_id="dagster-cutover-schedule-drift")
+    raw_table_path, raw_report_path = _write_raw_table_and_report(
+        tmp_path, run_id="dagster-cutover-schedule-drift"
+    )
     with pytest.raises(ValueError, match="canonical route requires Dagster nightly cron"):
         run_moex_dagster_cutover(
             raw_table_path=raw_table_path,
@@ -252,7 +304,9 @@ def test_dagster_cutover_cutover_rejects_non_canonical_schedule_cron(tmp_path: P
 
 
 def test_dagster_cutover_cutover_rejects_retry_max_attempts_drift(tmp_path: Path) -> None:
-    raw_table_path, raw_report_path = _write_raw_table_and_report(tmp_path, run_id="dagster-cutover-retry-attempts-drift")
+    raw_table_path, raw_report_path = _write_raw_table_and_report(
+        tmp_path, run_id="dagster-cutover-retry-attempts-drift"
+    )
     with pytest.raises(ValueError, match="canonical route requires `retry_max_attempts=3`"):
         run_moex_dagster_cutover(
             raw_table_path=raw_table_path,
@@ -268,7 +322,9 @@ def test_dagster_cutover_cutover_rejects_retry_max_attempts_drift(tmp_path: Path
 
 
 def test_dagster_cutover_cutover_rejects_retry_backoff_drift(tmp_path: Path) -> None:
-    raw_table_path, raw_report_path = _write_raw_table_and_report(tmp_path, run_id="dagster-cutover-retry-backoff-drift")
+    raw_table_path, raw_report_path = _write_raw_table_and_report(
+        tmp_path, run_id="dagster-cutover-retry-backoff-drift"
+    )
     with pytest.raises(
         ValueError,
         match=r"canonical route requires `retry_backoff_seconds=\[60, 300, 900\]`",
@@ -286,8 +342,12 @@ def test_dagster_cutover_cutover_rejects_retry_backoff_drift(tmp_path: Path) -> 
         )
 
 
-def test_dagster_cutover_cutover_passes_with_two_nightly_cycles_and_recovery(tmp_path: Path) -> None:
-    raw_table_path, raw_report_path = _write_raw_table_and_report(tmp_path, run_id="dagster-cutover-cutover-pass")
+def test_dagster_cutover_cutover_passes_with_two_nightly_cycles_and_recovery(
+    tmp_path: Path,
+) -> None:
+    raw_table_path, raw_report_path = _write_raw_table_and_report(
+        tmp_path, run_id="dagster-cutover-cutover-pass"
+    )
     report = run_moex_dagster_cutover(
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_report_path,
@@ -311,8 +371,12 @@ def test_dagster_cutover_cutover_passes_with_two_nightly_cycles_and_recovery(tmp
         assert Path(path_text).exists()
 
 
-def test_dagster_cutover_cutover_blocks_when_staging_real_is_required_without_external_binding(tmp_path: Path) -> None:
-    raw_table_path, raw_report_path = _write_raw_table_and_report(tmp_path, run_id="dagster-cutover-staging-required")
+def test_dagster_cutover_cutover_blocks_when_staging_real_is_required_without_external_binding(
+    tmp_path: Path,
+) -> None:
+    raw_table_path, raw_report_path = _write_raw_table_and_report(
+        tmp_path, run_id="dagster-cutover-staging-required"
+    )
     report = run_moex_dagster_cutover(
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_report_path,
@@ -332,8 +396,12 @@ def test_dagster_cutover_cutover_blocks_when_staging_real_is_required_without_ex
     )
 
 
-def test_dagster_cutover_cutover_promotes_to_staging_real_when_external_binding_report_is_provided(tmp_path: Path) -> None:
-    raw_table_path, raw_report_path = _write_raw_table_and_report(tmp_path, run_id="dagster-cutover-staging-binding")
+def test_dagster_cutover_cutover_promotes_to_staging_real_when_external_binding_report_is_provided(
+    tmp_path: Path,
+) -> None:
+    raw_table_path, raw_report_path = _write_raw_table_and_report(
+        tmp_path, run_id="dagster-cutover-staging-binding"
+    )
     staging_binding_report_path = _write_staging_binding_report(tmp_path)
     report = run_moex_dagster_cutover(
         raw_table_path=raw_table_path,
@@ -350,11 +418,13 @@ def test_dagster_cutover_cutover_promotes_to_staging_real_when_external_binding_
     assert report["status"] == "PASS"
     assert report["proof_class"] == "staging-real"
     assert report["staging_binding"]["orchestrator"] == "dagster-daemon"
-    assert "dagster://staging/moex-historical-cutover" in report["real_bindings"]
+    assert "dagster://staging/moex-data-rebuild" in report["real_bindings"]
 
 
 def test_dagster_cutover_cutover_rejects_localhost_staging_binding_report(tmp_path: Path) -> None:
-    raw_table_path, raw_report_path = _write_raw_table_and_report(tmp_path, run_id="dagster-cutover-localhost-binding")
+    raw_table_path, raw_report_path = _write_raw_table_and_report(
+        tmp_path, run_id="dagster-cutover-localhost-binding"
+    )
     staging_binding_report_path = _write_staging_binding_report(tmp_path)
     payload = json.loads(staging_binding_report_path.read_text(encoding="utf-8"))
     payload["dagster_url"] = "http://127.0.0.1:3011"
@@ -363,7 +433,9 @@ def test_dagster_cutover_cutover_rejects_localhost_staging_binding_report(tmp_pa
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="loopback or unspecified host|external staging Dagster host"):
+    with pytest.raises(
+        ValueError, match="loopback or unspecified host|external staging Dagster host"
+    ):
         run_moex_dagster_cutover(
             raw_table_path=raw_table_path,
             raw_ingest_report_path=raw_report_path,

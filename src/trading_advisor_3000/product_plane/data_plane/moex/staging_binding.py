@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 
 
 STAGING_RUN_ID_KEYS = ("nightly_1", "nightly_2", "repair", "backfill", "recovery")
-DEFAULT_DAGSTER_BINDING = "dagster://staging/moex-historical-cutover"
+DEFAULT_DAGSTER_BINDING = "dagster://staging/moex-data-rebuild"
 DEFAULT_REAL_BINDINGS = ("delta-ledger-cas://technical-route-run-ledger",)
 _LOCAL_DAGSTER_HOSTS = {"localhost", "host.docker.internal"}
 RUN_SUMMARY_QUERY = """
@@ -210,7 +210,7 @@ def build_moex_staging_binding_report(
     output_dir: Path,
     run_ids: dict[str, str],
     artifact_paths_by_mode: dict[str, Path | str],
-    expected_job_name: str = "moex_historical_cutover_job",
+    expected_job_name: str = "moex_data_rebuild_job",
     dagster_binding: str = DEFAULT_DAGSTER_BINDING,
     extra_real_bindings: list[str] | tuple[str, ...] | None = None,
     orchestrator: str = "dagster-daemon",
