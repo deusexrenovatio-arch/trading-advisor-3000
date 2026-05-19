@@ -108,6 +108,33 @@ def test_raw_available_intervals_scanner_normalizes_delta_rows(
     assert available == {("BRM6@MOEX", "FUT_BR"): {1}}
 
 
+def test_publish_scope_uses_selected_contract_not_changed_window_interval() -> None:
+    rows = canonical_module._publish_scope_rows(
+        changed_windows=[
+            canonical_module.ChangedWindowScope(
+                internal_id="FUT_BR",
+                source_timeframe="5m",
+                source_interval=5,
+                moex_secid="BRM6@MOEX",
+                window_start_utc="2026-04-02T10:00:00Z",
+                window_end_utc="2026-04-02T10:20:00Z",
+                incremental_rows=4,
+            )
+        ],
+        selected_source_intervals={("BRM6@MOEX", "FUT_BR", "15m"): 1},
+    )
+
+    assert rows == [
+        {
+            "instrument_id": "FUT_BR",
+            "timeframe": "15m",
+            "target_minutes": 15,
+            "window_start_utc": "2026-04-02T10:00:00Z",
+            "window_end_utc": "2026-04-02T10:20:00Z",
+        }
+    ]
+
+
 def test_session_admission_gate_blocks_official_schedule_mismatch() -> None:
     report = canonical_module._session_admission_gate_report(
         {
@@ -127,6 +154,16 @@ def test_session_admission_gate_blocks_missing_official_schedule_input() -> None
 
     assert report["status"] == "FAIL"
     assert report["failed_gates"] == ["official_schedule_missing_input"]
+
+
+def test_session_admission_gate_reports_raw_interval_selection_blocker() -> None:
+    report = canonical_module._session_admission_gate_report(
+        None,
+        missing_report_gate="raw_source_interval_missing",
+    )
+
+    assert report["status"] == "FAIL"
+    assert report["failed_gates"] == ["raw_source_interval_missing"]
 
 
 def test_canonical_route_qc_fails_when_duplicate_bar_key_is_present() -> None:

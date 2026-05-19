@@ -1073,14 +1073,12 @@ def _publish_scope_rows(
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for window in changed_windows:
-        for (contract_id, instrument_id, timeframe), source_interval in sorted(
+        for (contract_id, instrument_id, timeframe), _source_interval in sorted(
             selected_source_intervals.items()
         ):
             if contract_id != window.moex_secid:
                 continue
             if instrument_id != window.internal_id:
-                continue
-            if source_interval != window.source_interval:
                 continue
             rows.append(
                 {
@@ -1602,6 +1600,8 @@ def _status_for_publish_decision(
 
 def _session_admission_gate_report(
     spark_execution_report: dict[str, object] | None,
+    *,
+    missing_report_gate: str | None = "official_schedule_missing_input",
 ) -> dict[str, object]:
     admission = (
         spark_execution_report.get("session_admission_report")
@@ -1609,9 +1609,16 @@ def _session_admission_gate_report(
         else None
     )
     if not isinstance(admission, dict):
+        if missing_report_gate is None:
+            return {
+                "status": STATUS_PASS,
+                "failed_gates": [],
+                "rejected_out_of_session_rows": 0,
+                "missing_official_coverage_rows": 0,
+            }
         return {
             "status": "FAIL",
-            "failed_gates": ["official_schedule_missing_input"],
+            "failed_gates": [missing_report_gate],
             "rejected_out_of_session_rows": 0,
             "missing_official_coverage_rows": 0,
         }
@@ -1774,6 +1781,12 @@ def _run_scoped_spark_delta_publish_route(
             scoped_provenance_path = Path(raw_provenance_path) if raw_provenance_path else None
         publish_scope_path = output_dir / ".spark-canonicalization" / "publish-scope.jsonl"
 
+    missing_session_gate: str | None = "official_schedule_missing_input"
+    if not changed_window_scope:
+        missing_session_gate = None
+    elif not selected_source_intervals:
+        missing_session_gate = "raw_source_interval_missing"
+
     raw_parity_report = _build_spark_raw_parity_report(
         run_id=run_id,
         changed_windows=changed_window_scope,
@@ -1791,7 +1804,10 @@ def _run_scoped_spark_delta_publish_route(
         "mode": "pending_spark_publish_contract_report",
     }
     runtime_report = run_runtime_decoupling_check(repo_root=repo_root)
-    session_admission_gate = _session_admission_gate_report(spark_execution_report)
+    session_admission_gate = _session_admission_gate_report(
+        spark_execution_report,
+        missing_report_gate=missing_session_gate,
+    )
 
     qc_report: dict[str, object] = {
         "run_id": run_id,
