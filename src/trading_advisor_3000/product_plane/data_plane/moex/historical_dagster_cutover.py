@@ -453,6 +453,7 @@ def _run_route_cycle(
         instance=dagster_instance,
         run_id=cycle.run_id,
         canonical_session_intervals_path=canonical_session_intervals_path,
+        publish_mode="staging_only",
         extra_tags={
             "dagster/mode": cycle.mode,
             "dagster/retry_of_run_id": cycle.retry_of_run_id or "",
@@ -572,6 +573,7 @@ def _run_recovery_drill(
         instance=dagster_instance,
         run_id=replay_run_id,
         canonical_session_intervals_path=canonical_session_intervals_path,
+        publish_mode="staging_only",
         extra_tags={
             "dagster/mode": "recovery",
             "dagster/retry_of_run_id": f"{run_id}-recovery-initial",

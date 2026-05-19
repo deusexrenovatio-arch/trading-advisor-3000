@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-import json
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -11,13 +11,10 @@ from dagster import DagsterInstance
 from trading_advisor_3000.dagster_defs.moex_historical_assets import (
     MOEX_HISTORICAL_NIGHTLY_CRON,
     MOEX_HISTORICAL_RETRY_POLICY,
-    build_moex_historical_dagster_binding_artifact,
     assert_moex_historical_definitions_executable,
+    build_moex_historical_dagster_binding_artifact,
     execute_moex_data_rebuild_job,
     moex_historical_asset_specs,
-)
-from trading_advisor_3000.product_plane.data_plane.moex.staging_binding import (
-    validate_external_dagster_url,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contracts import (
     LEASE_BACKEND_DELTA_LEDGER_CAS,
@@ -33,7 +30,9 @@ from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contrac
     release_technical_route_lease,
     takeover_technical_route_lease,
 )
-
+from trading_advisor_3000.product_plane.data_plane.moex.staging_binding import (
+    validate_external_dagster_url,
+)
 
 CANONICAL_ROUTE_ID = "moex_historical_canonical_dagster_route.v1"
 READINESS_TIMEZONE = "Europe/Moscow"
@@ -441,6 +440,7 @@ def _run_route_cycle(
         canonical_run_id=cycle.run_id,
         instance=dagster_instance,
         run_id=cycle.run_id,
+        publish_mode="staging_only",
         extra_tags={
             "dagster/mode": cycle.mode,
             "dagster/retry_of_run_id": cycle.retry_of_run_id or "",
@@ -563,6 +563,7 @@ def _run_recovery_drill(
         canonical_run_id=replay_run_id,
         instance=dagster_instance,
         run_id=replay_run_id,
+        publish_mode="staging_only",
         extra_tags={
             "dagster/mode": "recovery",
             "dagster/retry_of_run_id": f"{run_id}-recovery-initial",

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from dagster import DagsterInstance
 
+import trading_advisor_3000.dagster_defs.moex_historical_assets as moex_historical_assets
 import trading_advisor_3000.dagster_defs.research_assets as research_assets
 from trading_advisor_3000.dagster_defs import (
     MOEX_DATA_REBUILD_JOB_NAME,
@@ -156,18 +157,21 @@ def test_moex_data_rebuild_run_config_distinguishes_raw_source_modes(tmp_path: P
         profile_name="canonical_from_existing_raw",
         raw_table_path=tmp_path / "raw_moex_history.delta",
         raw_ingest_report_path=tmp_path / "raw-ingest-report.json",
-        canonical_output_dir=tmp_path / "canonical",
+        canonical_output_dir=tmp_path / "canonical-staging",
+        canonical_target_output_dir=tmp_path / "canonical-current",
         canonical_run_id="run-existing-raw",
     )
     existing_raw_op_config = existing_raw_config["ops"]["moex_data_rebuild"]["config"]
     assert existing_raw_op_config["source_mode"] == "existing_raw_delta"
     assert existing_raw_op_config["raw_table_path"].endswith("raw_moex_history.delta")
     assert existing_raw_op_config["raw_ingest_report_path"].endswith("raw-ingest-report.json")
+    assert existing_raw_op_config["canonical_target_output_dir"].endswith("canonical-current")
 
     full_raw_config = build_moex_data_rebuild_run_config(
         profile_name="full_raw_to_canonical",
-        canonical_output_dir=tmp_path / "canonical",
+        canonical_output_dir=tmp_path / "canonical-staging",
         canonical_run_id="run-full-raw",
+        publish_mode="staging_only",
         raw_root=tmp_path / "raw",
         canonical_root=tmp_path / "canonical-root",
         session_root=tmp_path / "sessions",
@@ -178,6 +182,94 @@ def test_moex_data_rebuild_run_config_distinguishes_raw_source_modes(tmp_path: P
     assert "raw_table_path" not in full_raw_op_config
     assert "raw_ingest_report_path" not in full_raw_op_config
     assert full_raw_op_config["raw_root"].endswith("raw")
+
+
+def test_moex_canonical_rebuild_promote_requires_explicit_target_contract(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match="requires canonical_target_output_dir or explicit target"):
+        build_moex_data_rebuild_run_config(
+            profile_name="canonical_from_existing_raw",
+            raw_table_path=tmp_path / "raw_moex_history.delta",
+            raw_ingest_report_path=tmp_path / "raw-ingest-report.json",
+            canonical_output_dir=tmp_path / "canonical-staging",
+            canonical_run_id="run-missing-target",
+            publish_mode="promote",
+        )
+
+
+def test_moex_canonical_rebuild_publish_mode_controls_target_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: list[dict[str, object]] = []
+
+    def _fake_materialize(**kwargs: object) -> dict[str, object]:
+        captured.append(dict(kwargs))
+        return {
+            "success": True,
+            "selected_assets": ["moex_raw_ingest", "moex_canonical_refresh"],
+            "materialized_assets": ["moex_raw_ingest", "moex_canonical_refresh"],
+            "output_paths": {
+                "canonical_bars": Path(str(kwargs["canonical_bars_path"])).as_posix(),
+                "canonical_bar_provenance": Path(
+                    str(kwargs["canonical_provenance_path"])
+                ).as_posix(),
+                "canonical_session_calendar": Path(
+                    str(kwargs["canonical_session_calendar_path"])
+                ).as_posix(),
+                "canonical_roll_map": Path(str(kwargs["canonical_roll_map_path"])).as_posix(),
+            },
+            "rows_by_table": {"canonical_bars": 2},
+        }
+
+    monkeypatch.setattr(
+        moex_historical_assets,
+        "materialize_moex_historical_assets",
+        _fake_materialize,
+    )
+
+    staging_root = tmp_path / "canonical-staging"
+    target_root = tmp_path / "canonical-current"
+    staging_report = moex_historical_assets.run_moex_data_rebuild_profile(
+        {
+            "profile_name": "canonical_from_existing_raw",
+            "raw_table_path": (tmp_path / "raw_moex_history.delta").as_posix(),
+            "raw_ingest_report_path": (tmp_path / "raw-ingest-report.json").as_posix(),
+            "canonical_output_dir": staging_root.as_posix(),
+            "canonical_run_id": "run-staging-only",
+            "publish_mode": "staging_only",
+        }
+    )
+    staging_call = captured[-1]
+    assert Path(str(staging_call["canonical_bars_path"])) == (
+        staging_root / "delta" / "canonical_bars.delta"
+    ).resolve()
+    assert staging_report["manifest"]["promoted_outputs"] == {}
+    assert staging_report["manifest"]["staged_outputs"]["canonical_bars"].endswith(
+        "canonical-staging/delta/canonical_bars.delta"
+    )
+
+    promote_report = moex_historical_assets.run_moex_data_rebuild_profile(
+        {
+            "profile_name": "canonical_from_existing_raw",
+            "raw_table_path": (tmp_path / "raw_moex_history.delta").as_posix(),
+            "raw_ingest_report_path": (tmp_path / "raw-ingest-report.json").as_posix(),
+            "canonical_output_dir": staging_root.as_posix(),
+            "canonical_target_output_dir": target_root.as_posix(),
+            "canonical_run_id": "run-promote",
+            "publish_mode": "promote",
+        }
+    )
+    promote_call = captured[-1]
+    assert Path(str(promote_call["canonical_bars_path"])) == (
+        target_root / "canonical_bars.delta"
+    ).resolve()
+    assert promote_report["manifest"]["staged_outputs"]["canonical_bars"].endswith(
+        "canonical-staging/delta/canonical_bars.delta"
+    )
+    assert promote_report["manifest"]["promoted_outputs"]["canonical_bars"].endswith(
+        "canonical-current/canonical_bars.delta"
+    )
 
 
 def test_moex_data_rebuild_job_dispatches_data_layer_profile_in_order(

@@ -108,7 +108,12 @@ MOEX_HISTORICAL_OP_CONFIG_SCHEMA = {
     "raw_table_path": DagsterField(str, is_required=False),
     "raw_ingest_report_path": DagsterField(str, is_required=False),
     "canonical_output_dir": DagsterField(str, is_required=False),
+    "canonical_target_output_dir": DagsterField(str, is_required=False),
+    "canonical_bars_path": DagsterField(str, is_required=False),
+    "canonical_provenance_path": DagsterField(str, is_required=False),
     "canonical_session_intervals_path": DagsterField(str, is_required=False),
+    "canonical_session_calendar_path": DagsterField(str, is_required=False),
+    "canonical_roll_map_path": DagsterField(str, is_required=False),
     "canonical_run_id": DagsterField(str, is_required=False),
     "mapping_registry_path": DagsterField(str, is_required=False),
     "universe_path": DagsterField(str, is_required=False),
@@ -258,7 +263,7 @@ def _build_nightly_schedule_run_config(context) -> dict[str, object]:
                 "config": {
                     "profile_name": "full_raw_to_canonical",
                     "source_mode": "full_raw_ingest",
-                    "publish_mode": "promote",
+                    "publish_mode": "staging_only",
                     "downstream_mode": "invalidate",
                     "canonical_output_dir": canonical_output_dir.as_posix(),
                     "canonical_run_id": run_id,
@@ -472,9 +477,14 @@ def build_moex_data_rebuild_op_config(
     profile_name: str,
     canonical_run_id: str,
     canonical_output_dir: Path,
+    canonical_target_output_dir: Path | None = None,
     raw_table_path: Path | None = None,
     raw_ingest_report_path: Path | None = None,
+    canonical_bars_path: Path | None = None,
+    canonical_provenance_path: Path | None = None,
     canonical_session_intervals_path: Path | None = None,
+    canonical_session_calendar_path: Path | None = None,
+    canonical_roll_map_path: Path | None = None,
     source_mode: str | None = None,
     publish_mode: str = "promote",
     downstream_mode: str = "invalidate",
@@ -512,6 +522,36 @@ def build_moex_data_rebuild_op_config(
         raise ValueError(
             "canonical_from_existing_raw rebuild requires raw_table_path and raw_ingest_report_path"
         )
+    requires_canonical_target_contract = bool(
+        set(profile.stage_names).intersection({"raw", "sessions", "canonical"})
+    )
+    explicit_target_paths = {
+        "canonical_bars_path": canonical_bars_path,
+        "canonical_provenance_path": canonical_provenance_path,
+        "canonical_session_calendar_path": canonical_session_calendar_path,
+        "canonical_roll_map_path": canonical_roll_map_path,
+    }
+    supplied_explicit_targets = [
+        key for key, value in explicit_target_paths.items() if value is not None
+    ]
+    if supplied_explicit_targets and len(supplied_explicit_targets) != len(explicit_target_paths):
+        missing_targets = sorted(
+            key for key, value in explicit_target_paths.items() if value is None
+        )
+        raise ValueError(
+            "canonical rebuild explicit target paths must be supplied as a complete set; "
+            f"missing: {', '.join(missing_targets)}"
+        )
+    if (
+        requires_canonical_target_contract
+        and resolved_publish_mode == "promote"
+        and canonical_target_output_dir is None
+        and not supplied_explicit_targets
+    ):
+        raise ValueError(
+            "canonical rebuild publish_mode=promote requires canonical_target_output_dir "
+            "or explicit target paths for canonical bars, provenance, session calendar, and roll map"
+        )
     config: dict[str, str] = {
         "profile_name": profile.name,
         "source_mode": resolved_source_mode,
@@ -524,6 +564,11 @@ def build_moex_data_rebuild_op_config(
         config["raw_table_path"] = raw_table_path.resolve().as_posix()
     if raw_ingest_report_path is not None:
         config["raw_ingest_report_path"] = raw_ingest_report_path.resolve().as_posix()
+    if canonical_target_output_dir is not None:
+        config["canonical_target_output_dir"] = canonical_target_output_dir.resolve().as_posix()
+    for key, value in explicit_target_paths.items():
+        if value is not None:
+            config[key] = value.resolve().as_posix()
     if canonical_session_intervals_path is not None:
         config["canonical_session_intervals_path"] = (
             canonical_session_intervals_path.resolve().as_posix()
@@ -545,9 +590,14 @@ def build_moex_data_rebuild_run_config(
     profile_name: str,
     canonical_run_id: str,
     canonical_output_dir: Path,
+    canonical_target_output_dir: Path | None = None,
     raw_table_path: Path | None = None,
     raw_ingest_report_path: Path | None = None,
+    canonical_bars_path: Path | None = None,
+    canonical_provenance_path: Path | None = None,
     canonical_session_intervals_path: Path | None = None,
+    canonical_session_calendar_path: Path | None = None,
+    canonical_roll_map_path: Path | None = None,
     source_mode: str | None = None,
     publish_mode: str = "promote",
     downstream_mode: str = "invalidate",
@@ -561,8 +611,13 @@ def build_moex_data_rebuild_run_config(
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_ingest_report_path,
         canonical_output_dir=canonical_output_dir,
+        canonical_target_output_dir=canonical_target_output_dir,
         canonical_run_id=canonical_run_id,
+        canonical_bars_path=canonical_bars_path,
+        canonical_provenance_path=canonical_provenance_path,
         canonical_session_intervals_path=canonical_session_intervals_path,
+        canonical_session_calendar_path=canonical_session_calendar_path,
+        canonical_roll_map_path=canonical_roll_map_path,
         source_mode=source_mode,
         publish_mode=publish_mode,
         downstream_mode=downstream_mode,
@@ -991,13 +1046,29 @@ def moex_canonical_refresh(context, moex_raw_ingest: dict[str, object]) -> dict[
     session_intervals_path = (
         Path(session_intervals_text).resolve() if session_intervals_text else None
     )
+    canonical_bars_text = _text_value(op_config, "canonical_bars_path")
+    canonical_provenance_text = _text_value(op_config, "canonical_provenance_path")
+    canonical_session_calendar_text = _text_value(op_config, "canonical_session_calendar_path")
+    canonical_roll_map_text = _text_value(op_config, "canonical_roll_map_path")
 
     report = run_historical_canonical_route(
         raw_table_path=raw_table_path,
         output_dir=output_dir,
         run_id=run_id,
         raw_ingest_run_report=raw_report,
+        canonical_bars_path=Path(canonical_bars_text).resolve()
+        if canonical_bars_text
+        else None,
+        canonical_provenance_path=Path(canonical_provenance_text).resolve()
+        if canonical_provenance_text
+        else None,
         canonical_session_intervals_path=session_intervals_path,
+        canonical_session_calendar_path=Path(canonical_session_calendar_text).resolve()
+        if canonical_session_calendar_text
+        else None,
+        canonical_roll_map_path=Path(canonical_roll_map_text).resolve()
+        if canonical_roll_map_text
+        else None,
         canonical_merge_strategy=CANONICAL_MERGE_SCOPED_DELETE_INSERT,
     )
     publish_decision = str(report.get("publish_decision", "")).strip().lower()
@@ -1048,7 +1119,12 @@ def _data_rebuild_input_roots(op_config: dict[str, object]) -> dict[str, Path]:
         "research_root",
         "raw_table_path",
         "canonical_output_dir",
+        "canonical_target_output_dir",
+        "canonical_bars_path",
+        "canonical_provenance_path",
         "canonical_session_intervals_path",
+        "canonical_session_calendar_path",
+        "canonical_roll_map_path",
         "research_output_dir",
         "materialized_output_dir",
         "results_output_dir",
@@ -1073,6 +1149,61 @@ def _default_data_rebuild_manifest_path(op_config: dict[str, object], run_id: st
     return root / "data-rebuild-manifests" / run_id / "moex-data-rebuild-manifest.json"
 
 
+def _canonical_rebuild_staging_paths(staging_output_dir: Path) -> dict[str, Path]:
+    output_paths = moex_historical_output_paths(staging_output_dir)
+    return {
+        "canonical_bars": Path(output_paths["canonical_bars"]).resolve(),
+        "canonical_bar_provenance": Path(output_paths["canonical_bar_provenance"]).resolve(),
+        "canonical_session_calendar": Path(output_paths["canonical_session_calendar"]).resolve(),
+        "canonical_roll_map": Path(output_paths["canonical_roll_map"]).resolve(),
+    }
+
+
+def _canonical_rebuild_target_paths(op_config: dict[str, object]) -> dict[str, Path] | None:
+    target_output_dir = _optional_path_value(op_config, "canonical_target_output_dir")
+    explicit_paths = {
+        "canonical_bars": _optional_path_value(op_config, "canonical_bars_path"),
+        "canonical_bar_provenance": _optional_path_value(op_config, "canonical_provenance_path"),
+        "canonical_session_calendar": _optional_path_value(
+            op_config, "canonical_session_calendar_path"
+        ),
+        "canonical_roll_map": _optional_path_value(op_config, "canonical_roll_map_path"),
+    }
+    supplied_explicit_paths = {key: value for key, value in explicit_paths.items() if value}
+    if supplied_explicit_paths:
+        missing = sorted(key for key, value in explicit_paths.items() if value is None)
+        if missing:
+            raise RuntimeError(
+                "canonical rebuild explicit target paths must be supplied as a complete set; "
+                f"missing: {', '.join(missing)}"
+            )
+        return {key: value for key, value in explicit_paths.items() if value is not None}
+    if target_output_dir is None:
+        return None
+    return {
+        "canonical_bars": target_output_dir / CANONICAL_BASELINE_BARS_FILENAME,
+        "canonical_bar_provenance": target_output_dir / CANONICAL_BASELINE_PROVENANCE_FILENAME,
+        "canonical_session_calendar": target_output_dir
+        / CANONICAL_BASELINE_SESSION_CALENDAR_FILENAME,
+        "canonical_roll_map": target_output_dir / CANONICAL_BASELINE_ROLL_MAP_FILENAME,
+    }
+
+
+def _canonical_publish_paths(
+    *, op_config: dict[str, object], publish_mode: str, staging_output_dir: Path
+) -> tuple[dict[str, Path], dict[str, Path]]:
+    staging_paths = _canonical_rebuild_staging_paths(staging_output_dir)
+    if publish_mode == "staging_only":
+        return staging_paths, staging_paths
+    target_paths = _canonical_rebuild_target_paths(op_config)
+    if target_paths is None:
+        raise RuntimeError(
+            "canonical rebuild publish_mode=promote requires canonical_target_output_dir "
+            "or explicit target paths for canonical bars, provenance, session calendar, and roll map"
+        )
+    return staging_paths, target_paths
+
+
 def _require_subreport_success(stage_name: str, report: Mapping[str, object]) -> None:
     if not bool(report.get("success", False)):
         reason = str(report.get("failure_reason", "")).strip() or "unknown failure"
@@ -1082,28 +1213,49 @@ def _require_subreport_success(stage_name: str, report: Mapping[str, object]) ->
 def _collect_manifest_outputs(
     reports_by_stage: Mapping[str, Mapping[str, object]], *, publish_mode: str
 ) -> tuple[dict[str, str], dict[str, str], dict[str, int]]:
-    output_paths: dict[str, str] = {}
+    staged_output_paths: dict[str, str] = {}
+    promoted_output_paths: dict[str, str] = {}
     row_counts: dict[str, int] = {}
     for report in reports_by_stage.values():
-        raw_output_paths = report.get("output_paths", {})
-        if isinstance(raw_output_paths, Mapping):
-            for key, value in raw_output_paths.items():
-                output_paths[str(key)] = str(value)
+        raw_staged_output_paths = report.get("staged_output_paths", {})
+        if isinstance(raw_staged_output_paths, Mapping):
+            for key, value in raw_staged_output_paths.items():
+                staged_output_paths[str(key)] = str(value)
+        raw_promoted_output_paths = report.get("promoted_output_paths", {})
+        if isinstance(raw_promoted_output_paths, Mapping):
+            for key, value in raw_promoted_output_paths.items():
+                promoted_output_paths[str(key)] = str(value)
+        if not raw_staged_output_paths and not raw_promoted_output_paths:
+            raw_output_paths = report.get("output_paths", {})
+            if isinstance(raw_output_paths, Mapping):
+                target = staged_output_paths if publish_mode == "staging_only" else promoted_output_paths
+                for key, value in raw_output_paths.items():
+                    target[str(key)] = str(value)
         for row_count_key in ("rows_by_table", "total_rows_by_table"):
             raw_row_counts = report.get(row_count_key, {})
             if isinstance(raw_row_counts, Mapping):
                 for key, value in raw_row_counts.items():
                     row_counts[str(key)] = int(value)
     if publish_mode == "staging_only":
-        return output_paths, {}, row_counts
-    return {}, output_paths, row_counts
+        return staged_output_paths, {}, row_counts
+    return staged_output_paths, promoted_output_paths, row_counts
 
 
 def _run_existing_raw_canonical_rebuild(
-    *, op_config: dict[str, object], run_id: str
+    *, op_config: dict[str, object], run_id: str, publish_mode: str
 ) -> dict[str, object]:
+    staging_output_dir = _required_path_value(
+        op_config,
+        "canonical_output_dir",
+        context_name="canonical_from_existing_raw rebuild",
+    )
+    staging_paths, publish_paths = _canonical_publish_paths(
+        op_config=op_config,
+        publish_mode=publish_mode,
+        staging_output_dir=staging_output_dir,
+    )
     session_intervals_path = _optional_path_value(op_config, "canonical_session_intervals_path")
-    return materialize_moex_historical_assets(
+    report = materialize_moex_historical_assets(
         raw_table_path=_required_path_value(
             op_config,
             "raw_table_path",
@@ -1114,29 +1266,51 @@ def _run_existing_raw_canonical_rebuild(
             "raw_ingest_report_path",
             context_name="canonical_from_existing_raw rebuild",
         ),
-        canonical_output_dir=_required_path_value(
-            op_config,
-            "canonical_output_dir",
-            context_name="canonical_from_existing_raw rebuild",
-        ),
+        canonical_output_dir=staging_output_dir,
         canonical_run_id=run_id,
+        canonical_bars_path=publish_paths["canonical_bars"],
+        canonical_provenance_path=publish_paths["canonical_bar_provenance"],
         canonical_session_intervals_path=session_intervals_path,
+        canonical_session_calendar_path=publish_paths["canonical_session_calendar"],
+        canonical_roll_map_path=publish_paths["canonical_roll_map"],
         selection=MOEX_HISTORICAL_ASSET_KEYS,
         raise_on_error=True,
     )
+    report["staged_output_paths"] = {
+        key: value.as_posix() for key, value in staging_paths.items()
+    }
+    report["promoted_output_paths"] = (
+        {key: value.as_posix() for key, value in publish_paths.items()}
+        if publish_mode == "promote"
+        else {}
+    )
+    return report
 
 
 def _run_full_raw_to_canonical_rebuild(
-    *, op_config: dict[str, object], run_id: str
+    *, op_config: dict[str, object], run_id: str, publish_mode: str
 ) -> dict[str, object]:
     canonical_output_dir = _required_path_value(
         op_config,
         "canonical_output_dir",
         context_name="full_raw_to_canonical rebuild",
     )
+    staging_paths, publish_paths = _canonical_publish_paths(
+        op_config=op_config,
+        publish_mode=publish_mode,
+        staging_output_dir=canonical_output_dir,
+    )
     asset_op_config = dict(op_config)
     asset_op_config["run_id"] = run_id
     asset_op_config["canonical_run_id"] = run_id
+    asset_op_config["canonical_bars_path"] = publish_paths["canonical_bars"].as_posix()
+    asset_op_config["canonical_provenance_path"] = publish_paths[
+        "canonical_bar_provenance"
+    ].as_posix()
+    asset_op_config["canonical_session_calendar_path"] = publish_paths[
+        "canonical_session_calendar"
+    ].as_posix()
+    asset_op_config["canonical_roll_map_path"] = publish_paths["canonical_roll_map"].as_posix()
     result = materialize(
         assets=list(MOEX_HISTORICAL_ASSETS),
         selection=list(MOEX_HISTORICAL_ASSET_KEYS),
@@ -1155,11 +1329,21 @@ def _run_full_raw_to_canonical_rebuild(
             "full_raw_to_canonical rebuild reported success but canonical report artifact is missing: "
             f"{canonical_report_path.as_posix()}"
         )
+    published_output_paths = {
+        key: value.as_posix()
+        for key, value in (publish_paths if publish_mode == "promote" else staging_paths).items()
+    }
     return {
         "success": bool(result.success),
         "selected_assets": list(MOEX_HISTORICAL_ASSET_KEYS),
         "materialized_assets": list(MOEX_HISTORICAL_ASSET_KEYS),
-        "output_paths": output_paths,
+        "output_paths": published_output_paths,
+        "staged_output_paths": {key: value.as_posix() for key, value in staging_paths.items()},
+        "promoted_output_paths": (
+            {key: value.as_posix() for key, value in publish_paths.items()}
+            if publish_mode == "promote"
+            else {}
+        ),
         "canonical_report_exists": canonical_report_path.exists(),
     }
 
@@ -1256,11 +1440,11 @@ def run_moex_data_rebuild_profile(op_config: dict[str, object]) -> dict[str, obj
 
     if profile.name == "full_raw_to_canonical":
         reports_by_stage["canonical"] = _run_full_raw_to_canonical_rebuild(
-            op_config=op_config, run_id=run_id
+            op_config=op_config, run_id=run_id, publish_mode=publish_mode
         )
     elif set(profile.stage_names).intersection({"sessions", "canonical"}):
         reports_by_stage["canonical"] = _run_existing_raw_canonical_rebuild(
-            op_config=op_config, run_id=run_id
+            op_config=op_config, run_id=run_id, publish_mode=publish_mode
         )
     elif profile.stage_names:
         reports_by_stage.update(
@@ -1536,6 +1720,7 @@ def execute_moex_data_rebuild_job(
     raw_table_path: Path | None = None,
     raw_ingest_report_path: Path | None = None,
     canonical_output_dir: Path,
+    canonical_target_output_dir: Path | None = None,
     canonical_run_id: str,
     instance: DagsterInstance,
     run_id: str,
@@ -1543,7 +1728,11 @@ def execute_moex_data_rebuild_job(
     source_mode: str | None = None,
     publish_mode: str = "promote",
     downstream_mode: str = "invalidate",
+    canonical_bars_path: Path | None = None,
+    canonical_provenance_path: Path | None = None,
     canonical_session_intervals_path: Path | None = None,
+    canonical_session_calendar_path: Path | None = None,
+    canonical_roll_map_path: Path | None = None,
     extra_tags: dict[str, str] | None = None,
     scheduled_execution_time: datetime | None = None,
     raise_on_error: bool = False,
@@ -1562,8 +1751,13 @@ def execute_moex_data_rebuild_job(
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_ingest_report_path,
         canonical_output_dir=canonical_output_dir,
+        canonical_target_output_dir=canonical_target_output_dir,
         canonical_run_id=resolved_canonical_run_id,
+        canonical_bars_path=canonical_bars_path,
+        canonical_provenance_path=canonical_provenance_path,
         canonical_session_intervals_path=canonical_session_intervals_path,
+        canonical_session_calendar_path=canonical_session_calendar_path,
+        canonical_roll_map_path=canonical_roll_map_path,
         source_mode=source_mode,
         publish_mode=publish_mode,
         downstream_mode=downstream_mode,
@@ -1610,12 +1804,19 @@ def execute_moex_data_rebuild_job(
             "moex data rebuild Dagster job reported success but the canonical refresh report artifact is missing: "
             f"{canonical_report_path.as_posix()}"
         )
-    reported_output_paths: dict[str, object] = dict(output_paths)
+    reported_output_paths: dict[str, object] = {
+        "canonical_report": output_paths["canonical_report"]
+    } if "canonical_report" in output_paths else {}
     manifest_payload = op_report.get("manifest")
-    if not reported_output_paths and isinstance(manifest_payload, dict):
-        promoted_outputs = manifest_payload.get("promoted_outputs", {})
-        if isinstance(promoted_outputs, dict):
-            reported_output_paths = dict(promoted_outputs)
+    if isinstance(manifest_payload, dict):
+        manifest_outputs_key = (
+            "promoted_outputs" if publish_mode == "promote" else "staged_outputs"
+        )
+        manifest_outputs = manifest_payload.get(manifest_outputs_key, {})
+        if isinstance(manifest_outputs, dict):
+            reported_output_paths.update(dict(manifest_outputs))
+    elif output_paths:
+        reported_output_paths.update(output_paths)
 
     return {
         "success": bool(result.success),
@@ -1643,6 +1844,7 @@ def execute_moex_historical_cutover_job(
     raw_table_path: Path,
     raw_ingest_report_path: Path,
     canonical_output_dir: Path,
+    canonical_target_output_dir: Path | None = None,
     canonical_run_id: str,
     instance: DagsterInstance,
     run_id: str,
@@ -1650,7 +1852,11 @@ def execute_moex_historical_cutover_job(
     source_mode: str | None = None,
     publish_mode: str = "promote",
     downstream_mode: str = "invalidate",
+    canonical_bars_path: Path | None = None,
+    canonical_provenance_path: Path | None = None,
     canonical_session_intervals_path: Path | None = None,
+    canonical_session_calendar_path: Path | None = None,
+    canonical_roll_map_path: Path | None = None,
     extra_tags: dict[str, str] | None = None,
     scheduled_execution_time: datetime | None = None,
     raise_on_error: bool = False,
@@ -1659,6 +1865,7 @@ def execute_moex_historical_cutover_job(
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_ingest_report_path,
         canonical_output_dir=canonical_output_dir,
+        canonical_target_output_dir=canonical_target_output_dir,
         canonical_run_id=canonical_run_id,
         instance=instance,
         run_id=run_id,
@@ -1666,7 +1873,11 @@ def execute_moex_historical_cutover_job(
         source_mode=source_mode,
         publish_mode=publish_mode,
         downstream_mode=downstream_mode,
+        canonical_bars_path=canonical_bars_path,
+        canonical_provenance_path=canonical_provenance_path,
         canonical_session_intervals_path=canonical_session_intervals_path,
+        canonical_session_calendar_path=canonical_session_calendar_path,
+        canonical_roll_map_path=canonical_roll_map_path,
         extra_tags=extra_tags,
         scheduled_execution_time=scheduled_execution_time,
         raise_on_error=raise_on_error,
@@ -1707,7 +1918,11 @@ def materialize_moex_historical_assets(
     raw_ingest_report_path: Path,
     canonical_output_dir: Path,
     canonical_run_id: str,
+    canonical_bars_path: Path | None = None,
+    canonical_provenance_path: Path | None = None,
     canonical_session_intervals_path: Path | None = None,
+    canonical_session_calendar_path: Path | None = None,
+    canonical_roll_map_path: Path | None = None,
     selection: Sequence[str] | None = None,
     raise_on_error: bool = True,
 ) -> dict[str, object]:
@@ -1731,6 +1946,16 @@ def materialize_moex_historical_assets(
         op_config["canonical_session_intervals_path"] = (
             canonical_session_intervals_path.resolve().as_posix()
         )
+    if canonical_bars_path is not None:
+        op_config["canonical_bars_path"] = canonical_bars_path.resolve().as_posix()
+    if canonical_provenance_path is not None:
+        op_config["canonical_provenance_path"] = canonical_provenance_path.resolve().as_posix()
+    if canonical_session_calendar_path is not None:
+        op_config["canonical_session_calendar_path"] = (
+            canonical_session_calendar_path.resolve().as_posix()
+        )
+    if canonical_roll_map_path is not None:
+        op_config["canonical_roll_map_path"] = canonical_roll_map_path.resolve().as_posix()
 
     raw_report = _read_raw_ingest_report(raw_ingest_report_path)
     raw_status = str(raw_report.get("status", "")).strip()
