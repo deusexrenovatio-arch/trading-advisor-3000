@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -15,11 +16,16 @@ from trading_advisor_3000.product_plane.research.derived_indicators import (
     load_derived_indicator_frames,
     research_derived_indicator_store_contract,
 )
+from trading_advisor_3000.product_plane.research.derived_indicators import (
+    source_frames as source_frame_module,
+)
 from trading_advisor_3000.product_plane.research.derived_indicators.materialize import (
     _existing_partition_matches,
     _source_bars_may_have_changed,
 )
 from trading_advisor_3000.product_plane.research.derived_indicators.source_frames import (
+    DERIVED_SOURCE_FRAME_METADATA_COLUMNS,
+    load_derived_source_frame_partition_metadata,
     research_derived_source_frame_store_contract,
 )
 from trading_advisor_3000.product_plane.research.derived_indicators.store import (
@@ -155,6 +161,59 @@ def test_derived_source_frame_store_contract_is_internal_l2_join_layer() -> None
         "source_indicator_columns_hash",
     ):
         assert column in columns
+
+
+def test_derived_source_frame_metadata_uses_joined_count_when_ts_is_absent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    existing_columns = set(DERIVED_SOURCE_FRAME_METADATA_COLUMNS)
+    captured_aggregates: list[tuple[str, str]] = []
+
+    class FakeGrouped:
+        def to_pylist(self) -> list[dict[str, object]]:
+            return [
+                {
+                    "dataset_version": "dataset-v5",
+                    "contour_id": "native_tradable",
+                    "series_mode": "contract",
+                    "series_id": "BR-6.26",
+                    "indicator_set_version": "indicators-v1",
+                    "contract_id": "BR-6.26",
+                    "instrument_id": "BR",
+                    "timeframe": "15m",
+                    "joined_row_count_max": 7,
+                }
+            ]
+
+    class FakeTable:
+        num_rows = 1
+
+        def group_by(self, _columns: list[str]) -> "FakeTable":
+            return self
+
+        def aggregate(self, aggregates: list[tuple[str, str]]) -> FakeGrouped:
+            captured_aggregates.extend(aggregates)
+            return FakeGrouped()
+
+    monkeypatch.setattr(
+        source_frame_module,
+        "delta_table_columns",
+        lambda _path: existing_columns,
+    )
+    monkeypatch.setattr(
+        source_frame_module,
+        "read_delta_table_arrow",
+        lambda *_args, **_kwargs: FakeTable(),
+    )
+
+    rows = load_derived_source_frame_partition_metadata(
+        output_dir=tmp_path,
+        dataset_version="dataset-v5",
+        indicator_set_version="indicators-v1",
+    )
+
+    assert ("ts", "count") not in captured_aggregates
+    assert rows[0]["partition_row_count"] == 7
 
 
 def test_derived_indicator_store_contract_is_separate_wide_layer() -> None:

@@ -171,15 +171,20 @@ def load_derived_source_frame_partition_metadata(
     table = read_delta_table_arrow(path, columns=read_columns, filters=filters)
     if table.num_rows == 0:
         return []
+    count_aggregates = [("ts", "count")] if "ts" in read_columns else []
     grouped = table.group_by(group_columns).aggregate(
-        [(column, "max") for column in aggregate_columns] + [("ts", "count")]
+        [(column, "max") for column in aggregate_columns] + count_aggregates
     )
     rows: list[dict[str, object]] = []
     for grouped_row in grouped.to_pylist():
         row = {column: grouped_row.get(column) for column in group_columns}
         for column in aggregate_columns:
             row[column] = grouped_row.get(f"{column}_max")
-        row["partition_row_count"] = grouped_row.get("ts_count")
+        row["partition_row_count"] = (
+            grouped_row.get("ts_count")
+            if "ts" in read_columns
+            else grouped_row.get("joined_row_count_max")
+        )
         for column in DERIVED_SOURCE_FRAME_METADATA_COLUMNS:
             row.setdefault(column, None)
         rows.append(row)

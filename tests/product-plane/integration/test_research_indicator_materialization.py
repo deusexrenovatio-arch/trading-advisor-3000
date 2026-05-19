@@ -278,8 +278,18 @@ def _write_test_derived_source_frames(
         "timeframe",
         "ts",
     )
-    indicators_by_key = {tuple(row.get(key) for key in join_keys): row for row in indicator_rows}
+    indicators_by_key: dict[tuple[object, ...], dict[str, object]] = {}
+    duplicate_indicator_keys: set[tuple[object, ...]] = set()
+    for row in indicator_rows:
+        key = tuple(row.get(column) for column in join_keys)
+        if key in indicators_by_key:
+            duplicate_indicator_keys.add(key)
+            continue
+        indicators_by_key[key] = row
+    assert not duplicate_indicator_keys
+
     source_rows = []
+    joined_row_count = len(bar_rows)
     for bar in bar_rows:
         indicator = indicators_by_key[tuple(bar.get(key) for key in join_keys)]
         source_rows.append(
@@ -303,7 +313,7 @@ def _write_test_derived_source_frames(
                 "source_l1_delta_hash": "test-l1",
                 "l0_row_count": len(bar_rows),
                 "l1_row_count": len(indicator_rows),
-                "joined_row_count": len(source_rows) + 1,
+                "joined_row_count": joined_row_count,
                 "duplicate_indicator_key_count": 0,
                 "missing_indicator_key_count": 0,
                 "source_bars_hash": "",
