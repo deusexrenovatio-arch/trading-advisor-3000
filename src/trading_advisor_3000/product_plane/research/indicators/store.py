@@ -8,12 +8,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    append_delta_table_rows,
+    delete_delta_table_rows,
     delta_table_columns,
     ensure_delta_table_columns,
     has_delta_log,
-    iter_delta_table_row_batches,
+    read_delta_table_arrow,
     read_delta_table_rows,
     write_delta_table_row_batches,
+    write_delta_table_rows,
 )
 from trading_advisor_3000.product_plane.research.indicators.registry import (
     IndicatorProfile,
@@ -340,6 +343,58 @@ def write_indicator_frame_batches(
     return {"research_indicator_frames": path.as_posix()}, row_count, batch_count
 
 
+def write_indicator_frame_partition_batches(
+    *,
+    output_dir: Path,
+    partition_row_batches: Iterable[tuple[IndicatorFramePartitionKey, list[IndicatorFrameRow]]],
+    delete_partitions: tuple[IndicatorFramePartitionKey, ...] = (),
+    max_rows_per_delta_write: int = DEFAULT_INDICATOR_WRITE_BATCH_ROWS,
+    profile: IndicatorProfile | None = None,
+) -> tuple[dict[str, str], int, int]:
+    if max_rows_per_delta_write <= 0:
+        raise ValueError("max_rows_per_delta_write must be > 0")
+    contract = indicator_store_contract(profile=profile)
+    path = output_dir / "research_indicator_frames.delta"
+    columns = contract["research_indicator_frames"]["columns"]
+    if has_delta_log(path):
+        ensure_delta_table_columns(table_path=path, columns=dict(columns))
+
+    row_count = 0
+    batch_count = 0
+    wrote_table = has_delta_log(path)
+    for partition, batch in partition_row_batches:
+        rows = [row.to_dict() for row in batch]
+        if has_delta_log(path):
+            delete_delta_table_rows(
+                table_path=path,
+                predicate=_partition_delete_predicate(partition),
+            )
+            wrote_table = True
+        for offset in range(0, len(rows), max_rows_per_delta_write):
+            chunk = rows[offset : offset + max_rows_per_delta_write]
+            if not chunk:
+                continue
+            if wrote_table:
+                append_delta_table_rows(table_path=path, rows=chunk, columns=columns)
+            else:
+                write_delta_table_rows(table_path=path, rows=chunk, columns=columns)
+                wrote_table = True
+            row_count += len(chunk)
+            batch_count += 1
+
+    for partition in delete_partitions:
+        if has_delta_log(path):
+            delete_delta_table_rows(
+                table_path=path,
+                predicate=_partition_delete_predicate(partition),
+            )
+
+    if not wrote_table:
+        write_delta_table_rows(table_path=path, rows=[], columns=columns)
+
+    return {"research_indicator_frames": path.as_posix()}, row_count, batch_count
+
+
 def _read_rows_with_existing_columns(
     *,
     path: Path,
@@ -367,36 +422,62 @@ def load_indicator_partition_metadata(
     read_columns = [
         column for column in INDICATOR_PARTITION_METADATA_COLUMNS if column in existing_columns
     ]
-    metadata_by_partition: dict[tuple[object, ...], dict[str, object]] = {}
-    for batch in iter_delta_table_row_batches(
-        path,
-        columns=read_columns,
-        filters=[
+    group_columns = [
+        column
+        for column in (
+            "dataset_version",
+            "contour_id",
+            "series_mode",
+            "series_id",
+            "indicator_set_version",
+            "contract_id",
+            "instrument_id",
+            "timeframe",
+        )
+        if column in read_columns
+    ]
+    if not group_columns:
+        return []
+    aggregate_columns = [column for column in read_columns if column not in group_columns]
+    filters = [
+        item
+        for item in (
             ("dataset_version", "=", dataset_version),
             ("contour_id", "=", contour_id),
             ("indicator_set_version", "=", indicator_set_version),
-        ],
-    ):
-        for row in batch:
-            if (
-                row.get("dataset_version") != dataset_version
-                or str(row.get("contour_id") or "native_tradable") != contour_id
-                or row.get("indicator_set_version") != indicator_set_version
-            ):
-                continue
-            for column in INDICATOR_PARTITION_METADATA_COLUMNS:
-                row.setdefault(column, None)
-            key = (
-                row.get("dataset_version"),
-                row.get("contour_id", "native_tradable"),
-                row.get("series_mode", "contract"),
-                row.get("series_id", ""),
-                row.get("indicator_set_version"),
-                row.get("contract_id"),
-                row.get("instrument_id"),
-                row.get("timeframe"),
-            )
-            metadata_by_partition.setdefault(key, row)
+        )
+        if item[0] in existing_columns
+    ]
+    table = read_delta_table_arrow(path, columns=read_columns, filters=filters)
+    if table.num_rows == 0:
+        return []
+    grouped = table.group_by(group_columns).aggregate(
+        [(column, "max") for column in aggregate_columns]
+    )
+    metadata_by_partition: dict[tuple[object, ...], dict[str, object]] = {}
+    for grouped_row in grouped.to_pylist():
+        row = {column: grouped_row.get(column) for column in group_columns}
+        for column in aggregate_columns:
+            row[column] = grouped_row.get(f"{column}_max")
+        if (
+            row.get("dataset_version") != dataset_version
+            or str(row.get("contour_id") or "native_tradable") != contour_id
+            or row.get("indicator_set_version") != indicator_set_version
+        ):
+            continue
+        for column in INDICATOR_PARTITION_METADATA_COLUMNS:
+            row.setdefault(column, None)
+        key = (
+            row.get("dataset_version"),
+            row.get("contour_id", "native_tradable"),
+            row.get("series_mode", "contract"),
+            row.get("series_id", ""),
+            row.get("indicator_set_version"),
+            row.get("contract_id"),
+            row.get("instrument_id"),
+            row.get("timeframe"),
+        )
+        metadata_by_partition.setdefault(key, row)
     return list(metadata_by_partition.values())
 
 

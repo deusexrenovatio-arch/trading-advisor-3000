@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import ast
+import json
+import warnings
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
@@ -19,6 +22,7 @@ from trading_advisor_3000.product_plane.research.continuous_front_indicators imp
     build_cf_indicator_input_rows,
     continuous_front_indicator_store_contract,
     default_indicator_roll_rules,
+    run_continuous_front_base_indicator_sidecar_job,
     run_continuous_front_indicator_pandas_job,
 )
 from trading_advisor_3000.product_plane.research.continuous_front_indicators.pandas_job import (
@@ -42,6 +46,9 @@ from trading_advisor_3000.product_plane.research.indicators import (
     build_indicator_frames,
     default_indicator_profile,
     indicator_store_contract,
+)
+from trading_advisor_3000.product_plane.research.indicators import (
+    materialize as indicator_materialize,
 )
 
 
@@ -511,6 +518,63 @@ def test_base_indicators_use_their_declared_roll_calculation_group() -> None:
     )
 
 
+def test_continuous_front_profile_frame_avoids_fragmented_column_inserts() -> None:
+    start = datetime(2026, 3, 1, 9, 0, tzinfo=UTC)
+    rows = [
+        _view(
+            ts=(start + timedelta(minutes=15 * index)).isoformat().replace("+00:00", "Z"),
+            close=80.0 + index * 0.1,
+            roll_epoch=0,
+            active_contract_id="BRK6@MOEX",
+            bars_since_roll=index,
+        )
+        for index in range(160)
+    ]
+    frame = pd.DataFrame([row.to_dict() for row in rows])
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", pd.errors.PerformanceWarning)
+        computed = indicator_materialize._compute_continuous_front_profile_frame(
+            frame,
+            default_indicator_profile(),
+            adjustment_ladder_rows=(),
+        )
+
+    fragmentation_warnings = [
+        warning for warning in caught if issubclass(warning.category, pd.errors.PerformanceWarning)
+    ]
+    assert "rsi_14" in computed.columns
+    assert fragmentation_warnings == []
+
+
+def test_default_profile_frame_avoids_fragmented_column_inserts() -> None:
+    start = datetime(2026, 3, 1, 9, 0, tzinfo=UTC)
+    rows = [
+        _view(
+            ts=(start + timedelta(minutes=15 * index)).isoformat().replace("+00:00", "Z"),
+            close=80.0 + index * 0.1,
+            roll_epoch=0,
+            active_contract_id="BRK6@MOEX",
+            bars_since_roll=index,
+        )
+        for index in range(220)
+    ]
+    frame = pd.DataFrame([row.to_dict() for row in rows])
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", pd.errors.PerformanceWarning)
+        computed = indicator_materialize._compute_profile_frame(
+            frame,
+            default_indicator_profile(),
+        )
+
+    fragmentation_warnings = [
+        warning for warning in caught if issubclass(warning.category, pd.errors.PerformanceWarning)
+    ]
+    assert "rsi_14" in computed.columns
+    assert fragmentation_warnings == []
+
+
 def test_one_bar_native_oi_change_is_null_on_roll_boundary() -> None:
     profile = IndicatorProfile(
         version="oi_roll_boundary_test",
@@ -688,6 +752,8 @@ def test_continuous_front_indicator_job_writes_governed_sidecar_tables(tmp_path:
         filters=[("dataset_version", "=", "cf-dataset-v1"), ("run_id", "=", "cf-indicator-test")],
     )[0]
     assert acceptance["publish_status"] == "accepted"
+    assert acceptance["run_type"] == "full"
+    assert json.loads(str(acceptance["skipped_qc_groups_json"])) == []
     assert acceptance["prefix_invariance_fail_count"] == 0
     assert acceptance["formula_sample_fail_count"] == 0
     assert acceptance["pandas_ta_parity_fail_count"] == 0
@@ -701,6 +767,17 @@ def test_continuous_front_indicator_job_writes_governed_sidecar_tables(tmp_path:
     assert manifest["spark_event_log_path"]
     assert manifest["dependency_lock_hash"]
     assert manifest["output_delta_versions_hash"]
+    base_sidecar_row = read_delta_table_rows(
+        materialized_dir / "continuous_front_indicator_frames.delta",
+        filters=[("dataset_version", "=", "cf-dataset-v1")],
+    )[0]
+    derived_sidecar_row = read_delta_table_rows(
+        materialized_dir / "continuous_front_derived_indicator_frames.delta",
+        filters=[("dataset_version", "=", "cf-dataset-v1")],
+    )[0]
+    assert base_sidecar_row["indicator_row_hash_version"]
+    assert derived_sidecar_row["source_base_indicator_row_hash_version"]
+    assert derived_sidecar_row["derived_row_hash_version"]
     formula_qc = next(row for row in report["qc_rows"] if row["check_group"] == "formula_sample")
     observed_formula_value = ast.literal_eval(str(formula_qc["observed_value"]))
     required_formula_count = len(default_indicator_profile().expected_output_columns()) + len(
@@ -734,6 +811,47 @@ def test_continuous_front_indicator_job_writes_governed_sidecar_tables(tmp_path:
         "anti_bypass",
     } <= qc_groups
     assert set(continuous_front_indicator_store_contract()) == set(CF_INDICATOR_TABLES)
+
+
+def test_continuous_front_base_indicator_sidecar_job_does_not_write_derived_output(
+    tmp_path: Path,
+) -> None:
+    materialized_dir = tmp_path / "materialized"
+    views = _write_continuous_front_materialized_inputs(materialized_dir)
+    indicator_rows, _ = _write_materialized_indicator_frames(materialized_dir, views)
+
+    report = run_continuous_front_base_indicator_sidecar_job(
+        materialized_output_dir=materialized_dir,
+        dataset_version="cf-dataset-v1",
+        indicator_set_version="indicators-v1",
+        derived_set_version="derived-v1",
+        run_id="cf-base-indicator-sidecar",
+        calculation_app_id="spark-test-continuous-front-base-indicators",
+        event_log_path="file:///tmp/spark-events/cf-base-indicator-sidecar",
+    )
+
+    assert report["publish_status"] == "accepted"
+    assert report["rows_by_table"]["continuous_front_indicator_frames"] == len(indicator_rows)
+    assert "continuous_front_derived_indicator_frames" not in report["output_paths"]
+    assert not has_delta_log(materialized_dir / "continuous_front_derived_indicator_frames.delta")
+    acceptance = read_delta_table_rows(
+        materialized_dir / "continuous_front_indicator_acceptance_report.delta",
+        filters=[
+            ("dataset_version", "=", "cf-dataset-v1"),
+            ("run_id", "=", "cf-base-indicator-sidecar"),
+        ],
+    )[0]
+    assert acceptance["run_type"] == "base_only"
+    assert set(json.loads(str(acceptance["skipped_qc_groups_json"]))) == {
+        "prefix_invariance",
+        "formula_sample",
+        "pandas_ta_parity",
+    }
+    base_sidecar_row = read_delta_table_rows(
+        materialized_dir / "continuous_front_indicator_frames.delta",
+        filters=[("dataset_version", "=", "cf-dataset-v1")],
+    )[0]
+    assert base_sidecar_row["indicator_row_hash_version"]
 
 
 def test_continuous_front_indicator_job_reads_materialized_frames_without_recompute(
@@ -921,3 +1039,79 @@ def test_delta_lineage_gate_fails_on_hash_membership_mismatch(
     failures = {row["failure"] for row in qc["sample_rows_json"]}
     assert qc["status"] == "fail"
     assert {"invalid_base_input_hash", "invalid_derived_base_hash"} <= failures
+
+
+def test_delta_lineage_gate_accepts_legacy_row_hashes_without_version(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trading_advisor_3000.product_plane.research.continuous_front_indicators import (
+        pandas_job,
+    )
+
+    input_path = tmp_path / "input.delta"
+    base_path = tmp_path / "base.delta"
+    derived_path = tmp_path / "derived.delta"
+    input_row = {
+        "dataset_version": "cf-dataset-v1",
+        "instrument_id": "FUT_BR",
+        "timeframe": "15m",
+        "ts": "2026-01-01T09:00:00Z",
+        "input_front_row_hash": "input-good",
+    }
+    base_row = {
+        "dataset_version": "cf-dataset-v1",
+        "instrument_id": "FUT_BR",
+        "timeframe": "15m",
+        "ts": "2026-01-01T09:00:00Z",
+        "source_input_row_hash": "input-good",
+        "indicator_value": 1.0,
+    }
+    base_row["indicator_row_hash"] = pandas_job._legacy_row_hash(base_row, ("indicator_value",))
+    derived_row = {
+        "dataset_version": "cf-dataset-v1",
+        "instrument_id": "FUT_BR",
+        "timeframe": "15m",
+        "ts": "2026-01-01T09:00:00Z",
+        "source_input_row_hash": "input-good",
+        "source_base_indicator_row_hash": base_row["indicator_row_hash"],
+        "derived_value": 2.0,
+    }
+    derived_row["derived_row_hash"] = pandas_job._legacy_row_hash(derived_row, ("derived_value",))
+
+    def fake_first_delta_rows(table_path: Path, **_: object) -> list[dict[str, object]]:
+        if table_path == input_path:
+            return [input_row]
+        if table_path == base_path:
+            return [base_row]
+        if table_path == derived_path:
+            return [derived_row]
+        raise AssertionError(f"unexpected table path: {table_path}")
+
+    monkeypatch.setattr(pandas_job, "_first_delta_rows", fake_first_delta_rows)
+    qc = pandas_job._verify_lineage_delta(
+        run_id="lineage-legacy-hash",
+        source_versions_digest="INPUTS",
+        output_versions_digest="OUTPUTS",
+        runtime_evidence={
+            "spark_app_id": "spark-app",
+            "spark_event_log_path": "file:///tmp/spark-events",
+            "input_delta_versions_hash": "input-version",
+            "output_delta_versions_hash": "output-version",
+            "rule_set_hash": "rules",
+            "adapter_bundle_hash": "adapters",
+            "formula_kernel_hash": "formulas",
+            "job_config_hash": "config",
+            "code_artifact_hash": "code",
+            "dependency_lock_hash": "deps",
+            "created_by_pipeline": "spark_delta_governed",
+        },
+        input_path=input_path,
+        base_path=base_path,
+        derived_path=derived_path,
+        dataset_version="cf-dataset-v1",
+        indicator_value_columns=("indicator_value",),
+        derived_value_columns=("derived_value",),
+    )
+
+    assert qc["status"] == "pass"

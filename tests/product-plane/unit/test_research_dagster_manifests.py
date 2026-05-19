@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from dagster import build_op_context
 
 from trading_advisor_3000.dagster_defs import research_asset_specs, research_assets
@@ -288,6 +289,37 @@ def test_dagster_indicator_asset_filters_invalid_volume_profile_tick_sizes(
     )
 
     assert captured["volume_profile_tick_size_by_instrument"] == {"BR": 1.0}
+
+
+def test_dagster_indicator_asset_fails_on_quarantined_continuous_front_sidecar(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(research_assets, "materialize_indicator_frames", lambda **_: None)
+    monkeypatch.setattr(
+        research_assets,
+        "run_continuous_front_base_indicator_sidecar_job",
+        lambda **_: {
+            "success": False,
+            "status": "QUARANTINED",
+            "publish_status": "quarantined",
+            "run_id": "cf-base-run",
+        },
+    )
+
+    with pytest.raises(RuntimeError, match=r"(?=.*cf-base-run)(?=.*quarantined)"):
+        research_assets.research_indicator_frames(
+            {
+                "materialized_output_dir": tmp_path.as_posix(),
+                "dataset_version": "dataset-v1",
+                "indicator_set_version": "indicators-v1",
+                "indicator_profile_version": "core_v1",
+                "derived_indicator_set_version": "derived-v1",
+                "dataset_manifest": {"series_mode": "continuous_front"},
+                "campaign_run_id": "cf-base-run",
+                "reuse_existing_materialization": False,
+            },
+            {},
+        )
 
 
 def test_reused_dagster_indicator_asset_validates_existing_volume_profile_identity(
