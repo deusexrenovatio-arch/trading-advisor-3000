@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,7 +19,9 @@ from dagster import (
     ScheduleDefinition,
     asset,
     define_asset_job,
+    job,
     materialize,
+    op,
 )
 from dagster import (
     Field as DagsterField,
@@ -34,7 +36,9 @@ from trading_advisor_3000.product_plane.data_plane.moex.data_rebuild_profiles im
     MOEX_REBUILD_DOWNSTREAM_MODES,
     MOEX_REBUILD_PUBLISH_MODES,
     MOEX_REBUILD_SOURCE_MODES,
+    build_moex_data_rebuild_manifest,
     resolve_moex_data_rebuild_profile,
+    write_moex_data_rebuild_manifest,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.historical_canonical_route import (
     CANONICAL_MERGE_SCOPED_DELETE_INSERT,
@@ -131,7 +135,25 @@ MOEX_HISTORICAL_OP_CONFIG_SCHEMA = {
     "canonical_root": DagsterField(str, is_required=False),
     "session_root": DagsterField(str, is_required=False),
     "research_root": DagsterField(str, is_required=False),
+    "research_output_dir": DagsterField(str, is_required=False),
+    "materialized_output_dir": DagsterField(str, is_required=False),
+    "results_output_dir": DagsterField(str, is_required=False),
+    "manifest_path": DagsterField(str, is_required=False),
+    "dataset_version": DagsterField(str, is_required=False),
+    "dataset_name": DagsterField(str, is_required=False),
+    "universe_id": DagsterField(str, is_required=False),
+    "base_timeframe": DagsterField(str, is_required=False),
+    "series_mode": DagsterField(str, is_required=False),
+    "indicator_set_version": DagsterField(str, is_required=False),
+    "indicator_profile_version": DagsterField(str, is_required=False),
+    "derived_indicator_set_version": DagsterField(str, is_required=False),
+    "derived_indicator_profile_version": DagsterField(str, is_required=False),
+    "volume_profile_raw_1m_table_path": DagsterField(str, is_required=False),
+    "volume_profile_tick_size_by_instrument": DagsterField(dict, is_required=False),
+    "reuse_existing_materialization": DagsterField(bool, is_required=False),
+    "continuous_front_policy": DagsterField(dict, is_required=False),
 }
+MOEX_DATA_REBUILD_OP_NAME = "moex_data_rebuild"
 MOEX_BASELINE_UPDATE_OP_CONFIG_SCHEMA = {
     "mapping_registry_path": DagsterField(str, is_required=False),
     "universe_path": DagsterField(str, is_required=False),
@@ -229,10 +251,17 @@ def _build_nightly_schedule_run_config(context) -> dict[str, object]:
     scheduled_execution_time = getattr(context, "scheduled_execution_time", None)
     run_id = _default_route_run_id(scheduled_execution_time=scheduled_execution_time)
     artifact_root = _route_artifact_root()
+    canonical_output_dir = artifact_root / CANONICAL_REFRESH_STORAGE_DIRNAME / run_id
     return {
         "ops": {
-            "moex_raw_ingest": {
+            MOEX_DATA_REBUILD_OP_NAME: {
                 "config": {
+                    "profile_name": "full_raw_to_canonical",
+                    "source_mode": "full_raw_ingest",
+                    "publish_mode": "promote",
+                    "downstream_mode": "invalidate",
+                    "canonical_output_dir": canonical_output_dir.as_posix(),
+                    "canonical_run_id": run_id,
                     "mapping_registry_path": DEFAULT_MAPPING_REGISTRY.as_posix(),
                     "universe_path": DEFAULT_UNIVERSE.as_posix(),
                     "raw_ingest_root": (artifact_root / RAW_INGEST_STORAGE_DIRNAME).as_posix(),
@@ -253,14 +282,6 @@ def _build_nightly_schedule_run_config(context) -> dict[str, object]:
                     "contract_discovery_lookback_days": DEFAULT_CONTRACT_DISCOVERY_LOOKBACK_DAYS,
                     "refresh_overlap_minutes": DEFAULT_REFRESH_OVERLAP_MINUTES,
                     "run_id": run_id,
-                }
-            },
-            "moex_canonical_refresh": {
-                "config": {
-                    "canonicalization_root": (
-                        artifact_root / CANONICAL_REFRESH_STORAGE_DIRNAME
-                    ).as_posix(),
-                    "canonical_run_id": run_id,
                 }
             },
         }
@@ -481,7 +502,11 @@ def build_moex_data_rebuild_op_config(
             f"unknown MOEX data rebuild downstream_mode `{resolved_downstream_mode}`; "
             f"allowed modes: {', '.join(MOEX_REBUILD_DOWNSTREAM_MODES)}"
         )
-    if resolved_source_mode == "existing_raw_delta" and (
+    requires_existing_raw_artifacts = (
+        resolved_source_mode == "existing_raw_delta"
+        and bool(set(profile.stage_names).intersection({"sessions", "canonical"}))
+    )
+    if requires_existing_raw_artifacts and (
         raw_table_path is None or raw_ingest_report_path is None
     ):
         raise ValueError(
@@ -548,8 +573,7 @@ def build_moex_data_rebuild_run_config(
     )
     return {
         "ops": {
-            "moex_raw_ingest": {"config": dict(op_config)},
-            "moex_canonical_refresh": {"config": dict(op_config)},
+            MOEX_DATA_REBUILD_OP_NAME: {"config": dict(op_config)},
         }
     }
 
@@ -562,14 +586,19 @@ def build_moex_historical_run_config(
     canonical_run_id: str,
     canonical_session_intervals_path: Path | None = None,
 ) -> dict[str, object]:
-    return build_moex_data_rebuild_run_config(
-        profile_name="canonical_from_existing_raw",
+    op_config = build_moex_historical_op_config(
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_ingest_report_path,
         canonical_output_dir=canonical_output_dir,
         canonical_run_id=canonical_run_id,
         canonical_session_intervals_path=canonical_session_intervals_path,
     )
+    return {
+        "ops": {
+            "moex_raw_ingest": {"config": dict(op_config)},
+            "moex_canonical_refresh": {"config": dict(op_config)},
+        }
+    }
 
 
 def _merge_run_config(left: dict[str, object], right: dict[str, object]) -> dict[str, object]:
@@ -990,6 +1019,317 @@ def moex_canonical_refresh(context, moex_raw_ingest: dict[str, object]) -> dict[
     return report
 
 
+def _optional_path_value(op_config: dict[str, object], *keys: str) -> Path | None:
+    text = _text_value(op_config, *keys)
+    return Path(text).resolve() if text else None
+
+
+def _required_path_value(op_config: dict[str, object], key: str, *, context_name: str) -> Path:
+    path = _optional_path_value(op_config, key)
+    if path is None:
+        raise RuntimeError(f"{context_name} requires non-empty `{key}`")
+    return path
+
+
+def _csv_sequence_value(raw: str, *, default: str = "") -> tuple[str, ...]:
+    source = raw.strip() or default
+    values = tuple(item.strip() for item in source.split(",") if item.strip())
+    if not values:
+        raise RuntimeError("moex data rebuild requires at least one timeframe")
+    return values
+
+
+def _data_rebuild_input_roots(op_config: dict[str, object]) -> dict[str, Path]:
+    roots: dict[str, Path] = {}
+    for key in (
+        "raw_root",
+        "canonical_root",
+        "session_root",
+        "research_root",
+        "raw_table_path",
+        "canonical_output_dir",
+        "canonical_session_intervals_path",
+        "research_output_dir",
+        "materialized_output_dir",
+        "results_output_dir",
+    ):
+        path = _optional_path_value(op_config, key)
+        if path is not None:
+            roots[key] = path
+    return roots
+
+
+def _default_data_rebuild_manifest_path(op_config: dict[str, object], run_id: str) -> Path:
+    root = _optional_path_value(
+        op_config,
+        "research_output_dir",
+        "research_root",
+        "canonical_output_dir",
+        "canonical_root",
+        "raw_root",
+    )
+    if root is None:
+        root = _route_artifact_root()
+    return root / "data-rebuild-manifests" / run_id / "moex-data-rebuild-manifest.json"
+
+
+def _require_subreport_success(stage_name: str, report: Mapping[str, object]) -> None:
+    if not bool(report.get("success", False)):
+        reason = str(report.get("failure_reason", "")).strip() or "unknown failure"
+        raise RuntimeError(f"moex data rebuild stage `{stage_name}` failed: {reason}")
+
+
+def _collect_manifest_outputs(
+    reports_by_stage: Mapping[str, Mapping[str, object]], *, publish_mode: str
+) -> tuple[dict[str, str], dict[str, str], dict[str, int]]:
+    output_paths: dict[str, str] = {}
+    row_counts: dict[str, int] = {}
+    for report in reports_by_stage.values():
+        raw_output_paths = report.get("output_paths", {})
+        if isinstance(raw_output_paths, Mapping):
+            for key, value in raw_output_paths.items():
+                output_paths[str(key)] = str(value)
+        for row_count_key in ("rows_by_table", "total_rows_by_table"):
+            raw_row_counts = report.get(row_count_key, {})
+            if isinstance(raw_row_counts, Mapping):
+                for key, value in raw_row_counts.items():
+                    row_counts[str(key)] = int(value)
+    if publish_mode == "staging_only":
+        return output_paths, {}, row_counts
+    return {}, output_paths, row_counts
+
+
+def _run_existing_raw_canonical_rebuild(
+    *, op_config: dict[str, object], run_id: str
+) -> dict[str, object]:
+    session_intervals_path = _optional_path_value(op_config, "canonical_session_intervals_path")
+    return materialize_moex_historical_assets(
+        raw_table_path=_required_path_value(
+            op_config,
+            "raw_table_path",
+            context_name="canonical_from_existing_raw rebuild",
+        ),
+        raw_ingest_report_path=_required_path_value(
+            op_config,
+            "raw_ingest_report_path",
+            context_name="canonical_from_existing_raw rebuild",
+        ),
+        canonical_output_dir=_required_path_value(
+            op_config,
+            "canonical_output_dir",
+            context_name="canonical_from_existing_raw rebuild",
+        ),
+        canonical_run_id=run_id,
+        canonical_session_intervals_path=session_intervals_path,
+        selection=MOEX_HISTORICAL_ASSET_KEYS,
+        raise_on_error=True,
+    )
+
+
+def _run_full_raw_to_canonical_rebuild(
+    *, op_config: dict[str, object], run_id: str
+) -> dict[str, object]:
+    canonical_output_dir = _required_path_value(
+        op_config,
+        "canonical_output_dir",
+        context_name="full_raw_to_canonical rebuild",
+    )
+    asset_op_config = dict(op_config)
+    asset_op_config["run_id"] = run_id
+    asset_op_config["canonical_run_id"] = run_id
+    result = materialize(
+        assets=list(MOEX_HISTORICAL_ASSETS),
+        selection=list(MOEX_HISTORICAL_ASSET_KEYS),
+        run_config={
+            "ops": {
+                "moex_raw_ingest": {"config": asset_op_config},
+                "moex_canonical_refresh": {"config": asset_op_config},
+            }
+        },
+        raise_on_error=True,
+    )
+    output_paths = moex_historical_output_paths(canonical_output_dir)
+    canonical_report_path = Path(output_paths["canonical_report"])
+    if result.success and not canonical_report_path.exists():
+        raise RuntimeError(
+            "full_raw_to_canonical rebuild reported success but canonical report artifact is missing: "
+            f"{canonical_report_path.as_posix()}"
+        )
+    return {
+        "success": bool(result.success),
+        "selected_assets": list(MOEX_HISTORICAL_ASSET_KEYS),
+        "materialized_assets": list(MOEX_HISTORICAL_ASSET_KEYS),
+        "output_paths": output_paths,
+        "canonical_report_exists": canonical_report_path.exists(),
+    }
+
+
+def _research_rebuild_kwargs(op_config: dict[str, object], *, run_id: str) -> dict[str, object]:
+    research_output_dir = _optional_path_value(op_config, "research_output_dir", "research_root")
+    materialized_output_dir = _optional_path_value(op_config, "materialized_output_dir")
+    results_output_dir = _optional_path_value(op_config, "results_output_dir")
+    volume_profile_raw_1m_table_path = _optional_path_value(
+        op_config, "volume_profile_raw_1m_table_path"
+    )
+    continuous_front_policy = op_config.get("continuous_front_policy")
+    volume_profile_tick_sizes = op_config.get("volume_profile_tick_size_by_instrument")
+    return {
+        "canonical_output_dir": _required_path_value(
+            op_config,
+            "canonical_output_dir",
+            context_name="MOEX research data-layer rebuild",
+        ),
+        "research_output_dir": research_output_dir,
+        "materialized_output_dir": materialized_output_dir,
+        "results_output_dir": results_output_dir,
+        "campaign_run_id": run_id,
+        "dataset_version": _text_value(op_config, "dataset_version") or run_id,
+        "dataset_name": _text_value(op_config, "dataset_name") or "moex-data-layer-rebuild",
+        "universe_id": _text_value(op_config, "universe_id") or "moex-futures",
+        "timeframes": _csv_sequence_value(
+            _text_value(op_config, "timeframes"), default=DEFAULT_TIMEFRAMES
+        ),
+        "base_timeframe": _text_value(op_config, "base_timeframe"),
+        "series_mode": _text_value(op_config, "series_mode") or "continuous_front",
+        "continuous_front_policy": (
+            dict(continuous_front_policy) if isinstance(continuous_front_policy, dict) else None
+        ),
+        "indicator_set_version": _text_value(op_config, "indicator_set_version")
+        or "indicators-v1",
+        "indicator_profile_version": _text_value(op_config, "indicator_profile_version")
+        or "core_v1",
+        "derived_indicator_set_version": _text_value(
+            op_config, "derived_indicator_set_version"
+        )
+        or "derived-v1",
+        "derived_indicator_profile_version": _text_value(
+            op_config, "derived_indicator_profile_version"
+        )
+        or "core_v1",
+        "volume_profile_raw_1m_table_path": volume_profile_raw_1m_table_path,
+        "volume_profile_tick_size_by_instrument": (
+            dict(volume_profile_tick_sizes)
+            if isinstance(volume_profile_tick_sizes, dict)
+            else None
+        ),
+        "reuse_existing_materialization": _bool_value(
+            op_config, "reuse_existing_materialization", default=False
+        ),
+        "raise_on_error": True,
+    }
+
+
+def _run_research_rebuild_stages(
+    *, stage_names: Sequence[str], op_config: dict[str, object], run_id: str
+) -> dict[str, dict[str, object]]:
+    import trading_advisor_3000.dagster_defs.research_assets as research_assets
+
+    runner_by_stage = {
+        "continuous_front": research_assets.materialize_moex_cf_rebuild_assets,
+        "research_bar": research_assets.materialize_moex_research_bar_rebuild_assets,
+        "indicator": research_assets.materialize_moex_indicator_rebuild_assets,
+        "derived": research_assets.materialize_moex_derived_indicator_rebuild_assets,
+    }
+    kwargs = _research_rebuild_kwargs(op_config, run_id=run_id)
+    reports: dict[str, dict[str, object]] = {}
+    for stage_name in stage_names:
+        runner = runner_by_stage.get(stage_name)
+        if runner is None:
+            continue
+        report = dict(runner(**kwargs))
+        _require_subreport_success(stage_name, report)
+        reports[stage_name] = report
+    return reports
+
+
+def run_moex_data_rebuild_profile(op_config: dict[str, object]) -> dict[str, object]:
+    profile = resolve_moex_data_rebuild_profile(
+        _text_value(op_config, "profile_name") or "canonical_from_existing_raw"
+    )
+    run_id = validate_moex_runtime_run_id(
+        _text_value(op_config, "canonical_run_id", "run_id") or _default_route_run_id(),
+        name="moex_data_rebuild.run_id",
+    )
+    publish_mode = _text_value(op_config, "publish_mode") or "promote"
+    downstream_mode = _text_value(op_config, "downstream_mode") or "invalidate"
+    reports_by_stage: dict[str, dict[str, object]] = {}
+
+    if profile.name == "full_raw_to_canonical":
+        reports_by_stage["canonical"] = _run_full_raw_to_canonical_rebuild(
+            op_config=op_config, run_id=run_id
+        )
+    elif set(profile.stage_names).intersection({"sessions", "canonical"}):
+        reports_by_stage["canonical"] = _run_existing_raw_canonical_rebuild(
+            op_config=op_config, run_id=run_id
+        )
+    elif profile.stage_names:
+        reports_by_stage.update(
+            _run_research_rebuild_stages(
+                stage_names=profile.stage_names,
+                op_config=op_config,
+                run_id=run_id,
+            )
+        )
+
+    for stage_name, report in reports_by_stage.items():
+        _require_subreport_success(stage_name, report)
+
+    staged_outputs, promoted_outputs, row_counts = _collect_manifest_outputs(
+        reports_by_stage, publish_mode=publish_mode
+    )
+    manifest = build_moex_data_rebuild_manifest(
+        profile=profile,
+        run_id=run_id,
+        publish_mode=publish_mode,
+        downstream_mode=downstream_mode,
+        input_roots=_data_rebuild_input_roots(op_config),
+        staged_outputs=staged_outputs,
+        promoted_outputs=promoted_outputs,
+        row_counts=row_counts,
+    )
+    manifest_path = _optional_path_value(op_config, "manifest_path")
+    if manifest_path is None:
+        manifest_path = _default_data_rebuild_manifest_path(op_config, run_id)
+    written_manifest_path = write_moex_data_rebuild_manifest(manifest_path, manifest)
+    return {
+        "success": True,
+        "profile_name": profile.name,
+        "run_id": run_id,
+        "source_mode": _text_value(op_config, "source_mode") or profile.source_mode,
+        "publish_mode": publish_mode,
+        "downstream_mode": downstream_mode,
+        "stage_names": list(profile.stage_names),
+        "layer_reports": reports_by_stage,
+        "manifest": manifest,
+        "manifest_path": written_manifest_path.as_posix(),
+        "materialized_assets": sorted(
+            {
+                str(asset_name)
+                for report in reports_by_stage.values()
+                for asset_name in report.get("materialized_assets", [])
+            }
+        ),
+    }
+
+
+@op(
+    name=MOEX_DATA_REBUILD_OP_NAME,
+    config_schema=MOEX_HISTORICAL_OP_CONFIG_SCHEMA,
+    retry_policy=MOEX_HISTORICAL_RETRY_POLICY,
+)
+def moex_data_rebuild(context) -> dict[str, object]:
+    report = run_moex_data_rebuild_profile(_op_config_from_context(context))
+    context.add_output_metadata(
+        {
+            "profile_name": str(report.get("profile_name", "")),
+            "run_id": str(report.get("run_id", "")),
+            "stage_count": len(list(report.get("stage_names", []))),
+            "manifest_path": str(report.get("manifest_path", "")),
+        }
+    )
+    return report
+
+
 MOEX_HISTORICAL_ASSETS = (
     moex_baseline_update,
     moex_raw_ingest,
@@ -1003,11 +1343,12 @@ moex_baseline_update_job = define_asset_job(
     op_retry_policy=MOEX_HISTORICAL_RETRY_POLICY,
 )
 
-moex_data_rebuild_job = define_asset_job(
-    name=MOEX_DATA_REBUILD_JOB_NAME,
-    selection=AssetSelection.groups("moex_historical_cutover"),
-    op_retry_policy=MOEX_HISTORICAL_RETRY_POLICY,
-)
+
+@job(name=MOEX_DATA_REBUILD_JOB_NAME)
+def moex_data_rebuild_job():
+    moex_data_rebuild()
+
+
 moex_historical_cutover_job = moex_data_rebuild_job
 
 moex_data_rebuild_preview_schedule = ScheduleDefinition(
@@ -1054,14 +1395,14 @@ def assert_moex_historical_definitions_executable(definitions: Definitions | Non
             "missing executable baseline update or data rebuild job."
         ) from exc
 
-    expected_nodes = set(MOEX_HISTORICAL_ASSET_KEYS)
+    expected_nodes = {MOEX_DATA_REBUILD_OP_NAME}
     actual_nodes = set(job.graph.node_dict.keys())
     missing_nodes = sorted(expected_nodes - actual_nodes)
     if missing_nodes:
         missing_text = ", ".join(missing_nodes)
         raise RuntimeError(
             "moex historical Dagster definitions are metadata-only or incomplete: "
-            f"missing executable asset nodes: {missing_text}"
+            f"missing executable data rebuild node: {missing_text}"
         )
 
 
@@ -1192,8 +1533,8 @@ def execute_moex_baseline_update_job(
 
 def execute_moex_data_rebuild_job(
     *,
-    raw_table_path: Path,
-    raw_ingest_report_path: Path,
+    raw_table_path: Path | None = None,
+    raw_ingest_report_path: Path | None = None,
     canonical_output_dir: Path,
     canonical_run_id: str,
     instance: DagsterInstance,
@@ -1250,13 +1591,31 @@ def execute_moex_data_rebuild_job(
         raise_on_error=raise_on_error,
         tags=tags,
     )
-    output_paths = moex_historical_output_paths(canonical_output_dir)
-    canonical_report_path = Path(output_paths["canonical_report"])
-    if result.success and not canonical_report_path.exists():
+    op_report: dict[str, object] = {}
+    if result.success:
+        raw_op_report = result.output_for_node(MOEX_DATA_REBUILD_OP_NAME)
+        if isinstance(raw_op_report, dict):
+            op_report = raw_op_report
+    profile = resolve_moex_data_rebuild_profile(profile_name)
+    output_paths = (
+        moex_historical_output_paths(canonical_output_dir)
+        if set(profile.stage_names).intersection({"sessions", "canonical"})
+        else {}
+    )
+    canonical_report_path = (
+        Path(output_paths["canonical_report"]) if "canonical_report" in output_paths else None
+    )
+    if result.success and canonical_report_path is not None and not canonical_report_path.exists():
         raise RuntimeError(
             "moex data rebuild Dagster job reported success but the canonical refresh report artifact is missing: "
             f"{canonical_report_path.as_posix()}"
         )
+    reported_output_paths: dict[str, object] = dict(output_paths)
+    manifest_payload = op_report.get("manifest")
+    if not reported_output_paths and isinstance(manifest_payload, dict):
+        promoted_outputs = manifest_payload.get("promoted_outputs", {})
+        if isinstance(promoted_outputs, dict):
+            reported_output_paths = dict(promoted_outputs)
 
     return {
         "success": bool(result.success),
@@ -1270,9 +1629,12 @@ def execute_moex_data_rebuild_job(
         "downstream_mode": downstream_mode,
         "schedule": schedule_payload,
         "tags": tags,
-        "materialized_assets": list(MOEX_HISTORICAL_ASSET_KEYS),
-        "output_paths": output_paths,
-        "canonical_report_exists": canonical_report_path.exists(),
+        "materialized_assets": list(op_report.get("materialized_assets", [])),
+        "output_paths": reported_output_paths,
+        "canonical_report_exists": (
+            canonical_report_path.exists() if canonical_report_path is not None else False
+        ),
+        "manifest_path": str(op_report.get("manifest_path", "")),
     }
 
 
@@ -1345,6 +1707,7 @@ def materialize_moex_historical_assets(
     raw_ingest_report_path: Path,
     canonical_output_dir: Path,
     canonical_run_id: str,
+    canonical_session_intervals_path: Path | None = None,
     selection: Sequence[str] | None = None,
     raise_on_error: bool = True,
 ) -> dict[str, object]:
@@ -1364,6 +1727,10 @@ def materialize_moex_historical_assets(
         "canonical_output_dir": canonical_output_dir.resolve().as_posix(),
         "canonical_run_id": resolved_canonical_run_id,
     }
+    if canonical_session_intervals_path is not None:
+        op_config["canonical_session_intervals_path"] = (
+            canonical_session_intervals_path.resolve().as_posix()
+        )
 
     raw_report = _read_raw_ingest_report(raw_ingest_report_path)
     raw_status = str(raw_report.get("status", "")).strip()

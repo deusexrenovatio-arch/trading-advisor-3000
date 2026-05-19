@@ -4,8 +4,14 @@ import json
 from pathlib import Path
 
 import pytest
+from dagster import DagsterInstance
 
-from trading_advisor_3000.dagster_defs import build_moex_data_rebuild_run_config
+import trading_advisor_3000.dagster_defs.research_assets as research_assets
+from trading_advisor_3000.dagster_defs import (
+    MOEX_DATA_REBUILD_JOB_NAME,
+    build_moex_data_rebuild_run_config,
+    build_moex_historical_definitions,
+)
 from trading_advisor_3000.product_plane.data_plane.moex.data_rebuild_profiles import (
     FORBIDDEN_REBUILD_STAGE_NAMES,
     MOEX_DATA_REBUILD_PROFILE_NAMES,
@@ -153,7 +159,7 @@ def test_moex_data_rebuild_run_config_distinguishes_raw_source_modes(tmp_path: P
         canonical_output_dir=tmp_path / "canonical",
         canonical_run_id="run-existing-raw",
     )
-    existing_raw_op_config = existing_raw_config["ops"]["moex_raw_ingest"]["config"]
+    existing_raw_op_config = existing_raw_config["ops"]["moex_data_rebuild"]["config"]
     assert existing_raw_op_config["source_mode"] == "existing_raw_delta"
     assert existing_raw_op_config["raw_table_path"].endswith("raw_moex_history.delta")
     assert existing_raw_op_config["raw_ingest_report_path"].endswith("raw-ingest-report.json")
@@ -167,8 +173,75 @@ def test_moex_data_rebuild_run_config_distinguishes_raw_source_modes(tmp_path: P
         session_root=tmp_path / "sessions",
         research_root=tmp_path / "research",
     )
-    full_raw_op_config = full_raw_config["ops"]["moex_raw_ingest"]["config"]
+    full_raw_op_config = full_raw_config["ops"]["moex_data_rebuild"]["config"]
     assert full_raw_op_config["source_mode"] == "full_raw_ingest"
     assert "raw_table_path" not in full_raw_op_config
     assert "raw_ingest_report_path" not in full_raw_op_config
     assert full_raw_op_config["raw_root"].endswith("raw")
+
+
+def test_moex_data_rebuild_job_dispatches_data_layer_profile_in_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+
+    def _fake_layer(layer_name: str, table_name: str):
+        def _run(**kwargs: object) -> dict[str, object]:
+            calls.append(layer_name)
+            assert Path(str(kwargs["canonical_output_dir"])) == (tmp_path / "canonical").resolve()
+            assert Path(str(kwargs["research_output_dir"])) == (tmp_path / "research").resolve()
+            assert kwargs["dataset_version"] == "run-data-layer"
+            return {
+                "success": True,
+                "materialized_assets": [table_name],
+                "output_paths": {
+                    table_name: (tmp_path / "research" / f"{table_name}.delta").as_posix()
+                },
+                "rows_by_table": {table_name: 1},
+            }
+
+        return _run
+
+    monkeypatch.setattr(
+        research_assets,
+        "materialize_moex_cf_rebuild_assets",
+        _fake_layer("continuous_front", "continuous_front_bars"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        research_assets,
+        "materialize_moex_research_bar_rebuild_assets",
+        _fake_layer("research_bar", "research_bar_views"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        research_assets,
+        "materialize_moex_indicator_rebuild_assets",
+        _fake_layer("indicator", "research_indicator_frames"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        research_assets,
+        "materialize_moex_derived_indicator_rebuild_assets",
+        _fake_layer("derived", "research_derived_indicator_frames"),
+        raising=False,
+    )
+
+    definitions = build_moex_historical_definitions()
+    job = definitions.get_repository_def().get_job(MOEX_DATA_REBUILD_JOB_NAME)
+    result = job.execute_in_process(
+        run_config=build_moex_data_rebuild_run_config(
+            profile_name="data_layer_rebuild",
+            canonical_output_dir=tmp_path / "canonical",
+            canonical_run_id="run-data-layer",
+            research_root=tmp_path / "research",
+        ),
+        instance=DagsterInstance.ephemeral(),
+        raise_on_error=True,
+    )
+
+    assert result.success
+    assert calls == ["continuous_front", "research_bar", "indicator", "derived"]
+    report = result.output_for_node("moex_data_rebuild")
+    assert report["profile_name"] == "data_layer_rebuild"
+    assert Path(str(report["manifest_path"])).exists()

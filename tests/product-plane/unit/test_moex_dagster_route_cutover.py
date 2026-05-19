@@ -211,10 +211,7 @@ def test_historical_dagster_cutover_definitions_are_executable(
     assert "moex_data_rebuild_job" in job_names
     assert "moex_historical_cutover_job" not in job_names
     data_rebuild_job = repository.get_job("moex_data_rebuild_job")
-    assert set(data_rebuild_job.graph.node_dict) == {
-        "moex_raw_ingest",
-        "moex_canonical_refresh",
-    }
+    assert set(data_rebuild_job.graph.node_dict) == {"moex_data_rebuild"}
     schedule_names = {schedule_def.name for schedule_def in repository.schedule_defs}
     assert "moex_baseline_daily_update_schedule" in schedule_names
     assert "moex_historical_nightly_schedule" not in schedule_names
