@@ -122,6 +122,8 @@ def _write_rich_stage7_canonical_context(output_dir: Path) -> None:
     schema_manifest = historical_data_delta_schema_manifest()
     start = datetime(2026, 3, 16, 9, 0, tzinfo=UTC)
     bars: list[dict[str, object]] = []
+    provenance: list[dict[str, object]] = []
+    intervals: list[dict[str, object]] = []
     calendar: list[dict[str, object]] = []
     roll_map: list[dict[str, object]] = []
 
@@ -129,8 +131,27 @@ def _write_rich_stage7_canonical_context(output_dir: Path) -> None:
         ("BR-6.26", "BR", 82.0, 0.22),
         ("Si-6.26", "Si", 91_800.0, 55.0),
     ):
+        interval_id = f"{instrument_id}-2026-03-16-regular-1"
+        intervals.append(
+            {
+                "instrument_id": instrument_id,
+                "session_date": "2026-03-16",
+                "interval_id": interval_id,
+                "interval_seq": 1,
+                "expected_open_ts": "2026-03-16T09:00:00Z",
+                "expected_close_ts": "2026-03-16T23:45:00Z",
+                "session_class": "regular",
+                "interval_type": "regular_trading",
+                "policy_id": "stage7-rich-fixture-session-v1",
+                "source_id": "stage7-rich-fixture-session",
+                "source_document_hash": "sha256:stage7-rich-fixture",
+            }
+        )
         for index in range(60):
-            ts = (start + timedelta(minutes=15 * index)).isoformat().replace("+00:00", "Z")
+            bar_start = start + timedelta(minutes=15 * index)
+            bar_end = bar_start + timedelta(minutes=15)
+            ts = bar_start.isoformat().replace("+00:00", "Z")
+            bar_end_ts = bar_end.isoformat().replace("+00:00", "Z")
             if index < 20:
                 close = base_close + (index * step)
             elif index < 40:
@@ -152,6 +173,28 @@ def _write_rich_stage7_canonical_context(output_dir: Path) -> None:
                     "close": round(close, 6),
                     "volume": int(1_000 + index * 20 + (120 if index % 7 == 0 else 0)),
                     "open_interest": 20_000 + index,
+                }
+            )
+            provenance.append(
+                {
+                    "contract_id": contract_id,
+                    "instrument_id": instrument_id,
+                    "timeframe": "15m",
+                    "ts": ts,
+                    "bar_start_ts": ts,
+                    "bar_end_ts": bar_end_ts,
+                    "session_interval_id": interval_id,
+                    "source_provider": "stage7-rich-fixture",
+                    "source_timeframe": "15m",
+                    "source_interval": 15,
+                    "source_run_id": "stage7-rich-fixture",
+                    "source_ingest_run_id": "stage7-rich-fixture",
+                    "source_row_count": 1,
+                    "source_ts_open_first": ts,
+                    "source_ts_close_last": bar_end_ts,
+                    "open_interest_imputed": False,
+                    "build_run_id": "stage7-rich-fixture",
+                    "built_at_utc": "2026-03-16T00:00:00Z",
                 }
             )
         calendar.append(
@@ -177,6 +220,16 @@ def _write_rich_stage7_canonical_context(output_dir: Path) -> None:
         table_path=output_dir / "canonical_bars.delta",
         rows=bars,
         columns=schema_manifest["canonical_bars"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=output_dir / "canonical_bar_provenance.delta",
+        rows=provenance,
+        columns=schema_manifest["canonical_bar_provenance"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=output_dir / "canonical_session_intervals.delta",
+        rows=intervals,
+        columns=schema_manifest["canonical_session_intervals"]["columns"],
     )
     write_delta_table_rows(
         table_path=output_dir / "canonical_session_calendar.delta",

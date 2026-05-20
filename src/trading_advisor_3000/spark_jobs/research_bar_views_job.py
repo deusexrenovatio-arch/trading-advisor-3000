@@ -315,7 +315,12 @@ def _with_bar_usage_contract(
             F.sum("day_special").alias("weekly_special_count"),
             F.sum("day_shortened").alias("weekly_shortened_count"),
         )
+        .withColumnRenamed("interval_instrument_id", "weekly_expected_instrument_id")
+        .withColumnRenamed("week_start", "weekly_expected_week_start")
     )
+    day_meta = day_meta.withColumnRenamed(
+        "interval_instrument_id", "day_instrument_id"
+    ).withColumnRenamed("interval_session_date", "day_session_date")
     actual_daily = (
         spark.read.format("delta")
         .load(str(canonical_bars_path))
@@ -357,14 +362,14 @@ def _with_bar_usage_contract(
         )
         .join(
             day_meta.alias("day"),
-            (F.col("bar.instrument_id") == F.col("day.interval_instrument_id"))
-            & (F.col("bar.session_date") == F.col("day.interval_session_date")),
+            (F.col("bar.instrument_id") == F.col("day.day_instrument_id"))
+            & (F.col("bar.session_date") == F.col("day.day_session_date")),
             "left",
         )
         .join(
             expected_weekly.alias("weekly_expected"),
-            (F.col("bar.instrument_id") == F.col("weekly_expected.interval_instrument_id"))
-            & (F.col("bar._week_start") == F.col("weekly_expected.week_start")),
+            (F.col("bar.instrument_id") == F.col("weekly_expected.weekly_expected_instrument_id"))
+            & (F.col("bar._week_start") == F.col("weekly_expected.weekly_expected_week_start")),
             "left",
         )
         .join(
