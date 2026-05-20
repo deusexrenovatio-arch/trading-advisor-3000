@@ -14,6 +14,16 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     read_delta_table_arrow,
     read_delta_table_rows,
 )
+from trading_advisor_3000.product_plane.research.bar_usage_policy import (
+    EVENT_UPDATE_ZERO,
+    POINT_UPDATE_NULL,
+    STATE_UPDATE_HOLD,
+    STATE_UPDATE_RESET_SCOPE,
+    BarUsageCalculationRule,
+    assert_indicator_bar_usage_policy_coverage,
+    has_required_bar_usage_flags,
+    indicator_bar_usage_groups_for_outputs,
+)
 from trading_advisor_3000.product_plane.research.continuous_front_indicators.rules import (
     assert_rule_coverage,
     rules_for_indicator_profile,
@@ -941,7 +951,7 @@ def _append_computed_columns(frame: pd.DataFrame, columns: Mapping[str, pd.Serie
     return pd.concat([frame, output_frame], axis=1)
 
 
-def _compute_profile_frame(frame: pd.DataFrame, profile: IndicatorProfile) -> pd.DataFrame:
+def _compute_profile_frame_unmasked(frame: pd.DataFrame, profile: IndicatorProfile) -> pd.DataFrame:
     result = frame.copy()
     pending_outputs: dict[str, pd.Series] = {}
     for spec in profile.indicators:
@@ -950,6 +960,79 @@ def _compute_profile_frame(frame: pd.DataFrame, profile: IndicatorProfile) -> pd
             pending_outputs = {}
         pending_outputs.update(_compute_spec(result, spec))
     return _append_computed_columns(result, pending_outputs)
+
+
+def _bar_usage_eligible_mask(frame: pd.DataFrame, required_flags: int) -> pd.Series:
+    if "bar_usage_flags" not in frame.columns:
+        return pd.Series([True] * len(frame), index=frame.index)
+    return frame["bar_usage_flags"].map(
+        lambda flags: has_required_bar_usage_flags(flags, required_flags)
+    )
+
+
+def _project_bar_usage_computed_columns(
+    *,
+    frame: pd.DataFrame,
+    computed: pd.DataFrame,
+    output_columns: tuple[str, ...],
+    rule: BarUsageCalculationRule,
+) -> dict[str, pd.Series]:
+    projected = computed.reindex(frame.index)
+    for column in output_columns:
+        if column not in projected.columns:
+            projected[column] = pd.NA
+    projected = projected.loc[:, list(output_columns)]
+    if rule.mode == STATE_UPDATE_HOLD:
+        with pd.option_context("future.no_silent_downcasting", True):
+            projected = projected.ffill()
+        projected = projected.infer_objects(copy=False)
+    elif rule.mode == STATE_UPDATE_RESET_SCOPE:
+        with pd.option_context("future.no_silent_downcasting", True):
+            if rule.scope_id == "session" and "session_date" in frame.columns:
+                projected = projected.groupby(frame["session_date"], sort=False).ffill()
+            else:
+                projected = projected.ffill()
+        projected = projected.infer_objects(copy=False)
+    elif rule.mode == POINT_UPDATE_NULL:
+        pass
+    elif rule.mode == EVENT_UPDATE_ZERO:
+        noneligible_index = ~projected.index.isin(computed.index)
+        projected.loc[noneligible_index, list(output_columns)] = 0
+        projected = projected.infer_objects(copy=False)
+    else:
+        raise ValueError(f"unsupported bar usage calculation mode: {rule.mode}")
+    return {column: projected[column] for column in output_columns}
+
+
+def _compute_profile_frame(frame: pd.DataFrame, profile: IndicatorProfile) -> pd.DataFrame:
+    assert_indicator_bar_usage_policy_coverage(profile)
+    if frame.empty or "bar_usage_flags" not in frame.columns:
+        return _compute_profile_frame_unmasked(frame, profile)
+    result = frame.copy()
+    for rule, output_columns in indicator_bar_usage_groups_for_outputs(
+        profile.expected_output_columns()
+    ):
+        specs = _specs_for_columns(profile, set(output_columns))
+        if not specs:
+            continue
+        eligible = _bar_usage_eligible_mask(frame, rule.required_flags)
+        eligible_frame = frame.loc[eligible].copy()
+        if eligible_frame.empty:
+            computed = pd.DataFrame(index=eligible_frame.index)
+        else:
+            computed = _compute_profile_frame_unmasked(
+                eligible_frame, _profile_for_specs(profile, specs)
+            )
+        result = _append_computed_columns(
+            result,
+            _project_bar_usage_computed_columns(
+                frame=frame,
+                computed=computed,
+                output_columns=output_columns,
+                rule=rule,
+            ),
+        )
+    return result
 
 
 def _ladder_rows_for_series(
@@ -1230,11 +1313,39 @@ def _compute_profile_frame_for_series(
 ) -> pd.DataFrame:
     if series_mode != "continuous_front":
         return _compute_profile_frame(frame, profile)
-    return _compute_continuous_front_profile_frame(
-        frame,
-        profile,
-        adjustment_ladder_rows=adjustment_ladder_rows,
-    )
+    if frame.empty or "bar_usage_flags" not in frame.columns:
+        return _compute_continuous_front_profile_frame(
+            frame,
+            profile,
+            adjustment_ladder_rows=adjustment_ladder_rows,
+        )
+    result = frame.copy()
+    for rule, output_columns in indicator_bar_usage_groups_for_outputs(
+        profile.expected_output_columns()
+    ):
+        specs = _specs_for_columns(profile, set(output_columns))
+        if not specs:
+            continue
+        eligible = _bar_usage_eligible_mask(frame, rule.required_flags)
+        eligible_frame = frame.loc[eligible].copy()
+        if eligible_frame.empty:
+            computed = pd.DataFrame(index=eligible_frame.index)
+        else:
+            computed = _compute_continuous_front_profile_frame(
+                eligible_frame,
+                _profile_for_specs(profile, specs),
+                adjustment_ladder_rows=adjustment_ladder_rows,
+            )
+        result = _append_computed_columns(
+            result,
+            _project_bar_usage_computed_columns(
+                frame=frame,
+                computed=computed,
+                output_columns=output_columns,
+                rule=rule,
+            ),
+        )
+    return result
 
 
 def _null_warmup_span(
@@ -1349,6 +1460,19 @@ def _build_partition_rows(
             tick_size_by_instrument=volume_profile_tick_size_by_instrument,
         ).items():
             computed[column] = series_values
+        volume_profile_columns = tuple(
+            column for column in VOLUME_PROFILE_INDICATOR_COLUMNS if column in computed.columns
+        )
+        for rule, output_columns in indicator_bar_usage_groups_for_outputs(volume_profile_columns):
+            eligible = _bar_usage_eligible_mask(frame, rule.required_flags)
+            projected = _project_bar_usage_computed_columns(
+                frame=frame,
+                computed=computed.loc[eligible, list(output_columns)],
+                output_columns=output_columns,
+                rule=rule,
+            )
+            for column, series_values in projected.items():
+                computed[column] = series_values
     payload_rows = computed.to_dict("records")
     output_columns = profile.expected_output_columns()
     computed_columns = set(compute_profile.expected_output_columns())
