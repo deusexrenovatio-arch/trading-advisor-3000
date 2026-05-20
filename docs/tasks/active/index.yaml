@@ -44,10 +44,13 @@ items:
 - id: TASK-2026-05-20-INTEGRATE-RBAR-CANONICAL-BAR-USAGE-CONTRACT-THRO
   path: docs/tasks/active/TASK-2026-05-20-integrate-rbar-canonical-bar-usage-contract-thro.md
   mode: legacy-full
-  status: in_progress
+  status: completed
   started_at: '2026-05-20'
+  attempt: 1
+  superseded_by: TASK-2026-05-20-INTEGRATE-RBAR-CANONICAL-BAR-USAGE-CONTRACT-THRO-1
 - id: TASK-2026-05-20-INTEGRATE-RBAR-CANONICAL-BAR-USAGE-CONTRACT-THRO-1
   path: docs/tasks/active/TASK-2026-05-20-integrate-rbar-canonical-bar-usage-contract-thro-1.md
   mode: legacy-full
   status: in_progress
   started_at: '2026-05-20'
+  attempt: 2
