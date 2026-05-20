@@ -189,7 +189,10 @@ def _derived_base_frame(
         "4h": timedelta(hours=4),
         "1d": timedelta(days=1),
     }
-    step = step_by_timeframe.get(timeframe, timedelta(minutes=15))
+    try:
+        step = step_by_timeframe[timeframe]
+    except KeyError as exc:
+        raise AssertionError(f"unexpected timeframe: {timeframe}") from exc
     rows: list[dict[str, object]] = []
     for index, usage_profile in enumerate(usage_profiles):
         ts = start + step * index
