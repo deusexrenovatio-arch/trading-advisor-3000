@@ -1,12 +1,12 @@
 # Governance Dashboard
 
-- generated_at: 2026-05-19
+- generated_at: 2026-05-20
 - overall_status: yellow
 
 | Section | Status | Notes |
 | --- | --- | --- |
-| lifecycle | green | terminal_outcomes=42, correct_first_time_rate=0.21 |
+| lifecycle | green | terminal_outcomes=43, correct_first_time_rate=0.21 |
 | state | green | plans_total=2, memory_decisions=1, memory_patterns=1 |
-| quality | green | completed_tasks=42, window_tasks=20, burn_in=True |
+| quality | green | completed_tasks=43, window_tasks=20, burn_in=True |
 | orchestration_quality | yellow | window_runs=20, avg_score=75.60, avg_delta=0.00, first_pass=0.45, remediation=0.35, top=evidence_gap:33, prohibited_finding:10 |
-| pilot_observation | green | critical_tasks_with_explicit_solution_class=27, blocked_shortcut_claims=0, staged=6, target=21, observation_window_start=2026-03-25, observation_window_days=55, observation_window_status=review_due |
+| pilot_observation | green | critical_tasks_with_explicit_solution_class=29, blocked_shortcut_claims=0, staged=6, target=23, observation_window_start=2026-03-25, observation_window_days=56, observation_window_status=review_due |

@@ -1,7 +1,7 @@
 # Process Improvement Report
 
-- generated_at: 2026-05-19
-- completed_tasks_count: 42
+- generated_at: 2026-05-20
+- completed_tasks_count: 43
 - window_tasks_count: 20
 - window_size: 20
 - burn_in_complete: True
@@ -21,7 +21,7 @@
 - decision_quality_counts: correct_after_replan=17, correct_first_time=2, partial_outcome=1
 - outcome_status_counts: blocked=1, completed=19
 - rework_cause_counts: test_gap=1, workflow_gap=10
-- improvement_action_counts: docs=1, pending=1, skill=1, test=1, validator=1, workflow=13
+- improvement_action_counts: docs=1, pending=1, skill=1, test=2, validator=1, workflow=12
 - repeat_incident_signatures: none
 - same_path_retry_count: 0
 

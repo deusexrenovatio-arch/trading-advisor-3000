@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-19",
+  "generated_at": "2026-05-20",
   "plans": {
     "total_items": 2,
     "active_items": 0,
@@ -11,7 +11,7 @@
     "patterns": 1
   },
   "process_rollup": {
-    "completed_tasks_count": 42,
+    "completed_tasks_count": 43,
     "window_size": 20,
     "burn_in_min_completed_tasks": 20,
     "window_tasks_count": 20,
@@ -25,15 +25,15 @@
     }
   },
   "dev_loop_baseline": {
-    "generated_at": "2026-05-19",
-    "task_outcomes_total": 42,
-    "terminal_outcomes_total": 42,
+    "generated_at": "2026-05-20",
+    "task_outcomes_total": 43,
+    "terminal_outcomes_total": 43,
     "outcomes_with_patch_timing": 2,
-    "outcomes_without_patch_timing": 40,
+    "outcomes_without_patch_timing": 41,
     "median_time_to_first_patch_sec": 105.0,
     "p90_time_to_first_patch_sec": 120,
-    "median_same_path_attempts": 1.0,
-    "correct_first_time_rate": 0.21428571428571427,
-    "start_route_match_rate": 0.8333333333333334
+    "median_same_path_attempts": 1,
+    "correct_first_time_rate": 0.20930232558139536,
+    "start_route_match_rate": 0.8372093023255814
   }
 }
