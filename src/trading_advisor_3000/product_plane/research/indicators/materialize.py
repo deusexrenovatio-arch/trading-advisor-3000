@@ -985,15 +985,19 @@ def _project_bar_usage_computed_columns(
             projected[column] = pd.NA
     projected = projected.loc[:, list(output_columns)]
     if rule.mode == STATE_UPDATE_HOLD:
-        with pd.option_context("future.no_silent_downcasting", True):
-            projected = projected.ffill()
+        projected = _fill_bar_usage_noncomputed_rows(projected, computed_index=computed.index)
         projected = projected.infer_objects(copy=False)
     elif rule.mode == STATE_UPDATE_RESET_SCOPE:
-        with pd.option_context("future.no_silent_downcasting", True):
-            if rule.scope_id == "session" and "session_date" in frame.columns:
-                projected = projected.groupby(frame["session_date"], sort=False).ffill()
-            else:
-                projected = projected.ffill()
+        scope_key = (
+            frame["session_date"]
+            if rule.scope_id == "session" and "session_date" in frame.columns
+            else None
+        )
+        projected = _fill_bar_usage_noncomputed_rows(
+            projected,
+            computed_index=computed.index,
+            scope_key=scope_key,
+        )
         projected = projected.infer_objects(copy=False)
     elif rule.mode == POINT_UPDATE_NULL:
         pass
@@ -1004,6 +1008,33 @@ def _project_bar_usage_computed_columns(
     else:
         raise ValueError(f"unsupported bar usage calculation mode: {rule.mode}")
     return {column: projected[column] for column in output_columns}
+
+
+def _fill_bar_usage_noncomputed_rows(
+    projected: pd.DataFrame,
+    *,
+    computed_index: pd.Index,
+    scope_key: pd.Series | None = None,
+) -> pd.DataFrame:
+    filled = projected.copy()
+    computed_indices = set(computed_index)
+    scope_values = scope_key.reindex(filled.index) if scope_key is not None else None
+    scope_marker = object()
+    last_values = {column: pd.NA for column in filled.columns}
+    for position, index in enumerate(filled.index):
+        if scope_values is not None:
+            scope_value = scope_values.iloc[position]
+            scope_token = None if pd.isna(scope_value) else scope_value
+            if scope_token != scope_marker:
+                last_values = {column: pd.NA for column in filled.columns}
+                scope_marker = scope_token
+        if index in computed_indices:
+            for column_index, column in enumerate(filled.columns):
+                last_values[column] = filled.iat[position, column_index]
+        else:
+            for column_index, column in enumerate(filled.columns):
+                filled.iat[position, column_index] = last_values[column]
+    return filled
 
 
 def _compute_profile_frame(frame: pd.DataFrame, profile: IndicatorProfile) -> pd.DataFrame:

@@ -28,6 +28,10 @@ from trading_advisor_3000.product_plane.research.derived_indicators import (
 from trading_advisor_3000.product_plane.research.derived_indicators.materialize import (
     _compute_derived_frame,
     _compute_derived_frame_unmasked,
+    _split_mtf_output_columns_by_source_flags,
+)
+from trading_advisor_3000.product_plane.research.derived_indicators.materialize import (
+    _project_bar_usage_computed_columns as _project_derived_bar_usage_columns,
 )
 from trading_advisor_3000.product_plane.research.indicators import (
     VOLUME_PROFILE_INDICATOR_COLUMNS,
@@ -37,6 +41,9 @@ from trading_advisor_3000.product_plane.research.indicators import (
     IndicatorSpec,
     build_indicator_frames,
     default_indicator_profile,
+)
+from trading_advisor_3000.product_plane.research.indicators.materialize import (
+    _project_bar_usage_computed_columns as _project_indicator_bar_usage_columns,
 )
 
 
@@ -176,9 +183,16 @@ def _derived_base_frame(
     start: datetime | None = None,
 ) -> pd.DataFrame:
     start = start or datetime(2026, 3, 16, 9, 0, tzinfo=UTC)
+    step_by_timeframe = {
+        "15m": timedelta(minutes=15),
+        "1h": timedelta(hours=1),
+        "4h": timedelta(hours=4),
+        "1d": timedelta(days=1),
+    }
+    step = step_by_timeframe.get(timeframe, timedelta(minutes=15))
     rows: list[dict[str, object]] = []
     for index, usage_profile in enumerate(usage_profiles):
-        ts = start + timedelta(minutes=15 * index)
+        ts = start + step * index
         close = closes[index] if closes is not None else float(index)
         high = highs[index] if highs is not None else close + 1.0
         session_date = session_dates[index] if session_dates is not None else ts.date().isoformat()
@@ -346,6 +360,43 @@ def test_nonregular_risk_profiles_do_not_update_signal_groups(usage_profile: str
 
     assert frames[2].values["sma_2"] == pytest.approx(31.0)
     assert frames[2].values["donchian_high_2"] == pytest.approx(13.0)
+
+
+def test_indicator_projection_preserves_computed_null_state() -> None:
+    frame = pd.DataFrame(index=[0, 1, 2])
+    computed = pd.DataFrame({"sma_20": [1.0, pd.NA]}, index=[0, 1])
+
+    projected = _project_indicator_bar_usage_columns(
+        frame=frame,
+        computed=computed,
+        output_columns=("sma_20",),
+        rule=resolve_indicator_bar_usage_rule("sma_20"),
+    )
+
+    assert projected["sma_20"].iloc[0] == pytest.approx(1.0)
+    assert pd.isna(projected["sma_20"].iloc[1])
+    assert pd.isna(projected["sma_20"].iloc[2])
+
+
+def test_derived_projection_preserves_computed_null_state() -> None:
+    frame = pd.DataFrame(index=[0, 1, 2])
+    computed = pd.DataFrame({"rolling_high_20": [1.0, pd.NA]}, index=[0, 1])
+
+    projected = _project_derived_bar_usage_columns(
+        frame=frame,
+        computed=computed,
+        output_columns=("rolling_high_20",),
+        rule=resolve_derived_bar_usage_rule("rolling_high_20"),
+    )
+
+    assert projected["rolling_high_20"].iloc[0] == pytest.approx(1.0)
+    assert pd.isna(projected["rolling_high_20"].iloc[1])
+    assert pd.isna(projected["rolling_high_20"].iloc[2])
+
+
+def test_mtf_output_split_rejects_unknown_projection_output() -> None:
+    with pytest.raises(ValueError, match="unknown MTF output column"):
+        _split_mtf_output_columns_by_source_flags(("mtf_unknown_to_15m_ema_20",))
 
 
 def test_derived_rolling_windows_skip_noneligible_bars() -> None:
