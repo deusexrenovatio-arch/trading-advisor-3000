@@ -138,6 +138,9 @@ PROVENANCE_COLUMNS: dict[str, str] = {
     "instrument_id": "string",
     "timeframe": "string",
     "ts": "timestamp",
+    "bar_start_ts": "timestamp",
+    "bar_end_ts": "timestamp",
+    "session_interval_id": "string",
     "source_provider": "string",
     "source_timeframe": "string",
     "source_interval": "int",
@@ -288,6 +291,9 @@ class CanonicalProvenance:
     instrument_id: str
     timeframe: str
     ts: str
+    bar_start_ts: str
+    bar_end_ts: str
+    session_interval_id: str | None
     source_provider: str
     source_timeframe: str
     source_interval: int
@@ -306,6 +312,9 @@ class CanonicalProvenance:
             "instrument_id": self.instrument_id,
             "timeframe": self.timeframe,
             "ts": self.ts,
+            "bar_start_ts": self.bar_start_ts,
+            "bar_end_ts": self.bar_end_ts,
+            "session_interval_id": self.session_interval_id,
             "source_provider": self.source_provider,
             "source_timeframe": self.source_timeframe,
             "source_interval": self.source_interval,
@@ -864,6 +873,13 @@ def _canonical_provenance_from_dict(
         instrument_id=_require_text("instrument_id"),
         timeframe=_require_text("timeframe"),
         ts=_require_text("ts"),
+        bar_start_ts=_require_text("bar_start_ts"),
+        bar_end_ts=_require_text("bar_end_ts"),
+        session_interval_id=(
+            str(payload["session_interval_id"]).strip()
+            if payload.get("session_interval_id") not in (None, "")
+            else None
+        ),
         source_provider=_require_text("source_provider"),
         source_timeframe=_require_text("source_timeframe"),
         source_interval=_require_int_value("source_interval"),
@@ -900,6 +916,9 @@ def _canonical_provenance_from_dict_lenient(
         instrument_id=_text("instrument_id"),
         timeframe=_text("timeframe"),
         ts=_text("ts"),
+        bar_start_ts=_text("bar_start_ts"),
+        bar_end_ts=_text("bar_end_ts"),
+        session_interval_id=_text("session_interval_id") or None,
         source_provider=_text("source_provider"),
         source_timeframe=_text("source_timeframe"),
         source_interval=_int_value("source_interval"),

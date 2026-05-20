@@ -36,6 +36,7 @@ class SessionCalendarEntry:
     session_date: str
     session_open_ts: str
     session_close_ts: str
+    session_class: str = "regular"
 
     def to_dict(self) -> dict[str, str]:
         return {
@@ -44,6 +45,7 @@ class SessionCalendarEntry:
             "session_date": self.session_date,
             "session_open_ts": self.session_open_ts,
             "session_close_ts": self.session_close_ts,
+            "session_class": self.session_class,
         }
 
 
@@ -145,6 +147,16 @@ def _build_contracts(rows: list[dict[str, object]]) -> list[CanonicalContract]:
     ]
 
 
+def _merged_session_class(current: str | None, candidate: str) -> str:
+    if current == "partial_or_gap" or candidate == "partial_or_gap":
+        return "partial_or_gap"
+    if current and current != "regular":
+        return current
+    if candidate and candidate != "regular":
+        return candidate
+    return current or candidate or "regular"
+
+
 def _build_session_calendar(
     rows: list[dict[str, object]],
     *,
@@ -168,6 +180,9 @@ def _build_session_calendar(
         session_date = str(interval["session_date"])[:10]
         expected_open_ts = str(interval["expected_open_ts"])
         expected_close_ts = str(interval["expected_close_ts"])
+        session_class = str(interval.get("session_class") or "").strip()
+        if not session_class:
+            raise ValueError(f"session interval[{index}] missing session_class")
         if expected_open_ts >= expected_close_ts:
             raise ValueError(f"session interval[{index}] has invalid open/close ordering")
         key = (instrument_id, session_date)
@@ -176,12 +191,16 @@ def _build_session_calendar(
             bounds_by_session[key] = {
                 "session_open_ts": expected_open_ts,
                 "session_close_ts": expected_close_ts,
+                "session_class": session_class,
             }
             continue
         if expected_open_ts < current["session_open_ts"]:
             current["session_open_ts"] = expected_open_ts
         if expected_close_ts > current["session_close_ts"]:
             current["session_close_ts"] = expected_close_ts
+        current["session_class"] = _merged_session_class(
+            current.get("session_class"), session_class
+        )
 
     calendar: dict[tuple[str, str, str], dict[str, str]] = {}
     missing_sessions: list[str] = []
@@ -204,6 +223,7 @@ def _build_session_calendar(
             session_date=key[2],
             session_open_ts=item["session_open_ts"],
             session_close_ts=item["session_close_ts"],
+            session_class=item["session_class"],
         )
         for key, item in sorted(calendar.items())
     ]

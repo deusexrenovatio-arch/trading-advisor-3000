@@ -42,6 +42,9 @@ CANONICAL_PROVENANCE_SCHEMA = (
     "instrument_id string, "
     "timeframe string, "
     "ts timestamp, "
+    "bar_start_ts timestamp, "
+    "bar_end_ts timestamp, "
+    "session_interval_id string, "
     "source_provider string, "
     "source_timeframe string, "
     "source_interval int, "
@@ -76,6 +79,9 @@ CANONICAL_PROVENANCE_MANIFEST = {
         "instrument_id": "string",
         "timeframe": "string",
         "ts": "timestamp",
+        "bar_start_ts": "timestamp",
+        "bar_end_ts": "timestamp",
+        "session_interval_id": "string",
         "source_provider": "string",
         "source_timeframe": "string",
         "source_interval": "int",
@@ -254,6 +260,8 @@ def _aggregate_joined_source_outputs(
     window: Any,
     enforce_session_bounds: bool,
 ) -> tuple[Any, Any]:
+    if "interval_id" not in joined.columns:
+        joined = joined.withColumn("interval_id", functions.lit(None).cast("string"))
     joined = (
         joined.withColumn("bucket_seconds", bucket_seconds.cast("long"))
         .withColumn("bucket_ts", functions.to_timestamp(functions.from_unixtime("bucket_seconds")))
@@ -325,6 +333,13 @@ def _aggregate_joined_source_outputs(
         functions.max(
             functions.when(functions.col("rn_last") == 1, functions.col("ts_close"))
         ).alias("source_ts_close_last"),
+        functions.max(
+            functions.when(
+                (functions.col("rn_last") == 1)
+                & (functions.col("target_minutes") < functions.lit(1440)),
+                functions.col("interval_id"),
+            )
+        ).alias("session_interval_id"),
         functions.max(functions.col("open_interest_imputed").cast("int"))
         .cast("int")
         .alias("open_interest_imputed"),
@@ -348,6 +363,9 @@ def _aggregate_joined_source_outputs(
         "instrument_id",
         "timeframe",
         functions.col("bucket_ts").alias("ts"),
+        functions.col("source_ts_open_first").alias("bar_start_ts"),
+        functions.col("source_ts_close_last").alias("bar_end_ts"),
+        "session_interval_id",
         "source_provider",
         "source_timeframe",
         functions.col("selected_source_interval").alias("source_interval"),
