@@ -84,6 +84,7 @@ def test_spark_sql_plan_contains_dedup_window() -> None:
     assert "JOIN canonical_session_intervals intervals" in calendar_sql
     assert "MIN(intervals.expected_open_ts) AS session_open_ts" in calendar_sql
     assert "MAX(intervals.expected_close_ts) AS session_close_ts" in calendar_sql
+    assert "MIN(intervals.session_class) AS session_class" in calendar_sql
 
     roll_sql = build_roll_map_sql_plan()
     assert "ORDER BY open_interest DESC, ts_close DESC" in roll_sql
