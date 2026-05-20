@@ -13,6 +13,18 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     iter_delta_table_row_batches,
     read_delta_table_rows,
 )
+from trading_advisor_3000.product_plane.research.bar_usage_policy import (
+    EVENT_UPDATE_ZERO,
+    INDICATOR_USAGE_POLICY_ID,
+    POINT_UPDATE_NULL,
+    STATE_UPDATE_HOLD,
+    STATE_UPDATE_RESET_SCOPE,
+    BarUsageCalculationRule,
+    assert_derived_bar_usage_policy_coverage,
+    derived_bar_usage_groups_for_outputs,
+    has_required_bar_usage_flags,
+    required_flags_for_mtf_source_column,
+)
 from trading_advisor_3000.product_plane.research.continuous_front_indicators import (
     input_projection as cf_input_projection,
 )
@@ -22,6 +34,7 @@ from trading_advisor_3000.product_plane.research.continuous_front_indicators.rul
     rules_for_derived_profile,
 )
 from trading_advisor_3000.product_plane.research.datasets import ResearchBarView
+from trading_advisor_3000.product_plane.research.datasets.bar_usage import BAR_USAGE_POLICY_ID
 from trading_advisor_3000.product_plane.research.derived_indicators.registry import (
     MTF_MAPPINGS,
     DerivedIndicatorProfile,
@@ -221,6 +234,17 @@ def _series_key_from_indicator(row: IndicatorFrameRow, *, series_mode: str) -> D
         contour_id=row.contour_id,
         series_mode=resolved_series_mode,
         series_id=row.series_id or fallback_series_id,
+    )
+
+
+def _mtf_source_family_key(series_key: DerivedSeriesKey) -> DerivedSeriesKey:
+    if series_key.series_mode != "continuous_front":
+        return series_key
+    return DerivedSeriesKey(
+        instrument_id=series_key.instrument_id,
+        contract_id=None,
+        contour_id=series_key.contour_id,
+        series_mode=series_key.series_mode,
     )
 
 
@@ -848,13 +872,20 @@ def _compute_mtf_overlay(
     frame: pd.DataFrame,
     current_timeframe: str,
     source_frames: dict[str, pd.DataFrame],
+    output_columns: set[str] | None = None,
 ) -> dict[str, pd.Series]:
     output: dict[str, pd.Series] = {}
     for source_timeframe, target_timeframe in MTF_MAPPINGS:
         source_columns = mtf_carried_columns(source_timeframe, target_timeframe)
-        columns = tuple(
-            mtf_column_name(source_timeframe, target_timeframe, column) for column in source_columns
+        selected_columns = tuple(
+            (source_column, mtf_column_name(source_timeframe, target_timeframe, source_column))
+            for source_column in source_columns
+            if output_columns is None
+            or mtf_column_name(source_timeframe, target_timeframe, source_column) in output_columns
         )
+        if not selected_columns:
+            continue
+        columns = tuple(output_column for _, output_column in selected_columns)
         if current_timeframe != target_timeframe or source_timeframe not in source_frames:
             for column in columns:
                 output[column] = pd.Series([None] * len(frame), index=frame.index, dtype="object")
@@ -874,7 +905,7 @@ def _compute_mtf_overlay(
                 "source_close_ts": source_close_ts,
                 **{
                     output_column: _numeric(source_frame, source_column)
-                    for source_column, output_column in zip(source_columns, columns, strict=True)
+                    for source_column, output_column in selected_columns
                 },
             }
         ).sort_values("source_close_ts")
@@ -891,7 +922,122 @@ def _compute_mtf_overlay(
     return output
 
 
-def _compute_derived_frame(
+def _bar_usage_eligible_mask(frame: pd.DataFrame, required_flags: int) -> pd.Series:
+    if "bar_usage_flags" not in frame.columns:
+        return pd.Series([True] * len(frame), index=frame.index)
+    return frame["bar_usage_flags"].map(
+        lambda flags: has_required_bar_usage_flags(flags, required_flags)
+    )
+
+
+def _bar_usage_scope_key(frame: pd.DataFrame, scope_id: str) -> pd.Series | None:
+    if scope_id == "session" and "session_date" in frame.columns:
+        return frame["session_date"]
+    if scope_id == "week" and "ts" in frame.columns:
+        return pd.to_datetime(frame["ts"], utc=True).dt.strftime("%G-%V")
+    return None
+
+
+def _project_bar_usage_computed_columns(
+    *,
+    frame: pd.DataFrame,
+    computed: pd.DataFrame,
+    output_columns: tuple[str, ...],
+    rule: BarUsageCalculationRule,
+) -> dict[str, pd.Series]:
+    projected = computed.reindex(frame.index)
+    for column in output_columns:
+        if column not in projected.columns:
+            projected[column] = pd.NA
+    projected = projected.loc[:, list(output_columns)]
+    if rule.mode == STATE_UPDATE_HOLD:
+        projected = _fill_bar_usage_noncomputed_rows(projected, computed_index=computed.index)
+        projected = projected.infer_objects(copy=False)
+    elif rule.mode == STATE_UPDATE_RESET_SCOPE:
+        scope_key = _bar_usage_scope_key(frame, rule.scope_id)
+        projected = _fill_bar_usage_noncomputed_rows(
+            projected,
+            computed_index=computed.index,
+            scope_key=scope_key,
+        )
+        projected = projected.infer_objects(copy=False)
+    elif rule.mode == POINT_UPDATE_NULL:
+        pass
+    elif rule.mode == EVENT_UPDATE_ZERO:
+        noneligible_index = ~projected.index.isin(computed.index)
+        projected.loc[noneligible_index, list(output_columns)] = 0
+        projected = projected.infer_objects(copy=False)
+    else:
+        raise ValueError(f"unsupported bar usage calculation mode: {rule.mode}")
+    return {column: projected[column] for column in output_columns}
+
+
+def _fill_bar_usage_noncomputed_rows(
+    projected: pd.DataFrame,
+    *,
+    computed_index: pd.Index,
+    scope_key: pd.Series | None = None,
+) -> pd.DataFrame:
+    filled = projected.copy()
+    computed_indices = set(computed_index)
+    scope_values = scope_key.reindex(filled.index) if scope_key is not None else None
+    scope_marker = object()
+    last_values = {column: pd.NA for column in filled.columns}
+    for position, index in enumerate(filled.index):
+        if scope_values is not None:
+            scope_value = scope_values.iloc[position]
+            scope_token = None if pd.isna(scope_value) else scope_value
+            if scope_token != scope_marker:
+                last_values = {column: pd.NA for column in filled.columns}
+                scope_marker = scope_token
+        if index in computed_indices:
+            for column_index, column in enumerate(filled.columns):
+                last_values[column] = filled.iat[position, column_index]
+        else:
+            for column_index, column in enumerate(filled.columns):
+                filled.iat[position, column_index] = last_values[column]
+    return filled
+
+
+def _mtf_source_column_for_output(output_column: str) -> tuple[str, str] | None:
+    for source_timeframe, target_timeframe in MTF_MAPPINGS:
+        prefix = f"mtf_{source_timeframe}_to_{target_timeframe}_"
+        if output_column.startswith(prefix):
+            return source_timeframe, output_column.removeprefix(prefix)
+    return None
+
+
+def _split_mtf_output_columns_by_source_flags(
+    output_columns: tuple[str, ...],
+) -> tuple[tuple[int, tuple[str, ...]], ...]:
+    grouped: list[tuple[int, list[str]]] = []
+    for output_column in output_columns:
+        parsed = _mtf_source_column_for_output(output_column)
+        if parsed is None:
+            raise ValueError(f"unknown MTF output column: {output_column}")
+        required_flags = required_flags_for_mtf_source_column(parsed[1])
+        for existing_flags, columns in grouped:
+            if existing_flags == required_flags:
+                columns.append(output_column)
+                break
+        else:
+            grouped.append((required_flags, [output_column]))
+    return tuple((flags, tuple(columns)) for flags, columns in grouped)
+
+
+def _filter_mtf_source_frames_for_bar_usage(
+    source_frames: dict[str, pd.DataFrame], *, required_flags: int
+) -> dict[str, pd.DataFrame]:
+    if not required_flags:
+        return source_frames
+    filtered: dict[str, pd.DataFrame] = {}
+    for timeframe, frame in source_frames.items():
+        mask = _bar_usage_eligible_mask(frame, required_flags)
+        filtered[timeframe] = frame.loc[mask].copy()
+    return filtered
+
+
+def _compute_derived_frame_unmasked(
     *,
     base_frame: pd.DataFrame,
     current_timeframe: str,
@@ -901,6 +1047,7 @@ def _compute_derived_frame(
     assert_rule_coverage(
         output_columns=set(profile.output_columns), rules=rules_for_derived_profile(profile)
     )
+    requested = set(profile.output_columns)
     result = base_frame.copy()
     is_continuous_front = "_cf_offset" in result.columns
     offset = (
@@ -919,31 +1066,112 @@ def _compute_derived_frame(
     result["close"] = close
     result["high"] = high
     result["low"] = low
-    result["rolling_high_20"] = high0.rolling(window=20, min_periods=20).max() + offset
-    result["rolling_low_20"] = low0.rolling(window=20, min_periods=20).min() + offset
-    result["session_high"] = high0.groupby(result["session_date"], sort=False).cummax() + offset
-    result["session_low"] = low0.groupby(result["session_date"], sort=False).cummin() + offset
-    week_key = pd.to_datetime(result["ts"], utc=True).dt.strftime("%G-%V")
-    result["week_high"] = high0.groupby(week_key, sort=False).cummax() + offset
-    result["week_low"] = low0.groupby(week_key, sort=False).cummin() + offset
-    level_source = result.copy()
-    if is_continuous_front:
-        level_source["high"] = high0
-        level_source["low"] = low0
-    opening_range = _compute_opening_range(level_source, opening_bars=4)
-    swing_levels = _compute_swing_levels(level_source, left_bars=5, right_bars=5)
-    if is_continuous_front:
-        opening_range = {
-            column: pd.to_numeric(series, errors="coerce") + offset
-            for column, series in opening_range.items()
-        }
-        swing_levels = {
-            column: pd.to_numeric(series, errors="coerce") + offset
-            for column, series in swing_levels.items()
-        }
-    result = _append_columns(result, opening_range)
-    result = _append_columns(result, swing_levels)
-    result["session_vwap"] = _compute_session_vwap(result)
+
+    def ensure_rolling_levels() -> None:
+        if "rolling_high_20" not in result.columns:
+            result["rolling_high_20"] = high0.rolling(window=20, min_periods=20).max() + offset
+        if "rolling_low_20" not in result.columns:
+            result["rolling_low_20"] = low0.rolling(window=20, min_periods=20).min() + offset
+
+    def ensure_session_levels() -> None:
+        if "session_high" not in result.columns:
+            result["session_high"] = (
+                high0.groupby(result["session_date"], sort=False).cummax() + offset
+            )
+        if "session_low" not in result.columns:
+            result["session_low"] = (
+                low0.groupby(result["session_date"], sort=False).cummin() + offset
+            )
+
+    def ensure_week_levels() -> None:
+        week_key = pd.to_datetime(result["ts"], utc=True).dt.strftime("%G-%V")
+        if "week_high" not in result.columns:
+            result["week_high"] = high0.groupby(week_key, sort=False).cummax() + offset
+        if "week_low" not in result.columns:
+            result["week_low"] = low0.groupby(week_key, sort=False).cummin() + offset
+
+    def ensure_opening_range() -> None:
+        if {"opening_range_high", "opening_range_low"} <= set(result.columns):
+            return
+        level_source = result.copy()
+        if is_continuous_front:
+            level_source["high"] = high0
+            level_source["low"] = low0
+        opening_range = _compute_opening_range(level_source, opening_bars=4)
+        if is_continuous_front:
+            opening_range = {
+                column: pd.to_numeric(series, errors="coerce") + offset
+                for column, series in opening_range.items()
+            }
+        for column, series in opening_range.items():
+            result[column] = series
+
+    def ensure_swing_levels() -> None:
+        if {"swing_high_10", "swing_low_10"} <= set(result.columns):
+            return
+        level_source = result.copy()
+        if is_continuous_front:
+            level_source["high"] = high0
+            level_source["low"] = low0
+        swing_levels = _compute_swing_levels(level_source, left_bars=5, right_bars=5)
+        if is_continuous_front:
+            swing_levels = {
+                column: pd.to_numeric(series, errors="coerce") + offset
+                for column, series in swing_levels.items()
+            }
+        for column, series in swing_levels.items():
+            result[column] = series
+
+    def ensure_session_vwap() -> None:
+        if "session_vwap" not in result.columns:
+            result["session_vwap"] = _compute_session_vwap(result)
+
+    def numeric_input(column: str) -> pd.Series:
+        return pd.to_numeric(_numeric(result, column), errors="coerce")
+
+    def ensure_target_column(target_column: str) -> None:
+        if target_column in {"rolling_high_20", "rolling_low_20"}:
+            ensure_rolling_levels()
+        elif target_column in {"session_high", "session_low"}:
+            ensure_session_levels()
+        elif target_column in {"week_high", "week_low"}:
+            ensure_week_levels()
+        elif target_column in {"opening_range_high", "opening_range_low"}:
+            ensure_opening_range()
+        elif target_column in {"swing_high_10", "swing_low_10"}:
+            ensure_swing_levels()
+        elif target_column == "session_vwap":
+            ensure_session_vwap()
+
+    if requested & {"rolling_high_20", "rolling_low_20", "rolling_position_20"} or any(
+        column in requested
+        for column in (
+            "distance_to_rolling_high_20",
+            "distance_to_rolling_low_20",
+            "cross_close_rolling_high_20_code",
+            "cross_close_rolling_low_20_code",
+        )
+    ):
+        ensure_rolling_levels()
+    if requested & {"session_high", "session_low", "session_position"} or any(
+        column in requested
+        for column in (
+            "distance_to_session_high",
+            "distance_to_session_low",
+            "cross_close_session_vwap_code",
+        )
+    ):
+        ensure_session_levels()
+    if requested & {"week_high", "week_low", "week_position"} or any(
+        column in requested for column in ("distance_to_week_high", "distance_to_week_low")
+    ):
+        ensure_week_levels()
+    if requested & {"opening_range_high", "opening_range_low"}:
+        ensure_opening_range()
+    if requested & {"swing_high_10", "swing_low_10"}:
+        ensure_swing_levels()
+    if requested & {"session_vwap", "distance_to_session_vwap", "cross_close_session_vwap_code"}:
+        ensure_session_vwap()
 
     distance_targets = {
         "session_vwap": "session_vwap",
@@ -977,11 +1205,12 @@ def _compute_derived_frame(
         "donchian_low_55_atr": "donchian_low_55",
     }
     for output_suffix, target_column in distance_targets.items():
-        denominator = atr if output_suffix.endswith("_atr") else atr
-        result[f"distance_to_{output_suffix}"] = _distance_to(
-            result, target_column, denominator=denominator
-        )
-    for column in profile.output_columns:
+        output_column = f"distance_to_{output_suffix}"
+        if output_column not in requested:
+            continue
+        ensure_target_column(target_column)
+        result[output_column] = _distance_to(result, target_column, denominator=atr)
+    for column in requested:
         if (
             column in result.columns
             or not column.startswith("distance_to_")
@@ -989,86 +1218,133 @@ def _compute_derived_frame(
         ):
             continue
         target_column = column.removeprefix("distance_to_").removesuffix("_atr")
+        ensure_target_column(target_column)
         if target_column in result.columns:
             result[column] = _distance_to(result, target_column, denominator=atr)
 
-    result["rolling_position_20"] = _position_between(
-        close, _numeric(result, "rolling_low_20"), _numeric(result, "rolling_high_20")
-    )
-    result["session_position"] = _position_between(
-        close, _numeric(result, "session_low"), _numeric(result, "session_high")
-    )
-    result["week_position"] = _position_between(
-        close, _numeric(result, "week_low"), _numeric(result, "week_high")
-    )
-    result["bb_position_20_2"] = _position_between(
-        close, _numeric(result, "bb_lower_20_2"), _numeric(result, "bb_upper_20_2")
-    )
-    result["kc_position_20_1_5"] = _position_between(
-        close, _numeric(result, "kc_lower_20_1_5"), _numeric(result, "kc_upper_20_1_5")
-    )
-    result["donchian_position_20"] = _position_between(
-        close, _numeric(result, "donchian_low_20"), _numeric(result, "donchian_high_20")
-    )
-    result["donchian_position_55"] = _position_between(
-        close, _numeric(result, "donchian_low_55"), _numeric(result, "donchian_high_55")
-    )
+    if "rolling_position_20" in requested:
+        ensure_rolling_levels()
+        result["rolling_position_20"] = _position_between(
+            close, _numeric(result, "rolling_low_20"), _numeric(result, "rolling_high_20")
+        )
+    if "session_position" in requested:
+        ensure_session_levels()
+        result["session_position"] = _position_between(
+            close, _numeric(result, "session_low"), _numeric(result, "session_high")
+        )
+    if "week_position" in requested:
+        ensure_week_levels()
+        result["week_position"] = _position_between(
+            close, _numeric(result, "week_low"), _numeric(result, "week_high")
+        )
+    if "bb_position_20_2" in requested:
+        result["bb_position_20_2"] = _position_between(
+            close, _numeric(result, "bb_lower_20_2"), _numeric(result, "bb_upper_20_2")
+        )
+    if "kc_position_20_1_5" in requested:
+        result["kc_position_20_1_5"] = _position_between(
+            close, _numeric(result, "kc_lower_20_1_5"), _numeric(result, "kc_upper_20_1_5")
+        )
+    if "donchian_position_20" in requested:
+        result["donchian_position_20"] = _position_between(
+            close, _numeric(result, "donchian_low_20"), _numeric(result, "donchian_high_20")
+        )
+    if "donchian_position_55" in requested:
+        result["donchian_position_55"] = _position_between(
+            close, _numeric(result, "donchian_low_55"), _numeric(result, "donchian_high_55")
+        )
 
-    result["cross_close_sma_20_code"] = _change_code(close, _numeric(result, "sma_20"))
-    result["cross_close_ema_20_code"] = _change_code(close, _numeric(result, "ema_20"))
-    result["cross_close_session_vwap_code"] = _change_code(close, _numeric(result, "session_vwap"))
-    result["cross_close_rolling_high_20_code"] = _change_code(
-        close, _numeric(result, "rolling_high_20").shift(1)
-    )
-    result["cross_close_rolling_low_20_code"] = _change_code(
-        close, _numeric(result, "rolling_low_20").shift(1)
-    )
-    result["macd_signal_cross_code"] = _change_code(
-        _numeric(result, "macd_12_26_9"), _numeric(result, "macd_signal_12_26_9")
-    )
-    result["ppo_signal_cross_code"] = _change_code(
-        _numeric(result, "ppo_12_26_9"), _numeric(result, "ppo_signal_12_26_9")
-    )
-    result["trix_signal_cross_code"] = _change_code(
-        _numeric(result, "trix_30_9"), _numeric(result, "trix_signal_30_9")
-    )
-    result["kst_signal_cross_code"] = _change_code(
-        _numeric(result, "kst_10_15_20_30"), _numeric(result, "kst_signal_9")
-    )
+    if "cross_close_sma_20_code" in requested:
+        result["cross_close_sma_20_code"] = _change_code(close, _numeric(result, "sma_20"))
+    if "cross_close_ema_20_code" in requested:
+        result["cross_close_ema_20_code"] = _change_code(close, _numeric(result, "ema_20"))
+    if "cross_close_session_vwap_code" in requested:
+        ensure_session_vwap()
+        result["cross_close_session_vwap_code"] = _change_code(
+            close, _numeric(result, "session_vwap")
+        )
+    if "cross_close_rolling_high_20_code" in requested:
+        ensure_rolling_levels()
+        result["cross_close_rolling_high_20_code"] = _change_code(
+            close, _numeric(result, "rolling_high_20").shift(1)
+        )
+    if "cross_close_rolling_low_20_code" in requested:
+        ensure_rolling_levels()
+        result["cross_close_rolling_low_20_code"] = _change_code(
+            close, _numeric(result, "rolling_low_20").shift(1)
+        )
+    if "macd_signal_cross_code" in requested:
+        result["macd_signal_cross_code"] = _change_code(
+            _numeric(result, "macd_12_26_9"), _numeric(result, "macd_signal_12_26_9")
+        )
+    if "ppo_signal_cross_code" in requested:
+        result["ppo_signal_cross_code"] = _change_code(
+            _numeric(result, "ppo_12_26_9"), _numeric(result, "ppo_signal_12_26_9")
+        )
+    if "trix_signal_cross_code" in requested:
+        result["trix_signal_cross_code"] = _change_code(
+            _numeric(result, "trix_30_9"), _numeric(result, "trix_signal_30_9")
+        )
+    if "kst_signal_cross_code" in requested:
+        result["kst_signal_cross_code"] = _change_code(
+            _numeric(result, "kst_10_15_20_30"), _numeric(result, "kst_signal_9")
+        )
 
-    result["close_change_1"] = close0.diff(1)
-    result["close_slope_20"] = _numeric(result, "close_slope_20")
-    result["sma_20_slope_5"] = _slope(_numeric(result, "sma_20") - offset, length=5)
-    result["ema_20_slope_5"] = _slope(_numeric(result, "ema_20") - offset, length=5)
-    result["roc_10_change_1"] = _numeric(result, "roc_10").diff(1)
-    result["mom_10_change_1"] = _numeric(result, "mom_10").diff(1)
-    result["volume_change_1"] = _numeric(result, "volume").diff(1)
-    if is_continuous_front:
-        same_epoch_prev = _numeric(result, "roll_epoch") == _numeric(result, "roll_epoch").shift(1)
-        result.loc[~same_epoch_prev.fillna(False), "volume_change_1"] = pd.NA
-    result["oi_change_1"] = _numeric(result, "oi_change_1")
+    if "close_change_1" in requested:
+        result["close_change_1"] = close0.diff(1)
+    if "close_slope_20" in requested:
+        result["close_slope_20"] = _numeric(result, "close_slope_20")
+    if "sma_20_slope_5" in requested:
+        result["sma_20_slope_5"] = _slope(_numeric(result, "sma_20") - offset, length=5)
+    if "ema_20_slope_5" in requested:
+        result["ema_20_slope_5"] = _slope(_numeric(result, "ema_20") - offset, length=5)
+    if "roc_10_change_1" in requested:
+        result["roc_10_change_1"] = _numeric(result, "roc_10").diff(1)
+    if "mom_10_change_1" in requested:
+        result["mom_10_change_1"] = _numeric(result, "mom_10").diff(1)
+    if "volume_change_1" in requested:
+        result["volume_change_1"] = _numeric(result, "volume").diff(1)
+        if is_continuous_front:
+            same_epoch_prev = _numeric(result, "roll_epoch") == _numeric(
+                result, "roll_epoch"
+            ).shift(1)
+            result.loc[~same_epoch_prev.fillna(False), "volume_change_1"] = pd.NA
+    if "oi_change_1" in requested:
+        result["oi_change_1"] = _numeric(result, "oi_change_1")
 
-    result["rvol_20"] = _numeric(result, "rvol_20")
-    result["volume_zscore_20"] = _numeric(result, "volume_z_20")
-    result["price_volume_corr_20"] = (
-        close0.diff(1).rolling(window=20, min_periods=20).corr(_numeric(result, "volume").diff(1))
-    )
-    result["price_oi_corr_20"] = (
-        close0.diff(1).rolling(window=20, min_periods=20).corr(_numeric(result, "oi_change_1"))
-    )
-    result["volume_oi_corr_20"] = (
-        _numeric(result, "volume")
-        .diff(1)
-        .rolling(window=20, min_periods=20)
-        .corr(_numeric(result, "oi_change_1"))
-    )
-    cross_native_window = pd.Series([False] * len(result), index=result.index)
-    cross_divergence_window = pd.Series([False] * len(result), index=result.index)
-    if is_continuous_front:
-        cross_native_window = _roll_epoch_cross_window(result, window=20)
-        cross_divergence_window = _roll_epoch_cross_window(result, window=21)
-        for column in ("price_volume_corr_20", "price_oi_corr_20", "volume_oi_corr_20"):
-            result.loc[cross_native_window, column] = pd.NA
+    if "rvol_20" in requested:
+        result["rvol_20"] = _numeric(result, "rvol_20")
+    if "volume_zscore_20" in requested:
+        result["volume_zscore_20"] = _numeric(result, "volume_z_20")
+
+    relationship_columns = {
+        "price_volume_corr_20",
+        "price_oi_corr_20",
+        "volume_oi_corr_20",
+    }
+    requested_relationships = requested & relationship_columns
+    if requested_relationships:
+        if "price_volume_corr_20" in requested_relationships:
+            result["price_volume_corr_20"] = (
+                close0.diff(1)
+                .rolling(window=20, min_periods=20)
+                .corr(numeric_input("volume").diff(1))
+            )
+        if "price_oi_corr_20" in requested_relationships:
+            result["price_oi_corr_20"] = (
+                close0.diff(1).rolling(window=20, min_periods=20).corr(numeric_input("oi_change_1"))
+            )
+        if "volume_oi_corr_20" in requested_relationships:
+            result["volume_oi_corr_20"] = (
+                numeric_input("volume")
+                .diff(1)
+                .rolling(window=20, min_periods=20)
+                .corr(numeric_input("oi_change_1"))
+            )
+        if is_continuous_front:
+            cross_native_window = _roll_epoch_cross_window(result, window=20)
+            for column in requested_relationships:
+                result.loc[cross_native_window, column] = pd.NA
 
     divergence_sources = {
         "rsi_14": "rsi_14",
@@ -1098,21 +1374,34 @@ def _compute_derived_frame(
         "oi_relative_activity_20": "oi_relative_activity_20",
     }
     divergence_columns: dict[str, pd.Series] = {}
+    requested_divergence_suffixes: set[str] = set()
     for output_suffix, column in divergence_sources.items():
-        divergence = _divergence_score(close0, _numeric(result, column), length=20)
-        if is_continuous_front and output_suffix in ROLL_BOUNDARY_DERIVED_SOURCE_COLUMNS:
-            divergence.loc[cross_divergence_window] = pd.NA
-        divergence_columns[f"divergence_price_{output_suffix}_score"] = divergence
+        output_column = f"divergence_price_{output_suffix}_score"
+        if output_column not in requested:
+            continue
+        requested_divergence_suffixes.add(output_suffix)
+        divergence_columns[output_column] = _divergence_score(
+            close0, _numeric(result, column), length=20
+        )
+    if is_continuous_front and requested_divergence_suffixes:
+        cross_divergence_window = _roll_epoch_cross_window(result, window=21)
+        for output_suffix in requested_divergence_suffixes & ROLL_BOUNDARY_DERIVED_SOURCE_COLUMNS:
+            divergence_columns[f"divergence_price_{output_suffix}_score"].loc[
+                cross_divergence_window
+            ] = pd.NA
     result = _append_columns(result, divergence_columns)
 
-    result = _append_columns(
-        result,
-        _compute_mtf_overlay(
-            frame=result,
-            current_timeframe=current_timeframe,
-            source_frames=source_frames,
-        ),
-    )
+    requested_mtf_columns = {column for column in requested if column.startswith("mtf_")}
+    if requested_mtf_columns:
+        result = _append_columns(
+            result,
+            _compute_mtf_overlay(
+                frame=result,
+                current_timeframe=current_timeframe,
+                source_frames=source_frames,
+                output_columns=requested_mtf_columns,
+            ),
+        )
 
     missing_columns: dict[str, pd.Series] = {}
     for column in profile.output_columns:
@@ -1121,6 +1410,60 @@ def _compute_derived_frame(
                 [None] * len(result), index=result.index, dtype="object"
             )
     result = _append_columns(result, missing_columns)
+    return result
+
+
+def _compute_derived_frame(
+    *,
+    base_frame: pd.DataFrame,
+    current_timeframe: str,
+    source_frames: dict[str, pd.DataFrame],
+    profile: DerivedIndicatorProfile,
+) -> pd.DataFrame:
+    assert_derived_bar_usage_policy_coverage(profile)
+    if base_frame.empty or "bar_usage_flags" not in base_frame.columns:
+        return _compute_derived_frame_unmasked(
+            base_frame=base_frame,
+            current_timeframe=current_timeframe,
+            source_frames=source_frames,
+            profile=profile,
+        )
+    result = base_frame.copy()
+    for rule, output_columns in derived_bar_usage_groups_for_outputs(profile.output_columns):
+        execution_groups = (
+            _split_mtf_output_columns_by_source_flags(output_columns)
+            if rule.group_id == "derived_mtf_projection"
+            else ((0, output_columns),)
+        )
+        for source_required_flags, grouped_columns in execution_groups:
+            eligible = _bar_usage_eligible_mask(base_frame, rule.required_flags)
+            eligible_frame = base_frame.loc[eligible].copy()
+            if eligible_frame.empty:
+                computed = pd.DataFrame(index=eligible_frame.index)
+            else:
+                grouped_profile = _profile_for_output_columns(profile, set(grouped_columns))
+                grouped_source_frames = (
+                    _filter_mtf_source_frames_for_bar_usage(
+                        source_frames, required_flags=source_required_flags
+                    )
+                    if source_required_flags
+                    else source_frames
+                )
+                computed = _compute_derived_frame_unmasked(
+                    base_frame=eligible_frame,
+                    current_timeframe=current_timeframe,
+                    source_frames=grouped_source_frames,
+                    profile=grouped_profile,
+                )
+            result = _append_columns(
+                result,
+                _project_bar_usage_computed_columns(
+                    frame=base_frame,
+                    computed=computed,
+                    output_columns=grouped_columns,
+                    rule=rule,
+                ),
+            )
     return result
 
 
@@ -1330,22 +1673,31 @@ def build_derived_indicator_frames(
     profile = profile or current_derived_indicator_profile()
     grouped_bars = _group_bar_views(bar_views=bar_views, series_mode=series_mode)
     grouped_indicators = _group_indicator_rows(rows=indicator_rows, series_mode=series_mode)
+    source_frames_by_family: dict[DerivedSeriesKey, dict[str, pd.DataFrame]] = {}
+    for source_series_key, source_bars_by_timeframe in grouped_bars.items():
+        family_key = _mtf_source_family_key(source_series_key)
+        source_frames = source_frames_by_family.setdefault(family_key, {})
+        source_indicators_by_timeframe = grouped_indicators.get(source_series_key, {})
+        for timeframe, source_series in source_bars_by_timeframe.items():
+            if timeframe in source_frames:
+                raise ValueError(
+                    "derived indicator MTF source family has multiple partitions for "
+                    f"{family_key.instrument_id}|{family_key.series_mode}|{timeframe}"
+                )
+            source_frames[timeframe] = _prepare_base_frame(
+                bars=source_series,
+                indicators=source_indicators_by_timeframe.get(timeframe, []),
+                adjustment_ladder_rows=adjustment_ladder_rows
+                if series_mode == "continuous_front"
+                else (),
+            )
 
     rows: list[DerivedIndicatorFrameRow] = []
     for series_key, bars_by_timeframe in sorted(
         grouped_bars.items(), key=lambda item: (item[0].instrument_id, item[0].contract_id or "")
     ):
         indicators_by_timeframe = grouped_indicators.get(series_key, {})
-        source_frames = {
-            timeframe: _prepare_base_frame(
-                bars=bars_by_timeframe[timeframe],
-                indicators=indicators_by_timeframe.get(timeframe, []),
-                adjustment_ladder_rows=adjustment_ladder_rows
-                if series_mode == "continuous_front"
-                else (),
-            )
-            for timeframe in bars_by_timeframe
-        }
+        source_frames = source_frames_by_family.get(_mtf_source_family_key(series_key), {})
         for timeframe, local_series in sorted(bars_by_timeframe.items(), key=lambda item: item[0]):
             rows.extend(
                 _build_partition_rows(
@@ -1535,6 +1887,27 @@ def materialize_derived_indicator_frames(
     refreshed_partitions = 0
     extended_partitions = 0
     recomputed_partitions = 0
+    source_frames_by_family: dict[DerivedSeriesKey, dict[str, pd.DataFrame]] = {}
+
+    def _source_frames_for_family(series_key: DerivedSeriesKey) -> dict[str, pd.DataFrame]:
+        family_key = _mtf_source_family_key(series_key)
+        if family_key in source_frames_by_family:
+            return source_frames_by_family[family_key]
+        source_frames: dict[str, pd.DataFrame] = {}
+        for candidate_key, candidate_counts in partition_counts.items():
+            if _mtf_source_family_key(candidate_key) != family_key:
+                continue
+            for source_timeframe in candidate_counts:
+                if source_timeframe in source_frames:
+                    raise ValueError(
+                        "derived indicator MTF source family has multiple partitions for "
+                        f"{family_key.instrument_id}|{family_key.series_mode}|{source_timeframe}"
+                    )
+                source_frames[source_timeframe] = _load_source_inputs(
+                    candidate_key, source_timeframe
+                )[2]
+        source_frames_by_family[family_key] = source_frames
+        return source_frames
 
     for series_key, counts_by_timeframe in sorted(
         partition_counts.items(),
@@ -1655,11 +2028,9 @@ def materialize_derived_indicator_frames(
             )
             refreshed_partitions += 1
         if refreshed_timeframes:
-            source_frames = {
-                timeframe: _load_source_inputs(series_key, timeframe)[2]
-                for timeframe in counts_by_timeframe
-            }
-            refresh_plan.append((series_key, source_frames, refreshed_timeframes))
+            refresh_plan.append(
+                (series_key, _source_frames_for_family(series_key), refreshed_timeframes)
+            )
 
     deleted_partitions = tuple(
         partition for partition in existing_by_partition if partition not in current_partitions
@@ -1731,6 +2102,8 @@ def materialize_derived_indicator_frames(
         "indicator_set_version": indicator_set_version,
         "derived_indicator_set_version": derived_indicator_set_version,
         "profile_version": resolved_profile.version,
+        "bar_usage_policy_id": BAR_USAGE_POLICY_ID,
+        "indicator_usage_policy_id": INDICATOR_USAGE_POLICY_ID,
         "derived_indicator_row_count": current_total_rows,
         "source_frame_row_count": source_frame_row_count,
         "source_frame_report": source_frame_report,

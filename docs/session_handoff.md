@@ -1,10 +1,10 @@
 # Session Handoff
-Updated: 2026-05-20 11:06 UTC
+Updated: 2026-05-20 13:28 UTC
 
 ## Active Task Note
-- Path: docs/tasks/active/TASK-2026-05-20-integrate-rbar-canonical-bar-usage-contract-thro-1.md
+- Path: docs/tasks/archive/TASK-2026-05-20-prove-bar-usage-indicator-groups-on-fut-br-15m-s.md
 - Mode: legacy-full
-- Status: in_progress
+- Status: completed
 
 ## Validation
 - `python scripts/validate_task_request_contract.py`
