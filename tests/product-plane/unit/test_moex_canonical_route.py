@@ -387,36 +387,40 @@ def test_canonical_route_requires_session_intervals_for_non_noop(tmp_path: Path)
     raw_table_path = tmp_path / "raw_moex_history.delta"
     write_delta_table_rows(table_path=raw_table_path, rows=[], columns=RAW_COLUMNS)
 
-    with pytest.raises(ValueError, match="official session intervals input is required"):
-        run_historical_canonical_route(
-            raw_table_path=raw_table_path,
-            output_dir=tmp_path / "canonical",
+    report = run_historical_canonical_route(
+        raw_table_path=raw_table_path,
+        output_dir=tmp_path / "canonical",
+        run_id="missing-session-intervals",
+        raw_ingest_run_report=build_raw_ingest_run_report_v2(
             run_id="missing-session-intervals",
-            raw_ingest_run_report=build_raw_ingest_run_report_v2(
-                run_id="missing-session-intervals",
-                ingest_till_utc="2026-04-02T10:20:00Z",
-                source_rows=1,
-                incremental_rows=1,
-                deduplicated_rows=0,
-                stale_rows=0,
-                watermark_by_key={"FUT_BR|1m|BRM6@MOEX": "2026-04-02T10:20:00Z"},
-                raw_table_path=raw_table_path.as_posix(),
-                raw_ingest_progress_path=(tmp_path / "progress.jsonl").as_posix(),
-                raw_ingest_error_path=(tmp_path / "errors.jsonl").as_posix(),
-                raw_ingest_error_latest_path=(tmp_path / "error.latest.json").as_posix(),
-                changed_windows=[
-                    {
-                        "internal_id": "FUT_BR",
-                        "source_timeframe": "1m",
-                        "source_interval": 1,
-                        "moex_secid": "BRM6@MOEX",
-                        "window_start_utc": "2026-04-02T10:00:00Z",
-                        "window_end_utc": "2026-04-02T10:20:00Z",
-                        "incremental_rows": 1,
-                    }
-                ],
-            ),
-        )
+            ingest_till_utc="2026-04-02T10:20:00Z",
+            source_rows=1,
+            incremental_rows=1,
+            deduplicated_rows=0,
+            stale_rows=0,
+            watermark_by_key={"FUT_BR|1m|BRM6@MOEX": "2026-04-02T10:20:00Z"},
+            raw_table_path=raw_table_path.as_posix(),
+            raw_ingest_progress_path=(tmp_path / "progress.jsonl").as_posix(),
+            raw_ingest_error_path=(tmp_path / "errors.jsonl").as_posix(),
+            raw_ingest_error_latest_path=(tmp_path / "error.latest.json").as_posix(),
+            changed_windows=[
+                {
+                    "internal_id": "FUT_BR",
+                    "source_timeframe": "1m",
+                    "source_interval": 1,
+                    "moex_secid": "BRM6@MOEX",
+                    "window_start_utc": "2026-04-02T10:00:00Z",
+                    "window_end_utc": "2026-04-02T10:20:00Z",
+                    "incremental_rows": 1,
+                }
+            ],
+        ),
+    )
+
+    assert report["status"] == "BLOCKED"
+    assert report["publish_decision"] == "blocked"
+    assert report["session_intervals_mode"] == "manual_session_intervals_missing_blocked"
+    assert report["session_admission_gate"]["failed_gates"] == ["official_schedule_missing_input"]
 
 
 def test_spark_canonicalization_uses_raw_delta_input_instead_of_source_jsonl(
