@@ -38,6 +38,9 @@ CANONICAL_PROVENANCE_COLUMNS: dict[str, str] = {
     "instrument_id": "string",
     "timeframe": "string",
     "ts": "timestamp",
+    "bar_start_ts": "timestamp",
+    "bar_end_ts": "timestamp",
+    "session_interval_id": "string",
     "source_provider": "string",
     "source_timeframe": "string",
     "source_interval": "int",
@@ -308,6 +311,15 @@ def _build_qc_report(
         | (functions.trim(functions.col("source_ingest_run_id")) == "")
         | functions.col("source_row_count").isNull()
         | (functions.col("source_row_count") <= 0)
+        | functions.col("bar_start_ts").isNull()
+        | functions.col("bar_end_ts").isNull()
+        | (
+            ~functions.lower(functions.col("timeframe")).isin("1d", "d", "1w", "w")
+            & (
+                functions.col("session_interval_id").isNull()
+                | (functions.trim(functions.col("session_interval_id")) == "")
+            )
+        )
         | functions.col("source_ts_open_first").isNull()
         | functions.col("source_ts_close_last").isNull()
         | functions.col("build_run_id").isNull()
@@ -328,7 +340,8 @@ def _build_qc_report(
         .drop("_previous_ts")
     )
     non_monotonic_source_windows = provenance_df.where(
-        functions.col("source_ts_open_first") > functions.col("source_ts_close_last")
+        (functions.col("source_ts_open_first") > functions.col("source_ts_close_last"))
+        | (functions.col("bar_start_ts") > functions.col("bar_end_ts"))
     )
     provenance_completeness_violations = int(missing_provenance.count()) + int(
         incomplete_provenance.count()
@@ -485,9 +498,7 @@ def _sidecar_frames(
     )
     with_session = joined.withColumn(
         "session_date",
-        functions.to_date(
-            functions.coalesce(functions.col("source_ts_open_first"), functions.col("ts"))
-        ),
+        functions.to_date(functions.coalesce(functions.col("bar_start_ts"), functions.col("ts"))),
     )
     if sidecars_exist:
         with_session = with_session.join(
@@ -505,9 +516,43 @@ def _sidecar_frames(
         functions=functions,
         window=window,
     )
-    official_session_bounds_df = official_intervals_df.groupBy("instrument_id", "session_date").agg(
-        functions.min("expected_open_ts").alias("session_open_ts"),
-        functions.max("expected_close_ts").alias("session_close_ts"),
+    official_session_bounds_df = (
+        official_intervals_df.groupBy("instrument_id", "session_date")
+        .agg(
+            functions.min("expected_open_ts").alias("session_open_ts"),
+            functions.max("expected_close_ts").alias("session_close_ts"),
+            functions.max(
+                functions.when(
+                    functions.col("session_class") == functions.lit("partial_or_gap"),
+                    functions.lit(1),
+                ).otherwise(functions.lit(0))
+            ).alias("_has_partial_session"),
+            functions.max(
+                functions.when(
+                    functions.col("session_class") != functions.lit("regular"),
+                    functions.col("session_class"),
+                )
+            ).alias("_special_session_class"),
+        )
+        .withColumn(
+            "session_class",
+            functions.when(
+                functions.col("_has_partial_session") > functions.lit(0),
+                functions.lit("partial_or_gap"),
+            )
+            .when(
+                functions.col("_special_session_class").isNotNull(),
+                functions.col("_special_session_class"),
+            )
+            .otherwise(functions.lit("regular")),
+        )
+        .select(
+            "instrument_id",
+            "session_date",
+            "session_open_ts",
+            "session_close_ts",
+            "session_class",
+        )
     )
     session_scope_df = with_session.select("instrument_id", "timeframe", "session_date").distinct()
     session_calendar_df = session_scope_df.join(
@@ -570,7 +615,7 @@ def _sessions_from_provenance(*, provenance_df: Any, functions: Any) -> Any:
         provenance_df.select(
             "instrument_id",
             functions.to_date(
-                functions.coalesce(functions.col("source_ts_open_first"), functions.col("ts"))
+                functions.coalesce(functions.col("bar_start_ts"), functions.col("ts"))
             ).alias("session_date"),
         )
         .where(functions.col("session_date").isNotNull())

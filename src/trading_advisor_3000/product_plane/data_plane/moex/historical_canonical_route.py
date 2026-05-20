@@ -2135,16 +2135,114 @@ def run_historical_canonical_route(
         raise ValueError(
             "phase-02 scope mismatch: raw ingest status PASS-NOOP requires empty changed_windows"
         )
-    official_session_intervals_path = (
-        session_intervals_path
-        if raw_report_status == STATUS_PASS_NOOP
-        else _require_session_intervals_input(session_intervals_path)
+    missing_session_intervals_blocked = (
+        raw_report_status != STATUS_PASS_NOOP and session_intervals_path is None
     )
+    official_session_intervals_path = session_intervals_path
+    if raw_report_status != STATUS_PASS_NOOP and not missing_session_intervals_blocked:
+        official_session_intervals_path = _require_session_intervals_input(session_intervals_path)
 
     source_rows = _report_source_row_count(
         raw_ingest_run_report=raw_ingest_run_report,
         raw_table_path=raw_table_path,
     )
+    if missing_session_intervals_blocked:
+        changed_window_set_path = output_dir / "changed-window-set-manifest.json"
+        runtime_path = output_dir / "runtime-decoupling-proof.json"
+        runtime_report = run_runtime_decoupling_check(repo_root=repo_root)
+        _json_write(changed_window_set_path, changed_window_set_manifest)
+        _json_write(runtime_path, runtime_report)
+        failed_gates = ["official_schedule_missing_input"]
+        report = {
+            "run_id": run_id,
+            "route_signal": "worker:phase-only",
+            "proof_class": "staging-real",
+            "canonicalization_engine": "spark",
+            "canonical_publish_engine": "spark_delta",
+            "status": STATUS_BLOCKED,
+            "publish_decision": "blocked",
+            "raw_table_path": raw_table_path.as_posix(),
+            "session_intervals_path": "",
+            "session_intervals_mode": "manual_session_intervals_missing_blocked",
+            "output_dir": output_dir.as_posix(),
+            "source_rows": source_rows,
+            "scoped_source_rows": 0,
+            "changed_windows_count": len(changed_window_scope),
+            "changed_windows_hash_sha256": changed_window_set_manifest[
+                "changed_windows_hash_sha256"
+            ],
+            "canonical_merge_strategy": CANONICAL_MERGE_SCOPED_DELETE_INSERT,
+            "max_changed_window_days": max_changed_window_days,
+            "affected_key_count": 0,
+            "mutation_applied": False,
+            "canonical_rows": count_delta_table_rows(bars_path) if has_delta_log(bars_path) else 0,
+            "provenance_rows": count_delta_table_rows(provenance_path)
+            if has_delta_log(provenance_path)
+            else 0,
+            "sidecar_refresh": {
+                "mode": "skipped_manual_session_backfill_required",
+                "mutation_applied": False,
+                "refreshed_session_calendar_rows": 0,
+                "refreshed_roll_map_rows": 0,
+                "affected_session_rows": 0,
+                "overlap_session_rows": 0,
+                "overlap_policy": "",
+            },
+            "scoped_canonical_rows": 0,
+            "target_timeframes": [item.value for item in TARGET_TIMEFRAMES],
+            "resampling_skips": {},
+            "output_paths": {},
+            "artifact_paths": {
+                "changed_window_set_manifest": changed_window_set_path.as_posix(),
+                "runtime_decoupling_proof": runtime_path.as_posix(),
+            },
+            "changed_window_set_manifest": changed_window_set_manifest,
+            "raw_parity_report": {
+                "run_id": run_id,
+                "status": STATUS_BLOCKED,
+                "window_count": len(changed_window_scope),
+                "scoped_source_rows": 0,
+                "unmatched_windows_count": len(changed_window_scope),
+                "failure_classes": failed_gates,
+                "samples": {},
+            },
+            "canonical_parity_report": {
+                "run_id": run_id,
+                "status": STATUS_BLOCKED,
+                "affected_key_count": 0,
+                "expected_scope_rows": len(changed_window_scope),
+                "resolved_scope_rows": 0,
+                "failure_classes": failed_gates,
+                "samples": {},
+            },
+            "session_admission_gate": {
+                "status": "FAIL",
+                "failed_gates": failed_gates,
+                "rejected_out_of_session_rows": 0,
+                "missing_official_coverage_rows": 0,
+            },
+            "qc_report": {
+                "run_id": run_id,
+                "runtime_owner": "spark_delta",
+                "status": "FAIL",
+                "publish_decision": "blocked",
+                "failed_gates": failed_gates,
+                "gate_results": [],
+            },
+            "contract_compatibility_report": {
+                "status": "SKIPPED",
+                "checked_rows": 0,
+                "errors": [],
+                "reason": "official session intervals input is missing",
+            },
+            "runtime_decoupling_proof": runtime_report,
+            "real_bindings": _report_real_bindings(
+                raw_ingest_run_report=raw_ingest_run_report,
+                fallback_rows=[],
+            ),
+        }
+        _json_write(output_dir / "canonical-refresh-report.json", report)
+        return report
     if raw_report_status == STATUS_PASS_NOOP:
         changed_window_set_path = output_dir / "changed-window-set-manifest.json"
         runtime_path = output_dir / "runtime-decoupling-proof.json"
