@@ -41,7 +41,7 @@ def _provenance(**overrides: object) -> CanonicalProvenance:
         "source_row_count": 15,
         "source_ts_open_first": "2026-04-02T10:00:00Z",
         "source_ts_close_last": "2026-04-02T10:15:00Z",
-        "open_interest_imputed": 1,
+        "open_interest_imputed": True,
         "build_run_id": "phase02-qc",
         "built_at_utc": "2026-04-02T11:00:00Z",
     }

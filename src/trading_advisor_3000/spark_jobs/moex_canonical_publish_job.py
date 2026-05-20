@@ -46,10 +46,10 @@ CANONICAL_PROVENANCE_COLUMNS: dict[str, str] = {
     "source_interval": "int",
     "source_run_id": "string",
     "source_ingest_run_id": "string",
-    "source_row_count": "int",
+    "source_row_count": "bigint",
     "source_ts_open_first": "timestamp",
     "source_ts_close_last": "timestamp",
-    "open_interest_imputed": "int",
+    "open_interest_imputed": "boolean",
     "build_run_id": "string",
     "built_at_utc": "timestamp",
 }

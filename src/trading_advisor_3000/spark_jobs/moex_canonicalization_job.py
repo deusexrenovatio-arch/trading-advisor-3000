@@ -50,10 +50,10 @@ CANONICAL_PROVENANCE_SCHEMA = (
     "source_interval int, "
     "source_run_id string, "
     "source_ingest_run_id string, "
-    "source_row_count int, "
+    "source_row_count long, "
     "source_ts_open_first timestamp, "
     "source_ts_close_last timestamp, "
-    "open_interest_imputed int, "
+    "open_interest_imputed boolean, "
     "build_run_id string, "
     "built_at_utc timestamp"
 )
@@ -87,10 +87,10 @@ CANONICAL_PROVENANCE_MANIFEST = {
         "source_interval": "int",
         "source_run_id": "string",
         "source_ingest_run_id": "string",
-        "source_row_count": "int",
+        "source_row_count": "bigint",
         "source_ts_open_first": "timestamp",
         "source_ts_close_last": "timestamp",
-        "open_interest_imputed": "int",
+        "open_interest_imputed": "boolean",
         "build_run_id": "string",
         "built_at_utc": "timestamp",
     }
@@ -328,7 +328,7 @@ def _aggregate_joined_source_outputs(
         functions.max(
             functions.when(functions.col("rn_last") == 1, functions.col("source_ingest_run_id"))
         ).alias("source_ingest_run_id"),
-        functions.count(functions.lit(1)).cast("int").alias("source_row_count"),
+        functions.count(functions.lit(1)).cast("long").alias("source_row_count"),
         functions.min(functions.col("ts_open")).alias("source_ts_open_first"),
         functions.max(
             functions.when(functions.col("rn_last") == 1, functions.col("ts_close"))
@@ -341,7 +341,7 @@ def _aggregate_joined_source_outputs(
             )
         ).alias("session_interval_id"),
         functions.max(functions.col("open_interest_imputed").cast("int"))
-        .cast("int")
+        .cast("boolean")
         .alias("open_interest_imputed"),
     )
 

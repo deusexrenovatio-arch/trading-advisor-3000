@@ -78,7 +78,7 @@ def _provenance(**overrides: object) -> dict[str, object]:
         "source_row_count": 5,
         "source_ts_open_first": "2026-04-02T10:00:00Z",
         "source_ts_close_last": "2026-04-02T10:05:00Z",
-        "open_interest_imputed": 0,
+        "open_interest_imputed": False,
         "build_run_id": "canonical-pass",
         "built_at_utc": "2026-04-02T10:06:00Z",
     }

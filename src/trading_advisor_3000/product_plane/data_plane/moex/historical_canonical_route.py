@@ -78,10 +78,10 @@ PROVENANCE_COLUMNS: dict[str, str] = {
     "source_interval": "int",
     "source_run_id": "string",
     "source_ingest_run_id": "string",
-    "source_row_count": "int",
+    "source_row_count": "bigint",
     "source_ts_open_first": "timestamp",
     "source_ts_close_last": "timestamp",
-    "open_interest_imputed": "int",
+    "open_interest_imputed": "boolean",
     "build_run_id": "string",
     "built_at_utc": "timestamp",
 }
@@ -252,7 +252,7 @@ class CanonicalProvenance:
     source_row_count: int
     source_ts_open_first: str
     source_ts_close_last: str
-    open_interest_imputed: int
+    open_interest_imputed: bool
     build_run_id: str
     built_at_utc: str
 
@@ -788,6 +788,12 @@ def _canonical_provenance_from_dict(
             raise ValueError(f"provenance row[{row_index}] `{key}` must be integer")
         return int(value)
 
+    def _require_bool_value(key: str) -> bool:
+        value = payload.get(key)
+        if not isinstance(value, bool):
+            raise ValueError(f"provenance row[{row_index}] `{key}` must be boolean")
+        return value
+
     return CanonicalProvenance(
         contract_id=_require_text("contract_id"),
         instrument_id=_require_text("instrument_id"),
@@ -801,7 +807,7 @@ def _canonical_provenance_from_dict(
         source_row_count=_require_int_value("source_row_count"),
         source_ts_open_first=_require_text("source_ts_open_first"),
         source_ts_close_last=_require_text("source_ts_close_last"),
-        open_interest_imputed=_require_int_value("open_interest_imputed"),
+        open_interest_imputed=_require_bool_value("open_interest_imputed"),
         build_run_id=_require_text("build_run_id"),
         built_at_utc=_require_text("built_at_utc"),
     )
@@ -824,6 +830,21 @@ def _canonical_provenance_from_dict_lenient(
             raise ValueError(f"provenance row[{row_index}] `{key}` must not be boolean")
         return int(value)
 
+    def _bool_value(key: str) -> bool:
+        value = payload.get(key)
+        if isinstance(value, bool):
+            return value
+        if value is None or value == "":
+            return False
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return bool(value)
+        text = str(value).strip().lower()
+        if text in {"true", "1"}:
+            return True
+        if text in {"false", "0"}:
+            return False
+        raise ValueError(f"provenance row[{row_index}] `{key}` must be boolean")
+
     return CanonicalProvenance(
         contract_id=_text("contract_id"),
         instrument_id=_text("instrument_id"),
@@ -837,7 +858,7 @@ def _canonical_provenance_from_dict_lenient(
         source_row_count=_int_value("source_row_count"),
         source_ts_open_first=_text("source_ts_open_first"),
         source_ts_close_last=_text("source_ts_close_last"),
-        open_interest_imputed=_int_value("open_interest_imputed"),
+        open_interest_imputed=_bool_value("open_interest_imputed"),
         build_run_id=_text("build_run_id"),
         built_at_utc=_text("built_at_utc"),
     )
