@@ -1,13 +1,12 @@
 # Session Handoff
-Updated: 2026-05-19 14:15 UTC
+Updated: 2026-05-20 10:47 UTC
 
 ## Active Task Note
-- Path: docs/tasks/archive/TASK-2026-05-19-prepare-codex-moex-session-canonicalization-bran.md
+- Path: docs/tasks/active/TASK-2026-05-20-integrate-rbar-canonical-bar-usage-contract-thro.md
 - Mode: legacy-full
-- Status: completed
+- Status: in_progress
 
 ## Validation
 - `python scripts/validate_task_request_contract.py`
 - `python scripts/validate_session_handoff.py`
-- `python scripts/run_loop_gate.py --skip-session-check --base origin/main --head HEAD --snapshot-mode changed-files --profile none`
-- `python scripts/run_pr_gate.py --skip-session-check --base origin/main --head HEAD --snapshot-mode changed-files --profile none`
+- `python scripts/run_loop_gate.py --from-git --git-ref HEAD`

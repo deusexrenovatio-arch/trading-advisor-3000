@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-05-19'
+updated_at: '2026-05-20'
 items:
 - id: TASK-2026-05-08-MAKE-MOEX-HISTORICAL-UPDATE-PATH-USE-SPARK-DELTA
   path: docs/tasks/active/TASK-2026-05-08-make-moex-historical-update-path-use-spark-delta.md
@@ -41,3 +41,8 @@ items:
   mode: legacy-full
   status: in_progress
   started_at: '2026-05-18'
+- id: TASK-2026-05-20-INTEGRATE-RBAR-CANONICAL-BAR-USAGE-CONTRACT-THRO
+  path: docs/tasks/active/TASK-2026-05-20-integrate-rbar-canonical-bar-usage-contract-thro.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-05-20'

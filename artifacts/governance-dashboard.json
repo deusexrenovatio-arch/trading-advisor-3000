@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-05-19",
+  "generated_at": "2026-05-20",
   "overall_status": "yellow",
   "sections": {
     "lifecycle": {
       "status": "green",
-      "terminal_outcomes_total": 42,
-      "correct_first_time_rate": 0.21428571428571427
+      "terminal_outcomes_total": 43,
+      "correct_first_time_rate": 0.20930232558139536
     },
     "state": {
       "status": "green",
@@ -15,7 +15,7 @@
     },
     "quality": {
       "status": "green",
-      "process_completed_tasks": 42,
+      "process_completed_tasks": 43,
       "process_window_tasks": 20,
       "burn_in_complete": true
     },
@@ -117,22 +117,22 @@
     },
     "pilot_observation": {
       "status": "green",
-      "critical_tasks_with_explicit_solution_class": 27,
+      "critical_tasks_with_explicit_solution_class": 29,
       "blocked_shortcut_claims": 0,
       "staged_vs_target_declarations": {
         "staged": 6,
-        "target": 21
+        "target": 23
       },
       "observation_window_start": "2026-03-25",
-      "observation_window_days": 55,
+      "observation_window_days": 56,
       "observation_window_min_days": 7,
       "observation_window_max_days": 14,
       "observation_window_status": "review_due",
-      "task_notes_scanned": 76
+      "task_notes_scanned": 79
     }
   },
   "baseline_metrics": {
-    "generated_at": "2026-05-19",
+    "generated_at": "2026-05-20",
     "plans": {
       "total_items": 2,
       "active_items": 0,
@@ -144,7 +144,7 @@
       "patterns": 1
     },
     "process_rollup": {
-      "completed_tasks_count": 42,
+      "completed_tasks_count": 43,
       "window_size": 20,
       "burn_in_min_completed_tasks": 20,
       "window_tasks_count": 20,
@@ -158,16 +158,16 @@
       }
     },
     "dev_loop_baseline": {
-      "generated_at": "2026-05-19",
-      "task_outcomes_total": 42,
-      "terminal_outcomes_total": 42,
+      "generated_at": "2026-05-20",
+      "task_outcomes_total": 43,
+      "terminal_outcomes_total": 43,
       "outcomes_with_patch_timing": 2,
-      "outcomes_without_patch_timing": 40,
+      "outcomes_without_patch_timing": 41,
       "median_time_to_first_patch_sec": 105.0,
       "p90_time_to_first_patch_sec": 120,
-      "median_same_path_attempts": 1.0,
-      "correct_first_time_rate": 0.21428571428571427,
-      "start_route_match_rate": 0.8333333333333334
+      "median_same_path_attempts": 1,
+      "correct_first_time_rate": 0.20930232558139536,
+      "start_route_match_rate": 0.8372093023255814
     }
   }
 }

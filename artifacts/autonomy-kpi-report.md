@@ -1,6 +1,6 @@
 # Autonomy KPI Report
 
-- generated_at: 2026-05-19
+- generated_at: 2026-05-20
 
 | KPI | Value |
 | --- | --- |
@@ -12,7 +12,7 @@
 | `memory_decisions_count` | 1 |
 | `memory_incidents_count` | 0 |
 | `memory_patterns_count` | 1 |
-| `process_tasks_completed` | 42 |
+| `process_tasks_completed` | 43 |
 | `process_burn_in_complete` | 1 |
 | `process_correct_first_time_pct` | 0.10 |
 | `process_start_match_pct` | 0.70 |

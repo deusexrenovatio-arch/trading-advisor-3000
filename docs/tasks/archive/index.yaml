@@ -247,3 +247,9 @@ items:
   status: completed
   started_at: '2026-05-19'
   completed_at: '2026-05-19'
+- id: TASK-2026-05-19-IMPLEMENT-PLAN-RBAR-CANON-RESEARCH-BAR-VIEWS-CAN
+  path: docs/tasks/archive/TASK-2026-05-19-implement-plan-rbar-canon-research-bar-views-can.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-05-19'
+  completed_at: '2026-05-19'
