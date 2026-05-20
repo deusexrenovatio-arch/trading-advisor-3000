@@ -19,6 +19,9 @@ def _provenance(**overrides: object) -> CanonicalProvenance:
         "instrument_id": "FUT_BR",
         "timeframe": "15m",
         "ts": "2026-04-02T10:00:00Z",
+        "bar_start_ts": "2026-04-02T10:00:00Z",
+        "bar_end_ts": "2026-04-02T10:15:00Z",
+        "session_interval_id": "FUT_BR-2026-04-02-regular-1",
         "source_provider": "moex_iss",
         "source_timeframe": "1m",
         "source_interval": 1,
@@ -27,7 +30,7 @@ def _provenance(**overrides: object) -> CanonicalProvenance:
         "source_row_count": 15,
         "source_ts_open_first": "2026-04-02T10:00:00Z",
         "source_ts_close_last": "2026-04-02T10:15:00Z",
-        "open_interest_imputed": 1,
+        "open_interest_imputed": True,
         "build_run_id": "canonicalization-qc",
         "built_at_utc": "2026-04-02T11:00:00Z",
     }

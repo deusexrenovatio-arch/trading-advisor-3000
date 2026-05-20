@@ -53,6 +53,13 @@ class ResearchBarView:
     adjustment_mode: str = ""
     cumulative_additive_offset: float = 0.0
     ratio_factor: float | None = None
+    bar_start_ts: str | None = None
+    bar_end_ts: str | None = None
+    session_interval_id: str | None = None
+    session_class: str = "regular"
+    bar_usage_profile: str = "regular_trading"
+    bar_usage_flags: int = 127
+    bar_usage_policy_id: str = "moex_bar_usage_v1"
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -71,6 +78,13 @@ class ResearchBarView:
             "session_date": self.session_date,
             "session_open_ts": self.session_open_ts,
             "session_close_ts": self.session_close_ts,
+            "bar_start_ts": self.bar_start_ts,
+            "bar_end_ts": self.bar_end_ts,
+            "session_interval_id": self.session_interval_id,
+            "session_class": self.session_class,
+            "bar_usage_profile": self.bar_usage_profile,
+            "bar_usage_flags": self.bar_usage_flags,
+            "bar_usage_policy_id": self.bar_usage_policy_id,
             "active_contract_id": self.active_contract_id,
             "ret_1": self.ret_1,
             "log_ret_1": self.log_ret_1,
@@ -132,6 +146,19 @@ class ResearchBarView:
             session_date=str(payload["session_date"]),
             session_open_ts=str(payload["session_open_ts"]),
             session_close_ts=str(payload["session_close_ts"]),
+            bar_start_ts=None
+            if payload.get("bar_start_ts") is None
+            else str(payload["bar_start_ts"]),
+            bar_end_ts=None if payload.get("bar_end_ts") is None else str(payload["bar_end_ts"]),
+            session_interval_id=None
+            if payload.get("session_interval_id") is None
+            else str(payload["session_interval_id"]),
+            session_class=str(payload.get("session_class") or "regular"),
+            bar_usage_profile=str(payload.get("bar_usage_profile") or "regular_trading"),
+            bar_usage_flags=int(
+                127 if payload.get("bar_usage_flags") is None else payload["bar_usage_flags"]
+            ),
+            bar_usage_policy_id=str(payload.get("bar_usage_policy_id") or "moex_bar_usage_v1"),
             active_contract_id=str(payload["active_contract_id"]),
             ret_1=None if payload.get("ret_1") is None else float(payload["ret_1"]),
             log_ret_1=None if payload.get("log_ret_1") is None else float(payload["log_ret_1"]),

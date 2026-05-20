@@ -42,6 +42,11 @@ def test_sample_backfill_builds_canonical_rows_for_whitelist(tmp_path: Path) -> 
 
     rows = _read_batched_delta_rows(output_path, filters=[("timeframe", "=", "15m")])
     assert len(rows) == 2
+    provenance_rows = _read_batched_delta_rows(
+        Path(str(report["output_paths"]["canonical_bar_provenance"])),
+        filters=[("timeframe", "=", "15m")],
+    )
+    assert len(provenance_rows) == len(rows)
     assert {row["contract_id"] for row in rows} == {"BR-6.26", "Si-6.26"}
     br_row = next(row for row in rows if row["contract_id"] == "BR-6.26")
     assert br_row["instrument_id"] == "BR"

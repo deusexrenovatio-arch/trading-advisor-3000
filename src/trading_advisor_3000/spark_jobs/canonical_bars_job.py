@@ -105,7 +105,8 @@ SELECT
   scope.timeframe,
   scope.session_date,
   MIN(intervals.expected_open_ts) AS session_open_ts,
-  MAX(intervals.expected_close_ts) AS session_close_ts
+  MAX(intervals.expected_close_ts) AS session_close_ts,
+  MIN(intervals.session_class) AS session_class
 FROM session_timeframes scope
 JOIN {spec.source_session_intervals_table} intervals
   ON scope.instrument_id = intervals.instrument_id
@@ -380,6 +381,7 @@ def run_canonical_bars_spark_job(
                 session_intervals_df.groupBy("instrument_id", "session_date").agg(
                     F.min("expected_open_ts").alias("session_open_ts"),
                     F.max("expected_close_ts").alias("session_close_ts"),
+                    F.min("session_class").alias("session_class"),
                 ),
                 ["instrument_id", "session_date"],
                 "inner",

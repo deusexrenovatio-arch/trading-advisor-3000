@@ -58,6 +58,9 @@ from trading_advisor_3000.product_plane.research.registry_store import research_
 from trading_advisor_3000.product_plane.research.strategies.compiler_bridge import (
     REQUIRED_STG02_ADAPTER_KEYS,
 )
+from trading_advisor_3000.spark_jobs.research_bar_views_job import (
+    run_research_bar_views_spark_job,
+)
 
 ROOT = Path(__file__).resolve().parents[3]
 RAW_FIXTURE = (
@@ -119,6 +122,8 @@ def _write_rich_stage7_canonical_context(output_dir: Path) -> None:
     schema_manifest = historical_data_delta_schema_manifest()
     start = datetime(2026, 3, 16, 9, 0, tzinfo=UTC)
     bars: list[dict[str, object]] = []
+    provenance: list[dict[str, object]] = []
+    intervals: list[dict[str, object]] = []
     calendar: list[dict[str, object]] = []
     roll_map: list[dict[str, object]] = []
 
@@ -126,8 +131,27 @@ def _write_rich_stage7_canonical_context(output_dir: Path) -> None:
         ("BR-6.26", "BR", 82.0, 0.22),
         ("Si-6.26", "Si", 91_800.0, 55.0),
     ):
+        interval_id = f"{instrument_id}-2026-03-16-regular-1"
+        intervals.append(
+            {
+                "instrument_id": instrument_id,
+                "session_date": "2026-03-16",
+                "interval_id": interval_id,
+                "interval_seq": 1,
+                "expected_open_ts": "2026-03-16T09:00:00Z",
+                "expected_close_ts": "2026-03-16T23:45:00Z",
+                "session_class": "regular",
+                "interval_type": "regular_trading",
+                "policy_id": "stage7-rich-fixture-session-v1",
+                "source_id": "stage7-rich-fixture-session",
+                "source_document_hash": "sha256:stage7-rich-fixture",
+            }
+        )
         for index in range(60):
-            ts = (start + timedelta(minutes=15 * index)).isoformat().replace("+00:00", "Z")
+            bar_start = start + timedelta(minutes=15 * index)
+            bar_end = bar_start + timedelta(minutes=15)
+            ts = bar_start.isoformat().replace("+00:00", "Z")
+            bar_end_ts = bar_end.isoformat().replace("+00:00", "Z")
             if index < 20:
                 close = base_close + (index * step)
             elif index < 40:
@@ -151,6 +175,28 @@ def _write_rich_stage7_canonical_context(output_dir: Path) -> None:
                     "open_interest": 20_000 + index,
                 }
             )
+            provenance.append(
+                {
+                    "contract_id": contract_id,
+                    "instrument_id": instrument_id,
+                    "timeframe": "15m",
+                    "ts": ts,
+                    "bar_start_ts": ts,
+                    "bar_end_ts": bar_end_ts,
+                    "session_interval_id": interval_id,
+                    "source_provider": "stage7-rich-fixture",
+                    "source_timeframe": "15m",
+                    "source_interval": 15,
+                    "source_run_id": "stage7-rich-fixture",
+                    "source_ingest_run_id": "stage7-rich-fixture",
+                    "source_row_count": 1,
+                    "source_ts_open_first": ts,
+                    "source_ts_close_last": bar_end_ts,
+                    "open_interest_imputed": False,
+                    "build_run_id": "stage7-rich-fixture",
+                    "built_at_utc": "2026-03-16T00:00:00Z",
+                }
+            )
         calendar.append(
             {
                 "instrument_id": instrument_id,
@@ -158,6 +204,7 @@ def _write_rich_stage7_canonical_context(output_dir: Path) -> None:
                 "session_date": "2026-03-16",
                 "session_open_ts": "2026-03-16T09:00:00Z",
                 "session_close_ts": "2026-03-16T23:45:00Z",
+                "session_class": "regular",
             }
         )
         roll_map.append(
@@ -173,6 +220,16 @@ def _write_rich_stage7_canonical_context(output_dir: Path) -> None:
         table_path=output_dir / "canonical_bars.delta",
         rows=bars,
         columns=schema_manifest["canonical_bars"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=output_dir / "canonical_bar_provenance.delta",
+        rows=provenance,
+        columns=schema_manifest["canonical_bar_provenance"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=output_dir / "canonical_session_intervals.delta",
+        rows=intervals,
+        columns=schema_manifest["canonical_session_intervals"]["columns"],
     )
     write_delta_table_rows(
         table_path=output_dir / "canonical_session_calendar.delta",
@@ -1012,6 +1069,149 @@ def test_research_data_prep_uses_spark_l0_materialization(tmp_path: Path) -> Non
     assert len(dagster_derived_rows) == 2
     assert {row["contour_id"] for row in dagster_indicator_rows} == {"native_tradable"}
     assert {row["contour_id"] for row in dagster_derived_rows} == {"native_tradable"}
+
+
+@requires_spark_delta_runtime
+def test_weekly_bar_usage_counts_daily_sessions_by_contract(tmp_path: Path) -> None:
+    canonical_dir = tmp_path / "canonical-weekly-contract-gap"
+    canonical_dir.mkdir(parents=True, exist_ok=True)
+    schema_manifest = historical_data_delta_schema_manifest()
+    session_dates = [f"2026-02-0{day}" for day in range(2, 7)]
+    daily_rows = [
+        {
+            "contract_id": "BR-6.26",
+            "instrument_id": "BR",
+            "timeframe": "1d",
+            "ts": f"{session_date}T00:00:00Z",
+            "open": 80.0,
+            "high": 81.0,
+            "low": 79.0,
+            "close": 80.5,
+            "volume": 1_000,
+            "open_interest": 10_000,
+        }
+        for session_date in session_dates
+    ]
+    weekly_row = {
+        "contract_id": "BR-7.26",
+        "instrument_id": "BR",
+        "timeframe": "1w",
+        "ts": "2026-02-02T00:00:00Z",
+        "open": 90.0,
+        "high": 92.0,
+        "low": 89.0,
+        "close": 91.0,
+        "volume": 2_000,
+        "open_interest": 20_000,
+    }
+    write_delta_table_rows(
+        table_path=canonical_dir / "canonical_bars.delta",
+        rows=[*daily_rows, weekly_row],
+        columns=schema_manifest["canonical_bars"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=canonical_dir / "canonical_bar_provenance.delta",
+        rows=[
+            {
+                "contract_id": "BR-7.26",
+                "instrument_id": "BR",
+                "timeframe": "1w",
+                "ts": "2026-02-02T00:00:00Z",
+                "bar_start_ts": "2026-02-02T10:00:00Z",
+                "bar_end_ts": "2026-02-06T18:45:00Z",
+                "session_interval_id": None,
+                "source_provider": "test",
+                "source_timeframe": "1d",
+                "source_interval": 1440,
+                "source_run_id": "weekly-contract-gap",
+                "source_ingest_run_id": "weekly-contract-gap",
+                "source_row_count": 5,
+                "source_ts_open_first": "2026-02-02T10:00:00Z",
+                "source_ts_close_last": "2026-02-06T18:45:00Z",
+                "open_interest_imputed": False,
+                "build_run_id": "weekly-contract-gap",
+                "built_at_utc": "2026-02-07T00:00:00Z",
+            }
+        ],
+        columns=schema_manifest["canonical_bar_provenance"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=canonical_dir / "canonical_session_intervals.delta",
+        rows=[
+            {
+                "instrument_id": "BR",
+                "session_date": session_date,
+                "interval_id": f"BR-{session_date}-regular-1",
+                "interval_seq": 1,
+                "expected_open_ts": f"{session_date}T10:00:00Z",
+                "expected_close_ts": f"{session_date}T18:45:00Z",
+                "session_class": "regular",
+                "interval_type": "regular_trading",
+                "policy_id": "test-official-session-v1",
+                "source_id": "test-official-session",
+                "source_document_hash": "sha256:test",
+            }
+            for session_date in session_dates
+        ],
+        columns=schema_manifest["canonical_session_intervals"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=canonical_dir / "canonical_session_calendar.delta",
+        rows=[
+            {
+                "instrument_id": "BR",
+                "timeframe": "1w",
+                "session_date": "2026-02-02",
+                "session_open_ts": "2026-02-02T10:00:00Z",
+                "session_close_ts": "2026-02-06T18:45:00Z",
+                "session_class": "regular",
+            }
+        ],
+        columns=schema_manifest["canonical_session_calendar"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=canonical_dir / "canonical_roll_map.delta",
+        rows=[
+            {
+                "instrument_id": "BR",
+                "session_date": "2026-02-02",
+                "active_contract_id": "BR-7.26",
+                "reason": "weekly-contract-gap",
+            }
+        ],
+        columns=schema_manifest["canonical_roll_map"]["columns"],
+    )
+
+    output_dir = tmp_path / "research-weekly-contract-gap"
+    run_research_bar_views_spark_job(
+        canonical_bars_path=canonical_dir / "canonical_bars.delta",
+        canonical_bar_provenance_path=canonical_dir / "canonical_bar_provenance.delta",
+        canonical_session_intervals_path=canonical_dir / "canonical_session_intervals.delta",
+        canonical_session_calendar_path=canonical_dir / "canonical_session_calendar.delta",
+        canonical_roll_map_path=canonical_dir / "canonical_roll_map.delta",
+        continuous_front_bars_path=canonical_dir / "continuous_front_bars.delta",
+        output_dir=output_dir,
+        dataset_version="weekly-contract-gap-v1",
+        run_id="weekly-contract-gap",
+        timeframes=("1w",),
+        contours=("native_tradable",),
+    )
+
+    rows = [
+        row
+        for batch in iter_delta_table_row_batches(
+            output_dir / "research_bar_views.delta",
+            filters=[
+                ("dataset_version", "=", "weekly-contract-gap-v1"),
+                ("contour_id", "=", "native_tradable"),
+            ],
+        )
+        for row in batch
+    ]
+    assert len(rows) == 1
+    assert rows[0]["contract_id"] == "BR-7.26"
+    assert rows[0]["session_class"] == "partial_or_gap"
+    assert rows[0]["bar_usage_profile"] == "incomplete"
 
 
 @requires_spark_delta_runtime

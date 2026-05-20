@@ -37,7 +37,14 @@ SESSION_INTERVAL_COLUMNS: dict[str, str] = {
 
 
 def _read_rows(path: Path) -> list[dict[str, object]]:
-    return [row for batch in iter_delta_table_row_batches(path) for row in batch]
+    return [
+        row
+        for batch in iter_delta_table_row_batches(
+            path,
+            filters=[("instrument_id", "=", "FUT_BR")],
+        )
+        for row in batch
+    ]
 
 
 def _bar(**overrides: object) -> dict[str, object]:
@@ -71,11 +78,17 @@ def _provenance(**overrides: object) -> dict[str, object]:
         "source_row_count": 5,
         "source_ts_open_first": "2026-04-02T10:00:00Z",
         "source_ts_close_last": "2026-04-02T10:05:00Z",
-        "open_interest_imputed": 0,
+        "open_interest_imputed": False,
         "build_run_id": "canonical-pass",
         "built_at_utc": "2026-04-02T10:06:00Z",
     }
     payload.update(overrides)
+    if "bar_start_ts" not in overrides:
+        payload["bar_start_ts"] = payload["source_ts_open_first"]
+    if "bar_end_ts" not in overrides:
+        payload["bar_end_ts"] = payload["source_ts_close_last"]
+    if "session_interval_id" not in overrides:
+        payload["session_interval_id"] = f"FUT_BR-{str(payload['bar_start_ts'])[:10]}-regular-1"
     return payload
 
 
@@ -214,6 +227,7 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
                 "session_date": "2026-04-01",
                 "session_open_ts": "2026-04-01T00:00:00Z",
                 "session_close_ts": "2026-04-01T00:00:00Z",
+                "session_class": "regular",
             },
             {
                 "instrument_id": "FUT_BR",
@@ -221,6 +235,7 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
                 "session_date": "2026-04-02",
                 "session_open_ts": "2026-04-02T00:00:00Z",
                 "session_close_ts": "2026-04-02T00:00:00Z",
+                "session_class": "regular",
             },
             {
                 "instrument_id": "FUT_BR",
@@ -228,6 +243,7 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
                 "session_date": "2026-04-05",
                 "session_open_ts": "2026-04-05T00:00:00Z",
                 "session_close_ts": "2026-04-05T00:00:00Z",
+                "session_class": "regular",
             },
         ],
         columns=session_columns,

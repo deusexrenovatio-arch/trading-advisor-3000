@@ -8,11 +8,21 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     iter_delta_table_row_batches,
     write_delta_table_rows,
 )
+from trading_advisor_3000.product_plane.data_plane.schemas.delta import (
+    historical_data_delta_schema_manifest,
+)
 from trading_advisor_3000.product_plane.research.datasets import (
     ResearchBarView,
     ResearchDatasetManifest,
     research_dataset_store_contract,
 )
+from trading_advisor_3000.product_plane.research.datasets.bar_usage import (
+    BAR_USAGE_POLICY_ID,
+    bar_usage_flags_for_profile,
+    classify_bar_usage_profile,
+    validate_bar_usage_profile_flags,
+)
+from trading_advisor_3000.spark_jobs import moex_canonicalization_job as moex_canon_job
 from trading_advisor_3000.spark_jobs import research_bar_views_job as spark_l0_job
 
 
@@ -76,6 +86,168 @@ def test_research_dataset_contract_uses_contour_aware_l0_key() -> None:
         "unique(dataset_version, contour_id, series_mode, series_id, timeframe, ts)"
         in contract["constraints"]
     )
+
+
+def test_research_bar_views_persist_usage_contract_without_runtime_masks() -> None:
+    columns = research_dataset_store_contract()["research_bar_views"]["columns"]
+
+    assert columns["bar_start_ts"] == "timestamp"
+    assert columns["bar_end_ts"] == "timestamp"
+    assert columns["session_interval_id"] == "string"
+    assert columns["session_class"] == "string"
+    assert columns["bar_usage_profile"] == "string"
+    assert columns["bar_usage_flags"] == "int"
+    assert columns["bar_usage_policy_id"] == "string"
+
+    assert "entry_allowed" not in columns
+    assert "volume_signal_valid" not in columns
+    assert "range_signal_valid" not in columns
+    assert "price_risk_valid" not in columns
+
+
+def test_moex_bar_usage_policy_registry_flags_fail_closed() -> None:
+    assert BAR_USAGE_POLICY_ID == "moex_bar_usage_v1"
+    assert bar_usage_flags_for_profile("regular_trading") == 127
+    assert bar_usage_flags_for_profile("risk_only") == 5
+    assert bar_usage_flags_for_profile("incomplete") == 5
+    assert bar_usage_flags_for_profile("boundary_risk") == 133
+    assert bar_usage_flags_for_profile("shortened_risk") == 261
+
+    validate_bar_usage_profile_flags("boundary_risk", 133)
+    with pytest.raises(ValueError, match="bar usage profile/flags mismatch"):
+        validate_bar_usage_profile_flags("boundary_risk", 127)
+    with pytest.raises(TypeError, match="bar usage flags must be an integer value"):
+        validate_bar_usage_profile_flags("boundary_risk", 133.5)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="unknown bar usage profile"):
+        bar_usage_flags_for_profile("strategy_specific")
+
+
+def test_moex_bar_usage_profile_rules_are_explicit() -> None:
+    assert classify_bar_usage_profile("regular") == "regular_trading"
+    assert classify_bar_usage_profile("short") == "risk_only"
+    assert classify_bar_usage_profile("weekend") == "risk_only"
+    assert classify_bar_usage_profile("weekend_extended") == "risk_only"
+    assert classify_bar_usage_profile("weekend_special") == "risk_only"
+    assert classify_bar_usage_profile("holiday") == "risk_only"
+    assert classify_bar_usage_profile("holiday_special") == "risk_only"
+    assert classify_bar_usage_profile("option_expiration") == "risk_only"
+    assert classify_bar_usage_profile("partial_or_gap") == "incomplete"
+    assert classify_bar_usage_profile("regular", boundary_bar=True) == "boundary_risk"
+    assert classify_bar_usage_profile("regular", shortened_bar=True) == "shortened_risk"
+    assert (
+        classify_bar_usage_profile("regular", weekly_missing_expected_session=True) == "incomplete"
+    )
+
+
+def test_research_bar_view_roundtrips_usage_contract() -> None:
+    view = _view(
+        contour_id="native_tradable",
+        series_mode="contract",
+        series_id="BR-6.26",
+        contract_id="BR-6.26",
+    )
+
+    payload = {
+        **view.to_dict(),
+        "bar_start_ts": "2026-04-01T10:00:00Z",
+        "bar_end_ts": "2026-04-01T10:15:00Z",
+        "session_interval_id": "regular-main",
+        "session_class": "regular",
+        "bar_usage_profile": "regular_trading",
+        "bar_usage_flags": 127,
+        "bar_usage_policy_id": BAR_USAGE_POLICY_ID,
+    }
+
+    restored = ResearchBarView.from_dict(payload)
+
+    assert restored.bar_start_ts == "2026-04-01T10:00:00Z"
+    assert restored.bar_end_ts == "2026-04-01T10:15:00Z"
+    assert restored.session_interval_id == "regular-main"
+    assert restored.session_class == "regular"
+    assert restored.bar_usage_profile == "regular_trading"
+    assert restored.bar_usage_flags == 127
+    assert restored.bar_usage_policy_id == BAR_USAGE_POLICY_ID
+
+    missing_provenance_payload = view.to_dict()
+    assert missing_provenance_payload["bar_start_ts"] is None
+    assert missing_provenance_payload["bar_end_ts"] is None
+
+    zero_flags_payload = {**payload, "bar_usage_flags": 0}
+    assert ResearchBarView.from_dict(zero_flags_payload).bar_usage_flags == 0
+
+
+def test_spark_l0_job_requires_canonical_session_metadata_inputs() -> None:
+    import inspect
+
+    signature = inspect.signature(spark_l0_job.run_research_bar_views_spark_job)
+
+    assert "canonical_bar_provenance_path" in signature.parameters
+    assert "canonical_session_intervals_path" in signature.parameters
+    plan = spark_l0_job.build_research_l0_sql_plan()
+    assert "canonical_bar_provenance" in plan
+    assert "canonical_session_intervals" in plan
+
+
+def test_canonical_sidecars_expose_strict_bar_usage_metadata_contract() -> None:
+    manifest = historical_data_delta_schema_manifest()
+    provenance_columns = manifest["canonical_bar_provenance"]["columns"]
+    calendar_columns = manifest["canonical_session_calendar"]["columns"]
+
+    assert provenance_columns["bar_start_ts"] == "timestamp"
+    assert provenance_columns["bar_end_ts"] == "timestamp"
+    assert provenance_columns["session_interval_id"] == "string"
+    assert calendar_columns["session_class"] == "string"
+
+    spark_manifest_columns = moex_canon_job.CANONICAL_PROVENANCE_MANIFEST["columns"]
+    assert spark_manifest_columns["bar_start_ts"] == "timestamp"
+    assert spark_manifest_columns["bar_end_ts"] == "timestamp"
+    assert spark_manifest_columns["session_interval_id"] == "string"
+    assert "bar_start_ts timestamp" in moex_canon_job.CANONICAL_PROVENANCE_SCHEMA
+    assert "bar_end_ts timestamp" in moex_canon_job.CANONICAL_PROVENANCE_SCHEMA
+    assert "session_interval_id string" in moex_canon_job.CANONICAL_PROVENANCE_SCHEMA
+
+
+def test_spark_l0_bar_usage_contract_is_not_recovered_by_heuristic_fallbacks() -> None:
+    import inspect
+
+    provenance_source = inspect.getsource(spark_l0_job._canonical_provenance_frame)
+    usage_source = inspect.getsource(spark_l0_job._with_bar_usage_contract)
+
+    assert '("bar_start_ts", "source_ts_open_first")' not in provenance_source
+    assert '("bar_end_ts", "source_ts_close_last")' not in provenance_source
+    assert '("session_interval_id", "interval_id")' not in provenance_source
+    assert 'bar._bar_session_interval_id").isNull()' not in usage_source
+    assert 'F.coalesce(F.col("_bar_session_interval_id"), F.col("interval_id"))' not in usage_source
+    assert (
+        'F.coalesce(F.col("calendar_session_class"), F.col("day_session_class"))'
+        not in usage_source
+    )
+    assert "daily_contract_id" in usage_source
+    assert 'bar.contract_id") == F.col("weekly_actual.daily_contract_id")' in usage_source
+
+
+def test_spark_l0_job_scopes_usage_validation_to_analysis_window() -> None:
+    import inspect
+
+    for builder in (
+        spark_l0_job._native_bar_views,
+        spark_l0_job._pit_active_front_bar_views,
+    ):
+        source = inspect.getsource(builder)
+
+        assert source.index("base = _with_l0_metrics(") < source.index(
+            "return _with_bar_usage_contract("
+        )
+
+
+def test_spark_l0_roll_map_join_is_deduplicated_and_conflict_checked() -> None:
+    import inspect
+
+    source = inspect.getsource(spark_l0_job._native_bar_views)
+
+    assert '.groupBy("roll_instrument_id", "roll_session_date")' in source
+    assert 'F.countDistinct("roll_active_contract_id")' in source
+    assert "conflicting canonical roll map active contracts" in source
 
 
 def test_legacy_python_bar_view_builder_is_removed_from_public_api() -> None:

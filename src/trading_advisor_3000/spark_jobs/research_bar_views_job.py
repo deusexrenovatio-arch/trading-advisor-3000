@@ -16,10 +16,17 @@ from trading_advisor_3000.product_plane.research.datasets import (
     materialize_research_dataset,
     research_dataset_store_contract,
 )
+from trading_advisor_3000.product_plane.research.datasets.bar_usage import (
+    BAR_USAGE_POLICY_ID,
+    BAR_USAGE_PROFILE_FLAGS,
+    SPECIAL_SESSION_CLASSES,
+)
 
 from .canonical_bars_job import DEFAULT_SPARK_MASTER, _create_spark_session
 
 RESEARCH_L0_CONTOURS = ("native_tradable", "pit_active_front")
+DAILY_TIMEFRAMES = ("1d", "d", "daily")
+WEEKLY_TIMEFRAMES = ("1w", "1wk", "w", "weekly")
 
 
 @dataclass(frozen=True)
@@ -32,10 +39,12 @@ class ResearchBarViewsSparkJobSpec:
 def build_research_l0_sql_plan() -> str:
     return """
     native_tradable:
-      canonical_bars + canonical_session_calendar + canonical_roll_map
+      canonical_bars + canonical_bar_provenance + canonical_session_intervals
+      + canonical_session_calendar + canonical_roll_map
       -> research_bar_views(contour_id='native_tradable', series_mode='contract')
     pit_active_front:
-      continuous_front_bars + canonical_session_calendar
+      continuous_front_bars + canonical_bar_provenance + canonical_session_intervals
+      + canonical_session_calendar
       -> research_bar_views(contour_id='pit_active_front', series_mode='continuous_front')
     write:
       Delta scoped replace of research_bar_views and research_instrument_tree
@@ -132,6 +141,331 @@ def _apply_filters(dataframe, *, instrument_ids: tuple[str, ...], timeframes: tu
     return filtered
 
 
+def _optional_casted_column(dataframe, names: tuple[str, ...], spark_type: str):
+    from pyspark.sql import functions as F  # type: ignore[import-not-found]
+
+    for name in names:
+        if name in dataframe.columns:
+            return F.col(name).cast(spark_type)
+    return F.lit(None).cast(spark_type)
+
+
+def _optional_bool_column(dataframe, names: tuple[str, ...]):
+    from pyspark.sql import functions as F  # type: ignore[import-not-found]
+
+    for name in names:
+        if name in dataframe.columns:
+            return F.coalesce(F.col(name).cast("boolean"), F.lit(False))
+    return F.lit(False)
+
+
+def _require_columns(dataframe, *, table_name: str, columns: tuple[str, ...]) -> None:
+    missing = [column for column in columns if column not in dataframe.columns]
+    if missing:
+        raise RuntimeError(f"missing required {table_name} columns: {', '.join(sorted(missing))}")
+
+
+def _canonical_provenance_frame(spark: object, table_path: Path):
+    from pyspark.sql import functions as F  # type: ignore[import-not-found]
+
+    provenance = spark.read.format("delta").load(str(table_path))
+    _require_columns(
+        provenance,
+        table_name="canonical_bar_provenance",
+        columns=(
+            "contract_id",
+            "timeframe",
+            "ts",
+            "bar_start_ts",
+            "bar_end_ts",
+            "session_interval_id",
+        ),
+    )
+    return provenance.select(
+        F.col("contract_id").alias("prov_contract_id"),
+        F.col("timeframe").alias("prov_timeframe"),
+        F.col("ts").alias("prov_ts"),
+        F.col("bar_start_ts").cast("timestamp").alias("bar_start_ts"),
+        F.col("bar_end_ts").cast("timestamp").alias("bar_end_ts"),
+        F.col("session_interval_id").cast("string").alias("provenance_session_interval_id"),
+        _optional_bool_column(
+            provenance, ("is_boundary_bar", "boundary_bar", "boundary_marker")
+        ).alias("provenance_boundary_bar"),
+        _optional_bool_column(
+            provenance, ("is_shortened_bar", "shortened_bar", "shortened_marker")
+        ).alias("provenance_shortened_bar"),
+    )
+
+
+def _session_calendar_frame(spark: object, table_path: Path):
+    from pyspark.sql import functions as F  # type: ignore[import-not-found]
+
+    calendar = spark.read.format("delta").load(str(table_path))
+    _require_columns(
+        calendar,
+        table_name="canonical_session_calendar",
+        columns=(
+            "instrument_id",
+            "timeframe",
+            "session_date",
+            "session_open_ts",
+            "session_close_ts",
+            "session_class",
+        ),
+    )
+    return calendar.select(
+        F.col("instrument_id").alias("cal_instrument_id"),
+        F.col("timeframe").alias("cal_timeframe"),
+        F.col("session_date").alias("cal_session_date"),
+        F.col("session_open_ts"),
+        F.col("session_close_ts"),
+        F.col("session_class").cast("string").alias("calendar_session_class"),
+    )
+
+
+def _session_intervals_frame(spark: object, table_path: Path):
+    from pyspark.sql import functions as F  # type: ignore[import-not-found]
+
+    intervals = spark.read.format("delta").load(str(table_path))
+    interval_type = _optional_casted_column(intervals, ("interval_type",), "string")
+    return intervals.select(
+        F.col("instrument_id").alias("interval_instrument_id"),
+        F.col("session_date").alias("interval_session_date"),
+        _optional_casted_column(intervals, ("interval_id", "session_interval_id"), "string").alias(
+            "interval_id"
+        ),
+        _optional_casted_column(intervals, ("interval_seq",), "int").alias("interval_seq"),
+        F.col("expected_open_ts").alias("interval_open_ts"),
+        F.col("expected_close_ts").alias("interval_close_ts"),
+        _optional_casted_column(intervals, ("session_class",), "string").alias(
+            "interval_session_class"
+        ),
+        interval_type.alias("interval_type"),
+        (
+            _optional_bool_column(intervals, ("is_shortened_bar", "shortened_bar"))
+            | F.lower(F.coalesce(interval_type, F.lit(""))).contains("shortened")
+        ).alias("interval_shortened_bar"),
+    )
+
+
+def _bar_usage_flags_expression(profile_column):
+    from pyspark.sql import functions as F  # type: ignore[import-not-found]
+
+    entries = []
+    for profile, flags in BAR_USAGE_PROFILE_FLAGS.items():
+        entries.extend((F.lit(profile), F.lit(flags)))
+    return F.create_map(*entries)[profile_column]
+
+
+def _with_bar_usage_contract(
+    *,
+    spark: object,
+    dataframe,
+    canonical_bars_path: Path,
+    canonical_session_intervals_path: Path,
+):
+    from pyspark.sql import functions as F  # type: ignore[import-not-found]
+
+    intervals = _session_intervals_frame(spark, canonical_session_intervals_path)
+    day_meta = (
+        intervals.groupBy("interval_instrument_id", "interval_session_date")
+        .agg(
+            F.max(
+                F.when(
+                    F.col("interval_session_class") == F.lit("partial_or_gap"),
+                    F.lit(1),
+                ).otherwise(F.lit(0))
+            ).alias("day_partial"),
+            F.max(
+                F.when(
+                    F.col("interval_session_class").isin([*SPECIAL_SESSION_CLASSES]),
+                    F.lit(1),
+                ).otherwise(F.lit(0))
+            ).alias("day_special"),
+            F.max(
+                F.when(
+                    F.col("interval_session_class").isin([*SPECIAL_SESSION_CLASSES]),
+                    F.col("interval_session_class"),
+                )
+            ).alias("day_special_class"),
+            F.max(F.col("interval_shortened_bar").cast("int")).alias("day_shortened"),
+        )
+        .withColumn(
+            "day_session_class",
+            F.when(F.col("day_partial") > F.lit(0), F.lit("partial_or_gap"))
+            .when(
+                F.col("day_special") > F.lit(0),
+                F.coalesce(F.col("day_special_class"), F.lit("short")),
+            )
+            .otherwise(F.lit("regular")),
+        )
+    )
+
+    expected_weekly = (
+        day_meta.withColumn(
+            "week_start",
+            F.to_date(
+                F.date_trunc("week", F.to_timestamp(F.col("interval_session_date").cast("string")))
+            ),
+        )
+        .groupBy("interval_instrument_id", "week_start")
+        .agg(
+            F.count(F.lit(1)).alias("expected_traded_sessions"),
+            F.sum("day_partial").alias("weekly_partial_count"),
+            F.sum("day_special").alias("weekly_special_count"),
+            F.sum("day_shortened").alias("weekly_shortened_count"),
+        )
+        .withColumnRenamed("interval_instrument_id", "weekly_expected_instrument_id")
+        .withColumnRenamed("week_start", "weekly_expected_week_start")
+    )
+    day_meta = day_meta.withColumnRenamed(
+        "interval_instrument_id", "day_instrument_id"
+    ).withColumnRenamed("interval_session_date", "day_session_date")
+    actual_daily = (
+        spark.read.format("delta")
+        .load(str(canonical_bars_path))
+        .where(F.lower(F.col("timeframe")).isin([*DAILY_TIMEFRAMES]))
+        .select(
+            F.col("contract_id").alias("daily_contract_id"),
+            F.col("instrument_id").alias("daily_instrument_id"),
+            F.to_date(F.date_trunc("week", F.col("ts"))).alias("week_start"),
+            F.to_date("ts").alias("daily_session_date"),
+        )
+        .distinct()
+        .groupBy("daily_contract_id", "daily_instrument_id", "week_start")
+        .agg(F.count(F.lit(1)).alias("actual_daily_sessions"))
+    )
+
+    bar = (
+        dataframe.withColumn("_timeframe_lc", F.lower(F.col("timeframe")))
+        .withColumn("_is_daily", F.col("_timeframe_lc").isin([*DAILY_TIMEFRAMES]))
+        .withColumn("_is_weekly", F.col("_timeframe_lc").isin([*WEEKLY_TIMEFRAMES]))
+        .withColumn(
+            "_is_intraday",
+            ~(F.col("_is_daily") | F.col("_is_weekly")),
+        )
+        .withColumn("_bar_session_interval_id", F.col("session_interval_id"))
+        .withColumn(
+            "_week_start",
+            F.to_date(F.date_trunc("week", F.to_timestamp(F.col("ts")))),
+        )
+    )
+    joined = (
+        bar.alias("bar")
+        .join(
+            intervals.alias("intervals"),
+            (F.col("bar._is_intraday"))
+            & (F.col("bar.instrument_id") == F.col("intervals.interval_instrument_id"))
+            & (F.col("bar.session_date") == F.col("intervals.interval_session_date"))
+            & (F.col("bar._bar_session_interval_id") == F.col("intervals.interval_id")),
+            "left",
+        )
+        .join(
+            day_meta.alias("day"),
+            (F.col("bar.instrument_id") == F.col("day.day_instrument_id"))
+            & (F.col("bar.session_date") == F.col("day.day_session_date")),
+            "left",
+        )
+        .join(
+            expected_weekly.alias("weekly_expected"),
+            (F.col("bar.instrument_id") == F.col("weekly_expected.weekly_expected_instrument_id"))
+            & (F.col("bar._week_start") == F.col("weekly_expected.weekly_expected_week_start")),
+            "left",
+        )
+        .join(
+            actual_daily.alias("weekly_actual"),
+            (F.col("bar.contract_id") == F.col("weekly_actual.daily_contract_id"))
+            & (F.col("bar.instrument_id") == F.col("weekly_actual.daily_instrument_id"))
+            & (F.col("bar._week_start") == F.col("weekly_actual.week_start")),
+            "left",
+        )
+    )
+    actual_daily_sessions = F.coalesce(F.col("actual_daily_sessions"), F.lit(0))
+    weekly_incomplete = (actual_daily_sessions < F.col("expected_traded_sessions")) | (
+        F.col("weekly_partial_count") > F.lit(0)
+    )
+    weekly_special = F.col("weekly_special_count") > F.lit(0)
+    weekly_shortened = F.col("weekly_shortened_count") > F.lit(0)
+    weekly_session_class = (
+        F.when(F.col("expected_traded_sessions").isNull(), F.lit(None).cast("string"))
+        .when(weekly_incomplete, F.lit("partial_or_gap"))
+        .when(weekly_special, F.lit("short"))
+        .otherwise(F.lit("regular"))
+    )
+    joined = joined.withColumn(
+        "session_interval_id",
+        F.when(
+            F.col("_is_intraday"),
+            F.col("_bar_session_interval_id"),
+        ).otherwise(F.lit(None).cast("string")),
+    ).withColumn(
+        "session_class",
+        F.when(F.col("_is_weekly"), weekly_session_class)
+        .when(
+            F.col("_is_daily"),
+            F.col("calendar_session_class"),
+        )
+        .otherwise(F.col("interval_session_class")),
+    )
+
+    if joined.where(F.col("bar_start_ts").isNull() | F.col("bar_end_ts").isNull()).limit(1).count():
+        raise RuntimeError("missing required canonical provenance bar boundary metadata")
+    if (
+        joined.where(
+            F.col("_is_intraday")
+            & (F.col("session_interval_id").isNull() | F.col("session_class").isNull())
+        )
+        .limit(1)
+        .count()
+    ):
+        raise RuntimeError("missing required canonical session interval metadata for intraday bars")
+    if (
+        joined.where((F.col("_is_daily") | F.col("_is_weekly")) & F.col("session_class").isNull())
+        .limit(1)
+        .count()
+    ):
+        raise RuntimeError(
+            "missing required canonical session class metadata for daily/weekly bars"
+        )
+
+    boundary_bar = F.coalesce(F.col("provenance_boundary_bar"), F.lit(False)) | (
+        F.col("_is_intraday")
+        & (
+            (F.col("bar_start_ts") == F.col("interval_open_ts"))
+            | (F.col("bar_end_ts") == F.col("interval_close_ts"))
+            | (
+                F.unix_timestamp(F.col("bar_end_ts")) + F.lit(1)
+                == F.unix_timestamp(F.col("interval_open_ts"))
+            )
+        )
+    )
+    shortened_bar = (
+        F.coalesce(F.col("provenance_shortened_bar"), F.lit(False))
+        | F.coalesce(F.col("interval_shortened_bar"), F.lit(False))
+        | (F.coalesce(weekly_shortened, F.lit(False)) & F.col("_is_weekly"))
+    )
+    incomplete_bar = (F.col("session_class") == F.lit("partial_or_gap")) | (
+        F.coalesce(weekly_incomplete, F.lit(False)) & F.col("_is_weekly")
+    )
+    special_bar = F.col("session_class").isin([*SPECIAL_SESSION_CLASSES]) | (
+        F.coalesce(weekly_special, F.lit(False)) & F.col("_is_weekly")
+    )
+    with_profile = joined.withColumn(
+        "bar_usage_profile",
+        F.when(shortened_bar, F.lit("shortened_risk"))
+        .when(boundary_bar, F.lit("boundary_risk"))
+        .when(incomplete_bar, F.lit("incomplete"))
+        .when(special_bar, F.lit("risk_only"))
+        .otherwise(F.lit("regular_trading")),
+    )
+    with_flags = with_profile.withColumn(
+        "bar_usage_flags", _bar_usage_flags_expression(F.col("bar_usage_profile"))
+    ).withColumn("bar_usage_policy_id", F.lit(BAR_USAGE_POLICY_ID))
+    if with_flags.where(F.col("bar_usage_flags").isNull()).limit(1).count():
+        raise RuntimeError("bar usage profile/flags registry validation failed")
+    return with_flags
+
+
 def _with_l0_metrics(
     dataframe, *, series_columns: tuple[str, ...], start_ts: str | None, warmup_bars: int
 ):
@@ -194,6 +528,8 @@ def _native_bar_views(
     *,
     spark: object,
     canonical_bars_path: Path,
+    canonical_bar_provenance_path: Path,
+    canonical_session_intervals_path: Path,
     canonical_session_calendar_path: Path,
     canonical_roll_map_path: Path,
     dataset_version: str,
@@ -212,17 +548,9 @@ def _native_bar_views(
         bars = bars.where(F.col("contract_id").isin([*contract_ids]))
     if end_ts:
         bars = bars.where(F.col("ts") <= F.lit(end_ts))
-    calendar = (
-        spark.read.format("delta")
-        .load(str(canonical_session_calendar_path))
-        .select(
-            F.col("instrument_id").alias("cal_instrument_id"),
-            F.col("timeframe").alias("cal_timeframe"),
-            F.col("session_date").alias("cal_session_date"),
-            F.col("session_open_ts"),
-            F.col("session_close_ts"),
-        )
-    )
+
+    provenance = _canonical_provenance_frame(spark, canonical_bar_provenance_path)
+    calendar = _session_calendar_frame(spark, canonical_session_calendar_path)
     roll_map = (
         spark.read.format("delta")
         .load(str(canonical_roll_map_path))
@@ -231,9 +559,21 @@ def _native_bar_views(
             F.col("session_date").alias("roll_session_date"),
             F.col("active_contract_id").alias("roll_active_contract_id"),
         )
+        .groupBy("roll_instrument_id", "roll_session_date")
+        .agg(
+            F.countDistinct("roll_active_contract_id").alias("roll_active_contract_count"),
+            F.first("roll_active_contract_id", ignorenulls=True).alias("roll_active_contract_id"),
+        )
     )
     with_session = (
-        bars.withColumn("session_date", F.to_date("ts"))
+        bars.join(
+            provenance,
+            (F.col("contract_id") == F.col("prov_contract_id"))
+            & (F.col("timeframe") == F.col("prov_timeframe"))
+            & (F.col("ts") == F.col("prov_ts")),
+            "left",
+        )
+        .withColumn("session_date", F.to_date(F.coalesce(F.col("bar_start_ts"), F.col("ts"))))
         .join(
             calendar,
             (F.col("instrument_id") == F.col("cal_instrument_id"))
@@ -264,8 +604,18 @@ def _native_bar_views(
         "session_date",
         "session_open_ts",
         "session_close_ts",
+        "bar_start_ts",
+        "bar_end_ts",
+        F.col("provenance_session_interval_id").alias("session_interval_id"),
+        F.lit(None).cast("string").alias("session_class"),
+        "calendar_session_class",
+        "provenance_boundary_bar",
+        "provenance_shortened_bar",
         F.coalesce(F.col("roll_active_contract_id"), F.col("contract_id")).alias(
             "active_contract_id"
+        ),
+        F.coalesce(F.col("roll_active_contract_count"), F.lit(0)).alias(
+            "roll_active_contract_count"
         ),
         F.col("contract_id").alias("series_id"),
         F.lit("contract").alias("series_mode"),
@@ -293,11 +643,20 @@ def _native_bar_views(
         F.lit(0.0).alias("cumulative_additive_offset"),
         F.lit(None).cast("double").alias("ratio_factor"),
     )
-    return _with_l0_metrics(
+    base = _with_l0_metrics(
         base,
         series_columns=("contract_id", "instrument_id", "timeframe"),
         start_ts=start_ts,
         warmup_bars=warmup_bars,
+    )
+    if base.where(F.col("roll_active_contract_count") > F.lit(1)).limit(1).count():
+        raise RuntimeError("conflicting canonical roll map active contracts for research bar views")
+    base = base.drop("roll_active_contract_count")
+    return _with_bar_usage_contract(
+        spark=spark,
+        dataframe=base,
+        canonical_bars_path=canonical_bars_path,
+        canonical_session_intervals_path=canonical_session_intervals_path,
     )
 
 
@@ -305,7 +664,10 @@ def _pit_active_front_bar_views(
     *,
     spark: object,
     continuous_front_bars_path: Path,
+    canonical_bar_provenance_path: Path,
+    canonical_session_intervals_path: Path,
     canonical_session_calendar_path: Path,
+    canonical_bars_path: Path,
     dataset_version: str,
     instrument_ids: tuple[str, ...],
     timeframes: tuple[str, ...],
@@ -319,23 +681,25 @@ def _pit_active_front_bar_views(
     bars = _apply_filters(bars, instrument_ids=instrument_ids, timeframes=timeframes)
     if end_ts:
         bars = bars.where(F.col("ts") <= F.lit(end_ts))
-    calendar = (
-        spark.read.format("delta")
-        .load(str(canonical_session_calendar_path))
-        .select(
-            F.col("instrument_id").alias("cal_instrument_id"),
-            F.col("timeframe").alias("cal_timeframe"),
-            F.col("session_date").alias("cal_session_date"),
-            F.col("session_open_ts"),
-            F.col("session_close_ts"),
+
+    provenance = _canonical_provenance_frame(spark, canonical_bar_provenance_path)
+    calendar = _session_calendar_frame(spark, canonical_session_calendar_path)
+    with_session = (
+        bars.join(
+            provenance,
+            (F.col("active_contract_id") == F.col("prov_contract_id"))
+            & (F.col("timeframe") == F.col("prov_timeframe"))
+            & (F.col("ts") == F.col("prov_ts")),
+            "left",
         )
-    )
-    with_session = bars.withColumn("session_date", F.to_date("ts")).join(
-        calendar,
-        (F.col("instrument_id") == F.col("cal_instrument_id"))
-        & (F.col("timeframe") == F.col("cal_timeframe"))
-        & (F.col("session_date") == F.col("cal_session_date")),
-        "left",
+        .withColumn("session_date", F.to_date(F.coalesce(F.col("bar_start_ts"), F.col("ts"))))
+        .join(
+            calendar,
+            (F.col("instrument_id") == F.col("cal_instrument_id"))
+            & (F.col("timeframe") == F.col("cal_timeframe"))
+            & (F.col("session_date") == F.col("cal_session_date")),
+            "left",
+        )
     )
     base = with_session.select(
         F.lit(dataset_version).alias("dataset_version"),
@@ -353,6 +717,13 @@ def _pit_active_front_bar_views(
         "session_date",
         "session_open_ts",
         "session_close_ts",
+        "bar_start_ts",
+        "bar_end_ts",
+        F.col("provenance_session_interval_id").alias("session_interval_id"),
+        F.lit(None).cast("string").alias("session_class"),
+        "calendar_session_class",
+        "provenance_boundary_bar",
+        "provenance_shortened_bar",
         "active_contract_id",
         F.col("instrument_id").alias("series_id"),
         F.lit("continuous_front").alias("series_mode"),
@@ -380,11 +751,17 @@ def _pit_active_front_bar_views(
         "cumulative_additive_offset",
         "ratio_factor",
     )
-    return _with_l0_metrics(
+    base = _with_l0_metrics(
         base,
         series_columns=("series_id", "instrument_id", "timeframe"),
         start_ts=start_ts,
         warmup_bars=warmup_bars,
+    )
+    return _with_bar_usage_contract(
+        spark=spark,
+        dataframe=base,
+        canonical_bars_path=canonical_bars_path,
+        canonical_session_intervals_path=canonical_session_intervals_path,
     )
 
 
@@ -609,6 +986,8 @@ def _validate_tables(output_paths: dict[str, str]) -> list[str]:
 def run_research_bar_views_spark_job(
     *,
     canonical_bars_path: Path,
+    canonical_bar_provenance_path: Path,
+    canonical_session_intervals_path: Path,
     canonical_session_calendar_path: Path,
     canonical_roll_map_path: Path,
     continuous_front_bars_path: Path,
@@ -634,6 +1013,8 @@ def run_research_bar_views_spark_job(
         raise ValueError(f"unsupported research L0 contours: {', '.join(invalid)}")
     for table_path in (
         canonical_bars_path,
+        canonical_bar_provenance_path,
+        canonical_session_intervals_path,
         canonical_session_calendar_path,
         canonical_roll_map_path,
     ):
@@ -654,6 +1035,8 @@ def run_research_bar_views_spark_job(
                 _native_bar_views(
                     spark=spark,
                     canonical_bars_path=canonical_bars_path,
+                    canonical_bar_provenance_path=canonical_bar_provenance_path,
+                    canonical_session_intervals_path=canonical_session_intervals_path,
                     canonical_session_calendar_path=canonical_session_calendar_path,
                     canonical_roll_map_path=canonical_roll_map_path,
                     dataset_version=dataset_version,
@@ -670,7 +1053,10 @@ def run_research_bar_views_spark_job(
                 _pit_active_front_bar_views(
                     spark=spark,
                     continuous_front_bars_path=continuous_front_bars_path,
+                    canonical_bar_provenance_path=canonical_bar_provenance_path,
+                    canonical_session_intervals_path=canonical_session_intervals_path,
                     canonical_session_calendar_path=canonical_session_calendar_path,
+                    canonical_bars_path=canonical_bars_path,
                     dataset_version=dataset_version,
                     instrument_ids=instrument_ids,
                     timeframes=timeframes,
@@ -736,6 +1122,8 @@ def run_research_bar_views_spark_job(
 
         source_delta_versions = {
             "canonical_bars": _latest_delta_version(canonical_bars_path),
+            "canonical_bar_provenance": _latest_delta_version(canonical_bar_provenance_path),
+            "canonical_session_intervals": _latest_delta_version(canonical_session_intervals_path),
             "canonical_session_calendar": _latest_delta_version(canonical_session_calendar_path),
             "canonical_roll_map": _latest_delta_version(canonical_roll_map_path),
             "continuous_front_bars": _latest_delta_version(continuous_front_bars_path)
@@ -744,6 +1132,8 @@ def run_research_bar_views_spark_job(
         }
         source_delta_hashes = {
             "canonical_bars": _delta_log_hash(canonical_bars_path),
+            "canonical_bar_provenance": _delta_log_hash(canonical_bar_provenance_path),
+            "canonical_session_intervals": _delta_log_hash(canonical_session_intervals_path),
             "canonical_session_calendar": _delta_log_hash(canonical_session_calendar_path),
             "canonical_roll_map": _delta_log_hash(canonical_roll_map_path),
             "continuous_front_bars": _delta_log_hash(continuous_front_bars_path)
@@ -790,20 +1180,31 @@ def run_research_bar_views_spark_job(
                 warmup_bars=warmup_bars,
                 source_tables=(
                     "continuous_front_bars",
+                    "canonical_bar_provenance",
+                    "canonical_session_intervals",
                     "canonical_session_calendar",
                 )
                 if contour_id == "pit_active_front"
                 else (
                     "canonical_bars",
+                    "canonical_bar_provenance",
+                    "canonical_session_intervals",
                     "canonical_session_calendar",
                     "canonical_roll_map",
                 ),
                 bars_hash=_combined_source_hash(
                     source_delta_hashes,
-                    ("continuous_front_bars", "canonical_session_calendar")
+                    (
+                        "continuous_front_bars",
+                        "canonical_bar_provenance",
+                        "canonical_session_intervals",
+                        "canonical_session_calendar",
+                    )
                     if contour_id == "pit_active_front"
                     else (
                         "canonical_bars",
+                        "canonical_bar_provenance",
+                        "canonical_session_intervals",
                         "canonical_session_calendar",
                         "canonical_roll_map",
                     ),
