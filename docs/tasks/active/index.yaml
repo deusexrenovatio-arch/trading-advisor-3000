@@ -46,3 +46,8 @@ items:
   mode: legacy-full
   status: in_progress
   started_at: '2026-05-20'
+- id: TASK-2026-05-20-INTEGRATE-RBAR-CANONICAL-BAR-USAGE-CONTRACT-THRO-1
+  path: docs/tasks/active/TASK-2026-05-20-integrate-rbar-canonical-bar-usage-contract-thro-1.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-05-20'

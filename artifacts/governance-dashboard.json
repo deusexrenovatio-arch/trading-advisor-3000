@@ -117,18 +117,18 @@
     },
     "pilot_observation": {
       "status": "green",
-      "critical_tasks_with_explicit_solution_class": 29,
+      "critical_tasks_with_explicit_solution_class": 30,
       "blocked_shortcut_claims": 0,
       "staged_vs_target_declarations": {
         "staged": 6,
-        "target": 23
+        "target": 24
       },
       "observation_window_start": "2026-03-25",
       "observation_window_days": 56,
       "observation_window_min_days": 7,
       "observation_window_max_days": 14,
       "observation_window_status": "review_due",
-      "task_notes_scanned": 79
+      "task_notes_scanned": 80
     }
   },
   "baseline_metrics": {
