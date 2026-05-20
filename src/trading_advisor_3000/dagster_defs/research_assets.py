@@ -1305,6 +1305,10 @@ def research_datasets(context) -> dict[str, object]:
     else:
         report = run_research_bar_views_spark_job(
             canonical_bars_path=_canonical_table_path(config, "canonical_bars"),
+            canonical_bar_provenance_path=_canonical_table_path(config, "canonical_bar_provenance"),
+            canonical_session_intervals_path=_canonical_table_path(
+                config, "canonical_session_intervals"
+            ),
             canonical_session_calendar_path=_canonical_table_path(
                 config, "canonical_session_calendar"
             ),
