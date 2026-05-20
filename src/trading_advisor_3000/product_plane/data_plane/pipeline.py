@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from trading_advisor_3000.product_plane.contracts import CanonicalBar
+
 from .canonical import build_canonical_dataset, run_data_quality_checks
 from .delta_runtime import (
     has_delta_log,
@@ -59,6 +61,26 @@ def _fixture_bar_provenance_for_rows(rows: list[dict[str, object]]) -> list[dict
     ]
 
 
+def _fixture_bar_provenance_for_canonical_scope(
+    rows: list[dict[str, object]],
+    canonical_bars: list[CanonicalBar],
+) -> list[dict[str, object]]:
+    canonical_keys = {
+        (str(bar.contract_id), str(bar.timeframe.value), str(bar.ts)) for bar in canonical_bars
+    }
+    latest_rows_by_key: dict[tuple[str, str, str], dict[str, object]] = {}
+    for row in rows:
+        key = (str(row["contract_id"]), str(row["timeframe"]), str(row["ts_open"]))
+        if key not in canonical_keys:
+            continue
+        current = latest_rows_by_key.get(key)
+        if current is None or str(row["ts_close"]) > str(current["ts_close"]):
+            latest_rows_by_key[key] = row
+    return _fixture_bar_provenance_for_rows(
+        [latest_rows_by_key[key] for key in sorted(latest_rows_by_key)]
+    )
+
+
 def run_sample_backfill(
     *,
     source_path: Path,
@@ -84,11 +106,11 @@ def run_sample_backfill(
     )
 
     session_intervals = _fixture_session_intervals_for_rows(ingestion_batch.rows)
-    bar_provenance = _fixture_bar_provenance_for_rows(ingestion_batch.rows)
     dataset = build_canonical_dataset(
         ingestion_batch.rows,
         session_intervals=session_intervals,
     )
+    bar_provenance = _fixture_bar_provenance_for_canonical_scope(ingestion_batch.rows, dataset.bars)
     quality_errors = run_data_quality_checks(dataset.bars, whitelist_contracts=whitelist_contracts)
     if quality_errors:
         raise ValueError("data quality failed: " + "; ".join(quality_errors))

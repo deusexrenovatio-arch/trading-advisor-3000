@@ -314,7 +314,7 @@ def _build_qc_report(
         | functions.col("bar_start_ts").isNull()
         | functions.col("bar_end_ts").isNull()
         | (
-            ~functions.lower(functions.col("timeframe")).isin("1d", "d", "1w", "w")
+            ~functions.lower(functions.col("timeframe")).isin("1d", "d", "d1", "1w", "w", "w1")
             & (
                 functions.col("session_interval_id").isNull()
                 | (functions.trim(functions.col("session_interval_id")) == "")

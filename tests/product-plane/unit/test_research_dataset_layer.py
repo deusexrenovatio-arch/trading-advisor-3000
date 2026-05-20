@@ -116,6 +116,8 @@ def test_moex_bar_usage_policy_registry_flags_fail_closed() -> None:
     validate_bar_usage_profile_flags("boundary_risk", 133)
     with pytest.raises(ValueError, match="bar usage profile/flags mismatch"):
         validate_bar_usage_profile_flags("boundary_risk", 127)
+    with pytest.raises(TypeError, match="bar usage flags must be an integer value"):
+        validate_bar_usage_profile_flags("boundary_risk", 133.5)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="unknown bar usage profile"):
         bar_usage_flags_for_profile("strategy_specific")
 
@@ -165,6 +167,13 @@ def test_research_bar_view_roundtrips_usage_contract() -> None:
     assert restored.bar_usage_profile == "regular_trading"
     assert restored.bar_usage_flags == 127
     assert restored.bar_usage_policy_id == BAR_USAGE_POLICY_ID
+
+    missing_provenance_payload = view.to_dict()
+    assert missing_provenance_payload["bar_start_ts"] is None
+    assert missing_provenance_payload["bar_end_ts"] is None
+
+    zero_flags_payload = {**payload, "bar_usage_flags": 0}
+    assert ResearchBarView.from_dict(zero_flags_payload).bar_usage_flags == 0
 
 
 def test_spark_l0_job_requires_canonical_session_metadata_inputs() -> None:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import numbers
+
 BAR_USAGE_POLICY_ID = "moex_bar_usage_v1"
 
 PRICE_RISK = 1
@@ -70,7 +72,11 @@ def bar_usage_flags_for_profile(profile: str) -> int:
 
 def validate_bar_usage_profile_flags(profile: str, flags: int) -> None:
     expected = bar_usage_flags_for_profile(profile)
-    if int(flags) != expected:
+    if not isinstance(flags, numbers.Integral):
+        raise TypeError(
+            f"bar usage flags must be an integer value: profile={profile}; actual={flags!r}"
+        )
+    if flags != expected:
         raise ValueError(
             "bar usage profile/flags mismatch: "
             f"profile={profile}; expected={expected}; actual={flags}"

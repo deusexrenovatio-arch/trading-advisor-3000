@@ -78,8 +78,8 @@ class ResearchBarView:
             "session_date": self.session_date,
             "session_open_ts": self.session_open_ts,
             "session_close_ts": self.session_close_ts,
-            "bar_start_ts": self.bar_start_ts if self.bar_start_ts is not None else self.ts,
-            "bar_end_ts": self.bar_end_ts if self.bar_end_ts is not None else self.session_close_ts,
+            "bar_start_ts": self.bar_start_ts,
+            "bar_end_ts": self.bar_end_ts,
             "session_interval_id": self.session_interval_id,
             "session_class": self.session_class,
             "bar_usage_profile": self.bar_usage_profile,
@@ -155,7 +155,9 @@ class ResearchBarView:
             else str(payload["session_interval_id"]),
             session_class=str(payload.get("session_class") or "regular"),
             bar_usage_profile=str(payload.get("bar_usage_profile") or "regular_trading"),
-            bar_usage_flags=int(payload.get("bar_usage_flags") or 127),
+            bar_usage_flags=int(
+                127 if payload.get("bar_usage_flags") is None else payload["bar_usage_flags"]
+            ),
             bar_usage_policy_id=str(payload.get("bar_usage_policy_id") or "moex_bar_usage_v1"),
             active_contract_id=str(payload["active_contract_id"]),
             ret_1=None if payload.get("ret_1") is None else float(payload["ret_1"]),
