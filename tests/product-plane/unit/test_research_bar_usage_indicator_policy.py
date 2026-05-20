@@ -22,8 +22,12 @@ from trading_advisor_3000.product_plane.research.derived_indicators import (
     build_derived_indicator_frames,
     current_derived_indicator_profile,
 )
+from trading_advisor_3000.product_plane.research.derived_indicators import (
+    materialize as derived_materialize_module,
+)
 from trading_advisor_3000.product_plane.research.derived_indicators.materialize import (
     _compute_derived_frame,
+    _compute_derived_frame_unmasked,
 )
 from trading_advisor_3000.product_plane.research.indicators import (
     VOLUME_PROFILE_INDICATOR_COLUMNS,
@@ -421,6 +425,40 @@ def test_mtf_projection_uses_only_source_bars_eligible_for_carried_column() -> N
     )
 
     assert computed.loc[0, "mtf_1h_to_15m_adx_14"] == pytest.approx(20.0)
+
+
+def test_derived_unmasked_profile_skips_unrequested_formula_groups(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frame = _derived_base_frame(
+        ["regular_trading", "regular_trading"],
+        closes=[10.0, 12.0],
+    )
+
+    def fail_unrequested_group(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("unrequested formula group was computed")
+
+    monkeypatch.setattr(
+        derived_materialize_module,
+        "_compute_session_vwap",
+        fail_unrequested_group,
+    )
+    monkeypatch.setattr(
+        derived_materialize_module,
+        "_compute_mtf_overlay",
+        fail_unrequested_group,
+    )
+
+    computed = _compute_derived_frame_unmasked(
+        base_frame=frame,
+        current_timeframe="15m",
+        source_frames={},
+        profile=_derived_profile("close_change_1"),
+    )
+
+    assert computed.loc[1, "close_change_1"] == pytest.approx(2.0)
+    assert "session_vwap" not in computed.columns
+    assert "mtf_1h_to_15m_ema_20" not in computed.columns
 
 
 def test_continuous_front_build_mtf_projection_uses_source_timeframe_family() -> None:

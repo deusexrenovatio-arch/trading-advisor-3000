@@ -16,6 +16,7 @@ STATE_UPDATE_HOLD = "state_update_hold"
 STATE_UPDATE_RESET_SCOPE = "state_update_reset_scope"
 POINT_UPDATE_NULL = "point_update_null"
 EVENT_UPDATE_ZERO = "event_update_zero"
+INDICATOR_USAGE_POLICY_ID = "indicator_bar_usage_policy_v1"
 
 
 @dataclass(frozen=True)

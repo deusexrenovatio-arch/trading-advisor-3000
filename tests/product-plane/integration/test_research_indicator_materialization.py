@@ -20,6 +20,9 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     replace_delta_table_rows,
     write_delta_table_rows,
 )
+from trading_advisor_3000.product_plane.research.bar_usage_policy import (
+    INDICATOR_USAGE_POLICY_ID,
+)
 from trading_advisor_3000.product_plane.research.datasets import (
     ContinuousFrontPolicy,
     ResearchBarView,
@@ -29,6 +32,7 @@ from trading_advisor_3000.product_plane.research.datasets import (
 from trading_advisor_3000.product_plane.research.datasets import (
     materialize_research_dataset as _materialize_research_dataset_manifest,
 )
+from trading_advisor_3000.product_plane.research.datasets.bar_usage import BAR_USAGE_POLICY_ID
 from trading_advisor_3000.product_plane.research.derived_indicators import (
     DerivedIndicatorProfile,
     current_derived_indicator_profile,
@@ -412,6 +416,8 @@ def test_indicator_materialization_and_reload_from_dataset_layer(tmp_path: Path)
     )
     assert report["indicator_row_count"] == 72
     assert report["profile_version"] == "core_v1"
+    assert report["bar_usage_policy_id"] == BAR_USAGE_POLICY_ID
+    assert report["indicator_usage_policy_id"] == INDICATOR_USAGE_POLICY_ID
     assert report["refreshed_partition_count"] == 1
     assert (Path(str(report["output_paths"]["research_indicator_frames"])) / "_delta_log").exists()
 
@@ -1051,6 +1057,8 @@ def test_derived_indicator_materialization_recomputes_only_affected_partitions(
     )
     assert first_report["refreshed_partition_count"] == 2
     assert first_report["reused_partition_count"] == 0
+    assert first_report["bar_usage_policy_id"] == BAR_USAGE_POLICY_ID
+    assert first_report["indicator_usage_policy_id"] == INDICATOR_USAGE_POLICY_ID
 
     first_rows = reload_derived_indicator_frames(
         derived_indicator_output_dir=derived_dir,

@@ -16,6 +16,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
 )
 from trading_advisor_3000.product_plane.research.bar_usage_policy import (
     EVENT_UPDATE_ZERO,
+    INDICATOR_USAGE_POLICY_ID,
     POINT_UPDATE_NULL,
     STATE_UPDATE_HOLD,
     STATE_UPDATE_RESET_SCOPE,
@@ -29,6 +30,7 @@ from trading_advisor_3000.product_plane.research.continuous_front_indicators.rul
     rules_for_indicator_profile,
 )
 from trading_advisor_3000.product_plane.research.datasets import ResearchBarView
+from trading_advisor_3000.product_plane.research.datasets.bar_usage import BAR_USAGE_POLICY_ID
 
 from .registry import (
     IndicatorProfile,
@@ -1760,6 +1762,8 @@ def materialize_indicator_frames(
         refreshed_partitions = len(sorted_partition_items)
         return {
             "indicator_row_count": current_total_rows,
+            "bar_usage_policy_id": BAR_USAGE_POLICY_ID,
+            "indicator_usage_policy_id": INDICATOR_USAGE_POLICY_ID,
             "refreshed_row_count": refreshed_row_count,
             "refreshed_partition_count": refreshed_partitions,
             "reused_partition_count": 0,
@@ -1975,6 +1979,8 @@ def materialize_indicator_frames(
         )
     return {
         "indicator_row_count": current_total_rows,
+        "bar_usage_policy_id": BAR_USAGE_POLICY_ID,
+        "indicator_usage_policy_id": INDICATOR_USAGE_POLICY_ID,
         "refreshed_row_count": refreshed_row_count,
         "refreshed_partition_count": refreshed_partitions,
         "reused_partition_count": reused_partitions,
