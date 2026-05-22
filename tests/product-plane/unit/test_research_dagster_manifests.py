@@ -242,11 +242,7 @@ def test_research_run_config_uses_volume_profile_defaults_for_falsy_inputs(
     assert (
         Path(str(config["volume_profile_raw_1m_table_path"]))
         == (
-            tmp_path
-            / "canonical"
-            / "moex"
-            / "baseline-4y-current"
-            / "canonical_bars.delta"
+            tmp_path / "canonical" / "moex" / "baseline-4y-current" / "canonical_bars.delta"
         ).resolve()
     )
     assert config["volume_profile_tick_size_by_instrument"]["FUT_BR"] == 0.01

@@ -256,9 +256,7 @@ def _session_calendar_frame(
             F.col("session_date") >= F.date_sub(F.to_date(F.lit(start_ts)), 7)
         )
     if end_ts:
-        calendar = calendar.where(
-            F.col("session_date") <= F.date_add(F.to_date(F.lit(end_ts)), 7)
-        )
+        calendar = calendar.where(F.col("session_date") <= F.date_add(F.to_date(F.lit(end_ts)), 7))
     _require_columns(
         calendar,
         table_name="canonical_session_calendar",
@@ -579,9 +577,9 @@ def _with_bar_usage_contract(
                 F.lit(1),
             ).otherwise(F.lit(0))
         ).alias("missing_daily_weekly_metadata"),
-        F.max(
-            F.when(F.col("bar_usage_flags").isNull(), F.lit(1)).otherwise(F.lit(0))
-        ).alias("missing_usage_flags"),
+        F.max(F.when(F.col("bar_usage_flags").isNull(), F.lit(1)).otherwise(F.lit(0))).alias(
+            "missing_usage_flags"
+        ),
     ).collect()[0]
     validation = validation_row.asDict()
     if validation.get("missing_boundary_metadata"):

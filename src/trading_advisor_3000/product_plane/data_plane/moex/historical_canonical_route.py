@@ -24,10 +24,10 @@ from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contrac
 from trading_advisor_3000.product_plane.data_plane.schemas.delta import (
     historical_data_delta_schema_manifest,
 )
+from trading_advisor_3000.spark_jobs.canonical_bars_job import DEFAULT_SPARK_MASTER
 from trading_advisor_3000.spark_jobs.moex_canonical_publish_job import (
     run_moex_canonical_publish_spark_delta_job,
 )
-from trading_advisor_3000.spark_jobs.canonical_bars_job import DEFAULT_SPARK_MASTER
 
 TARGET_TIMEFRAMES: tuple[Timeframe, ...] = (
     Timeframe.M1,
@@ -1142,7 +1142,9 @@ def _delta_table_partition_columns(table_path: Path) -> tuple[str, ...] | None:
         return None
     from deltalake import DeltaTable
 
-    return tuple(str(item) for item in (DeltaTable(str(table_path)).metadata().partition_columns or []))
+    return tuple(
+        str(item) for item in (DeltaTable(str(table_path)).metadata().partition_columns or [])
+    )
 
 
 def _delta_table_layout_matches_manifest(
@@ -2347,7 +2349,9 @@ def run_historical_canonical_route(
             "mode": (
                 "noop"
                 if sidecar_layout_matches_manifest
-                else "layout_rewrite_required" if sidecar_layout_repair_required else "skipped"
+                else "layout_rewrite_required"
+                if sidecar_layout_repair_required
+                else "skipped"
             ),
             "mutation_applied": False,
             "refreshed_session_calendar_rows": 0,
@@ -2386,9 +2390,7 @@ def run_historical_canonical_route(
         if noop_sidecar_repair_required:
             spark_publish_report = _run_spark_canonical_publish(
                 staged_bars_path=repair_output_dir / "empty-canonical-bars.delta",
-                staged_provenance_path=(
-                    repair_output_dir / "empty-canonical-bar-provenance.delta"
-                ),
+                staged_provenance_path=(repair_output_dir / "empty-canonical-bar-provenance.delta"),
                 publish_scope_path=None,
                 target_bars_path=bars_path,
                 target_provenance_path=provenance_path,
@@ -2474,12 +2476,16 @@ def run_historical_canonical_route(
         canonical_rows = (
             _int_report_value(spark_publish_report, "canonical_rows")
             if isinstance(spark_publish_report, dict)
-            else count_delta_table_rows(bars_path) if bars_delta_exists else 0
+            else count_delta_table_rows(bars_path)
+            if bars_delta_exists
+            else 0
         )
         provenance_rows = (
             _int_report_value(spark_publish_report, "provenance_rows")
             if isinstance(spark_publish_report, dict)
-            else count_delta_table_rows(provenance_path) if provenance_delta_exists else 0
+            else count_delta_table_rows(provenance_path)
+            if provenance_delta_exists
+            else 0
         )
         artifact_paths: dict[str, str] = {
             "changed_window_set_manifest": changed_window_set_path.as_posix(),

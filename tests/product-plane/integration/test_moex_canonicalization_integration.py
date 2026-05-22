@@ -552,9 +552,7 @@ def test_canonicalization_normalizes_ohlc_envelope_from_raw_1m(
         Path(str(report["spark_execution_report"]["output_paths"]["canonical_bars"]))
     )
     minute_bar = next(
-        row
-        for row in bars
-        if row["timeframe"] == "1m" and row["ts"] == "2026-04-02T10:00:00Z"
+        row for row in bars if row["timeframe"] == "1m" and row["ts"] == "2026-04-02T10:00:00Z"
     )
     assert minute_bar["high"] == 102.0
     assert minute_bar["low"] == 99.0

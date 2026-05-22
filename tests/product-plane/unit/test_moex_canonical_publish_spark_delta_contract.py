@@ -428,7 +428,9 @@ def test_noop_route_runs_full_sidecar_repair_when_calendar_is_missing(
     bars_path = output_dir / "delta" / "canonical_bars.delta"
     provenance_path = output_dir / "delta" / "canonical_bar_provenance.delta"
     write_delta_table_rows(table_path=raw_table_path, rows=[], columns=RAW_COLUMNS)
-    write_delta_table_rows(table_path=bars_path, rows=[], columns=route_module.CANONICAL_BAR_COLUMNS)
+    write_delta_table_rows(
+        table_path=bars_path, rows=[], columns=route_module.CANONICAL_BAR_COLUMNS
+    )
     write_delta_table_rows(
         table_path=provenance_path,
         rows=[],
@@ -518,8 +520,10 @@ def test_noop_route_runs_full_sidecar_repair_when_calendar_is_missing(
     assert captured_publish["target_bars_path"] == bars_path
     assert captured_publish["target_provenance_path"] == provenance_path
     assert captured_publish["publish_scope_path"] is None
-    assert str(captured_publish["staged_bars_path"]).replace("\\", "/").endswith(
-        "noop-sidecar-repair/empty-canonical-bars.delta"
+    assert (
+        str(captured_publish["staged_bars_path"])
+        .replace("\\", "/")
+        .endswith("noop-sidecar-repair/empty-canonical-bars.delta")
     )
 
 
@@ -535,7 +539,9 @@ def test_noop_route_runs_full_sidecar_repair_when_sidecar_layout_drifted(
     roll_map_path = output_dir / "delta" / "canonical_roll_map.delta"
     manifest = historical_data_delta_schema_manifest()
     write_delta_table_rows(table_path=raw_table_path, rows=[], columns=RAW_COLUMNS)
-    write_delta_table_rows(table_path=bars_path, rows=[], columns=route_module.CANONICAL_BAR_COLUMNS)
+    write_delta_table_rows(
+        table_path=bars_path, rows=[], columns=route_module.CANONICAL_BAR_COLUMNS
+    )
     write_delta_table_rows(
         table_path=provenance_path,
         rows=[],

@@ -97,7 +97,9 @@ def _docker_extra_roots(*paths: Path | None) -> list[tuple[Path, str]]:
         except ValueError:
             pass
         host_root = resolved if resolved.is_dir() else resolved.parent
-        if any(host_root == existing or host_root.is_relative_to(existing) for existing, _ in roots):
+        if any(
+            host_root == existing or host_root.is_relative_to(existing) for existing, _ in roots
+        ):
             continue
         roots.append((host_root, f"/ta3000-extra/{len(roots)}"))
     return roots

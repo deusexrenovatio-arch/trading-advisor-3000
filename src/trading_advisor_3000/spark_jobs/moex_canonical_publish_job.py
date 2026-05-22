@@ -218,8 +218,7 @@ def _provenance_frame_with_contract_columns(
         )
         & (
             functions.col("provenance.bar_start_ts")
-            >= functions.col("intervals.interval_open_ts")
-            - functions.expr("INTERVAL 60 SECONDS")
+            >= functions.col("intervals.interval_open_ts") - functions.expr("INTERVAL 60 SECONDS")
         )
         & (functions.col("provenance.bar_end_ts") <= functions.col("intervals.interval_close_ts")),
         "left",
@@ -1093,14 +1092,18 @@ def run_moex_canonical_publish_spark_delta_job(
             spark, session_calendar_path
         )
         roll_map_partition_columns = _delta_table_partition_columns(spark, roll_map_path)
-        sidecar_layout_matches_manifest = sidecars_exist and _delta_table_layout_matches_manifest(
-            spark,
-            table_path=session_calendar_path,
-            manifest_entry=session_calendar_manifest,
-        ) and _delta_table_layout_matches_manifest(
-            spark,
-            table_path=roll_map_path,
-            manifest_entry=roll_map_manifest,
+        sidecar_layout_matches_manifest = (
+            sidecars_exist
+            and _delta_table_layout_matches_manifest(
+                spark,
+                table_path=session_calendar_path,
+                manifest_entry=session_calendar_manifest,
+            )
+            and _delta_table_layout_matches_manifest(
+                spark,
+                table_path=roll_map_path,
+                manifest_entry=roll_map_manifest,
+            )
         )
         sidecar_layout_rewrite_required = sidecars_exist and not sidecar_layout_matches_manifest
         sidecar_mutation = False

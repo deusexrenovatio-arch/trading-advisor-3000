@@ -1004,11 +1004,7 @@ def test_research_data_prep_defaults_follow_moex_historical_data_root(
     assert (
         Path(str(op_config["volume_profile_raw_1m_table_path"]))
         == (
-            tmp_path
-            / "canonical"
-            / "moex"
-            / "baseline-4y-current"
-            / "canonical_bars.delta"
+            tmp_path / "canonical" / "moex" / "baseline-4y-current" / "canonical_bars.delta"
         ).resolve()
     )
     assert op_config["volume_profile_tick_size_by_instrument"]["FUT_BR"] == 0.01

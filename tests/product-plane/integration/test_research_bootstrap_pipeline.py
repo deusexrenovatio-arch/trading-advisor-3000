@@ -39,9 +39,7 @@ def _read_batched_delta_rows(
     table_path: Path, *, filters: list[tuple[str, str, object]]
 ) -> list[dict[str, object]]:
     return [
-        row
-        for batch in iter_delta_table_row_batches(table_path, filters=filters)
-        for row in batch
+        row for batch in iter_delta_table_row_batches(table_path, filters=filters) for row in batch
     ]
 
 

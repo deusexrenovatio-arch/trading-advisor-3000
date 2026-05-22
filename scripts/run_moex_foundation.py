@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+# ruff: noqa: E402
 import argparse
 import json
 import shutil
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
-import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -19,9 +20,10 @@ from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     resolve_external_root,
 )
 
-
 DEFAULT_MAPPING_REGISTRY = Path("configs/moex_foundation/instrument_mapping_registry.v1.yaml")
 DEFAULT_UNIVERSE = Path("configs/moex_foundation/universe/moex-futures-priority.v1.yaml")
+
+
 def _repo_root() -> Path:
     return ROOT
 
@@ -83,14 +85,18 @@ def main() -> None:
         "--refresh-overlap-minutes",
         type=int,
         default=180,
-        help="Refetch overlap window near watermark to handle late corrections while avoiding full-window reloads.",
+        help=(
+            "Refetch overlap window near watermark to handle late corrections "
+            "while avoiding full-window reloads."
+        ),
     )
     parser.add_argument("--ingest-till-utc", default="")
     args = parser.parse_args()
 
     print(
         "route-note: scripts/run_moex_raw_ingest.py is the manual raw-ingest tool. "
-        "Dagster owns scheduled route ordering; use this command for bootstrap, repair, or evidence capture.",
+        "Dagster owns scheduled route ordering; use this command for bootstrap, "
+        "repair, or evidence capture.",
         flush=True,
     )
 
@@ -178,7 +184,9 @@ def main() -> None:
         "real_bindings": pass2.real_bindings,
     }
     summary_path = output_dir / RAW_INGEST_SUMMARY_REPORT_FILENAME
-    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    summary_path.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
     if not idempotent:
