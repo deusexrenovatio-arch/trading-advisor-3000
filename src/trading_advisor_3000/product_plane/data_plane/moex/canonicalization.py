@@ -6,7 +6,7 @@ import subprocess
 import sys
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from trading_advisor_3000.product_plane.contracts import CanonicalBar, Timeframe
@@ -24,6 +24,7 @@ from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contrac
 )
 
 TARGET_TIMEFRAMES: tuple[Timeframe, ...] = (
+    Timeframe.M1,
     Timeframe.M5,
     Timeframe.M15,
     Timeframe.H1,
@@ -33,6 +34,7 @@ TARGET_TIMEFRAMES: tuple[Timeframe, ...] = (
 )
 
 TARGET_MINUTES_BY_TIMEFRAME: dict[Timeframe, int] = {
+    Timeframe.M1: 1,
     Timeframe.M5: 5,
     Timeframe.M15: 15,
     Timeframe.H1: 60,
@@ -40,7 +42,8 @@ TARGET_MINUTES_BY_TIMEFRAME: dict[Timeframe, int] = {
     Timeframe.D1: 1440,
     Timeframe.W1: 10080,
 }
-SPARK_CANONICALIZATION_SUBPROCESS_TIMEOUT_SECONDS = 1800
+SPARK_CANONICALIZATION_SUBPROCESS_TIMEOUT_SECONDS = 3600
+SESSION_ADMISSION_OPEN_TOLERANCE_SECONDS = 60
 
 
 def _iter_delta_rows_for_merge(
@@ -286,6 +289,14 @@ class RawCandle:
 
 
 @dataclass(frozen=True)
+class SessionInterval:
+    instrument_id: str
+    session_date: str
+    expected_open_ts: datetime
+    expected_close_ts: datetime
+
+
+@dataclass(frozen=True)
 class CanonicalProvenance:
     contract_id: str
     instrument_id: str
@@ -461,6 +472,86 @@ def _floor_to_bucket(ts_open: str, *, bucket_minutes: int) -> str:
     bucket_seconds = bucket_minutes * 60
     floored = (epoch_seconds // bucket_seconds) * bucket_seconds
     return _to_iso_utc(datetime.fromtimestamp(floored, tz=UTC))
+
+
+def _parse_utc_datetime_value(value: object) -> datetime:
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+    return _parse_iso_utc(str(value))
+
+
+def _session_date_midnight_utc(value: object) -> datetime:
+    if isinstance(value, datetime):
+        session_date = value.astimezone(UTC).date()
+    else:
+        session_date = datetime.fromisoformat(str(value).strip()[:10]).date()
+    return datetime(session_date.year, session_date.month, session_date.day, tzinfo=UTC)
+
+
+def _load_session_intervals_by_instrument(
+    session_intervals_path: Path | None,
+    scoped_rows: list[RawCandle],
+) -> dict[str, list[SessionInterval]]:
+    if session_intervals_path is None:
+        return {}
+    instrument_ids = sorted({row.instrument_id for row in scoped_rows})
+    if not instrument_ids:
+        return {}
+    rows = read_delta_table_rows(
+        session_intervals_path,
+        columns=["instrument_id", "session_date", "expected_open_ts", "expected_close_ts"],
+        filters=[("instrument_id", "in", instrument_ids)],
+    )
+    intervals_by_instrument: dict[str, list[SessionInterval]] = {}
+    for row in rows:
+        instrument_id = str(row.get("instrument_id", "")).strip()
+        if not instrument_id:
+            continue
+        interval = SessionInterval(
+            instrument_id=instrument_id,
+            session_date=str(row.get("session_date", "")).strip()[:10],
+            expected_open_ts=_parse_utc_datetime_value(row.get("expected_open_ts")),
+            expected_close_ts=_parse_utc_datetime_value(row.get("expected_close_ts")),
+        )
+        intervals_by_instrument.setdefault(instrument_id, []).append(interval)
+    for instrument_intervals in intervals_by_instrument.values():
+        instrument_intervals.sort(key=lambda item: (item.expected_open_ts, item.expected_close_ts))
+    return intervals_by_instrument
+
+
+def _session_bounded_bucket_ts(
+    *,
+    row: RawCandle,
+    target_minutes: int,
+    intervals_by_instrument: dict[str, list[SessionInterval]],
+) -> str | None:
+    ts_open = _parse_iso_utc(row.ts_open)
+    ts_close = _parse_iso_utc(row.ts_close)
+    for interval in intervals_by_instrument.get(row.instrument_id, []):
+        admission_open_ts = interval.expected_open_ts - timedelta(
+            seconds=SESSION_ADMISSION_OPEN_TOLERANCE_SECONDS
+        )
+        if ts_open < admission_open_ts or ts_close > interval.expected_close_ts:
+            continue
+        if target_minutes == 1440:
+            return _to_iso_utc(_session_date_midnight_utc(interval.session_date))
+        if target_minutes == 10080:
+            session_midnight = _session_date_midnight_utc(interval.session_date)
+            week_start = session_midnight - timedelta(days=session_midnight.weekday())
+            return _to_iso_utc(week_start)
+
+        bucket_seconds = target_minutes * 60
+        offset_seconds = int((ts_open - interval.expected_open_ts).total_seconds())
+        bucket_start = interval.expected_open_ts + timedelta(
+            seconds=(offset_seconds // bucket_seconds) * bucket_seconds
+        )
+        bucket_end = bucket_start + timedelta(seconds=bucket_seconds)
+        if bucket_start < interval.expected_open_ts or bucket_end > interval.expected_close_ts:
+            return None
+        return _to_iso_utc(bucket_start)
+    return None
 
 
 def _select_source_interval(
@@ -1381,8 +1472,13 @@ def _compute_affected_canonical_keys(
     *,
     scoped_rows: list[RawCandle],
     selected_source_intervals: dict[tuple[str, str, str], int],
+    session_intervals_path: Path | None = None,
 ) -> set[tuple[str, str, str, str]]:
     keys: set[tuple[str, str, str, str]] = set()
+    intervals_by_instrument = _load_session_intervals_by_instrument(
+        session_intervals_path,
+        scoped_rows,
+    )
     for row in scoped_rows:
         for timeframe in TARGET_TIMEFRAMES:
             expected_interval = selected_source_intervals.get(
@@ -1391,7 +1487,17 @@ def _compute_affected_canonical_keys(
             if expected_interval != row.source_interval:
                 continue
             target_minutes = TARGET_MINUTES_BY_TIMEFRAME[timeframe]
-            bucket_ts = _floor_to_bucket(row.ts_open, bucket_minutes=target_minutes)
+            bucket_ts = (
+                _session_bounded_bucket_ts(
+                    row=row,
+                    target_minutes=target_minutes,
+                    intervals_by_instrument=intervals_by_instrument,
+                )
+                if intervals_by_instrument
+                else _floor_to_bucket(row.ts_open, bucket_minutes=target_minutes)
+            )
+            if bucket_ts is None:
+                continue
             keys.add((row.contract_id, row.instrument_id, timeframe.value, bucket_ts))
     return keys
 
@@ -1843,6 +1949,7 @@ def run_moex_canonicalization(
     affected_keys = _compute_affected_canonical_keys(
         scoped_rows=scoped_normalized_rows,
         selected_source_intervals=selected_source_intervals,
+        session_intervals_path=official_session_intervals_path,
     )
 
     existing_canonical_rows: list[CanonicalBar] = []

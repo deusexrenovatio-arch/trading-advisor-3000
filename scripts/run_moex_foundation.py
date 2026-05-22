@@ -64,7 +64,7 @@ def main() -> None:
         ),
     )
     parser.add_argument("--run-id", default="")
-    parser.add_argument("--timeframes", default="5m,15m,1h,4h,1d,1w")
+    parser.add_argument("--timeframes", default="1m,5m,15m,1h,4h,1d,1w")
     parser.add_argument("--bootstrap-window-days", type=int, default=1461)
     parser.add_argument("--stability-lag-minutes", type=int, default=20)
     parser.add_argument(
