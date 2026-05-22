@@ -726,10 +726,10 @@ def test_canonicalization_fails_closed_on_incomplete_spark_outputs(
 
     original_iter_delta_rows = canonicalization_module._iter_delta_rows_for_merge
 
-    def fake_iter_delta_rows(table_path: Path):
+    def fake_iter_delta_rows(table_path: Path, **kwargs):
         if Path(table_path) in {scoped_bars_path, scoped_provenance_path}:
             return iter(())
-        return original_iter_delta_rows(table_path)
+        return original_iter_delta_rows(table_path, **kwargs)
 
     monkeypatch.setattr(
         canonicalization_module,
