@@ -31,9 +31,9 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     write_delta_table_rows,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
+    CANONICAL_BASELINE_BARS_FILENAME,
     CANONICAL_BASELINE_ROOT_RELATIVE_PATH,
     MOEX_HISTORICAL_DATA_ROOT_ENV,
-    RAW_BASELINE_TABLE_RELATIVE_PATH,
 )
 from trading_advisor_3000.product_plane.research.backtests import (
     BacktestBatchRequest,
@@ -2140,7 +2140,11 @@ def _default_research_results_output_dir() -> Path:
 
 
 def _default_volume_profile_raw_1m_table_path() -> Path:
-    return _default_moex_historical_data_root() / RAW_BASELINE_TABLE_RELATIVE_PATH
+    return (
+        _default_moex_historical_data_root()
+        / CANONICAL_BASELINE_ROOT_RELATIVE_PATH
+        / CANONICAL_BASELINE_BARS_FILENAME
+    )
 
 
 def _default_volume_profile_tick_size_by_instrument() -> dict[str, float]:
@@ -3023,6 +3027,10 @@ def materialize_moex_cf_rebuild_assets(
     universe_id: str = "moex-futures",
     timeframes: Sequence[str],
     base_timeframe: str = "",
+    start_ts: str = "",
+    end_ts: str = "",
+    warmup_bars: int = DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS,
+    split_method: str = "holdout",
     series_mode: str = "continuous_front",
     continuous_front_policy: dict[str, object] | None = None,
     indicator_set_version: str = "indicators-v1",
@@ -3046,6 +3054,10 @@ def materialize_moex_cf_rebuild_assets(
         universe_id=universe_id,
         timeframes=timeframes,
         base_timeframe=base_timeframe,
+        start_ts=start_ts,
+        end_ts=end_ts,
+        warmup_bars=warmup_bars,
+        split_method=split_method,
         series_mode=series_mode,
         continuous_front_policy=continuous_front_policy,
         indicator_set_version=indicator_set_version,
@@ -3075,6 +3087,10 @@ def materialize_moex_research_bar_rebuild_assets(
     universe_id: str = "moex-futures",
     timeframes: Sequence[str],
     base_timeframe: str = "",
+    start_ts: str = "",
+    end_ts: str = "",
+    warmup_bars: int = DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS,
+    split_method: str = "holdout",
     series_mode: str = "continuous_front",
     continuous_front_policy: dict[str, object] | None = None,
     indicator_set_version: str = "indicators-v1",
@@ -3098,6 +3114,10 @@ def materialize_moex_research_bar_rebuild_assets(
         universe_id=universe_id,
         timeframes=timeframes,
         base_timeframe=base_timeframe,
+        start_ts=start_ts,
+        end_ts=end_ts,
+        warmup_bars=warmup_bars,
+        split_method=split_method,
         series_mode=series_mode,
         continuous_front_policy=continuous_front_policy,
         indicator_set_version=indicator_set_version,
@@ -3127,6 +3147,10 @@ def materialize_moex_indicator_rebuild_assets(
     universe_id: str = "moex-futures",
     timeframes: Sequence[str],
     base_timeframe: str = "",
+    start_ts: str = "",
+    end_ts: str = "",
+    warmup_bars: int = DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS,
+    split_method: str = "holdout",
     series_mode: str = "continuous_front",
     continuous_front_policy: dict[str, object] | None = None,
     indicator_set_version: str = "indicators-v1",
@@ -3150,6 +3174,10 @@ def materialize_moex_indicator_rebuild_assets(
         universe_id=universe_id,
         timeframes=timeframes,
         base_timeframe=base_timeframe,
+        start_ts=start_ts,
+        end_ts=end_ts,
+        warmup_bars=warmup_bars,
+        split_method=split_method,
         series_mode=series_mode,
         continuous_front_policy=continuous_front_policy,
         indicator_set_version=indicator_set_version,
@@ -3179,6 +3207,10 @@ def materialize_moex_derived_indicator_rebuild_assets(
     universe_id: str = "moex-futures",
     timeframes: Sequence[str],
     base_timeframe: str = "",
+    start_ts: str = "",
+    end_ts: str = "",
+    warmup_bars: int = DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS,
+    split_method: str = "holdout",
     series_mode: str = "continuous_front",
     continuous_front_policy: dict[str, object] | None = None,
     indicator_set_version: str = "indicators-v1",
@@ -3202,6 +3234,10 @@ def materialize_moex_derived_indicator_rebuild_assets(
         universe_id=universe_id,
         timeframes=timeframes,
         base_timeframe=base_timeframe,
+        start_ts=start_ts,
+        end_ts=end_ts,
+        warmup_bars=warmup_bars,
+        split_method=split_method,
         series_mode=series_mode,
         continuous_front_policy=continuous_front_policy,
         indicator_set_version=indicator_set_version,

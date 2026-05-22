@@ -1,18 +1,20 @@
 from __future__ import annotations
 
+# ruff: noqa: E402
 import argparse
-from datetime import UTC, datetime
 import json
-from pathlib import Path
 import sys
-
+from datetime import UTC, datetime
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from trading_advisor_3000.product_plane.data_plane.moex.baseline_update import run_moex_baseline_update
+from trading_advisor_3000.product_plane.data_plane.moex.baseline_update import (
+    run_moex_baseline_update,
+)
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     BASELINE_UPDATE_STORAGE_DIRNAME,
     CANONICAL_BASELINE_BARS_FILENAME,
@@ -24,10 +26,9 @@ from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     resolve_external_root,
 )
 
-
 DEFAULT_MAPPING_REGISTRY = Path("configs/moex_foundation/instrument_mapping_registry.v1.yaml")
 DEFAULT_UNIVERSE = Path("configs/moex_foundation/universe/moex-futures-priority.v1.yaml")
-DEFAULT_TIMEFRAMES = "5m,15m,1h,4h,1d,1w"
+DEFAULT_TIMEFRAMES = "1m,5m,15m,1h,4h,1d,1w"
 
 
 def _resolve_repo_path(path: Path) -> Path:
@@ -81,12 +82,16 @@ def main() -> None:
     data_root = configured_moex_historical_data_root(repo_root=ROOT)
     canonical_root = data_root / CANONICAL_BASELINE_ROOT_RELATIVE_PATH
     raw_table_path = (
-        resolve_external_file_path(args.raw_table_path, repo_root=ROOT, field_name="--raw-table-path")
+        resolve_external_file_path(
+            args.raw_table_path, repo_root=ROOT, field_name="--raw-table-path"
+        )
         if args.raw_table_path.strip()
         else data_root / RAW_BASELINE_TABLE_RELATIVE_PATH
     )
     canonical_bars_path = (
-        resolve_external_file_path(args.canonical_bars_path, repo_root=ROOT, field_name="--canonical-bars-path")
+        resolve_external_file_path(
+            args.canonical_bars_path, repo_root=ROOT, field_name="--canonical-bars-path"
+        )
         if args.canonical_bars_path.strip()
         else canonical_root / CANONICAL_BASELINE_BARS_FILENAME
     )

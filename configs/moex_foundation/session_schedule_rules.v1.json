@@ -121,8 +121,40 @@
       ]
     },
     {
-      "rule_id": "moex-forts-main-only-2022-02-25",
+      "rule_id": "moex-forts-main-evening-no-morning-2022-02-25",
       "effective_from": "2022-02-25",
+      "effective_to": "2022-02-25",
+      "weekdays": [1, 2, 3, 4, 5],
+      "applies_to": {
+        "engine": "futures",
+        "market": "forts"
+      },
+      "source_title": "MOEX public news: morning session cancelled on futures market",
+      "source_date": "2022-02-24",
+      "source_urls": ["https://www.moex.com/n41782"],
+      "source_quality": "public_moex_news",
+      "confidence": "medium",
+      "notes": "MOEX cancelled the morning session for 2022-02-25, while raw trading candles show the regular evening session from 19:00 to 23:50 MSK.",
+      "trading_intervals": [
+        {
+          "interval_type": "main_session",
+          "type": "main_session",
+          "time_from": "10:00:00",
+          "time_till": "18:50:00",
+          "session_class": "regular"
+        },
+        {
+          "interval_type": "evening_session",
+          "type": "evening_session",
+          "time_from": "19:00:00",
+          "time_till": "23:50:00",
+          "session_class": "regular"
+        }
+      ]
+    },
+    {
+      "rule_id": "moex-forts-main-only-2022-02-28",
+      "effective_from": "2022-02-28",
       "effective_to": "2022-07-11",
       "weekdays": [1, 2, 3, 4, 5],
       "applies_to": {

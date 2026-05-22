@@ -1327,6 +1327,20 @@ def _first_delta_rows(
     return rows
 
 
+def _delta_hash_set(
+    table_path: Path,
+    *,
+    dataset_version: str,
+    hash_column: str,
+) -> set[str]:
+    rows = read_delta_table_rows(
+        table_path,
+        columns=["dataset_version", hash_column],
+        filters=[("dataset_version", "=", dataset_version)],
+    )
+    return {str(row.get(hash_column) or "") for row in rows if row.get(hash_column)}
+
+
 def _verify_input_projection_identity_delta(
     *,
     run_id: str,
@@ -1659,7 +1673,11 @@ def _verify_lineage_delta(
         filters=[("dataset_version", "=", dataset_version)],
         limit=128,
     )
-    input_hashes = {str(row.get("input_front_row_hash") or "") for row in input_sample}
+    input_hashes = _delta_hash_set(
+        input_path,
+        dataset_version=dataset_version,
+        hash_column="input_front_row_hash",
+    )
     for row in input_sample:
         if not row.get("input_front_row_hash"):
             failures.append({"key": _row_key(row), "failure": "missing_input_row_hash"})
@@ -1679,7 +1697,11 @@ def _verify_lineage_delta(
         filters=[("dataset_version", "=", dataset_version)],
         limit=128,
     )
-    base_hashes = {str(row.get("indicator_row_hash") or "") for row in base_sample}
+    base_hashes = _delta_hash_set(
+        base_path,
+        dataset_version=dataset_version,
+        hash_column="indicator_row_hash",
+    )
     for row in base_sample:
         if not row.get("source_input_row_hash"):
             failures.append({"key": _row_key(row), "failure": "missing_base_input_hash"})
@@ -1708,6 +1730,8 @@ def _verify_lineage_delta(
     for row in derived_sample:
         if not row.get("source_input_row_hash"):
             failures.append({"key": _row_key(row), "failure": "missing_derived_input_hash"})
+        elif input_hashes and str(row.get("source_input_row_hash")) not in input_hashes:
+            failures.append({"key": _row_key(row), "failure": "invalid_derived_input_hash"})
         if not row.get("source_base_indicator_row_hash"):
             failures.append({"key": _row_key(row), "failure": "missing_derived_base_hash"})
         elif base_hashes and str(row.get("source_base_indicator_row_hash")) not in base_hashes:

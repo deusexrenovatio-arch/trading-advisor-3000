@@ -31,7 +31,7 @@ instances:
     launch_defaults:
       mapping_registry_path: /workspace/configs/moex_foundation/instrument_mapping_registry.v1.yaml
       universe_path: /workspace/configs/moex_foundation/universe/moex-futures-priority.v1.yaml
-      timeframes: 5m,15m,1h,4h,1d,1w
+      timeframes: 1m,5m,15m,1h,4h,1d,1w
       refresh_window_days: 7
       contract_discovery_lookback_days: 45
       contract_discovery_step_days: 14

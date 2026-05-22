@@ -47,7 +47,9 @@ class _NoExpansionClient:
 
     def fetch_candleborders(self, **kwargs):  # noqa: ANN003 - fail if seed-only guard is bypassed
         del kwargs
-        raise AssertionError("fetch_candleborders should not be called when chain expansion guard blocks")
+        raise AssertionError(
+            "fetch_candleborders should not be called when chain expansion guard blocks"
+        )
 
 
 class _DiscoveryLookbackClient:
@@ -135,12 +137,14 @@ def test_select_interval_borders_fails_when_required_interval_missing() -> None:
 
 def test_discover_coverage_tracks_native_source_identity() -> None:
     universe = load_universe(Path("configs/moex_foundation/universe/moex-futures-priority.v1.yaml"))
-    mappings = load_mapping_registry(Path("configs/moex_foundation/instrument_mapping_registry.v1.yaml"))
+    mappings = load_mapping_registry(
+        Path("configs/moex_foundation/instrument_mapping_registry.v1.yaml")
+    )
     coverage = discover_coverage(
         client=_CoverageClient(),
         universe=universe,
         mappings=mappings,
-        timeframes={"5m", "15m", "1h", "4h", "1d", "1w"},
+        timeframes={"1m", "5m", "15m", "1h", "4h", "1d", "1w"},
         discovered_at_utc="2026-04-02T10:00:00Z",
         ingest_till_utc="2026-04-02T12:00:00Z",
         bootstrap_window_days=1461,
@@ -153,7 +157,7 @@ def test_discover_coverage_tracks_native_source_identity() -> None:
     assert {row.source_timeframe for row in coverage} == {"1m", "1h", "1d", "1w"}
 
     by_key = {(row.internal_id, row.source_interval): row for row in coverage}
-    assert by_key[("FUT_BR", 1)].requested_target_timeframes == "5m,15m"
+    assert by_key[("FUT_BR", 1)].requested_target_timeframes == "1m,5m,15m"
     assert by_key[("FUT_BR", 60)].requested_target_timeframes == "1h,4h"
     assert by_key[("FUT_BR", 24)].requested_target_timeframes == "1d"
     assert by_key[("FUT_BR", 7)].requested_target_timeframes == "1w"
@@ -161,13 +165,15 @@ def test_discover_coverage_tracks_native_source_identity() -> None:
 
 def test_discover_coverage_respects_selected_universe_scope() -> None:
     universe = load_universe(Path("configs/moex_foundation/universe/moex-futures-priority.v1.yaml"))
-    mappings = load_mapping_registry(Path("configs/moex_foundation/instrument_mapping_registry.v1.yaml"))
+    mappings = load_mapping_registry(
+        Path("configs/moex_foundation/instrument_mapping_registry.v1.yaml")
+    )
     scoped_universe = [row for row in universe if row.internal_id == "FUT_BR"]
     coverage = discover_coverage(
         client=_CoverageClient(),
         universe=scoped_universe,
         mappings=mappings,
-        timeframes={"5m", "15m", "1h", "4h", "1d", "1w"},
+        timeframes={"1m", "5m", "15m", "1h", "4h", "1d", "1w"},
         discovered_at_utc="2026-04-02T10:00:00Z",
         ingest_till_utc="2026-04-02T12:00:00Z",
         bootstrap_window_days=1461,
@@ -180,7 +186,9 @@ def test_discover_coverage_respects_selected_universe_scope() -> None:
 
 def test_discover_coverage_uses_dedicated_contract_discovery_lookback_window() -> None:
     universe = load_universe(Path("configs/moex_foundation/universe/moex-futures-priority.v1.yaml"))
-    mappings = load_mapping_registry(Path("configs/moex_foundation/instrument_mapping_registry.v1.yaml"))
+    mappings = load_mapping_registry(
+        Path("configs/moex_foundation/instrument_mapping_registry.v1.yaml")
+    )
     client = _DiscoveryLookbackClient()
 
     coverage = discover_coverage(
@@ -214,7 +222,9 @@ def test_iter_snapshot_dates_normalizes_weekend_series_to_trade_days() -> None:
 
 def test_discover_coverage_fail_closed_when_long_backfill_has_no_chain_expansion() -> None:
     universe = load_universe(Path("configs/moex_foundation/universe/moex-futures-priority.v1.yaml"))
-    mappings = load_mapping_registry(Path("configs/moex_foundation/instrument_mapping_registry.v1.yaml"))
+    mappings = load_mapping_registry(
+        Path("configs/moex_foundation/instrument_mapping_registry.v1.yaml")
+    )
     try:
         discover_coverage(
             client=_NoExpansionClient(),
@@ -230,4 +240,6 @@ def test_discover_coverage_fail_closed_when_long_backfill_has_no_chain_expansion
     except RuntimeError as exc:
         assert "only seed contracts" in str(exc)
     else:
-        raise AssertionError("expected long-window backfill to fail closed when contract chain does not expand")
+        raise AssertionError(
+            "expected long-window backfill to fail closed when contract chain does not expand"
+        )

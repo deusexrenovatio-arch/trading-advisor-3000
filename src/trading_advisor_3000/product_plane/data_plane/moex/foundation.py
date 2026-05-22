@@ -18,6 +18,7 @@ from .iss_client import MoexISSClient
 MOEX_TIMEZONE = ZoneInfo("Europe/Moscow")
 ALLOWED_ASSET_GROUPS = {"commodity", "index"}
 SOURCE_INTERVAL_BY_TARGET_TIMEFRAME = {
+    "1m": 1,
     "5m": 1,
     "15m": 1,
     "1h": 60,
@@ -39,6 +40,7 @@ DEFAULT_REFRESH_OVERLAP_MINUTES = 180
 FUTURES_MONTH_CODES = frozenset("FGHJKMNQUVXZ")
 FUTURES_CONTRACT_SECID_RE = re.compile(r"^[A-Z0-9]{1,6}[FGHJKMNQUVXZ][0-9]$")
 TARGET_TIMEFRAME_ORDER = {
+    "1m": 1,
     "5m": 5,
     "15m": 15,
     "1h": 60,

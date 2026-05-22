@@ -22,6 +22,9 @@ RUN python -m pip install --upgrade pip \
         "psycopg[binary]>=3.2,<4" \
         "pyspark>=3.5,<3.6" \
         "delta-spark>=3.3,<4" \
+        "pandas-ta-classic>=0.4.47,<0.5" \
+        "vectorbt>=0.28.5,<0.29" \
+        "optuna>=4,<5" \
         "pytest>=9,<10"
 
 WORKDIR /workspace

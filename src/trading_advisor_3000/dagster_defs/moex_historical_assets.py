@@ -73,7 +73,8 @@ DEFAULT_MAPPING_REGISTRY = (
 DEFAULT_UNIVERSE = (
     REPO_ROOT / "configs" / "moex_foundation" / "universe" / "moex-futures-priority.v1.yaml"
 )
-DEFAULT_TIMEFRAMES = "5m,15m,1h,4h,1d,1w"
+DEFAULT_TIMEFRAMES = "1m,5m,15m,1h,4h,1d,1w"
+DEFAULT_RESEARCH_REBUILD_WARMUP_BARS = 300
 DEFAULT_WORKERS = 4
 DEFAULT_BATCH_SIZE = 250_000
 DEFAULT_EXECUTION_MODE = "parallel"
@@ -148,6 +149,10 @@ MOEX_HISTORICAL_OP_CONFIG_SCHEMA = {
     "dataset_name": DagsterField(str, is_required=False),
     "universe_id": DagsterField(str, is_required=False),
     "base_timeframe": DagsterField(str, is_required=False),
+    "start_ts": DagsterField(str, is_required=False),
+    "end_ts": DagsterField(str, is_required=False),
+    "warmup_bars": DagsterField(int, is_required=False),
+    "split_method": DagsterField(str, is_required=False),
     "series_mode": DagsterField(str, is_required=False),
     "indicator_set_version": DagsterField(str, is_required=False),
     "indicator_profile_version": DagsterField(str, is_required=False),
@@ -492,7 +497,11 @@ def build_moex_data_rebuild_op_config(
     canonical_root: Path | None = None,
     session_root: Path | None = None,
     research_root: Path | None = None,
-) -> dict[str, str]:
+    start_ts: str | None = None,
+    end_ts: str | None = None,
+    warmup_bars: int | None = None,
+    split_method: str | None = None,
+) -> dict[str, object]:
     profile = resolve_moex_data_rebuild_profile(profile_name)
     resolved_source_mode = (source_mode or profile.source_mode).strip()
     if resolved_source_mode not in MOEX_REBUILD_SOURCE_MODES:
@@ -581,6 +590,16 @@ def build_moex_data_rebuild_op_config(
     for key, value in optional_roots.items():
         if value is not None:
             config[key] = value.resolve().as_posix()
+    optional_text_values = {
+        "start_ts": start_ts,
+        "end_ts": end_ts,
+        "split_method": split_method,
+    }
+    for key, value in optional_text_values.items():
+        if value is not None:
+            config[key] = str(value)
+    if warmup_bars is not None:
+        config["warmup_bars"] = int(warmup_bars)
     return config
 
 
@@ -604,6 +623,10 @@ def build_moex_data_rebuild_run_config(
     canonical_root: Path | None = None,
     session_root: Path | None = None,
     research_root: Path | None = None,
+    start_ts: str | None = None,
+    end_ts: str | None = None,
+    warmup_bars: int | None = None,
+    split_method: str | None = None,
 ) -> dict[str, object]:
     op_config = build_moex_data_rebuild_op_config(
         profile_name=profile_name,
@@ -624,6 +647,10 @@ def build_moex_data_rebuild_run_config(
         canonical_root=canonical_root,
         session_root=session_root,
         research_root=research_root,
+        start_ts=start_ts,
+        end_ts=end_ts,
+        warmup_bars=warmup_bars,
+        split_method=split_method,
     )
     return {
         "ops": {
@@ -1380,6 +1407,12 @@ def _research_rebuild_kwargs(op_config: dict[str, object], *, run_id: str) -> di
             _text_value(op_config, "timeframes"), default=DEFAULT_TIMEFRAMES
         ),
         "base_timeframe": _text_value(op_config, "base_timeframe"),
+        "start_ts": _text_value(op_config, "start_ts"),
+        "end_ts": _text_value(op_config, "end_ts"),
+        "warmup_bars": _int_value(
+            op_config, "warmup_bars", default=DEFAULT_RESEARCH_REBUILD_WARMUP_BARS
+        ),
+        "split_method": _text_value(op_config, "split_method") or "holdout",
         "series_mode": _text_value(op_config, "series_mode") or "continuous_front",
         "continuous_front_policy": (
             dict(continuous_front_policy) if isinstance(continuous_front_policy, dict) else None
@@ -1752,6 +1785,10 @@ def execute_moex_data_rebuild_job(
     canonical_session_intervals_path: Path | None = None,
     canonical_session_calendar_path: Path | None = None,
     canonical_roll_map_path: Path | None = None,
+    start_ts: str | None = None,
+    end_ts: str | None = None,
+    warmup_bars: int | None = None,
+    split_method: str | None = None,
     extra_tags: dict[str, str] | None = None,
     scheduled_execution_time: datetime | None = None,
     raise_on_error: bool = False,
@@ -1780,6 +1817,10 @@ def execute_moex_data_rebuild_job(
         source_mode=source_mode,
         publish_mode=publish_mode,
         downstream_mode=downstream_mode,
+        start_ts=start_ts,
+        end_ts=end_ts,
+        warmup_bars=warmup_bars,
+        split_method=split_method,
     )
     tags: dict[str, str] = dict(extra_tags or {})
     schedule_payload: dict[str, object] | None = None

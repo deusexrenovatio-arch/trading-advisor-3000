@@ -14,6 +14,7 @@ from .canonical_bars_job import (
 )
 
 TARGET_TIMEFRAME_TO_MINUTES: dict[str, int] = {
+    Timeframe.M1.value: 1,
     Timeframe.M5.value: 5,
     Timeframe.M15.value: 15,
     Timeframe.H1.value: 60,
@@ -23,6 +24,65 @@ TARGET_TIMEFRAME_TO_MINUTES: dict[str, int] = {
 }
 MOEX_SESSION_TIMEZONE = "Europe/Moscow"
 SESSION_ADMISSION_OPEN_TOLERANCE_SECONDS = 60
+SOURCE_ADMISSION_ID_COLUMNS = (
+    "contract_id",
+    "instrument_id",
+    "source_timeframe",
+    "source_interval",
+    "ts_open",
+    "ts_close",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "open_interest",
+    "open_interest_imputed",
+    "source_provider",
+    "source_run_id",
+    "source_ingest_run_id",
+)
+SOURCE_FOR_CANONICALIZATION_DEDUP_COLUMNS = (
+    "contract_id",
+    "instrument_id",
+    "source_timeframe",
+    "source_interval",
+    "ts_open",
+    "ts_close",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "open_interest",
+    "open_interest_imputed",
+    "source_provider",
+    "source_run_id",
+    "source_ingest_run_id",
+)
+SELECTED_FOR_CANONICALIZATION_DEDUP_COLUMNS = (
+    "contract_id",
+    "instrument_id",
+    "timeframe",
+    "target_minutes",
+    "source_interval",
+)
+JOINED_SOURCE_DEDUP_COLUMNS = (
+    *SELECTED_FOR_CANONICALIZATION_DEDUP_COLUMNS,
+    "source_timeframe",
+    "ts_open",
+    "ts_close",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "open_interest",
+    "open_interest_imputed",
+    "source_provider",
+    "source_run_id",
+    "source_ingest_run_id",
+)
 
 CANONICAL_BAR_SCHEMA = (
     "contract_id string, "
@@ -50,10 +110,10 @@ CANONICAL_PROVENANCE_SCHEMA = (
     "source_interval int, "
     "source_run_id string, "
     "source_ingest_run_id string, "
-    "source_row_count long, "
+    "source_row_count int, "
     "source_ts_open_first timestamp, "
     "source_ts_close_last timestamp, "
-    "open_interest_imputed boolean, "
+    "open_interest_imputed int, "
     "build_run_id string, "
     "built_at_utc timestamp"
 )
@@ -87,14 +147,29 @@ CANONICAL_PROVENANCE_MANIFEST = {
         "source_interval": "int",
         "source_run_id": "string",
         "source_ingest_run_id": "string",
-        "source_row_count": "bigint",
+        "source_row_count": "int",
         "source_ts_open_first": "timestamp",
         "source_ts_close_last": "timestamp",
-        "open_interest_imputed": "boolean",
+        "open_interest_imputed": "int",
         "build_run_id": "string",
         "built_at_utc": "timestamp",
     }
 }
+
+
+def _stable_source_admission_id(functions: Any) -> Any:
+    return functions.sha2(
+        functions.to_json(
+            functions.struct(
+                *(
+                    functions.col(column_name).alias(column_name)
+                    for column_name in SOURCE_ADMISSION_ID_COLUMNS
+                )
+            )
+        ),
+        256,
+    )
+
 
 SESSION_INTERVAL_SCHEMA = (
     "instrument_id string, "
@@ -260,8 +335,7 @@ def _aggregate_joined_source_outputs(
     window: Any,
     enforce_session_bounds: bool,
 ) -> tuple[Any, Any]:
-    if "interval_id" not in joined.columns:
-        joined = joined.withColumn("interval_id", functions.lit(None).cast("string"))
+    joined = joined.dropDuplicates(list(JOINED_SOURCE_DEDUP_COLUMNS))
     joined = (
         joined.withColumn("bucket_seconds", bucket_seconds.cast("long"))
         .withColumn("bucket_ts", functions.to_timestamp(functions.from_unixtime("bucket_seconds")))
@@ -298,51 +372,74 @@ def _aggregate_joined_source_outputs(
         "rn_last", functions.row_number().over(last_window)
     )
 
-    aggregated = annotated.groupBy(*partition_columns).agg(
-        functions.max(functions.when(functions.col("rn_first") == 1, functions.col("open"))).alias(
-            "open"
-        ),
-        functions.max(functions.col("high")).alias("high"),
-        functions.min(functions.col("low")).alias("low"),
-        functions.max(functions.when(functions.col("rn_last") == 1, functions.col("close"))).alias(
-            "close"
-        ),
-        functions.sum(functions.col("volume")).cast("long").alias("volume"),
-        functions.max(functions.when(functions.col("rn_last") == 1, functions.col("open_interest")))
-        .cast("long")
-        .alias("open_interest"),
-        functions.max(
-            functions.when(functions.col("rn_last") == 1, functions.col("source_provider"))
-        ).alias("source_provider"),
-        functions.max(
-            functions.when(functions.col("rn_last") == 1, functions.col("source_timeframe"))
-        ).alias("source_timeframe"),
-        functions.max(
-            functions.when(functions.col("rn_last") == 1, functions.col("source_interval"))
-        )
-        .cast("int")
-        .alias("selected_source_interval"),
-        functions.max(
-            functions.when(functions.col("rn_last") == 1, functions.col("source_run_id"))
-        ).alias("source_run_id"),
-        functions.max(
-            functions.when(functions.col("rn_last") == 1, functions.col("source_ingest_run_id"))
-        ).alias("source_ingest_run_id"),
-        functions.count(functions.lit(1)).cast("long").alias("source_row_count"),
-        functions.min(functions.col("ts_open")).alias("source_ts_open_first"),
-        functions.max(
-            functions.when(functions.col("rn_last") == 1, functions.col("ts_close"))
-        ).alias("source_ts_close_last"),
-        functions.max(
-            functions.when(
-                (functions.col("rn_last") == 1)
-                & (functions.col("target_minutes") < functions.lit(1440)),
-                functions.col("interval_id"),
+    aggregated = (
+        annotated.groupBy(*partition_columns)
+        .agg(
+            functions.max(
+                functions.when(functions.col("rn_first") == 1, functions.col("open"))
+            ).alias("open"),
+            functions.max(
+                functions.greatest(
+                    functions.col("open"),
+                    functions.col("high"),
+                    functions.col("low"),
+                    functions.col("close"),
+                )
+            ).alias("high"),
+            functions.min(
+                functions.least(
+                    functions.col("open"),
+                    functions.col("high"),
+                    functions.col("low"),
+                    functions.col("close"),
+                )
+            ).alias("low"),
+            functions.max(
+                functions.when(functions.col("rn_last") == 1, functions.col("close"))
+            ).alias("close"),
+            functions.sum(functions.col("volume")).cast("long").alias("volume"),
+            functions.max(
+                functions.when(functions.col("rn_last") == 1, functions.col("open_interest"))
             )
-        ).alias("session_interval_id"),
-        functions.max(functions.col("open_interest_imputed").cast("int"))
-        .cast("boolean")
-        .alias("open_interest_imputed"),
+            .cast("long")
+            .alias("open_interest"),
+            functions.max(
+                functions.when(functions.col("rn_last") == 1, functions.col("source_provider"))
+            ).alias("source_provider"),
+            functions.max(
+                functions.when(functions.col("rn_last") == 1, functions.col("source_timeframe"))
+            ).alias("source_timeframe"),
+            functions.max(
+                functions.when(functions.col("rn_last") == 1, functions.col("source_interval"))
+            )
+            .cast("int")
+            .alias("selected_source_interval"),
+            functions.max(
+                functions.when(functions.col("rn_last") == 1, functions.col("source_run_id"))
+            ).alias("source_run_id"),
+            functions.max(
+                functions.when(functions.col("rn_last") == 1, functions.col("source_ingest_run_id"))
+            ).alias("source_ingest_run_id"),
+            functions.count(functions.lit(1)).cast("int").alias("source_row_count"),
+            functions.min(functions.col("ts_open")).alias("source_ts_open_first"),
+            functions.max(
+                functions.when(functions.col("rn_last") == 1, functions.col("ts_close"))
+            ).alias("source_ts_close_last"),
+            functions.min(functions.col("ts_open")).alias("bar_start_ts"),
+            functions.max(
+                functions.when(functions.col("rn_last") == 1, functions.col("ts_close"))
+            ).alias("bar_end_ts"),
+            functions.max(
+                functions.when(
+                    functions.col("target_minutes") < functions.lit(1440),
+                    functions.col("interval_id").cast("string"),
+                )
+            ).alias("session_interval_id"),
+            functions.max(functions.col("open_interest_imputed").cast("int"))
+            .cast("int")
+            .alias("open_interest_imputed"),
+        )
+        .persist()
     )
 
     bars_df = aggregated.select(
@@ -363,8 +460,8 @@ def _aggregate_joined_source_outputs(
         "instrument_id",
         "timeframe",
         functions.col("bucket_ts").alias("ts"),
-        functions.col("source_ts_open_first").alias("bar_start_ts"),
-        functions.col("source_ts_close_last").alias("bar_end_ts"),
+        "bar_start_ts",
+        "bar_end_ts",
         "session_interval_id",
         "source_provider",
         "source_timeframe",
@@ -418,7 +515,7 @@ def _build_session_bounded_outputs(
     minute_source_df = source_df.where(
         (functions.col("source_timeframe") == functions.lit("1m"))
         & (functions.col("source_interval") == functions.lit(1))
-    ).withColumn("_source_row_id", functions.monotonically_increasing_id())
+    ).withColumn("_source_row_id", _stable_source_admission_id(functions))
     non_1m_source_rows = int(source_df.count()) - int(minute_source_df.count())
     affected_scope_df = minute_source_df.select(
         "instrument_id",
@@ -579,10 +676,17 @@ def _build_unbounded_outputs(
             },
         )
 
-    joined = source_df.alias("source").join(
-        selected_df.alias("selected"),
-        on=["contract_id", "instrument_id", "source_interval"],
-        how="inner",
+    joined = (
+        source_df.alias("source")
+        .join(
+            selected_df.alias("selected"),
+            on=["contract_id", "instrument_id", "source_interval"],
+            how="inner",
+        )
+        .withColumn(
+            "interval_id",
+            functions.lit(None).cast("string"),
+        )
     )
     admitted_source_rows = int(joined.count())
     bucket_seconds = functions.floor(
@@ -865,6 +969,7 @@ def run_moex_canonicalization_spark_delta_job(
                 source_df.withColumn("_rn", F.row_number().over(source_window))
                 .where(F.col("_rn") == 1)
                 .drop("_rn")
+                .persist()
             )
             source_row_count = int(source_df.count())
             if source_row_count > 0 and session_intervals_path is None:
@@ -900,38 +1005,43 @@ def run_moex_canonicalization_spark_delta_job(
                 "source_interval",
             ).distinct()
             selected_alias = selected_source_keys_df.alias("selected")
-            source_for_canonicalization_df = source_alias.join(
-                selected_alias,
-                (
-                    (F.col("source.instrument_id") == F.col("selected.instrument_id"))
-                    & (F.col("source.source_interval") == F.col("selected.source_interval"))
-                    & (
-                        (F.col("source.contract_id") == F.col("selected.contract_id"))
-                        | (F.col("source.moex_secid") == F.col("selected.contract_id"))
-                        | (
-                            F.col("selected.moex_secid").isNotNull()
-                            & (F.col("source.moex_secid") == F.col("selected.moex_secid"))
+            source_for_canonicalization_df = (
+                source_alias.join(
+                    selected_alias,
+                    (
+                        (F.col("source.instrument_id") == F.col("selected.instrument_id"))
+                        & (F.col("source.source_interval") == F.col("selected.source_interval"))
+                        & (
+                            (F.col("source.contract_id") == F.col("selected.contract_id"))
+                            | (F.col("source.moex_secid") == F.col("selected.contract_id"))
+                            | (
+                                F.col("selected.moex_secid").isNotNull()
+                                & (F.col("source.moex_secid") == F.col("selected.moex_secid"))
+                            )
                         )
-                    )
-                ),
-                how="inner",
-            ).select(
-                F.col("source.contract_id").alias("contract_id"),
-                F.col("source.instrument_id").alias("instrument_id"),
-                F.col("source.source_timeframe").alias("source_timeframe"),
-                F.col("source.source_interval").alias("source_interval"),
-                F.col("source.ts_open").alias("ts_open"),
-                F.col("source.ts_close").alias("ts_close"),
-                F.col("source.open").alias("open"),
-                F.col("source.high").alias("high"),
-                F.col("source.low").alias("low"),
-                F.col("source.close").alias("close"),
-                F.col("source.volume").alias("volume"),
-                F.col("source.open_interest").alias("open_interest"),
-                F.col("source.open_interest_imputed").alias("open_interest_imputed"),
-                F.col("source.source_provider").alias("source_provider"),
-                F.col("source.source_run_id").alias("source_run_id"),
-                F.col("source.source_ingest_run_id").alias("source_ingest_run_id"),
+                    ),
+                    how="inner",
+                )
+                .select(
+                    F.col("source.contract_id").alias("contract_id"),
+                    F.col("source.instrument_id").alias("instrument_id"),
+                    F.col("source.source_timeframe").alias("source_timeframe"),
+                    F.col("source.source_interval").alias("source_interval"),
+                    F.col("source.ts_open").alias("ts_open"),
+                    F.col("source.ts_close").alias("ts_close"),
+                    F.col("source.open").alias("open"),
+                    F.col("source.high").alias("high"),
+                    F.col("source.low").alias("low"),
+                    F.col("source.close").alias("close"),
+                    F.col("source.volume").alias("volume"),
+                    F.col("source.open_interest").alias("open_interest"),
+                    F.col("source.open_interest_imputed").alias("open_interest_imputed"),
+                    F.col("source.source_provider").alias("source_provider"),
+                    F.col("source.source_run_id").alias("source_run_id"),
+                    F.col("source.source_ingest_run_id").alias("source_ingest_run_id"),
+                )
+                .dropDuplicates(list(SOURCE_FOR_CANONICALIZATION_DEDUP_COLUMNS))
+                .persist()
             )
             source_contract_keys_df = source_df.select(
                 "contract_id",
@@ -965,6 +1075,8 @@ def run_moex_canonicalization_spark_delta_job(
                     F.col("selected.target_minutes").alias("target_minutes"),
                     F.col("selected.source_interval").alias("source_interval"),
                 )
+                .dropDuplicates(list(SELECTED_FOR_CANONICALIZATION_DEDUP_COLUMNS))
+                .persist()
             )
             if session_intervals_path is None:
                 (

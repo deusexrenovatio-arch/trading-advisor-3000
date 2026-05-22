@@ -38,6 +38,26 @@ def test_delta_schema_manifest_contains_required_tables() -> None:
     assert "ts_close" not in canonical_columns
 
 
+def test_session_sidecar_tables_use_compact_layout() -> None:
+    manifest = historical_data_delta_schema_manifest()
+
+    for table_name in (
+        "canonical_session_intervals",
+        "canonical_session_calendar",
+        "canonical_roll_map",
+    ):
+        assert manifest[table_name]["partition_by"] == []
+        assert manifest[table_name]["target_file_count"] == 1
+
+
+def test_canonical_bar_tables_use_compact_layout() -> None:
+    manifest = historical_data_delta_schema_manifest()
+
+    for table_name in ("canonical_bars", "canonical_bar_provenance"):
+        assert manifest[table_name]["partition_by"] == []
+        assert manifest[table_name]["target_file_count"] == 16
+
+
 def test_dagster_asset_specs_declared() -> None:
     keys = {spec.key for spec in historical_data_proof_asset_specs()}
     assert keys == {

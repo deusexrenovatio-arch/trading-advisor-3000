@@ -295,6 +295,10 @@ def test_moex_data_rebuild_job_dispatches_data_layer_profile_in_order(
             assert Path(str(kwargs["canonical_output_dir"])) == (tmp_path / "canonical").resolve()
             assert Path(str(kwargs["research_output_dir"])) == (tmp_path / "research").resolve()
             assert kwargs["dataset_version"] == "run-data-layer"
+            assert kwargs["start_ts"] == "2021-04-01T00:00:00Z"
+            assert kwargs["end_ts"] == ""
+            assert kwargs["warmup_bars"] == 300
+            assert kwargs["split_method"] == "holdout"
             return {
                 "success": True,
                 "materialized_assets": [table_name],
@@ -339,6 +343,10 @@ def test_moex_data_rebuild_job_dispatches_data_layer_profile_in_order(
             canonical_output_dir=tmp_path / "canonical",
             canonical_run_id="run-data-layer",
             research_root=tmp_path / "research",
+            start_ts="2021-04-01T00:00:00Z",
+            end_ts="",
+            warmup_bars=300,
+            split_method="holdout",
         ),
         instance=DagsterInstance.ephemeral(),
         raise_on_error=True,
@@ -377,3 +385,43 @@ def test_moex_layer_materialization_filters_run_config_to_selected_assets(
     assert report["success"] is False
     assert captured["selection"] == list(research_assets.MOEX_CF_REBUILD_ASSETS)
     assert set(captured["run_config"]["ops"]) == {"continuous_front_bars"}
+
+
+@pytest.mark.parametrize(
+    "runner",
+    (
+        research_assets.materialize_moex_cf_rebuild_assets,
+        research_assets.materialize_moex_research_bar_rebuild_assets,
+        research_assets.materialize_moex_indicator_rebuild_assets,
+        research_assets.materialize_moex_derived_indicator_rebuild_assets,
+    ),
+)
+def test_moex_layer_rebuild_wrappers_forward_rebuild_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runner
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_materialize(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"success": True, "materialized_assets": [], "output_paths": {}, "rows_by_table": {}}
+
+    monkeypatch.setattr(
+        research_assets,
+        "_materialize_moex_layer_rebuild_assets",
+        _fake_materialize,
+    )
+
+    runner(
+        canonical_output_dir=tmp_path / "canonical",
+        dataset_version="run-data-layer",
+        timeframes=("15m",),
+        start_ts="2021-04-01T00:00:00Z",
+        end_ts="",
+        warmup_bars=300,
+        split_method="holdout",
+    )
+
+    assert captured["start_ts"] == "2021-04-01T00:00:00Z"
+    assert captured["end_ts"] == ""
+    assert captured["warmup_bars"] == 300
+    assert captured["split_method"] == "holdout"

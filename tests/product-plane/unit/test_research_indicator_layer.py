@@ -577,6 +577,65 @@ def test_core_v1_indicator_build_reads_production_raw_moex_schema(tmp_path) -> N
     assert payload["vp_poc_price"] == 100.0
 
 
+def test_core_v1_indicator_build_reads_canonical_1m_source_schema(tmp_path) -> None:
+    canonical_path = tmp_path / "canonical_bars.delta"
+    minute_rows = []
+    for index in range(15):
+        raw_row = _production_raw_1m_row(minute_index=index, price=100.0, volume=100)
+        minute_rows.append(
+            {
+                "contract_id": raw_row["finam_symbol"],
+                "instrument_id": raw_row["internal_id"],
+                "timeframe": "1m",
+                "ts": raw_row["ts_open"],
+                "open": raw_row["open"],
+                "high": raw_row["high"],
+                "low": raw_row["low"],
+                "close": raw_row["close"],
+                "volume": raw_row["volume"],
+                "open_interest": raw_row["open_interest"],
+            }
+        )
+    write_delta_table_rows(
+        table_path=canonical_path,
+        rows=minute_rows,
+        columns={
+            "contract_id": "string",
+            "instrument_id": "string",
+            "timeframe": "string",
+            "ts": "timestamp",
+            "open": "double",
+            "high": "double",
+            "low": "double",
+            "close": "double",
+            "volume": "bigint",
+            "open_interest": "bigint",
+        },
+    )
+
+    rows = build_indicator_frames(
+        dataset_version="dataset-v3",
+        indicator_set_version="indicators-v1",
+        bar_views=[
+            replace(
+                _view(ts_index=0, close=100.0),
+                contract_id="BRM6@MOEX",
+                instrument_id="FUT_BR",
+                active_contract_id="BRM6@MOEX",
+                volume=sum(int(row["volume"]) for row in minute_rows),
+            )
+        ],
+        series_mode="contract",
+        volume_profile_raw_1m_table_path=canonical_path,
+        volume_profile_tick_size_by_instrument={"FUT_BR": 0.01},
+    )
+
+    payload = rows[0].values
+    assert payload["vp_quality_code"] == 0
+    assert payload["vp_source_1m_coverage_ratio"] == pytest.approx(1.0)
+    assert payload["vp_volume_conservation_ratio"] == pytest.approx(1.0)
+
+
 def test_core_v1_indicator_build_reads_raw_1m_table_keyed_by_ts(tmp_path) -> None:
     raw_path = tmp_path / "raw_moex_history_ts.delta"
     minute_rows = []

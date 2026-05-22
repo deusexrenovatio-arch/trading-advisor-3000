@@ -11,22 +11,26 @@ try:
     from scripts.proof_runtime_contract import (
         container_to_host_path,
         docker_host_owner,
+        docker_subprocess_timeout_seconds,
         ensure_output_directory_writable,
         ensure_output_file_writable,
         host_to_container_path,
         normalize_runtime_root,
         resolve_repo_path,
+        spark_docker_env_flags,
         wrap_with_owner_normalization,
     )
 except ImportError:  # pragma: no cover - script execution fallback
     from proof_runtime_contract import (
         container_to_host_path,
         docker_host_owner,
+        docker_subprocess_timeout_seconds,
         ensure_output_directory_writable,
         ensure_output_file_writable,
         host_to_container_path,
         normalize_runtime_root,
         resolve_repo_path,
+        spark_docker_env_flags,
         wrap_with_owner_normalization,
     )
 
@@ -45,6 +49,7 @@ DEFAULT_DOCKER_IMAGE = "ta3000-phase-proof:latest"
 DEFAULT_DOCKERFILE = Path("deployment/docker/phase-proofs/Dockerfile")
 DEFAULT_DOCKER_RUNTIME_ROOT = "/tmp/ta3000-phase-proof"
 SPARK_DOCKER_SUBPROCESS_TIMEOUT_SECONDS = 1800
+SPARK_DOCKER_SUBPROCESS_TIMEOUT_ENV = "TA3000_SPARK_DOCKER_SUBPROCESS_TIMEOUT_SECONDS"
 
 
 def _repo_root() -> Path:
@@ -55,12 +60,56 @@ def _resolve_repo_path(path: Path) -> Path:
     return resolve_repo_path(path, repo_root=_repo_root())
 
 
-def _container_path(path: Path) -> str:
-    return host_to_container_path(path, repo_root=_repo_root().resolve())
+def _container_path(
+    path: Path,
+    *,
+    extra_roots: list[tuple[Path, str]] | None = None,
+) -> str:
+    return host_to_container_path(
+        path,
+        repo_root=_repo_root().resolve(),
+        extra_roots=extra_roots,
+    )
 
 
-def _hostify_container_path(value: str) -> str:
-    return container_to_host_path(value, repo_root=_repo_root().resolve())
+def _hostify_container_path(
+    value: str,
+    *,
+    extra_roots: list[tuple[Path, str]] | None = None,
+) -> str:
+    return container_to_host_path(
+        value,
+        repo_root=_repo_root().resolve(),
+        extra_roots=extra_roots,
+    )
+
+
+def _docker_extra_roots(*paths: Path | None) -> list[tuple[Path, str]]:
+    repo_root = _repo_root().resolve()
+    roots: list[tuple[Path, str]] = []
+    for path in paths:
+        if path is None:
+            continue
+        resolved = Path(path).resolve()
+        try:
+            resolved.relative_to(repo_root)
+            continue
+        except ValueError:
+            pass
+        host_root = resolved if resolved.is_dir() else resolved.parent
+        if any(
+            host_root == existing or host_root.is_relative_to(existing) for existing, _ in roots
+        ):
+            continue
+        roots.append((host_root, f"/ta3000-extra/{len(roots)}"))
+    return roots
+
+
+def _docker_volume_args(extra_roots: list[tuple[Path, str]]) -> list[str]:
+    args: list[str] = []
+    for host_root, container_root in extra_roots:
+        args.extend(["-v", f"{host_root.as_posix()}:{container_root}"])
+    return args
 
 
 def _ensure_docker_image(image: str, dockerfile: Path) -> None:
@@ -93,6 +142,7 @@ def _docker_python_command(
     built_at_utc: str,
     spark_master: str,
     output_json: Path | None,
+    extra_roots: list[tuple[Path, str]],
 ) -> list[str]:
     command = [
         "python",
@@ -100,11 +150,11 @@ def _docker_python_command(
         "--profile",
         "local",
         "--normalized-source-jsonl",
-        _container_path(normalized_source_jsonl),
+        _container_path(normalized_source_jsonl, extra_roots=extra_roots),
         "--selected-source-intervals-jsonl",
-        _container_path(selected_source_intervals_jsonl),
+        _container_path(selected_source_intervals_jsonl, extra_roots=extra_roots),
         "--output-dir",
-        _container_path(output_dir),
+        _container_path(output_dir, extra_roots=extra_roots),
         "--run-id",
         run_id,
         "--built-at-utc",
@@ -113,9 +163,14 @@ def _docker_python_command(
         spark_master,
     ]
     if session_intervals_path is not None:
-        command.extend(["--session-intervals-path", _container_path(session_intervals_path)])
+        command.extend(
+            [
+                "--session-intervals-path",
+                _container_path(session_intervals_path, extra_roots=extra_roots),
+            ]
+        )
     if output_json is not None:
-        command.extend(["--output-json", _container_path(output_json)])
+        command.extend(["--output-json", _container_path(output_json, extra_roots=extra_roots)])
     return command
 
 
@@ -129,6 +184,7 @@ def _docker_exec_args(
     built_at_utc: str,
     spark_master: str,
     output_json: Path | None,
+    extra_roots: list[tuple[Path, str]],
 ) -> list[str]:
     python_command = _docker_python_command(
         normalized_source_jsonl=normalized_source_jsonl,
@@ -139,11 +195,12 @@ def _docker_exec_args(
         built_at_utc=built_at_utc,
         spark_master=spark_master,
         output_json=output_json,
+        extra_roots=extra_roots,
     )
     owner = docker_host_owner()
-    chown_targets = [_container_path(output_dir)]
+    chown_targets = [_container_path(output_dir, extra_roots=extra_roots)]
     if output_json is not None:
-        chown_targets.append(_container_path(output_json))
+        chown_targets.append(_container_path(output_json, extra_roots=extra_roots))
     return wrap_with_owner_normalization(
         command=python_command,
         owner=owner,
@@ -171,6 +228,13 @@ def _run_in_docker(
     ensure_output_directory_writable(output_dir)
     if output_json is not None:
         ensure_output_file_writable(output_json)
+    extra_roots = _docker_extra_roots(
+        output_dir,
+        output_json,
+        normalized_source_jsonl,
+        selected_source_intervals_jsonl,
+        session_intervals_path,
+    )
 
     command = [
         "docker",
@@ -178,6 +242,7 @@ def _run_in_docker(
         "--rm",
         "-v",
         f"{repo_root}:/workspace",
+        *_docker_volume_args(extra_roots),
         "-w",
         "/workspace",
         "-e",
@@ -186,6 +251,7 @@ def _run_in_docker(
         f"HOME={runtime_root}",
         "-e",
         f"TA3000_SPARK_RUNTIME_ROOT={runtime_root}",
+        *spark_docker_env_flags(),
         image,
         *_docker_exec_args(
             normalized_source_jsonl=normalized_source_jsonl,
@@ -196,6 +262,7 @@ def _run_in_docker(
             built_at_utc=built_at_utc,
             spark_master=spark_master,
             output_json=output_json,
+            extra_roots=extra_roots,
         ),
     ]
 
@@ -205,7 +272,10 @@ def _run_in_docker(
         capture_output=True,
         text=True,
         check=False,
-        timeout=SPARK_DOCKER_SUBPROCESS_TIMEOUT_SECONDS,
+        timeout=docker_subprocess_timeout_seconds(
+            env_name=SPARK_DOCKER_SUBPROCESS_TIMEOUT_ENV,
+            default_seconds=SPARK_DOCKER_SUBPROCESS_TIMEOUT_SECONDS,
+        ),
     )
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout).strip()
@@ -222,7 +292,8 @@ def _run_in_docker(
     output_paths = payload.get("output_paths")
     if isinstance(output_paths, dict):
         payload["output_paths"] = {
-            str(key): _hostify_container_path(str(value)) for key, value in output_paths.items()
+            str(key): _hostify_container_path(str(value), extra_roots=extra_roots)
+            for key, value in output_paths.items()
         }
     payload["proof_profile"] = "docker-linux"
     output_json.write_text(

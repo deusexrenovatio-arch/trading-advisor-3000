@@ -2,10 +2,16 @@ from __future__ import annotations
 
 import os
 import shlex
+from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 
-
 DEFAULT_WORKSPACE_ROOT = "/workspace"
+SPARK_DOCKER_ENV_PASSTHROUGH = (
+    "TA3000_SPARK_DRIVER_MEMORY",
+    "TA3000_SPARK_EXECUTOR_MEMORY",
+    "TA3000_SPARK_DRIVER_MAX_RESULT_SIZE",
+    "TA3000_SPARK_SQL_SHUFFLE_PARTITIONS",
+)
 PathMount = tuple[Path, str]
 
 
@@ -31,10 +37,14 @@ def normalize_runtime_root(raw_value: str, *, field_name: str) -> str:
 def _is_within_runtime_workspace(*, normalized_path: str, runtime_workspace: str) -> bool:
     if runtime_workspace == "/":
         return normalized_path.startswith("/")
-    return normalized_path == runtime_workspace or normalized_path.startswith(f"{runtime_workspace}/")
+    return normalized_path == runtime_workspace or normalized_path.startswith(
+        f"{runtime_workspace}/"
+    )
 
 
-def _normalize_path_mounts(extra_roots: list[PathMount] | tuple[PathMount, ...] | None) -> list[tuple[Path, PurePosixPath]]:
+def _normalize_path_mounts(
+    extra_roots: list[PathMount] | tuple[PathMount, ...] | None,
+) -> list[tuple[Path, PurePosixPath]]:
     mounts: list[tuple[Path, PurePosixPath]] = []
     for host_root, container_root in extra_roots or []:
         normalized_container_root = PurePosixPath(
@@ -51,7 +61,9 @@ def host_to_container_path(
     workspace_root: str = DEFAULT_WORKSPACE_ROOT,
     extra_roots: list[PathMount] | tuple[PathMount, ...] | None = None,
 ) -> str:
-    runtime_workspace = PurePosixPath(normalize_runtime_root(workspace_root, field_name="workspace root"))
+    runtime_workspace = PurePosixPath(
+        normalize_runtime_root(workspace_root, field_name="workspace root")
+    )
     resolved = resolve_repo_path(path, repo_root=repo_root)
     try:
         relative = resolved.relative_to(repo_root.resolve())
@@ -62,7 +74,9 @@ def host_to_container_path(
             except ValueError:
                 continue
             return container_root.joinpath(*relative.parts).as_posix()
-        raise RuntimeError(f"path must stay inside repo or an explicit docker mount: {resolved.as_posix()}")
+        raise RuntimeError(
+            f"path must stay inside repo or an explicit docker mount: {resolved.as_posix()}"
+        )
     return runtime_workspace.joinpath(*relative.parts).as_posix()
 
 
@@ -77,10 +91,14 @@ def container_to_host_path(
     normalized = str(value).strip().replace("\\", "/")
     while "//" in normalized:
         normalized = normalized.replace("//", "/")
-    if not _is_within_runtime_workspace(normalized_path=normalized, runtime_workspace=runtime_workspace):
+    if not _is_within_runtime_workspace(
+        normalized_path=normalized, runtime_workspace=runtime_workspace
+    ):
         for host_root, container_root in _normalize_path_mounts(extra_roots):
             container_root_text = container_root.as_posix()
-            if not _is_within_runtime_workspace(normalized_path=normalized, runtime_workspace=container_root_text):
+            if not _is_within_runtime_workspace(
+                normalized_path=normalized, runtime_workspace=container_root_text
+            ):
                 continue
             if container_root_text == "/":
                 suffix = normalized.lstrip("/")
@@ -103,13 +121,17 @@ def container_to_host_path(
 
 def ensure_output_directory_writable(path: Path) -> None:
     if path.exists() and not path.is_dir():
-        raise RuntimeError(f"output directory is not writable: expected directory, found file `{path.as_posix()}`")
+        raise RuntimeError(
+            f"output directory is not writable: expected directory, found file `{path.as_posix()}`"
+        )
     path.mkdir(parents=True, exist_ok=True)
     probe_path = path / ".write-probe"
     try:
         probe_path.write_text("probe\n", encoding="utf-8")
     except OSError as exc:
-        raise RuntimeError(f"output directory is not writable: `{path.as_posix()}` ({exc})") from exc
+        raise RuntimeError(
+            f"output directory is not writable: `{path.as_posix()}` ({exc})"
+        ) from exc
     finally:
         probe_path.unlink(missing_ok=True)
 
@@ -131,6 +153,35 @@ def docker_host_owner() -> str:
     if not callable(getuid) or not callable(getgid):
         return ""
     return f"{getuid()}:{getgid()}"
+
+
+def spark_docker_env_flags(*, env: Mapping[str, str] | None = None) -> list[str]:
+    source = os.environ if env is None else env
+    flags: list[str] = []
+    for env_name in SPARK_DOCKER_ENV_PASSTHROUGH:
+        value = str(source.get(env_name, "")).strip()
+        if value:
+            flags.extend(["-e", f"{env_name}={value}"])
+    return flags
+
+
+def docker_subprocess_timeout_seconds(
+    *,
+    env_name: str,
+    default_seconds: int,
+    env: Mapping[str, str] | None = None,
+) -> int:
+    source = os.environ if env is None else env
+    value = str(source.get(env_name, "")).strip()
+    if not value:
+        return default_seconds
+    try:
+        seconds = int(value)
+    except ValueError as exc:
+        raise RuntimeError(f"{env_name} must be an integer number of seconds") from exc
+    if seconds <= 0:
+        raise RuntimeError(f"{env_name} must be positive")
+    return seconds
 
 
 def wrap_with_owner_normalization(

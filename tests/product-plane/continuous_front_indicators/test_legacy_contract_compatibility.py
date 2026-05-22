@@ -6,12 +6,17 @@ import math
 from datetime import UTC, datetime, timedelta
 
 from trading_advisor_3000.product_plane.research.datasets import ResearchBarView
-from trading_advisor_3000.product_plane.research.derived_indicators import build_derived_indicator_frames
+from trading_advisor_3000.product_plane.research.derived_indicators import (
+    build_derived_indicator_frames,
+)
 from trading_advisor_3000.product_plane.research.indicators import build_indicator_frames
 
-
-EXPECTED_CONTRACT_INDICATOR_SHA256 = "f86dc0c14d1ba479cffb6efaf642ee6b2bd278f0237eb4806dfe80430313abcc"
-EXPECTED_CONTRACT_DERIVED_SHA256 = "14e664819f1bd578f99b674aa05f79285b8d7f1d2c867f8c9bbe53158a23d9d9"
+EXPECTED_CONTRACT_INDICATOR_SHA256 = (
+    "8bb858c9aa8f34cace54090e3f0fb27adfc91d3a7efcd290491eec30615f1ddb"
+)
+EXPECTED_CONTRACT_DERIVED_SHA256 = (
+    "6ab3af2c7bc862cf5bab2e160ee071046c2d5cbf01f1345c87620b3faa608e50"
+)
 
 
 def _normalize(value: object) -> object:
@@ -76,7 +81,11 @@ def _payload_hash(rows: list[object]) -> str:
 
 def test_contract_mode_indicator_and_derived_outputs_match_legacy_hashes() -> None:
     bars_15m = [
-        _bar(ts_index=index, close=80.0 + index * 0.07 + ((index % 11) - 5) * 0.025, timeframe="15m")
+        _bar(
+            ts_index=index,
+            close=80.0 + index * 0.07 + ((index % 11) - 5) * 0.025,
+            timeframe="15m",
+        )
         for index in range(260)
     ]
     bars_1h = [

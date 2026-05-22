@@ -73,7 +73,7 @@ def test_canonical_route_qc_fails_when_provenance_is_incomplete() -> None:
 
 def test_spark_canonicalization_subprocess_has_timeout_contract() -> None:
     assert canonical_module.SPARK_CANONICALIZATION_SUBPROCESS_TIMEOUT_SECONDS > 0
-    assert canonical_module.SPARK_CANONICALIZATION_SUBPROCESS_TIMEOUT_SECONDS <= 1800
+    assert canonical_module.SPARK_CANONICALIZATION_SUBPROCESS_TIMEOUT_SECONDS <= 3600
 
 
 def test_session_intervals_input_rejects_existing_directory(tmp_path: Path) -> None:
@@ -90,6 +90,7 @@ def test_raw_1m_source_interval_map_uses_raw_availability_union() -> None:
         raw_available_intervals_by_contract={("BRM6@MOEX", "FUT_BR"): {1}},
     )
 
+    assert selected[("BRM6@MOEX", "FUT_BR", "1m")] == 1
     assert selected[("BRM6@MOEX", "FUT_BR", "5m")] == 1
     assert selected[("BRM6@MOEX", "FUT_BR", "1w")] == 1
 

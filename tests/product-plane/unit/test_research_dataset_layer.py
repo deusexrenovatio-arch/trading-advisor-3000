@@ -22,6 +22,7 @@ from trading_advisor_3000.product_plane.research.datasets.bar_usage import (
     classify_bar_usage_profile,
     validate_bar_usage_profile_flags,
 )
+from trading_advisor_3000.spark_jobs import moex_canonical_publish_job as moex_publish_job
 from trading_advisor_3000.spark_jobs import moex_canonicalization_job as moex_canon_job
 from trading_advisor_3000.spark_jobs import research_bar_views_job as spark_l0_job
 
@@ -197,6 +198,11 @@ def test_canonical_sidecars_expose_strict_bar_usage_metadata_contract() -> None:
     assert provenance_columns["bar_end_ts"] == "timestamp"
     assert provenance_columns["session_interval_id"] == "string"
     assert calendar_columns["session_class"] == "string"
+    assert manifest["canonical_session_intervals"]["partition_by"] == []
+    assert manifest["canonical_session_calendar"]["partition_by"] == []
+    assert manifest["canonical_roll_map"]["partition_by"] == []
+    assert manifest["canonical_session_calendar"]["target_file_count"] == 1
+    assert manifest["canonical_roll_map"]["target_file_count"] == 1
 
     spark_manifest_columns = moex_canon_job.CANONICAL_PROVENANCE_MANIFEST["columns"]
     assert spark_manifest_columns["bar_start_ts"] == "timestamp"
@@ -205,6 +211,9 @@ def test_canonical_sidecars_expose_strict_bar_usage_metadata_contract() -> None:
     assert "bar_start_ts timestamp" in moex_canon_job.CANONICAL_PROVENANCE_SCHEMA
     assert "bar_end_ts timestamp" in moex_canon_job.CANONICAL_PROVENANCE_SCHEMA
     assert "session_interval_id string" in moex_canon_job.CANONICAL_PROVENANCE_SCHEMA
+    assert moex_publish_job.CANONICAL_PROVENANCE_COLUMNS["bar_start_ts"] == "timestamp"
+    assert moex_publish_job.CANONICAL_PROVENANCE_COLUMNS["bar_end_ts"] == "timestamp"
+    assert moex_publish_job.CANONICAL_PROVENANCE_COLUMNS["session_interval_id"] == "string"
 
 
 def test_spark_l0_bar_usage_contract_is_not_recovered_by_heuristic_fallbacks() -> None:
@@ -212,6 +221,7 @@ def test_spark_l0_bar_usage_contract_is_not_recovered_by_heuristic_fallbacks() -
 
     provenance_source = inspect.getsource(spark_l0_job._canonical_provenance_frame)
     usage_source = inspect.getsource(spark_l0_job._with_bar_usage_contract)
+    context_source = inspect.getsource(spark_l0_job._bar_usage_context_frames)
 
     assert '("bar_start_ts", "source_ts_open_first")' not in provenance_source
     assert '("bar_end_ts", "source_ts_close_last")' not in provenance_source
@@ -222,8 +232,54 @@ def test_spark_l0_bar_usage_contract_is_not_recovered_by_heuristic_fallbacks() -
         'F.coalesce(F.col("calendar_session_class"), F.col("day_session_class"))'
         not in usage_source
     )
-    assert "daily_contract_id" in usage_source
+    assert "daily_contract_id" in context_source
     assert 'bar.contract_id") == F.col("weekly_actual.daily_contract_id")' in usage_source
+
+
+def test_spark_l0_bar_usage_contract_uses_single_metadata_validation_action() -> None:
+    import inspect
+
+    usage_source = inspect.getsource(spark_l0_job._with_bar_usage_contract)
+
+    assert ".limit(1).count()" not in usage_source
+    assert "cached.agg(" in usage_source
+    assert "missing_usage_flags" in usage_source
+
+
+def test_spark_l0_bar_usage_contract_persists_validated_frame_for_reuse() -> None:
+    import inspect
+
+    usage_source = inspect.getsource(spark_l0_job._with_bar_usage_contract)
+    context_source = inspect.getsource(spark_l0_job._bar_usage_context_frames)
+    run_source = inspect.getsource(spark_l0_job.run_research_bar_views_spark_job)
+
+    assert "StorageLevel.MEMORY_AND_DISK" in usage_source
+    assert "StorageLevel.MEMORY_AND_DISK" in context_source
+    assert "usage_context = _bar_usage_context_frames(" in run_source
+    assert "usage_context=usage_context" in run_source
+    assert "cached = with_flags.persist(" in usage_source
+    assert "validation_row = cached.agg(" in usage_source
+    assert "usage_context.unpersist()" in run_source
+
+
+def test_spark_l0_bar_usage_context_is_scoped_to_requested_slice() -> None:
+    import inspect
+
+    signature = inspect.signature(spark_l0_job._bar_usage_context_frames)
+    context_source = inspect.getsource(spark_l0_job._bar_usage_context_frames)
+    run_source = inspect.getsource(spark_l0_job.run_research_bar_views_spark_job)
+
+    assert "instrument_ids" in signature.parameters
+    assert "start_ts" in signature.parameters
+    assert "end_ts" in signature.parameters
+    assert 'F.col("interval_instrument_id").isin' in context_source
+    assert 'F.col("interval_session_date") >= F.date_sub' in context_source
+    assert 'F.col("interval_session_date") <= F.date_add' in context_source
+    assert 'F.col("instrument_id").isin' in context_source
+    assert 'F.to_date("ts") >= F.date_sub' in context_source
+    assert "instrument_ids=instrument_ids" in run_source
+    assert "start_ts=start_ts" in run_source
+    assert "end_ts=end_ts" in run_source
 
 
 def test_spark_l0_job_scopes_usage_validation_to_analysis_window() -> None:
@@ -279,13 +335,15 @@ def test_benchmark_python_l0_bootstrap_route_is_removed(tmp_path) -> None:
     )
 
 
-def test_spark_l0_writer_preserves_existing_delta_tables() -> None:
+def test_spark_l0_writer_preserves_existing_delta_tables_or_rewrites_layout_once() -> None:
     source = Path("src/trading_advisor_3000/spark_jobs/research_bar_views_job.py").read_text(
         encoding="utf-8"
     )
 
-    assert "shutil.rmtree" not in source
-    assert "_scoped_delete_condition(replace_scope)" in source
+    assert "_scoped_delete_condition(" in source
+    assert "include_legacy_null_contour=table_name" in source
+    assert "_delta_table_layout_matches_contract(" in source
+    assert "_replace_spark_delta_table(" in source
     assert "_research_l0_replace_filters(" in source
     assert ".merge(" in source
     assert ".whenMatchedUpdateAll()" in source
@@ -327,6 +385,34 @@ def test_spark_l0_partial_replace_scope_tracks_request_filters() -> None:
     )
 
 
+def test_spark_l0_replace_scope_can_clean_legacy_null_contour_rows() -> None:
+    filters = spark_l0_job._research_l0_replace_filters(  # type: ignore[attr-defined]
+        dataset_version="dataset-v1",
+        contours=("native_tradable",),
+        instrument_ids=("FUT_BR",),
+        contract_ids=("BRM6@MOEX",),
+        timeframes=("15m",),
+        start_ts="2026-05-12T00:00:00Z",
+        end_ts="2026-05-12T23:59:59Z",
+    )
+
+    condition = spark_l0_job._scoped_delete_condition(  # type: ignore[attr-defined]
+        filters,
+        include_legacy_null_contour=True,
+    )
+
+    assert condition == (
+        "(dataset_version = 'dataset-v1' AND contour_id IN ('native_tradable') "
+        "AND instrument_id IN ('FUT_BR') AND contract_id IN ('BRM6@MOEX') "
+        "AND timeframe IN ('15m') AND ts >= '2026-05-12T00:00:00Z' "
+        "AND ts <= '2026-05-12T23:59:59Z') OR "
+        "(dataset_version = 'dataset-v1' AND instrument_id IN ('FUT_BR') "
+        "AND contract_id IN ('BRM6@MOEX') AND timeframe IN ('15m') "
+        "AND ts >= '2026-05-12T00:00:00Z' AND ts <= '2026-05-12T23:59:59Z' "
+        "AND contour_id IS NULL)"
+    )
+
+
 def test_spark_l0_contract_id_filter_fails_closed_for_pit_contour() -> None:
     with pytest.raises(ValueError, match="contract_ids filter"):
         spark_l0_job._research_l0_replace_filters(  # type: ignore[attr-defined]
@@ -338,6 +424,20 @@ def test_spark_l0_contract_id_filter_fails_closed_for_pit_contour() -> None:
             start_ts=None,
             end_ts=None,
         )
+
+
+def test_dataset_manifest_replace_predicate_cleans_legacy_null_contour_rows() -> None:
+    from trading_advisor_3000.product_plane.research.datasets import materialize
+
+    predicate = materialize._dataset_manifest_replace_predicate(  # type: ignore[attr-defined]
+        dataset_version="dataset-v1",
+        contour_id="pit_active_front",
+    )
+
+    assert predicate == (
+        "(dataset_version = 'dataset-v1' AND contour_id = 'pit_active_front') OR "
+        "(dataset_version = 'dataset-v1' AND contour_id IS NULL)"
+    )
 
 
 def test_spark_l0_instrument_tree_scope_does_not_follow_time_slice() -> None:

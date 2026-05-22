@@ -60,7 +60,7 @@ def _read_batched_delta_rows(table_path: Path) -> list[dict[str, object]]:
         row
         for batch in iter_delta_table_row_batches(
             table_path,
-            filters=[("timeframe", "in", ["5m", "15m", "1h", "4h", "1d", "1w"])],
+            filters=[("timeframe", "in", ["1m", "5m", "15m", "1h", "4h", "1d", "1w"])],
         )
         for row in batch
     ]
@@ -271,7 +271,7 @@ def test_canonicalization_generates_resampling_outputs_and_reports(tmp_path: Pat
 
     bars = _read_batched_delta_rows(Path(str(report["output_paths"]["canonical_bars"])))
     assert bars
-    assert {row["timeframe"] for row in bars} == {"5m", "15m", "1h", "4h", "1d", "1w"}
+    assert {row["timeframe"] for row in bars} == {"1m", "5m", "15m", "1h", "4h", "1d", "1w"}
     first_m5 = next(
         row
         for row in bars
@@ -524,6 +524,40 @@ def test_canonicalization_uses_moscow_session_date_for_utc_boundary(
     assert report["publish_decision"] == "publish"
 
 
+def test_canonicalization_normalizes_ohlc_envelope_from_raw_1m(
+    tmp_path: Path,
+) -> None:
+    raw_table_path = tmp_path / "raw_ingest" / "delta" / "raw_moex_history.delta"
+    rows = _raw_rows(with_source_provider=True)
+    rows[0]["high"] = 101.0
+    rows[0]["close"] = 102.0
+    _write_raw_table(raw_table_path, rows)
+    session_intervals_path = _write_session_intervals(
+        tmp_path / "official" / "canonical_session_intervals.delta",
+        _session_intervals_for_rows(rows),
+    )
+
+    report = run_moex_canonicalization(
+        raw_table_path=raw_table_path,
+        output_dir=tmp_path / "canonicalization-ohlc-envelope",
+        run_id="canonicalization-ohlc-envelope",
+        raw_ingest_run_report=_build_raw_ingest_report_for_rows(
+            rows=rows, run_id="raw-ingest-ohlc-envelope"
+        ),
+        session_intervals_path=session_intervals_path,
+    )
+
+    assert report["qc_report"]["status"] == "PASS"
+    bars = _read_batched_delta_rows(
+        Path(str(report["spark_execution_report"]["output_paths"]["canonical_bars"]))
+    )
+    minute_bar = next(
+        row for row in bars if row["timeframe"] == "1m" and row["ts"] == "2026-04-02T10:00:00Z"
+    )
+    assert minute_bar["high"] == 102.0
+    assert minute_bar["low"] == 99.0
+
+
 def test_canonicalization_reports_skips_for_incompatible_daily_only_contract(
     tmp_path: Path,
 ) -> None:
@@ -690,10 +724,10 @@ def test_canonicalization_fails_closed_on_incomplete_spark_outputs(
 
     original_iter_delta_rows = canonicalization_module._iter_delta_rows_for_merge
 
-    def fake_iter_delta_rows(table_path: Path):
+    def fake_iter_delta_rows(table_path: Path, **kwargs):
         if Path(table_path) in {scoped_bars_path, scoped_provenance_path}:
             return iter(())
-        return original_iter_delta_rows(table_path)
+        return original_iter_delta_rows(table_path, **kwargs)
 
     monkeypatch.setattr(
         canonicalization_module,

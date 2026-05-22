@@ -57,9 +57,9 @@ def _iso(dt: datetime) -> str:
 def _read_batched_delta_rows(table_path: Path) -> list[dict[str, object]]:
     filters = None
     if table_path.name == "canonical_bars.delta":
-        filters = [("timeframe", "in", ["5m", "15m", "1h", "4h", "1d", "1w"])]
+        filters = [("timeframe", "in", ["1m", "5m", "15m", "1h", "4h", "1d", "1w"])]
     elif table_path.name == "canonical_session_calendar.delta":
-        filters = [("timeframe", "in", ["5m", "15m", "1h", "4h", "1d", "1w"])]
+        filters = [("timeframe", "in", ["1m", "5m", "15m", "1h", "4h", "1d", "1w"])]
     elif table_path.name == "canonical_roll_map.delta":
         filters = [("instrument_id", "=", "FUT_BR")]
     return [
@@ -285,7 +285,7 @@ def test_historical_canonical_route_generates_resampling_outputs_and_reports(
     assert bars
     assert session_calendar
     assert roll_map
-    assert {row["timeframe"] for row in bars} == {"5m", "15m", "1h", "4h", "1d", "1w"}
+    assert {row["timeframe"] for row in bars} == {"1m", "5m", "15m", "1h", "4h", "1d", "1w"}
     assert {row["instrument_id"] for row in session_calendar} == {"FUT_BR"}
     assert {row["active_contract_id"] for row in roll_map} == {"BRM6@MOEX"}
     first_m5 = next(

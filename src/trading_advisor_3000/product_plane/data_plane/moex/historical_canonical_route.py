@@ -21,11 +21,16 @@ from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contrac
     build_parity_manifest_v1,
     normalize_changed_windows,
 )
+from trading_advisor_3000.product_plane.data_plane.schemas.delta import (
+    historical_data_delta_schema_manifest,
+)
+from trading_advisor_3000.spark_jobs.canonical_bars_job import DEFAULT_SPARK_MASTER
 from trading_advisor_3000.spark_jobs.moex_canonical_publish_job import (
     run_moex_canonical_publish_spark_delta_job,
 )
 
 TARGET_TIMEFRAMES: tuple[Timeframe, ...] = (
+    Timeframe.M1,
     Timeframe.M5,
     Timeframe.M15,
     Timeframe.H1,
@@ -35,6 +40,7 @@ TARGET_TIMEFRAMES: tuple[Timeframe, ...] = (
 )
 
 TARGET_MINUTES_BY_TIMEFRAME: dict[Timeframe, int] = {
+    Timeframe.M1: 1,
     Timeframe.M5: 5,
     Timeframe.M15: 15,
     Timeframe.H1: 60,
@@ -116,8 +122,9 @@ RAW_INTERVAL_PROJECTION_COLUMNS: tuple[str, ...] = (
 STATUS_PASS = "PASS"
 STATUS_BLOCKED = "BLOCKED"
 CANONICAL_MERGE_SCOPED_DELETE_INSERT = "scoped_delete_insert"
-SPARK_CANONICALIZATION_SUBPROCESS_TIMEOUT_SECONDS = 1800
-SPARK_PUBLISH_SUBPROCESS_TIMEOUT_SECONDS = 1800
+SPARK_CANONICALIZATION_SUBPROCESS_TIMEOUT_SECONDS = 3600
+SPARK_PUBLISH_SUBPROCESS_TIMEOUT_SECONDS = 3600
+SPARK_MASTER_ENV = "TA3000_MOEX_CANONICALIZATION_SPARK_MASTER"
 
 
 def _require_session_intervals_input(session_intervals_path: Path | None) -> Path:
@@ -1126,6 +1133,31 @@ def _spark_profile() -> str:
     return "local"
 
 
+def _spark_master() -> str:
+    return os.environ.get(SPARK_MASTER_ENV, "").strip() or DEFAULT_SPARK_MASTER
+
+
+def _delta_table_partition_columns(table_path: Path) -> tuple[str, ...] | None:
+    if not has_delta_log(table_path):
+        return None
+    from deltalake import DeltaTable
+
+    return tuple(
+        str(item) for item in (DeltaTable(str(table_path)).metadata().partition_columns or [])
+    )
+
+
+def _delta_table_layout_matches_manifest(
+    table_path: Path,
+    manifest_entry: dict[str, object],
+) -> bool:
+    actual = _delta_table_partition_columns(table_path)
+    if actual is None:
+        return False
+    expected = tuple(str(item) for item in list(manifest_entry.get("partition_by") or []))
+    return actual == expected
+
+
 def _run_spark_canonicalization(
     *,
     raw_table_path: Path,
@@ -1176,6 +1208,8 @@ def _run_spark_canonicalization(
         run_id,
         "--built-at-utc",
         built_at_utc,
+        "--spark-master",
+        _spark_master(),
         "--output-json",
         spark_report_path.as_posix(),
     ]
@@ -1234,6 +1268,7 @@ def _run_spark_canonical_publish(
             roll_map_path=roll_map_path,
             output_dir=spark_dir,
             run_id=run_id,
+            spark_master=_spark_master(),
         )
         _json_write(spark_report_path, report)
         return report
@@ -1261,6 +1296,8 @@ def _run_spark_canonical_publish(
         spark_dir.as_posix(),
         "--run-id",
         run_id,
+        "--spark-master",
+        _spark_master(),
         "--output-json",
         spark_report_path.as_posix(),
     ]
@@ -2275,15 +2312,189 @@ def run_historical_canonical_route(
         _json_write(changed_window_set_path, changed_window_set_manifest)
         _json_write(runtime_path, runtime_report)
 
+        bars_delta_exists = has_delta_log(bars_path)
+        provenance_delta_exists = has_delta_log(provenance_path)
+        session_calendar_delta_exists = has_delta_log(session_calendar_path)
+        roll_map_delta_exists = has_delta_log(roll_map_path)
+        delta_schema_manifest = historical_data_delta_schema_manifest()
+        sidecar_layout_matches_manifest = (
+            session_calendar_delta_exists
+            and roll_map_delta_exists
+            and _delta_table_layout_matches_manifest(
+                session_calendar_path,
+                dict(delta_schema_manifest["canonical_session_calendar"]),
+            )
+            and _delta_table_layout_matches_manifest(
+                roll_map_path,
+                dict(delta_schema_manifest["canonical_roll_map"]),
+            )
+        )
+        sidecar_layout_repair_required = (
+            session_calendar_delta_exists
+            and roll_map_delta_exists
+            and not sidecar_layout_matches_manifest
+        )
+
         output_paths: dict[str, str] = {}
-        if has_delta_log(bars_path):
+        if bars_delta_exists:
             output_paths["canonical_bars"] = bars_path.as_posix()
-        if has_delta_log(provenance_path):
+        if provenance_delta_exists:
             output_paths["canonical_bar_provenance"] = provenance_path.as_posix()
-        if has_delta_log(session_calendar_path):
+        if session_calendar_delta_exists:
             output_paths["canonical_session_calendar"] = session_calendar_path.as_posix()
-        if has_delta_log(roll_map_path):
+        if roll_map_delta_exists:
             output_paths["canonical_roll_map"] = roll_map_path.as_posix()
+
+        sidecar_report: dict[str, object] = {
+            "mode": (
+                "noop"
+                if sidecar_layout_matches_manifest
+                else "layout_rewrite_required"
+                if sidecar_layout_repair_required
+                else "skipped"
+            ),
+            "mutation_applied": False,
+            "refreshed_session_calendar_rows": 0,
+            "refreshed_roll_map_rows": 0,
+            "affected_session_rows": 0,
+            "overlap_session_rows": 0,
+            "overlap_policy": "",
+        }
+        qc_report: dict[str, object] = {
+            "run_id": run_id,
+            "runtime_owner": "spark_delta",
+            "status": "PASS" if runtime_pass else "FAIL",
+            "publish_decision": noop_publish_decision,
+            "failed_gates": noop_failed_gates,
+            "gate_results": [],
+        }
+        contract_report: dict[str, object] = {
+            "status": "SKIPPED",
+            "checked_rows": 0,
+            "errors": [],
+            "reason": "noop refresh did not produce Spark canonical rows",
+        }
+        spark_publish_report: dict[str, object] | None = None
+        repair_output_dir = output_dir / "noop-sidecar-repair"
+        noop_sidecar_repair_required = (
+            runtime_pass
+            and official_session_intervals_path is not None
+            and bars_delta_exists
+            and provenance_delta_exists
+            and (
+                not session_calendar_delta_exists
+                or not roll_map_delta_exists
+                or sidecar_layout_repair_required
+            )
+        )
+        if noop_sidecar_repair_required:
+            spark_publish_report = _run_spark_canonical_publish(
+                staged_bars_path=repair_output_dir / "empty-canonical-bars.delta",
+                staged_provenance_path=(repair_output_dir / "empty-canonical-bar-provenance.delta"),
+                publish_scope_path=None,
+                target_bars_path=bars_path,
+                target_provenance_path=provenance_path,
+                session_calendar_path=session_calendar_path,
+                session_intervals_path=official_session_intervals_path,
+                roll_map_path=roll_map_path,
+                output_dir=repair_output_dir,
+                run_id=f"{run_id}-sidecar-repair",
+                repo_root=repo_root,
+            )
+            qc_payload = spark_publish_report.get("qc_report")
+            if isinstance(qc_payload, dict):
+                qc_report = qc_payload
+            else:
+                qc_report = {
+                    "run_id": run_id,
+                    "runtime_owner": "spark_delta",
+                    "status": "FAIL",
+                    "publish_decision": "blocked",
+                    "failed_gates": ["spark_publish_qc_report"],
+                    "gate_results": [],
+                }
+            contract_payload = spark_publish_report.get("contract_compatibility_report")
+            if isinstance(contract_payload, dict):
+                contract_report = contract_payload
+            else:
+                contract_report = {
+                    "runtime_owner": "spark_delta",
+                    "status": "FAIL",
+                    "checked_rows": _int_report_value(spark_publish_report, "canonical_rows"),
+                    "errors": ["spark publish report missing contract_compatibility_report"],
+                    "mode": "spark_publish_contract_report_missing",
+                }
+            sidecar_payload = spark_publish_report.get("sidecar_refresh")
+            if isinstance(sidecar_payload, dict):
+                sidecar_report = dict(sidecar_payload)
+            else:
+                sidecar_report = {
+                    "mode": "failed_missing_sidecar_report",
+                    "mutation_applied": False,
+                    "refreshed_session_calendar_rows": 0,
+                    "refreshed_roll_map_rows": 0,
+                    "affected_session_rows": 0,
+                    "overlap_session_rows": 0,
+                    "overlap_policy": "",
+                }
+
+            qc_passed = (
+                isinstance(qc_payload, dict)
+                and str(qc_payload.get("status", "")).strip() == STATUS_PASS
+            )
+            contract_passed = (
+                isinstance(contract_payload, dict)
+                and str(contract_payload.get("status", "")).strip() == STATUS_PASS
+            )
+            repair_passed = (
+                str(spark_publish_report.get("publish_decision", "")).strip() == "publish"
+                and qc_passed
+                and contract_passed
+            )
+            if repair_passed:
+                noop_status = STATUS_PASS_NOOP
+                noop_publish_decision = "publish"
+                noop_failed_gates = []
+                spark_output_paths = spark_publish_report.get("output_paths")
+                spark_delta_log = spark_publish_report.get("delta_log")
+                if isinstance(spark_output_paths, dict) and isinstance(spark_delta_log, dict):
+                    for key, value in spark_output_paths.items():
+                        delta_payload = spark_delta_log.get(str(key), {})
+                        if isinstance(delta_payload, dict) and bool(delta_payload.get("delta_log")):
+                            output_paths[str(key)] = str(value)
+            else:
+                noop_status = STATUS_BLOCKED
+                noop_publish_decision = "blocked"
+                failed_gates_payload = qc_report.get("failed_gates", [])
+                noop_failed_gates = (
+                    list(failed_gates_payload)
+                    if isinstance(failed_gates_payload, list) and failed_gates_payload
+                    else ["noop_sidecar_repair"]
+                )
+                qc_report["publish_decision"] = "blocked"
+
+        canonical_rows = (
+            _int_report_value(spark_publish_report, "canonical_rows")
+            if isinstance(spark_publish_report, dict)
+            else count_delta_table_rows(bars_path)
+            if bars_delta_exists
+            else 0
+        )
+        provenance_rows = (
+            _int_report_value(spark_publish_report, "provenance_rows")
+            if isinstance(spark_publish_report, dict)
+            else count_delta_table_rows(provenance_path)
+            if provenance_delta_exists
+            else 0
+        )
+        artifact_paths: dict[str, str] = {
+            "changed_window_set_manifest": changed_window_set_path.as_posix(),
+            "runtime_decoupling_proof": runtime_path.as_posix(),
+        }
+        if isinstance(spark_publish_report, dict):
+            artifact_paths["spark_publish_report"] = (
+                repair_output_dir / ".spark-canonical-publish" / "spark-publish-report.json"
+            ).as_posix()
 
         report: dict[str, object] = {
             "run_id": run_id,
@@ -2315,29 +2526,26 @@ def run_historical_canonical_route(
             "max_changed_window_days": max_changed_window_days,
             "affected_key_count": 0,
             "mutation_applied": False,
-            "canonical_rows": count_delta_table_rows(bars_path) if has_delta_log(bars_path) else 0,
-            "provenance_rows": count_delta_table_rows(provenance_path)
-            if has_delta_log(provenance_path)
-            else 0,
+            "canonical_rows": canonical_rows,
+            "provenance_rows": provenance_rows,
             "sidecar_refresh": {
-                "mode": "noop"
-                if has_delta_log(session_calendar_path) and has_delta_log(roll_map_path)
-                else "skipped",
-                "mutation_applied": False,
-                "refreshed_session_calendar_rows": 0,
-                "refreshed_roll_map_rows": 0,
-                "affected_session_rows": 0,
-                "overlap_session_rows": 0,
-                "overlap_policy": "",
+                "mode": sidecar_report.get("mode"),
+                "mutation_applied": bool(sidecar_report.get("mutation_applied", False)),
+                "refreshed_session_calendar_rows": int(
+                    sidecar_report.get("refreshed_session_calendar_rows", 0) or 0
+                ),
+                "refreshed_roll_map_rows": int(
+                    sidecar_report.get("refreshed_roll_map_rows", 0) or 0
+                ),
+                "affected_session_rows": int(sidecar_report.get("affected_session_rows", 0) or 0),
+                "overlap_session_rows": int(sidecar_report.get("overlap_session_rows", 0) or 0),
+                "overlap_policy": str(sidecar_report.get("overlap_policy", "")),
             },
             "scoped_canonical_rows": 0,
             "target_timeframes": [item.value for item in TARGET_TIMEFRAMES],
             "resampling_skips": {},
             "output_paths": output_paths,
-            "artifact_paths": {
-                "changed_window_set_manifest": changed_window_set_path.as_posix(),
-                "runtime_decoupling_proof": runtime_path.as_posix(),
-            },
+            "artifact_paths": artifact_paths,
             "changed_window_set_manifest": changed_window_set_manifest,
             "raw_parity_report": {
                 "run_id": run_id,
@@ -2357,26 +2565,16 @@ def run_historical_canonical_route(
                 "failure_classes": [],
                 "samples": {},
             },
-            "qc_report": {
-                "run_id": run_id,
-                "runtime_owner": "spark_delta",
-                "status": "PASS" if runtime_pass else "FAIL",
-                "publish_decision": noop_publish_decision,
-                "failed_gates": noop_failed_gates,
-                "gate_results": [],
-            },
-            "contract_compatibility_report": {
-                "status": "SKIPPED",
-                "checked_rows": 0,
-                "errors": [],
-                "reason": "noop refresh did not produce Spark canonical rows",
-            },
+            "qc_report": qc_report,
+            "contract_compatibility_report": contract_report,
             "runtime_decoupling_proof": runtime_report,
             "real_bindings": _report_real_bindings(
                 raw_ingest_run_report=raw_ingest_run_report,
                 fallback_rows=[],
             ),
         }
+        if isinstance(spark_publish_report, dict):
+            report["spark_publish_report"] = spark_publish_report
         _json_write(output_dir / "canonical-refresh-report.json", report)
         return report
 

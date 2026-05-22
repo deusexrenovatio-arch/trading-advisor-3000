@@ -24,6 +24,16 @@ from trading_advisor_3000.product_plane.data_plane.schemas import (
 
 DEFAULT_SPARK_MASTER = "local[2]"
 DEFAULT_SPARK_RUNTIME_ROOT = "/tmp/ta3000-spark-runtime"
+SPARK_DRIVER_MEMORY_ENV = "TA3000_SPARK_DRIVER_MEMORY"
+SPARK_EXECUTOR_MEMORY_ENV = "TA3000_SPARK_EXECUTOR_MEMORY"
+SPARK_DRIVER_MAX_RESULT_SIZE_ENV = "TA3000_SPARK_DRIVER_MAX_RESULT_SIZE"
+SPARK_SQL_SHUFFLE_PARTITIONS_ENV = "TA3000_SPARK_SQL_SHUFFLE_PARTITIONS"
+SPARK_CONFIG_ENV_OVERRIDES = {
+    SPARK_DRIVER_MEMORY_ENV: "spark.driver.memory",
+    SPARK_EXECUTOR_MEMORY_ENV: "spark.executor.memory",
+    SPARK_DRIVER_MAX_RESULT_SIZE_ENV: "spark.driver.maxResultSize",
+    SPARK_SQL_SHUFFLE_PARTITIONS_ENV: "spark.sql.shuffle.partitions",
+}
 
 
 @dataclass(frozen=True)
@@ -204,6 +214,15 @@ def _spark_runtime_dirs() -> dict[str, str]:
     }
 
 
+def _spark_config_overrides_from_env() -> dict[str, str]:
+    overrides: dict[str, str] = {}
+    for env_name, spark_config_key in SPARK_CONFIG_ENV_OVERRIDES.items():
+        value = os.environ.get(env_name, "").strip()
+        if value:
+            overrides[spark_config_key] = value
+    return overrides
+
+
 def _create_spark_session(app_name: str, master: str) -> Any:
     _ensure_java_home()
     spark_session, _, _, configure = _load_spark_modules()
@@ -223,6 +242,8 @@ def _create_spark_session(app_name: str, master: str) -> Any:
         builder = builder.config("spark.jars.ivy", runtime_dirs["ivy"]).config(
             "spark.local.dir", runtime_dirs["local_dir"]
         )
+    for spark_config_key, value in _spark_config_overrides_from_env().items():
+        builder = builder.config(spark_config_key, value)
     return configure(builder).getOrCreate()
 
 
@@ -233,9 +254,12 @@ def _write_delta_dataframe(
     manifest_entry: dict[str, object],
 ) -> None:
     partition_by = list(manifest_entry.get("partition_by") or [])
+    target_file_count = int(manifest_entry.get("target_file_count") or 0)
     table_path.parent.mkdir(parents=True, exist_ok=True)
     if table_path.exists():
         shutil.rmtree(table_path)
+    if target_file_count > 0:
+        dataframe = dataframe.coalesce(target_file_count)
     writer = dataframe.write.format("delta").mode("overwrite")
     if partition_by:
         writer = writer.partitionBy(*partition_by)
