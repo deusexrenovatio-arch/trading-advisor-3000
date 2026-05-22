@@ -924,7 +924,7 @@ def test_research_definitions_expose_isolated_data_layer_jobs_without_moex_succe
     assert (
         Path(str(op_config["volume_profile_raw_1m_table_path"]))
         .as_posix()
-        .endswith("raw/moex/baseline-4y-current/raw_moex_history.delta")
+        .endswith("canonical/moex/baseline-4y-current/canonical_bars.delta")
     )
     assert op_config["volume_profile_tick_size_by_instrument"]["FUT_BR"] == 0.01
     assert run_config["ops"]["continuous_front_bars"]["config"]["series_mode"] == "continuous_front"
@@ -1002,7 +1002,13 @@ def test_research_data_prep_defaults_follow_moex_historical_data_root(
     assert op_config["derived_indicator_profile_version"] == "core_v1"
     assert (
         Path(str(op_config["volume_profile_raw_1m_table_path"]))
-        == (tmp_path / "raw" / "moex" / "baseline-4y-current" / "raw_moex_history.delta").resolve()
+        == (
+            tmp_path
+            / "canonical"
+            / "moex"
+            / "baseline-4y-current"
+            / "canonical_bars.delta"
+        ).resolve()
     )
     assert op_config["volume_profile_tick_size_by_instrument"]["FUT_BR"] == 0.01
 

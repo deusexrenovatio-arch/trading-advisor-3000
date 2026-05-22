@@ -6,10 +6,12 @@ import pytest
 
 from scripts.proof_runtime_contract import (
     container_to_host_path,
+    docker_subprocess_timeout_seconds,
     ensure_output_directory_writable,
     ensure_output_file_writable,
     host_to_container_path,
     normalize_runtime_root,
+    spark_docker_env_flags,
 )
 
 
@@ -53,7 +55,9 @@ def test_path_round_trip_normalizes_slashes_for_host_and_container(tmp_path: Pat
     assert host_path == artifact_path.resolve()
 
     windows_like_container = container_path.replace("/", "\\")
-    host_path_windows_like = Path(container_to_host_path(windows_like_container, repo_root=repo_root))
+    host_path_windows_like = Path(
+        container_to_host_path(windows_like_container, repo_root=repo_root)
+    )
     assert host_path_windows_like == artifact_path.resolve()
 
 
@@ -77,5 +81,60 @@ def test_path_round_trip_supports_explicit_external_mount(tmp_path: Path) -> Non
     container_path = host_to_container_path(artifact_path, repo_root=repo_root, extra_roots=mounts)
     assert container_path == "/ta3000-data/moex-historical/moex-baseline-update/spark.json"
 
-    host_path = Path(container_to_host_path(container_path, repo_root=repo_root, extra_roots=mounts))
+    host_path = Path(
+        container_to_host_path(container_path, repo_root=repo_root, extra_roots=mounts)
+    )
     assert host_path == artifact_path.resolve()
+
+
+def test_spark_docker_env_flags_pass_known_runtime_overrides() -> None:
+    env = {
+        "TA3000_SPARK_DRIVER_MEMORY": "8g",
+        "TA3000_SPARK_EXECUTOR_MEMORY": "8g",
+        "TA3000_SPARK_DRIVER_MAX_RESULT_SIZE": "2g",
+        "TA3000_SPARK_SQL_SHUFFLE_PARTITIONS": "64",
+        "UNRELATED_SECRET": "must-not-pass",
+    }
+
+    assert spark_docker_env_flags(env=env) == [
+        "-e",
+        "TA3000_SPARK_DRIVER_MEMORY=8g",
+        "-e",
+        "TA3000_SPARK_EXECUTOR_MEMORY=8g",
+        "-e",
+        "TA3000_SPARK_DRIVER_MAX_RESULT_SIZE=2g",
+        "-e",
+        "TA3000_SPARK_SQL_SHUFFLE_PARTITIONS=64",
+    ]
+
+
+def test_spark_docker_env_flags_skip_empty_runtime_overrides() -> None:
+    env = {
+        "TA3000_SPARK_DRIVER_MEMORY": " ",
+        "TA3000_SPARK_SQL_SHUFFLE_PARTITIONS": "32",
+    }
+
+    assert spark_docker_env_flags(env=env) == [
+        "-e",
+        "TA3000_SPARK_SQL_SHUFFLE_PARTITIONS=32",
+    ]
+
+
+def test_docker_subprocess_timeout_seconds_follows_env_override() -> None:
+    assert (
+        docker_subprocess_timeout_seconds(
+            env_name="TA3000_SPARK_DOCKER_SUBPROCESS_TIMEOUT_SECONDS",
+            default_seconds=1800,
+            env={"TA3000_SPARK_DOCKER_SUBPROCESS_TIMEOUT_SECONDS": "7200"},
+        )
+        == 7200
+    )
+
+
+def test_docker_subprocess_timeout_seconds_rejects_invalid_override() -> None:
+    with pytest.raises(RuntimeError, match="must be positive"):
+        docker_subprocess_timeout_seconds(
+            env_name="TA3000_SPARK_DOCKER_SUBPROCESS_TIMEOUT_SECONDS",
+            default_seconds=1800,
+            env={"TA3000_SPARK_DOCKER_SUBPROCESS_TIMEOUT_SECONDS": "0"},
+        )

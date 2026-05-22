@@ -140,7 +140,7 @@ def test_discover_coverage_tracks_native_source_identity() -> None:
         client=_CoverageClient(),
         universe=universe,
         mappings=mappings,
-        timeframes={"5m", "15m", "1h", "4h", "1d", "1w"},
+        timeframes={"1m", "5m", "15m", "1h", "4h", "1d", "1w"},
         discovered_at_utc="2026-04-02T10:00:00Z",
         ingest_till_utc="2026-04-02T12:00:00Z",
         bootstrap_window_days=1461,
@@ -153,7 +153,7 @@ def test_discover_coverage_tracks_native_source_identity() -> None:
     assert {row.source_timeframe for row in coverage} == {"1m", "1h", "1d", "1w"}
 
     by_key = {(row.internal_id, row.source_interval): row for row in coverage}
-    assert by_key[("FUT_BR", 1)].requested_target_timeframes == "5m,15m"
+    assert by_key[("FUT_BR", 1)].requested_target_timeframes == "1m,5m,15m"
     assert by_key[("FUT_BR", 60)].requested_target_timeframes == "1h,4h"
     assert by_key[("FUT_BR", 24)].requested_target_timeframes == "1d"
     assert by_key[("FUT_BR", 7)].requested_target_timeframes == "1w"
@@ -167,7 +167,7 @@ def test_discover_coverage_respects_selected_universe_scope() -> None:
         client=_CoverageClient(),
         universe=scoped_universe,
         mappings=mappings,
-        timeframes={"5m", "15m", "1h", "4h", "1d", "1w"},
+        timeframes={"1m", "5m", "15m", "1h", "4h", "1d", "1w"},
         discovered_at_utc="2026-04-02T10:00:00Z",
         ingest_till_utc="2026-04-02T12:00:00Z",
         bootstrap_window_days=1461,

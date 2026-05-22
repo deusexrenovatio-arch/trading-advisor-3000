@@ -38,6 +38,61 @@ def _provenance(**overrides: object) -> CanonicalProvenance:
     return CanonicalProvenance(**payload)
 
 
+def test_affected_canonical_keys_follow_session_bounded_spark_buckets(monkeypatch) -> None:
+    row = canonical_module.RawCandle(
+        contract_id="BRM6@MOEX",
+        instrument_id="FUT_BR",
+        source_timeframe="1m",
+        source_interval=1,
+        ts_open="2026-04-02T10:01:00Z",
+        ts_close="2026-04-02T10:02:00Z",
+        open=100.0,
+        high=101.0,
+        low=99.0,
+        close=100.5,
+        volume=100,
+        open_interest=0,
+        open_interest_imputed=True,
+        source_provider="moex_iss",
+        source_run_id="raw-ingest-pass1",
+        source_ingest_run_id="raw-ingest-pass1",
+    )
+    intervals = {
+        "FUT_BR": [
+            canonical_module.SessionInterval(
+                instrument_id="FUT_BR",
+                session_date="2026-04-02",
+                expected_open_ts=canonical_module._parse_iso_utc("2026-04-02T10:00:00Z"),
+                expected_close_ts=canonical_module._parse_iso_utc("2026-04-02T23:50:00Z"),
+            )
+        ]
+    }
+    monkeypatch.setattr(
+        canonical_module,
+        "_load_session_intervals_by_instrument",
+        lambda _path, _scoped_rows: intervals,
+    )
+
+    selected_source_intervals = {
+        ("BRM6@MOEX", "FUT_BR", timeframe.value): 1
+        for timeframe in (Timeframe.M1, Timeframe.M5, Timeframe.M15, Timeframe.H1, Timeframe.H4)
+    }
+    selected_source_intervals[("BRM6@MOEX", "FUT_BR", Timeframe.D1.value)] = 1
+    selected_source_intervals[("BRM6@MOEX", "FUT_BR", Timeframe.W1.value)] = 1
+
+    keys = canonical_module._compute_affected_canonical_keys(
+        scoped_rows=[row],
+        selected_source_intervals=selected_source_intervals,
+        session_intervals_path=Path("session_intervals.delta"),
+    )
+
+    assert ("BRM6@MOEX", "FUT_BR", "1m", "2026-04-02T10:01:00Z") in keys
+    assert ("BRM6@MOEX", "FUT_BR", "4h", "2026-04-02T10:00:00Z") in keys
+    assert ("BRM6@MOEX", "FUT_BR", "1d", "2026-04-02T00:00:00Z") in keys
+    assert ("BRM6@MOEX", "FUT_BR", "1w", "2026-03-30T00:00:00Z") in keys
+    assert ("BRM6@MOEX", "FUT_BR", "4h", "2026-04-02T08:00:00Z") not in keys
+
+
 def test_canonicalization_qc_fails_when_provenance_is_incomplete() -> None:
     bar = CanonicalBar(
         contract_id="BRM6@MOEX",

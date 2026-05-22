@@ -461,6 +461,31 @@ def test_default_catalog_preserves_legacy_standard_evening_start(tmp_path: Path)
     assert interval_rows[2]["expected_open_ts"] == "2022-02-21T16:00:00Z"
 
 
+def test_default_catalog_preserves_2022_02_25_evening_without_morning(
+    tmp_path: Path,
+) -> None:
+    materialize_reconstructed_session_schedule_for_changed_windows(
+        changed_windows=_changed_window("2022-02-25"),
+        mappings=[],
+        raw_schedule_path=tmp_path / "raw_moex_session_schedule.delta",
+        canonical_session_intervals_path=tmp_path / "canonical_session_intervals.delta",
+        rule_catalog_path=DEFAULT_PUBLIC_RULE_CATALOG_PATH,
+        allow_candle_inference=False,
+        fetched_at_utc="2022-02-25T00:00:00Z",
+    )
+
+    interval_rows = read_delta_table_rows(
+        tmp_path / "canonical_session_intervals.delta",
+        limit=10,
+    )
+    assert [row["interval_type"] for row in interval_rows] == [
+        "main_session",
+        "evening_session",
+    ]
+    assert interval_rows[0]["expected_open_ts"] == "2022-02-25T07:00:00Z"
+    assert interval_rows[1]["expected_open_ts"] == "2022-02-25T16:00:00Z"
+
+
 def test_default_catalog_uses_updated_2026_02_23_holiday_weekend_session(
     tmp_path: Path,
 ) -> None:

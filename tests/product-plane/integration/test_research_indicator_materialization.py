@@ -36,6 +36,7 @@ from trading_advisor_3000.product_plane.research.datasets.bar_usage import BAR_U
 from trading_advisor_3000.product_plane.research.derived_indicators import (
     DerivedIndicatorProfile,
     current_derived_indicator_profile,
+    research_derived_indicator_store_contract,
 )
 from trading_advisor_3000.product_plane.research.derived_indicators import (
     materialize as derived_materialize_module,
@@ -54,6 +55,7 @@ from trading_advisor_3000.product_plane.research.indicators import (
     IndicatorProfile,
     IndicatorSpec,
     default_indicator_profile,
+    indicator_store_contract,
     materialize_indicator_frames,
 )
 from trading_advisor_3000.product_plane.research.indicators.materialize import (
@@ -983,6 +985,168 @@ def test_indicator_materialization_extends_profile_without_recomputing_existing_
     assert second_rows[-1].profile_version == "test_profile_v2"
 
 
+def test_continuous_front_profile_extension_recomputes_existing_columns(
+    tmp_path: Path,
+) -> None:
+    bars = [_canonical_bar(index=index, close=80.0 + index * 0.25) for index in range(40)]
+    session_calendar = [
+        SessionCalendarEntry(
+            "BR", "15m", "2026-03-01", "2026-03-01T09:00:00Z", "2026-03-01T20:45:00Z"
+        ),
+    ]
+    roll_map = [RollMapEntry("BR", "2026-03-01", "BR-6.26", "test")]
+    dataset_dir = tmp_path / "dataset-cf-profile-extension"
+    indicator_dir = tmp_path / "indicators-cf-profile-extension"
+    materialize_research_dataset(
+        manifest_seed=ResearchDatasetManifest(
+            dataset_version="dataset-cf-profile-extension-v1",
+            dataset_name="continuous front profile extension sample",
+            universe_id="moex-futures",
+            timeframes=("15m",),
+            contour_id="pit_active_front",
+            base_timeframe="15m",
+            start_ts="2026-03-01T09:00:00Z",
+            end_ts="2026-03-01T18:45:00Z",
+            series_mode="continuous_front",
+            continuous_front_policy=ContinuousFrontPolicy.from_config({}),
+            warmup_bars=0,
+            split_method="full",
+            code_version="test",
+        ),
+        bars=bars,
+        session_calendar=session_calendar,
+        roll_map=roll_map,
+        output_dir=dataset_dir,
+    )
+    base_profile = IndicatorProfile(
+        version="test_cf_profile_v1",
+        description="small continuous-front base profile",
+        indicators=(
+            IndicatorSpec(
+                indicator_id="sma_10",
+                category="trend",
+                operation_key="sma",
+                parameters=(IndicatorParameter("length", 10),),
+                required_input_columns=("close",),
+                output_columns=("sma_10",),
+                warmup_bars=10,
+            ),
+        ),
+    )
+    extended_profile = IndicatorProfile(
+        version="test_cf_profile_v2",
+        description="small continuous-front extended profile",
+        indicators=(
+            *base_profile.indicators,
+            IndicatorSpec(
+                indicator_id="ema_10",
+                category="trend",
+                operation_key="ema",
+                parameters=(IndicatorParameter("length", 10),),
+                required_input_columns=("close",),
+                output_columns=("ema_10",),
+                warmup_bars=10,
+            ),
+        ),
+    )
+
+    materialize_indicator_frames(
+        dataset_output_dir=dataset_dir,
+        indicator_output_dir=indicator_dir,
+        dataset_version="dataset-cf-profile-extension-v1",
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+        profile=base_profile,
+    )
+    first_rows = read_delta_table_rows(
+        indicator_dir / "research_indicator_frames.delta",
+        filters=[
+            ("dataset_version", "=", "dataset-cf-profile-extension-v1"),
+            ("contour_id", "=", "pit_active_front"),
+            ("indicator_set_version", "=", "indicators-v1"),
+        ],
+    )
+    corrupted_rows = [{**row, "sma_10": -999.0} for row in first_rows]
+    replace_delta_table_rows(
+        table_path=indicator_dir / "research_indicator_frames.delta",
+        rows=corrupted_rows,
+        columns=indicator_store_contract(profile=base_profile)["research_indicator_frames"][
+            "columns"
+        ],
+        predicate=delta_equals_predicate(
+            {
+                "dataset_version": "dataset-cf-profile-extension-v1",
+                "contour_id": "pit_active_front",
+                "indicator_set_version": "indicators-v1",
+            }
+        ),
+    )
+
+    same_profile_report = materialize_indicator_frames(
+        dataset_output_dir=dataset_dir,
+        indicator_output_dir=indicator_dir,
+        dataset_version="dataset-cf-profile-extension-v1",
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+        profile=base_profile,
+    )
+    assert same_profile_report["refreshed_partition_count"] == 1
+    assert same_profile_report["reused_partition_count"] == 0
+    assert same_profile_report["recomputed_partition_count"] == 1
+    repaired_rows = reload_indicator_frames(
+        indicator_output_dir=indicator_dir,
+        dataset_version="dataset-cf-profile-extension-v1",
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+    )
+    assert all(row.values["sma_10"] != -999.0 for row in repaired_rows)
+
+    repaired_raw_rows = read_delta_table_rows(
+        indicator_dir / "research_indicator_frames.delta",
+        filters=[
+            ("dataset_version", "=", "dataset-cf-profile-extension-v1"),
+            ("contour_id", "=", "pit_active_front"),
+            ("indicator_set_version", "=", "indicators-v1"),
+        ],
+    )
+    corrupted_rows = [{**row, "sma_10": -999.0} for row in repaired_raw_rows]
+    replace_delta_table_rows(
+        table_path=indicator_dir / "research_indicator_frames.delta",
+        rows=corrupted_rows,
+        columns=indicator_store_contract(profile=base_profile)["research_indicator_frames"][
+            "columns"
+        ],
+        predicate=delta_equals_predicate(
+            {
+                "dataset_version": "dataset-cf-profile-extension-v1",
+                "contour_id": "pit_active_front",
+                "indicator_set_version": "indicators-v1",
+            }
+        ),
+    )
+
+    report = materialize_indicator_frames(
+        dataset_output_dir=dataset_dir,
+        indicator_output_dir=indicator_dir,
+        dataset_version="dataset-cf-profile-extension-v1",
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+        profile=extended_profile,
+    )
+
+    assert report["refreshed_partition_count"] == 1
+    assert report["extended_partition_count"] == 0
+    assert report["recomputed_partition_count"] == 1
+    second_rows = reload_indicator_frames(
+        indicator_output_dir=indicator_dir,
+        dataset_version="dataset-cf-profile-extension-v1",
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+    )
+    assert all(row.values["sma_10"] != -999.0 for row in second_rows)
+    assert second_rows[-1].values["ema_10"] is not None
+
+
 def test_derived_indicator_materialization_recomputes_only_affected_partitions(
     tmp_path: Path,
 ) -> None:
@@ -1408,6 +1572,168 @@ def test_derived_indicator_materialization_extends_profile_without_recomputing_e
     assert {row.ts: row.values["session_vwap"] for row in second_rows} == first_session_vwap
     assert second_rows[-1].values["distance_to_close_atr"] == 0.0
     assert second_rows[-1].profile_version == "core_v1_plus_new_derived"
+
+
+def test_continuous_front_derived_profile_extension_recomputes_existing_columns(
+    tmp_path: Path,
+) -> None:
+    bars = [
+        _canonical_bar(
+            contract_id="BR-6.26" if index < 48 else "BR-9.26",
+            index=index,
+            close=80.0 + index * 0.25,
+        )
+        for index in range(60)
+    ]
+    session_calendar = [
+        SessionCalendarEntry(
+            "BR", "15m", "2026-03-01", "2026-03-01T09:00:00Z", "2026-03-01T20:45:00Z"
+        ),
+        SessionCalendarEntry(
+            "BR", "15m", "2026-03-02", "2026-03-02T09:00:00Z", "2026-03-02T20:45:00Z"
+        ),
+    ]
+    roll_map = [
+        RollMapEntry("BR", "2026-03-01", "BR-6.26", "test"),
+        RollMapEntry("BR", "2026-03-02", "BR-9.26", "test"),
+    ]
+    dataset_dir = tmp_path / "dataset-cf-derived-profile-extension"
+    indicator_dir = tmp_path / "indicators-cf-derived-profile-extension"
+    derived_dir = tmp_path / "derived-cf-profile-extension"
+    dataset_version = "dataset-cf-derived-profile-extension-v1"
+
+    materialize_research_dataset(
+        manifest_seed=ResearchDatasetManifest(
+            dataset_version=dataset_version,
+            dataset_name="continuous front derived profile extension sample",
+            universe_id="moex-futures",
+            timeframes=("15m",),
+            contour_id="pit_active_front",
+            base_timeframe="15m",
+            start_ts="2026-03-01T09:00:00Z",
+            end_ts="2026-03-02T11:45:00Z",
+            series_mode="continuous_front",
+            continuous_front_policy=ContinuousFrontPolicy.from_config({}),
+            warmup_bars=0,
+            split_method="full",
+            code_version="test",
+        ),
+        bars=bars,
+        session_calendar=session_calendar,
+        roll_map=roll_map,
+        output_dir=dataset_dir,
+    )
+    materialize_indicator_frames(
+        dataset_output_dir=dataset_dir,
+        indicator_output_dir=indicator_dir,
+        dataset_version=dataset_version,
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+    )
+    base_derived_profile = current_derived_indicator_profile()
+    materialize_derived_indicator_frames(
+        dataset_output_dir=dataset_dir,
+        indicator_output_dir=indicator_dir,
+        derived_indicator_output_dir=derived_dir,
+        dataset_version=dataset_version,
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+        profile=base_derived_profile,
+    )
+    first_rows = read_delta_table_rows(
+        derived_dir / "research_derived_indicator_frames.delta",
+        filters=[
+            ("dataset_version", "=", dataset_version),
+            ("contour_id", "=", "pit_active_front"),
+            ("indicator_set_version", "=", "indicators-v1"),
+        ],
+    )
+    corrupted_rows = [{**row, "session_vwap": -999.0} for row in first_rows]
+    replace_delta_table_rows(
+        table_path=derived_dir / "research_derived_indicator_frames.delta",
+        rows=corrupted_rows,
+        columns=research_derived_indicator_store_contract(profile=base_derived_profile)[
+            "research_derived_indicator_frames"
+        ]["columns"],
+        predicate=delta_equals_predicate(
+            {
+                "dataset_version": dataset_version,
+                "contour_id": "pit_active_front",
+                "indicator_set_version": "indicators-v1",
+            }
+        ),
+    )
+
+    same_profile_report = materialize_derived_indicator_frames(
+        dataset_output_dir=dataset_dir,
+        indicator_output_dir=indicator_dir,
+        derived_indicator_output_dir=derived_dir,
+        dataset_version=dataset_version,
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+        profile=base_derived_profile,
+    )
+    assert same_profile_report["derived_indicator_row_count"] == 60
+    assert same_profile_report["refreshed_partition_count"] == 1
+    assert same_profile_report["reused_partition_count"] == 0
+    assert same_profile_report["recomputed_partition_count"] == 1
+    repaired_rows = read_delta_table_rows(
+        derived_dir / "research_derived_indicator_frames.delta",
+        filters=[
+            ("dataset_version", "=", dataset_version),
+            ("contour_id", "=", "pit_active_front"),
+            ("indicator_set_version", "=", "indicators-v1"),
+        ],
+    )
+    assert all(row["session_vwap"] != -999.0 for row in repaired_rows)
+
+    corrupted_rows = [{**row, "session_vwap": -999.0} for row in repaired_rows]
+    replace_delta_table_rows(
+        table_path=derived_dir / "research_derived_indicator_frames.delta",
+        rows=corrupted_rows,
+        columns=research_derived_indicator_store_contract(profile=base_derived_profile)[
+            "research_derived_indicator_frames"
+        ]["columns"],
+        predicate=delta_equals_predicate(
+            {
+                "dataset_version": dataset_version,
+                "contour_id": "pit_active_front",
+                "indicator_set_version": "indicators-v1",
+            }
+        ),
+    )
+
+    extended_derived_profile = DerivedIndicatorProfile(
+        version="core_v1_plus_new_cf_derived",
+        description="Core continuous-front derived profile plus one new formula column.",
+        output_columns=(*base_derived_profile.output_columns, "distance_to_close_atr"),
+        warmup_bars=base_derived_profile.warmup_bars,
+    )
+    report = materialize_derived_indicator_frames(
+        dataset_output_dir=dataset_dir,
+        indicator_output_dir=indicator_dir,
+        derived_indicator_output_dir=derived_dir,
+        dataset_version=dataset_version,
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+        profile=extended_derived_profile,
+    )
+
+    assert report["derived_indicator_row_count"] == 60
+    assert report["refreshed_partition_count"] == 1
+    assert report["extended_partition_count"] == 0
+    assert report["recomputed_partition_count"] == 1
+    second_rows = read_delta_table_rows(
+        derived_dir / "research_derived_indicator_frames.delta",
+        filters=[
+            ("dataset_version", "=", dataset_version),
+            ("contour_id", "=", "pit_active_front"),
+            ("indicator_set_version", "=", "indicators-v1"),
+        ],
+    )
+    assert all(row["session_vwap"] != -999.0 for row in second_rows)
+    assert second_rows[-1]["distance_to_close_atr"] == 0.0
+    assert second_rows[-1]["profile_version"] == "core_v1_plus_new_cf_derived"
 
 
 def test_derived_materialization_uses_source_frame_without_l0_l1_python_join(

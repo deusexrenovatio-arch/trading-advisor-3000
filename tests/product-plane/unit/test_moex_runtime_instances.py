@@ -74,7 +74,7 @@ def test_moex_runtime_instances_build_baseline_run_config() -> None:
     config = run_config["ops"]["moex_baseline_update"]["config"]
     assert config["run_id"] == "manual-proof"
     assert config["ingest_till_utc"] == "2026-05-08T12:39:47Z"
-    assert config["timeframes"] == "5m,15m,1h,4h,1d,1w"
+    assert config["timeframes"] == "1m,5m,15m,1h,4h,1d,1w"
     assert config["raw_table_path"].startswith("/ta3000-data/moex-historical/")
 
 

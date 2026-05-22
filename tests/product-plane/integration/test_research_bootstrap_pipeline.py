@@ -35,16 +35,28 @@ RAW_FIXTURE = (
 )
 
 
-def _read_batched_delta_rows(table_path: Path) -> list[dict[str, object]]:
-    return [row for batch in iter_delta_table_row_batches(table_path) for row in batch]
+def _read_batched_delta_rows(
+    table_path: Path, *, filters: list[tuple[str, str, object]]
+) -> list[dict[str, object]]:
+    return [
+        row
+        for batch in iter_delta_table_row_batches(table_path, filters=filters)
+        for row in batch
+    ]
 
 
 def _load_canonical_context(
     output_dir: Path,
+    *,
+    contract_ids: set[str],
 ) -> tuple[list[CanonicalBar], list[SessionCalendarEntry], list[RollMapEntry]]:
+    instruments = sorted(contract_id.split("-", maxsplit=1)[0] for contract_id in contract_ids)
     bars = [
         CanonicalBar.from_dict(row)
-        for row in _read_batched_delta_rows(output_dir / "canonical_bars.delta")
+        for row in _read_batched_delta_rows(
+            output_dir / "canonical_bars.delta",
+            filters=[("contract_id", "in", sorted(contract_ids))],
+        )
     ]
     session_calendar = [
         SessionCalendarEntry(
@@ -54,7 +66,10 @@ def _load_canonical_context(
             session_open_ts=str(row["session_open_ts"]),
             session_close_ts=str(row["session_close_ts"]),
         )
-        for row in _read_batched_delta_rows(output_dir / "canonical_session_calendar.delta")
+        for row in _read_batched_delta_rows(
+            output_dir / "canonical_session_calendar.delta",
+            filters=[("instrument_id", "in", instruments)],
+        )
     ]
     roll_map = [
         RollMapEntry(
@@ -63,7 +78,10 @@ def _load_canonical_context(
             active_contract_id=str(row["active_contract_id"]),
             reason=str(row["reason"]),
         )
-        for row in _read_batched_delta_rows(output_dir / "canonical_roll_map.delta")
+        for row in _read_batched_delta_rows(
+            output_dir / "canonical_roll_map.delta",
+            filters=[("active_contract_id", "in", sorted(contract_ids))],
+        )
     ]
     return bars, session_calendar, roll_map
 
@@ -250,12 +268,16 @@ def materialize_research_dataset(
 
 def test_research_dataset_materialization_and_reload_by_dataset_version(tmp_path: Path) -> None:
     canonical_output_dir = tmp_path / "canonical"
+    contract_ids = {"BR-6.26", "Si-6.26"}
     run_sample_backfill(
         source_path=RAW_FIXTURE,
         output_dir=canonical_output_dir,
-        whitelist_contracts={"BR-6.26", "Si-6.26"},
+        whitelist_contracts=contract_ids,
     )
-    bars, session_calendar, roll_map = _load_canonical_context(canonical_output_dir)
+    bars, session_calendar, roll_map = _load_canonical_context(
+        canonical_output_dir,
+        contract_ids=contract_ids,
+    )
 
     research_output_dir = tmp_path / "research"
     report = materialize_research_dataset(

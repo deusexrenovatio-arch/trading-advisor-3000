@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,6 +16,10 @@ from trading_advisor_3000.product_plane.data_plane.moex.foundation import RAW_CO
 from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contracts import (
     build_raw_ingest_run_report_v2,
 )
+from trading_advisor_3000.product_plane.data_plane.schemas.delta import (
+    historical_data_delta_schema_manifest,
+)
+from trading_advisor_3000.spark_jobs import moex_canonical_publish_job as publish_job
 
 
 def _changed_raw_report() -> dict[str, object]:
@@ -89,6 +94,18 @@ def _passing_session_admission_report() -> dict[str, object]:
         "selected_source_interval_rows": 6,
         "rejected_samples": [],
     }
+
+
+def test_spark_publish_rewrites_session_sidecars_when_physical_layout_drifted() -> None:
+    run_source = inspect.getsource(publish_job.run_moex_canonical_publish_spark_delta_job)
+    replace_source = inspect.getsource(publish_job._replace_delta_dataframe)
+
+    assert "_delta_table_layout_matches_manifest(" in run_source
+    assert "sidecar_layout_rewrite_required" in run_source
+    assert 'refresh_mode = "layout_rewrite"' in run_source
+    assert '"partition_columns"' in run_source
+    assert "target_file_count" in replace_source
+    assert ".coalesce(target_file_count)" in replace_source
 
 
 def test_default_route_uses_scoped_spark_delta_publish_without_python_delta_reads(
@@ -400,6 +417,223 @@ def test_noop_route_marks_contract_report_skipped_not_passed(tmp_path: Path) -> 
     assert contract_report["status"] == "SKIPPED"
     assert contract_report["checked_rows"] == 0
     assert contract_report["reason"] == "noop refresh did not produce Spark canonical rows"
+
+
+def test_noop_route_runs_full_sidecar_repair_when_calendar_is_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_table_path = tmp_path / "raw_moex_history.delta"
+    output_dir = tmp_path / "canonical"
+    bars_path = output_dir / "delta" / "canonical_bars.delta"
+    provenance_path = output_dir / "delta" / "canonical_bar_provenance.delta"
+    write_delta_table_rows(table_path=raw_table_path, rows=[], columns=RAW_COLUMNS)
+    write_delta_table_rows(table_path=bars_path, rows=[], columns=route_module.CANONICAL_BAR_COLUMNS)
+    write_delta_table_rows(
+        table_path=provenance_path,
+        rows=[],
+        columns=route_module.PROVENANCE_COLUMNS,
+    )
+    captured_publish: dict[str, object] = {}
+
+    def _fake_spark_publish(**kwargs: object) -> dict[str, object]:
+        captured_publish.update(kwargs)
+        target_bars_path = Path(str(kwargs["target_bars_path"]))
+        target_provenance_path = Path(str(kwargs["target_provenance_path"]))
+        session_calendar_path = Path(str(kwargs["session_calendar_path"]))
+        roll_map_path = Path(str(kwargs["roll_map_path"]))
+        return {
+            "run_id": kwargs["run_id"],
+            "runtime_owner": "spark_delta",
+            "status": "PASS",
+            "publish_decision": "publish",
+            "mutation_applied": False,
+            "scoped_canonical_rows": 0,
+            "canonical_rows": 0,
+            "provenance_rows": 0,
+            "qc_report": {
+                "run_id": kwargs["run_id"],
+                "runtime_owner": "spark_delta",
+                "status": "PASS",
+                "publish_decision": "publish",
+                "failed_gates": [],
+                "gate_results": [],
+            },
+            "contract_compatibility_report": {
+                "runtime_owner": "spark_delta",
+                "status": "PASS",
+                "checked_rows": 0,
+                "errors": [],
+            },
+            "sidecar_refresh": {
+                "mode": "full",
+                "mutation_applied": True,
+                "refreshed_session_calendar_rows": 1,
+                "refreshed_roll_map_rows": 1,
+                "affected_session_rows": 0,
+                "overlap_session_rows": 0,
+                "overlap_policy": "full_sidecar_repair",
+            },
+            "output_paths": {
+                "canonical_bars": target_bars_path.as_posix(),
+                "canonical_bar_provenance": target_provenance_path.as_posix(),
+                "canonical_session_calendar": session_calendar_path.as_posix(),
+                "canonical_roll_map": roll_map_path.as_posix(),
+            },
+            "delta_log": {
+                "canonical_bars": {"path": target_bars_path.as_posix(), "delta_log": True},
+                "canonical_bar_provenance": {
+                    "path": target_provenance_path.as_posix(),
+                    "delta_log": True,
+                },
+                "canonical_session_calendar": {
+                    "path": session_calendar_path.as_posix(),
+                    "delta_log": True,
+                },
+                "canonical_roll_map": {"path": roll_map_path.as_posix(), "delta_log": True},
+            },
+            "spark_profile": {"master": "local[2]", "delta_writer": "spark"},
+        }
+
+    monkeypatch.setattr(route_module, "_run_spark_canonical_publish", _fake_spark_publish)
+
+    report = route_module.run_historical_canonical_route(
+        raw_table_path=raw_table_path,
+        output_dir=output_dir,
+        run_id="phase02-noop-sidecar-repair",
+        raw_ingest_run_report=_noop_raw_report(),
+        canonical_session_intervals_path=_session_intervals_path(tmp_path),
+        repo_root=Path.cwd(),
+    )
+
+    assert report["status"] == "PASS-NOOP"
+    assert report["publish_decision"] == "publish"
+    assert report["mutation_applied"] is False
+    assert report["sidecar_refresh"]["mode"] == "full"
+    assert report["sidecar_refresh"]["mutation_applied"] is True
+    assert report["contract_compatibility_report"]["status"] == "PASS"
+    assert report["output_paths"]["canonical_session_calendar"].endswith(
+        "canonical_session_calendar.delta"
+    )
+    assert captured_publish["target_bars_path"] == bars_path
+    assert captured_publish["target_provenance_path"] == provenance_path
+    assert captured_publish["publish_scope_path"] is None
+    assert str(captured_publish["staged_bars_path"]).replace("\\", "/").endswith(
+        "noop-sidecar-repair/empty-canonical-bars.delta"
+    )
+
+
+def test_noop_route_runs_full_sidecar_repair_when_sidecar_layout_drifted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_table_path = tmp_path / "raw_moex_history.delta"
+    output_dir = tmp_path / "canonical"
+    bars_path = output_dir / "delta" / "canonical_bars.delta"
+    provenance_path = output_dir / "delta" / "canonical_bar_provenance.delta"
+    session_calendar_path = output_dir / "delta" / "canonical_session_calendar.delta"
+    roll_map_path = output_dir / "delta" / "canonical_roll_map.delta"
+    manifest = historical_data_delta_schema_manifest()
+    write_delta_table_rows(table_path=raw_table_path, rows=[], columns=RAW_COLUMNS)
+    write_delta_table_rows(table_path=bars_path, rows=[], columns=route_module.CANONICAL_BAR_COLUMNS)
+    write_delta_table_rows(
+        table_path=provenance_path,
+        rows=[],
+        columns=route_module.PROVENANCE_COLUMNS,
+    )
+    write_delta_table_rows(
+        table_path=session_calendar_path,
+        rows=[],
+        columns=manifest["canonical_session_calendar"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=roll_map_path,
+        rows=[],
+        columns=manifest["canonical_roll_map"]["columns"],
+    )
+    captured_publish: dict[str, object] = {}
+
+    def _layout_matches_manifest(table_path: Path, *_args: object, **_kwargs: object) -> bool:
+        return table_path not in {session_calendar_path, roll_map_path}
+
+    def _fake_spark_publish(**kwargs: object) -> dict[str, object]:
+        captured_publish.update(kwargs)
+        target_bars_path = Path(str(kwargs["target_bars_path"]))
+        target_provenance_path = Path(str(kwargs["target_provenance_path"]))
+        return {
+            "run_id": kwargs["run_id"],
+            "runtime_owner": "spark_delta",
+            "status": "PASS",
+            "publish_decision": "publish",
+            "mutation_applied": False,
+            "canonical_rows": 0,
+            "provenance_rows": 0,
+            "qc_report": {
+                "run_id": kwargs["run_id"],
+                "runtime_owner": "spark_delta",
+                "status": "PASS",
+                "publish_decision": "publish",
+                "failed_gates": [],
+                "gate_results": [],
+            },
+            "contract_compatibility_report": {
+                "runtime_owner": "spark_delta",
+                "status": "PASS",
+                "checked_rows": 0,
+                "errors": [],
+            },
+            "sidecar_refresh": {
+                "mode": "layout_rewrite",
+                "mutation_applied": True,
+                "refreshed_session_calendar_rows": 1,
+                "refreshed_roll_map_rows": 1,
+                "affected_session_rows": 0,
+                "overlap_session_rows": 0,
+                "overlap_policy": "full_sidecar_repair",
+            },
+            "output_paths": {
+                "canonical_bars": target_bars_path.as_posix(),
+                "canonical_bar_provenance": target_provenance_path.as_posix(),
+                "canonical_session_calendar": session_calendar_path.as_posix(),
+                "canonical_roll_map": roll_map_path.as_posix(),
+            },
+            "delta_log": {
+                "canonical_bars": {"path": target_bars_path.as_posix(), "delta_log": True},
+                "canonical_bar_provenance": {
+                    "path": target_provenance_path.as_posix(),
+                    "delta_log": True,
+                },
+                "canonical_session_calendar": {
+                    "path": session_calendar_path.as_posix(),
+                    "delta_log": True,
+                },
+                "canonical_roll_map": {"path": roll_map_path.as_posix(), "delta_log": True},
+            },
+        }
+
+    monkeypatch.setattr(
+        route_module,
+        "_delta_table_layout_matches_manifest",
+        _layout_matches_manifest,
+        raising=False,
+    )
+    monkeypatch.setattr(route_module, "_run_spark_canonical_publish", _fake_spark_publish)
+
+    report = route_module.run_historical_canonical_route(
+        raw_table_path=raw_table_path,
+        output_dir=output_dir,
+        run_id="phase02-noop-sidecar-layout-repair",
+        raw_ingest_run_report=_noop_raw_report(),
+        canonical_session_intervals_path=_session_intervals_path(tmp_path),
+        repo_root=Path.cwd(),
+    )
+
+    assert report["status"] == "PASS-NOOP"
+    assert report["sidecar_refresh"]["mode"] == "layout_rewrite"
+    assert report["sidecar_refresh"]["mutation_applied"] is True
+    assert captured_publish["publish_scope_path"] is None
+    assert captured_publish["target_bars_path"] == bars_path
+    assert captured_publish["target_provenance_path"] == provenance_path
 
 
 def test_noop_route_blocks_when_runtime_decoupling_fails(

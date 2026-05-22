@@ -327,6 +327,91 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
     assert {row["active_contract_id"] for row in _read_rows(roll_map_path)} == {"BRM6@MOEX"}
 
 
+def test_spark_publish_uses_moscow_date_for_sidecar_session_scope(
+    tmp_path: Path,
+) -> None:
+    if os.name == "nt" and not os.environ.get("HADOOP_HOME"):
+        pytest.skip(
+            "local Windows Spark execution requires HADOOP_HOME; "
+            "Docker/Linux proof profile runs this path"
+        )
+
+    manifest = historical_data_delta_schema_manifest()
+    canonical_columns = manifest["canonical_bars"]["columns"]
+
+    staged_bars_path = tmp_path / "staged" / "canonical_bars.delta"
+    staged_provenance_path = tmp_path / "staged" / "canonical_bar_provenance.delta"
+    target_bars_path = tmp_path / "target" / "canonical_bars.delta"
+    target_provenance_path = tmp_path / "target" / "canonical_bar_provenance.delta"
+    session_calendar_path = tmp_path / "target" / "canonical_session_calendar.delta"
+    roll_map_path = tmp_path / "target" / "canonical_roll_map.delta"
+    session_intervals_path = tmp_path / "official" / "canonical_session_intervals.delta"
+
+    write_delta_table_rows(
+        table_path=staged_bars_path,
+        rows=[
+            _bar(
+                ts="2026-04-21T21:15:00Z",
+                open=100.0,
+                high=101.0,
+                low=99.0,
+                close=100.5,
+                volume=10,
+                open_interest=100,
+            )
+        ],
+        columns=canonical_columns,
+    )
+    write_delta_table_rows(
+        table_path=staged_provenance_path,
+        rows=[
+            _provenance(
+                ts="2026-04-21T21:15:00Z",
+                source_ts_open_first="2026-04-21T21:15:00Z",
+                source_ts_close_last="2026-04-21T21:19:59Z",
+            )
+        ],
+        columns=CANONICAL_PROVENANCE_COLUMNS,
+    )
+    write_delta_table_rows(
+        table_path=session_intervals_path,
+        rows=[
+            {
+                "instrument_id": "FUT_BR",
+                "session_date": "2026-04-22",
+                "interval_id": "FUT_BR-2026-04-22-evening-1",
+                "interval_seq": 1,
+                "expected_open_ts": "2026-04-21T21:15:00Z",
+                "expected_close_ts": "2026-04-21T21:25:00Z",
+                "session_class": "regular",
+                "interval_type": "evening_session",
+                "policy_id": "moex-official-session-v1",
+                "source_id": "moex-official-schedule-fixture",
+                "source_document_hash": "sha256:fixture",
+            }
+        ],
+        columns=SESSION_INTERVAL_COLUMNS,
+    )
+
+    report = run_moex_canonical_publish_spark_delta_job(
+        staged_bars_path=staged_bars_path,
+        staged_provenance_path=staged_provenance_path,
+        target_bars_path=target_bars_path,
+        target_provenance_path=target_provenance_path,
+        session_calendar_path=session_calendar_path,
+        session_intervals_path=session_intervals_path,
+        roll_map_path=roll_map_path,
+        output_dir=tmp_path / "publish-proof",
+        run_id="spark-publish-moscow-sidecar-date",
+    )
+
+    assert report["status"] == "PASS", report
+    assert report["sidecar_refresh"]["refreshed_session_calendar_rows"] == 1
+    session_rows = _read_rows(session_calendar_path)
+    assert len(session_rows) == 1
+    assert str(session_rows[0]["session_date"]).startswith("2026-04-22")
+
+
 def test_spark_publish_blocks_non_monotonic_provenance_without_mutating_target(
     tmp_path: Path,
 ) -> None:
