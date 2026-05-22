@@ -669,6 +669,7 @@ def test_research_data_prep_can_source_indicators_from_continuous_front(
     assert len(native_dataset["bar_views"]) > 0
 
 
+@requires_spark_delta_runtime
 def test_isolated_moex_data_layer_rebuild_jobs_update_only_their_layer(
     tmp_path: Path, monkeypatch
 ) -> None:

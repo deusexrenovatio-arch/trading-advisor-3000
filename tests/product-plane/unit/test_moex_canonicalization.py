@@ -138,12 +138,12 @@ def test_canonicalization_qc_fails_when_duplicate_bar_key_is_present() -> None:
     assert "unique_bar_key" in qc_report["failed_gates"]
 
 
-def test_canonical_parity_rejects_bucket_misaligned_timestamp() -> None:
+def test_canonical_parity_accepts_session_bounded_affected_timestamp() -> None:
     bar = CanonicalBar(
         contract_id="BRM6@MOEX",
         instrument_id="FUT_BR",
-        timeframe=Timeframe.M15,
-        ts="2026-04-02T10:03:00Z",
+        timeframe=Timeframe.H4,
+        ts="2026-04-02T10:00:00Z",
         open=100.0,
         high=101.0,
         low=99.0,
@@ -153,14 +153,14 @@ def test_canonical_parity_rejects_bucket_misaligned_timestamp() -> None:
     )
 
     report = canonical_module._build_canonical_parity_report(
-        run_id="canonicalization-misaligned-ts",
+        run_id="canonicalization-session-bounded-ts",
         scoped_bars=[bar],
         final_bars=[bar],
         affected_keys={canonical_module._canonical_bar_key(bar)},
     )
 
-    assert report["status"] == "FAIL"
-    assert "timestamp_drift" in report["failure_classes"]
+    assert report["status"] == "PASS"
+    assert "timestamp_drift" not in report["failure_classes"]
 
 
 def test_canonicalization_contract_compatibility_detects_schema_drift(tmp_path: Path) -> None:

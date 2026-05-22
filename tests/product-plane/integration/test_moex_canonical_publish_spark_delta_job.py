@@ -36,6 +36,15 @@ SESSION_INTERVAL_COLUMNS: dict[str, str] = {
 }
 
 
+def _windows_hadoop_nativeio_unavailable() -> bool:
+    if os.name != "nt":
+        return False
+    hadoop_home = os.environ.get("HADOOP_HOME")
+    if not hadoop_home:
+        return True
+    return not (Path(hadoop_home) / "bin" / "hadoop.dll").exists()
+
+
 def _read_rows(path: Path) -> list[dict[str, object]]:
     return [
         row
@@ -119,9 +128,9 @@ def _write_session_intervals(path: Path, session_dates: list[str]) -> Path:
 def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
     tmp_path: Path,
 ) -> None:
-    if os.name == "nt" and not os.environ.get("HADOOP_HOME"):
+    if _windows_hadoop_nativeio_unavailable():
         pytest.skip(
-            "local Windows Spark execution requires HADOOP_HOME; "
+            "local Windows Spark/Delta requires Hadoop NativeIO; "
             "Docker/Linux proof profile runs this path"
         )
 
@@ -330,9 +339,9 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
 def test_spark_publish_uses_moscow_date_for_sidecar_session_scope(
     tmp_path: Path,
 ) -> None:
-    if os.name == "nt" and not os.environ.get("HADOOP_HOME"):
+    if _windows_hadoop_nativeio_unavailable():
         pytest.skip(
-            "local Windows Spark execution requires HADOOP_HOME; "
+            "local Windows Spark/Delta requires Hadoop NativeIO; "
             "Docker/Linux proof profile runs this path"
         )
 
@@ -415,9 +424,9 @@ def test_spark_publish_uses_moscow_date_for_sidecar_session_scope(
 def test_spark_publish_blocks_non_monotonic_provenance_without_mutating_target(
     tmp_path: Path,
 ) -> None:
-    if os.name == "nt" and not os.environ.get("HADOOP_HOME"):
+    if _windows_hadoop_nativeio_unavailable():
         pytest.skip(
-            "local Windows Spark execution requires HADOOP_HOME; "
+            "local Windows Spark/Delta requires Hadoop NativeIO; "
             "Docker/Linux proof profile runs this path"
         )
 
@@ -482,9 +491,9 @@ def test_spark_publish_blocks_non_monotonic_provenance_without_mutating_target(
 
 
 def test_spark_publish_blocks_zero_checked_contract_rows(tmp_path: Path) -> None:
-    if os.name == "nt" and not os.environ.get("HADOOP_HOME"):
+    if _windows_hadoop_nativeio_unavailable():
         pytest.skip(
-            "local Windows Spark execution requires HADOOP_HOME; "
+            "local Windows Spark/Delta requires Hadoop NativeIO; "
             "Docker/Linux proof profile runs this path"
         )
 
