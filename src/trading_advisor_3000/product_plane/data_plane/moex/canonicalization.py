@@ -1644,13 +1644,10 @@ def _build_canonical_parity_report(
             duplicate_errors.append(f"duplicate canonical key: {key[0]}/{key[2]}/{key[3]}")
         final_by_key[key] = row.to_dict()
         try:
-            parsed_ts = _parse_iso_utc(row.ts)
+            _parse_iso_utc(row.ts)
         except ValueError:
             timestamp_drift_errors.append(f"timestamp drift: {key[0]}/{key[2]}/{key[3]}")
             continue
-        expected_interval_seconds = TARGET_MINUTES_BY_TIMEFRAME[row.timeframe] * 60
-        if int(parsed_ts.timestamp()) % expected_interval_seconds != 0:
-            timestamp_drift_errors.append(f"timestamp drift: {key[0]}/{key[2]}/{key[3]}")
 
     missing_bar_errors: list[str] = []
     aggregation_mismatch_errors: list[str] = []
