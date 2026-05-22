@@ -12,22 +12,26 @@ try:
     from scripts.proof_runtime_contract import (
         container_to_host_path,
         docker_host_owner,
+        docker_subprocess_timeout_seconds,
         ensure_output_directory_writable,
         ensure_output_file_writable,
         host_to_container_path,
         normalize_runtime_root,
         resolve_repo_path,
+        spark_docker_env_flags,
         wrap_with_owner_normalization,
     )
 except ImportError:  # pragma: no cover - script execution fallback
     from proof_runtime_contract import (
         container_to_host_path,
         docker_host_owner,
+        docker_subprocess_timeout_seconds,
         ensure_output_directory_writable,
         ensure_output_file_writable,
         host_to_container_path,
         normalize_runtime_root,
         resolve_repo_path,
+        spark_docker_env_flags,
         wrap_with_owner_normalization,
     )
 
@@ -48,6 +52,7 @@ DEFAULT_DOCKERFILE = Path("deployment/docker/phase-proofs/Dockerfile")
 DEFAULT_DOCKER_RUNTIME_ROOT = "/tmp/ta3000-phase-proof"
 DEFAULT_DOCKER_DATA_ROOT = "/ta3000-data/moex-historical"
 SPARK_DOCKER_SUBPROCESS_TIMEOUT_SECONDS = 1800
+SPARK_DOCKER_SUBPROCESS_TIMEOUT_ENV = "TA3000_SPARK_DOCKER_SUBPROCESS_TIMEOUT_SECONDS"
 MOEX_HISTORICAL_DATA_ROOT_ENV = "TA3000_MOEX_HISTORICAL_DATA_ROOT"
 
 
@@ -226,6 +231,7 @@ def _run_in_docker(
         f"HOME={runtime_root}",
         "-e",
         f"TA3000_SPARK_RUNTIME_ROOT={runtime_root}",
+        *spark_docker_env_flags(),
     ]
     for host_root, container_root in _external_mount_roots():
         command.extend(
@@ -260,7 +266,10 @@ def _run_in_docker(
         capture_output=True,
         text=True,
         check=False,
-        timeout=SPARK_DOCKER_SUBPROCESS_TIMEOUT_SECONDS,
+        timeout=docker_subprocess_timeout_seconds(
+            env_name=SPARK_DOCKER_SUBPROCESS_TIMEOUT_ENV,
+            default_seconds=SPARK_DOCKER_SUBPROCESS_TIMEOUT_SECONDS,
+        ),
     )
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout).strip()

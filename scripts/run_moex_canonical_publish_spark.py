@@ -16,6 +16,7 @@ try:
         ensure_output_file_writable,
         host_to_container_path,
         resolve_repo_path,
+        spark_docker_env_flags,
         wrap_with_owner_normalization,
     )
 except ImportError:  # pragma: no cover - script execution fallback
@@ -26,6 +27,7 @@ except ImportError:  # pragma: no cover - script execution fallback
         ensure_output_file_writable,
         host_to_container_path,
         resolve_repo_path,
+        spark_docker_env_flags,
         wrap_with_owner_normalization,
     )
 
@@ -245,6 +247,7 @@ def _run_docker(args: argparse.Namespace) -> dict[str, object]:
         f"HOME={args.docker_runtime_root}",
         "-e",
         f"TA3000_SPARK_RUNTIME_ROOT={args.docker_runtime_root}",
+        *spark_docker_env_flags(),
     ]
     for host_root, container_root in _external_mount_roots():
         command.extend(
