@@ -86,14 +86,7 @@ def _spec_required_timeframes(
         if timeframes:
             return tuple(timeframes)
         return (fallback,)
-    if not spec.clock_profile:
-        return (fallback,)
-    timeframes: list[str] = []
-    for key in ("regime_tf", "signal_tf", "trigger_tf", "execution_tf"):
-        value = str(spec.clock_profile.get(key, "")).strip()
-        if value and value not in timeframes:
-            timeframes.append(value)
-    return tuple(timeframes) or (fallback,)
+    return (_spec_execution_timeframe(spec, fallback=fallback),)
 
 
 def _loader_timeframe_for_specs(

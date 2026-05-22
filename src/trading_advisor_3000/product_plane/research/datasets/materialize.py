@@ -157,6 +157,14 @@ def _utc_now_iso() -> str:
     return datetime.now(tz=UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def _dataset_manifest_replace_predicate(*, dataset_version: str, contour_id: str) -> str:
+    base_predicate = delta_equals_predicate(
+        {"dataset_version": dataset_version, "contour_id": contour_id}
+    )
+    legacy_predicate = delta_equals_predicate({"dataset_version": dataset_version})
+    return f"({base_predicate}) OR ({legacy_predicate} AND contour_id IS NULL)"
+
+
 def _stable_hash_rows(rows: list[CanonicalBar]) -> str:
     payload = [
         {
@@ -463,8 +471,9 @@ def materialize_research_dataset(
         },
     )
 
-    dataset_predicate = delta_equals_predicate(
-        {"dataset_version": manifest.dataset_version, "contour_id": manifest.contour_id}
+    dataset_predicate = _dataset_manifest_replace_predicate(
+        dataset_version=manifest.dataset_version,
+        contour_id=manifest.contour_id,
     )
     if has_delta_log(datasets_path):
         ensure_delta_table_columns(

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Callable
+from uuid import uuid4
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
@@ -34,6 +36,20 @@ class ResearchBarViewsSparkJobSpec:
     app_name: str = "ta3000-research-bar-views-l0"
     delta_reader: str = "spark"
     delta_writer: str = "spark"
+
+
+@dataclass(frozen=True)
+class BarUsageContextFrames:
+    intervals: object
+    day_meta: object
+    expected_weekly: object
+    actual_daily: object
+
+    def unpersist(self) -> None:
+        for frame in (self.intervals, self.day_meta, self.expected_weekly, self.actual_daily):
+            unpersist = getattr(frame, "unpersist", None)
+            if callable(unpersist):
+                unpersist()
 
 
 def build_research_l0_sql_plan() -> str:
@@ -78,6 +94,28 @@ def _delta_log_hash(table_path: Path) -> str:
         digest.update(item.name.encode("utf-8"))
         digest.update(str(item.stat().st_size).encode("utf-8"))
     return digest.hexdigest()[:16].upper()
+
+
+def _delta_table_partition_columns(spark: object, table_path: Path) -> tuple[str, ...] | None:
+    if not has_delta_log(table_path):
+        return None
+    from delta.tables import DeltaTable  # type: ignore[import-not-found]
+
+    rows = DeltaTable.forPath(spark, str(table_path)).detail().select("partitionColumns").collect()
+    if not rows:
+        return ()
+    return tuple(str(item) for item in (rows[0]["partitionColumns"] or []))
+
+
+def _delta_table_layout_matches_contract(
+    *, spark: object, table_path: Path, table_name: str
+) -> bool:
+    actual = _delta_table_partition_columns(spark, table_path)
+    if actual is None:
+        return False
+    contract = research_dataset_store_contract()[table_name]
+    expected = tuple(str(item) for item in list(contract.get("partition_by") or []))
+    return actual == expected
 
 
 def _combined_source_hash(source_hashes: dict[str, str], keys: tuple[str, ...]) -> str:
@@ -197,10 +235,30 @@ def _canonical_provenance_frame(spark: object, table_path: Path):
     )
 
 
-def _session_calendar_frame(spark: object, table_path: Path):
+def _session_calendar_frame(
+    spark: object,
+    table_path: Path,
+    *,
+    instrument_ids: tuple[str, ...] = (),
+    timeframes: tuple[str, ...] = (),
+    start_ts: str | None = None,
+    end_ts: str | None = None,
+):
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
     calendar = spark.read.format("delta").load(str(table_path))
+    if instrument_ids:
+        calendar = calendar.where(F.col("instrument_id").isin([*instrument_ids]))
+    if timeframes:
+        calendar = calendar.where(F.col("timeframe").isin([*timeframes]))
+    if start_ts:
+        calendar = calendar.where(
+            F.col("session_date") >= F.date_sub(F.to_date(F.lit(start_ts)), 7)
+        )
+    if end_ts:
+        calendar = calendar.where(
+            F.col("session_date") <= F.date_add(F.to_date(F.lit(end_ts)), 7)
+        )
     _require_columns(
         calendar,
         table_name="canonical_session_calendar",
@@ -257,16 +315,32 @@ def _bar_usage_flags_expression(profile_column):
     return F.create_map(*entries)[profile_column]
 
 
-def _with_bar_usage_contract(
+def _bar_usage_context_frames(
     *,
     spark: object,
-    dataframe,
     canonical_bars_path: Path,
     canonical_session_intervals_path: Path,
-):
+    instrument_ids: tuple[str, ...] = (),
+    start_ts: str | None = None,
+    end_ts: str | None = None,
+    warmup_bars: int = 0,
+) -> BarUsageContextFrames:
+    from pyspark import StorageLevel  # type: ignore[import-not-found]
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
+    scoped_start_ts = start_ts if warmup_bars <= 0 else None
     intervals = _session_intervals_frame(spark, canonical_session_intervals_path)
+    if instrument_ids:
+        intervals = intervals.where(F.col("interval_instrument_id").isin([*instrument_ids]))
+    if scoped_start_ts:
+        intervals = intervals.where(
+            F.col("interval_session_date") >= F.date_sub(F.to_date(F.lit(scoped_start_ts)), 7)
+        )
+    if end_ts:
+        intervals = intervals.where(
+            F.col("interval_session_date") <= F.date_add(F.to_date(F.lit(end_ts)), 7)
+        )
+    intervals = intervals.persist(StorageLevel.MEMORY_AND_DISK)
     day_meta = (
         intervals.groupBy("interval_instrument_id", "interval_session_date")
         .agg(
@@ -299,6 +373,7 @@ def _with_bar_usage_contract(
             )
             .otherwise(F.lit("regular")),
         )
+        .persist(StorageLevel.MEMORY_AND_DISK)
     )
 
     expected_weekly = (
@@ -317,6 +392,7 @@ def _with_bar_usage_contract(
         )
         .withColumnRenamed("interval_instrument_id", "weekly_expected_instrument_id")
         .withColumnRenamed("week_start", "weekly_expected_week_start")
+        .persist(StorageLevel.MEMORY_AND_DISK)
     )
     day_meta = day_meta.withColumnRenamed(
         "interval_instrument_id", "day_instrument_id"
@@ -325,7 +401,19 @@ def _with_bar_usage_contract(
         spark.read.format("delta")
         .load(str(canonical_bars_path))
         .where(F.lower(F.col("timeframe")).isin([*DAILY_TIMEFRAMES]))
-        .select(
+    )
+    if instrument_ids:
+        actual_daily = actual_daily.where(F.col("instrument_id").isin([*instrument_ids]))
+    if scoped_start_ts:
+        actual_daily = actual_daily.where(
+            F.to_date("ts") >= F.date_sub(F.to_date(F.lit(scoped_start_ts)), 7)
+        )
+    if end_ts:
+        actual_daily = actual_daily.where(
+            F.to_date("ts") <= F.date_add(F.to_date(F.lit(end_ts)), 7)
+        )
+    actual_daily = (
+        actual_daily.select(
             F.col("contract_id").alias("daily_contract_id"),
             F.col("instrument_id").alias("daily_instrument_id"),
             F.to_date(F.date_trunc("week", F.col("ts"))).alias("week_start"),
@@ -334,7 +422,36 @@ def _with_bar_usage_contract(
         .distinct()
         .groupBy("daily_contract_id", "daily_instrument_id", "week_start")
         .agg(F.count(F.lit(1)).alias("actual_daily_sessions"))
+        .persist(StorageLevel.MEMORY_AND_DISK)
     )
+    return BarUsageContextFrames(
+        intervals=intervals,
+        day_meta=day_meta.persist(StorageLevel.MEMORY_AND_DISK),
+        expected_weekly=expected_weekly,
+        actual_daily=actual_daily,
+    )
+
+
+def _with_bar_usage_contract(
+    *,
+    spark: object,
+    dataframe,
+    canonical_bars_path: Path,
+    canonical_session_intervals_path: Path,
+    usage_context: BarUsageContextFrames | None = None,
+):
+    from pyspark import StorageLevel  # type: ignore[import-not-found]
+    from pyspark.sql import functions as F  # type: ignore[import-not-found]
+
+    context = usage_context or _bar_usage_context_frames(
+        spark=spark,
+        canonical_bars_path=canonical_bars_path,
+        canonical_session_intervals_path=canonical_session_intervals_path,
+    )
+    intervals = context.intervals
+    day_meta = context.day_meta
+    expected_weekly = context.expected_weekly
+    actual_daily = context.actual_daily
 
     bar = (
         dataframe.withColumn("_timeframe_lc", F.lower(F.col("timeframe")))
@@ -353,7 +470,7 @@ def _with_bar_usage_contract(
     joined = (
         bar.alias("bar")
         .join(
-            intervals.alias("intervals"),
+            F.broadcast(intervals).alias("intervals"),
             (F.col("bar._is_intraday"))
             & (F.col("bar.instrument_id") == F.col("intervals.interval_instrument_id"))
             & (F.col("bar.session_date") == F.col("intervals.interval_session_date"))
@@ -361,19 +478,19 @@ def _with_bar_usage_contract(
             "left",
         )
         .join(
-            day_meta.alias("day"),
+            F.broadcast(day_meta).alias("day"),
             (F.col("bar.instrument_id") == F.col("day.day_instrument_id"))
             & (F.col("bar.session_date") == F.col("day.day_session_date")),
             "left",
         )
         .join(
-            expected_weekly.alias("weekly_expected"),
+            F.broadcast(expected_weekly).alias("weekly_expected"),
             (F.col("bar.instrument_id") == F.col("weekly_expected.weekly_expected_instrument_id"))
             & (F.col("bar._week_start") == F.col("weekly_expected.weekly_expected_week_start")),
             "left",
         )
         .join(
-            actual_daily.alias("weekly_actual"),
+            F.broadcast(actual_daily).alias("weekly_actual"),
             (F.col("bar.contract_id") == F.col("weekly_actual.daily_contract_id"))
             & (F.col("bar.instrument_id") == F.col("weekly_actual.daily_instrument_id"))
             & (F.col("bar._week_start") == F.col("weekly_actual.week_start")),
@@ -408,26 +525,6 @@ def _with_bar_usage_contract(
         .otherwise(F.col("interval_session_class")),
     )
 
-    if joined.where(F.col("bar_start_ts").isNull() | F.col("bar_end_ts").isNull()).limit(1).count():
-        raise RuntimeError("missing required canonical provenance bar boundary metadata")
-    if (
-        joined.where(
-            F.col("_is_intraday")
-            & (F.col("session_interval_id").isNull() | F.col("session_class").isNull())
-        )
-        .limit(1)
-        .count()
-    ):
-        raise RuntimeError("missing required canonical session interval metadata for intraday bars")
-    if (
-        joined.where((F.col("_is_daily") | F.col("_is_weekly")) & F.col("session_class").isNull())
-        .limit(1)
-        .count()
-    ):
-        raise RuntimeError(
-            "missing required canonical session class metadata for daily/weekly bars"
-        )
-
     boundary_bar = F.coalesce(F.col("provenance_boundary_bar"), F.lit(False)) | (
         F.col("_is_intraday")
         & (
@@ -461,9 +558,47 @@ def _with_bar_usage_contract(
     with_flags = with_profile.withColumn(
         "bar_usage_flags", _bar_usage_flags_expression(F.col("bar_usage_profile"))
     ).withColumn("bar_usage_policy_id", F.lit(BAR_USAGE_POLICY_ID))
-    if with_flags.where(F.col("bar_usage_flags").isNull()).limit(1).count():
+    cached = with_flags.persist(StorageLevel.MEMORY_AND_DISK)
+    validation_row = cached.agg(
+        F.max(
+            F.when(
+                F.col("bar_start_ts").isNull() | F.col("bar_end_ts").isNull(),
+                F.lit(1),
+            ).otherwise(F.lit(0))
+        ).alias("missing_boundary_metadata"),
+        F.max(
+            F.when(
+                F.col("_is_intraday")
+                & (F.col("session_interval_id").isNull() | F.col("session_class").isNull()),
+                F.lit(1),
+            ).otherwise(F.lit(0))
+        ).alias("missing_intraday_metadata"),
+        F.max(
+            F.when(
+                (F.col("_is_daily") | F.col("_is_weekly")) & F.col("session_class").isNull(),
+                F.lit(1),
+            ).otherwise(F.lit(0))
+        ).alias("missing_daily_weekly_metadata"),
+        F.max(
+            F.when(F.col("bar_usage_flags").isNull(), F.lit(1)).otherwise(F.lit(0))
+        ).alias("missing_usage_flags"),
+    ).collect()[0]
+    validation = validation_row.asDict()
+    if validation.get("missing_boundary_metadata"):
+        cached.unpersist()
+        raise RuntimeError("missing required canonical provenance bar boundary metadata")
+    if validation.get("missing_intraday_metadata"):
+        cached.unpersist()
+        raise RuntimeError("missing required canonical session interval metadata for intraday bars")
+    if validation.get("missing_daily_weekly_metadata"):
+        cached.unpersist()
+        raise RuntimeError(
+            "missing required canonical session class metadata for daily/weekly bars"
+        )
+    if validation.get("missing_usage_flags"):
+        cached.unpersist()
         raise RuntimeError("bar usage profile/flags registry validation failed")
-    return with_flags
+    return cached
 
 
 def _with_l0_metrics(
@@ -539,6 +674,7 @@ def _native_bar_views(
     start_ts: str | None,
     end_ts: str | None,
     warmup_bars: int,
+    usage_context: BarUsageContextFrames | None = None,
 ):
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
@@ -550,7 +686,15 @@ def _native_bar_views(
         bars = bars.where(F.col("ts") <= F.lit(end_ts))
 
     provenance = _canonical_provenance_frame(spark, canonical_bar_provenance_path)
-    calendar = _session_calendar_frame(spark, canonical_session_calendar_path)
+    scoped_start_ts = start_ts if warmup_bars <= 0 else None
+    calendar = _session_calendar_frame(
+        spark,
+        canonical_session_calendar_path,
+        instrument_ids=instrument_ids,
+        timeframes=timeframes,
+        start_ts=scoped_start_ts,
+        end_ts=end_ts,
+    )
     roll_map = (
         spark.read.format("delta")
         .load(str(canonical_roll_map_path))
@@ -559,11 +703,20 @@ def _native_bar_views(
             F.col("session_date").alias("roll_session_date"),
             F.col("active_contract_id").alias("roll_active_contract_id"),
         )
-        .groupBy("roll_instrument_id", "roll_session_date")
-        .agg(
-            F.countDistinct("roll_active_contract_id").alias("roll_active_contract_count"),
-            F.first("roll_active_contract_id", ignorenulls=True).alias("roll_active_contract_id"),
+    )
+    if instrument_ids:
+        roll_map = roll_map.where(F.col("roll_instrument_id").isin([*instrument_ids]))
+    if scoped_start_ts:
+        roll_map = roll_map.where(
+            F.col("roll_session_date") >= F.date_sub(F.to_date(F.lit(scoped_start_ts)), 7)
         )
+    if end_ts:
+        roll_map = roll_map.where(
+            F.col("roll_session_date") <= F.date_add(F.to_date(F.lit(end_ts)), 7)
+        )
+    roll_map = roll_map.groupBy("roll_instrument_id", "roll_session_date").agg(
+        F.countDistinct("roll_active_contract_id").alias("roll_active_contract_count"),
+        F.first("roll_active_contract_id", ignorenulls=True).alias("roll_active_contract_id"),
     )
     with_session = (
         bars.join(
@@ -575,14 +728,14 @@ def _native_bar_views(
         )
         .withColumn("session_date", F.to_date(F.coalesce(F.col("bar_start_ts"), F.col("ts"))))
         .join(
-            calendar,
+            F.broadcast(calendar),
             (F.col("instrument_id") == F.col("cal_instrument_id"))
             & (F.col("timeframe") == F.col("cal_timeframe"))
             & (F.col("session_date") == F.col("cal_session_date")),
             "left",
         )
         .join(
-            roll_map,
+            F.broadcast(roll_map),
             (F.col("instrument_id") == F.col("roll_instrument_id"))
             & (F.col("session_date") == F.col("roll_session_date")),
             "left",
@@ -657,6 +810,7 @@ def _native_bar_views(
         dataframe=base,
         canonical_bars_path=canonical_bars_path,
         canonical_session_intervals_path=canonical_session_intervals_path,
+        usage_context=usage_context,
     )
 
 
@@ -674,6 +828,7 @@ def _pit_active_front_bar_views(
     start_ts: str | None,
     end_ts: str | None,
     warmup_bars: int,
+    usage_context: BarUsageContextFrames | None = None,
 ):
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
@@ -683,7 +838,15 @@ def _pit_active_front_bar_views(
         bars = bars.where(F.col("ts") <= F.lit(end_ts))
 
     provenance = _canonical_provenance_frame(spark, canonical_bar_provenance_path)
-    calendar = _session_calendar_frame(spark, canonical_session_calendar_path)
+    scoped_start_ts = start_ts if warmup_bars <= 0 else None
+    calendar = _session_calendar_frame(
+        spark,
+        canonical_session_calendar_path,
+        instrument_ids=instrument_ids,
+        timeframes=timeframes,
+        start_ts=scoped_start_ts,
+        end_ts=end_ts,
+    )
     with_session = (
         bars.join(
             provenance,
@@ -694,7 +857,7 @@ def _pit_active_front_bar_views(
         )
         .withColumn("session_date", F.to_date(F.coalesce(F.col("bar_start_ts"), F.col("ts"))))
         .join(
-            calendar,
+            F.broadcast(calendar),
             (F.col("instrument_id") == F.col("cal_instrument_id"))
             & (F.col("timeframe") == F.col("cal_timeframe"))
             & (F.col("session_date") == F.col("cal_session_date")),
@@ -762,6 +925,7 @@ def _pit_active_front_bar_views(
         dataframe=base,
         canonical_bars_path=canonical_bars_path,
         canonical_session_intervals_path=canonical_session_intervals_path,
+        usage_context=usage_context,
     )
 
 
@@ -841,30 +1005,50 @@ def _spark_sql_literal(value: object) -> str:
     return f"'{text}'"
 
 
-def _scoped_delete_condition(scope: list[tuple[str, str, object]]) -> str:
-    clauses: list[str] = []
-    for column, operator, value in scope:
-        normalized_operator = str(operator).strip().lower()
-        if value is None:
-            continue
-        if normalized_operator in {"in", "not in"}:
-            scoped_values = (
-                tuple(item for item in value if item is not None)
-                if isinstance(value, (list, tuple, set))
-                else ()
-            )
-            if not scoped_values:
+def _scoped_delete_condition(
+    scope: list[tuple[str, str, object]], *, include_legacy_null_contour: bool = False
+) -> str:
+    def condition_from_scope(items: list[tuple[str, str, object]]) -> str:
+        clauses: list[str] = []
+        for column, operator, value in items:
+            normalized_operator = str(operator).strip().lower()
+            if value is None:
                 continue
-            literals = ", ".join(_spark_sql_literal(item) for item in scoped_values)
-            sql_operator = "IN" if normalized_operator == "in" else "NOT IN"
-            clauses.append(f"{column} {sql_operator} ({literals})")
-            continue
-        if normalized_operator not in {"=", ">=", "<=", ">", "<"}:
-            raise ValueError(f"unsupported scoped Delta delete operator: {operator}")
-        clauses.append(f"{column} {normalized_operator} {_spark_sql_literal(value)}")
-    if not clauses:
-        raise ValueError("scoped Delta delete requires at least one scope value")
-    return " AND ".join(clauses)
+            if normalized_operator in {"in", "not in"}:
+                scoped_values = (
+                    tuple(item for item in value if item is not None)
+                    if isinstance(value, (list, tuple, set))
+                    else ()
+                )
+                if not scoped_values:
+                    continue
+                literals = ", ".join(_spark_sql_literal(item) for item in scoped_values)
+                sql_operator = "IN" if normalized_operator == "in" else "NOT IN"
+                clauses.append(f"{column} {sql_operator} ({literals})")
+                continue
+            if normalized_operator not in {"=", ">=", "<=", ">", "<"}:
+                raise ValueError(f"unsupported scoped Delta delete operator: {operator}")
+            clauses.append(f"{column} {normalized_operator} {_spark_sql_literal(value)}")
+        if not clauses:
+            raise ValueError("scoped Delta delete requires at least one scope value")
+        return " AND ".join(clauses)
+
+    base_condition = condition_from_scope(scope)
+    if not include_legacy_null_contour:
+        return base_condition
+
+    has_dataset_scope = any(
+        column == "dataset_version" and value is not None for column, _, value in scope
+    )
+    has_contour_scope = any(
+        column == "contour_id" and value is not None for column, _, value in scope
+    )
+    if not has_dataset_scope or not has_contour_scope:
+        return base_condition
+
+    legacy_scope = [item for item in scope if item[0] != "contour_id"]
+    legacy_condition = condition_from_scope(legacy_scope)
+    return f"({base_condition}) OR ({legacy_condition} AND contour_id IS NULL)"
 
 
 def _research_l0_replace_filters(
@@ -911,6 +1095,29 @@ def _research_instrument_tree_replace_filters(
     return filters
 
 
+def _replace_spark_delta_table(*, dataframe, table_path: Path, table_name: str) -> None:
+    contract = research_dataset_store_contract()[table_name]
+    partition_by = list(contract.get("partition_by") or [])
+    temp_path = table_path.parent / f".{table_path.name}.rewrite-{uuid4().hex}"
+    backup_path = table_path.parent / f".{table_path.name}.backup-{uuid4().hex}"
+    if temp_path.exists():
+        shutil.rmtree(temp_path)
+    writer = (
+        _cast_to_contract(dataframe, table_name)
+        .write.format("delta")
+        .mode("overwrite")
+        .option("overwriteSchema", "true")
+    )
+    if partition_by:
+        writer = writer.partitionBy(*partition_by)
+    writer.save(str(temp_path))
+    if table_path.exists():
+        table_path.rename(backup_path)
+    temp_path.rename(table_path)
+    if backup_path.exists():
+        shutil.rmtree(backup_path)
+
+
 def _write_spark_delta_table(
     *, dataframe, table_path: Path, table_name: str, replace_scope: list[tuple[str, str, object]]
 ) -> None:
@@ -931,8 +1138,28 @@ def _write_spark_delta_table(
 
     from delta.tables import DeltaTable  # type: ignore[import-not-found]
 
+    delete_condition = _scoped_delete_condition(
+        replace_scope,
+        include_legacy_null_contour=table_name
+        in {"research_bar_views", "research_instrument_tree"},
+    )
+    if not _delta_table_layout_matches_contract(
+        spark=dataframe.sparkSession,
+        table_path=table_path,
+        table_name=table_name,
+    ):
+        existing = dataframe.sparkSession.read.format("delta").load(str(table_path))
+        retained = _cast_to_contract(existing.where(f"NOT ({delete_condition})"), table_name)
+        rewritten = retained.unionByName(casted, allowMissingColumns=True)
+        _replace_spark_delta_table(
+            dataframe=rewritten,
+            table_path=table_path,
+            table_name=table_name,
+        )
+        return
+
     delta_table = DeltaTable.forPath(dataframe.sparkSession, str(table_path))
-    delta_table.delete(_scoped_delete_condition(replace_scope))
+    delta_table.delete(delete_condition)
 
     key_columns_by_table = {
         "research_bar_views": (
@@ -1029,6 +1256,15 @@ def run_research_bar_views_spark_job(
     spark_factory = spark_session_factory or _create_spark_session
     spark = spark_factory(spec.app_name, spark_master)
     try:
+        usage_context = _bar_usage_context_frames(
+            spark=spark,
+            canonical_bars_path=canonical_bars_path,
+            canonical_session_intervals_path=canonical_session_intervals_path,
+            instrument_ids=instrument_ids,
+            start_ts=start_ts,
+            end_ts=end_ts,
+            warmup_bars=warmup_bars,
+        )
         contour_frames = []
         if "native_tradable" in contours:
             contour_frames.append(
@@ -1046,6 +1282,7 @@ def run_research_bar_views_spark_job(
                     start_ts=start_ts,
                     end_ts=end_ts,
                     warmup_bars=warmup_bars,
+                    usage_context=usage_context,
                 )
             )
         if "pit_active_front" in contours:
@@ -1063,6 +1300,7 @@ def run_research_bar_views_spark_job(
                     start_ts=start_ts,
                     end_ts=end_ts,
                     warmup_bars=warmup_bars,
+                    usage_context=usage_context,
                 )
             )
         bar_views = (
@@ -1091,6 +1329,9 @@ def run_research_bar_views_spark_job(
                 end_ts=end_ts,
             ),
         )
+        for frame in contour_frames:
+            frame.unpersist()
+        usage_context.unpersist()
         from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
         tree_source = (

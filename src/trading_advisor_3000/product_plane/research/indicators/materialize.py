@@ -1895,7 +1895,7 @@ def materialize_indicator_frames(
                 if local_volume_profile_source_rows is not None
                 else target_bars_hash
             )
-        if _existing_partition_matches(
+        if series_mode != "continuous_front" and _existing_partition_matches(
             existing_partition_metadata,
             source_hash=source_hash,
             profile_version=resolved_profile.version,
@@ -1914,7 +1914,10 @@ def materialize_indicator_frames(
         )
         missing_columns = set(target_output_columns) - existing_output_columns
         can_extend_from_existing = bool(
-            source_unchanged and missing_columns and reusable_existing_columns
+            source_unchanged
+            and series_mode != "continuous_front"
+            and missing_columns
+            and reusable_existing_columns
         )
         if series is None:
             series = _load_bar_partition_rows(
