@@ -52,7 +52,7 @@
     "indicator_snapshot_id": {"type": "string", "minLength": 1},
     "contract_id": {"type": "string", "minLength": 1},
     "instrument_id": {"type": "string", "minLength": 1},
-    "timeframe": {"type": "string", "enum": ["5m", "15m", "1h", "4h", "1d", "1w"]},
+    "timeframe": {"type": "string", "enum": ["1m", "5m", "15m", "1h", "4h", "1d", "1w"]},
     "ts": {"type": "string", "minLength": 1},
     "indicator_set_version": {"type": "string", "minLength": 1},
     "source_bar_fingerprint": {"type": "string", "minLength": 1},

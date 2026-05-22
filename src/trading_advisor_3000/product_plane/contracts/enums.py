@@ -30,6 +30,7 @@ class PublicationType(StrEnum):
 
 
 class Timeframe(StrEnum):
+    M1 = "1m"
     M5 = "5m"
     M15 = "15m"
     H1 = "1h"

@@ -56,7 +56,7 @@ profiles:
   derived_indicator_profile_version: core_v1
 
 volume_profile:
-  raw_1m_table_path: D:/TA3000-data/trading-advisor-3000-nightly/raw/moex/baseline-4y-current/raw_moex_history.delta
+  raw_1m_table_path: D:/TA3000-data/trading-advisor-3000-nightly/canonical/moex/baseline-4y-current/canonical_bars.delta
   tick_size_by_instrument:
     FUT_BR: 0.01
     FUT_NG: 0.001
