@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-05-20'
+updated_at: '2026-05-22'
 items:
 - id: TASK-2026-05-08-MAKE-MOEX-HISTORICAL-UPDATE-PATH-USE-SPARK-DELTA
   path: docs/tasks/active/TASK-2026-05-08-make-moex-historical-update-path-use-spark-delta.md
@@ -54,3 +54,8 @@ items:
   status: in_progress
   started_at: '2026-05-20'
   attempt: 2
+- id: TASK-2026-05-22-INTEGRATE-MOEX-1M-CANONICAL-MATERIALIZATION-PR-S
+  path: docs/tasks/active/TASK-2026-05-22-integrate-moex-1m-canonical-materialization-pr-s.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-05-22'
