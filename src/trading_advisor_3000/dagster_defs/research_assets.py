@@ -52,7 +52,7 @@ from trading_advisor_3000.product_plane.research.continuous_front import (
 from trading_advisor_3000.product_plane.research.continuous_front_indicators import (
     CF_INDICATOR_TABLES,
     continuous_front_indicator_store_contract,
-    run_continuous_front_base_indicator_sidecar_job,
+    run_continuous_front_indicator_pandas_job,
 )
 from trading_advisor_3000.product_plane.research.datasets import (
     CALENDAR_EXPIRY_CONTINUOUS_FRONT_POLICY,
@@ -84,17 +84,36 @@ from trading_advisor_3000.spark_jobs import (
 )
 
 from .historical_data_proof_assets import AssetSpec
-from .moex_historical_assets import MOEX_BASELINE_UPDATE_JOB_NAME, moex_baseline_update_job
+from .moex_historical_assets import (
+    MOEX_BASELINE_UPDATE_JOB_NAME,
+    MOEX_DATA_REBUILD_JOB_NAME,
+    MOEX_DATA_REBUILD_OP_NAME,
+    moex_baseline_update_job,
+    moex_data_rebuild_job,
+)
 
 RESEARCH_DATA_PREP_JOB_NAME = "research_data_prep_job"
 MOEX_CF_REBUILD_JOB_NAME = "moex_cf_rebuild_job"
 MOEX_RESEARCH_BAR_REBUILD_JOB_NAME = "moex_research_bar_rebuild_job"
 MOEX_INDICATOR_REBUILD_JOB_NAME = "moex_indicator_rebuild_job"
 MOEX_DERIVED_INDICATOR_REBUILD_JOB_NAME = "moex_derived_indicator_rebuild_job"
+MOEX_RESEARCH_INDICATOR_SIDECAR_JOB_NAME = "moex_research_indicator_sidecar_job"
 STRATEGY_REGISTRY_REFRESH_JOB_NAME = "strategy_registry_refresh_job"
 RESEARCH_BACKTEST_JOB_NAME = "research_backtest_job"
 RESEARCH_PROJECTION_JOB_NAME = "research_projection_job"
 RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME = "research_data_prep_after_moex_sensor"
+MOEX_HISTORICAL_DATA_REBUILD_RESEARCH_PREP_SENSOR_NAME = (
+    "research_data_prep_after_moex_data_rebuild_sensor"
+)
+RESEARCH_STRATEGY_REGISTRY_AFTER_DATA_PREP_SENSOR_NAME = (
+    "strategy_registry_refresh_after_research_data_prep_sensor"
+)
+RESEARCH_BACKTEST_AFTER_STRATEGY_REGISTRY_SENSOR_NAME = (
+    "research_backtest_after_strategy_registry_refresh_sensor"
+)
+RESEARCH_PROJECTION_AFTER_BACKTEST_SENSOR_NAME = (
+    "research_projection_after_research_backtest_sensor"
+)
 
 RESEARCH_DATA_PREP_CANONICAL_OUTPUT_DIR_ENV = "TA3000_RESEARCH_DATA_PREP_CANONICAL_OUTPUT_DIR"
 RESEARCH_DATA_PREP_MATERIALIZED_OUTPUT_DIR_ENV = "TA3000_RESEARCH_DATA_PREP_MATERIALIZED_OUTPUT_DIR"
@@ -148,6 +167,11 @@ RESEARCH_DATA_PREP_ASSETS = (
     "research_indicator_frames",
     "research_derived_indicator_frames",
 )
+MOEX_RESEARCH_INDICATOR_SIDECAR_ASSETS = tuple(CF_INDICATOR_TABLES)
+RESEARCH_DATA_PREP_JOB_ASSETS = (
+    *RESEARCH_DATA_PREP_ASSETS,
+    *MOEX_RESEARCH_INDICATOR_SIDECAR_ASSETS,
+)
 MOEX_CF_REBUILD_ASSETS = (
     "continuous_front_bars",
     "continuous_front_roll_events",
@@ -195,6 +219,7 @@ RESEARCH_PROJECTION_ASSETS = ("research_signal_candidates",)
 
 RESEARCH_ASSET_KEYS = (
     *RESEARCH_DATA_PREP_ASSETS,
+    *MOEX_RESEARCH_INDICATOR_SIDECAR_ASSETS,
     *STRATEGY_REGISTRY_REFRESH_ASSETS,
     *RESEARCH_BACKTEST_ASSETS,
     *RESEARCH_PROJECTION_ASSETS,
@@ -217,6 +242,23 @@ RESEARCH_DEPENDENCIES: dict[str, tuple[str, ...]] = {
         "research_datasets",
         "research_bar_views",
         "research_indicator_frames",
+    ),
+    "continuous_front_indicator_acceptance_report": (
+        "research_derived_indicator_frames",
+    ),
+    "cf_indicator_input_frame": ("continuous_front_indicator_acceptance_report",),
+    "indicator_roll_rules": ("continuous_front_indicator_acceptance_report",),
+    "continuous_front_indicator_frames": (
+        "continuous_front_indicator_acceptance_report",
+    ),
+    "continuous_front_derived_indicator_frames": (
+        "continuous_front_indicator_acceptance_report",
+    ),
+    "continuous_front_indicator_qc_observations": (
+        "continuous_front_indicator_acceptance_report",
+    ),
+    "continuous_front_indicator_run_manifest": (
+        "continuous_front_indicator_acceptance_report",
     ),
     "research_strategy_families": ("research_datasets",),
     "research_strategy_templates": ("research_strategy_families",),
@@ -340,6 +382,50 @@ def research_asset_specs() -> list[AssetSpec]:
                 "research_indicator_frames_delta",
             ),
             outputs=("research_derived_indicator_frames_delta",),
+        ),
+        AssetSpec(
+            key="cf_indicator_input_frame",
+            description=(
+                "Project continuous-front research bars into the governed indicator sidecar input frame."
+            ),
+            inputs=("research_derived_indicator_frames_delta",),
+            outputs=("cf_indicator_input_frame_delta",),
+        ),
+        AssetSpec(
+            key="indicator_roll_rules",
+            description="Publish the rule catalog used by continuous-front indicator sidecars.",
+            inputs=("research_derived_indicator_frames_delta",),
+            outputs=("indicator_roll_rules_delta",),
+        ),
+        AssetSpec(
+            key="continuous_front_indicator_frames",
+            description="Materialize roll-aware continuous-front base indicator sidecars.",
+            inputs=("research_derived_indicator_frames_delta",),
+            outputs=("continuous_front_indicator_frames_delta",),
+        ),
+        AssetSpec(
+            key="continuous_front_derived_indicator_frames",
+            description="Materialize roll-aware continuous-front derived indicator sidecars.",
+            inputs=("research_derived_indicator_frames_delta",),
+            outputs=("continuous_front_derived_indicator_frames_delta",),
+        ),
+        AssetSpec(
+            key="continuous_front_indicator_qc_observations",
+            description="Publish QC observations for continuous-front indicator sidecar materialization.",
+            inputs=("research_derived_indicator_frames_delta",),
+            outputs=("continuous_front_indicator_qc_observations_delta",),
+        ),
+        AssetSpec(
+            key="continuous_front_indicator_run_manifest",
+            description="Publish lineage and runtime manifest rows for continuous-front indicator sidecars.",
+            inputs=("research_derived_indicator_frames_delta",),
+            outputs=("continuous_front_indicator_run_manifest_delta",),
+        ),
+        AssetSpec(
+            key="continuous_front_indicator_acceptance_report",
+            description="Publish the acceptance report for the post-derived continuous-front indicator sidecar job.",
+            inputs=("research_derived_indicator_frames_delta",),
+            outputs=("continuous_front_indicator_acceptance_report_delta",),
         ),
         AssetSpec(
             key="research_strategy_families",
@@ -536,6 +622,7 @@ def _research_config_schema() -> dict[str, object]:
         "volume_profile_raw_1m_table_path": Field(str, default_value="", is_required=False),
         "volume_profile_tick_size_by_instrument": Field(dict, default_value={}, is_required=False),
         "code_version": str,
+        "prepare_strategy_space": Field(bool, default_value=False, is_required=False),
         "strategy_space": dict,
         "strategy_space_id": str,
         "search_specs": [dict],
@@ -571,6 +658,69 @@ def _config_value(config: dict[str, object], key: str, default: object | None = 
     if value is None:
         raise KeyError(f"missing research config value: {key}")
     return value
+
+
+def _strategy_space_combination_count(
+    strategy_space: Mapping[str, object],
+    family_search_specs: Sequence[object],
+) -> int:
+    optimizer = (
+        dict(strategy_space.get("optimizer", {}))
+        if isinstance(strategy_space, Mapping)
+        else {}
+    )
+    if str(optimizer.get("engine", "grid")) == "optuna":
+        return int(optimizer.get("n_trials", 0) or 0) * len(family_search_specs)
+    combination_count = 0
+    for spec in family_search_specs:
+        count = 1
+        for values in spec.search_spec.parameter_space.values():
+            count *= max(1, len(values))
+        combination_count += count
+    return combination_count
+
+
+def _prepare_strategy_space_run_config(
+    config: dict[str, object],
+    *,
+    campaign_id: str,
+    campaign_run_id: str,
+    created_at: str = "2026-04-18T00:00:00Z",
+) -> dict[str, object]:
+    strategy_space = dict(
+        _config_value(config, "strategy_space", _default_strategy_space())
+        or _default_strategy_space()
+    )
+    prepared_strategy_space = prepare_strategy_space(
+        registry_root=Path(str(_config_value(config, "registry_root"))).resolve(),
+        strategy_space=strategy_space,
+        backtest_policy={
+            "combination_count": int(_config_value(config, "combination_count", 1)),
+            "param_batch_size": int(_config_value(config, "param_batch_size", 25)),
+            "series_batch_size": int(_config_value(config, "series_batch_size", 4)),
+            "backtest_timeframe": str(_config_value(config, "backtest_timeframe", "")),
+        },
+        execution_policy={
+            "fees_bps": float(_config_value(config, "fees_bps", 0.0)),
+            "slippage_bps": float(_config_value(config, "slippage_bps", 0.0)),
+            "allow_short": bool(_config_value(config, "allow_short", True)),
+            "window_count": int(_config_value(config, "window_count", 1)),
+        },
+        campaign_id=campaign_id,
+        campaign_run_id=campaign_run_id,
+        created_at=created_at,
+    )
+    prepared_config = dict(config)
+    prepared_config["strategy_space"] = strategy_space
+    prepared_config["strategy_space_id"] = prepared_strategy_space.strategy_space_id
+    prepared_config["search_specs"] = [
+        spec.to_dict() for spec in prepared_strategy_space.family_search_specs
+    ]
+    prepared_config["combination_count"] = _strategy_space_combination_count(
+        strategy_space,
+        prepared_strategy_space.family_search_specs,
+    )
+    return prepared_config
 
 
 def _canonical_table_path(config: dict[str, object], table_name: str) -> Path:
@@ -1228,6 +1378,13 @@ def continuous_front_qc_report(
 )
 def research_datasets(context) -> dict[str, object]:
     config = dict(context.op_execution_context.op_config)
+    if bool(_config_value(config, "prepare_strategy_space", False)):
+        campaign_run_id = str(_config_value(config, "campaign_run_id"))
+        config = _prepare_strategy_space_run_config(
+            config,
+            campaign_id="camp_regular_research_cascade",
+            campaign_run_id=campaign_run_id,
+        )
     registry_root = Path(str(_config_value(config, "registry_root"))).resolve()
     materialized_output_dir = _materialized_output_dir(config)
     results_output_dir = _results_output_dir(config)
@@ -1488,39 +1645,6 @@ def research_indicator_frames(context) -> dict[str, object]:
         volume_profile_raw_1m_table_path=raw_1m_table_path,
         volume_profile_tick_size_by_instrument=tick_size_by_instrument or None,
     )
-    dataset_manifest = dict(research_datasets.get("dataset_manifest") or {})
-    if str(dataset_manifest.get("series_mode")) == "continuous_front" and not bool(
-        research_datasets.get("reuse_existing_materialization")
-    ):
-        continuous_front_indicator_run_id = str(
-            research_datasets.get("campaign_run_id") or "continuous_front_base_indicator_refresh"
-        )
-        sidecar_result = run_continuous_front_base_indicator_sidecar_job(
-            materialized_output_dir=materialized_output_dir,
-            dataset_version=dataset_version,
-            contour_id=str(research_datasets.get("contour_id", "pit_active_front")),
-            indicator_set_version=indicator_set_version,
-            derived_set_version=str(research_datasets.get("derived_indicator_set_version") or ""),
-            run_id=continuous_front_indicator_run_id,
-            calculation_app_id=(
-                "spark-dagster-continuous-front-base-indicators-"
-                f"{continuous_front_indicator_run_id}"
-            ),
-            event_log_path=(
-                "dagster://continuous_front_base_indicator_refresh/"
-                f"{continuous_front_indicator_run_id}/spark-event-log"
-            ),
-        )
-        if (
-            not bool(sidecar_result.get("success"))
-            or str(sidecar_result.get("publish_status")) != "accepted"
-        ):
-            raise RuntimeError(
-                "continuous-front base indicator sidecar failed or was quarantined "
-                f"for run_id={continuous_front_indicator_run_id}: "
-                f"status={sidecar_result.get('status')} "
-                f"publish_status={sidecar_result.get('publish_status')}"
-            )
     return _materialized_table_manifest(research_datasets, "research_indicator_frames")
 
 
@@ -1564,14 +1688,158 @@ def research_derived_indicator_frames(context) -> dict[str, object]:
         summary["source_frame_report"] = materialize_report.get("source_frame_report", {})
         summary["output_paths"] = materialize_report.get("output_paths", {})
         summary["delta_manifest"] = materialize_report.get("delta_manifest", {})
-    for table_name in CF_INDICATOR_TABLES:
-        table_path = materialized_output_dir / f"{table_name}.delta"
-        if has_delta_log(table_path):
-            summary.setdefault("continuous_front_indicator_tables", {})[table_name] = {
-                "path": table_path.as_posix(),
-                "row_count": count_delta_table_rows(table_path),
-            }
     return summary
+
+
+def _run_continuous_front_indicator_sidecar(
+    research_datasets: dict[str, object],
+) -> dict[str, object]:
+    dataset_manifest = dict(research_datasets.get("dataset_manifest") or {})
+    if str(dataset_manifest.get("series_mode")) != "continuous_front":
+        return {
+            "success": True,
+            "status": "SKIPPED",
+            "publish_status": "skipped",
+            "skip_reason": "series_mode is not continuous_front",
+            "output_paths": {},
+            "rows_by_table": {},
+        }
+    if bool(research_datasets.get("reuse_existing_materialization")):
+        return {
+            "success": True,
+            "status": "SKIPPED",
+            "publish_status": "skipped",
+            "skip_reason": "reuse_existing_materialization is enabled",
+            "output_paths": {},
+            "rows_by_table": {},
+        }
+
+    materialized_output_dir = Path(str(research_datasets["materialized_output_dir"]))
+    continuous_front_indicator_run_id = str(
+        research_datasets.get("campaign_run_id") or "continuous_front_indicator_refresh"
+    )
+    sidecar_result = run_continuous_front_indicator_pandas_job(
+        materialized_output_dir=materialized_output_dir,
+        dataset_version=str(research_datasets["dataset_version"]),
+        contour_id=str(research_datasets.get("contour_id", "pit_active_front")),
+        indicator_set_version=str(research_datasets["indicator_set_version"]),
+        derived_set_version=str(research_datasets["derived_indicator_set_version"]),
+        run_id=continuous_front_indicator_run_id,
+        calculation_app_id=(
+            "spark-dagster-continuous-front-indicators-"
+            f"{continuous_front_indicator_run_id}"
+        ),
+        event_log_path=(
+            "dagster://continuous_front_indicator_refresh/"
+            f"{continuous_front_indicator_run_id}/spark-event-log"
+        ),
+    )
+    if (
+        not bool(sidecar_result.get("success"))
+        or str(sidecar_result.get("publish_status")) != "accepted"
+    ):
+        raise RuntimeError(
+            "continuous-front indicator sidecar failed or was quarantined "
+            f"for run_id={continuous_front_indicator_run_id}: "
+            f"status={sidecar_result.get('status')} "
+            f"publish_status={sidecar_result.get('publish_status')}"
+        )
+    return sidecar_result
+
+
+def _continuous_front_indicator_sidecar_manifest(
+    sidecar_context: dict[str, object], table_name: str
+) -> dict[str, object]:
+    research_datasets = dict(sidecar_context.get("research_datasets") or {})
+    manifest = _materialized_table_manifest(research_datasets, table_name)
+    sidecar_result = dict(sidecar_context.get("sidecar_result") or {})
+    rows_by_table = sidecar_result.get("rows_by_table", {})
+    if isinstance(rows_by_table, Mapping) and table_name in rows_by_table:
+        manifest["sidecar_row_count"] = rows_by_table[table_name]
+    manifest["sidecar_status"] = sidecar_result.get("status", "")
+    manifest["sidecar_publish_status"] = sidecar_result.get("publish_status", "")
+    manifest["sidecar_run_id"] = sidecar_result.get("run_id", "")
+    return manifest
+
+
+@asset(
+    group_name="research",
+    config_schema=_research_config_schema(),
+    deps=[research_datasets, research_indicator_frames, research_derived_indicator_frames],
+)
+def continuous_front_indicator_acceptance_report(context) -> dict[str, object]:
+    config = dict(context.op_execution_context.op_config)
+    research_datasets = _existing_research_dataset_context(config)
+    sidecar_result = _run_continuous_front_indicator_sidecar(research_datasets)
+    manifest = _continuous_front_indicator_sidecar_manifest(
+        {
+            "research_datasets": research_datasets,
+            "sidecar_result": sidecar_result,
+        },
+        "continuous_front_indicator_acceptance_report",
+    )
+    return {
+        "research_datasets": research_datasets,
+        "sidecar_result": sidecar_result,
+        **manifest,
+    }
+
+
+@asset(group_name="research")
+def cf_indicator_input_frame(
+    continuous_front_indicator_acceptance_report: dict[str, object],
+) -> dict[str, object]:
+    return _continuous_front_indicator_sidecar_manifest(
+        continuous_front_indicator_acceptance_report, "cf_indicator_input_frame"
+    )
+
+
+@asset(group_name="research")
+def indicator_roll_rules(
+    continuous_front_indicator_acceptance_report: dict[str, object],
+) -> dict[str, object]:
+    return _continuous_front_indicator_sidecar_manifest(
+        continuous_front_indicator_acceptance_report, "indicator_roll_rules"
+    )
+
+
+@asset(group_name="research")
+def continuous_front_indicator_frames(
+    continuous_front_indicator_acceptance_report: dict[str, object],
+) -> dict[str, object]:
+    return _continuous_front_indicator_sidecar_manifest(
+        continuous_front_indicator_acceptance_report, "continuous_front_indicator_frames"
+    )
+
+
+@asset(group_name="research")
+def continuous_front_derived_indicator_frames(
+    continuous_front_indicator_acceptance_report: dict[str, object],
+) -> dict[str, object]:
+    return _continuous_front_indicator_sidecar_manifest(
+        continuous_front_indicator_acceptance_report,
+        "continuous_front_derived_indicator_frames",
+    )
+
+
+@asset(group_name="research")
+def continuous_front_indicator_qc_observations(
+    continuous_front_indicator_acceptance_report: dict[str, object],
+) -> dict[str, object]:
+    return _continuous_front_indicator_sidecar_manifest(
+        continuous_front_indicator_acceptance_report,
+        "continuous_front_indicator_qc_observations",
+    )
+
+
+@asset(group_name="research")
+def continuous_front_indicator_run_manifest(
+    continuous_front_indicator_acceptance_report: dict[str, object],
+) -> dict[str, object]:
+    return _continuous_front_indicator_sidecar_manifest(
+        continuous_front_indicator_acceptance_report,
+        "continuous_front_indicator_run_manifest",
+    )
 
 
 def _validate_strategy_seed_inventory(*, registry_root: Path) -> None:
@@ -2010,6 +2278,13 @@ RESEARCH_ASSETS = (
     research_bar_views,
     research_indicator_frames,
     research_derived_indicator_frames,
+    cf_indicator_input_frame,
+    indicator_roll_rules,
+    continuous_front_indicator_frames,
+    continuous_front_derived_indicator_frames,
+    continuous_front_indicator_qc_observations,
+    continuous_front_indicator_run_manifest,
+    continuous_front_indicator_acceptance_report,
     research_strategy_families,
     research_strategy_templates,
     research_strategy_template_modules,
@@ -2043,6 +2318,13 @@ research_data_prep_job = define_asset_job(
         research_bar_views,
         research_indicator_frames,
         research_derived_indicator_frames,
+        cf_indicator_input_frame,
+        indicator_roll_rules,
+        continuous_front_indicator_frames,
+        continuous_front_derived_indicator_frames,
+        continuous_front_indicator_qc_observations,
+        continuous_front_indicator_run_manifest,
+        continuous_front_indicator_acceptance_report,
     ),
 )
 
@@ -2073,6 +2355,19 @@ moex_indicator_rebuild_job = define_asset_job(
 moex_derived_indicator_rebuild_job = define_asset_job(
     name=MOEX_DERIVED_INDICATOR_REBUILD_JOB_NAME,
     selection=AssetSelection.assets(research_derived_indicator_frames),
+)
+
+moex_research_indicator_sidecar_job = define_asset_job(
+    name=MOEX_RESEARCH_INDICATOR_SIDECAR_JOB_NAME,
+    selection=AssetSelection.assets(
+        cf_indicator_input_frame,
+        indicator_roll_rules,
+        continuous_front_indicator_frames,
+        continuous_front_derived_indicator_frames,
+        continuous_front_indicator_qc_observations,
+        continuous_front_indicator_run_manifest,
+        continuous_front_indicator_acceptance_report,
+    ),
 )
 
 strategy_registry_refresh_job = define_asset_job(
@@ -2222,7 +2517,7 @@ def _moex_canonical_output_dir_from_run_config(run_config: object) -> Path | Non
     ops = run_config.get("ops")
     if not isinstance(ops, dict):
         return None
-    step = ops.get("moex_baseline_update")
+    step = ops.get("moex_baseline_update") or ops.get(MOEX_DATA_REBUILD_OP_NAME)
     if not isinstance(step, dict):
         return None
     config = step.get("config")
@@ -2237,6 +2532,99 @@ def _moex_canonical_output_dir_from_run_config(run_config: object) -> Path | Non
     if canonical_bars_path:
         return Path(canonical_bars_path).resolve().parent
     return None
+
+
+def _moex_data_rebuild_op_config_from_run_config(run_config: object) -> dict[str, object]:
+    if not isinstance(run_config, Mapping):
+        return {}
+    ops = run_config.get("ops")
+    if not isinstance(ops, Mapping):
+        return {}
+    op_payload = ops.get(MOEX_DATA_REBUILD_OP_NAME, {})
+    if not isinstance(op_payload, Mapping):
+        return {}
+    config = op_payload.get("config", {})
+    return dict(config) if isinstance(config, Mapping) else {}
+
+
+def _should_start_research_after_moex_data_rebuild(run_config: object) -> bool:
+    op_config = _moex_data_rebuild_op_config_from_run_config(run_config)
+    profile_name = str(op_config.get("profile_name") or "canonical_from_existing_raw")
+    publish_mode = str(op_config.get("publish_mode") or "promote")
+    canonical_profiles = {"full_raw_to_canonical", "canonical_from_existing_raw"}
+    return profile_name in canonical_profiles and publish_mode == "promote"
+
+
+_RESEARCH_CONFIG_OP_CANDIDATES = (
+    "research_datasets",
+    "continuous_front_bars",
+    "research_indicator_frames",
+    "research_derived_indicator_frames",
+    "continuous_front_indicator_acceptance_report",
+)
+
+
+def _op_config_from_run_config(run_config: object, op_name: str) -> dict[str, object] | None:
+    if not isinstance(run_config, Mapping):
+        return None
+    ops = run_config.get("ops")
+    if not isinstance(ops, Mapping):
+        return None
+    op_payload = ops.get(op_name)
+    if not isinstance(op_payload, Mapping):
+        return None
+    config = op_payload.get("config")
+    if not isinstance(config, Mapping):
+        return None
+    return dict(config)
+
+
+def _research_config_from_run_config(run_config: object) -> dict[str, object] | None:
+    for op_name in _RESEARCH_CONFIG_OP_CANDIDATES:
+        config = _op_config_from_run_config(run_config, op_name)
+        if config is not None:
+            return config
+    return None
+
+
+def _research_dataset_version_from_context(
+    context: object, research_config: Mapping[str, object] | None = None
+) -> str:
+    if research_config is not None:
+        dataset_version = research_config.get("dataset_version")
+        if dataset_version:
+            return str(dataset_version)
+    tags = getattr(getattr(context, "dagster_run", object()), "tags", {}) or {}
+    if isinstance(tags, Mapping):
+        dataset_version = tags.get("ta3000/dataset_version")
+        if dataset_version:
+            return str(dataset_version)
+    return DEFAULT_RESEARCH_DATA_PREP_DATASET_VERSION
+
+
+def _research_series_mode_from_config(research_config: Mapping[str, object] | None) -> str:
+    if research_config is None:
+        return ""
+    series_mode = research_config.get("series_mode")
+    return str(series_mode) if series_mode else ""
+
+
+def _strategy_registry_run_config_from_research_config(
+    research_config: Mapping[str, object],
+    *,
+    upstream_run_id: str,
+) -> dict[str, object]:
+    registry_config = dict(research_config)
+    registry_config["campaign_run_id"] = f"strategy_registry_after_{upstream_run_id}"
+    registry_config["code_version"] = "strategy-registry-after-research-data-prep"
+    registry_config["prepare_strategy_space"] = True
+    return {
+        "ops": {
+            "research_datasets": {
+                "config": registry_config,
+            }
+        }
+    }
 
 
 def build_research_data_prep_run_config(
@@ -2348,6 +2736,9 @@ def build_research_data_prep_run_config(
             "research_derived_indicator_frames": {
                 "config": research_config,
             },
+            "continuous_front_indicator_acceptance_report": {
+                "config": research_config,
+            },
         }
     }
 
@@ -2392,6 +2783,126 @@ def research_data_prep_after_moex_sensor(context):
     )
 
 
+@run_status_sensor(
+    run_status=DagsterRunStatus.SUCCESS,
+    name=MOEX_HISTORICAL_DATA_REBUILD_RESEARCH_PREP_SENSOR_NAME,
+    monitored_jobs=[moex_data_rebuild_job],
+    request_job=research_data_prep_job,
+    default_status=DefaultSensorStatus.RUNNING,
+    description=(
+        "Start research_data_prep_job after a promoted canonical MOEX data rebuild succeeds."
+    ),
+)
+def research_data_prep_after_moex_data_rebuild_sensor(context):
+    run_config = context.dagster_run.run_config
+    if not _should_start_research_after_moex_data_rebuild(run_config):
+        return None
+    canonical_output_dir = _moex_canonical_output_dir_from_run_config(run_config)
+    if canonical_output_dir is None:
+        canonical_output_dir = _env_path(
+            RESEARCH_DATA_PREP_CANONICAL_OUTPUT_DIR_ENV,
+            _default_research_canonical_output_dir(),
+        )
+    upstream_run_id = str(context.dagster_run.run_id)
+    dataset_version = _env_text(
+        RESEARCH_DATA_PREP_DATASET_VERSION_ENV,
+        DEFAULT_RESEARCH_DATA_PREP_DATASET_VERSION,
+    )
+    return RunRequest(
+        run_key=f"{RESEARCH_DATA_PREP_JOB_NAME}:{upstream_run_id}",
+        run_config=build_research_data_prep_run_config(
+            canonical_output_dir=canonical_output_dir,
+            campaign_run_id=f"research_data_prep_after_{upstream_run_id}",
+            dataset_version=dataset_version,
+            series_mode="continuous_front",
+            continuous_front_policy=scheduled_continuous_front_policy_config(),
+        ),
+        tags={
+            "ta3000/upstream_job": MOEX_DATA_REBUILD_JOB_NAME,
+            "ta3000/upstream_run_id": upstream_run_id,
+            "ta3000/dataset_version": dataset_version,
+            "ta3000/series_mode": "continuous_front",
+        },
+    )
+
+
+@run_status_sensor(
+    run_status=DagsterRunStatus.SUCCESS,
+    name=RESEARCH_STRATEGY_REGISTRY_AFTER_DATA_PREP_SENSOR_NAME,
+    monitored_jobs=[research_data_prep_job],
+    request_job=strategy_registry_refresh_job,
+    default_status=DefaultSensorStatus.RUNNING,
+    description="Start strategy_registry_refresh_job after research_data_prep_job succeeds.",
+)
+def strategy_registry_refresh_after_research_data_prep_sensor(context):
+    upstream_run_id = str(context.dagster_run.run_id)
+    research_config = _research_config_from_run_config(context.dagster_run.run_config)
+    if research_config is None:
+        return None
+    dataset_version = _research_dataset_version_from_context(context, research_config)
+    series_mode = _research_series_mode_from_config(research_config)
+    return RunRequest(
+        run_key=f"{STRATEGY_REGISTRY_REFRESH_JOB_NAME}:{upstream_run_id}",
+        run_config=_strategy_registry_run_config_from_research_config(
+            research_config,
+            upstream_run_id=upstream_run_id,
+        ),
+        tags={
+            "ta3000/upstream_job": RESEARCH_DATA_PREP_JOB_NAME,
+            "ta3000/upstream_run_id": upstream_run_id,
+            "ta3000/dataset_version": dataset_version,
+            "ta3000/series_mode": series_mode,
+        },
+    )
+
+
+@run_status_sensor(
+    run_status=DagsterRunStatus.SUCCESS,
+    name=RESEARCH_BACKTEST_AFTER_STRATEGY_REGISTRY_SENSOR_NAME,
+    monitored_jobs=[strategy_registry_refresh_job],
+    request_job=research_backtest_job,
+    default_status=DefaultSensorStatus.RUNNING,
+    description="Start research_backtest_job after strategy_registry_refresh_job succeeds.",
+)
+def research_backtest_after_strategy_registry_sensor(context):
+    upstream_run_id = str(context.dagster_run.run_id)
+    research_config = _research_config_from_run_config(context.dagster_run.run_config)
+    dataset_version = _research_dataset_version_from_context(context, research_config)
+    series_mode = _research_series_mode_from_config(research_config)
+    return RunRequest(
+        run_key=f"{RESEARCH_BACKTEST_JOB_NAME}:{upstream_run_id}",
+        run_config={},
+        tags={
+            "ta3000/upstream_job": STRATEGY_REGISTRY_REFRESH_JOB_NAME,
+            "ta3000/upstream_run_id": upstream_run_id,
+            "ta3000/dataset_version": dataset_version,
+            "ta3000/series_mode": series_mode,
+        },
+    )
+
+
+@run_status_sensor(
+    run_status=DagsterRunStatus.SUCCESS,
+    name=RESEARCH_PROJECTION_AFTER_BACKTEST_SENSOR_NAME,
+    monitored_jobs=[research_backtest_job],
+    request_job=research_projection_job,
+    default_status=DefaultSensorStatus.RUNNING,
+    description="Start research_projection_job after research_backtest_job succeeds.",
+)
+def research_projection_after_backtest_sensor(context):
+    upstream_run_id = str(context.dagster_run.run_id)
+    dataset_version = _research_dataset_version_from_context(context)
+    return RunRequest(
+        run_key=f"{RESEARCH_PROJECTION_JOB_NAME}:{upstream_run_id}",
+        run_config={},
+        tags={
+            "ta3000/upstream_job": RESEARCH_BACKTEST_JOB_NAME,
+            "ta3000/upstream_run_id": upstream_run_id,
+            "ta3000/dataset_version": dataset_version,
+        },
+    )
+
+
 research_definitions = Definitions(
     assets=list(RESEARCH_ASSETS),
     jobs=[
@@ -2399,6 +2910,7 @@ research_definitions = Definitions(
         moex_research_bar_rebuild_job,
         moex_indicator_rebuild_job,
         moex_derived_indicator_rebuild_job,
+        moex_research_indicator_sidecar_job,
         strategy_registry_refresh_job,
         research_backtest_job,
         research_projection_job,
@@ -2415,6 +2927,9 @@ def assert_research_definitions_executable(definitions: Definitions | None = Non
         MOEX_RESEARCH_BAR_REBUILD_JOB_NAME: set(MOEX_RESEARCH_BAR_REBUILD_ASSETS),
         MOEX_INDICATOR_REBUILD_JOB_NAME: set(MOEX_INDICATOR_REBUILD_ASSETS),
         MOEX_DERIVED_INDICATOR_REBUILD_JOB_NAME: set(MOEX_DERIVED_INDICATOR_REBUILD_ASSETS),
+        MOEX_RESEARCH_INDICATOR_SIDECAR_JOB_NAME: set(
+            MOEX_RESEARCH_INDICATOR_SIDECAR_ASSETS
+        ),
         STRATEGY_REGISTRY_REFRESH_JOB_NAME: set(STRATEGY_REGISTRY_REFRESH_EXECUTION_ASSETS),
         RESEARCH_BACKTEST_JOB_NAME: set(RESEARCH_BACKTEST_ASSETS),
         RESEARCH_PROJECTION_JOB_NAME: set(RESEARCH_PROJECTION_ASSETS),
@@ -2707,23 +3222,10 @@ def _materialize_research_assets(
         )
         strategy_space_id = prepared_strategy_space.strategy_space_id
         search_specs = [spec.to_dict() for spec in prepared_strategy_space.family_search_specs]
-        resolved_combination_count = 0
-        optimizer = (
-            dict((strategy_space or _default_strategy_space()).get("optimizer", {}))
-            if isinstance(strategy_space or {}, dict)
-            else {}
+        resolved_combination_count = _strategy_space_combination_count(
+            dict(strategy_space or _default_strategy_space()),
+            prepared_strategy_space.family_search_specs,
         )
-        if str(optimizer.get("engine", "grid")) == "optuna":
-            per_spec_count = int(optimizer.get("n_trials", 0) or 0)
-            resolved_combination_count = per_spec_count * len(
-                prepared_strategy_space.family_search_specs
-            )
-        else:
-            for spec in prepared_strategy_space.family_search_specs:
-                count = 1
-                for values in spec.search_spec.parameter_space.values():
-                    count *= max(1, len(values))
-                resolved_combination_count += count
     output_paths = _research_output_paths(
         registry_root=registry_root,
         materialized_output_dir=resolved_materialized_output_dir,
@@ -2796,6 +3298,9 @@ def _materialize_research_assets(
             "config": research_config,
         },
         "research_derived_indicator_frames": {
+            "config": research_config,
+        },
+        "continuous_front_indicator_acceptance_report": {
             "config": research_config,
         },
     }
@@ -3249,6 +3754,66 @@ def materialize_moex_derived_indicator_rebuild_assets(
         code_version="moex-derived-rebuild-orchestration",
         default_assets=MOEX_DERIVED_INDICATOR_REBUILD_ASSETS,
         allowed_assets=MOEX_DERIVED_INDICATOR_REBUILD_ASSETS,
+        reuse_existing_materialization=reuse_existing_materialization,
+        raise_on_error=raise_on_error,
+    )
+
+
+def materialize_moex_indicator_sidecar_assets(
+    *,
+    canonical_output_dir: Path,
+    research_output_dir: Path | None = None,
+    materialized_output_dir: Path | None = None,
+    results_output_dir: Path | None = None,
+    campaign_id: str = "camp_moex_indicator_sidecar",
+    campaign_run_id: str = "crun_moex_indicator_sidecar",
+    dataset_version: str,
+    dataset_name: str = "moex-indicator-sidecar",
+    universe_id: str = "moex-futures",
+    timeframes: Sequence[str],
+    base_timeframe: str = "",
+    start_ts: str = "",
+    end_ts: str = "",
+    warmup_bars: int = DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS,
+    split_method: str = "holdout",
+    series_mode: str = "continuous_front",
+    continuous_front_policy: dict[str, object] | None = None,
+    indicator_set_version: str = "indicators-v1",
+    indicator_profile_version: str = "core_v1",
+    derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
+    derived_indicator_profile_version: str = "core_v1",
+    volume_profile_raw_1m_table_path: str | Path | None = None,
+    volume_profile_tick_size_by_instrument: Mapping[str, float] | None = None,
+    reuse_existing_materialization: bool = False,
+    raise_on_error: bool = True,
+) -> dict[str, object]:
+    return _materialize_moex_layer_rebuild_assets(
+        canonical_output_dir=canonical_output_dir,
+        research_output_dir=research_output_dir,
+        materialized_output_dir=materialized_output_dir,
+        results_output_dir=results_output_dir,
+        campaign_id=campaign_id,
+        campaign_run_id=campaign_run_id,
+        dataset_version=dataset_version,
+        dataset_name=dataset_name,
+        universe_id=universe_id,
+        timeframes=timeframes,
+        base_timeframe=base_timeframe,
+        start_ts=start_ts,
+        end_ts=end_ts,
+        warmup_bars=warmup_bars,
+        split_method=split_method,
+        series_mode=series_mode,
+        continuous_front_policy=continuous_front_policy,
+        indicator_set_version=indicator_set_version,
+        indicator_profile_version=indicator_profile_version,
+        derived_indicator_set_version=derived_indicator_set_version,
+        derived_indicator_profile_version=derived_indicator_profile_version,
+        volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
+        volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
+        code_version="moex-indicator-sidecar-orchestration",
+        default_assets=MOEX_RESEARCH_INDICATOR_SIDECAR_ASSETS,
+        allowed_assets=MOEX_RESEARCH_INDICATOR_SIDECAR_ASSETS,
         reuse_existing_materialization=reuse_existing_materialization,
         raise_on_error=raise_on_error,
     )

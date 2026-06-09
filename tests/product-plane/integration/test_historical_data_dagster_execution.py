@@ -8,7 +8,10 @@ from dagster import Definitions
 from trading_advisor_3000.dagster_defs import (
     historical_data_proof_assets as historical_data_proof_assets_module,
 )
-from trading_advisor_3000.dagster_defs import materialize_historical_data_proof_assets
+from trading_advisor_3000.dagster_defs import (
+    materialize_historical_data_proof_assets,
+    moex_historical_asset_specs,
+)
 from trading_advisor_3000.product_plane.data_plane import run_sample_backfill
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows
 
@@ -25,6 +28,13 @@ COMPARE_TABLES = (
     "canonical_session_calendar",
     "canonical_roll_map",
 )
+
+
+def test_moex_canonical_refresh_declares_all_supporting_sidecars() -> None:
+    specs = {spec.key: spec for spec in moex_historical_asset_specs()}
+
+    assert "canonical_session_intervals.delta" in specs["moex_baseline_update"].outputs
+    assert "canonical_session_intervals.delta" in specs["moex_canonical_refresh"].outputs
 
 
 def _sorted_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:

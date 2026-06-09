@@ -213,6 +213,7 @@ def moex_historical_asset_specs() -> list[AssetSpec]:
             outputs=(
                 "baseline-update-report.json",
                 "canonical_session_calendar.delta",
+                "canonical_session_intervals.delta",
                 "canonical_roll_map.delta",
             ),
         ),
@@ -238,6 +239,7 @@ def moex_historical_asset_specs() -> list[AssetSpec]:
                 "canonical_bars.delta",
                 "canonical_bar_provenance.delta",
                 "canonical_session_calendar.delta",
+                "canonical_session_intervals.delta",
                 "canonical_roll_map.delta",
             ),
         ),
@@ -1447,6 +1449,7 @@ def _run_research_rebuild_stages(
         "research_bar": research_assets.materialize_moex_research_bar_rebuild_assets,
         "indicator": research_assets.materialize_moex_indicator_rebuild_assets,
         "derived": research_assets.materialize_moex_derived_indicator_rebuild_assets,
+        "indicator_sidecar": research_assets.materialize_moex_indicator_sidecar_assets,
     }
     kwargs = _research_rebuild_kwargs(op_config, run_id=run_id)
     reports: dict[str, dict[str, object]] = {}
