@@ -79,7 +79,10 @@ ALLOWED_POLICY_TEXT_BY_FILE = {
     ),
 }
 
-IGNORED_GENERATED_RUN_ROOTS = ("docs/agent/plugin-eval",)
+IGNORED_GENERATED_RUN_ROOTS = (
+    "artifacts/codex/orchestration",
+    "docs/agent/plugin-eval",
+)
 
 
 def test_live_workflow_policy_retired_defaults_stay_removed() -> None:
