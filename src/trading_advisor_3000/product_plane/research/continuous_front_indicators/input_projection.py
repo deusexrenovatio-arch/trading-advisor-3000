@@ -65,6 +65,8 @@ def _timeframe_delta(timeframe: str) -> timedelta:
         return timedelta(hours=int(timeframe[:-1]))
     if timeframe.endswith("d"):
         return timedelta(days=int(timeframe[:-1]))
+    if timeframe.endswith("w"):
+        return timedelta(weeks=int(timeframe[:-1]))
     raise ValueError(f"unsupported timeframe token: {timeframe}")
 
 

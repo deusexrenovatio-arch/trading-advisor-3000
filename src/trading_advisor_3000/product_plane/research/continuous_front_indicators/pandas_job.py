@@ -220,6 +220,16 @@ def _normalize_arrow_value(value: object) -> object:
     return value
 
 
+def _normalize_timestamp_or_fallback(value: object, fallback: str) -> str:
+    normalized = _normalize_arrow_value(value)
+    if normalized is None:
+        return fallback
+    text = str(normalized).strip()
+    if not text or text.lower() in {"none", "null", "nan", "nat"}:
+        return fallback
+    return text.replace("+00:00", "Z")
+
+
 def _iter_arrow_rows(
     table: pa.Table, *, batch_size: int = ARROW_SCAN_BATCH_ROWS
 ) -> Iterator[dict[str, object]]:
@@ -579,11 +589,9 @@ def _iter_cf_indicator_input_row_batches(
             "ts": ts,
             "ts_close": ts_close,
             "session_date": _normalize_arrow_value(source["session_date"]),
-            "session_open_ts": str(_normalize_arrow_value(source["session_open_ts"])).replace(
-                "+00:00", "Z"
-            ),
-            "session_close_ts": str(_normalize_arrow_value(source["session_close_ts"])).replace(
-                "+00:00", "Z"
+            "session_open_ts": _normalize_timestamp_or_fallback(source.get("session_open_ts"), ts),
+            "session_close_ts": _normalize_timestamp_or_fallback(
+                source.get("session_close_ts"), ts_close
             ),
             "active_contract_id": str(source["active_contract_id"]),
             "roll_epoch_id": f"{instrument_id}|{timeframe}|{roll_seq}",
