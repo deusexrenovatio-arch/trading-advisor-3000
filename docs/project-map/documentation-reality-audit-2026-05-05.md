@@ -25,6 +25,12 @@ If project documentation is classified as obsolete, it should move to the single
 off-route archive under `docs/archive/`. Active folders should not permanently
 keep obsolete docs with warning banners.
 
+Process reset decision, 2026-06-10:
+
+The default session/handoff lifecycle is retired. Active task notes are no
+longer a normal navigation or gate dependency; explicit proof notes remain
+available only when a user or validator requires them.
+
 ## Product Reality Rule
 
 For the reset direction, the current truth order is:
@@ -54,7 +60,7 @@ Tracked repository snapshot:
 | --- | ---: |
 | tracked files | 1,806 |
 | tracked Markdown files | 519 |
-| `docs/tasks/active` | 40 files, 39 Markdown |
+| old active task-note tree | 40 files, 39 Markdown |
 | `docs/tasks/archive` | 38 files, 37 Markdown |
 | archived product-plane spec v2 package | 13 Markdown |
 | `artifacts/codex/package-intake` | 57 files, 39 Markdown |
@@ -100,8 +106,8 @@ These areas are likely still valuable, but need clearer labels:
 | Area | Problem | Proposed action |
 | --- | --- | --- |
 | archived product-plane spec v2 package | target-shape spec can be mistaken for current implemented reality | archived under `docs/archive/product-plane-spec-v2/2026-05-06/`; current replacements are listed in the archive manifest |
-| `docs/tasks/active` | old active notes make stale work look current | move closed/superseded notes out of active, keep only live governed task notes |
-| `docs/session_handoff.md` | lightweight shim can accidentally anchor routing to stale CTX-OPS state | keep as pointer only; do not let it claim product state |
+| retired active task notes | old active notes made stale work look current | keep off-route; create explicit proof notes only by request or validator need |
+| retired session handoff pointer | lightweight shim could anchor routing to stale CTX-OPS state | removed from active delivery route |
 | `docs/architecture/README.md` and architecture indexes | may link old technical specs as if active | update reading order to prefer reset/current reality docs |
 | old product-plane phase docs | phase closure language can overclaim implementation status | relabel as historical acceptance evidence |
 
@@ -116,7 +122,7 @@ first candidates are:
 | `artifacts/codex/chat-intake/package-intake` | old chat intake packages, not active product truth | medium: may be useful only for forensics |
 | old acceptance attempt artifacts under `artifacts/codex/orchestration` | many attempt/acceptor/worker prompts; high noise | medium: useful for process forensics, not product truth |
 | duplicate F1 closure package extracts from 2026-03-30 | repeated TZ copies with the same large content | low-to-medium after backup |
-| stale task-note files under `docs/tasks/active` | active location is misleading | low for product truth, but move/archive before delete |
+| stale active task-note files | active location was misleading | retired from the default route |
 | obsolete shell-package remnants under `codex_ai_delivery_shell_package` | old package source material, not product runtime | high: still referenced by scripts/tests, so do not delete first |
 | rename-migration artifacts | historical rename evidence | high: still referenced by validation scripts and architecture docs |
 
@@ -136,7 +142,7 @@ Known references found:
 | product-plane spec v2 package | 10 | archived after active references were rerouted to current truth docs and stack conformance baseline |
 | `artifacts/rename-migration` | 7 | referenced by validation scripts and rename docs |
 | `docs/architecture/dual-surface-safe-rename-migration-technical-specification.md` | 6 | referenced by architecture/codex contract docs |
-| `docs/architecture/governed-pipeline-hardening-technical-specification.md` | 2 | referenced by architecture/codex contract docs |
+| governed-pipeline hardening spec | retired | removed from active architecture routing during the 2026-06-10 process reset |
 
 ## Proposed Cleanup Phases
 
@@ -154,7 +160,7 @@ Actions:
 
 ### Phase 2: Move Misplaced Active Notes
 
-Goal: make `docs/tasks/active` mean active again.
+Goal: stop active task-note state from driving the ordinary route.
 
 Actions:
 
@@ -166,9 +172,10 @@ Actions:
 Status:
 
 - Started 2026-05-06.
-- 39 stale `docs/tasks/active/TASK-*.md` notes were moved to
+- 39 stale active task notes were moved to
   `docs/archive/historical-task-notes/2026-05-06/`.
-- `docs/tasks/active/index.yaml` was reset to `items: []`.
+- the old active task index was reset to `items: []` before the 2026-06-10
+  route reset retired the default active-note lifecycle.
 - 12 generated project-map task-blocker items were moved to
   `docs/archive/historical-project-map-items/2026-05-06/` so the current
   cockpit no longer reads old worktree blockers as active project state.
@@ -243,7 +250,7 @@ First PR should be small:
 
 Second PR:
 
-1. Classify `docs/tasks/active`.
+1. Classify the retired active task-note surface.
 2. Move obviously closed/superseded notes.
 3. Keep an index of moved notes.
 

@@ -41,7 +41,7 @@ Close operational hardening for controlled live execution:
 - `python -m pytest tests/product-plane/integration/test_operational_hardening.py -q`
 - `python -m pytest tests/product-plane -q`
 - `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
-- `python scripts/run_pr_gate.py --from-git --git-ref HEAD --skip-session-check`
+- `python scripts/run_pr_gate.py --from-git --git-ref HEAD`
 
 ## Out of Scope
 - automated incident remediation without operator confirmation,

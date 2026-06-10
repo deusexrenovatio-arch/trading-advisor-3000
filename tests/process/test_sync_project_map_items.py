@@ -3,7 +3,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
@@ -12,7 +11,9 @@ if str(SCRIPTS) not in sys.path:
 from sync_project_map_items import collect_signals, run  # noqa: E402
 
 
-def _write_node(root: Path, *, title: str, node_id: str, state: str = "ok", attention: bool = False) -> None:
+def _write_node(
+    root: Path, *, title: str, node_id: str, state: str = "ok", attention: bool = False
+) -> None:
     path = root / "docs" / "project-map" / "state" / "nodes" / f"{title}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     attention_value = "true" if attention else "false"
@@ -51,7 +52,7 @@ tags:
 
 
 def _write_task(root: Path) -> Path:
-    path = root / "docs" / "tasks" / "active" / "TASK-demo.md"
+    path = root / "docs" / "archive" / "historical-task-notes" / "2026-05-06" / "TASK-demo.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         """# Task Note
@@ -100,16 +101,32 @@ def test_sync_project_map_items_writes_and_check_passes(tmp_path: Path) -> None:
     assert run(tmp_path) == 0
     assert run(tmp_path, check=True) == 0
 
-    generated = tmp_path / "docs" / "project-map" / "state" / "items" / "Verify unknown node Runtime Plane.md"
+    generated = (
+        tmp_path
+        / "docs"
+        / "project-map"
+        / "state"
+        / "items"
+        / "Verify unknown node Runtime Plane.md"
+    )
     text = generated.read_text(encoding="utf-8")
     assert "origin_kind: sync-node-state" in text
     assert "sync_managed: true" in text
 
-    stale_task = tmp_path / "docs" / "project-map" / "state" / "items" / "Task blocker Fix runtime proof route.md"
+    stale_task = (
+        tmp_path
+        / "docs"
+        / "project-map"
+        / "state"
+        / "items"
+        / "Task blocker Fix runtime proof route.md"
+    )
     assert not stale_task.exists()
 
 
-def test_sync_project_map_items_drops_previous_legacy_task_signals_by_default(tmp_path: Path) -> None:
+def test_sync_project_map_items_drops_previous_legacy_task_signals_by_default(
+    tmp_path: Path,
+) -> None:
     _write_node(tmp_path, title="Delivery Shell", node_id="delivery-shell", state="ok")
     item_root = tmp_path / "docs" / "project-map" / "state" / "items"
     item_root.mkdir(parents=True, exist_ok=True)
@@ -131,7 +148,7 @@ last_seen: 2026-05-05
 sync_managed: true
 origin_kind: sync-task-blocker
 origin_refs:
-  - docs/tasks/active/TASK-old.md
+  - docs/archive/historical-task-notes/2026-05-06/TASK-old.md
 tags:
   - ta3000/project-item
   - ta3000/project-graph

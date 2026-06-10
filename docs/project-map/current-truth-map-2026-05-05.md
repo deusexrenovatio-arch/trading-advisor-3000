@@ -52,15 +52,14 @@ unless a current truth document explicitly promotes them:
 
 | Surface | Default interpretation |
 | --- | --- |
-| `docs/tasks/active/*.md` | current process notes only when tied to a live governed session; otherwise historical clues |
+| retired active task notes | historical clues only; create explicit proof notes only when a validator or user requires them |
 | `docs/archive/**` | single off-route archive; forensic only, do not read by default |
 | `docs/tasks/archive/*.md` | historical task evidence |
 | `docs/archive/legacy-app-docs/2026-05-06/**` | archived legacy app-path docs; historical only |
 | `docs/archive/product-plane-acceptance-checklists/2026-05-06/**` | archived historical acceptance checklist evidence; not current readiness proof |
-| `docs/codex/modules/**` | governed phase briefs and route plans, not implementation proof |
-| `docs/session_handoff.md` | lightweight pointer shim, not product state |
+| retired `docs/codex/**` planning surfaces | removed from active tree; use archives only for forensic history |
 | `artifacts/codex/package-intake/**` | historical package/TZ intake evidence |
-| `artifacts/codex/orchestration/**` | historical governed-attempt evidence |
+| `artifacts/codex/orchestration/**` | ignored generated governed-attempt output; not tracked current truth |
 | `codex_ai_delivery_shell_package/**` | historical shell package source material |
 | `docs/archive/product-plane-spec-v2/2026-05-06/**` | archived target-shape specification; forensic only, not implementation proof |
 | `artifacts/rename-migration/**` | historical rename evidence, still referenced by validation scripts |
@@ -90,8 +89,10 @@ Allowed cleanup order:
 
 ## Cleanup Status
 
-- 2026-05-06: moved 39 stale `docs/tasks/active/TASK-*.md` notes to
+- 2026-05-06: moved 39 stale active task notes to
   `docs/archive/historical-task-notes/2026-05-06/`.
-- 2026-05-06: reset `docs/tasks/active/index.yaml` to an empty active registry.
+- 2026-05-06: reset the old active task index to an empty registry.
 - 2026-05-06: moved 12 generated task-blocker project-map items to
   `docs/archive/historical-project-map-items/2026-05-06/`.
+- 2026-06-10: retired the default session/handoff lifecycle and removed active
+  task-note state from the ordinary delivery route.

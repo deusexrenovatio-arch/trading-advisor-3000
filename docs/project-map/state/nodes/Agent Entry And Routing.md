@@ -26,7 +26,7 @@ source_refs:
 - docs/agent/skills-routing.md
 - docs/agent-contexts/README.md
 dfd_refs:
-- docs/obsidian/dfd/level-2-shell-context-and-task-lifecycle.md
+- docs/obsidian/dfd/level-2-shell-context-and-skill-routing.md
 proof_refs:
 - scripts/context_router.py
 - scripts/validate_agent_contexts.py
@@ -40,7 +40,7 @@ agent work in the repository.
 
 ## Graph Links
 
-- Routes work toward [[Delivery Gates]] when a governed change starts.
+- Routes work toward [[Delivery Gates]] when a change needs validation.
 - Protects [[Product Plane]] from shell-side domain logic drift.
 
 ## Update Rule

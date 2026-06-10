@@ -6,7 +6,6 @@
 - `.githooks/pre-push`
 
 ## Layer 2: Process Runtime
-- `scripts/task_session.py`
 - `scripts/context_router.py`
 - `scripts/run_loop_gate.py`
 - `scripts/run_pr_gate.py`

@@ -5,12 +5,15 @@ from __future__ import annotations
 
 import argparse
 import re
-import sys
 from pathlib import Path
-
 
 BACKTICK_MD_RE = re.compile(r"`([^\s`]+\.md)`")
 MD_LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+\.md)\)")
+DEFAULT_COLD_DIRS = (
+    "docs/archive",
+    "docs/tasks/archive",
+    "docs/agent/plugin-eval",
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -27,14 +30,33 @@ def parse_args() -> argparse.Namespace:
         default=Path(__file__).resolve().parents[1],
         help="Repository root path.",
     )
+    parser.add_argument(
+        "--include-cold",
+        action="store_true",
+        help="Also scan archive/generated documentation roots.",
+    )
     return parser.parse_args()
 
 
-def iter_markdown_files(root: Path) -> list[Path]:
+def _is_under(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+def iter_markdown_files(root: Path, *, excluded_dirs: tuple[Path, ...]) -> list[Path]:
     if root.is_file() and root.suffix == ".md":
+        if any(_is_under(root, excluded) for excluded in excluded_dirs):
+            return []
         return [root]
     if root.is_dir():
-        return sorted(p for p in root.rglob("*.md") if p.is_file())
+        return sorted(
+            p
+            for p in root.rglob("*.md")
+            if p.is_file() and not any(_is_under(p, excluded) for excluded in excluded_dirs)
+        )
     return []
 
 
@@ -60,12 +82,17 @@ def extract_refs(text: str) -> set[str]:
 def main() -> int:
     args = parse_args()
     repo_root = args.repo_root.resolve()
+    excluded_dirs = (
+        tuple((repo_root / relative).resolve() for relative in DEFAULT_COLD_DIRS)
+        if not args.include_cold
+        else ()
+    )
     missing: list[tuple[Path, str]] = []
 
     scan_files: list[Path] = []
     for root_arg in args.roots:
         root_path = (repo_root / root_arg).resolve()
-        scan_files.extend(iter_markdown_files(root_path))
+        scan_files.extend(iter_markdown_files(root_path, excluded_dirs=excluded_dirs))
 
     for md_file in sorted(set(scan_files)):
         text = md_file.read_text(encoding="utf-8")

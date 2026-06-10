@@ -8,10 +8,9 @@ The repository must host only AI delivery shell mechanics and explicitly avoid p
 
 ## Decision
 1. Keep `run_loop_gate.py` as canonical hot-path gate entrypoint.
-2. Keep `docs/session_handoff.md` as a pointer-shim, not narrative history.
-3. Keep `plans/items/` canonical and generate `plans/PLANS.yaml` for compatibility.
-4. Enforce PR-only main with neutral emergency variables.
-5. Exclude domain-specialized skill packs from baseline.
+2. Keep `plans/items/` canonical and generate `plans/PLANS.yaml` for compatibility.
+3. Enforce PR-only main with neutral emergency variables.
+4. Exclude domain-specialized skill packs from baseline.
 
 ## Consequences
 - Process quality and traceability increase.

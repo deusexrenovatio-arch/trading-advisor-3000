@@ -65,6 +65,6 @@ order (`p0` now, `p1` decision, `p2` review, `p3` watch) and severity for impact
 Each item must also declare `origin_kind` and `origin_refs`, so the cockpit does
 not show unexplained problems.
 
-`docs/tasks/active` is not a current source of truth for this map. Those notes
-were often created inside separate worktrees and were not reliably merged, so
-they are treated as legacy diagnostic material rather than live project state.
+Archived task notes are not a current source of truth for this map. They were
+often created inside separate worktrees and were not reliably merged, so they
+are treated as legacy diagnostic material rather than live project state.

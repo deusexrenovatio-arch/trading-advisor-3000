@@ -56,8 +56,8 @@ For now this is hybrid:
   decision, `p2` needs review, and `p3` is watch/backlog.
 - Items carry `origin_kind` and `origin_refs`; generated items normally come
   from current node state through `scripts/sync_project_map_items.py`.
-- Legacy task-note blockers from `docs/tasks/active` are excluded by default
-  because main no longer contains authoritative merged task state.
+- Archived task-note blockers are excluded by default because main no longer
+  contains authoritative merged task state.
 - Historical generated task-blocker items are archived under
   `docs/archive/historical-project-map-items/`; they are not part of the active
   map queue.

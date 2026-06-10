@@ -26,8 +26,7 @@ Do not leave obsolete docs in active folders as permanent banner-only clutter.
 | `docs/archive/legacy-app-docs/2026-05-06/**` | `archived_2026-05-06` | `docs/architecture/product-plane/**` | done |
 | old product-plane capability phase docs | `extract_then_archive` | `docs/architecture/product-plane/STATUS.md`, current route decisions, current runbooks | `docs/archive/product-plane-capability-history/2026-05-06/` |
 | `docs/archive/product-plane-acceptance-checklists/2026-05-06/**` | `archived_2026-05-06` | `docs/architecture/product-plane/STATUS.md`, `docs/architecture/product-plane/CONTRACT_SURFACES.md`, `docs/architecture/product-plane/stack-conformance-baseline.md` | done |
-| old governed route modules under `docs/codex/modules/**` | mixed: `archive_candidate` / `supporting` | active route contracts, `docs/architecture/product-plane/STATUS.md`, current route decisions | `docs/archive/governed-route-history/2026-05-06/` |
-| `docs/codex/contracts/**` | mixed: `supporting` / `keep_for_validator` | governed launcher and current route contracts | do not move until route references are audited |
+| retired `docs/codex/**` planning/process surfaces | removed_2026-06-10 | current product docs, runbooks, and historical archives | done |
 | duplicated package-intake extracts under `artifacts/codex/package-intake/**` | `archive_candidate` outside docs | current truth docs and package manifests | later artifact cleanup, not this docs batch |
 | shell rename / migration specs | `keep_for_validator` | validator allowlists, architecture policy docs | do not move until validators stop referencing them |
 
@@ -36,7 +35,7 @@ Do not leave obsolete docs in active folders as permanent banner-only clutter.
 Safest first documentation moves after reference scan:
 
 1. old product-plane capability phase docs
-2. old governed route modules under `docs/codex/modules/**`
+2. retired governed route docs already removed from the active tree
 3. historical package-intake extracts under `artifacts/codex/package-intake/**`
 
 These groups are high-noise and already have current replacements. They should
@@ -52,7 +51,6 @@ Do not move these until a specific replacement is proven:
 - `docs/architecture/product-plane/research-plane-platform.md`
 - `docs/architecture/product-plane/moex-historical-route-decision.md`
 - current runbooks under `docs/runbooks/app/**`
-- governed contracts that current scripts or validators still reference
 
 ## Batch Acceptance
 

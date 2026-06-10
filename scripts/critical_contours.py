@@ -213,8 +213,8 @@ def split_csv_field(value: str) -> list[str]:
 
 def find_changed_solution_intent_note(changed_files: list[str]) -> Path | None:
     for raw in changed_files:
-        normalized = normalize_path(raw)
-        if not normalized.endswith((".md", ".markdown")):
+        normalized = raw.replace("\\", "/").strip()
+        if not normalized.lower().endswith((".md", ".markdown")):
             continue
         path = Path(normalized)
         if not path.exists():

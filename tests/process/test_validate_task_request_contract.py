@@ -3,7 +3,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
@@ -21,7 +20,7 @@ Updated: 2026-03-16 12:00 UTC
 
 ## Task Request Contract
 - Objective: prove validator contract.
-- In Scope: temporary task note and pointer shim.
+- In Scope: temporary task note.
 - Out of Scope: domain logic.
 - Constraints: deterministic checks only.
 - Done Evidence: validator returns zero.
@@ -55,36 +54,15 @@ Updated: 2026-03-16 12:00 UTC
 """
 
 
-def _pointer_handoff(task_path: Path) -> str:
-    return f"""# Session Handoff
-Updated: 2026-03-16 12:01 UTC
-
-## Active Task Note
-- Path: {task_path.as_posix()}
-- Mode: full
-- Status: in_progress
-
-## Validation
-- `python scripts/validate_task_request_contract.py`
-- `python scripts/validate_session_handoff.py`
-"""
-
-
 def test_validate_task_request_contract_accepts_valid_note(tmp_path: Path) -> None:
     note_path = tmp_path / "TASK-VALID.md"
-    handoff_path = tmp_path / "session_handoff.md"
     note_path.write_text(_valid_task_note(), encoding="utf-8")
-    handoff_path.write_text(_pointer_handoff(note_path), encoding="utf-8")
-    code = run(
-        handoff_path,
-        changed_files_override=[str(handoff_path), str(note_path)],
-    )
+    code = run(note_path)
     assert code == 0
 
 
 def test_validate_task_request_contract_rejects_missing_contract_items(tmp_path: Path) -> None:
     note_path = tmp_path / "TASK-BAD.md"
-    handoff_path = tmp_path / "session_handoff.md"
     note_path.write_text(
         """# Task Note
 Updated: 2026-03-16
@@ -97,9 +75,5 @@ Updated: 2026-03-16
 """,
         encoding="utf-8",
     )
-    handoff_path.write_text(_pointer_handoff(note_path), encoding="utf-8")
-    code = run(
-        handoff_path,
-        changed_files_override=[str(handoff_path), str(note_path)],
-    )
+    code = run(note_path)
     assert code == 1

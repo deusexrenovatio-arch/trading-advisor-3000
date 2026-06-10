@@ -46,12 +46,9 @@ Keep the design checkpoint inline:
 - Repetition control missing on repeated failures.
 
 ## Enforcement
-- Keep sections in active task note (via `docs/session_handoff.md` pointer):
+- Keep sections in active task note when a task note is explicitly used:
   - `## Task Request Contract`
   - `## First-Time-Right Report`
   - `## Repetition Control`
-- For package/module planning, also satisfy `docs/checklists/planning-gate-contract.md`.
 - Validate with:
   - `python scripts/validate_task_request_contract.py`
-  - `python scripts/validate_phase_planning_contract.py`
-  - `python scripts/validate_session_handoff.py`

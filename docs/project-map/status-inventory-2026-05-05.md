@@ -15,7 +15,7 @@ task-note flow.
 2. Live worktree and branch state.
 3. Authoritative runtime/data roots under `D:/TA3000-data`.
 4. Current product-plane status and runbook docs.
-5. Task notes and session handoff files, only as historical clues.
+5. Archived task notes, only as historical clues.
 
 ## Snapshot
 
@@ -25,7 +25,7 @@ task-note flow.
 - `origin/main`: `08f2a49a`.
 - Open PRs: `0`.
 - Worktrees discovered: `22`.
-- Active task files discovered under `docs/tasks/active`: `41`.
+- Historical active-task files discovered in the May snapshot: `41`.
 
 ## Current Code Truth
 

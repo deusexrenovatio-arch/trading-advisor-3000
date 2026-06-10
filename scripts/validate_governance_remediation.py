@@ -4,14 +4,10 @@ import argparse
 import sys
 from pathlib import Path
 
-
 REQUIRED_COMMAND_MENTIONS = (
-    "python scripts/task_session.py begin",
     "python scripts/run_loop_gate.py",
     "python scripts/run_pr_gate.py",
     "python scripts/run_nightly_gate.py",
-    "python scripts/validate_task_request_contract.py",
-    "python scripts/validate_session_handoff.py",
 )
 
 
@@ -31,7 +27,9 @@ def run(path: Path) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Validate governance remediation runbook coverage.")
+    parser = argparse.ArgumentParser(
+        description="Validate governance remediation runbook coverage."
+    )
     parser.add_argument("--path", default="docs/runbooks/governance-remediation.md")
     args = parser.parse_args()
     sys.exit(run(Path(args.path)))

@@ -31,13 +31,12 @@ dfd_refs:
 proof_refs:
 - scripts/run_loop_gate.py
 - scripts/run_pr_gate.py
-- scripts/validate_session_handoff.py
 ---
 
 # Delivery Shell
 
-Control plane for policy, context routing, task lifecycle, gates, PR evidence,
-and handoff state.
+Control plane for policy, context routing, risk-triggered skill selection,
+gates, PR evidence, and closeout.
 
 ## Current Note
 

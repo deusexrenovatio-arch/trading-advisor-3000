@@ -14,11 +14,10 @@ Defines rules, ownership, and hot/warm/cold source-of-truth boundaries.
 ### Allowed dependencies
 - May call L2 entrypoints only through documented scripts.
 
-## L2 - Runtime Orchestration Layer
-Executes task lifecycle, context routing, and gate orchestration.
+## L2 - Runtime Routing Layer
+Executes context routing and gate orchestration.
 
 ### Assets
-- `scripts/task_session.py`
 - `scripts/context_router.py`
 - `scripts/compute_change_surface.py`
 - `scripts/run_loop_gate.py`

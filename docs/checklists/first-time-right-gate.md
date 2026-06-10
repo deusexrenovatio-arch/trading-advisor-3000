@@ -25,4 +25,3 @@ Keep this under `## First-Time-Right Report` in the active task note:
 
 ## Validation
 - `python scripts/validate_task_request_contract.py`
-- `python scripts/validate_session_handoff.py`

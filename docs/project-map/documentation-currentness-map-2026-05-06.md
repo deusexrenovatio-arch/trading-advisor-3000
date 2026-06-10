@@ -51,9 +51,7 @@ explicitly promotes them.
 | `docs/archive/legacy-app-docs/2026-05-06/**` | archived legacy app-path documentation |
 | old capability phase docs under `docs/architecture/product-plane/*.md` | historical capability evidence unless named in `docs/architecture/product-plane/STATUS.md` as current truth |
 | `docs/archive/product-plane-acceptance-checklists/2026-05-06/**` | archived historical acceptance checklists; do not infer current product readiness from checked boxes |
-| `docs/codex/contracts/**` | governed execution contracts; active only for the named governed route, not global product truth |
-| `docs/codex/modules/**` | governed phase briefs and historical route plans; not implementation proof by themselves |
-| `docs/codex/prompts/**` and `docs/codex/orchestration/**` | delivery-process machinery |
+| retired `docs/codex/**` planning/process surfaces | removed from active tree; use archives only for forensic history |
 | `docs/archive/**` | off-route archive; do not read unless explicitly doing forensic/audit work |
 
 ## Reading Rule
@@ -64,8 +62,8 @@ When documents disagree:
 2. `docs/architecture/product-plane/STATUS.md`,
    `docs/architecture/product-plane/CONTRACT_SURFACES.md`, current route
    decisions, and current runbooks win over old phase/checklist/spec wording.
-3. Target-shape specs and governed phase docs are design or process evidence,
-   not product state.
+3. Target-shape specs and retired phase-route docs are design or process
+   evidence, not product state.
 4. A checked acceptance box is not enough to claim current readiness.
 
 ## Cleanup Rule

@@ -14,12 +14,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
-
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT_ROOT = ROOT / "artifacts" / "f1" / "phase04" / "sidecar-immutable"
 SIDECAR_SCRIPT_DIR = ROOT / "deployment" / "stocksharp-sidecar" / "scripts"
 SMOKE_SCRIPT = ROOT / "scripts" / "smoke_stocksharp_sidecar_binary.py"
-PHASE_BRIEF = "docs/codex/modules/f1-full-closure.phase-04.md"
+PHASE_BRIEF = "docs/architecture/product-plane/dotnet-sidecar-closure.md"
 PHASE_NAME = "F1-D - Sidecar Immutable Evidence Hardening"
 
 
@@ -175,13 +174,18 @@ def validate_smoke_payload(payload: dict[str, Any]) -> None:
     if ready_under_kill.get("ready") is not False:
         raise ValueError("kill-switch disprover: readiness under kill-switch must be ready=false")
     if str(ready_under_kill.get("reason", "")).strip() != "kill_switch_active":
-        raise ValueError("kill-switch disprover: readiness under kill-switch must expose reason=kill_switch_active")
+        raise ValueError(
+            "kill-switch disprover: readiness under kill-switch must expose "
+            "reason=kill_switch_active"
+        )
 
     blocked_submit = kill_switch.get("blocked_submit")
     if not isinstance(blocked_submit, dict):
         raise ValueError("smoke payload missing `smoke.kill_switch.blocked_submit` object")
     if str(blocked_submit.get("error_code", "")).strip() != "kill_switch_active":
-        raise ValueError("kill-switch disprover: blocked submit must expose error_code=kill_switch_active")
+        raise ValueError(
+            "kill-switch disprover: blocked submit must expose error_code=kill_switch_active"
+        )
     if int(blocked_submit.get("status_code", 0)) != 503:
         raise ValueError("kill-switch disprover: blocked submit must expose status_code=503")
 
@@ -189,7 +193,9 @@ def validate_smoke_payload(payload: dict[str, Any]) -> None:
     if not isinstance(submit_after_restore, dict):
         raise ValueError("smoke payload missing `smoke.kill_switch.submit_after_restore` object")
     if submit_after_restore.get("accepted") is not True:
-        raise ValueError("kill-switch restore check failed: submit_after_restore.accepted must be true")
+        raise ValueError(
+            "kill-switch restore check failed: submit_after_restore.accepted must be true"
+        )
 
     metrics = smoke.get("metrics")
     if not isinstance(metrics, dict):
@@ -197,9 +203,13 @@ def validate_smoke_payload(payload: dict[str, Any]) -> None:
     metrics_on = str(metrics.get("while_kill_switch_enabled", ""))
     metrics_restore = str(metrics.get("after_kill_switch_restore", ""))
     if "ta3000_sidecar_gateway_kill_switch 1" not in metrics_on:
-        raise ValueError("metrics disprover: kill switch enable marker missing from metrics snapshot")
+        raise ValueError(
+            "metrics disprover: kill switch enable marker missing from metrics snapshot"
+        )
     if "ta3000_sidecar_gateway_kill_switch 0" not in metrics_restore:
-        raise ValueError("metrics disprover: kill switch restore marker missing from metrics snapshot")
+        raise ValueError(
+            "metrics disprover: kill switch restore marker missing from metrics snapshot"
+        )
 
 
 def collect_hash_entries(*, base_dir: Path, targets: Sequence[Path]) -> list[dict[str, object]]:
@@ -252,8 +262,7 @@ def verify_hash_manifest(*, base_dir: Path, entries: Sequence[dict[str, object]]
         actual = sha256_file(target).lower()
         if actual != expected_hash:
             raise ValueError(
-                "hash mismatch for "
-                f"{path_text}: expected {expected_hash}, got {actual}"
+                f"hash mismatch for {path_text}: expected {expected_hash}, got {actual}"
             )
 
 
@@ -286,7 +295,9 @@ def run_broken_binary_disprover(
         require_success=False,
     )
     if result.return_code == 0:
-        raise RuntimeError("broken-binary disprover failed: smoke unexpectedly succeeded on missing binary")
+        raise RuntimeError(
+            "broken-binary disprover failed: smoke unexpectedly succeeded on missing binary"
+        )
     return {
         "name": "broken_binary_path",
         "status": "expected_failure_observed",
@@ -297,7 +308,9 @@ def run_broken_binary_disprover(
     }
 
 
-def run_kill_switch_disprover(*, smoke_payload: dict[str, Any], disprover_dir: Path) -> dict[str, object]:
+def run_kill_switch_disprover(
+    *, smoke_payload: dict[str, Any], disprover_dir: Path
+) -> dict[str, object]:
     mutated = json.loads(json.dumps(smoke_payload))
     kill = mutated.setdefault("smoke", {}).setdefault("kill_switch", {})
     ready = kill.setdefault("ready_under_kill_switch", {})
@@ -335,7 +348,9 @@ def run_hash_mismatch_disprover(
         except ValueError as exc:
             detail = str(exc)
         else:
-            raise RuntimeError("hash-mismatch disprover failed: hash verification unexpectedly passed")
+            raise RuntimeError(
+                "hash-mismatch disprover failed: hash verification unexpectedly passed"
+            )
     finally:
         first_target.write_bytes(original_bytes)
 
@@ -357,7 +372,10 @@ def run_hash_mismatch_disprover(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Run F1-D immutable sidecar evidence chain with commit-linked artifacts, hash proof, and disprovers."
+        description=(
+            "Run F1-D immutable sidecar evidence chain with commit-linked artifacts, "
+            "hash proof, and disprovers."
+        )
     )
     parser.add_argument("--output-root", default=DEFAULT_OUTPUT_ROOT.as_posix())
     parser.add_argument("--run-id", default="")
@@ -371,7 +389,10 @@ def main() -> int:
 
     git_sha = git_head_sha()
     dotnet_executable = resolve_dotnet_executable(args.dotnet)
-    run_stamp = args.run_id.strip() or f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{git_sha[:12]}"
+    run_stamp = (
+        args.run_id.strip()
+        or f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{git_sha[:12]}"
+    )
     output_root = Path(args.output_root)
     if not output_root.is_absolute():
         output_root = (ROOT / output_root).resolve()
@@ -390,7 +411,8 @@ def main() -> int:
     )
     if dotnet_info.return_code != 0:
         raise RuntimeError(
-            "dotnet --info failed; install .NET SDK or set TA3000_DOTNET_BIN to SDK-backed dotnet executable"
+            "dotnet --info failed; install .NET SDK or set TA3000_DOTNET_BIN "
+            "to SDK-backed dotnet executable"
         )
 
     environment_payload = {
@@ -479,7 +501,9 @@ def main() -> int:
 
     sidecar_binary = publish_dir / "TradingAdvisor3000.StockSharpSidecar.dll"
     if not sidecar_binary.exists():
-        raise RuntimeError(f"publish step did not produce compiled binary: {sidecar_binary.as_posix()}")
+        raise RuntimeError(
+            f"publish step did not produce compiled binary: {sidecar_binary.as_posix()}"
+        )
 
     smoke_step = run_command(
         step_id="smoke",

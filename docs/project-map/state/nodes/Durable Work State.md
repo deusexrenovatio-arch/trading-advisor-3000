@@ -12,7 +12,7 @@ needs_user_attention: false
 confidence: medium
 last_verified: 2026-05-05
 update_rule: source-doc-backed
-state_source: docs/session_handoff.md, plans/items, task notes
+state_source: plans/items, memory, validation and report artifacts
 tags:
 - ta3000/project-node
 - ta3000/project-graph
@@ -20,21 +20,19 @@ tags:
 - level/2
 - state/ok
 source_refs:
-- docs/session_handoff.md
 - docs/DEV_WORKFLOW.md
 - docs/agent/runtime.md
 dfd_refs:
-- docs/obsidian/dfd/level-2-shell-context-and-task-lifecycle.md
+- docs/obsidian/dfd/level-2-shell-context-and-skill-routing.md
 proof_refs:
-- scripts/validate_session_handoff.py
-- scripts/validate_task_outcomes.py
 - scripts/validate_plans.py
+- scripts/validate_agent_memory.py
 ---
 
 # Durable Work State
 
-Task notes, handoff pointers, plan items, and evidence references that let work
-continue without relying only on chat memory.
+Plan items, memory checks, and evidence references that let work continue
+without relying only on chat memory.
 
 ## Graph Links
 
@@ -43,5 +41,5 @@ continue without relying only on chat memory.
 
 ## Update Rule
 
-Update this node when the canonical task-state, handoff, or plan storage model
+Update this node when the canonical plan, memory, or evidence storage model
 changes.

@@ -6,9 +6,7 @@ from __future__ import annotations
 import argparse
 import difflib
 import hashlib
-import os
 import re
-import sys
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -17,10 +15,9 @@ from unicodedata import normalize
 
 import yaml
 
-
 NODE_ROOT = Path("docs/project-map/state/nodes")
 ITEM_ROOT = Path("docs/project-map/state/items")
-TASK_ROOT = Path("docs/tasks/active")
+LEGACY_TASK_ROOT = Path("docs/archive/historical-task-notes/2026-05-06")
 MANAGED_ORIGIN_KINDS = {"sync-node-state", "sync-task-blocker"}
 NO_BLOCKER_PATTERNS = (
     "no blocker",
@@ -58,15 +55,19 @@ class ItemSignal:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Sync project-map items from current project-map signals.")
+    parser = argparse.ArgumentParser(
+        description="Sync project-map items from current project-map signals."
+    )
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[1])
-    parser.add_argument("--check", action="store_true", help="Fail if managed items are out of date.")
+    parser.add_argument(
+        "--check", action="store_true", help="Fail if managed items are out of date."
+    )
     parser.add_argument(
         "--include-legacy-task-notes",
         action="store_true",
         help=(
-            "Also import blocker signals from docs/tasks/active. This is off by default because "
-            "task notes on main are legacy worktree artifacts, not authoritative current state."
+            "Also import blocker signals from archived task notes. This is off by default because "
+            "they are legacy worktree artifacts, not authoritative current state."
         ),
     )
     return parser.parse_args()
@@ -130,7 +131,15 @@ def _infer_node_id(text: str, known_nodes: set[str]) -> str:
     lower = text.lower()
     scored: list[tuple[int, str]] = []
     rules = {
-        "delivery-gates": ("gate", "loop", "pr gate", "validation", "skill", "governed", "acceptance"),
+        "delivery-gates": (
+            "gate",
+            "loop",
+            "pr gate",
+            "validation",
+            "skill",
+            "governed",
+            "acceptance",
+        ),
         "contract-surfaces": ("contract", "schema", "fixture", "compatibility"),
         "data-plane": ("moex", "canonical", "raw", "dagster", "spark", "baseline", "data"),
         "research-plane": ("research", "indicator", "backtest", "strategy", "vectorbt"),
@@ -153,11 +162,26 @@ def _node_state_signals(repo_root: Path, nodes: dict[str, NodeSignal]) -> list[I
     signals: list[ItemSignal] = []
     for node in nodes.values():
         if node.state == "blocked":
-            item_type, priority, severity, title = "problem", "p0", "high", f"Blocked node: {node.title}"
+            item_type, priority, severity, title = (
+                "problem",
+                "p0",
+                "high",
+                f"Blocked node: {node.title}",
+            )
         elif node.state == "unknown":
-            item_type, priority, severity, title = "risk", "p2", "medium", f"Verify unknown node: {node.title}"
+            item_type, priority, severity, title = (
+                "risk",
+                "p2",
+                "medium",
+                f"Verify unknown node: {node.title}",
+            )
         elif node.needs_user_attention:
-            item_type, priority, severity, title = "question", "p1", "medium", f"Decision needed: {node.title}"
+            item_type, priority, severity, title = (
+                "question",
+                "p1",
+                "medium",
+                f"Decision needed: {node.title}",
+            )
         else:
             continue
         body = (
@@ -234,10 +258,12 @@ def _task_title(path: Path, text: str) -> str:
 def _task_blocker_signals(repo_root: Path, nodes: dict[str, NodeSignal]) -> list[ItemSignal]:
     signals: list[ItemSignal] = []
     known_nodes = set(nodes)
-    for path in sorted((repo_root / TASK_ROOT).glob("*.md")):
+    for path in sorted((repo_root / LEGACY_TASK_ROOT).glob("*.md")):
         text = path.read_text(encoding="utf-8-sig")
         blocker_lines = _meaningful_blocker_lines(_section(text, "## Blockers"))
-        outcome_blocked = re.search(r"^- Outcome Status:\s*blocked\s*$", text, flags=re.MULTILINE | re.IGNORECASE)
+        outcome_blocked = re.search(
+            r"^- Outcome Status:\s*blocked\s*$", text, flags=re.MULTILINE | re.IGNORECASE
+        )
         if not blocker_lines and not outcome_blocked:
             continue
         title = _task_title(path, text)
@@ -270,7 +296,9 @@ def _task_blocker_signals(repo_root: Path, nodes: dict[str, NodeSignal]) -> list
     return signals
 
 
-def collect_signals(repo_root: Path, *, include_legacy_task_notes: bool = False) -> list[ItemSignal]:
+def collect_signals(
+    repo_root: Path, *, include_legacy_task_notes: bool = False
+) -> list[ItemSignal]:
     nodes = _node_by_id(repo_root)
     signals = list(_node_state_signals(repo_root, nodes))
     if include_legacy_task_notes:
@@ -338,10 +366,15 @@ def _managed_item_paths(repo_root: Path) -> set[Path]:
     paths: set[Path] = set()
     for path in sorted((repo_root / ITEM_ROOT).glob("*.md")):
         fm, _body = _read_note(path)
-        if not fm and path.name.startswith(("Task blocker ", "Verify unknown node ", "Decision needed ")):
+        if not fm and path.name.startswith(
+            ("Task blocker ", "Verify unknown node ", "Decision needed ")
+        ):
             paths.add(path)
             continue
-        if fm.get("sync_managed") is True or str(fm.get("origin_kind") or "") in MANAGED_ORIGIN_KINDS:
+        if (
+            fm.get("sync_managed") is True
+            or str(fm.get("origin_kind") or "") in MANAGED_ORIGIN_KINDS
+        ):
             paths.add(path)
     return paths
 
@@ -351,7 +384,9 @@ def _mark_stale(path: Path) -> str:
     title = str(fm.get("title") or path.stem)
     fm["status"] = "dropped"
     fm["last_seen"] = date.today().isoformat()
-    tags = [tag for tag in fm.get("tags", []) if isinstance(tag, str) and not tag.startswith("status/")]
+    tags = [
+        tag for tag in fm.get("tags", []) if isinstance(tag, str) and not tag.startswith("status/")
+    ]
     tags.append("status/dropped")
     fm["tags"] = tags
     dumped = yaml.safe_dump(fm, sort_keys=False, allow_unicode=True).strip()
@@ -412,7 +447,9 @@ def run(repo_root: Path, *, check: bool = False, include_legacy_task_notes: bool
 
 def main() -> int:
     args = parse_args()
-    return run(args.repo_root, check=args.check, include_legacy_task_notes=args.include_legacy_task_notes)
+    return run(
+        args.repo_root, check=args.check, include_legacy_task_notes=args.include_legacy_task_notes
+    )
 
 
 if __name__ == "__main__":
