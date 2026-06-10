@@ -88,3 +88,65 @@ def test_validate_pr_size_excludes_deleted_active_lifecycle_notes() -> None:
     assert report["reviewable_files"] == 1
     assert report["reviewable_line_changes"] == 25
     assert report["excluded_cold_generated_deletes"] == 1
+
+
+def test_validate_pr_size_excludes_deleted_plugin_eval_outputs() -> None:
+    report = build_report(
+        [
+            DiffEntry(
+                path="docs/agent/plugin-eval/sweep/results/run-output.json",
+                additions=0,
+                deletions=4000,
+                status="D",
+            ),
+            DiffEntry(path="docs/agent/checks.md", additions=3, deletions=2, status="M"),
+        ]
+    )
+
+    assert report["status"] == "pass"
+    assert report["reviewable_files"] == 1
+    assert report["reviewable_line_changes"] == 5
+    assert report["excluded_cold_generated_deletes"] == 1
+
+
+def test_validate_pr_size_excludes_deleted_retired_process_runtime() -> None:
+    report = build_report(
+        [
+            DiffEntry(
+                path="scripts/codex_phase_orchestrator.py",
+                additions=0,
+                deletions=1800,
+                status="D",
+            ),
+            DiffEntry(
+                path="tests/process/test_codex_phase_orchestrator.py",
+                additions=0,
+                deletions=1020,
+                status="D",
+            ),
+            DiffEntry(path="docs/agent/checks.md", additions=4, deletions=3, status="M"),
+        ]
+    )
+
+    assert report["status"] == "pass"
+    assert report["reviewable_files"] == 1
+    assert report["reviewable_line_changes"] == 7
+    assert report["excluded_cold_generated_deletes"] == 2
+
+
+def test_validate_pr_size_counts_modified_retired_process_runtime() -> None:
+    report = build_report(
+        [
+            DiffEntry(
+                path="scripts/codex_phase_orchestrator.py",
+                additions=10,
+                deletions=1800,
+                status="M",
+            )
+        ]
+    )
+
+    assert report["status"] == "pass"
+    assert report["reviewable_files"] == 1
+    assert report["reviewable_line_changes"] == 1810
+    assert report["excluded_cold_generated_deletes"] == 0

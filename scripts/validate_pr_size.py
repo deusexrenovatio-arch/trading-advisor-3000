@@ -14,11 +14,46 @@ MAX_REVIEWABLE_LINE_CHANGES = 3000
 COLD_GENERATED_DELETE_PREFIXES = (
     "artifacts/codex/orchestration/",
     "codex_ai_delivery_shell_package/",
+    "docs/agent/plugin-eval/",
     "docs/archive/",
     "docs/codex/",
     "docs/tasks/active/",
     "docs/tasks/archive/",
+    "memory/",
+    "plans/",
 )
+
+RETIRED_PROCESS_DELETE_PATHS = {
+    "scripts/build_governed_release_decision.py",
+    "scripts/codex_from_package.py",
+    "scripts/codex_governed_bootstrap.py",
+    "scripts/codex_governed_entry.py",
+    "scripts/codex_inbox_daemon.ps1",
+    "scripts/codex_phase_orchestrator.py",
+    "scripts/codex_phase_policy.py",
+    "scripts/handoff_resolver.py",
+    "scripts/intake_quality.py",
+    "scripts/orchestration_quality.py",
+    "scripts/repo_mutation_lock.py",
+    "scripts/start_codex_inbox_daemon.ps1",
+    "scripts/stop_codex_inbox_daemon.ps1",
+    "scripts/sync_task_outcomes.py",
+    "scripts/task_session.py",
+    "scripts/validate_phase_planning_contract.py",
+    "scripts/validate_session_handoff.py",
+    "tests/process/test_build_governed_release_decision.py",
+    "tests/process/test_codex_from_package.py",
+    "tests/process/test_codex_governed_bootstrap.py",
+    "tests/process/test_codex_governed_entry.py",
+    "tests/process/test_codex_phase_orchestrator.py",
+    "tests/process/test_codex_phase_policy.py",
+    "tests/process/test_orchestration_quality.py",
+    "tests/process/test_repo_mutation_lock.py",
+    "tests/process/test_task_session_binding.py",
+    "tests/process/test_task_session_lifecycle.py",
+    "tests/process/test_task_session_modes.py",
+    "tests/process/test_validate_phase_planning_contract.py",
+}
 
 
 @dataclass(frozen=True)
@@ -34,7 +69,7 @@ class DiffEntry:
 
 
 def _normalize_path(path: str) -> str:
-    return path.replace("\\", "/").strip().lower()
+    return path.replace("\\", "/").strip()
 
 
 def _diff_range_args(
@@ -72,7 +107,7 @@ def _status_by_path(diff_args: list[str]) -> dict[str, str]:
             continue
         status = parts[0].strip()
         path = parts[-1]
-        statuses[_normalize_path(path)] = status[:1] if status else ""
+        statuses[_normalize_path(path).lower()] = status[:1] if status else ""
     return statuses
 
 
@@ -85,6 +120,7 @@ def _numstat_entries(diff_args: list[str]) -> list[DiffEntry]:
             continue
         raw_additions, raw_deletions, path = parts[0], parts[1], parts[-1]
         normalized = _normalize_path(path)
+        marker = normalized.lower()
         additions = int(raw_additions) if raw_additions.isdigit() else 0
         deletions = int(raw_deletions) if raw_deletions.isdigit() else 0
         entries.append(
@@ -92,7 +128,7 @@ def _numstat_entries(diff_args: list[str]) -> list[DiffEntry]:
                 path=normalized,
                 additions=additions,
                 deletions=deletions,
-                status=statuses.get(normalized),
+                status=statuses.get(marker),
             )
         )
     return entries
@@ -113,12 +149,13 @@ def _entries_for_args(
         git_ref=git_ref,
     )
     entries = _numstat_entries(diff_args) if diff_args is not None else []
-    seen = {_normalize_path(entry.path) for entry in entries}
+    seen = {_normalize_path(entry.path).lower() for entry in entries}
     for path in changed_files:
         normalized = _normalize_path(path)
-        if normalized in seen:
+        marker = normalized.lower()
+        if marker in seen:
             continue
-        seen.add(normalized)
+        seen.add(marker)
         entries.append(DiffEntry(path=normalized, additions=0, deletions=0))
     return entries
 
@@ -126,7 +163,10 @@ def _entries_for_args(
 def _is_excluded_cold_generated_delete(entry: DiffEntry) -> bool:
     if entry.status != "D":
         return False
-    return any(entry.path.startswith(prefix) for prefix in COLD_GENERATED_DELETE_PREFIXES)
+    normalized = _normalize_path(entry.path).lower()
+    return normalized in RETIRED_PROCESS_DELETE_PATHS or any(
+        normalized.startswith(prefix) for prefix in COLD_GENERATED_DELETE_PREFIXES
+    )
 
 
 def build_report(entries: list[DiffEntry]) -> dict[str, Any]:
