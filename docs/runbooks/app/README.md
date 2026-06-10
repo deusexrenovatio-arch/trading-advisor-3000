@@ -11,7 +11,6 @@ Product runtime and operational runbooks live in this directory.
 - `docs/runbooks/app/operational-hardening-runbook.md` - operational resilience, secrets policy, and DR recovery sequence.
 - `docs/runbooks/app/scale-up-readiness-runbook.md` - expansion seam validation for providers, context, and adapters.
 - `docs/runbooks/app/shell-delivery-operational-proving-runbook.md` - consolidated lane proving, fail-closed evidence, and triage workflow.
-- `docs/runbooks/app/mcp-wave-rollout-runbook.md` - Wave 1-3 MCP rollout with preflight checks and incident recovery.
 - `docs/runbooks/app/real-execution-transport-runbook.md` - staging-first real HTTP transport rollout and incident handling.
 - `docs/runbooks/app/moex-raw-ingest-runbook.md` - MOEX raw-ingest step (mapping, coverage discovery, bootstrap ingest, idempotent rerun proof).
 - `docs/runbooks/app/moex-canonical-refresh-runbook.md` - MOEX canonical-refresh step (deterministic resampling, fail-closed QC, contract/runtime compatibility).
