@@ -44,7 +44,8 @@ def historical_data_delta_schema_manifest() -> dict[str, dict[str, object]]:
         },
         "canonical_session_intervals": {
             "format": "delta",
-            "partition_by": ["instrument_id", "session_date"],
+            "partition_by": [],
+            "target_file_count": 1,
             "constraints": [
                 "unique(instrument_id, session_date, interval_id)",
                 "non_empty(source_id)",
@@ -67,7 +68,8 @@ def historical_data_delta_schema_manifest() -> dict[str, dict[str, object]]:
         },
         "canonical_bars": {
             "format": "delta",
-            "partition_by": ["contract_id", "timeframe"],
+            "partition_by": [],
+            "target_file_count": 16,
             "constraints": ["unique(contract_id, timeframe, ts)"],
             "columns": {
                 "contract_id": "string",
@@ -84,7 +86,8 @@ def historical_data_delta_schema_manifest() -> dict[str, dict[str, object]]:
         },
         "canonical_bar_provenance": {
             "format": "delta",
-            "partition_by": ["contract_id", "timeframe"],
+            "partition_by": [],
+            "target_file_count": 16,
             "constraints": ["unique(contract_id, timeframe, ts)"],
             "columns": {
                 "contract_id": "string",
@@ -99,10 +102,10 @@ def historical_data_delta_schema_manifest() -> dict[str, dict[str, object]]:
                 "source_interval": "int",
                 "source_run_id": "string",
                 "source_ingest_run_id": "string",
-                "source_row_count": "bigint",
+                "source_row_count": "int",
                 "source_ts_open_first": "timestamp",
                 "source_ts_close_last": "timestamp",
-                "open_interest_imputed": "boolean",
+                "open_interest_imputed": "int",
                 "build_run_id": "string",
                 "built_at_utc": "timestamp",
             },
@@ -128,7 +131,8 @@ def historical_data_delta_schema_manifest() -> dict[str, dict[str, object]]:
         },
         "canonical_session_calendar": {
             "format": "delta",
-            "partition_by": ["instrument_id", "session_date"],
+            "partition_by": [],
+            "target_file_count": 1,
             "constraints": ["unique(instrument_id, timeframe, session_date)"],
             "columns": {
                 "instrument_id": "string",
@@ -141,7 +145,8 @@ def historical_data_delta_schema_manifest() -> dict[str, dict[str, object]]:
         },
         "canonical_roll_map": {
             "format": "delta",
-            "partition_by": ["instrument_id", "session_date"],
+            "partition_by": [],
+            "target_file_count": 1,
             "constraints": ["unique(instrument_id, session_date)"],
             "columns": {
                 "instrument_id": "string",

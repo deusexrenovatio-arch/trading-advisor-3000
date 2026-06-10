@@ -1,10 +1,10 @@
 # Session Handoff
-Updated: 2026-05-20 13:28 UTC
+Updated: 2026-05-22 12:01 UTC
 
 ## Active Task Note
-- Path: docs/tasks/archive/TASK-2026-05-20-prove-bar-usage-indicator-groups-on-fut-br-15m-s.md
+- Path: docs/tasks/active/TASK-2026-05-22-integrate-moex-1m-canonical-materialization-pr-s.md
 - Mode: legacy-full
-- Status: completed
+- Status: in_progress
 
 ## Validation
 - `python scripts/validate_task_request_contract.py`

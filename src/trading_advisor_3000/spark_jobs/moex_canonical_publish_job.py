@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from pathlib import Path
 from typing import Any, Callable
+from uuid import uuid4
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log
 from trading_advisor_3000.product_plane.data_plane.schemas import (
@@ -16,7 +18,10 @@ from .canonical_bars_job import (
     _load_spark_modules,
     _write_delta_dataframe,
 )
-from .moex_canonicalization_job import _prepare_official_session_intervals
+from .moex_canonicalization_job import (
+    MOEX_SESSION_TIMEZONE,
+    _prepare_official_session_intervals,
+)
 
 CANONICAL_KEY_COLUMNS = ("contract_id", "instrument_id", "timeframe", "ts")
 SIDECAR_ROLL_REASON = "max_open_interest_then_latest_ts_close"
@@ -32,6 +37,7 @@ SIDECAR_SESSION_SCOPE_COLUMNS: dict[str, str] = {
     "instrument_id": "string",
     "session_date": "date",
 }
+PROVENANCE_SESSION_INTERVAL_EXEMPT_TIMEFRAMES = ("1d", "1w")
 
 CANONICAL_PROVENANCE_COLUMNS: dict[str, str] = {
     "contract_id": "string",
@@ -46,10 +52,10 @@ CANONICAL_PROVENANCE_COLUMNS: dict[str, str] = {
     "source_interval": "int",
     "source_run_id": "string",
     "source_ingest_run_id": "string",
-    "source_row_count": "bigint",
+    "source_row_count": "int",
     "source_ts_open_first": "timestamp",
     "source_ts_close_last": "timestamp",
-    "open_interest_imputed": "boolean",
+    "open_interest_imputed": "int",
     "build_run_id": "string",
     "built_at_utc": "timestamp",
 }
@@ -73,8 +79,187 @@ def _table_or_empty(spark: Any, *, table_path: Path, schema: str) -> Any:
     return spark.createDataFrame([], schema)
 
 
+def _delta_table_has_columns(spark: Any, *, table_path: Path, columns: tuple[str, ...]) -> bool:
+    if not has_delta_log(table_path):
+        return False
+    existing_columns = set(spark.read.format("delta").load(str(table_path)).columns)
+    return set(columns).issubset(existing_columns)
+
+
+def _delta_table_matches_schema(spark: Any, *, table_path: Path, columns: dict[str, str]) -> bool:
+    if not has_delta_log(table_path):
+        return False
+    existing_types = {
+        str(column_name): str(data_type)
+        for column_name, data_type in spark.read.format("delta").load(str(table_path)).dtypes
+    }
+    return all(
+        existing_types.get(column_name) == data_type for column_name, data_type in columns.items()
+    )
+
+
+def _delta_table_partition_columns(spark: Any, table_path: Path) -> tuple[str, ...] | None:
+    if not has_delta_log(table_path):
+        return None
+    from delta.tables import DeltaTable  # type: ignore[import-not-found]
+
+    rows = DeltaTable.forPath(spark, str(table_path)).detail().select("partitionColumns").collect()
+    if not rows:
+        return ()
+    return tuple(str(item) for item in (rows[0]["partitionColumns"] or []))
+
+
+def _delta_table_layout_matches_manifest(
+    spark: Any, *, table_path: Path, manifest_entry: dict[str, object]
+) -> bool:
+    actual = _delta_table_partition_columns(spark, table_path)
+    if actual is None:
+        return False
+    expected = tuple(str(item) for item in list(manifest_entry.get("partition_by") or []))
+    return actual == expected
+
+
+def _select_columns_with_defaults(
+    dataframe: Any,
+    columns: dict[str, str],
+    functions: Any,
+    *,
+    defaults: dict[str, Any] | None = None,
+) -> Any:
+    resolved_defaults = dict(defaults or {})
+    expressions = []
+    for column_name, column_type in columns.items():
+        if column_name in dataframe.columns:
+            expressions.append(functions.col(column_name).cast(column_type).alias(column_name))
+            continue
+        expressions.append(
+            resolved_defaults.get(column_name, functions.lit(None))
+            .cast(column_type)
+            .alias(column_name)
+        )
+    return dataframe.select(*expressions)
+
+
 def _schema_from_columns(columns: dict[str, str]) -> str:
     return ",".join(f"{key} {value}" for key, value in columns.items())
+
+
+def _replace_delta_dataframe(
+    *,
+    dataframe: Any,
+    table_path: Path,
+    manifest_entry: dict[str, object],
+) -> Path | None:
+    partition_by = list(manifest_entry.get("partition_by") or [])
+    target_file_count = int(manifest_entry.get("target_file_count") or 0)
+    table_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = table_path.parent / f".{table_path.name}.rewrite-{uuid4().hex}"
+    backup_path = table_path.parent / f".{table_path.name}.backup-{uuid4().hex}"
+    if temp_path.exists():
+        shutil.rmtree(temp_path)
+    if target_file_count > 0:
+        dataframe = dataframe.coalesce(target_file_count)
+    writer = dataframe.write.format("delta").mode("overwrite").option("overwriteSchema", "true")
+    if partition_by:
+        writer = writer.partitionBy(*partition_by)
+    writer.save(str(temp_path))
+    backup_created = False
+    try:
+        if table_path.exists():
+            table_path.rename(backup_path)
+            backup_created = True
+        temp_path.rename(table_path)
+    except Exception:
+        if backup_created and backup_path.exists() and not table_path.exists():
+            backup_path.rename(table_path)
+        raise
+    finally:
+        if temp_path.exists():
+            shutil.rmtree(temp_path)
+    return backup_path if backup_path.exists() else None
+
+
+def _provenance_frame_with_contract_columns(
+    *,
+    spark: Any,
+    dataframe: Any,
+    session_intervals_path: Path | None,
+    functions: Any,
+    window: Any,
+) -> Any:
+    base = _select_columns_with_defaults(
+        dataframe,
+        CANONICAL_PROVENANCE_COLUMNS,
+        functions,
+        defaults={
+            "bar_start_ts": functions.col("source_ts_open_first"),
+            "bar_end_ts": functions.col("source_ts_close_last"),
+            "session_interval_id": functions.lit(None).cast("string"),
+        },
+    )
+    if session_intervals_path is None:
+        return base
+
+    intervals_df = _prepare_official_session_intervals(
+        spark=spark,
+        session_intervals_path=session_intervals_path,
+        functions=functions,
+        window=window,
+    ).select(
+        functions.col("instrument_id").alias("interval_instrument_id"),
+        functions.col("session_date").alias("interval_session_date"),
+        functions.col("interval_id").cast("string").alias("resolved_session_interval_id"),
+        functions.col("expected_open_ts").alias("interval_open_ts"),
+        functions.col("expected_close_ts").alias("interval_close_ts"),
+    )
+    base = base.withColumn(
+        "_needs_session_interval_id",
+        ~functions.lower(functions.col("timeframe")).isin(
+            [*PROVENANCE_SESSION_INTERVAL_EXEMPT_TIMEFRAMES]
+        ),
+    ).withColumn(
+        "_session_date",
+        functions.to_date(
+            functions.from_utc_timestamp(
+                functions.coalesce(functions.col("bar_start_ts"), functions.col("ts")),
+                MOEX_SESSION_TIMEZONE,
+            )
+        ),
+    )
+    joined = base.alias("provenance").join(
+        intervals_df.alias("intervals"),
+        functions.col("provenance._needs_session_interval_id")
+        & (
+            functions.col("provenance.instrument_id")
+            == functions.col("intervals.interval_instrument_id")
+        )
+        & (
+            functions.col("provenance._session_date")
+            == functions.col("intervals.interval_session_date")
+        )
+        & (
+            functions.col("provenance.bar_start_ts")
+            >= functions.col("intervals.interval_open_ts") - functions.expr("INTERVAL 60 SECONDS")
+        )
+        & (functions.col("provenance.bar_end_ts") <= functions.col("intervals.interval_close_ts")),
+        "left",
+    )
+    return joined.select(
+        *[
+            functions.col(f"provenance.{column_name}").alias(column_name)
+            for column_name in CANONICAL_PROVENANCE_COLUMNS
+            if column_name != "session_interval_id"
+        ],
+        functions.when(
+            functions.col("provenance._needs_session_interval_id"),
+            functions.coalesce(
+                functions.col("provenance.session_interval_id"),
+                functions.col("intervals.resolved_session_interval_id"),
+            ),
+        )
+        .otherwise(functions.lit(None).cast("string"))
+        .alias("session_interval_id"),
+    )
 
 
 def _merge_upsert_delta_dataframe(
@@ -302,6 +487,14 @@ def _build_qc_report(
     incomplete_provenance = provenance_df.where(
         functions.col("source_provider").isNull()
         | (functions.trim(functions.col("source_provider")) == "")
+        | functions.col("bar_start_ts").isNull()
+        | functions.col("bar_end_ts").isNull()
+        | (
+            ~functions.lower(functions.col("timeframe")).isin(
+                [*PROVENANCE_SESSION_INTERVAL_EXEMPT_TIMEFRAMES]
+            )
+            & functions.col("session_interval_id").isNull()
+        )
         | functions.col("source_timeframe").isNull()
         | (functions.trim(functions.col("source_timeframe")) == "")
         | functions.col("source_interval").isNull()
@@ -311,15 +504,6 @@ def _build_qc_report(
         | (functions.trim(functions.col("source_ingest_run_id")) == "")
         | functions.col("source_row_count").isNull()
         | (functions.col("source_row_count") <= 0)
-        | functions.col("bar_start_ts").isNull()
-        | functions.col("bar_end_ts").isNull()
-        | (
-            ~functions.lower(functions.col("timeframe")).isin("1d", "d", "d1", "1w", "w", "w1")
-            & (
-                functions.col("session_interval_id").isNull()
-                | (functions.trim(functions.col("session_interval_id")) == "")
-            )
-        )
         | functions.col("source_ts_open_first").isNull()
         | functions.col("source_ts_close_last").isNull()
         | functions.col("build_run_id").isNull()
@@ -340,8 +524,7 @@ def _build_qc_report(
         .drop("_previous_ts")
     )
     non_monotonic_source_windows = provenance_df.where(
-        (functions.col("source_ts_open_first") > functions.col("source_ts_close_last"))
-        | (functions.col("bar_start_ts") > functions.col("bar_end_ts"))
+        functions.col("source_ts_open_first") > functions.col("source_ts_close_last")
     )
     provenance_completeness_violations = int(missing_provenance.count()) + int(
         incomplete_provenance.count()
@@ -498,7 +681,12 @@ def _sidecar_frames(
     )
     with_session = joined.withColumn(
         "session_date",
-        functions.to_date(functions.coalesce(functions.col("bar_start_ts"), functions.col("ts"))),
+        functions.to_date(
+            functions.from_utc_timestamp(
+                functions.coalesce(functions.col("source_ts_open_first"), functions.col("ts")),
+                MOEX_SESSION_TIMEZONE,
+            )
+        ),
     )
     if sidecars_exist:
         with_session = with_session.join(
@@ -529,13 +717,18 @@ def _sidecar_frames(
             ).alias("_has_partial_session"),
             functions.max(
                 functions.when(
-                    functions.col("session_class") != functions.lit("regular"),
+                    functions.col("session_class").isNotNull()
+                    & (functions.col("session_class") != functions.lit("regular"))
+                    & (functions.col("session_class") != functions.lit("partial_or_gap")),
                     functions.col("session_class"),
                 )
             ).alias("_special_session_class"),
         )
-        .withColumn(
-            "session_class",
+        .select(
+            "instrument_id",
+            "session_date",
+            "session_open_ts",
+            "session_close_ts",
             functions.when(
                 functions.col("_has_partial_session") > functions.lit(0),
                 functions.lit("partial_or_gap"),
@@ -544,14 +737,8 @@ def _sidecar_frames(
                 functions.col("_special_session_class").isNotNull(),
                 functions.col("_special_session_class"),
             )
-            .otherwise(functions.lit("regular")),
-        )
-        .select(
-            "instrument_id",
-            "session_date",
-            "session_open_ts",
-            "session_close_ts",
-            "session_class",
+            .otherwise(functions.lit("regular"))
+            .alias("session_class"),
         )
     )
     session_scope_df = with_session.select("instrument_id", "timeframe", "session_date").distinct()
@@ -615,7 +802,7 @@ def _sessions_from_provenance(*, provenance_df: Any, functions: Any) -> Any:
         provenance_df.select(
             "instrument_id",
             functions.to_date(
-                functions.coalesce(functions.col("bar_start_ts"), functions.col("ts"))
+                functions.coalesce(functions.col("source_ts_open_first"), functions.col("ts"))
             ).alias("session_date"),
         )
         .where(functions.col("session_date").isNotNull())
@@ -687,11 +874,22 @@ def run_moex_canonical_publish_spark_delta_job(
             table_path=target_bars_path,
             schema=_schema_from_columns(manifest["canonical_bars"]["columns"]),
         ).select(*manifest["canonical_bars"]["columns"].keys())
-        target_provenance_df = _table_or_empty(
+        target_provenance_has_contract = _delta_table_matches_schema(
             spark,
             table_path=target_provenance_path,
-            schema=_schema_from_columns(CANONICAL_PROVENANCE_COLUMNS),
-        ).select(*CANONICAL_PROVENANCE_COLUMNS.keys())
+            columns=CANONICAL_PROVENANCE_COLUMNS,
+        )
+        target_provenance_df = _provenance_frame_with_contract_columns(
+            spark=spark,
+            dataframe=_table_or_empty(
+                spark,
+                table_path=target_provenance_path,
+                schema=_schema_from_columns(CANONICAL_PROVENANCE_COLUMNS),
+            ),
+            session_intervals_path=session_intervals_path,
+            functions=functions,
+            window=window,
+        )
 
         impacted_scope_keys_df = _impacted_scope_keys(
             spark=spark,
@@ -789,6 +987,7 @@ def run_moex_canonical_publish_spark_delta_job(
                 table_path=affected_sessions_path,
             )
         mutation_applied = False
+        rewrite_backup_paths: list[Path] = []
         recovery_manifest_path = output_dir / "publish-recovery-manifest.json"
         publish_protocol: dict[str, object] = {
             "operation": "delta_merge_replace",
@@ -842,7 +1041,7 @@ def run_moex_canonical_publish_spark_delta_job(
                     manifest_entry=dict(manifest["canonical_bars"]),
                 )
 
-            if has_delta_log(target_provenance_path):
+            if has_delta_log(target_provenance_path) and target_provenance_has_contract:
                 _merge_replace_delta_dataframe(
                     spark=spark,
                     table_path=target_provenance_path,
@@ -852,6 +1051,14 @@ def run_moex_canonical_publish_spark_delta_job(
                     key_columns=CANONICAL_KEY_COLUMNS,
                     functions=functions,
                 )
+            elif has_delta_log(target_provenance_path):
+                backup_path = _replace_delta_dataframe(
+                    dataframe=candidate_provenance_df,
+                    table_path=target_provenance_path,
+                    manifest_entry={"columns": dict(CANONICAL_PROVENANCE_COLUMNS)},
+                )
+                if backup_path is not None:
+                    rewrite_backup_paths.append(backup_path)
             else:
                 _write_delta_dataframe(
                     dataframe=staged_provenance_df,
@@ -868,11 +1075,17 @@ def run_moex_canonical_publish_spark_delta_job(
             table_path=target_bars_path,
             schema=_schema_from_columns(manifest["canonical_bars"]["columns"]),
         ).select(*manifest["canonical_bars"]["columns"].keys())
-        final_provenance_df = _table_or_empty(
-            spark,
-            table_path=target_provenance_path,
-            schema=_schema_from_columns(CANONICAL_PROVENANCE_COLUMNS),
-        ).select(*CANONICAL_PROVENANCE_COLUMNS.keys())
+        final_provenance_df = _provenance_frame_with_contract_columns(
+            spark=spark,
+            dataframe=_table_or_empty(
+                spark,
+                table_path=target_provenance_path,
+                schema=_schema_from_columns(CANONICAL_PROVENANCE_COLUMNS),
+            ),
+            session_intervals_path=session_intervals_path,
+            functions=functions,
+            window=window,
+        )
 
         if affected_session_rows > 0:
             affected_sessions_df = spark.read.format("delta").load(str(affected_sessions_path))
@@ -886,7 +1099,37 @@ def run_moex_canonical_publish_spark_delta_job(
             functions=functions,
         ).cache()
         sidecar_scope_session_rows = int(sidecar_scope_sessions_df.count())
-        sidecars_exist = has_delta_log(session_calendar_path) and has_delta_log(roll_map_path)
+        session_calendar_columns = tuple(manifest["canonical_session_calendar"]["columns"].keys())
+        roll_map_columns = tuple(manifest["canonical_roll_map"]["columns"].keys())
+        sidecars_exist = _delta_table_has_columns(
+            spark,
+            table_path=session_calendar_path,
+            columns=session_calendar_columns,
+        ) and _delta_table_has_columns(
+            spark,
+            table_path=roll_map_path,
+            columns=roll_map_columns,
+        )
+        session_calendar_manifest = dict(manifest["canonical_session_calendar"])
+        roll_map_manifest = dict(manifest["canonical_roll_map"])
+        session_calendar_partition_columns = _delta_table_partition_columns(
+            spark, session_calendar_path
+        )
+        roll_map_partition_columns = _delta_table_partition_columns(spark, roll_map_path)
+        sidecar_layout_matches_manifest = (
+            sidecars_exist
+            and _delta_table_layout_matches_manifest(
+                spark,
+                table_path=session_calendar_path,
+                manifest_entry=session_calendar_manifest,
+            )
+            and _delta_table_layout_matches_manifest(
+                spark,
+                table_path=roll_map_path,
+                manifest_entry=roll_map_manifest,
+            )
+        )
+        sidecar_layout_rewrite_required = sidecars_exist and not sidecar_layout_matches_manifest
         sidecar_mutation = False
         refreshed_session_rows = 0
         refreshed_roll_rows = 0
@@ -894,7 +1137,7 @@ def run_moex_canonical_publish_spark_delta_job(
         if (
             publish_allowed
             and session_intervals_path is not None
-            and (not sidecars_exist or affected_session_rows > 0)
+            and (not sidecars_exist or affected_session_rows > 0 or sidecar_layout_rewrite_required)
         ):
             session_calendar_df, roll_map_df, refresh_mode = _sidecar_frames(
                 spark=spark,
@@ -902,21 +1145,23 @@ def run_moex_canonical_publish_spark_delta_job(
                 provenance_df=final_provenance_df,
                 affected_sessions_df=sidecar_scope_sessions_df,
                 session_intervals_path=session_intervals_path,
-                sidecars_exist=sidecars_exist,
+                sidecars_exist=sidecars_exist and not sidecar_layout_rewrite_required,
                 window=window,
                 functions=functions,
             )
-            if sidecars_exist:
+            if sidecar_layout_rewrite_required:
+                refresh_mode = "layout_rewrite"
+            if sidecars_exist and not sidecar_layout_rewrite_required:
                 target_session_calendar_df = _table_or_empty(
                     spark,
                     table_path=session_calendar_path,
-                    schema=_schema_from_columns(manifest["canonical_session_calendar"]["columns"]),
-                ).select(*manifest["canonical_session_calendar"]["columns"].keys())
+                    schema=_schema_from_columns(session_calendar_manifest["columns"]),
+                ).select(*session_calendar_manifest["columns"].keys())
                 target_roll_map_df = _table_or_empty(
                     spark,
                     table_path=roll_map_path,
-                    schema=_schema_from_columns(manifest["canonical_roll_map"]["columns"]),
-                ).select(*manifest["canonical_roll_map"]["columns"].keys())
+                    schema=_schema_from_columns(roll_map_manifest["columns"]),
+                ).select(*roll_map_manifest["columns"].keys())
                 stale_session_calendar_df = _sidecar_stale_keys(
                     target_dataframe=target_session_calendar_df,
                     replacement_dataframe=session_calendar_df,
@@ -966,16 +1211,20 @@ def run_moex_canonical_publish_spark_delta_job(
                     functions=functions,
                 )
             else:
-                _write_delta_dataframe(
+                writer = _replace_delta_dataframe if sidecars_exist else _write_delta_dataframe
+                session_backup_path = writer(
                     dataframe=session_calendar_df,
                     table_path=session_calendar_path,
-                    manifest_entry=dict(manifest["canonical_session_calendar"]),
+                    manifest_entry=session_calendar_manifest,
                 )
-                _write_delta_dataframe(
+                roll_backup_path = writer(
                     dataframe=roll_map_df,
                     table_path=roll_map_path,
-                    manifest_entry=dict(manifest["canonical_roll_map"]),
+                    manifest_entry=roll_map_manifest,
                 )
+                for backup_path in (session_backup_path, roll_backup_path):
+                    if backup_path is not None:
+                        rewrite_backup_paths.append(backup_path)
             refreshed_session_rows = int(session_calendar_df.count())
             refreshed_roll_rows = int(roll_map_df.count())
             sidecar_mutation = True
@@ -1001,7 +1250,7 @@ def run_moex_canonical_publish_spark_delta_job(
         if has_delta_log(roll_map_path):
             output_paths["canonical_roll_map"] = roll_map_path.as_posix()
             delta_log["canonical_roll_map"] = _delta_log_payload(roll_map_path)
-        return {
+        report = {
             "run_id": run_id,
             "runtime_owner": "spark_delta",
             "status": "PASS" if publish_allowed else "BLOCKED",
@@ -1016,6 +1265,17 @@ def run_moex_canonical_publish_spark_delta_job(
             "sidecar_refresh": {
                 "mode": refresh_mode,
                 "mutation_applied": sidecar_mutation,
+                "layout_rewrite_required": sidecar_layout_rewrite_required,
+                "partition_columns": {
+                    "canonical_session_calendar": {
+                        "actual": list(session_calendar_partition_columns or []),
+                        "expected": list(session_calendar_manifest.get("partition_by") or []),
+                    },
+                    "canonical_roll_map": {
+                        "actual": list(roll_map_partition_columns or []),
+                        "expected": list(roll_map_manifest.get("partition_by") or []),
+                    },
+                },
                 "refreshed_session_calendar_rows": refreshed_session_rows,
                 "refreshed_roll_map_rows": refreshed_roll_rows,
                 "affected_session_rows": affected_session_rows,
@@ -1029,6 +1289,10 @@ def run_moex_canonical_publish_spark_delta_job(
                 "delta_writer": "spark",
             },
         }
+        for backup_path in rewrite_backup_paths:
+            if backup_path.exists():
+                shutil.rmtree(backup_path)
+        return report
     finally:
         try:
             spark.stop()

@@ -15,30 +15,45 @@ from .moex_historical_assets import (
 from .research_assets import (
     MOEX_CF_REBUILD_JOB_NAME,
     MOEX_DERIVED_INDICATOR_REBUILD_JOB_NAME,
+    MOEX_HISTORICAL_DATA_REBUILD_RESEARCH_PREP_SENSOR_NAME,
     MOEX_INDICATOR_REBUILD_JOB_NAME,
     MOEX_RESEARCH_BAR_REBUILD_JOB_NAME,
+    MOEX_RESEARCH_INDICATOR_SIDECAR_JOB_NAME,
     RESEARCH_ASSETS,
+    RESEARCH_BACKTEST_AFTER_STRATEGY_REGISTRY_SENSOR_NAME,
     RESEARCH_BACKTEST_JOB_NAME,
     RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME,
+    RESEARCH_DATA_PREP_JOB_NAME,
+    RESEARCH_PROJECTION_AFTER_BACKTEST_SENSOR_NAME,
     RESEARCH_PROJECTION_JOB_NAME,
+    RESEARCH_STRATEGY_REGISTRY_AFTER_DATA_PREP_SENSOR_NAME,
     STRATEGY_REGISTRY_REFRESH_JOB_NAME,
     assert_research_definitions_executable,
     moex_cf_rebuild_job,
     moex_derived_indicator_rebuild_job,
     moex_indicator_rebuild_job,
     moex_research_bar_rebuild_job,
+    moex_research_indicator_sidecar_job,
+    research_backtest_after_strategy_registry_sensor,
     research_backtest_job,
+    research_data_prep_after_moex_data_rebuild_sensor,
+    research_data_prep_after_moex_sensor,
+    research_data_prep_job,
+    research_projection_after_backtest_sensor,
     research_projection_job,
+    strategy_registry_refresh_after_research_data_prep_sensor,
     strategy_registry_refresh_job,
 )
 
 PRODUCT_PLANE_NIGHTLY_JOB_NAMES = (
     MOEX_BASELINE_UPDATE_JOB_NAME,
     MOEX_DATA_REBUILD_JOB_NAME,
+    RESEARCH_DATA_PREP_JOB_NAME,
     MOEX_CF_REBUILD_JOB_NAME,
     MOEX_RESEARCH_BAR_REBUILD_JOB_NAME,
     MOEX_INDICATOR_REBUILD_JOB_NAME,
     MOEX_DERIVED_INDICATOR_REBUILD_JOB_NAME,
+    MOEX_RESEARCH_INDICATOR_SIDECAR_JOB_NAME,
     STRATEGY_REGISTRY_REFRESH_JOB_NAME,
     RESEARCH_BACKTEST_JOB_NAME,
     RESEARCH_PROJECTION_JOB_NAME,
@@ -53,16 +68,24 @@ product_plane_definitions = Definitions(
     jobs=[
         moex_baseline_update_job,
         moex_data_rebuild_job,
+        research_data_prep_job,
         moex_cf_rebuild_job,
         moex_research_bar_rebuild_job,
         moex_indicator_rebuild_job,
         moex_derived_indicator_rebuild_job,
+        moex_research_indicator_sidecar_job,
         strategy_registry_refresh_job,
         research_backtest_job,
         research_projection_job,
     ],
     schedules=[moex_baseline_daily_update_schedule],
-    sensors=[],
+    sensors=[
+        research_data_prep_after_moex_sensor,
+        research_data_prep_after_moex_data_rebuild_sensor,
+        strategy_registry_refresh_after_research_data_prep_sensor,
+        research_backtest_after_strategy_registry_sensor,
+        research_projection_after_backtest_sensor,
+    ],
 )
 
 
@@ -82,10 +105,18 @@ def assert_product_plane_definitions_executable(definitions: Definitions | None 
         )
 
     sensor_names = {sensor.name for sensor in repository.sensor_defs}
-    if RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME in sensor_names:
+    required_sensors = {
+        RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME,
+        MOEX_HISTORICAL_DATA_REBUILD_RESEARCH_PREP_SENSOR_NAME,
+        RESEARCH_STRATEGY_REGISTRY_AFTER_DATA_PREP_SENSOR_NAME,
+        RESEARCH_BACKTEST_AFTER_STRATEGY_REGISTRY_SENSOR_NAME,
+        RESEARCH_PROJECTION_AFTER_BACKTEST_SENSOR_NAME,
+    }
+    missing_sensors = sorted(required_sensors - sensor_names)
+    if missing_sensors:
         raise RuntimeError(
-            "product-plane Dagster definitions must not auto-trigger research data-prep "
-            "after MOEX baseline update"
+            "product-plane Dagster definitions are missing data-prep cascade sensors: "
+            f"{', '.join(missing_sensors)}"
         )
 
 

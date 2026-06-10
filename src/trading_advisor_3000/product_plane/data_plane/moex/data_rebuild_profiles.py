@@ -18,6 +18,7 @@ DATA_LAYER_REBUILD_STAGE_NAMES = (
     "research_bar",
     "indicator",
     "derived",
+    "indicator_sidecar",
 )
 FORBIDDEN_REBUILD_STAGE_NAMES = ("strategy", "backtest", "projection", "execution")
 MOEX_REBUILD_SOURCE_MODES = ("full_raw_ingest", "existing_raw_delta")
@@ -29,6 +30,7 @@ _STALE_TARGET_ORDER = (
     "research_bar",
     "indicator",
     "derived",
+    "indicator_sidecar",
     "strategy",
     "backtest",
     "projection",
@@ -42,6 +44,7 @@ _STAGE_ORDER = {
     "research_bar": 4,
     "indicator": 5,
     "derived": 6,
+    "indicator_sidecar": 7,
 }
 
 
@@ -119,10 +122,19 @@ MOEX_DATA_REBUILD_PROFILES: dict[str, MoexDataRebuildProfile] = {
     "data_layer_rebuild": MoexDataRebuildProfile(
         name="data_layer_rebuild",
         stage_names=resolve_moex_data_layer_stages(
-            ("continuous_front", "research_bar", "indicator", "derived")
+            (
+                "continuous_front",
+                "research_bar",
+                "indicator",
+                "derived",
+                "indicator_sidecar",
+            )
         ),
         source_mode="existing_raw_delta",
-        description="Rebuild the data layer after current canonical data is already refreshed.",
+        description=(
+            "Rebuild the data layer after current canonical data is already refreshed, "
+            "including post-derived continuous-front indicator sidecars."
+        ),
     ),
     "invalidate_downstream_only": MoexDataRebuildProfile(
         name="invalidate_downstream_only",
@@ -161,6 +173,8 @@ def dependent_stale_targets_for_stages(stage_names: Sequence[str]) -> tuple[str,
             first_target = "indicator"
         elif changed_stage == "indicator":
             first_target = "derived"
+        elif changed_stage == "derived":
+            first_target = "indicator_sidecar"
         else:
             first_target = "strategy"
     start_index = _STALE_TARGET_ORDER.index(first_target)

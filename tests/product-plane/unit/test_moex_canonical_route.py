@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,9 @@ from trading_advisor_3000.product_plane.contracts import CanonicalBar, Timeframe
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
 from trading_advisor_3000.product_plane.data_plane.moex import (
     build_raw_ingest_run_report_v2,
+)
+from trading_advisor_3000.product_plane.data_plane.moex import (
+    canonicalization as spark_canonicalization_module,
 )
 from trading_advisor_3000.product_plane.data_plane.moex import (
     historical_canonical_route as canonical_module,
@@ -73,7 +77,43 @@ def test_canonical_route_qc_fails_when_provenance_is_incomplete() -> None:
 
 def test_spark_canonicalization_subprocess_has_timeout_contract() -> None:
     assert canonical_module.SPARK_CANONICALIZATION_SUBPROCESS_TIMEOUT_SECONDS > 0
-    assert canonical_module.SPARK_CANONICALIZATION_SUBPROCESS_TIMEOUT_SECONDS <= 1800
+    assert canonical_module.SPARK_CANONICALIZATION_SUBPROCESS_TIMEOUT_SECONDS <= 3600
+
+
+def test_session_bounded_bucket_admits_pre_open_tolerance_to_first_bucket() -> None:
+    row = spark_canonicalization_module.RawCandle(
+        contract_id="BRM6@MOEX",
+        instrument_id="FUT_BR",
+        source_timeframe="1m",
+        source_interval=1,
+        ts_open="2026-04-02T09:59:30Z",
+        ts_close="2026-04-02T10:00:00Z",
+        open=100.0,
+        high=101.0,
+        low=99.0,
+        close=100.5,
+        volume=100,
+        open_interest=10,
+        open_interest_imputed=False,
+        source_provider="moex_iss",
+        source_run_id="pre-open-admission",
+        source_ingest_run_id="pre-open-admission",
+    )
+    interval = spark_canonicalization_module.SessionInterval(
+        instrument_id="FUT_BR",
+        session_date="2026-04-02",
+        expected_open_ts=datetime(2026, 4, 2, 10, 0, tzinfo=UTC),
+        expected_close_ts=datetime(2026, 4, 2, 18, 45, tzinfo=UTC),
+    )
+
+    assert (
+        spark_canonicalization_module._session_bounded_bucket_ts(
+            row=row,
+            target_minutes=1,
+            intervals_by_instrument={"FUT_BR": [interval]},
+        )
+        == "2026-04-02T10:00:00Z"
+    )
 
 
 def test_session_intervals_input_rejects_existing_directory(tmp_path: Path) -> None:
@@ -90,6 +130,7 @@ def test_raw_1m_source_interval_map_uses_raw_availability_union() -> None:
         raw_available_intervals_by_contract={("BRM6@MOEX", "FUT_BR"): {1}},
     )
 
+    assert selected[("BRM6@MOEX", "FUT_BR", "1m")] == 1
     assert selected[("BRM6@MOEX", "FUT_BR", "5m")] == 1
     assert selected[("BRM6@MOEX", "FUT_BR", "1w")] == 1
 

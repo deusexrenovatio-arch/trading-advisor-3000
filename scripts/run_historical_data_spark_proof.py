@@ -1,16 +1,11 @@
 from __future__ import annotations
 
+# ruff: noqa: E402
 import argparse
 import json
-from pathlib import Path
 import subprocess
 import sys
-
-
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+from pathlib import Path
 
 try:
     from scripts.proof_runtime_contract import (
@@ -21,6 +16,7 @@ try:
         host_to_container_path,
         normalize_runtime_root,
         resolve_repo_path,
+        spark_docker_env_flags,
         wrap_with_owner_normalization,
     )
 except ImportError:  # pragma: no cover - script execution fallback
@@ -32,6 +28,7 @@ except ImportError:  # pragma: no cover - script execution fallback
         host_to_container_path,
         normalize_runtime_root,
         resolve_repo_path,
+        spark_docker_env_flags,
         wrap_with_owner_normalization,
     )
 
@@ -41,7 +38,6 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from trading_advisor_3000.spark_jobs import DEFAULT_SPARK_MASTER, run_canonical_bars_spark_job
-
 
 DEFAULT_FIXTURE = Path("tests/product-plane/fixtures/data_plane/raw_backfill_sample.jsonl")
 DEFAULT_OUTPUT_DIR = Path(".tmp/historical-data-spark-proof")
@@ -194,6 +190,7 @@ def _run_in_docker(
         f"HOME={runtime_root}",
         "-e",
         f"TA3000_SPARK_RUNTIME_ROOT={runtime_root}",
+        *spark_docker_env_flags(),
         image,
         *_docker_exec_args(
             source=source,
@@ -216,7 +213,9 @@ def _run_in_docker(
         raise RuntimeError(f"docker Spark proof failed: {detail}")
 
     if output_json is None:
-        raise RuntimeError("docker Spark proof requires output_json for deterministic evidence capture")
+        raise RuntimeError(
+            "docker Spark proof requires output_json for deterministic evidence capture"
+        )
 
     payload = json.loads(output_json.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
@@ -229,7 +228,10 @@ def _run_in_docker(
         }
     payload["proof_profile"] = "docker-linux"
     output_json.unlink(missing_ok=True)
-    output_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    output_json.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     return payload
 
 
@@ -240,18 +242,38 @@ def main() -> None:
             "This is a proof-only contour and not the canonical MOEX historical refresh route."
         )
     )
-    parser.add_argument("--source", default=DEFAULT_FIXTURE.as_posix(), help="Path to JSONL source fixture")
-    parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR.as_posix(), help="Directory for Delta outputs")
+    parser.add_argument(
+        "--source",
+        default=DEFAULT_FIXTURE.as_posix(),
+        help="Path to JSONL source fixture",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=DEFAULT_OUTPUT_DIR.as_posix(),
+        help="Directory for Delta outputs",
+    )
     parser.add_argument("--profile", choices=("docker", "local"), default="docker")
     parser.add_argument(
         "--contracts",
         default="BR-6.26,Si-6.26",
         help="Comma-separated contract allowlist for the proof profile",
     )
-    parser.add_argument("--spark-master", default=DEFAULT_SPARK_MASTER, help="Spark master, e.g. local[2]")
+    parser.add_argument(
+        "--spark-master",
+        default=DEFAULT_SPARK_MASTER,
+        help="Spark master, e.g. local[2]",
+    )
     parser.add_argument("--output-json", default="", help="Optional JSON report output path")
-    parser.add_argument("--docker-image", default=DEFAULT_DOCKER_IMAGE, help="Docker image tag for the Linux proof profile")
-    parser.add_argument("--dockerfile", default=DEFAULT_DOCKERFILE.as_posix(), help="Dockerfile for the Linux proof profile")
+    parser.add_argument(
+        "--docker-image",
+        default=DEFAULT_DOCKER_IMAGE,
+        help="Docker image tag for the Linux proof profile",
+    )
+    parser.add_argument(
+        "--dockerfile",
+        default=DEFAULT_DOCKERFILE.as_posix(),
+        help="Dockerfile for the Linux proof profile",
+    )
     parser.add_argument(
         "--docker-runtime-root",
         default=DEFAULT_DOCKER_RUNTIME_ROOT,
@@ -265,7 +287,9 @@ def main() -> None:
 
     if args.profile == "docker":
         if output_json is None:
-            raise RuntimeError("docker Spark proof requires output_json for deterministic evidence capture")
+            raise RuntimeError(
+                "docker Spark proof requires output_json for deterministic evidence capture"
+            )
         runtime_root = _docker_runtime_root(args.docker_runtime_root)
         report = _run_in_docker(
             source=source_path,

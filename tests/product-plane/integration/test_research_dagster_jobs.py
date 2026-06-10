@@ -4,6 +4,7 @@ import json
 import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from dagster import DagsterInstance
@@ -11,15 +12,24 @@ from dagster import DagsterInstance
 from trading_advisor_3000.dagster_defs import (
     MOEX_CF_REBUILD_ASSETS,
     MOEX_CF_REBUILD_JOB_NAME,
+    MOEX_DATA_REBUILD_OP_NAME,
     MOEX_DERIVED_INDICATOR_REBUILD_ASSETS,
     MOEX_DERIVED_INDICATOR_REBUILD_JOB_NAME,
+    MOEX_HISTORICAL_DATA_REBUILD_RESEARCH_PREP_SENSOR_NAME,
     MOEX_INDICATOR_REBUILD_ASSETS,
     MOEX_INDICATOR_REBUILD_JOB_NAME,
     MOEX_RESEARCH_BAR_REBUILD_ASSETS,
     MOEX_RESEARCH_BAR_REBUILD_JOB_NAME,
+    MOEX_RESEARCH_INDICATOR_SIDECAR_ASSETS,
+    MOEX_RESEARCH_INDICATOR_SIDECAR_JOB_NAME,
+    RESEARCH_BACKTEST_AFTER_STRATEGY_REGISTRY_SENSOR_NAME,
+    RESEARCH_BACKTEST_JOB_NAME,
     RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME,
     RESEARCH_DATA_PREP_ASSETS,
     RESEARCH_DATA_PREP_JOB_NAME,
+    RESEARCH_PROJECTION_AFTER_BACKTEST_SENSOR_NAME,
+    RESEARCH_PROJECTION_JOB_NAME,
+    RESEARCH_STRATEGY_REGISTRY_AFTER_DATA_PREP_SENSOR_NAME,
     STRATEGY_REGISTRY_REFRESH_ASSETS,
     STRATEGY_REGISTRY_REFRESH_JOB_NAME,
     build_research_data_prep_run_config,
@@ -669,6 +679,7 @@ def test_research_data_prep_can_source_indicators_from_continuous_front(
     assert len(native_dataset["bar_views"]) > 0
 
 
+@requires_spark_delta_runtime
 def test_isolated_moex_data_layer_rebuild_jobs_update_only_their_layer(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -893,6 +904,7 @@ def test_research_definitions_expose_isolated_data_layer_jobs_without_moex_succe
     research_bar_job = repository.get_job(MOEX_RESEARCH_BAR_REBUILD_JOB_NAME)
     indicator_job = repository.get_job(MOEX_INDICATOR_REBUILD_JOB_NAME)
     derived_job = repository.get_job(MOEX_DERIVED_INDICATOR_REBUILD_JOB_NAME)
+    sidecar_job = repository.get_job(MOEX_RESEARCH_INDICATOR_SIDECAR_JOB_NAME)
     strategy_job = repository.get_job(STRATEGY_REGISTRY_REFRESH_JOB_NAME)
 
     job_names = {job.name for job in repository.get_all_jobs()}
@@ -901,13 +913,17 @@ def test_research_definitions_expose_isolated_data_layer_jobs_without_moex_succe
     assert set(research_bar_job.graph.node_dict) == set(MOEX_RESEARCH_BAR_REBUILD_ASSETS)
     assert set(indicator_job.graph.node_dict) == set(MOEX_INDICATOR_REBUILD_ASSETS)
     assert set(derived_job.graph.node_dict) == set(MOEX_DERIVED_INDICATOR_REBUILD_ASSETS)
+    assert set(sidecar_job.graph.node_dict) == set(MOEX_RESEARCH_INDICATOR_SIDECAR_ASSETS)
     assert set(strategy_job.graph.node_dict) == {
         "research_datasets",
         *STRATEGY_REGISTRY_REFRESH_ASSETS,
     }
-    assert RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME not in {
-        sensor.name for sensor in repository.sensor_defs
-    }
+    isolated_sensor_names = {sensor.name for sensor in repository.sensor_defs}
+    assert RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME not in isolated_sensor_names
+    assert MOEX_HISTORICAL_DATA_REBUILD_RESEARCH_PREP_SENSOR_NAME not in isolated_sensor_names
+    assert RESEARCH_STRATEGY_REGISTRY_AFTER_DATA_PREP_SENSOR_NAME not in isolated_sensor_names
+    assert RESEARCH_BACKTEST_AFTER_STRATEGY_REGISTRY_SENSOR_NAME not in isolated_sensor_names
+    assert RESEARCH_PROJECTION_AFTER_BACKTEST_SENSOR_NAME not in isolated_sensor_names
 
     run_config = build_research_data_prep_run_config(
         canonical_output_dir=tmp_path / "canonical",
@@ -924,7 +940,7 @@ def test_research_definitions_expose_isolated_data_layer_jobs_without_moex_succe
     assert (
         Path(str(op_config["volume_profile_raw_1m_table_path"]))
         .as_posix()
-        .endswith("raw/moex/baseline-4y-current/raw_moex_history.delta")
+        .endswith("canonical/moex/baseline-4y-current/canonical_bars.delta")
     )
     assert op_config["volume_profile_tick_size_by_instrument"]["FUT_BR"] == 0.01
     assert run_config["ops"]["continuous_front_bars"]["config"]["series_mode"] == "continuous_front"
@@ -932,6 +948,138 @@ def test_research_definitions_expose_isolated_data_layer_jobs_without_moex_succe
     assert op_config["continuous_front_policy"]["session_start_time"] == "09:00"
     assert op_config["continuous_front_policy"]["session_end_time"] == "23:50"
     assert op_config["continuous_front_policy"]["expected_timeline_mode"] == "active_contract_bars"
+    assert run_config["ops"]["continuous_front_indicator_acceptance_report"]["config"] == op_config
+
+
+def _single_sensor_run_request(sensor, context):
+    result = sensor._run_status_sensor_fn(context)
+    if hasattr(result, "__iter__") and not hasattr(result, "run_key"):
+        requests = list(result)
+        assert len(requests) == 1
+        return requests[0]
+    return result
+
+
+def test_research_downstream_cascade_sensors_forward_dataset_context(tmp_path: Path) -> None:
+    prep_run_config = build_research_data_prep_run_config(
+        canonical_output_dir=tmp_path / "canonical",
+        materialized_output_dir=tmp_path / "materialized",
+        results_output_dir=tmp_path / "results",
+        dataset_version="cascade-data-v1",
+        timeframes=("15m",),
+        series_mode="continuous_front",
+    )
+    prep_context = SimpleNamespace(
+        dagster_run=SimpleNamespace(
+            run_id="prep-run-1",
+            run_config=prep_run_config,
+            tags={},
+        )
+    )
+
+    registry_request = _single_sensor_run_request(
+        research_assets.strategy_registry_refresh_after_research_data_prep_sensor,
+        prep_context,
+    )
+
+    assert registry_request.run_key == f"{STRATEGY_REGISTRY_REFRESH_JOB_NAME}:prep-run-1"
+    assert registry_request.tags["ta3000/upstream_job"] == RESEARCH_DATA_PREP_JOB_NAME
+    assert registry_request.tags["ta3000/dataset_version"] == "cascade-data-v1"
+    assert registry_request.tags["ta3000/series_mode"] == "continuous_front"
+    registry_config = registry_request.run_config["ops"]["research_datasets"]["config"]
+    assert registry_config["dataset_version"] == "cascade-data-v1"
+    assert registry_config["campaign_run_id"] == "strategy_registry_after_prep-run-1"
+    assert registry_config["code_version"] == "strategy-registry-after-research-data-prep"
+    assert registry_config["prepare_strategy_space"] is True
+
+    prepared_registry_config = research_assets._prepare_strategy_space_run_config(
+        registry_config,
+        campaign_id="test_regular_research_cascade",
+        campaign_run_id=str(registry_config["campaign_run_id"]),
+    )
+    assert str(prepared_registry_config["strategy_space_id"]).strip()
+    assert prepared_registry_config["search_specs"]
+    assert prepared_registry_config["combination_count"] > 0
+
+    registry_context = SimpleNamespace(
+        dagster_run=SimpleNamespace(
+            run_id="registry-run-1",
+            run_config=registry_request.run_config,
+            tags=registry_request.tags,
+        )
+    )
+    backtest_request = _single_sensor_run_request(
+        research_assets.research_backtest_after_strategy_registry_sensor,
+        registry_context,
+    )
+
+    assert backtest_request.run_key == f"{RESEARCH_BACKTEST_JOB_NAME}:registry-run-1"
+    assert backtest_request.run_config == {}
+    assert backtest_request.tags["ta3000/upstream_job"] == STRATEGY_REGISTRY_REFRESH_JOB_NAME
+    assert backtest_request.tags["ta3000/dataset_version"] == "cascade-data-v1"
+    assert backtest_request.tags["ta3000/series_mode"] == "continuous_front"
+
+    backtest_context = SimpleNamespace(
+        dagster_run=SimpleNamespace(
+            run_id="backtest-run-1",
+            run_config=backtest_request.run_config,
+            tags=backtest_request.tags,
+        )
+    )
+    projection_request = _single_sensor_run_request(
+        research_assets.research_projection_after_backtest_sensor,
+        backtest_context,
+    )
+
+    assert projection_request.run_key == f"{RESEARCH_PROJECTION_JOB_NAME}:backtest-run-1"
+    assert projection_request.run_config == {}
+    assert projection_request.tags["ta3000/upstream_job"] == RESEARCH_BACKTEST_JOB_NAME
+    assert projection_request.tags["ta3000/dataset_version"] == "cascade-data-v1"
+
+
+def test_moex_data_rebuild_research_refresh_sensor_ignores_preview_and_research_only_profiles() -> (
+    None
+):
+    promoted_canonical_run_config = {
+        "ops": {
+            MOEX_DATA_REBUILD_OP_NAME: {
+                "config": {
+                    "profile_name": "canonical_from_existing_raw",
+                    "publish_mode": "promote",
+                }
+            }
+        }
+    }
+    staging_canonical_run_config = {
+        "ops": {
+            MOEX_DATA_REBUILD_OP_NAME: {
+                "config": {
+                    "profile_name": "full_raw_to_canonical",
+                    "publish_mode": "staging_only",
+                }
+            }
+        }
+    }
+    research_only_run_config = {
+        "ops": {
+            MOEX_DATA_REBUILD_OP_NAME: {
+                "config": {
+                    "profile_name": "indicator_rebuild",
+                    "publish_mode": "promote",
+                }
+            }
+        }
+    }
+
+    assert research_assets._should_start_research_after_moex_data_rebuild(
+        promoted_canonical_run_config
+    )
+    assert not research_assets._should_start_research_after_moex_data_rebuild(
+        staging_canonical_run_config
+    )
+    assert not research_assets._should_start_research_after_moex_data_rebuild(
+        research_only_run_config
+    )
 
 
 def test_scheduled_research_refresh_uses_calendar_expiry_policy(monkeypatch) -> None:
@@ -1002,7 +1150,9 @@ def test_research_data_prep_defaults_follow_moex_historical_data_root(
     assert op_config["derived_indicator_profile_version"] == "core_v1"
     assert (
         Path(str(op_config["volume_profile_raw_1m_table_path"]))
-        == (tmp_path / "raw" / "moex" / "baseline-4y-current" / "raw_moex_history.delta").resolve()
+        == (
+            tmp_path / "canonical" / "moex" / "baseline-4y-current" / "canonical_bars.delta"
+        ).resolve()
     )
     assert op_config["volume_profile_tick_size_by_instrument"]["FUT_BR"] == 0.01
 

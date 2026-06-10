@@ -57,6 +57,7 @@ def test_moex_data_rebuild_profiles_are_whitelisted_data_layer_only() -> None:
         "research_bar",
         "indicator",
         "derived",
+        "indicator_sidecar",
     )
 
     for profile_name in MOEX_DATA_REBUILD_PROFILE_NAMES:
@@ -106,6 +107,7 @@ def test_moex_data_rebuild_manifest_records_stage_first_publish_and_invalidation
     assert manifest["row_counts"] == {"research_indicator_frames": 12}
     assert manifest["invalidated_outputs"] == [
         "derived",
+        "indicator_sidecar",
         "strategy",
         "backtest",
         "projection",
@@ -122,6 +124,7 @@ def test_moex_data_rebuild_invalidation_policy_is_upstream_ordered() -> None:
         "research_bar",
         "indicator",
         "derived",
+        "indicator_sidecar",
         "strategy",
         "backtest",
         "projection",
@@ -131,6 +134,7 @@ def test_moex_data_rebuild_invalidation_policy_is_upstream_ordered() -> None:
         "research_bar",
         "indicator",
         "derived",
+        "indicator_sidecar",
         "strategy",
         "backtest",
         "projection",
@@ -139,12 +143,14 @@ def test_moex_data_rebuild_invalidation_policy_is_upstream_ordered() -> None:
     assert dependent_stale_targets_for_stages(("research_bar",)) == (
         "indicator",
         "derived",
+        "indicator_sidecar",
         "strategy",
         "backtest",
         "projection",
         "execution",
     )
     assert dependent_stale_targets_for_stages(("derived",)) == (
+        "indicator_sidecar",
         "strategy",
         "backtest",
         "projection",
@@ -295,6 +301,16 @@ def test_moex_data_rebuild_job_dispatches_data_layer_profile_in_order(
             assert Path(str(kwargs["canonical_output_dir"])) == (tmp_path / "canonical").resolve()
             assert Path(str(kwargs["research_output_dir"])) == (tmp_path / "research").resolve()
             assert kwargs["dataset_version"] == "run-data-layer"
+            if layer_name in {"continuous_front", "research_bar", "indicator_sidecar"}:
+                assert kwargs["start_ts"] == "2021-04-01T00:00:00Z"
+                assert kwargs["end_ts"] == ""
+                assert kwargs["warmup_bars"] == 300
+                assert kwargs["split_method"] == "holdout"
+            else:
+                assert "start_ts" not in kwargs
+                assert "end_ts" not in kwargs
+                assert "warmup_bars" not in kwargs
+                assert "split_method" not in kwargs
             return {
                 "success": True,
                 "materialized_assets": [table_name],
@@ -330,6 +346,12 @@ def test_moex_data_rebuild_job_dispatches_data_layer_profile_in_order(
         _fake_layer("derived", "research_derived_indicator_frames"),
         raising=False,
     )
+    monkeypatch.setattr(
+        research_assets,
+        "materialize_moex_indicator_sidecar_assets",
+        _fake_layer("indicator_sidecar", "continuous_front_indicator_acceptance_report"),
+        raising=False,
+    )
 
     definitions = build_moex_historical_definitions()
     job = definitions.get_repository_def().get_job(MOEX_DATA_REBUILD_JOB_NAME)
@@ -339,13 +361,23 @@ def test_moex_data_rebuild_job_dispatches_data_layer_profile_in_order(
             canonical_output_dir=tmp_path / "canonical",
             canonical_run_id="run-data-layer",
             research_root=tmp_path / "research",
+            start_ts="2021-04-01T00:00:00Z",
+            end_ts="",
+            warmup_bars=300,
+            split_method="holdout",
         ),
         instance=DagsterInstance.ephemeral(),
         raise_on_error=True,
     )
 
     assert result.success
-    assert calls == ["continuous_front", "research_bar", "indicator", "derived"]
+    assert calls == [
+        "continuous_front",
+        "research_bar",
+        "indicator",
+        "derived",
+        "indicator_sidecar",
+    ]
     report = result.output_for_node("moex_data_rebuild")
     assert report["profile_name"] == "data_layer_rebuild"
     assert Path(str(report["manifest_path"])).exists()
@@ -377,3 +409,84 @@ def test_moex_layer_materialization_filters_run_config_to_selected_assets(
     assert report["success"] is False
     assert captured["selection"] == list(research_assets.MOEX_CF_REBUILD_ASSETS)
     assert set(captured["run_config"]["ops"]) == {"continuous_front_bars"}
+
+    captured.clear()
+    report = research_assets.materialize_moex_indicator_sidecar_assets(
+        canonical_output_dir=tmp_path / "canonical",
+        research_output_dir=tmp_path / "research",
+        dataset_version="run-data-layer",
+        timeframes=("15m",),
+        raise_on_error=False,
+    )
+
+    assert report["success"] is False
+    assert captured["selection"] == list(research_assets.MOEX_RESEARCH_INDICATOR_SIDECAR_ASSETS)
+    assert set(captured["run_config"]["ops"]) == {"continuous_front_indicator_acceptance_report"}
+
+
+@pytest.mark.parametrize(
+    "runner",
+    (
+        research_assets.materialize_moex_indicator_rebuild_assets,
+        research_assets.materialize_moex_derived_indicator_rebuild_assets,
+    ),
+)
+def test_moex_indicator_rebuild_wrappers_reject_unsupported_scope_knobs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runner
+) -> None:
+    monkeypatch.setattr(
+        research_assets,
+        "_materialize_moex_layer_rebuild_assets",
+        lambda **_: {"success": True, "materialized_assets": [], "output_paths": {}},
+    )
+
+    with pytest.raises(ValueError, match="does not support scoped rebuild parameters"):
+        runner(
+            canonical_output_dir=tmp_path / "canonical",
+            research_output_dir=tmp_path / "research",
+            dataset_version="run-data-layer",
+            timeframes=("15m",),
+            start_ts="2021-04-01T00:00:00Z",
+            end_ts="2021-04-02T00:00:00Z",
+            warmup_bars=300,
+            split_method="holdout",
+        )
+
+
+@pytest.mark.parametrize(
+    "runner",
+    (
+        research_assets.materialize_moex_cf_rebuild_assets,
+        research_assets.materialize_moex_research_bar_rebuild_assets,
+        research_assets.materialize_moex_indicator_sidecar_assets,
+    ),
+)
+def test_moex_layer_rebuild_wrappers_forward_rebuild_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runner
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_materialize(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"success": True, "materialized_assets": [], "output_paths": {}, "rows_by_table": {}}
+
+    monkeypatch.setattr(
+        research_assets,
+        "_materialize_moex_layer_rebuild_assets",
+        _fake_materialize,
+    )
+
+    runner(
+        canonical_output_dir=tmp_path / "canonical",
+        dataset_version="run-data-layer",
+        timeframes=("15m",),
+        start_ts="2021-04-01T00:00:00Z",
+        end_ts="",
+        warmup_bars=300,
+        split_method="holdout",
+    )
+
+    assert captured["start_ts"] == "2021-04-01T00:00:00Z"
+    assert captured["end_ts"] == ""
+    assert captured["warmup_bars"] == 300
+    assert captured["split_method"] == "holdout"

@@ -15,6 +15,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
 from trading_advisor_3000.product_plane.data_plane.schemas import (
     historical_data_delta_schema_manifest,
 )
+from trading_advisor_3000.spark_jobs import moex_canonical_publish_job as publish_job
 from trading_advisor_3000.spark_jobs.moex_canonical_publish_job import (
     CANONICAL_PROVENANCE_COLUMNS,
     SIDECAR_OVERLAP_POLICY,
@@ -34,6 +35,15 @@ SESSION_INTERVAL_COLUMNS: dict[str, str] = {
     "source_id": "string",
     "source_document_hash": "string",
 }
+
+
+def _windows_hadoop_nativeio_unavailable() -> bool:
+    if os.name != "nt":
+        return False
+    hadoop_home = os.environ.get("HADOOP_HOME")
+    if not hadoop_home:
+        return True
+    return not (Path(hadoop_home) / "bin" / "hadoop.dll").exists()
 
 
 def _read_rows(path: Path) -> list[dict[str, object]]:
@@ -92,6 +102,152 @@ def _provenance(**overrides: object) -> dict[str, object]:
     return payload
 
 
+def test_historical_delta_manifest_matches_publish_provenance_types() -> None:
+    manifest = historical_data_delta_schema_manifest()
+    provenance_columns = manifest["canonical_bar_provenance"]["columns"]
+
+    assert (
+        provenance_columns["source_row_count"] == CANONICAL_PROVENANCE_COLUMNS["source_row_count"]
+    )
+    assert (
+        provenance_columns["open_interest_imputed"]
+        == CANONICAL_PROVENANCE_COLUMNS["open_interest_imputed"]
+    )
+
+
+def test_delta_schema_match_rejects_existing_type_mismatch(tmp_path: Path) -> None:
+    table_path = tmp_path / "canonical_bar_provenance.delta"
+    (table_path / "_delta_log").mkdir(parents=True)
+
+    class _FakeLoadedTable:
+        dtypes = [
+            ("source_row_count", "bigint"),
+            ("open_interest_imputed", "int"),
+        ]
+
+    class _FakeReader:
+        def format(self, value: str) -> "_FakeReader":
+            assert value == "delta"
+            return self
+
+        def load(self, value: str) -> _FakeLoadedTable:
+            assert value == str(table_path)
+            return _FakeLoadedTable()
+
+    class _FakeSpark:
+        read = _FakeReader()
+
+    assert not publish_job._delta_table_matches_schema(
+        _FakeSpark(),
+        table_path=table_path,
+        columns={
+            "source_row_count": "int",
+            "open_interest_imputed": "int",
+        },
+    )
+
+
+def test_replace_delta_dataframe_preserves_backup_until_publish_cleanup(tmp_path: Path) -> None:
+    table_path = tmp_path / "canonical_bar_provenance.delta"
+    table_path.mkdir()
+    (table_path / "old-file").write_text("old", encoding="utf-8")
+
+    class _FakeWriter:
+        def format(self, value: str) -> "_FakeWriter":
+            assert value == "delta"
+            return self
+
+        def mode(self, value: str) -> "_FakeWriter":
+            assert value == "overwrite"
+            return self
+
+        def option(self, key: str, value: str) -> "_FakeWriter":
+            assert (key, value) == ("overwriteSchema", "true")
+            return self
+
+        def partitionBy(self, *_: str) -> "_FakeWriter":
+            return self
+
+        def save(self, value: str) -> None:
+            output_path = Path(value)
+            output_path.mkdir(parents=True)
+            (output_path / "_delta_log").mkdir()
+            (output_path / "new-file").write_text("new", encoding="utf-8")
+
+    class _FakeDataFrame:
+        write = _FakeWriter()
+
+        def coalesce(self, _: int) -> "_FakeDataFrame":
+            return self
+
+    backup_path = publish_job._replace_delta_dataframe(
+        dataframe=_FakeDataFrame(),
+        table_path=table_path,
+        manifest_entry={"partition_by": [], "target_file_count": 0},
+    )
+
+    assert backup_path is not None
+    assert backup_path.exists()
+    assert (backup_path / "old-file").read_text(encoding="utf-8") == "old"
+    assert (table_path / "new-file").read_text(encoding="utf-8") == "new"
+
+
+def test_replace_delta_dataframe_restores_backup_when_target_rename_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    table_path = tmp_path / "canonical_bar_provenance.delta"
+    table_path.mkdir()
+    (table_path / "old-file").write_text("old", encoding="utf-8")
+
+    class _FakeWriter:
+        def format(self, value: str) -> "_FakeWriter":
+            assert value == "delta"
+            return self
+
+        def mode(self, value: str) -> "_FakeWriter":
+            assert value == "overwrite"
+            return self
+
+        def option(self, key: str, value: str) -> "_FakeWriter":
+            assert (key, value) == ("overwriteSchema", "true")
+            return self
+
+        def partitionBy(self, *_: str) -> "_FakeWriter":
+            return self
+
+        def save(self, value: str) -> None:
+            output_path = Path(value)
+            output_path.mkdir(parents=True)
+            (output_path / "_delta_log").mkdir()
+            (output_path / "new-file").write_text("new", encoding="utf-8")
+
+    class _FakeDataFrame:
+        write = _FakeWriter()
+
+        def coalesce(self, _: int) -> "_FakeDataFrame":
+            return self
+
+    original_rename = Path.rename
+
+    def _rename(self: Path, target: Path) -> Path:
+        if self.name.startswith(f".{table_path.name}.rewrite-"):
+            raise OSError("simulated target rename failure")
+        return original_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", _rename)
+
+    with pytest.raises(OSError, match="simulated target rename failure"):
+        publish_job._replace_delta_dataframe(
+            dataframe=_FakeDataFrame(),
+            table_path=table_path,
+            manifest_entry={"partition_by": [], "target_file_count": 0},
+        )
+
+    assert (table_path / "old-file").read_text(encoding="utf-8") == "old"
+    assert not list(tmp_path.glob(".canonical_bar_provenance.delta.rewrite-*"))
+    assert not list(tmp_path.glob(".canonical_bar_provenance.delta.backup-*"))
+
+
 def _write_session_intervals(path: Path, session_dates: list[str]) -> Path:
     write_delta_table_rows(
         table_path=path,
@@ -119,9 +275,9 @@ def _write_session_intervals(path: Path, session_dates: list[str]) -> Path:
 def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
     tmp_path: Path,
 ) -> None:
-    if os.name == "nt" and not os.environ.get("HADOOP_HOME"):
+    if _windows_hadoop_nativeio_unavailable():
         pytest.skip(
-            "local Windows Spark execution requires HADOOP_HOME; "
+            "local Windows Spark/Delta requires Hadoop NativeIO; "
             "Docker/Linux proof profile runs this path"
         )
 
@@ -327,12 +483,97 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
     assert {row["active_contract_id"] for row in _read_rows(roll_map_path)} == {"BRM6@MOEX"}
 
 
+def test_spark_publish_uses_moscow_date_for_sidecar_session_scope(
+    tmp_path: Path,
+) -> None:
+    if _windows_hadoop_nativeio_unavailable():
+        pytest.skip(
+            "local Windows Spark/Delta requires Hadoop NativeIO; "
+            "Docker/Linux proof profile runs this path"
+        )
+
+    manifest = historical_data_delta_schema_manifest()
+    canonical_columns = manifest["canonical_bars"]["columns"]
+
+    staged_bars_path = tmp_path / "staged" / "canonical_bars.delta"
+    staged_provenance_path = tmp_path / "staged" / "canonical_bar_provenance.delta"
+    target_bars_path = tmp_path / "target" / "canonical_bars.delta"
+    target_provenance_path = tmp_path / "target" / "canonical_bar_provenance.delta"
+    session_calendar_path = tmp_path / "target" / "canonical_session_calendar.delta"
+    roll_map_path = tmp_path / "target" / "canonical_roll_map.delta"
+    session_intervals_path = tmp_path / "official" / "canonical_session_intervals.delta"
+
+    write_delta_table_rows(
+        table_path=staged_bars_path,
+        rows=[
+            _bar(
+                ts="2026-04-21T21:15:00Z",
+                open=100.0,
+                high=101.0,
+                low=99.0,
+                close=100.5,
+                volume=10,
+                open_interest=100,
+            )
+        ],
+        columns=canonical_columns,
+    )
+    write_delta_table_rows(
+        table_path=staged_provenance_path,
+        rows=[
+            _provenance(
+                ts="2026-04-21T21:15:00Z",
+                source_ts_open_first="2026-04-21T21:15:00Z",
+                source_ts_close_last="2026-04-21T21:19:59Z",
+            )
+        ],
+        columns=CANONICAL_PROVENANCE_COLUMNS,
+    )
+    write_delta_table_rows(
+        table_path=session_intervals_path,
+        rows=[
+            {
+                "instrument_id": "FUT_BR",
+                "session_date": "2026-04-22",
+                "interval_id": "FUT_BR-2026-04-22-evening-1",
+                "interval_seq": 1,
+                "expected_open_ts": "2026-04-21T21:15:00Z",
+                "expected_close_ts": "2026-04-21T21:25:00Z",
+                "session_class": "regular",
+                "interval_type": "evening_session",
+                "policy_id": "moex-official-session-v1",
+                "source_id": "moex-official-schedule-fixture",
+                "source_document_hash": "sha256:fixture",
+            }
+        ],
+        columns=SESSION_INTERVAL_COLUMNS,
+    )
+
+    report = run_moex_canonical_publish_spark_delta_job(
+        staged_bars_path=staged_bars_path,
+        staged_provenance_path=staged_provenance_path,
+        target_bars_path=target_bars_path,
+        target_provenance_path=target_provenance_path,
+        session_calendar_path=session_calendar_path,
+        session_intervals_path=session_intervals_path,
+        roll_map_path=roll_map_path,
+        output_dir=tmp_path / "publish-proof",
+        run_id="spark-publish-moscow-sidecar-date",
+    )
+
+    assert report["status"] == "PASS", report
+    assert report["sidecar_refresh"]["refreshed_session_calendar_rows"] == 1
+    session_rows = _read_rows(session_calendar_path)
+    assert len(session_rows) == 1
+    assert str(session_rows[0]["session_date"]).startswith("2026-04-22")
+
+
 def test_spark_publish_blocks_non_monotonic_provenance_without_mutating_target(
     tmp_path: Path,
 ) -> None:
-    if os.name == "nt" and not os.environ.get("HADOOP_HOME"):
+    if _windows_hadoop_nativeio_unavailable():
         pytest.skip(
-            "local Windows Spark execution requires HADOOP_HOME; "
+            "local Windows Spark/Delta requires Hadoop NativeIO; "
             "Docker/Linux proof profile runs this path"
         )
 
@@ -397,9 +638,9 @@ def test_spark_publish_blocks_non_monotonic_provenance_without_mutating_target(
 
 
 def test_spark_publish_blocks_zero_checked_contract_rows(tmp_path: Path) -> None:
-    if os.name == "nt" and not os.environ.get("HADOOP_HOME"):
+    if _windows_hadoop_nativeio_unavailable():
         pytest.skip(
-            "local Windows Spark execution requires HADOOP_HOME; "
+            "local Windows Spark/Delta requires Hadoop NativeIO; "
             "Docker/Linux proof profile runs this path"
         )
 

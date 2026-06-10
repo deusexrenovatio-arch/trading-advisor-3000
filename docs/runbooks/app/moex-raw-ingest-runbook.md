@@ -24,7 +24,7 @@ Run from repository root:
 export TA3000_MOEX_HISTORICAL_DATA_ROOT=/absolute/path/outside/repo
 
 python scripts/run_moex_raw_ingest.py \
-  --timeframes 5m,15m,1h,4h,1d,1w \
+  --timeframes 1m,5m,15m,1h,4h,1d,1w \
   --bootstrap-window-days 1461 \
   --expand-contract-chain \
   --contract-discovery-step-days 14 \

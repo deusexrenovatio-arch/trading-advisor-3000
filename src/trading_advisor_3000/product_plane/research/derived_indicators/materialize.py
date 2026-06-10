@@ -1786,7 +1786,8 @@ def materialize_derived_indicator_frames(
         series_key = _series_key_from_source_metadata(row, requested_series_mode=series_mode)
         timeframe = str(row["timeframe"])
         row_count = int(row.get("partition_row_count") or row.get("joined_row_count") or 0)
-        partition_counts.setdefault(series_key, {})[timeframe] = row_count
+        counts_by_timeframe = partition_counts.setdefault(series_key, {})
+        counts_by_timeframe[timeframe] = counts_by_timeframe.get(timeframe, 0) + row_count
 
     source_rows_cache: dict[
         tuple[DerivedSeriesKey, str],
@@ -1982,7 +1983,7 @@ def materialize_derived_indicator_frames(
                     local_indicator_rows,
                     value_columns=required_source_indicator_columns,
                 )
-            if _existing_partition_matches(
+            if series_mode != "continuous_front" and _existing_partition_matches(
                 existing_partition_metadata,
                 source_bars_hash=source_bars_hash,
                 source_indicators_hash=source_indicators_hash,
@@ -2000,7 +2001,10 @@ def materialize_derived_indicator_frames(
             )
             missing_columns = set(target_output_columns) - partition_existing_columns
             can_extend_from_existing = bool(
-                source_unchanged and missing_columns and partition_reusable_existing_columns
+                source_unchanged
+                and series_mode != "continuous_front"
+                and missing_columns
+                and partition_reusable_existing_columns
             )
             if can_extend_from_existing:
                 compute_profile = _profile_for_output_columns(resolved_profile, missing_columns)
