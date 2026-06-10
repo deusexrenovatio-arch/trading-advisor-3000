@@ -531,6 +531,8 @@ def _load_bar_partition_counts(
     contour_id: str,
     indicator_set_version: str,
     series_mode: str,
+    timeframes: Sequence[str] = (),
+    dataset_instrument_ids: Sequence[str] = (),
 ) -> dict[IndicatorFramePartitionKey, int]:
     table_path = dataset_output_dir / "research_bar_views.delta"
     requested_columns = [
@@ -567,6 +569,14 @@ def _load_bar_partition_counts(
         )
         if item[0] in available_columns
     ]
+    scoped_timeframes = tuple(str(item).strip() for item in timeframes if str(item).strip())
+    if scoped_timeframes and "timeframe" in available_columns:
+        filters.append(("timeframe", "in", scoped_timeframes))
+    scoped_instruments = tuple(
+        str(item).strip() for item in dataset_instrument_ids if str(item).strip()
+    )
+    if scoped_instruments and "instrument_id" in available_columns:
+        filters.append(("instrument_id", "in", scoped_instruments))
     table = read_delta_table_arrow(table_path, columns=read_columns, filters=filters)
     if table.num_rows == 0:
         return {}
@@ -1629,6 +1639,8 @@ def materialize_indicator_frames(
     contour_id: str = "native_tradable",
     profile: IndicatorProfile | None = None,
     profile_version: str | None = None,
+    timeframes: Sequence[str] = (),
+    dataset_instrument_ids: Sequence[str] = (),
     volume_profile_source_rows: Mapping[tuple[str, str], Sequence[Mapping[str, object]]]
     | None = None,
     volume_profile_raw_1m_table_path: Path | None = None,
@@ -1657,7 +1669,19 @@ def materialize_indicator_frames(
         contour_id=contour_id,
         indicator_set_version=indicator_set_version,
         series_mode=series_mode,
+        timeframes=timeframes,
+        dataset_instrument_ids=dataset_instrument_ids,
     )
+    scoped_timeframes = frozenset(str(item).strip() for item in timeframes if str(item).strip())
+    scoped_instruments = frozenset(
+        str(item).strip() for item in dataset_instrument_ids if str(item).strip()
+    )
+
+    def _partition_in_requested_scope(partition: IndicatorFramePartitionKey) -> bool:
+        return (not scoped_timeframes or partition.timeframe in scoped_timeframes) and (
+            not scoped_instruments or partition.instrument_id in scoped_instruments
+        )
+
     table_exists = (
         indicator_output_dir / "research_indicator_frames.delta" / "_delta_log"
     ).exists()
@@ -1947,7 +1971,9 @@ def materialize_indicator_frames(
         refreshed_partitions += 1
 
     deleted_partitions = tuple(
-        partition for partition in existing_by_partition if partition not in current_partitions
+        partition
+        for partition in existing_by_partition
+        if partition not in current_partitions and _partition_in_requested_scope(partition)
     )
     replace_partitions.extend(deleted_partitions)
 

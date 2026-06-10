@@ -22,6 +22,18 @@ from trading_advisor_3000.product_plane.data_plane.moex.data_rebuild_profiles im
     resolve_moex_data_rebuild_profile,
     write_moex_data_rebuild_manifest,
 )
+from trading_advisor_3000.product_plane.research.derived_indicators import (
+    materialize as derived_materialize,
+)
+from trading_advisor_3000.product_plane.research.derived_indicators.store import (
+    DerivedIndicatorFramePartitionKey,
+)
+from trading_advisor_3000.product_plane.research.indicators import (
+    materialize as indicator_materialize,
+)
+from trading_advisor_3000.product_plane.research.indicators.store import (
+    IndicatorFramePartitionKey,
+)
 
 
 def test_moex_data_rebuild_profile_registry_rejects_unknown_profile() -> None:
@@ -190,6 +202,29 @@ def test_moex_data_rebuild_run_config_distinguishes_raw_source_modes(tmp_path: P
     assert full_raw_op_config["raw_root"].endswith("raw")
 
 
+def test_moex_data_rebuild_run_config_exposes_research_scope_and_spark_master(
+    tmp_path: Path,
+) -> None:
+    run_config = build_moex_data_rebuild_run_config(
+        profile_name="data_layer_rebuild",
+        canonical_output_dir=tmp_path / "canonical",
+        canonical_run_id="run-scoped",
+        research_root=tmp_path / "research",
+        dataset_version="research-scope-v2",
+        timeframes=("15m", "1h"),
+        dataset_contract_ids=("BRM6",),
+        dataset_instrument_ids=("FUT_BR", "FUT_RTS"),
+        spark_master="local[4]",
+    )
+
+    op_config = run_config["ops"][moex_historical_assets.MOEX_DATA_REBUILD_OP_NAME]["config"]
+    assert op_config["dataset_version"] == "research-scope-v2"
+    assert op_config["timeframes"] == "15m,1h"
+    assert op_config["dataset_contract_ids"] == "BRM6"
+    assert op_config["dataset_instrument_ids"] == "FUT_BR,FUT_RTS"
+    assert op_config["spark_master"] == "local[4]"
+
+
 def test_moex_canonical_rebuild_promote_requires_explicit_target_contract(
     tmp_path: Path,
 ) -> None:
@@ -306,6 +341,8 @@ def test_moex_data_rebuild_job_dispatches_data_layer_profile_in_order(
                 assert kwargs["end_ts"] == ""
                 assert kwargs["warmup_bars"] == 300
                 assert kwargs["split_method"] == "holdout"
+                assert kwargs["dataset_instrument_ids"] == ("FUT_BR", "FUT_RTS")
+                assert kwargs["spark_master"] == "local[4]"
             else:
                 assert "start_ts" not in kwargs
                 assert "end_ts" not in kwargs
@@ -365,6 +402,8 @@ def test_moex_data_rebuild_job_dispatches_data_layer_profile_in_order(
             end_ts="",
             warmup_bars=300,
             split_method="holdout",
+            dataset_instrument_ids=("FUT_BR", "FUT_RTS"),
+            spark_master="local[4]",
         ),
         instance=DagsterInstance.ephemeral(),
         raise_on_error=True,
@@ -403,12 +442,35 @@ def test_moex_layer_materialization_filters_run_config_to_selected_assets(
         research_output_dir=tmp_path / "research",
         dataset_version="run-data-layer",
         timeframes=("15m",),
+        dataset_instrument_ids=("FUT_BR",),
+        spark_master="local[4]",
         raise_on_error=False,
     )
 
     assert report["success"] is False
     assert captured["selection"] == list(research_assets.MOEX_CF_REBUILD_ASSETS)
     assert set(captured["run_config"]["ops"]) == {"continuous_front_bars"}
+    cf_config = captured["run_config"]["ops"]["continuous_front_bars"]["config"]
+    assert cf_config["dataset_instrument_ids"] == ["FUT_BR"]
+    assert cf_config["spark_master"] == "local[4]"
+
+    captured.clear()
+    report = research_assets.materialize_moex_research_bar_rebuild_assets(
+        canonical_output_dir=tmp_path / "canonical",
+        research_output_dir=tmp_path / "research",
+        dataset_version="run-data-layer",
+        timeframes=("15m",),
+        dataset_instrument_ids=("FUT_BR",),
+        spark_master="local[4]",
+        raise_on_error=False,
+    )
+
+    assert report["success"] is False
+    assert captured["selection"] == list(research_assets.MOEX_RESEARCH_BAR_REBUILD_ASSETS)
+    assert set(captured["run_config"]["ops"]) == {"research_datasets"}
+    research_bar_config = captured["run_config"]["ops"]["research_datasets"]["config"]
+    assert research_bar_config["dataset_instrument_ids"] == ["FUT_BR"]
+    assert research_bar_config["spark_master"] == "local[4]"
 
     captured.clear()
     report = research_assets.materialize_moex_indicator_sidecar_assets(
@@ -416,12 +478,41 @@ def test_moex_layer_materialization_filters_run_config_to_selected_assets(
         research_output_dir=tmp_path / "research",
         dataset_version="run-data-layer",
         timeframes=("15m",),
+        dataset_instrument_ids=("FUT_BR",),
+        spark_master="local[4]",
         raise_on_error=False,
     )
 
     assert report["success"] is False
     assert captured["selection"] == list(research_assets.MOEX_RESEARCH_INDICATOR_SIDECAR_ASSETS)
     assert set(captured["run_config"]["ops"]) == {"continuous_front_indicator_acceptance_report"}
+    sidecar_config = captured["run_config"]["ops"]["continuous_front_indicator_acceptance_report"][
+        "config"
+    ]
+    assert sidecar_config["dataset_instrument_ids"] == ["FUT_BR"]
+    assert sidecar_config["spark_master"] == "local[4]"
+
+
+@pytest.mark.parametrize(
+    "runner",
+    (
+        research_assets.materialize_moex_cf_rebuild_assets,
+        research_assets.materialize_moex_research_bar_rebuild_assets,
+        research_assets.materialize_moex_indicator_rebuild_assets,
+        research_assets.materialize_moex_derived_indicator_rebuild_assets,
+        research_assets.materialize_moex_indicator_sidecar_assets,
+    ),
+)
+def test_moex_continuous_front_rebuild_rejects_contract_scope(tmp_path: Path, runner) -> None:
+    with pytest.raises(ValueError, match="dataset_contract_ids is not supported"):
+        runner(
+            canonical_output_dir=tmp_path / "canonical",
+            research_output_dir=tmp_path / "research",
+            dataset_version="run-data-layer",
+            timeframes=("15m",),
+            series_mode="continuous_front",
+            dataset_contract_ids=("BRM6",),
+        )
 
 
 @pytest.mark.parametrize(
@@ -484,9 +575,228 @@ def test_moex_layer_rebuild_wrappers_forward_rebuild_window(
         end_ts="",
         warmup_bars=300,
         split_method="holdout",
+        dataset_instrument_ids=("FUT_BR",),
+        spark_master="local[4]",
     )
 
     assert captured["start_ts"] == "2021-04-01T00:00:00Z"
     assert captured["end_ts"] == ""
     assert captured["warmup_bars"] == 300
     assert captured["split_method"] == "holdout"
+    assert captured["dataset_instrument_ids"] == ("FUT_BR",)
+    assert captured["spark_master"] == "local[4]"
+
+
+def test_scoped_indicator_rebuild_preserves_unrequested_partitions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target_partition = IndicatorFramePartitionKey(
+        dataset_version="run-data-layer",
+        indicator_set_version="indicators-v1",
+        timeframe="15m",
+        instrument_id="FUT_BR",
+        contour_id="pit_active_front",
+        series_mode="continuous_front",
+        series_id="FUT_BR",
+    )
+    unrelated_partition = IndicatorFramePartitionKey(
+        dataset_version="run-data-layer",
+        indicator_set_version="indicators-v1",
+        timeframe="1h",
+        instrument_id="FUT_RTS",
+        contour_id="pit_active_front",
+        series_mode="continuous_front",
+        series_id="FUT_RTS",
+    )
+    (tmp_path / "indicators" / "research_indicator_frames.delta" / "_delta_log").mkdir(parents=True)
+
+    class _Profile:
+        version = "core_v1"
+
+        def expected_output_columns(self) -> tuple[str, ...]:
+            return ("rsi_14",)
+
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        indicator_materialize,
+        "_load_dataset_manifest",
+        lambda **_: {
+            "series_mode": "continuous_front",
+            "bars_hash": "bars-v2",
+            "created_at": "2026-06-10T00:00:00Z",
+        },
+    )
+    monkeypatch.setattr(indicator_materialize, "_load_adjustment_ladder_rows", lambda **_: ())
+
+    def _fake_partition_counts(**kwargs: object) -> dict[IndicatorFramePartitionKey, int]:
+        assert kwargs["timeframes"] == ("15m",)
+        assert kwargs["dataset_instrument_ids"] == ("FUT_BR",)
+        return {target_partition: 1}
+
+    monkeypatch.setattr(indicator_materialize, "_load_bar_partition_counts", _fake_partition_counts)
+    monkeypatch.setattr(
+        indicator_materialize, "_latest_delta_commit_timestamp", lambda *_, **__: None
+    )
+    monkeypatch.setattr(indicator_materialize, "load_indicator_partition_metadata", lambda **_: [])
+    monkeypatch.setattr(
+        indicator_materialize,
+        "_group_existing_partition_metadata",
+        lambda **_: {unrelated_partition: {"row_count": 1, "source_bars_hash": "old"}},
+    )
+    monkeypatch.setattr(
+        indicator_materialize, "existing_indicator_value_columns", lambda **_: {"rsi_14"}
+    )
+    monkeypatch.setattr(indicator_materialize, "indicator_output_columns_hash", lambda _: "cols-v1")
+    monkeypatch.setattr(indicator_materialize, "_load_bar_partition_rows", lambda **_: [object()])
+    monkeypatch.setattr(indicator_materialize, "_bars_hash", lambda *_, **__: "bars-v2")
+    monkeypatch.setattr(indicator_materialize, "_ladder_rows_for_series", lambda *_, **__: ())
+    monkeypatch.setattr(indicator_materialize, "_profile_requires_volume_profile", lambda _: False)
+    monkeypatch.setattr(indicator_materialize, "_build_partition_rows", lambda **_: [])
+    monkeypatch.setattr(
+        indicator_materialize,
+        "indicator_store_contract",
+        lambda **_: {"research_indicator_frames": {"columns": []}},
+    )
+
+    def _fake_write(**kwargs: object) -> tuple[dict[str, str], int, int]:
+        captured["delete_partitions"] = tuple(kwargs["delete_partitions"])
+        return {"research_indicator_frames": "memory://research_indicator_frames"}, 0, 0
+
+    monkeypatch.setattr(
+        indicator_materialize,
+        "write_indicator_frame_partition_batches",
+        _fake_write,
+    )
+
+    report = indicator_materialize.materialize_indicator_frames(
+        dataset_output_dir=tmp_path / "datasets",
+        indicator_output_dir=tmp_path / "indicators",
+        dataset_version="run-data-layer",
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+        profile=_Profile(),
+        timeframes=("15m",),
+        dataset_instrument_ids=("FUT_BR",),
+    )
+
+    assert report["deleted_partition_count"] == 0
+    assert captured.get("delete_partitions", ()) == ()
+    assert unrelated_partition.instrument_id == "FUT_RTS"
+
+
+def test_scoped_derived_rebuild_preserves_unrequested_partitions_and_passes_spark_master(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    unrelated_partition = DerivedIndicatorFramePartitionKey(
+        dataset_version="run-data-layer",
+        indicator_set_version="indicators-v1",
+        derived_indicator_set_version="derived-v1",
+        timeframe="1h",
+        instrument_id="FUT_RTS",
+        contour_id="pit_active_front",
+        series_mode="continuous_front",
+        series_id="FUT_RTS",
+    )
+    (tmp_path / "indicators" / "research_indicator_frames.delta" / "_delta_log").mkdir(parents=True)
+    (tmp_path / "derived" / "research_derived_indicator_frames.delta" / "_delta_log").mkdir(
+        parents=True
+    )
+
+    class _Profile:
+        version = "core_v1"
+        output_columns = ("derived_signal",)
+
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        derived_materialize,
+        "_load_dataset_manifest",
+        lambda **_: {"series_mode": "continuous_front", "bars_hash": "bars-v2"},
+    )
+    monkeypatch.setattr(
+        derived_materialize.cf_input_projection,
+        "load_adjustment_ladder_rows",
+        lambda **_: (),
+    )
+    monkeypatch.setattr(
+        derived_materialize, "_source_indicator_columns_for_profile", lambda _: ("rsi_14",)
+    )
+    monkeypatch.setattr(
+        derived_materialize, "existing_indicator_value_columns", lambda **_: {"rsi_14"}
+    )
+    monkeypatch.setattr(
+        derived_materialize, "_latest_delta_commit_timestamp", lambda *_, **__: None
+    )
+
+    def _fake_source_job(**kwargs: object) -> dict[str, object]:
+        captured["source_job_kwargs"] = dict(kwargs)
+        return {
+            "success": True,
+            "rows_by_table": {"research_derived_source_frames": 0},
+        }
+
+    monkeypatch.setattr(
+        derived_materialize,
+        "run_research_derived_source_frames_spark_job",
+        _fake_source_job,
+    )
+    monkeypatch.setattr(
+        derived_materialize,
+        "load_derived_source_frame_partition_metadata",
+        lambda **_: [],
+    )
+    monkeypatch.setattr(
+        derived_materialize, "load_derived_indicator_partition_metadata", lambda **_: []
+    )
+    monkeypatch.setattr(
+        derived_materialize,
+        "_group_existing_partition_metadata",
+        lambda **_: {unrelated_partition: [{"row_count": 1}]},
+    )
+    monkeypatch.setattr(
+        derived_materialize, "existing_derived_indicator_value_columns", lambda **_: set()
+    )
+    monkeypatch.setattr(
+        derived_materialize, "derived_indicator_output_columns_hash", lambda _: "cols-v1"
+    )
+    monkeypatch.setattr(
+        derived_materialize,
+        "research_derived_source_frame_store_contract",
+        lambda **_: {"research_derived_source_frames": {"columns": []}},
+    )
+    monkeypatch.setattr(
+        derived_materialize,
+        "research_derived_indicator_store_contract",
+        lambda **_: {"research_derived_indicator_frames": {"columns": []}},
+    )
+
+    def _fake_write(**kwargs: object) -> tuple[dict[str, str], int, int]:
+        captured["replace_partitions"] = tuple(kwargs["replace_partitions"])
+        return {"research_derived_indicator_frames": "memory://derived"}, 0, 0
+
+    monkeypatch.setattr(
+        derived_materialize,
+        "write_derived_indicator_frame_batches",
+        _fake_write,
+    )
+
+    report = derived_materialize.materialize_derived_indicator_frames(
+        dataset_output_dir=tmp_path / "datasets",
+        indicator_output_dir=tmp_path / "indicators",
+        derived_indicator_output_dir=tmp_path / "derived",
+        dataset_version="run-data-layer",
+        indicator_set_version="indicators-v1",
+        derived_indicator_set_version="derived-v1",
+        contour_id="pit_active_front",
+        profile=_Profile(),
+        spark_master="local[4]",
+        timeframes=("15m",),
+        dataset_instrument_ids=("FUT_BR",),
+    )
+
+    assert captured["source_job_kwargs"]["spark_master"] == "local[4]"
+    assert captured["source_job_kwargs"]["timeframes"] == ("15m",)
+    assert captured["source_job_kwargs"]["dataset_instrument_ids"] == ("FUT_BR",)
+    assert report["deleted_partition_count"] == 0
+    assert captured.get("replace_partitions", ()) == ()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -51,6 +51,7 @@ from trading_advisor_3000.product_plane.research.indicators import (
 from trading_advisor_3000.product_plane.research.indicators.store import (
     existing_indicator_value_columns,
 )
+from trading_advisor_3000.spark_jobs import DEFAULT_SPARK_MASTER
 from trading_advisor_3000.spark_jobs.research_derived_source_frames_job import (
     run_research_derived_source_frames_spark_job,
 )
@@ -1728,6 +1729,9 @@ def materialize_derived_indicator_frames(
     contour_id: str = "native_tradable",
     profile: DerivedIndicatorProfile | None = None,
     profile_version: str | None = None,
+    spark_master: str = "",
+    timeframes: Sequence[str] = (),
+    dataset_instrument_ids: Sequence[str] = (),
 ) -> dict[str, object]:
     dataset_manifest = _load_dataset_manifest(
         output_dir=dataset_output_dir,
@@ -1774,7 +1778,20 @@ def materialize_derived_indicator_frames(
         indicator_set_version=indicator_set_version,
         derived_profile_version=resolved_profile.version,
         source_indicator_columns=required_source_indicator_columns,
+        spark_master=spark_master or DEFAULT_SPARK_MASTER,
+        timeframes=timeframes,
+        dataset_instrument_ids=dataset_instrument_ids,
     )
+    scoped_timeframes = frozenset(str(item).strip() for item in timeframes if str(item).strip())
+    scoped_instruments = frozenset(
+        str(item).strip() for item in dataset_instrument_ids if str(item).strip()
+    )
+
+    def _partition_in_requested_scope(partition: DerivedIndicatorFramePartitionKey) -> bool:
+        return (not scoped_timeframes or partition.timeframe in scoped_timeframes) and (
+            not scoped_instruments or partition.instrument_id in scoped_instruments
+        )
+
     source_metadata = load_derived_source_frame_partition_metadata(
         output_dir=derived_indicator_output_dir,
         dataset_version=dataset_version,
@@ -1785,6 +1802,10 @@ def materialize_derived_indicator_frames(
     for row in source_metadata:
         series_key = _series_key_from_source_metadata(row, requested_series_mode=series_mode)
         timeframe = str(row["timeframe"])
+        if scoped_timeframes and timeframe not in scoped_timeframes:
+            continue
+        if scoped_instruments and series_key.instrument_id not in scoped_instruments:
+            continue
         row_count = int(row.get("partition_row_count") or row.get("joined_row_count") or 0)
         counts_by_timeframe = partition_counts.setdefault(series_key, {})
         counts_by_timeframe[timeframe] = counts_by_timeframe.get(timeframe, 0) + row_count
@@ -2037,7 +2058,9 @@ def materialize_derived_indicator_frames(
             )
 
     deleted_partitions = tuple(
-        partition for partition in existing_by_partition if partition not in current_partitions
+        partition
+        for partition in existing_by_partition
+        if partition not in current_partitions and _partition_in_requested_scope(partition)
     )
     replace_partitions.extend(deleted_partitions)
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Sequence
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
@@ -119,6 +119,8 @@ def _scope_filters(
     dataset_version: str,
     contour_id: str,
     indicator_set_version: str | None = None,
+    timeframes: Sequence[str] = (),
+    dataset_instrument_ids: Sequence[str] = (),
 ) -> list[tuple[str, str, object]]:
     filters: list[tuple[str, str, object]] = [
         ("dataset_version", "=", dataset_version),
@@ -126,6 +128,14 @@ def _scope_filters(
     ]
     if indicator_set_version is not None:
         filters.append(("indicator_set_version", "=", indicator_set_version))
+    scoped_timeframes = tuple(str(item).strip() for item in timeframes if str(item).strip())
+    if scoped_timeframes:
+        filters.append(("timeframe", "in", scoped_timeframes))
+    scoped_instruments = tuple(
+        str(item).strip() for item in dataset_instrument_ids if str(item).strip()
+    )
+    if scoped_instruments:
+        filters.append(("instrument_id", "in", scoped_instruments))
     return filters
 
 
@@ -140,6 +150,8 @@ def run_research_derived_source_frames_spark_job(
     derived_profile_version: str,
     source_indicator_columns: tuple[str, ...],
     spark_master: str = DEFAULT_SPARK_MASTER,
+    timeframes: Sequence[str] = (),
+    dataset_instrument_ids: Sequence[str] = (),
     spark_session_factory: Callable[[str, str], object] | None = None,
 ) -> dict[str, object]:
     for table_path in (bar_views_path, indicator_frames_path):
@@ -180,6 +192,16 @@ def run_research_derived_source_frames_spark_job(
                 & (F.col("indicator_set_version") == F.lit(indicator_set_version))
             )
         )
+        scoped_timeframes = tuple(str(item).strip() for item in timeframes if str(item).strip())
+        scoped_instruments = tuple(
+            str(item).strip() for item in dataset_instrument_ids if str(item).strip()
+        )
+        if scoped_timeframes:
+            bars = bars.where(F.col("timeframe").isin(*scoped_timeframes))
+            indicators = indicators.where(F.col("timeframe").isin(*scoped_timeframes))
+        if scoped_instruments:
+            bars = bars.where(F.col("instrument_id").isin(*scoped_instruments))
+            indicators = indicators.where(F.col("instrument_id").isin(*scoped_instruments))
         join_keys = (
             "dataset_version",
             "contour_id",
@@ -284,6 +306,8 @@ def run_research_derived_source_frames_spark_job(
                 dataset_version=dataset_version,
                 contour_id=contour_id,
                 indicator_set_version=indicator_set_version,
+                timeframes=scoped_timeframes,
+                dataset_instrument_ids=scoped_instruments,
             ),
             source_indicator_columns=source_indicator_columns,
         )
@@ -291,6 +315,8 @@ def run_research_derived_source_frames_spark_job(
             dataset_version=dataset_version,
             contour_id=contour_id,
             indicator_set_version=indicator_set_version,
+            timeframes=scoped_timeframes,
+            dataset_instrument_ids=scoped_instruments,
         )
         return {
             "success": True,
@@ -299,6 +325,8 @@ def run_research_derived_source_frames_spark_job(
             "contour_id": contour_id,
             "indicator_set_version": indicator_set_version,
             "derived_profile_version": derived_profile_version,
+            "timeframes": scoped_timeframes,
+            "dataset_instrument_ids": scoped_instruments,
             "source_indicator_columns_hash": source_indicator_columns_hash,
             "source_delta_versions": {
                 "research_bar_views": source_l0_delta_version,

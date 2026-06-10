@@ -154,10 +154,13 @@ MOEX_HISTORICAL_OP_CONFIG_SCHEMA = {
     "warmup_bars": DagsterField(int, is_required=False),
     "split_method": DagsterField(str, is_required=False),
     "series_mode": DagsterField(str, is_required=False),
+    "dataset_contract_ids": DagsterField(str, is_required=False),
+    "dataset_instrument_ids": DagsterField(str, is_required=False),
     "indicator_set_version": DagsterField(str, is_required=False),
     "indicator_profile_version": DagsterField(str, is_required=False),
     "derived_indicator_set_version": DagsterField(str, is_required=False),
     "derived_indicator_profile_version": DagsterField(str, is_required=False),
+    "spark_master": DagsterField(str, is_required=False),
     "volume_profile_raw_1m_table_path": DagsterField(str, is_required=False),
     "volume_profile_tick_size_by_instrument": DagsterField(dict, is_required=False),
     "reuse_existing_materialization": DagsterField(bool, is_required=False),
@@ -499,10 +502,15 @@ def build_moex_data_rebuild_op_config(
     canonical_root: Path | None = None,
     session_root: Path | None = None,
     research_root: Path | None = None,
+    dataset_version: str | None = None,
+    timeframes: str | Sequence[str] | None = None,
     start_ts: str | None = None,
     end_ts: str | None = None,
     warmup_bars: int | None = None,
     split_method: str | None = None,
+    dataset_contract_ids: Sequence[str] | None = None,
+    dataset_instrument_ids: Sequence[str] | None = None,
+    spark_master: str | None = None,
 ) -> dict[str, object]:
     profile = resolve_moex_data_rebuild_profile(profile_name)
     resolved_source_mode = (source_mode or profile.source_mode).strip()
@@ -593,6 +601,7 @@ def build_moex_data_rebuild_op_config(
         if value is not None:
             config[key] = value.resolve().as_posix()
     optional_text_values = {
+        "dataset_version": dataset_version,
         "start_ts": start_ts,
         "end_ts": end_ts,
         "split_method": split_method,
@@ -600,8 +609,23 @@ def build_moex_data_rebuild_op_config(
     for key, value in optional_text_values.items():
         if value is not None:
             config[key] = str(value)
+    if timeframes is not None:
+        config["timeframes"] = (
+            timeframes.strip()
+            if isinstance(timeframes, str)
+            else ",".join(str(item).strip() for item in timeframes if str(item).strip())
+        )
     if warmup_bars is not None:
         config["warmup_bars"] = int(warmup_bars)
+    optional_sequence_values = {
+        "dataset_contract_ids": dataset_contract_ids,
+        "dataset_instrument_ids": dataset_instrument_ids,
+    }
+    for key, values in optional_sequence_values.items():
+        if values is not None:
+            config[key] = ",".join(str(item).strip() for item in values if str(item).strip())
+    if spark_master is not None:
+        config["spark_master"] = str(spark_master)
     return config
 
 
@@ -625,10 +649,15 @@ def build_moex_data_rebuild_run_config(
     canonical_root: Path | None = None,
     session_root: Path | None = None,
     research_root: Path | None = None,
+    dataset_version: str | None = None,
+    timeframes: str | Sequence[str] | None = None,
     start_ts: str | None = None,
     end_ts: str | None = None,
     warmup_bars: int | None = None,
     split_method: str | None = None,
+    dataset_contract_ids: Sequence[str] | None = None,
+    dataset_instrument_ids: Sequence[str] | None = None,
+    spark_master: str | None = None,
 ) -> dict[str, object]:
     op_config = build_moex_data_rebuild_op_config(
         profile_name=profile_name,
@@ -649,10 +678,15 @@ def build_moex_data_rebuild_run_config(
         canonical_root=canonical_root,
         session_root=session_root,
         research_root=research_root,
+        dataset_version=dataset_version,
+        timeframes=timeframes,
         start_ts=start_ts,
         end_ts=end_ts,
         warmup_bars=warmup_bars,
         split_method=split_method,
+        dataset_contract_ids=dataset_contract_ids,
+        dataset_instrument_ids=dataset_instrument_ids,
+        spark_master=spark_master,
     )
     return {
         "ops": {
@@ -1128,10 +1162,18 @@ def _required_path_value(op_config: dict[str, object], key: str, *, context_name
     return path
 
 
-def _csv_sequence_value(raw: str, *, default: str = "") -> tuple[str, ...]:
-    source = raw.strip() or default
-    values = tuple(item.strip() for item in source.split(",") if item.strip())
-    if not values:
+def _csv_sequence_value(
+    raw: object,
+    *,
+    default: str | Sequence[str] = "",
+    allow_empty: bool = False,
+) -> tuple[str, ...]:
+    source = raw if raw not in (None, "") else default
+    if isinstance(source, str):
+        values = tuple(item.strip() for item in source.split(",") if item.strip())
+    else:
+        values = tuple(str(item).strip() for item in source if str(item).strip())
+    if not values and not allow_empty:
         raise RuntimeError("moex data rebuild requires at least one timeframe")
     return values
 
@@ -1419,6 +1461,12 @@ def _research_rebuild_kwargs(op_config: dict[str, object], *, run_id: str) -> di
         "continuous_front_policy": (
             dict(continuous_front_policy) if isinstance(continuous_front_policy, dict) else None
         ),
+        "dataset_contract_ids": _csv_sequence_value(
+            op_config.get("dataset_contract_ids"), default=(), allow_empty=True
+        ),
+        "dataset_instrument_ids": _csv_sequence_value(
+            op_config.get("dataset_instrument_ids"), default=(), allow_empty=True
+        ),
         "indicator_set_version": _text_value(op_config, "indicator_set_version") or "indicators-v1",
         "indicator_profile_version": _text_value(op_config, "indicator_profile_version")
         or "core_v1",
@@ -1435,6 +1483,7 @@ def _research_rebuild_kwargs(op_config: dict[str, object], *, run_id: str) -> di
         "reuse_existing_materialization": _bool_value(
             op_config, "reuse_existing_materialization", default=False
         ),
+        "spark_master": _text_value(op_config, "spark_master"),
         "raise_on_error": True,
     }
 
@@ -1792,10 +1841,16 @@ def execute_moex_data_rebuild_job(
     canonical_session_intervals_path: Path | None = None,
     canonical_session_calendar_path: Path | None = None,
     canonical_roll_map_path: Path | None = None,
+    research_root: Path | None = None,
+    dataset_version: str | None = None,
+    timeframes: str | Sequence[str] | None = None,
     start_ts: str | None = None,
     end_ts: str | None = None,
     warmup_bars: int | None = None,
     split_method: str | None = None,
+    dataset_contract_ids: Sequence[str] | None = None,
+    dataset_instrument_ids: Sequence[str] | None = None,
+    spark_master: str | None = None,
     extra_tags: dict[str, str] | None = None,
     scheduled_execution_time: datetime | None = None,
     raise_on_error: bool = False,
@@ -1821,13 +1876,19 @@ def execute_moex_data_rebuild_job(
         canonical_session_intervals_path=canonical_session_intervals_path,
         canonical_session_calendar_path=canonical_session_calendar_path,
         canonical_roll_map_path=canonical_roll_map_path,
+        research_root=research_root,
+        dataset_version=dataset_version,
         source_mode=source_mode,
         publish_mode=publish_mode,
         downstream_mode=downstream_mode,
+        timeframes=timeframes,
         start_ts=start_ts,
         end_ts=end_ts,
         warmup_bars=warmup_bars,
         split_method=split_method,
+        dataset_contract_ids=dataset_contract_ids,
+        dataset_instrument_ids=dataset_instrument_ids,
+        spark_master=spark_master,
     )
     tags: dict[str, str] = dict(extra_tags or {})
     schedule_payload: dict[str, object] | None = None
