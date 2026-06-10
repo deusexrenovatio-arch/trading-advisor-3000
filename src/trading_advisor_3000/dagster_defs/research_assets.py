@@ -988,6 +988,8 @@ def _require_existing_data_prep(
     indicator_set_version: str,
     derived_indicator_set_version: str,
     contour_id: str = "native_tradable",
+    timeframes: Sequence[str] = (),
+    dataset_instrument_ids: Sequence[str] = (),
 ) -> None:
     dataset_path = materialized_output_dir / "research_datasets.delta"
     instrument_tree_path = materialized_output_dir / "research_instrument_tree.delta"
@@ -1005,6 +1007,20 @@ def _require_existing_data_prep(
             raise RuntimeError(f"missing reusable research data prep table: {path.as_posix()}")
 
     _ensure_reusable_data_prep_schema(materialized_output_dir=materialized_output_dir)
+    scoped_timeframes = tuple(str(item).strip() for item in timeframes if str(item).strip())
+    scoped_instruments = tuple(
+        str(item).strip() for item in dataset_instrument_ids if str(item).strip()
+    )
+
+    def _scoped_filters(
+        table_path: Path, filters: list[tuple[str, str, object]]
+    ) -> list[tuple[str, str, object]]:
+        if scoped_timeframes:
+            filters.append(("timeframe", "in", scoped_timeframes))
+        if scoped_instruments:
+            filters.append(("instrument_id", "in", scoped_instruments))
+        return _filters_for_existing_materialized_columns(table_path, filters) or filters
+
     _require_delta_table_row(
         table_path=dataset_path,
         table_name="research_datasets",
@@ -1013,31 +1029,43 @@ def _require_existing_data_prep(
     _require_delta_table_row(
         table_path=bar_views_path,
         table_name="research_bar_views",
-        filters=[("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
+        filters=_scoped_filters(
+            bar_views_path,
+            [("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
+        ),
     )
     _require_delta_table_row(
         table_path=instrument_tree_path,
         table_name="research_instrument_tree",
-        filters=[("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
+        filters=_scoped_filters(
+            instrument_tree_path,
+            [("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
+        ),
     )
     _require_delta_table_row(
         table_path=indicator_path,
         table_name="research_indicator_frames",
-        filters=[
-            ("dataset_version", "=", dataset_version),
-            ("contour_id", "=", contour_id),
-            ("indicator_set_version", "=", indicator_set_version),
-        ],
+        filters=_scoped_filters(
+            indicator_path,
+            [
+                ("dataset_version", "=", dataset_version),
+                ("contour_id", "=", contour_id),
+                ("indicator_set_version", "=", indicator_set_version),
+            ],
+        ),
     )
     _require_delta_table_row(
         table_path=derived_indicator_path,
         table_name="research_derived_indicator_frames",
-        filters=[
-            ("dataset_version", "=", dataset_version),
-            ("contour_id", "=", contour_id),
-            ("indicator_set_version", "=", indicator_set_version),
-            ("derived_indicator_set_version", "=", derived_indicator_set_version),
-        ],
+        filters=_scoped_filters(
+            derived_indicator_path,
+            [
+                ("dataset_version", "=", dataset_version),
+                ("contour_id", "=", contour_id),
+                ("indicator_set_version", "=", indicator_set_version),
+                ("derived_indicator_set_version", "=", derived_indicator_set_version),
+            ],
+        ),
     )
 
 
