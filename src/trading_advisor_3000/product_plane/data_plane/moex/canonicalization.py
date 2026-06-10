@@ -543,7 +543,7 @@ def _session_bounded_bucket_ts(
             return _to_iso_utc(week_start)
 
         bucket_seconds = target_minutes * 60
-        offset_seconds = int((ts_open - interval.expected_open_ts).total_seconds())
+        offset_seconds = max(0, int((ts_open - interval.expected_open_ts).total_seconds()))
         bucket_start = interval.expected_open_ts + timedelta(
             seconds=(offset_seconds // bucket_seconds) * bucket_seconds
         )

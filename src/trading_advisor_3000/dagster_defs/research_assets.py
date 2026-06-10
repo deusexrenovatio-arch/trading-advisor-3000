@@ -243,23 +243,13 @@ RESEARCH_DEPENDENCIES: dict[str, tuple[str, ...]] = {
         "research_bar_views",
         "research_indicator_frames",
     ),
-    "continuous_front_indicator_acceptance_report": (
-        "research_derived_indicator_frames",
-    ),
+    "continuous_front_indicator_acceptance_report": ("research_derived_indicator_frames",),
     "cf_indicator_input_frame": ("continuous_front_indicator_acceptance_report",),
     "indicator_roll_rules": ("continuous_front_indicator_acceptance_report",),
-    "continuous_front_indicator_frames": (
-        "continuous_front_indicator_acceptance_report",
-    ),
-    "continuous_front_derived_indicator_frames": (
-        "continuous_front_indicator_acceptance_report",
-    ),
-    "continuous_front_indicator_qc_observations": (
-        "continuous_front_indicator_acceptance_report",
-    ),
-    "continuous_front_indicator_run_manifest": (
-        "continuous_front_indicator_acceptance_report",
-    ),
+    "continuous_front_indicator_frames": ("continuous_front_indicator_acceptance_report",),
+    "continuous_front_derived_indicator_frames": ("continuous_front_indicator_acceptance_report",),
+    "continuous_front_indicator_qc_observations": ("continuous_front_indicator_acceptance_report",),
+    "continuous_front_indicator_run_manifest": ("continuous_front_indicator_acceptance_report",),
     "research_strategy_families": ("research_datasets",),
     "research_strategy_templates": ("research_strategy_families",),
     "research_strategy_template_modules": ("research_strategy_templates",),
@@ -386,7 +376,8 @@ def research_asset_specs() -> list[AssetSpec]:
         AssetSpec(
             key="cf_indicator_input_frame",
             description=(
-                "Project continuous-front research bars into the governed indicator sidecar input frame."
+                "Project continuous-front research bars into the governed indicator "
+                "sidecar input frame."
             ),
             inputs=("research_derived_indicator_frames_delta",),
             outputs=("cf_indicator_input_frame_delta",),
@@ -411,19 +402,26 @@ def research_asset_specs() -> list[AssetSpec]:
         ),
         AssetSpec(
             key="continuous_front_indicator_qc_observations",
-            description="Publish QC observations for continuous-front indicator sidecar materialization.",
+            description=(
+                "Publish QC observations for continuous-front indicator sidecar materialization."
+            ),
             inputs=("research_derived_indicator_frames_delta",),
             outputs=("continuous_front_indicator_qc_observations_delta",),
         ),
         AssetSpec(
             key="continuous_front_indicator_run_manifest",
-            description="Publish lineage and runtime manifest rows for continuous-front indicator sidecars.",
+            description=(
+                "Publish lineage and runtime manifest rows for continuous-front indicator sidecars."
+            ),
             inputs=("research_derived_indicator_frames_delta",),
             outputs=("continuous_front_indicator_run_manifest_delta",),
         ),
         AssetSpec(
             key="continuous_front_indicator_acceptance_report",
-            description="Publish the acceptance report for the post-derived continuous-front indicator sidecar job.",
+            description=(
+                "Publish the acceptance report for the post-derived continuous-front "
+                "indicator sidecar job."
+            ),
             inputs=("research_derived_indicator_frames_delta",),
             outputs=("continuous_front_indicator_acceptance_report_delta",),
         ),
@@ -665,9 +663,7 @@ def _strategy_space_combination_count(
     family_search_specs: Sequence[object],
 ) -> int:
     optimizer = (
-        dict(strategy_space.get("optimizer", {}))
-        if isinstance(strategy_space, Mapping)
-        else {}
+        dict(strategy_space.get("optimizer", {})) if isinstance(strategy_space, Mapping) else {}
     )
     if str(optimizer.get("engine", "grid")) == "optuna":
         return int(optimizer.get("n_trials", 0) or 0) * len(family_search_specs)
@@ -1726,8 +1722,7 @@ def _run_continuous_front_indicator_sidecar(
         derived_set_version=str(research_datasets["derived_indicator_set_version"]),
         run_id=continuous_front_indicator_run_id,
         calculation_app_id=(
-            "spark-dagster-continuous-front-indicators-"
-            f"{continuous_front_indicator_run_id}"
+            f"spark-dagster-continuous-front-indicators-{continuous_front_indicator_run_id}"
         ),
         event_log_path=(
             "dagster://continuous_front_indicator_refresh/"
@@ -2927,9 +2922,7 @@ def assert_research_definitions_executable(definitions: Definitions | None = Non
         MOEX_RESEARCH_BAR_REBUILD_JOB_NAME: set(MOEX_RESEARCH_BAR_REBUILD_ASSETS),
         MOEX_INDICATOR_REBUILD_JOB_NAME: set(MOEX_INDICATOR_REBUILD_ASSETS),
         MOEX_DERIVED_INDICATOR_REBUILD_JOB_NAME: set(MOEX_DERIVED_INDICATOR_REBUILD_ASSETS),
-        MOEX_RESEARCH_INDICATOR_SIDECAR_JOB_NAME: set(
-            MOEX_RESEARCH_INDICATOR_SIDECAR_ASSETS
-        ),
+        MOEX_RESEARCH_INDICATOR_SIDECAR_JOB_NAME: set(MOEX_RESEARCH_INDICATOR_SIDECAR_ASSETS),
         STRATEGY_REGISTRY_REFRESH_JOB_NAME: set(STRATEGY_REGISTRY_REFRESH_EXECUTION_ASSETS),
         RESEARCH_BACKTEST_JOB_NAME: set(RESEARCH_BACKTEST_ASSETS),
         RESEARCH_PROJECTION_JOB_NAME: set(RESEARCH_PROJECTION_ASSETS),
@@ -3639,6 +3632,30 @@ def materialize_moex_research_bar_rebuild_assets(
     )
 
 
+def _reject_unsupported_indicator_rebuild_scope(
+    *,
+    start_ts: str,
+    end_ts: str,
+    warmup_bars: int,
+    split_method: str,
+) -> None:
+    unsupported: list[str] = []
+    if start_ts:
+        unsupported.append("start_ts")
+    if end_ts:
+        unsupported.append("end_ts")
+    if warmup_bars != DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS:
+        unsupported.append("warmup_bars")
+    if split_method != "holdout":
+        unsupported.append("split_method")
+    if unsupported:
+        joined = ", ".join(unsupported)
+        raise ValueError(
+            "MOEX indicator rebuild does not support scoped rebuild parameters "
+            f"for persisted materialization reuse: {joined}"
+        )
+
+
 def materialize_moex_indicator_rebuild_assets(
     *,
     canonical_output_dir: Path,
@@ -3667,6 +3684,12 @@ def materialize_moex_indicator_rebuild_assets(
     reuse_existing_materialization: bool = False,
     raise_on_error: bool = True,
 ) -> dict[str, object]:
+    _reject_unsupported_indicator_rebuild_scope(
+        start_ts=start_ts,
+        end_ts=end_ts,
+        warmup_bars=warmup_bars,
+        split_method=split_method,
+    )
     return _materialize_moex_layer_rebuild_assets(
         canonical_output_dir=canonical_output_dir,
         research_output_dir=research_output_dir,
@@ -3727,6 +3750,12 @@ def materialize_moex_derived_indicator_rebuild_assets(
     reuse_existing_materialization: bool = False,
     raise_on_error: bool = True,
 ) -> dict[str, object]:
+    _reject_unsupported_indicator_rebuild_scope(
+        start_ts=start_ts,
+        end_ts=end_ts,
+        warmup_bars=warmup_bars,
+        split_method=split_method,
+    )
     return _materialize_moex_layer_rebuild_assets(
         canonical_output_dir=canonical_output_dir,
         research_output_dir=research_output_dir,

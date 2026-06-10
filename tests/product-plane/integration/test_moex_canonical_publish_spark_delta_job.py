@@ -15,6 +15,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
 from trading_advisor_3000.product_plane.data_plane.schemas import (
     historical_data_delta_schema_manifest,
 )
+from trading_advisor_3000.spark_jobs import moex_canonical_publish_job as publish_job
 from trading_advisor_3000.spark_jobs.moex_canonical_publish_job import (
     CANONICAL_PROVENANCE_COLUMNS,
     SIDECAR_OVERLAP_POLICY,
@@ -99,6 +100,96 @@ def _provenance(**overrides: object) -> dict[str, object]:
     if "session_interval_id" not in overrides:
         payload["session_interval_id"] = f"FUT_BR-{str(payload['bar_start_ts'])[:10]}-regular-1"
     return payload
+
+
+def test_historical_delta_manifest_matches_publish_provenance_types() -> None:
+    manifest = historical_data_delta_schema_manifest()
+    provenance_columns = manifest["canonical_bar_provenance"]["columns"]
+
+    assert (
+        provenance_columns["source_row_count"] == CANONICAL_PROVENANCE_COLUMNS["source_row_count"]
+    )
+    assert (
+        provenance_columns["open_interest_imputed"]
+        == CANONICAL_PROVENANCE_COLUMNS["open_interest_imputed"]
+    )
+
+
+def test_delta_schema_match_rejects_existing_type_mismatch(tmp_path: Path) -> None:
+    table_path = tmp_path / "canonical_bar_provenance.delta"
+    (table_path / "_delta_log").mkdir(parents=True)
+
+    class _FakeLoadedTable:
+        dtypes = [
+            ("source_row_count", "bigint"),
+            ("open_interest_imputed", "int"),
+        ]
+
+    class _FakeReader:
+        def format(self, value: str) -> "_FakeReader":
+            assert value == "delta"
+            return self
+
+        def load(self, value: str) -> _FakeLoadedTable:
+            assert value == str(table_path)
+            return _FakeLoadedTable()
+
+    class _FakeSpark:
+        read = _FakeReader()
+
+    assert not publish_job._delta_table_matches_schema(
+        _FakeSpark(),
+        table_path=table_path,
+        columns={
+            "source_row_count": "int",
+            "open_interest_imputed": "int",
+        },
+    )
+
+
+def test_replace_delta_dataframe_preserves_backup_until_publish_cleanup(tmp_path: Path) -> None:
+    table_path = tmp_path / "canonical_bar_provenance.delta"
+    table_path.mkdir()
+    (table_path / "old-file").write_text("old", encoding="utf-8")
+
+    class _FakeWriter:
+        def format(self, value: str) -> "_FakeWriter":
+            assert value == "delta"
+            return self
+
+        def mode(self, value: str) -> "_FakeWriter":
+            assert value == "overwrite"
+            return self
+
+        def option(self, key: str, value: str) -> "_FakeWriter":
+            assert (key, value) == ("overwriteSchema", "true")
+            return self
+
+        def partitionBy(self, *_: str) -> "_FakeWriter":
+            return self
+
+        def save(self, value: str) -> None:
+            output_path = Path(value)
+            output_path.mkdir(parents=True)
+            (output_path / "_delta_log").mkdir()
+            (output_path / "new-file").write_text("new", encoding="utf-8")
+
+    class _FakeDataFrame:
+        write = _FakeWriter()
+
+        def coalesce(self, _: int) -> "_FakeDataFrame":
+            return self
+
+    backup_path = publish_job._replace_delta_dataframe(
+        dataframe=_FakeDataFrame(),
+        table_path=table_path,
+        manifest_entry={"partition_by": [], "target_file_count": 0},
+    )
+
+    assert backup_path is not None
+    assert backup_path.exists()
+    assert (backup_path / "old-file").read_text(encoding="utf-8") == "old"
+    assert (table_path / "new-file").read_text(encoding="utf-8") == "new"
 
 
 def _write_session_intervals(path: Path, session_dates: list[str]) -> Path:

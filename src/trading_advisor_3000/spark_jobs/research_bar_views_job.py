@@ -424,7 +424,7 @@ def _bar_usage_context_frames(
     )
     return BarUsageContextFrames(
         intervals=intervals,
-        day_meta=day_meta.persist(StorageLevel.MEMORY_AND_DISK),
+        day_meta=day_meta,
         expected_weekly=expected_weekly,
         actual_daily=actual_daily,
     )

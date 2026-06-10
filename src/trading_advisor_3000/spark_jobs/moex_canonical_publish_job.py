@@ -86,6 +86,18 @@ def _delta_table_has_columns(spark: Any, *, table_path: Path, columns: tuple[str
     return set(columns).issubset(existing_columns)
 
 
+def _delta_table_matches_schema(spark: Any, *, table_path: Path, columns: dict[str, str]) -> bool:
+    if not has_delta_log(table_path):
+        return False
+    existing_types = {
+        str(column_name): str(data_type)
+        for column_name, data_type in spark.read.format("delta").load(str(table_path)).dtypes
+    }
+    return all(
+        existing_types.get(column_name) == data_type for column_name, data_type in columns.items()
+    )
+
+
 def _delta_table_partition_columns(spark: Any, table_path: Path) -> tuple[str, ...] | None:
     if not has_delta_log(table_path):
         return None
@@ -137,7 +149,7 @@ def _replace_delta_dataframe(
     dataframe: Any,
     table_path: Path,
     manifest_entry: dict[str, object],
-) -> None:
+) -> Path | None:
     partition_by = list(manifest_entry.get("partition_by") or [])
     target_file_count = int(manifest_entry.get("target_file_count") or 0)
     table_path.parent.mkdir(parents=True, exist_ok=True)
@@ -154,8 +166,7 @@ def _replace_delta_dataframe(
     if table_path.exists():
         table_path.rename(backup_path)
     temp_path.rename(table_path)
-    if backup_path.exists():
-        shutil.rmtree(backup_path)
+    return backup_path if backup_path.exists() else None
 
 
 def _provenance_frame_with_contract_columns(
@@ -853,10 +864,10 @@ def run_moex_canonical_publish_spark_delta_job(
             table_path=target_bars_path,
             schema=_schema_from_columns(manifest["canonical_bars"]["columns"]),
         ).select(*manifest["canonical_bars"]["columns"].keys())
-        target_provenance_has_contract = _delta_table_has_columns(
+        target_provenance_has_contract = _delta_table_matches_schema(
             spark,
             table_path=target_provenance_path,
-            columns=tuple(CANONICAL_PROVENANCE_COLUMNS),
+            columns=CANONICAL_PROVENANCE_COLUMNS,
         )
         target_provenance_df = _provenance_frame_with_contract_columns(
             spark=spark,
@@ -966,6 +977,7 @@ def run_moex_canonical_publish_spark_delta_job(
                 table_path=affected_sessions_path,
             )
         mutation_applied = False
+        rewrite_backup_paths: list[Path] = []
         recovery_manifest_path = output_dir / "publish-recovery-manifest.json"
         publish_protocol: dict[str, object] = {
             "operation": "delta_merge_replace",
@@ -1030,11 +1042,13 @@ def run_moex_canonical_publish_spark_delta_job(
                     functions=functions,
                 )
             elif has_delta_log(target_provenance_path):
-                _replace_delta_dataframe(
+                backup_path = _replace_delta_dataframe(
                     dataframe=candidate_provenance_df,
                     table_path=target_provenance_path,
                     manifest_entry={"columns": dict(CANONICAL_PROVENANCE_COLUMNS)},
                 )
+                if backup_path is not None:
+                    rewrite_backup_paths.append(backup_path)
             else:
                 _write_delta_dataframe(
                     dataframe=staged_provenance_df,
@@ -1188,16 +1202,19 @@ def run_moex_canonical_publish_spark_delta_job(
                 )
             else:
                 writer = _replace_delta_dataframe if sidecars_exist else _write_delta_dataframe
-                writer(
+                session_backup_path = writer(
                     dataframe=session_calendar_df,
                     table_path=session_calendar_path,
                     manifest_entry=session_calendar_manifest,
                 )
-                writer(
+                roll_backup_path = writer(
                     dataframe=roll_map_df,
                     table_path=roll_map_path,
                     manifest_entry=roll_map_manifest,
                 )
+                for backup_path in (session_backup_path, roll_backup_path):
+                    if backup_path is not None:
+                        rewrite_backup_paths.append(backup_path)
             refreshed_session_rows = int(session_calendar_df.count())
             refreshed_roll_rows = int(roll_map_df.count())
             sidecar_mutation = True
@@ -1223,7 +1240,7 @@ def run_moex_canonical_publish_spark_delta_job(
         if has_delta_log(roll_map_path):
             output_paths["canonical_roll_map"] = roll_map_path.as_posix()
             delta_log["canonical_roll_map"] = _delta_log_payload(roll_map_path)
-        return {
+        report = {
             "run_id": run_id,
             "runtime_owner": "spark_delta",
             "status": "PASS" if publish_allowed else "BLOCKED",
@@ -1262,6 +1279,10 @@ def run_moex_canonical_publish_spark_delta_job(
                 "delta_writer": "spark",
             },
         }
+        for backup_path in rewrite_backup_paths:
+            if backup_path.exists():
+                shutil.rmtree(backup_path)
+        return report
     finally:
         try:
             spark.stop()

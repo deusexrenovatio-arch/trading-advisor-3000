@@ -48,7 +48,7 @@ from trading_advisor_3000.spark_jobs.moex_canonicalization_job import (
 DEFAULT_DOCKER_IMAGE = "ta3000-phase-proof:latest"
 DEFAULT_DOCKERFILE = Path("deployment/docker/phase-proofs/Dockerfile")
 DEFAULT_DOCKER_RUNTIME_ROOT = "/tmp/ta3000-phase-proof"
-SPARK_DOCKER_SUBPROCESS_TIMEOUT_SECONDS = 1800
+SPARK_DOCKER_SUBPROCESS_TIMEOUT_SECONDS = 3600
 SPARK_DOCKER_SUBPROCESS_TIMEOUT_ENV = "TA3000_SPARK_DOCKER_SUBPROCESS_TIMEOUT_SECONDS"
 
 
