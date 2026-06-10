@@ -79,6 +79,7 @@ from trading_advisor_3000.product_plane.research.strategies.families import (
 )
 from trading_advisor_3000.product_plane.research.strategy_space import prepare_strategy_space
 from trading_advisor_3000.spark_jobs import (
+    DEFAULT_SPARK_MASTER,
     run_continuous_front_spark_job,
     run_research_bar_views_spark_job,
 )
@@ -613,6 +614,7 @@ def _research_config_schema() -> dict[str, object]:
         "continuous_front_policy": dict,
         "dataset_contract_ids": [str],
         "dataset_instrument_ids": [str],
+        "spark_master": Field(str, default_value="", is_required=False),
         "indicator_set_version": str,
         "indicator_profile_version": str,
         "derived_indicator_set_version": str,
@@ -656,6 +658,13 @@ def _config_value(config: dict[str, object], key: str, default: object | None = 
     if value is None:
         raise KeyError(f"missing research config value: {key}")
     return value
+
+
+def _config_string_sequence(config: dict[str, object], key: str) -> tuple[str, ...]:
+    value = _config_value(config, key, [])
+    if isinstance(value, str):
+        return tuple(item.strip() for item in value.split(",") if item.strip())
+    return tuple(str(item).strip() for item in value if str(item).strip())
 
 
 def _strategy_space_combination_count(
@@ -1097,6 +1106,8 @@ def _count_materialized_table_rows(
     contour_id: str,
     indicator_set_version: str = "indicators-v1",
     derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
+    timeframes: Sequence[str] = (),
+    dataset_instrument_ids: Sequence[str] = (),
 ) -> int:
     filters = _research_materialized_table_filters(
         table_name=table_name,
@@ -1105,6 +1116,15 @@ def _count_materialized_table_rows(
         indicator_set_version=indicator_set_version,
         derived_indicator_set_version=derived_indicator_set_version,
     )
+    if filters is not None:
+        scoped_timeframes = tuple(str(item).strip() for item in timeframes if str(item).strip())
+        if scoped_timeframes:
+            filters.append(("timeframe", "in", scoped_timeframes))
+        scoped_instruments = tuple(
+            str(item).strip() for item in dataset_instrument_ids if str(item).strip()
+        )
+        if scoped_instruments:
+            filters.append(("instrument_id", "in", scoped_instruments))
     scoped_filters = _filters_for_existing_materialized_columns(table_path, filters)
     return (
         count_delta_table_rows(table_path, filters=scoped_filters)
@@ -1308,6 +1328,7 @@ def continuous_front_bars(context) -> dict[str, object]:
             timeframes=tuple(str(item) for item in _config_value(config, "timeframes", [])),
             start_ts=str(_config_value(config, "start_ts", "")) or None,
             end_ts=str(_config_value(config, "end_ts", "")) or None,
+            spark_master=str(_config_value(config, "spark_master", "")) or DEFAULT_SPARK_MASTER,
         )
     else:
         report = _write_contract_mode_continuous_front_placeholders(
@@ -1402,6 +1423,8 @@ def research_datasets(context) -> dict[str, object]:
     dataset_contract_ids = tuple(
         str(item) for item in _config_value(config, "dataset_contract_ids", [])
     )
+    timeframes = _config_string_sequence(config, "timeframes")
+    dataset_instrument_ids = _config_string_sequence(config, "dataset_instrument_ids")
     if series_mode == "continuous_front" and dataset_contract_ids:
         raise ValueError(
             "dataset_contract_ids is not supported for series_mode=continuous_front; "
@@ -1420,6 +1443,8 @@ def research_datasets(context) -> dict[str, object]:
             contour_id=contour_id,
             indicator_set_version=indicator_set_version,
             derived_indicator_set_version=derived_indicator_set_version,
+            timeframes=timeframes,
+            dataset_instrument_ids=dataset_instrument_ids,
         )
         report = {
             "dataset_manifest": _dataset_manifest_row(
@@ -1481,6 +1506,7 @@ def research_datasets(context) -> dict[str, object]:
             end_ts=str(_config_value(config, "end_ts", "")) or None,
             warmup_bars=int(_config_value(config, "warmup_bars", 0)),
             contours=research_l0_contours,
+            spark_master=str(_config_value(config, "spark_master", "")) or DEFAULT_SPARK_MASTER,
         )
     strategy_space_config = _config_value(config, "strategy_space", {})
     optimizer_policy = (
@@ -1510,6 +1536,9 @@ def research_datasets(context) -> dict[str, object]:
         "derived_indicator_profile_version": str(
             _config_value(config, "derived_indicator_profile_version", "core_v1")
         ),
+        "timeframes": _config_string_sequence(config, "timeframes"),
+        "dataset_instrument_ids": _config_string_sequence(config, "dataset_instrument_ids"),
+        "spark_master": str(_config_value(config, "spark_master", "")) or DEFAULT_SPARK_MASTER,
         "volume_profile_raw_1m_table_path": resolved_volume_profile_raw_1m_table_path,
         "volume_profile_tick_size_by_instrument": _normalize_volume_profile_tick_sizes(
             _config_value(config, "volume_profile_tick_size_by_instrument", {}),
@@ -1638,6 +1667,8 @@ def research_indicator_frames(context) -> dict[str, object]:
         contour_id=str(research_datasets.get("contour_id", "native_tradable")),
         indicator_set_version=indicator_set_version,
         profile_version=profile_version,
+        timeframes=tuple(research_datasets.get("timeframes", ())),
+        dataset_instrument_ids=tuple(research_datasets.get("dataset_instrument_ids", ())),
         volume_profile_raw_1m_table_path=raw_1m_table_path,
         volume_profile_tick_size_by_instrument=tick_size_by_instrument or None,
     )
@@ -1667,6 +1698,9 @@ def research_derived_indicator_frames(context) -> dict[str, object]:
             indicator_set_version=indicator_set_version,
             derived_indicator_set_version=derived_indicator_set_version,
             profile_version=profile_version,
+            spark_master=str(research_datasets.get("spark_master") or "") or DEFAULT_SPARK_MASTER,
+            timeframes=tuple(research_datasets.get("timeframes") or ()),
+            dataset_instrument_ids=tuple(research_datasets.get("dataset_instrument_ids") or ()),
         )
         or {}
     )
@@ -3005,6 +3039,7 @@ def _research_run_config(
     continuous_front_policy: dict[str, object] | None = None,
     dataset_contract_ids: Sequence[str] = (),
     dataset_instrument_ids: Sequence[str] = (),
+    spark_master: str = "",
     indicator_set_version: str,
     indicator_profile_version: str,
     derived_indicator_set_version: str,
@@ -3078,6 +3113,7 @@ def _research_run_config(
         ),
         "dataset_contract_ids": [str(item) for item in dataset_contract_ids],
         "dataset_instrument_ids": [str(item) for item in dataset_instrument_ids],
+        "spark_master": spark_master,
         "indicator_set_version": indicator_set_version,
         "indicator_profile_version": indicator_profile_version,
         "derived_indicator_set_version": derived_indicator_set_version,
@@ -3136,6 +3172,7 @@ def _materialize_research_assets(
     continuous_front_policy: dict[str, object] | None = None,
     dataset_contract_ids: Sequence[str] = (),
     dataset_instrument_ids: Sequence[str] = (),
+    spark_master: str = "",
     default_assets: Sequence[str],
     allowed_assets: Sequence[str],
     selection: Sequence[str] | None = None,
@@ -3175,6 +3212,11 @@ def _materialize_research_assets(
     expand_dependencies: bool = True,
     raise_on_error: bool = True,
 ) -> dict[str, object]:
+    if str(series_mode).strip() == "continuous_front" and tuple(dataset_contract_ids):
+        raise ValueError(
+            "dataset_contract_ids is not supported for series_mode=continuous_front; "
+            "filter continuous-front research datasets by dataset_instrument_ids/timeframes"
+        )
     assert_research_definitions_executable()
     selected_assets = _resolve_selected_assets(
         selection, default_assets=default_assets, allowed_assets=allowed_assets
@@ -3243,6 +3285,7 @@ def _materialize_research_assets(
         continuous_front_policy=continuous_front_policy,
         dataset_contract_ids=dataset_contract_ids,
         dataset_instrument_ids=dataset_instrument_ids,
+        spark_master=spark_master,
         indicator_set_version=indicator_set_version,
         indicator_profile_version=indicator_profile_version,
         derived_indicator_set_version=derived_indicator_set_version,
@@ -3356,6 +3399,8 @@ def _materialize_research_assets(
                 contour_id=contour_id,
                 indicator_set_version=indicator_set_version,
                 derived_indicator_set_version=derived_indicator_set_version,
+                timeframes=timeframes,
+                dataset_instrument_ids=dataset_instrument_ids,
             )
     source_frame_path = Path(output_paths["research_derived_source_frames"])
     if has_delta_log(source_frame_path):
@@ -3369,6 +3414,8 @@ def _materialize_research_assets(
             contour_id=contour_id,
             indicator_set_version=indicator_set_version,
             derived_indicator_set_version=derived_indicator_set_version,
+            timeframes=timeframes,
+            dataset_instrument_ids=dataset_instrument_ids,
         )
     report["rows_by_table"] = rows_by_table
     report["total_rows_by_table"] = total_rows_by_table
@@ -3396,6 +3443,7 @@ def materialize_research_data_prep_assets(
     continuous_front_policy: dict[str, object] | None = None,
     dataset_contract_ids: Sequence[str] = (),
     dataset_instrument_ids: Sequence[str] = (),
+    spark_master: str = "",
     indicator_set_version: str = "indicators-v1",
     indicator_profile_version: str = "core_v1",
     derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
@@ -3427,6 +3475,7 @@ def materialize_research_data_prep_assets(
         continuous_front_policy=continuous_front_policy,
         dataset_contract_ids=dataset_contract_ids,
         dataset_instrument_ids=dataset_instrument_ids,
+        spark_master=spark_master,
         default_assets=RESEARCH_DATA_PREP_ASSETS,
         allowed_assets=RESEARCH_DATA_PREP_ASSETS,
         selection=selection,
@@ -3463,6 +3512,7 @@ def _materialize_moex_layer_rebuild_assets(
     continuous_front_policy: dict[str, object] | None = None,
     dataset_contract_ids: Sequence[str] = (),
     dataset_instrument_ids: Sequence[str] = (),
+    spark_master: str = "",
     indicator_set_version: str = "indicators-v1",
     indicator_profile_version: str = "core_v1",
     derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
@@ -3496,6 +3546,7 @@ def _materialize_moex_layer_rebuild_assets(
         continuous_front_policy=continuous_front_policy,
         dataset_contract_ids=dataset_contract_ids,
         dataset_instrument_ids=dataset_instrument_ids,
+        spark_master=spark_master,
         default_assets=default_assets,
         allowed_assets=allowed_assets,
         selection=selection,
@@ -3531,6 +3582,9 @@ def materialize_moex_cf_rebuild_assets(
     split_method: str = "holdout",
     series_mode: str = "continuous_front",
     continuous_front_policy: dict[str, object] | None = None,
+    dataset_contract_ids: Sequence[str] = (),
+    dataset_instrument_ids: Sequence[str] = (),
+    spark_master: str = "",
     indicator_set_version: str = "indicators-v1",
     indicator_profile_version: str = "core_v1",
     derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
@@ -3558,6 +3612,9 @@ def materialize_moex_cf_rebuild_assets(
         split_method=split_method,
         series_mode=series_mode,
         continuous_front_policy=continuous_front_policy,
+        dataset_contract_ids=dataset_contract_ids,
+        dataset_instrument_ids=dataset_instrument_ids,
+        spark_master=spark_master,
         indicator_set_version=indicator_set_version,
         indicator_profile_version=indicator_profile_version,
         derived_indicator_set_version=derived_indicator_set_version,
@@ -3591,6 +3648,9 @@ def materialize_moex_research_bar_rebuild_assets(
     split_method: str = "holdout",
     series_mode: str = "continuous_front",
     continuous_front_policy: dict[str, object] | None = None,
+    dataset_contract_ids: Sequence[str] = (),
+    dataset_instrument_ids: Sequence[str] = (),
+    spark_master: str = "",
     indicator_set_version: str = "indicators-v1",
     indicator_profile_version: str = "core_v1",
     derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
@@ -3618,6 +3678,9 @@ def materialize_moex_research_bar_rebuild_assets(
         split_method=split_method,
         series_mode=series_mode,
         continuous_front_policy=continuous_front_policy,
+        dataset_contract_ids=dataset_contract_ids,
+        dataset_instrument_ids=dataset_instrument_ids,
+        spark_master=spark_master,
         indicator_set_version=indicator_set_version,
         indicator_profile_version=indicator_profile_version,
         derived_indicator_set_version=derived_indicator_set_version,
@@ -3674,6 +3737,9 @@ def materialize_moex_indicator_rebuild_assets(
     split_method: str = "holdout",
     series_mode: str = "continuous_front",
     continuous_front_policy: dict[str, object] | None = None,
+    dataset_contract_ids: Sequence[str] = (),
+    dataset_instrument_ids: Sequence[str] = (),
+    spark_master: str = "",
     indicator_set_version: str = "indicators-v1",
     indicator_profile_version: str = "core_v1",
     derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
@@ -3707,6 +3773,9 @@ def materialize_moex_indicator_rebuild_assets(
         split_method=split_method,
         series_mode=series_mode,
         continuous_front_policy=continuous_front_policy,
+        dataset_contract_ids=dataset_contract_ids,
+        dataset_instrument_ids=dataset_instrument_ids,
+        spark_master=spark_master,
         indicator_set_version=indicator_set_version,
         indicator_profile_version=indicator_profile_version,
         derived_indicator_set_version=derived_indicator_set_version,
@@ -3740,6 +3809,9 @@ def materialize_moex_derived_indicator_rebuild_assets(
     split_method: str = "holdout",
     series_mode: str = "continuous_front",
     continuous_front_policy: dict[str, object] | None = None,
+    dataset_contract_ids: Sequence[str] = (),
+    dataset_instrument_ids: Sequence[str] = (),
+    spark_master: str = "",
     indicator_set_version: str = "indicators-v1",
     indicator_profile_version: str = "core_v1",
     derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
@@ -3773,6 +3845,9 @@ def materialize_moex_derived_indicator_rebuild_assets(
         split_method=split_method,
         series_mode=series_mode,
         continuous_front_policy=continuous_front_policy,
+        dataset_contract_ids=dataset_contract_ids,
+        dataset_instrument_ids=dataset_instrument_ids,
+        spark_master=spark_master,
         indicator_set_version=indicator_set_version,
         indicator_profile_version=indicator_profile_version,
         derived_indicator_set_version=derived_indicator_set_version,
@@ -3806,6 +3881,9 @@ def materialize_moex_indicator_sidecar_assets(
     split_method: str = "holdout",
     series_mode: str = "continuous_front",
     continuous_front_policy: dict[str, object] | None = None,
+    dataset_contract_ids: Sequence[str] = (),
+    dataset_instrument_ids: Sequence[str] = (),
+    spark_master: str = "",
     indicator_set_version: str = "indicators-v1",
     indicator_profile_version: str = "core_v1",
     derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
@@ -3833,6 +3911,9 @@ def materialize_moex_indicator_sidecar_assets(
         split_method=split_method,
         series_mode=series_mode,
         continuous_front_policy=continuous_front_policy,
+        dataset_contract_ids=dataset_contract_ids,
+        dataset_instrument_ids=dataset_instrument_ids,
+        spark_master=spark_master,
         indicator_set_version=indicator_set_version,
         indicator_profile_version=indicator_profile_version,
         derived_indicator_set_version=derived_indicator_set_version,
