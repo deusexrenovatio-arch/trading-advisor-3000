@@ -14,7 +14,6 @@ from typing import Any, Callable, Sequence
 
 from gate_common import collect_changed_files
 
-
 DEFAULT_REPORT_PATH = Path("artifacts/shell-delivery-operational-proving.json")
 REQUIRED_DASHBOARD_ARTIFACTS = (
     Path("artifacts/dev-loop-baseline.md"),
@@ -73,24 +72,12 @@ def build_shell_delivery_operational_proving_plan(
     *,
     mapping: str,
     scope_args: list[str],
-    enforce_session_check: bool,
     include_nightly_lane: bool,
     include_dashboard_refresh: bool,
     gate_snapshot_mode: str = "changed-files",
     gate_profile: str = "none",
     python_executable: str = sys.executable,
 ) -> list[ShellDeliveryProvingStep]:
-    loop_command = [
-        python_executable,
-        "scripts/run_loop_gate.py",
-        "--mapping",
-        mapping,
-        "--snapshot-mode",
-        gate_snapshot_mode,
-        "--profile",
-        gate_profile,
-        "--enforce-explicit-markers",
-    ]
     pr_command = [
         python_executable,
         "scripts/run_pr_gate.py",
@@ -102,18 +89,9 @@ def build_shell_delivery_operational_proving_plan(
         gate_profile,
         "--enforce-explicit-markers",
     ]
-    if not enforce_session_check:
-        loop_command.append("--skip-session-check")
-        pr_command.append("--skip-session-check")
-    loop_command.extend(scope_args)
     pr_command.extend(scope_args)
 
     plan = [
-        ShellDeliveryProvingStep(
-            lane="loop-lane",
-            step_id="loop-gate",
-            command=tuple(loop_command),
-        ),
         ShellDeliveryProvingStep(
             lane="pr-lane",
             step_id="pr-gate",
@@ -359,13 +337,17 @@ def run_shell_delivery_operational_proving_plan(
     }
     if write_report and report_path is not None:
         report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        report_path.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
     return (0 if overall_status in {"ok", "dry_run"} else 1), report
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Run shell-delivery operational proving lanes and write a consolidated evidence report."
+        description=(
+            "Run shell-delivery operational proving lanes and write a consolidated evidence report."
+        )
     )
     parser.add_argument("--mapping", default="configs/change_surface_mapping.yaml")
     parser.add_argument("--from-git", action="store_true")
@@ -377,7 +359,6 @@ def main() -> int:
     parser.add_argument("--output", default=None)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--write-dry-run-report", action="store_true")
-    parser.add_argument("--enforce-session-check", action="store_true")
     parser.add_argument("--skip-nightly-lane", action="store_true")
     parser.add_argument("--skip-dashboard-refresh", action="store_true")
     args = parser.parse_args()
@@ -417,7 +398,6 @@ def main() -> int:
     plan = build_shell_delivery_operational_proving_plan(
         mapping=args.mapping,
         scope_args=scope_args,
-        enforce_session_check=args.enforce_session_check,
         include_nightly_lane=include_nightly_lane,
         include_dashboard_refresh=include_dashboard_refresh,
     )
@@ -435,7 +415,8 @@ def main() -> int:
         f"(steps={len(report['steps'])}, report={report_target})"
     )
     if report.get("failure"):
-        print(f"shell delivery operational proving failure details: {json.dumps(report['failure'], ensure_ascii=False)}")
+        failure_json = json.dumps(report["failure"], ensure_ascii=False)
+        print(f"shell delivery operational proving failure details: {failure_json}")
     return exit_code
 
 

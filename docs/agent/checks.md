@@ -6,15 +6,12 @@
 | --- | --- | --- |
 | Boring checks quick ratchet | `python scripts/run_boring_checks.py --profile quick --scope changed` | parse `pyproject.toml`, run ruff format/check, compile changed Python, and run fast process/architecture tests |
 | Hook bootstrap (dry run) | `python scripts/install_git_hooks.py --dry-run --allow-no-git` | verify operational bootstrap entrypoint |
-| Session handoff contract | `python scripts/validate_session_handoff.py` | keep pointer-shim and context budget valid |
-| Task request contract | `python scripts/validate_task_request_contract.py` | enforce objective/scope/repetition controls |
-| Phase planning contract | `python scripts/validate_phase_planning_contract.py` | block lazy phase slicing between TZ, execution contract, and phase briefs |
 | Solution intent contract | `python scripts/validate_solution_intent.py --from-git --git-ref HEAD` | require explicit `target|staged|fallback` on critical contours |
 | Critical contour closure | `python scripts/validate_critical_contour_closure.py --from-git --git-ref HEAD` | block scaffold/sample/synthetic closure claims on pilot contours |
 | Stack conformance | `python scripts/validate_stack_conformance.py` | fail-closed stack claim drift between registry, docs, and runtime proof |
 | Truth recomposition validator | `python scripts/truth_recomposition.py validate --report <path>` | fail closed when stacked follow-up recomposition still carries temporary downgrade surfaces or out-of-contract deltas |
 | PR surface matrix plan | `python scripts/run_surface_pr_matrix.py --plan-only --from-git --git-ref HEAD --output-json artifacts/ci/pr-surface-plan.json --summary-file artifacts/ci/pr-surface-plan.md` | resolve contour-aware profile/check plan and emit CI-visible evidence |
-| H4 release decision package | `python scripts/build_governed_release_decision.py --execution-contract <path> --phase-brief <path> --acceptance-json <path> --route-state <path> --loop-summary <path> --pr-summary <path> --mutation-events <path> --output <path>` | emit explicit `ALLOW_RELEASE_READINESS` or `DENY_RELEASE_READINESS` package from immutable evidence |
+| PR size gate | `python scripts/validate_pr_size.py --from-git --git-ref HEAD` | fail closed when reviewable PR size exceeds 100 files or 3000 line changes; delete-only cold/generated/lifecycle state is excluded |
 | Skills catalog drift | `python scripts/sync_skills_catalog.py --check` | ensure generated catalog matches runtime skills |
 | CODEOWNERS coverage | `python scripts/validate_codeowners.py` | ensure ownership routing remains complete |
 | Docs links | `python scripts/validate_docs_links.py --roots AGENTS.md docs` | prevent broken markdown references |
@@ -34,9 +31,9 @@ Quality baseline note:
 
 | Lane | Canonical command | Scope |
 | --- | --- | --- |
-| Branch diagnostic lane | `python scripts/run_loop_gate.py --skip-session-check --from-git --git-ref HEAD --snapshot-mode changed-files --profile none` | push/manual feedback with branch-local diff semantics; not a merge-required GitHub context |
-| Loop gate | `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none` | PR-only fast surface-aware checks with explicit markers |
-| PR gate | `python scripts/run_pr_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none` | PR-only closeout superset checks with explicit markers |
+| Branch diagnostic lane | `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none` | push/manual feedback with branch-local diff semantics; not a merge-required GitHub context |
+| Loop gate | `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none` | local fast surface-aware checks with explicit markers |
+| PR gate | `python scripts/run_pr_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none` | single PR closeout gate; includes loop gate, PR size gate, and PR-only checks |
 | Nightly gate | `python scripts/run_nightly_gate.py --from-git --git-ref HEAD` | deep hygiene and reporting |
 | Dashboard refresh | `python scripts/build_governance_dashboard.py --output-json artifacts/governance-dashboard.json --output-md artifacts/governance-dashboard.md` | dashboard/report regeneration lane |
 | Shell delivery proving | `python scripts/run_shell_delivery_operational_proving.py --from-git --git-ref HEAD --output artifacts/shell-delivery-operational-proving.json` | consolidated lane proof with fail-closed evidence |
@@ -44,12 +41,11 @@ Quality baseline note:
 Hosted CI note:
 - GitHub-hosted lane execution is enabled only when `AI_SHELL_ENABLE_HOSTED_CI=1`.
 - Default-off mode prevents infrastructure-side billing errors from producing false-red checks.
-- Required GitHub contexts `loop-lane` and `pr-lane` are pull-request-only; branch push feedback uses `branch-lane`.
+- Required GitHub statuses are `pr-lane` and `CodeRabbit`; branch push feedback uses `branch-lane`.
 
 ## Durable-state checks
 - `python scripts/validate_plans.py`
 - `python scripts/validate_agent_memory.py`
-- `python scripts/validate_task_outcomes.py`
 - `python scripts/validate_process_regressions.py`
 - `python scripts/validate_codeowners.py`
 - `python scripts/validate_skills.py --strict`
@@ -58,7 +54,6 @@ Hosted CI note:
 ## QA matrix core
 - `python -m pytest tests/process/test_compute_change_surface.py -q`
 - `python -m pytest tests/process/test_context_router.py -q`
-- `python -m pytest tests/process/test_codex_phase_orchestrator.py -q`
 - `python -m pytest tests/process/test_gate_scope_routing.py -q`
 - `python -m pytest tests/process/test_harness_contracts.py -q`
 - `python -m pytest tests/process/test_runtime_harness.py -q`
@@ -72,7 +67,6 @@ Hosted CI note:
 - `python -m pytest tests/process/test_skill_precommit_gate.py -q`
 - `python -m pytest tests/process/test_validate_codeowners.py -q`
 - `python -m pytest tests/process/test_validate_plans_contract.py -q`
-- `python -m pytest tests/process/test_validate_task_request_contract.py -q`
 - `python -m pytest tests/architecture/test_context_coverage.py -q`
 - `python -m pytest tests/architecture/test_codeowners_coverage.py -q`
 - `python -m pytest tests/architecture/test_crosslayer_boundaries.py -q`

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
-
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts"
@@ -70,8 +70,7 @@ def test_file_prefix_patterns_route_owned_tests() -> None:
 def test_ops_bookkeeping_does_not_override_product_navigation() -> None:
     result = route_files(
         [
-            "docs/session_handoff.md",
-            "docs/tasks/active/TASK-2026-04-26-example.md",
+            "docs/tasks/example.md",
             "src/trading_advisor_3000/product_plane/data_plane/pipeline.py",
         ]
     )
@@ -92,10 +91,47 @@ def test_generated_artifacts_stay_cold_by_default() -> None:
     assert result["contexts"] == []
 
 
-def test_cold_only_changes_ignore_implicit_handoff_intent() -> None:
+def test_cold_only_changes_have_no_implicit_intent_fallback() -> None:
     result = route_files(
         ["artifacts/codex/run/stdout.log", ".serena/project.yml"],
-        session_handoff_text="domain runtime data",
     )
     assert result["primary_context"] is None
     assert result["contexts"] == []
+
+
+def test_cli_does_not_read_legacy_handoff_by_default() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/context_router.py",
+            "--format",
+            "text",
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    assert "primary_context: CTX-OPS" not in result.stdout
+
+
+def test_cli_rejects_retired_handoff_path_flag() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/context_router.py",
+            "--format",
+            "text",
+            "--session-handoff-path",
+            "docs/tasks/example.md",
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "unrecognized arguments: --session-handoff-path" in (result.stdout + result.stderr)

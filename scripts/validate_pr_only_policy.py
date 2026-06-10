@@ -27,8 +27,8 @@ REQUIRED_GITHUB_RULE_TYPES = (
     "non_fast_forward",
 )
 REQUIRED_STATUS_CHECKS = (
-    "loop-lane",
     "pr-lane",
+    "CodeRabbit",
 )
 GITHUB_API_ROOT = "https://api.github.com"
 GITHUB_API_VERSION = "2026-03-10"

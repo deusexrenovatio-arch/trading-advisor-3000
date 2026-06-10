@@ -12,8 +12,8 @@ Describe what changed and why.
 - [ ] If `mixed`, I documented why one coherent outcome required both surfaces.
 
 ## Validation Evidence
-- [ ] Loop gate executed (`python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`)
-- [ ] PR gate executed (`python scripts/run_pr_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`)
+- [ ] Loop gate executed for local fast feedback (`python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`)
+- [ ] PR gate executed (`python scripts/run_pr_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`), including PR size validation
 - [ ] Product tests executed when product-plane paths changed (`python -m pytest tests/product-plane -q`)
 
 ## Notes For Reviewers

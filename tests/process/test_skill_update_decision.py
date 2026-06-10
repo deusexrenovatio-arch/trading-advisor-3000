@@ -3,7 +3,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
@@ -28,12 +27,36 @@ def test_parse_git_skill_operations_handles_add_remove_rename() -> None:
     assert payload["renamed"] == [{"from": "rename-from", "to": "rename-to"}]
 
 
-def test_build_decision_requires_catalog_for_runtime_change(monkeypatch) -> None:
+def test_build_decision_allows_content_only_skill_update(monkeypatch) -> None:
     monkeypatch.setattr("skill_update_decision._detect_catalog_drift", lambda: False)
     decision = _build_decision(
-        changed_files=[".codex/skills/product-data-quality/SKILL.md"],
-        git_operations={"added": [], "removed": [], "updated": ["product-data-quality"], "renamed": []},
+        changed_files=[".codex/skills/ta3000-data-plane-proof/SKILL.md"],
+        git_operations={
+            "added": [],
+            "removed": [],
+            "updated": ["ta3000-data-plane-proof"],
+            "renamed": [],
+        },
         metadata_drift={},
+        routing_trigger_drift_skills=[],
+        forbidden_non_baseline=[],
+        strict=True,
+    )
+    assert decision["status"] == "ready"
+    assert decision["missing_required_updates"] == []
+
+
+def test_build_decision_requires_catalog_for_metadata_drift(monkeypatch) -> None:
+    monkeypatch.setattr("skill_update_decision._detect_catalog_drift", lambda: False)
+    decision = _build_decision(
+        changed_files=[".codex/skills/ta3000-data-plane-proof/SKILL.md"],
+        git_operations={
+            "added": [],
+            "removed": [],
+            "updated": ["ta3000-data-plane-proof"],
+            "renamed": [],
+        },
+        metadata_drift={"ta3000-data-plane-proof": {"description": {"old": "a", "new": "b"}}},
         routing_trigger_drift_skills=[],
         forbidden_non_baseline=[],
         strict=True,
@@ -45,10 +68,20 @@ def test_build_decision_requires_catalog_for_runtime_change(monkeypatch) -> None
 def test_build_decision_requires_routing_doc_for_routing_metadata_drift(monkeypatch) -> None:
     monkeypatch.setattr("skill_update_decision._detect_catalog_drift", lambda: False)
     decision = _build_decision(
-        changed_files=[".codex/skills/product-data-quality/SKILL.md", "docs/agent/skills-catalog.md"],
-        git_operations={"added": [], "removed": [], "updated": ["product-data-quality"], "renamed": []},
-        metadata_drift={"product-data-quality": {"routing_triggers": {"old": ["a"], "new": ["b"]}}},
-        routing_trigger_drift_skills=["product-data-quality"],
+        changed_files=[
+            ".codex/skills/ta3000-data-plane-proof/SKILL.md",
+            "docs/agent/skills-catalog.md",
+        ],
+        git_operations={
+            "added": [],
+            "removed": [],
+            "updated": ["ta3000-data-plane-proof"],
+            "renamed": [],
+        },
+        metadata_drift={
+            "ta3000-data-plane-proof": {"routing_triggers": {"old": ["a"], "new": ["b"]}}
+        },
+        routing_trigger_drift_skills=["ta3000-data-plane-proof"],
         forbidden_non_baseline=[],
         strict=True,
     )
@@ -60,16 +93,21 @@ def test_build_decision_blocks_forbidden_class(monkeypatch) -> None:
     monkeypatch.setattr("skill_update_decision._detect_catalog_drift", lambda: False)
     decision = _build_decision(
         changed_files=[
-            ".codex/skills/product-data-quality/SKILL.md",
+            ".codex/skills/ta3000-data-plane-proof/SKILL.md",
             "docs/agent/skills-catalog.md",
             "docs/agent/skills-routing.md",
             "docs/workflows/skill-governance-sync.md",
         ],
-        git_operations={"added": [], "removed": [], "updated": ["product-data-quality"], "renamed": []},
+        git_operations={
+            "added": [],
+            "removed": [],
+            "updated": ["ta3000-data-plane-proof"],
+            "renamed": [],
+        },
         metadata_drift={},
         routing_trigger_drift_skills=[],
-        forbidden_non_baseline=["product-data-quality"],
+        forbidden_non_baseline=["ta3000-data-plane-proof"],
         strict=True,
     )
     assert decision["status"] == "blocked"
-    assert decision["forbidden_non_baseline_skills"] == ["product-data-quality"]
+    assert decision["forbidden_non_baseline_skills"] == ["ta3000-data-plane-proof"]

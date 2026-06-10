@@ -10,7 +10,6 @@ from pathlib import Path
 from compute_change_surface import compute_surface
 from gate_common import CommandSpec, collect_changed_files, run_command, run_commands, write_summary
 
-
 REMEDIATION_DOC = "docs/runbooks/governance-remediation.md"
 
 
@@ -36,7 +35,6 @@ def _build_pr_gate_command(
         "scripts/run_pr_gate.py",
         "--mapping",
         mapping,
-        "--skip-session-check",
         "--snapshot-mode",
         snapshot_mode,
         "--profile",
@@ -97,9 +95,14 @@ def main() -> int:
         print(f"nightly gate: FAILED (command={pr_command})\nremediation: see {REMEDIATION_DOC}")
         return pr_code
 
-    commands = [command for command in surface["commands"]["nightly"] if "scripts/run_pr_gate.py" not in command]
+    commands = [
+        command
+        for command in surface["commands"]["nightly"]
+        if "scripts/run_pr_gate.py" not in command
+    ]
     if surface["docs_only"]:
-        # Docs-only changes should not fail nightly on global KPI drift unrelated to the current diff.
+        # Docs-only changes should not fail nightly on global KPI drift unrelated
+        # to the current diff.
         commands = [
             command
             for command in commands
@@ -114,9 +117,7 @@ def main() -> int:
     )
     if code != 0:
         print(
-            "nightly gate: FAILED "
-            f"(command={failed_command})\n"
-            f"remediation: see {REMEDIATION_DOC}"
+            f"nightly gate: FAILED (command={failed_command})\nremediation: see {REMEDIATION_DOC}"
         )
         return code
 

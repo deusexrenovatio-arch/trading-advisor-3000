@@ -5,7 +5,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
@@ -22,33 +21,52 @@ def test_shell_delivery_plan_has_expected_lanes_and_session_policy() -> None:
     plan = build_shell_delivery_operational_proving_plan(
         mapping="configs/change_surface_mapping.yaml",
         scope_args=["--changed-files", "docs/README.md"],
-        enforce_session_check=False,
         include_nightly_lane=True,
         include_dashboard_refresh=True,
         python_executable="python",
     )
 
-    assert plan[0].lane == "loop-lane"
-    assert plan[0].step_id == "loop-gate"
-    assert "--skip-session-check" in plan[0].command
-
-    assert plan[1].lane == "pr-lane"
-    assert plan[1].step_id == "pr-gate"
-    assert "--skip-session-check" in plan[1].command
+    assert plan[0].lane == "pr-lane"
+    assert plan[0].step_id == "pr-gate"
+    assert "--require-session-check" not in plan[0].command
 
     nightly_steps = [item for item in plan if item.lane == "nightly-lane"]
     assert len(nightly_steps) == 1
-    assert "--skip-session-check" not in nightly_steps[0].command
+    assert "--require-session-check" not in nightly_steps[0].command
 
     dashboard_steps = [item for item in plan if item.lane == "dashboard-refresh"]
     assert len(dashboard_steps) == 5
 
 
+def test_shell_delivery_rejects_retired_enforce_session_check_flag() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/run_shell_delivery_operational_proving.py",
+            "--dry-run",
+            "--enforce-session-check",
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "unrecognized arguments: --enforce-session-check" in (result.stdout + result.stderr)
+
+
 def test_shell_delivery_run_stops_on_first_failed_step(tmp_path: Path) -> None:
     steps = [
-        ShellDeliveryProvingStep(lane="loop-lane", step_id="step-1", command=("python", "-c", "print('ok1')")),
-        ShellDeliveryProvingStep(lane="pr-lane", step_id="step-2", command=("python", "-c", "print('ok2')")),
-        ShellDeliveryProvingStep(lane="nightly-lane", step_id="step-3", command=("python", "-c", "print('ok3')")),
+        ShellDeliveryProvingStep(
+            lane="pr-lane", step_id="step-1", command=("python", "-c", "print('ok1')")
+        ),
+        ShellDeliveryProvingStep(
+            lane="nightly-lane", step_id="step-2", command=("python", "-c", "print('ok2')")
+        ),
+        ShellDeliveryProvingStep(
+            lane="nightly-lane", step_id="step-3", command=("python", "-c", "print('ok3')")
+        ),
     ]
     calls: list[tuple[str, ...]] = []
 
@@ -112,7 +130,11 @@ def test_shell_delivery_run_fails_on_stale_dashboard_artifacts(tmp_path: Path) -
 def test_shell_delivery_run_dry_run_can_skip_report_write(tmp_path: Path) -> None:
     report_path = tmp_path / "dry-run-report.json"
     exit_code, report = run_shell_delivery_operational_proving_plan(
-        plan=[ShellDeliveryProvingStep(lane="loop-lane", step_id="dry-step", command=("python", "-c", "print('x')"))],
+        plan=[
+            ShellDeliveryProvingStep(
+                lane="pr-lane", step_id="dry-step", command=("python", "-c", "print('x')")
+            )
+        ],
         report_path=report_path,
         dry_run=True,
         require_dashboard_artifacts=False,
@@ -167,5 +189,5 @@ def test_shell_delivery_cli_dry_run_writes_report_when_opted_in(tmp_path: Path) 
 
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert payload["status"] == "dry_run"
-    assert len(payload["steps"]) == 8
-    assert payload["steps"][0]["step_id"] == "loop-gate"
+    assert len(payload["steps"]) == 7
+    assert payload["steps"][0]["step_id"] == "pr-gate"

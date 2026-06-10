@@ -1,24 +1,7 @@
-name: dual-surface-ci
+name: pr-ci
 
 on:
   pull_request:
-  push:
-    branches:
-      - main
-      - "codex/**"
-  schedule:
-    - cron: "15 0 * * *" # nightly lane
-    - cron: "45 0 * * *" # dashboard refresh lane
-  workflow_dispatch:
-    inputs:
-      run_nightly:
-        description: "Run nightly lane"
-        required: false
-        default: "false"
-      run_dashboard_refresh:
-        description: "Run dashboard refresh lane"
-        required: false
-        default: "false"
 
 env:
   GITHUB_TOKEN: ${{ github.token }}
@@ -27,133 +10,9 @@ env:
 # runners are not available (for example billing/spending disabled).
 # Set repository variable AI_SHELL_ENABLE_HOSTED_CI=1 to enable lane execution.
 jobs:
-  branch-lane:
-    # Branch diagnostics use push/dispatch diff semantics and deliberately do not
-    # share the PR-required `loop-lane`/`pr-lane` context names.
-    if: ${{ vars.AI_SHELL_ENABLE_HOSTED_CI == '1' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e .[dev-test]
-
-      - name: Bootstrap Dry Run
-        run: python scripts/install_git_hooks.py --dry-run --allow-no-git
-
-      - name: MCP Governance Contract
-        run: |
-          python scripts/validate_mcp_config.py
-          python scripts/validate_no_tracked_secrets.py
-
-      - name: Resolve Diff Range
-        id: diff-range
-        shell: bash
-        run: |
-          if [[ "${{ github.event_name }}" == "push" && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
-            echo "base_ref=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
-            echo "head_ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
-          elif git rev-parse HEAD^ >/dev/null 2>&1; then
-            echo "base_ref=$(git rev-parse HEAD^)" >> "$GITHUB_OUTPUT"
-            echo "head_ref=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Loop Gate
-        shell: bash
-        run: |
-          mkdir -p artifacts/ci
-          if [[ -n "${{ steps.diff-range.outputs.base_ref }}" && -n "${{ steps.diff-range.outputs.head_ref }}" ]]; then
-            python scripts/run_loop_gate.py --skip-session-check --base-ref "${{ steps.diff-range.outputs.base_ref }}" --head-ref "${{ steps.diff-range.outputs.head_ref }}" --snapshot-mode changed-files --profile none --summary-file artifacts/ci/loop-gate-summary.md
-          else
-            python scripts/run_loop_gate.py --skip-session-check --from-git --git-ref HEAD --snapshot-mode changed-files --profile none --summary-file artifacts/ci/loop-gate-summary.md
-          fi
-
-      - name: Fast QA Matrix
-        run: |
-          python -m pytest tests/process/test_compute_change_surface.py -q
-          python -m pytest tests/process/test_context_router.py -q
-          python -m pytest tests/process/test_gate_scope_routing.py -q
-          python -m pytest tests/process/test_harness_contracts.py -q
-          python -m pytest tests/process/test_validate_task_request_contract.py -q
-
-      - name: Upload Branch Lane Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: branch-lane-surface-summary
-          path: artifacts/ci/loop-gate-summary.md
-          if-no-files-found: warn
-
-  loop-lane:
-    # PR-only required context. Pushes are covered by `branch-lane` so stale
-    # push-range checks cannot block a green PR-range merge gate.
-    if: ${{ vars.AI_SHELL_ENABLE_HOSTED_CI == '1' && github.event_name == 'pull_request' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e .[dev-test]
-
-      - name: Bootstrap Dry Run
-        run: python scripts/install_git_hooks.py --dry-run --allow-no-git
-
-      - name: MCP Governance Contract
-        run: |
-          python scripts/validate_mcp_config.py
-          python scripts/validate_no_tracked_secrets.py
-
-      - name: Resolve Diff Range
-        id: diff-range
-        shell: bash
-        run: |
-          echo "base_ref=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
-          echo "head_ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
-
-      - name: Loop Gate
-        shell: bash
-        run: |
-          mkdir -p artifacts/ci
-          python scripts/run_loop_gate.py --skip-session-check --base-ref "${{ steps.diff-range.outputs.base_ref }}" --head-ref "${{ steps.diff-range.outputs.head_ref }}" --snapshot-mode changed-files --profile none --summary-file artifacts/ci/loop-gate-summary.md
-
-      - name: Fast QA Matrix
-        run: |
-          python -m pytest tests/process/test_compute_change_surface.py -q
-          python -m pytest tests/process/test_context_router.py -q
-          python -m pytest tests/process/test_gate_scope_routing.py -q
-          python -m pytest tests/process/test_harness_contracts.py -q
-          python -m pytest tests/process/test_validate_task_request_contract.py -q
-
-      - name: Upload Loop Lane Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: loop-lane-surface-summary
-          path: artifacts/ci/loop-gate-summary.md
-          if-no-files-found: warn
-
   pr-lane:
-    if: ${{ vars.AI_SHELL_ENABLE_HOSTED_CI == '1' && github.event_name == 'pull_request' }}
+    if: ${{ vars.AI_SHELL_ENABLE_HOSTED_CI == '1' }}
     runs-on: ubuntu-latest
-    needs: loop-lane
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -164,6 +23,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
       - name: Install Bootstrap Dependencies
         run: |
@@ -182,23 +43,13 @@ jobs:
         shell: bash
         run: |
           mkdir -p artifacts/ci
-          if [[ -n "${{ steps.diff-range.outputs.base_ref }}" && -n "${{ steps.diff-range.outputs.head_ref }}" ]]; then
-            python scripts/run_surface_pr_matrix.py \
-              --plan-only \
-              --base-ref "${{ steps.diff-range.outputs.base_ref }}" \
-              --head-ref "${{ steps.diff-range.outputs.head_ref }}" \
-              --output-json artifacts/ci/pr-surface-plan.json \
-              --summary-file artifacts/ci/pr-surface-plan.md \
-              --emit-github-output "$GITHUB_OUTPUT"
-          else
-            python scripts/run_surface_pr_matrix.py \
-              --plan-only \
-              --from-git \
-              --git-ref HEAD \
-              --output-json artifacts/ci/pr-surface-plan.json \
-              --summary-file artifacts/ci/pr-surface-plan.md \
-              --emit-github-output "$GITHUB_OUTPUT"
-          fi
+          python scripts/run_surface_pr_matrix.py \
+            --plan-only \
+            --base-ref "${{ steps.diff-range.outputs.base_ref }}" \
+            --head-ref "${{ steps.diff-range.outputs.head_ref }}" \
+            --output-json artifacts/ci/pr-surface-plan.json \
+            --summary-file artifacts/ci/pr-surface-plan.md \
+            --emit-github-output "$GITHUB_OUTPUT"
 
       - name: Install Surface Dependencies
         shell: bash
@@ -210,16 +61,15 @@ jobs:
       - name: PR Gate
         shell: bash
         run: |
-          if [[ -n "${{ steps.diff-range.outputs.base_ref }}" && -n "${{ steps.diff-range.outputs.head_ref }}" ]]; then
-            python scripts/run_pr_gate.py --skip-session-check --base-ref "${{ steps.diff-range.outputs.base_ref }}" --head-ref "${{ steps.diff-range.outputs.head_ref }}" --snapshot-mode changed-files --profile "${{ steps.pr-matrix.outputs.gate_profile }}" --summary-file artifacts/ci/pr-gate-summary.md
-          else
-            python scripts/run_pr_gate.py --skip-session-check --from-git --git-ref HEAD --snapshot-mode changed-files --profile "${{ steps.pr-matrix.outputs.gate_profile }}" --summary-file artifacts/ci/pr-gate-summary.md
-          fi
+          python scripts/run_pr_gate.py \
+            --base-ref "${{ steps.diff-range.outputs.base_ref }}" \
+            --head-ref "${{ steps.diff-range.outputs.head_ref }}" \
+            --snapshot-mode changed-files \
+            --profile "${{ steps.pr-matrix.outputs.gate_profile }}" \
+            --summary-file artifacts/ci/pr-gate-summary.md
 
-      - name: MCP Governance Contract
-        run: |
-          python scripts/validate_mcp_config.py
-          python scripts/validate_no_tracked_secrets.py
+      - name: Tracked Secret Scan
+        run: python scripts/validate_no_tracked_secrets.py
 
       - name: Governance Validators (PR)
         run: |
@@ -244,121 +94,3 @@ jobs:
             artifacts/ci/pr-surface-plan.md
             artifacts/ci/pr-gate-summary.md
           if-no-files-found: warn
-
-  nightly-lane:
-    if: ${{ vars.AI_SHELL_ENABLE_HOSTED_CI == '1' && ((github.event_name == 'schedule' && github.event.schedule == '15 0 * * *') || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_nightly == 'true')) }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e .[dev]
-
-      - name: Resolve Diff Range
-        id: diff-range
-        shell: bash
-        run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            echo "base_ref=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
-            echo "head_ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
-          elif [[ "${{ github.event_name }}" == "push" && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
-            echo "base_ref=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
-            echo "head_ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
-          elif git rev-parse HEAD^ >/dev/null 2>&1; then
-            echo "base_ref=$(git rev-parse HEAD^)" >> "$GITHUB_OUTPUT"
-            echo "head_ref=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Nightly Gate
-        shell: bash
-        run: |
-          if [[ -n "${{ steps.diff-range.outputs.base_ref }}" && -n "${{ steps.diff-range.outputs.head_ref }}" ]]; then
-            python scripts/run_nightly_gate.py --base-ref "${{ steps.diff-range.outputs.base_ref }}" --head-ref "${{ steps.diff-range.outputs.head_ref }}"
-          else
-            python scripts/run_nightly_gate.py --from-git --git-ref HEAD
-          fi
-
-      - name: MCP Governance Contract
-        run: |
-          python scripts/validate_mcp_config.py
-          python scripts/validate_no_tracked_secrets.py
-
-      - name: Governance Validators (Nightly)
-        run: |
-          python scripts/nightly_root_hygiene.py
-          python scripts/validate_agent_contexts.py
-          python scripts/validate_codeowners.py
-          python scripts/sync_skills_catalog.py --check
-          python scripts/validate_skills.py --strict
-
-      - name: Nightly QA
-        run: |
-          python -m pytest tests/process/test_nightly_root_hygiene.py -q
-          python -m pytest tests/process/test_validate_codeowners.py -q
-          python -m pytest tests/architecture/test_context_coverage.py -q
-          python -m pytest tests/architecture/test_codeowners_coverage.py -q
-          python -m pytest tests/architecture/test_crosslayer_boundaries.py -q
-
-      - name: Upload Nightly Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: nightly-reports
-          path: |
-            artifacts/process-improvement-report.md
-            artifacts/autonomy-kpi-report.md
-            artifacts/dev-loop-baseline.md
-            artifacts/harness-baseline-metrics.json
-            artifacts/governance-dashboard.json
-            artifacts/governance-dashboard.md
-          if-no-files-found: warn
-
-  dashboard-refresh:
-    if: ${{ vars.AI_SHELL_ENABLE_HOSTED_CI == '1' && ((github.event_name == 'schedule' && github.event.schedule == '45 0 * * *') || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_dashboard_refresh == 'true') || github.event_name == 'push') }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e .[dev]
-
-      - name: Build Dashboard Pack
-        run: |
-          python scripts/measure_dev_loop.py --format markdown --output artifacts/dev-loop-baseline.md
-          python scripts/harness_baseline_metrics.py --output artifacts/harness-baseline-metrics.json
-          python scripts/process_improvement_report.py --output artifacts/process-improvement-report.md
-          python scripts/autonomy_kpi_report.py --output artifacts/autonomy-kpi-report.md
-          python scripts/build_governance_dashboard.py --output-json artifacts/governance-dashboard.json --output-md artifacts/governance-dashboard.md
-
-      - name: Upload Dashboard Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: governance-dashboard
-          path: |
-            artifacts/dev-loop-baseline.md
-            artifacts/harness-baseline-metrics.json
-            artifacts/process-improvement-report.md
-            artifacts/autonomy-kpi-report.md
-            artifacts/governance-dashboard.json
-            artifacts/governance-dashboard.md
-          if-no-files-found: error
-

@@ -10,8 +10,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from critical_contours import load_critical_contours, match_critical_contours
-from handoff_resolver import read_task_note_lines
-
 
 TOKEN_RE = re.compile(r"[0-9]+|[^\W\d_]+", re.UNICODE)
 STOP_WORDS = {
@@ -43,7 +41,6 @@ STOP_WORDS = {
     "use",
     "with",
 }
-DEFAULT_SESSION_HANDOFF_PATH = "docs/session_handoff.md"
 COLD_CONTEXT_PREFIXES: tuple[str, ...] = (
     ".serena/",
     "artifacts/",
@@ -52,10 +49,7 @@ COLD_CONTEXT_PREFIXES: tuple[str, ...] = (
     "codex_ai_delivery_shell_package/",
     "docs/tasks/archive/",
 )
-OPS_BOOKKEEPING_PREFIXES: tuple[str, ...] = (
-    "docs/session_handoff.md",
-    "docs/tasks/",
-)
+OPS_BOOKKEEPING_PREFIXES: tuple[str, ...] = ()
 PRODUCT_PLANE_CONTEXT_IDS: tuple[str, ...] = (
     "CTX-DATA",
     "CTX-RESEARCH",
@@ -66,7 +60,6 @@ PRODUCT_PLANE_CONTEXT_IDS: tuple[str, ...] = (
 CRITICAL_CONTOUR_REVIEW_LENSES: tuple[str, ...] = (
     "architecture-review",
     "qa-test-engineer",
-    "phase-acceptance-governor",
     "verification-before-completion",
 )
 CI_WORKFLOW_PREFIXES: tuple[str, ...] = (".github/workflows/",)
@@ -74,17 +67,6 @@ CI_REVIEW_LENSES: tuple[str, ...] = (
     "ci-bootstrap",
     "github-actions-ops",
     "commit-and-pr-hygiene",
-)
-ORCHESTRATION_REVIEW_PREFIXES: tuple[str, ...] = (
-    "scripts/codex_phase_orchestrator.py",
-    "scripts/codex_phase_policy.py",
-    "docs/codex/prompts/phases/",
-)
-ORCHESTRATION_REVIEW_LENSES: tuple[str, ...] = (
-    "phase-acceptance-governor",
-    "code-reviewer",
-    "verification-before-completion",
-    "testing-suite",
 )
 
 
@@ -116,8 +98,6 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "docs/agent-contexts/CTX-OPS.md",
             "docs/workflows/",
             "docs/runbooks/",
-            "docs/tasks/",
-            "docs/session_handoff.md",
             ".serena/",
             "src/trading_advisor_3000/agents.md",
             "scripts/",
@@ -131,17 +111,13 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "docs/agent/entrypoint.md",
             "docs/DEV_WORKFLOW.md",
         ),
-        minimal_checks=(
-            "python scripts/run_loop_gate.py --from-git --git-ref HEAD",
-            "python scripts/validate_task_request_contract.py",
-        ),
-        intent_keywords=("governance", "policy", "gate", "workflow", "handoff", "session", "plan", "memory"),
-        facets=("lifecycle", "gates", "handoff", "process-tests"),
+        minimal_checks=("python scripts/run_loop_gate.py --from-git --git-ref HEAD",),
+        intent_keywords=("governance", "policy", "gate", "workflow", "plan", "memory"),
+        facets=("gates", "process-tests"),
         search_seeds=(
             "scripts/context_router.py",
             "scripts/run_loop_gate.py",
             "scripts/run_pr_gate.py",
-            "scripts/task_session.py",
             "tests/process/test_context_router.py",
         ),
     ),
@@ -162,8 +138,6 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "scripts/validate_critical_contour_closure.py",
             "scripts/validate_plans.py",
             "scripts/validate_agent_memory.py",
-            "scripts/validate_task_outcomes.py",
-            "scripts/sync_task_outcomes.py",
             "scripts/sync_state_layout.py",
         ),
         guarded_paths=("src/trading_advisor_3000/product_plane/interfaces/", "docs/architecture/"),
@@ -177,7 +151,6 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "python scripts/validate_task_request_contract.py",
             "python scripts/validate_plans.py",
             "python scripts/validate_agent_memory.py",
-            "python scripts/validate_task_outcomes.py",
         ),
         intent_keywords=("contract", "state", "ledger", "plan", "memory", "schema", "high-risk"),
         risk="high",
@@ -229,7 +202,10 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "tests/product-plane/unit/test_delta_",
             "tests/product-plane/fixtures/data_plane/",
         ),
-        guarded_paths=("src/trading_advisor_3000/product_plane/research/", "src/trading_advisor_3000/product_plane/runtime/"),
+        guarded_paths=(
+            "src/trading_advisor_3000/product_plane/research/",
+            "src/trading_advisor_3000/product_plane/runtime/",
+        ),
         source_of_truth=(
             "docs/agent-contexts/CTX-DATA.md",
             "docs/architecture/layers-v2.md",
@@ -259,7 +235,10 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "tests/product-plane/unit/test_research_",
             "tests/product-plane/fixtures/research/",
         ),
-        guarded_paths=("src/trading_advisor_3000/product_plane/runtime/", "src/trading_advisor_3000/product_plane/interfaces/"),
+        guarded_paths=(
+            "src/trading_advisor_3000/product_plane/runtime/",
+            "src/trading_advisor_3000/product_plane/interfaces/",
+        ),
         source_of_truth=(
             "docs/agent-contexts/CTX-RESEARCH.md",
             "docs/architecture/layers-v2.md",
@@ -311,7 +290,10 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "tests/product-plane/unit/test_provider_extension_",
             "tests/product-plane/unit/test_runtime_context_",
         ),
-        guarded_paths=("src/trading_advisor_3000/product_plane/contracts/", "src/trading_advisor_3000/product_plane/interfaces/"),
+        guarded_paths=(
+            "src/trading_advisor_3000/product_plane/contracts/",
+            "src/trading_advisor_3000/product_plane/interfaces/",
+        ),
         source_of_truth=(
             "docs/agent-contexts/CTX-ORCHESTRATION.md",
             "docs/agent/runtime.md",
@@ -320,7 +302,14 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "python scripts/run_loop_gate.py --from-git --git-ref HEAD",
             "python -m pytest tests/product-plane/integration/test_runtime_lifecycle.py -q",
         ),
-        intent_keywords=("runtime", "orchestration", "execution", "flow", "entrypoint", "coordination"),
+        intent_keywords=(
+            "runtime",
+            "orchestration",
+            "execution",
+            "flow",
+            "entrypoint",
+            "coordination",
+        ),
         facets=("runtime", "execution-flow", "config", "dagster-wiring"),
         search_seeds=(
             "src/trading_advisor_3000/product_plane/runtime/",
@@ -339,7 +328,10 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "tests/product-plane/unit/test_live_bridge.py",
             "tests/product-plane/unit/test_observability_export.py",
         ),
-        guarded_paths=("src/trading_advisor_3000/product_plane/contracts/", "src/trading_advisor_3000/product_plane/domain/"),
+        guarded_paths=(
+            "src/trading_advisor_3000/product_plane/contracts/",
+            "src/trading_advisor_3000/product_plane/domain/",
+        ),
         source_of_truth=(
             "docs/agent-contexts/CTX-API-UI.md",
             "docs/architecture/modules.md",
@@ -358,7 +350,10 @@ CONTEXTS: tuple[ContextSpec, ...] = (
     ),
     ContextSpec(
         context_id="CTX-DOMAIN",
-        summary="Residual app-plane internals and package metadata not covered by data/research/runtime/interface contexts.",
+        summary=(
+            "Residual app-plane internals and package metadata not covered by "
+            "data/research/runtime/interface contexts."
+        ),
         owned_paths=(
             "docs/agent-contexts/CTX-DOMAIN.md",
             "src/trading_advisor_3000/product_plane/domain/",
@@ -383,9 +378,7 @@ CONTEXTS: tuple[ContextSpec, ...] = (
     ContextSpec(
         context_id="CTX-EXTERNAL-SOURCES",
         summary="External source contracts, ingestion interfaces, and lineage policy stubs.",
-        owned_paths=(
-            "docs/agent-contexts/CTX-EXTERNAL-SOURCES.md",
-        ),
+        owned_paths=("docs/agent-contexts/CTX-EXTERNAL-SOURCES.md",),
         guarded_paths=("src/trading_advisor_3000/",),
         source_of_truth=(
             "docs/agent-contexts/CTX-EXTERNAL-SOURCES.md",
@@ -504,7 +497,6 @@ def _context_token_pool(spec: ContextSpec) -> set[str]:
 def _score_intent_contexts(
     *,
     request_text: str,
-    session_handoff_text: str,
     target_modules: list[str],
 ) -> tuple[dict[str, int], list[str]]:
     intent_sources: list[str] = []
@@ -512,9 +504,6 @@ def _score_intent_contexts(
     if request_text.strip():
         intent_parts.append(request_text)
         intent_sources.append("request")
-    if session_handoff_text.strip():
-        intent_parts.append(session_handoff_text)
-        intent_sources.append("session_handoff")
     if target_modules:
         intent_parts.extend(target_modules)
         intent_sources.append("target_module")
@@ -553,16 +542,6 @@ def _navigation_order(primary: str | None, visible_contexts: list[str]) -> list[
     return [primary, *[context_id for context_id in visible_contexts if context_id != primary]]
 
 
-def _load_session_handoff_text(path_value: str | None) -> str:
-    if not path_value:
-        return ""
-    path = Path(path_value)
-    if not path.exists():
-        return ""
-    _resolved_path, lines, _is_pointer = read_task_note_lines(path)
-    return "\n".join(lines)
-
-
 def _detect_critical_contours(changed_files: list[str]) -> list[str]:
     config_path = Path("configs/critical_contours.yaml")
     if not changed_files or not config_path.exists():
@@ -574,7 +553,9 @@ def _detect_critical_contours(changed_files: list[str]) -> list[str]:
     return [contour.contour_id for contour in match_critical_contours(changed_files, contours)]
 
 
-def _collect_required_review_lenses(*, changed_files: list[str], critical_contours: list[str]) -> list[str]:
+def _collect_required_review_lenses(
+    *, changed_files: list[str], critical_contours: list[str]
+) -> list[str]:
     lenses: list[str] = []
     normalized_paths = [_normalize_path(path) for path in changed_files]
 
@@ -586,11 +567,10 @@ def _collect_required_review_lenses(*, changed_files: list[str], critical_contou
     if critical_contours:
         _append_many(CRITICAL_CONTOUR_REVIEW_LENSES)
 
-    if any(_prefix_match(path, prefix) for path in normalized_paths for prefix in CI_WORKFLOW_PREFIXES):
+    if any(
+        _prefix_match(path, prefix) for path in normalized_paths for prefix in CI_WORKFLOW_PREFIXES
+    ):
         _append_many(CI_REVIEW_LENSES)
-
-    if any(_prefix_match(path, prefix) for path in normalized_paths for prefix in ORCHESTRATION_REVIEW_PREFIXES):
-        _append_many(ORCHESTRATION_REVIEW_LENSES)
 
     return lenses
 
@@ -600,7 +580,6 @@ def route_files(
     *,
     request_text: str = "",
     target_modules: list[str] | None = None,
-    session_handoff_text: str = "",
     include_cold_paths: bool = False,
 ) -> dict[str, object]:
     target_modules = target_modules or []
@@ -609,7 +588,9 @@ def route_files(
     primary_weights: dict[str, float] = defaultdict(float)
     cold_context_files: list[str] = []
     unmapped: list[str] = []
-    critical_contours = _detect_critical_contours([original_path for _normalized, original_path in normalized])
+    critical_contours = _detect_critical_contours(
+        [original_path for _normalized, original_path in normalized]
+    )
     required_review_lenses = _collect_required_review_lenses(
         changed_files=[original_path for _normalized, original_path in normalized],
         critical_contours=critical_contours,
@@ -635,7 +616,6 @@ def route_files(
 
     intent_scores, intent_sources = _score_intent_contexts(
         request_text=request_text,
-        session_handoff_text=session_handoff_text,
         target_modules=target_modules,
     )
     cold_only = bool(normalized) and len(cold_context_files) == len(normalized)
@@ -703,21 +683,26 @@ def route_files(
     recommendations: list[str] = []
     context_ids = [entry["id"] for entry in context_entries]
     if not normalized and intent_scores:
-        recommendations.append("No diff yet. Using request/session intent fallback.")
+        recommendations.append("No diff yet. Using request or target-module intent fallback.")
     if len(context_entries) > 1:
         recommendations.append(
-            "Patch touches multiple contexts. Split by ownership to keep review and retrieval small."
+            "Patch touches multiple contexts. Split by ownership to keep review "
+            "and retrieval small."
         )
         recommendations.append(
             "Use navigation_order first; load secondary context cards only for their matched files."
         )
-    if primary == "CTX-OPS" and any(context_id in context_ids for context_id in PRODUCT_PLANE_CONTEXT_IDS):
+    if primary == "CTX-OPS" and any(
+        context_id in context_ids for context_id in PRODUCT_PLANE_CONTEXT_IDS
+    ):
         recommendations.append(
-            "OPS is mixed with product-plane context. Treat OPS as bookkeeping unless the code change is governance-first."
+            "OPS is mixed with product-plane context. Treat OPS as bookkeeping "
+            "unless the code change is governance-first."
         )
     if "CTX-DOMAIN" in context_ids:
         recommendations.append(
-            "CTX-DOMAIN is residual. Confirm no narrower data, research, runtime, or interface context applies."
+            "CTX-DOMAIN is residual. Confirm no narrower data, research, runtime, "
+            "or interface context applies."
         )
     if "CTX-CONTRACTS" in context_ids and len(context_entries) > 1:
         recommendations.append("High-risk mix detected. Use order: contracts -> code -> docs.")
@@ -725,14 +710,16 @@ def route_files(
         recommendations.append("Some files are unmapped. Classify manually before implementation.")
     if cold_context_files:
         recommendations.append(
-            "Cold-context files are present. Keep them out of hot retrieval unless explicitly required."
+            "Cold-context files are present. Keep them out of hot retrieval unless "
+            "explicitly required."
         )
     if critical_contours:
         recommendations.append(
             "Critical contour detected. Declare Solution Intent in the task note before coding."
         )
         recommendations.append(
-            "Critical contour requires CTX-ARCHITECTURE plus architecture, QA, acceptance, and completion-verification lenses."
+            "Critical contour requires CTX-ARCHITECTURE plus architecture, QA, "
+            "acceptance, and completion-verification lenses."
         )
     if required_review_lenses and not critical_contours:
         recommendations.append(
@@ -767,7 +754,10 @@ def _render_text(result: dict[str, object]) -> str:
         for item in contexts:
             if not isinstance(item, dict):
                 continue
-            lines.append(f"- {item.get('id')} files={item.get('matched_files_count')} risk={item.get('risk')}")
+            context_id = item.get("id")
+            matched_count = item.get("matched_files_count")
+            risk = item.get("risk")
+            lines.append(f"- {context_id} files={matched_count} risk={risk}")
             facets = item.get("facets", [])
             if isinstance(facets, list) and facets:
                 lines.append("  facets: " + ", ".join(str(value) for value in facets))
@@ -806,20 +796,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Route changed files to shell ownership contexts.")
     parser.add_argument("--from-git", action="store_true", help="Load changed files from git diff.")
     parser.add_argument("--git-ref", type=str, default="HEAD", help="Git ref used with --from-git.")
-    parser.add_argument("--stdin", action="store_true", help="Load newline-separated file paths from stdin.")
-    parser.add_argument("--changed-files", nargs="*", default=[], help="Explicit changed file list.")
-    parser.add_argument("--request", type=str, default="", help="Optional request text for intent fallback.")
+    parser.add_argument(
+        "--stdin", action="store_true", help="Load newline-separated file paths from stdin."
+    )
+    parser.add_argument(
+        "--changed-files", nargs="*", default=[], help="Explicit changed file list."
+    )
+    parser.add_argument(
+        "--request", type=str, default="", help="Optional request text for intent fallback."
+    )
     parser.add_argument(
         "--target-module",
         action="append",
         default=[],
         help="Optional module/path hint. Repeat for multiple targets.",
-    )
-    parser.add_argument(
-        "--session-handoff-path",
-        type=str,
-        default=DEFAULT_SESSION_HANDOFF_PATH,
-        help=f"Optional session handoff path (default: {DEFAULT_SESSION_HANDOFF_PATH}).",
     )
     parser.add_argument(
         "--include-cold-paths",
@@ -845,7 +835,6 @@ def main() -> int:
         changed_files,
         request_text=args.request,
         target_modules=list(args.target_module),
-        session_handoff_text=_load_session_handoff_text(args.session_handoff_path),
         include_cold_paths=bool(args.include_cold_paths),
     )
     if args.format == "text":

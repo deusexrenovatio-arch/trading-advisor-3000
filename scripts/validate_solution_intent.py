@@ -6,17 +6,17 @@ from pathlib import Path
 
 from critical_contours import (
     DEFAULT_CONFIG_PATH,
-    DEFAULT_SESSION_HANDOFF_PATH,
+    DEFAULT_TASK_NOTE_PATH,
     REQUIRED_INTENT_FIELDS,
     SOLUTION_CLASSES,
     extract_solution_intent,
+    find_changed_solution_intent_note,
     load_critical_contours,
     match_critical_contours,
     normalize_text,
     read_task_note,
 )
 from gate_common import collect_changed_files
-
 
 PLACEHOLDER_CLOSURE_VALUES = {
     "",
@@ -74,20 +74,30 @@ def run(
             f"(critical_contours=0 changed_files={len(changed_files)})"
         )
         return 0
-    if not path.exists():
-        print(f"solution intent validation failed: missing {path.as_posix()}")
+    note_input = (
+        path if path.exists() else (find_changed_solution_intent_note(changed_files) or path)
+    )
+    if not note_input.exists():
+        print(f"solution intent validation failed: missing Solution Intent note: {path.as_posix()}")
+        print(
+            "remediation: pass --path <markdown-note> or include a changed Markdown "
+            "file with `## Solution Intent`"
+        )
         return 1
-    note_path, lines, pointer_mode = read_task_note(path)
+    note_path, lines, pointer_mode = read_task_note(note_input)
     fields = extract_solution_intent(lines)
     contour_ids = [contour.contour_id for contour in matched]
     multi_contour = len(matched) > 1
     contour_label = ", ".join(contour_ids)
 
-    if multi_contour and not _multi_contour_declaration_ok(fields.get("critical_contour", ""), contour_ids):
+    if multi_contour and not _multi_contour_declaration_ok(
+        fields.get("critical_contour", ""), contour_ids
+    ):
         print("solution intent validation failed:")
         print(f"- multiple critical contours triggered in one patch: {contour_label}")
         print(
-            "- remediation: declare `Critical Contour: multi-contour` (or an explicit sorted contour id list) "
+            "- remediation: declare `Critical Contour: multi-contour` "
+            "(or an explicit sorted contour id list) "
             "in the Solution Intent block"
         )
         return 1
@@ -122,7 +132,7 @@ def run(
         for item in errors:
             print(f"- {item}")
         print(
-            "remediation: add `## Solution Intent` to the active task note before coding "
+            "remediation: add `## Solution Intent` to an explicit proof note before coding "
             "for critical contour work"
         )
         return 1
@@ -136,8 +146,10 @@ def run(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Validate Solution Intent for critical contour tasks.")
-    parser.add_argument("--path", default=str(DEFAULT_SESSION_HANDOFF_PATH))
+    parser = argparse.ArgumentParser(
+        description="Validate Solution Intent for critical contour tasks."
+    )
+    parser.add_argument("--path", default=str(DEFAULT_TASK_NOTE_PATH))
     parser.add_argument("--config", default=str(DEFAULT_CONFIG_PATH))
     parser.add_argument("--base-sha", default=None)
     parser.add_argument("--head-sha", default=None)
@@ -151,7 +163,11 @@ def main() -> None:
     if args.base_sha and args.head_sha:
         changed_files_override = None
     elif args.stdin or args.changed_files:
-        stdin_items = [line.strip() for line in sys.stdin.read().splitlines() if line.strip()] if args.stdin else []
+        stdin_items = (
+            [line.strip() for line in sys.stdin.read().splitlines() if line.strip()]
+            if args.stdin
+            else []
+        )
         changed_files_override = [*list(args.changed_files), *stdin_items]
 
     sys.exit(
