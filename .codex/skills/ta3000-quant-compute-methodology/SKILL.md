@@ -119,5 +119,4 @@ Practical rule: `pandas-ta-classic` answers "what is the market state?"; `vector
 - Add or update targeted tests for indicator shape, derived causality, signal timing, and required-column failure behavior.
 - Verify that generated signals are boolean, index-aligned, and causally shifted for the intended execution bar.
 - For vectorbt work, inspect portfolio outputs, rejected rows, and at least one metric path that proves the intended simulation mode ran.
-- Run the relevant focused tests, then the repo loop gate for the changed files when the change is more than a docs-only skill edit:
-  `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`
+- Report the focused compute evidence separately from storage/materialization proof; use `ta3000-data-plane-proof` when the claim depends on persisted Delta output.
