@@ -59,8 +59,8 @@ def test_validate_pr_only_policy_passes_with_required_github_rules(
                 "parameters": {
                     "strict_required_status_checks_policy": True,
                     "required_status_checks": [
-                        {"context": "loop-lane"},
                         {"context": "pr-lane"},
+                        {"context": "CodeRabbit"},
                     ],
                 },
             },
@@ -94,7 +94,7 @@ def test_validate_pr_only_policy_fails_closed_when_required_check_is_missing(
                 "parameters": {
                     "strict_required_status_checks_policy": True,
                     "required_status_checks": [
-                        {"context": "loop-lane"},
+                        {"context": "pr-lane"},
                     ],
                 },
             },
@@ -109,7 +109,7 @@ def test_validate_pr_only_policy_fails_closed_when_required_check_is_missing(
 
     captured = capsys.readouterr()
     assert result == 1
-    assert "GitHub required status checks are missing: pr-lane" in captured.out
+    assert "GitHub required status checks are missing: CodeRabbit" in captured.out
 
 
 def test_github_api_get_json_retries_transient_url_error(monkeypatch) -> None:

@@ -4,7 +4,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -30,10 +29,6 @@ def test_validate_plans_registry_passes() -> None:
 
 def test_validate_agent_memory_passes() -> None:
     _assert_ok([sys.executable, "scripts/validate_agent_memory.py"])
-
-
-def test_validate_task_outcomes_passes() -> None:
-    _assert_ok([sys.executable, "scripts/validate_task_outcomes.py"])
 
 
 def test_validate_process_regressions_passes() -> None:

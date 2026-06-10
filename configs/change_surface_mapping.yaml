@@ -18,15 +18,12 @@ surfaces:
       - plans/
       - memory/
       - docs/checklists/
-      - scripts/validate_task_request_contract.py
       - scripts/critical_contours.py
       - scripts/validate_solution_intent.py
       - scripts/validate_critical_contour_closure.py
       - scripts/validate_plans.py
       - scripts/validate_agent_memory.py
-      - scripts/validate_task_outcomes.py
       - scripts/validate_stack_conformance.py
-      - scripts/sync_task_outcomes.py
       - scripts/sync_state_layout.py
   architecture:
     prefixes:
@@ -87,7 +84,6 @@ surfaces:
       - docs/workflows/
       - docs/runbooks/
       - docs/tasks/
-      - docs/session_handoff.md
       - scripts/
       - tests/process/
       - .githooks/
@@ -110,10 +106,8 @@ command_profiles:
       - "{python} scripts/validate_product_surface_naming.py"
     contracts:
       - "{python} scripts/validate_stack_conformance.py"
-      - "{python} scripts/validate_task_request_contract.py"
       - "{python} scripts/validate_plans.py"
       - "{python} scripts/validate_agent_memory.py"
-      - "{python} scripts/validate_task_outcomes.py"
     architecture:
       - "{python} scripts/validate_stack_conformance.py"
       - "{python} scripts/validate_architecture_policy.py"
@@ -123,12 +117,8 @@ command_profiles:
       - "{python} scripts/validate_stack_conformance.py"
       - "{python} scripts/validate_plans.py"
       - "{python} scripts/validate_agent_memory.py"
-      - "{python} scripts/validate_task_outcomes.py"
-      - "{python} scripts/validate_session_handoff.py"
-      - "{python} scripts/validate_task_request_contract.py"
       - "{python} scripts/validate_pr_only_policy.py"
       - "{python} scripts/validate_agent_contexts.py"
-      - "{python} scripts/validate_mcp_config.py"
       - "{python} scripts/validate_no_tracked_secrets.py"
     skills:
       - "{python} scripts/skill_precommit_gate.py"
@@ -136,12 +126,11 @@ command_profiles:
 
   pr:
     default:
-      - "{python} scripts/run_loop_gate.py --skip-session-check"
-      - "{python} scripts/validate_task_outcomes.py --require-terminal-outcome"
+      - "{python} scripts/run_loop_gate.py"
+      - "{python} scripts/validate_pr_size.py"
       - "{python} -m pytest tests/process/test_governance_shell_baseline.py"
     contracts:
       - "{python} -m pytest tests/process/test_validate_plans_contract.py -q"
-      - "{python} -m pytest tests/process/test_validate_task_request_contract.py -q"
       - "{python} -m pytest tests/process/test_critical_contours.py -q"
       - "{python} -m pytest tests/architecture/test_context_coverage.py -q"
     architecture:
@@ -155,16 +144,14 @@ command_profiles:
 
   nightly:
     default:
-      - "{python} scripts/run_pr_gate.py --skip-session-check"
+      - "{python} scripts/run_pr_gate.py"
       - "{python} scripts/validate_process_regressions.py"
       - "{python} scripts/nightly_root_hygiene.py"
-      - "{python} scripts/validate_mcp_config.py"
       - "{python} scripts/validate_no_tracked_secrets.py"
       - "{python} scripts/sync_state_layout.py"
       - "{python} scripts/measure_dev_loop.py --format markdown --output artifacts/dev-loop-baseline.md"
       - "{python} scripts/validate_architecture_policy.py"
       - "{python} scripts/validate_docs_links.py --roots AGENTS.md docs"
-      - "{python} scripts/validate_governance_remediation.py"
       - "{python} scripts/harness_baseline_metrics.py --output artifacts/harness-baseline-metrics.json"
       - "{python} scripts/process_improvement_report.py --output artifacts/process-improvement-report.md"
       - "{python} scripts/autonomy_kpi_report.py --output artifacts/autonomy-kpi-report.md"

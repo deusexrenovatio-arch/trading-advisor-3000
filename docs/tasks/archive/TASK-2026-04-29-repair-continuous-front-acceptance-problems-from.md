@@ -2,7 +2,8 @@
 Updated: 2026-04-29 12:32 UTC
 
 ## Goal
-- Deliver: repair the continuous-front acceptance blockers captured in `docs/tasks/active/continuous-front-acceptance-problems-2026-04-29.md`.
+- Deliver: repair the continuous-front acceptance blockers captured in the
+  archived continuous-front acceptance note from 2026-04-29.
 
 ## Task Request Contract
 - Objective: make continuous-front a first-class research/backtest series by preserving bar-level active-contract identity, roll metadata, policy identity, and native execution prices through materialization, loaders, and backtests.
@@ -43,7 +44,7 @@ Updated: 2026-04-29 12:32 UTC
 - Primary Rework Cause: environment
 - Incident Signature: continuous_front_downstream_contract_collapse_and_spark_runtime_gap
 - Improvement Action: env
-- Improvement Artifact: docs/tasks/active/continuous-front-acceptance-problems-2026-04-29.md
+- Improvement Artifact: archived continuous-front acceptance note from 2026-04-29
 
 ## Blockers
 - Full local Spark runtime proof is blocked by Windows Hadoop NativeIO: Spark/Delta fails with `UnsatisfiedLinkError: org.apache.hadoop.io.nativeio.NativeIO$Windows.access0` before processing real Delta input.

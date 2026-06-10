@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 
 from compute_change_surface import compute_surface
-from gate_marker_contract import GateMarkerError, resolve_gate_markers
 from gate_common import (
     CommandSpec,
     collect_changed_files,
@@ -18,8 +17,7 @@ from gate_common import (
     scope_validate_command,
     write_summary,
 )
-from task_session import check_active_session
-
+from gate_marker_contract import GateMarkerError, resolve_gate_markers
 
 REMEDIATION_DOC = "docs/runbooks/governance-remediation.md"
 
@@ -28,16 +26,6 @@ def _join_command(parts: list[str]) -> str:
     if os.name == "nt":
         return subprocess.list2cmdline(parts)
     return shlex.join(parts)
-
-
-def _ensure_active_session() -> int:
-    code, message, _payload = check_active_session()
-    if code == 0:
-        return 0
-    print(f"pr gate: FAILED (inactive task session: {message})")
-    print("pr gate: run `python scripts/task_session.py begin --request \"<request>\"` first")
-    print(f"remediation: see {REMEDIATION_DOC}")
-    return code
 
 
 def _build_loop_gate_command(
@@ -56,7 +44,6 @@ def _build_loop_gate_command(
         "scripts/run_loop_gate.py",
         "--mapping",
         mapping,
-        "--skip-session-check",
         "--snapshot-mode",
         snapshot_mode,
         "--profile",
@@ -91,13 +78,7 @@ def main() -> int:
     parser.add_argument("--profile", default=None)
     parser.add_argument("--enforce-explicit-markers", action="store_true")
     parser.add_argument("--summary-file", default=None)
-    parser.add_argument("--skip-session-check", action="store_true")
     args = parser.parse_args()
-
-    if not args.skip_session_check:
-        code = _ensure_active_session()
-        if code != 0:
-            return code
 
     changed_files = collect_changed_files(
         base_ref=args.base_ref,

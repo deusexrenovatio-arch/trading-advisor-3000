@@ -131,12 +131,11 @@ def scope_validate_command(
     normalized = [token.replace("\\", "/").strip().lower() for token in parts]
     scoped_scripts = (
         "scripts/validate_task_request_contract.py",
-        "scripts/validate_phase_planning_contract.py",
-        "scripts/validate_task_outcomes.py",
         "scripts/validate_solution_intent.py",
         "scripts/validate_critical_contour_closure.py",
         "scripts/validate_legacy_namespace_growth.py",
         "scripts/validate_product_surface_naming.py",
+        "scripts/validate_pr_size.py",
         "scripts/run_boring_checks.py",
     )
     if not any(

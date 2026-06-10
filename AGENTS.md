@@ -11,14 +11,13 @@ Business and trading logic remain out of scope for shell control-plane surfaces.
 1. Do not port domain-specific trading logic into the shell layer.
 2. Direct push to `main` is blocked by default.
 3. `run_loop_gate.py` is the only canonical hot-path gate name.
-4. `docs/session_handoff.md` must stay a lightweight pointer shim.
-5. `plans/items/` is canonical and `plans/PLANS.yaml` is generated compatibility output (enabled in Phase 5).
-6. Domain skills are excluded from the baseline shell.
-7. Package intake and governed phase continuation must start through `python scripts/codex_governed_entry.py ...`; manual chat-only continuation is not a valid governed route.
-8. Every change set must declare a change surface: `shell`, `product-plane`, or `mixed`.
-9. Generic engineering skills belong in the global Codex skill root (`D:/CodexHome/skills`); repo-local skills are only for TA3000-specific trading, product-domain, or compute-runtime knowledge.
-10. `.cursor/skills` is a retired legacy skill catalog. Do not add skills there; use global Codex skills for ordinary chat routing and `.codex/skills` only for TA3000-specific product-plane/trading/data/compute knowledge.
-11. GraphQL and Node.js are not active TA3000 baseline surfaces. Do not route GraphQL/Node-specific skills unless active source files or contracts appear outside ignored temporary, generated, archive, or package-intake paths.
+4. `plans/items/` is canonical and `plans/PLANS.yaml` is generated compatibility output (enabled in Phase 5).
+5. Domain skills are excluded from the baseline shell.
+6. Every change set must declare a change surface: `shell`, `product-plane`, or `mixed`.
+7. Generic engineering skills belong in the global Codex skill root (`D:/CodexHome/skills`); repo-local skills are only for TA3000-specific trading, product-domain, or compute-runtime knowledge.
+8. `.cursor/skills` is a retired legacy skill catalog. Do not add skills there; use global Codex skills for ordinary chat routing and `.codex/skills` only for TA3000-specific product-plane/trading/data/compute knowledge.
+9. GraphQL and Node.js are not active TA3000 baseline surfaces. Do not route GraphQL/Node-specific skills unless active source files or contracts appear outside ignored temporary, generated, archive, or package-intake paths.
+10. PRs must stay reviewable: `run_pr_gate.py` enforces the hard PR size gate before merge.
 
 ## Source-Of-Truth Layers
 ### Hot (read first)
@@ -49,6 +48,12 @@ Business and trading logic remain out of scope for shell control-plane surfaces.
 - `docs/tasks/archive/**`
 - `memory/**`
 - `plans/**`
+- `artifacts/**`
+- `.runlogs/**`
+- `docs/agent/plugin-eval/**/exec-runs/**`
+- `docs/agent/plugin-eval/**/runs/**`
+- `docs/agent/plugin-eval/**/results/**`
+- `docs/agent/plugin-eval/**/reports/**`
 - historical artifacts, generated reports, and archives
 
 ## Semantic Code Navigation
@@ -64,15 +69,19 @@ Business and trading logic remain out of scope for shell control-plane surfaces.
 - If Serena is skipped or unavailable on a code task, state the fallback reason briefly and continue with the lightest reliable tools.
 
 ## Ordinary Chat Skill Routing
-- When Superpowers plugin skills are available, check and invoke the relevant Superpowers process skill before clarification, repository exploration, implementation, review, verification, or closeout when any skill could apply.
-- Do not classify a behavior, bugfix, data/compute, contract, or user-facing semantic change as "small" to bypass Superpowers routing. Diff size is not the routing signal; semantic risk is.
-- For behavior changes and bugfixes, use `superpowers:test-driven-development` before implementation. If the code was already changed without red/green proof, stop before closeout and perform post-hoc red/green proof or record the process miss and residual risk explicitly.
-- After the Superpowers process check, route through global Codex skills. Use `codex-skill-routing` when the task is about skill selection, prompt routing, or preventing missed skills.
-- Before substantial work, name the selected Superpowers/global skills briefly and why they apply. If no skill is needed or Superpowers is unavailable, say why.
+- Ordinary chat uses a short route: classify the surface and semantic risk,
+  gather the minimum current context, then load only the skill that owns the
+  next artifact or decision.
+- Use process or engineering skills only when the semantic risk, requested
+  phase, or explicit user request makes a skill the owner of the next decision.
+- Do not classify a behavior, bugfix, data/compute, contract, or user-facing semantic change as "small" to bypass risk classification. Diff size is not the routing signal; semantic risk is.
+- For behavior changes and bugfixes, prefer a failing regression or characterization test before implementation when practical. If the code was already changed, use focused proof that the changed behavior is covered or record the residual risk explicitly.
+- Route through global Codex skills for reusable engineering behavior. Use `codex-skill-routing` when the task is about skill selection, prompt routing, or preventing missed skills.
+- Before substantial work, name only the selected skill or direct route and why it applies. If no skill is needed, say why briefly and continue.
 - Select skills by sequence, not keyword count: start with the skill that owns the current artifact, add neighboring skills only when their phase is reached, and keep evidence/acceptance skills for closeout.
 - For non-trivial implementation, use `code-implementation-worker` plus the relevant architecture, contract, executable-test, documentation, and verification skills in that order.
 - Before closeout, use `verification-before-completion` and include an explicit self-review for behavior/contract changes: what changed, which contract moved, which old behavior is now forbidden, which test catches it, and what residual risk remains.
-- For review, acceptance, unblock, or "is this done?" questions, use `code-reviewer`, `phase-acceptance-governor`, and/or `verification-before-completion` as appropriate. Do not replace self-review with test output alone.
+- For review, unblock, or "is this done?" questions, use `code-reviewer` and/or `verification-before-completion` as appropriate. Do not replace self-review with test output alone.
 - If a required skill is missing from the current session metadata but exists on disk under `D:/CodexHome/skills`, read that skill's main instruction file directly and state it as a fallback.
 - Open repo-local skills only for TA3000-specific product/trading/data/compute knowledge under `.codex/skills`.
 
@@ -86,8 +95,8 @@ Business and trading logic remain out of scope for shell control-plane surfaces.
 6. Run checks from `docs/agent/checks.md`.
 7. Prepare PR-oriented change summary.
 
-### Target loop (Phase 2+)
-`begin -> task note -> contract validation -> loop gate -> pr gate -> end`
+### Default loop
+`diagnose -> patch -> verify -> commit plan -> PR delivery contract -> loop gate -> pr gate`
 
 ## PR-Only Main Policy
 - Mainline changes must go through PR flow.

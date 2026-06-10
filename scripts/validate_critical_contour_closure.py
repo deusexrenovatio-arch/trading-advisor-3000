@@ -6,8 +6,9 @@ from pathlib import Path
 
 from critical_contours import (
     DEFAULT_CONFIG_PATH,
-    DEFAULT_SESSION_HANDOFF_PATH,
+    DEFAULT_TASK_NOTE_PATH,
     extract_solution_intent,
+    find_changed_solution_intent_note,
     load_critical_contours,
     match_critical_contours,
     normalize_text,
@@ -69,21 +70,31 @@ def run(
             f"(critical_contours=0 changed_files={len(changed_files)})"
         )
         return 0
-    if not path.exists():
+    note_input = (
+        path if path.exists() else (find_changed_solution_intent_note(changed_files) or path)
+    )
+    if not note_input.exists():
         print(f"critical contour closure validation failed: missing {path.as_posix()}")
+        print(
+            "remediation: pass --path <markdown-note> or include a changed Markdown "
+            "file with `## Solution Intent`"
+        )
         return 1
-    note_path, lines, pointer_mode = read_task_note(path)
+    note_path, lines, pointer_mode = read_task_note(note_input)
     fields = extract_solution_intent(lines)
     contour_ids = [contour.contour_id for contour in matched]
     multi_contour = len(matched) > 1
     contour_label = ", ".join(contour_ids)
     contour = matched[0]
 
-    if multi_contour and not _multi_contour_declaration_ok(fields.get("critical_contour", ""), contour_ids):
+    if multi_contour and not _multi_contour_declaration_ok(
+        fields.get("critical_contour", ""), contour_ids
+    ):
         print("critical contour closure validation failed:")
         print(f"- multiple critical contours triggered in one patch: {contour_label}")
         print(
-            "- remediation: declare `Critical Contour: multi-contour` (or an explicit sorted contour id list) "
+            "- remediation: declare `Critical Contour: multi-contour` "
+            "(or an explicit sorted contour id list) "
             "in the Solution Intent block"
         )
         return 1
@@ -110,13 +121,17 @@ def run(
     note_text = normalize_text("\n".join(lines))
 
     errors: list[str] = []
-    required_fields = ("solution_class", "critical_contour", "forbidden_shortcuts", "closure_evidence", "shortcut_waiver")
+    required_fields = (
+        "solution_class",
+        "critical_contour",
+        "forbidden_shortcuts",
+        "closure_evidence",
+        "shortcut_waiver",
+    )
     for field_name in required_fields:
         raw_value = fields.get(field_name, "")
         if field_name not in fields or not normalize_text(raw_value):
-            errors.append(
-                "Solution Intent is incomplete; run solution intent remediation first"
-            )
+            errors.append("Solution Intent is incomplete; run solution intent remediation first")
             break
 
     if solution_class == "target":
@@ -194,7 +209,8 @@ def run(
         for item in errors:
             print(f"- {item}")
         print(
-            "remediation: replace scaffold/sample/synthetic closure claims with contour-specific evidence "
+            "remediation: replace scaffold/sample/synthetic closure claims with "
+            "contour-specific evidence "
             "or downgrade the declared solution class explicitly"
         )
         return 1
@@ -208,8 +224,10 @@ def run(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Validate closure evidence for critical contour tasks.")
-    parser.add_argument("--path", default=str(DEFAULT_SESSION_HANDOFF_PATH))
+    parser = argparse.ArgumentParser(
+        description="Validate closure evidence for critical contour tasks."
+    )
+    parser.add_argument("--path", default=str(DEFAULT_TASK_NOTE_PATH))
     parser.add_argument("--config", default=str(DEFAULT_CONFIG_PATH))
     parser.add_argument("--base-sha", default=None)
     parser.add_argument("--head-sha", default=None)
@@ -223,7 +241,11 @@ def main() -> None:
     if args.base_sha and args.head_sha:
         changed_files_override = None
     elif args.stdin or args.changed_files:
-        stdin_items = [line.strip() for line in sys.stdin.read().splitlines() if line.strip()] if args.stdin else []
+        stdin_items = (
+            [line.strip() for line in sys.stdin.read().splitlines() if line.strip()]
+            if args.stdin
+            else []
+        )
         changed_files_override = [*list(args.changed_files), *stdin_items]
 
     sys.exit(

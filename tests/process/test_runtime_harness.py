@@ -5,7 +5,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -17,21 +16,6 @@ def _run(command: list[str]) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
     )
-
-
-def test_task_session_cli_help_lists_lifecycle_commands() -> None:
-    result = _run([sys.executable, "scripts/task_session.py", "--help"])
-    assert result.returncode == 0, result.stdout + "\n" + result.stderr
-    output = result.stdout.lower()
-    assert "begin" in output
-    assert "status" in output
-    assert "end" in output
-
-
-def test_task_session_begin_help_includes_mode_flag() -> None:
-    result = _run([sys.executable, "scripts/task_session.py", "begin", "--help"])
-    assert result.returncode == 0, result.stdout + "\n" + result.stderr
-    assert "--mode" in result.stdout.lower()
 
 
 def test_context_router_cli_json_contract() -> None:
@@ -56,7 +40,6 @@ def test_loop_gate_smoke_runtime() -> None:
         [
             sys.executable,
             "scripts/run_loop_gate.py",
-            "--skip-session-check",
             "--changed-files",
             "docs/README.md",
         ]

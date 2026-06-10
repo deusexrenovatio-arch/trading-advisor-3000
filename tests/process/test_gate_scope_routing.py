@@ -31,7 +31,6 @@ def test_loop_gate_contract_surface_smoke() -> None:
         [
             sys.executable,
             "scripts/run_loop_gate.py",
-            "--skip-session-check",
             "--snapshot-mode",
             "changed-files",
             "--profile",
@@ -46,12 +45,30 @@ def test_loop_gate_contract_surface_smoke() -> None:
     assert "profile=none" in result.stdout
 
 
+def test_loop_gate_rejects_retired_require_session_check_flag() -> None:
+    result = _run(
+        [
+            sys.executable,
+            "scripts/run_loop_gate.py",
+            "--require-session-check",
+            "--snapshot-mode",
+            "changed-files",
+            "--profile",
+            "none",
+            "--changed-files",
+            "docs/README.md",
+        ]
+    )
+    assert result.returncode != 0, result.stdout + "\n" + result.stderr
+    combined = result.stdout + "\n" + result.stderr
+    assert "unrecognized arguments: --require-session-check" in combined
+
+
 def test_loop_gate_reports_explicit_profile_metadata() -> None:
     result = _run(
         [
             sys.executable,
             "scripts/run_loop_gate.py",
-            "--skip-session-check",
             "--snapshot-mode",
             "changed-files",
             "--changed-files",
@@ -70,7 +87,6 @@ def test_loop_gate_emits_deprecation_guidance_for_non_policy_critical_path() -> 
         [
             sys.executable,
             "scripts/run_loop_gate.py",
-            "--skip-session-check",
             "--changed-files",
             "docs/README.md",
         ]
@@ -81,19 +97,18 @@ def test_loop_gate_emits_deprecation_guidance_for_non_policy_critical_path() -> 
     assert "DEPRECATION implicit profile marker fallback is active" in combined
 
 
-def test_loop_gate_fails_closed_without_explicit_markers_on_policy_critical_diff() -> None:
+def test_loop_gate_keeps_short_route_without_implicit_policy_critical_markers() -> None:
     result = _run(
         [
             sys.executable,
             "scripts/run_loop_gate.py",
-            "--skip-session-check",
             "--changed-files",
             "plans/items/index.yaml",
         ]
     )
-    assert result.returncode == 2, result.stdout + "\n" + result.stderr
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
     combined = result.stdout + "\n" + result.stderr
-    assert "explicit snapshot marker is required" in combined
+    assert "DEPRECATION implicit snapshot marker fallback is active" in combined
 
 
 def test_pr_gate_docs_smoke() -> None:
@@ -101,7 +116,6 @@ def test_pr_gate_docs_smoke() -> None:
         [
             sys.executable,
             "scripts/run_pr_gate.py",
-            "--skip-session-check",
             "--snapshot-mode",
             "changed-files",
             "--profile",
@@ -115,12 +129,30 @@ def test_pr_gate_docs_smoke() -> None:
     assert "profile=none" in result.stdout
 
 
+def test_pr_gate_rejects_retired_require_session_check_flag() -> None:
+    result = _run(
+        [
+            sys.executable,
+            "scripts/run_pr_gate.py",
+            "--require-session-check",
+            "--snapshot-mode",
+            "changed-files",
+            "--profile",
+            "none",
+            "--changed-files",
+            "docs/README.md",
+        ]
+    )
+    assert result.returncode != 0, result.stdout + "\n" + result.stderr
+    combined = result.stdout + "\n" + result.stderr
+    assert "unrecognized arguments: --require-session-check" in combined
+
+
 def test_pr_gate_reports_explicit_profile_metadata() -> None:
     result = _run(
         [
             sys.executable,
             "scripts/run_pr_gate.py",
-            "--skip-session-check",
             "--snapshot-mode",
             "changed-files",
             "--changed-files",
@@ -139,7 +171,6 @@ def test_pr_gate_emits_deprecation_guidance_for_non_policy_critical_path() -> No
         [
             sys.executable,
             "scripts/run_pr_gate.py",
-            "--skip-session-check",
             "--changed-files",
             "docs/README.md",
         ]
@@ -155,7 +186,6 @@ def test_pr_gate_fails_closed_without_explicit_markers_on_policy_critical_diff()
         [
             sys.executable,
             "scripts/run_pr_gate.py",
-            "--skip-session-check",
             "--changed-files",
             "scripts/run_loop_gate.py",
         ]
@@ -175,41 +205,6 @@ def test_nightly_gate_docs_smoke() -> None:
         ]
     )
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
-
-
-def test_scope_validate_command_uses_stdin_for_task_outcomes() -> None:
-    scoped = scope_validate_command(
-        f"{sys.executable} scripts/validate_task_outcomes.py",
-        base_sha=None,
-        head_sha=None,
-        changed_files=[
-            "scripts/codex_governed_entry.py",
-            *[f"artifacts/codex/package-intake/{index}/manifest.md" for index in range(300)],
-        ],
-    )
-
-    assert isinstance(scoped, CommandSpec)
-    assert "--stdin" in scoped.command
-    assert "--changed-files" not in scoped.command
-    assert scoped.stdin_text is not None
-    assert "scripts/codex_governed_entry.py" in scoped.stdin_text
-
-
-def test_scope_validate_command_uses_stdin_for_phase_planning_contract() -> None:
-    scoped = scope_validate_command(
-        f"{sys.executable} scripts/validate_phase_planning_contract.py",
-        base_sha=None,
-        head_sha=None,
-        changed_files=[
-            "docs/codex/contracts/f1-full-closure.execution-contract.md",
-            "docs/codex/modules/f1-full-closure.phase-01.md",
-        ],
-    )
-
-    assert isinstance(scoped, CommandSpec)
-    assert "--stdin" in scoped.command
-    assert scoped.stdin_text is not None
-    assert "docs/codex/contracts/f1-full-closure.execution-contract.md" in scoped.stdin_text
 
 
 def test_scope_validate_command_uses_stdin_for_legacy_namespace_growth() -> None:
@@ -269,7 +264,7 @@ def test_scope_validate_command_uses_stdin_for_skill_precommit_gate() -> None:
         base_sha=None,
         head_sha=None,
         changed_files=[
-            "scripts/codex_governed_entry.py",
+            "scripts/run_loop_gate.py",
             *[f"artifacts/codex/package-intake/{index}/manifest.md" for index in range(600)],
         ],
     )
@@ -279,7 +274,7 @@ def test_scope_validate_command_uses_stdin_for_skill_precommit_gate() -> None:
     assert "--changed-files" not in scoped.command
     assert "--strict" in scoped.command
     assert scoped.stdin_text is not None
-    assert "scripts/codex_governed_entry.py" in scoped.stdin_text
+    assert "scripts/run_loop_gate.py" in scoped.stdin_text
 
 
 def test_scope_validate_command_uses_base_refs_for_skill_precommit_gate() -> None:
@@ -287,7 +282,7 @@ def test_scope_validate_command_uses_base_refs_for_skill_precommit_gate() -> Non
         f"{sys.executable} scripts/skill_precommit_gate.py --from-git --git-ref HEAD",
         base_sha="origin/main",
         head_sha="HEAD",
-        changed_files=["scripts/codex_governed_entry.py"],
+        changed_files=["scripts/run_loop_gate.py"],
     )
 
     assert isinstance(scoped, str)
@@ -313,6 +308,27 @@ def test_scope_validate_command_uses_stdin_for_boring_checks() -> None:
     assert "--changed-files" not in scoped.command
     assert scoped.stdin_text is not None
     assert "scripts/run_boring_checks.py" in scoped.stdin_text
+
+
+def test_scope_validate_command_uses_stdin_for_pr_size_gate() -> None:
+    scoped = scope_validate_command(
+        f"{sys.executable} scripts/validate_pr_size.py",
+        base_sha=None,
+        head_sha=None,
+        changed_files=[
+            "scripts/validate_pr_size.py",
+            *[
+                f"src/trading_advisor_3000/product_plane/runtime/file_{index}.py"
+                for index in range(80)
+            ],
+        ],
+    )
+
+    assert isinstance(scoped, CommandSpec)
+    assert "--stdin" in scoped.command
+    assert "--changed-files" not in scoped.command
+    assert scoped.stdin_text is not None
+    assert "scripts/validate_pr_size.py" in scoped.stdin_text
 
 
 def test_scope_validate_command_uses_base_refs_for_boring_checks() -> None:
@@ -342,7 +358,6 @@ def test_loop_gate_handles_large_scope_from_stdin() -> None:
         [
             sys.executable,
             "scripts/run_loop_gate.py",
-            "--skip-session-check",
             "--snapshot-mode",
             "changed-files",
             "--profile",

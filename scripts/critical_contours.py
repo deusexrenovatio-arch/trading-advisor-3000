@@ -7,11 +7,8 @@ from typing import Any
 
 import yaml
 
-from handoff_resolver import read_task_note_lines
-
-
 DEFAULT_CONFIG_PATH = Path("configs/critical_contours.yaml")
-DEFAULT_SESSION_HANDOFF_PATH = Path("docs/session_handoff.md")
+DEFAULT_TASK_NOTE_PATH = Path("docs/agent/solution-intent.md")
 SOLUTION_INTENT_HEADING = "## Solution Intent"
 SOLUTION_CLASSES = {"target", "staged", "fallback"}
 REQUIRED_INTENT_FIELDS = (
@@ -107,7 +104,9 @@ def load_critical_contours(config_path: Path = DEFAULT_CONFIG_PATH) -> list[Crit
         trigger_paths = _normalize_list(raw_item.get("trigger_paths", []), mode="path")
         trigger_patterns = _normalize_list(raw_item.get("trigger_patterns", []), mode="text")
         if not trigger_paths and not trigger_patterns:
-            raise ValueError(f"critical contour `{contour_id}` must define trigger paths or patterns")
+            raise ValueError(
+                f"critical contour `{contour_id}` must define trigger paths or patterns"
+            )
 
         forbidden_shortcut_markers = _normalize_list(
             raw_item.get("forbidden_shortcut_markers", []),
@@ -126,9 +125,13 @@ def load_critical_contours(config_path: Path = DEFAULT_CONFIG_PATH) -> list[Crit
             mode="text",
         )
         if not forbidden_shortcut_markers:
-            raise ValueError(f"critical contour `{contour_id}` must define forbidden shortcut markers")
+            raise ValueError(
+                f"critical contour `{contour_id}` must define forbidden shortcut markers"
+            )
         if not required_evidence_markers:
-            raise ValueError(f"critical contour `{contour_id}` must define required evidence markers")
+            raise ValueError(
+                f"critical contour `{contour_id}` must define required evidence markers"
+            )
         if not allowed_staged_markers:
             raise ValueError(f"critical contour `{contour_id}` must define allowed staged markers")
         if not reacceptance_trigger_markers:
@@ -154,7 +157,9 @@ def match_critical_contours(
     changed_files: list[str],
     contours: list[CriticalContour],
 ) -> list[CriticalContour]:
-    normalized_files = [normalize_path(path_text) for path_text in changed_files if normalize_path(path_text)]
+    normalized_files = [
+        normalize_path(path_text) for path_text in changed_files if normalize_path(path_text)
+    ]
     matched: list[CriticalContour] = []
     seen: set[str] = set()
     for contour in contours:
@@ -206,6 +211,21 @@ def split_csv_field(value: str) -> list[str]:
     return [normalize_text(part) for part in str(value).split(",") if normalize_text(part)]
 
 
-def read_task_note(path: Path = DEFAULT_SESSION_HANDOFF_PATH) -> tuple[Path, list[str], bool]:
-    note_path, lines, pointer_mode = read_task_note_lines(path)
-    return note_path, lines, pointer_mode
+def find_changed_solution_intent_note(changed_files: list[str]) -> Path | None:
+    for raw in changed_files:
+        normalized = normalize_path(raw)
+        if not normalized.endswith((".md", ".markdown")):
+            continue
+        path = Path(normalized)
+        if not path.exists():
+            continue
+        try:
+            if SOLUTION_INTENT_HEADING in path.read_text(encoding="utf-8"):
+                return path
+        except UnicodeDecodeError:
+            continue
+    return None
+
+
+def read_task_note(path: Path = DEFAULT_TASK_NOTE_PATH) -> tuple[Path, list[str], bool]:
+    return path, path.read_text(encoding="utf-8").splitlines(), False

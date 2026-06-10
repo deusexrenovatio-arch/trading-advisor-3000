@@ -3,15 +3,12 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
 import yaml
-
 from gate_common import collect_changed_files
 from sync_skills_catalog import CATALOG_FILE, SKILLS_ROOT, build_catalog_text, load_runtime_skills
-
 
 SKILL_PREFIX = ".codex/skills/"
 LEGACY_SKILL_PREFIX = ".cursor/skills/"
@@ -259,10 +256,11 @@ def _build_decision(
 
     process_change = any(_normalize(item) in normalized for item in SKILL_GOVERNANCE_PROCESS_FILES)
     routing_metadata_change = bool(routing_trigger_drift_skills)
+    catalog_contract_change = bool(added or removed or renamed or metadata_drift)
     catalog_drift = _detect_catalog_drift() if strict else False
 
     missing_required: list[str] = []
-    if runtime_change and not catalog_changed:
+    if catalog_contract_change and not catalog_changed:
         missing_required.append(CATALOG_FILE.as_posix())
     if routing_metadata_change and not routing_changed:
         missing_required.append(ROUTING_DOC)
@@ -281,9 +279,14 @@ def _build_decision(
         status = "ready"
 
     recommendation = {
-        "blocked": "Runtime skill set introduced non-baseline class values. Keep runtime catalog KEEP_CORE-only.",
+        "blocked": (
+            "Runtime skill set introduced non-baseline class values. "
+            "Keep runtime catalog KEEP_CORE-only."
+        ),
         "no_skill_changes": "No runtime skill changes detected.",
-        "update_required": "Required governance sync documents or generated catalog are out of date.",
+        "update_required": (
+            "Required governance sync documents or generated catalog are out of date."
+        ),
         "ready": "Skill governance update requirements satisfied.",
     }[status]
 
@@ -352,7 +355,9 @@ def _render_text(decision: dict[str, Any]) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Decide required governance sync updates for skill changes.")
+    parser = argparse.ArgumentParser(
+        description="Decide required governance sync updates for skill changes."
+    )
     parser.add_argument("--from-git", action="store_true")
     parser.add_argument("--git-ref", default="HEAD")
     parser.add_argument("--base-ref", "--base", dest="base_ref", default=None)
