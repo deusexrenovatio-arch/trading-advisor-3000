@@ -10,9 +10,12 @@ if str(SCRIPTS) not in sys.path:
 
 from run_boring_checks import (  # noqa: E402
     _changed_python_targets,
+    _docvet_targets,
     _mypy_targets,
     _parse_pyproject,
     _python_targets,
+    _run_profile,
+    _should_run_import_linter,
 )
 
 
@@ -67,6 +70,94 @@ def test_mypy_targets_skip_extensionless_hooks() -> None:
     assert targets == [
         "scripts/run_boring_checks.py",
         "tests/process/test_run_boring_checks.py",
+    ]
+
+
+def test_docvet_targets_cover_src_and_scripts_not_tests_or_hooks() -> None:
+    targets = _docvet_targets(
+        [
+            "scripts/run_boring_checks.py",
+            "src/trading_advisor_3000/product_plane/contracts/__init__.py",
+            "tests/process/test_run_boring_checks.py",
+            ".githooks/pre-push",
+        ]
+    )
+
+    assert targets == [
+        "scripts/run_boring_checks.py",
+        "src/trading_advisor_3000/product_plane/contracts/__init__.py",
+    ]
+
+
+def test_import_linter_runs_for_python_or_contract_config_changes() -> None:
+    assert _should_run_import_linter(
+        ROOT,
+        scope="changed",
+        changed_files=[".importlinter"],
+        python_targets=[],
+    )
+    assert _should_run_import_linter(
+        ROOT,
+        scope="changed",
+        changed_files=[],
+        python_targets=["scripts/run_boring_checks.py"],
+    )
+    assert not _should_run_import_linter(
+        ROOT,
+        scope="changed",
+        changed_files=["docs/agent/checks.md"],
+        python_targets=[],
+    )
+
+
+def test_quick_profile_runs_agent_quality_contracts(monkeypatch) -> None:
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        "run_boring_checks._parse_pyproject", lambda _root: calls.append("parse") or 0
+    )
+    monkeypatch.setattr(
+        "run_boring_checks._run_import_linter",
+        lambda _root, scope, changed_files, python_targets, timeout: (
+            calls.append(f"import-linter:{scope}:{len(changed_files)}:{len(python_targets)}") or 0
+        ),
+    )
+    monkeypatch.setattr(
+        "run_boring_checks._run_docvet",
+        lambda _root, python_targets, timeout: calls.append(f"docvet:{len(python_targets)}") or 0,
+    )
+    monkeypatch.setattr(
+        "run_boring_checks._run_ruff",
+        lambda _root, _targets, fix, timeout: calls.append(f"ruff:{fix}") or 0,
+    )
+    monkeypatch.setattr(
+        "run_boring_checks._run_compileall", lambda _root, _targets: calls.append("compile") or 0
+    )
+    monkeypatch.setattr(
+        "run_boring_checks._run_fast_pytest",
+        lambda _root, timeout: calls.append("pytest") or 0,
+    )
+
+    args = type(
+        "Args",
+        (),
+        {
+            "profile": "quick",
+            "scope": "changed",
+            "fix": False,
+            "timeout": 300,
+            "changed_files": ["scripts/run_boring_checks.py"],
+        },
+    )()
+
+    assert _run_profile(ROOT, args, ["scripts/run_boring_checks.py"]) == 0
+    assert calls == [
+        "parse",
+        "import-linter:changed:1:1",
+        "docvet:1",
+        "ruff:False",
+        "compile",
+        "pytest",
     ]
 
 

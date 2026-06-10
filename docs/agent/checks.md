@@ -4,7 +4,9 @@
 
 | Check | Command | Purpose |
 | --- | --- | --- |
-| Boring checks quick ratchet | `python scripts/run_boring_checks.py --profile quick --scope changed` | parse `pyproject.toml`, run ruff format/check, compile changed Python, and run fast process/architecture tests |
+| Boring checks quick ratchet | `python scripts/run_boring_checks.py --profile quick --scope changed` | parse `pyproject.toml`, run import-linter/docvet, run ruff format/check, compile changed Python, and run fast process/architecture tests |
+| Architecture import contracts | `lint-imports --config .importlinter --no-cache` | enforce product-plane dependency direction for changed Python/config work; executed by boring checks |
+| Docstring freshness ratchet | `docvet check --quiet <changed src/scripts Python files>` | keep changed Python API docs fresh; executed by boring checks and requires Python 3.12+ |
 | Hook bootstrap (dry run) | `python scripts/install_git_hooks.py --dry-run --allow-no-git` | verify operational bootstrap entrypoint |
 | Session handoff contract | `python scripts/validate_session_handoff.py` | keep pointer-shim and context budget valid |
 | Task request contract | `python scripts/validate_task_request_contract.py` | enforce objective/scope/repetition controls |
@@ -26,7 +28,11 @@
 
 Quality baseline note:
 - `run_boring_checks.py --profile quick --scope changed` is the mandatory
-  changed-file ratchet for current work.
+  changed-file ratchet for current work, including import-linter and docvet.
+- Import-linter failures are architecture failures, not style warnings.
+- Docvet `freshness`, `coverage`, and `griffe` failures are hard gate failures;
+  `presence` and `enrichment` remain warning guidance until the baseline is
+  ratcheted further.
 - Full-repository `ruff` and `mypy` remain historical cleanup work until the
   existing baseline debt is removed.
 
