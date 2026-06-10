@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from importlib.resources import files
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -10,20 +11,20 @@ from trading_advisor_3000.product_plane.interfaces.data_inspector import (
     create_app,
 )
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-DATA_INSPECTOR_HTML = (
-    PROJECT_ROOT
-    / "src"
-    / "trading_advisor_3000"
-    / "product_plane"
-    / "interfaces"
-    / "static"
-    / "data_inspector.html"
-)
-
 
 def _write_delta(table_path: Path, rows: list[dict[str, object]], columns: dict[str, str]) -> None:
     write_delta_table_rows(table_path=table_path, rows=rows, columns=columns)
+
+
+def _read_packaged_html() -> str:
+    return (
+        files("trading_advisor_3000")
+        .joinpath("product_plane")
+        .joinpath("interfaces")
+        .joinpath("static")
+        .joinpath("data_inspector.html")
+        .read_text(encoding="utf-8")
+    )
 
 
 def test_data_inspector_registry_matches_current_data_layers() -> None:
@@ -39,11 +40,20 @@ def test_data_inspector_registry_matches_current_data_layers() -> None:
     assert DATA_INSPECTOR_LAYERS["canonical"].scan_table_timeframes
 
 
-def test_data_inspector_html_explains_direct_file_opening() -> None:
-    html = DATA_INSPECTOR_HTML.read_text(encoding="utf-8")
+def test_data_inspector_html_asset_is_packaged() -> None:
+    html = _read_packaged_html()
 
-    assert 'window.location.protocol === "file:"' in html
-    assert "http://127.0.0.1:8765/" in html
+    assert "<!doctype html>" in html
+    assert "TA3000 Data Inspector" in html
+
+
+def test_data_inspector_serves_html_with_direct_file_guidance(tmp_path: Path) -> None:
+    client = TestClient(create_app(data_root=tmp_path))
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert 'window.location.protocol === "file:"' in response.text
+    assert "http://127.0.0.1:8765/" in response.text
 
 
 def test_data_inspector_options_match_current_timeframes_and_parameters(tmp_path: Path) -> None:

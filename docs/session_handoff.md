@@ -1,8 +1,8 @@
 # Session Handoff
-Updated: 2026-05-22 12:01 UTC
+Updated: 2026-06-10 11:18 UTC
 
 ## Active Task Note
-- Path: docs/tasks/active/TASK-2026-05-22-integrate-moex-1m-canonical-materialization-pr-s.md
+- Path: docs/tasks/active/TASK-2026-06-10-prepare-data-inspector-current-data-view-as-pr-a.md
 - Mode: legacy-full
 - Status: in_progress
 
