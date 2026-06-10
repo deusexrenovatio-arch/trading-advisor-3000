@@ -948,10 +948,7 @@ def test_research_definitions_expose_isolated_data_layer_jobs_without_moex_succe
     assert op_config["continuous_front_policy"]["session_start_time"] == "09:00"
     assert op_config["continuous_front_policy"]["session_end_time"] == "23:50"
     assert op_config["continuous_front_policy"]["expected_timeline_mode"] == "active_contract_bars"
-    assert (
-        run_config["ops"]["continuous_front_indicator_acceptance_report"]["config"]
-        == op_config
-    )
+    assert run_config["ops"]["continuous_front_indicator_acceptance_report"]["config"] == op_config
 
 
 def _single_sensor_run_request(sensor, context):
@@ -1040,7 +1037,9 @@ def test_research_downstream_cascade_sensors_forward_dataset_context(tmp_path: P
     assert projection_request.tags["ta3000/dataset_version"] == "cascade-data-v1"
 
 
-def test_moex_data_rebuild_research_refresh_sensor_ignores_preview_and_research_only_profiles() -> None:
+def test_moex_data_rebuild_research_refresh_sensor_ignores_preview_and_research_only_profiles() -> (
+    None
+):
     promoted_canonical_run_config = {
         "ops": {
             MOEX_DATA_REBUILD_OP_NAME: {
