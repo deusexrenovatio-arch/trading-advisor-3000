@@ -301,10 +301,16 @@ def test_moex_data_rebuild_job_dispatches_data_layer_profile_in_order(
             assert Path(str(kwargs["canonical_output_dir"])) == (tmp_path / "canonical").resolve()
             assert Path(str(kwargs["research_output_dir"])) == (tmp_path / "research").resolve()
             assert kwargs["dataset_version"] == "run-data-layer"
-            assert kwargs["start_ts"] == "2021-04-01T00:00:00Z"
-            assert kwargs["end_ts"] == ""
-            assert kwargs["warmup_bars"] == 300
-            assert kwargs["split_method"] == "holdout"
+            if layer_name in {"continuous_front", "research_bar", "indicator_sidecar"}:
+                assert kwargs["start_ts"] == "2021-04-01T00:00:00Z"
+                assert kwargs["end_ts"] == ""
+                assert kwargs["warmup_bars"] == 300
+                assert kwargs["split_method"] == "holdout"
+            else:
+                assert "start_ts" not in kwargs
+                assert "end_ts" not in kwargs
+                assert "warmup_bars" not in kwargs
+                assert "split_method" not in kwargs
             return {
                 "success": True,
                 "materialized_assets": [table_name],

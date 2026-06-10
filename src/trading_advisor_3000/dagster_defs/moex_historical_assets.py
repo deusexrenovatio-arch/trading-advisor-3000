@@ -1457,7 +1457,11 @@ def _run_research_rebuild_stages(
         runner = runner_by_stage.get(stage_name)
         if runner is None:
             continue
-        report = dict(runner(**kwargs))
+        stage_kwargs = dict(kwargs)
+        if stage_name in {"indicator", "derived"}:
+            for key in ("start_ts", "end_ts", "warmup_bars", "split_method"):
+                stage_kwargs.pop(key, None)
+        report = dict(runner(**stage_kwargs))
         _require_subreport_success(stage_name, report)
         reports[stage_name] = report
     return reports

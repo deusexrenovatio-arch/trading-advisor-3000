@@ -3651,8 +3651,7 @@ def _reject_unsupported_indicator_rebuild_scope(
     if unsupported:
         joined = ", ".join(unsupported)
         raise ValueError(
-            "MOEX indicator rebuild does not support scoped rebuild parameters "
-            f"for persisted materialization reuse: {joined}"
+            f"MOEX indicator rebuild does not support scoped rebuild parameters: {joined}"
         )
 
 
