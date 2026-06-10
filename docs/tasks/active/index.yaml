@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-05-22'
+updated_at: '2026-06-10'
 items:
 - id: TASK-2026-05-08-MAKE-MOEX-HISTORICAL-UPDATE-PATH-USE-SPARK-DELTA
   path: docs/tasks/active/TASK-2026-05-08-make-moex-historical-update-path-use-spark-delta.md
@@ -59,3 +59,8 @@ items:
   mode: legacy-full
   status: in_progress
   started_at: '2026-05-22'
+- id: TASK-2026-06-10-PREPARE-DATA-INSPECTOR-CURRENT-DATA-VIEW-AS-PR-A
+  path: docs/tasks/active/TASK-2026-06-10-prepare-data-inspector-current-data-view-as-pr-a.md
+  mode: legacy-full
+  status: in_progress
+  started_at: '2026-06-10'
