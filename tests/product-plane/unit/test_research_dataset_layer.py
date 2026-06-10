@@ -351,6 +351,63 @@ def test_spark_l0_writer_preserves_existing_delta_tables_or_rewrites_layout_once
     assert '"total_rows_by_table"' in source
 
 
+def test_spark_l0_replace_restores_existing_table_when_target_rename_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    table_path = tmp_path / "research_bar_views.delta"
+    table_path.mkdir()
+    (table_path / "old-file").write_text("old", encoding="utf-8")
+
+    class _FakeWriter:
+        def format(self, value: str) -> "_FakeWriter":
+            assert value == "delta"
+            return self
+
+        def mode(self, value: str) -> "_FakeWriter":
+            assert value == "overwrite"
+            return self
+
+        def option(self, key: str, value: str) -> "_FakeWriter":
+            assert (key, value) == ("overwriteSchema", "true")
+            return self
+
+        def partitionBy(self, *_: str) -> "_FakeWriter":
+            return self
+
+        def save(self, value: str) -> None:
+            output_path = Path(value)
+            output_path.mkdir(parents=True)
+            (output_path / "_delta_log").mkdir()
+            (output_path / "new-file").write_text("new", encoding="utf-8")
+
+    class _FakeDataFrame:
+        write = _FakeWriter()
+
+    monkeypatch.setattr(
+        spark_l0_job,
+        "_cast_to_contract",
+        lambda dataframe, table_name: dataframe,
+    )
+    original_rename = Path.rename
+
+    def _rename(self: Path, target: Path) -> Path:
+        if self.name.startswith(f".{table_path.name}.rewrite-"):
+            raise OSError("simulated target rename failure")
+        return original_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", _rename)
+
+    with pytest.raises(OSError, match="simulated target rename failure"):
+        spark_l0_job._replace_spark_delta_table(
+            dataframe=_FakeDataFrame(),
+            table_path=table_path,
+            table_name="research_bar_views",
+        )
+
+    assert (table_path / "old-file").read_text(encoding="utf-8") == "old"
+    assert not list(tmp_path.glob(".research_bar_views.delta.*"))
+
+
 def test_spark_l0_instrument_tree_preserves_business_identity_rules() -> None:
     source = Path("src/trading_advisor_3000/spark_jobs/research_bar_views_job.py").read_text(
         encoding="utf-8"

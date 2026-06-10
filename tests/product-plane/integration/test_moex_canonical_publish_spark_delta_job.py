@@ -192,6 +192,62 @@ def test_replace_delta_dataframe_preserves_backup_until_publish_cleanup(tmp_path
     assert (table_path / "new-file").read_text(encoding="utf-8") == "new"
 
 
+def test_replace_delta_dataframe_restores_backup_when_target_rename_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    table_path = tmp_path / "canonical_bar_provenance.delta"
+    table_path.mkdir()
+    (table_path / "old-file").write_text("old", encoding="utf-8")
+
+    class _FakeWriter:
+        def format(self, value: str) -> "_FakeWriter":
+            assert value == "delta"
+            return self
+
+        def mode(self, value: str) -> "_FakeWriter":
+            assert value == "overwrite"
+            return self
+
+        def option(self, key: str, value: str) -> "_FakeWriter":
+            assert (key, value) == ("overwriteSchema", "true")
+            return self
+
+        def partitionBy(self, *_: str) -> "_FakeWriter":
+            return self
+
+        def save(self, value: str) -> None:
+            output_path = Path(value)
+            output_path.mkdir(parents=True)
+            (output_path / "_delta_log").mkdir()
+            (output_path / "new-file").write_text("new", encoding="utf-8")
+
+    class _FakeDataFrame:
+        write = _FakeWriter()
+
+        def coalesce(self, _: int) -> "_FakeDataFrame":
+            return self
+
+    original_rename = Path.rename
+
+    def _rename(self: Path, target: Path) -> Path:
+        if self.name.startswith(f".{table_path.name}.rewrite-"):
+            raise OSError("simulated target rename failure")
+        return original_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", _rename)
+
+    with pytest.raises(OSError, match="simulated target rename failure"):
+        publish_job._replace_delta_dataframe(
+            dataframe=_FakeDataFrame(),
+            table_path=table_path,
+            manifest_entry={"partition_by": [], "target_file_count": 0},
+        )
+
+    assert (table_path / "old-file").read_text(encoding="utf-8") == "old"
+    assert not list(tmp_path.glob(".canonical_bar_provenance.delta.rewrite-*"))
+    assert not list(tmp_path.glob(".canonical_bar_provenance.delta.backup-*"))
+
+
 def _write_session_intervals(path: Path, session_dates: list[str]) -> Path:
     write_delta_table_rows(
         table_path=path,

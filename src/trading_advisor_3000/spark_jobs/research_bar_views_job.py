@@ -1109,11 +1109,22 @@ def _replace_spark_delta_table(*, dataframe, table_path: Path, table_name: str) 
     if partition_by:
         writer = writer.partitionBy(*partition_by)
     writer.save(str(temp_path))
-    if table_path.exists():
-        table_path.rename(backup_path)
-    temp_path.rename(table_path)
-    if backup_path.exists():
-        shutil.rmtree(backup_path)
+    backup_created = False
+    try:
+        if table_path.exists():
+            table_path.rename(backup_path)
+            backup_created = True
+        temp_path.rename(table_path)
+    except Exception:
+        if backup_created and backup_path.exists() and not table_path.exists():
+            backup_path.rename(table_path)
+        raise
+    else:
+        if backup_path.exists():
+            shutil.rmtree(backup_path)
+    finally:
+        if temp_path.exists():
+            shutil.rmtree(temp_path)
 
 
 def _write_spark_delta_table(

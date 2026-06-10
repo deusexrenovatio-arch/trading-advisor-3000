@@ -510,7 +510,7 @@ def test_noop_route_runs_full_sidecar_repair_when_calendar_is_missing(
 
     assert report["status"] == "PASS-NOOP"
     assert report["publish_decision"] == "publish"
-    assert report["mutation_applied"] is False
+    assert report["mutation_applied"] is True
     assert report["sidecar_refresh"]["mode"] == "full"
     assert report["sidecar_refresh"]["mutation_applied"] is True
     assert report["contract_compatibility_report"]["status"] == "PASS"
@@ -635,6 +635,7 @@ def test_noop_route_runs_full_sidecar_repair_when_sidecar_layout_drifted(
     )
 
     assert report["status"] == "PASS-NOOP"
+    assert report["mutation_applied"] is True
     assert report["sidecar_refresh"]["mode"] == "layout_rewrite"
     assert report["sidecar_refresh"]["mutation_applied"] is True
     assert captured_publish["publish_scope_path"] is None

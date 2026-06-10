@@ -2525,7 +2525,7 @@ def run_historical_canonical_route(
             "canonical_merge_strategy": CANONICAL_MERGE_SCOPED_DELETE_INSERT,
             "max_changed_window_days": max_changed_window_days,
             "affected_key_count": 0,
-            "mutation_applied": False,
+            "mutation_applied": bool(sidecar_report.get("mutation_applied", False)),
             "canonical_rows": canonical_rows,
             "provenance_rows": provenance_rows,
             "sidecar_refresh": {

@@ -163,9 +163,19 @@ def _replace_delta_dataframe(
     if partition_by:
         writer = writer.partitionBy(*partition_by)
     writer.save(str(temp_path))
-    if table_path.exists():
-        table_path.rename(backup_path)
-    temp_path.rename(table_path)
+    backup_created = False
+    try:
+        if table_path.exists():
+            table_path.rename(backup_path)
+            backup_created = True
+        temp_path.rename(table_path)
+    except Exception:
+        if backup_created and backup_path.exists() and not table_path.exists():
+            backup_path.rename(table_path)
+        raise
+    finally:
+        if temp_path.exists():
+            shutil.rmtree(temp_path)
     return backup_path if backup_path.exists() else None
 
 
