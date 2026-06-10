@@ -135,7 +135,7 @@ the active priority queue.
 Generated current-state items are not edited by hand. Fix the source signal
 instead: update node state or add the missing evidence.
 
-`docs/tasks/active` is legacy diagnostic input, not an authoritative source for
+Archived task notes are legacy diagnostic input, not an authoritative source for
 the current map. Task notes were created across separate worktrees and were not
 reliably merged back to main, so their blocker sections must not enter the
 default cockpit queue. Use `scripts/sync_project_map_items.py

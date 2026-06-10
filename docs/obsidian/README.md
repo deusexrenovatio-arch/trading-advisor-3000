@@ -21,7 +21,7 @@ docs under `docs/agent/` and `docs/DEV_WORKFLOW.md`.
 - [DFD Level 0 - System Context](docs/obsidian/dfd/level-0-system-context.md)
 - [DFD Level 1 - Delivery Shell](docs/obsidian/dfd/level-1-delivery-shell.md)
 - [DFD Level 1 - Product Plane](docs/obsidian/dfd/level-1-product-plane.md)
-- [DFD Level 2 - Shell Context And Task Lifecycle](docs/obsidian/dfd/level-2-shell-context-and-task-lifecycle.md)
+- [DFD Level 2 - Shell Context And Skill Routing](docs/obsidian/dfd/level-2-shell-context-and-skill-routing.md)
 - [DFD Level 2 - Shell Gate Runtime](docs/obsidian/dfd/level-2-shell-gate-runtime.md)
 - [DFD Level 2 - Shell PR And Evidence](docs/obsidian/dfd/level-2-shell-pr-and-evidence.md)
 - [DFD Level 2 - Data Plane](docs/obsidian/dfd/level-2-data-plane.md)

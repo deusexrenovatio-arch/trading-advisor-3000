@@ -12,7 +12,6 @@ Every active task note must include:
 
 Validation:
 - `python scripts/validate_task_request_contract.py`
-- `python scripts/validate_session_handoff.py`
 
 ## First-Time-Right
 Before implementation:
@@ -36,4 +35,5 @@ Primary references:
 
 ## Loop Gate Linkage
 - `python scripts/run_loop_gate.py --from-git --git-ref HEAD` is canonical hot-path enforcement.
-- Request contract and repetition controls are non-optional inputs to loop execution.
+- Request contract and repetition controls are optional explicit task-note checks,
+  not an ordinary-loop preflight.

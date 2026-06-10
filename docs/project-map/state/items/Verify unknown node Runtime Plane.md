@@ -12,7 +12,7 @@ priority: p2
 needs_user_attention: false
 owner: agent
 created: '2026-05-05'
-last_seen: '2026-05-06'
+last_seen: '2026-06-10'
 sync_managed: true
 origin_kind: sync-node-state
 origin_refs:

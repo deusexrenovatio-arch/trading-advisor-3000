@@ -42,7 +42,7 @@ Prepare architecture and core contracts for expansion without blocking refactors
 - `python -m pytest tests/product-plane/unit/test_runtime_context_orchestration.py -q`
 - `python -m pytest tests/product-plane -q`
 - `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
-- `python scripts/run_pr_gate.py --from-git --git-ref HEAD --skip-session-check`
+- `python scripts/run_pr_gate.py --from-git --git-ref HEAD`
 
 ## Out of Scope
 - onboarding real external fundamentals/news data sources,

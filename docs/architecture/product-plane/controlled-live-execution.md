@@ -33,7 +33,7 @@ Close the controlled-live execution slice with explicit broker bridge controls:
 - `python -m pytest tests/product-plane/integration/test_controlled_live_execution.py -q`
 - `python -m pytest tests/product-plane -q`
 - `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
-- `python scripts/run_pr_gate.py --from-git --git-ref HEAD --skip-session-check`
+- `python scripts/run_pr_gate.py --from-git --git-ref HEAD`
 
 ## Out of Scope
 - direct network transport to real broker endpoints,

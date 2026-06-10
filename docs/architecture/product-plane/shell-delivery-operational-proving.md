@@ -29,7 +29,7 @@ Close the final production-readiness loop for the delivery shell + app integrati
 - `python scripts/run_shell_delivery_operational_proving.py --dry-run --from-git --git-ref HEAD`
 - `python scripts/run_shell_delivery_operational_proving.py --from-git --git-ref HEAD --output artifacts/shell-delivery-operational-proving.json`
 - `python scripts/run_loop_gate.py --from-git --git-ref HEAD`
-- `python scripts/run_pr_gate.py --from-git --git-ref HEAD --skip-session-check`
+- `python scripts/run_pr_gate.py --from-git --git-ref HEAD`
 
 ## Out of Scope
 - automatic remediation of failing lanes without operator review,

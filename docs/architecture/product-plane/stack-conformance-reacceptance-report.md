@@ -24,9 +24,9 @@ Re-evaluate product-phase acceptance artifacts under the repaired stack-conforma
 - `docs/archive/product-plane-acceptance-checklists/2026-05-06/operational-hardening-acceptance-checklist.md`
 - `docs/archive/product-plane-acceptance-checklists/2026-05-06/scale-up-readiness-acceptance-checklist.md`
 - `docs/archive/product-plane-acceptance-checklists/2026-05-06/shell-delivery-operational-proving-acceptance-checklist.md`
-- `docs/codex/contracts/stack-conformance-remediation.execution-contract.md`
-- `docs/codex/modules/stack-conformance-remediation.phase-10.md`
-- Route reports from module phases 03-09 in `artifacts/codex/orchestration/*-stack-conformance-remediation-phase-*/route-report.md`
+- Retired governed route contracts and phase briefs that existed during the
+  original 2026-03-27 cycle; these files are no longer active repository truth.
+- Historical route-report summaries from module phases 03-09; generated `artifacts/codex/orchestration/**` outputs are ignored and not tracked as current truth.
 
 ## Release-Readiness Contract Alignment
 - Governing amendment: `F1-2026-03-27-release-readiness-decision-contract`.

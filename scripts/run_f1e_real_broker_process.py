@@ -21,14 +21,13 @@ from urllib import error as urllib_error
 from urllib import request as urllib_request
 from urllib.parse import urlparse
 
-
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT_ROOT = ROOT / "artifacts" / "f1" / "phase05" / "real-broker-process"
 DEFAULT_PROFILE_CONTRACT = ROOT / "configs" / "broker_staging_connector_profile.v1.json"
 SIDECAR_SCRIPT_DIR = ROOT / "deployment" / "stocksharp-sidecar" / "scripts"
 SMOKE_SCRIPT = ROOT / "scripts" / "smoke_stocksharp_sidecar_binary.py"
 ROLLOUT_SCRIPT = ROOT / "scripts" / "run_staging_real_execution_rollout.py"
-PHASE_BRIEF = "docs/codex/modules/f1-full-closure.phase-05.md"
+PHASE_BRIEF = "docs/architecture/product-plane/f1e-real-broker-process-closure.md"
 PHASE_NAME = "F1-E - Real Broker Process Closure"
 
 
@@ -286,7 +285,9 @@ def validate_real_connector_base_url(raw_url: str) -> str:
     except ValueError:
         return value
     if ip.is_loopback or ip.is_unspecified:
-        raise RuntimeError("Finam API base URL must not use loopback or unspecified host for real contour")
+        raise RuntimeError(
+            "Finam API base URL must not use loopback or unspecified host for real contour"
+        )
     return value
 
 
@@ -300,7 +301,9 @@ def validate_real_connector_health(payload: dict[str, object]) -> dict[str, obje
     connector_last_heartbeat = str(payload.get("connector_last_heartbeat", "")).strip()
 
     if service_identity and has_synthetic_marker(service_identity):
-        raise RuntimeError("sidecar health service identity must not be stub/mock/sandbox for real contour")
+        raise RuntimeError(
+            "sidecar health service identity must not be stub/mock/sandbox for real contour"
+        )
     if connector_mode not in {"staging-real", "real-staging", "real"}:
         raise RuntimeError(
             "sidecar health must expose real connector_mode (`staging-real`/`real-staging`/`real`)"
@@ -312,11 +315,15 @@ def validate_real_connector_health(payload: dict[str, object]) -> dict[str, obje
     if connector_ready is not True:
         raise RuntimeError("sidecar health reports connector_ready!=true for real broker contour")
     if not connector_session_id:
-        raise RuntimeError("sidecar health must include connector_session_id for real broker contour")
+        raise RuntimeError(
+            "sidecar health must include connector_session_id for real broker contour"
+        )
     if has_synthetic_marker(connector_binding_source):
         raise RuntimeError("sidecar health must include non-synthetic connector_binding_source")
     if not connector_last_heartbeat:
-        raise RuntimeError("sidecar health must include connector_last_heartbeat for real broker contour")
+        raise RuntimeError(
+            "sidecar health must include connector_last_heartbeat for real broker contour"
+        )
     return {
         "connector_mode": connector_mode,
         "connector_backend": connector_backend,
@@ -343,9 +350,13 @@ def validate_finam_session_details(payload: dict[str, object]) -> dict[str, obje
         raise RuntimeError("Finam session preflight must include account_ids array")
     account_ids = [str(item).strip() for item in account_ids_raw if str(item).strip()]
     if readonly:
-        raise RuntimeError("Finam session preflight must expose executable trading contour (`readonly=false`)")
+        raise RuntimeError(
+            "Finam session preflight must expose executable trading contour (`readonly=false`)"
+        )
     if not account_ids:
-        raise RuntimeError("Finam session preflight must include non-empty account_ids for executable binding")
+        raise RuntimeError(
+            "Finam session preflight must include non-empty account_ids for executable binding"
+        )
     if not isinstance(md_permissions_raw, list):
         raise RuntimeError("Finam session preflight must include md_permissions array")
     md_permissions = [item for item in md_permissions_raw if isinstance(item, dict)]
@@ -376,7 +387,9 @@ def probe_finam_session_details(
         "Authorization": normalized_jwt,
     }
     request_payload = json.dumps({"token": normalized_jwt}).encode("utf-8")
-    request = urllib_request.Request(url=details_url, method="POST", headers=headers, data=request_payload)
+    request = urllib_request.Request(
+        url=details_url, method="POST", headers=headers, data=request_payload
+    )
     status_code = 0
     body = ""
     try:
@@ -395,8 +408,7 @@ def probe_finam_session_details(
         ) from exc
     except (urllib_error.URLError, TimeoutError, socket.timeout) as exc:
         raise RuntimeError(
-            "Finam session preflight failed "
-            f"at {details_url}: {type(exc).__name__}: {exc}"
+            f"Finam session preflight failed at {details_url}: {type(exc).__name__}: {exc}"
         ) from exc
 
     try:
@@ -490,7 +502,13 @@ def _wait_for_health(base_url: str, *, timeout_seconds: float) -> dict[str, obje
             if isinstance(payload, dict):
                 return payload
             last_error = "health payload is not object"
-        except (urllib_error.URLError, urllib_error.HTTPError, TimeoutError, socket.timeout, json.JSONDecodeError) as exc:
+        except (
+            urllib_error.URLError,
+            urllib_error.HTTPError,
+            TimeoutError,
+            socket.timeout,
+            json.JSONDecodeError,
+        ) as exc:
             last_error = f"{type(exc).__name__}: {exc}"
         time.sleep(0.25)
     raise TimeoutError(f"timeout waiting for sidecar /health: {last_error}")
@@ -579,14 +597,20 @@ def validate_connector_profile(payload: dict[str, Any]) -> dict[str, Any]:
     finam_jwt_env_var = str(finam_session_binding.get("jwt_env_var", "")).strip()
     finam_session_details_path = str(finam_session_binding.get("session_details_path", "")).strip()
     if not finam_base_url_env_var:
-        raise ValueError("connector profile finam_session_binding.base_url_env_var must be non-empty")
+        raise ValueError(
+            "connector profile finam_session_binding.base_url_env_var must be non-empty"
+        )
     if not finam_jwt_env_var:
         raise ValueError("connector profile finam_session_binding.jwt_env_var must be non-empty")
     if not finam_session_details_path:
-        raise ValueError("connector profile finam_session_binding.session_details_path must be non-empty")
+        raise ValueError(
+            "connector profile finam_session_binding.session_details_path must be non-empty"
+        )
     required_session_fields_raw = finam_session_binding.get("required_session_fields")
     if not isinstance(required_session_fields_raw, list):
-        raise ValueError("connector profile finam_session_binding.required_session_fields must be list")
+        raise ValueError(
+            "connector profile finam_session_binding.required_session_fields must be list"
+        )
     required_session_fields = sorted(
         {str(item).strip() for item in required_session_fields_raw if str(item).strip()}
     )
@@ -648,8 +672,7 @@ def validate_connector_profile(payload: dict[str, Any]) -> dict[str, Any]:
     missing = sorted(required_operations.difference(present))
     if missing:
         raise ValueError(
-            "connector profile proof_operations missing required operations: "
-            + ", ".join(missing)
+            "connector profile proof_operations missing required operations: " + ", ".join(missing)
         )
 
     return {
@@ -711,8 +734,13 @@ def validate_smoke_payload(payload: dict[str, Any]) -> None:
     if not str(connector_session.get("connector_binding_source", "")).strip():
         raise ValueError("smoke payload connector_session must include connector_binding_source")
     connector_binding_source = str(connector_session.get("connector_binding_source", "")).strip()
-    if has_synthetic_marker(connector_binding_source) or connector_binding_source.lower().startswith("finam-session"):
-        raise ValueError("smoke payload connector_session must prove executable external binding, not stub/session-only marker")
+    if has_synthetic_marker(
+        connector_binding_source
+    ) or connector_binding_source.lower().startswith("finam-session"):
+        raise ValueError(
+            "smoke payload connector_session must prove executable external binding, "
+            "not stub/session-only marker"
+        )
     if not str(connector_session.get("connector_last_heartbeat", "")).strip():
         raise ValueError("smoke payload connector_session must include connector_last_heartbeat")
 
@@ -736,7 +764,10 @@ def validate_smoke_payload(payload: dict[str, Any]) -> None:
         raise ValueError("blocked_submit must expose status_code=503")
 
     submit_after_restore = kill_switch.get("submit_after_restore")
-    if not isinstance(submit_after_restore, dict) or submit_after_restore.get("accepted") is not True:
+    if (
+        not isinstance(submit_after_restore, dict)
+        or submit_after_restore.get("accepted") is not True
+    ):
         raise ValueError("submit_after_restore must be accepted=true")
 
     metrics = smoke.get("metrics")
@@ -776,7 +807,9 @@ def validate_rollout_payload(payload: dict[str, Any]) -> None:
         raise ValueError("rollout connectivity connector_backend must not be stub/mock/synthetic")
     connector_binding_source = str(connectivity_details.get("connector_binding_source", "")).strip()
     if has_synthetic_marker(connector_binding_source):
-        raise ValueError("rollout connectivity connector_binding_source must not be stub/mock/synthetic")
+        raise ValueError(
+            "rollout connectivity connector_binding_source must not be stub/mock/synthetic"
+        )
 
     batch_details = by_stage["batch"].get("details")
     if not isinstance(batch_details, dict):
@@ -844,7 +877,10 @@ def run_rollout(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Run F1-E staging-real broker process closure with fail-closed disprover and recovery evidence."
+        description=(
+            "Run F1-E staging-real broker process closure with fail-closed disprover "
+            "and recovery evidence."
+        )
     )
     parser.add_argument("--output-root", default=DEFAULT_OUTPUT_ROOT.as_posix())
     parser.add_argument("--run-id", default="")
@@ -861,7 +897,10 @@ def main() -> int:
 
     git_sha = git_head_sha()
     dotnet_executable = resolve_dotnet_executable(args.dotnet)
-    run_stamp = args.run_id.strip() or f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{git_sha[:12]}"
+    run_stamp = (
+        args.run_id.strip()
+        or f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{git_sha[:12]}"
+    )
 
     output_root = Path(args.output_root)
     if not output_root.is_absolute():
@@ -901,7 +940,9 @@ def main() -> int:
             }
         )
     if missing_secrets:
-        message = "required broker secrets are missing from environment: " + ", ".join(missing_secrets)
+        message = "required broker secrets are missing from environment: " + ", ".join(
+            missing_secrets
+        )
         write_failure_artifact(
             run_dir=run_dir,
             run_id=run_stamp,
@@ -1010,7 +1051,8 @@ def main() -> int:
     )
     if dotnet_info.return_code != 0:
         message = (
-            "dotnet --info failed; install .NET SDK or set TA3000_DOTNET_BIN to SDK-backed dotnet executable"
+            "dotnet --info failed; install .NET SDK or set TA3000_DOTNET_BIN "
+            "to SDK-backed dotnet executable"
         )
         write_failure_artifact(
             run_dir=run_dir,
@@ -1181,7 +1223,9 @@ def main() -> int:
 
     sidecar_binary = publish_dir / "TradingAdvisor3000.StockSharpSidecar.dll"
     if not sidecar_binary.exists():
-        raise RuntimeError(f"publish step did not produce compiled binary: {sidecar_binary.as_posix()}")
+        raise RuntimeError(
+            f"publish step did not produce compiled binary: {sidecar_binary.as_posix()}"
+        )
 
     smoke_output = run_dir / "smoke.json"
     smoke_step = run_command(
@@ -1247,7 +1291,10 @@ def main() -> int:
         )
         step_records.append(miswire_step)
         if miswire_step.return_code == 0:
-            raise RuntimeError("miswire disprover failed: rollout unexpectedly succeeded with unreachable connector")
+            raise RuntimeError(
+                "miswire disprover failed: rollout unexpectedly succeeded with "
+                "unreachable connector"
+            )
         miswire_payload = read_json(miswire_output)
         validate_miswire_failure(miswire_payload)
         negative_tests.append(
@@ -1286,11 +1333,17 @@ def main() -> int:
             {
                 "status": "ok",
                 "validated_at": utc_now(),
-                "required_session_fields": profile["finam_session_binding"]["required_session_fields"],
+                "required_session_fields": profile["finam_session_binding"][
+                    "required_session_fields"
+                ],
                 "finam_session": connector_preflight["session_details"],
                 "connector_session_id": sidecar_runtime["connector_health"]["connector_session_id"],
-                "connector_binding_source": sidecar_runtime["connector_health"]["connector_binding_source"],
-                "connector_last_heartbeat": sidecar_runtime["connector_health"]["connector_last_heartbeat"],
+                "connector_binding_source": sidecar_runtime["connector_health"][
+                    "connector_binding_source"
+                ],
+                "connector_last_heartbeat": sidecar_runtime["connector_health"][
+                    "connector_last_heartbeat"
+                ],
                 "connector_backend": sidecar_runtime["connector_health"]["connector_backend"],
                 "connector_mode": sidecar_runtime["connector_health"]["connector_mode"],
             },
@@ -1393,7 +1446,8 @@ def main() -> int:
         "real_bindings": [
             f"Finam API base URL via {finam_base_url_env_var}: {finam_api_base_url}",
             f"Finam JWT via {finam_jwt_env_var}",
-            "compiled stocksharp sidecar binary with connector session proof (session_id/binding_source/heartbeat)",
+            "compiled stocksharp sidecar binary with connector session proof "
+            "(session_id/binding_source/heartbeat)",
         ],
     }
     write_json(run_dir / "manifest.json", manifest_payload)

@@ -5,16 +5,15 @@
 - Move durable continuity into repository artifacts instead of long chat history.
 
 ## Contract
-1. Keep `docs/session_handoff.md` as pointer-shim.
-2. Keep active task note delta concise and actionable.
-3. Keep canonical state in:
+1. Keep context route output concise and actionable.
+2. Keep canonical state in:
    - `plans/items/`
    - `memory/{decisions,incidents,patterns}/`
-4. Regenerate compatibility outputs via `python scripts/sync_state_layout.py`.
-5. Use `context_router.py` to produce a context footprint before loading broad context.
-6. For code tasks, start from the primary card's search seeds and use Serena for exact symbols and references.
-7. Treat generated artifacts, local tool config, archives, plans, and memory as cold unless explicitly needed.
-8. When cold or broad context is needed, log a Context Expansion Reason before opening it.
+3. Regenerate compatibility outputs via `python scripts/sync_state_layout.py`.
+4. Use `context_router.py` to produce a context footprint before loading broad context.
+5. For code tasks, start from the primary card's search seeds and use Serena for exact symbols and references.
+6. Treat generated artifacts, local tool config, archives, plans, and memory as cold unless explicitly needed.
+7. When cold or broad context is needed, log a Context Expansion Reason before opening it.
 
 ## Context Footprint
 Record or summarize these fields when a task or PR spans more than one context:
@@ -38,5 +37,4 @@ Keep each entry short:
 This is operator traceability, not a new heavyweight gate.
 
 ## Validation
-- `python scripts/validate_session_handoff.py`
 - `python scripts/validate_task_request_contract.py`

@@ -42,18 +42,6 @@ def test_validate_legacy_namespace_growth_fails_on_forbidden_new_reference(tmp_p
     assert code == 1
 
 
-def test_validate_legacy_namespace_growth_allows_migration_planning_paths(tmp_path: Path) -> None:
-    target = tmp_path / "docs" / "codex" / "modules" / "dual-surface-safe-rename.phase-99.md"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text("- tests/app/ is a planned migration token\n", encoding="utf-8")
-
-    code = run(
-        tmp_path,
-        changed_files_override=["docs/codex/modules/dual-surface-safe-rename.phase-99.md"],
-    )
-    assert code == 0
-
-
 def test_validate_legacy_namespace_growth_allows_cold_historical_paths(tmp_path: Path) -> None:
     archive_note = tmp_path / "docs" / "archive" / "historical" / "old-task.md"
     archive_note.parent.mkdir(parents=True, exist_ok=True)

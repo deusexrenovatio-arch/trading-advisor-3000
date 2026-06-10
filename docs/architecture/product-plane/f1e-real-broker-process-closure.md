@@ -41,7 +41,7 @@ Observed governed evidence (insufficient for closure on its own):
 Fail-closed disprover evidence (still required, not closure by itself):
 - `artifacts/f1/phase05/real-broker-process/20260331T184828Z-7a1dc827e46e/connector-preflight.json` (Finam-native `/v1/sessions/details` rejects invalid JWT and keeps the phase fail-closed)
 - `artifacts/f1/phase05/real-broker-process/20260331T184828Z-7a1dc827e46e/failure.json` (records `failure_stage=finam_session_preflight` for governed traceability)
-- `artifacts/codex/orchestration/20260331T204848Z-f1-full-closure-phase-05/attempt-01/acceptance.json` (documents current blocked verdict and remaining lifecycle boundary gap)
+- Archived governed-attempt acceptance notes document the blocked verdict and remaining lifecycle boundary gap; generated `artifacts/codex/orchestration/**` outputs are ignored and not tracked as current truth.
 
 ## Contract Surfaces
 - `src/trading_advisor_3000/product_plane/contracts/schemas/broker_staging_connector_profile.v1.json`

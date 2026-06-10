@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-
 REQUIRED_ROOT_DIRS = (
     "docs",
     "scripts",
@@ -18,11 +17,11 @@ REQUIRED_FILES = (
     "AGENTS.md",
     "README.md",
     "CODEOWNERS",
-    "docs/session_handoff.md",
     "scripts/run_loop_gate.py",
     "scripts/run_pr_gate.py",
     "scripts/run_nightly_gate.py",
 )
+FORBIDDEN_ROOT_FILES = ("docs/session_handoff.md",)
 FORBIDDEN_TOKENS = ("run_" + "lean_gate.py",)
 SCAN_EXTENSIONS = {".md", ".py", ".yaml", ".yml"}
 
@@ -56,6 +55,11 @@ def run(repo_root: Path) -> int:
         candidate = repo_root / rel
         if not candidate.exists() or not candidate.is_file():
             errors.append(f"missing required file: {rel}")
+
+    for rel in FORBIDDEN_ROOT_FILES:
+        candidate = repo_root / rel
+        if candidate.exists():
+            errors.append(f"retired root file must stay removed: {rel}")
 
     for path in _iter_scan_files(repo_root):
         text = path.read_text(encoding="utf-8")

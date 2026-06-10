@@ -21,7 +21,6 @@ REQUIRED_FILES = [
     "configs/critical_contours.yaml",
     "docs/README.md",
     "docs/DEV_WORKFLOW.md",
-    "docs/session_handoff.md",
     "docs/agent/entrypoint.md",
     "docs/agent/domains.md",
     "docs/agent/checks.md",

@@ -21,7 +21,6 @@ need a coherent whole-system view before reading the more specific documents.
 - `docs/architecture/layers-v2.md`
 - `docs/architecture/entities-v2.md`
 - `docs/architecture/architecture-map-v2.md`
-- `docs/architecture/governed-pipeline-hardening-technical-specification.md`
 - `docs/architecture/dual-surface-safe-rename-migration-technical-specification.md`
 
 ## Product Plane architecture index
@@ -38,6 +37,8 @@ need a coherent whole-system view before reading the more specific documents.
 - The old product-plane spec v2 package is archived at
   `docs/archive/product-plane-spec-v2/2026-05-06/README.md`; do not use it as a
   current implementation source.
+- The old governed-pipeline hardening specification was removed from the active
+  architecture index during the 2026-06-10 process reset.
 
 ## Shared references
 - `docs/architecture/glossary.md`
