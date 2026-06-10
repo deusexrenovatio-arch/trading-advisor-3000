@@ -63,7 +63,6 @@ current runbooks, code, and tests before treating any of them as current state.
 - `docs/architecture/product-plane/shell-delivery-operational-proving.md` - CI lane parity, operational proving entrypoint, and fail-closed evidence flow.
 - `docs/architecture/product-plane/dotnet-sidecar-closure.md` - in-repo .NET sidecar implementation and proving scope.
 - `docs/architecture/product-plane/f1e-real-broker-process-closure.md` - governed staging-real broker contour closure (with fail-closed disprover and recovery replay).
-- `docs/architecture/product-plane/mcp-and-real-execution-rollout.md` - MCP Wave 1-3 rollout + staging-first real HTTP execution transport closure.
 - `docs/architecture/product-plane/sidecar-wire-api-v1.md` - wire-level HTTP/JSON sidecar contract for staging-first real transport.
 - `docs/architecture/product-plane/bootstrap-through-shadow-acceptance-verdict-2026-03-17.md` - architecture acceptance disposition (MVP vs full target closure).
 
