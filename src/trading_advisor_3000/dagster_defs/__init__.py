@@ -48,11 +48,11 @@ from .product_plane_definitions import (
     product_plane_definitions,
 )
 from .research_assets import (
-    MOEX_HISTORICAL_DATA_REBUILD_RESEARCH_PREP_SENSOR_NAME,
     MOEX_CF_REBUILD_ASSETS,
     MOEX_CF_REBUILD_JOB_NAME,
     MOEX_DERIVED_INDICATOR_REBUILD_ASSETS,
     MOEX_DERIVED_INDICATOR_REBUILD_JOB_NAME,
+    MOEX_HISTORICAL_DATA_REBUILD_RESEARCH_PREP_SENSOR_NAME,
     MOEX_INDICATOR_REBUILD_ASSETS,
     MOEX_INDICATOR_REBUILD_JOB_NAME,
     MOEX_RESEARCH_BAR_REBUILD_ASSETS,
@@ -90,8 +90,8 @@ from .research_assets import (
     moex_research_bar_rebuild_job,
     moex_research_indicator_sidecar_job,
     research_asset_specs,
-    research_backtest_job,
     research_backtest_after_strategy_registry_sensor,
+    research_backtest_job,
     research_data_prep_after_moex_data_rebuild_sensor,
     research_data_prep_after_moex_sensor,
     research_data_prep_job,

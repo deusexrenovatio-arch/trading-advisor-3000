@@ -13,9 +13,9 @@ from .moex_historical_assets import (
     moex_data_rebuild_job,
 )
 from .research_assets import (
-    MOEX_HISTORICAL_DATA_REBUILD_RESEARCH_PREP_SENSOR_NAME,
     MOEX_CF_REBUILD_JOB_NAME,
     MOEX_DERIVED_INDICATOR_REBUILD_JOB_NAME,
+    MOEX_HISTORICAL_DATA_REBUILD_RESEARCH_PREP_SENSOR_NAME,
     MOEX_INDICATOR_REBUILD_JOB_NAME,
     MOEX_RESEARCH_BAR_REBUILD_JOB_NAME,
     MOEX_RESEARCH_INDICATOR_SIDECAR_JOB_NAME,
@@ -34,8 +34,8 @@ from .research_assets import (
     moex_indicator_rebuild_job,
     moex_research_bar_rebuild_job,
     moex_research_indicator_sidecar_job,
-    research_backtest_job,
     research_backtest_after_strategy_registry_sensor,
+    research_backtest_job,
     research_data_prep_after_moex_data_rebuild_sensor,
     research_data_prep_after_moex_sensor,
     research_data_prep_job,
