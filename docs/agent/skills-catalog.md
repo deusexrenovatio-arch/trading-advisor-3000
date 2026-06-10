@@ -3,13 +3,12 @@
 <!-- generated-by: scripts/sync_skills_catalog.py -->
 <!-- source-of-truth: .codex/skills/*/SKILL.md -->
 <!-- generated-contract: do not edit manually; run python scripts/sync_skills_catalog.py -->
-<!-- catalog-sha256: bf6156ff08f3f6eb79795da1352dab4a194d4244b7ba40d8f99f2d9098931c5a -->
+<!-- catalog-sha256: 7050eda7fa7e20598dc4ecf6284f72255b75fa2a163e1b71621256f99bfa126c -->
 
 | skill_id | classification | wave | status | scope | owner_surface | routing_triggers | source | hot_context_policy |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `ta3000-backtest-validation-and-overfit-control` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | TA3000 backtest validation, robustness, and overfitting control | `CTX-RESEARCH` | backtest validation; overfit; overfitting; walk-forward; out-of-sample; robustness; slippage; transaction costs; lookahead; survivorship; strategy testing | `repo_local` | `cold-by-default` |
 | `ta3000-data-plane-proof` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | TA3000 authoritative data-plane proof and materialization evidence | `CTX-DATA` | data-plane proof; D:/TA3000-data; Delta proof; _delta_log; row counts; canonical bars; research materialization; real prod tables | `repo_local` | `cold-by-default` |
-| `ta3000-governed-package-intake` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | TA3000 governed package intake and route integrity | `CTX-ORCHESTRATION` | governed package intake; governed flow; package intake; technical intake; product intake; continue route; intake gate | `repo_local` | `cold-by-default` |
 | `ta3000-product-surface-naming-cleanup` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | TA3000 active product-surface naming cleanup | `CTX-DOMAIN` | product surface naming; active surface; phase labels; debug labels; capability names; naming cleanup | `repo_local` | `cold-by-default` |
 | `ta3000-quant-compute-methodology` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | TA3000 library-native compute, optimizer, signal-matrix, runtime-ownership, and materialization integration boundary | `CTX-COMPUTE` | vectorbt; pandas-ta-classic; pandas_ta_classic; Optuna; optimizer search; native runtime ownership; signal matrix; from_signals; from_order_func; technical indicators; derived indicators; research backtest; strategy execution; native runtime choice; research materialization; Spark Delta Dagster | `repo_local` | `cold-by-default` |
 | `ta3000-signal-to-action-lifecycle` | `KEEP_CORE` | `WAVE_1` | `ACTIVE` | TA3000 strategy output delivery from signal to action | `CTX-COMPUTE` | signal delivery; Telegram signal; trading signal; webhook; alert delivery; paper trading; live trading; robot lifecycle; execution chain; signal-to-action | `repo_local` | `cold-by-default` |
