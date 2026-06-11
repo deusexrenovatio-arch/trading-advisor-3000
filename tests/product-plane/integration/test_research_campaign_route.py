@@ -11,9 +11,10 @@ import yaml
 from trading_advisor_3000.product_plane.data_plane import run_sample_backfill
 from trading_advisor_3000.product_plane.research import campaigns
 
-
 ROOT = Path(__file__).resolve().parents[3]
-RAW_FIXTURE = ROOT / "tests" / "product-plane" / "fixtures" / "data_plane" / "raw_backfill_sample.jsonl"
+RAW_FIXTURE = (
+    ROOT / "tests" / "product-plane" / "fixtures" / "data_plane" / "raw_backfill_sample.jsonl"
+)
 RUNBOOK_ROUTE = ROOT / "docs" / "runbooks" / "app" / "research-campaign-route.md"
 RUNBOOK_OPERATIONS = ROOT / "docs" / "runbooks" / "app" / "research-plane-operations.md"
 
@@ -61,7 +62,7 @@ def _campaign_payload(
             "start_ts": None,
             "end_ts": None,
             "warmup_bars": 0,
-            "split_method": "holdout",
+            "split_method": "walk_forward",
             "contract_ids": [],
             "instrument_ids": [],
         },
@@ -88,15 +89,17 @@ def _campaign_payload(
             "window_count": 1,
         },
         "ranking_policy": {
-            "policy_id": "robust_oos_v1",
-            "metric_order": ["total_return", "profit_factor", "max_drawdown"],
+            "policy_id": "research_screen_strict_v1",
+            "metric_order": ["sharpe", "profit_factor", "max_drawdown", "total_return"],
             "require_out_of_sample_pass": True,
-            "min_trade_count": 4,
-            "max_drawdown_cap": 0.35,
-            "min_positive_fold_ratio": 0.5,
-            "stress_slippage_bps": 7.5,
-            "min_parameter_stability": 0.35,
-            "min_slippage_score": 0.45,
+            "min_trade_count": 12,
+            "min_trade_count_per_fold": 4,
+            "min_fold_count": 2,
+            "max_drawdown_cap": 0.25,
+            "min_positive_fold_ratio": 0.67,
+            "stress_slippage_bps": 12.5,
+            "min_parameter_stability": 0.55,
+            "min_slippage_score": 0.6,
         },
         "projection_policy": {
             "selection_policy": "all_policy_pass",
@@ -111,7 +114,9 @@ def _campaign_payload(
     }
 
 
-def test_data_prep_campaign_module_executes_research_data_prep_and_writes_summary(tmp_path: Path) -> None:
+def test_data_prep_campaign_module_executes_research_data_prep_and_writes_summary(
+    tmp_path: Path,
+) -> None:
     canonical_dir = tmp_path / "canonical"
     _seed_canonical(canonical_dir)
 
@@ -193,16 +198,32 @@ def test_data_prep_campaign_dispatches_through_research_data_prep_boundary(
             "selected_assets": list(campaigns.DATA_PREP_TABLES),
             "materialized_assets": list(campaigns.DATA_PREP_TABLES),
             "output_paths": {
-                "continuous_front_bars": (materialized_root / "continuous_front_bars.delta").as_posix(),
-                "continuous_front_roll_events": (materialized_root / "continuous_front_roll_events.delta").as_posix(),
-                "continuous_front_adjustment_ladder": (materialized_root / "continuous_front_adjustment_ladder.delta").as_posix(),
-                "continuous_front_qc_report": (materialized_root / "continuous_front_qc_report.delta").as_posix(),
+                "continuous_front_bars": (
+                    materialized_root / "continuous_front_bars.delta"
+                ).as_posix(),
+                "continuous_front_roll_events": (
+                    materialized_root / "continuous_front_roll_events.delta"
+                ).as_posix(),
+                "continuous_front_adjustment_ladder": (
+                    materialized_root / "continuous_front_adjustment_ladder.delta"
+                ).as_posix(),
+                "continuous_front_qc_report": (
+                    materialized_root / "continuous_front_qc_report.delta"
+                ).as_posix(),
                 "research_datasets": (materialized_root / "research_datasets.delta").as_posix(),
-                "research_instrument_tree": (materialized_root / "research_instrument_tree.delta").as_posix(),
+                "research_instrument_tree": (
+                    materialized_root / "research_instrument_tree.delta"
+                ).as_posix(),
                 "research_bar_views": (materialized_root / "research_bar_views.delta").as_posix(),
-                "research_indicator_frames": (materialized_root / "research_indicator_frames.delta").as_posix(),
-                "research_derived_indicator_frames": (materialized_root / "research_derived_indicator_frames.delta").as_posix(),
-                "research_backtest_batches": (results_root / "research_backtest_batches.delta").as_posix(),
+                "research_indicator_frames": (
+                    materialized_root / "research_indicator_frames.delta"
+                ).as_posix(),
+                "research_derived_indicator_frames": (
+                    materialized_root / "research_derived_indicator_frames.delta"
+                ).as_posix(),
+                "research_backtest_batches": (
+                    results_root / "research_backtest_batches.delta"
+                ).as_posix(),
             },
             "rows_by_table": {table_name: 1 for table_name in campaigns.DATA_PREP_TABLES},
         }
@@ -258,7 +279,9 @@ def test_backtest_campaign_reuses_existing_compatible_materialized_layer(tmp_pat
     assert second["reused_steps"] == ["research_data_prep"]
 
 
-def test_changed_profile_version_forces_gold_rematerialization_without_changing_root(tmp_path: Path) -> None:
+def test_changed_profile_version_forces_gold_rematerialization_without_changing_root(
+    tmp_path: Path,
+) -> None:
     canonical_dir = tmp_path / "canonical"
     materialized_root = tmp_path / "materialized"
     runs_root = tmp_path / "runs"
@@ -340,4 +363,6 @@ def test_research_runbooks_publish_only_campaign_runner_route() -> None:
     assert extra_module_marker not in route_text.replace(expected_command, "")
     assert extra_module_marker not in operations_text.replace(expected_command, "")
     assert "trading_advisor_3000.product_plane.research.run_research_from_bars" not in route_text
-    assert "trading_advisor_3000.product_plane.research.run_research_from_bars" not in operations_text
+    assert (
+        "trading_advisor_3000.product_plane.research.run_research_from_bars" not in operations_text
+    )

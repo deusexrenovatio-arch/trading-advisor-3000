@@ -10,6 +10,7 @@ Read these first:
 - [product-plane-module-charters.md](docs/architecture/product-plane/product-plane-module-charters.md) - target modular structure for Contracts, Market Data Foundation, Research Data Factory, Strategy Factory, Runtime Plane, and Execution Plane.
 - [product-plane-module-apis.md](docs/architecture/product-plane/product-plane-module-apis.md) - public communication contract between those deep modules and the enforcement path for removing tolerated storage bridges.
 - [research-plane-platform.md](docs/architecture/product-plane/research-plane-platform.md) - stable map of the current research-plane primary path.
+- [strategy-evaluation-layer-v1.md](docs/architecture/product-plane/strategy-evaluation-layer-v1.md) - post-backtest layer that records ranking, projection evidence, and readiness verdicts in one evaluation output.
 - [continuous-signal-layer-technical-specification.md](docs/architecture/product-plane/continuous-signal-layer-technical-specification.md) - implementation-ready target spec for continuous adjusted signal bars, raw active-contract execution alignment, indicator/derived retargeting, and vectorbt loader changes.
 - [contract-change-policy.md](docs/architecture/product-plane/contract-change-policy.md) - compatibility and versioning policy for release-blocking envelopes.
 - [approved-universe-v1.md](docs/architecture/product-plane/approved-universe-v1.md) - governed universe and promotion contract for medium-term multi-asset evaluation.

@@ -7,6 +7,7 @@ import pandas as pd
 from trading_advisor_3000.product_plane.research.backtests.engine import (
     BacktestEngineConfig,
     StrategyFamilySearchSpec,
+    _align_bool_frame_to_execution,
     _breakout_signals,
     _ma_cross_signals,
     _squeeze_release_signals,
@@ -74,7 +75,11 @@ def _trend_surface_series(instrument_id: str, offset: float = 0.0) -> ResearchSe
 def test_mtf_split_windows_use_time_boundaries_before_positional_indices() -> None:
     frame_15m = _frame(
         [
-            {"ts": f"2026-03-16T09:{index * 15:02d}:00Z", "timeframe": "15m", "close": 100.0 + index}
+            {
+                "ts": f"2026-03-16T09:{index * 15:02d}:00Z",
+                "timeframe": "15m",
+                "close": 100.0 + index,
+            }
             for index in range(4)
         ]
     )
@@ -96,8 +101,12 @@ def test_mtf_split_windows_use_time_boundaries_before_positional_indices() -> No
 
     windows = _windowed_series(
         (
-            ResearchSeriesFrame(contract_id="BR-6.26", instrument_id="BR", timeframe="15m", frame=frame_15m),
-            ResearchSeriesFrame(contract_id="BR-6.26", instrument_id="BR", timeframe="1h", frame=frame_1h),
+            ResearchSeriesFrame(
+                contract_id="BR-6.26", instrument_id="BR", timeframe="15m", frame=frame_15m
+            ),
+            ResearchSeriesFrame(
+                contract_id="BR-6.26", instrument_id="BR", timeframe="1h", frame=frame_1h
+            ),
         ),
         config=BacktestEngineConfig(window_count=1),
         split_windows=split_windows,
@@ -107,7 +116,9 @@ def test_mtf_split_windows_use_time_boundaries_before_positional_indices() -> No
     assert [len(series.frame) for series in windows[0][1]] == [4, 2]
 
 
-def _native_clock_trend_series(instrument_id: str, timeframe: str, offset: float = 0.0) -> ResearchSeriesFrame:
+def _native_clock_trend_series(
+    instrument_id: str, timeframe: str, offset: float = 0.0
+) -> ResearchSeriesFrame:
     if timeframe == "15m":
         rows = [
             {
@@ -222,7 +233,14 @@ def _trend_search_spec(max_parameter_combinations: int = 1_000) -> StrategyFamil
         allowed_clock_profiles=("short_swing_1h_v1",),
         allowed_market_states=("trend_up", "trend_down"),
         required_price_inputs=("close",),
-        required_materialized_indicators=("ema_20", "ema_50", "macd_hist_12_26_9", "adx_14", "atr_14", "rsi_14"),
+        required_materialized_indicators=(
+            "ema_20",
+            "ema_50",
+            "macd_hist_12_26_9",
+            "adx_14",
+            "atr_14",
+            "rsi_14",
+        ),
         required_materialized_derived=(
             "close_change_1",
             "close_slope_20",
@@ -287,8 +305,12 @@ def test_breakout_window_changes_signal_generation() -> None:
     )
     config = BacktestEngineConfig()
 
-    fast = _breakout_signals(frame, spec, {"breakout_window": 2, "min_adx": 20, "entry_buffer_atr": 0.0}, config)
-    slow = _breakout_signals(frame, spec, {"breakout_window": 5, "min_adx": 20, "entry_buffer_atr": 0.0}, config)
+    fast = _breakout_signals(
+        frame, spec, {"breakout_window": 2, "min_adx": 20, "entry_buffer_atr": 0.0}, config
+    )
+    slow = _breakout_signals(
+        frame, spec, {"breakout_window": 5, "min_adx": 20, "entry_buffer_atr": 0.0}, config
+    )
 
     assert fast["entries"].tolist() != slow["entries"].tolist()
 
@@ -312,13 +334,18 @@ def test_risk_policy_drives_signal_stop_take_profit_levels() -> None:
         family="ma_cross",
         description="risk semantic test",
         required_columns=("close", "ema_10", "ema_20", "ema_50", "atr_14"),
-        parameter_grid=(StrategyParameter("fast_window", (10,)), StrategyParameter("slow_window", (20,))),
+        parameter_grid=(
+            StrategyParameter("fast_window", (10,)),
+            StrategyParameter("slow_window", (20,)),
+        ),
         signal_builder_key="ma_cross",
         risk_policy=StrategyRiskPolicy(stop_atr_multiple=0.5, target_atr_multiple=3.0),
         ranking_metadata=StrategyRankingMetadata(tags=("test",)),
     )
 
-    signals = _ma_cross_signals(frame, spec, {"fast_window": 10, "slow_window": 20}, BacktestEngineConfig())
+    signals = _ma_cross_signals(
+        frame, spec, {"fast_window": 10, "slow_window": 20}, BacktestEngineConfig()
+    )
     assert round(float(signals["sl_stop"].iloc[0]), 4) == 0.01
     assert round(float(signals["tp_stop"].iloc[0]), 4) == 0.06
 
@@ -326,12 +353,72 @@ def test_risk_policy_drives_signal_stop_take_profit_levels() -> None:
 def test_squeeze_target_multiple_changes_exit_timing() -> None:
     frame = _frame(
         [
-            {"ts": "2026-03-16T09:00:00Z", "close": 100.0, "atr_14": 1.0, "ema_20": 100.0, "ema_50": 99.0, "bb_position_20_2": 0.5, "kc_position_20_1_5": 0.5, "cross_close_rolling_high_20_code": 0, "cross_close_rolling_low_20_code": 0},
-            {"ts": "2026-03-16T09:15:00Z", "close": 100.1, "atr_14": 1.0, "ema_20": 100.1, "ema_50": 99.1, "bb_position_20_2": 0.5, "kc_position_20_1_5": 0.5, "cross_close_rolling_high_20_code": 0, "cross_close_rolling_low_20_code": 0},
-            {"ts": "2026-03-16T09:30:00Z", "close": 100.2, "atr_14": 1.0, "ema_20": 100.2, "ema_50": 99.2, "bb_position_20_2": 0.5, "kc_position_20_1_5": 0.5, "cross_close_rolling_high_20_code": 0, "cross_close_rolling_low_20_code": 0},
-            {"ts": "2026-03-16T09:45:00Z", "close": 100.9, "atr_14": 1.0, "ema_20": 100.4, "ema_50": 99.4, "bb_position_20_2": 0.85, "kc_position_20_1_5": 0.75, "cross_close_rolling_high_20_code": 1, "cross_close_rolling_low_20_code": 0},
-            {"ts": "2026-03-16T10:00:00Z", "close": 101.5, "atr_14": 1.0, "ema_20": 100.6, "ema_50": 99.6, "bb_position_20_2": 0.9, "kc_position_20_1_5": 0.8, "cross_close_rolling_high_20_code": 0, "cross_close_rolling_low_20_code": 0},
-            {"ts": "2026-03-16T10:15:00Z", "close": 100.0, "atr_14": 1.0, "ema_20": 98.0, "ema_50": 99.0, "bb_position_20_2": 0.2, "kc_position_20_1_5": 0.2, "cross_close_rolling_high_20_code": 0, "cross_close_rolling_low_20_code": -1},
+            {
+                "ts": "2026-03-16T09:00:00Z",
+                "close": 100.0,
+                "atr_14": 1.0,
+                "ema_20": 100.0,
+                "ema_50": 99.0,
+                "bb_position_20_2": 0.5,
+                "kc_position_20_1_5": 0.5,
+                "cross_close_rolling_high_20_code": 0,
+                "cross_close_rolling_low_20_code": 0,
+            },
+            {
+                "ts": "2026-03-16T09:15:00Z",
+                "close": 100.1,
+                "atr_14": 1.0,
+                "ema_20": 100.1,
+                "ema_50": 99.1,
+                "bb_position_20_2": 0.5,
+                "kc_position_20_1_5": 0.5,
+                "cross_close_rolling_high_20_code": 0,
+                "cross_close_rolling_low_20_code": 0,
+            },
+            {
+                "ts": "2026-03-16T09:30:00Z",
+                "close": 100.2,
+                "atr_14": 1.0,
+                "ema_20": 100.2,
+                "ema_50": 99.2,
+                "bb_position_20_2": 0.5,
+                "kc_position_20_1_5": 0.5,
+                "cross_close_rolling_high_20_code": 0,
+                "cross_close_rolling_low_20_code": 0,
+            },
+            {
+                "ts": "2026-03-16T09:45:00Z",
+                "close": 100.9,
+                "atr_14": 1.0,
+                "ema_20": 100.4,
+                "ema_50": 99.4,
+                "bb_position_20_2": 0.85,
+                "kc_position_20_1_5": 0.75,
+                "cross_close_rolling_high_20_code": 1,
+                "cross_close_rolling_low_20_code": 0,
+            },
+            {
+                "ts": "2026-03-16T10:00:00Z",
+                "close": 101.5,
+                "atr_14": 1.0,
+                "ema_20": 100.6,
+                "ema_50": 99.6,
+                "bb_position_20_2": 0.9,
+                "kc_position_20_1_5": 0.8,
+                "cross_close_rolling_high_20_code": 0,
+                "cross_close_rolling_low_20_code": 0,
+            },
+            {
+                "ts": "2026-03-16T10:15:00Z",
+                "close": 100.0,
+                "atr_14": 1.0,
+                "ema_20": 98.0,
+                "ema_50": 99.0,
+                "bb_position_20_2": 0.2,
+                "kc_position_20_1_5": 0.2,
+                "cross_close_rolling_high_20_code": 0,
+                "cross_close_rolling_low_20_code": -1,
+            },
         ]
     )
     spec = StrategySpec(
@@ -416,13 +503,21 @@ def test_trend_surface_runs_1000_param_rows_as_one_vectorbt_surface() -> None:
         search_run_id="VBTSEARCH-UNIT",
         config=BacktestEngineConfig(signal_shift_bars=1),
     )
-    portfolio = run_surface_portfolio(bundle=bundle, surface=surface, config=BacktestEngineConfig(signal_shift_bars=1))
+    portfolio = run_surface_portfolio(
+        bundle=bundle, surface=surface, config=BacktestEngineConfig(signal_shift_bars=1)
+    )
 
     assert len(param_rows) == 1_000
     assert surface.diagnostics["surface_engine"] == "vectorbt.SignalFactory.from_choice_func"
     assert surface.diagnostics["input_resolver"] == "mtf_input_resolver"
     assert surface.diagnostics["portfolio_engine"] == "vectorbt.Portfolio.from_signals"
-    assert surface.columns.names == ["family_key", "surface_key", "template_key", "param_hash", "instrument_id"]
+    assert surface.columns.names == [
+        "family_key",
+        "surface_key",
+        "template_key",
+        "param_hash",
+        "instrument_id",
+    ]
     assert surface.entries.shape == (48, 3_000)
     assert portfolio.wrapper.shape == (48, 3_000)
     assert surface.entries.iloc[0].sum() == 0
@@ -438,7 +533,11 @@ def test_trend_search_spec_declares_mtf_input_contract_without_mtf_indicator_inp
     assert spec.clock_profile["trigger_tf"] == "1h"
     assert spec.clock_profile["execution_tf"] == "15m"
     assert spec.required_inputs_by_clock["regime"]["timeframe"] == "1d"
-    assert set(spec.required_inputs_by_clock["regime"]["materialized_indicators"]) >= {"adx_14", "ema_20", "ema_50"}
+    assert set(spec.required_inputs_by_clock["regime"]["materialized_indicators"]) >= {
+        "adx_14",
+        "ema_20",
+        "ema_50",
+    }
     assert spec.required_inputs_by_clock["signal"]["timeframe"] == "4h"
     assert spec.required_inputs_by_clock["trigger"]["timeframe"] == "1h"
     assert spec.required_inputs_by_clock["execution"]["timeframe"] == "15m"
@@ -513,7 +612,73 @@ def test_trend_surface_uses_mtf_input_resolver_then_aligns_events_to_execution()
     assert surface.entries.shape == (48, 4)
     assert portfolio.wrapper.shape == (48, 4)
     assert surface.entries.iloc[0].sum() == 0
-    assert not any("mtf_" in column for layer in surface.indicator_plan.inputs_by_clock.values() for column in layer.get("materialized_derived", ()))
+    assert not any(
+        "mtf_" in column
+        for layer in surface.indicator_plan.inputs_by_clock.values()
+        for column in layer.get("materialized_derived", ())
+    )
+
+
+def test_mtf_native_clock_alignment_uses_closed_source_bar_time() -> None:
+    execution_frame = _frame(
+        [
+            {
+                "ts": f"2026-03-16T{10 + (index // 4):02d}:{(index % 4) * 15:02d}:00Z",
+                "timeframe": "15m",
+                "close": 100.0 + index,
+            }
+            for index in range(6)
+        ]
+    )
+    source_frame = _frame(
+        [
+            {
+                "ts": "2026-03-16T10:00:00Z",
+                "bar_end_ts": "2026-03-16T11:00:00Z",
+                "timeframe": "1h",
+                "close": 110.0,
+                "ema_20": 111.0,
+            }
+        ]
+    )
+
+    bundle = build_input_bundle(
+        (
+            ResearchSeriesFrame(
+                contract_id="BR-6.26",
+                instrument_id="BR",
+                timeframe="15m",
+                frame=execution_frame,
+            ),
+            ResearchSeriesFrame(
+                contract_id="BR-6.26",
+                instrument_id="BR",
+                timeframe="1h",
+                frame=source_frame,
+            ),
+        ),
+        dataset_version="dataset-v5",
+        indicator_set_version="indicators-v1",
+        derived_indicator_set_version="derived-v1",
+        clock_profile={"name": "unit-clock", "execution_tf": "15m"},
+        execution_timeframe="15m",
+    )
+
+    native = bundle.field_at("ema_20", "1h")
+    aligned = bundle.field_at("ema_20", "1h", align_to_execution=True)["BR"]
+
+    assert native.index.tolist() == [pd.Timestamp("2026-03-16T11:00:00Z")]
+    assert aligned.loc[:"2026-03-16T10:45:00Z"].isna().all()
+    assert pd.isna(aligned.loc["2026-03-16T11:00:00Z"])
+    assert aligned.loc["2026-03-16T11:15:00Z"] == 111.0
+
+    native_state = pd.DataFrame(
+        {"BR": [True]}, index=pd.to_datetime(["2026-03-16T11:00:00Z"], utc=True)
+    )
+    aligned_state = _align_bool_frame_to_execution(bundle, native_state)
+
+    assert not bool(aligned_state[bundle.index.get_loc(pd.Timestamp("2026-03-16T11:00:00Z")), 0])
+    assert bool(aligned_state[bundle.index.get_loc(pd.Timestamp("2026-03-16T11:15:00Z")), 0])
 
 
 def test_mtf_pullback_surface_uses_native_signal_adx_index() -> None:
@@ -566,7 +731,9 @@ def test_mtf_pullback_surface_uses_native_signal_adx_index() -> None:
 
 def test_missing_mtf_input_fails_at_indicator_plan_gate_without_fallback() -> None:
     frame = _trend_surface_series("BR").frame.drop(columns=["mtf_1d_to_4h_adx_14"])
-    series = ResearchSeriesFrame(contract_id="BR-6.26", instrument_id="BR", timeframe="15m", frame=frame)
+    series = ResearchSeriesFrame(
+        contract_id="BR-6.26", instrument_id="BR", timeframe="15m", frame=frame
+    )
 
     report = run_vectorbt_family_search(
         series_frames=(series,),
@@ -629,26 +796,167 @@ def test_optuna_family_search_records_delta_first_optimizer_provenance() -> None
     assert len(report["optimizer_study_rows"]) == 1
     assert report["optimizer_study_rows"][0]["optimizer_engine"] == "optuna"
     assert report["optimizer_study_rows"][0]["objective_name"] == "robust_oos_trial_v1"
-    assert report["optimizer_study_rows"][0]["study_config_json"]["selection_owner"] == "optuna.study"
-    assert report["optimizer_study_rows"][0]["study_config_json"]["constraints_func"] == "ta3000.robust_oos_trial_constraints"
+    assert (
+        report["optimizer_study_rows"][0]["study_config_json"]["selection_owner"] == "optuna.study"
+    )
+    assert (
+        report["optimizer_study_rows"][0]["study_config_json"]["constraints_func"]
+        == "ta3000.robust_oos_trial_constraints"
+    )
     assert report["optimizer_study_rows"][0]["study_config_json"]["ask_tell_batch_count"] == 2
     assert report["optimizer_study_rows"][0]["study_config_json"]["ask_tell_batch_size"] == 2
-    diagnostics = report["optimizer_study_rows"][0]["study_config_json"]["parameter_space_diagnostics"]
+    diagnostics = report["optimizer_study_rows"][0]["study_config_json"][
+        "parameter_space_diagnostics"
+    ]
     assert diagnostics["choice_counts"]["adx_min"] == 3
     assert diagnostics["observed_unique_value_counts"]["adx_min"] >= 1
     assert {row["trial_kind"] for row in report["optimizer_trial_rows"]} >= {"optuna_trial"}
     assert "neighborhood_probe" not in {row["trial_kind"] for row in report["optimizer_trial_rows"]}
     assert all(row["param_hash"] for row in report["optimizer_trial_rows"])
-    assert all(row["objective_components_json"]["signal_generator"] == "vectorbt.SignalFactory.from_choice_func" for row in report["optimizer_trial_rows"])
-    assert all(row["objective_components_json"]["input_resolver"] == "mtf_input_resolver" for row in report["optimizer_trial_rows"])
-    assert all(row["objective_components_json"]["selection_owner"] == "optuna.study" for row in report["optimizer_trial_rows"])
-    assert all("constraint_values" in row["objective_components_json"] for row in report["optimizer_trial_rows"])
-    assert all("net_pnl_total" in row["objective_components_json"] for row in report["optimizer_trial_rows"])
-    assert all("profit_factor_mean" in row["objective_components_json"] for row in report["optimizer_trial_rows"])
-    assert all("total_return_mean" in row["objective_components_json"] for row in report["optimizer_trial_rows"])
-    assert all("policy_metric_vector" in row["objective_components_json"] for row in report["optimizer_trial_rows"])
+    assert all(
+        row["objective_components_json"]["signal_generator"]
+        == "vectorbt.SignalFactory.from_choice_func"
+        for row in report["optimizer_trial_rows"]
+    )
+    assert all(
+        row["objective_components_json"]["input_resolver"] == "mtf_input_resolver"
+        for row in report["optimizer_trial_rows"]
+    )
+    assert all(
+        row["objective_components_json"]["selection_owner"] == "optuna.study"
+        for row in report["optimizer_trial_rows"]
+    )
+    assert all(
+        "constraint_values" in row["objective_components_json"]
+        for row in report["optimizer_trial_rows"]
+    )
+    assert all(
+        "net_pnl_total" in row["objective_components_json"]
+        for row in report["optimizer_trial_rows"]
+    )
+    assert all(
+        "profit_factor_mean" in row["objective_components_json"]
+        for row in report["optimizer_trial_rows"]
+    )
+    assert all(
+        "total_return_mean" in row["objective_components_json"]
+        for row in report["optimizer_trial_rows"]
+    )
+    assert all(
+        "policy_metric_vector" in row["objective_components_json"]
+        for row in report["optimizer_trial_rows"]
+    )
     assert len({row["param_hash"] for row in report["param_result_rows"]}) <= 4
     assert report["search_run_rows"]
+
+
+def test_optuna_nested_confirmation_is_blind_vectorbt_evidence_only() -> None:
+    base_spec = _trend_search_spec(max_parameter_combinations=16)
+    spec = StrategyFamilySearchSpec(
+        **{
+            **base_spec.to_dict(),
+            "parameter_space": {
+                "adx_min": (20, 30),
+                "ema_slope_min": (0.0,),
+                "pullback_atr_max": (0.6,),
+                "exit_stop_atr": (1.5,),
+                "exit_target_atr": (2.5,),
+                "risk_fraction": (0.01,),
+            },
+        }
+    )
+    split_windows = (
+        {
+            "window_id": "outer-01__inner-01__optimization",
+            "validation_split_id": "outer-01__inner-01__optimization",
+            "validation_scheme": "nested_walk_forward_v1",
+            "outer_fold_id": "outer-01",
+            "inner_fold_id": "inner-01",
+            "fold_role": "optimization_validation",
+            "optimizer_visible": True,
+            "score_start_ts": "2026-03-16T09:00:00Z",
+            "score_end_ts": "2026-03-16T12:00:00Z",
+            "analysis_start_ts": "2026-03-16T00:00:00Z",
+            "analysis_end_ts": "2026-03-16T09:00:00Z",
+        },
+        {
+            "window_id": "outer-01__inner-02__optimization",
+            "validation_split_id": "outer-01__inner-02__optimization",
+            "validation_scheme": "nested_walk_forward_v1",
+            "outer_fold_id": "outer-01",
+            "inner_fold_id": "inner-02",
+            "fold_role": "optimization_validation",
+            "optimizer_visible": True,
+            "score_start_ts": "2026-03-16T12:00:00Z",
+            "score_end_ts": "2026-03-16T15:00:00Z",
+            "analysis_start_ts": "2026-03-16T00:00:00Z",
+            "analysis_end_ts": "2026-03-16T12:00:00Z",
+        },
+        {
+            "window_id": "outer-01__confirmation",
+            "validation_split_id": "outer-01__confirmation",
+            "validation_scheme": "nested_walk_forward_v1",
+            "outer_fold_id": "outer-01",
+            "inner_fold_id": "",
+            "fold_role": "confirmation",
+            "optimizer_visible": False,
+            "score_start_ts": "2026-03-16T15:00:00Z",
+            "score_end_ts": "2026-03-16T18:00:00Z",
+            "analysis_start_ts": "2026-03-16T00:00:00Z",
+            "analysis_end_ts": "2026-03-16T15:00:00Z",
+        },
+    )
+
+    report = run_vectorbt_family_search(
+        series_frames=(_trend_surface_series("BR"),),
+        search_spec=spec,
+        config=BacktestEngineConfig(window_count=1),
+        backtest_batch_id="BTBATCH-OPTUNA-NESTED",
+        campaign_run_id="CRUN-OPTUNA-NESTED",
+        strategy_space_id="SSPACE-OPTUNA-NESTED",
+        dataset_version="dataset-v5",
+        indicator_set_version="indicators-v1",
+        derived_indicator_set_version="derived-v1",
+        split_windows=split_windows,
+        param_batch_size=2,
+        optimizer_policy={
+            "engine": "optuna",
+            "sampler": "tpe",
+            "seed": 7,
+            "n_trials": 4,
+            "objective": "robust_oos_trial_v1",
+            "direction": "maximize",
+            "top_k": 1,
+            "radius": 0,
+            "max_neighborhood_trials": 0,
+            "min_fold_count": 2,
+            "min_trade_count": 1,
+            "min_trade_count_per_fold": 1,
+            "min_positive_fold_ratio": 0.0,
+            "max_drawdown_cap": 1.0,
+            "require_out_of_sample_pass": False,
+            "min_parameter_stability": 0.0,
+            "min_slippage_score": 0.0,
+        },
+    )
+
+    assert report["optimizer_trial_rows"]
+    assert all(
+        "CONFIRM" not in " ".join(row["search_run_ids_json"])
+        for row in report["optimizer_trial_rows"]
+    )
+    assert {row["fold_role"] for row in report["param_result_rows"]} == {
+        "optimization_validation",
+        "confirmation",
+    }
+    assert {
+        row["optimizer_visible"]
+        for row in report["param_result_rows"]
+        if row["fold_role"] == "confirmation"
+    } == {False}
+    assert report["optimizer_selection_rows"][0]["selection_role"] == "latest_frozen_param"
+    assert report["optimizer_selection_rows"][0]["confirmation_required"] is True
+    assert [row["fold_role"] for row in report["validation_fold_rows"]].count("confirmation") == 1
 
 
 def test_optuna_family_search_does_not_promote_infeasible_trials_to_best() -> None:
@@ -689,15 +997,15 @@ def test_optuna_family_search_does_not_promote_infeasible_trials_to_best() -> No
 
     study_row = report["optimizer_study_rows"][0]
     completed_trials = [
-        row
-        for row in report["optimizer_trial_rows"]
-        if row["status"] in {"completed", "duplicate"}
+        row for row in report["optimizer_trial_rows"] if row["status"] in {"completed", "duplicate"}
     ]
     assert completed_trials
     assert study_row["status"] == "no_feasible_trials"
     assert study_row["best_trial_number"] == -1
     assert all(not row["constraints_passed"] for row in completed_trials)
-    assert all(row["objective_components_json"]["constraint_values"][-1] > 0.0 for row in completed_trials)
+    assert all(
+        row["objective_components_json"]["constraint_values"][-1] > 0.0 for row in completed_trials
+    )
 
 
 def test_optuna_family_search_deduplicates_same_batch_trials_before_signal_factory() -> None:
@@ -753,8 +1061,7 @@ def test_missing_native_clock_input_fails_without_mtf_fallback() -> None:
         template_key="trend_movement_cross",
     )
     series_frames = tuple(
-        _native_clock_trend_series("BR", timeframe)
-        for timeframe in ("15m", "4h", "1d")
+        _native_clock_trend_series("BR", timeframe) for timeframe in ("15m", "4h", "1d")
     )
 
     report = run_vectorbt_family_search(

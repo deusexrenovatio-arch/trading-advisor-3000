@@ -55,6 +55,34 @@ def test_research_campaign_v1_keeps_continuous_front_policy_fields_optional() ->
     validate_schema(schema, payload)
 
 
+def test_research_campaign_v1_accepts_nested_walk_forward_validation() -> None:
+    schema = load_schema(SCHEMAS / "research_campaign.v1.json")
+    payload = _load_json(FIXTURES / "research_campaign.v1.json")
+    payload["validation"] = {
+        "scheme": "nested_walk_forward_v1",
+        "outer_folds": {
+            "train_months": 18,
+            "confirmation_months": 3,
+            "step_months": 3,
+        },
+        "inner_folds": {
+            "train_months": 9,
+            "validation_months": 3,
+            "step_months": 3,
+        },
+        "leakage_controls": {
+            "purge_bars": 32,
+            "embargo_bars": 16,
+        },
+        "verdicts": {
+            "walk_forward_reoptimization": True,
+            "latest_frozen_param_confirmation": True,
+        },
+    }
+
+    validate_schema(schema, payload)
+
+
 def test_research_campaign_v1_rejects_empty_volume_profile_raw_path() -> None:
     schema = load_schema(SCHEMAS / "research_campaign.v1.json")
     payload = _load_json(FIXTURES / "research_campaign.v1.json")

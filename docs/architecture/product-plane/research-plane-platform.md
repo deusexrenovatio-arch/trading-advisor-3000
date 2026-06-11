@@ -17,11 +17,13 @@ canonical data
   -> research_strategy_families / research_strategy_templates / research_strategy_template_modules
   -> StrategyFamilySearchSpec
   -> MTF input resolver / vectorbt SignalFactory / vectorbt Portfolio.from_signals
-  -> research_strategy_search_specs / research_optimizer_studies / research_optimizer_trials
+  -> research_strategy_search_specs / research_optimizer_studies / research_optimizer_trials / research_optimizer_selections
+  -> research_validation_folds, when strict nested validation is configured
   -> research_vbt_search_runs / research_vbt_param_results / research_vbt_param_gate_events
   -> compatibility runs / stats / trades / orders / drawdowns
   -> research_strategy_rankings / research_run_findings
   -> research_signal_candidates
+  -> research_strategy_evaluation_profiles
   -> promotion events, only for selected winners
   -> research_run_stats_index / research_rankings_index / research_strategy_notes
   -> runtime
@@ -35,7 +37,9 @@ What this means in practice:
 - backtest inputs are read from Delta through native Delta/Arrow predicates and strategy-column projection before Python/vectorbt sees them;
 - vectorbt receives family-level MTF-resolved matrix inputs, generates entry/exit indices through `SignalFactory.from_choice_func`, and executes through `Portfolio.from_signals`;
 - primary result identity is `param_hash`, while compatibility tables may still expose downstream run/stat/trade rows for ranking and projection consumers;
-- adaptive optimizer state is Delta-first run provenance; Optuna proposes trial parameters, while `research_optimizer_studies` and `research_optimizer_trials` explain selected `param_hash` rows and vectorbt result tables remain the execution truth;
+- adaptive optimizer state is Delta-first run provenance; Optuna proposes trial parameters, while `research_optimizer_studies`, `research_optimizer_trials`, and `research_optimizer_selections` explain selected `param_hash` rows and vectorbt result tables remain the execution truth;
+- `nested_walk_forward_v1` separates optimizer-visible validation folds from blind confirmation folds; confirmation runs use the frozen selected `param_hash` and can only pass or fail the strategy evaluation verdict;
+- `policy_pass` is only research ranking success; `research_strategy_evaluation_profiles` records paper-signal, paper-trade, and live-candidate readiness with blocker reasons in the same post-backtest evaluation output;
 - Dagster handoff between research assets passes Delta manifests, paths, row counts, and run metadata; large row sets such as trades, stats, and ranking inputs are read from Delta inside the owning step instead of being pickled through the orchestrator;
 - repeated research runs reuse the materialized layer and in-process cache;
 - successful campaign runs publish global run-stat/ranking indices and strategy notes from the research registry root;
@@ -119,6 +123,8 @@ Backtest layer:
 - `research_strategy_search_specs`
 - `research_optimizer_studies`
 - `research_optimizer_trials`
+- `research_optimizer_selections`
+- `research_validation_folds`
 - `research_vbt_search_runs`
 - `research_vbt_param_results`
 - `research_vbt_param_gate_events`
@@ -131,6 +137,7 @@ Backtest layer:
 - `research_order_records`
 - `research_drawdown_records`
 - `research_strategy_rankings`
+- `research_strategy_evaluation_profiles`
 
 Projection layer:
 - `research_signal_candidates`

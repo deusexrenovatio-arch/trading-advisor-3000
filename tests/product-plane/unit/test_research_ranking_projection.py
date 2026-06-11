@@ -1,5 +1,8 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
+from pathlib import Path
+
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows
 from trading_advisor_3000.product_plane.research.backtests import (
     RankingPolicy,
     default_ranking_policy,
@@ -124,9 +127,16 @@ def _trade_row(
 
 def test_default_ranking_policy_is_declared_for_stage6() -> None:
     policy = default_ranking_policy()
-    assert policy.policy_id == "robust_oos_v1"
-    assert policy.metric_order == ("total_return", "profit_factor", "max_drawdown")
-    assert policy.min_fold_count == 1
+    assert policy.policy_id == "research_screen_strict_v1"
+    assert policy.metric_order == ("sharpe", "profit_factor", "max_drawdown", "total_return")
+    assert policy.min_trade_count == 12
+    assert policy.min_trade_count_per_fold == 4
+    assert policy.min_fold_count == 2
+    assert policy.max_drawdown_cap == 0.25
+    assert policy.min_positive_fold_ratio == 0.67
+    assert policy.stress_slippage_bps == 12.5
+    assert policy.min_parameter_stability == 0.55
+    assert policy.min_slippage_score == 0.60
 
 
 def test_optimizer_objective_components_keep_raw_strategy_metrics() -> None:
@@ -177,6 +187,7 @@ def test_optimizer_objective_components_keep_raw_strategy_metrics() -> None:
             policy_id="objective-components-test",
             metric_order=("total_return", "profit_factor", "max_drawdown"),
             min_trade_count=1,
+            min_trade_count_per_fold=1,
             max_drawdown_cap=0.35,
             min_positive_fold_ratio=0.5,
             min_parameter_stability=0.0,
@@ -217,6 +228,7 @@ def test_optimizer_objective_rejects_single_fold_when_policy_requires_more() -> 
             policy_id="fold-count-test",
             metric_order=("total_return", "profit_factor", "max_drawdown"),
             min_trade_count=1,
+            min_trade_count_per_fold=1,
             min_fold_count=2,
             max_drawdown_cap=0.35,
             min_positive_fold_ratio=0.0,
@@ -233,28 +245,116 @@ def test_optimizer_objective_rejects_single_fold_when_policy_requires_more() -> 
 
 def test_ranking_orders_robust_parameter_sets_and_marks_weak_ones() -> None:
     run_rows = [
-        _run_row(run_id="RUN-A-1", params_hash="PA", params_json={"fast_window": 10, "slow_window": 20}, window_id="wf-01"),
-        _run_row(run_id="RUN-A-2", params_hash="PA", params_json={"fast_window": 10, "slow_window": 20}, window_id="wf-02"),
-        _run_row(run_id="RUN-B-1", params_hash="PB", params_json={"fast_window": 20, "slow_window": 20}, window_id="wf-01"),
-        _run_row(run_id="RUN-B-2", params_hash="PB", params_json={"fast_window": 20, "slow_window": 20}, window_id="wf-02"),
-        _run_row(run_id="RUN-C-1", params_hash="PC", params_json={"fast_window": 10, "slow_window": 50}, window_id="wf-01"),
-        _run_row(run_id="RUN-C-2", params_hash="PC", params_json={"fast_window": 10, "slow_window": 50}, window_id="wf-02"),
+        _run_row(
+            run_id="RUN-A-1",
+            params_hash="PA",
+            params_json={"fast_window": 10, "slow_window": 20},
+            window_id="wf-01",
+        ),
+        _run_row(
+            run_id="RUN-A-2",
+            params_hash="PA",
+            params_json={"fast_window": 10, "slow_window": 20},
+            window_id="wf-02",
+        ),
+        _run_row(
+            run_id="RUN-B-1",
+            params_hash="PB",
+            params_json={"fast_window": 20, "slow_window": 20},
+            window_id="wf-01",
+        ),
+        _run_row(
+            run_id="RUN-B-2",
+            params_hash="PB",
+            params_json={"fast_window": 20, "slow_window": 20},
+            window_id="wf-02",
+        ),
+        _run_row(
+            run_id="RUN-C-1",
+            params_hash="PC",
+            params_json={"fast_window": 10, "slow_window": 50},
+            window_id="wf-01",
+        ),
+        _run_row(
+            run_id="RUN-C-2",
+            params_hash="PC",
+            params_json={"fast_window": 10, "slow_window": 50},
+            window_id="wf-02",
+        ),
     ]
     stat_rows = [
-        _stat_row(run_id="RUN-A-1", params_hash="PA", window_id="wf-01", total_return=0.12, sharpe=1.6, profit_factor=1.8, max_drawdown=0.10, trade_count=3),
-        _stat_row(run_id="RUN-A-2", params_hash="PA", window_id="wf-02", total_return=0.08, sharpe=1.4, profit_factor=1.7, max_drawdown=0.12, trade_count=4),
-        _stat_row(run_id="RUN-B-1", params_hash="PB", window_id="wf-01", total_return=-0.03, sharpe=0.4, profit_factor=0.9, max_drawdown=0.42, trade_count=1),
-        _stat_row(run_id="RUN-B-2", params_hash="PB", window_id="wf-02", total_return=0.01, sharpe=0.5, profit_factor=0.95, max_drawdown=0.39, trade_count=1),
-        _stat_row(run_id="RUN-C-1", params_hash="PC", window_id="wf-01", total_return=0.10, sharpe=1.3, profit_factor=1.5, max_drawdown=0.14, trade_count=3),
-        _stat_row(run_id="RUN-C-2", params_hash="PC", window_id="wf-02", total_return=0.07, sharpe=1.2, profit_factor=1.4, max_drawdown=0.16, trade_count=3),
+        _stat_row(
+            run_id="RUN-A-1",
+            params_hash="PA",
+            window_id="wf-01",
+            total_return=0.12,
+            sharpe=1.6,
+            profit_factor=1.8,
+            max_drawdown=0.10,
+            trade_count=3,
+        ),
+        _stat_row(
+            run_id="RUN-A-2",
+            params_hash="PA",
+            window_id="wf-02",
+            total_return=0.08,
+            sharpe=1.4,
+            profit_factor=1.7,
+            max_drawdown=0.12,
+            trade_count=4,
+        ),
+        _stat_row(
+            run_id="RUN-B-1",
+            params_hash="PB",
+            window_id="wf-01",
+            total_return=-0.03,
+            sharpe=0.4,
+            profit_factor=0.9,
+            max_drawdown=0.42,
+            trade_count=1,
+        ),
+        _stat_row(
+            run_id="RUN-B-2",
+            params_hash="PB",
+            window_id="wf-02",
+            total_return=0.01,
+            sharpe=0.5,
+            profit_factor=0.95,
+            max_drawdown=0.39,
+            trade_count=1,
+        ),
+        _stat_row(
+            run_id="RUN-C-1",
+            params_hash="PC",
+            window_id="wf-01",
+            total_return=0.10,
+            sharpe=1.3,
+            profit_factor=1.5,
+            max_drawdown=0.14,
+            trade_count=3,
+        ),
+        _stat_row(
+            run_id="RUN-C-2",
+            params_hash="PC",
+            window_id="wf-02",
+            total_return=0.07,
+            sharpe=1.2,
+            profit_factor=1.4,
+            max_drawdown=0.16,
+            trade_count=3,
+        ),
     ]
     trade_rows = [
         _trade_row(run_id="RUN-A-1", trade_id="TRD-A1", pnl=120.0),
         _trade_row(run_id="RUN-A-1", trade_id="TRD-A2", pnl=80.0),
         _trade_row(run_id="RUN-A-2", trade_id="TRD-A3", pnl=70.0),
         _trade_row(run_id="RUN-A-2", trade_id="TRD-A4", pnl=65.0),
-        _trade_row(run_id="RUN-B-1", trade_id="TRD-B1", pnl=-40.0, entry_price=100.0, exit_price=99.2),
-        _trade_row(run_id="RUN-B-2", trade_id="TRD-B2", pnl=5.0, entry_price=100.0, exit_price=100.1),
+        _trade_row(
+            run_id="RUN-B-1", trade_id="TRD-B1", pnl=-40.0, entry_price=100.0, exit_price=99.2
+        ),
+        _trade_row(
+            run_id="RUN-B-2", trade_id="TRD-B2", pnl=5.0, entry_price=100.0, exit_price=100.1
+        ),
         _trade_row(run_id="RUN-C-1", trade_id="TRD-C1", pnl=90.0),
         _trade_row(run_id="RUN-C-1", trade_id="TRD-C2", pnl=70.0),
         _trade_row(run_id="RUN-C-2", trade_id="TRD-C3", pnl=60.0),
@@ -264,6 +364,7 @@ def test_ranking_orders_robust_parameter_sets_and_marks_weak_ones() -> None:
         policy_id="stage6-test-policy",
         metric_order=("total_return", "profit_factor", "max_drawdown"),
         min_trade_count=2,
+        min_trade_count_per_fold=1,
         max_drawdown_cap=0.35,
         min_positive_fold_ratio=0.5,
         min_parameter_stability=0.0,
@@ -295,7 +396,12 @@ def test_ranking_orders_robust_parameter_sets_and_marks_weak_ones() -> None:
 
 def test_ranking_blocks_projection_when_fold_count_is_too_low() -> None:
     run_rows = [
-        _run_row(run_id="RUN-FOLD-1", params_hash="PF", params_json={"fast_window": 10}, window_id="wf-01"),
+        _run_row(
+            run_id="RUN-FOLD-1",
+            params_hash="PF",
+            params_json={"fast_window": 10},
+            window_id="wf-01",
+        ),
     ]
     stat_rows = [
         _stat_row(
@@ -324,6 +430,7 @@ def test_ranking_blocks_projection_when_fold_count_is_too_low() -> None:
             policy_id="fold-count-ranking-test",
             metric_order=("total_return", "profit_factor", "max_drawdown"),
             min_trade_count=1,
+            min_trade_count_per_fold=1,
             min_fold_count=2,
             max_drawdown_cap=0.35,
             min_positive_fold_ratio=0.0,
@@ -340,8 +447,56 @@ def test_ranking_blocks_projection_when_fold_count_is_too_low() -> None:
     assert row["rank_reason_json"]["policy_thresholds"]["min_fold_count"] == 2
 
 
+def test_ranking_writes_strategy_evaluation_profile_artifact(tmp_path: Path) -> None:
+    report = rank_backtest_results(
+        output_dir=tmp_path,
+        batch_rows=[{"backtest_batch_id": "BTBATCH-STAGE6"}],
+        run_rows=[
+            _run_row(
+                run_id="RUN-ACCEPT-1",
+                params_hash="PA",
+                params_json={"fast_window": 10},
+                window_id="wf-01",
+            )
+        ],
+        stat_rows=[
+            _stat_row(
+                run_id="RUN-ACCEPT-1",
+                params_hash="PA",
+                window_id="wf-01",
+                total_return=0.12,
+                sharpe=1.4,
+                profit_factor=1.8,
+                max_drawdown=0.10,
+                trade_count=3,
+            )
+        ],
+        trade_rows=[_trade_row(run_id="RUN-ACCEPT-1", trade_id="TRD-ACCEPT-1", pnl=90.0)],
+        policy=RankingPolicy(
+            policy_id="acceptance-artifact-test",
+            metric_order=("total_return", "profit_factor", "max_drawdown"),
+            min_trade_count=1,
+            min_trade_count_per_fold=1,
+            min_fold_count=1,
+            min_parameter_stability=0.0,
+            min_slippage_score=0.0,
+        ),
+    )
+
+    profile_path = Path(str(report["output_paths"]["research_strategy_evaluation_profiles"]))
+    profile_rows = read_delta_table_rows(profile_path)
+
+    assert len(profile_rows) == 1
+    profile = profile_rows[0]
+    assert profile["policy_pass"] is True
+    assert profile["verdict"] == "research-only"
+    assert "missing_projected_candidate" in profile["blocker_reasons_json"]
+
+
 def test_ranking_trade_stress_uses_composite_run_identity_when_run_ids_repeat() -> None:
-    base_run = _run_row(run_id="RUN-DUP", params_hash="PA", params_json={"fast_window": 10}, window_id="wf-01")
+    base_run = _run_row(
+        run_id="RUN-DUP", params_hash="PA", params_json={"fast_window": 10}, window_id="wf-01"
+    )
     other_run = {
         **base_run,
         "contract_id": "BR-9.26",
@@ -392,6 +547,8 @@ def test_ranking_trade_stress_uses_composite_run_identity_when_run_ids_repeat() 
             policy_id="composite-run-key-test",
             metric_order=("total_return", "profit_factor", "max_drawdown"),
             min_trade_count=1,
+            min_trade_count_per_fold=1,
+            min_fold_count=1,
             max_drawdown_cap=0.35,
             min_positive_fold_ratio=0.5,
             min_parameter_stability=0.0,
@@ -409,12 +566,34 @@ def test_ranking_trade_stress_uses_composite_run_identity_when_run_ids_repeat() 
 
 def test_metric_order_really_changes_ranking_priority() -> None:
     run_rows = [
-        _run_row(run_id="RUN-R-1", params_hash="PA", params_json={"fast_window": 10}, window_id="wf-01"),
-        _run_row(run_id="RUN-R-2", params_hash="PB", params_json={"fast_window": 20}, window_id="wf-01"),
+        _run_row(
+            run_id="RUN-R-1", params_hash="PA", params_json={"fast_window": 10}, window_id="wf-01"
+        ),
+        _run_row(
+            run_id="RUN-R-2", params_hash="PB", params_json={"fast_window": 20}, window_id="wf-01"
+        ),
     ]
     stat_rows = [
-        _stat_row(run_id="RUN-R-1", params_hash="PA", window_id="wf-01", total_return=0.14, sharpe=1.0, profit_factor=1.05, max_drawdown=0.16, trade_count=3),
-        _stat_row(run_id="RUN-R-2", params_hash="PB", window_id="wf-01", total_return=0.09, sharpe=1.0, profit_factor=1.90, max_drawdown=0.10, trade_count=3),
+        _stat_row(
+            run_id="RUN-R-1",
+            params_hash="PA",
+            window_id="wf-01",
+            total_return=0.14,
+            sharpe=1.0,
+            profit_factor=1.05,
+            max_drawdown=0.16,
+            trade_count=3,
+        ),
+        _stat_row(
+            run_id="RUN-R-2",
+            params_hash="PB",
+            window_id="wf-01",
+            total_return=0.09,
+            sharpe=1.0,
+            profit_factor=1.90,
+            max_drawdown=0.10,
+            trade_count=3,
+        ),
     ]
     trade_rows = [
         _trade_row(run_id="RUN-R-1", trade_id="TRD-R1", pnl=70.0),
@@ -424,6 +603,7 @@ def test_metric_order_really_changes_ranking_priority() -> None:
         policy_id="return-first",
         metric_order=("total_return", "profit_factor", "max_drawdown"),
         min_trade_count=1,
+        min_trade_count_per_fold=1,
         max_drawdown_cap=0.5,
         min_positive_fold_ratio=0.0,
         min_parameter_stability=0.0,
@@ -433,6 +613,7 @@ def test_metric_order_really_changes_ranking_priority() -> None:
         policy_id="pf-first",
         metric_order=("profit_factor", "total_return", "max_drawdown"),
         min_trade_count=1,
+        min_trade_count_per_fold=1,
         max_drawdown_cap=0.5,
         min_positive_fold_ratio=0.0,
         min_parameter_stability=0.0,
@@ -470,7 +651,12 @@ def test_ranking_keeps_family_first_survivors_before_cross_family_selection() ->
     ):
         run_rows.append(
             {
-                **_run_row(run_id=run_id, params_hash=params_hash, params_json={"slot": params_hash}, window_id="wf-01"),
+                **_run_row(
+                    run_id=run_id,
+                    params_hash=params_hash,
+                    params_json={"slot": params_hash},
+                    window_id="wf-01",
+                ),
                 "strategy_version_label": label,
                 "family_key": family,
                 "strategy_template_id": f"stpl_{family}",
@@ -497,11 +683,17 @@ def test_ranking_keeps_family_first_survivors_before_cross_family_selection() ->
         batch_rows=[{"backtest_batch_id": "BTBATCH-STAGE6"}],
         run_rows=run_rows,
         stat_rows=stat_rows,
-        trade_rows=[_trade_row(run_id=row["backtest_run_id"], trade_id=f"TRD-{row['backtest_run_id']}", pnl=50.0) for row in run_rows],
+        trade_rows=[
+            _trade_row(
+                run_id=row["backtest_run_id"], trade_id=f"TRD-{row['backtest_run_id']}", pnl=50.0
+            )
+            for row in run_rows
+        ],
         policy=RankingPolicy(
             policy_id="family-first-test",
             metric_order=("total_return", "profit_factor", "max_drawdown"),
             min_trade_count=1,
+            min_trade_count_per_fold=1,
             max_drawdown_cap=0.5,
             min_positive_fold_ratio=0.0,
             min_parameter_stability=0.0,
@@ -518,7 +710,7 @@ def test_ranking_keeps_family_first_survivors_before_cross_family_selection() ->
 def test_projection_selection_policy_really_changes_selected_rows() -> None:
     rows = [
         {
-            "ranking_policy_id": "robust_oos_v1",
+            "ranking_policy_id": "research_screen_strict_v1",
             "policy_pass": 1,
             "robust_score": 0.80,
             "policy_metric_score": 0.60,
@@ -530,7 +722,7 @@ def test_projection_selection_policy_really_changes_selected_rows() -> None:
             "timeframe": "15m",
         },
         {
-            "ranking_policy_id": "robust_oos_v1",
+            "ranking_policy_id": "research_screen_strict_v1",
             "policy_pass": 1,
             "robust_score": 0.66,
             "policy_metric_score": 0.92,
@@ -542,7 +734,7 @@ def test_projection_selection_policy_really_changes_selected_rows() -> None:
             "timeframe": "15m",
         },
         {
-            "ranking_policy_id": "robust_oos_v1",
+            "ranking_policy_id": "research_screen_strict_v1",
             "policy_pass": 1,
             "robust_score": 0.64,
             "policy_metric_score": 0.58,
@@ -565,7 +757,9 @@ def test_projection_selection_policy_really_changes_selected_rows() -> None:
     )
     family_selected = _select_rows(
         rows,
-        request=CandidateProjectionRequest(selection_policy="top_by_family_per_series", max_candidates_per_partition=2),
+        request=CandidateProjectionRequest(
+            selection_policy="top_by_family_per_series", max_candidates_per_partition=2
+        ),
     )
     all_selected = _select_rows(
         rows,
@@ -594,7 +788,7 @@ def test_projection_can_select_accepted_optuna_trials_without_strategy_ranking_r
                 "template_key": "ma_cross",
                 "study_config_json": {
                     "selection_owner": "optuna.study",
-                    "ranking_policy": {"policy_id": "robust_oos_v1"},
+                    "ranking_policy": {"policy_id": "research_screen_strict_v1"},
                 },
             }
         ],
@@ -658,5 +852,8 @@ def test_projection_can_select_accepted_optuna_trials_without_strategy_ranking_r
     assert len(projection_rows) == 1
     assert selected[0]["ranking_id"].startswith("OPTSEL-")
     assert selected[0]["score_total"] == 0.72
-    assert selected[0]["rank_reason_json"]["parameter_values"] == {"fast_window": 10, "slow_window": 20}
+    assert selected[0]["rank_reason_json"]["parameter_values"] == {
+        "fast_window": 10,
+        "slow_window": 20,
+    }
     assert selected[0]["rank_reason_json"]["selection_owner"] == "optuna.study"
