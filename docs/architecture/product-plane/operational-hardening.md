@@ -9,12 +9,12 @@ Close operational hardening for controlled live execution:
 - production-like local compose profile for operational smoke.
 
 ## Deliverables
-- `src/trading_advisor_3000/product_plane/runtime/config/security.py`
+- `src/trading_advisor_3000/product_plane/contracts/live_execution_security.py`
 - `src/trading_advisor_3000/product_plane/execution/adapters/live_bridge.py` (retry + secrets preflight)
 - `src/trading_advisor_3000/product_plane/execution/adapters/stocksharp_sidecar_stub.py` (transient failure simulation)
 - `src/trading_advisor_3000/product_plane/execution/broker_sync/controlled_live.py` (idempotent submission reuse + hardened cycle)
 - `src/trading_advisor_3000/product_plane/execution/recovery/playbook.py`
-- `src/trading_advisor_3000/product_plane/runtime/ops/profile_server.py`
+- `src/trading_advisor_3000/product_plane/execution/ops/profile_server.py`
 - `deployment/docker/production-like/docker-compose.production-like.yml`
 - `deployment/docker/production-like/prometheus/prometheus.yml`
 - `deployment/docker/production-like/.env.production-like.example`

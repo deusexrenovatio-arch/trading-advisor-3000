@@ -22,13 +22,14 @@ flowchart TB
     end
 
     subgraph PP["Product Plane (application plane)"]
-        PP1["Contracts and domain model"]
-        PP2["Data plane"]
-        PP3["Research plane"]
-        PP4["Runtime plane"]
-        PP5["Execution plane"]
-        PP6["Product tests and runbooks"]
-        PP1 --> PP2 --> PP3 --> PP4 --> PP5 --> PP6
+        PP1["Contracts"]
+        PP2["Market Data Foundation"]
+        PP3["Research Data Factory"]
+        PP4["Strategy Factory"]
+        PP5["Runtime Plane"]
+        PP6["Execution Plane"]
+        PP7["Product tests and runbooks"]
+        PP1 --> PP2 --> PP3 --> PP4 --> PP5 --> PP6 --> PP7
     end
 
     SH2 -. governs delivery .-> PP1
@@ -36,6 +37,8 @@ flowchart TB
     SH2 -. governs delivery .-> PP3
     SH2 -. governs delivery .-> PP4
     SH2 -. governs delivery .-> PP5
+    SH2 -. governs delivery .-> PP6
+    SH2 -. governs delivery .-> PP7
 ```
 
 ## Product Flow In One View
@@ -44,13 +47,13 @@ flowchart TB
 flowchart LR
     M["Historical market sources"]
     B["Broker live boundary"]
-    D["Data plane"]
-    C["Canonical market data"]
-    R["Research plane"]
-    S["Signal candidates and strategy state"]
-    RT["Runtime plane"]
+    D["Market Data Foundation"]
+    C["Canonical market products"]
+    R["Research Data Factory"]
+    S["Strategy Factory"]
+    RT["Runtime Plane"]
     P["Publication and active signals"]
-    EX["Execution plane"]
+    EX["Execution Plane"]
     A["Review and analytics"]
 
     M --> D --> C
@@ -85,6 +88,32 @@ The architecture rule is:
 Canonical ownership matrix:
 - [docs/architecture/product-plane/native-runtime-ownership.md](docs/architecture/product-plane/native-runtime-ownership.md)
 
+## Product-Plane Modular Structure
+The product plane is organized as deep modules, not as a flat package tree:
+
+- Contracts define the shared vocabulary and versioned boundary payloads.
+- Market Data Foundation owns raw/canonical market truth, sessions, roll maps,
+  freshness, and baseline evidence.
+- Research Data Factory owns research-ready frames, indicators, derived
+  indicators, materialization manifests, and point-in-time research data rules.
+- Strategy Factory owns strategy definitions, campaign/search specs, vectorbt
+  and Optuna research execution, rankings, findings, and projected candidates.
+- Runtime Plane owns signal lifecycle, publication lifecycle, durable runtime
+  state, replay/outcome observations, and operator-facing runtime API behavior.
+- Execution Plane owns order intent handoff, broker/sidecar transport, paper and
+  controlled live execution, reconciliation, and execution proof.
+
+Each module may be internally complex, but it must expose a narrow public API.
+Neighboring modules may depend on Contracts or explicit public API surfaces, but
+must not import private implementation details such as storage helpers, jobs,
+`_common` modules, runtime-private wiring, or data layout mechanics.
+
+Canonical module ownership map:
+- [docs/architecture/product-plane/product-plane-module-charters.md](docs/architecture/product-plane/product-plane-module-charters.md)
+
+Canonical module API map:
+- [docs/architecture/product-plane/product-plane-module-apis.md](docs/architecture/product-plane/product-plane-module-apis.md)
+
 ## Current Reality Versus Target Shape
 1. The dual-surface split is real and already enforced in repository structure.
 2. The product-plane codebase is present under `src/trading_advisor_3000/product_plane/*`.
@@ -111,11 +140,15 @@ Canonical ownership matrix:
    - [docs/project-map/documentation-reality-audit-2026-05-05.md](docs/project-map/documentation-reality-audit-2026-05-05.md)
 6. Product-plane native runtime ownership:
    - [docs/architecture/product-plane/native-runtime-ownership.md](docs/architecture/product-plane/native-runtime-ownership.md)
-7. Release-blocking product boundaries:
+7. Product-plane module boundary overlay:
+   - [docs/architecture/product-plane/product-plane-module-charters.md](docs/architecture/product-plane/product-plane-module-charters.md)
+8. Product-plane module API map:
+   - [docs/architecture/product-plane/product-plane-module-apis.md](docs/architecture/product-plane/product-plane-module-apis.md)
+9. Release-blocking product boundaries:
    - [docs/architecture/product-plane/CONTRACT_SURFACES.md](docs/architecture/product-plane/CONTRACT_SURFACES.md)
-8. Current research-plane platform shape:
+10. Current research-plane platform shape:
    - [docs/architecture/product-plane/research-plane-platform.md](docs/architecture/product-plane/research-plane-platform.md)
-9. Claim-control stack baseline:
+11. Claim-control stack baseline:
    - [docs/architecture/product-plane/stack-conformance-baseline.md](docs/architecture/product-plane/stack-conformance-baseline.md)
 
 ## Interpretation Rules
@@ -123,7 +156,9 @@ Canonical ownership matrix:
 2. Use [repository-surfaces.md](docs/architecture/repository-surfaces.md) when you need exact ownership of paths and change surfaces.
 3. Use [STATUS.md](docs/architecture/product-plane/STATUS.md) when the question is "what is real now?"
 4. Use [CONTRACT_SURFACES.md](docs/architecture/product-plane/CONTRACT_SURFACES.md) when the question is "which interfaces are release-blocking?"
-5. Use the archived product-plane spec v2 package only when the question is
+5. Use [product-plane-module-charters.md](docs/architecture/product-plane/product-plane-module-charters.md) when the question is "which product-plane module owns this capability, storage, runtime, or proof surface?"
+6. Use [product-plane-module-apis.md](docs/architecture/product-plane/product-plane-module-apis.md) when the question is "which public API may this module import or expose?"
+7. Use the archived product-plane spec v2 package only when the question is
    explicitly about historical target-shape provenance.
 
 ## Non-Negotiable Architecture Boundaries
@@ -136,3 +171,6 @@ Canonical ownership matrix:
 5. Product-plane runtime work must choose the native runtime owner before custom
    Python owns logic that Spark, Delta Lake, Dagster, pandas-ta-classic,
    vectorbt, Optuna, or DuckDB already covers.
+6. Product-plane modules communicate through Contracts or explicit public module
+   APIs; private implementation imports across module boundaries are not a
+   stable architecture surface.

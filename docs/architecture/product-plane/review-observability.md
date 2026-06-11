@@ -9,7 +9,7 @@ Close the review and observability slice on top of integrated replay:
 
 ## Deliverables
 - `src/trading_advisor_3000/product_plane/runtime/analytics/review.py`
-- `src/trading_advisor_3000/product_plane/runtime/analytics/system_replay.py` (extended exports and contracts)
+- `tests/support/shadow_replay_harness.py` (extended acceptance exports and contracts)
 - `deployment/docker/observability/docker-compose.observability.yml`
 - `deployment/docker/observability/prometheus/prometheus.yml`
 - `deployment/docker/observability/loki/loki-config.yml`
@@ -34,6 +34,8 @@ Close the review and observability slice on top of integrated replay:
 4. Observability exports are file-contract based (`metrics.txt` for Prometheus and JSON lines for Loki) to keep acceptance reproducible in CI and replay runs.
 5. Replay integration now emits Review and Observability artifacts and delta-manifest entries in one pass, so acceptance can validate full lineage from market bars to operational metrics.
 6. Local observability stack is provisioned as a standalone compose profile with file bridges (`metrics-file-exporter` and `promtail`) so Review and Observability file artifacts can be validated end-to-end without external metrics or log pipelines.
+7. The integrated replay harness remains test support, not runtime-owned
+   production orchestration.
 
 ## Acceptance Commands
 - `python -m pytest tests/product-plane/unit/test_review_metrics.py -q`

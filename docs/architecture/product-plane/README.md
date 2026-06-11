@@ -7,6 +7,8 @@ Read these first:
 - [STATUS.md](docs/architecture/product-plane/STATUS.md) - current implemented reality and no-go zones.
 - [CONTRACT_SURFACES.md](docs/architecture/product-plane/CONTRACT_SURFACES.md) - current versioned boundary inventory.
 - [native-runtime-ownership.md](docs/architecture/product-plane/native-runtime-ownership.md) - architecture rule for Spark, Delta Lake, Dagster, pandas-ta-classic, vectorbt, Optuna, DuckDB, and Python ownership.
+- [product-plane-module-charters.md](docs/architecture/product-plane/product-plane-module-charters.md) - target modular structure for Contracts, Market Data Foundation, Research Data Factory, Strategy Factory, Runtime Plane, and Execution Plane.
+- [product-plane-module-apis.md](docs/architecture/product-plane/product-plane-module-apis.md) - public communication contract between those deep modules and the enforcement path for removing tolerated storage bridges.
 - [research-plane-platform.md](docs/architecture/product-plane/research-plane-platform.md) - stable map of the current research-plane primary path.
 - [continuous-signal-layer-technical-specification.md](docs/architecture/product-plane/continuous-signal-layer-technical-specification.md) - implementation-ready target spec for continuous adjusted signal bars, raw active-contract execution alignment, indicator/derived retargeting, and vectorbt loader changes.
 - [contract-change-policy.md](docs/architecture/product-plane/contract-change-policy.md) - compatibility and versioning policy for release-blocking envelopes.

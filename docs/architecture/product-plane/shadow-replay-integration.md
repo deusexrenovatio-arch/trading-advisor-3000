@@ -10,7 +10,7 @@ Deliver a full replayable system slice:
 ## Deliverables
 - `src/trading_advisor_3000/product_plane/research/forward/engine.py`
 - `src/trading_advisor_3000/product_plane/runtime/analytics/outcomes.py`
-- `src/trading_advisor_3000/product_plane/runtime/analytics/system_replay.py`
+- `tests/support/shadow_replay_harness.py` (test-only acceptance harness)
 - `tests/product-plane/unit/test_shadow_forward_engine.py`
 - `tests/product-plane/unit/test_shadow_replay_analytics.py`
 - `tests/product-plane/integration/test_shadow_replay_system.py`
@@ -22,6 +22,9 @@ Deliver a full replayable system slice:
 3. Analytics outcomes are generated from forward observations through the same `candidate_id` formula as Research Plane research candidates.
 4. Integrated replay builds forward/outcomes only from runtime-accepted and published signal IDs.
 5. Evidence artifacts are written as deterministic JSONL outputs for repeatable acceptance runs.
+6. The integrated replay harness is not a product-plane orchestration surface;
+   durable product orchestration stays with Dagster research jobs, campaign
+   runs, and runtime API/stack boundaries.
 
 ## Acceptance Commands
 - `python -m pytest tests/product-plane/unit/test_shadow_forward_engine.py -q`
