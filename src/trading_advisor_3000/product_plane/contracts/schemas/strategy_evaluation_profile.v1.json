@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/strategy_evaluation_profile.v1.json",
+  "title": "StrategyEvaluationProfileV1",
+  "type": "object",
+  "required": [
+    "evaluation_profile_id",
+    "profile_version",
+    "approved_universe_profile",
+    "campaign_run_id",
+    "ranking_id",
+    "strategy_instance_id",
+    "family_key",
+    "contract_id",
+    "instrument_id",
+    "timeframe",
+    "ranking_policy_id",
+    "policy_pass",
+    "qualifies_for_projection",
+    "paper_signal_ready",
+    "paper_trade_ready",
+    "live_candidate_ready",
+    "verdict",
+    "promotion_state",
+    "blocker_reasons",
+    "missing_data",
+    "evidence_snapshot",
+    "created_at"
+  ],
+  "properties": {
+    "evaluation_profile_id": {"type": "string", "minLength": 1},
+    "profile_version": {"type": "string", "const": "strategy-evaluation-profile.v1"},
+    "approved_universe_profile": {"type": "string", "minLength": 1},
+    "campaign_run_id": {"type": "string", "minLength": 1},
+    "ranking_id": {"type": "string", "minLength": 1},
+    "strategy_instance_id": {"type": "string", "minLength": 1},
+    "family_key": {"type": "string", "minLength": 1},
+    "contract_id": {"type": "string", "minLength": 1},
+    "instrument_id": {"type": "string", "minLength": 1},
+    "timeframe": {"type": "string", "enum": ["15m", "1h", "4h", "1d"]},
+    "ranking_policy_id": {"type": "string", "minLength": 1},
+    "policy_pass": {"type": "boolean"},
+    "qualifies_for_projection": {"type": "boolean"},
+    "paper_signal_ready": {"type": "boolean"},
+    "paper_trade_ready": {"type": "boolean"},
+    "live_candidate_ready": {"type": "boolean"},
+    "verdict": {
+      "type": "string",
+      "enum": ["reject", "research-only", "paper-signal", "paper-trade", "live-candidate"]
+    },
+    "promotion_state": {
+      "type": "string",
+      "enum": ["rejected", "not_promoted", "paper_signal_ready", "paper_trade_ready", "live_candidate"]
+    },
+    "blocker_reasons": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "missing_data": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "evidence_snapshot": {
+      "type": "object",
+      "required": [
+        "trade_count_total",
+        "worst_max_drawdown",
+        "candidate_count",
+        "active_instrument_count"
+      ],
+      "properties": {
+        "trade_count_total": {"type": "integer", "minimum": 0},
+        "worst_max_drawdown": {"type": ["number", "null"], "minimum": 0},
+        "candidate_count": {"type": "integer", "minimum": 0},
+        "active_instrument_count": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": true
+    },
+    "created_at": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

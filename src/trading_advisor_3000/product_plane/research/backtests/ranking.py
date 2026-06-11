@@ -11,10 +11,28 @@ from typing import Mapping
 
 import pandas as pd
 
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log, read_delta_table_rows
-from trading_advisor_3000.product_plane.research.strategies import StrategyRegistry, build_strategy_registry
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    has_delta_log,
+    read_delta_table_rows,
+)
+from trading_advisor_3000.product_plane.research.strategies import (
+    StrategyRegistry,
+    build_strategy_registry,
+)
 
+from .evaluation import build_strategy_evaluation_profiles
 from .results import backtest_store_contract, results_store_contract, write_stage6_artifacts
+
+DEFAULT_RANKING_POLICY_ID = "research_screen_strict_v1"
+DEFAULT_RANKING_METRIC_ORDER = ("sharpe", "profit_factor", "max_drawdown", "total_return")
+DEFAULT_RANKING_MIN_TRADE_COUNT = 12
+DEFAULT_RANKING_MIN_TRADE_COUNT_PER_FOLD = 4
+DEFAULT_RANKING_MIN_FOLD_COUNT = 2
+DEFAULT_RANKING_MAX_DRAWDOWN_CAP = 0.25
+DEFAULT_RANKING_MIN_POSITIVE_FOLD_RATIO = 0.67
+DEFAULT_RANKING_STRESS_SLIPPAGE_BPS = 12.5
+DEFAULT_RANKING_MIN_PARAMETER_STABILITY = 0.55
+DEFAULT_RANKING_MIN_SLIPPAGE_SCORE = 0.60
 
 
 def _stable_hash(text: str) -> str:
@@ -29,11 +47,22 @@ def _clip_unit(value: float) -> float:
     return max(0.0, min(1.0, float(value)))
 
 
-def _finding_id(*, campaign_run_id: str, backtest_run_id: str, finding_type: str, ranking_id: str = "") -> str:
-    return "FIND-" + _stable_hash(f"{campaign_run_id}|{ranking_id}|{backtest_run_id}|{finding_type}")
+def _finding_id(
+    *, campaign_run_id: str, backtest_run_id: str, finding_type: str, ranking_id: str = ""
+) -> str:
+    return "FIND-" + _stable_hash(
+        f"{campaign_run_id}|{ranking_id}|{backtest_run_id}|{finding_type}"
+    )
 
 
-_RUN_KEY_FIELDS = ("backtest_run_id", "campaign_run_id", "contract_id", "instrument_id", "timeframe", "window_id")
+_RUN_KEY_FIELDS = (
+    "backtest_run_id",
+    "campaign_run_id",
+    "contract_id",
+    "instrument_id",
+    "timeframe",
+    "window_id",
+)
 
 
 def _read_backtest_result_rows(output_dir: Path, table_name: str) -> list[dict[str, object]]:
@@ -84,13 +113,18 @@ def _param_distance(left: dict[str, object], right: dict[str, object]) -> int:
     return sum(1 for key in keys if left.get(key) != right.get(key))
 
 
-def _trade_stress(rows: list[dict[str, object]], *, extra_slippage_bps: float) -> tuple[float, float]:
+def _trade_stress(
+    rows: list[dict[str, object]], *, extra_slippage_bps: float
+) -> tuple[float, float]:
     if not rows:
         return 0.0, 0.0
     gross_pnl = sum(float(row.get("net_pnl", 0.0) or 0.0) for row in rows)
     extra_cost = sum(
         (
-            (abs(float(row.get("entry_price", 0.0) or 0.0)) + abs(float(row.get("exit_price", 0.0) or 0.0)))
+            (
+                abs(float(row.get("entry_price", 0.0) or 0.0))
+                + abs(float(row.get("exit_price", 0.0) or 0.0))
+            )
             * abs(float(row.get("qty", 0.0) or 0.0))
             * (extra_slippage_bps / 10_000.0)
         )
@@ -122,7 +156,7 @@ def _policy_failure_reasons(
             reasons.append("min_fold_count")
         if trade_count_total < policy.min_trade_count:
             reasons.append("min_trade_count")
-        if trade_count_min_fold < max(1, min(policy.min_trade_count, trade_count_total)):
+        if trade_count_min_fold < max(1, min(policy.min_trade_count_per_fold, trade_count_total)):
             reasons.append("min_fold_trade_count")
         if positive_fold_ratio < policy.min_positive_fold_ratio:
             reasons.append("positive_fold_ratio")
@@ -149,7 +183,11 @@ def _policy_metric_components(
     total_weight = 0.0
     metric_count = len(policy.metric_order)
     for index, metric_name in enumerate(policy.metric_order):
-        score = _score_metric(metric_name, _metric_value(metric_name, metric_lookup), drawdown_cap=policy.max_drawdown_cap)
+        score = _score_metric(
+            metric_name,
+            _metric_value(metric_name, metric_lookup),
+            drawdown_cap=policy.max_drawdown_cap,
+        )
         ordered_scores[metric_name] = score
         weight = float(metric_count - index)
         weighted_sum += weight * score
@@ -163,19 +201,22 @@ class RankingPolicy:
     policy_id: str
     metric_order: tuple[str, ...]
     require_out_of_sample_pass: bool = True
-    min_trade_count: int = 4
-    min_fold_count: int = 1
-    max_drawdown_cap: float = 0.35
-    min_positive_fold_ratio: float = 0.5
-    stress_slippage_bps: float = 7.5
-    min_parameter_stability: float = 0.35
-    min_slippage_score: float = 0.45
+    min_trade_count: int = DEFAULT_RANKING_MIN_TRADE_COUNT
+    min_trade_count_per_fold: int = DEFAULT_RANKING_MIN_TRADE_COUNT_PER_FOLD
+    min_fold_count: int = DEFAULT_RANKING_MIN_FOLD_COUNT
+    max_drawdown_cap: float = DEFAULT_RANKING_MAX_DRAWDOWN_CAP
+    min_positive_fold_ratio: float = DEFAULT_RANKING_MIN_POSITIVE_FOLD_RATIO
+    stress_slippage_bps: float = DEFAULT_RANKING_STRESS_SLIPPAGE_BPS
+    min_parameter_stability: float = DEFAULT_RANKING_MIN_PARAMETER_STABILITY
+    min_slippage_score: float = DEFAULT_RANKING_MIN_SLIPPAGE_SCORE
 
     def __post_init__(self) -> None:
         if not self.metric_order:
             raise ValueError("metric_order must not be empty")
         if self.min_trade_count <= 0:
             raise ValueError("min_trade_count must be positive")
+        if self.min_trade_count_per_fold <= 0:
+            raise ValueError("min_trade_count_per_fold must be positive")
         if self.min_fold_count <= 0:
             raise ValueError("min_fold_count must be positive")
         if self.max_drawdown_cap <= 0.0:
@@ -186,8 +227,8 @@ class RankingPolicy:
 
 def default_ranking_policy() -> RankingPolicy:
     return RankingPolicy(
-        policy_id="robust_oos_v1",
-        metric_order=("total_return", "profit_factor", "max_drawdown"),
+        policy_id=DEFAULT_RANKING_POLICY_ID,
+        metric_order=DEFAULT_RANKING_METRIC_ORDER,
     )
 
 
@@ -238,10 +279,13 @@ def score_optimizer_trial(
     trade_count_min_fold = int(min(trade_counts)) if trade_counts else 0
     mean_total_return = mean(total_returns) if total_returns else 0.0
     mean_net_pnl = mean(net_pnls) if net_pnls else 0.0
-    total_return_std = pd.Series(total_returns, dtype="float64").std(ddof=0) if len(total_returns) > 1 else 0.0
+    total_return_std = (
+        pd.Series(total_returns, dtype="float64").std(ddof=0) if len(total_returns) > 1 else 0.0
+    )
     positive_fold_ratio = sum(1 for value in total_returns if value > 0.0) / len(total_returns)
     fold_consistency_score = _clip_unit(
-        positive_fold_ratio * (1.0 / (1.0 + (float(total_return_std) / max(abs(mean_total_return), 0.02))))
+        positive_fold_ratio
+        * (1.0 / (1.0 + (float(total_return_std) / max(abs(mean_total_return), 0.02))))
     )
     max_drawdown = max(drawdowns) if drawdowns else 0.0
     metric_lookup = {
@@ -258,8 +302,12 @@ def score_optimizer_trial(
         metric_lookup=metric_lookup,
         policy=resolved_policy,
     )
-    _, slippage_score = _trade_stress(trade_rows, extra_slippage_bps=resolved_policy.stress_slippage_bps)
-    stability_score = _clip_unit(0.5 if parameter_stability_score is None else float(parameter_stability_score))
+    _, slippage_score = _trade_stress(
+        trade_rows, extra_slippage_bps=resolved_policy.stress_slippage_bps
+    )
+    stability_score = _clip_unit(
+        0.5 if parameter_stability_score is None else float(parameter_stability_score)
+    )
     preferred_metric_score = objective_score
     score_total = (
         (0.30 * objective_score)
@@ -270,8 +318,10 @@ def score_optimizer_trial(
     )
     gross_pnl_total = float(sum(float(row.get("gross_pnl", 0.0) or 0.0) for row in trade_rows))
     trade_net_pnl_total = float(sum(float(row.get("net_pnl", 0.0) or 0.0) for row in trade_rows))
-    trade_commission_total = float(sum(float(row.get("commission", 0.0) or 0.0) for row in trade_rows))
-    min_fold_trades = max(1, min(resolved_policy.min_trade_count, trade_count_total))
+    trade_commission_total = float(
+        sum(float(row.get("commission", 0.0) or 0.0) for row in trade_rows)
+    )
+    min_fold_trades = max(1, min(resolved_policy.min_trade_count_per_fold, trade_count_total))
     constraint_values = (
         float(resolved_policy.min_fold_count - fold_count),
         float(resolved_policy.min_trade_count - trade_count_total),
@@ -325,12 +375,101 @@ def score_optimizer_trial(
         "policy_metric_vector": policy_metric_vector,
         "fold_consistency_score": float(fold_consistency_score),
         "parameter_stability_score": float(stability_score),
-        "parameter_stability_source": "single_trial_default" if parameter_stability_score is None else "provided",
+        "parameter_stability_source": "single_trial_default"
+        if parameter_stability_score is None
+        else "provided",
         "slippage_sensitivity_score": float(slippage_score),
         "preferred_metric_score": float(preferred_metric_score),
         "score_total": float(score_total),
         "score_formula": resolved_policy.policy_id,
         "selection_owner": "optuna.study",
+    }
+
+
+def _optimizer_visible_stat_frame(stat_frame: pd.DataFrame) -> pd.DataFrame:
+    if "fold_role" not in stat_frame.columns and "optimizer_visible" not in stat_frame.columns:
+        return stat_frame
+    role = (
+        stat_frame["fold_role"].fillna("legacy_validation").astype(str)
+        if "fold_role" in stat_frame.columns
+        else pd.Series(["legacy_validation"] * len(stat_frame), index=stat_frame.index)
+    )
+    visible = (
+        stat_frame["optimizer_visible"].fillna(True).astype(bool)
+        if "optimizer_visible" in stat_frame.columns
+        else pd.Series([True] * len(stat_frame), index=stat_frame.index)
+    )
+    return stat_frame[(role != "confirmation") & visible].copy()
+
+
+def _confirmation_stat_frame(stat_frame: pd.DataFrame) -> pd.DataFrame:
+    if "fold_role" not in stat_frame.columns:
+        return stat_frame.iloc[0:0].copy()
+    role = stat_frame["fold_role"].fillna("").astype(str)
+    return stat_frame[role == "confirmation"].copy()
+
+
+def _validation_scheme_for_group(group: pd.DataFrame) -> str:
+    if "validation_scheme" not in group.columns:
+        return "legacy_validation"
+    values = sorted(
+        {str(value) for value in group["validation_scheme"].dropna().tolist() if str(value).strip()}
+    )
+    return values[0] if values else "legacy_validation"
+
+
+def _confirmation_summary(
+    *,
+    confirmation_frame: pd.DataFrame,
+    reference_row: pd.Series,
+    policy: RankingPolicy,
+) -> dict[str, object]:
+    if confirmation_frame.empty:
+        return {
+            "fold_count": 0,
+            "positive_fold_ratio": 0.0,
+            "trade_count_total": 0,
+            "trade_count_min_fold": 0,
+            "max_drawdown": 0.0,
+            "window_ids": tuple(),
+            "confirmation_pass": False,
+        }
+    frame = confirmation_frame[
+        (confirmation_frame["campaign_run_id"] == reference_row["campaign_run_id"])
+        & (confirmation_frame["strategy_instance_id"] == reference_row["strategy_instance_id"])
+        & (confirmation_frame["contract_id"] == reference_row["contract_id"])
+        & (confirmation_frame["instrument_id"] == reference_row["instrument_id"])
+        & (confirmation_frame["timeframe"] == reference_row["timeframe"])
+    ]
+    if frame.empty:
+        return {
+            "fold_count": 0,
+            "positive_fold_ratio": 0.0,
+            "trade_count_total": 0,
+            "trade_count_min_fold": 0,
+            "max_drawdown": 0.0,
+            "window_ids": tuple(),
+            "confirmation_pass": False,
+        }
+    positive_fold_ratio = float((frame["total_return"] > 0.0).mean())
+    trade_count_total = int(frame["trade_count"].sum())
+    trade_count_min_fold = int(frame["trade_count"].min())
+    max_drawdown = float(frame["max_drawdown"].max())
+    confirmation_pass = (
+        len(frame) > 0
+        and trade_count_total >= policy.min_trade_count
+        and trade_count_min_fold >= max(1, min(policy.min_trade_count_per_fold, trade_count_total))
+        and positive_fold_ratio >= policy.min_positive_fold_ratio
+        and max_drawdown <= policy.max_drawdown_cap
+    )
+    return {
+        "fold_count": int(len(frame)),
+        "positive_fold_ratio": positive_fold_ratio,
+        "trade_count_total": trade_count_total,
+        "trade_count_min_fold": trade_count_min_fold,
+        "max_drawdown": max_drawdown,
+        "window_ids": tuple(str(value) for value in frame["window_id"].tolist()),
+        "confirmation_pass": bool(confirmation_pass),
     }
 
 
@@ -347,11 +486,29 @@ def rank_backtest_results(
 ) -> dict[str, object]:
     resolved_policy = policy or default_ranking_policy()
     registry = strategy_registry or build_strategy_registry()
-    if backtest_output_dir is not None and any(rows is None for rows in (batch_rows, run_rows, stat_rows, trade_rows)):
-        batch_rows = batch_rows if batch_rows is not None else _read_backtest_result_rows(backtest_output_dir, "research_backtest_batches")
-        run_rows = run_rows if run_rows is not None else _read_backtest_result_rows(backtest_output_dir, "research_backtest_runs")
-        stat_rows = stat_rows if stat_rows is not None else _read_backtest_result_rows(backtest_output_dir, "research_strategy_stats")
-        trade_rows = trade_rows if trade_rows is not None else _read_backtest_result_rows(backtest_output_dir, "research_trade_records")
+    if backtest_output_dir is not None and any(
+        rows is None for rows in (batch_rows, run_rows, stat_rows, trade_rows)
+    ):
+        batch_rows = (
+            batch_rows
+            if batch_rows is not None
+            else _read_backtest_result_rows(backtest_output_dir, "research_backtest_batches")
+        )
+        run_rows = (
+            run_rows
+            if run_rows is not None
+            else _read_backtest_result_rows(backtest_output_dir, "research_backtest_runs")
+        )
+        stat_rows = (
+            stat_rows
+            if stat_rows is not None
+            else _read_backtest_result_rows(backtest_output_dir, "research_strategy_stats")
+        )
+        trade_rows = (
+            trade_rows
+            if trade_rows is not None
+            else _read_backtest_result_rows(backtest_output_dir, "research_trade_records")
+        )
 
     batch_rows = batch_rows or []
     run_rows = run_rows or []
@@ -362,6 +519,10 @@ def rank_backtest_results(
 
     run_frame = pd.DataFrame(run_rows)
     stat_frame = pd.DataFrame(stat_rows)
+    confirmation_frame = _confirmation_stat_frame(stat_frame)
+    stat_frame = _optimizer_visible_stat_frame(stat_frame)
+    if stat_frame.empty:
+        raise ValueError("ranking requires optimizer-visible strategy stat rows")
     for frame in (run_frame, stat_frame):
         if "campaign_run_id" not in frame.columns:
             frame["campaign_run_id"] = "crun_unbound"
@@ -374,7 +535,9 @@ def rank_backtest_results(
         if "strategy_template_id" not in frame.columns:
             frame["strategy_template_id"] = frame["family_key"].map(lambda value: f"stpl_{value}")
         if "strategy_instance_id" not in frame.columns:
-            fallback_hash = frame["backtest_run_id"] if "backtest_run_id" in frame.columns else frame.index
+            fallback_hash = (
+                frame["backtest_run_id"] if "backtest_run_id" in frame.columns else frame.index
+            )
             if "params_hash" in frame.columns:
                 fallback_hash = frame["params_hash"]
             frame["strategy_instance_id"] = [f"sinst_{value}" for value in fallback_hash]
@@ -411,8 +574,16 @@ def rank_backtest_results(
             & (run_frame["instrument_id"] == first["instrument_id"])
             & (run_frame["timeframe"] == first["timeframe"])
         ]
+        confirmation_summary = _confirmation_summary(
+            confirmation_frame=confirmation_frame,
+            reference_row=first,
+            policy=resolved_policy,
+        )
         stressed_runs = [
-            _trade_stress(trades_by_run.get(_run_identity(row), []), extra_slippage_bps=resolved_policy.stress_slippage_bps)
+            _trade_stress(
+                trades_by_run.get(_run_identity(row), []),
+                extra_slippage_bps=resolved_policy.stress_slippage_bps,
+            )
             for row in group.to_dict(orient="records")
         ]
         slippage_score = mean(item[1] for item in stressed_runs) if stressed_runs else 0.0
@@ -421,7 +592,8 @@ def rank_backtest_results(
         total_return_std = float(group["total_return"].std(ddof=0)) if len(group) > 1 else 0.0
         positive_fold_ratio = float((group["total_return"] > 0.0).mean())
         fold_consistency_score = _clip_unit(
-            positive_fold_ratio * (1.0 / (1.0 + (total_return_std / max(abs(mean_total_return), 0.02))))
+            positive_fold_ratio
+            * (1.0 / (1.0 + (total_return_std / max(abs(mean_total_return), 0.02))))
         )
 
         strategy_spec = registry.get(str(first["strategy_version_label"]))
@@ -457,7 +629,11 @@ def rank_backtest_results(
             else matching_runs.iloc[0]
         )
         preferred_metric_score = mean(
-            _score_metric(metric_name, metric_lookup.get(metric_name, 0.0), drawdown_cap=resolved_policy.max_drawdown_cap)
+            _score_metric(
+                metric_name,
+                metric_lookup.get(metric_name, 0.0),
+                drawdown_cap=resolved_policy.max_drawdown_cap,
+            )
             for metric_name in strategy_spec.ranking_metadata.preferred_metrics
         )
         params_lookup = {
@@ -477,13 +653,19 @@ def rank_backtest_results(
                 "family_key": str(first["family_key"]),
                 "strategy_version_label": str(first["strategy_version_label"]),
                 "dataset_version": str(first["dataset_version"]),
-                "indicator_set_version": str(representative_run_row.get("indicator_set_version", "")),
-                "derived_indicator_set_version": str(representative_run_row.get("derived_indicator_set_version", "derived-v1")),
+                "indicator_set_version": str(
+                    representative_run_row.get("indicator_set_version", "")
+                ),
+                "derived_indicator_set_version": str(
+                    representative_run_row.get("derived_indicator_set_version", "derived-v1")
+                ),
                 "contract_id": str(first["contract_id"]),
                 "instrument_id": str(first["instrument_id"]),
                 "timeframe": str(first["timeframe"]),
                 "mean_total_return": mean_total_return,
-                "params_hash": str(representative_row.get("params_hash", first["strategy_instance_id"])),
+                "params_hash": str(
+                    representative_row.get("params_hash", first["strategy_instance_id"])
+                ),
                 "rank": 0,
                 "family_rank": 0,
                 "selected_rank": 0,
@@ -499,6 +681,7 @@ def rank_backtest_results(
                     "metric_order": list(resolved_policy.metric_order),
                     "require_out_of_sample_pass": resolved_policy.require_out_of_sample_pass,
                     "min_trade_count": resolved_policy.min_trade_count,
+                    "min_trade_count_per_fold": resolved_policy.min_trade_count_per_fold,
                     "min_fold_count": resolved_policy.min_fold_count,
                     "max_drawdown_cap": resolved_policy.max_drawdown_cap,
                     "min_positive_fold_ratio": resolved_policy.min_positive_fold_ratio,
@@ -507,6 +690,7 @@ def rank_backtest_results(
                     "min_slippage_score": resolved_policy.min_slippage_score,
                 },
                 "rank_reason_json": {
+                    "validation_scheme": _validation_scheme_for_group(group),
                     "policy_metric_vector": policy_metric_vector,
                     "fold_count": int(len(group)),
                     "positive_fold_ratio": positive_fold_ratio,
@@ -515,6 +699,11 @@ def rank_backtest_results(
                     "fold_consistency_score": fold_consistency_score,
                     "parameter_values": params_dict,
                     "window_ids": tuple(str(value) for value in group["window_id"].tolist()),
+                    "confirmation": confirmation_summary,
+                    "walk_forward_reoptimization_pass": False,
+                    "latest_frozen_param_confirmation_pass": bool(
+                        confirmation_summary.get("confirmation_pass", False)
+                    ),
                 },
                 "qualifies_for_projection": False,
                 "window_ids_json": tuple(str(value) for value in group["window_id"].tolist()),
@@ -531,6 +720,7 @@ def rank_backtest_results(
     _apply_policy_scores(grouped_rows, policy=resolved_policy)
     _assign_partition_ranks(grouped_rows)
     finding_rows = _policy_finding_rows(grouped_rows)
+    evaluation_profile_rows = build_strategy_evaluation_profiles(ranking_rows=grouped_rows)
 
     resolved_output_dir = output_dir or backtest_output_dir
     output_paths: dict[str, str] = {}
@@ -538,6 +728,7 @@ def rank_backtest_results(
         output_paths = write_stage6_artifacts(
             output_dir=resolved_output_dir,
             ranking_rows=grouped_rows,
+            evaluation_profile_rows=evaluation_profile_rows,
             finding_rows=finding_rows,
         )
 
@@ -545,6 +736,7 @@ def rank_backtest_results(
         "ranking_policy": resolved_policy,
         "ranking_rows": grouped_rows,
         "finding_rows": finding_rows,
+        "evaluation_profile_rows": evaluation_profile_rows,
         "delta_manifest": results_store_contract(),
         "output_paths": output_paths,
     }
@@ -563,7 +755,9 @@ def _apply_parameter_stability(rows: list[dict[str, object]]) -> None:
 
     for group_rows in groups.values():
         params_by_instance = {
-            str(row["strategy_instance_id"]): _coerce_json(row.get("rank_reason_json", {})).get("parameter_values", {})
+            str(row["strategy_instance_id"]): _coerce_json(row.get("rank_reason_json", {})).get(
+                "parameter_values", {}
+            )
             for row in group_rows
         }
         for row in group_rows:
@@ -576,7 +770,10 @@ def _apply_parameter_stability(rows: list[dict[str, object]]) -> None:
                 float(other["mean_total_return"])
                 for other in group_rows
                 if other is not row
-                and _param_distance(params, params_by_instance.get(str(other["strategy_instance_id"]), {})) == 1
+                and _param_distance(
+                    params, params_by_instance.get(str(other["strategy_instance_id"]), {})
+                )
+                == 1
             ]
             if not neighbor_returns:
                 row["parameter_stability_score"] = 0.5
@@ -604,7 +801,8 @@ def _apply_policy_scores(rows: list[dict[str, object]], *, policy: RankingPolicy
         out_of_sample_pass = (
             fold_count >= policy.min_fold_count
             and trade_count_total >= policy.min_trade_count
-            and trade_count_min_fold >= max(1, min(policy.min_trade_count, trade_count_total))
+            and trade_count_min_fold
+            >= max(1, min(policy.min_trade_count_per_fold, trade_count_total))
             and positive_fold_ratio >= policy.min_positive_fold_ratio
             and max_drawdown <= policy.max_drawdown_cap
         )
@@ -625,6 +823,10 @@ def _apply_policy_scores(rows: list[dict[str, object]], *, policy: RankingPolicy
             and parameter_stability_score >= policy.min_parameter_stability
             and slippage_score >= policy.min_slippage_score
         )
+        validation_scheme = str(reason.get("validation_scheme", "legacy_validation"))
+        strict_validation = validation_scheme == "nested_walk_forward_v1"
+        confirmation = _coerce_json(reason.get("confirmation", {}))
+        confirmation_pass = bool(confirmation.get("confirmation_pass", False))
         if policy.min_parameter_stability <= 0.0 and policy.min_slippage_score <= 0.0:
             score_total = float(row["objective_score"])
         else:
@@ -653,12 +855,17 @@ def _apply_policy_scores(rows: list[dict[str, object]], *, policy: RankingPolicy
         reason["policy_thresholds"] = {
             "min_fold_count": policy.min_fold_count,
             "min_trade_count": policy.min_trade_count,
+            "min_trade_count_per_fold": policy.min_trade_count_per_fold,
             "max_drawdown_cap": policy.max_drawdown_cap,
             "min_positive_fold_ratio": policy.min_positive_fold_ratio,
             "min_parameter_stability": policy.min_parameter_stability,
             "min_slippage_score": policy.min_slippage_score,
         }
         reason["policy_failure_reasons"] = tuple(failure_reasons)
+        reason["walk_forward_reoptimization_pass"] = bool(policy_pass and strict_validation)
+        reason["latest_frozen_param_confirmation_pass"] = bool(
+            confirmation_pass and strict_validation
+        )
         row["rank_reason_json"] = reason
 
 
@@ -735,7 +942,9 @@ def _policy_finding_rows(rows: list[dict[str, object]]) -> list[dict[str, object
         reason = _coerce_json(row.get("rank_reason_json", {}))
         finding_type = "ranking_policy_reject"
         campaign_run_id = str(row.get("campaign_run_id", ""))
-        backtest_run_id = str(row.get("backtest_run_id", row.get("representative_backtest_run_id", "")))
+        backtest_run_id = str(
+            row.get("backtest_run_id", row.get("representative_backtest_run_id", ""))
+        )
         ranking_id = str(row.get("ranking_id", ""))
         finding_rows.append(
             {

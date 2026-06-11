@@ -43,6 +43,10 @@ from trading_advisor_3000.product_plane.research.registry_store import (
     write_campaign_run,
     write_strategy_note,
 )
+from trading_advisor_3000.product_plane.research.validation import (
+    NESTED_WALK_FORWARD_SCHEME,
+    build_nested_walk_forward_plan,
+)
 
 CAMPAIGN_SCHEMA = Path(
     "src/trading_advisor_3000/product_plane/contracts/schemas/research_campaign.v1.json"
@@ -110,6 +114,7 @@ RESEARCH_DATA_PREP_KWARGS = {
     "derived_indicator_profile_version",
     "volume_profile_raw_1m_table_path",
     "volume_profile_tick_size_by_instrument",
+    "validation_plan",
     "code_version",
     "reuse_existing_materialization",
 }
@@ -174,6 +179,13 @@ def normalize_campaign_config(*, repo_root: Path, raw: dict[str, Any]) -> dict[s
     }
     if volume_profile:
         normalized["volume_profile"] = volume_profile
+    validation = _normalize_validation(
+        raw.get("validation"),
+        dataset=dict(normalized["dataset"]),
+        backtest=dict(normalized["backtest"]),
+    )
+    if validation:
+        normalized["validation"] = validation
     if normalized["dataset"]["base_timeframe"] not in normalized["dataset"]["timeframes"]:
         raise CampaignBlockedError("dataset.base_timeframe must be included in dataset.timeframes")
     if normalized["backtest"]["backtest_timeframe"] not in normalized["dataset"]["timeframes"]:
@@ -209,6 +221,7 @@ def build_materialization_key(normalized_config: dict[str, Any]) -> str:
         "derived_indicator_set_version": profiles["derived_indicator_set_version"],
         "derived_indicator_profile_version": profiles["derived_indicator_profile_version"],
         "volume_profile": dict(normalized_config.get("volume_profile", {})),
+        "validation": dict(normalized_config.get("validation", {})),
     }
     return _stable_hash(payload)
 
@@ -308,6 +321,7 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
     campaign_id = build_campaign_id(config_fingerprint=config_fingerprint)
     campaign_run_id = build_campaign_run_id(campaign_id=campaign_id, run_id=run_id)
     materialization_key = build_materialization_key(normalized_config)
+    validation_plan = _build_validation_plan(normalized_config)
     materialized_root = Path(str(normalized_config["materialized_root"]))
     registry_root = research_registry_root(materialized_root=materialized_root)
     materialization_exists = _has_reusable_materialization(
@@ -332,6 +346,7 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
             "staging_results_output_dir": staging_results_root.as_posix(),
             "reuse_existing_materialization": reuse_existing_materialization,
             "campaign": normalized_config,
+            "validation_plan": validation_plan,
             "created_at": utc_now_iso(),
         },
     )
@@ -720,6 +735,7 @@ def _dagster_common_kwargs(
     ranking = dict(normalized_config["ranking_policy"])
     projection = dict(normalized_config["projection_policy"])
     volume_profile = dict(normalized_config.get("volume_profile", {}))
+    validation_plan = _build_validation_plan(normalized_config)
     return {
         "canonical_output_dir": Path(str(normalized_config["canonical_output_dir"])),
         "materialized_output_dir": materialized_root,
@@ -734,7 +750,8 @@ def _dagster_common_kwargs(
         "start_ts": str(dataset["start_ts"] or ""),
         "end_ts": str(dataset["end_ts"] or ""),
         "warmup_bars": int(dataset["warmup_bars"]),
-        "split_method": str(dataset["split_method"]),
+        "split_method": "walk_forward" if validation_plan else str(dataset["split_method"]),
+        "validation_plan": validation_plan,
         "series_mode": str(dataset["series_mode"]),
         "continuous_front_policy": dict(dataset["continuous_front_policy"]),
         "dataset_contract_ids": tuple(str(item) for item in dataset["contract_ids"]),
@@ -762,6 +779,7 @@ def _dagster_common_kwargs(
         "ranking_metric_order": tuple(str(item) for item in ranking["metric_order"]),
         "require_out_of_sample_pass": bool(ranking["require_out_of_sample_pass"]),
         "min_trade_count": int(ranking["min_trade_count"]),
+        "min_trade_count_per_fold": int(ranking["min_trade_count_per_fold"]),
         "min_fold_count": int(ranking["min_fold_count"]),
         "max_drawdown_cap": float(ranking["max_drawdown_cap"]),
         "min_positive_fold_ratio": float(ranking["min_positive_fold_ratio"]),
@@ -774,6 +792,88 @@ def _dagster_common_kwargs(
         "decision_lag_bars_max": int(projection["decision_lag_bars_max"]),
         "reuse_existing_materialization": reuse_existing_materialization,
     }
+
+
+def _build_validation_plan(normalized_config: dict[str, Any]) -> dict[str, object]:
+    validation = dict(normalized_config.get("validation", {}))
+    if not validation:
+        return {}
+    return _build_validation_plan_from_parts(
+        validation=validation,
+        dataset=dict(normalized_config["dataset"]),
+        backtest=dict(normalized_config["backtest"]),
+    )
+
+
+def _build_validation_plan_from_parts(
+    *,
+    validation: dict[str, Any],
+    dataset: dict[str, Any],
+    backtest: dict[str, Any],
+) -> dict[str, object]:
+    if str(validation.get("scheme", "")) != NESTED_WALK_FORWARD_SCHEME:
+        raise ValueError(f"unsupported validation.scheme `{validation.get('scheme', '')}`")
+    leakage = dict(validation.get("leakage_controls", {}))
+    outer = dict(validation.get("outer_folds", {}))
+    inner = dict(validation.get("inner_folds", {}))
+    plan = build_nested_walk_forward_plan(
+        start_ts=str(dataset.get("start_ts") or ""),
+        end_ts=str(dataset.get("end_ts") or ""),
+        backtest_timeframe=str(backtest.get("backtest_timeframe") or ""),
+        warmup_bars=int(leakage.get("warmup_bars", dataset.get("warmup_bars", 0))),
+        purge_bars=int(leakage["purge_bars"]) if leakage.get("purge_bars") is not None else None,
+        embargo_bars=int(leakage["embargo_bars"])
+        if leakage.get("embargo_bars") is not None
+        else None,
+        outer_train_months=int(outer.get("train_months", 18)),
+        outer_confirmation_months=int(outer.get("confirmation_months", 3)),
+        outer_step_months=int(outer.get("step_months", 3)),
+        inner_train_months=int(inner.get("train_months", 9)),
+        inner_validation_months=int(inner.get("validation_months", 3)),
+        inner_step_months=int(inner.get("step_months", 3)),
+    )
+    _assert_validation_plan_safe(plan)
+    return plan
+
+
+def _assert_validation_plan_safe(plan: dict[str, object]) -> None:
+    windows = plan.get("windows", [])
+    if not isinstance(windows, list):
+        raise ValueError("validation plan windows must be a list")
+    inner_by_outer: dict[str, list[dict[str, object]]] = {}
+    for row in windows:
+        if not isinstance(row, dict):
+            raise ValueError("validation plan windows must be objects")
+        fold_role = str(row.get("fold_role", ""))
+        if fold_role == "confirmation" and bool(row.get("optimizer_visible", True)):
+            raise ValueError("confirmation folds must not be optimizer-visible")
+        score_start = str(row.get("score_start_ts", ""))
+        score_end = str(row.get("score_end_ts", ""))
+        purge_start = str(row.get("purge_start_ts", ""))
+        purge_end = str(row.get("purge_end_ts", ""))
+        embargo_start = str(row.get("embargo_start_ts", ""))
+        embargo_end = str(row.get("embargo_end_ts", ""))
+        if not (score_start and score_end and score_start < score_end):
+            raise ValueError("validation score window must be non-empty")
+        if purge_start and purge_end and purge_end > score_start:
+            raise ValueError("purge window must end before scoring starts")
+        if embargo_start and embargo_end and embargo_start < score_end:
+            raise ValueError("embargo window must start after scoring ends")
+        if fold_role == "optimization_validation":
+            inner_by_outer.setdefault(str(row.get("outer_fold_id", "")), []).append(row)
+    for outer_fold_id, outer_rows in inner_by_outer.items():
+        previous_score_end = ""
+        previous_embargo_end = ""
+        for row in sorted(outer_rows, key=lambda item: str(item.get("score_start_ts", ""))):
+            score_start = str(row.get("score_start_ts", ""))
+            if previous_score_end and score_start < previous_score_end:
+                raise ValueError(f"validation score windows overlap in {outer_fold_id}")
+            if previous_embargo_end and score_start < previous_embargo_end:
+                raise ValueError(
+                    f"validation embargo overlaps the next scoring window in {outer_fold_id}"
+                )
+            previous_score_end = str(row.get("score_end_ts", ""))
+            previous_embargo_end = str(row.get("embargo_end_ts", ""))
 
 
 def _build_terminal_summary(
@@ -1099,6 +1199,25 @@ def _build_result_digest(
             "qualifies_for_projection",
         ],
     )
+    evaluation_path = results_root / "research_strategy_evaluation_profiles.delta"
+    evaluation_rows = _read_projected_delta_records(
+        evaluation_path,
+        columns=[
+            "evaluation_profile_id",
+            "strategy_instance_id",
+            "family_key",
+            "contract_id",
+            "timeframe",
+            "verdict",
+            "promotion_state",
+            "paper_signal_ready",
+            "paper_trade_ready",
+            "live_candidate_ready",
+            "blocker_reasons_json",
+            "missing_data_json",
+            "evidence_snapshot_json",
+        ],
+    )
     ranking_sorted = sorted(
         ranking_rows,
         key=lambda row: (
@@ -1114,6 +1233,10 @@ def _build_result_digest(
         for row in ranking_sorted
         if bool(row.get("qualifies_for_projection", False))
     ][:5]
+    evaluation_by_verdict: dict[str, int] = {}
+    for row in evaluation_rows:
+        verdict = str(row.get("verdict", ""))
+        evaluation_by_verdict[verdict] = evaluation_by_verdict.get(verdict, 0) + 1
     digest: dict[str, Any] = {
         "runtime_metrics": duration_metrics or {},
         "rows_by_table": dict(rows_by_table or {}),
@@ -1121,6 +1244,20 @@ def _build_result_digest(
         "projection_qualified_count": sum(
             1 for row in ranking_rows if bool(row.get("qualifies_for_projection", False))
         ),
+        "strategy_evaluation_count": len(evaluation_rows),
+        "strategy_evaluations_by_verdict": dict(sorted(evaluation_by_verdict.items())),
+        "paper_signal_ready_count": sum(
+            1 for row in evaluation_rows if bool(row.get("paper_signal_ready", False))
+        ),
+        "paper_trade_ready_count": sum(
+            1 for row in evaluation_rows if bool(row.get("paper_trade_ready", False))
+        ),
+        "live_candidate_ready_count": sum(
+            1 for row in evaluation_rows if bool(row.get("live_candidate_ready", False))
+        ),
+        "strategy_evaluation_top_rows": [
+            _digest_strategy_evaluation(row) for row in evaluation_rows[:5]
+        ],
         "ranking_top_rows": ranking_top_rows,
         "best_overall_rows": ranking_top_rows,
         "projection_eligible_top_rows": projection_eligible_top_rows,
@@ -1163,6 +1300,24 @@ def _digest_ranking_row(row: dict[str, Any]) -> dict[str, Any]:
         ),
         "qualifies_for_projection": bool(row.get("qualifies_for_projection", False)),
         "policy_failure_reasons": _json_value(row.get("policy_failure_reasons_json", ())),
+    }
+
+
+def _digest_strategy_evaluation(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "evaluation_profile_id": str(row.get("evaluation_profile_id", "")),
+        "strategy_instance_id": str(row.get("strategy_instance_id", "")),
+        "family_key": str(row.get("family_key", "")),
+        "contract_id": str(row.get("contract_id", "")),
+        "timeframe": str(row.get("timeframe", "")),
+        "verdict": str(row.get("verdict", "")),
+        "promotion_state": str(row.get("promotion_state", "")),
+        "paper_signal_ready": bool(row.get("paper_signal_ready", False)),
+        "paper_trade_ready": bool(row.get("paper_trade_ready", False)),
+        "live_candidate_ready": bool(row.get("live_candidate_ready", False)),
+        "blocker_reasons": _json_value(row.get("blocker_reasons_json", ())),
+        "missing_data": _json_value(row.get("missing_data_json", ())),
+        "evidence_snapshot": _json_value(row.get("evidence_snapshot_json", {})),
     }
 
 
@@ -1591,6 +1746,99 @@ def _normalize_volume_profile(payload: object, *, repo_root: Path) -> dict[str, 
     }
 
 
+def _normalize_validation(
+    payload: object,
+    *,
+    dataset: dict[str, Any],
+    backtest: dict[str, Any],
+) -> dict[str, Any]:
+    if payload is None:
+        return {}
+    if not isinstance(payload, dict):
+        raise CampaignBlockedError("validation must be an object")
+
+    scheme = _normalized_enum(
+        payload.get("scheme", NESTED_WALK_FORWARD_SCHEME),
+        {NESTED_WALK_FORWARD_SCHEME},
+        field="validation.scheme",
+    )
+    outer_folds = _optional_dict(payload.get("outer_folds"), field="validation.outer_folds")
+    inner_folds = _optional_dict(payload.get("inner_folds"), field="validation.inner_folds")
+    leakage_controls = _optional_dict(
+        payload.get("leakage_controls"), field="validation.leakage_controls"
+    )
+    verdicts = _optional_dict(payload.get("verdicts"), field="validation.verdicts")
+
+    normalized = {
+        "scheme": scheme,
+        "outer_folds": {
+            "train_months": _normalized_positive_int(
+                outer_folds.get("train_months", 18),
+                field="validation.outer_folds.train_months",
+            ),
+            "confirmation_months": _normalized_positive_int(
+                outer_folds.get("confirmation_months", 3),
+                field="validation.outer_folds.confirmation_months",
+            ),
+            "step_months": _normalized_positive_int(
+                outer_folds.get("step_months", 3),
+                field="validation.outer_folds.step_months",
+            ),
+        },
+        "inner_folds": {
+            "train_months": _normalized_positive_int(
+                inner_folds.get("train_months", 9),
+                field="validation.inner_folds.train_months",
+            ),
+            "validation_months": _normalized_positive_int(
+                inner_folds.get("validation_months", 3),
+                field="validation.inner_folds.validation_months",
+            ),
+            "step_months": _normalized_positive_int(
+                inner_folds.get("step_months", 3),
+                field="validation.inner_folds.step_months",
+            ),
+        },
+        "leakage_controls": {
+            "warmup_bars": _normalized_non_negative_int(
+                leakage_controls.get("warmup_bars", dataset["warmup_bars"]),
+                field="validation.leakage_controls.warmup_bars",
+            ),
+            "purge_bars": _normalized_non_negative_int(
+                leakage_controls.get("purge_bars"),
+                field="validation.leakage_controls.purge_bars",
+            ),
+            "embargo_bars": _normalized_non_negative_int(
+                leakage_controls.get("embargo_bars"),
+                field="validation.leakage_controls.embargo_bars",
+            ),
+        },
+        "verdicts": {
+            "walk_forward_reoptimization": bool(verdicts.get("walk_forward_reoptimization", True)),
+            "latest_frozen_param_confirmation": bool(
+                verdicts.get("latest_frozen_param_confirmation", True)
+            ),
+        },
+    }
+    try:
+        _build_validation_plan_from_parts(
+            validation=normalized,
+            dataset=dataset,
+            backtest=backtest,
+        )
+    except ValueError as exc:
+        raise CampaignBlockedError(str(exc)) from exc
+    return normalized
+
+
+def _optional_dict(value: object, *, field: str) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise CampaignBlockedError(f"{field} must be an object")
+    return {str(key): item for key, item in value.items()}
+
+
 def _normalize_strategy_space(payload: dict[str, Any]) -> dict[str, Any]:
     retired_fields = sorted(
         field
@@ -1652,7 +1900,7 @@ def _normalize_strategy_optimizer(payload: dict[str, Any]) -> dict[str, Any]:
     )
     if engine == "grid":
         return {"engine": "grid"}
-    return {
+    normalized = {
         "engine": "optuna",
         "sampler": _normalized_enum(
             payload.get("sampler", "tpe"), {"tpe"}, field="strategy_space.optimizer.sampler"
@@ -1684,6 +1932,17 @@ def _normalize_strategy_optimizer(payload: dict[str, Any]) -> dict[str, Any]:
             field="strategy_space.optimizer.max_neighborhood_trials",
         ),
     }
+    if "ranking_policy" in payload:
+        raw_policy = payload["ranking_policy"]
+        if not isinstance(raw_policy, dict):
+            raise CampaignBlockedError(
+                "`strategy_space.optimizer.ranking_policy` must be an object"
+            )
+        normalized["ranking_policy"] = _normalize_ranking_policy_core(
+            {str(item_key): item for item_key, item in raw_policy.items()},
+            field="strategy_space.optimizer.ranking_policy",
+        )
+    return normalized
 
 
 def _normalize_backtest(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1706,37 +1965,45 @@ def _normalize_backtest(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _normalize_ranking_policy(payload: dict[str, Any]) -> dict[str, Any]:
+def _normalize_ranking_policy_core(payload: dict[str, Any], *, field: str) -> dict[str, Any]:
     metric_order = _unique_strings_preserve_order(payload["metric_order"])
     if not metric_order:
-        raise CampaignBlockedError("ranking_policy.metric_order must not be empty")
+        raise CampaignBlockedError(f"{field}.metric_order must not be empty")
     return {
         "policy_id": _normalized_non_empty(payload["policy_id"]),
         "metric_order": metric_order,
         "require_out_of_sample_pass": bool(payload["require_out_of_sample_pass"]),
         "min_trade_count": _normalized_positive_int(
-            payload["min_trade_count"], field="ranking_policy.min_trade_count"
+            payload["min_trade_count"], field=f"{field}.min_trade_count"
+        ),
+        "min_trade_count_per_fold": _normalized_positive_int(
+            payload["min_trade_count_per_fold"],
+            field=f"{field}.min_trade_count_per_fold",
         ),
         "min_fold_count": _normalized_positive_int(
-            payload.get("min_fold_count", 1),
-            field="ranking_policy.min_fold_count",
+            payload["min_fold_count"],
+            field=f"{field}.min_fold_count",
         ),
         "max_drawdown_cap": _normalized_non_negative_number(
-            payload["max_drawdown_cap"], field="ranking_policy.max_drawdown_cap"
+            payload["max_drawdown_cap"], field=f"{field}.max_drawdown_cap"
         ),
         "min_positive_fold_ratio": _normalized_ratio(
-            payload["min_positive_fold_ratio"], field="ranking_policy.min_positive_fold_ratio"
+            payload["min_positive_fold_ratio"], field=f"{field}.min_positive_fold_ratio"
         ),
         "stress_slippage_bps": _normalized_non_negative_number(
-            payload["stress_slippage_bps"], field="ranking_policy.stress_slippage_bps"
+            payload["stress_slippage_bps"], field=f"{field}.stress_slippage_bps"
         ),
         "min_parameter_stability": _normalized_ratio(
-            payload["min_parameter_stability"], field="ranking_policy.min_parameter_stability"
+            payload["min_parameter_stability"], field=f"{field}.min_parameter_stability"
         ),
         "min_slippage_score": _normalized_ratio(
-            payload["min_slippage_score"], field="ranking_policy.min_slippage_score"
+            payload["min_slippage_score"], field=f"{field}.min_slippage_score"
         ),
     }
+
+
+def _normalize_ranking_policy(payload: dict[str, Any]) -> dict[str, Any]:
+    return _normalize_ranking_policy_core(payload, field="ranking_policy")
 
 
 def _normalize_projection_policy(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1930,6 +2197,8 @@ def _write_materialization_lock(
     dataset = dict(normalized_config["dataset"])
     profiles = dict(normalized_config["profiles"])
     volume_profile = dict(normalized_config.get("volume_profile", {}))
+    validation = dict(normalized_config.get("validation", {}))
+    validation_plan = _build_validation_plan(normalized_config)
     data_prep_output_paths = {
         table_name: path
         for table_name, path in dict(report.get("output_paths", {})).items()
@@ -1954,6 +2223,8 @@ def _write_materialization_lock(
             "derived_indicator_set_version": str(profiles["derived_indicator_set_version"]),
             "derived_indicator_profile_version": str(profiles["derived_indicator_profile_version"]),
             "volume_profile": volume_profile,
+            "validation": validation,
+            "validation_plan": validation_plan,
             "rows_by_table": dict(report.get("rows_by_table", {})),
             "output_paths": data_prep_output_paths,
             "created_at": utc_now_iso(),

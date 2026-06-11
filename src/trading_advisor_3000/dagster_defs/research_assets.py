@@ -36,6 +36,16 @@ from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     MOEX_HISTORICAL_DATA_ROOT_ENV,
 )
 from trading_advisor_3000.product_plane.research.backtests import (
+    DEFAULT_RANKING_MAX_DRAWDOWN_CAP,
+    DEFAULT_RANKING_METRIC_ORDER,
+    DEFAULT_RANKING_MIN_FOLD_COUNT,
+    DEFAULT_RANKING_MIN_PARAMETER_STABILITY,
+    DEFAULT_RANKING_MIN_POSITIVE_FOLD_RATIO,
+    DEFAULT_RANKING_MIN_SLIPPAGE_SCORE,
+    DEFAULT_RANKING_MIN_TRADE_COUNT,
+    DEFAULT_RANKING_MIN_TRADE_COUNT_PER_FOLD,
+    DEFAULT_RANKING_POLICY_ID,
+    DEFAULT_RANKING_STRESS_SLIPPAGE_BPS,
     BacktestBatchRequest,
     BacktestEngineConfig,
     CandidateProjectionRequest,
@@ -214,6 +224,7 @@ RESEARCH_BACKTEST_ASSETS = (
     "research_order_records",
     "research_drawdown_records",
     "research_strategy_rankings",
+    "research_strategy_evaluation_profiles",
 )
 
 RESEARCH_PROJECTION_ASSETS = ("research_signal_candidates",)
@@ -278,6 +289,7 @@ RESEARCH_DEPENDENCIES: dict[str, tuple[str, ...]] = {
         "research_strategy_stats",
         "research_trade_records",
     ),
+    "research_strategy_evaluation_profiles": ("research_datasets", "research_strategy_rankings"),
     "research_signal_candidates": (
         "research_datasets",
         "research_derived_indicator_frames",
@@ -569,6 +581,14 @@ def research_asset_specs() -> list[AssetSpec]:
             outputs=("research_strategy_rankings_delta",),
         ),
         AssetSpec(
+            key="research_strategy_evaluation_profiles",
+            description=(
+                "Expose strategy evaluation verdicts over ranked strategy research results."
+            ),
+            inputs=("research_datasets_delta", "research_strategy_rankings_delta"),
+            outputs=("research_strategy_evaluation_profiles_delta",),
+        ),
+        AssetSpec(
             key="research_signal_candidates",
             description="Project runtime-compatible candidates from ranked research results.",
             inputs=(
@@ -610,6 +630,7 @@ def _research_config_schema() -> dict[str, object]:
         "end_ts": str,
         "warmup_bars": int,
         "split_method": str,
+        "validation_plan": Field(dict, default_value={}, is_required=False),
         "series_mode": str,
         "continuous_front_policy": dict,
         "dataset_contract_ids": [str],
@@ -640,6 +661,7 @@ def _research_config_schema() -> dict[str, object]:
         "ranking_metric_order": [str],
         "require_out_of_sample_pass": bool,
         "min_trade_count": int,
+        "min_trade_count_per_fold": int,
         "min_fold_count": int,
         "max_drawdown_cap": float,
         "min_positive_fold_ratio": float,
@@ -831,6 +853,9 @@ def _research_output_paths(
         ).as_posix(),
         "research_strategy_rankings": (
             resolved_results / "research_strategy_rankings.delta"
+        ).as_posix(),
+        "research_strategy_evaluation_profiles": (
+            resolved_results / "research_strategy_evaluation_profiles.delta"
         ).as_posix(),
         "research_signal_candidates": (
             resolved_results / "research_signal_candidates.delta"
@@ -1309,6 +1334,7 @@ def _seed_manifest(config: dict[str, object]) -> ResearchDatasetManifest:
         end_ts=str(_config_value(config, "end_ts", "")) or None,
         series_mode=series_mode,  # type: ignore[arg-type]
         split_method=str(_config_value(config, "split_method", "holdout")),  # type: ignore[arg-type]
+        split_params=dict(_config_value(config, "validation_plan", {})),
         warmup_bars=int(_config_value(config, "warmup_bars", 200)),
         source_tables=CONTINUOUS_FRONT_TABLES
         if series_mode == "continuous_front"
@@ -1441,6 +1467,7 @@ def research_datasets(context) -> dict[str, object]:
         )
     )
     series_mode = str(_config_value(config, "series_mode", "contract"))
+    validation_plan = dict(_config_value(config, "validation_plan", {}))
     continuous_front_status = _continuous_front_status_from_store(
         materialized_output_dir=materialized_output_dir,
         dataset_version=dataset_version,
@@ -1533,6 +1560,8 @@ def research_datasets(context) -> dict[str, object]:
             start_ts=str(_config_value(config, "start_ts", "")) or None,
             end_ts=str(_config_value(config, "end_ts", "")) or None,
             warmup_bars=int(_config_value(config, "warmup_bars", 0)),
+            split_method=str(_config_value(config, "split_method", "holdout")),
+            split_params=validation_plan,
             contours=research_l0_contours,
             spark_master=str(_config_value(config, "spark_master", "")) or DEFAULT_SPARK_MASTER,
         )
@@ -1567,6 +1596,7 @@ def research_datasets(context) -> dict[str, object]:
         "timeframes": _config_string_sequence(config, "timeframes"),
         "dataset_instrument_ids": _config_string_sequence(config, "dataset_instrument_ids"),
         "spark_master": str(_config_value(config, "spark_master", "")) or DEFAULT_SPARK_MASTER,
+        "validation_plan": validation_plan,
         "volume_profile_raw_1m_table_path": resolved_volume_profile_raw_1m_table_path,
         "volume_profile_tick_size_by_instrument": _normalize_volume_profile_tick_sizes(
             _config_value(config, "volume_profile_tick_size_by_instrument", {}),
@@ -1600,27 +1630,54 @@ def research_datasets(context) -> dict[str, object]:
             "window_count": int(_config_value(config, "window_count", 1)),
         },
         "ranking_policy": {
-            "policy_id": str(_config_value(config, "ranking_policy_id", "robust_oos_v1")),
+            "policy_id": str(_config_value(config, "ranking_policy_id", DEFAULT_RANKING_POLICY_ID)),
             "metric_order": tuple(
                 str(item)
                 for item in _config_value(
                     config,
                     "ranking_metric_order",
-                    ("total_return", "profit_factor", "max_drawdown"),
+                    DEFAULT_RANKING_METRIC_ORDER,
                 )
             ),
             "require_out_of_sample_pass": bool(
                 _config_value(config, "require_out_of_sample_pass", True)
             ),
-            "min_trade_count": int(_config_value(config, "min_trade_count", 4)),
-            "min_fold_count": int(_config_value(config, "min_fold_count", 1)),
-            "max_drawdown_cap": float(_config_value(config, "max_drawdown_cap", 0.35)),
-            "min_positive_fold_ratio": float(_config_value(config, "min_positive_fold_ratio", 0.5)),
-            "stress_slippage_bps": float(_config_value(config, "stress_slippage_bps", 7.5)),
-            "min_parameter_stability": float(
-                _config_value(config, "min_parameter_stability", 0.35)
+            "min_trade_count": int(
+                _config_value(config, "min_trade_count", DEFAULT_RANKING_MIN_TRADE_COUNT)
             ),
-            "min_slippage_score": float(_config_value(config, "min_slippage_score", 0.45)),
+            "min_trade_count_per_fold": int(
+                _config_value(
+                    config,
+                    "min_trade_count_per_fold",
+                    DEFAULT_RANKING_MIN_TRADE_COUNT_PER_FOLD,
+                )
+            ),
+            "min_fold_count": int(
+                _config_value(config, "min_fold_count", DEFAULT_RANKING_MIN_FOLD_COUNT)
+            ),
+            "max_drawdown_cap": float(
+                _config_value(config, "max_drawdown_cap", DEFAULT_RANKING_MAX_DRAWDOWN_CAP)
+            ),
+            "min_positive_fold_ratio": float(
+                _config_value(
+                    config,
+                    "min_positive_fold_ratio",
+                    DEFAULT_RANKING_MIN_POSITIVE_FOLD_RATIO,
+                )
+            ),
+            "stress_slippage_bps": float(
+                _config_value(config, "stress_slippage_bps", DEFAULT_RANKING_STRESS_SLIPPAGE_BPS)
+            ),
+            "min_parameter_stability": float(
+                _config_value(
+                    config,
+                    "min_parameter_stability",
+                    DEFAULT_RANKING_MIN_PARAMETER_STABILITY,
+                )
+            ),
+            "min_slippage_score": float(
+                _config_value(config, "min_slippage_score", DEFAULT_RANKING_MIN_SLIPPAGE_SCORE)
+            ),
         },
         "projection_request": {
             "selection_policy": str(
@@ -1994,6 +2051,7 @@ def _backtest_request_config(research_datasets: dict[str, object]) -> BacktestBa
         contract_ids=tuple(str(item) for item in payload["contract_ids"]),
         instrument_ids=tuple(str(item) for item in payload["instrument_ids"]),
         optimizer_policy=dict(payload.get("optimizer_policy", {"engine": "grid"})),
+        validation_plan=dict(research_datasets.get("validation_plan", {})),
     )
 
 
@@ -2014,7 +2072,10 @@ def _ranking_policy(research_datasets: dict[str, object]) -> RankingPolicy:
         metric_order=tuple(str(item) for item in payload["metric_order"]),
         require_out_of_sample_pass=bool(payload["require_out_of_sample_pass"]),
         min_trade_count=int(payload["min_trade_count"]),
-        min_fold_count=int(payload.get("min_fold_count", 1)),
+        min_trade_count_per_fold=int(
+            payload.get("min_trade_count_per_fold", DEFAULT_RANKING_MIN_TRADE_COUNT_PER_FOLD)
+        ),
+        min_fold_count=int(payload.get("min_fold_count", DEFAULT_RANKING_MIN_FOLD_COUNT)),
         max_drawdown_cap=float(payload["max_drawdown_cap"]),
         min_positive_fold_ratio=float(payload["min_positive_fold_ratio"]),
         stress_slippage_bps=float(payload["stress_slippage_bps"]),
@@ -2280,12 +2341,33 @@ def research_strategy_rankings(
             "output_paths": report.get("output_paths", {}),
             "row_counts": {
                 "research_strategy_rankings": len(report.get("ranking_rows", ())),
+                "research_strategy_evaluation_profiles": len(
+                    report.get("evaluation_profile_rows", ())
+                ),
                 "research_run_findings": len(report.get("finding_rows", ())),
             },
             "results_output_dir": results_output_dir.as_posix(),
         },
         "research_strategy_rankings",
     )
+
+
+@asset(group_name="research")
+def research_strategy_evaluation_profiles(
+    research_datasets: dict[str, object],
+    research_strategy_rankings: dict[str, object],
+) -> dict[str, object]:
+    del research_strategy_rankings
+    table_path = (
+        Path(str(research_datasets["results_output_dir"]))
+        / "research_strategy_evaluation_profiles.delta"
+    )
+    return {
+        "table_name": "research_strategy_evaluation_profiles",
+        "table_path": table_path.as_posix(),
+        "row_count": count_delta_table_rows(table_path) if has_delta_log(table_path) else 0,
+        "has_delta_log": has_delta_log(table_path),
+    }
 
 
 @asset(group_name="research")
@@ -2360,6 +2442,7 @@ RESEARCH_ASSETS = (
     research_order_records,
     research_drawdown_records,
     research_strategy_rankings,
+    research_strategy_evaluation_profiles,
     research_signal_candidates,
 )
 
@@ -2455,6 +2538,7 @@ research_backtest_job = define_asset_job(
         research_order_records,
         research_drawdown_records,
         research_strategy_rankings,
+        research_strategy_evaluation_profiles,
     ),
 )
 
@@ -3063,6 +3147,7 @@ def _research_run_config(
     end_ts: str = "",
     warmup_bars: int = DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS,
     split_method: str = "holdout",
+    validation_plan: Mapping[str, object] | None = None,
     series_mode: str = "contract",
     continuous_front_policy: dict[str, object] | None = None,
     dataset_contract_ids: Sequence[str] = (),
@@ -3088,16 +3173,17 @@ def _research_run_config(
     slippage_bps: float = 0.0,
     allow_short: bool = True,
     window_count: int = 1,
-    ranking_policy_id: str = "robust_oos_v1",
-    ranking_metric_order: Sequence[str] = ("total_return", "profit_factor", "max_drawdown"),
+    ranking_policy_id: str = DEFAULT_RANKING_POLICY_ID,
+    ranking_metric_order: Sequence[str] = DEFAULT_RANKING_METRIC_ORDER,
     require_out_of_sample_pass: bool = True,
-    min_trade_count: int = 4,
-    min_fold_count: int = 1,
-    max_drawdown_cap: float = 0.35,
-    min_positive_fold_ratio: float = 0.5,
-    stress_slippage_bps: float = 7.5,
-    min_parameter_stability: float = 0.35,
-    min_slippage_score: float = 0.45,
+    min_trade_count: int = DEFAULT_RANKING_MIN_TRADE_COUNT,
+    min_trade_count_per_fold: int = DEFAULT_RANKING_MIN_TRADE_COUNT_PER_FOLD,
+    min_fold_count: int = DEFAULT_RANKING_MIN_FOLD_COUNT,
+    max_drawdown_cap: float = DEFAULT_RANKING_MAX_DRAWDOWN_CAP,
+    min_positive_fold_ratio: float = DEFAULT_RANKING_MIN_POSITIVE_FOLD_RATIO,
+    stress_slippage_bps: float = DEFAULT_RANKING_STRESS_SLIPPAGE_BPS,
+    min_parameter_stability: float = DEFAULT_RANKING_MIN_PARAMETER_STABILITY,
+    min_slippage_score: float = DEFAULT_RANKING_MIN_SLIPPAGE_SCORE,
     selection_policy: str = "top_robust_per_series",
     max_candidates_per_partition: int = 1,
     min_robust_score: float = 0.55,
@@ -3135,6 +3221,7 @@ def _research_run_config(
         "end_ts": end_ts,
         "warmup_bars": warmup_bars,
         "split_method": split_method,
+        "validation_plan": dict(validation_plan or {}),
         "series_mode": series_mode,
         "continuous_front_policy": dict(
             continuous_front_policy or ContinuousFrontPolicy.from_config().to_config_dict()
@@ -3166,6 +3253,7 @@ def _research_run_config(
         "ranking_metric_order": [str(item) for item in ranking_metric_order],
         "require_out_of_sample_pass": require_out_of_sample_pass,
         "min_trade_count": min_trade_count,
+        "min_trade_count_per_fold": min_trade_count_per_fold,
         "min_fold_count": min_fold_count,
         "max_drawdown_cap": max_drawdown_cap,
         "min_positive_fold_ratio": min_positive_fold_ratio,
@@ -3196,6 +3284,7 @@ def _materialize_research_assets(
     end_ts: str = "",
     warmup_bars: int = DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS,
     split_method: str = "holdout",
+    validation_plan: Mapping[str, object] | None = None,
     series_mode: str = "contract",
     continuous_front_policy: dict[str, object] | None = None,
     dataset_contract_ids: Sequence[str] = (),
@@ -3222,16 +3311,17 @@ def _materialize_research_assets(
     slippage_bps: float = 0.0,
     allow_short: bool = True,
     window_count: int = 1,
-    ranking_policy_id: str = "robust_oos_v1",
-    ranking_metric_order: Sequence[str] = ("total_return", "profit_factor", "max_drawdown"),
+    ranking_policy_id: str = DEFAULT_RANKING_POLICY_ID,
+    ranking_metric_order: Sequence[str] = DEFAULT_RANKING_METRIC_ORDER,
     require_out_of_sample_pass: bool = True,
-    min_trade_count: int = 4,
-    min_fold_count: int = 1,
-    max_drawdown_cap: float = 0.35,
-    min_positive_fold_ratio: float = 0.5,
-    stress_slippage_bps: float = 7.5,
-    min_parameter_stability: float = 0.35,
-    min_slippage_score: float = 0.45,
+    min_trade_count: int = DEFAULT_RANKING_MIN_TRADE_COUNT,
+    min_trade_count_per_fold: int = DEFAULT_RANKING_MIN_TRADE_COUNT_PER_FOLD,
+    min_fold_count: int = DEFAULT_RANKING_MIN_FOLD_COUNT,
+    max_drawdown_cap: float = DEFAULT_RANKING_MAX_DRAWDOWN_CAP,
+    min_positive_fold_ratio: float = DEFAULT_RANKING_MIN_POSITIVE_FOLD_RATIO,
+    stress_slippage_bps: float = DEFAULT_RANKING_STRESS_SLIPPAGE_BPS,
+    min_parameter_stability: float = DEFAULT_RANKING_MIN_PARAMETER_STABILITY,
+    min_slippage_score: float = DEFAULT_RANKING_MIN_SLIPPAGE_SCORE,
     selection_policy: str = "top_robust_per_series",
     max_candidates_per_partition: int = 1,
     min_robust_score: float = 0.55,
@@ -3309,6 +3399,7 @@ def _materialize_research_assets(
         end_ts=end_ts,
         warmup_bars=warmup_bars,
         split_method=split_method,
+        validation_plan=validation_plan,
         series_mode=series_mode,
         continuous_front_policy=continuous_front_policy,
         dataset_contract_ids=dataset_contract_ids,
@@ -3338,6 +3429,7 @@ def _materialize_research_assets(
         ranking_metric_order=ranking_metric_order,
         require_out_of_sample_pass=require_out_of_sample_pass,
         min_trade_count=min_trade_count,
+        min_trade_count_per_fold=min_trade_count_per_fold,
         min_fold_count=min_fold_count,
         max_drawdown_cap=max_drawdown_cap,
         min_positive_fold_ratio=min_positive_fold_ratio,
@@ -3467,6 +3559,7 @@ def materialize_research_data_prep_assets(
     end_ts: str = "",
     warmup_bars: int = DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS,
     split_method: str = "holdout",
+    validation_plan: Mapping[str, object] | None = None,
     series_mode: str = "contract",
     continuous_front_policy: dict[str, object] | None = None,
     dataset_contract_ids: Sequence[str] = (),
@@ -3499,6 +3592,7 @@ def materialize_research_data_prep_assets(
         end_ts=end_ts,
         warmup_bars=warmup_bars,
         split_method=split_method,
+        validation_plan=validation_plan,
         series_mode=series_mode,
         continuous_front_policy=continuous_front_policy,
         dataset_contract_ids=dataset_contract_ids,
@@ -3973,6 +4067,7 @@ def materialize_strategy_registry_refresh_assets(
     end_ts: str = "",
     warmup_bars: int = DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS,
     split_method: str = "holdout",
+    validation_plan: Mapping[str, object] | None = None,
     series_mode: str = "contract",
     continuous_front_policy: dict[str, object] | None = None,
     dataset_contract_ids: Sequence[str] = (),
@@ -4015,6 +4110,7 @@ def materialize_strategy_registry_refresh_assets(
         end_ts=end_ts,
         warmup_bars=warmup_bars,
         split_method=split_method,
+        validation_plan=validation_plan,
         series_mode=series_mode,
         continuous_front_policy=continuous_front_policy,
         dataset_contract_ids=dataset_contract_ids,
@@ -4062,6 +4158,7 @@ def materialize_research_backtest_assets(
     end_ts: str = "",
     warmup_bars: int = DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS,
     split_method: str = "holdout",
+    validation_plan: Mapping[str, object] | None = None,
     series_mode: str = "contract",
     continuous_front_policy: dict[str, object] | None = None,
     dataset_contract_ids: Sequence[str] = (),
@@ -4084,16 +4181,17 @@ def materialize_research_backtest_assets(
     slippage_bps: float = 0.0,
     allow_short: bool = True,
     window_count: int = 1,
-    ranking_policy_id: str = "robust_oos_v1",
-    ranking_metric_order: Sequence[str] = ("total_return", "profit_factor", "max_drawdown"),
+    ranking_policy_id: str = DEFAULT_RANKING_POLICY_ID,
+    ranking_metric_order: Sequence[str] = DEFAULT_RANKING_METRIC_ORDER,
     require_out_of_sample_pass: bool = True,
-    min_trade_count: int = 4,
-    min_fold_count: int = 1,
-    max_drawdown_cap: float = 0.35,
-    min_positive_fold_ratio: float = 0.5,
-    stress_slippage_bps: float = 7.5,
-    min_parameter_stability: float = 0.35,
-    min_slippage_score: float = 0.45,
+    min_trade_count: int = DEFAULT_RANKING_MIN_TRADE_COUNT,
+    min_trade_count_per_fold: int = DEFAULT_RANKING_MIN_TRADE_COUNT_PER_FOLD,
+    min_fold_count: int = DEFAULT_RANKING_MIN_FOLD_COUNT,
+    max_drawdown_cap: float = DEFAULT_RANKING_MAX_DRAWDOWN_CAP,
+    min_positive_fold_ratio: float = DEFAULT_RANKING_MIN_POSITIVE_FOLD_RATIO,
+    stress_slippage_bps: float = DEFAULT_RANKING_STRESS_SLIPPAGE_BPS,
+    min_parameter_stability: float = DEFAULT_RANKING_MIN_PARAMETER_STABILITY,
+    min_slippage_score: float = DEFAULT_RANKING_MIN_SLIPPAGE_SCORE,
     selection_policy: str = "top_robust_per_series",
     max_candidates_per_partition: int = 1,
     min_robust_score: float = 0.55,
@@ -4118,6 +4216,7 @@ def materialize_research_backtest_assets(
         end_ts=end_ts,
         warmup_bars=warmup_bars,
         split_method=split_method,
+        validation_plan=validation_plan,
         series_mode=series_mode,
         continuous_front_policy=continuous_front_policy,
         dataset_contract_ids=dataset_contract_ids,
@@ -4147,6 +4246,7 @@ def materialize_research_backtest_assets(
         ranking_metric_order=ranking_metric_order,
         require_out_of_sample_pass=require_out_of_sample_pass,
         min_trade_count=min_trade_count,
+        min_trade_count_per_fold=min_trade_count_per_fold,
         min_fold_count=min_fold_count,
         max_drawdown_cap=max_drawdown_cap,
         min_positive_fold_ratio=min_positive_fold_ratio,
@@ -4179,6 +4279,7 @@ def materialize_research_projection_assets(
     end_ts: str = "",
     warmup_bars: int = DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS,
     split_method: str = "holdout",
+    validation_plan: Mapping[str, object] | None = None,
     series_mode: str = "contract",
     continuous_front_policy: dict[str, object] | None = None,
     dataset_contract_ids: Sequence[str] = (),
@@ -4201,20 +4302,21 @@ def materialize_research_projection_assets(
     slippage_bps: float = 0.0,
     allow_short: bool = True,
     window_count: int = 1,
-    ranking_policy_id: str = "robust_oos_v1",
-    ranking_metric_order: Sequence[str] = ("total_return", "profit_factor", "max_drawdown"),
+    ranking_policy_id: str = DEFAULT_RANKING_POLICY_ID,
+    ranking_metric_order: Sequence[str] = DEFAULT_RANKING_METRIC_ORDER,
     selection_policy: str = "top_robust_per_series",
     max_candidates_per_partition: int = 1,
     min_robust_score: float = 0.55,
     decision_lag_bars_max: int = 1,
     require_out_of_sample_pass: bool = True,
-    min_trade_count: int = 4,
-    min_fold_count: int = 1,
-    max_drawdown_cap: float = 0.35,
-    min_positive_fold_ratio: float = 0.5,
-    stress_slippage_bps: float = 7.5,
-    min_parameter_stability: float = 0.35,
-    min_slippage_score: float = 0.45,
+    min_trade_count: int = DEFAULT_RANKING_MIN_TRADE_COUNT,
+    min_trade_count_per_fold: int = DEFAULT_RANKING_MIN_TRADE_COUNT_PER_FOLD,
+    min_fold_count: int = DEFAULT_RANKING_MIN_FOLD_COUNT,
+    max_drawdown_cap: float = DEFAULT_RANKING_MAX_DRAWDOWN_CAP,
+    min_positive_fold_ratio: float = DEFAULT_RANKING_MIN_POSITIVE_FOLD_RATIO,
+    stress_slippage_bps: float = DEFAULT_RANKING_STRESS_SLIPPAGE_BPS,
+    min_parameter_stability: float = DEFAULT_RANKING_MIN_PARAMETER_STABILITY,
+    min_slippage_score: float = DEFAULT_RANKING_MIN_SLIPPAGE_SCORE,
     reuse_existing_materialization: bool = False,
     selection: Sequence[str] | None = None,
     raise_on_error: bool = True,
@@ -4235,6 +4337,7 @@ def materialize_research_projection_assets(
         end_ts=end_ts,
         warmup_bars=warmup_bars,
         split_method=split_method,
+        validation_plan=validation_plan,
         series_mode=series_mode,
         continuous_front_policy=continuous_front_policy,
         dataset_contract_ids=dataset_contract_ids,
@@ -4268,6 +4371,7 @@ def materialize_research_projection_assets(
         decision_lag_bars_max=decision_lag_bars_max,
         require_out_of_sample_pass=require_out_of_sample_pass,
         min_trade_count=min_trade_count,
+        min_trade_count_per_fold=min_trade_count_per_fold,
         min_fold_count=min_fold_count,
         max_drawdown_cap=max_drawdown_cap,
         min_positive_fold_ratio=min_positive_fold_ratio,
