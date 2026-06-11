@@ -316,6 +316,7 @@ def test_legacy_search_spec_without_clock_requirements_keeps_legacy_input_valida
     ("field", "value", "message"),
     (
         ("min_trade_count", 0, "min_trade_count must be positive"),
+        ("min_trade_count_per_fold", 0, "min_trade_count_per_fold must be positive"),
         ("min_fold_count", 0, "min_fold_count must be positive"),
         ("max_drawdown_cap", 0.0, "max_drawdown_cap must be positive"),
     ),
@@ -344,6 +345,8 @@ def test_backtest_store_contract_contains_stage5_artifacts() -> None:
         "research_vbt_param_gate_events",
         "research_vbt_ephemeral_indicator_cache",
         "research_strategy_promotion_events",
+        "research_validation_folds",
+        "research_optimizer_selections",
         "research_backtest_batches",
         "research_backtest_runs",
         "research_strategy_stats",

@@ -1399,6 +1399,7 @@ def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_pat
         backtest_timeframe="15m",
         require_out_of_sample_pass=False,
         min_trade_count=1,
+        min_trade_count_per_fold=1,
         max_drawdown_cap=1.0,
         min_positive_fold_ratio=0.0,
         min_parameter_stability=0.0,
@@ -1423,9 +1424,11 @@ def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_pat
         "research_order_records",
         "research_drawdown_records",
         "research_strategy_rankings",
+        "research_strategy_evaluation_profiles",
     }
     assert "research_datasets" in backtest_report["materialized_assets"]
     assert "research_strategy_rankings" in backtest_report["materialized_assets"]
+    assert "research_strategy_evaluation_profiles" in backtest_report["materialized_assets"]
     assert backtest_report["rows_by_table"]["research_trade_records"] > 0
     assert backtest_report["rows_by_table"]["research_order_records"] > 0
     assert backtest_report["rows_by_table"]["research_strategy_search_specs"] > 0
@@ -1436,6 +1439,7 @@ def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_pat
     assert backtest_report["rows_by_table"]["research_vbt_param_gate_events"] > 0
     assert "research_drawdown_records" in backtest_report["rows_by_table"]
     assert backtest_report["rows_by_table"]["research_strategy_rankings"] > 0
+    assert backtest_report["rows_by_table"]["research_strategy_evaluation_profiles"] > 0
     assert (
         Path(backtest_report["output_paths"]["research_backtest_batches"]) / "_delta_log"
     ).exists()
@@ -1447,6 +1451,10 @@ def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_pat
     ).exists()
     assert (
         Path(backtest_report["output_paths"]["research_strategy_rankings"]) / "_delta_log"
+    ).exists()
+    assert (
+        Path(backtest_report["output_paths"]["research_strategy_evaluation_profiles"])
+        / "_delta_log"
     ).exists()
     assert read_delta_table_rows(Path(backtest_report["output_paths"]["research_backtest_runs"]))
     optimizer_trials = read_delta_table_rows(
@@ -1467,6 +1475,9 @@ def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_pat
     )
     assert read_delta_table_rows(
         Path(backtest_report["output_paths"]["research_strategy_rankings"])
+    )
+    assert read_delta_table_rows(
+        Path(backtest_report["output_paths"]["research_strategy_evaluation_profiles"])
     )
 
     projection_report = materialize_research_projection_assets(
@@ -1490,6 +1501,7 @@ def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_pat
         decision_lag_bars_max=25,
         require_out_of_sample_pass=False,
         min_trade_count=1,
+        min_trade_count_per_fold=1,
         max_drawdown_cap=1.0,
         min_positive_fold_ratio=0.0,
         min_parameter_stability=0.0,

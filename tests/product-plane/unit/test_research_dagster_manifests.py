@@ -11,7 +11,10 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     read_delta_table_rows,
     write_delta_table_rows,
 )
-from trading_advisor_3000.product_plane.research.backtests.results import backtest_store_contract
+from trading_advisor_3000.product_plane.research.backtests.results import (
+    backtest_store_contract,
+    results_store_contract,
+)
 from trading_advisor_3000.product_plane.research.continuous_front import (
     continuous_front_store_contract,
 )
@@ -125,6 +128,13 @@ def test_research_dagster_asset_specs_declared() -> None:
         "research_bar_views",
         "research_indicator_frames",
         "research_derived_indicator_frames",
+        "continuous_front_indicator_acceptance_report",
+        "cf_indicator_input_frame",
+        "indicator_roll_rules",
+        "continuous_front_indicator_frames",
+        "continuous_front_derived_indicator_frames",
+        "continuous_front_indicator_qc_observations",
+        "continuous_front_indicator_run_manifest",
         "research_strategy_families",
         "research_strategy_templates",
         "research_strategy_template_modules",
@@ -143,6 +153,7 @@ def test_research_dagster_asset_specs_declared() -> None:
         "research_order_records",
         "research_drawdown_records",
         "research_strategy_rankings",
+        "research_strategy_evaluation_profiles",
         "research_signal_candidates",
     } == keys
     assert set(specs["research_datasets"].inputs) == {
@@ -201,6 +212,10 @@ def test_research_dagster_asset_specs_declared() -> None:
         "research_backtest_runs_delta",
         "research_strategy_stats_delta",
         "research_trade_records_delta",
+    }
+    assert set(specs["research_strategy_evaluation_profiles"].inputs) == {
+        "research_datasets_delta",
+        "research_strategy_rankings_delta",
     }
     assert set(specs["research_signal_candidates"].inputs) == {
         "research_datasets_delta",
@@ -420,7 +435,7 @@ def test_dagster_indicator_asset_fails_on_quarantined_continuous_front_sidecar(
     monkeypatch.setattr(research_assets, "materialize_indicator_frames", lambda **_: None)
     monkeypatch.setattr(
         research_assets,
-        "run_continuous_front_base_indicator_sidecar_job",
+        "run_continuous_front_indicator_pandas_job",
         lambda **_: {
             "success": False,
             "status": "QUARANTINED",
@@ -430,7 +445,7 @@ def test_dagster_indicator_asset_fails_on_quarantined_continuous_front_sidecar(
     )
 
     with pytest.raises(RuntimeError, match=r"(?=.*cf-base-run)(?=.*quarantined)"):
-        research_assets.research_indicator_frames(
+        research_assets.continuous_front_indicator_acceptance_report(
             build_op_context(
                 op_config=_full_research_config(
                     tmp_path,
@@ -617,6 +632,7 @@ def test_dagster_backtest_handoff_passes_delta_manifests_into_ranking(
         "research_strategy_stats",
         "research_trade_records",
         "research_strategy_rankings",
+        "research_strategy_evaluation_profiles",
     ):
         (results_dir / f"{table_name}.delta" / "_delta_log").mkdir(parents=True, exist_ok=True)
 
@@ -646,8 +662,14 @@ def test_dagster_backtest_handoff_passes_delta_manifests_into_ranking(
         captured.update(kwargs)
         return {
             "ranking_rows": [{"ranking_id": "RANK"}],
+            "evaluation_profile_rows": [{"evaluation_profile_id": "SEP"}],
             "finding_rows": [],
-            "output_paths": {"research_strategy_rankings": ranking_path.as_posix()},
+            "output_paths": {
+                "research_strategy_rankings": ranking_path.as_posix(),
+                "research_strategy_evaluation_profiles": (
+                    results_dir / "research_strategy_evaluation_profiles.delta"
+                ).as_posix(),
+            },
         }
 
     monkeypatch.setattr(research_assets, "rank_backtest_results", _fake_rank_backtest_results)
@@ -655,16 +677,17 @@ def test_dagster_backtest_handoff_passes_delta_manifests_into_ranking(
         {
             "results_output_dir": results_dir.as_posix(),
             "ranking_policy": {
-                "policy_id": "robust_oos_v1",
-                "metric_order": ["total_return", "profit_factor", "max_drawdown"],
+                "policy_id": "research_screen_strict_v1",
+                "metric_order": ["sharpe", "profit_factor", "max_drawdown", "total_return"],
                 "require_out_of_sample_pass": True,
                 "min_trade_count": 12,
+                "min_trade_count_per_fold": 4,
                 "min_fold_count": 2,
-                "max_drawdown_cap": 0.35,
-                "min_positive_fold_ratio": 0.5,
-                "stress_slippage_bps": 7.5,
-                "min_parameter_stability": 0.35,
-                "min_slippage_score": 0.45,
+                "max_drawdown_cap": 0.25,
+                "min_positive_fold_ratio": 0.67,
+                "stress_slippage_bps": 12.5,
+                "min_parameter_stability": 0.55,
+                "min_slippage_score": 0.6,
             },
         },
         run_manifest,
@@ -679,6 +702,51 @@ def test_dagster_backtest_handoff_passes_delta_manifests_into_ranking(
     assert ranking_manifest == {
         "table_name": "research_strategy_rankings",
         "table_path": ranking_path.as_posix(),
+        "row_count": 1,
+        "has_delta_log": True,
+    }
+    write_delta_table_rows(
+        table_path=results_dir / "research_strategy_evaluation_profiles.delta",
+        columns=results_store_contract()["research_strategy_evaluation_profiles"]["columns"],
+        rows=[
+            {
+                "evaluation_profile_id": "SEP",
+                "profile_version": "strategy-evaluation-profile.v1",
+                "approved_universe_profile": "approved-universe-v1",
+                "campaign_run_id": "CRUN",
+                "ranking_id": "RANK",
+                "backtest_run_id": "RUN",
+                "strategy_instance_id": "SINST",
+                "strategy_template_id": "STPL",
+                "family_id": "SFAM",
+                "family_key": "trend_mtf_pullback_v1",
+                "strategy_version_label": "trend-mtf-pullback-v1",
+                "contract_id": "BR-6.26",
+                "instrument_id": "BR",
+                "timeframe": "15m",
+                "params_hash": "PARAM",
+                "ranking_policy_id": "robust_oos_v1",
+                "policy_pass": True,
+                "qualifies_for_projection": True,
+                "paper_signal_ready": False,
+                "paper_trade_ready": False,
+                "live_candidate_ready": False,
+                "verdict": "research-only",
+                "promotion_state": "not_promoted",
+                "blocker_reasons_json": ["missing_projected_candidate"],
+                "missing_data_json": [],
+                "evidence_snapshot_json": {"candidate_count": 0},
+                "created_at": "2026-04-29T00:00:00Z",
+            }
+        ],
+    )
+    evaluation_manifest = research_assets.research_strategy_evaluation_profiles(
+        {"results_output_dir": results_dir.as_posix()},
+        ranking_manifest,
+    )
+    assert evaluation_manifest == {
+        "table_name": "research_strategy_evaluation_profiles",
+        "table_path": (results_dir / "research_strategy_evaluation_profiles.delta").as_posix(),
         "row_count": 1,
         "has_delta_log": True,
     }

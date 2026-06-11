@@ -6,7 +6,6 @@ from typing import Any
 
 import yaml
 
-
 ROOT = Path(__file__).resolve().parents[3]
 SCHEMAS = ROOT / "src" / "trading_advisor_3000" / "product_plane" / "contracts" / "schemas"
 FIXTURES = ROOT / "tests" / "product-plane" / "fixtures" / "contracts"
@@ -105,7 +104,8 @@ def test_research_research_release_blocking_boundary_registered() -> None:
         (
             item
             for item in boundaries
-            if isinstance(item, dict) and str(item.get("boundary_id", "")).strip() == "research_strategy_governance"
+            if isinstance(item, dict)
+            and str(item.get("boundary_id", "")).strip() == "research_strategy_governance"
         ),
         None,
     )
@@ -116,6 +116,7 @@ def test_research_research_release_blocking_boundary_registered() -> None:
     assert ids == {
         "technical_indicator_snapshot",
         "strategy_candidate_projection",
+        "strategy_evaluation_profile",
         "strategy_scorecard",
         "strategy_promotion_decision",
     }
@@ -125,6 +126,7 @@ def test_research_research_contract_schemas_and_fixtures_validate() -> None:
     matrix = {
         "technical_indicator_snapshot.v1.json": "contracts/technical_indicator_snapshot.v1.json",
         "strategy_candidate_projection.v1.json": "contracts/strategy_candidate_projection.v1.json",
+        "strategy_evaluation_profile.v1.json": "contracts/strategy_evaluation_profile.v1.json",
         "strategy_scorecard.v1.json": "contracts/strategy_scorecard.v1.json",
         "strategy_promotion_decision.v1.json": "contracts/strategy_promotion_decision.v1.json",
     }
