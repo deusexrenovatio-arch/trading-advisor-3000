@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[3]
 PROFILE_DIR = ROOT / "deployment" / "docker" / "production-like"
 
@@ -29,7 +28,7 @@ def test_production_profile_compose_wires_runtime_sidecar_postgres_and_prometheu
     assert "stocksharp-sidecar-stub:" in compose
     assert "postgres:" in compose
     assert "prometheus:" in compose
-    assert "trading_advisor_3000.product_plane.runtime.ops.profile_server" in compose
+    assert "trading_advisor_3000.product_plane.execution.ops.profile_server" in compose
     assert "TA3000_STOCKSHARP_API_KEY" in compose
     assert "TA3000_FINAM_API_TOKEN" in compose
     assert "TA3000_ENFORCE_LIVE_SECRETS" in compose

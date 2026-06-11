@@ -6,6 +6,9 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Mapping
 
+from trading_advisor_3000.product_plane.contracts.live_execution_security import (
+    DEFAULT_REQUIRED_LIVE_SECRETS,
+)
 from trading_advisor_3000.product_plane.execution.adapters import (
     LiveExecutionBridge,
     LiveExecutionFeatureFlags,
@@ -14,7 +17,6 @@ from trading_advisor_3000.product_plane.execution.adapters import (
     StockSharpHTTPTransportConfig,
     StockSharpSidecarStub,
 )
-from trading_advisor_3000.product_plane.runtime.config import DEFAULT_REQUIRED_LIVE_SECRETS
 
 
 def _env_bool(env: Mapping[str, str], name: str, default: bool) -> bool:
@@ -88,7 +90,8 @@ def build_live_bridge_from_env(env: Mapping[str, str] | None = None) -> LiveExec
         enforce_secret_age=_env_bool(source, "TA3000_ENFORCE_SECRET_AGE", False),
         max_secret_age_days=_env_int(source, "TA3000_SECRET_MAX_AGE_DAYS", 90),
         required_live_secret_env_vars=_required_secret_names(source),
-        environment=source.get("TA3000_ENVIRONMENT", "staging-live-sim").strip() or "staging-live-sim",
+        environment=source.get("TA3000_ENVIRONMENT", "staging-live-sim").strip()
+        or "staging-live-sim",
     )
     retry_policy = LiveExecutionRetryPolicy(
         max_attempts=_env_int(source, "TA3000_RETRY_MAX_ATTEMPTS", 3),
@@ -178,13 +181,15 @@ def render_runtime_operational_metrics(snapshot: dict[str, object]) -> str:
         "# HELP ta3000_live_bridge_stale_secrets_total Stale required secret count by age policy.",
         "# TYPE ta3000_live_bridge_stale_secrets_total gauge",
         f"ta3000_live_bridge_stale_secrets_total {stale_count}",
-        "# HELP ta3000_live_bridge_retry_max_attempts Configured retry attempts for bridge operations.",
+        "# HELP ta3000_live_bridge_retry_max_attempts "
+        "Configured retry attempts for bridge operations.",
         "# TYPE ta3000_live_bridge_retry_max_attempts gauge",
         f"ta3000_live_bridge_retry_max_attempts {max_attempts}",
         "# HELP ta3000_live_submit_latency_p95_ms P95 submit latency in milliseconds.",
         "# TYPE ta3000_live_submit_latency_p95_ms gauge",
         f"ta3000_live_submit_latency_p95_ms {submit_p95}",
-        "# HELP ta3000_live_sync_lag_p95_ms P95 sync lag between broker event timestamp and ingest time.",
+        "# HELP ta3000_live_sync_lag_p95_ms "
+        "P95 sync lag between broker event timestamp and ingest time.",
         "# TYPE ta3000_live_sync_lag_p95_ms gauge",
         f"ta3000_live_sync_lag_p95_ms {sync_lag_p95}",
         "# HELP ta3000_live_retry_exhausted_total Retry-exhausted operation count.",
@@ -199,7 +204,9 @@ def render_runtime_operational_metrics(snapshot: dict[str, object]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def run_profile_server(*, host: str = "0.0.0.0", port: int = 8088, env: Mapping[str, str] | None = None) -> None:
+def run_profile_server(
+    *, host: str = "0.0.0.0", port: int = 8088, env: Mapping[str, str] | None = None
+) -> None:
     source = env or os.environ
 
     class _Handler(BaseHTTPRequestHandler):
@@ -230,7 +237,9 @@ def run_profile_server(*, host: str = "0.0.0.0", port: int = 8088, env: Mapping[
                 return
             if self.path == "/metrics":
                 metrics = render_runtime_operational_metrics(snapshot)
-                self._send_text(status=200, body_text=metrics, content_type="text/plain; version=0.0.4")
+                self._send_text(
+                    status=200, body_text=metrics, content_type="text/plain; version=0.0.4"
+                )
                 return
             self._send_json(404, {"error": "not_found", "path": self.path})
 

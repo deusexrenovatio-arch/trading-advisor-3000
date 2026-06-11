@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[3]
 PROFILE_DIR = ROOT / "deployment" / "docker" / "staging-gateway"
 
@@ -28,9 +27,12 @@ def test_staging_gateway_compose_wires_runtime_sidecar_and_prometheus() -> None:
     assert "runtime-profile:" in compose
     assert "stocksharp-sidecar-gateway:" in compose
     assert "prometheus:" in compose
-    assert "trading_advisor_3000.product_plane.runtime.ops.profile_server" in compose
+    assert "trading_advisor_3000.product_plane.execution.ops.profile_server" in compose
     assert "TA3000_SIDECAR_TRANSPORT: ${TA3000_SIDECAR_TRANSPORT:-http}" in compose
-    assert "TA3000_SIDECAR_BASE_URL: ${TA3000_SIDECAR_BASE_URL:-http://stocksharp-sidecar-gateway:18081}" in compose
+    assert (
+        "TA3000_SIDECAR_BASE_URL: ${TA3000_SIDECAR_BASE_URL:-http://stocksharp-sidecar-gateway:18081}"
+        in compose
+    )
     assert "./gateway/sidecar_gateway_stub.py:/opt/gateway/sidecar_gateway_stub.py:ro" in compose
     assert "TA3000_GATEWAY_KILL_SWITCH" in compose
 

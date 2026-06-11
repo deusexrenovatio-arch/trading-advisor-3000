@@ -1,30 +1,53 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from trading_advisor_3000.product_plane.research.datasets import ContinuousFrontPolicy
 from trading_advisor_3000.spark_jobs import DEFAULT_SPARK_MASTER, run_continuous_front_spark_job
-
-from ._common import print_summary
 
 
 def _csv(value: str) -> tuple[str, ...]:
     return tuple(item.strip() for item in value.split(",") if item.strip())
 
 
+def _jsonable(value: object) -> object:
+    if isinstance(value, Path):
+        return value.as_posix()
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_jsonable(item) for item in value]
+    if hasattr(value, "to_dict") and callable(value.to_dict):
+        return _jsonable(value.to_dict())
+    return value
+
+
+def _print_summary(report: dict[str, object]) -> None:
+    print(json.dumps(_jsonable(report), ensure_ascii=False))
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the continuous_front_refresh Spark contour.")
-    parser.add_argument("--canonical-output-dir", required=True, help="Directory containing canonical Delta tables.")
-    parser.add_argument("--output-dir", required=True, help="Directory for continuous_front Delta outputs.")
+    parser.add_argument(
+        "--canonical-output-dir", required=True, help="Directory containing canonical Delta tables."
+    )
+    parser.add_argument(
+        "--output-dir", required=True, help="Directory for continuous_front Delta outputs."
+    )
     parser.add_argument("--dataset-version", required=True)
     parser.add_argument("--run-id", default="continuous_front_refresh")
-    parser.add_argument("--instruments", default="", help="Optional comma-separated instrument ids.")
+    parser.add_argument(
+        "--instruments", default="", help="Optional comma-separated instrument ids."
+    )
     parser.add_argument("--timeframes", default="", help="Optional comma-separated timeframes.")
     parser.add_argument("--start-ts", default="", help="Optional inclusive UTC start timestamp.")
     parser.add_argument("--end-ts", default="", help="Optional inclusive UTC end timestamp.")
     parser.add_argument("--spark-master", default=DEFAULT_SPARK_MASTER)
-    parser.add_argument("--roll-policy-version", default="front_calendar_expiry_t2_session_0900_2350_v1")
+    parser.add_argument(
+        "--roll-policy-version", default="front_calendar_expiry_t2_session_0900_2350_v1"
+    )
     parser.add_argument("--roll-policy-mode", default="calendar_expiry_v1")
     parser.add_argument("--primary-metric", default="volume")
     parser.add_argument("--secondary-metric", default="open_interest")
@@ -33,7 +56,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--advantage-ratio-min", type=float, default=1.0)
     parser.add_argument("--switch-timing", default="first_active_bar_on_or_after_roll_session")
     parser.add_argument("--tie-breaker", default="maturity_order_then_contract_id")
-    parser.add_argument("--reference-price-policy", default="last_old_active_close_to_first_new_active_close")
+    parser.add_argument(
+        "--reference-price-policy", default="last_old_active_close_to_first_new_active_close"
+    )
     parser.add_argument("--session-policy", default="research_regular_0900_2350")
     parser.add_argument("--session-timezone", default="Europe/Moscow")
     parser.add_argument("--session-start-time", default="09:00")
@@ -106,7 +131,7 @@ def main(argv: list[str] | None = None) -> int:
         spark_master=args.spark_master,
         policy=policy,
     )
-    print_summary(payload)
+    _print_summary(payload)
     return 0 if payload["status"] in {"PASS", "SKIP"} else 1
 
 

@@ -3,8 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from trading_advisor_3000.product_plane.contracts import DecisionCandidate
-from trading_advisor_3000.product_plane.research.ids import candidate_id_from_candidate
-
+from trading_advisor_3000.product_plane.contracts.ids import candidate_id_from_candidate
 from trading_advisor_3000.product_plane.runtime.config import StrategyRegistry
 from trading_advisor_3000.product_plane.runtime.context import ContextProviderRegistry
 from trading_advisor_3000.product_plane.runtime.publishing import TelegramPublicationEngine
@@ -75,7 +74,9 @@ class SignalRuntimeEngine:
         last_ts = self._last_accepted_by_key.get(key)
         if last_ts is None:
             return False
-        delta_seconds = (self._parse_utc(candidate.ts_decision) - self._parse_utc(last_ts)).total_seconds()
+        delta_seconds = (
+            self._parse_utc(candidate.ts_decision) - self._parse_utc(last_ts)
+        ).total_seconds()
         return delta_seconds < self._cooldown_seconds
 
     def _remember_accept(self, candidate: DecisionCandidate) -> None:
@@ -126,20 +127,26 @@ class SignalRuntimeEngine:
             if self._is_blackout(candidate):
                 rejected += 1
                 rejected_signal_ids.append(candidate.signal_id)
-                rejection_reasons["blackout_window"] = rejection_reasons.get("blackout_window", 0) + 1
+                rejection_reasons["blackout_window"] = (
+                    rejection_reasons.get("blackout_window", 0) + 1
+                )
                 continue
 
             if self._in_cooldown(candidate):
                 rejected += 1
                 rejected_signal_ids.append(candidate.signal_id)
-                rejection_reasons["cooldown_active"] = rejection_reasons.get("cooldown_active", 0) + 1
+                rejection_reasons["cooldown_active"] = (
+                    rejection_reasons.get("cooldown_active", 0) + 1
+                )
                 continue
 
             is_allowed, _ = self._strategy_registry.allows(candidate)
             if not is_allowed:
                 rejected += 1
                 rejected_signal_ids.append(candidate.signal_id)
-                rejection_reasons["strategy_policy_reject"] = rejection_reasons.get("strategy_policy_reject", 0) + 1
+                rejection_reasons["strategy_policy_reject"] = (
+                    rejection_reasons.get("strategy_policy_reject", 0) + 1
+                )
                 continue
 
             context_slices = self._collect_context_slices(candidate)
@@ -148,7 +155,9 @@ class SignalRuntimeEngine:
             for item in context_slices:
                 context_kind = str(item.get("context_kind", ""))
                 context_slices_total += 1
-                context_slices_by_kind[context_kind] = context_slices_by_kind.get(context_kind, 0) + 1
+                context_slices_by_kind[context_kind] = (
+                    context_slices_by_kind.get(context_kind, 0) + 1
+                )
                 self._signal_store.record_context_slice(
                     signal_id=candidate.signal_id,
                     event_ts=candidate.ts_decision,
@@ -168,7 +177,9 @@ class SignalRuntimeEngine:
                     rendered_message=message,
                     published_at=candidate.ts_decision,
                 )
-                self._signal_store.mark_published(signal_id=signal.signal_id, publication=publication)
+                self._signal_store.mark_published(
+                    signal_id=signal.signal_id, publication=publication
+                )
                 if created:
                     published += 1
             elif changed:
@@ -179,7 +190,9 @@ class SignalRuntimeEngine:
                 )
                 if was_edited:
                     edited += 1
-                    self._signal_store.mark_published(signal_id=signal.signal_id, publication=publication)
+                    self._signal_store.mark_published(
+                        signal_id=signal.signal_id, publication=publication
+                    )
 
             accepted += 1
             accepted_signal_ids.append(candidate.signal_id)
@@ -207,7 +220,9 @@ class SignalRuntimeEngine:
             "signals_with_context": signals_with_context,
         }
 
-    def close_signal(self, *, signal_id: str, closed_at: str, reason_code: str) -> dict[str, object]:
+    def close_signal(
+        self, *, signal_id: str, closed_at: str, reason_code: str
+    ) -> dict[str, object]:
         publication, _ = self._publisher.close(signal_id=signal_id, closed_at=closed_at)
         signal = self._signal_store.close_signal(
             signal_id=signal_id,
@@ -220,7 +235,9 @@ class SignalRuntimeEngine:
             "publication": publication.to_dict(),
         }
 
-    def cancel_signal(self, *, signal_id: str, canceled_at: str, reason_code: str) -> dict[str, object]:
+    def cancel_signal(
+        self, *, signal_id: str, canceled_at: str, reason_code: str
+    ) -> dict[str, object]:
         publication, _ = self._publisher.cancel(signal_id=signal_id, canceled_at=canceled_at)
         signal = self._signal_store.cancel_signal(
             signal_id=signal_id,

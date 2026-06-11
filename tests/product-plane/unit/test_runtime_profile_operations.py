@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from trading_advisor_3000.product_plane.runtime.ops import (
+from trading_advisor_3000.product_plane.execution.ops import (
     build_live_bridge_from_env,
     build_runtime_operational_snapshot,
     render_runtime_operational_metrics,

@@ -4,7 +4,7 @@ import hashlib
 from dataclasses import dataclass
 
 from trading_advisor_3000.product_plane.contracts import CanonicalBar, DecisionCandidate
-from trading_advisor_3000.product_plane.research.ids import candidate_id_from_candidate
+from trading_advisor_3000.product_plane.contracts.ids import candidate_id_from_candidate
 
 
 def _stable_id(prefix: str, seed: str) -> str:
@@ -79,7 +79,9 @@ def build_forward_observations(
         else:
             candidate_id = candidate_id_from_signal(candidate)
         series = grouped.get((candidate.contract_id, candidate.timeframe.value), [])
-        entry_index = next((idx for idx, bar in enumerate(series) if bar.ts >= candidate.ts_decision), None)
+        entry_index = next(
+            (idx for idx, bar in enumerate(series) if bar.ts >= candidate.ts_decision), None
+        )
 
         if entry_index is None:
             observations.append(

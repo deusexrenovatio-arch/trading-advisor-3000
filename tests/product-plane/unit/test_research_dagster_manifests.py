@@ -7,6 +7,7 @@ import pytest
 from dagster import build_op_context
 
 from trading_advisor_3000.dagster_defs import research_asset_specs, research_assets
+from trading_advisor_3000.product_plane.contracts.ids import candidate_id
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     read_delta_table_rows,
     write_delta_table_rows,
@@ -34,7 +35,6 @@ from trading_advisor_3000.product_plane.research.derived_indicators.store import
     DerivedIndicatorFrameRow,
     write_derived_indicator_frames,
 )
-from trading_advisor_3000.product_plane.research.ids import candidate_id
 from trading_advisor_3000.product_plane.research.indicators import (
     build_indicator_profile_registry,
     indicator_store_contract,

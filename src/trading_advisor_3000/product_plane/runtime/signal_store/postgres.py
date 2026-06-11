@@ -4,8 +4,13 @@ import hashlib
 import json
 from datetime import datetime, timezone
 
-from trading_advisor_3000.product_plane.contracts import DecisionCandidate, DecisionPublication, RuntimeSignal, SignalEvent
-from trading_advisor_3000.product_plane.research.ids import candidate_id_from_candidate
+from trading_advisor_3000.product_plane.contracts import (
+    DecisionCandidate,
+    DecisionPublication,
+    RuntimeSignal,
+    SignalEvent,
+)
+from trading_advisor_3000.product_plane.contracts.ids import candidate_id_from_candidate
 
 from .store import _publication_dedup_key, _publication_event_type
 
@@ -33,7 +38,9 @@ def _format_ts(value: object) -> str | None:
     if isinstance(value, str):
         return value
     if isinstance(value, datetime):
-        return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        return (
+            value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        )
     raise TypeError(f"unsupported timestamp type: {type(value)!r}")
 
 
@@ -260,7 +267,9 @@ class PostgresSignalStore:
             ),
         )
 
-    def upsert_candidate(self, candidate: DecisionCandidate, *, expires_at: str | None) -> tuple[RuntimeSignal, bool]:
+    def upsert_candidate(
+        self, candidate: DecisionCandidate, *, expires_at: str | None
+    ) -> tuple[RuntimeSignal, bool]:
         candidate_payload = {
             **candidate.to_dict(),
             "candidate_id": candidate_id_from_candidate(candidate),
@@ -625,7 +634,9 @@ class PostgresSignalStore:
                     """
                 )
                 rows = [self._publication_from_row(row) for row in cur.fetchall()]
-                return sorted(rows, key=lambda publication: (publication.signal_id, publication.published_at))
+                return sorted(
+                    rows, key=lambda publication: (publication.signal_id, publication.published_at)
+                )
 
     def list_publication_events(self) -> list[DecisionPublication]:
         with self._connect() as conn:

@@ -9,14 +9,22 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from trading_advisor_3000.product_plane.contracts import DecisionCandidate, IndicatorContextRef, Mode, Timeframe, TradeSide
+from trading_advisor_3000.product_plane.contracts import (
+    DecisionCandidate,
+    IndicatorContextRef,
+    Mode,
+    Timeframe,
+    TradeSide,
+)
+from trading_advisor_3000.product_plane.execution.ops import build_runtime_operational_snapshot
 from trading_advisor_3000.product_plane.interfaces.api import RuntimeAPI
 from trading_advisor_3000.product_plane.interfaces.asgi import create_app
-from trading_advisor_3000.product_plane.runtime import build_runtime_stack, read_runtime_bootstrap_config
+from trading_advisor_3000.product_plane.runtime import (
+    build_runtime_stack,
+    read_runtime_bootstrap_config,
+)
 from trading_advisor_3000.product_plane.runtime.config import StrategyVersion
-from trading_advisor_3000.product_plane.runtime.ops import build_runtime_operational_snapshot
 from trading_advisor_3000.product_plane.runtime.signal_store import PostgresSignalStore
-
 
 ROOT = Path(__file__).resolve().parents[3]
 SCHEMAS = ROOT / "src" / "trading_advisor_3000" / "product_plane" / "contracts" / "schemas"
@@ -24,7 +32,9 @@ FIXTURES = ROOT / "tests" / "product-plane" / "fixtures" / "contracts"
 MANIFEST_PATH = SCHEMAS / "release_blocking_contracts.v1.yaml"
 CHANGE_POLICY_PATH = ROOT / "docs" / "architecture" / "product-plane" / "contract-change-policy.md"
 CONTRACT_SURFACES_PATH = ROOT / "docs" / "architecture" / "product-plane" / "CONTRACT_SURFACES.md"
-MIGRATION_SQL_PATH = ROOT / "src" / "trading_advisor_3000" / "migrations" / "0002_signal_runtime_state.sql"
+MIGRATION_SQL_PATH = (
+    ROOT / "src" / "trading_advisor_3000" / "migrations" / "0002_signal_runtime_state.sql"
+)
 MIGRATION_RUNNER_PATH = ROOT / "scripts" / "apply_app_migrations.py"
 
 
@@ -72,9 +82,13 @@ def _assert_schema_valid(schema: dict[str, Any], value: object, *, path: str = "
             if _is_type(candidate, value):
                 resolved_type = candidate
                 break
-        assert resolved_type is not None, f"{path}: value does not match any type in {schema_type!r}"
+        assert resolved_type is not None, (
+            f"{path}: value does not match any type in {schema_type!r}"
+        )
     elif isinstance(schema_type, str):
-        assert _is_type(schema_type, value), f"{path}: expected type `{schema_type}`, got {type(value).__name__}"
+        assert _is_type(schema_type, value), (
+            f"{path}: expected type `{schema_type}`, got {type(value).__name__}"
+        )
         resolved_type = schema_type
     elif schema_type is not None:
         raise AssertionError(f"{path}: unsupported type declaration {schema_type!r}")
@@ -83,7 +97,9 @@ def _assert_schema_valid(schema: dict[str, Any], value: object, *, path: str = "
         min_length = schema.get("minLength")
         if min_length is not None:
             assert isinstance(min_length, int), f"{path}: minLength must be integer"
-            assert len(str(value)) >= min_length, f"{path}: string shorter than minLength={min_length}"
+            assert len(str(value)) >= min_length, (
+                f"{path}: string shorter than minLength={min_length}"
+            )
         return
 
     if resolved_type in {"integer", "number"}:
@@ -92,7 +108,9 @@ def _assert_schema_valid(schema: dict[str, Any], value: object, *, path: str = "
             assert float(value) >= float(minimum), f"{path}: {value} < minimum {minimum}"
         exclusive_minimum = schema.get("exclusiveMinimum")
         if exclusive_minimum is not None:
-            assert float(value) > float(exclusive_minimum), f"{path}: {value} <= exclusiveMinimum {exclusive_minimum}"
+            assert float(value) > float(exclusive_minimum), (
+                f"{path}: {value} <= exclusiveMinimum {exclusive_minimum}"
+            )
         maximum = schema.get("maximum")
         if maximum is not None:
             assert float(value) <= float(maximum), f"{path}: {value} > maximum {maximum}"
@@ -146,7 +164,9 @@ def _manifest_contract_rows() -> tuple[dict[str, Any], list[tuple[str, dict[str,
         contracts = boundary.get("contracts")
         assert isinstance(contracts, list), f"contracts list missing for boundary `{boundary_id}`"
         for contract in contracts:
-            assert isinstance(contract, dict), f"contract row must be object in boundary `{boundary_id}`"
+            assert isinstance(contract, dict), (
+                f"contract row must be object in boundary `{boundary_id}`"
+            )
             rows.append((boundary_id, contract))
     return manifest, rows
 
@@ -234,19 +254,25 @@ def test_release_blocking_manifest_declares_runtime_api_inventory_scope_decision
     assert str(decision.get("rationale", "")).strip()
 
     exclusions = decision.get("exclusions")
-    assert isinstance(exclusions, list) and exclusions, "runtime API exclusions must be non-empty list"
+    assert isinstance(exclusions, list) and exclusions, (
+        "runtime API exclusions must be non-empty list"
+    )
     by_path = {
-        str(item.get("path", "")).strip(): item
-        for item in exclusions
-        if isinstance(item, dict)
+        str(item.get("path", "")).strip(): item for item in exclusions if isinstance(item, dict)
     }
     required = {"/runtime/signal-events", "/runtime/strategy-registry"}
-    assert required <= set(by_path), "runtime API exclusion decision must cover both public projection endpoints"
+    assert required <= set(by_path), (
+        "runtime API exclusion decision must cover both public projection endpoints"
+    )
     for path in required:
         row = by_path[path]
-        assert str(row.get("reason", "")).strip(), f"missing rationale for excluded endpoint `{path}`"
+        assert str(row.get("reason", "")).strip(), (
+            f"missing rationale for excluded endpoint `{path}`"
+        )
         covered = row.get("covered_by_contracts")
-        assert isinstance(covered, list) and covered, f"missing contract linkage for excluded endpoint `{path}`"
+        assert isinstance(covered, list) and covered, (
+            f"missing contract linkage for excluded endpoint `{path}`"
+        )
 
 
 def test_release_blocking_manifest_contract_files_and_coverage_exist() -> None:
@@ -261,7 +287,9 @@ def test_release_blocking_manifest_contract_files_and_coverage_exist() -> None:
         assert schema_name, "schema is required"
         assert fixture_name, "fixture is required"
         assert compatibility_class in compatibility
-        assert isinstance(coverage_tests, list) and coverage_tests, "coverage_tests_any must be non-empty list"
+        assert isinstance(coverage_tests, list) and coverage_tests, (
+            "coverage_tests_any must be non-empty list"
+        )
 
         schema_path = SCHEMAS / schema_name
         fixture_path = FIXTURES / fixture_name
@@ -314,7 +342,9 @@ def test_release_blocking_runtime_api_responses_match_versioned_contracts() -> N
     _assert_schema_valid(cancel_schema, cancel_payload)
 
 
-def test_release_blocking_fastapi_probe_envelopes_match_contracts(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_release_blocking_fastapi_probe_envelopes_match_contracts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(PostgresSignalStore, "list_publication_events", lambda self: [])
     health_schema = _load_json(SCHEMAS / "runtime_api_health_response.v1.json")
     ready_schema = _load_json(SCHEMAS / "runtime_api_ready_response.v1.json")
@@ -357,7 +387,9 @@ def test_release_blocking_persistence_manifest_is_aligned_with_migration_and_run
         table_name = str(table["name"]).lower()
         assert f"create table if not exists {table_name}" in sql_text
         for column in table["columns"]:
-            assert re.search(rf"\b{re.escape(str(column).lower())}\b", sql_text), f"missing column `{column}` in migration"
+            assert re.search(rf"\b{re.escape(str(column).lower())}\b", sql_text), (
+                f"missing column `{column}` in migration"
+            )
         for index_name in table["indexes"]:
             assert str(index_name).lower() in sql_text
 
@@ -419,5 +451,3 @@ def test_release_blocking_disprover_payload_mutation_without_contract_update_fai
 
     with pytest.raises(AssertionError):
         _assert_schema_valid(schema, payload)
-
-
