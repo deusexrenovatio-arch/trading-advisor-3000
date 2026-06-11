@@ -11,6 +11,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from report_product_plane_module_imports import (  # noqa: E402
+    EXECUTION_PLANE,
     MARKET_DATA_FOUNDATION,
     PUBLIC_API,
     RESEARCH_DATA_FACTORY,
@@ -122,8 +123,8 @@ def test_runtime_and_execution_planes_do_not_depend_on_each_other_internally() -
 
     assert not parse_errors
     forbidden_edges = {
-        (RUNTIME_PLANE, "Execution Plane"),
-        ("Execution Plane", RUNTIME_PLANE),
+        (RUNTIME_PLANE, EXECUTION_PLANE),
+        (EXECUTION_PLANE, RUNTIME_PLANE),
     }
     offenders = [
         record

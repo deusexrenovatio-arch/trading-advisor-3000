@@ -181,15 +181,19 @@ def render_runtime_operational_metrics(snapshot: dict[str, object]) -> str:
         "# HELP ta3000_live_bridge_stale_secrets_total Stale required secret count by age policy.",
         "# TYPE ta3000_live_bridge_stale_secrets_total gauge",
         f"ta3000_live_bridge_stale_secrets_total {stale_count}",
-        "# HELP ta3000_live_bridge_retry_max_attempts "
-        "Configured retry attempts for bridge operations.",
+        (
+            "# HELP ta3000_live_bridge_retry_max_attempts "
+            "Configured retry attempts for bridge operations."
+        ),
         "# TYPE ta3000_live_bridge_retry_max_attempts gauge",
         f"ta3000_live_bridge_retry_max_attempts {max_attempts}",
         "# HELP ta3000_live_submit_latency_p95_ms P95 submit latency in milliseconds.",
         "# TYPE ta3000_live_submit_latency_p95_ms gauge",
         f"ta3000_live_submit_latency_p95_ms {submit_p95}",
-        "# HELP ta3000_live_sync_lag_p95_ms "
-        "P95 sync lag between broker event timestamp and ingest time.",
+        (
+            "# HELP ta3000_live_sync_lag_p95_ms "
+            "P95 sync lag between broker event timestamp and ingest time."
+        ),
         "# TYPE ta3000_live_sync_lag_p95_ms gauge",
         f"ta3000_live_sync_lag_p95_ms {sync_lag_p95}",
         "# HELP ta3000_live_retry_exhausted_total Retry-exhausted operation count.",

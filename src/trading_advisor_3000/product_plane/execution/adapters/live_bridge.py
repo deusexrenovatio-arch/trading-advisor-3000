@@ -555,12 +555,14 @@ class LiveExecutionBridge:
                 if lag_ms is not None:
                     enriched["sync_lag_ms"] = lag_ms
                 new_updates.append(enriched)
+                event_payload = payload.get("payload")
+                intent_id_value = (
+                    event_payload.get("intent_id") if isinstance(event_payload, dict) else None
+                )
                 self._record_operation_event(
                     event_type="broker_update",
                     status="ok",
-                    intent_id=str(payload.get("payload", {}).get("intent_id"))
-                    if isinstance(payload.get("payload"), dict)
-                    else None,
+                    intent_id=str(intent_id_value) if intent_id_value is not None else None,
                     external_order_id=str(payload.get("external_order_id", "")).strip() or None,
                     transport_key=transport_key,
                     details={
