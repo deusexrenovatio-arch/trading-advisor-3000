@@ -62,8 +62,20 @@ The resulting `run-summary.json` must include `result_digest.data_prep_proof.mod
 When `strategy_space.optimizer.engine=optuna`, Optuna runs in memory and persists official provenance only through Delta tables:
 - `research_optimizer_studies.delta`
 - `research_optimizer_trials.delta`
+- `research_optimizer_selections.delta`
 
 The optimizer uses Optuna ask/tell batching and records only Optuna trial rows as optimizer provenance. The optimizer tables explain search decisions. They do not replace `research_vbt_param_results.delta`, rankings, or promotion gates.
+
+Campaigns may opt into strict blind confirmation through top-level `validation.scheme=nested_walk_forward_v1`.
+In that mode the route builds timestamp-based walk-forward windows and persists them to:
+- `research_validation_folds.delta`
+- `campaign.lock.json`
+- the dataset manifest `split_params_json`
+
+Optuna may see only `fold_role=optimization_validation` rows where `optimizer_visible=true`.
+`fold_role=confirmation` rows are run by vectorbt only after the selected `param_hash` is frozen in `research_optimizer_selections.delta`.
+Confirmation rows must never create Optuna trial rows and must not change the selected params.
+Legacy campaigns without the `validation` block keep the old `split_method/window_count` behavior and cannot claim a strict blind-confirmation verdict.
 
 Full or battle research results are canonical only when launched through `run_campaign` and
 registered in `research_campaign_runs.delta`. Benchmark scripts are allowed only as
@@ -99,6 +111,15 @@ Each run folder contains:
 For backtest and projection stages, `result_digest` separates:
 - `best_overall_rows` / `ranking_top_rows`: highest scoring rows, including rows blocked by policy;
 - `projection_eligible_top_rows`: highest scoring rows that actually satisfy projection policy gates.
+
+Strategy evaluation:
+- `policy_pass` is research ranking success only.
+- `qualifies_for_projection` is candidate-projection eligibility only.
+- `research_strategy_evaluation_profiles.delta` records the unified evaluation verdict:
+  `reject`, `research-only`, `paper-signal`, `paper-trade`, or `live-candidate`.
+- A strategy must not be promoted from one aggregate backtest row. Promotion
+  requires the strategy evaluation profile plus blocker reasons for missing or failed
+  evidence.
 
 Status transitions are:
 - `queued`
