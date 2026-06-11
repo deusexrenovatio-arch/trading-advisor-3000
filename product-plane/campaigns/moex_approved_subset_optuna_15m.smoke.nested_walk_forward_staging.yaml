@@ -1,0 +1,111 @@
+campaign_name: moex_approved_subset_optuna_15m_br_nested_wf_staging_smoke
+target_stage: backtest
+canonical_output_dir: D:/TA3000-data/staging/verification/codex-daily-dagster-current-20260611T0022Z/canonical/moex/baseline-4y-current
+materialized_root: D:/TA3000-data/staging/verification/nested-wf-optuna-route-20260611/research/gold
+runs_root: D:/TA3000-data/staging/verification/nested-wf-optuna-route-20260611/research/runs
+
+dataset:
+  dataset_version: moex_approved_subset_optuna_15m_br_nested_wf_staging_smoke_v1
+  dataset_name: moex_approved_subset_optuna_15m_br_nested_wf_staging_smoke
+  universe_id: universe-v1
+  series_mode: contract
+  timeframes:
+    - 15m
+  base_timeframe: 15m
+  start_ts: "2025-01-01T00:00:00Z"
+  end_ts: "2025-06-30T23:59:59Z"
+  warmup_bars: 100
+  split_method: holdout
+  contract_ids: []
+  instrument_ids:
+    - FUT_BR
+
+validation:
+  scheme: nested_walk_forward_v1
+  outer_folds:
+    train_months: 2
+    confirmation_months: 1
+    step_months: 1
+  inner_folds:
+    train_months: 1
+    validation_months: 1
+    step_months: 1
+  leakage_controls:
+    purge_bars: 4
+    embargo_bars: 4
+
+profiles:
+  indicator_set_version: indicators-v1
+  indicator_profile_version: core_v1
+  derived_indicator_set_version: derived-v1
+  derived_indicator_profile_version: core_v1
+
+strategy_space:
+  family_keys:
+    - ma_cross
+  template_ids: []
+  exclude_template_manifest_hashes: []
+  max_parameter_combinations: 64
+  search_space_overrides: {}
+  optimizer:
+    engine: optuna
+    sampler: tpe
+    seed: 20260611
+    n_trials: 2
+    objective: robust_oos_trial_v1
+    direction: maximize
+    top_k: 1
+    radius: 0
+    max_neighborhood_trials: 0
+    ranking_policy:
+      policy_id: optimizer_smoke_v1
+      metric_order:
+        - sharpe
+        - profit_factor
+        - max_drawdown
+        - total_return
+      require_out_of_sample_pass: false
+      min_trade_count: 1
+      min_trade_count_per_fold: 1
+      min_fold_count: 1
+      max_drawdown_cap: 1.0
+      min_positive_fold_ratio: 0.0
+      stress_slippage_bps: 5.0
+      min_parameter_stability: 0.0
+      min_slippage_score: 0.0
+
+backtest:
+  param_batch_size: 2
+  series_batch_size: 1
+  backtest_timeframe: 15m
+  fees_bps: 0.0
+  slippage_bps: 5.0
+  allow_short: true
+  window_count: 1
+
+ranking_policy:
+  policy_id: research_screen_strict_v1
+  metric_order:
+    - sharpe
+    - profit_factor
+    - max_drawdown
+    - total_return
+  require_out_of_sample_pass: false
+  min_trade_count: 1
+  min_trade_count_per_fold: 1
+  min_fold_count: 1
+  max_drawdown_cap: 1.0
+  min_positive_fold_ratio: 0.0
+  stress_slippage_bps: 5.0
+  min_parameter_stability: 0.0
+  min_slippage_score: 0.0
+
+projection_policy:
+  selection_policy: all_policy_pass
+  max_candidates_per_partition: 1
+  min_robust_score: 0.0
+  decision_lag_bars_max: 1
+
+execution:
+  force_rematerialize: false
+  raise_on_error: true

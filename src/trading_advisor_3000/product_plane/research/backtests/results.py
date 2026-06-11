@@ -77,6 +77,12 @@ def backtest_store_contract() -> dict[str, dict[str, object]]:
                 "derived_indicator_profile_version": "string",
                 "universe_key": "string",
                 "fold_id": "string",
+                "validation_split_id": "string",
+                "validation_scheme": "string",
+                "outer_fold_id": "string",
+                "inner_fold_id": "string",
+                "fold_role": "string",
+                "optimizer_visible": "bool",
                 "param_count": "int",
                 "instrument_count": "int",
                 "chunk_count": "int",
@@ -132,6 +138,52 @@ def backtest_store_contract() -> dict[str, dict[str, object]]:
                 "finished_at": "timestamp",
             },
         },
+        "research_optimizer_selections": {
+            "format": "delta",
+            "partition_by": ["family_key", "selection_role"],
+            "columns": {
+                "optimizer_selection_id": "string",
+                "optimizer_study_id": "string",
+                "campaign_run_id": "string",
+                "strategy_space_id": "string",
+                "search_spec_id": "string",
+                "family_key": "string",
+                "template_key": "string",
+                "outer_fold_id": "string",
+                "selection_role": "string",
+                "selection_rank": "int",
+                "param_hash": "string",
+                "params_json": "json",
+                "objective_value": "double",
+                "confirmation_required": "bool",
+                "diagnostic_only": "bool",
+                "selected_at": "timestamp",
+            },
+        },
+        "research_validation_folds": {
+            "format": "delta",
+            "partition_by": ["validation_scheme", "fold_role"],
+            "columns": {
+                "validation_split_id": "string",
+                "campaign_run_id": "string",
+                "dataset_version": "string",
+                "validation_scheme": "string",
+                "outer_fold_id": "string",
+                "inner_fold_id": "string",
+                "fold_role": "string",
+                "optimizer_visible": "bool",
+                "analysis_start_ts": "timestamp",
+                "analysis_end_ts": "timestamp",
+                "score_start_ts": "timestamp",
+                "score_end_ts": "timestamp",
+                "warmup_start_ts": "timestamp",
+                "purge_start_ts": "timestamp",
+                "purge_end_ts": "timestamp",
+                "embargo_start_ts": "timestamp",
+                "embargo_end_ts": "timestamp",
+                "created_at": "timestamp",
+            },
+        },
         "research_vbt_param_results": {
             "format": "delta",
             "partition_by": ["family_key", "clock_profile"],
@@ -143,6 +195,12 @@ def backtest_store_contract() -> dict[str, dict[str, object]]:
                 "clock_profile": "string",
                 "instrument_id": "string",
                 "fold_id": "string",
+                "validation_split_id": "string",
+                "validation_scheme": "string",
+                "outer_fold_id": "string",
+                "inner_fold_id": "string",
+                "fold_role": "string",
+                "optimizer_visible": "bool",
                 "params_json": "json",
                 "indicator_plan_hash": "string",
                 "net_pnl": "double",
@@ -270,6 +328,11 @@ def backtest_store_contract() -> dict[str, dict[str, object]]:
                 "clock_profile": "string",
                 "window_id": "string",
                 "validation_split_id": "string",
+                "validation_scheme": "string",
+                "outer_fold_id": "string",
+                "inner_fold_id": "string",
+                "fold_role": "string",
+                "optimizer_visible": "bool",
                 "param_hash": "string",
                 "params_hash": "string",
                 "parameter_values_json": "json",
@@ -303,6 +366,12 @@ def backtest_store_contract() -> dict[str, dict[str, object]]:
                 "instrument_id": "string",
                 "timeframe": "string",
                 "window_id": "string",
+                "validation_split_id": "string",
+                "validation_scheme": "string",
+                "outer_fold_id": "string",
+                "inner_fold_id": "string",
+                "fold_role": "string",
+                "optimizer_visible": "bool",
                 "param_hash": "string",
                 "params_hash": "string",
                 "total_return": "double",
@@ -502,6 +571,39 @@ def results_store_contract() -> dict[str, dict[str, object]]:
                 "created_at": "timestamp",
             },
         },
+        "research_strategy_evaluation_profiles": {
+            "format": "delta",
+            "partition_by": ["family_key", "verdict"],
+            "columns": {
+                "evaluation_profile_id": "string",
+                "profile_version": "string",
+                "approved_universe_profile": "string",
+                "campaign_run_id": "string",
+                "ranking_id": "string",
+                "backtest_run_id": "string",
+                "strategy_instance_id": "string",
+                "strategy_template_id": "string",
+                "family_id": "string",
+                "family_key": "string",
+                "strategy_version_label": "string",
+                "contract_id": "string",
+                "instrument_id": "string",
+                "timeframe": "string",
+                "params_hash": "string",
+                "ranking_policy_id": "string",
+                "policy_pass": "bool",
+                "qualifies_for_projection": "bool",
+                "paper_signal_ready": "bool",
+                "paper_trade_ready": "bool",
+                "live_candidate_ready": "bool",
+                "verdict": "string",
+                "promotion_state": "string",
+                "blocker_reasons_json": "json",
+                "missing_data_json": "json",
+                "evidence_snapshot_json": "json",
+                "created_at": "timestamp",
+            },
+        },
         "research_run_findings": {
             "format": "delta",
             "partition_by": ["campaign_run_id", "finding_type"],
@@ -531,6 +633,8 @@ def write_backtest_artifacts(
     search_run_rows: list[dict[str, object]] | None = None,
     optimizer_study_rows: list[dict[str, object]] | None = None,
     optimizer_trial_rows: list[dict[str, object]] | None = None,
+    optimizer_selection_rows: list[dict[str, object]] | None = None,
+    validation_fold_rows: list[dict[str, object]] | None = None,
     param_result_rows: list[dict[str, object]] | None = None,
     gate_event_rows: list[dict[str, object]] | None = None,
     ephemeral_indicator_rows: list[dict[str, object]] | None = None,
@@ -544,6 +648,8 @@ def write_backtest_artifacts(
     search_runs_path = output_dir / "research_vbt_search_runs.delta"
     optimizer_studies_path = output_dir / "research_optimizer_studies.delta"
     optimizer_trials_path = output_dir / "research_optimizer_trials.delta"
+    optimizer_selections_path = output_dir / "research_optimizer_selections.delta"
+    validation_folds_path = output_dir / "research_validation_folds.delta"
     param_results_path = output_dir / "research_vbt_param_results.delta"
     gate_events_path = output_dir / "research_vbt_param_gate_events.delta"
     ephemeral_path = output_dir / "research_vbt_ephemeral_indicator_cache.delta"
@@ -558,6 +664,8 @@ def write_backtest_artifacts(
     search_run_rows = search_run_rows or []
     optimizer_study_rows = optimizer_study_rows or []
     optimizer_trial_rows = optimizer_trial_rows or []
+    optimizer_selection_rows = optimizer_selection_rows or []
+    validation_fold_rows = validation_fold_rows or []
     param_result_rows = param_result_rows or []
     gate_event_rows = gate_event_rows or []
     ephemeral_indicator_rows = ephemeral_indicator_rows or []
@@ -565,25 +673,91 @@ def write_backtest_artifacts(
     order_rows = order_rows or []
     drawdown_rows = drawdown_rows or []
 
-    write_delta_table_rows(table_path=search_specs_path, rows=search_spec_rows, columns=contract["research_strategy_search_specs"]["columns"])
-    write_delta_table_rows(table_path=search_runs_path, rows=search_run_rows, columns=contract["research_vbt_search_runs"]["columns"])
-    write_delta_table_rows(table_path=optimizer_studies_path, rows=optimizer_study_rows, columns=contract["research_optimizer_studies"]["columns"])
-    write_delta_table_rows(table_path=optimizer_trials_path, rows=optimizer_trial_rows, columns=contract["research_optimizer_trials"]["columns"])
-    write_delta_table_rows(table_path=param_results_path, rows=param_result_rows, columns=contract["research_vbt_param_results"]["columns"])
-    write_delta_table_rows(table_path=gate_events_path, rows=gate_event_rows, columns=contract["research_vbt_param_gate_events"]["columns"])
-    write_delta_table_rows(table_path=ephemeral_path, rows=ephemeral_indicator_rows, columns=contract["research_vbt_ephemeral_indicator_cache"]["columns"])
-    write_delta_table_rows(table_path=promotion_path, rows=promotion_event_rows, columns=contract["research_strategy_promotion_events"]["columns"])
-    write_delta_table_rows(table_path=batch_path, rows=batch_rows, columns=contract["research_backtest_batches"]["columns"])
-    write_delta_table_rows(table_path=run_path, rows=run_rows, columns=contract["research_backtest_runs"]["columns"])
-    write_delta_table_rows(table_path=stats_path, rows=stat_rows, columns=contract["research_strategy_stats"]["columns"])
-    write_delta_table_rows(table_path=trades_path, rows=trade_rows, columns=contract["research_trade_records"]["columns"])
-    write_delta_table_rows(table_path=orders_path, rows=order_rows, columns=contract["research_order_records"]["columns"])
-    write_delta_table_rows(table_path=drawdowns_path, rows=drawdown_rows, columns=contract["research_drawdown_records"]["columns"])
+    write_delta_table_rows(
+        table_path=search_specs_path,
+        rows=search_spec_rows,
+        columns=contract["research_strategy_search_specs"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=search_runs_path,
+        rows=search_run_rows,
+        columns=contract["research_vbt_search_runs"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=optimizer_studies_path,
+        rows=optimizer_study_rows,
+        columns=contract["research_optimizer_studies"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=optimizer_trials_path,
+        rows=optimizer_trial_rows,
+        columns=contract["research_optimizer_trials"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=optimizer_selections_path,
+        rows=optimizer_selection_rows,
+        columns=contract["research_optimizer_selections"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=validation_folds_path,
+        rows=validation_fold_rows,
+        columns=contract["research_validation_folds"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=param_results_path,
+        rows=param_result_rows,
+        columns=contract["research_vbt_param_results"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=gate_events_path,
+        rows=gate_event_rows,
+        columns=contract["research_vbt_param_gate_events"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=ephemeral_path,
+        rows=ephemeral_indicator_rows,
+        columns=contract["research_vbt_ephemeral_indicator_cache"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=promotion_path,
+        rows=promotion_event_rows,
+        columns=contract["research_strategy_promotion_events"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=batch_path,
+        rows=batch_rows,
+        columns=contract["research_backtest_batches"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=run_path, rows=run_rows, columns=contract["research_backtest_runs"]["columns"]
+    )
+    write_delta_table_rows(
+        table_path=stats_path,
+        rows=stat_rows,
+        columns=contract["research_strategy_stats"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=trades_path,
+        rows=trade_rows,
+        columns=contract["research_trade_records"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=orders_path,
+        rows=order_rows,
+        columns=contract["research_order_records"]["columns"],
+    )
+    write_delta_table_rows(
+        table_path=drawdowns_path,
+        rows=drawdown_rows,
+        columns=contract["research_drawdown_records"]["columns"],
+    )
     return {
         "research_strategy_search_specs": search_specs_path.as_posix(),
         "research_vbt_search_runs": search_runs_path.as_posix(),
         "research_optimizer_studies": optimizer_studies_path.as_posix(),
         "research_optimizer_trials": optimizer_trials_path.as_posix(),
+        "research_optimizer_selections": optimizer_selections_path.as_posix(),
+        "research_validation_folds": validation_folds_path.as_posix(),
         "research_vbt_param_results": param_results_path.as_posix(),
         "research_vbt_param_gate_events": gate_events_path.as_posix(),
         "research_vbt_ephemeral_indicator_cache": ephemeral_path.as_posix(),
@@ -602,6 +776,7 @@ def write_stage6_artifacts(
     output_dir: Path,
     ranking_rows: list[dict[str, object]],
     candidate_rows: list[dict[str, object]] | None = None,
+    evaluation_profile_rows: list[dict[str, object]] | None = None,
     finding_rows: list[dict[str, object]] | None = None,
 ) -> dict[str, str]:
     contract = results_store_contract()
@@ -624,6 +799,14 @@ def write_stage6_artifacts(
             columns=contract["research_signal_candidates"]["columns"],
         )
         output_paths["research_signal_candidates"] = candidates_path.as_posix()
+    if evaluation_profile_rows is not None:
+        evaluation_path = output_dir / "research_strategy_evaluation_profiles.delta"
+        write_delta_table_rows(
+            table_path=evaluation_path,
+            rows=evaluation_profile_rows,
+            columns=contract["research_strategy_evaluation_profiles"]["columns"],
+        )
+        output_paths["research_strategy_evaluation_profiles"] = evaluation_path.as_posix()
     if finding_rows is not None:
         findings_path = output_dir / "research_run_findings.delta"
         write_delta_table_rows(
