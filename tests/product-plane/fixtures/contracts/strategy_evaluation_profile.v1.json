@@ -1,0 +1,41 @@
+{
+  "evaluation_profile_id": "SEP-8B8A2D9C1440",
+  "profile_version": "strategy-evaluation-profile.v1",
+  "approved_universe_profile": "approved-universe-v1",
+  "campaign_run_id": "CRUN-20260429-0001",
+  "ranking_id": "RANK-2B5A94B8C30D",
+  "strategy_instance_id": "SINST-trend-mtf-pullback-0001",
+  "family_key": "trend_mtf_pullback_v1",
+  "contract_id": "BR-6.26",
+  "instrument_id": "BR",
+  "timeframe": "15m",
+  "ranking_policy_id": "research_screen_strict_v1",
+  "policy_pass": true,
+  "qualifies_for_projection": true,
+  "paper_signal_ready": true,
+  "paper_trade_ready": false,
+  "live_candidate_ready": false,
+  "verdict": "paper-signal",
+  "promotion_state": "paper_signal_ready",
+  "blocker_reasons": [
+    "missing_risk_per_position",
+    "missing_gross_leverage",
+    "missing_capital_model",
+    "live_candidate_min_instruments"
+  ],
+  "missing_data": [
+    "risk_per_position",
+    "leverage",
+    "capital_model",
+    "multi_instrument_breadth"
+  ],
+  "evidence_snapshot": {
+    "trade_count_total": 24,
+    "worst_max_drawdown": 0.12,
+    "candidate_count": 1,
+    "active_instrument_count": 1,
+    "score_total": 0.82,
+    "policy_failure_reasons": []
+  },
+  "created_at": "2026-04-29T12:00:00Z"
+}

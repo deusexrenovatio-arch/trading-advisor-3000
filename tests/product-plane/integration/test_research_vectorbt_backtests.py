@@ -7,8 +7,10 @@ from pathlib import Path
 import pandas as pd
 
 from trading_advisor_3000.product_plane.contracts import DecisionCandidate
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows, write_delta_table_rows
-from trading_advisor_3000.product_plane.research.backtests.batch_runner import _chunked_series_for_spec
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    read_delta_table_rows,
+    write_delta_table_rows,
+)
 from trading_advisor_3000.product_plane.research.backtests import (
     BacktestBatchRequest,
     BacktestEngineConfig,
@@ -20,17 +22,33 @@ from trading_advisor_3000.product_plane.research.backtests import (
     rank_backtest_results,
     run_backtest_batch,
 )
-from trading_advisor_3000.product_plane.research.datasets import ResearchBarView, ResearchDatasetManifest, research_dataset_store_contract
+from trading_advisor_3000.product_plane.research.backtests.batch_runner import (
+    _chunked_series_for_spec,
+)
+from trading_advisor_3000.product_plane.research.datasets import (
+    ResearchBarView,
+    ResearchDatasetManifest,
+    research_dataset_store_contract,
+)
 from trading_advisor_3000.product_plane.research.datasets.continuous import ContinuousFrontPolicy
 from trading_advisor_3000.product_plane.research.derived_indicators import (
     DerivedIndicatorFrameRow,
     research_derived_indicator_store_contract,
 )
-from trading_advisor_3000.product_plane.research.indicators import IndicatorFrameRow, indicator_store_contract
+from trading_advisor_3000.product_plane.research.indicators import (
+    IndicatorFrameRow,
+    indicator_store_contract,
+)
 from trading_advisor_3000.product_plane.research.io import ResearchFrameCache, ResearchSeriesFrame
-from trading_advisor_3000.product_plane.research.io.loaders import ResearchSliceRequest, load_backtest_frames
+from trading_advisor_3000.product_plane.research.io.loaders import (
+    ResearchSliceRequest,
+    load_backtest_frames,
+)
 from trading_advisor_3000.product_plane.research.strategies.catalog import StrategyCatalog
-from trading_advisor_3000.product_plane.research.strategies.registry import StrategyRegistry, build_strategy_registry
+from trading_advisor_3000.product_plane.research.strategies.registry import (
+    StrategyRegistry,
+    build_strategy_registry,
+)
 from trading_advisor_3000.product_plane.research.strategies.spec import (
     StrategyParameter,
     StrategyRankingMetadata,
@@ -113,7 +131,9 @@ def _bar(
     )
 
 
-def _indicator(index: int, close: float, ema10: float, ema20: float, ema50: float) -> IndicatorFrameRow:
+def _indicator(
+    index: int, close: float, ema10: float, ema20: float, ema50: float
+) -> IndicatorFrameRow:
     ts = _ts(index)
     return IndicatorFrameRow(
         dataset_version="dataset-v5",
@@ -192,17 +212,51 @@ def _derived(index: int, close: float) -> DerivedIndicatorFrameRow:
             "swing_high_10": 104.0,
             "swing_low_10": 97.0,
             "session_vwap": 100.5,
-            "distance_to_session_vwap": -0.8 if index in {6, 7, 8} else 0.6 if index in {2, 3, 4} else 0.1,
+            "distance_to_session_vwap": -0.8
+            if index in {6, 7, 8}
+            else 0.6
+            if index in {2, 3, 4}
+            else 0.1,
             "distance_to_rolling_high_20": -0.2,
             "distance_to_rolling_low_20": 0.2,
             "distance_to_sma_20_atr": -0.1 if mtf_up else 0.1,
             "distance_to_sma_50_atr": -0.2 if mtf_up else 0.2,
             "distance_to_ema_50_atr": -0.2 if mtf_up else 0.2,
-            "bb_position_20_2": 0.5 if channel_mid else 0.9 if release_up else 0.1 if release_down else 0.35,
-            "kc_position_20_1_5": 0.5 if channel_mid else 0.8 if release_up else 0.2 if release_down else 0.35,
-            "rolling_position_20": 0.5 if channel_mid else 0.9 if release_up else 0.1 if release_down else 0.35,
-            "session_position": 0.5 if channel_mid else 0.85 if release_up else 0.15 if release_down else 0.35,
-            "week_position": 0.5 if channel_mid else 0.85 if release_up else 0.15 if release_down else 0.35,
+            "bb_position_20_2": 0.5
+            if channel_mid
+            else 0.9
+            if release_up
+            else 0.1
+            if release_down
+            else 0.35,
+            "kc_position_20_1_5": 0.5
+            if channel_mid
+            else 0.8
+            if release_up
+            else 0.2
+            if release_down
+            else 0.35,
+            "rolling_position_20": 0.5
+            if channel_mid
+            else 0.9
+            if release_up
+            else 0.1
+            if release_down
+            else 0.35,
+            "session_position": 0.5
+            if channel_mid
+            else 0.85
+            if release_up
+            else 0.15
+            if release_down
+            else 0.35,
+            "week_position": 0.5
+            if channel_mid
+            else 0.85
+            if release_up
+            else 0.15
+            if release_down
+            else 0.35,
             "cross_close_sma_20_code": 1 if release_up else -1 if release_down else 0,
             "cross_close_session_vwap_code": 1 if release_up else -1 if release_down else 0,
             "cross_close_rolling_high_20_code": 1 if release_up else 0,
@@ -237,16 +291,36 @@ def _derived(index: int, close: float) -> DerivedIndicatorFrameRow:
             "price_oi_corr_20": 0.1,
             "volume_oi_corr_20": 0.1,
             "divergence_price_rsi_14_score": 0.6 if release_down else -0.6 if release_up else 0.0,
-            "divergence_price_stoch_k_14_3_3_score": 0.6 if release_down else -0.6 if release_up else 0.0,
+            "divergence_price_stoch_k_14_3_3_score": 0.6
+            if release_down
+            else -0.6
+            if release_up
+            else 0.0,
             "divergence_price_cci_20_score": 0.6 if release_down else -0.6 if release_up else 0.0,
             "divergence_price_willr_14_score": 0.6 if release_down else -0.6 if release_up else 0.0,
-            "divergence_price_macd_hist_12_26_9_score": 0.6 if release_down else -0.6 if release_up else 0.0,
-            "divergence_price_ppo_hist_12_26_9_score": 0.6 if release_down else -0.6 if release_up else 0.0,
-            "divergence_price_tsi_25_13_score": 0.6 if release_down else -0.6 if release_up else 0.0,
+            "divergence_price_macd_hist_12_26_9_score": 0.6
+            if release_down
+            else -0.6
+            if release_up
+            else 0.0,
+            "divergence_price_ppo_hist_12_26_9_score": 0.6
+            if release_down
+            else -0.6
+            if release_up
+            else 0.0,
+            "divergence_price_tsi_25_13_score": 0.6
+            if release_down
+            else -0.6
+            if release_up
+            else 0.0,
             "divergence_price_mfi_14_score": 0.6 if release_down else -0.6 if release_up else 0.0,
             "divergence_price_cmf_20_score": 0.6 if release_down else -0.6 if release_up else 0.0,
             "divergence_price_obv_score": 0.6 if release_down else -0.6 if release_up else 0.0,
-            "divergence_price_oi_change_1_score": 0.6 if release_down else -0.6 if release_up else 0.0,
+            "divergence_price_oi_change_1_score": 0.6
+            if release_down
+            else -0.6
+            if release_up
+            else 0.0,
             "mtf_4h_to_15m_ema_20": close + 1.2 if mtf_up else close - 1.2,
             "mtf_4h_to_15m_ema_50": close - 1.2 if mtf_up else close + 1.2,
             "mtf_4h_to_15m_adx_14": 30.0,
@@ -300,15 +374,21 @@ def _write_materialized_layers(
         )
     if series_mode == "contract":
         bars.extend(
-            replace(_bar(index, 100.0 + index), timeframe="1h", ts=_tf_ts(index, "1h"), bar_index=index)
+            replace(
+                _bar(index, 100.0 + index), timeframe="1h", ts=_tf_ts(index, "1h"), bar_index=index
+            )
             for index in range(12)
         )
         bars.extend(
-            replace(_bar(index, 101.0 + index), timeframe="4h", ts=_tf_ts(index, "4h"), bar_index=index)
+            replace(
+                _bar(index, 101.0 + index), timeframe="4h", ts=_tf_ts(index, "4h"), bar_index=index
+            )
             for index in range(3)
         )
         bars.extend(
-            replace(_bar(index, 102.0 + index), timeframe="1d", ts=_tf_ts(index, "1d"), bar_index=index)
+            replace(
+                _bar(index, 102.0 + index), timeframe="1d", ts=_tf_ts(index, "1d"), bar_index=index
+            )
             for index in range(2)
         )
     indicators = [
@@ -357,9 +437,13 @@ def _write_materialized_layers(
         )
         for index in range(2)
     )
-    derived = [_derived(index, bar.close) for index, bar in enumerate(bars) if bar.timeframe == "15m"]
+    derived = [
+        _derived(index, bar.close) for index, bar in enumerate(bars) if bar.timeframe == "15m"
+    ]
     derived.extend(
-        replace(_derived(index, 100.0 + index), timeframe="1h", ts=_tf_ts(index, "1h"), row_count=12)
+        replace(
+            _derived(index, 100.0 + index), timeframe="1h", ts=_tf_ts(index, "1h"), row_count=12
+        )
         for index in range(12)
     )
     derived.extend(
@@ -374,8 +458,12 @@ def _write_materialized_layers(
         timeframes=("15m", "1h", "4h", "1d"),
         base_timeframe="15m",
         series_mode=series_mode,
-        source_table="continuous_front_bars" if series_mode == "continuous_front" else "canonical_bars",
-        continuous_front_policy=ContinuousFrontPolicy() if series_mode == "continuous_front" else None,
+        source_table="continuous_front_bars"
+        if series_mode == "continuous_front"
+        else "canonical_bars",
+        continuous_front_policy=ContinuousFrontPolicy()
+        if series_mode == "continuous_front"
+        else None,
         split_method=split_method,
         warmup_bars=0,
         bars_hash="SRC-BARS",
@@ -409,8 +497,12 @@ def _write_materialized_layers(
     return root
 
 
-def test_continuous_front_loader_and_backtest_keep_one_series_with_native_execution(tmp_path: Path) -> None:
-    materialized_dir = _write_materialized_layers(tmp_path / "materialized-continuous-front", series_mode="continuous_front")
+def test_continuous_front_loader_and_backtest_keep_one_series_with_native_execution(
+    tmp_path: Path,
+) -> None:
+    materialized_dir = _write_materialized_layers(
+        tmp_path / "materialized-continuous-front", series_mode="continuous_front"
+    )
     output_dir = tmp_path / "backtests-continuous-front"
 
     series_frames, _, _ = load_backtest_frames(
@@ -460,7 +552,9 @@ def test_continuous_front_loader_and_backtest_keep_one_series_with_native_execut
 
 
 def _custom_registry(*specs: StrategySpec) -> StrategyRegistry:
-    return StrategyRegistry(catalog=StrategyCatalog(version="stage5-test-catalog", strategies=tuple(specs)))
+    return StrategyRegistry(
+        catalog=StrategyCatalog(version="stage5-test-catalog", strategies=tuple(specs))
+    )
 
 
 def test_vectorbt_batch_runner_chunks_mtf_contract_series_by_execution_contract() -> None:
@@ -486,7 +580,12 @@ def test_vectorbt_batch_runner_chunks_mtf_contract_series_by_execution_contract(
         },
     )
     frames = [
-        ResearchSeriesFrame(contract_id=contract_id, instrument_id="FUT_BR", timeframe=timeframe, frame=pd.DataFrame())
+        ResearchSeriesFrame(
+            contract_id=contract_id,
+            instrument_id="FUT_BR",
+            timeframe=timeframe,
+            frame=pd.DataFrame(),
+        )
         for contract_id in ("BRF6@MOEX", "BRG6@MOEX")
         for timeframe in ("15m", "1h")
     ]
@@ -494,10 +593,7 @@ def test_vectorbt_batch_runner_chunks_mtf_contract_series_by_execution_contract(
     chunks = _chunked_series_for_spec(frames, 1, spec, "15m")
 
     assert len(chunks) == 2
-    assert [
-        {(series.contract_id, series.timeframe) for series in chunk}
-        for chunk in chunks
-    ] == [
+    assert [{(series.contract_id, series.timeframe) for series in chunk} for chunk in chunks] == [
         {("BRF6@MOEX", "15m"), ("BRF6@MOEX", "1h")},
         {("BRG6@MOEX", "15m"), ("BRG6@MOEX", "1h")},
     ]
@@ -528,7 +624,9 @@ def _backtest_request(
         indicator_set_version=indicator_set_version,
         derived_indicator_set_version=derived_indicator_set_version,
         search_specs=strategy_space.search_specs,
-        combination_count=sum(len(spec.parameter_space.get("rows", ())) or 1 for spec in strategy_space.search_specs),
+        combination_count=sum(
+            len(spec.parameter_space.get("rows", ())) or 1 for spec in strategy_space.search_specs
+        ),
         param_batch_size=param_batch_size,
         series_batch_size=series_batch_size,
         timeframe=timeframe,
@@ -563,7 +661,9 @@ def test_vectorbt_batch_runner_materializes_signal_and_order_func_artifacts(tmp_
     stats_rows = read_delta_table_rows(Path(str(report["output_paths"]["research_strategy_stats"])))
     trade_rows = read_delta_table_rows(Path(str(report["output_paths"]["research_trade_records"])))
     order_rows = read_delta_table_rows(Path(str(report["output_paths"]["research_order_records"])))
-    drawdown_rows = read_delta_table_rows(Path(str(report["output_paths"]["research_drawdown_records"])))
+    drawdown_rows = read_delta_table_rows(
+        Path(str(report["output_paths"]["research_drawdown_records"]))
+    )
 
     assert run_rows
     assert stats_rows
@@ -580,7 +680,9 @@ def test_vectorbt_batch_runner_materializes_signal_and_order_func_artifacts(tmp_
         assert (Path(path_text) / "_delta_log").exists()
 
 
-def test_vectorbt_batch_runner_runs_new_launch_families_on_mtf_input_resolver(tmp_path: Path) -> None:
+def test_vectorbt_batch_runner_runs_new_launch_families_on_mtf_input_resolver(
+    tmp_path: Path,
+) -> None:
     materialized_dir = _write_materialized_layers(tmp_path / "materialized-launch-families")
     output_dir = tmp_path / "backtests-launch-families"
     report = run_backtest_batch(
@@ -645,15 +747,22 @@ def test_vectorbt_batch_runner_is_reproducible_and_uses_hot_cache(tmp_path: Path
         cache=cache,
     )
 
-    assert first["backtest_batch"]["backtest_batch_id"] == second["backtest_batch"]["backtest_batch_id"]
+    assert (
+        first["backtest_batch"]["backtest_batch_id"]
+        == second["backtest_batch"]["backtest_batch_id"]
+    )
     assert first["cache_id"] == second["cache_id"]
     assert first["cache_hit"] is False
     assert second["cache_hit"] is True
-    assert [row["backtest_run_id"] for row in first["run_rows"]] == [row["backtest_run_id"] for row in second["run_rows"]]
+    assert [row["backtest_run_id"] for row in first["run_rows"]] == [
+        row["backtest_run_id"] for row in second["run_rows"]
+    ]
     assert len(first["trade_rows"]) == len(second["trade_rows"])
 
 
-def test_vectorbt_batch_runner_respects_dataset_windows_and_short_only_direction(tmp_path: Path) -> None:
+def test_vectorbt_batch_runner_respects_dataset_windows_and_short_only_direction(
+    tmp_path: Path,
+) -> None:
     materialized_dir = _write_materialized_layers(
         tmp_path / "materialized-wf",
         split_method="walk_forward",
@@ -727,13 +836,22 @@ def test_vectorbt_batch_runner_parameters_and_risk_policy_change_execution(tmp_p
         strategy_registry=_custom_registry(breakout_spec),
     )
 
-    breakout_runs = [row for row in report["run_rows"] if row["strategy_version_label"] == "breakout-param-v1"]
-    breakout_stats = [row for row in report["stat_rows"] if row["strategy_version_label"] == "breakout-param-v1"]
+    breakout_runs = [
+        row for row in report["run_rows"] if row["strategy_version_label"] == "breakout-param-v1"
+    ]
+    breakout_stats = [
+        row for row in report["stat_rows"] if row["strategy_version_label"] == "breakout-param-v1"
+    ]
     assert len({str(row["parameter_values_json"]) for row in breakout_runs}) == 2
-    assert len({row["trade_count"] for row in breakout_stats}) > 1 or len({row["total_return"] for row in breakout_stats}) > 1
+    assert (
+        len({row["trade_count"] for row in breakout_stats}) > 1
+        or len({row["total_return"] for row in breakout_stats}) > 1
+    )
 
 
-def test_vectorbt_batch_runner_handles_100_combinations_with_batching_and_cache(tmp_path: Path) -> None:
+def test_vectorbt_batch_runner_handles_100_combinations_with_batching_and_cache(
+    tmp_path: Path,
+) -> None:
     materialized_dir = _write_materialized_layers(tmp_path / "materialized-benchmark")
     cache = ResearchFrameCache()
     benchmark_spec = StrategySpec(
@@ -807,6 +925,7 @@ def test_stage6_ranking_and_projection_build_runtime_compatible_candidates(tmp_p
         policy_id="stage6-selection-v1",
         metric_order=("total_return", "profit_factor", "max_drawdown"),
         min_trade_count=1,
+        min_trade_count_per_fold=1,
         max_drawdown_cap=0.8,
         min_positive_fold_ratio=0.0,
         min_parameter_stability=0.0,
@@ -837,8 +956,12 @@ def test_stage6_ranking_and_projection_build_runtime_compatible_candidates(tmp_p
     )
 
     assert projection_report["candidate_rows"]
-    ranking_rows = read_delta_table_rows(Path(str(ranking_report["output_paths"]["research_strategy_rankings"])))
-    candidate_rows = read_delta_table_rows(Path(str(projection_report["output_paths"]["research_signal_candidates"])))
+    ranking_rows = read_delta_table_rows(
+        Path(str(ranking_report["output_paths"]["research_strategy_rankings"]))
+    )
+    candidate_rows = read_delta_table_rows(
+        Path(str(projection_report["output_paths"]["research_signal_candidates"]))
+    )
     assert ranking_rows
     assert candidate_rows
     assert any(row["score_total"] >= 0.0 for row in ranking_rows)
@@ -850,4 +973,3 @@ def test_stage6_ranking_and_projection_build_runtime_compatible_candidates(tmp_p
     assert backtest_report["trade_rows"]
     assert backtest_report["order_rows"]
     assert backtest_report["drawdown_rows"]
-

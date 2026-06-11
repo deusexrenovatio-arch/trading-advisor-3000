@@ -41,7 +41,7 @@ def _campaign_payload(
             "start_ts": None,
             "end_ts": None,
             "warmup_bars": 10,
-            "split_method": "holdout",
+            "split_method": "walk_forward",
             "contract_ids": [],
             "instrument_ids": [],
         },
@@ -68,16 +68,17 @@ def _campaign_payload(
             "window_count": 1,
         },
         "ranking_policy": {
-            "policy_id": "robust_oos_v1",
-            "metric_order": ["total_return", "profit_factor", "max_drawdown"],
+            "policy_id": "research_screen_strict_v1",
+            "metric_order": ["sharpe", "profit_factor", "max_drawdown", "total_return"],
             "require_out_of_sample_pass": True,
-            "min_trade_count": 4,
+            "min_trade_count": 12,
+            "min_trade_count_per_fold": 4,
             "min_fold_count": 2,
-            "max_drawdown_cap": 0.35,
-            "min_positive_fold_ratio": 0.5,
-            "stress_slippage_bps": 7.5,
-            "min_parameter_stability": 0.35,
-            "min_slippage_score": 0.45,
+            "max_drawdown_cap": 0.25,
+            "min_positive_fold_ratio": 0.67,
+            "stress_slippage_bps": 12.5,
+            "min_parameter_stability": 0.55,
+            "min_slippage_score": 0.6,
         },
         "projection_policy": {
             "selection_policy": "all_policy_pass",
@@ -129,12 +130,48 @@ def test_normalize_campaign_accepts_optuna_strategy_optimizer(tmp_path: Path) ->
         "top_k": 2,
         "radius": 1,
         "max_neighborhood_trials": 4,
+        "ranking_policy": {
+            "policy_id": "optimizer_smoke_v1",
+            "metric_order": ["sharpe", "profit_factor"],
+            "require_out_of_sample_pass": False,
+            "min_trade_count": 1,
+            "min_trade_count_per_fold": 1,
+            "min_fold_count": 1,
+            "max_drawdown_cap": 1.0,
+            "min_positive_fold_ratio": 0.0,
+            "stress_slippage_bps": 0.0,
+            "min_parameter_stability": 0.0,
+            "min_slippage_score": 0.0,
+        },
     }
     payload["strategy_space"] = strategy_space
 
     normalized = campaigns.normalize_campaign_config(repo_root=ROOT, raw=payload)
 
     assert normalized["strategy_space"]["optimizer"] == strategy_space["optimizer"]
+
+
+def test_normalize_campaign_builds_default_nested_validation_plan(tmp_path: Path) -> None:
+    payload = _campaign_payload(tmp_path, target_stage="backtest")
+    dataset = dict(payload["dataset"])  # type: ignore[arg-type]
+    dataset["start_ts"] = "2021-04-01T00:00:00Z"
+    dataset["end_ts"] = "2026-03-31T23:59:59Z"
+    dataset["warmup_bars"] = 300
+    payload["dataset"] = dataset
+    payload["validation"] = {
+        "scheme": "nested_walk_forward_v1",
+        "leakage_controls": {"purge_bars": 32, "embargo_bars": 16},
+    }
+
+    normalized = campaigns.normalize_campaign_config(repo_root=ROOT, raw=payload)
+    plan = campaigns._build_validation_plan(normalized)  # type: ignore[attr-defined]
+
+    assert normalized["validation"]["outer_folds"]["train_months"] == 18
+    assert plan["outer_fold_count"] == 14
+    assert plan["inner_fold_count"] == 42
+    assert {
+        row["optimizer_visible"] for row in plan["windows"] if row["fold_role"] == "confirmation"
+    } == {False}
 
 
 def _mock_report(
@@ -196,6 +233,9 @@ def _mock_report(
         "research_strategy_rankings": (
             results_root / "research_strategy_rankings.delta"
         ).as_posix(),
+        "research_strategy_evaluation_profiles": (
+            results_root / "research_strategy_evaluation_profiles.delta"
+        ).as_posix(),
         "research_signal_candidates": (
             results_root / "research_signal_candidates.delta"
         ).as_posix(),
@@ -204,7 +244,11 @@ def _mock_report(
         selected_assets = list(campaigns.DATA_PREP_TABLES)
         materialized_assets = list(selected_assets)
     elif target_stage == "backtest":
-        selected_assets = ["research_backtest_batches", "research_strategy_rankings"]
+        selected_assets = [
+            "research_backtest_batches",
+            "research_strategy_rankings",
+            "research_strategy_evaluation_profiles",
+        ]
         materialized_assets = [
             "continuous_front_bars",
             "continuous_front_roll_events",
@@ -228,6 +272,7 @@ def _mock_report(
             "research_strategy_promotion_events",
             "research_backtest_batches",
             "research_strategy_rankings",
+            "research_strategy_evaluation_profiles",
         ]
     else:
         selected_assets = ["research_signal_candidates"]
@@ -253,6 +298,7 @@ def _mock_report(
             "research_vbt_ephemeral_indicator_cache",
             "research_strategy_promotion_events",
             "research_strategy_rankings",
+            "research_strategy_evaluation_profiles",
             "research_signal_candidates",
         ]
     return {
@@ -759,6 +805,73 @@ def test_result_digest_includes_ranking_policy_subscores(tmp_path: Path) -> None
             },
         ],
     )
+    write_delta_table_rows(
+        table_path=results_root / "research_strategy_evaluation_profiles.delta",
+        columns=results_store_contract()["research_strategy_evaluation_profiles"]["columns"],
+        rows=[
+            {
+                "evaluation_profile_id": "SEP-BLOCKED",
+                "profile_version": "strategy-evaluation-profile.v1",
+                "approved_universe_profile": "approved-universe-v1",
+                "campaign_run_id": "CRUN",
+                "ranking_id": "RANK-BLOCKED",
+                "backtest_run_id": "RUN-BLOCKED",
+                "strategy_instance_id": "SINST-BLOCKED",
+                "strategy_template_id": "STPL",
+                "family_id": "SFAM",
+                "family_key": "trend_mtf_pullback_v1",
+                "strategy_version_label": "trend-mtf-pullback-v1",
+                "contract_id": "BRQ2@MOEX",
+                "instrument_id": "FUT_BR",
+                "timeframe": "15m",
+                "params_hash": "PARAM-BLOCKED",
+                "ranking_policy_id": "robust_oos_v1",
+                "policy_pass": False,
+                "qualifies_for_projection": False,
+                "paper_signal_ready": False,
+                "paper_trade_ready": False,
+                "live_candidate_ready": False,
+                "verdict": "reject",
+                "promotion_state": "rejected",
+                "blocker_reasons_json": [
+                    "research_ranking_policy_failed",
+                    "ranking_policy:min_fold_count",
+                ],
+                "missing_data_json": [],
+                "evidence_snapshot_json": {"active_instrument_count": 1},
+                "created_at": "2026-04-29T00:00:00Z",
+            },
+            {
+                "evaluation_profile_id": "SEP-1",
+                "profile_version": "strategy-evaluation-profile.v1",
+                "approved_universe_profile": "approved-universe-v1",
+                "campaign_run_id": "CRUN",
+                "ranking_id": "RANK-1",
+                "backtest_run_id": "RUN",
+                "strategy_instance_id": "SINST",
+                "strategy_template_id": "STPL",
+                "family_id": "SFAM",
+                "family_key": "trend_mtf_pullback_v1",
+                "strategy_version_label": "trend-mtf-pullback-v1",
+                "contract_id": "BRQ2@MOEX",
+                "instrument_id": "FUT_BR",
+                "timeframe": "15m",
+                "params_hash": "PARAM",
+                "ranking_policy_id": "robust_oos_v1",
+                "policy_pass": True,
+                "qualifies_for_projection": True,
+                "paper_signal_ready": True,
+                "paper_trade_ready": False,
+                "live_candidate_ready": False,
+                "verdict": "paper-signal",
+                "promotion_state": "paper_signal_ready",
+                "blocker_reasons_json": ["missing_risk_per_position"],
+                "missing_data_json": ["risk_per_position"],
+                "evidence_snapshot_json": {"active_instrument_count": 1},
+                "created_at": "2026-04-29T00:00:00Z",
+            },
+        ],
+    )
 
     digest = campaigns._build_result_digest(target_stage="backtest", results_root=results_root)
 
@@ -771,6 +884,12 @@ def test_result_digest_includes_ranking_policy_subscores(tmp_path: Path) -> None
     assert eligible_top["strategy_instance_id"] == "SINST"
     assert eligible_top["parameter_stability_score"] == 0.88
     assert eligible_top["slippage_sensitivity_score"] == 0.91
+    assert digest["strategy_evaluation_count"] == 2
+    assert digest["strategy_evaluations_by_verdict"] == {"paper-signal": 1, "reject": 1}
+    assert digest["paper_signal_ready_count"] == 1
+    assert digest["paper_trade_ready_count"] == 0
+    assert digest["live_candidate_ready_count"] == 0
+    assert digest["strategy_evaluation_top_rows"][1]["promotion_state"] == "paper_signal_ready"
 
 
 def test_result_digest_records_forced_data_prep_proof(tmp_path: Path) -> None:
