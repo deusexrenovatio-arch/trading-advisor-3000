@@ -5,7 +5,7 @@ import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Mapping
 from uuid import uuid4
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
@@ -1238,6 +1238,8 @@ def run_research_bar_views_spark_job(
     start_ts: str | None = None,
     end_ts: str | None = None,
     warmup_bars: int = 0,
+    split_method: str = "full",
+    split_params: Mapping[str, object] | None = None,
     contours: tuple[str, ...] = RESEARCH_L0_CONTOURS,
     spark_master: str = DEFAULT_SPARK_MASTER,
     spark_session_factory: Callable[[str, str], object] | None = None,
@@ -1413,6 +1415,7 @@ def run_research_bar_views_spark_job(
                 )
 
                 continuous_front_policy = ContinuousFrontPolicy()
+            split_payload = dict(split_params or {})
             manifest = ResearchDatasetManifest(
                 dataset_version=dataset_version,
                 contour_id=contour_id,  # type: ignore[arg-type]
@@ -1426,7 +1429,8 @@ def run_research_bar_views_spark_job(
                 start_ts=start_ts,
                 end_ts=end_ts,
                 series_mode="continuous_front" if contour_id == "pit_active_front" else "contract",
-                split_method="full",
+                split_method=split_method if split_payload else "full",
+                split_params=split_payload,
                 warmup_bars=warmup_bars,
                 source_tables=(
                     "continuous_front_bars",

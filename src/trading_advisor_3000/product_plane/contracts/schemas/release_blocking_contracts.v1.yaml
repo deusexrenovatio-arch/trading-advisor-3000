@@ -266,6 +266,12 @@ release_blocking_boundaries:
         compatibility: strict
         coverage_tests_any:
           - tests/product-plane/contracts/test_research_contracts.py
+      - contract_id: strategy_evaluation_profile
+        schema: strategy_evaluation_profile.v1.json
+        fixture: strategy_evaluation_profile.v1.json
+        compatibility: additive
+        coverage_tests_any:
+          - tests/product-plane/contracts/test_research_contracts.py
       - contract_id: strategy_scorecard
         schema: strategy_scorecard.v1.json
         fixture: strategy_scorecard.v1.json

@@ -16,6 +16,7 @@ from trading_advisor_3000.product_plane.research.strategies import (
     StrategyRegistry,
     build_strategy_registry,
 )
+from trading_advisor_3000.product_plane.research.validation import validation_windows_from_plan
 
 from .engine import (
     BacktestEngineConfig,
@@ -42,6 +43,15 @@ def _manifest_split_windows(dataset_manifest: dict[str, object]) -> tuple[dict[s
         payload = {}
     windows = payload.get("windows", []) if isinstance(payload, dict) else []
     return tuple(item for item in windows if isinstance(item, dict))
+
+
+def _dedupe_validation_fold_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    deduped: dict[str, dict[str, object]] = {}
+    for row in rows:
+        key = str(row.get("validation_split_id") or row.get("window_id") or "")
+        if key:
+            deduped[key] = row
+    return list(deduped.values())
 
 
 def _load_dataset_manifest(
@@ -131,6 +141,7 @@ class BacktestBatchRequest:
     contract_ids: tuple[str, ...] = ()
     instrument_ids: tuple[str, ...] = ()
     optimizer_policy: dict[str, object] = field(default_factory=lambda: {"engine": "grid"})
+    validation_plan: dict[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.campaign_run_id.strip():
@@ -164,6 +175,7 @@ class BacktestBatchRequest:
                 str(self.series_batch_size),
                 self.timeframe,
                 json.dumps(self.optimizer_policy, ensure_ascii=False, sort_keys=True),
+                json.dumps(self.validation_plan, ensure_ascii=False, sort_keys=True),
                 *self.contract_ids,
                 *self.instrument_ids,
             )
@@ -248,7 +260,9 @@ def run_backtest_batch(
         dataset_version=request.dataset_version,
         contour_id=request.contour_id,
     )
-    split_windows = _manifest_split_windows(dataset_manifest)
+    split_windows = validation_windows_from_plan(
+        request.validation_plan
+    ) or _manifest_split_windows(dataset_manifest)
     input_columns = loader_columns_for_search_specs(request.search_specs)
     series_frames, cache_id, cache_hit = load_backtest_frames(
         dataset_output_dir=dataset_output_dir,
@@ -277,6 +291,8 @@ def run_backtest_batch(
     all_search_run_rows: list[dict[str, object]] = []
     all_optimizer_study_rows: list[dict[str, object]] = []
     all_optimizer_trial_rows: list[dict[str, object]] = []
+    all_optimizer_selection_rows: list[dict[str, object]] = []
+    all_validation_fold_rows: list[dict[str, object]] = []
     all_param_result_rows: list[dict[str, object]] = []
     all_gate_rows: list[dict[str, object]] = []
     all_run_rows: list[dict[str, object]] = []
@@ -307,6 +323,8 @@ def run_backtest_batch(
             all_search_run_rows.extend(report["search_run_rows"])
             all_optimizer_study_rows.extend(report["optimizer_study_rows"])
             all_optimizer_trial_rows.extend(report["optimizer_trial_rows"])
+            all_optimizer_selection_rows.extend(report.get("optimizer_selection_rows", []))
+            all_validation_fold_rows.extend(report.get("validation_fold_rows", []))
             all_param_result_rows.extend(report["param_result_rows"])
             all_gate_rows.extend(report["gate_rows"])
             all_run_rows.extend(report["run_rows"])
@@ -343,6 +361,8 @@ def run_backtest_batch(
         search_run_rows=all_search_run_rows,
         optimizer_study_rows=all_optimizer_study_rows,
         optimizer_trial_rows=all_optimizer_trial_rows,
+        optimizer_selection_rows=all_optimizer_selection_rows,
+        validation_fold_rows=_dedupe_validation_fold_rows(all_validation_fold_rows),
         param_result_rows=all_param_result_rows,
         gate_event_rows=all_gate_rows,
         ephemeral_indicator_rows=[],
@@ -359,6 +379,8 @@ def run_backtest_batch(
         "search_run_rows": all_search_run_rows,
         "optimizer_study_rows": all_optimizer_study_rows,
         "optimizer_trial_rows": all_optimizer_trial_rows,
+        "optimizer_selection_rows": all_optimizer_selection_rows,
+        "validation_fold_rows": _dedupe_validation_fold_rows(all_validation_fold_rows),
         "param_result_rows": all_param_result_rows,
         "gate_event_rows": all_gate_rows,
         "ephemeral_indicator_rows": [],

@@ -40,6 +40,8 @@ METADATA_COLUMNS = {
     "session_date",
     "session_open_ts",
     "session_close_ts",
+    "bar_start_ts",
+    "bar_end_ts",
     "active_contract_id",
     "slice_role",
     "bar_index",
@@ -384,6 +386,41 @@ class StrategyFamilySearchSpec:
         )
 
 
+def _reindex_strictly_before(frame: pd.DataFrame, target_index: pd.Index) -> pd.DataFrame:
+    target_timestamps = pd.DatetimeIndex(pd.to_datetime(target_index, utc=True)).astype(
+        "datetime64[ns, UTC]"
+    )
+    if frame.empty:
+        return pd.DataFrame(index=target_index, columns=frame.columns)
+
+    source = frame.copy()
+    source.index = pd.DatetimeIndex(pd.to_datetime(source.index, utc=True)).astype(
+        "datetime64[ns, UTC]"
+    )
+    source = source[~source.index.duplicated(keep="last")].sort_index()
+    right = source.copy()
+    right["__ta3000_source_ts"] = source.index
+    right = right.sort_values("__ta3000_source_ts")
+    left = pd.DataFrame(
+        {
+            "__ta3000_target_ts": target_timestamps,
+            "__ta3000_order": range(len(target_timestamps)),
+        }
+    ).sort_values("__ta3000_target_ts")
+    merged = pd.merge_asof(
+        left,
+        right,
+        left_on="__ta3000_target_ts",
+        right_on="__ta3000_source_ts",
+        direction="backward",
+        allow_exact_matches=False,
+    )
+    result = merged.sort_values("__ta3000_order")
+    result = result.loc[:, list(frame.columns)]
+    result.index = target_index
+    return result
+
+
 @dataclass(frozen=True)
 class VectorBTInputBundle:
     index: pd.Index
@@ -413,7 +450,7 @@ class VectorBTInputBundle:
             raise KeyError(f"{timeframe}:{name}")
         if not align_to_execution:
             return native
-        return native.reindex(self.index, method="ffill")
+        return _reindex_strictly_before(native, self.index)
 
 
 @dataclass(frozen=True)
@@ -465,6 +502,51 @@ def _timeframe_freq(timeframe: str) -> str:
     if timeframe.endswith("w"):
         return f"{int(timeframe[:-1])}W"
     raise ValueError(f"unsupported timeframe token: {timeframe}")
+
+
+def _timeframe_delta(timeframe: str) -> pd.Timedelta:
+    token = str(timeframe).strip().lower()
+    if token.endswith("m"):
+        return pd.Timedelta(minutes=int(token[:-1]))
+    if token.endswith("h"):
+        return pd.Timedelta(hours=int(token[:-1]))
+    if token.endswith("d"):
+        return pd.Timedelta(days=int(token[:-1]))
+    if token.endswith("w"):
+        return pd.Timedelta(weeks=int(token[:-1]))
+    raise ValueError(f"unsupported timeframe token: {timeframe}")
+
+
+def _timestamp_series(values: object, index: pd.Index) -> pd.Series:
+    parsed = pd.to_datetime(values, utc=True, errors="coerce")
+    if isinstance(parsed, pd.Series):
+        result = parsed.copy()
+        result.index = index
+        return result
+    return pd.Series(parsed, index=index)
+
+
+def _series_availability_index(
+    frame: pd.DataFrame, *, timeframe: str, execution_timeframe: str
+) -> pd.DatetimeIndex:
+    open_ts = _timestamp_series(frame["ts"] if "ts" in frame.columns else frame.index, frame.index)
+    if timeframe == execution_timeframe:
+        return pd.DatetimeIndex(open_ts)
+
+    timeframe_token = str(timeframe).strip().lower()
+    availability = pd.Series(pd.NaT, index=frame.index, dtype="datetime64[ns, UTC]")
+    if "bar_end_ts" in frame.columns:
+        bar_end_ts = _timestamp_series(frame["bar_end_ts"], frame.index).where(
+            lambda value: value >= open_ts
+        )
+        availability = availability.fillna(bar_end_ts)
+    if timeframe_token.endswith("d") and "session_close_ts" in frame.columns:
+        session_close_ts = _timestamp_series(frame["session_close_ts"], frame.index).where(
+            lambda value: value >= open_ts
+        )
+        availability = availability.fillna(session_close_ts)
+    availability = availability.fillna(open_ts + _timeframe_delta(timeframe))
+    return pd.DatetimeIndex(availability)
 
 
 def _timeframe_sort_key(timeframe: str) -> int:
@@ -526,7 +608,11 @@ def _window_frames(
         for index, window in enumerate(split_windows, start=1):
             window_id = str(window.get("window_id", f"wf-{index:02d}"))
             subset = pd.DataFrame()
-            if window.get("test_start_ts") and window.get("test_end_ts"):
+            if window.get("score_start_ts") and window.get("score_end_ts"):
+                start_ts = str(window["score_start_ts"])
+                end_ts = str(window["score_end_ts"])
+                subset = frame[(frame["ts"] >= start_ts) & (frame["ts"] < end_ts)].copy()
+            if subset.empty and window.get("test_start_ts") and window.get("test_end_ts"):
                 start_ts = str(window["test_start_ts"])
                 end_ts = str(window["test_end_ts"])
                 subset = frame[(frame["ts"] >= start_ts) & (frame["ts"] <= end_ts)].copy()
@@ -558,6 +644,93 @@ def _window_frames(
         windows.append((f"wf-{index + 1:02d}", frame.iloc[start:stop].copy()))
         start = stop
     return tuple(windows) or (("wf-01", frame.copy()),)
+
+
+def _window_lookup(
+    split_windows: tuple[dict[str, object], ...] | None,
+) -> dict[str, dict[str, object]]:
+    return {
+        str(window.get("window_id", f"wf-{index:02d}")): dict(window)
+        for index, window in enumerate(split_windows or (), start=1)
+    }
+
+
+def _window_meta(
+    window_id: str,
+    lookup: Mapping[str, Mapping[str, object]],
+) -> dict[str, object]:
+    window = dict(lookup.get(window_id, {}))
+    validation_split_id = str(window.get("validation_split_id") or window_id)
+    return {
+        "validation_split_id": validation_split_id,
+        "validation_scheme": str(window.get("validation_scheme", "legacy_validation")),
+        "outer_fold_id": str(window.get("outer_fold_id", "")),
+        "inner_fold_id": str(window.get("inner_fold_id", "")),
+        "fold_role": str(window.get("fold_role", "legacy_validation")),
+        "optimizer_visible": bool(window.get("optimizer_visible", True)),
+    }
+
+
+def _attach_window_meta(rows: list[dict[str, object]], meta: Mapping[str, object]) -> None:
+    for row in rows:
+        row.update(meta)
+
+
+def _attach_window_meta_to_collected(
+    collected: dict[str, list[dict[str, object]]],
+    meta: Mapping[str, object],
+) -> None:
+    for key in (
+        "run_rows",
+        "stat_rows",
+        "param_result_rows",
+        "gate_rows",
+        "trade_rows",
+        "order_rows",
+        "drawdown_rows",
+    ):
+        _attach_window_meta(collected.get(key, []), meta)
+
+
+def _validation_fold_rows(
+    *,
+    split_windows: tuple[dict[str, object], ...] | None,
+    campaign_run_id: str,
+    dataset_version: str,
+) -> list[dict[str, object]]:
+    if not split_windows:
+        return []
+    rows: list[dict[str, object]] = []
+    created_at = _created_at()
+    for index, window in enumerate(split_windows, start=1):
+        meta = _window_meta(
+            str(window.get("window_id", f"wf-{index:02d}")), _window_lookup((window,))
+        )
+        if str(meta["validation_scheme"]) == "legacy_validation":
+            continue
+        rows.append(
+            {
+                "validation_split_id": str(meta["validation_split_id"]),
+                "campaign_run_id": campaign_run_id,
+                "dataset_version": dataset_version,
+                "validation_scheme": str(meta["validation_scheme"]),
+                "outer_fold_id": str(meta["outer_fold_id"]),
+                "inner_fold_id": str(meta["inner_fold_id"]),
+                "fold_role": str(meta["fold_role"]),
+                "optimizer_visible": bool(meta["optimizer_visible"]),
+                "analysis_start_ts": str(window.get("analysis_start_ts", "")),
+                "analysis_end_ts": str(window.get("analysis_end_ts", "")),
+                "score_start_ts": str(window.get("score_start_ts", "")),
+                "score_end_ts": str(window.get("score_end_ts", "")),
+                "warmup_start_ts": str(window.get("warmup_start_ts", "")),
+                "purge_start_ts": str(window.get("purge_start_ts", "")),
+                "purge_end_ts": str(window.get("purge_end_ts", "")),
+                "embargo_start_ts": str(window.get("embargo_start_ts", "")),
+                "embargo_end_ts": str(window.get("embargo_end_ts", "")),
+                "created_at": created_at,
+            }
+        )
+    return rows
 
 
 def _parameter_rows(spec: StrategyFamilySearchSpec) -> tuple[dict[str, object], ...]:
@@ -958,8 +1131,15 @@ def build_input_bundle(
                 raise ValueError(
                     f"VectorBTInputBundle profile input `{column}` contains non-numeric values"
                 )
+            numeric = numeric.copy()
+            numeric.index = _series_availability_index(
+                series.frame,
+                timeframe=timeframe,
+                execution_timeframe=execution_tf,
+            )
             pieces[series.instrument_id] = numeric
-        matrix = pd.DataFrame(pieces).sort_index()
+        matrix = pd.DataFrame(pieces)
+        matrix = matrix[~matrix.index.duplicated(keep="last")].sort_index()
         matrix.index = pd.to_datetime(matrix.index, utc=True)
         return matrix
 
@@ -1247,7 +1427,7 @@ def _has_native_field(bundle: VectorBTInputBundle, name: str, layer: str) -> boo
 def _align_bool_frame_to_execution(bundle: VectorBTInputBundle, frame: pd.DataFrame) -> np.ndarray:
     if frame.index.equals(bundle.index):
         return frame.fillna(False).to_numpy(dtype=bool)
-    return frame.reindex(bundle.index, method="ffill").fillna(False).to_numpy(dtype=bool)
+    return _reindex_strictly_before(frame, bundle.index).fillna(False).to_numpy(dtype=bool)
 
 
 def _align_bool_cube_to_execution(
@@ -1259,7 +1439,7 @@ def _align_bool_cube_to_execution(
     for offset in range(values.shape[2]):
         frame = pd.DataFrame(values[:, :, offset], index=native_index, columns=bundle.instruments)
         aligned.append(
-            frame.reindex(bundle.index, method="ffill").fillna(False).to_numpy(dtype=bool)
+            _reindex_strictly_before(frame, bundle.index).fillna(False).to_numpy(dtype=bool)
         )
     return np.stack(aligned, axis=2)
 
@@ -3012,6 +3192,12 @@ def _optuna_ranking_policy(optimizer_policy: Mapping[str, object]) -> RankingPol
             source.get("require_out_of_sample_pass", defaults.require_out_of_sample_pass)
         ),
         min_trade_count=int(_value_or_default("min_trade_count", defaults.min_trade_count)),
+        min_trade_count_per_fold=int(
+            _value_or_default(
+                "min_trade_count_per_fold",
+                defaults.min_trade_count_per_fold,
+            )
+        ),
         min_fold_count=int(_value_or_default("min_fold_count", defaults.min_fold_count)),
         max_drawdown_cap=float(_value_or_default("max_drawdown_cap", defaults.max_drawdown_cap)),
         min_positive_fold_ratio=float(
@@ -3033,6 +3219,7 @@ def _ranking_policy_payload(policy: RankingPolicy) -> dict[str, object]:
         "metric_order": list(policy.metric_order),
         "require_out_of_sample_pass": policy.require_out_of_sample_pass,
         "min_trade_count": policy.min_trade_count,
+        "min_trade_count_per_fold": policy.min_trade_count_per_fold,
         "min_fold_count": policy.min_fold_count,
         "max_drawdown_cap": policy.max_drawdown_cap,
         "min_positive_fold_ratio": policy.min_positive_fold_ratio,
@@ -3233,7 +3420,9 @@ def _search_run_row(
     status: str,
     started_at: str,
     error_message: str = "",
+    window_meta: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
+    meta = dict(window_meta or _window_meta(window_id, {}))
     return {
         "search_run_id": search_run_id,
         "search_spec_id": search_spec_id(search_spec),
@@ -3247,6 +3436,12 @@ def _search_run_row(
         "derived_indicator_profile_version": derived_indicator_set_version,
         "universe_key": ",".join(bundle.instruments),
         "fold_id": window_id,
+        "validation_split_id": str(meta["validation_split_id"]),
+        "validation_scheme": str(meta["validation_scheme"]),
+        "outer_fold_id": str(meta["outer_fold_id"]),
+        "inner_fold_id": str(meta["inner_fold_id"]),
+        "fold_role": str(meta["fold_role"]),
+        "optimizer_visible": bool(meta["optimizer_visible"]),
         "param_count": param_count,
         "instrument_count": len(bundle.instruments),
         "chunk_count": 1 if param_count else 0,
@@ -3293,7 +3488,32 @@ def _run_optuna_family_search(
     optimizer_study_id = "OPTSTUDY-" + _stable_hash(
         f"{search_run_id_base}|{campaign_run_id}|{strategy_space_id}|{search_spec_id(search_spec)}"
     )
-    windows = list(_windowed_series(series_frames, config=config, split_windows=split_windows))
+    all_split_windows = tuple(split_windows or ())
+    confirmation_split_windows = tuple(
+        window
+        for window in all_split_windows
+        if str(window.get("fold_role", "")) == "confirmation"
+        and not bool(window.get("optimizer_visible", True))
+    )
+    optimizer_split_windows = tuple(
+        window
+        for window in all_split_windows
+        if bool(window.get("optimizer_visible", True))
+        and str(window.get("fold_role", "")) != "confirmation"
+    )
+    if all_split_windows and not optimizer_split_windows:
+        raise ValueError("Optuna requires at least one optimizer-visible validation fold")
+    windows_for_optimizer = optimizer_split_windows or split_windows
+    window_lookup = _window_lookup(windows_for_optimizer)
+    confirmation_window_lookup = _window_lookup(confirmation_split_windows)
+    windows = list(
+        _windowed_series(series_frames, config=config, split_windows=windows_for_optimizer)
+    )
+    validation_fold_rows = _validation_fold_rows(
+        split_windows=all_split_windows,
+        campaign_run_id=campaign_run_id,
+        dataset_version=dataset_version,
+    )
     search_run_rows: list[dict[str, object]] = []
     run_rows: list[dict[str, object]] = []
     stat_rows: list[dict[str, object]] = []
@@ -3303,6 +3523,7 @@ def _run_optuna_family_search(
     order_rows: list[dict[str, object]] = []
     drawdown_rows: list[dict[str, object]] = []
     optimizer_trial_rows: list[dict[str, object]] = []
+    optimizer_selection_rows: list[dict[str, object]] = []
     evaluations: dict[str, dict[str, object]] = {}
     tell_attrs_by_trial: dict[int, dict[str, object]] = {}
     ask_tell_batch_summaries: list[dict[str, object]] = []
@@ -3504,6 +3725,7 @@ def _run_optuna_family_search(
             local_search_run_ids: list[str] = []
             try:
                 for window_id, window_series in windows:
+                    window_meta = _window_meta(window_id, window_lookup)
                     bundle = _bundle_for_window(window_series, effective_spec)
                     search_run_id = (
                         f"{search_run_id_base}-ASKTELL-{batch_index:04d}-"
@@ -3531,6 +3753,7 @@ def _run_optuna_family_search(
                         derived_indicator_set_version=derived_indicator_set_version,
                         window_id=window_id,
                     )
+                    _attach_window_meta_to_collected(collected, window_meta)
                     local_run_rows.extend(collected["run_rows"])
                     local_stat_rows.extend(collected["stat_rows"])
                     local_param_result_rows.extend(collected["param_result_rows"])
@@ -3552,6 +3775,7 @@ def _run_optuna_family_search(
                             param_count=len(param_rows),
                             status="success",
                             started_at=str(group_items[0]["started"]),
+                            window_meta=window_meta,
                         )
                     )
             except Exception as exc:  # noqa: BLE001
@@ -3789,10 +4013,93 @@ def _run_optuna_family_search(
             },
         }
     ]
+    if best_row:
+        selected_params = dict(best_row.get("params_json", {}))
+        selected_hash = str(best_row["param_hash"])
+        selected_at = _created_at()
+        optimizer_selection_rows.append(
+            {
+                "optimizer_selection_id": "OPTSEL-"
+                + _stable_hash(f"{optimizer_study_id}|{selected_hash}|latest_frozen_param"),
+                "optimizer_study_id": optimizer_study_id,
+                "campaign_run_id": campaign_run_id,
+                "strategy_space_id": strategy_space_id,
+                "search_spec_id": search_spec_id(search_spec),
+                "family_key": search_spec.family_key,
+                "template_key": search_spec.template_key,
+                "outer_fold_id": "",
+                "selection_role": "latest_frozen_param",
+                "selection_rank": 1,
+                "param_hash": selected_hash,
+                "params_json": selected_params,
+                "objective_value": float(best_row["value"]),
+                "confirmation_required": bool(confirmation_split_windows),
+                "diagnostic_only": False,
+                "selected_at": selected_at,
+            }
+        )
+        if confirmation_split_windows:
+            effective_spec = _effective_search_spec_for_params(search_spec, selected_params)
+            param_lookup = {selected_hash: selected_params}
+            confirmation_windows = _windowed_series(
+                series_frames, config=config, split_windows=confirmation_split_windows
+            )
+            for window_id, window_series in confirmation_windows:
+                window_meta = _window_meta(window_id, confirmation_window_lookup)
+                bundle = _bundle_for_window(window_series, effective_spec)
+                search_run_id = f"{search_run_id_base}-CONFIRM-{window_id}"
+                surface = build_signal_surface(
+                    bundle=bundle,
+                    spec=effective_spec,
+                    param_rows=(selected_params,),
+                    search_run_id=search_run_id,
+                    config=config,
+                )
+                portfolio = run_surface_portfolio(bundle=bundle, surface=surface, config=config)
+                collected = collect_surface_rows(
+                    portfolio=portfolio,
+                    bundle=bundle,
+                    surface=surface,
+                    spec=effective_spec,
+                    param_lookup=param_lookup,
+                    backtest_batch_id=backtest_batch_id,
+                    campaign_run_id=campaign_run_id,
+                    strategy_space_id=strategy_space_id,
+                    dataset_version=dataset_version,
+                    indicator_set_version=indicator_set_version,
+                    derived_indicator_set_version=derived_indicator_set_version,
+                    window_id=window_id,
+                )
+                _attach_window_meta_to_collected(collected, window_meta)
+                run_rows.extend(collected["run_rows"])
+                stat_rows.extend(collected["stat_rows"])
+                param_result_rows.extend(collected["param_result_rows"])
+                gate_rows.extend(collected["gate_rows"])
+                trade_rows.extend(collected["trade_rows"])
+                order_rows.extend(collected["order_rows"])
+                drawdown_rows.extend(collected["drawdown_rows"])
+                search_run_rows.append(
+                    _search_run_row(
+                        search_run_id=search_run_id,
+                        search_spec=effective_spec,
+                        campaign_id=strategy_space_id,
+                        dataset_version=dataset_version,
+                        indicator_set_version=indicator_set_version,
+                        derived_indicator_set_version=derived_indicator_set_version,
+                        bundle=bundle,
+                        window_id=window_id,
+                        param_count=1,
+                        status="success",
+                        started_at=selected_at,
+                        window_meta=window_meta,
+                    )
+                )
     return {
         "search_run_rows": search_run_rows,
         "optimizer_study_rows": optimizer_study_rows,
         "optimizer_trial_rows": optimizer_trial_rows,
+        "optimizer_selection_rows": optimizer_selection_rows,
+        "validation_fold_rows": validation_fold_rows,
         "run_rows": run_rows,
         "stat_rows": stat_rows,
         "param_result_rows": param_result_rows,
@@ -3846,10 +4153,17 @@ def run_vectorbt_family_search(
     order_rows: list[dict[str, object]] = []
     drawdown_rows: list[dict[str, object]] = []
     started_at = _created_at()
+    window_lookup = _window_lookup(split_windows)
+    validation_fold_rows = _validation_fold_rows(
+        split_windows=split_windows,
+        campaign_run_id=campaign_run_id,
+        dataset_version=dataset_version,
+    )
 
     for window_id, window_series in _windowed_series(
         series_frames, config=config, split_windows=split_windows
     ):
+        window_meta = _window_meta(window_id, window_lookup)
         clock_profile_payload = (
             dict(search_spec.clock_profile)
             if search_spec.clock_profile
@@ -3873,27 +4187,21 @@ def run_vectorbt_family_search(
         except InputPlanValidationError as exc:
             search_run_id = f"{search_run_id_base}-{window_id}-FAILED"
             search_run_rows.append(
-                {
-                    "search_run_id": search_run_id,
-                    "search_spec_id": search_spec_id(search_spec),
-                    "campaign_id": strategy_space_id,
-                    "family_key": search_spec.family_key,
-                    "template_key": search_spec.template_key,
-                    "clock_profile": str(bundle.metadata["clock_profile"]),
-                    "dataset_id": dataset_version,
-                    "dataset_snapshot": dataset_version,
-                    "indicator_profile_version": indicator_set_version,
-                    "derived_indicator_profile_version": derived_indicator_set_version,
-                    "universe_key": ",".join(bundle.instruments),
-                    "fold_id": window_id,
-                    "param_count": 0,
-                    "instrument_count": len(bundle.instruments),
-                    "chunk_count": 0,
-                    "status": "failed",
-                    "started_at": started_at,
-                    "finished_at": _created_at(),
-                    "error_message": str(exc),
-                }
+                _search_run_row(
+                    search_run_id=search_run_id,
+                    search_spec=search_spec,
+                    campaign_id=strategy_space_id,
+                    dataset_version=dataset_version,
+                    indicator_set_version=indicator_set_version,
+                    derived_indicator_set_version=derived_indicator_set_version,
+                    bundle=bundle,
+                    window_id=window_id,
+                    param_count=0,
+                    status="failed",
+                    started_at=started_at,
+                    error_message=str(exc),
+                    window_meta=window_meta,
+                )
             )
             gate_rows.append(
                 {
@@ -3916,6 +4224,7 @@ def run_vectorbt_family_search(
                     "created_at": _created_at(),
                 }
             )
+            _attach_window_meta(gate_rows[-1:], window_meta)
             continue
         for chunk_index, param_chunk in enumerate(_chunked(all_params, param_batch_size), start=1):
             search_run_id = f"{search_run_id_base}-{window_id}-{chunk_index:03d}"
@@ -3942,6 +4251,7 @@ def run_vectorbt_family_search(
                 derived_indicator_set_version=derived_indicator_set_version,
                 window_id=window_id,
             )
+            _attach_window_meta_to_collected(collected, window_meta)
             run_rows.extend(collected["run_rows"])
             stat_rows.extend(collected["stat_rows"])
             param_result_rows.extend(collected["param_result_rows"])
@@ -3950,32 +4260,27 @@ def run_vectorbt_family_search(
             order_rows.extend(collected["order_rows"])
             drawdown_rows.extend(collected["drawdown_rows"])
             search_run_rows.append(
-                {
-                    "search_run_id": search_run_id,
-                    "search_spec_id": search_spec_id(search_spec),
-                    "campaign_id": strategy_space_id,
-                    "family_key": search_spec.family_key,
-                    "template_key": search_spec.template_key,
-                    "clock_profile": str(bundle.metadata["clock_profile"]),
-                    "dataset_id": dataset_version,
-                    "dataset_snapshot": dataset_version,
-                    "indicator_profile_version": indicator_set_version,
-                    "derived_indicator_profile_version": derived_indicator_set_version,
-                    "universe_key": ",".join(bundle.instruments),
-                    "fold_id": window_id,
-                    "param_count": len(param_chunk),
-                    "instrument_count": len(bundle.instruments),
-                    "chunk_count": 1,
-                    "status": "success",
-                    "started_at": started_at,
-                    "finished_at": _created_at(),
-                    "error_message": "",
-                }
+                _search_run_row(
+                    search_run_id=search_run_id,
+                    search_spec=search_spec,
+                    campaign_id=strategy_space_id,
+                    dataset_version=dataset_version,
+                    indicator_set_version=indicator_set_version,
+                    derived_indicator_set_version=derived_indicator_set_version,
+                    bundle=bundle,
+                    window_id=window_id,
+                    param_count=len(param_chunk),
+                    status="success",
+                    started_at=started_at,
+                    window_meta=window_meta,
+                )
             )
     return {
         "search_run_rows": search_run_rows,
         "optimizer_study_rows": [],
         "optimizer_trial_rows": [],
+        "optimizer_selection_rows": [],
+        "validation_fold_rows": validation_fold_rows,
         "run_rows": run_rows,
         "stat_rows": stat_rows,
         "param_result_rows": param_result_rows,

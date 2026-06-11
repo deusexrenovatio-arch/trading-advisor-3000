@@ -17,6 +17,8 @@ BAR_METADATA_COLUMNS = (
     "session_date",
     "session_open_ts",
     "session_close_ts",
+    "bar_start_ts",
+    "bar_end_ts",
     "active_contract_id",
     "series_id",
     "series_mode",

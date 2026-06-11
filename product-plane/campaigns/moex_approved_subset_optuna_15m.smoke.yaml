@@ -59,18 +59,21 @@ backtest:
   window_count: 3
 
 ranking_policy:
-  policy_id: robust_oos_v1
+  policy_id: research_screen_strict_v1
   metric_order:
-    - total_return
+    - sharpe
     - profit_factor
     - max_drawdown
+    - total_return
   require_out_of_sample_pass: true
-  min_trade_count: 8
-  max_drawdown_cap: 0.35
-  min_positive_fold_ratio: 0.5
-  stress_slippage_bps: 7.5
-  min_parameter_stability: 0.35
-  min_slippage_score: 0.45
+  min_trade_count: 12
+  min_trade_count_per_fold: 4
+  min_fold_count: 2
+  max_drawdown_cap: 0.25
+  min_positive_fold_ratio: 0.67
+  stress_slippage_bps: 12.5
+  min_parameter_stability: 0.55
+  min_slippage_score: 0.6
 
 projection_policy:
   selection_policy: all_policy_pass

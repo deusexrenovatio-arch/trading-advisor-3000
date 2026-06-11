@@ -25,7 +25,9 @@ from trading_advisor_3000.product_plane.research.strategies import (
 )
 
 from .engine import BacktestEngineConfig, project_family_candidate, strategy_spec_to_search_spec
+from .evaluation import build_strategy_evaluation_profiles
 from .input_requirements import loader_columns_for_search_specs
+from .ranking import DEFAULT_RANKING_POLICY_ID
 from .results import results_store_contract, write_stage6_artifacts
 
 
@@ -63,7 +65,7 @@ def supported_selection_policies() -> tuple[str, ...]:
 @dataclass(frozen=True)
 class CandidateProjectionRequest:
     backtest_run_id: str | None = None
-    ranking_policy_id: str = "robust_oos_v1"
+    ranking_policy_id: str = DEFAULT_RANKING_POLICY_ID
     selection_policy: str = "top_robust_per_series"
     runtime_contract: str = "DecisionCandidate"
     max_candidates_per_partition: int = 1
@@ -237,15 +239,21 @@ def project_runtime_candidates(
             }
         )
 
+    evaluation_profile_rows = build_strategy_evaluation_profiles(
+        ranking_rows=ranking_rows,
+        candidate_rows=projected_rows,
+    )
     output_paths = write_stage6_artifacts(
         output_dir=output_dir,
         ranking_rows=ranking_rows,
         candidate_rows=projected_rows,
+        evaluation_profile_rows=evaluation_profile_rows,
     )
     return {
         "projection_request": request,
         "candidate_rows": projected_rows,
         "candidate_contracts": contracts,
+        "evaluation_profile_rows": evaluation_profile_rows,
         "delta_manifest": results_store_contract(),
         "output_paths": output_paths,
     }
@@ -293,7 +301,7 @@ def _optimizer_selection_rows(
         components = _coerce_json(trial.get("objective_components_json", {}))
         study_config = _coerce_json(study.get("study_config_json", {}))
         ranking_policy = _coerce_json(study_config.get("ranking_policy", {}))
-        policy_id = str(ranking_policy.get("policy_id", "robust_oos_v1"))
+        policy_id = str(ranking_policy.get("policy_id", DEFAULT_RANKING_POLICY_ID))
         params = _coerce_json(trial.get("params_json", {}))
         grouped_runs: dict[tuple[str, str, str], list[dict[str, object]]] = {}
         for run in matching_runs:
