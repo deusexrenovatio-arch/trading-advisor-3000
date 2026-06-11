@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import hashlib
 
-from trading_advisor_3000.product_plane.contracts import DecisionCandidate, DecisionPublication, RuntimeSignal, SignalEvent
-from trading_advisor_3000.product_plane.research.ids import candidate_id_from_candidate
+from trading_advisor_3000.product_plane.contracts import (
+    DecisionCandidate,
+    DecisionPublication,
+    RuntimeSignal,
+    SignalEvent,
+)
+from trading_advisor_3000.product_plane.contracts.ids import candidate_id_from_candidate
 
 
 def _event_id(seed: str) -> str:
@@ -67,7 +72,9 @@ class InMemorySignalStore:
         self._publications[publication.signal_id] = publication
         self._publication_history.append(publication)
 
-    def upsert_candidate(self, candidate: DecisionCandidate, *, expires_at: str | None) -> tuple[RuntimeSignal, bool]:
+    def upsert_candidate(
+        self, candidate: DecisionCandidate, *, expires_at: str | None
+    ) -> tuple[RuntimeSignal, bool]:
         existing = self._signals.get(candidate.signal_id)
         candidate_payload = {
             **candidate.to_dict(),
@@ -342,7 +349,9 @@ class InMemorySignalStore:
     def list_active_signals(self) -> list[RuntimeSignal]:
         active_states = {"candidate", "active"}
         items = [signal for signal in self._signals.values() if signal.state in active_states]
-        return sorted(items, key=lambda signal: (signal.contract_id, signal.updated_at, signal.signal_id))
+        return sorted(
+            items, key=lambda signal: (signal.contract_id, signal.updated_at, signal.signal_id)
+        )
 
     def get_signal(self, signal_id: str) -> RuntimeSignal | None:
         return self._signals.get(signal_id)
@@ -353,7 +362,11 @@ class InMemorySignalStore:
     def list_publications(self) -> list[DecisionPublication]:
         return sorted(
             self._publications.values(),
-            key=lambda publication: (publication.signal_id, publication.published_at, publication.publication_id),
+            key=lambda publication: (
+                publication.signal_id,
+                publication.published_at,
+                publication.publication_id,
+            ),
         )
 
     def list_publication_events(self) -> list[DecisionPublication]:

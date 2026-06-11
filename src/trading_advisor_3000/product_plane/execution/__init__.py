@@ -10,20 +10,30 @@ from .adapters import (
     SidecarTransportError,
     SidecarTransportPermanentError,
     SidecarTransportRetryableError,
-    StockSharpSidecarStub,
     StockSharpHTTPTransport,
     StockSharpHTTPTransportConfig,
+    StockSharpSidecarStub,
     default_execution_adapter_catalog,
 )
-from .broker_sync import BrokerSyncEngine, ControlledLiveExecutionEngine, ControlledLiveHardeningReport
+from .broker_sync import (
+    BrokerSyncEngine,
+    ControlledLiveExecutionEngine,
+    ControlledLiveHardeningReport,
+)
 from .intents import PaperBrokerEngine
-from .recovery import LiveRecoveryPlan, RecoveryAction, build_live_recovery_plan
+from .ops import (
+    build_live_bridge_from_env,
+    build_runtime_operational_snapshot,
+    render_runtime_operational_metrics,
+    run_profile_server,
+)
 from .reconciliation import (
     LiveExecutionReconciliationReport,
     ReconciliationReport,
     reconcile_live_execution,
     reconcile_position_snapshots,
 )
+from .recovery import LiveRecoveryPlan, RecoveryAction, build_live_recovery_plan
 
 __all__ = [
     "BrokerSyncEngine",
@@ -46,8 +56,12 @@ __all__ = [
     "StockSharpSidecarStub",
     "StockSharpHTTPTransport",
     "StockSharpHTTPTransportConfig",
+    "build_live_bridge_from_env",
     "default_execution_adapter_catalog",
+    "build_runtime_operational_snapshot",
     "build_live_recovery_plan",
+    "render_runtime_operational_metrics",
+    "run_profile_server",
     "reconcile_live_execution",
     "reconcile_position_snapshots",
 ]

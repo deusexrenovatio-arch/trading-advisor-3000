@@ -7,7 +7,10 @@ from datetime import datetime, timezone
 from typing import Callable, Mapping
 
 from trading_advisor_3000.product_plane.contracts import Mode, OrderIntent
-from trading_advisor_3000.product_plane.runtime.config import DEFAULT_REQUIRED_LIVE_SECRETS, evaluate_secrets_policy
+from trading_advisor_3000.product_plane.contracts.live_execution_security import (
+    DEFAULT_REQUIRED_LIVE_SECRETS,
+    evaluate_secrets_policy,
+)
 
 from .catalog import ExecutionAdapterCatalog, default_execution_adapter_catalog
 from .stocksharp_http_transport import SidecarTransportError, SidecarTransportRetryableError
@@ -38,7 +41,8 @@ class AdapterTransportNotConfiguredError(LiveExecutionBridgeError):
 class LiveExecutionRetryExhaustedError(LiveExecutionBridgeError):
     def __init__(self, *, operation: str, attempts: int, last_error: BaseException) -> None:
         super().__init__(
-            f"{operation} failed after {attempts} attempts: {type(last_error).__name__}: {last_error}"
+            f"{operation} failed after {attempts} attempts: "
+            f"{type(last_error).__name__}: {last_error}"
         )
         self.operation = operation
         self.attempts = attempts
@@ -197,7 +201,9 @@ class LiveExecutionBridge:
         if isinstance(exc, SidecarTransportError):
             code = exc.error_code
             status_code = exc.status_code
-        elif isinstance(exc, LiveExecutionRetryExhaustedError) and isinstance(exc.last_error, SidecarTransportError):
+        elif isinstance(exc, LiveExecutionRetryExhaustedError) and isinstance(
+            exc.last_error, SidecarTransportError
+        ):
             code = exc.last_error.error_code
             status_code = exc.last_error.status_code
         else:
@@ -258,8 +264,7 @@ class LiveExecutionBridge:
             )
         if intent.broker_adapter not in self._transport_key_by_adapter_id:
             raise AdapterTransportNotConfiguredError(
-                "adapter transport is not configured: "
-                f"adapter={intent.broker_adapter}"
+                f"adapter transport is not configured: adapter={intent.broker_adapter}"
             )
 
     def _transport_for_adapter(self, adapter_id: str) -> tuple[str, ExecutionAdapterTransport]:
@@ -281,8 +286,7 @@ class LiveExecutionBridge:
             only_key = next(iter(self._transports_by_key))
             return only_key, self._transports_by_key[only_key]
         raise AdapterTransportNotConfiguredError(
-            "intent transport is ambiguous for multi-adapter bridge: "
-            f"intent_id={intent_id}"
+            f"intent transport is ambiguous for multi-adapter bridge: intent_id={intent_id}"
         )
 
     def _ensure_live_allowed(self, intent: OrderIntent) -> None:
@@ -551,10 +555,14 @@ class LiveExecutionBridge:
                 if lag_ms is not None:
                     enriched["sync_lag_ms"] = lag_ms
                 new_updates.append(enriched)
+                event_payload = payload.get("payload")
+                intent_id_value = (
+                    event_payload.get("intent_id") if isinstance(event_payload, dict) else None
+                )
                 self._record_operation_event(
                     event_type="broker_update",
                     status="ok",
-                    intent_id=str(payload.get("payload", {}).get("intent_id")) if isinstance(payload.get("payload"), dict) else None,
+                    intent_id=str(intent_id_value) if intent_id_value is not None else None,
                     external_order_id=str(payload.get("external_order_id", "")).strip() or None,
                     transport_key=transport_key,
                     details={

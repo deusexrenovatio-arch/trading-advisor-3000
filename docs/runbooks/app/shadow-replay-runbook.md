@@ -4,6 +4,10 @@
 Run and validate the integrated shadow-forward replay path:
 `canonical bars -> research candidates -> runtime publication -> forward observations -> analytics outcomes`.
 
+This route is a test-only acceptance harness. It must not be treated as the
+production orchestration path; product orchestration remains owned by Dagster
+research jobs, campaign runs, and the Runtime API/stack boundary.
+
 ## Preconditions
 - Python environment with project dependencies is active.
 - Source bars fixture exists (for example `tests/product-plane/fixtures/research/canonical_bars_sample.jsonl`).

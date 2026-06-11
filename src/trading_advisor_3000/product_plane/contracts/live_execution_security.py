@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Mapping
 
-
 DEFAULT_REQUIRED_LIVE_SECRETS = (
     "TA3000_STOCKSHARP_API_KEY",
     "TA3000_FINAM_API_TOKEN",
@@ -104,8 +103,14 @@ def evaluate_secrets_policy(
                     if rotated_dt is None:
                         stale.append(name)
                     else:
-                        age_days = round(max(0.0, (now_utc - rotated_dt).total_seconds() / 86400.0), 3)
-                        if max_age_days is not None and max_age_days > 0 and age_days > float(max_age_days):
+                        age_days = round(
+                            max(0.0, (now_utc - rotated_dt).total_seconds() / 86400.0), 3
+                        )
+                        if (
+                            max_age_days is not None
+                            and max_age_days > 0
+                            and age_days > float(max_age_days)
+                        ):
                             stale.append(name)
             probes.append(
                 SecretProbe(

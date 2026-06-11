@@ -1,11 +1,12 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from support.shadow_replay_harness import run_shadow_replay_acceptance_harness
+
 from trading_advisor_3000.product_plane.contracts import CanonicalBar
-from trading_advisor_3000.product_plane.runtime.analytics import run_system_shadow_replay
 from trading_advisor_3000.product_plane.runtime.analytics.review import (
     build_loki_event_lines,
     build_review_observability_report,
@@ -30,7 +31,11 @@ def _build_bars(*, bars_per_contract: int = 72) -> list[CanonicalBar]:
             if index < bars_per_contract // 3:
                 close = base_close + (index * step)
             elif index < (2 * bars_per_contract) // 3:
-                close = base_close + ((bars_per_contract // 3) * step) - ((index - (bars_per_contract // 3)) * step * 1.15)
+                close = (
+                    base_close
+                    + ((bars_per_contract // 3) * step)
+                    - ((index - (bars_per_contract // 3)) * step * 1.15)
+                )
             else:
                 close = (
                     base_close
@@ -64,12 +69,14 @@ def _build_bars(*, bars_per_contract: int = 72) -> list[CanonicalBar]:
 
 
 def _load_jsonl(path: Path) -> list[dict[str, object]]:
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return [
+        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
 
 
 def test_replay_exports_review_and_observability_artifacts(tmp_path: Path) -> None:
     bars = _build_bars()
-    report = run_system_shadow_replay(
+    report = run_shadow_replay_acceptance_harness(
         bars=bars,
         instrument_by_contract=_instrument_map(),
         strategy_version_id="ma-cross-v1",
@@ -84,7 +91,9 @@ def test_replay_exports_review_and_observability_artifacts(tmp_path: Path) -> No
     assert report["review_report"]["summary"]["strategy_rows"] == len(report["strategy_rows"])
     assert report["review_report"]["summary"]["instrument_rows"] == len(report["instrument_rows"])
     assert report["review_report"]["summary"]["latency_rows"] == len(report["latency_rows"])
-    assert report["review_report"]["summary"]["latency_status_counts"] == {"ok": report["runtime_signal_candidates"]}
+    assert report["review_report"]["summary"]["latency_status_counts"] == {
+        "ok": report["runtime_signal_candidates"]
+    }
 
     required_delta_keys = {
         "analytics_strategy_metrics_daily",
@@ -104,9 +113,9 @@ def test_replay_exports_review_and_observability_artifacts(tmp_path: Path) -> No
         path = Path(str(report["output_paths"][key]))
         assert path.exists()
 
-    prometheus_text = Path(str(report["output_paths"]["observability_prometheus_metrics"])).read_text(
-        encoding="utf-8"
-    )
+    prometheus_text = Path(
+        str(report["output_paths"]["observability_prometheus_metrics"])
+    ).read_text(encoding="utf-8")
     assert "ta3000_strategy_signals_total" in prometheus_text
     assert "ta3000_latency_quantile_ms" in prometheus_text
 
@@ -116,7 +125,7 @@ def test_replay_exports_review_and_observability_artifacts(tmp_path: Path) -> No
 
 def test_non_happy_latency_status_is_visible_in_metrics_and_logs(tmp_path: Path) -> None:
     bars = _build_bars()
-    report = run_system_shadow_replay(
+    report = run_shadow_replay_acceptance_harness(
         bars=bars,
         instrument_by_contract=_instrument_map(),
         strategy_version_id="ma-cross-v1",
@@ -142,7 +151,9 @@ def test_non_happy_latency_status_is_visible_in_metrics_and_logs(tmp_path: Path)
         outcomes=report["analytics_rows"],
         signal_events=degraded_events,
     )
-    status_by_signal = {row.signal_id: row.latency_status for row in degraded_report.latency_metrics}
+    status_by_signal = {
+        row.signal_id: row.latency_status for row in degraded_report.latency_metrics
+    }
     assert status_by_signal[degraded_signal] == "missing_activation"
 
     prometheus_text = export_prometheus_metrics(degraded_report)
@@ -155,4 +166,3 @@ def test_non_happy_latency_status_is_visible_in_metrics_and_logs(tmp_path: Path)
         and row.get("status") == "missing_activation"
         for row in loki_lines
     )
-

@@ -20,6 +20,7 @@
 | Project cockpit freshness | `python scripts/build_project_cockpit.py --check` | ensure generated HTML stays aligned with project-map notes |
 | Legacy namespace growth | `python scripts/validate_legacy_namespace_growth.py` | fail closed when changed files introduce new legacy rename tokens outside migration allowlist |
 | Product surface naming | `python scripts/validate_product_surface_naming.py` | fail closed when active product-facing names reintroduce numbered delivery labels |
+| Product-plane module import inventory | `python scripts/report_product_plane_module_imports.py --format markdown` | report-only inventory of current imports against product-plane module charters |
 
 Quality baseline note:
 - `run_boring_checks.py --profile quick --scope changed` is the mandatory

@@ -27,6 +27,11 @@ need a coherent whole-system view before reading the more specific documents.
 - `docs/architecture/product-plane/README.md`
 - `docs/architecture/product-plane/STATUS.md`
 - `docs/architecture/product-plane/CONTRACT_SURFACES.md`
+- `docs/architecture/product-plane/product-plane-module-charters.md`
+  - target modular structure: module ownership, hidden decisions, storage,
+    runtime owners, proof surfaces, and dependency rules
+- `docs/architecture/product-plane/product-plane-module-apis.md`
+  - public communication contract between deep modules
 - `docs/architecture/product-plane/research-plane-platform.md`
 - `docs/architecture/product-plane/stack-conformance-baseline.md`
 

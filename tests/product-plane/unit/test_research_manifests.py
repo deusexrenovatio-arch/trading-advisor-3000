@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from trading_advisor_3000.product_plane.research.ids import candidate_id
+from trading_advisor_3000.product_plane.contracts.ids import candidate_id
 from trading_advisor_3000.spark_jobs import (
     build_research_sql_plan,
     default_research_spec,

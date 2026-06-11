@@ -1,12 +1,13 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from support.shadow_replay_harness import run_shadow_replay_acceptance_harness
+
 from trading_advisor_3000.product_plane.contracts import CanonicalBar
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import read_delta_table_rows
-from trading_advisor_3000.product_plane.runtime.analytics import run_system_shadow_replay
 
 
 def _instrument_map() -> dict[str, str]:
@@ -26,7 +27,11 @@ def _build_bars(*, bars_per_contract: int = 72) -> list[CanonicalBar]:
             if index < bars_per_contract // 3:
                 close = base_close + (index * step)
             elif index < (2 * bars_per_contract) // 3:
-                close = base_close + ((bars_per_contract // 3) * step) - ((index - (bars_per_contract // 3)) * step * 1.15)
+                close = (
+                    base_close
+                    + ((bars_per_contract // 3) * step)
+                    - ((index - (bars_per_contract // 3)) * step * 1.15)
+                )
             else:
                 close = (
                     base_close
@@ -60,12 +65,14 @@ def _build_bars(*, bars_per_contract: int = 72) -> list[CanonicalBar]:
 
 
 def _load_jsonl(path: Path) -> list[dict[str, object]]:
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return [
+        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
 
 
 def test_integrated_replay_produces_traceable_runtime_bound_outcomes(tmp_path: Path) -> None:
     bars = _build_bars()
-    report = run_system_shadow_replay(
+    report = run_shadow_replay_acceptance_harness(
         bars=bars,
         instrument_by_contract=_instrument_map(),
         strategy_version_id="ma-cross-v1",
@@ -79,7 +86,9 @@ def test_integrated_replay_produces_traceable_runtime_bound_outcomes(tmp_path: P
     assert report["signal_candidates"] > 0
     assert report["runtime_signal_candidates"] > 0
     assert report["runtime_signal_candidates"] < report["signal_candidates"]
-    assert report["runtime_report"]["accepted_unique_signals"] == report["runtime_signal_candidates"]
+    assert (
+        report["runtime_report"]["accepted_unique_signals"] == report["runtime_signal_candidates"]
+    )
     assert report["analytics_outcomes"] == report["forward_observations"]
     assert report["forward_observations"] == report["runtime_signal_candidates"]
 
@@ -87,7 +96,9 @@ def test_integrated_replay_produces_traceable_runtime_bound_outcomes(tmp_path: P
     assert all(row["mode"] == "shadow" for row in report["analytics_rows"])
     assert "analytics_signal_outcomes" in report["delta_manifest"]
     assert "research_forward_observations" in report["delta_manifest"]
-    assert set(report["runtime_signal_ids"]) == {row["signal_id"] for row in report["runtime_payload"]["publications"]}
+    assert set(report["runtime_signal_ids"]) == {
+        row["signal_id"] for row in report["runtime_payload"]["publications"]
+    }
 
     research_rows = read_delta_table_rows(Path(str(report["output_paths"]["signal_candidates"])))
     forward_rows = _load_jsonl(Path(str(report["output_paths"]["research_forward_observations"])))
@@ -98,4 +109,3 @@ def test_integrated_replay_produces_traceable_runtime_bound_outcomes(tmp_path: P
 
     for path_text in report["output_paths"].values():
         assert Path(path_text).exists()
-

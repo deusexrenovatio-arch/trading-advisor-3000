@@ -28,6 +28,31 @@ Use these exact terms in task notes and PRs:
 | `deployment/*` | product-plane | deploy and transport surfaces |
 | `docs/architecture/*` (outside `product-plane/`) | shared | architecture bridge between shell and product-plane |
 
+## Product-plane module structure
+
+The product plane is internally organized as deep modules, not as one flat app
+package:
+
+```text
+Contracts
+  -> Market Data Foundation
+  -> Research Data Factory
+  -> Strategy Factory
+  -> Runtime Plane
+  -> Execution Plane
+```
+
+This module structure is architectural ownership, not a directory rename plan by
+itself. Current source paths remain mapped in
+`docs/architecture/product-plane/product-plane-module-charters.md`, and public
+communication rules are defined in
+`docs/architecture/product-plane/product-plane-module-apis.md`.
+
+Cross-module imports should go through Contracts or explicit public module APIs.
+Direct imports of another product module's private storage helpers, jobs,
+`_common` modules, runtime-private wiring, or data layout mechanics are not a
+stable architecture surface.
+
 ## Naming decision for this sweep
 1. Canonical docs root is now `docs/architecture/product-plane/`.
 2. Legacy app-path docs are archived under `docs/archive/legacy-app-docs/2026-05-06/`.

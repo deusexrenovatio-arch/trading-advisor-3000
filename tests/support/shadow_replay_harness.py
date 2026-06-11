@@ -1,3 +1,5 @@
+"""Test-only cross-plane replay harness for acceptance evidence."""
+
 from __future__ import annotations
 
 import json
@@ -14,11 +16,11 @@ from trading_advisor_3000.product_plane.contracts import (
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
 from trading_advisor_3000.product_plane.execution.intents import PaperBrokerEngine
 from trading_advisor_3000.product_plane.interfaces.api import RuntimeAPI
-from trading_advisor_3000.product_plane.research import (
+from trading_advisor_3000.product_plane.research.backtests import results_store_contract
+from trading_advisor_3000.product_plane.research.forward import (
     build_forward_observations,
     candidate_id_from_signal,
 )
-from trading_advisor_3000.product_plane.research.backtests import results_store_contract
 from trading_advisor_3000.product_plane.runtime.analytics.outcomes import (
     build_signal_outcomes,
     shadow_replay_outcome_store_contract,
@@ -133,7 +135,7 @@ def _candidate_rows(
     return rows
 
 
-def run_system_shadow_replay(
+def run_shadow_replay_acceptance_harness(
     *,
     bars: list[CanonicalBar],
     instrument_by_contract: dict[str, str],

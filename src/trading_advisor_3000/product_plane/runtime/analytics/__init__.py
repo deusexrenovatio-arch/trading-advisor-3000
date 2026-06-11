@@ -14,7 +14,6 @@ from .review import (
     export_prometheus_metrics,
     review_observability_store_contract,
 )
-from .system_replay import run_system_shadow_replay
 
 __all__ = [
     "InstrumentMetricsRow",
@@ -31,5 +30,4 @@ __all__ = [
     "export_prometheus_metrics",
     "shadow_replay_outcome_store_contract",
     "review_observability_store_contract",
-    "run_system_shadow_replay",
 ]

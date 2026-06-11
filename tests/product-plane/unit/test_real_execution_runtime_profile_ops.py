@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Iterator
 
-from trading_advisor_3000.product_plane.runtime.ops import (
+from trading_advisor_3000.product_plane.execution.ops import (
     build_live_bridge_from_env,
     build_runtime_operational_snapshot,
     render_runtime_operational_metrics,
@@ -24,10 +24,14 @@ def _http_sidecar_probe_server() -> Iterator[str]:
             self.wfile.write(body)
 
         def do_GET(self) -> None:  # noqa: N802
-            if self.path == "/v1/stream/updates?cursor=&limit=500" or self.path.startswith("/v1/stream/updates"):
+            if self.path == "/v1/stream/updates?cursor=&limit=500" or self.path.startswith(
+                "/v1/stream/updates"
+            ):
                 self._json(200, '{"updates":[],"next_cursor":"0"}')
                 return
-            if self.path == "/v1/stream/fills?cursor=&limit=500" or self.path.startswith("/v1/stream/fills"):
+            if self.path == "/v1/stream/fills?cursor=&limit=500" or self.path.startswith(
+                "/v1/stream/fills"
+            ):
                 self._json(200, '{"fills":[],"next_cursor":"0"}')
                 return
             if self.path == "/health":
@@ -50,7 +54,9 @@ def _http_sidecar_probe_server() -> Iterator[str]:
             return
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.2}, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.2}, daemon=True
+    )
     thread.start()
     base_url = f"http://127.0.0.1:{server.server_port}"
     try:

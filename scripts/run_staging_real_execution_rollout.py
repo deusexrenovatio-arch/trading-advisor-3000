@@ -10,22 +10,26 @@ from pathlib import Path
 from typing import Callable
 from urllib import request as urllib_request
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from trading_advisor_3000.product_plane.contracts import Mode, OrderIntent
-from trading_advisor_3000.product_plane.execution.adapters import (
+from trading_advisor_3000.product_plane.contracts import Mode, OrderIntent  # noqa: E402
+from trading_advisor_3000.product_plane.contracts.live_execution_security import (  # noqa: E402
+    DEFAULT_REQUIRED_LIVE_SECRETS,
+)
+from trading_advisor_3000.product_plane.execution.adapters import (  # noqa: E402
     LiveExecutionBridge,
     LiveExecutionFeatureFlags,
     LiveExecutionRetryPolicy,
     StockSharpHTTPTransport,
     StockSharpHTTPTransportConfig,
 )
-from trading_advisor_3000.product_plane.execution.broker_sync import BrokerSyncEngine, ControlledLiveExecutionEngine
-from trading_advisor_3000.product_plane.runtime.config import DEFAULT_REQUIRED_LIVE_SECRETS
+from trading_advisor_3000.product_plane.execution.broker_sync import (  # noqa: E402
+    BrokerSyncEngine,
+    ControlledLiveExecutionEngine,
+)
 
 
 def _utc_now() -> str:
@@ -207,7 +211,9 @@ def _run_connectivity_stage(
             connector_backend = str(remote.get("connector_backend", "")).strip().lower()
             connector_ready = bool(remote.get("connector_ready", False))
             connector_session_id = str(remote.get("connector_session_id", "")).strip()
-            connector_binding_source = str(remote.get("connector_binding_source", "")).strip().lower()
+            connector_binding_source = (
+                str(remote.get("connector_binding_source", "")).strip().lower()
+            )
             connector_last_heartbeat = str(remote.get("connector_last_heartbeat", "")).strip()
 
     connector_errors: list[str] = []
@@ -267,7 +273,9 @@ def _run_canary_stage(
     dry_run: bool,
 ) -> StageResult:
     if dry_run:
-        return StageResult(stage="canary", status="planned", details={"intent_id": canary_intent_id})
+        return StageResult(
+            stage="canary", status="planned", details={"intent_id": canary_intent_id}
+        )
 
     submitted_at = _utc_now()
     acks = engine.submit_intents(
@@ -317,7 +325,7 @@ def _run_batch_stage(
     submitted_at = _utc_now()
     intents = [
         _intent(
-            intent_id=f"INT-STAGING-BATCH-{index+1}",
+            intent_id=f"INT-STAGING-BATCH-{index + 1}",
             qty=1,
             created_at=submitted_at,
         )
@@ -335,7 +343,9 @@ def _run_batch_stage(
         if kill_switch_on_failure:
             try:
                 kill_switch_result = kill_switch_toggler(True)
-            except Exception as exc:  # pragma: no cover - endpoint might be unavailable in some gateways.
+            except (
+                Exception
+            ) as exc:  # pragma: no cover - endpoint might be unavailable in some gateways.
                 kill_switch_result = {"ok": False, "error": str(exc)}
             for intent in intents:
                 try:
@@ -379,10 +389,16 @@ def _run_batch_stage(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run staging-first real execution rollout procedure.")
-    parser.add_argument("--base-url", default=os.environ.get("TA3000_SIDECAR_BASE_URL", "http://127.0.0.1:18081"))
+    parser = argparse.ArgumentParser(
+        description="Run staging-first real execution rollout procedure."
+    )
+    parser.add_argument(
+        "--base-url", default=os.environ.get("TA3000_SIDECAR_BASE_URL", "http://127.0.0.1:18081")
+    )
     parser.add_argument("--account-id", default="STAGING-LIVE-ACC")
-    parser.add_argument("--stage", choices=("connectivity", "canary", "batch", "all"), default="all")
+    parser.add_argument(
+        "--stage", choices=("connectivity", "canary", "batch", "all"), default="all"
+    )
     parser.add_argument("--batch-size", type=int, default=3)
     parser.add_argument("--canary-intent-id", default="INT-STAGING-CANARY-1")
     parser.add_argument("--dry-run", action="store_true")
@@ -392,7 +408,9 @@ def main() -> int:
     args = parser.parse_args()
 
     env = dict(os.environ)
-    sync, engine, bridge = _build_engine(base_url=args.base_url, env=env, account_id=args.account_id)
+    sync, engine, bridge = _build_engine(
+        base_url=args.base_url, env=env, account_id=args.account_id
+    )
     stages = ["connectivity", "canary", "batch"] if args.stage == "all" else [args.stage]
     records: list[StageResult] = []
 
@@ -413,7 +431,9 @@ def main() -> int:
                 batch_size=max(1, args.batch_size),
                 dry_run=args.dry_run,
                 kill_switch_on_failure=args.kill_switch_on_failure,
-                kill_switch_toggler=lambda active: _toggle_kill_switch(base_url=args.base_url, active=active),
+                kill_switch_toggler=lambda active: _toggle_kill_switch(
+                    base_url=args.base_url, active=active
+                ),
             )
         records.append(result)
         if result.status == "failed":
