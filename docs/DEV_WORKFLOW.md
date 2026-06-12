@@ -48,6 +48,85 @@ If hosted runners are unavailable, replay lanes locally for acceptance evidence:
 3. `python scripts/run_nightly_gate.py --from-git --git-ref HEAD`
 4. `python scripts/build_governance_dashboard.py --output-json artifacts/governance-dashboard.json --output-md artifacts/governance-dashboard.md`
 
+## TA3000 Production Workflow
+The production nightly contour is a runtime contour, not a development contour.
+
+- Runtime branch: `ta3000-production`.
+- Runtime checkout: `D:/TA3000-production`.
+- Runtime data root: `D:/TA3000-data/trading-advisor-3000-nightly`.
+- Production launcher: `C:/Users/Admin/run_ta3000_production_nightly.cmd`.
+- Product staging bootstrap: `scripts/run_ta3000_product_staging_bootstrap.cmd`.
+- Production log: `D:/TA3000-data/logs/ta3000-production-nightly.log`.
+
+Runtime surfaces:
+
+- Production staging is `moex_product_staging`. It is the long-lived product
+  runtime surface backed by `D:/TA3000-production` for code and
+  `D:/TA3000-data/trading-advisor-3000-nightly` for data. Its containers expose
+  the production checkout as `/workspace` and the product data root as
+  `/ta3000-data/moex-historical`.
+- Production staging runs the supported MOEX updater through Dagster:
+  `moex_baseline_daily_update_schedule` owns the nightly tick and
+  `moex_baseline_update_job` owns the update work. Windows Task Scheduler only
+  bootstraps or refreshes this container runtime; it must not run the updater
+  directly with host Python.
+- Test staging is `moex_test_staging_on_demand`. Use it for verification runs,
+  route changes, seeded smoke tests, and risky data-plane checks before touching
+  production staging. It writes under
+  `D:/TA3000-data/trading-advisor-3000-verification` and must not mutate the
+  production data root.
+- Runtime instance names, paths, mounts, and launch defaults are declared in the
+  MOEX runtime registry.
+
+Concrete references:
+
+- Product staging registry entry: `moex_product_staging` in
+  [deployment/runtime-instances/moex-runtime-instances.v1.yaml](../deployment/runtime-instances/moex-runtime-instances.v1.yaml).
+- Test staging registry entry: `moex_test_staging_on_demand` in
+  [deployment/runtime-instances/moex-runtime-instances.v1.yaml](../deployment/runtime-instances/moex-runtime-instances.v1.yaml).
+- Product staging base compose:
+  [deployment/docker/dagster-staging/docker-compose.dagster-staging.yml](../deployment/docker/dagster-staging/docker-compose.dagster-staging.yml).
+- Product staging production-checkout bind:
+  [deployment/docker/dagster-staging/docker-compose.dagster-product-main-bind.yml](../deployment/docker/dagster-staging/docker-compose.dagster-product-main-bind.yml).
+- Product staging bootstrap:
+  [scripts/run_ta3000_product_staging_bootstrap.cmd](../scripts/run_ta3000_product_staging_bootstrap.cmd).
+- Production nightly runbook:
+  [docs/runbooks/app/ta3000-production-nightly.md](docs/runbooks/app/ta3000-production-nightly.md).
+- Runtime contract test:
+  [tests/process/test_ta3000_product_staging_nightly_contract.py](../tests/process/test_ta3000_product_staging_nightly_contract.py).
+
+`ta3000-production` is not used for feature work, fixes, experiments, or review
+branches. Changes reach it only by promoting already-verified `main`. The
+promotion cadence is intentionally manual until a separate operating decision
+sets a stronger rule.
+
+To make a code change reach production staging, merging to `main` is not enough.
+After the change is verified on `main`, promote `main` into the
+`ta3000-production` branch and refresh the product staging containers. Until
+that branch is updated, production staging continues to run the previous
+`ta3000-production` code.
+
+The production checkout and data root must stay separate. The scheduler may
+create ordinary runtime/cache traces inside the checkout, but it must not use
+the data root as a git checkout and must not clean these data-root folders:
+`raw`, `canonical`, `research`, `staging`, `verification`, and
+`moex-baseline-update`.
+
+The production launcher pulls `origin/ta3000-production`, not `origin/main`, then
+delegates to `scripts/run_ta3000_product_staging_bootstrap.cmd`. The launcher
+must not run the MOEX baseline update with host Python. Dagster daemon inside
+product staging owns the nightly data job through
+`moex_baseline_daily_update_schedule`.
+
+The retired `C:/Users/Admin/run_moex_nightly_backfill.cmd` launcher is kept for
+forensic reference only. The target scheduler state is a direct action pointing
+at `C:/Users/Admin/run_ta3000_production_nightly.cmd`; if local permissions
+block that update, the old path may exist only as a compatibility shim that
+delegates to the production launcher and does not run the retired route.
+
+Operator details live in
+`docs/runbooks/app/ta3000-production-nightly.md`.
+
 ## Guardrails
 1. No direct main pushes by default.
 2. No legacy gate aliases.
