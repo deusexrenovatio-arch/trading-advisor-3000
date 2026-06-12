@@ -18,6 +18,9 @@ from trading_advisor_3000.product_plane.data_plane.moex.historical_canonical_rou
     CANONICAL_MERGE_SCOPED_DELETE_INSERT,
     PROVENANCE_COLUMNS,
 )
+from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contracts import (
+    changed_windows_hash_sha256,
+)
 from trading_advisor_3000.product_plane.data_plane.moex.iss_client import MoexCandle
 
 
@@ -73,6 +76,51 @@ def _patch_common_inputs(
             AssertionError("baseline update must not materialize session schedule")
         ),
         raising=False,
+    )
+
+
+def test_baseline_raw_report_for_canonical_rehashes_merged_changed_windows() -> None:
+    pending_windows = [
+        {
+            "internal_id": "FUT_BR",
+            "source_timeframe": "1d",
+            "source_interval": 24,
+            "moex_secid": "BRN6",
+            "window_start_utc": "2026-06-10T21:00:00Z",
+            "window_end_utc": "2026-06-11T21:00:00Z",
+            "incremental_rows": 1,
+        }
+    ]
+    current_windows = [
+        {
+            "internal_id": "FUT_WHEAT",
+            "source_timeframe": "1d",
+            "source_interval": 24,
+            "moex_secid": "W4U6",
+            "window_start_utc": "2026-06-11T21:00:00Z",
+            "window_end_utc": "2026-06-12T21:00:00Z",
+            "incremental_rows": 1,
+        }
+    ]
+    raw_report = {
+        "status": "PASS-NOOP",
+        "changed_windows": [],
+        "changed_windows_hash_sha256": changed_windows_hash_sha256([]),
+    }
+
+    merged = baseline_module._merge_changed_windows(
+        pending=pending_windows, current=current_windows
+    )
+    canonical_report = baseline_module._baseline_raw_report_for_canonical(
+        raw_report=raw_report,
+        merged_changed_windows=merged,
+    )
+
+    assert canonical_report["status"] == "PASS"
+    assert canonical_report["changed_windows"] == merged
+    assert canonical_report["changed_windows_hash_sha256"] == changed_windows_hash_sha256(merged)
+    assert (
+        canonical_report["changed_windows_hash_sha256"] != raw_report["changed_windows_hash_sha256"]
     )
 
 
@@ -138,6 +186,7 @@ def test_baseline_update_writes_to_stable_paths_and_scoped_canonical_refresh(
     )
     assert captured["canonical_merge_strategy"] == CANONICAL_MERGE_SCOPED_DELETE_INSERT
     assert captured["max_changed_window_days"] == 10
+    assert captured["target_timeframes"] == {"5m", "15m"}
     assert (
         report["canonical_session_calendar_path"]
         == (canonical_bars_path.parent / "canonical_session_calendar.delta").as_posix()

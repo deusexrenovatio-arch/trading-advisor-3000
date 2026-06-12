@@ -62,15 +62,15 @@ def _parse_iso_utc(value: object) -> datetime | None:
             return None
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
     if parsed.tzinfo is None:
-        return parsed
-    return parsed.astimezone(UTC).replace(tzinfo=None)
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _to_iso_utc(value: object) -> str:
     parsed = _parse_iso_utc(value)
     if parsed is None:
         return ""
-    return parsed.replace(tzinfo=UTC).isoformat().replace("+00:00", "Z")
+    return parsed.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _spark_type(types_module: Any, type_name: str) -> Any:

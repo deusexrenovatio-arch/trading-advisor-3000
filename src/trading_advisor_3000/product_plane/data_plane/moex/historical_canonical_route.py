@@ -49,6 +49,40 @@ TARGET_MINUTES_BY_TIMEFRAME: dict[Timeframe, int] = {
     Timeframe.W1: 10080,
 }
 
+
+def _resolve_target_timeframes(
+    target_timeframes: Iterable[str | Timeframe] | None,
+) -> tuple[Timeframe, ...]:
+    if target_timeframes is None:
+        return TARGET_TIMEFRAMES
+
+    requested: set[Timeframe] = set()
+    invalid: list[str] = []
+    for item in target_timeframes:
+        if isinstance(item, Timeframe):
+            requested.add(item)
+            continue
+        text = str(item).strip()
+        if not text:
+            continue
+        try:
+            requested.add(Timeframe(text))
+        except ValueError:
+            invalid.append(text)
+
+    if invalid:
+        raise ValueError(f"unsupported target_timeframes: {', '.join(sorted(invalid))}")
+    if not requested:
+        raise ValueError("target_timeframes must not be empty")
+
+    supported = set(TARGET_TIMEFRAMES)
+    unsupported = requested - supported
+    if unsupported:
+        values = ", ".join(sorted(item.value for item in unsupported))
+        raise ValueError(f"unsupported target_timeframes: {values}")
+    return tuple(item for item in TARGET_TIMEFRAMES if item in requested)
+
+
 SOURCE_MINUTES_BY_LABEL: dict[str, int] = {
     "1m": 1,
     "5m": 5,
@@ -115,6 +149,7 @@ RAW_SCOPE_COLUMNS: tuple[str, ...] = (
 RAW_INTERVAL_PROJECTION_COLUMNS: tuple[str, ...] = (
     "internal_id",
     "finam_symbol",
+    "moex_secid",
     "timeframe",
     "source_interval",
 )
@@ -873,12 +908,14 @@ def _canonical_provenance_from_dict_lenient(
 
 def _build_selected_source_interval_map_from_available_intervals(
     available_intervals_by_contract: dict[tuple[str, str], set[int]],
+    *,
+    target_timeframes: tuple[Timeframe, ...] = TARGET_TIMEFRAMES,
 ) -> dict[tuple[str, str, str], int]:
     selected: dict[tuple[str, str, str], int] = {}
     for (contract_id, instrument_id), available_intervals in sorted(
         available_intervals_by_contract.items()
     ):
-        for timeframe in TARGET_TIMEFRAMES:
+        for timeframe in target_timeframes:
             target_minutes = TARGET_MINUTES_BY_TIMEFRAME[timeframe]
             source_interval = _select_source_interval(
                 available_intervals=available_intervals,
@@ -894,23 +931,27 @@ def _build_raw_1m_source_interval_map_from_available_intervals(
     available_intervals_by_contract: dict[tuple[str, str], set[int]],
     *,
     raw_available_intervals_by_contract: dict[tuple[str, str], set[int]] | None = None,
+    target_timeframes: tuple[Timeframe, ...] = TARGET_TIMEFRAMES,
 ) -> dict[tuple[str, str, str], int]:
     selected: dict[tuple[str, str, str], int] = {}
     raw_available_intervals_by_contract = raw_available_intervals_by_contract or {}
-    all_contract_keys = set(available_intervals_by_contract) | set(
-        raw_available_intervals_by_contract
-    )
+    all_contract_keys = set(available_intervals_by_contract)
     for contract_id, instrument_id in sorted(all_contract_keys):
-        available_intervals = set(
-            available_intervals_by_contract.get((contract_id, instrument_id), set())
-        )
-        available_intervals.update(
-            raw_available_intervals_by_contract.get((contract_id, instrument_id), set())
-        )
-        if 1 not in available_intervals:
+        key = (contract_id, instrument_id)
+        available_intervals = set(available_intervals_by_contract.get(key, set()))
+        if not available_intervals:
+            available_intervals.update(raw_available_intervals_by_contract.get(key, set()))
+        if not available_intervals:
             continue
-        for timeframe in TARGET_TIMEFRAMES:
-            selected[(contract_id, instrument_id, timeframe.value)] = 1
+        for timeframe in target_timeframes:
+            target_minutes = TARGET_MINUTES_BY_TIMEFRAME[timeframe]
+            source_interval = _select_source_interval(
+                available_intervals=available_intervals,
+                target_minutes=target_minutes,
+            )
+            if source_interval is None:
+                continue
+            selected[(contract_id, instrument_id, timeframe.value)] = source_interval
     return selected
 
 
@@ -924,9 +965,14 @@ def _build_available_intervals_by_contract(
     }
 
 
-def _build_selected_source_interval_map(rows: list[RawCandle]) -> dict[tuple[str, str, str], int]:
+def _build_selected_source_interval_map(
+    rows: list[RawCandle],
+    *,
+    target_timeframes: tuple[Timeframe, ...] = TARGET_TIMEFRAMES,
+) -> dict[tuple[str, str, str], int]:
     return _build_selected_source_interval_map_from_available_intervals(
-        _build_available_intervals_by_contract(rows)
+        _build_available_intervals_by_contract(rows),
+        target_timeframes=target_timeframes,
     )
 
 
@@ -937,7 +983,7 @@ def _build_available_intervals_by_contract_from_projection(
     for row_index, payload in enumerate(rows):
         if not isinstance(payload, dict):
             continue
-        contract_id = str(payload.get("finam_symbol", "")).strip()
+        contract_id = _extract_row_moex_secid(payload)
         instrument_id = str(payload.get("internal_id", "")).strip()
         source_timeframe = str(payload.get("timeframe", "")).strip()
         if not contract_id or not instrument_id or not source_timeframe:
@@ -972,7 +1018,7 @@ def _build_raw_available_intervals_by_contract(
         for row_index, payload in enumerate(batch):
             if not isinstance(payload, dict):
                 continue
-            contract_id = str(payload.get("finam_symbol", "")).strip()
+            contract_id = _extract_row_moex_secid(payload)
             instrument_id = str(payload.get("internal_id", "")).strip()
             if not contract_id or not instrument_id:
                 continue
@@ -992,9 +1038,12 @@ def _build_raw_available_intervals_by_contract(
 
 def _build_selected_source_interval_map_from_projection(
     rows: list[dict[str, object]],
+    *,
+    target_timeframes: tuple[Timeframe, ...] = TARGET_TIMEFRAMES,
 ) -> dict[tuple[str, str, str], int]:
     return _build_selected_source_interval_map_from_available_intervals(
-        _build_available_intervals_by_contract_from_projection(rows)
+        _build_available_intervals_by_contract_from_projection(rows),
+        target_timeframes=target_timeframes,
     )
 
 
@@ -1002,13 +1051,14 @@ def _build_resampling_skips_from_available_intervals(
     available_intervals_by_contract: dict[tuple[str, str], set[int]],
     *,
     selected_source_intervals: dict[tuple[str, str, str], int],
+    target_timeframes: tuple[Timeframe, ...] = TARGET_TIMEFRAMES,
 ) -> list[ResamplingSkip]:
     skips: list[ResamplingSkip] = []
     for (contract_id, instrument_id), available_intervals in sorted(
         available_intervals_by_contract.items()
     ):
         sorted_intervals = tuple(sorted(available_intervals))
-        for timeframe in TARGET_TIMEFRAMES:
+        for timeframe in target_timeframes:
             if (contract_id, instrument_id, timeframe.value) in selected_source_intervals:
                 continue
             skips.append(
@@ -1038,10 +1088,12 @@ def _build_resampling_skips(
     rows: list[RawCandle],
     *,
     selected_source_intervals: dict[tuple[str, str, str], int],
+    target_timeframes: tuple[Timeframe, ...] = TARGET_TIMEFRAMES,
 ) -> list[ResamplingSkip]:
     return _build_resampling_skips_from_available_intervals(
         _build_available_intervals_by_contract(rows),
         selected_source_intervals=selected_source_intervals,
+        target_timeframes=target_timeframes,
     )
 
 
@@ -1810,6 +1862,7 @@ def _run_scoped_spark_delta_publish_route(
     changed_window_set_manifest: dict[str, object],
     source_rows: int,
     max_changed_window_days: int | None,
+    target_timeframes: tuple[Timeframe, ...],
 ) -> dict[str, object]:
     built_at_utc = _utc_now_iso()
     available_intervals_by_contract = _build_available_intervals_by_changed_window(
@@ -1822,10 +1875,12 @@ def _run_scoped_spark_delta_publish_route(
     selected_source_intervals = _build_raw_1m_source_interval_map_from_available_intervals(
         available_intervals_by_contract,
         raw_available_intervals_by_contract=raw_available_intervals_by_contract,
+        target_timeframes=target_timeframes,
     )
     resampling_skips = _build_resampling_skips_from_available_intervals(
         available_intervals_by_contract,
         selected_source_intervals=selected_source_intervals,
+        target_timeframes=target_timeframes,
     )
 
     spark_execution_report: dict[str, object] | None = None
@@ -2077,7 +2132,7 @@ def _run_scoped_spark_delta_publish_route(
             "overlap_policy": str(sidecar_report.get("overlap_policy", "")),
         },
         "scoped_canonical_rows": _int_report_value(spark_execution_report, "canonical_rows"),
-        "target_timeframes": [item.value for item in TARGET_TIMEFRAMES],
+        "target_timeframes": [item.value for item in target_timeframes],
         "resampling_skips": _summarize_resampling_skips(resampling_skips),
         "output_paths": output_paths,
         "artifact_paths": {
@@ -2131,6 +2186,7 @@ def run_historical_canonical_route(
     canonical_roll_map_path: Path | None = None,
     canonical_merge_strategy: str = CANONICAL_MERGE_SCOPED_DELETE_INSERT,
     max_changed_window_days: int | None = None,
+    target_timeframes: Iterable[str | Timeframe] | None = None,
 ) -> dict[str, object]:
     if not isinstance(raw_ingest_run_report, dict):
         raise ValueError("`raw_ingest_run_report` must be object")
@@ -2146,6 +2202,7 @@ def run_historical_canonical_route(
 
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
+    resolved_target_timeframes = _resolve_target_timeframes(target_timeframes)
     bars_path = (canonical_bars_path or (output_dir / "delta" / "canonical_bars.delta")).resolve()
     provenance_path = (
         canonical_provenance_path or (output_dir / "delta" / "canonical_bar_provenance.delta")
@@ -2247,7 +2304,7 @@ def run_historical_canonical_route(
                 "overlap_policy": "",
             },
             "scoped_canonical_rows": 0,
-            "target_timeframes": [item.value for item in TARGET_TIMEFRAMES],
+            "target_timeframes": [item.value for item in resolved_target_timeframes],
             "resampling_skips": {},
             "output_paths": {},
             "artifact_paths": {
@@ -2542,7 +2599,7 @@ def run_historical_canonical_route(
                 "overlap_policy": str(sidecar_report.get("overlap_policy", "")),
             },
             "scoped_canonical_rows": 0,
-            "target_timeframes": [item.value for item in TARGET_TIMEFRAMES],
+            "target_timeframes": [item.value for item in resolved_target_timeframes],
             "resampling_skips": {},
             "output_paths": output_paths,
             "artifact_paths": artifact_paths,
@@ -2593,4 +2650,5 @@ def run_historical_canonical_route(
         changed_window_set_manifest=changed_window_set_manifest,
         source_rows=source_rows,
         max_changed_window_days=max_changed_window_days,
+        target_timeframes=resolved_target_timeframes,
     )
