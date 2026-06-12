@@ -16,5 +16,6 @@ Product runtime and operational runbooks live in this directory.
 - `docs/runbooks/app/moex-canonical-refresh-runbook.md` - MOEX canonical-refresh step (deterministic resampling, fail-closed QC, contract/runtime compatibility).
 - `docs/runbooks/app/moex-dagster-route-runbook.md` - MOEX Dagster-route proof (real staging evidence collection, binding report generation, and governed rerun path).
 - `docs/runbooks/app/moex-baseline-storage-runbook.md` - authoritative MOEX data-root layout, daily baseline update flow, and retention policy for raw/canonical/derived storage.
+- `docs/runbooks/app/ta3000-direct-egress-runbook.md` - Windows direct Wi-Fi egress route for MOEX ISS when VPN or virtual routing is active.
 - `docs/runbooks/app/moex-reconciliation-runbook.md` - MOEX reconciliation contour (Finam archive ingest, overlap drift metrics, threshold-driven alert/escalation evidence).
 - `docs/runbooks/app/moex-operations-readiness-runbook.md` - MOEX operations readiness (scheduler observability, recovery replay, monitoring evidence, release decision bundle).
