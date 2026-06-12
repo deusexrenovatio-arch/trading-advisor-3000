@@ -17,6 +17,9 @@ from trading_advisor_3000.product_plane.data_plane.moex import (
 from trading_advisor_3000.product_plane.data_plane.moex.canonicalization import (
     run_moex_canonicalization,
 )
+from trading_advisor_3000.spark_jobs.moex_canonicalization_job import (
+    run_moex_canonicalization_spark_delta_job,
+)
 
 RAW_COLUMNS: dict[str, str] = {
     "internal_id": "string",
@@ -383,6 +386,116 @@ def test_canonicalization_rejects_raw_minutes_outside_official_intervals(
     assert admission["rejected_out_of_session_rows"] == 10
     assert report["publish_decision"] == "blocked"
     assert report["session_admission_gate"]["failed_gates"] == ["official_schedule_mismatch"]
+
+
+def test_spark_delta_canonicalization_admits_direct_daily_source_with_official_coverage(
+    tmp_path: Path,
+) -> None:
+    raw_table_path = tmp_path / "raw_ingest" / "delta" / "raw_moex_history.delta"
+    row = {
+        "internal_id": "FUT_BR",
+        "finam_symbol": "BRM6@MOEX",
+        "moex_secid": "BRM6",
+        "timeframe": "1d",
+        "source_interval": 24,
+        "ts_open": "2026-04-01T21:00:00Z",
+        "ts_close": "2026-04-02T21:00:00Z",
+        "open": 100.0,
+        "high": 105.0,
+        "low": 95.0,
+        "close": 102.0,
+        "volume": 10,
+        "open_interest": None,
+        "ingest_run_id": "raw-ingest-daily",
+        "ingested_at_utc": "2026-04-02T21:01:00Z",
+        "provenance_json": {
+            "source_provider": "moex_iss",
+            "source_interval": 24,
+            "source_timeframe": "1d",
+            "run_id": "raw-ingest-daily",
+            "discovery_url": "https://iss.moex.com/iss/engines/futures/markets/forts/boards/RFUD/securities/BRM6/candleborders.json",
+        },
+    }
+    write_delta_table_rows(
+        table_path=raw_table_path,
+        rows=[row],
+        columns={**RAW_COLUMNS, "moex_secid": "string"},
+    )
+    session_intervals_path = _write_session_intervals(
+        tmp_path / "official" / "canonical_session_intervals.delta",
+        [
+            {
+                "instrument_id": "FUT_BR",
+                "session_date": "2026-04-02",
+                "interval_id": "FUT_BR-2026-04-02-regular-1",
+                "interval_seq": 1,
+                "expected_open_ts": "2026-04-02T10:00:00Z",
+                "expected_close_ts": "2026-04-02T18:45:00Z",
+                "session_class": "regular",
+                "interval_type": "regular_trading",
+                "policy_id": "moex-official-session-v1",
+                "source_id": "moex-official-schedule-fixture",
+                "source_document_hash": "sha256:fixture",
+            }
+        ],
+    )
+    changed_windows_path = tmp_path / "spark" / "changed-windows.jsonl"
+    selected_intervals_path = tmp_path / "spark" / "selected-source-intervals.jsonl"
+    changed_windows_path.parent.mkdir(parents=True, exist_ok=True)
+    changed_windows_path.write_text(
+        json.dumps(
+            {
+                "internal_id": "FUT_BR",
+                "source_timeframe": "1d",
+                "source_interval": 1440,
+                "moex_secid": "BRM6",
+                "window_start_utc": "2026-04-01T21:00:00Z",
+                "window_end_utc": "2026-04-02T21:00:00Z",
+                "incremental_rows": 1,
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    selected_intervals_path.write_text(
+        json.dumps(
+            {
+                "contract_id": "BRM6",
+                "moex_secid": "BRM6",
+                "instrument_id": "FUT_BR",
+                "timeframe": "1d",
+                "target_minutes": 1440,
+                "source_interval": 1440,
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    report = run_moex_canonicalization_spark_delta_job(
+        raw_table_path=raw_table_path,
+        changed_windows_path=changed_windows_path,
+        selected_source_intervals_path=selected_intervals_path,
+        session_intervals_path=session_intervals_path,
+        output_dir=tmp_path / "spark" / "canonicalization-daily",
+        build_run_id="canonicalization-daily",
+        built_at_utc="2026-04-02T22:00:00Z",
+        spark_master="local[2]",
+    )
+
+    assert report["source_rows"] == 1
+    assert report["canonical_rows"] == 1
+    assert report["provenance_rows"] == 1
+    admission = report["session_admission_report"]
+    assert admission["admitted_source_rows"] == 1
+    assert admission["rejected_non_1m_source_rows"] == 0
+    bars = _read_batched_delta_rows(Path(str(report["output_paths"]["canonical_bars"])))
+    assert len(bars) == 1
+    assert bars[0]["contract_id"] == "BRM6@MOEX"
+    assert bars[0]["timeframe"] == "1d"
+    assert bars[0]["ts"] == "2026-04-02T00:00:00Z"
 
 
 def test_canonicalization_admits_moex_opening_minute_begin_end_label(
