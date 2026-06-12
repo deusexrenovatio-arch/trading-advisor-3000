@@ -23,7 +23,12 @@ from .historical_canonical_route import (
     CANONICAL_MERGE_SCOPED_DELETE_INSERT,
     run_historical_canonical_route,
 )
-from .historical_route_contracts import STATUS_PASS, STATUS_PASS_NOOP, normalize_changed_windows
+from .historical_route_contracts import (
+    STATUS_PASS,
+    STATUS_PASS_NOOP,
+    changed_windows_hash_sha256,
+    normalize_changed_windows,
+)
 from .iss_client import MoexISSClient
 
 BASELINE_UPDATE_REPORT_FILENAME = "baseline-update-report.json"
@@ -98,6 +103,7 @@ def _baseline_raw_report_for_canonical(
 ) -> dict[str, object]:
     payload = dict(raw_report)
     payload["changed_windows"] = merged_changed_windows
+    payload["changed_windows_hash_sha256"] = changed_windows_hash_sha256(merged_changed_windows)
     if merged_changed_windows and str(payload.get("status", "")).strip() == STATUS_PASS_NOOP:
         payload["status"] = STATUS_PASS
     return payload
@@ -244,6 +250,7 @@ def run_moex_baseline_update(
             canonical_roll_map_path=canonical_roll_map_path,
             canonical_merge_strategy=CANONICAL_MERGE_SCOPED_DELETE_INSERT,
             max_changed_window_days=max_changed_window_days,
+            target_timeframes=timeframes,
         )
     except Exception:
         _write_pending_changed_windows(

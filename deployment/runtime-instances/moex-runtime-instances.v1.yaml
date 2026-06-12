@@ -12,6 +12,8 @@ instances:
       preferred_container_data_root: /ta3000-data/staging/product/moex-historical
       host_root_env: TA3000_MOEX_PRODUCT_STAGING_ROOT_HOST
       host_root_default: D:/TA3000-data/trading-advisor-3000-nightly
+      workspace_host_root_env: TA3000_PRODUCT_MAIN_WORKTREE
+      workspace_host_root_default: D:/TA3000-production
     dagster:
       graphql_url: http://127.0.0.1:3000/graphql
       graphql_port_env: TA3000_DAGSTER_PORT

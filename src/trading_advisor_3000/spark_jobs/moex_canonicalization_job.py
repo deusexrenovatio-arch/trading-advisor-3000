@@ -495,8 +495,8 @@ def _build_session_bounded_outputs(
         functions=functions,
         window=window,
     )
-    selected_df = selected_df.where(functions.col("source_interval") == functions.lit(1))
     selected_interval_rows = int(selected_df.count())
+    source_row_count = int(source_df.count())
     if selected_interval_rows == 0:
         return (
             spark.createDataFrame([], CANONICAL_BAR_SCHEMA),
@@ -506,23 +506,69 @@ def _build_session_bounded_outputs(
                 "admission_open_tolerance_seconds": SESSION_ADMISSION_OPEN_TOLERANCE_SECONDS,
                 "admitted_source_rows": 0,
                 "rejected_out_of_session_rows": 0,
-                "rejected_non_1m_source_rows": int(source_df.count()),
+                "rejected_non_1m_source_rows": 0,
+                "unselected_source_rows": source_row_count,
                 "selected_source_interval_rows": 0,
                 "rejected_samples": [],
             },
         )
 
-    minute_source_df = source_df.where(
-        (functions.col("source_timeframe") == functions.lit("1m"))
-        & (functions.col("source_interval") == functions.lit(1))
-    ).withColumn("_source_row_id", _stable_source_admission_id(functions))
-    non_1m_source_rows = int(source_df.count()) - int(minute_source_df.count())
-    affected_scope_df = minute_source_df.select(
+    selected_source_keys_df = selected_df.select(
+        "contract_id",
         "instrument_id",
-        functions.to_date(
-            functions.from_utc_timestamp(functions.col("ts_open"), MOEX_SESSION_TIMEZONE)
-        ).alias("session_date"),
+        "source_interval",
     ).distinct()
+    source_for_admission_df = (
+        source_df.join(
+            selected_source_keys_df,
+            on=["contract_id", "instrument_id", "source_interval"],
+            how="inner",
+        )
+        .withColumn("_source_row_id", _stable_source_admission_id(functions))
+        .withColumn(
+            "_session_date",
+            functions.to_date(
+                functions.from_utc_timestamp(functions.col("ts_open"), MOEX_SESSION_TIMEZONE)
+            ),
+        )
+        .withColumn(
+            "_session_end_date",
+            functions.to_date(
+                functions.from_utc_timestamp(
+                    functions.col("ts_close") - functions.expr("INTERVAL 1 SECONDS"),
+                    MOEX_SESSION_TIMEZONE,
+                )
+            ),
+        )
+        .cache()
+    )
+    selected_source_rows = int(source_for_admission_df.count())
+    unselected_source_rows = source_row_count - selected_source_rows
+    affected_single_session_scope_df = source_for_admission_df.where(
+        functions.col("source_interval") <= functions.lit(1440)
+    ).select(
+        "instrument_id",
+        functions.col("_session_date").alias("session_date"),
+    )
+    multi_day_required_dates_df = source_for_admission_df.where(
+        functions.col("source_interval") > functions.lit(1440)
+    ).select(
+        "_source_row_id",
+        "instrument_id",
+        functions.explode(
+            functions.sequence(
+                functions.col("_session_date"),
+                functions.col("_session_end_date"),
+            )
+        ).alias("session_date"),
+    )
+    affected_scope_df = (
+        affected_single_session_scope_df.unionByName(
+            multi_day_required_dates_df.select("instrument_id", "session_date")
+        )
+        .distinct()
+        .cache()
+    )
     covered_scope_df = intervals_df.select("instrument_id", "session_date").distinct()
     missing_official_coverage_rows = int(
         affected_scope_df.join(
@@ -537,47 +583,103 @@ def _build_session_bounded_outputs(
             f"missing_official_coverage_rows={missing_official_coverage_rows}"
         )
 
-    source_alias = minute_source_df.alias("source")
+    def _admitted_columns(source_alias_name: str, intervals_alias_name: str) -> list[Any]:
+        return [
+            functions.col(f"{source_alias_name}._source_row_id").alias("_source_row_id"),
+            functions.col(f"{source_alias_name}.contract_id").alias("contract_id"),
+            functions.col(f"{source_alias_name}.instrument_id").alias("instrument_id"),
+            functions.col(f"{source_alias_name}.source_timeframe").alias("source_timeframe"),
+            functions.col(f"{source_alias_name}.source_interval").alias("source_interval"),
+            functions.col(f"{source_alias_name}.ts_open").alias("ts_open"),
+            functions.col(f"{source_alias_name}.ts_close").alias("ts_close"),
+            functions.col(f"{source_alias_name}.open").alias("open"),
+            functions.col(f"{source_alias_name}.high").alias("high"),
+            functions.col(f"{source_alias_name}.low").alias("low"),
+            functions.col(f"{source_alias_name}.close").alias("close"),
+            functions.col(f"{source_alias_name}.volume").alias("volume"),
+            functions.col(f"{source_alias_name}.open_interest").alias("open_interest"),
+            functions.col(f"{source_alias_name}.open_interest_imputed").alias(
+                "open_interest_imputed"
+            ),
+            functions.col(f"{source_alias_name}.source_provider").alias("source_provider"),
+            functions.col(f"{source_alias_name}.source_run_id").alias("source_run_id"),
+            functions.col(f"{source_alias_name}.source_ingest_run_id").alias(
+                "source_ingest_run_id"
+            ),
+            functions.col(f"{intervals_alias_name}.session_date").alias("session_date"),
+            functions.col(f"{intervals_alias_name}.interval_id").alias("interval_id"),
+            functions.col(f"{intervals_alias_name}.expected_open_ts").alias("expected_open_ts"),
+            functions.col(f"{intervals_alias_name}.expected_close_ts").alias("expected_close_ts"),
+        ]
+
     intervals_alias = intervals_df.alias("intervals")
     admission_open_ts = functions.col("intervals.expected_open_ts") - functions.expr(
         f"INTERVAL {SESSION_ADMISSION_OPEN_TOLERANCE_SECONDS} SECONDS"
     )
-    admitted = (
-        source_alias.join(
-            intervals_alias,
-            (functions.col("source.instrument_id") == functions.col("intervals.instrument_id"))
-            & (functions.col("source.ts_open") >= admission_open_ts)
-            & (functions.col("source.ts_close") <= functions.col("intervals.expected_close_ts")),
-            "inner",
+    intraday_source_alias = source_for_admission_df.where(
+        functions.col("source_interval") < functions.lit(1440)
+    ).alias("source")
+    admitted_intraday = intraday_source_alias.join(
+        intervals_alias,
+        (functions.col("source.instrument_id") == functions.col("intervals.instrument_id"))
+        & (functions.col("source._session_date") == functions.col("intervals.session_date"))
+        & (functions.col("source.ts_open") >= admission_open_ts)
+        & (functions.col("source.ts_close") <= functions.col("intervals.expected_close_ts"))
+        & (functions.col("source.ts_close") != functions.col("intervals.expected_open_ts")),
+        "inner",
+    ).select(*_admitted_columns("source", "intervals"))
+    session_coverage_df = (
+        intervals_df.groupBy("instrument_id", "session_date")
+        .agg(
+            functions.min("interval_id").alias("interval_id"),
+            functions.min("expected_open_ts").alias("expected_open_ts"),
+            functions.max("expected_close_ts").alias("expected_close_ts"),
         )
-        .select(
-            functions.col("source._source_row_id").alias("_source_row_id"),
-            functions.col("source.contract_id").alias("contract_id"),
-            functions.col("source.instrument_id").alias("instrument_id"),
-            functions.col("source.source_timeframe").alias("source_timeframe"),
-            functions.col("source.source_interval").alias("source_interval"),
-            functions.col("source.ts_open").alias("ts_open"),
-            functions.col("source.ts_close").alias("ts_close"),
-            functions.col("source.open").alias("open"),
-            functions.col("source.high").alias("high"),
-            functions.col("source.low").alias("low"),
-            functions.col("source.close").alias("close"),
-            functions.col("source.volume").alias("volume"),
-            functions.col("source.open_interest").alias("open_interest"),
-            functions.col("source.open_interest_imputed").alias("open_interest_imputed"),
-            functions.col("source.source_provider").alias("source_provider"),
-            functions.col("source.source_run_id").alias("source_run_id"),
-            functions.col("source.source_ingest_run_id").alias("source_ingest_run_id"),
-            functions.col("intervals.session_date").alias("session_date"),
-            functions.col("intervals.interval_id").alias("interval_id"),
-            functions.col("intervals.expected_open_ts").alias("expected_open_ts"),
-            functions.col("intervals.expected_close_ts").alias("expected_close_ts"),
-        )
-        .cache()
+        .alias("coverage")
     )
+    daily_source_alias = source_for_admission_df.where(
+        functions.col("source_interval") == functions.lit(1440)
+    ).alias("source")
+    admitted_daily = daily_source_alias.join(
+        session_coverage_df,
+        (functions.col("source.instrument_id") == functions.col("coverage.instrument_id"))
+        & (functions.col("source._session_date") == functions.col("coverage.session_date")),
+        "inner",
+    ).select(*_admitted_columns("source", "coverage"))
+    multi_day_span_coverage_df = (
+        multi_day_required_dates_df.alias("required")
+        .join(
+            session_coverage_df.alias("coverage"),
+            (functions.col("required.instrument_id") == functions.col("coverage.instrument_id"))
+            & (functions.col("required.session_date") == functions.col("coverage.session_date")),
+            "left",
+        )
+        .groupBy(functions.col("required._source_row_id").alias("_source_row_id"))
+        .agg(
+            functions.countDistinct(functions.col("required.session_date")).alias(
+                "_required_session_dates"
+            ),
+            functions.count(functions.col("coverage.session_date")).alias("_covered_session_dates"),
+            functions.min(functions.col("coverage.session_date")).alias("session_date"),
+            functions.min(functions.col("coverage.interval_id")).alias("interval_id"),
+            functions.min(functions.col("coverage.expected_open_ts")).alias("expected_open_ts"),
+            functions.max(functions.col("coverage.expected_close_ts")).alias("expected_close_ts"),
+        )
+        .where(functions.col("_required_session_dates") == functions.col("_covered_session_dates"))
+        .alias("coverage")
+    )
+    multi_day_source_alias = source_for_admission_df.where(
+        functions.col("source_interval") > functions.lit(1440)
+    ).alias("source")
+    admitted_multi_day = multi_day_source_alias.join(
+        multi_day_span_coverage_df,
+        on="_source_row_id",
+        how="inner",
+    ).select(*_admitted_columns("source", "coverage"))
+    admitted = admitted_intraday.unionByName(admitted_daily).unionByName(admitted_multi_day).cache()
     admitted_source_rows = int(admitted.count())
     admitted_ids = admitted.select("_source_row_id").distinct()
-    rejected_df = minute_source_df.join(admitted_ids, on="_source_row_id", how="left_anti")
+    rejected_df = source_for_admission_df.join(admitted_ids, on="_source_row_id", how="left_anti")
     rejected_out_of_session_rows = int(rejected_df.count())
     rejected_samples = [
         str(row.asDict())
@@ -642,7 +744,8 @@ def _build_session_bounded_outputs(
             "missing_official_coverage_rows": missing_official_coverage_rows,
             "admitted_source_rows": admitted_source_rows,
             "rejected_out_of_session_rows": rejected_out_of_session_rows,
-            "rejected_non_1m_source_rows": non_1m_source_rows,
+            "rejected_non_1m_source_rows": 0,
+            "unselected_source_rows": unselected_source_rows,
             "selected_source_interval_rows": selected_interval_rows,
             "rejected_samples": rejected_samples,
         },

@@ -28,7 +28,7 @@ services:
       - "${TA3000_DAGSTER_PORT:-3000}:3000"
     volumes:
       - dagster-product-home:/opt/dagster/dagster_home
-      - "${TA3000_PRODUCT_MAIN_WORKTREE:-D:/CodexHome/worktrees/moex-product-main/trading advisor 3000}:/workspace:ro"
+      - "${TA3000_PRODUCT_MAIN_WORKTREE:-D:/TA3000-production}:/workspace:ro"
       - "${TA3000_MOEX_PRODUCT_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-nightly}:/ta3000-data/moex-historical"
       - "${TA3000_MOEX_PRODUCT_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-nightly}:/ta3000-data/staging/product/moex-historical"
       - "${TA3000_MOEX_TEST_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-verification}:/ta3000-data/staging/test/moex-verification:ro"
@@ -68,7 +68,7 @@ services:
       TA3000_MOEX_CANONICALIZATION_SPARK_PROFILE: local
     volumes:
       - dagster-product-home:/opt/dagster/dagster_home
-      - "${TA3000_PRODUCT_MAIN_WORKTREE:-D:/CodexHome/worktrees/moex-product-main/trading advisor 3000}:/workspace:ro"
+      - "${TA3000_PRODUCT_MAIN_WORKTREE:-D:/TA3000-production}:/workspace:ro"
       - "${TA3000_MOEX_PRODUCT_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-nightly}:/ta3000-data/moex-historical"
       - "${TA3000_MOEX_PRODUCT_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-nightly}:/ta3000-data/staging/product/moex-historical"
       - "${TA3000_MOEX_TEST_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-verification}:/ta3000-data/staging/test/moex-verification:ro"

@@ -123,6 +123,15 @@ def _sha256_json(value: object) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
+def changed_windows_hash_sha256(
+    changed_windows: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...],
+) -> str:
+    normalized_windows = normalize_changed_windows(list(changed_windows))
+    return _sha256_json(
+        [{key: row[key] for key in _SORTED_CHANGED_WINDOW_KEYS} for row in normalized_windows]
+    )
+
+
 def _normalize_optional_sha256(value: object, field_name: str) -> str | None:
     text = str(value or "").strip().lower()
     if not text:
@@ -284,9 +293,7 @@ def build_raw_ingest_run_report_v2(
         "changed_windows": [
             {key: row[key] for key in _SORTED_CHANGED_WINDOW_KEYS} for row in normalized_windows
         ],
-        "changed_windows_hash_sha256": _sha256_json(
-            [{key: row[key] for key in _SORTED_CHANGED_WINDOW_KEYS} for row in normalized_windows]
-        ),
+        "changed_windows_hash_sha256": changed_windows_hash_sha256(normalized_windows),
         "watermark_by_key": normalized_watermarks,
         "raw_table_path": _require_non_empty_text(raw_table_path, "raw_table_path"),
         "raw_ingest_progress_path": _require_non_empty_text(
@@ -325,9 +332,7 @@ def build_parity_manifest_v1(
     if not isinstance(source_windows, (list, tuple)):
         raise ValueError("`changed_windows` must be list-like")
     normalized_windows = normalize_changed_windows(list(source_windows))
-    window_hash = _sha256_json(
-        [{key: row[key] for key in _SORTED_CHANGED_WINDOW_KEYS} for row in normalized_windows]
-    )
+    window_hash = changed_windows_hash_sha256(normalized_windows)
     report_hash = _normalize_optional_sha256(
         raw_ingest_run_report.get("changed_windows_hash_sha256", ""),
         "raw_ingest_run_report.changed_windows_hash_sha256",

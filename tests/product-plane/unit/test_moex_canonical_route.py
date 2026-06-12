@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import subprocess
 from datetime import UTC, datetime
@@ -26,6 +27,7 @@ from trading_advisor_3000.product_plane.data_plane.moex.historical_canonical_rou
     run_qc_gates,
     run_runtime_decoupling_check,
 )
+from trading_advisor_3000.spark_jobs import moex_canonicalization_job as spark_job_module
 from trading_advisor_3000.spark_jobs.moex_canonicalization_job import (
     run_moex_canonicalization_spark_job,
 )
@@ -124,15 +126,30 @@ def test_session_intervals_input_rejects_existing_directory(tmp_path: Path) -> N
         canonical_module._require_session_intervals_input(intervals_dir)
 
 
-def test_raw_1m_source_interval_map_uses_raw_availability_union() -> None:
+def test_changed_window_source_interval_merges_raw_1m_availability() -> None:
     selected = canonical_module._build_raw_1m_source_interval_map_from_available_intervals(
-        {("BRM6@MOEX", "FUT_BR"): {5}},
-        raw_available_intervals_by_contract={("BRM6@MOEX", "FUT_BR"): {1}},
+        {("BRM6", "FUT_BR"): {1440}},
+        raw_available_intervals_by_contract={("BRM6", "FUT_BR"): {1}},
+        target_timeframes=(Timeframe.M5, Timeframe.D1),
     )
 
-    assert selected[("BRM6@MOEX", "FUT_BR", "1m")] == 1
-    assert selected[("BRM6@MOEX", "FUT_BR", "5m")] == 1
-    assert selected[("BRM6@MOEX", "FUT_BR", "1w")] == 1
+    assert selected == {
+        ("BRM6", "FUT_BR", "5m"): 1,
+        ("BRM6", "FUT_BR", "1d"): 1440,
+    }
+
+
+def test_spark_session_admission_splits_daily_multi_day_and_boundaries() -> None:
+    source = inspect.getsource(spark_job_module._build_session_bounded_outputs)
+
+    assert 'functions.col("source_interval") == functions.lit(1440)' in source
+    assert 'functions.col("source_interval") > functions.lit(1440)' in source
+    assert "multi_day_required_dates_df" in source
+    assert "functions.sequence" in source
+    assert "countDistinct" in source
+    assert (
+        'functions.col("source.ts_close") != functions.col("intervals.expected_open_ts")' in source
+    )
 
 
 def test_raw_available_intervals_scanner_normalizes_delta_rows(
@@ -143,6 +160,7 @@ def test_raw_available_intervals_scanner_normalizes_delta_rows(
             [
                 {
                     "finam_symbol": "BRM6@MOEX",
+                    "moex_secid": "BRM6",
                     "internal_id": "FUT_BR",
                     "timeframe": "1m",
                     "source_interval": 1,
@@ -157,7 +175,24 @@ def test_raw_available_intervals_scanner_normalizes_delta_rows(
         affected_internal_ids={"FUT_BR"},
     )
 
-    assert available == {("BRM6@MOEX", "FUT_BR"): {1}}
+    assert available == {("BRM6", "FUT_BR"): {1}}
+
+
+def test_projection_interval_scanner_prefers_moex_secid_for_publish_scope() -> None:
+    selected = canonical_module._build_selected_source_interval_map_from_projection(
+        [
+            {
+                "finam_symbol": "BRM6@MOEX",
+                "moex_secid": "BRM6",
+                "internal_id": "FUT_BR",
+                "timeframe": "1d",
+                "source_interval": 24,
+            }
+        ],
+        target_timeframes=(Timeframe.D1,),
+    )
+
+    assert selected == {("BRM6", "FUT_BR", "1d"): 1440}
 
 
 def test_publish_scope_uses_selected_contract_not_changed_window_interval() -> None:
