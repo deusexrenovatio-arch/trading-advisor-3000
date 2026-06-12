@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -76,12 +77,17 @@ def test_product_staging_bootstrap_cmd_parses_when_cmd_is_available() -> None:
     if cmd is None:
         pytest.skip("cmd.exe is not available in this environment")
 
+    env = os.environ.copy()
+    env["TA3000_PRODUCT_STAGING_BOOTSTRAP_SYNTAX_ONLY"] = "1"
+
     result = subprocess.run(
-        [cmd, "/d", "/c", "echo", "syntax-smoke"],
+        [cmd, "/d", "/c", "call", str(BOOTSTRAP_SCRIPT)],
         cwd=str(ROOT),
         capture_output=True,
         text=True,
         check=False,
+        env=env,
     )
-    assert result.returncode == 0
     assert BOOTSTRAP_SCRIPT.exists()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "syntax ok" in result.stdout

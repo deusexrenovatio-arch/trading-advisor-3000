@@ -15,6 +15,11 @@ set "TA3000_MOEX_HISTORICAL_DATA_ROOT_HOST=%DATA_ROOT%"
 set "TA3000_MOEX_PRODUCT_STAGING_ROOT_HOST=%DATA_ROOT%"
 set "TA3000_MOEX_TEST_STAGING_ROOT_HOST=%TEST_STAGING_ROOT%"
 
+if "%TA3000_PRODUCT_STAGING_BOOTSTRAP_SYNTAX_ONLY%"=="1" (
+  echo TA3000 product staging bootstrap syntax ok
+  exit /b 0
+)
+
 if not exist "%LOGDIR%" mkdir "%LOGDIR%"
 
 echo [%DATE% %TIME%] TA3000 product staging bootstrap start >> "%LOGFILE%"

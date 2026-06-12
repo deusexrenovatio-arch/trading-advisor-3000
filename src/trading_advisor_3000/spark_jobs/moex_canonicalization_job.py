@@ -531,14 +531,44 @@ def _build_session_bounded_outputs(
                 functions.from_utc_timestamp(functions.col("ts_open"), MOEX_SESSION_TIMEZONE)
             ),
         )
+        .withColumn(
+            "_session_end_date",
+            functions.to_date(
+                functions.from_utc_timestamp(
+                    functions.col("ts_close") - functions.expr("INTERVAL 1 SECONDS"),
+                    MOEX_SESSION_TIMEZONE,
+                )
+            ),
+        )
         .cache()
     )
     selected_source_rows = int(source_for_admission_df.count())
     unselected_source_rows = source_row_count - selected_source_rows
-    affected_scope_df = source_for_admission_df.select(
+    affected_single_session_scope_df = source_for_admission_df.where(
+        functions.col("source_interval") <= functions.lit(1440)
+    ).select(
         "instrument_id",
         functions.col("_session_date").alias("session_date"),
-    ).distinct()
+    )
+    multi_day_required_dates_df = source_for_admission_df.where(
+        functions.col("source_interval") > functions.lit(1440)
+    ).select(
+        "_source_row_id",
+        "instrument_id",
+        functions.explode(
+            functions.sequence(
+                functions.col("_session_date"),
+                functions.col("_session_end_date"),
+            )
+        ).alias("session_date"),
+    )
+    affected_scope_df = (
+        affected_single_session_scope_df.unionByName(
+            multi_day_required_dates_df.select("instrument_id", "session_date")
+        )
+        .distinct()
+        .cache()
+    )
     covered_scope_df = intervals_df.select("instrument_id", "session_date").distinct()
     missing_official_coverage_rows = int(
         affected_scope_df.join(
@@ -594,7 +624,8 @@ def _build_session_bounded_outputs(
         (functions.col("source.instrument_id") == functions.col("intervals.instrument_id"))
         & (functions.col("source._session_date") == functions.col("intervals.session_date"))
         & (functions.col("source.ts_open") >= admission_open_ts)
-        & (functions.col("source.ts_close") <= functions.col("intervals.expected_close_ts")),
+        & (functions.col("source.ts_close") <= functions.col("intervals.expected_close_ts"))
+        & (functions.col("source.ts_close") != functions.col("intervals.expected_open_ts")),
         "inner",
     ).select(*_admitted_columns("source", "intervals"))
     session_coverage_df = (
@@ -606,16 +637,46 @@ def _build_session_bounded_outputs(
         )
         .alias("coverage")
     )
-    session_scale_source_alias = source_for_admission_df.where(
-        functions.col("source_interval") >= functions.lit(1440)
+    daily_source_alias = source_for_admission_df.where(
+        functions.col("source_interval") == functions.lit(1440)
     ).alias("source")
-    admitted_session_scale = session_scale_source_alias.join(
+    admitted_daily = daily_source_alias.join(
         session_coverage_df,
         (functions.col("source.instrument_id") == functions.col("coverage.instrument_id"))
         & (functions.col("source._session_date") == functions.col("coverage.session_date")),
         "inner",
     ).select(*_admitted_columns("source", "coverage"))
-    admitted = admitted_intraday.unionByName(admitted_session_scale).cache()
+    multi_day_span_coverage_df = (
+        multi_day_required_dates_df.alias("required")
+        .join(
+            session_coverage_df.alias("coverage"),
+            (functions.col("required.instrument_id") == functions.col("coverage.instrument_id"))
+            & (functions.col("required.session_date") == functions.col("coverage.session_date")),
+            "left",
+        )
+        .groupBy(functions.col("required._source_row_id").alias("_source_row_id"))
+        .agg(
+            functions.countDistinct(functions.col("required.session_date")).alias(
+                "_required_session_dates"
+            ),
+            functions.count(functions.col("coverage.session_date")).alias("_covered_session_dates"),
+            functions.min(functions.col("coverage.session_date")).alias("session_date"),
+            functions.min(functions.col("coverage.interval_id")).alias("interval_id"),
+            functions.min(functions.col("coverage.expected_open_ts")).alias("expected_open_ts"),
+            functions.max(functions.col("coverage.expected_close_ts")).alias("expected_close_ts"),
+        )
+        .where(functions.col("_required_session_dates") == functions.col("_covered_session_dates"))
+        .alias("coverage")
+    )
+    multi_day_source_alias = source_for_admission_df.where(
+        functions.col("source_interval") > functions.lit(1440)
+    ).alias("source")
+    admitted_multi_day = multi_day_source_alias.join(
+        multi_day_span_coverage_df,
+        on="_source_row_id",
+        how="inner",
+    ).select(*_admitted_columns("source", "coverage"))
+    admitted = admitted_intraday.unionByName(admitted_daily).unionByName(admitted_multi_day).cache()
     admitted_source_rows = int(admitted.count())
     admitted_ids = admitted.select("_source_row_id").distinct()
     rejected_df = source_for_admission_df.join(admitted_ids, on="_source_row_id", how="left_anti")

@@ -935,12 +935,13 @@ def _build_raw_1m_source_interval_map_from_available_intervals(
 ) -> dict[tuple[str, str, str], int]:
     selected: dict[tuple[str, str, str], int] = {}
     raw_available_intervals_by_contract = raw_available_intervals_by_contract or {}
-    all_contract_keys = set(available_intervals_by_contract)
+    all_contract_keys = set(available_intervals_by_contract) | set(
+        raw_available_intervals_by_contract
+    )
     for contract_id, instrument_id in sorted(all_contract_keys):
         key = (contract_id, instrument_id)
-        available_intervals = set(available_intervals_by_contract.get(key, set()))
-        if not available_intervals:
-            available_intervals.update(raw_available_intervals_by_contract.get(key, set()))
+        available_intervals = set(raw_available_intervals_by_contract.get(key, set()))
+        available_intervals.update(available_intervals_by_contract.get(key, set()))
         if not available_intervals:
             continue
         for timeframe in target_timeframes:
