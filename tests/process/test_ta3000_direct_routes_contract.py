@@ -35,6 +35,13 @@ def test_ta3000_direct_routes_script_contract() -> None:
         "Get-NetRoute",
         "Resolve-DnsName",
         "Invoke-WebRequest",
+        "ConvertFrom-Json",
+        "Content-Type",
+        "json_has_expected_root",
+        "statusCode -eq 200",
+        "removal incomplete",
+        "-ErrorAction Stop",
+        "$LASTEXITCODE -ne 0",
     ):
         assert token in text
 

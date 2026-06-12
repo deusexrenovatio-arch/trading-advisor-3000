@@ -291,9 +291,38 @@ function Test-HttpProbe {
     }
 
     $response = Invoke-WebRequest @requestArgs
+    $statusCode = [int]$response.StatusCode
+
+    $contentType = ''
+    if ($response.Headers['Content-Type']) {
+        $contentType = [string]$response.Headers['Content-Type']
+    }
+    elseif ($response.PSObject.Properties['ContentType']) {
+        $contentType = [string]$response.ContentType
+    }
+
+    $jsonParseOk = $false
+    $jsonHasExpectedRoot = $false
+    $jsonError = $null
+    try {
+        $parsed = $response.Content | ConvertFrom-Json -ErrorAction Stop
+        $jsonParseOk = $true
+        $jsonHasExpectedRoot = $null -ne $parsed.PSObject.Properties['engines']
+    }
+    catch {
+        $jsonError = $_.Exception.Message
+    }
+
+    $contentTypeOk = $contentType -match '(?i)application/json'
+
     return [ordered]@{
-        status_code = [int]$response.StatusCode
-        ok = ([int]$response.StatusCode -ge 200 -and [int]$response.StatusCode -lt 400)
+        status_code = $statusCode
+        content_type = $contentType
+        content_type_ok = $contentTypeOk
+        json_parse_ok = $jsonParseOk
+        json_has_expected_root = $jsonHasExpectedRoot
+        json_error = $jsonError
+        ok = ($statusCode -eq 200 -and $contentTypeOk -and $jsonParseOk -and $jsonHasExpectedRoot)
     }
 }
 
@@ -362,19 +391,44 @@ function Remove-DestinationRoutes {
         [string]$Prefix
     )
 
-    $routes = Get-ExactDestinationRoutes -Prefix $Prefix
     $routeTarget = Convert-CidrToRouteExeTarget -Prefix $Prefix
-    foreach ($route in $routes) {
-        foreach ($policyStore in @('ActiveStore', 'PersistentStore')) {
-            Remove-NetRoute `
-                -DestinationPrefix $route.DestinationPrefix `
-                -InterfaceIndex $route.InterfaceIndex `
-                -NextHop $route.NextHop `
-                -PolicyStore $policyStore `
-                -Confirm:$false `
-                -ErrorAction SilentlyContinue
+    $removalFailures = @()
+
+    foreach ($policyStore in @('ActiveStore', 'PersistentStore')) {
+        $routes = @(Get-NetRoute `
+            -DestinationPrefix $Prefix `
+            -AddressFamily IPv4 `
+            -PolicyStore $policyStore `
+            -ErrorAction SilentlyContinue)
+        foreach ($route in $routes) {
+            try {
+                Remove-NetRoute `
+                    -DestinationPrefix $route.DestinationPrefix `
+                    -InterfaceIndex $route.InterfaceIndex `
+                    -NextHop $route.NextHop `
+                    -PolicyStore $policyStore `
+                    -Confirm:$false `
+                    -ErrorAction Stop
+            }
+            catch {
+                $removalFailures += "Remove-NetRoute failed for $Prefix via $($route.NextHop) in $policyStore on interface $($route.InterfaceIndex): $($_.Exception.Message)"
+            }
         }
+    }
+
+    $remainingRoutes = Get-ExactDestinationRoutes -Prefix $Prefix
+    foreach ($route in $remainingRoutes) {
         & route.exe DELETE $routeTarget.network MASK $routeTarget.mask $route.NextHop | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            $removalFailures += "route.exe DELETE failed for $Prefix via $($route.NextHop) on interface $($route.InterfaceIndex) (exit=$LASTEXITCODE)"
+        }
+    }
+
+    $remainingRoutes = Get-ExactDestinationRoutes -Prefix $Prefix
+    if ($remainingRoutes.Count -gt 0) {
+        $remainingJson = $remainingRoutes | ForEach-Object { Convert-RouteForJson -Route $_ } | ConvertTo-Json -Depth 10 -Compress
+        $failureText = if ($removalFailures.Count -gt 0) { $removalFailures -join '; ' } else { 'no removal command failures were reported' }
+        throw "destination route removal incomplete for $Prefix; remaining routes: $remainingJson; removal failures: $failureText"
     }
 }
 
