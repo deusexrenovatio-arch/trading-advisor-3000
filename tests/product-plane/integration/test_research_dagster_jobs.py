@@ -10,6 +10,9 @@ import pytest
 from dagster import DagsterInstance
 
 from trading_advisor_3000.dagster_defs import (
+    MOEX_BASELINE_UPDATE_JOB_NAME,
+    MOEX_CF_CATCH_UP_ASSETS,
+    MOEX_CF_CATCH_UP_JOB_NAME,
     MOEX_CF_REBUILD_ASSETS,
     MOEX_CF_REBUILD_JOB_NAME,
     MOEX_DATA_REBUILD_OP_NAME,
@@ -900,6 +903,7 @@ def test_research_definitions_expose_isolated_data_layer_jobs_without_moex_succe
 ) -> None:
     definitions = build_research_definitions()
     repository = definitions.get_repository_def()
+    cf_catch_up_job = repository.get_job(MOEX_CF_CATCH_UP_JOB_NAME)
     cf_job = repository.get_job(MOEX_CF_REBUILD_JOB_NAME)
     research_bar_job = repository.get_job(MOEX_RESEARCH_BAR_REBUILD_JOB_NAME)
     indicator_job = repository.get_job(MOEX_INDICATOR_REBUILD_JOB_NAME)
@@ -909,6 +913,7 @@ def test_research_definitions_expose_isolated_data_layer_jobs_without_moex_succe
 
     job_names = {job.name for job in repository.get_all_jobs()}
     assert RESEARCH_DATA_PREP_JOB_NAME not in job_names
+    assert set(cf_catch_up_job.graph.node_dict) == set(MOEX_CF_CATCH_UP_ASSETS)
     assert set(cf_job.graph.node_dict) == set(MOEX_CF_REBUILD_ASSETS)
     assert set(research_bar_job.graph.node_dict) == set(MOEX_RESEARCH_BAR_REBUILD_ASSETS)
     assert set(indicator_job.graph.node_dict) == set(MOEX_INDICATOR_REBUILD_ASSETS)
@@ -958,6 +963,140 @@ def _single_sensor_run_request(sensor, context):
         assert len(requests) == 1
         return requests[0]
     return result
+
+
+def _baseline_update_sensor_context(
+    *,
+    tmp_path: Path,
+    run_id: str,
+    report: dict[str, object],
+) -> SimpleNamespace:
+    evidence_root = tmp_path / "moex-baseline-update"
+    report_dir = evidence_root / run_id
+    report_dir.mkdir(parents=True)
+    (report_dir / "baseline-update-report.json").write_text(
+        json.dumps(report),
+        encoding="utf-8",
+    )
+    return SimpleNamespace(
+        dagster_run=SimpleNamespace(
+            run_id=run_id,
+            run_config={
+                "ops": {
+                    "moex_baseline_update": {
+                        "config": {
+                            "canonical_bars_path": (
+                                tmp_path / "canonical" / "canonical_bars.delta"
+                            ).as_posix(),
+                            "evidence_root": evidence_root.as_posix(),
+                            "run_id": run_id,
+                        }
+                    }
+                }
+            },
+            tags={},
+        )
+    )
+
+
+def test_research_data_prep_sensor_skips_moex_baseline_noop(tmp_path: Path) -> None:
+    context = _baseline_update_sensor_context(
+        tmp_path=tmp_path,
+        run_id="baseline-noop-run",
+        report={
+            "status": "PASS",
+            "publish_decision": "publish",
+            "source_rows": 0,
+            "incremental_rows": 0,
+            "pending_changed_windows_in": 0,
+            "current_changed_windows": 0,
+            "effective_changed_windows": 0,
+            "cf_catch_up": {
+                "status": "NOOP",
+                "overlap_minutes": 180,
+                "windows": [],
+                "windows_hash_sha256": "",
+            },
+            "canonical_report": {
+                "status": "PASS-NOOP",
+                "mutation_applied": False,
+                "skipped_reason": "no_raw_or_pending_changed_windows",
+            },
+        },
+    )
+
+    assert (
+        research_assets.research_data_prep_after_moex_sensor._run_status_sensor_fn(context) is None
+    )
+    assert (
+        research_assets.moex_cf_catch_up_after_moex_baseline_sensor._run_status_sensor_fn(context)
+        is None
+    )
+
+
+def test_moex_cf_catch_up_sensor_starts_windowed_job_after_moex_baseline_change(
+    tmp_path: Path,
+) -> None:
+    context = _baseline_update_sensor_context(
+        tmp_path=tmp_path,
+        run_id="baseline-change-run",
+        report={
+            "status": "PASS",
+            "publish_decision": "publish",
+            "source_rows": 128,
+            "incremental_rows": 128,
+            "pending_changed_windows_in": 0,
+            "current_changed_windows": 2,
+            "effective_changed_windows": 2,
+            "cf_catch_up": {
+                "status": "READY",
+                "overlap_minutes": 180,
+                "target_timeframes": ["15m"],
+                "windows": [
+                    {
+                        "instrument_id": "FUT_BR",
+                        "timeframe": "15m",
+                        "start_ts": "2026-04-20T21:00:00Z",
+                        "end_ts": "2026-04-22T00:00:00Z",
+                        "overlap_minutes": 180,
+                        "source_window_start_utc": "2026-04-21T00:00:00Z",
+                        "source_window_end_utc": "2026-04-22T00:00:00Z",
+                        "source_changed_windows": [],
+                        "source_changed_window_count": 1,
+                        "window_hash_sha256": "a" * 64,
+                    }
+                ],
+                "windows_hash_sha256": "b" * 64,
+            },
+            "canonical_report": {
+                "status": "PASS",
+                "mutation_applied": True,
+            },
+        },
+    )
+
+    assert (
+        research_assets.research_data_prep_after_moex_sensor._run_status_sensor_fn(context) is None
+    )
+    request = _single_sensor_run_request(
+        research_assets.moex_cf_catch_up_after_moex_baseline_sensor,
+        context,
+    )
+
+    assert request.run_key == f"{MOEX_CF_CATCH_UP_JOB_NAME}:baseline-change-run:{'a' * 64}"
+    assert request.tags["ta3000/upstream_job"] == MOEX_BASELINE_UPDATE_JOB_NAME
+    assert request.tags["ta3000/upstream_run_id"] == "baseline-change-run"
+    assert request.tags["ta3000/cf_catch_up_window_hash"] == "a" * 64
+    assert request.tags["ta3000/cf_catch_up_overlap_minutes"] == "180"
+    assert request.tags["ta3000/instrument_id"] == "FUT_BR"
+    assert request.tags["ta3000/timeframe"] == "15m"
+    assert set(request.run_config["ops"]) == {"continuous_front_bars"}
+    op_config = request.run_config["ops"]["continuous_front_bars"]["config"]
+    assert op_config["dataset_instrument_ids"] == ["FUT_BR"]
+    assert op_config["timeframes"] == ["15m"]
+    assert op_config["start_ts"] == "2026-04-20T21:00:00Z"
+    assert op_config["end_ts"] == "2026-04-22T00:00:00Z"
+    assert op_config["series_mode"] == "continuous_front"
 
 
 def test_research_downstream_cascade_sensors_forward_dataset_context(tmp_path: Path) -> None:
