@@ -82,6 +82,11 @@ def test_ta3000_direct_route_task_installer_contract() -> None:
         "Start-ScheduledTask",
         "Unregister-ScheduledTask",
         "administrator PowerShell is required to prove the SYSTEM scheduled task state",
+        "[System.Text.StringBuilder]::new()",
+        "$backslashChar = [char]92",
+        "$quoteChar = [char]34",
+        "($backslashCount * 2)",
+        "-At (Get-Date).AddMinutes(1)",
         "-Mode Apply",
         "-Replace",
     ):

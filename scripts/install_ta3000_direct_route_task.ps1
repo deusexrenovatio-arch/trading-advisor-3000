@@ -40,11 +40,44 @@ function ConvertTo-CommandLineArgument {
         [string]$Value
     )
 
+    if ($Value.Length -eq 0) {
+        return '""'
+    }
     if ($Value -notmatch '[\s"]') {
         return $Value
     }
 
-    return '"' + ($Value -replace '"', '\"') + '"'
+    $builder = [System.Text.StringBuilder]::new()
+    $backslashChar = [char]92
+    $quoteChar = [char]34
+    $backslashCount = 0
+
+    [void]$builder.Append($quoteChar)
+    foreach ($character in $Value.ToCharArray()) {
+        if ($character -eq $backslashChar) {
+            $backslashCount += 1
+            continue
+        }
+
+        if ($character -eq $quoteChar) {
+            [void]$builder.Append($backslashChar, (($backslashCount * 2) + 1))
+            [void]$builder.Append($quoteChar)
+            $backslashCount = 0
+            continue
+        }
+
+        if ($backslashCount -gt 0) {
+            [void]$builder.Append($backslashChar, $backslashCount)
+            $backslashCount = 0
+        }
+        [void]$builder.Append($character)
+    }
+
+    if ($backslashCount -gt 0) {
+        [void]$builder.Append($backslashChar, ($backslashCount * 2))
+    }
+    [void]$builder.Append($quoteChar)
+    return $builder.ToString()
 }
 
 function Resolve-RouteScriptPath {
@@ -296,7 +329,7 @@ try {
         $triggers += New-ScheduledTaskTrigger -AtLogOn
         $triggers += New-ScheduledTaskTrigger `
             -Once `
-            -At (Get-Date).Date.AddMinutes(1) `
+            -At (Get-Date).AddMinutes(1) `
             -RepetitionInterval (New-TimeSpan -Minutes $RepetitionMinutes) `
             -RepetitionDuration (New-TimeSpan -Days 3650)
         $networkProfileTrigger = New-NetworkProfileEventTrigger
