@@ -73,9 +73,23 @@ def main() -> None:
     parser.add_argument("--max-changed-window-days", type=int, default=10)
     parser.add_argument("--stability-lag-minutes", type=int, default=20)
     parser.add_argument(
+        "--coverage-mode",
+        choices=["local_tail", "live_discovery"],
+        default="local_tail",
+        help=(
+            "Use local_tail for normal small updates without MOEX metadata discovery; "
+            "use live_discovery only for explicit contract coverage refreshes."
+        ),
+    )
+    parser.add_argument(
         "--expand-contract-chain",
         action=argparse.BooleanOptionalAction,
         default=True,
+    )
+    parser.add_argument(
+        "--allow-run-id-retry",
+        action="store_true",
+        help="Allow reusing an existing completed run_id intentionally.",
     )
     args = parser.parse_args()
 
@@ -128,7 +142,9 @@ def main() -> None:
         refresh_overlap_minutes=int(args.refresh_overlap_minutes),
         contract_discovery_step_days=int(args.contract_discovery_step_days),
         expand_contract_chain=bool(args.expand_contract_chain),
+        coverage_mode=str(args.coverage_mode),
         repo_root=ROOT,
+        allow_run_id_retry=bool(args.allow_run_id_retry),
     )
     print(json.dumps(report, ensure_ascii=False, indent=2))
     if report.get("publish_decision") != "publish":
