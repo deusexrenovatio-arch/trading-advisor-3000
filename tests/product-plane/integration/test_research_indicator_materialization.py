@@ -816,6 +816,160 @@ def test_indicator_materialization_streams_fresh_partitions_into_writer(
     assert loaded_after_first_batch == ["BR"]
 
 
+def test_indicator_refresh_reuses_planning_series_for_writer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bars_v1 = [_canonical_bar(index=index, close=80.0 + index * 0.25) for index in range(20)]
+    session_calendar = [
+        SessionCalendarEntry(
+            "BR", "15m", "2026-03-01", "2026-03-01T09:00:00Z", "2026-03-01T20:45:00Z"
+        ),
+    ]
+    roll_map = [RollMapEntry("BR", "2026-03-01", "BR-6.26", "test")]
+    dataset_dir = tmp_path / "dataset-refresh-load-reuse"
+    indicator_dir = tmp_path / "indicators-refresh-load-reuse"
+    manifest = ResearchDatasetManifest(
+        dataset_version="dataset-refresh-load-reuse-v1",
+        dataset_name="refresh load reuse sample",
+        universe_id="moex-futures",
+        timeframes=("15m",),
+        base_timeframe="15m",
+        start_ts="2026-03-01T09:00:00Z",
+        end_ts="2026-03-01T13:45:00Z",
+        warmup_bars=0,
+        split_method="full",
+        code_version="test",
+    )
+    profile = IndicatorProfile(
+        version="test_refresh_load_reuse_v1",
+        description="small profile without volume profile",
+        indicators=(
+            IndicatorSpec(
+                indicator_id="sma_3",
+                category="trend",
+                operation_key="sma",
+                parameters=(IndicatorParameter("length", 3),),
+                required_input_columns=("close",),
+                output_columns=("sma_3",),
+                warmup_bars=3,
+            ),
+        ),
+    )
+    materialize_research_dataset(
+        manifest_seed=manifest,
+        bars=bars_v1,
+        session_calendar=session_calendar,
+        roll_map=roll_map,
+        output_dir=dataset_dir,
+    )
+    materialize_indicator_frames(
+        dataset_output_dir=dataset_dir,
+        indicator_output_dir=indicator_dir,
+        dataset_version="dataset-refresh-load-reuse-v1",
+        indicator_set_version="indicators-v1",
+        profile=profile,
+    )
+
+    bars_v2 = [
+        row
+        if row.ts != "2026-03-01T13:45:00Z"
+        else CanonicalBar.from_dict(
+            {
+                "contract_id": row.contract_id,
+                "instrument_id": row.instrument_id,
+                "timeframe": row.timeframe.value,
+                "ts": row.ts,
+                "open": row.open,
+                "high": row.high + 1.0,
+                "low": row.low,
+                "close": row.close + 1.0,
+                "volume": row.volume,
+                "open_interest": row.open_interest,
+            }
+        )
+        for row in bars_v1
+    ]
+    materialize_research_dataset(
+        manifest_seed=manifest,
+        bars=bars_v2,
+        session_calendar=session_calendar,
+        roll_map=roll_map,
+        output_dir=dataset_dir,
+    )
+
+    import trading_advisor_3000.product_plane.research.indicators.materialize as materialize_module
+
+    loaded_partitions: list[str] = []
+    real_load_partition_rows = materialize_module._load_bar_partition_rows
+
+    def tracking_load_partition_rows(*args: object, **kwargs: object) -> object:
+        loaded_partitions.append(kwargs["partition"].instrument_id)
+        return real_load_partition_rows(*args, **kwargs)
+
+    monkeypatch.setattr(
+        materialize_module,
+        "_load_bar_partition_rows",
+        tracking_load_partition_rows,
+    )
+
+    report = materialize_indicator_frames(
+        dataset_output_dir=dataset_dir,
+        indicator_output_dir=indicator_dir,
+        dataset_version="dataset-refresh-load-reuse-v1",
+        indicator_set_version="indicators-v1",
+        profile=profile,
+    )
+
+    assert report["refreshed_partition_count"] == 1
+    assert loaded_partitions == ["BR"]
+
+
+def test_indicator_materialization_blocks_existing_writer_lock(tmp_path: Path) -> None:
+    bars = [_canonical_bar(index=index, close=80.0 + index * 0.25) for index in range(8)]
+    session_calendar = [
+        SessionCalendarEntry(
+            "BR", "15m", "2026-03-01", "2026-03-01T09:00:00Z", "2026-03-01T20:45:00Z"
+        ),
+    ]
+    roll_map = [RollMapEntry("BR", "2026-03-01", "BR-6.26", "test")]
+    dataset_dir = tmp_path / "dataset-writer-lock"
+    indicator_dir = tmp_path / "indicators-writer-lock"
+    materialize_research_dataset(
+        manifest_seed=ResearchDatasetManifest(
+            dataset_version="dataset-writer-lock-v1",
+            dataset_name="writer lock sample",
+            universe_id="moex-futures",
+            timeframes=("15m",),
+            base_timeframe="15m",
+            start_ts="2026-03-01T09:00:00Z",
+            end_ts="2026-03-01T10:45:00Z",
+            warmup_bars=0,
+            split_method="full",
+            code_version="test",
+        ),
+        bars=bars,
+        session_calendar=session_calendar,
+        roll_map=roll_map,
+        output_dir=dataset_dir,
+    )
+    indicator_dir.mkdir(parents=True)
+    (indicator_dir / ".research_indicator_frames.lock.json").write_text(
+        json.dumps({"holder": "other-run"}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="active research_indicator_frames writer"):
+        materialize_indicator_frames(
+            dataset_output_dir=dataset_dir,
+            indicator_output_dir=indicator_dir,
+            dataset_version="dataset-writer-lock-v1",
+            indicator_set_version="indicators-v1",
+        )
+
+    assert not (indicator_dir / "research_indicator_frames.delta" / "_delta_log").exists()
+
+
 def test_continuous_front_partition_counts_span_roll_contracts(tmp_path: Path) -> None:
     import trading_advisor_3000.product_plane.research.indicators.materialize as materialize_module
 
@@ -1066,22 +1220,6 @@ def test_continuous_front_profile_extension_recomputes_existing_columns(
             ("indicator_set_version", "=", "indicators-v1"),
         ],
     )
-    corrupted_rows = [{**row, "sma_10": -999.0} for row in first_rows]
-    replace_delta_table_rows(
-        table_path=indicator_dir / "research_indicator_frames.delta",
-        rows=corrupted_rows,
-        columns=indicator_store_contract(profile=base_profile)["research_indicator_frames"][
-            "columns"
-        ],
-        predicate=delta_equals_predicate(
-            {
-                "dataset_version": "dataset-cf-profile-extension-v1",
-                "contour_id": "pit_active_front",
-                "indicator_set_version": "indicators-v1",
-            }
-        ),
-    )
-
     same_profile_report = materialize_indicator_frames(
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
@@ -1090,26 +1228,18 @@ def test_continuous_front_profile_extension_recomputes_existing_columns(
         contour_id="pit_active_front",
         profile=base_profile,
     )
-    assert same_profile_report["refreshed_partition_count"] == 1
-    assert same_profile_report["reused_partition_count"] == 0
-    assert same_profile_report["recomputed_partition_count"] == 1
-    repaired_rows = reload_indicator_frames(
+    assert same_profile_report["refreshed_partition_count"] == 0
+    assert same_profile_report["reused_partition_count"] == 1
+    assert same_profile_report["recomputed_partition_count"] == 0
+    same_profile_rows = reload_indicator_frames(
         indicator_output_dir=indicator_dir,
         dataset_version="dataset-cf-profile-extension-v1",
         indicator_set_version="indicators-v1",
         contour_id="pit_active_front",
     )
-    assert all(row.values["sma_10"] != -999.0 for row in repaired_rows)
+    assert all(row.values["sma_10"] != -999.0 for row in same_profile_rows)
 
-    repaired_raw_rows = read_delta_table_rows(
-        indicator_dir / "research_indicator_frames.delta",
-        filters=[
-            ("dataset_version", "=", "dataset-cf-profile-extension-v1"),
-            ("contour_id", "=", "pit_active_front"),
-            ("indicator_set_version", "=", "indicators-v1"),
-        ],
-    )
-    corrupted_rows = [{**row, "sma_10": -999.0} for row in repaired_raw_rows]
+    corrupted_rows = [{**row, "sma_10": -999.0} for row in first_rows]
     replace_delta_table_rows(
         table_path=indicator_dir / "research_indicator_frames.delta",
         rows=corrupted_rows,
@@ -1145,6 +1275,220 @@ def test_continuous_front_profile_extension_recomputes_existing_columns(
     )
     assert all(row.values["sma_10"] != -999.0 for row in second_rows)
     assert second_rows[-1].values["ema_10"] is not None
+
+
+def test_continuous_front_full_reuse_skips_bar_partition_scan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import trading_advisor_3000.product_plane.research.indicators.materialize as materialize_module
+
+    bars = [_canonical_bar(index=index, close=80.0 + index * 0.25) for index in range(20)]
+    session_calendar = [
+        SessionCalendarEntry(
+            "BR", "15m", "2026-03-01", "2026-03-01T09:00:00Z", "2026-03-01T13:45:00Z"
+        ),
+    ]
+    roll_map = [RollMapEntry("BR", "2026-03-01", "BR-6.26", "test")]
+    dataset_dir = tmp_path / "dataset-cf-full-reuse-fast-path"
+    indicator_dir = tmp_path / "indicators-cf-full-reuse-fast-path"
+    profile = IndicatorProfile(
+        version="test_cf_full_reuse_v1",
+        description="small continuous-front full reuse profile",
+        indicators=(
+            IndicatorSpec(
+                indicator_id="sma_3",
+                category="trend",
+                operation_key="sma",
+                parameters=(IndicatorParameter("length", 3),),
+                required_input_columns=("close",),
+                output_columns=("sma_3",),
+                warmup_bars=3,
+            ),
+        ),
+    )
+    materialize_research_dataset(
+        manifest_seed=ResearchDatasetManifest(
+            dataset_version="dataset-cf-full-reuse-fast-path-v1",
+            dataset_name="continuous front full reuse fast path sample",
+            universe_id="moex-futures",
+            timeframes=("15m",),
+            contour_id="pit_active_front",
+            base_timeframe="15m",
+            start_ts="2026-03-01T09:00:00Z",
+            end_ts="2026-03-01T13:45:00Z",
+            series_mode="continuous_front",
+            continuous_front_policy=ContinuousFrontPolicy.from_config({}),
+            warmup_bars=0,
+            split_method="full",
+            code_version="test",
+        ),
+        bars=bars,
+        session_calendar=session_calendar,
+        roll_map=roll_map,
+        output_dir=dataset_dir,
+    )
+    materialize_indicator_frames(
+        dataset_output_dir=dataset_dir,
+        indicator_output_dir=indicator_dir,
+        dataset_version="dataset-cf-full-reuse-fast-path-v1",
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+        profile=profile,
+    )
+
+    monkeypatch.setattr(
+        materialize_module,
+        "_load_bar_partition_counts",
+        lambda **_kwargs: pytest.fail("full reuse must not scan research_bar_views"),
+    )
+    monkeypatch.setattr(
+        materialize_module,
+        "_load_bar_partition_rows",
+        lambda **_kwargs: pytest.fail("full reuse must not load bar partition rows"),
+    )
+
+    report = materialize_indicator_frames(
+        dataset_output_dir=dataset_dir,
+        indicator_output_dir=indicator_dir,
+        dataset_version="dataset-cf-full-reuse-fast-path-v1",
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+        profile=profile,
+    )
+
+    assert report["refreshed_partition_count"] == 0
+    assert report["reused_partition_count"] == 1
+    assert report["recomputed_partition_count"] == 0
+    assert report["write_batch_count"] == 0
+
+
+def test_indicator_reuse_ignores_stale_partitions_outside_dataset_manifest_timeframes(
+    tmp_path: Path,
+) -> None:
+    bars = [_canonical_bar(index=index, close=80.0 + index * 0.25) for index in range(20)]
+    session_calendar = [
+        SessionCalendarEntry(
+            "BR", "15m", "2026-03-01", "2026-03-01T09:00:00Z", "2026-03-01T13:45:00Z"
+        ),
+    ]
+    roll_map = [RollMapEntry("BR", "2026-03-01", "BR-6.26", "test")]
+    dataset_dir = tmp_path / "dataset-cf-stale-timeframe"
+    indicator_dir = tmp_path / "indicators-cf-stale-timeframe"
+    dataset_version = "dataset-cf-stale-timeframe-v1"
+    profile = IndicatorProfile(
+        version="test_cf_stale_scope_v1",
+        description="small continuous-front stale scope profile",
+        indicators=(
+            IndicatorSpec(
+                indicator_id="sma_3",
+                category="trend",
+                operation_key="sma",
+                parameters=(IndicatorParameter("length", 3),),
+                required_input_columns=("close",),
+                output_columns=("sma_3",),
+                warmup_bars=3,
+            ),
+        ),
+    )
+    materialize_research_dataset(
+        manifest_seed=ResearchDatasetManifest(
+            dataset_version=dataset_version,
+            dataset_name="continuous front stale timeframe sample",
+            universe_id="moex-futures",
+            timeframes=("15m",),
+            contour_id="pit_active_front",
+            base_timeframe="15m",
+            start_ts="2026-03-01T09:00:00Z",
+            end_ts="2026-03-01T13:45:00Z",
+            series_mode="continuous_front",
+            continuous_front_policy=ContinuousFrontPolicy.from_config({}),
+            warmup_bars=0,
+            split_method="full",
+            code_version="test",
+        ),
+        bars=bars,
+        session_calendar=session_calendar,
+        roll_map=roll_map,
+        output_dir=dataset_dir,
+    )
+    materialize_indicator_frames(
+        dataset_output_dir=dataset_dir,
+        indicator_output_dir=indicator_dir,
+        dataset_version=dataset_version,
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+        profile=profile,
+    )
+
+    bar_contract = research_dataset_store_contract()["research_bar_views"]["columns"]
+    stale_bar = read_delta_table_rows(
+        dataset_dir / "research_bar_views.delta",
+        filters=[
+            ("dataset_version", "=", dataset_version),
+            ("contour_id", "=", "pit_active_front"),
+            ("timeframe", "=", "15m"),
+        ],
+    )[0]
+    stale_bar.update(
+        {
+            "timeframe": "1d",
+            "ts": "2026-03-09T00:00:00Z",
+            "session_date": "2026-03-09",
+            "session_close_ts": None,
+            "bar_start_ts": "2026-03-09T00:00:00Z",
+            "bar_end_ts": "2026-03-09T23:59:00Z",
+            "bar_index": 0,
+        }
+    )
+    write_delta_table_rows(
+        table_path=dataset_dir / "research_bar_views.delta",
+        rows=[stale_bar],
+        columns=bar_contract,
+        mode="append",
+    )
+
+    indicator_contract = indicator_store_contract(profile=profile)["research_indicator_frames"][
+        "columns"
+    ]
+    stale_indicator = read_delta_table_rows(
+        indicator_dir / "research_indicator_frames.delta",
+        filters=[
+            ("dataset_version", "=", dataset_version),
+            ("contour_id", "=", "pit_active_front"),
+            ("indicator_set_version", "=", "indicators-v1"),
+            ("timeframe", "=", "15m"),
+        ],
+    )[0]
+    stale_indicator.update(
+        {
+            "timeframe": "1d",
+            "ts": "2026-03-09T00:00:00Z",
+            "source_dataset_bars_hash": "STALE_DATASET_HASH",
+            "source_bars_hash": "STALE_PARTITION_HASH",
+            "row_count": 1,
+        }
+    )
+    write_delta_table_rows(
+        table_path=indicator_dir / "research_indicator_frames.delta",
+        rows=[stale_indicator],
+        columns=indicator_contract,
+        mode="append",
+    )
+
+    report = materialize_indicator_frames(
+        dataset_output_dir=dataset_dir,
+        indicator_output_dir=indicator_dir,
+        dataset_version=dataset_version,
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+        profile=profile,
+    )
+
+    assert report["reuse_plan_mode"] == "metadata_fast_path"
+    assert report["refreshed_partition_count"] == 0
+    assert report["reused_partition_count"] == 1
+    assert report["write_batch_count"] == 0
 
 
 def test_derived_indicator_materialization_recomputes_only_affected_partitions(
