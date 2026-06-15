@@ -202,7 +202,7 @@ def test_dagster_cutover_dagster_cutover_definitions_are_executable() -> None:
     assert "moex_historical_nightly_schedule" not in schedule_names
     binding = build_moex_historical_dagster_binding_artifact()
     assert binding["schedule"]["cron"] == "0 2 * * *"
-    assert binding["retry_policy"]["max_retries"] == 3
+    assert binding["retry_policy"]["max_retries"] == 0
 
 
 def test_dagster_cutover_canonical_refresh_is_blocked_when_raw_status_failed(

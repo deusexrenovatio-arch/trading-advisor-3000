@@ -7,6 +7,8 @@ import yaml
 from trading_advisor_3000.dagster_defs import (
     MOEX_BASELINE_DAILY_SCHEDULE_NAME,
     MOEX_BASELINE_UPDATE_JOB_NAME,
+    MOEX_CF_CATCH_UP_AFTER_MOEX_BASELINE_SENSOR_NAME,
+    MOEX_CF_CATCH_UP_JOB_NAME,
     MOEX_CF_REBUILD_JOB_NAME,
     MOEX_DATA_REBUILD_JOB_NAME,
     MOEX_DERIVED_INDICATOR_REBUILD_JOB_NAME,
@@ -39,6 +41,7 @@ def test_product_plane_definitions_expose_regular_data_rebuild_jobs_and_cascade_
     assert MOEX_DATA_REBUILD_JOB_NAME in job_names
     assert "moex_historical_cutover_job" not in job_names
     assert RESEARCH_DATA_PREP_JOB_NAME in job_names
+    assert MOEX_CF_CATCH_UP_JOB_NAME in job_names
     assert MOEX_CF_REBUILD_JOB_NAME in job_names
     assert MOEX_RESEARCH_BAR_REBUILD_JOB_NAME in job_names
     assert MOEX_INDICATOR_REBUILD_JOB_NAME in job_names
@@ -51,7 +54,8 @@ def test_product_plane_definitions_expose_regular_data_rebuild_jobs_and_cascade_
     schedule_names = {schedule.name for schedule in repository.schedule_defs}
     sensor_names = {sensor.name for sensor in repository.sensor_defs}
     assert MOEX_BASELINE_DAILY_SCHEDULE_NAME in schedule_names
-    assert RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME in sensor_names
+    assert MOEX_CF_CATCH_UP_AFTER_MOEX_BASELINE_SENSOR_NAME in sensor_names
+    assert RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME not in sensor_names
     assert MOEX_HISTORICAL_DATA_REBUILD_RESEARCH_PREP_SENSOR_NAME in sensor_names
     assert RESEARCH_STRATEGY_REGISTRY_AFTER_DATA_PREP_SENSOR_NAME in sensor_names
     assert RESEARCH_BACKTEST_AFTER_STRATEGY_REGISTRY_SENSOR_NAME in sensor_names
