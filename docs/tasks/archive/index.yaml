@@ -1,5 +1,5 @@
 version: 1
-updated_at: '2026-05-20'
+updated_at: '2026-06-10'
 items:
 - id: TASK-2026-03-16-SHELL-BOOTSTRAP
   path: docs/tasks/archive/TASK-2026-03-16-shell-bootstrap.md
@@ -259,3 +259,9 @@ items:
   status: completed
   started_at: '2026-05-20'
   completed_at: '2026-05-20'
+- id: TASK-2026-06-10-FIX-RAW-INGEST-TAIL-REFRESH-AND-INDICATOR-REUSE-
+  path: docs/tasks/archive/TASK-2026-06-10-fix-raw-ingest-tail-refresh-and-indicator-reuse-.md
+  mode: legacy-full
+  status: completed
+  started_at: '2026-06-10'
+  completed_at: '2026-06-10'
