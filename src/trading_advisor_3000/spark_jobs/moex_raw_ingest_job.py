@@ -30,7 +30,6 @@ RAW_PROVIDER_METADATA_COLUMNS = (
 RAW_VALUE_COLUMNS = ("open", "high", "low", "close", "volume", "open_interest")
 RAW_FINGERPRINT_COLUMNS = RAW_KEY_COLUMNS + RAW_PROVIDER_METADATA_COLUMNS + RAW_VALUE_COLUMNS
 RECONCILE_WINDOW_COLUMNS = KEY_SCOPE_COLUMNS + ("_window_start_utc", "_window_end_utc")
-DELETE_WINDOW_CHUNK_SIZE = 200
 _NULL_FINGERPRINT_TOKEN = "__TA3000_NULL__"
 _VOLATILE_PROVENANCE_KEYS = (
     "run_id",
@@ -177,61 +176,6 @@ def _append_json_event(*, jsonl_path: Path, latest_path: Path, payload: Mapping[
 
 def _sql_string_literal(value: object) -> str:
     return "'" + str(value).replace("'", "''") + "'"
-
-
-def _sql_timestamp_literal(value: object) -> str:
-    parsed = _parse_iso_utc(value)
-    if parsed is None:
-        raise ValueError("window delete condition requires non-empty timestamp")
-    return "TIMESTAMP '" + parsed.strftime("%Y-%m-%d %H:%M:%S") + "'"
-
-
-def _column_ref(column: str, *, target_alias: str = "") -> str:
-    return f"{target_alias}.{column}" if target_alias else column
-
-
-def _build_window_delete_condition(
-    windows: list[Mapping[str, Any]], *, target_alias: str = ""
-) -> str:
-    parts: list[str] = []
-    for window in windows:
-        internal_id = _column_ref("internal_id", target_alias=target_alias)
-        timeframe = _column_ref("timeframe", target_alias=target_alias)
-        source_interval = _column_ref("source_interval", target_alias=target_alias)
-        moex_secid = _column_ref("moex_secid", target_alias=target_alias)
-        ts_close = _column_ref("ts_close", target_alias=target_alias)
-        parts.append(
-            "("
-            + " AND ".join(
-                [
-                    f"{internal_id} = {_sql_string_literal(window['internal_id'])}",
-                    f"{timeframe} = {_sql_string_literal(window['timeframe'])}",
-                    f"{source_interval} = {int(window['source_interval'])}",
-                    f"{moex_secid} = {_sql_string_literal(window['moex_secid'])}",
-                    f"{ts_close} >= {_sql_timestamp_literal(window['_window_start_utc'])}",
-                    f"{ts_close} <= {_sql_timestamp_literal(window['_window_end_utc'])}",
-                ]
-            )
-            + ")"
-        )
-    return " OR ".join(parts)
-
-
-def _iter_window_delete_conditions(
-    windows: Any,
-    *,
-    chunk_size: int = DELETE_WINDOW_CHUNK_SIZE,
-) -> Any:
-    if chunk_size <= 0:
-        raise ValueError("chunk_size must be > 0")
-    batch: list[Mapping[str, Any]] = []
-    for window in windows:
-        batch.append(window)
-        if len(batch) >= chunk_size:
-            yield _build_window_delete_condition(batch)
-            batch = []
-    if batch:
-        yield _build_window_delete_condition(batch)
 
 
 def _raw_fingerprint_expr(functions: Any, *, prefix: str = "") -> Any:
@@ -555,14 +499,14 @@ def run_moex_raw_ingest_spark_delta_job(
                 .cache()
             )
             source_keys = eligible_source_with_scope.select(*RAW_KEY_COLUMNS).distinct().cache()
-            target_missing_df = (
+            target_missing_raw_df = (
                 baseline_scoped.join(source_keys, list(RAW_KEY_COLUMNS), "left_anti")
-                .select(*RECONCILE_WINDOW_COLUMNS)
+                .select(*RAW_COLUMNS, "_window_start_utc", "_window_end_utc")
                 .cache()
             )
             changed_window_events_df = (
                 changed_source_df.select(*RECONCILE_WINDOW_COLUMNS)
-                .unionByName(target_missing_df.select(*RECONCILE_WINDOW_COLUMNS))
+                .unionByName(target_missing_raw_df.select(*RECONCILE_WINDOW_COLUMNS))
                 .cache()
             )
             windows_to_reconcile_df = (
@@ -577,7 +521,7 @@ def run_moex_raw_ingest_spark_delta_job(
                 .select(*RAW_COLUMNS)
                 .cache()
             )
-            target_missing_rows = int(target_missing_df.count())
+            target_missing_rows = int(target_missing_raw_df.count())
         else:
             changed_source_df = eligible_source_with_scope.select(
                 *RAW_COLUMNS,
@@ -589,6 +533,7 @@ def run_moex_raw_ingest_spark_delta_job(
                 changed_window_events_df.select(*RECONCILE_WINDOW_COLUMNS).distinct().cache()
             )
             replacement_source_df = changed_source_df.select(*RAW_COLUMNS).cache()
+            target_missing_raw_df = spark.createDataFrame([], schema=raw_schema).cache()
             target_missing_rows = 0
 
         changed_source_rows = int(changed_source_df.count())
@@ -602,26 +547,39 @@ def run_moex_raw_ingest_spark_delta_job(
                 str(table_path)
             )
         elif incremental_rows > 0:
-            reconcile_windows = [row.asDict() for row in windows_to_reconcile_df.toLocalIterator()]
-            scoped_delete_condition = _build_window_delete_condition(
-                reconcile_windows, target_alias="target"
+            upsert_action_df = replacement_source_df.select(*RAW_COLUMNS).withColumn(
+                "_raw_reconcile_action", functions.lit("upsert")
+            )
+            delete_action_df = target_missing_raw_df.select(*RAW_COLUMNS).withColumn(
+                "_raw_reconcile_action", functions.lit("delete")
+            )
+            reconcile_action_df = (
+                upsert_action_df.unionByName(delete_action_df)
+                .dropDuplicates(list(RAW_KEY_COLUMNS) + ["_raw_reconcile_action"])
+                .cache()
             )
             merge_condition = " AND ".join(
                 f"target.{column} <=> source.{column}" for column in RAW_KEY_COLUMNS
             )
+            upsert_condition = "source._raw_reconcile_action = 'upsert'"
             delta_table = DeltaTable.forPath(spark, str(table_path))
-            merge_builder = (
+            (
                 delta_table.alias("target")
                 .merge(
-                    replacement_source_df.select(*RAW_COLUMNS).alias("source"),
+                    reconcile_action_df.alias("source"),
                     merge_condition,
                 )
-                .whenMatchedUpdateAll()
-                .whenNotMatchedInsertAll()
+                .whenMatchedDelete(condition="source._raw_reconcile_action = 'delete'")
+                .whenMatchedUpdate(
+                    condition=upsert_condition,
+                    set={column: f"source.{column}" for column in RAW_COLUMNS},
+                )
+                .whenNotMatchedInsert(
+                    condition=upsert_condition,
+                    values={column: f"source.{column}" for column in RAW_COLUMNS},
+                )
+                .execute()
             )
-            if scoped_delete_condition:
-                merge_builder = merge_builder.whenNotMatchedBySourceDelete(scoped_delete_condition)
-            merge_builder.execute()
 
         raw_after_df = spark.read.format("delta").load(str(table_path))
         watermark_by_key = _collect_post_watermarks(

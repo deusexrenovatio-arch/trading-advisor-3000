@@ -179,6 +179,28 @@ def _ensure_java_home() -> None:
     os.environ["JAVA_HOME"] = str(jdk4py.JAVA_HOME)
 
 
+def _ensure_hadoop_home_bin_on_path() -> None:
+    hadoop_home = os.environ.get("HADOOP_HOME", "").strip()
+    if not hadoop_home:
+        return
+
+    hadoop_bin = Path(hadoop_home) / "bin"
+    if not hadoop_bin.is_dir():
+        return
+
+    path_value = os.environ.get("PATH", "")
+    path_entries = [entry for entry in path_value.split(os.pathsep) if entry]
+    normalized_entries = {os.path.normcase(os.path.normpath(entry)) for entry in path_entries}
+    hadoop_bin_text = str(hadoop_bin)
+    normalized_hadoop_bin = os.path.normcase(os.path.normpath(hadoop_bin_text))
+    if normalized_hadoop_bin in normalized_entries:
+        return
+
+    os.environ["PATH"] = (
+        hadoop_bin_text if not path_value else hadoop_bin_text + os.pathsep + path_value
+    )
+
+
 def _load_spark_modules() -> tuple[Any, Any, Any, Any]:
     try:
         from pyspark.sql import SparkSession, Window  # type: ignore[import-not-found]
@@ -225,6 +247,7 @@ def _spark_config_overrides_from_env() -> dict[str, str]:
 
 def _create_spark_session(app_name: str, master: str) -> Any:
     _ensure_java_home()
+    _ensure_hadoop_home_bin_on_path()
     spark_session, _, _, configure = _load_spark_modules()
     runtime_dirs = _spark_runtime_dirs()
     builder = (
