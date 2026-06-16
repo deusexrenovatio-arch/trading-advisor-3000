@@ -11,7 +11,6 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     read_delta_table_rows,
 )
 
-
 CONTINUOUS_FRONT_TABLES = (
     "continuous_front_bars",
     "continuous_front_roll_events",
@@ -26,7 +25,10 @@ def continuous_front_store_contract() -> dict[str, dict[str, object]]:
             "format": "delta",
             "partition_by": ["dataset_version", "instrument_id", "timeframe"],
             "constraints": [
-                "unique(dataset_version, roll_policy_version, adjustment_policy_version, instrument_id, timeframe, ts)"
+                "unique("
+                "dataset_version, roll_policy_version, adjustment_policy_version, "
+                "instrument_id, timeframe, ts"
+                ")"
             ],
             "columns": {
                 "dataset_version": "string",
@@ -57,6 +59,13 @@ def continuous_front_store_contract() -> dict[str, dict[str, object]]:
                 "cumulative_additive_offset": "double",
                 "ratio_factor": "double",
                 "price_space": "string",
+                "execution_step_price_rub": "double",
+                "execution_lot_volume": "double",
+                "execution_tick_value_currency": "double",
+                "execution_margin_required_estimate": "double",
+                "execution_margin_buffer_pct": "double",
+                "economics_effective_from_ts": "timestamp",
+                "economics_model_version": "string",
                 "causality_watermark_ts": "timestamp",
                 "input_row_count": "bigint",
                 "created_at": "timestamp",
@@ -179,6 +188,13 @@ class ContinuousFrontResearchBar:
     cumulative_additive_offset: float
     ratio_factor: float | None
     price_space: str
+    execution_step_price_rub: float | None = None
+    execution_lot_volume: float | None = None
+    execution_tick_value_currency: float | None = None
+    execution_margin_required_estimate: float | None = None
+    execution_margin_buffer_pct: float | None = None
+    economics_effective_from_ts: str | None = None
+    economics_model_version: str | None = None
 
 
 def _session_date(ts: str) -> str:
@@ -272,10 +288,16 @@ def load_continuous_front_as_research_context(
                 series_id=f"{instrument_id}|{timeframe}|continuous_front",
                 series_mode="continuous_front",
                 active_contract_id=active_contract_id,
-                previous_contract_id=None if row.get("previous_contract_id") is None else str(row["previous_contract_id"]),
-                candidate_contract_id=None if row.get("candidate_contract_id") is None else str(row["candidate_contract_id"]),
+                previous_contract_id=None
+                if row.get("previous_contract_id") is None
+                else str(row["previous_contract_id"]),
+                candidate_contract_id=None
+                if row.get("candidate_contract_id") is None
+                else str(row["candidate_contract_id"]),
                 roll_epoch=int(row.get("roll_epoch") or 0),
-                roll_event_id=None if row.get("roll_event_id") is None else str(row["roll_event_id"]),
+                roll_event_id=None
+                if row.get("roll_event_id") is None
+                else str(row["roll_event_id"]),
                 is_roll_bar=bool(row.get("is_roll_bar")),
                 is_first_bar_after_roll=bool(row.get("is_first_bar_after_roll")),
                 bars_since_roll=int(row.get("bars_since_roll") or 0),
@@ -289,8 +311,31 @@ def load_continuous_front_as_research_context(
                 continuous_close=float(row["continuous_close"]),
                 adjustment_mode=str(row.get("adjustment_mode") or ""),
                 cumulative_additive_offset=float(row.get("cumulative_additive_offset") or 0.0),
-                ratio_factor=None if row.get("ratio_factor") is None else float(row["ratio_factor"]),
+                ratio_factor=None
+                if row.get("ratio_factor") is None
+                else float(row["ratio_factor"]),
                 price_space=str(row.get("price_space") or "continuous_adjusted"),
+                execution_step_price_rub=None
+                if row.get("execution_step_price_rub") is None
+                else float(row["execution_step_price_rub"]),
+                execution_lot_volume=None
+                if row.get("execution_lot_volume") is None
+                else float(row["execution_lot_volume"]),
+                execution_tick_value_currency=None
+                if row.get("execution_tick_value_currency") is None
+                else float(row["execution_tick_value_currency"]),
+                execution_margin_required_estimate=None
+                if row.get("execution_margin_required_estimate") is None
+                else float(row["execution_margin_required_estimate"]),
+                execution_margin_buffer_pct=None
+                if row.get("execution_margin_buffer_pct") is None
+                else float(row["execution_margin_buffer_pct"]),
+                economics_effective_from_ts=None
+                if row.get("economics_effective_from_ts") is None
+                else str(row["economics_effective_from_ts"]),
+                economics_model_version=None
+                if row.get("economics_model_version") is None
+                else str(row["economics_model_version"]),
             )
         )
         session_key = (instrument_id, _session_date(ts), active_contract_id)
@@ -304,8 +349,12 @@ def load_continuous_front_as_research_context(
             ),
         )
     if not bars:
-        raise RuntimeError(f"continuous_front_bars has no rows for dataset_version `{dataset_version}`")
-    return sorted(bars, key=lambda row: (row.instrument_id, row.contract_id, row.timeframe.value, row.ts)), sorted(
+        raise RuntimeError(
+            f"continuous_front_bars has no rows for dataset_version `{dataset_version}`"
+        )
+    return sorted(
+        bars, key=lambda row: (row.instrument_id, row.contract_id, row.timeframe.value, row.ts)
+    ), sorted(
         roll_map_by_session_contract.values(),
         key=lambda row: (row.instrument_id, row.session_date, row.active_contract_id),
     )

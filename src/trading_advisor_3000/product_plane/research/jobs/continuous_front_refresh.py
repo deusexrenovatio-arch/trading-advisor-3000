@@ -44,6 +44,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeframes", default="", help="Optional comma-separated timeframes.")
     parser.add_argument("--start-ts", default="", help="Optional inclusive UTC start timestamp.")
     parser.add_argument("--end-ts", default="", help="Optional inclusive UTC end timestamp.")
+    parser.add_argument(
+        "--canonical-contract-economics-path",
+        default="",
+        help="Optional canonical_contract_economics Delta table.",
+    )
     parser.add_argument("--spark-master", default=DEFAULT_SPARK_MASTER)
     parser.add_argument(
         "--roll-policy-version", default="front_calendar_expiry_t2_session_0900_2350_v1"
@@ -78,6 +83,7 @@ def run_continuous_front_refresh_job(
     timeframes: tuple[str, ...] = (),
     start_ts: str = "",
     end_ts: str = "",
+    canonical_contract_economics_path: Path | None = None,
     spark_master: str = DEFAULT_SPARK_MASTER,
     policy: ContinuousFrontPolicy | None = None,
 ) -> dict[str, object]:
@@ -93,6 +99,7 @@ def run_continuous_front_refresh_job(
         timeframes=timeframes,
         start_ts=start_ts or None,
         end_ts=end_ts or None,
+        canonical_contract_economics_path=canonical_contract_economics_path,
         spark_master=spark_master,
     )
 
@@ -128,6 +135,11 @@ def main(argv: list[str] | None = None) -> int:
         timeframes=_csv(args.timeframes),
         start_ts=args.start_ts,
         end_ts=args.end_ts,
+        canonical_contract_economics_path=(
+            Path(args.canonical_contract_economics_path)
+            if args.canonical_contract_economics_path.strip()
+            else None
+        ),
         spark_master=args.spark_master,
         policy=policy,
     )

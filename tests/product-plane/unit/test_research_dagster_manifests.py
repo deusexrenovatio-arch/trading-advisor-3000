@@ -12,6 +12,9 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     read_delta_table_rows,
     write_delta_table_rows,
 )
+from trading_advisor_3000.product_plane.data_plane.moex.economics import (
+    moex_economics_store_contract,
+)
 from trading_advisor_3000.product_plane.research.backtests.results import (
     backtest_store_contract,
     results_store_contract,
@@ -133,6 +136,31 @@ def _stub_existing_research_context(
         "_existing_research_dataset_context",
         _fake_existing_context,
     )
+
+
+def _write_empty_contract_economics_table(table_path: Path) -> None:
+    write_delta_table_rows(
+        table_path=table_path,
+        rows=[],
+        columns=dict(moex_economics_store_contract()["canonical_contract_economics"]["columns"]),
+    )
+
+
+def test_research_contract_economics_default_path_uses_baseline_sibling_root(
+    tmp_path: Path,
+) -> None:
+    baseline_root = tmp_path / "trading-advisor-3000-nightly"
+    canonical_output_dir = baseline_root / "canonical" / "moex" / "baseline-4y-current"
+    economics_path = (
+        baseline_root / "canonical" / "economics" / "canonical_contract_economics.delta"
+    )
+    _write_empty_contract_economics_table(economics_path)
+
+    resolved = research_assets._canonical_contract_economics_path(  # type: ignore[attr-defined]
+        {"canonical_output_dir": canonical_output_dir.as_posix()}
+    )
+
+    assert resolved == economics_path.resolve()
 
 
 def test_research_dagster_asset_specs_declared() -> None:
@@ -300,6 +328,8 @@ def test_research_dataset_asset_persists_absolute_volume_profile_raw_path(
         derived_indicator_profile_version="core_v1",
     )
     config["volume_profile_raw_1m_table_path"] = "relative/raw_moex_history.delta"
+    economics_path = tmp_path / "canonical" / "canonical_contract_economics.delta"
+    _write_empty_contract_economics_table(economics_path)
 
     monkeypatch.setattr(
         research_assets,

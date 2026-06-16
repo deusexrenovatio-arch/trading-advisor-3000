@@ -663,6 +663,88 @@ def _with_l0_metrics(
     return base.withColumn("slice_role", F.lit("analysis"))
 
 
+def _with_execution_economics(
+    *,
+    spark: object,
+    dataframe,
+    canonical_contract_economics_path: Path | None,
+    contract_column: str,
+    ts_column: str = "ts",
+):
+    from pyspark.sql import Window  # type: ignore[import-not-found]
+    from pyspark.sql import functions as F  # type: ignore[import-not-found]
+
+    if canonical_contract_economics_path is None:
+        return (
+            dataframe.withColumn("execution_step_price_rub", F.lit(None).cast("double"))
+            .withColumn("execution_lot_volume", F.lit(None).cast("double"))
+            .withColumn("execution_tick_value_currency", F.lit(None).cast("double"))
+            .withColumn("execution_margin_required_estimate", F.lit(None).cast("double"))
+            .withColumn("execution_margin_buffer_pct", F.lit(None).cast("double"))
+            .withColumn("economics_effective_from_ts", F.lit(None).cast("timestamp"))
+            .withColumn("economics_model_version", F.lit(None).cast("string"))
+        )
+
+    economics = (
+        spark.read.format("delta")
+        .load(str(canonical_contract_economics_path))
+        .select(
+            F.col("contract_id").alias("econ_contract_id"),
+            F.col("effective_from_ts").alias("econ_effective_from_ts"),
+            F.col("effective_to_ts").alias("econ_effective_to_ts"),
+            F.col("step_price_rub").alias("execution_step_price_rub"),
+            F.col("lot_volume").alias("execution_lot_volume"),
+            F.col("tick_value_currency").alias("execution_tick_value_currency"),
+            F.col("margin_required_estimate").alias("execution_margin_required_estimate"),
+            F.col("margin_buffer_pct").alias("execution_margin_buffer_pct"),
+            F.col("effective_from_ts").alias("economics_effective_from_ts"),
+            F.col("model_version").alias("economics_model_version"),
+        )
+    )
+    join_ts = F.col(ts_column)
+    if "timeframe" in dataframe.columns and "bar_end_ts" in dataframe.columns:
+        join_ts = F.when(
+            (F.col("timeframe") == F.lit("1w")) & F.col("bar_end_ts").isNotNull(),
+            F.col("bar_end_ts"),
+        ).otherwise(F.col(ts_column))
+    bar_frame = dataframe.withColumn("__economics_join_ts", join_ts).withColumn(
+        "__economics_bar_row_id", F.monotonically_increasing_id()
+    )
+    return (
+        bar_frame.alias("bar")
+        .join(
+            economics.alias("econ"),
+            (F.col(f"bar.{contract_column}") == F.col("econ.econ_contract_id"))
+            & (F.col("bar.__economics_join_ts") >= F.col("econ.econ_effective_from_ts"))
+            & (
+                F.col("econ.econ_effective_to_ts").isNull()
+                | (F.col("bar.__economics_join_ts") < F.col("econ.econ_effective_to_ts"))
+            ),
+            "left",
+        )
+        .withColumn(
+            "__economics_asof_rank",
+            F.row_number().over(
+                Window.partitionBy(F.col("bar.__economics_bar_row_id")).orderBy(
+                    F.col("econ.econ_effective_from_ts").desc_nulls_last()
+                )
+            ),
+        )
+        .where(F.col("__economics_asof_rank") == F.lit(1))
+        .select(
+            F.col("bar.*"),
+            F.col("econ.execution_step_price_rub"),
+            F.col("econ.execution_lot_volume"),
+            F.col("econ.execution_tick_value_currency"),
+            F.col("econ.execution_margin_required_estimate"),
+            F.col("econ.execution_margin_buffer_pct"),
+            F.col("econ.economics_effective_from_ts"),
+            F.col("econ.economics_model_version"),
+        )
+        .drop("__economics_bar_row_id", "__economics_join_ts")
+    )
+
+
 def _native_bar_views(
     *,
     spark: object,
@@ -678,6 +760,7 @@ def _native_bar_views(
     start_ts: str | None,
     end_ts: str | None,
     warmup_bars: int,
+    canonical_contract_economics_path: Path | None = None,
     usage_context: BarUsageContextFrames | None = None,
 ):
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
@@ -745,7 +828,13 @@ def _native_bar_views(
             "left",
         )
     )
-    base = with_session.select(
+    with_execution = _with_execution_economics(
+        spark=spark,
+        dataframe=with_session,
+        canonical_contract_economics_path=canonical_contract_economics_path,
+        contract_column="contract_id",
+    )
+    base = with_execution.select(
         F.lit(dataset_version).alias("dataset_version"),
         F.lit("native_tradable").alias("contour_id"),
         "contract_id",
@@ -799,6 +888,13 @@ def _native_bar_views(
         F.lit("").alias("adjustment_mode"),
         F.lit(0.0).alias("cumulative_additive_offset"),
         F.lit(None).cast("double").alias("ratio_factor"),
+        "execution_step_price_rub",
+        "execution_lot_volume",
+        "execution_tick_value_currency",
+        "execution_margin_required_estimate",
+        "execution_margin_buffer_pct",
+        "economics_effective_from_ts",
+        "economics_model_version",
     )
     base = _with_l0_metrics(
         base,
@@ -917,6 +1013,27 @@ def _pit_active_front_bar_views(
         "adjustment_mode",
         "cumulative_additive_offset",
         "ratio_factor",
+        _optional_casted_column(bars, ("execution_step_price_rub",), "double").alias(
+            "execution_step_price_rub"
+        ),
+        _optional_casted_column(bars, ("execution_lot_volume",), "double").alias(
+            "execution_lot_volume"
+        ),
+        _optional_casted_column(bars, ("execution_tick_value_currency",), "double").alias(
+            "execution_tick_value_currency"
+        ),
+        _optional_casted_column(bars, ("execution_margin_required_estimate",), "double").alias(
+            "execution_margin_required_estimate"
+        ),
+        _optional_casted_column(bars, ("execution_margin_buffer_pct",), "double").alias(
+            "execution_margin_buffer_pct"
+        ),
+        _optional_casted_column(bars, ("economics_effective_from_ts",), "timestamp").alias(
+            "economics_effective_from_ts"
+        ),
+        _optional_casted_column(bars, ("economics_model_version",), "string").alias(
+            "economics_model_version"
+        ),
     )
     base = _with_l0_metrics(
         base,
@@ -1247,6 +1364,8 @@ def run_research_bar_views_spark_job(
     split_method: str = "full",
     split_params: Mapping[str, object] | None = None,
     contours: tuple[str, ...] = RESEARCH_L0_CONTOURS,
+    canonical_contract_economics_path: Path | None = None,
+    execution_economics_required: bool = False,
     spark_master: str = DEFAULT_SPARK_MASTER,
     spark_session_factory: Callable[[str, str], object] | None = None,
 ) -> dict[str, object]:
@@ -1257,6 +1376,10 @@ def run_research_bar_views_spark_job(
     invalid = sorted(set(contours) - set(RESEARCH_L0_CONTOURS))
     if invalid:
         raise ValueError(f"unsupported research L0 contours: {', '.join(invalid)}")
+    if execution_economics_required and canonical_contract_economics_path is None:
+        raise RuntimeError(
+            "canonical_contract_economics_path is required when execution_economics_required=True"
+        )
     for table_path in (
         canonical_bars_path,
         canonical_bar_provenance_path,
@@ -1269,6 +1392,13 @@ def run_research_bar_views_spark_job(
     if "pit_active_front" in contours and not has_delta_log(continuous_front_bars_path):
         raise RuntimeError(
             f"missing continuous-front delta table: {continuous_front_bars_path.as_posix()}"
+        )
+    if canonical_contract_economics_path is not None and not has_delta_log(
+        canonical_contract_economics_path
+    ):
+        raise RuntimeError(
+            "missing canonical contract economics delta table: "
+            f"{canonical_contract_economics_path.as_posix()}"
         )
     record_stage_timing(
         stage_timings,
@@ -1313,6 +1443,7 @@ def run_research_bar_views_spark_job(
                     start_ts=start_ts,
                     end_ts=end_ts,
                     warmup_bars=warmup_bars,
+                    canonical_contract_economics_path=canonical_contract_economics_path,
                     usage_context=usage_context,
                 )
             )
@@ -1450,6 +1581,15 @@ def run_research_bar_views_spark_job(
             if has_delta_log(continuous_front_bars_path)
             else "",
         }
+        economics_source_tables: tuple[str, ...] = ()
+        if canonical_contract_economics_path is not None:
+            source_delta_versions["canonical_contract_economics"] = _latest_delta_version(
+                canonical_contract_economics_path
+            )
+            source_delta_hashes["canonical_contract_economics"] = _delta_log_hash(
+                canonical_contract_economics_path
+            )
+            economics_source_tables = ("canonical_contract_economics",)
         record_stage_timing(
             stage_timings,
             "source_fingerprint",
@@ -1503,6 +1643,7 @@ def run_research_bar_views_spark_job(
                     "canonical_bar_provenance",
                     "canonical_session_intervals",
                     "canonical_session_calendar",
+                    *economics_source_tables,
                 )
                 if contour_id == "pit_active_front"
                 else (
@@ -1511,6 +1652,7 @@ def run_research_bar_views_spark_job(
                     "canonical_session_intervals",
                     "canonical_session_calendar",
                     "canonical_roll_map",
+                    *economics_source_tables,
                 ),
                 bars_hash=_combined_source_hash(
                     source_delta_hashes,
@@ -1519,6 +1661,7 @@ def run_research_bar_views_spark_job(
                         "canonical_bar_provenance",
                         "canonical_session_intervals",
                         "canonical_session_calendar",
+                        *economics_source_tables,
                     )
                     if contour_id == "pit_active_front"
                     else (
@@ -1527,6 +1670,7 @@ def run_research_bar_views_spark_job(
                         "canonical_session_intervals",
                         "canonical_session_calendar",
                         "canonical_roll_map",
+                        *economics_source_tables,
                     ),
                 ),
                 run_id=run_id,

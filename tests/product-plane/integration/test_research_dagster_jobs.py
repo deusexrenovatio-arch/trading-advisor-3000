@@ -49,6 +49,9 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     read_delta_table_rows,
     write_delta_table_rows,
 )
+from trading_advisor_3000.product_plane.data_plane.moex.economics import (
+    moex_economics_store_contract,
+)
 from trading_advisor_3000.product_plane.data_plane.schemas import (
     historical_data_delta_schema_manifest,
 )
@@ -128,6 +131,58 @@ def _load_materialized_dataset_rows(
             ),
         ),
     }
+
+
+def _write_contract_economics_fixture(canonical_dir: Path) -> None:
+    rows = []
+    for contract_id, instrument_id, quote_currency, fx_rate, step_price, margin in (
+        ("BR-6.26", "BR", "USD", 95.0, 9.5, 11_500.0),
+        ("Si-6.26", "Si", "RUB", 1.0, 1.0, 18_000.0),
+    ):
+        rows.append(
+            {
+                "contract_id": contract_id,
+                "instrument_id": instrument_id,
+                "moex_secid": contract_id,
+                "assetcode": instrument_id,
+                "economics_session_date": "2026-03-16",
+                "effective_session_date": "2026-03-16",
+                "clearing_type": "tc",
+                "effective_from_ts": "2026-03-16T00:00:00Z",
+                "effective_to_ts": None,
+                "min_step": 0.01 if instrument_id == "BR" else 1.0,
+                "lot_volume": 10.0 if instrument_id == "BR" else 1.0,
+                "quote_currency": quote_currency,
+                "fx_rate_to_rub": fx_rate,
+                "tick_value_currency": 0.1 if instrument_id == "BR" else 1.0,
+                "step_price_rub": step_price,
+                "official_step_price": step_price,
+                "official_initial_margin": margin / 1.05,
+                "last_settle_price": 100.0,
+                "mr1": 0.12,
+                "radius_pct": 15.0,
+                "radius_source": "integration_fixture",
+                "margin_formula_base": margin / 1.15,
+                "margin_radius_adjusted": margin / 1.05,
+                "margin_required_no_buffer": margin / 1.05,
+                "margin_buffer_pct": 0.05,
+                "margin_required_estimate": margin,
+                "maturity_rank": 1,
+                "days_to_expiry": 30,
+                "expiration_date": "2026-06-15",
+                "model_version": "integration-fixture-v1",
+                "buffer_policy_version": "buffer-v1",
+                "model_quality": "estimated",
+                "source_flags_json": {},
+                "source_document_hashes_json": {},
+                "created_at": "2026-03-16T00:05:00Z",
+            }
+        )
+    write_delta_table_rows(
+        table_path=canonical_dir / "canonical_contract_economics.delta",
+        rows=rows,
+        columns=dict(moex_economics_store_contract()["canonical_contract_economics"]["columns"]),
+    )
 
 
 def _write_rich_stage7_canonical_context(output_dir: Path) -> None:
@@ -254,6 +309,7 @@ def _write_rich_stage7_canonical_context(output_dir: Path) -> None:
         rows=roll_map,
         columns=schema_manifest["canonical_roll_map"]["columns"],
     )
+    _write_contract_economics_fixture(output_dir)
 
 
 def _write_spark_front_outputs_from_canonical(
@@ -561,6 +617,7 @@ def test_research_data_prep_materializes_dataset_indicator_and_derived_layers_on
         output_dir=canonical_dir,
         whitelist_contracts={"BR-6.26", "Si-6.26"},
     )
+    _write_contract_economics_fixture(canonical_dir)
 
     dagster_dir = tmp_path / "dagster-research-data-prep"
     dagster_report = materialize_research_data_prep_assets(
@@ -619,6 +676,7 @@ def test_research_data_prep_can_source_indicators_from_continuous_front(
         output_dir=canonical_dir,
         whitelist_contracts={"BR-6.26", "Si-6.26"},
     )
+    _write_contract_economics_fixture(canonical_dir)
 
     spark_calls: list[dict[str, object]] = []
 
@@ -804,6 +862,7 @@ def test_research_data_prep_reuse_does_not_reload_full_frames(tmp_path: Path, mo
         output_dir=canonical_dir,
         whitelist_contracts={"BR-6.26", "Si-6.26"},
     )
+    _write_contract_economics_fixture(canonical_dir)
 
     dagster_dir = tmp_path / "dagster-reuse"
     materialize_research_data_prep_assets(
@@ -859,6 +918,7 @@ def test_strategy_registry_refresh_is_separate_from_research_data_prep(tmp_path:
         output_dir=canonical_dir,
         whitelist_contracts={"BR-6.26", "Si-6.26"},
     )
+    _write_contract_economics_fixture(canonical_dir)
 
     dagster_dir = tmp_path / "dagster-strategy"
     materialize_research_data_prep_assets(
@@ -1346,6 +1406,7 @@ def test_research_data_prep_uses_spark_l0_materialization(tmp_path: Path) -> Non
         output_dir=canonical_dir,
         whitelist_contracts={"BR-6.26", "Si-6.26"},
     )
+    _write_contract_economics_fixture(canonical_dir)
 
     dagster_dir = tmp_path / "dagster"
     report = materialize_research_data_prep_assets(

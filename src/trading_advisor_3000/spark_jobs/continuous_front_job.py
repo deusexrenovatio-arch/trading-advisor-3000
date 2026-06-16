@@ -759,6 +759,7 @@ def _build_spark_native_tables(
     *,
     spark: object,
     canonical_bars_path: Path,
+    canonical_contract_economics_path: Path | None = None,
     dataset_version: str,
     policy: ContinuousFrontPolicy,
     run_id: str,
@@ -1025,7 +1026,69 @@ def _build_spark_native_tables(
             - F.lit(1),
         )
     )
-    continuous_bars = bars_with_offsets.select(
+    if canonical_contract_economics_path is not None:
+        econ = (
+            spark.read.format("delta")
+            .load(str(canonical_contract_economics_path))
+            .select(
+                F.col("contract_id").alias("econ_contract_id"),
+                F.col("effective_from_ts").alias("econ_effective_from_ts"),
+                F.col("effective_to_ts").alias("econ_effective_to_ts"),
+                F.col("step_price_rub").alias("execution_step_price_rub"),
+                F.col("lot_volume").alias("execution_lot_volume"),
+                F.col("tick_value_currency").alias("execution_tick_value_currency"),
+                F.col("margin_required_estimate").alias("execution_margin_required_estimate"),
+                F.col("margin_buffer_pct").alias("execution_margin_buffer_pct"),
+                F.col("effective_from_ts").alias("economics_effective_from_ts"),
+                F.col("model_version").alias("economics_model_version"),
+            )
+        )
+        bars_with_execution = (
+            bars_with_offsets.alias("bar")
+            .join(
+                econ.alias("econ"),
+                (F.col("bar.active_contract_id") == F.col("econ.econ_contract_id"))
+                & (F.col("bar.ts") >= F.col("econ.econ_effective_from_ts"))
+                & (
+                    F.col("econ.econ_effective_to_ts").isNull()
+                    | (F.col("bar.ts") < F.col("econ.econ_effective_to_ts"))
+                ),
+                "left",
+            )
+            .withColumn(
+                "__economics_asof_rank",
+                F.row_number().over(
+                    Window.partitionBy(
+                        F.col("bar.instrument_id"),
+                        F.col("bar.timeframe"),
+                        F.col("bar.ts"),
+                        F.col("bar.active_contract_id"),
+                    ).orderBy(F.col("econ.econ_effective_from_ts").desc_nulls_last())
+                ),
+            )
+            .where(F.col("__economics_asof_rank") == F.lit(1))
+            .select(
+                F.col("bar.*"),
+                F.col("econ.execution_step_price_rub"),
+                F.col("econ.execution_lot_volume"),
+                F.col("econ.execution_tick_value_currency"),
+                F.col("econ.execution_margin_required_estimate"),
+                F.col("econ.execution_margin_buffer_pct"),
+                F.col("econ.economics_effective_from_ts"),
+                F.col("econ.economics_model_version"),
+            )
+        )
+    else:
+        bars_with_execution = (
+            bars_with_offsets.withColumn("execution_step_price_rub", F.lit(None).cast("double"))
+            .withColumn("execution_lot_volume", F.lit(None).cast("double"))
+            .withColumn("execution_tick_value_currency", F.lit(None).cast("double"))
+            .withColumn("execution_margin_required_estimate", F.lit(None).cast("double"))
+            .withColumn("execution_margin_buffer_pct", F.lit(None).cast("double"))
+            .withColumn("economics_effective_from_ts", F.lit(None).cast("timestamp"))
+            .withColumn("economics_model_version", F.lit(None).cast("string"))
+        )
+    continuous_bars = bars_with_execution.select(
         F.lit(dataset_version).alias("dataset_version"),
         F.lit(policy.roll_policy_version).alias("roll_policy_version"),
         F.lit(policy.adjustment_policy_version).alias("adjustment_policy_version"),
@@ -1061,6 +1124,13 @@ def _build_spark_native_tables(
         .otherwise(F.coalesce(F.col("decision_ts"), F.col("ts")))
         .alias("causality_watermark_ts"),
         F.col("series_input_row_count").cast("long").alias("input_row_count"),
+        "execution_step_price_rub",
+        "execution_lot_volume",
+        "execution_tick_value_currency",
+        "execution_margin_required_estimate",
+        "execution_margin_buffer_pct",
+        "economics_effective_from_ts",
+        "economics_model_version",
         F.lit(created_at).alias("created_at"),
     )
     base_qc = keyed_bars.withColumn(
@@ -1298,6 +1368,8 @@ def run_continuous_front_spark_job(
     start_ts: str | None = None,
     end_ts: str | None = None,
     refresh_windows: Sequence[Mapping[str, object] | ContinuousFrontRefreshWindow] | None = None,
+    canonical_contract_economics_path: Path | None = None,
+    execution_economics_required: bool = False,
     spark_master: str = DEFAULT_SPARK_MASTER,
     spark_session_factory: Callable[[str, str], object] | None = None,
 ) -> dict[str, object]:
@@ -1315,6 +1387,10 @@ def run_continuous_front_spark_job(
         if normalized_refresh_windows
         else timeframes
     )
+    if execution_economics_required and canonical_contract_economics_path is None:
+        raise RuntimeError(
+            "canonical_contract_economics_path is required when execution_economics_required=True"
+        )
     spark_factory = spark_session_factory or _create_spark_session
     stage_timings: StageTimings = {}
     stage_started = stage_timer()
@@ -1329,6 +1405,13 @@ def run_continuous_front_spark_job(
         ):
             if not has_delta_log(table_path):
                 raise RuntimeError(f"missing canonical delta table: {table_path.as_posix()}")
+        if canonical_contract_economics_path is not None and not has_delta_log(
+            canonical_contract_economics_path
+        ):
+            raise RuntimeError(
+                "missing canonical contract economics delta table: "
+                f"{canonical_contract_economics_path.as_posix()}"
+            )
         record_stage_timing(stage_timings, "validate_inputs", stage_started)
 
         stage_started = stage_timer()
@@ -1344,6 +1427,7 @@ def run_continuous_front_spark_job(
         tables = _build_spark_native_tables(
             spark=spark,
             canonical_bars_path=canonical_bars_path,
+            canonical_contract_economics_path=canonical_contract_economics_path,
             dataset_version=dataset_version,
             policy=resolved_policy,
             run_id=run_id,
