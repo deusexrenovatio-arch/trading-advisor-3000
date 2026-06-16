@@ -22,6 +22,7 @@ DEFAULT_HISTORY_BOARD_TIMEOUT_SECONDS = 45.0
 DEFAULT_HISTORY_BOARD_MAX_RETRIES = 4
 DEFAULT_HISTORY_BOARD_RETRY_BACKOFF_SECONDS = 1.5
 DEFAULT_RETRY_JITTER_RATIO = 0.25
+DEFAULT_MIN_CANDLE_SPLIT_SPAN_DAYS = 3
 
 
 @dataclass(frozen=True)
@@ -159,6 +160,7 @@ class MoexISSClient:
         retry_jitter_ratio: float = DEFAULT_RETRY_JITTER_RATIO,
         user_agent: str = "trading-advisor-3000/moex-raw-ingest",
         candle_chunk_days_by_interval: dict[int, int] | None = None,
+        min_candle_split_span_days: int = DEFAULT_MIN_CANDLE_SPLIT_SPAN_DAYS,
         request_event_hook: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
@@ -191,7 +193,10 @@ class MoexISSClient:
         )
         if retry_jitter_ratio < 0:
             raise ValueError("retry_jitter_ratio must be >= 0")
+        if min_candle_split_span_days < 2:
+            raise ValueError("min_candle_split_span_days must be >= 2")
         self.retry_jitter_ratio = float(retry_jitter_ratio)
+        self.min_candle_split_span_days = int(min_candle_split_span_days)
         self.user_agent = user_agent
         self.request_event_hook = request_event_hook
         merged_chunk_days = dict(DEFAULT_CANDLE_CHUNK_DAYS_BY_INTERVAL)
@@ -514,7 +519,8 @@ class MoexISSClient:
             )
             return
         except MoexRequestError as exc:
-            if date_from >= date_till:
+            span_days = (date_till - date_from).days + 1
+            if date_from >= date_till or span_days < self.min_candle_split_span_days:
                 self._emit_request_event(
                     {
                         "event": "moex_candles_chunk",
@@ -532,7 +538,6 @@ class MoexISSClient:
                 )
                 raise
 
-            span_days = (date_till - date_from).days + 1
             left_span_days = max(span_days // 2, 1)
             left_till = min(date_till, date_from + timedelta(days=left_span_days - 1))
             right_from = left_till + timedelta(days=1)

@@ -284,6 +284,82 @@ def test_raw_ingest_spark_delta_job_deletes_target_rows_missing_from_refresh_win
     }
 
 
+def test_raw_ingest_spark_delta_job_reconciles_multiple_scopes_without_window_predicates(
+    tmp_path: Path,
+) -> None:
+    if os.name == "nt" and not os.environ.get("HADOOP_HOME"):
+        pytest.skip(
+            "local Windows Spark execution requires HADOOP_HOME; Docker/Linux proof profile runs this path"
+        )
+
+    raw_table_path = tmp_path / "raw" / "moex" / "baseline-4y-current" / "raw_moex_history.delta"
+    write_delta_table_rows(
+        table_path=raw_table_path,
+        rows=[
+            _raw_row(ts_open="2026-04-01T07:00:00Z", ts_close="2026-04-01T07:09:59Z", close=100.5),
+            _raw_row(ts_open="2026-04-01T07:10:00Z", ts_close="2026-04-01T07:19:59Z", close=101.2),
+            _raw_row(ts_open="2026-04-01T08:00:00Z", ts_close="2026-04-01T08:09:59Z", close=102.5),
+            _raw_row(ts_open="2026-04-01T08:10:00Z", ts_close="2026-04-01T08:19:59Z", close=103.2),
+        ],
+        columns=RAW_COLUMNS,
+    )
+
+    report = run_moex_raw_ingest_spark_delta_job(
+        table_path=raw_table_path,
+        source_rows=[
+            _raw_row(
+                ts_open="2026-04-01T07:00:00Z",
+                ts_close="2026-04-01T07:09:59Z",
+                close=99.75,
+                run_id="spark-multi-scope",
+            ),
+            _raw_row(
+                ts_open="2026-04-01T08:00:00Z",
+                ts_close="2026-04-01T08:09:59Z",
+                close=104.25,
+                run_id="spark-multi-scope",
+            ),
+        ],
+        window_scopes=[
+            {
+                "internal_id": "FUT_BR",
+                "timeframe": "1m",
+                "source_interval": 1,
+                "moex_secid": "BRQ6",
+                "window_start_utc": "2026-04-01T06:59:59Z",
+                "window_end_utc": "2026-04-01T07:20:00Z",
+                "watermark_utc": "2026-04-01T07:19:59Z",
+            },
+            {
+                "internal_id": "FUT_BR",
+                "timeframe": "1m",
+                "source_interval": 1,
+                "moex_secid": "BRQ6",
+                "window_start_utc": "2026-04-01T07:59:59Z",
+                "window_end_utc": "2026-04-01T08:20:00Z",
+                "watermark_utc": "2026-04-01T08:19:59Z",
+            },
+        ],
+        initial_watermarks={("FUT_BR", "1m", 1, "BRQ6"): "2026-04-01T08:19:59Z"},
+        run_id="spark-multi-scope",
+        ingest_till_utc="2026-04-01T08:30:00Z",
+        refresh_overlap_minutes=90,
+        progress_path=tmp_path / "raw-ingest-progress.jsonl",
+        progress_latest_path=tmp_path / "raw-ingest-progress.latest.json",
+        error_path=tmp_path / "raw-ingest-errors.jsonl",
+        error_latest_path=tmp_path / "raw-ingest-error.latest.json",
+    )
+
+    rows = _read_test_rows(raw_table_path)
+    rows_by_ts_close = {str(row["ts_close"]): float(row["close"]) for row in rows}
+
+    assert report["incremental_rows"] == 4
+    assert rows_by_ts_close == {
+        "2026-04-01T07:09:59Z": 99.75,
+        "2026-04-01T08:09:59Z": 104.25,
+    }
+
+
 def test_raw_ingest_spark_delta_job_fingerprint_detects_provider_metadata_change(
     tmp_path: Path,
 ) -> None:

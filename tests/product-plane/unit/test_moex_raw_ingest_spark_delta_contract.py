@@ -39,15 +39,36 @@ def test_raw_ingest_reconcile_uses_window_scoped_merge_transaction() -> None:
     assert "unmatched_source_count" in source
     assert "raw source rows did not match declared window scopes" in source
     assert "left_anti" in source
-    assert "_build_window_delete_condition" in source
-    assert "toLocalIterator()" in source
+    assert '_raw_reconcile_action", functions.lit("upsert")' in source
+    assert '_raw_reconcile_action", functions.lit("delete")' in source
     assert ".merge(" in source
-    assert ".whenMatchedUpdateAll()" in source
-    assert ".whenNotMatchedInsertAll()" in source
-    assert ".whenNotMatchedBySourceDelete(" in source
+    assert ".whenMatchedDelete(" in source
+    assert ".whenMatchedUpdate(" in source
+    assert ".whenNotMatchedInsert(" in source
+    assert "_build_window_delete_condition" not in source
+    assert "toLocalIterator()" not in source
+    assert ".whenNotMatchedBySourceDelete(" not in source
     assert ".delete(" not in source
     assert '.mode("append")' not in source
     assert "windows_to_reconcile_df.collect()" not in source
+    assert "windows_to_reconcile_df.toLocalIterator()" not in source
+
+
+def test_delta_rs_raw_reconcile_uses_action_merge_not_window_predicates() -> None:
+    route_source = inspect.getsource(foundation.run_moex_raw_ingest_delta_rs_job)
+    merge_source = inspect.getsource(foundation._merge_raw_reconcile_delta_rs)
+    table_source = inspect.getsource(foundation._raw_reconcile_action_table)
+    source = route_source + merge_source + table_source
+
+    assert "_raw_reconcile_action" in source
+    assert "_merge_raw_reconcile_delta_rs(" in route_source
+    assert ".merge(" in source
+    assert ".when_matched_delete(" in source
+    assert ".when_matched_update(" in source
+    assert ".when_not_matched_insert(" in source
+    assert "delete_delta_table_rows(" not in route_source
+    assert "_raw_window_delete_predicate" not in route_source
+    assert "append_delta_table_rows(" not in route_source
 
 
 def test_raw_ingest_watermark_keys_include_source_interval() -> None:
