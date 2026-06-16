@@ -66,6 +66,25 @@ def test_inventory_classifies_research_data_to_public_delta_helper_as_public_api
     assert record.classification == PUBLIC_API
 
 
+def test_inventory_classifies_research_data_to_stage_timings_as_public_api(
+    tmp_path: Path,
+) -> None:
+    _write_product_file(
+        tmp_path,
+        "research/indicators/materialize.py",
+        "from trading_advisor_3000.product_plane.runtime.stage_timings import stage_timer\n",
+    )
+
+    records, parse_errors = collect_import_records(tmp_path)
+
+    assert not parse_errors
+    assert len(records) == 1
+    record = records[0]
+    assert record.origin_module == RESEARCH_DATA_FACTORY
+    assert record.target_module == RUNTIME_PLANE
+    assert record.classification == PUBLIC_API
+
+
 def test_product_plane_module_import_inventory_cli_json_runs() -> None:
     result = subprocess.run(
         [

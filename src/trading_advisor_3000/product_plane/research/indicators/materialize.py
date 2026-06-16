@@ -33,6 +33,12 @@ from trading_advisor_3000.product_plane.research.continuous_front_indicators.rul
 )
 from trading_advisor_3000.product_plane.research.datasets import ResearchBarView
 from trading_advisor_3000.product_plane.research.datasets.bar_usage import BAR_USAGE_POLICY_ID
+from trading_advisor_3000.product_plane.runtime.stage_timings import (
+    StageTimings,
+    record_skipped_stage,
+    record_stage_timing,
+    stage_timer,
+)
 
 from .registry import (
     IndicatorProfile,
@@ -143,6 +149,14 @@ def _utc_timestamp(value: object) -> pd.Timestamp:
     return timestamp.tz_convert("UTC")
 
 
+def _optional_utc_timestamp(value: object) -> pd.Timestamp | None:
+    if value is None:
+        return None
+    if isinstance(value, str) and value.strip().lower() in {"", "none", "null", "nat"}:
+        return None
+    return _utc_timestamp(value)
+
+
 def _timeframe_delta(timeframe: str) -> pd.Timedelta:
     normalized = str(timeframe).strip().lower()
     if normalized.endswith("m"):
@@ -158,11 +172,12 @@ def _timeframe_delta(timeframe: str) -> pd.Timedelta:
 
 def _target_bar_close_ts(row: ResearchBarView) -> pd.Timestamp:
     open_ts = _utc_timestamp(row.ts)
-    if row.timeframe.endswith("d") and row.session_close_ts:
-        return _utc_timestamp(row.session_close_ts)
-    close_ts = open_ts + _timeframe_delta(row.timeframe)
-    if row.session_close_ts:
-        session_close_ts = _utc_timestamp(row.session_close_ts)
+    bar_end_ts = _optional_utc_timestamp(row.bar_end_ts)
+    session_close_ts = _optional_utc_timestamp(row.session_close_ts)
+    if row.timeframe.endswith("d") and session_close_ts is not None:
+        return session_close_ts
+    close_ts = bar_end_ts or open_ts + _timeframe_delta(row.timeframe)
+    if session_close_ts is not None:
         close_ts = min(close_ts, session_close_ts)
     return close_ts
 
@@ -1802,6 +1817,8 @@ def _materialize_indicator_frames_unlocked(
     volume_profile_raw_1m_table_path: Path | None = None,
     volume_profile_tick_size_by_instrument: Mapping[str, float] | None = None,
 ) -> dict[str, object]:
+    stage_timings: StageTimings = {}
+    stage_started = stage_timer()
     dataset_manifest = _load_dataset_manifest(
         output_dir=dataset_output_dir,
         dataset_version=dataset_version,
@@ -1817,6 +1834,13 @@ def _materialize_indicator_frames_unlocked(
     scoped_instruments = frozenset(
         str(item).strip() for item in dataset_instrument_ids if str(item).strip()
     )
+    record_stage_timing(
+        stage_timings,
+        "load_dataset_manifest",
+        stage_started,
+        series_mode=series_mode,
+        profile_version=resolved_profile.version,
+    )
 
     def _partition_in_requested_scope(partition: IndicatorFramePartitionKey) -> bool:
         return (not scoped_timeframes or partition.timeframe in scoped_timeframes) and (
@@ -1826,6 +1850,7 @@ def _materialize_indicator_frames_unlocked(
     table_exists = (
         indicator_output_dir / "research_indicator_frames.delta" / "_delta_log"
     ).exists()
+    stage_started = stage_timer()
     existing_metadata = (
         load_indicator_partition_metadata(
             output_dir=indicator_output_dir,
@@ -1860,6 +1885,16 @@ def _materialize_indicator_frames_unlocked(
             indicator_output_dir / "research_indicator_frames.delta"
         ).as_posix()
     }
+    record_stage_timing(
+        stage_timings,
+        "load_existing_metadata",
+        stage_started,
+        table_exists=table_exists,
+        existing_partition_count=len(existing_by_partition),
+        reusable_existing_column_count=len(reusable_existing_columns),
+    )
+
+    stage_started = stage_timer()
     fast_reuse_report = _metadata_fast_reuse_report(
         existing_by_partition=existing_by_partition,
         current_dataset_bars_hash=current_dataset_bars_hash,
@@ -1871,8 +1906,17 @@ def _materialize_indicator_frames_unlocked(
         resolved_profile=resolved_profile,
     )
     if fast_reuse_report is not None:
-        return fast_reuse_report
+        record_stage_timing(
+            stage_timings,
+            "reuse_decision",
+            stage_started,
+            reused=True,
+            partition_count=len(existing_by_partition),
+        )
+        return {**fast_reuse_report, "stage_timings": stage_timings}
+    record_stage_timing(stage_timings, "reuse_decision", stage_started, reused=False)
 
+    stage_started = stage_timer()
     adjustment_ladder_rows = (
         _load_adjustment_ladder_rows(
             dataset_output_dir=dataset_output_dir, dataset_version=dataset_version
@@ -1902,6 +1946,13 @@ def _materialize_indicator_frames_unlocked(
         source_table_commit_ts is not None
         and indicator_table_commit_ts is not None
         and indicator_table_commit_ts >= source_table_commit_ts
+    )
+    record_stage_timing(
+        stage_timings,
+        "load_source_partitions",
+        stage_started,
+        partition_count=len(partition_counts),
+        adjustment_ladder_row_count=len(adjustment_ladder_rows),
     )
 
     current_partitions: set[IndicatorFramePartitionKey] = set()
@@ -1981,11 +2032,25 @@ def _materialize_indicator_frames_unlocked(
                     volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
                 )
 
+        record_skipped_stage(
+            stage_timings,
+            "build_refresh_plan",
+            reason="table does not exist; all source partitions are fresh",
+        )
+        stage_started = stage_timer()
         output_paths, refreshed_row_count, batch_count = write_indicator_frame_batches(
             output_dir=indicator_output_dir,
             row_batches=_fresh_row_batches(),
             replace_partitions=None,
             profile=resolved_profile,
+        )
+        record_stage_timing(
+            stage_timings,
+            "write_indicator_frames",
+            stage_started,
+            refreshed_partition_count=len(sorted_partition_items),
+            refreshed_row_count=refreshed_row_count,
+            write_batch_count=batch_count,
         )
         current_total_rows = sum(partition_counts.values())
         volume_profile_source_status = "not_required"
@@ -2012,9 +2077,11 @@ def _materialize_indicator_frames_unlocked(
             "profile_version": resolved_profile.version,
             "output_columns_hash": target_output_columns_hash,
             "output_paths": output_paths,
+            "stage_timings": stage_timings,
             "delta_manifest": indicator_store_contract(profile=resolved_profile),
         }
 
+    stage_started = stage_timer()
     for partition_key, row_count in sorted_partition_items:
         current_partitions.add(partition_key)
         existing_partition_metadata = existing_by_partition.get(partition_key)
@@ -2154,6 +2221,17 @@ def _materialize_indicator_frames_unlocked(
         if partition not in current_partitions and _partition_in_requested_scope(partition)
     )
     replace_partitions.extend(deleted_partitions)
+    record_stage_timing(
+        stage_timings,
+        "build_refresh_plan",
+        stage_started,
+        partition_count=len(sorted_partition_items),
+        refreshed_partition_count=refreshed_partitions,
+        reused_partition_count=reused_partitions,
+        extended_partition_count=extended_partitions,
+        recomputed_partition_count=recomputed_partitions,
+        deleted_partition_count=len(deleted_partitions),
+    )
 
     refreshed_row_count = 0
     batch_count = 0
@@ -2197,11 +2275,26 @@ def _materialize_indicator_frames_unlocked(
                     ),
                 )
 
+        stage_started = stage_timer()
         output_paths, refreshed_row_count, batch_count = write_indicator_frame_partition_batches(
             output_dir=indicator_output_dir,
             partition_row_batches=_partition_row_batches(),
             delete_partitions=deleted_partitions,
             profile=resolved_profile,
+        )
+        record_stage_timing(
+            stage_timings,
+            "write_indicator_frames",
+            stage_started,
+            refreshed_partition_count=refreshed_partitions,
+            refreshed_row_count=refreshed_row_count,
+            write_batch_count=batch_count,
+        )
+    else:
+        record_skipped_stage(
+            stage_timings,
+            "write_indicator_frames",
+            reason="all partitions reusable",
         )
 
     current_total_rows = sum(partition_counts.values())
@@ -2226,6 +2319,7 @@ def _materialize_indicator_frames_unlocked(
         "profile_version": resolved_profile.version,
         "output_columns_hash": target_output_columns_hash,
         "output_paths": output_paths,
+        "stage_timings": stage_timings,
         "delta_manifest": indicator_store_contract(profile=resolved_profile),
     }
 

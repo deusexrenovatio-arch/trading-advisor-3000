@@ -152,6 +152,17 @@ def test_spark_session_admission_splits_daily_multi_day_and_boundaries() -> None
     )
 
 
+def test_spark_session_admission_cuts_lineage_before_out_of_schedule_counts() -> None:
+    source = inspect.getsource(spark_job_module._build_session_bounded_outputs)
+
+    assert "localCheckpoint(eager=True)" in source
+    assert "raw_rejected_df = _cut_lineage(raw_rejected_df)" in source
+    assert "finer_matches_df = _cut_lineage(finer_matches_df)" in source
+    assert (
+        "finer_covered_coarse_bucket_ids = _cut_lineage(finer_covered_coarse_bucket_ids)" in source
+    )
+
+
 def test_raw_available_intervals_scanner_normalizes_delta_rows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

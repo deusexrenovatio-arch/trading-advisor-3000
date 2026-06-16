@@ -177,6 +177,27 @@ def test_research_bar_view_roundtrips_usage_contract() -> None:
     assert ResearchBarView.from_dict(zero_flags_payload).bar_usage_flags == 0
 
 
+def test_research_bar_view_preserves_nullable_session_boundaries() -> None:
+    payload = {
+        **_view(
+            contour_id="native_tradable",
+            series_mode="contract",
+            series_id="BR-6.26",
+            contract_id="BR-6.26",
+        ).to_dict(),
+        "session_open_ts": None,
+        "session_close_ts": None,
+        "bar_start_ts": "2026-04-01T00:00:00Z",
+        "bar_end_ts": "2026-04-01T23:59:00Z",
+    }
+
+    restored = ResearchBarView.from_dict(payload)
+
+    assert restored.session_open_ts is None
+    assert restored.session_close_ts is None
+    assert restored.bar_end_ts == "2026-04-01T23:59:00Z"
+
+
 def test_spark_l0_job_requires_canonical_session_metadata_inputs() -> None:
     import inspect
 
@@ -216,7 +237,7 @@ def test_canonical_sidecars_expose_strict_bar_usage_metadata_contract() -> None:
     assert moex_publish_job.CANONICAL_PROVENANCE_COLUMNS["session_interval_id"] == "string"
 
 
-def test_spark_l0_bar_usage_contract_is_not_recovered_by_heuristic_fallbacks() -> None:
+def test_spark_l0_bar_usage_contract_uses_only_canonical_metadata_fallbacks() -> None:
     import inspect
 
     provenance_source = inspect.getsource(spark_l0_job._canonical_provenance_frame)
@@ -228,10 +249,8 @@ def test_spark_l0_bar_usage_contract_is_not_recovered_by_heuristic_fallbacks() -
     assert '("session_interval_id", "interval_id")' not in provenance_source
     assert 'bar._bar_session_interval_id").isNull()' not in usage_source
     assert 'F.coalesce(F.col("_bar_session_interval_id"), F.col("interval_id"))' not in usage_source
-    assert (
-        'F.coalesce(F.col("calendar_session_class"), F.col("day_session_class"))'
-        not in usage_source
-    )
+    assert 'F.coalesce(F.col("calendar_session_class"), F.col("day_session_class"))' in usage_source
+    assert '"day_session_class"' in context_source
     assert "daily_contract_id" in context_source
     assert 'bar.contract_id") == F.col("weekly_actual.daily_contract_id")' in usage_source
 

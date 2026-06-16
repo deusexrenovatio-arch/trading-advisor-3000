@@ -24,7 +24,10 @@ from trading_advisor_3000.product_plane.research.indicators import (
     default_indicator_profile,
     indicator_store_contract,
 )
-from trading_advisor_3000.product_plane.research.indicators.materialize import _timeframe_delta
+from trading_advisor_3000.product_plane.research.indicators.materialize import (
+    _target_bar_close_ts,
+    _timeframe_delta,
+)
 from trading_advisor_3000.product_plane.research.indicators.volume_profile import (
     _price_to_tick_floor,
 )
@@ -303,6 +306,20 @@ def test_indicator_profile_contains_volume_profile_as_base_outputs() -> None:
 def test_volume_profile_timeframe_delta_supports_weekly_windows() -> None:
     assert _timeframe_delta("1w") == timedelta(weeks=1)
     assert _timeframe_delta("w") == timedelta(weeks=1)
+
+
+def test_volume_profile_target_close_uses_bar_end_when_session_close_is_missing() -> None:
+    row = ResearchBarView.from_dict(
+        {
+            **_view(ts_index=0, close=100.0).to_dict(),
+            "timeframe": "1d",
+            "ts": "2026-03-09T00:00:00Z",
+            "session_close_ts": None,
+            "bar_end_ts": "2026-03-09T23:59:00Z",
+        }
+    )
+
+    assert _target_bar_close_ts(row).isoformat() == "2026-03-09T23:59:00+00:00"
 
 
 def test_volume_profile_roll_rule_uses_price_volume_roll_aware_group() -> None:

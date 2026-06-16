@@ -17,8 +17,8 @@ class ResearchBarView:
     volume: int
     open_interest: int
     session_date: str
-    session_open_ts: str
-    session_close_ts: str
+    session_open_ts: str | None
+    session_close_ts: str | None
     active_contract_id: str
     ret_1: float | None
     log_ret_1: float | None
@@ -130,6 +130,10 @@ class ResearchBarView:
 
     @classmethod
     def from_dict(cls, payload: dict[str, object]) -> "ResearchBarView":
+        def nullable_str(key: str) -> str | None:
+            value = payload[key]
+            return None if value is None else str(value)
+
         return cls(
             dataset_version=str(payload["dataset_version"]),
             contour_id=str(payload.get("contour_id") or "native_tradable"),
@@ -144,8 +148,8 @@ class ResearchBarView:
             volume=int(payload["volume"]),
             open_interest=int(payload["open_interest"]),
             session_date=str(payload["session_date"]),
-            session_open_ts=str(payload["session_open_ts"]),
-            session_close_ts=str(payload["session_close_ts"]),
+            session_open_ts=nullable_str("session_open_ts"),
+            session_close_ts=nullable_str("session_close_ts"),
             bar_start_ts=None
             if payload.get("bar_start_ts") is None
             else str(payload["bar_start_ts"]),
