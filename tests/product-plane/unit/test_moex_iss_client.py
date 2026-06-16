@@ -59,6 +59,28 @@ class _AdaptiveSplitClient(MoexISSClient):
         }
 
 
+class _FailingTwoDayClient(MoexISSClient):
+    def __init__(self, events: list[dict[str, object]]) -> None:
+        super().__init__(request_event_hook=events.append)
+        self.requests: list[dict[str, str]] = []
+
+    def _get_json(  # type: ignore[override]
+        self,
+        path: str,
+        *,
+        params: dict[str, str],
+        event_context: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        del path, event_context
+        self.requests.append(dict(params))
+        raise MoexRequestError(
+            url="https://iss.moex.com/example",
+            params=params,
+            attempts=3,
+            last_error=TimeoutError("timed out"),
+        )
+
+
 def test_iter_candles_splits_failing_window_and_recovers() -> None:
     events: list[dict[str, object]] = []
     client = _AdaptiveSplitClient(events)
@@ -83,6 +105,32 @@ def test_iter_candles_splits_failing_window_and_recovers() -> None:
     assert ("2026-04-01", "2026-04-02") in requested_windows
     assert ("2026-04-03", "2026-04-04") in requested_windows
     assert any(event.get("event") == "moex_candles_chunk_split" for event in events)
+
+
+def test_iter_candles_does_not_split_small_tail_window_after_transport_failure() -> None:
+    events: list[dict[str, object]] = []
+    client = _FailingTwoDayClient(events)
+
+    with pytest.raises(MoexRequestError):
+        list(
+            client.iter_candles(
+                engine="futures",
+                market="forts",
+                board="RFUD",
+                secid="BRQ6",
+                interval=1,
+                date_from=date(2026, 6, 9),
+                date_till=date(2026, 6, 10),
+            )
+        )
+
+    requested_windows = [
+        (row["from"], row["till"]) for row in client.requests if row["start"] == "0"
+    ]
+    assert requested_windows == [("2026-06-09", "2026-06-10")]
+    assert not any(event.get("event") == "moex_candles_chunk_split" for event in events)
+    assert events[-1]["event"] == "moex_candles_chunk"
+    assert events[-1]["status"] == "fail"
 
 
 class _JsonResponse:

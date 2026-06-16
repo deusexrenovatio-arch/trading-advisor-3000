@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from trading_advisor_3000.spark_jobs.canonical_bars_job import (
+    _ensure_hadoop_home_bin_on_path,
     _spark_config_overrides_from_env,
     _spark_runtime_dirs,
 )
@@ -27,6 +29,23 @@ def test_spark_runtime_dirs_are_empty_without_env(monkeypatch) -> None:
     monkeypatch.delenv("TA3000_SPARK_RUNTIME_ROOT", raising=False)
 
     assert _spark_runtime_dirs() == {}
+
+
+def test_hadoop_home_bin_is_added_to_path_once(monkeypatch, tmp_path: Path) -> None:
+    hadoop_home = tmp_path / "hadoop"
+    hadoop_bin = hadoop_home / "bin"
+    hadoop_bin.mkdir(parents=True)
+    existing_path = str(tmp_path / "existing-bin")
+    monkeypatch.setenv("HADOOP_HOME", str(hadoop_home))
+    monkeypatch.setenv("PATH", existing_path)
+
+    _ensure_hadoop_home_bin_on_path()
+    _ensure_hadoop_home_bin_on_path()
+
+    path_entries = os.environ["PATH"].split(os.pathsep)
+    assert path_entries[0] == str(hadoop_bin)
+    assert path_entries.count(str(hadoop_bin)) == 1
+    assert existing_path in path_entries
 
 
 def test_spark_config_overrides_follow_env(monkeypatch) -> None:
