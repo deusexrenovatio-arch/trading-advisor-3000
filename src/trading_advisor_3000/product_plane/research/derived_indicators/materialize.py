@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -1738,6 +1738,7 @@ def materialize_derived_indicator_frames(
     spark_master: str = "",
     timeframes: Sequence[str] = (),
     dataset_instrument_ids: Sequence[str] = (),
+    refresh_windows: Sequence[Mapping[str, object]] = (),
 ) -> dict[str, object]:
     stage_timings: StageTimings = {}
     stage_started = stage_timer()
@@ -1807,6 +1808,7 @@ def materialize_derived_indicator_frames(
         spark_master=spark_master or DEFAULT_SPARK_MASTER,
         timeframes=timeframes,
         dataset_instrument_ids=dataset_instrument_ids,
+        refresh_windows=refresh_windows,
     )
     source_rows_by_table = dict(source_frame_report.get("rows_by_table", {}))
     record_stage_timing(
@@ -2047,7 +2049,7 @@ def materialize_derived_indicator_frames(
                     local_indicator_rows,
                     value_columns=required_source_indicator_columns,
                 )
-            if series_mode != "continuous_front" and _existing_partition_matches(
+            if _existing_partition_matches(
                 existing_partition_metadata,
                 source_bars_hash=source_bars_hash,
                 source_indicators_hash=source_indicators_hash,
@@ -2210,6 +2212,7 @@ def materialize_derived_indicator_frames(
         "recomputed_partition_count": recomputed_partitions,
         "deleted_partition_count": len(deleted_partitions),
         "write_batch_count": batch_count,
+        "refresh_window_count": len(tuple(refresh_windows)),
         "output_columns_hash": target_output_columns_hash,
         "loaded_indicator_partition_count": 0,
         "loaded_source_frame_partition_count": len(source_rows_cache),

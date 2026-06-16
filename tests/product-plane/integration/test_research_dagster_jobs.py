@@ -1064,7 +1064,19 @@ def test_moex_cf_catch_up_sensor_starts_windowed_job_after_moex_baseline_change(
                         "source_changed_windows": [],
                         "source_changed_window_count": 1,
                         "window_hash_sha256": "a" * 64,
-                    }
+                    },
+                    {
+                        "instrument_id": "FUT_GOLD",
+                        "timeframe": "1h",
+                        "start_ts": "2026-04-21T21:00:00Z",
+                        "end_ts": "2026-04-23T00:00:00Z",
+                        "overlap_minutes": 180,
+                        "source_window_start_utc": "2026-04-22T00:00:00Z",
+                        "source_window_end_utc": "2026-04-23T00:00:00Z",
+                        "source_changed_windows": [],
+                        "source_changed_window_count": 1,
+                        "window_hash_sha256": "c" * 64,
+                    },
                 ],
                 "windows_hash_sha256": "b" * 64,
             },
@@ -1083,19 +1095,36 @@ def test_moex_cf_catch_up_sensor_starts_windowed_job_after_moex_baseline_change(
         context,
     )
 
-    assert request.run_key == f"{MOEX_CF_CATCH_UP_JOB_NAME}:baseline-change-run:{'a' * 64}"
+    assert request.run_key == f"{MOEX_CF_CATCH_UP_JOB_NAME}:baseline-change-run:{'b' * 64}"
     assert request.tags["ta3000/upstream_job"] == MOEX_BASELINE_UPDATE_JOB_NAME
     assert request.tags["ta3000/upstream_run_id"] == "baseline-change-run"
-    assert request.tags["ta3000/cf_catch_up_window_hash"] == "a" * 64
+    assert request.tags["ta3000/cf_catch_up_windows_hash"] == "b" * 64
+    assert request.tags["ta3000/cf_catch_up_window_count"] == "2"
     assert request.tags["ta3000/cf_catch_up_overlap_minutes"] == "180"
-    assert request.tags["ta3000/instrument_id"] == "FUT_BR"
-    assert request.tags["ta3000/timeframe"] == "15m"
     assert set(request.run_config["ops"]) == {"continuous_front_bars"}
     op_config = request.run_config["ops"]["continuous_front_bars"]["config"]
-    assert op_config["dataset_instrument_ids"] == ["FUT_BR"]
-    assert op_config["timeframes"] == ["15m"]
+    assert op_config["dataset_instrument_ids"] == ["FUT_BR", "FUT_GOLD"]
+    assert op_config["timeframes"] == ["15m", "1h"]
     assert op_config["start_ts"] == "2026-04-20T21:00:00Z"
-    assert op_config["end_ts"] == "2026-04-22T00:00:00Z"
+    assert op_config["end_ts"] == "2026-04-23T00:00:00Z"
+    assert op_config["changed_windows"] == [
+        {
+            "instrument_id": "FUT_BR",
+            "timeframe": "15m",
+            "start_ts": "2026-04-20T21:00:00Z",
+            "end_ts": "2026-04-22T00:00:00Z",
+            "window_hash_sha256": "a" * 64,
+            "overlap_minutes": 180,
+        },
+        {
+            "instrument_id": "FUT_GOLD",
+            "timeframe": "1h",
+            "start_ts": "2026-04-21T21:00:00Z",
+            "end_ts": "2026-04-23T00:00:00Z",
+            "window_hash_sha256": "c" * 64,
+            "overlap_minutes": 180,
+        },
+    ]
     assert op_config["series_mode"] == "continuous_front"
 
 

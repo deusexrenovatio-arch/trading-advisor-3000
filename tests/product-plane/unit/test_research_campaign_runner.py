@@ -501,6 +501,9 @@ def test_run_campaign_forwards_volume_profile_config_to_data_prep(
         "raw_1m_table_path": raw_1m_path.as_posix(),
         "tick_size_by_instrument": {"Si": 10.0, "BR": 1.0},
     }
+    execution = dict(payload["execution"])  # type: ignore[arg-type]
+    execution["spark_master"] = "local[4]"
+    payload["execution"] = execution
     config_path = tmp_path / "volume-profile-campaign.yaml"
     _write_campaign(config_path, payload)
     captured: dict[str, object] = {}
@@ -522,6 +525,7 @@ def test_run_campaign_forwards_volume_profile_config_to_data_prep(
 
     assert summary["status"] == "success"
     assert captured["derived_indicator_profile_version"] == "core_v1"
+    assert captured["spark_master"] == "local[4]"
     assert captured["volume_profile_raw_1m_table_path"] == raw_1m_path.resolve().as_posix()
     assert captured["volume_profile_tick_size_by_instrument"] == {"BR": 1.0, "Si": 10.0}
     materialization_lock = _load_json(

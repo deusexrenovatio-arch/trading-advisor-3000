@@ -103,6 +103,17 @@ def _stub_existing_research_context(
             "reuse_existing_materialization": bool(
                 config.get("reuse_existing_materialization", False)
             ),
+            "contour_id": "pit_active_front"
+            if str(config.get("series_mode", "contract")) == "continuous_front"
+            else "native_tradable",
+            "timeframes": tuple(str(item) for item in config.get("timeframes", ())),
+            "dataset_instrument_ids": tuple(
+                str(item) for item in config.get("dataset_instrument_ids", ())
+            ),
+            "changed_windows": tuple(
+                dict(item) for item in config.get("changed_windows", ()) if isinstance(item, dict)
+            ),
+            "spark_master": str(config.get("spark_master", "")),
             "continuous_front_indicator_qc_mode": str(
                 config.get("continuous_front_indicator_qc_mode", "hot_path")
             ),
@@ -570,6 +581,83 @@ def test_reused_dagster_derived_asset_validates_existing_indicator_identity(
 
     assert captured["dataset_version"] == "dataset-v1"
     assert captured["derived_indicator_set_version"] == "derived-v1"
+
+
+def test_dagster_derived_asset_passes_changed_windows_to_materializer(
+    tmp_path, monkeypatch
+) -> None:
+    captured: dict[str, object] = {}
+    _stub_existing_research_context(monkeypatch, tmp_path)
+    changed_windows = [
+        {
+            "instrument_id": "BR",
+            "timeframe": "15m",
+            "start_ts": "2026-06-10T10:00:00Z",
+            "end_ts": "2026-06-10T10:15:00Z",
+        }
+    ]
+
+    def _fake_materialize_derived_indicator_frames(**kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(
+        research_assets,
+        "materialize_derived_indicator_frames",
+        _fake_materialize_derived_indicator_frames,
+    )
+    monkeypatch.setattr(
+        research_assets,
+        "_delta_table_summary",
+        lambda **_: {"table_name": "research_derived_indicator_frames", "row_count": 1},
+    )
+
+    research_assets.research_derived_indicator_frames(
+        build_op_context(
+            op_config=_full_research_config(
+                tmp_path,
+                series_mode="continuous_front",
+                timeframes=["15m"],
+                dataset_instrument_ids=["BR"],
+                changed_windows=changed_windows,
+            )
+        )
+    )
+
+    assert captured["contour_id"] == "pit_active_front"
+    assert captured["refresh_windows"] == tuple(changed_windows)
+
+
+def test_existing_research_dataset_context_preserves_changed_windows(tmp_path, monkeypatch) -> None:
+    changed_windows = [
+        {
+            "instrument_id": "BR",
+            "timeframe": "15m",
+            "start_ts": "2026-06-10T10:00:00Z",
+            "end_ts": "2026-06-10T10:15:00Z",
+        }
+    ]
+    monkeypatch.setattr(
+        research_assets,
+        "_dataset_manifest_row",
+        lambda **_: {"series_mode": "continuous_front"},
+    )
+
+    context = research_assets._existing_research_dataset_context(  # type: ignore[attr-defined]
+        _full_research_config(
+            tmp_path,
+            series_mode="continuous_front",
+            timeframes=["15m"],
+            dataset_instrument_ids=["BR"],
+            changed_windows=changed_windows,
+            spark_master="local[2]",
+        )
+    )
+
+    assert context["contour_id"] == "pit_active_front"
+    assert context["timeframes"] == ("15m",)
+    assert context["dataset_instrument_ids"] == ("BR",)
+    assert context["changed_windows"] == tuple(changed_windows)
+    assert context["spark_master"] == "local[2]"
 
 
 def test_backtest_result_manifest_fanout_does_not_reload_large_delta_tables(

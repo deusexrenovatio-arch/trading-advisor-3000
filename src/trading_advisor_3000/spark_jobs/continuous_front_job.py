@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -33,6 +34,14 @@ class ContinuousFrontSparkJobSpec:
     target_roll_events_table: str = "continuous_front_roll_events"
     target_adjustment_ladder_table: str = "continuous_front_adjustment_ladder"
     target_qc_report_table: str = "continuous_front_qc_report"
+
+
+@dataclass(frozen=True)
+class ContinuousFrontRefreshWindow:
+    instrument_id: str
+    timeframe: str
+    start_ts: str | None = None
+    end_ts: str | None = None
 
 
 def build_continuous_front_sql_plan() -> str:
@@ -187,6 +196,48 @@ def _policy_timestamp() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def _window_text(window: Mapping[str, object], key: str, *, required: bool) -> str | None:
+    value = str(window.get(key) or "").strip()
+    if required and not value:
+        raise ValueError(f"continuous_front refresh window requires `{key}`")
+    return value or None
+
+
+def _normalize_refresh_windows(
+    refresh_windows: Sequence[Mapping[str, object] | ContinuousFrontRefreshWindow] | None = None,
+) -> tuple[ContinuousFrontRefreshWindow, ...]:
+    normalized: list[ContinuousFrontRefreshWindow] = []
+    for window in refresh_windows or ():
+        if isinstance(window, ContinuousFrontRefreshWindow):
+            normalized.append(window)
+            continue
+        if not isinstance(window, Mapping):
+            raise TypeError("continuous_front refresh windows must be mappings")
+        normalized.append(
+            ContinuousFrontRefreshWindow(
+                instrument_id=str(_window_text(window, "instrument_id", required=True)),
+                timeframe=str(_window_text(window, "timeframe", required=True)),
+                start_ts=_window_text(window, "start_ts", required=False),
+                end_ts=_window_text(window, "end_ts", required=False),
+            )
+        )
+    return tuple(normalized)
+
+
+def _unique_scope_values(
+    refresh_windows: tuple[ContinuousFrontRefreshWindow, ...],
+    field_name: str,
+) -> tuple[str, ...]:
+    values: list[str] = []
+    seen: set[str] = set()
+    for window in refresh_windows:
+        value = str(getattr(window, field_name))
+        if value and value not in seen:
+            values.append(value)
+            seen.add(value)
+    return tuple(values)
+
+
 def _spark_sql_literal(value: object) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
@@ -222,6 +273,15 @@ def _scoped_delete_condition(filters: list[tuple[str, str, object]]) -> str:
     return " AND ".join(clauses)
 
 
+def _scoped_delete_disjunction(filter_groups: Sequence[list[tuple[str, str, object]]]) -> str:
+    conditions = [_scoped_delete_condition(filters) for filters in filter_groups]
+    if not conditions:
+        raise ValueError("scoped Delta delete requires at least one scope group")
+    if len(conditions) == 1:
+        return conditions[0]
+    return " OR ".join(f"({condition})" for condition in conditions)
+
+
 def _continuous_front_replace_filters(
     *,
     table_name: str,
@@ -249,6 +309,63 @@ def _continuous_front_replace_filters(
     return filters
 
 
+def _continuous_front_replace_filter_groups(
+    *,
+    table_name: str,
+    dataset_version: str,
+    instrument_ids: tuple[str, ...],
+    timeframes: tuple[str, ...],
+    start_ts: str | None,
+    end_ts: str | None,
+    refresh_windows: tuple[ContinuousFrontRefreshWindow, ...] = (),
+) -> list[list[tuple[str, str, object]]]:
+    if refresh_windows:
+        return [
+            _continuous_front_replace_filters(
+                table_name=table_name,
+                dataset_version=dataset_version,
+                instrument_ids=(window.instrument_id,),
+                timeframes=(window.timeframe,),
+                start_ts=window.start_ts,
+                end_ts=window.end_ts,
+            )
+            for window in refresh_windows
+        ]
+    return [
+        _continuous_front_replace_filters(
+            table_name=table_name,
+            dataset_version=dataset_version,
+            instrument_ids=instrument_ids,
+            timeframes=timeframes,
+            start_ts=start_ts,
+            end_ts=end_ts,
+        )
+    ]
+
+
+def _filter_to_refresh_windows(
+    dataframe,
+    refresh_windows: tuple[ContinuousFrontRefreshWindow, ...],
+    *,
+    ts_column: str = "ts",
+):
+    if not refresh_windows:
+        return dataframe
+    from pyspark.sql import functions as F  # type: ignore[import-not-found]
+
+    condition = None
+    for window in refresh_windows:
+        scoped = (F.col("instrument_id") == F.lit(window.instrument_id)) & (
+            F.col("timeframe") == F.lit(window.timeframe)
+        )
+        if window.start_ts:
+            scoped = scoped & (F.col(ts_column) >= F.lit(window.start_ts).cast("timestamp"))
+        if window.end_ts:
+            scoped = scoped & (F.col(ts_column) <= F.lit(window.end_ts).cast("timestamp"))
+        condition = scoped if condition is None else condition | scoped
+    return dataframe.where(condition)
+
+
 def _load_filtered_bars(
     *,
     spark: object,
@@ -257,6 +374,7 @@ def _load_filtered_bars(
     timeframes: tuple[str, ...],
     start_ts: str | None,
     end_ts: str | None,
+    refresh_windows: tuple[ContinuousFrontRefreshWindow, ...] = (),
 ):
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
@@ -284,6 +402,7 @@ def _load_filtered_bars(
         bars = bars.where(F.col("ts") >= F.lit(start_ts).cast("timestamp"))
     if end_ts:
         bars = bars.where(F.col("ts") <= F.lit(end_ts).cast("timestamp"))
+    bars = _filter_to_refresh_windows(bars, refresh_windows)
     return bars
 
 
@@ -647,18 +766,28 @@ def _build_spark_native_tables(
     timeframes: tuple[str, ...],
     start_ts: str | None,
     end_ts: str | None,
+    refresh_windows: tuple[ContinuousFrontRefreshWindow, ...] = (),
 ):
     from pyspark.sql import Window  # type: ignore[import-not-found]
     from pyspark.sql import functions as F
 
     created_at = _policy_timestamp()
+    scoped_instrument_ids = (
+        _unique_scope_values(refresh_windows, "instrument_id")
+        if refresh_windows
+        else instrument_ids
+    )
+    scoped_timeframes = (
+        _unique_scope_values(refresh_windows, "timeframe") if refresh_windows else timeframes
+    )
     raw_bars = _load_filtered_bars(
         spark=spark,
         canonical_bars_path=canonical_bars_path,
-        instrument_ids=instrument_ids,
-        timeframes=timeframes,
-        start_ts=start_ts,
-        end_ts=end_ts,
+        instrument_ids=scoped_instrument_ids,
+        timeframes=scoped_timeframes,
+        start_ts=None if refresh_windows else start_ts,
+        end_ts=None if refresh_windows else end_ts,
+        refresh_windows=refresh_windows,
     )
     bars = _filter_policy_session(raw_bars, policy)
     calendar_bars = None
@@ -666,8 +795,8 @@ def _build_spark_native_tables(
         calendar_raw_bars = _load_filtered_bars(
             spark=spark,
             canonical_bars_path=canonical_bars_path,
-            instrument_ids=instrument_ids,
-            timeframes=timeframes,
+            instrument_ids=scoped_instrument_ids,
+            timeframes=scoped_timeframes,
             start_ts=None,
             end_ts=None,
         )
@@ -1079,6 +1208,7 @@ def _write_spark_dataframe_tables(
     timeframes: tuple[str, ...] = (),
     start_ts: str | None = None,
     end_ts: str | None = None,
+    refresh_windows: tuple[ContinuousFrontRefreshWindow, ...] = (),
 ) -> dict[str, str]:
     output_dir.mkdir(parents=True, exist_ok=True)
     contract = continuous_front_store_contract()
@@ -1102,22 +1232,18 @@ def _write_spark_dataframe_tables(
                 writer = writer.partitionBy(*partition_by)
             writer.save(str(table_path))
         else:
-            spark.createDataFrame(
-                [], schema=_spark_schema(dict(contract[table_name]["columns"]))
-            ).write.format("delta").mode("append").option("mergeSchema", "true").save(
-                str(table_path)
-            )
             from delta.tables import DeltaTable  # type: ignore[import-not-found]
 
             DeltaTable.forPath(spark, str(table_path)).delete(
-                _scoped_delete_condition(
-                    _continuous_front_replace_filters(
+                _scoped_delete_disjunction(
+                    _continuous_front_replace_filter_groups(
                         table_name=table_name,
                         dataset_version=dataset_version,
                         instrument_ids=instrument_ids,
                         timeframes=timeframes,
                         start_ts=start_ts,
                         end_ts=end_ts,
+                        refresh_windows=refresh_windows,
                     )
                 )
             )
@@ -1171,12 +1297,24 @@ def run_continuous_front_spark_job(
     timeframes: tuple[str, ...] = (),
     start_ts: str | None = None,
     end_ts: str | None = None,
+    refresh_windows: Sequence[Mapping[str, object] | ContinuousFrontRefreshWindow] | None = None,
     spark_master: str = DEFAULT_SPARK_MASTER,
     spark_session_factory: Callable[[str, str], object] | None = None,
 ) -> dict[str, object]:
     spec = ContinuousFrontSparkJobSpec()
     resolved_policy = policy or ContinuousFrontPolicy()
     _require_spark_native_policy(resolved_policy)
+    normalized_refresh_windows = _normalize_refresh_windows(refresh_windows)
+    scoped_instrument_ids = (
+        _unique_scope_values(normalized_refresh_windows, "instrument_id")
+        if normalized_refresh_windows
+        else instrument_ids
+    )
+    scoped_timeframes = (
+        _unique_scope_values(normalized_refresh_windows, "timeframe")
+        if normalized_refresh_windows
+        else timeframes
+    )
     spark_factory = spark_session_factory or _create_spark_session
     stage_timings: StageTimings = {}
     stage_started = stage_timer()
@@ -1209,10 +1347,11 @@ def run_continuous_front_spark_job(
             dataset_version=dataset_version,
             policy=resolved_policy,
             run_id=run_id,
-            instrument_ids=instrument_ids,
-            timeframes=timeframes,
+            instrument_ids=scoped_instrument_ids,
+            timeframes=scoped_timeframes,
             start_ts=start_ts,
             end_ts=end_ts,
+            refresh_windows=normalized_refresh_windows,
         )
         record_stage_timing(stage_timings, "build_spark_native_tables", stage_started)
 
@@ -1223,10 +1362,11 @@ def run_continuous_front_spark_job(
             output_dir=staging_dir,
             tables=tables,
             dataset_version=dataset_version,
-            instrument_ids=instrument_ids,
-            timeframes=timeframes,
+            instrument_ids=scoped_instrument_ids,
+            timeframes=scoped_timeframes,
             start_ts=start_ts,
             end_ts=end_ts,
+            refresh_windows=normalized_refresh_windows,
         )
         record_stage_timing(
             stage_timings,
@@ -1258,10 +1398,11 @@ def run_continuous_front_spark_job(
             output_dir=output_dir,
             tables=tables,
             dataset_version=dataset_version,
-            instrument_ids=instrument_ids,
-            timeframes=timeframes,
+            instrument_ids=scoped_instrument_ids,
+            timeframes=scoped_timeframes,
             start_ts=start_ts,
             end_ts=end_ts,
+            refresh_windows=normalized_refresh_windows,
         )
         record_stage_timing(
             stage_timings,
@@ -1309,6 +1450,7 @@ def run_continuous_front_spark_job(
             "qc_rows": qc_rows,
             "contract_check_errors": contract_errors,
             "stage_timings": stage_timings,
+            "refresh_window_count": len(normalized_refresh_windows),
             "delta_manifest": continuous_front_store_contract(),
             "spark_profile": {
                 "app_name": spec.app_name,
@@ -1316,6 +1458,7 @@ def run_continuous_front_spark_job(
                 "delta_reader": "spark",
                 "delta_writer": "spark",
                 "causal_roll_engine": "spark-native-window-batch",
+                "refresh_window_count": len(normalized_refresh_windows),
                 "sql_plan": build_continuous_front_sql_plan(),
             },
         }

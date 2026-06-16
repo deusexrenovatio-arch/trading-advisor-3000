@@ -124,6 +124,7 @@ def test_continuous_front_spark_job_uses_native_spark_contour(
         "delta_reader",
         "delta_writer",
         "causal_roll_engine",
+        "refresh_window_count",
         "sql_plan",
     }
     assert not hasattr(job, "_build_tables_from_spark_stream")
@@ -191,6 +192,45 @@ def test_continuous_front_qc_replace_scope_uses_available_dimensions_only() -> N
         "dataset_version = 'dataset-v1' AND instrument_id IN ('FUT_BR') AND timeframe IN ('15m')"
     )
     assert "ts" not in condition
+
+
+def test_continuous_front_batch_replace_scope_keeps_per_window_time_bounds() -> None:
+    refresh_windows = job._normalize_refresh_windows(  # type: ignore[attr-defined]
+        (
+            {
+                "instrument_id": "FUT_BR",
+                "timeframe": "15m",
+                "start_ts": "2026-05-12T00:00:00Z",
+                "end_ts": "2026-05-12T23:59:59Z",
+            },
+            {
+                "instrument_id": "FUT_GOLD",
+                "timeframe": "1h",
+                "start_ts": "2026-05-13T00:00:00Z",
+                "end_ts": "2026-05-13T23:59:59Z",
+            },
+        )
+    )
+    filter_groups = job._continuous_front_replace_filter_groups(  # type: ignore[attr-defined]
+        table_name="continuous_front_bars",
+        dataset_version="dataset-v1",
+        instrument_ids=(),
+        timeframes=(),
+        start_ts=None,
+        end_ts=None,
+        refresh_windows=refresh_windows,
+    )
+
+    condition = job._scoped_delete_disjunction(filter_groups)  # type: ignore[attr-defined]
+
+    assert condition == (
+        "(dataset_version = 'dataset-v1' AND instrument_id IN ('FUT_BR') "
+        "AND timeframe IN ('15m') AND ts >= '2026-05-12T00:00:00Z' "
+        "AND ts <= '2026-05-12T23:59:59Z') OR "
+        "(dataset_version = 'dataset-v1' AND instrument_id IN ('FUT_GOLD') "
+        "AND timeframe IN ('1h') AND ts >= '2026-05-13T00:00:00Z' "
+        "AND ts <= '2026-05-13T23:59:59Z')"
+    )
 
 
 def test_continuous_front_spark_job_rejects_unsupported_policy(

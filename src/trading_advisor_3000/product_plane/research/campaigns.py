@@ -108,6 +108,7 @@ RESEARCH_DATA_PREP_KWARGS = {
     "continuous_front_policy",
     "dataset_contract_ids",
     "dataset_instrument_ids",
+    "spark_master",
     "indicator_set_version",
     "indicator_profile_version",
     "derived_indicator_set_version",
