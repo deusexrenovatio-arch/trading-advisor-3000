@@ -3,6 +3,7 @@ from __future__ import annotations
 # ruff: noqa: E501
 import argparse
 import json
+import os
 import re
 import shutil
 import sys
@@ -29,6 +30,7 @@ from trading_advisor_3000.product_plane.data_plane.moex.session_schedule import 
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (  # noqa: E402
     CANONICAL_BASELINE_ROOT_RELATIVE_PATH,
     CANONICAL_BASELINE_SESSION_INTERVALS_FILENAME,
+    MOEX_HISTORICAL_DATA_ROOT_ENV,
     RAW_BASELINE_TABLE_RELATIVE_PATH,
     configured_moex_runtime_staging_roots,
     resolve_external_root,
@@ -267,6 +269,15 @@ def main() -> None:
     parser.add_argument("--refresh-overlap-minutes", type=int, default=180)
     parser.add_argument("--max-changed-window-days", type=int, default=2)
     parser.add_argument("--stability-lag-minutes", type=int, default=20)
+    parser.add_argument(
+        "--coverage-mode",
+        choices=["local_tail", "live_discovery"],
+        default="local_tail",
+        help=(
+            "Use local_tail for normal verification/product-runtime tail updates without "
+            "MOEX metadata discovery; live_discovery is an explicit coverage refresh."
+        ),
+    )
     parser.add_argument("--no-expand-contract-chain", action="store_true")
     parser.add_argument(
         "--allow-product-runtime-write",
@@ -286,6 +297,12 @@ def main() -> None:
         run_id=run_id,
         explicit_root=_resolve_explicit_root(str(args.baseline_root)),
     )
+    product_runtime_seed_root = (
+        configured_moex_runtime_staging_roots(repo_root=ROOT).product_runtime_root
+        if bool(args.seed_from_product_runtime)
+        else None
+    )
+    os.environ[MOEX_HISTORICAL_DATA_ROOT_ENV] = baseline_root.as_posix()
     seed_report: dict[str, object] | None = None
     seed_from_root = _resolve_explicit_root(str(args.seed_from_root))
     if bool(args.seed_from_product_runtime):
@@ -293,7 +310,7 @@ def main() -> None:
             raise SystemExit("use either --seed-from-root or --seed-from-product-runtime, not both")
         if profile != PROFILE_VERIFICATION:
             raise SystemExit("--seed-from-product-runtime is only valid for verification profile")
-        seed_from_root = configured_moex_runtime_staging_roots(repo_root=ROOT).product_runtime_root
+        seed_from_root = product_runtime_seed_root
     if seed_from_root is not None:
         seed_report = _seed_baseline_root(
             source_root=seed_from_root,
@@ -324,6 +341,7 @@ def main() -> None:
         max_changed_window_days=int(args.max_changed_window_days),
         stability_lag_minutes=int(args.stability_lag_minutes),
         expand_contract_chain=not bool(args.no_expand_contract_chain),
+        coverage_mode=str(args.coverage_mode),
         raise_on_error=bool(args.raise_on_error),
     )
     if seed_report is not None:

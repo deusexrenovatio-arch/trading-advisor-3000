@@ -96,6 +96,7 @@ from trading_advisor_3000.spark_jobs import (
 
 from .historical_data_proof_assets import AssetSpec
 from .moex_historical_assets import (
+    BASELINE_UPDATE_REPORT_FILENAME,
     MOEX_BASELINE_UPDATE_JOB_NAME,
     MOEX_DATA_REBUILD_JOB_NAME,
     MOEX_DATA_REBUILD_OP_NAME,
@@ -104,6 +105,7 @@ from .moex_historical_assets import (
 )
 
 RESEARCH_DATA_PREP_JOB_NAME = "research_data_prep_job"
+MOEX_CF_CATCH_UP_JOB_NAME = "moex_cf_catch_up_job"
 MOEX_CF_REBUILD_JOB_NAME = "moex_cf_rebuild_job"
 MOEX_RESEARCH_BAR_REBUILD_JOB_NAME = "moex_research_bar_rebuild_job"
 MOEX_INDICATOR_REBUILD_JOB_NAME = "moex_indicator_rebuild_job"
@@ -113,6 +115,7 @@ STRATEGY_REGISTRY_REFRESH_JOB_NAME = "strategy_registry_refresh_job"
 RESEARCH_BACKTEST_JOB_NAME = "research_backtest_job"
 RESEARCH_PROJECTION_JOB_NAME = "research_projection_job"
 RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME = "research_data_prep_after_moex_sensor"
+MOEX_CF_CATCH_UP_AFTER_MOEX_BASELINE_SENSOR_NAME = "moex_cf_catch_up_after_moex_baseline_sensor"
 MOEX_HISTORICAL_DATA_REBUILD_RESEARCH_PREP_SENSOR_NAME = (
     "research_data_prep_after_moex_data_rebuild_sensor"
 )
@@ -189,6 +192,7 @@ MOEX_CF_REBUILD_ASSETS = (
     "continuous_front_adjustment_ladder",
     "continuous_front_qc_report",
 )
+MOEX_CF_CATCH_UP_ASSETS = MOEX_CF_REBUILD_ASSETS
 MOEX_RESEARCH_BAR_REBUILD_ASSETS = (
     "research_datasets",
     "research_instrument_tree",
@@ -2468,6 +2472,16 @@ research_data_prep_job = define_asset_job(
     ),
 )
 
+moex_cf_catch_up_job = define_asset_job(
+    name=MOEX_CF_CATCH_UP_JOB_NAME,
+    selection=AssetSelection.assets(
+        continuous_front_bars,
+        continuous_front_roll_events,
+        continuous_front_adjustment_ladder,
+        continuous_front_qc_report,
+    ),
+)
+
 moex_cf_rebuild_job = define_asset_job(
     name=MOEX_CF_REBUILD_JOB_NAME,
     selection=AssetSelection.assets(
@@ -2688,6 +2702,64 @@ def _moex_data_rebuild_op_config_from_run_config(run_config: object) -> dict[str
     return dict(config) if isinstance(config, Mapping) else {}
 
 
+def _moex_baseline_update_op_config_from_run_config(run_config: object) -> dict[str, object]:
+    if not isinstance(run_config, Mapping):
+        return {}
+    ops = run_config.get("ops")
+    if not isinstance(ops, Mapping):
+        return {}
+    op_payload = ops.get("moex_baseline_update", {})
+    if not isinstance(op_payload, Mapping):
+        return {}
+    config = op_payload.get("config", {})
+    return dict(config) if isinstance(config, Mapping) else {}
+
+
+def _baseline_update_report_path_from_run_config(run_config: object) -> Path | None:
+    op_config = _moex_baseline_update_op_config_from_run_config(run_config)
+    evidence_root = str(op_config.get("evidence_root") or "").strip()
+    run_id = str(op_config.get("run_id") or "").strip()
+    if not evidence_root or not run_id:
+        return None
+    return Path(evidence_root).resolve() / run_id / BASELINE_UPDATE_REPORT_FILENAME
+
+
+def _baseline_update_report_payload_from_run_config(
+    run_config: object,
+) -> dict[str, object] | None:
+    report_path = _baseline_update_report_path_from_run_config(run_config)
+    if report_path is None or not report_path.exists():
+        return None
+    try:
+        payload = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, Mapping):
+        return None
+    return dict(payload)
+
+
+def _cf_catch_up_windows_from_moex_baseline_update(
+    run_config: object,
+) -> list[dict[str, object]]:
+    payload = _baseline_update_report_payload_from_run_config(run_config)
+    if payload is None:
+        return []
+    if str(payload.get("status") or "").strip() != "PASS":
+        return []
+    if str(payload.get("publish_decision") or "").strip() != "publish":
+        return []
+    cf_catch_up = payload.get("cf_catch_up", {})
+    if not isinstance(cf_catch_up, Mapping):
+        return []
+    if str(cf_catch_up.get("status") or "").strip() != "READY":
+        return []
+    raw_windows = cf_catch_up.get("windows", [])
+    if not isinstance(raw_windows, list):
+        return []
+    return [dict(window) for window in raw_windows if isinstance(window, Mapping)]
+
+
 def _should_start_research_after_moex_data_rebuild(run_config: object) -> bool:
     op_config = _moex_data_rebuild_op_config_from_run_config(run_config)
     profile_name = str(op_config.get("profile_name") or "canonical_from_existing_raw")
@@ -2884,15 +2956,79 @@ def build_research_data_prep_run_config(
     }
 
 
+def _required_window_text(window: Mapping[str, object], key: str) -> str:
+    value = str(window.get(key) or "").strip()
+    if not value:
+        raise ValueError(f"cf_catch_up window requires `{key}`")
+    return value
+
+
+def _build_moex_cf_catch_up_run_config(
+    *,
+    canonical_output_dir: Path,
+    dataset_version: str,
+    campaign_run_id: str,
+    window: Mapping[str, object],
+) -> dict[str, object]:
+    instrument_id = _required_window_text(window, "instrument_id")
+    timeframe = _required_window_text(window, "timeframe")
+    start_ts = _required_window_text(window, "start_ts")
+    end_ts = _required_window_text(window, "end_ts")
+    resolved_materialized_output_dir = _env_path(
+        RESEARCH_DATA_PREP_MATERIALIZED_OUTPUT_DIR_ENV,
+        _default_research_materialized_output_dir(),
+    )
+    resolved_results_output_dir = _env_path(
+        RESEARCH_DATA_PREP_RESULTS_OUTPUT_DIR_ENV,
+        _default_research_results_output_dir(),
+    )
+    registry_root = research_registry_root(materialized_root=resolved_materialized_output_dir)
+    research_config = _research_run_config(
+        canonical_output_dir=canonical_output_dir.resolve(),
+        registry_root=registry_root,
+        materialized_output_dir=resolved_materialized_output_dir,
+        results_output_dir=resolved_results_output_dir,
+        campaign_run_id=campaign_run_id,
+        dataset_version=dataset_version,
+        dataset_name="moex-cf-catch-up",
+        universe_id="moex-futures",
+        timeframes=(timeframe,),
+        base_timeframe=timeframe,
+        start_ts=start_ts,
+        end_ts=end_ts,
+        warmup_bars=DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS,
+        split_method="holdout",
+        series_mode="continuous_front",
+        continuous_front_policy=scheduled_continuous_front_policy_config(),
+        dataset_instrument_ids=(instrument_id,),
+        indicator_set_version="indicators-v1",
+        indicator_profile_version="core_v1",
+        derived_indicator_set_version=DEFAULT_DERIVED_INDICATOR_SET_VERSION,
+        derived_indicator_profile_version="core_v1",
+        volume_profile_raw_1m_table_path=_default_volume_profile_raw_1m_table_path(),
+        volume_profile_tick_size_by_instrument=_default_volume_profile_tick_size_by_instrument(),
+        code_version="moex-cf-catch-up-after-baseline",
+        strategy_space_id="",
+        combination_count=0,
+    )
+    return {"ops": {"continuous_front_bars": {"config": research_config}}}
+
+
 @run_status_sensor(
     run_status=DagsterRunStatus.SUCCESS,
-    name=RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME,
+    name=MOEX_CF_CATCH_UP_AFTER_MOEX_BASELINE_SENSOR_NAME,
     monitored_jobs=[moex_baseline_update_job],
-    request_job=research_data_prep_job,
+    request_job=moex_cf_catch_up_job,
     default_status=DefaultSensorStatus.RUNNING,
-    description="Start research_data_prep_job after the canonical MOEX baseline update succeeds.",
+    description=(
+        "Start windowed moex_cf_catch_up_job runs after the canonical MOEX baseline "
+        "update succeeds."
+    ),
 )
-def research_data_prep_after_moex_sensor(context):
+def moex_cf_catch_up_after_moex_baseline_sensor(context):
+    windows = _cf_catch_up_windows_from_moex_baseline_update(context.dagster_run.run_config)
+    if not windows:
+        return None
     canonical_output_dir = _moex_canonical_output_dir_from_run_config(
         context.dagster_run.run_config
     )
@@ -2906,22 +3042,48 @@ def research_data_prep_after_moex_sensor(context):
         RESEARCH_DATA_PREP_DATASET_VERSION_ENV,
         DEFAULT_RESEARCH_DATA_PREP_DATASET_VERSION,
     )
-    return RunRequest(
-        run_key=f"{RESEARCH_DATA_PREP_JOB_NAME}:{upstream_run_id}",
-        run_config=build_research_data_prep_run_config(
-            canonical_output_dir=canonical_output_dir,
-            campaign_run_id=f"research_data_prep_after_{upstream_run_id}",
-            dataset_version=dataset_version,
-            series_mode="continuous_front",
-            continuous_front_policy=scheduled_continuous_front_policy_config(),
-        ),
-        tags={
-            "ta3000/upstream_job": MOEX_BASELINE_UPDATE_JOB_NAME,
-            "ta3000/upstream_run_id": upstream_run_id,
-            "ta3000/dataset_version": dataset_version,
-            "ta3000/series_mode": "continuous_front",
-        },
-    )
+    requests: list[RunRequest] = []
+    for window in windows:
+        window_hash = _required_window_text(window, "window_hash_sha256")
+        instrument_id = _required_window_text(window, "instrument_id")
+        timeframe = _required_window_text(window, "timeframe")
+        overlap_minutes = str(window.get("overlap_minutes") or "").strip()
+        requests.append(
+            RunRequest(
+                run_key=f"{MOEX_CF_CATCH_UP_JOB_NAME}:{upstream_run_id}:{window_hash}",
+                run_config=_build_moex_cf_catch_up_run_config(
+                    canonical_output_dir=canonical_output_dir,
+                    dataset_version=dataset_version,
+                    campaign_run_id=f"cf_catch_up_after_{upstream_run_id}_{window_hash[:12]}",
+                    window=window,
+                ),
+                tags={
+                    "ta3000/upstream_job": MOEX_BASELINE_UPDATE_JOB_NAME,
+                    "ta3000/upstream_run_id": upstream_run_id,
+                    "ta3000/dataset_version": dataset_version,
+                    "ta3000/series_mode": "continuous_front",
+                    "ta3000/cf_catch_up_window_hash": window_hash,
+                    "ta3000/cf_catch_up_overlap_minutes": overlap_minutes,
+                    "ta3000/instrument_id": instrument_id,
+                    "ta3000/timeframe": timeframe,
+                },
+            )
+        )
+    return requests
+
+
+@run_status_sensor(
+    run_status=DagsterRunStatus.SUCCESS,
+    name=RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME,
+    monitored_jobs=[moex_baseline_update_job],
+    request_job=research_data_prep_job,
+    default_status=DefaultSensorStatus.RUNNING,
+    description=(
+        "Compatibility no-op; baseline success now launches windowed continuous-front catch-up."
+    ),
+)
+def research_data_prep_after_moex_sensor(_context):
+    return None
 
 
 @run_status_sensor(
@@ -3047,6 +3209,7 @@ def research_projection_after_backtest_sensor(context):
 research_definitions = Definitions(
     assets=list(RESEARCH_ASSETS),
     jobs=[
+        moex_cf_catch_up_job,
         moex_cf_rebuild_job,
         moex_research_bar_rebuild_job,
         moex_indicator_rebuild_job,
@@ -3064,6 +3227,7 @@ def assert_research_definitions_executable(definitions: Definitions | None = Non
     defs = definitions or research_definitions
     repository = defs.get_repository_def()
     expected_by_job = {
+        MOEX_CF_CATCH_UP_JOB_NAME: set(MOEX_CF_CATCH_UP_ASSETS),
         MOEX_CF_REBUILD_JOB_NAME: set(MOEX_CF_REBUILD_ASSETS),
         MOEX_RESEARCH_BAR_REBUILD_JOB_NAME: set(MOEX_RESEARCH_BAR_REBUILD_ASSETS),
         MOEX_INDICATOR_REBUILD_JOB_NAME: set(MOEX_INDICATOR_REBUILD_ASSETS),

@@ -209,7 +209,7 @@ def test_historical_dagster_cutover_definitions_are_executable(
     repository = definitions.get_repository_def()
     job_names = {job.name for job in repository.get_all_jobs()}
     assert "moex_data_rebuild_job" in job_names
-    assert "moex_historical_cutover_job" not in job_names
+    assert "moex_historical_cutover_job" in job_names
     data_rebuild_job = repository.get_job("moex_data_rebuild_job")
     assert set(data_rebuild_job.graph.node_dict) == {"moex_data_rebuild"}
     schedule_names = {schedule_def.name for schedule_def in repository.schedule_defs}
@@ -218,9 +218,12 @@ def test_historical_dagster_cutover_definitions_are_executable(
     binding = build_moex_historical_dagster_binding_artifact()
     assert binding["schedule"]["cron"] == "0 2 * * *"
     assert binding["job"]["name"] == "moex_baseline_update_job"
-    assert binding["retry_policy"]["max_retries"] == 3
+    assert binding["retry_policy"]["max_retries"] == 0
     assert binding["runtime_boundary"]["orchestrator"] == "dagster"
-    assert binding["runtime_boundary"]["hot_table_runtime"] == "spark_delta"
+    assert (
+        binding["runtime_boundary"]["hot_table_runtime"]
+        == "delta_rs_raw_tail+spark_delta_canonical"
+    )
 
     schedule_def = repository.get_schedule_def("moex_baseline_daily_update_schedule")
     schedule_context = build_schedule_context(
@@ -283,6 +286,8 @@ def test_baseline_update_run_config_can_target_verification_staging_root(tmp_pat
     )
 
     op_config = run_config["ops"]["moex_baseline_update"]["config"]
+    assert op_config["timeframes"] == "1d"
+    assert op_config["cf_catch_up_timeframes"] == "15m,1h,4h,1d"
     assert (
         op_config["raw_table_path"]
         == (
@@ -307,7 +312,6 @@ def test_baseline_update_run_config_can_target_verification_staging_root(tmp_pat
         ).as_posix()
     )
     assert op_config["evidence_root"] == (baseline_root / "moex-baseline-update").as_posix()
-    assert op_config["timeframes"] == "1d"
     assert op_config["run_id"] == "proof-run-1"
 
 

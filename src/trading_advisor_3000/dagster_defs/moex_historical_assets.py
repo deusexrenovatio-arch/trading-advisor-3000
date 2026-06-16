@@ -30,6 +30,7 @@ from dagster import (
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log
 from trading_advisor_3000.product_plane.data_plane.moex.baseline_update import (
     BASELINE_UPDATE_REPORT_FILENAME,
+    DEFAULT_CF_CATCH_UP_TIMEFRAMES,
     run_moex_baseline_update,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.data_rebuild_profiles import (
@@ -182,9 +183,12 @@ MOEX_BASELINE_UPDATE_OP_CONFIG_SCHEMA = {
     "contract_discovery_lookback_days": DagsterField(int, is_required=False),
     "contract_discovery_step_days": DagsterField(int, is_required=False),
     "refresh_overlap_minutes": DagsterField(int, is_required=False),
+    "cf_catch_up_timeframes": DagsterField(str, is_required=False),
+    "cf_catch_up_overlap_minutes": DagsterField(int, is_required=False),
     "max_changed_window_days": DagsterField(int, is_required=False),
     "stability_lag_minutes": DagsterField(int, is_required=False),
     "expand_contract_chain": DagsterField(bool, is_required=False),
+    "coverage_mode": DagsterField(str, is_required=False),
     "ingest_till_utc": DagsterField(str, is_required=False),
     "run_id": DagsterField(str, is_required=False),
 }
@@ -196,6 +200,9 @@ MOEX_BASELINE_DAILY_CRON = "0 2 * * *"
 MOEX_HISTORICAL_NIGHTLY_CRON = MOEX_BASELINE_DAILY_CRON
 MOEX_HISTORICAL_EXECUTION_TIMEZONE = "Europe/Moscow"
 MOEX_HISTORICAL_RETRY_POLICY = RetryPolicy(max_retries=3, delay=60)
+MOEX_BASELINE_UPDATE_RETRY_POLICY = RetryPolicy(max_retries=0, delay=0)
+MOEX_BASELINE_UPDATE_HOT_TABLE_RUNTIME = "delta_rs_raw_tail+spark_delta_canonical"
+MOEX_BASELINE_UPDATE_RUNTIME_BOUNDARY_TAG = "dagster+delta_rs_raw_tail+spark_delta_canonical"
 
 
 def moex_historical_asset_specs() -> list[AssetSpec]:
@@ -338,9 +345,12 @@ def build_moex_baseline_update_run_config(
     contract_discovery_lookback_days: int = DEFAULT_CONTRACT_DISCOVERY_LOOKBACK_DAYS,
     contract_discovery_step_days: int = DEFAULT_CONTRACT_DISCOVERY_STEP_DAYS,
     refresh_overlap_minutes: int = DEFAULT_REFRESH_OVERLAP_MINUTES,
+    cf_catch_up_timeframes: str | Sequence[str] | None = None,
+    cf_catch_up_overlap_minutes: int | None = None,
     max_changed_window_days: int = DEFAULT_MAX_CHANGED_WINDOW_DAYS,
     stability_lag_minutes: int = DEFAULT_STABILITY_LAG_MINUTES,
     expand_contract_chain: bool = True,
+    coverage_mode: str = "local_tail",
 ) -> dict[str, object]:
     resolved_run_id = validate_moex_runtime_run_id(
         run_id, name="build_moex_baseline_update_run_config.run_id"
@@ -355,6 +365,15 @@ def build_moex_baseline_update_run_config(
         timeframes.strip()
         if isinstance(timeframes, str)
         else ",".join(str(item).strip() for item in timeframes if str(item).strip())
+    )
+    resolved_cf_catch_up_timeframes = (
+        ",".join(DEFAULT_CF_CATCH_UP_TIMEFRAMES)
+        if cf_catch_up_timeframes is None
+        else (
+            cf_catch_up_timeframes.strip()
+            if isinstance(cf_catch_up_timeframes, str)
+            else ",".join(str(item).strip() for item in cf_catch_up_timeframes if str(item).strip())
+        )
     )
     paths = _baseline_paths_from_root(resolved_root)
     return {
@@ -379,9 +398,20 @@ def build_moex_baseline_update_run_config(
                     "contract_discovery_lookback_days": int(contract_discovery_lookback_days),
                     "contract_discovery_step_days": int(contract_discovery_step_days),
                     "refresh_overlap_minutes": int(refresh_overlap_minutes),
+                    **(
+                        {"cf_catch_up_timeframes": resolved_cf_catch_up_timeframes}
+                        if resolved_cf_catch_up_timeframes
+                        else {}
+                    ),
+                    **(
+                        {"cf_catch_up_overlap_minutes": int(cf_catch_up_overlap_minutes)}
+                        if cf_catch_up_overlap_minutes is not None
+                        else {}
+                    ),
                     "max_changed_window_days": int(max_changed_window_days),
                     "stability_lag_minutes": int(stability_lag_minutes),
                     "expand_contract_chain": bool(expand_contract_chain),
+                    "coverage_mode": coverage_mode,
                     "ingest_till_utc": resolved_ingest_till_utc,
                     "run_id": resolved_run_id,
                 }
@@ -745,12 +775,12 @@ def build_moex_historical_dagster_binding_artifact() -> dict[str, object]:
             "default_status": DefaultScheduleStatus.RUNNING.value,
         },
         "retry_policy": {
-            "max_retries": MOEX_HISTORICAL_RETRY_POLICY.max_retries,
-            "delay": MOEX_HISTORICAL_RETRY_POLICY.delay,
+            "max_retries": MOEX_BASELINE_UPDATE_RETRY_POLICY.max_retries,
+            "delay": MOEX_BASELINE_UPDATE_RETRY_POLICY.delay,
         },
         "runtime_boundary": {
             "orchestrator": "dagster",
-            "hot_table_runtime": "spark_delta",
+            "hot_table_runtime": MOEX_BASELINE_UPDATE_HOT_TABLE_RUNTIME,
             "python_role": "source_adapter_config_and_evidence",
         },
     }
@@ -911,7 +941,7 @@ def _run_python_raw_ingest_route(op_config: dict[str, object]) -> dict[str, obje
 @asset(
     group_name="moex_baseline_update",
     config_schema=MOEX_BASELINE_UPDATE_OP_CONFIG_SCHEMA,
-    retry_policy=MOEX_HISTORICAL_RETRY_POLICY,
+    retry_policy=MOEX_BASELINE_UPDATE_RETRY_POLICY,
 )
 def moex_baseline_update(context) -> dict[str, object]:
     op_config = _op_config_from_context(context)
@@ -993,6 +1023,19 @@ def moex_baseline_update(context) -> dict[str, object]:
             "refresh_overlap_minutes",
             default=DEFAULT_REFRESH_OVERLAP_MINUTES,
         ),
+        cf_catch_up_timeframes=_split_timeframes(
+            _text_value(op_config, "cf_catch_up_timeframes") or ""
+        )
+        or None,
+        cf_catch_up_overlap_minutes=(
+            _int_value(
+                op_config,
+                "cf_catch_up_overlap_minutes",
+                default=DEFAULT_REFRESH_OVERLAP_MINUTES,
+            )
+            if "cf_catch_up_overlap_minutes" in op_config
+            else None
+        ),
         max_changed_window_days=_int_value(
             op_config,
             "max_changed_window_days",
@@ -1004,6 +1047,7 @@ def moex_baseline_update(context) -> dict[str, object]:
             default=DEFAULT_STABILITY_LAG_MINUTES,
         ),
         expand_contract_chain=_bool_value(op_config, "expand_contract_chain", default=True),
+        coverage_mode=_text_value(op_config, "coverage_mode") or "local_tail",
         repo_root=REPO_ROOT,
     )
     if str(report.get("publish_decision", "")).strip() != "publish":
@@ -1011,8 +1055,9 @@ def moex_baseline_update(context) -> dict[str, object]:
     context.add_output_metadata(
         {
             "mode": "baseline_update",
+            "coverage_mode": str(report.get("coverage_mode", "")),
             "orchestrator": "dagster_asset",
-            "hot_table_runtime": "spark_delta",
+            "hot_table_runtime": MOEX_BASELINE_UPDATE_HOT_TABLE_RUNTIME,
             "source_rows": int(report.get("source_rows", 0) or 0),
             "incremental_rows": int(report.get("incremental_rows", 0) or 0),
             "current_changed_windows": int(report.get("current_changed_windows", 0) or 0),
@@ -1614,7 +1659,7 @@ MOEX_HISTORICAL_ASSETS = (
 moex_baseline_update_job = define_asset_job(
     name=MOEX_BASELINE_UPDATE_JOB_NAME,
     selection=AssetSelection.groups("moex_baseline_update"),
-    op_retry_policy=MOEX_HISTORICAL_RETRY_POLICY,
+    op_retry_policy=MOEX_BASELINE_UPDATE_RETRY_POLICY,
 )
 
 
@@ -1754,6 +1799,7 @@ def execute_moex_baseline_update_job(
     max_changed_window_days: int = DEFAULT_MAX_CHANGED_WINDOW_DAYS,
     stability_lag_minutes: int = DEFAULT_STABILITY_LAG_MINUTES,
     expand_contract_chain: bool = True,
+    coverage_mode: str = "local_tail",
     extra_tags: dict[str, str] | None = None,
     raise_on_error: bool = False,
 ) -> dict[str, object]:
@@ -1778,11 +1824,12 @@ def execute_moex_baseline_update_job(
         max_changed_window_days=max_changed_window_days,
         stability_lag_minutes=stability_lag_minutes,
         expand_contract_chain=expand_contract_chain,
+        coverage_mode=coverage_mode,
     )
     normalized_staging_profile = staging_profile.strip() or "verification"
     tags: dict[str, str] = {
         "ta3000/staging_profile": normalized_staging_profile,
-        "ta3000/runtime_boundary": "dagster+spark_delta",
+        "ta3000/runtime_boundary": MOEX_BASELINE_UPDATE_RUNTIME_BOUNDARY_TAG,
         **{str(key): str(value) for key, value in dict(extra_tags or {}).items()},
     }
 
@@ -1814,7 +1861,7 @@ def execute_moex_baseline_update_job(
         "baseline_root": resolved_baseline_root.as_posix(),
         "runtime_boundary": {
             "orchestrator": "dagster",
-            "hot_table_runtime": "spark_delta",
+            "hot_table_runtime": MOEX_BASELINE_UPDATE_HOT_TABLE_RUNTIME,
             "python_role": "source_adapter_config_and_evidence",
         },
         "tags": tags,
