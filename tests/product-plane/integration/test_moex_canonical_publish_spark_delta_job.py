@@ -451,7 +451,15 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
     assert report["provenance_rows"] == 2, report
     assert report["qc_report"]["status"] == "PASS"
     assert report["contract_compatibility_report"]["status"] == "PASS"
-    assert report["contract_compatibility_report"]["checked_rows"] == 2
+    assert report["validation_scope"]["mode"] == "changed_scope"
+    assert report["validation_scope"]["key_rows"] == 3
+    assert report["validation_scope"]["checked_canonical_rows"] == 1
+    assert report["qc_report"]["full_table_invariants"]["status"] == "NOT_RUN"
+    assert report["contract_compatibility_report"]["checked_rows"] == 1
+    assert report["stage_timings"]["scope_keys"]["stale_bar_rows"] == 2
+    assert report["stage_timings"]["qc"]["checked_bar_rows"] == 1
+    assert report["stage_timings"]["contract_check"]["checked_rows"] == 1
+    assert report["target_layout"]["canonical_bars"]["partition_columns"] == []
     assert report["publish_protocol"]["operation"] == "delta_merge_replace"
     assert report["publish_protocol"]["recoverable"] is True
     assert Path(str(report["publish_protocol"]["recovery_manifest_path"])).exists()

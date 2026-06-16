@@ -23,6 +23,12 @@ from trading_advisor_3000.product_plane.research.datasets.bar_usage import (
     BAR_USAGE_PROFILE_FLAGS,
     SPECIAL_SESSION_CLASSES,
 )
+from trading_advisor_3000.product_plane.runtime.stage_timings import (
+    StageTimings,
+    record_skipped_stage,
+    record_stage_timing,
+    stage_timer,
+)
 
 from .canonical_bars_job import DEFAULT_SPARK_MASTER, _create_spark_session
 
@@ -518,7 +524,7 @@ def _with_bar_usage_contract(
         F.when(F.col("_is_weekly"), weekly_session_class)
         .when(
             F.col("_is_daily"),
-            F.col("calendar_session_class"),
+            F.coalesce(F.col("calendar_session_class"), F.col("day_session_class")),
         )
         .otherwise(F.col("interval_session_class")),
     )
@@ -1244,6 +1250,8 @@ def run_research_bar_views_spark_job(
     spark_master: str = DEFAULT_SPARK_MASTER,
     spark_session_factory: Callable[[str, str], object] | None = None,
 ) -> dict[str, object]:
+    stage_timings: StageTimings = {}
+    stage_started = stage_timer()
     if not contours:
         raise ValueError("research L0 contours cannot be empty")
     invalid = sorted(set(contours) - set(RESEARCH_L0_CONTOURS))
@@ -1262,11 +1270,20 @@ def run_research_bar_views_spark_job(
         raise RuntimeError(
             f"missing continuous-front delta table: {continuous_front_bars_path.as_posix()}"
         )
+    record_stage_timing(
+        stage_timings,
+        "validate_inputs",
+        stage_started,
+        contour_count=len(contours),
+    )
 
     spec = ResearchBarViewsSparkJobSpec()
     spark_factory = spark_session_factory or _create_spark_session
+    stage_started = stage_timer()
     spark = spark_factory(spec.app_name, spark_master)
+    record_stage_timing(stage_timings, "start_spark", stage_started, master=spark_master)
     try:
+        stage_started = stage_timer()
         usage_context = _bar_usage_context_frames(
             spark=spark,
             canonical_bars_path=canonical_bars_path,
@@ -1276,8 +1293,11 @@ def run_research_bar_views_spark_job(
             end_ts=end_ts,
             warmup_bars=warmup_bars,
         )
+        record_stage_timing(stage_timings, "build_usage_context", stage_started)
+
         contour_frames = []
         if "native_tradable" in contours:
+            stage_started = stage_timer()
             contour_frames.append(
                 _native_bar_views(
                     spark=spark,
@@ -1296,7 +1316,15 @@ def run_research_bar_views_spark_job(
                     usage_context=usage_context,
                 )
             )
+            record_stage_timing(stage_timings, "build_native_bar_views", stage_started)
+        else:
+            record_skipped_stage(
+                stage_timings,
+                "build_native_bar_views",
+                reason="native_tradable contour not requested",
+            )
         if "pit_active_front" in contours:
+            stage_started = stage_timer()
             contour_frames.append(
                 _pit_active_front_bar_views(
                     spark=spark,
@@ -1314,11 +1342,25 @@ def run_research_bar_views_spark_job(
                     usage_context=usage_context,
                 )
             )
+            record_stage_timing(stage_timings, "build_pit_active_front_bar_views", stage_started)
+        else:
+            record_skipped_stage(
+                stage_timings,
+                "build_pit_active_front_bar_views",
+                reason="pit_active_front contour not requested",
+            )
+        stage_started = stage_timer()
         bar_views = (
             contour_frames[0] if contour_frames else _empty_dataframe(spark, "research_bar_views")
         )
         for frame in contour_frames[1:]:
             bar_views = bar_views.unionByName(frame, allowMissingColumns=True)
+        record_stage_timing(
+            stage_timings,
+            "union_bar_views",
+            stage_started,
+            contour_frame_count=len(contour_frames),
+        )
 
         output_dir.mkdir(parents=True, exist_ok=True)
         output_paths = {
@@ -1326,6 +1368,7 @@ def run_research_bar_views_spark_job(
             "research_instrument_tree": (output_dir / "research_instrument_tree.delta").as_posix(),
             "research_datasets": (output_dir / "research_datasets.delta").as_posix(),
         }
+        stage_started = stage_timer()
         _write_spark_delta_table(
             dataframe=bar_views,
             table_path=Path(output_paths["research_bar_views"]),
@@ -1340,11 +1383,13 @@ def run_research_bar_views_spark_job(
                 end_ts=end_ts,
             ),
         )
+        record_stage_timing(stage_timings, "write_research_bar_views", stage_started)
         for frame in contour_frames:
             frame.unpersist()
         usage_context.unpersist()
         from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
+        stage_started = stage_timer()
         tree_source = (
             spark.read.format("delta")
             .load(output_paths["research_bar_views"])
@@ -1356,6 +1401,9 @@ def run_research_bar_views_spark_job(
         if instrument_ids:
             tree_source = tree_source.where(F.col("instrument_id").isin([*instrument_ids]))
         instrument_tree = _instrument_tree_from_bar_views(tree_source, universe_id=universe_id)
+        record_stage_timing(stage_timings, "build_instrument_tree", stage_started)
+
+        stage_started = stage_timer()
         _write_spark_delta_table(
             dataframe=instrument_tree,
             table_path=Path(output_paths["research_instrument_tree"]),
@@ -1366,12 +1414,22 @@ def run_research_bar_views_spark_job(
                 instrument_ids=instrument_ids,
             ),
         )
+        record_stage_timing(stage_timings, "write_instrument_tree", stage_started)
+
+        stage_started = stage_timer()
         contract_errors = _validate_tables(output_paths)
         if contract_errors:
             raise RuntimeError(
                 "research bar views Spark contract validation failed: " + "; ".join(contract_errors)
             )
+        record_stage_timing(
+            stage_timings,
+            "contract_validation",
+            stage_started,
+            error_count=len(contract_errors),
+        )
 
+        stage_started = stage_timer()
         source_delta_versions = {
             "canonical_bars": _latest_delta_version(canonical_bars_path),
             "canonical_bar_provenance": _latest_delta_version(canonical_bar_provenance_path),
@@ -1392,7 +1450,15 @@ def run_research_bar_views_spark_job(
             if has_delta_log(continuous_front_bars_path)
             else "",
         }
+        record_stage_timing(
+            stage_timings,
+            "source_fingerprint",
+            stage_started,
+            source_count=len(source_delta_versions),
+        )
+
         contour_reports: dict[str, dict[str, object]] = {}
+        stage_started = stage_timer()
         for contour_id in contours:
             bar_count = count_delta_table_rows(
                 Path(output_paths["research_bar_views"]),
@@ -1478,12 +1544,19 @@ def run_research_bar_views_spark_job(
                 instrument_tree_count=tree_count,
                 output_paths=output_paths,
             )
+        record_stage_timing(
+            stage_timings,
+            "materialize_dataset_manifests",
+            stage_started,
+            contour_count=len(contour_reports),
+        )
 
         primary_contour = contours[0] if contours else "native_tradable"
         scoped_filters = [
             ("dataset_version", "=", dataset_version),
             ("contour_id", "=", primary_contour),
         ]
+        stage_started = stage_timer()
         rows_by_table = {
             "research_bar_views": count_delta_table_rows(
                 Path(output_paths["research_bar_views"]), filters=scoped_filters
@@ -1502,6 +1575,13 @@ def run_research_bar_views_spark_job(
             ),
             "research_datasets": count_delta_table_rows(Path(output_paths["research_datasets"])),
         }
+        record_stage_timing(
+            stage_timings,
+            "row_counts",
+            stage_started,
+            primary_row_count=sum(rows_by_table.values()),
+            total_row_count=sum(total_rows_by_table.values()),
+        )
         primary_report = contour_reports[primary_contour]
         return {
             **primary_report,
@@ -1514,6 +1594,7 @@ def run_research_bar_views_spark_job(
             "rows_by_table": rows_by_table,
             "total_rows_by_table": total_rows_by_table,
             "contract_check_errors": contract_errors,
+            "stage_timings": stage_timings,
             "spark_profile": {
                 "app_name": spec.app_name,
                 "master": spark_master,

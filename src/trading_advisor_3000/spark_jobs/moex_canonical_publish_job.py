@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Callable
 from uuid import uuid4
 
@@ -353,9 +354,45 @@ def _write_json(path: Path, payload: dict[str, object]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def _qc_gate(gate: str, violations: int, samples: list[str] | None = None) -> dict[str, object]:
+def _record_stage_timing(
+    stage_timings: dict[str, dict[str, object]],
+    stage: str,
+    started_at: float,
+    *,
+    status: str = "PASS",
+    **metrics: object,
+) -> None:
+    payload: dict[str, object] = {
+        "status": status,
+        "elapsed_seconds": round(perf_counter() - started_at, 6),
+    }
+    payload.update(metrics)
+    stage_timings[stage] = payload
+
+
+def _record_skipped_stage(
+    stage_timings: dict[str, dict[str, object]],
+    stage: str,
+    *,
+    reason: str,
+) -> None:
+    stage_timings[stage] = {
+        "status": "SKIPPED",
+        "elapsed_seconds": 0.0,
+        "reason": reason,
+    }
+
+
+def _qc_gate(
+    gate: str,
+    violations: int,
+    samples: list[str] | None = None,
+    *,
+    validation_scope: str,
+) -> dict[str, object]:
     return {
         "gate": gate,
+        "validation_scope": validation_scope,
         "status": "PASS" if violations == 0 else "FAIL",
         "violations": violations,
         "samples": list(samples or [])[:20],
@@ -466,6 +503,8 @@ def _build_qc_report(
     run_id: str,
     window: Any,
     functions: Any,
+    validation_scope: str,
+    validation_scope_key_rows: int,
 ) -> dict[str, object]:
     duplicate_bars = (
         bars_df.groupBy(*CANONICAL_KEY_COLUMNS).count().where(functions.col("count") > 1)
@@ -537,32 +576,38 @@ def _build_qc_report(
             "unique_bar_key",
             int(duplicate_bars.count()),
             _collect_sample_strings(duplicate_bars),
+            validation_scope=validation_scope,
         ),
         _qc_gate(
             "unique_provenance_key",
             int(duplicate_provenance.count()),
             _collect_sample_strings(duplicate_provenance),
+            validation_scope=validation_scope,
         ),
         _qc_gate(
             "ohlcv_validity",
             int(invalid_ohlcv.count()),
             _collect_sample_strings(invalid_ohlcv),
+            validation_scope=validation_scope,
         ),
         _qc_gate(
             "canonical_timestamp_monotonicity",
             int(non_monotonic_timestamps.count()),
             _collect_sample_strings(non_monotonic_timestamps),
+            validation_scope=validation_scope,
         ),
         _qc_gate(
             "source_window_monotonicity",
             int(non_monotonic_source_windows.count()),
             _collect_sample_strings(non_monotonic_source_windows),
+            validation_scope=validation_scope,
         ),
         _qc_gate(
             "provenance_completeness",
             provenance_completeness_violations,
             _collect_sample_strings(missing_provenance)
             + _collect_sample_strings(incomplete_provenance),
+            validation_scope=validation_scope,
         ),
         _qc_gate(
             "canonical_provenance_row_count_match",
@@ -570,12 +615,26 @@ def _build_qc_report(
             []
             if bars_count == provenance_count
             else [f"bars={bars_count} provenance={provenance_count}"],
+            validation_scope=validation_scope,
         ),
     ]
     failed_gates = [str(item["gate"]) for item in gate_results if item["status"] == "FAIL"]
     return {
         "run_id": run_id,
         "runtime_owner": "spark_delta",
+        "validation_scope": validation_scope,
+        "validation_scope_key_rows": validation_scope_key_rows,
+        "checked_rows": {
+            "canonical_bars": bars_count,
+            "canonical_bar_provenance": provenance_count,
+        },
+        "full_table_invariants": {
+            "status": "NOT_RUN",
+            "reason": (
+                "incremental publish validates changed scope; "
+                "full-table audit is a separate proof route"
+            ),
+        },
         "status": "PASS" if not failed_gates else "FAIL",
         "publish_decision": "publish" if not failed_gates else "blocked",
         "failed_gates": failed_gates,
@@ -588,6 +647,9 @@ def _build_contract_compatibility_report(
     bars_df: Any,
     run_id: str,
     functions: Any,
+    validation_scope: str,
+    validation_scope_key_rows: int,
+    allow_empty_scope: bool = False,
 ) -> dict[str, object]:
     schema_path = (
         Path(__file__).resolve().parents[1]
@@ -642,7 +704,7 @@ def _build_contract_compatibility_report(
     missing_required_count = int(missing_required.count())
     unsupported_timeframe_count = int(unsupported_timeframes.count())
     checked_rows = int(bars_df.count())
-    if checked_rows == 0:
+    if checked_rows == 0 and not allow_empty_scope:
         errors.append("No canonical bars checked: 0 rows")
     if missing_required_count:
         errors.append(f"Spark canonical output has null required fields: {missing_required_count}")
@@ -655,6 +717,13 @@ def _build_contract_compatibility_report(
         "run_id": run_id,
         "runtime_owner": "spark_delta",
         "schema_path": schema_path.as_posix(),
+        "validation_scope": validation_scope,
+        "validation_scope_key_rows": validation_scope_key_rows,
+        "empty_scope_allowed": allow_empty_scope,
+        "full_table_row_checks": {
+            "status": "NOT_RUN",
+            "reason": "incremental publish contract check is scoped to changed rows",
+        },
         "status": "PASS" if not errors else "FAIL",
         "errors": errors[:20],
         "checked_rows": checked_rows,
@@ -674,12 +743,7 @@ def _sidecar_frames(
     window: Any,
     functions: Any,
 ) -> tuple[Any, Any, str]:
-    joined = bars_df.alias("bar").join(
-        provenance_df.alias("provenance"),
-        list(CANONICAL_KEY_COLUMNS),
-        "inner",
-    )
-    with_session = joined.withColumn(
+    provenance_with_session_df = provenance_df.withColumn(
         "session_date",
         functions.to_date(
             functions.from_utc_timestamp(
@@ -689,14 +753,21 @@ def _sidecar_frames(
         ),
     )
     if sidecars_exist:
-        with_session = with_session.join(
+        scoped_provenance_df = provenance_with_session_df.join(
             affected_sessions_df,
             ["instrument_id", "session_date"],
             "inner",
         )
         refresh_mode = "scoped"
     else:
+        scoped_provenance_df = provenance_with_session_df
         refresh_mode = "full"
+
+    with_session = bars_df.alias("bar").join(
+        scoped_provenance_df.alias("provenance"),
+        list(CANONICAL_KEY_COLUMNS),
+        "inner",
+    )
 
     official_intervals_df = _prepare_official_session_intervals(
         spark=spark,
@@ -856,8 +927,10 @@ def run_moex_canonical_publish_spark_delta_job(
     spark_session_factory = spark_session_factory or _create_spark_session
     spark = spark_session_factory("ta3000-moex-canonical-publish", spark_master)
     _, window, functions, _ = _load_spark_modules()
+    stage_timings: dict[str, dict[str, object]] = {}
 
     try:
+        stage_started = perf_counter()
         staged_bars_df = _table_or_empty(
             spark,
             table_path=staged_bars_path,
@@ -890,7 +963,9 @@ def run_moex_canonical_publish_spark_delta_job(
             functions=functions,
             window=window,
         )
+        _record_stage_timing(stage_timings, "load_inputs", stage_started)
 
+        stage_started = perf_counter()
         impacted_scope_keys_df = _impacted_scope_keys(
             spark=spark,
             publish_scope_path=publish_scope_path,
@@ -922,34 +997,80 @@ def run_moex_canonical_publish_spark_delta_job(
         replacement_provenance_keys_df = staged_provenance_keys_df.unionByName(
             stale_provenance_df.select(*CANONICAL_KEY_COLUMNS)
         ).distinct()
-        candidate_bars_df = target_bars_df.join(
-            replacement_bar_keys_df,
-            list(CANONICAL_KEY_COLUMNS),
-            "left_anti",
-        ).unionByName(staged_bars_df)
-        candidate_provenance_df = target_provenance_df.join(
-            replacement_provenance_keys_df,
-            list(CANONICAL_KEY_COLUMNS),
-            "left_anti",
-        ).unionByName(staged_provenance_df)
-
-        qc_report = _build_qc_report(
-            bars_df=candidate_bars_df,
-            provenance_df=candidate_provenance_df,
-            run_id=run_id,
-            window=window,
-            functions=functions,
+        validation_scope_keys_df = (
+            replacement_bar_keys_df.unionByName(replacement_provenance_keys_df).distinct().cache()
         )
-        contract_report = _build_contract_compatibility_report(
-            bars_df=candidate_bars_df,
-            run_id=run_id,
-            functions=functions,
-        )
-        publish_allowed = qc_report["status"] == "PASS" and contract_report["status"] == "PASS"
         staged_rows = int(staged_bars_df.count())
+        staged_provenance_rows = int(staged_provenance_df.count())
         impacted_scope_rows = int(impacted_scope_keys_df.count())
         stale_bar_rows = int(stale_bars_df.count())
         stale_provenance_rows = int(stale_provenance_df.count())
+        validation_scope_key_rows = int(validation_scope_keys_df.count())
+        _record_stage_timing(
+            stage_timings,
+            "scope_keys",
+            stage_started,
+            staged_bar_rows=staged_rows,
+            staged_provenance_rows=staged_provenance_rows,
+            impacted_scope_key_rows=impacted_scope_rows,
+            stale_bar_rows=stale_bar_rows,
+            stale_provenance_rows=stale_provenance_rows,
+            validation_scope_key_rows=validation_scope_key_rows,
+        )
+
+        validation_scope = "changed_scope"
+        validation_bars_df = staged_bars_df.join(
+            validation_scope_keys_df,
+            list(CANONICAL_KEY_COLUMNS),
+            "inner",
+        ).cache()
+        validation_provenance_df = staged_provenance_df.join(
+            validation_scope_keys_df,
+            list(CANONICAL_KEY_COLUMNS),
+            "inner",
+        ).cache()
+
+        stage_started = perf_counter()
+        qc_report = _build_qc_report(
+            bars_df=validation_bars_df,
+            provenance_df=validation_provenance_df,
+            run_id=run_id,
+            window=window,
+            functions=functions,
+            validation_scope=validation_scope,
+            validation_scope_key_rows=validation_scope_key_rows,
+        )
+        _record_stage_timing(
+            stage_timings,
+            "qc",
+            stage_started,
+            status=str(qc_report["status"]),
+            checked_bar_rows=qc_report["checked_rows"]["canonical_bars"],
+            checked_provenance_rows=qc_report["checked_rows"]["canonical_bar_provenance"],
+        )
+        allow_empty_contract_scope = (
+            validation_scope_key_rows > 0
+            and staged_rows == 0
+            and (stale_bar_rows > 0 or stale_provenance_rows > 0)
+        )
+        stage_started = perf_counter()
+        contract_report = _build_contract_compatibility_report(
+            bars_df=validation_bars_df,
+            run_id=run_id,
+            functions=functions,
+            validation_scope=validation_scope,
+            validation_scope_key_rows=validation_scope_key_rows,
+            allow_empty_scope=allow_empty_contract_scope,
+        )
+        _record_stage_timing(
+            stage_timings,
+            "contract_check",
+            stage_started,
+            status=str(contract_report["status"]),
+            checked_rows=contract_report["checked_rows"],
+            empty_scope_allowed=allow_empty_contract_scope,
+        )
+        publish_allowed = qc_report["status"] == "PASS" and contract_report["status"] == "PASS"
         stale_bar_keys_path = output_dir / "stale-keys" / "canonical_bars.delta"
         stale_provenance_keys_path = output_dir / "stale-keys" / "canonical_bar_provenance.delta"
         if stale_bar_rows > 0:
@@ -1001,6 +1122,11 @@ def run_moex_canonical_publish_spark_delta_job(
                 "stale_bar_rows": stale_bar_rows,
                 "stale_provenance_rows": stale_provenance_rows,
             },
+            "validation_scope": {
+                "mode": validation_scope,
+                "key_rows": validation_scope_key_rows,
+                "contract_empty_scope_allowed": allow_empty_contract_scope,
+            },
             "pre_publish_versions": {
                 "canonical_bars": _delta_table_version(spark, target_bars_path),
                 "canonical_bar_provenance": _delta_table_version(spark, target_provenance_path),
@@ -1023,49 +1149,95 @@ def run_moex_canonical_publish_spark_delta_job(
         }
         _write_json(recovery_manifest_path, publish_protocol)
 
-        if publish_allowed and (staged_rows > 0 or stale_bar_rows > 0 or stale_provenance_rows > 0):
-            if has_delta_log(target_bars_path):
-                _merge_replace_delta_dataframe(
-                    spark=spark,
-                    table_path=target_bars_path,
-                    staged_dataframe=staged_bars_df,
-                    stale_keys_path=stale_bar_keys_path,
-                    stale_key_count=stale_bar_rows,
-                    key_columns=CANONICAL_KEY_COLUMNS,
-                    functions=functions,
+        publish_has_changes = (
+            staged_rows > 0
+            or staged_provenance_rows > 0
+            or stale_bar_rows > 0
+            or stale_provenance_rows > 0
+        )
+        if publish_allowed and publish_has_changes:
+            if staged_rows > 0 or stale_bar_rows > 0:
+                stage_started = perf_counter()
+                if has_delta_log(target_bars_path):
+                    _merge_replace_delta_dataframe(
+                        spark=spark,
+                        table_path=target_bars_path,
+                        staged_dataframe=staged_bars_df,
+                        stale_keys_path=stale_bar_keys_path,
+                        stale_key_count=stale_bar_rows,
+                        key_columns=CANONICAL_KEY_COLUMNS,
+                        functions=functions,
+                    )
+                else:
+                    _write_delta_dataframe(
+                        dataframe=staged_bars_df,
+                        table_path=target_bars_path,
+                        manifest_entry=dict(manifest["canonical_bars"]),
+                    )
+                _record_stage_timing(
+                    stage_timings,
+                    "merge_bars",
+                    stage_started,
+                    staged_rows=staged_rows,
+                    stale_rows=stale_bar_rows,
                 )
             else:
-                _write_delta_dataframe(
-                    dataframe=staged_bars_df,
-                    table_path=target_bars_path,
-                    manifest_entry=dict(manifest["canonical_bars"]),
+                _record_skipped_stage(
+                    stage_timings,
+                    "merge_bars",
+                    reason="no canonical bar mutations",
                 )
 
-            if has_delta_log(target_provenance_path) and target_provenance_has_contract:
-                _merge_replace_delta_dataframe(
-                    spark=spark,
-                    table_path=target_provenance_path,
-                    staged_dataframe=staged_provenance_df,
-                    stale_keys_path=stale_provenance_keys_path,
-                    stale_key_count=stale_provenance_rows,
-                    key_columns=CANONICAL_KEY_COLUMNS,
-                    functions=functions,
+            if staged_provenance_rows > 0 or stale_provenance_rows > 0:
+                stage_started = perf_counter()
+                if has_delta_log(target_provenance_path) and target_provenance_has_contract:
+                    _merge_replace_delta_dataframe(
+                        spark=spark,
+                        table_path=target_provenance_path,
+                        staged_dataframe=staged_provenance_df,
+                        stale_keys_path=stale_provenance_keys_path,
+                        stale_key_count=stale_provenance_rows,
+                        key_columns=CANONICAL_KEY_COLUMNS,
+                        functions=functions,
+                    )
+                elif has_delta_log(target_provenance_path):
+                    candidate_provenance_df = target_provenance_df.join(
+                        replacement_provenance_keys_df,
+                        list(CANONICAL_KEY_COLUMNS),
+                        "left_anti",
+                    ).unionByName(staged_provenance_df)
+                    backup_path = _replace_delta_dataframe(
+                        dataframe=candidate_provenance_df,
+                        table_path=target_provenance_path,
+                        manifest_entry={"columns": dict(CANONICAL_PROVENANCE_COLUMNS)},
+                    )
+                    if backup_path is not None:
+                        rewrite_backup_paths.append(backup_path)
+                else:
+                    _write_delta_dataframe(
+                        dataframe=staged_provenance_df,
+                        table_path=target_provenance_path,
+                        manifest_entry={"columns": dict(CANONICAL_PROVENANCE_COLUMNS)},
+                    )
+                _record_stage_timing(
+                    stage_timings,
+                    "merge_provenance",
+                    stage_started,
+                    staged_rows=staged_provenance_rows,
+                    stale_rows=stale_provenance_rows,
+                    target_contract_schema=target_provenance_has_contract,
                 )
-            elif has_delta_log(target_provenance_path):
-                backup_path = _replace_delta_dataframe(
-                    dataframe=candidate_provenance_df,
-                    table_path=target_provenance_path,
-                    manifest_entry={"columns": dict(CANONICAL_PROVENANCE_COLUMNS)},
-                )
-                if backup_path is not None:
-                    rewrite_backup_paths.append(backup_path)
             else:
-                _write_delta_dataframe(
-                    dataframe=staged_provenance_df,
-                    table_path=target_provenance_path,
-                    manifest_entry={"columns": dict(CANONICAL_PROVENANCE_COLUMNS)},
+                _record_skipped_stage(
+                    stage_timings,
+                    "merge_provenance",
+                    reason="no provenance mutations",
                 )
             mutation_applied = True
+        else:
+            skip_reason = "publish blocked" if not publish_allowed else "no scoped mutations"
+            _record_skipped_stage(stage_timings, "merge_bars", reason=skip_reason)
+            _record_skipped_stage(stage_timings, "merge_provenance", reason=skip_reason)
 
         if mutation_applied:
             spark.catalog.clearCache()
@@ -1134,6 +1306,7 @@ def run_moex_canonical_publish_spark_delta_job(
         refreshed_session_rows = 0
         refreshed_roll_rows = 0
         refresh_mode = "noop"
+        sidecar_stage_started = perf_counter()
         if (
             publish_allowed
             and session_intervals_path is not None
@@ -1230,9 +1403,49 @@ def run_moex_canonical_publish_spark_delta_job(
             sidecar_mutation = True
         elif publish_allowed and session_intervals_path is None:
             refresh_mode = "skipped_manual_session_backfill_required"
+        if sidecar_mutation:
+            _record_stage_timing(
+                stage_timings,
+                "sidecar_refresh",
+                sidecar_stage_started,
+                mode=refresh_mode,
+                refreshed_session_calendar_rows=refreshed_session_rows,
+                refreshed_roll_map_rows=refreshed_roll_rows,
+                affected_session_rows=affected_session_rows,
+                overlap_session_rows=sidecar_scope_session_rows,
+            )
+        else:
+            if not publish_allowed:
+                sidecar_skip_reason = "publish blocked"
+            elif session_intervals_path is None:
+                sidecar_skip_reason = refresh_mode
+            else:
+                sidecar_skip_reason = "no affected sessions and sidecar layout matches manifest"
+            _record_stage_timing(
+                stage_timings,
+                "sidecar_refresh",
+                sidecar_stage_started,
+                status="SKIPPED",
+                reason=sidecar_skip_reason,
+                mode=refresh_mode,
+                affected_session_rows=affected_session_rows,
+                overlap_session_rows=sidecar_scope_session_rows,
+            )
 
+        stage_started = perf_counter()
         canonical_rows = int(final_bars_df.count())
         provenance_rows = int(final_provenance_df.count())
+        _record_stage_timing(
+            stage_timings,
+            "final_row_counts",
+            stage_started,
+            canonical_rows=canonical_rows,
+            provenance_rows=provenance_rows,
+        )
+        canonical_bars_partition_columns = _delta_table_partition_columns(spark, target_bars_path)
+        canonical_provenance_partition_columns = _delta_table_partition_columns(
+            spark, target_provenance_path
+        )
         output_paths = {
             "canonical_bars": target_bars_path.as_posix(),
             "canonical_bar_provenance": target_provenance_path.as_posix(),
@@ -1259,6 +1472,14 @@ def run_moex_canonical_publish_spark_delta_job(
             "scoped_canonical_rows": staged_rows,
             "canonical_rows": canonical_rows,
             "provenance_rows": provenance_rows,
+            "validation_scope": {
+                "mode": validation_scope,
+                "key_rows": validation_scope_key_rows,
+                "checked_canonical_rows": contract_report["checked_rows"],
+                "checked_provenance_rows": qc_report["checked_rows"]["canonical_bar_provenance"],
+                "full_table_validation": "deferred_to_scheduled_audit",
+            },
+            "stage_timings": stage_timings,
             "qc_report": qc_report,
             "contract_compatibility_report": contract_report,
             "publish_protocol": publish_protocol,
@@ -1281,6 +1502,18 @@ def run_moex_canonical_publish_spark_delta_job(
                 "affected_session_rows": affected_session_rows,
                 "overlap_session_rows": sidecar_scope_session_rows,
                 "overlap_policy": SIDECAR_OVERLAP_POLICY,
+            },
+            "target_layout": {
+                "canonical_bars": {
+                    "partition_columns": list(canonical_bars_partition_columns or []),
+                    "expected_partition_columns": list(
+                        manifest["canonical_bars"].get("partition_by") or []
+                    ),
+                },
+                "canonical_bar_provenance": {
+                    "partition_columns": list(canonical_provenance_partition_columns or []),
+                    "expected_partition_columns": [],
+                },
             },
             "output_paths": output_paths,
             "delta_log": delta_log,
