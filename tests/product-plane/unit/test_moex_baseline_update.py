@@ -7,6 +7,7 @@ import pytest
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     append_delta_table_rows,
+    read_delta_table_rows,
     read_filtered_delta_table_rows,
     write_delta_table_rows,
 )
@@ -269,6 +270,224 @@ def test_baseline_update_writes_to_stable_paths_and_scoped_canonical_refresh(
         "python_role": "source_adapter_config_and_evidence",
     }
     assert not (tmp_path / "evidence" / "pending-changed-windows.json").exists()
+
+
+def test_baseline_update_can_refresh_money_math_side_tables_before_canonical_route(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_table_path, canonical_bars_path, canonical_provenance_path = _write_empty_baseline(tmp_path)
+    changed_windows = [
+        {
+            "internal_id": "FUT_BR",
+            "source_timeframe": "1d",
+            "source_interval": 24,
+            "moex_secid": "BRN6",
+            "window_start_utc": "2026-06-11T00:00:00Z",
+            "window_end_utc": "2026-06-12T00:00:00Z",
+            "incremental_rows": 2,
+        }
+    ]
+    _patch_common_inputs(monkeypatch, changed_windows)
+    stage_order: list[str] = []
+
+    def _fake_economics(**kwargs):
+        stage_order.append("economics")
+        assert kwargs["raw_economics_root"] == tmp_path / "raw" / "economics"
+        assert kwargs["canonical_economics_root"] == tmp_path / "canonical" / "economics"
+        assert kwargs["changed_windows"] == changed_windows
+        return {
+            "status": "PASS",
+            "mode": "baseline_update_economics_refresh",
+            "row_counts": {
+                "canonical_fx_rates": 2,
+                "canonical_asset_risk_parameters": 1,
+                "canonical_contract_economics": 1,
+            },
+            "missing_economics_rows": 0,
+            "defaulted_radius_rows": 1,
+            "official_margin_dominates_rows": 1,
+            "formula_margin_dominates_rows": 0,
+            "affected_downstream_partitions": [{"instrument_id": "FUT_BR", "timeframe": "1d"}],
+        }
+
+    def _fake_canonical(**_kwargs):
+        stage_order.append("canonical")
+        return {
+            "status": "PASS",
+            "publish_decision": "publish",
+            "scoped_source_rows": 2,
+            "scoped_canonical_rows": 2,
+            "canonical_rows": 2,
+            "mutation_applied": True,
+        }
+
+    monkeypatch.setattr(baseline_module, "refresh_moex_contract_economics", _fake_economics)
+    monkeypatch.setattr(baseline_module, "run_historical_canonical_route", _fake_canonical)
+
+    report = baseline_module.run_moex_baseline_update(
+        mapping_registry_path=tmp_path / "mapping.yaml",
+        universe_path=tmp_path / "universe.yaml",
+        raw_table_path=raw_table_path,
+        canonical_bars_path=canonical_bars_path,
+        canonical_provenance_path=canonical_provenance_path,
+        evidence_dir=tmp_path / "evidence",
+        run_id="baseline-money-math",
+        timeframes={"1d"},
+        ingest_till_utc="2026-06-12T00:00:00Z",
+        refresh_window_days=7,
+        contract_discovery_lookback_days=45,
+        max_changed_window_days=10,
+        economics_mode="refresh",
+        raw_economics_root=tmp_path / "raw" / "economics",
+        canonical_economics_root=tmp_path / "canonical" / "economics",
+    )
+
+    assert stage_order == ["economics", "canonical"]
+    assert report["economics_refresh"]["status"] == "PASS"
+    assert report["economics_refresh"]["row_counts"]["canonical_contract_economics"] == 1
+    assert report["economics_refresh"]["defaulted_radius_rows"] == 1
+    assert (
+        report["artifact_paths"]["moex_request_log"]
+        == (tmp_path / "evidence" / "baseline-money-math" / "moex-request-log.jsonl").as_posix()
+    )
+    assert (
+        report["artifact_paths"]["moex_request_latest"]
+        == (tmp_path / "evidence" / "baseline-money-math" / "moex-request.latest.json").as_posix()
+    )
+
+
+def test_contract_economics_refresh_writes_iss_raw_side_tables(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Client:
+        def fetch_futures_contract_securities(self) -> list[dict[str, object]]:
+            return [
+                {
+                    "SECID": "BRN6",
+                    "ASSETCODE": "BR",
+                    "MINSTEP": 0.01,
+                    "LOTVOLUME": 10,
+                    "STEPPRICE": 7.19077,
+                    "INITIALMARGIN": 17_721.61,
+                    "LASTSETTLEPRICE": 93.99,
+                    "MATDATE": "2026-07-15",
+                }
+            ]
+
+        def fetch_futures_indicative_rates(self, **_kwargs) -> list[dict[str, object]]:
+            return [
+                {
+                    "tradedate": "2026-06-11",
+                    "tradetime": "19:00:00",
+                    "secid": "USD/RUB",
+                    "rate": 71.9077,
+                    "clearing": "mc",
+                }
+            ]
+
+        def fetch_futures_rms_limits(self, **_kwargs) -> list[dict[str, object]]:
+            return [
+                {
+                    "tradedate": "2026-06-11",
+                    "assetcode": "BR",
+                    "mr1": 0.12,
+                    "mr2": 0.0,
+                    "mr3": 0.0,
+                    "lk1": 0,
+                    "lk2": 0,
+                    "title": "Brent",
+                    "group_title": "Oil",
+                    "updatetime": "2026-06-11 19:00:00",
+                }
+            ]
+
+        def fetch_futures_rms_staticparams(self, **_kwargs) -> list[dict[str, object]]:
+            return [
+                {
+                    "tradedate": "2026-06-11",
+                    "assetcode": "BR",
+                    "radius": 15.0,
+                    "updatetime": "2026-06-11 19:00:00",
+                }
+            ]
+
+    def _fake_job(**kwargs):
+        contract_rows = read_delta_table_rows(kwargs["raw_contract_specs_path"], limit=10)
+        fx_rows = read_delta_table_rows(kwargs["raw_fx_rates_path"], limit=10)
+        limits_rows = read_delta_table_rows(kwargs["raw_rms_limits_path"], limit=10)
+        static_rows = read_delta_table_rows(kwargs["raw_rms_staticparams_path"], limit=10)
+        contract_dates = {str(row["trade_date"]) for row in contract_rows}
+        assert contract_dates == {"2026-06-10", "2026-06-11"}
+        current_contract = next(row for row in contract_rows if row["trade_date"] == "2026-06-11")
+        assert current_contract["moex_secid"] == "BRN6"
+        assert json.loads(str(current_contract["raw_payload_json"]))["SECID"] == "BRN6"
+        assert fx_rows[0]["fx_pair"] == "USD/RUB"
+        assert json.loads(str(fx_rows[0]["raw_payload_json"]))["secid"] == "USD/RUB"
+        assert limits_rows[0]["assetcode"] == "BR"
+        assert limits_rows[0]["mr1"] == pytest.approx(0.12)
+        assert json.loads(str(limits_rows[0]["raw_payload_json"]))["assetcode"] == "BR"
+        assert static_rows[0]["assetcode"] == "BR"
+        assert static_rows[0]["radius_pct"] == pytest.approx(15.0)
+        assert json.loads(str(static_rows[0]["raw_payload_json"]))["assetcode"] == "BR"
+        return {
+            "status": "PASS",
+            "row_counts": {
+                "canonical_fx_rates": 2,
+                "canonical_asset_risk_parameters": 1,
+                "canonical_contract_economics": 1,
+            },
+        }
+
+    monkeypatch.setattr(
+        "trading_advisor_3000.spark_jobs.moex_contract_economics_job.run_moex_contract_economics_spark_job",
+        _fake_job,
+    )
+
+    raw_root = tmp_path / "raw" / "economics"
+    write_delta_table_rows(
+        table_path=raw_root / "raw_moex_contract_securities.delta",
+        rows=[
+            {
+                "source_id": "moex_iss_forts_securities",
+                "source_url": "https://iss.moex.com/iss/engines/futures/markets/forts/securities.json",
+                "source_document_id": "BRM6-2026-06-10",
+                "source_document_hash": "old-contract-hash",
+                "fetched_at_utc": "2026-06-10T19:30:00Z",
+                "engine": "futures",
+                "market": "forts",
+                "board": "RFUD",
+                "moex_secid": "BRM6",
+                "trade_date": "2026-06-10",
+                "assetcode": "BR",
+                "raw_payload_json": json.dumps({"SECID": "BRM6"}),
+            }
+        ],
+        columns=baseline_module._economics_columns("raw_moex_contract_securities"),
+    )
+
+    report = baseline_module.refresh_moex_contract_economics(
+        client=_Client(),
+        universe=[],
+        mappings=[],
+        raw_economics_root=raw_root,
+        canonical_economics_root=tmp_path / "canonical" / "economics",
+        evidence_dir=tmp_path / "evidence",
+        run_id="money-math-refresh",
+        ingest_till_utc="2026-06-11T19:30:00Z",
+        changed_windows=[],
+        refresh_window_days=7,
+    )
+
+    assert report["status"] == "PASS"
+    assert report["raw_refresh"]["raw_written_rows"] == {
+        "raw_moex_contract_securities": 1,
+        "raw_moex_indicative_fx_rates": 1,
+        "raw_moex_rms_limits": 1,
+        "raw_moex_rms_staticparams": 1,
+    }
+    assert report["raw_refresh"]["raw_write_mode"] == "scoped_replace_by_trade_date"
 
 
 def test_baseline_update_heartbeats_during_canonical_refresh(

@@ -5,12 +5,16 @@ import hashlib
 import json
 import threading
 from collections.abc import Callable, Mapping, Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     has_delta_log,
     read_filtered_delta_table_rows,
+    replace_delta_table_rows,
+)
+from trading_advisor_3000.product_plane.data_plane.moex.economics import (
+    moex_economics_store_contract,
 )
 
 from .foundation import (
@@ -55,6 +59,12 @@ BASELINE_COVERAGE_MODES = {
     BASELINE_COVERAGE_MODE_LIVE_DISCOVERY,
 }
 BASELINE_UPDATE_HOT_TABLE_RUNTIME = "delta_rs_raw_tail+spark_delta_canonical"
+ECONOMICS_REFRESH_MODE_SKIP = "skip"
+ECONOMICS_REFRESH_MODE_REFRESH = "refresh"
+ECONOMICS_REFRESH_MODES = {
+    ECONOMICS_REFRESH_MODE_SKIP,
+    ECONOMICS_REFRESH_MODE_REFRESH,
+}
 LOCAL_TAIL_ROLL_MAP_LOOKBACK_DAYS = 45
 BASELINE_TAIL_REQUEST_TIMEOUT_SECONDS = 6.0
 BASELINE_TAIL_REQUEST_MAX_RETRIES = 1
@@ -377,6 +387,274 @@ def _baseline_raw_report_for_canonical(
     return payload
 
 
+def _economics_columns(table_name: str) -> dict[str, str]:
+    return dict(moex_economics_store_contract()[table_name]["columns"])
+
+
+def _economics_trade_date(ingest_till_utc: str) -> datetime:
+    return datetime.fromisoformat(ingest_till_utc.replace("Z", "+00:00")).astimezone(UTC)
+
+
+def _payload_value(payload: Mapping[str, object], *keys: str) -> object:
+    for key in keys:
+        value = payload.get(key)
+        if value is not None and value != "":
+            return value
+    return None
+
+
+def _raw_payload_json(payload: Mapping[str, object]) -> str:
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def _delta_string_literal(value: object) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _trade_date_replace_predicate(
+    rows: Sequence[Mapping[str, object]], *, fallback_trade_date: date
+) -> str:
+    trade_dates = sorted(
+        {
+            str(row.get("trade_date") or fallback_trade_date.isoformat()).strip()[:10]
+            for row in rows
+            if str(row.get("trade_date") or fallback_trade_date.isoformat()).strip()
+        }
+    )
+    if not trade_dates:
+        trade_dates = [fallback_trade_date.isoformat()]
+    if len(trade_dates) == 1:
+        return f"trade_date = {_delta_string_literal(trade_dates[0])}"
+    joined = ", ".join(_delta_string_literal(item) for item in trade_dates)
+    return f"trade_date IN ({joined})"
+
+
+def _write_iss_economics_raw_tables(
+    *,
+    client: MoexISSClient,
+    raw_economics_root: Path,
+    ingest_till_utc: str,
+) -> dict[str, object]:
+    trade_datetime = _economics_trade_date(ingest_till_utc)
+    trade_date = trade_datetime.date()
+    fetched_at_utc = _utc_now_iso()
+    contract_payloads = client.fetch_futures_contract_securities()
+    fx_payloads = client.fetch_futures_indicative_rates(
+        date_from=trade_date,
+        date_till=trade_date,
+    )
+    rms_limits_payloads = client.fetch_futures_rms_limits(trade_date=trade_date)
+    rms_staticparams_payloads = client.fetch_futures_rms_staticparams(trade_date=trade_date)
+    contract_rows = []
+    for payload in contract_payloads:
+        secid = str(payload.get("SECID") or payload.get("secid") or "").strip()
+        if not secid:
+            continue
+        contract_rows.append(
+            {
+                "source_id": "moex_iss_forts_securities",
+                "source_url": "https://iss.moex.com/iss/engines/futures/markets/forts/securities.json",
+                "source_document_id": f"{secid}-{trade_date.isoformat()}",
+                "source_document_hash": _sha256_json(payload),
+                "fetched_at_utc": fetched_at_utc,
+                "engine": "futures",
+                "market": "forts",
+                "board": str(payload.get("BOARDID") or "RFUD"),
+                "moex_secid": secid,
+                "trade_date": trade_date.isoformat(),
+                "assetcode": str(payload.get("ASSETCODE") or payload.get("assetcode") or ""),
+                "contract_shortname": str(payload.get("SHORTNAME") or ""),
+                "last_trade_date": payload.get("MATDATE") or payload.get("LASTTRADEDATE"),
+                "last_del_date": payload.get("MATDATE") or payload.get("LASTDELDATE"),
+                "min_step": payload.get("MINSTEP"),
+                "lot_volume": payload.get("LOTVOLUME"),
+                "official_step_price": payload.get("STEPPRICE"),
+                "official_initial_margin": payload.get("INITIALMARGIN"),
+                "last_settle_price": payload.get("LASTSETTLEPRICE"),
+                "raw_payload_json": _raw_payload_json(payload),
+            }
+        )
+    fx_rows = []
+    for payload in fx_payloads:
+        fx_pair = str(payload.get("secid") or payload.get("SECID") or "").strip()
+        if not fx_pair:
+            continue
+        row_trade_date = str(payload.get("tradedate") or trade_date.isoformat())[:10]
+        clearing_type = str(payload.get("clearing") or payload.get("clearing_type") or "mc").lower()
+        fx_rows.append(
+            {
+                "source_id": "moex_iss_indicative_rates",
+                "source_url": (
+                    "https://iss.moex.com/iss/statistics/engines/futures/markets/"
+                    "indicativerates/securities.json"
+                ),
+                "source_document_id": f"{fx_pair}-{row_trade_date}-{clearing_type}",
+                "source_document_hash": _sha256_json(payload),
+                "fetched_at_utc": fetched_at_utc,
+                "trade_date": row_trade_date,
+                "trade_time": str(payload.get("tradetime") or ""),
+                "fx_pair": fx_pair.upper(),
+                "clearing_type": clearing_type,
+                "rate": payload.get("rate") or payload.get("RATE"),
+                "raw_payload_json": _raw_payload_json(payload),
+            }
+        )
+
+    limits_rows = []
+    for payload in rms_limits_payloads:
+        assetcode = str(payload.get("assetcode") or payload.get("ASSETCODE") or "").strip()
+        if not assetcode:
+            continue
+        row_trade_date = str(payload.get("tradedate") or trade_date.isoformat())[:10]
+        limits_rows.append(
+            {
+                "source_id": "moex_iss_rms_limits",
+                "source_url": "https://iss.moex.com/iss/rms/engines/futures/objects/limits.json",
+                "source_document_id": f"{assetcode}-{row_trade_date}-limits",
+                "source_document_hash": _sha256_json(payload),
+                "fetched_at_utc": fetched_at_utc,
+                "trade_date": row_trade_date,
+                "assetcode": assetcode.upper(),
+                "mr1": _payload_value(payload, "mr1", "MR1"),
+                "mr2": _payload_value(payload, "mr2", "MR2"),
+                "mr3": _payload_value(payload, "mr3", "MR3"),
+                "lk1": _payload_value(payload, "lk1", "LK1"),
+                "lk2": _payload_value(payload, "lk2", "LK2"),
+                "title": str(payload.get("title") or payload.get("TITLE") or ""),
+                "group_title": str(payload.get("group_title") or payload.get("GROUP_TITLE") or ""),
+                "update_time": payload.get("updatetime") or payload.get("update_time"),
+                "raw_payload_json": _raw_payload_json(payload),
+            }
+        )
+    staticparams_rows = []
+    for payload in rms_staticparams_payloads:
+        assetcode = str(payload.get("assetcode") or payload.get("ASSETCODE") or "").strip()
+        if not assetcode:
+            continue
+        row_trade_date = str(payload.get("tradedate") or trade_date.isoformat())[:10]
+        staticparams_rows.append(
+            {
+                "source_id": "moex_iss_rms_staticparams",
+                "source_url": (
+                    "https://iss.moex.com/iss/rms/engines/futures/objects/staticparams.json"
+                ),
+                "source_document_id": f"{assetcode}-{row_trade_date}-staticparams",
+                "source_document_hash": _sha256_json(payload),
+                "fetched_at_utc": fetched_at_utc,
+                "trade_date": row_trade_date,
+                "assetcode": assetcode.upper(),
+                "radius_pct": _payload_value(payload, "radius_pct", "radius", "RADIUS"),
+                "update_time": payload.get("updatetime") or payload.get("update_time"),
+                "raw_payload_json": _raw_payload_json(payload),
+            }
+        )
+
+    raw_economics_root.mkdir(parents=True, exist_ok=True)
+    contract_table_path = raw_economics_root / "raw_moex_contract_securities.delta"
+    fx_table_path = raw_economics_root / "raw_moex_indicative_fx_rates.delta"
+    limits_table_path = raw_economics_root / "raw_moex_rms_limits.delta"
+    staticparams_table_path = raw_economics_root / "raw_moex_rms_staticparams.delta"
+    raw_replace_predicates = {
+        "raw_moex_contract_securities": _trade_date_replace_predicate(
+            contract_rows, fallback_trade_date=trade_date
+        ),
+        "raw_moex_indicative_fx_rates": _trade_date_replace_predicate(
+            fx_rows, fallback_trade_date=trade_date
+        ),
+        "raw_moex_rms_limits": _trade_date_replace_predicate(
+            limits_rows, fallback_trade_date=trade_date
+        ),
+        "raw_moex_rms_staticparams": _trade_date_replace_predicate(
+            staticparams_rows, fallback_trade_date=trade_date
+        ),
+    }
+    replace_delta_table_rows(
+        table_path=contract_table_path,
+        rows=contract_rows,
+        columns=_economics_columns("raw_moex_contract_securities"),
+        predicate=raw_replace_predicates["raw_moex_contract_securities"],
+    )
+    replace_delta_table_rows(
+        table_path=fx_table_path,
+        rows=fx_rows,
+        columns=_economics_columns("raw_moex_indicative_fx_rates"),
+        predicate=raw_replace_predicates["raw_moex_indicative_fx_rates"],
+    )
+    replace_delta_table_rows(
+        table_path=limits_table_path,
+        rows=limits_rows,
+        columns=_economics_columns("raw_moex_rms_limits"),
+        predicate=raw_replace_predicates["raw_moex_rms_limits"],
+    )
+    replace_delta_table_rows(
+        table_path=staticparams_table_path,
+        rows=staticparams_rows,
+        columns=_economics_columns("raw_moex_rms_staticparams"),
+        predicate=raw_replace_predicates["raw_moex_rms_staticparams"],
+    )
+    return {
+        "trade_date": trade_date.isoformat(),
+        "fetched_at_utc": fetched_at_utc,
+        "raw_write_mode": "scoped_replace_by_trade_date",
+        "raw_replace_predicates": raw_replace_predicates,
+        "raw_written_paths": {
+            "raw_moex_contract_securities": contract_table_path.as_posix(),
+            "raw_moex_indicative_fx_rates": fx_table_path.as_posix(),
+            "raw_moex_rms_limits": limits_table_path.as_posix(),
+            "raw_moex_rms_staticparams": staticparams_table_path.as_posix(),
+        },
+        "raw_written_rows": {
+            "raw_moex_contract_securities": len(contract_rows),
+            "raw_moex_indicative_fx_rates": len(fx_rows),
+            "raw_moex_rms_limits": len(limits_rows),
+            "raw_moex_rms_staticparams": len(staticparams_rows),
+        },
+        "rms_tables_source": "moex_iss_rms",
+    }
+
+
+def refresh_moex_contract_economics(
+    *,
+    client: MoexISSClient,
+    universe: Sequence[object],
+    mappings: Sequence[object],
+    raw_economics_root: Path,
+    canonical_economics_root: Path,
+    canonical_session_calendar_path: Path | None = None,
+    evidence_dir: Path,
+    run_id: str,
+    ingest_till_utc: str,
+    changed_windows: Sequence[Mapping[str, object]],
+    refresh_window_days: int,
+) -> dict[str, object]:
+    del universe, mappings, changed_windows, refresh_window_days
+
+    from trading_advisor_3000.spark_jobs.moex_contract_economics_job import (
+        run_moex_contract_economics_spark_job,
+    )
+
+    raw_refresh_report = _write_iss_economics_raw_tables(
+        client=client,
+        raw_economics_root=raw_economics_root,
+        ingest_till_utc=ingest_till_utc,
+    )
+    report = run_moex_contract_economics_spark_job(
+        raw_contract_specs_path=raw_economics_root / "raw_moex_contract_securities.delta",
+        raw_fx_rates_path=raw_economics_root / "raw_moex_indicative_fx_rates.delta",
+        raw_rms_limits_path=raw_economics_root / "raw_moex_rms_limits.delta",
+        raw_rms_staticparams_path=raw_economics_root / "raw_moex_rms_staticparams.delta",
+        output_dir=canonical_economics_root,
+        canonical_session_calendar_path=canonical_session_calendar_path
+        if canonical_session_calendar_path is not None
+        and has_delta_log(canonical_session_calendar_path)
+        else None,
+        run_id=run_id,
+        report_path=evidence_dir / "contract-economics-report.json",
+    )
+    report["raw_refresh"] = raw_refresh_report
+    return report
+
+
 def _moex_secid_from_contract_id(contract_id: object) -> str:
     text = str(contract_id or "").strip()
     if not text:
@@ -522,6 +800,9 @@ def run_moex_baseline_update(
     coverage_mode: str = BASELINE_COVERAGE_MODE_LOCAL_TAIL,
     repo_root: Path | None = None,
     allow_run_id_retry: bool = False,
+    economics_mode: str = ECONOMICS_REFRESH_MODE_SKIP,
+    raw_economics_root: Path | None = None,
+    canonical_economics_root: Path | None = None,
 ) -> dict[str, object]:
     if refresh_window_days <= 0:
         raise ValueError("refresh_window_days must be > 0")
@@ -533,6 +814,10 @@ def run_moex_baseline_update(
     if coverage_mode not in BASELINE_COVERAGE_MODES:
         joined = ", ".join(sorted(BASELINE_COVERAGE_MODES))
         raise ValueError(f"coverage_mode must be one of: {joined}")
+    resolved_economics_mode = str(economics_mode).strip() or ECONOMICS_REFRESH_MODE_SKIP
+    if resolved_economics_mode not in ECONOMICS_REFRESH_MODES:
+        joined = ", ".join(sorted(ECONOMICS_REFRESH_MODES))
+        raise ValueError(f"economics_mode must be one of: {joined}")
 
     raw_table_path = raw_table_path.resolve()
     canonical_bars_path = canonical_bars_path.resolve()
@@ -549,6 +834,8 @@ def run_moex_baseline_update(
     canonical_roll_map_path = (
         canonical_roll_map_path or (canonical_bars_path.parent / "canonical_roll_map.delta")
     ).resolve()
+    raw_economics_root = (raw_economics_root or raw_table_path.parent).resolve()
+    canonical_economics_root = (canonical_economics_root or canonical_bars_path.parent).resolve()
     if not has_delta_log(raw_table_path):
         raise FileNotFoundError(
             f"baseline raw table is missing `_delta_log`: {raw_table_path.as_posix()}"
@@ -660,6 +947,33 @@ def run_moex_baseline_update(
     canonical_input_report_path = run_dir / "canonical-input-raw-ingest-report.json"
     _write_json(canonical_input_report_path, canonical_raw_report)
 
+    if resolved_economics_mode == ECONOMICS_REFRESH_MODE_REFRESH:
+        economics_report = refresh_moex_contract_economics(
+            client=client,
+            universe=universe,
+            mappings=mappings,
+            raw_economics_root=raw_economics_root,
+            canonical_economics_root=canonical_economics_root,
+            canonical_session_calendar_path=canonical_session_calendar_path,
+            evidence_dir=run_dir / "economics-refresh",
+            run_id=run_id,
+            ingest_till_utc=ingest_till_utc,
+            changed_windows=merged_changed_windows,
+            refresh_window_days=refresh_window_days,
+        )
+    else:
+        economics_report = {
+            "status": "PASS-NOOP",
+            "mode": "economics_refresh_skipped",
+            "skipped_reason": "economics_mode_skip",
+            "row_counts": {},
+            "missing_economics_rows": 0,
+            "defaulted_radius_rows": 0,
+            "official_margin_dominates_rows": 0,
+            "formula_margin_dominates_rows": 0,
+            "affected_downstream_partitions": [],
+        }
+
     canonical_refresh_report_path: Path | None = (
         run_dir / "canonical-refresh" / ("canonical-refresh-report.json")
     )
@@ -769,6 +1083,7 @@ def run_moex_baseline_update(
         "publish_decision": "publish" if status == "PASS" else "blocked",
         "mode": "baseline_update",
         "coverage_mode": coverage_mode,
+        "economics_mode": resolved_economics_mode,
         "runtime_boundary": {
             "orchestrator": "dagster",
             "hot_table_runtime": BASELINE_UPDATE_HOT_TABLE_RUNTIME,
@@ -791,6 +1106,8 @@ def run_moex_baseline_update(
         ),
         "canonical_session_calendar_path": canonical_session_calendar_path.as_posix(),
         "canonical_roll_map_path": canonical_roll_map_path.as_posix(),
+        "raw_economics_root": raw_economics_root.as_posix(),
+        "canonical_economics_root": canonical_economics_root.as_posix(),
         "source_rows": raw_report.get("source_rows", 0),
         "incremental_rows": raw_report.get("incremental_rows", 0),
         "deduplicated_rows": raw_report.get("deduplicated_rows", 0),
@@ -799,6 +1116,7 @@ def run_moex_baseline_update(
         "current_changed_windows": len(current_changed_windows),
         "effective_changed_windows": len(merged_changed_windows),
         "cf_catch_up": cf_catch_up_report,
+        "economics_refresh": economics_report,
         "canonical_report": {
             "status": canonical_report.get("status"),
             "publish_decision": canonical_report.get("publish_decision"),
@@ -814,6 +1132,16 @@ def run_moex_baseline_update(
             "coverage_table": coverage_csv.as_posix(),
             "raw_ingest_report": raw_report_path.as_posix(),
             "canonical_input_raw_ingest_report": canonical_input_report_path.as_posix(),
+            "moex_request_log": request_log_path.as_posix(),
+            "moex_request_latest": request_latest_path.as_posix(),
+            "economics_refresh_report": str(
+                economics_report.get(
+                    "report_path",
+                    (run_dir / "economics-refresh" / "contract-economics-report.json").as_posix()
+                    if resolved_economics_mode == ECONOMICS_REFRESH_MODE_REFRESH
+                    else "",
+                )
+            ),
             "session_schedule_report": "",
             "official_session_schedule_report": "",
             "canonical_refresh_report": (

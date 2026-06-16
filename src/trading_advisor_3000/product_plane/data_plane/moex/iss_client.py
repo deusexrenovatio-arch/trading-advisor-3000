@@ -731,6 +731,135 @@ class MoexISSClient:
             start += len(page)
         return securities
 
+    def fetch_security_snapshot(
+        self,
+        *,
+        engine: str,
+        market: str,
+        board: str,
+        secid: str,
+    ) -> dict[str, Any]:
+        path = f"/iss/engines/{engine}/markets/{market}/boards/{board}/securities/{secid}.json"
+        payload = self._get_json(
+            path,
+            params={"iss.meta": "off"},
+            event_context={
+                "operation": "security_snapshot",
+                "engine": engine,
+                "market": market,
+                "board": board,
+                "secid": secid,
+            },
+        )
+        block = payload.get("securities")
+        if not isinstance(block, dict):
+            raise ValueError(f"MOEX securities payload is missing `securities` block for {secid}")
+        rows = _rows_to_dicts(block)
+        if not rows:
+            raise ValueError(f"MOEX securities payload has no rows for {secid}")
+        return rows[0]
+
+    def fetch_futures_contract_securities(self) -> list[dict[str, Any]]:
+        path = "/iss/engines/futures/markets/forts/securities.json"
+        start = 0
+        rows: list[dict[str, Any]] = []
+        while True:
+            payload = self._get_json(
+                path,
+                params={
+                    "iss.meta": "off",
+                    "iss.only": "securities",
+                    "start": str(start),
+                },
+                event_context={
+                    "operation": "futures_contract_securities",
+                    "page_start": start,
+                },
+            )
+            block = payload.get("securities")
+            if not isinstance(block, dict):
+                raise ValueError("MOEX futures securities payload is missing `securities` block")
+            page = _rows_to_dicts(block)
+            if not page:
+                break
+            rows.extend(page)
+            self._emit_request_event(
+                {
+                    "event": "moex_futures_contract_securities_page",
+                    "status": "parsed",
+                    "page_start": start,
+                    "row_count": len(page),
+                }
+            )
+            cursor_block = payload.get("securities.cursor")
+            if not isinstance(cursor_block, dict):
+                break
+            start += len(page)
+        return rows
+
+    def fetch_futures_indicative_rates(
+        self,
+        *,
+        date_from: date,
+        date_till: date,
+    ) -> list[dict[str, Any]]:
+        path = "/iss/statistics/engines/futures/markets/indicativerates/securities.json"
+        payload = self._get_json(
+            path,
+            params={
+                "iss.meta": "off",
+                "from": date_from.isoformat(),
+                "till": date_till.isoformat(),
+            },
+            event_context={
+                "operation": "futures_indicative_rates",
+                "date_from": date_from.isoformat(),
+                "date_till": date_till.isoformat(),
+            },
+        )
+        block = payload.get("securities")
+        if not isinstance(block, dict):
+            raise ValueError("MOEX indicative rates payload is missing `securities` block")
+        return _rows_to_dicts(block)
+
+    def fetch_futures_rms_limits(self, *, trade_date: date) -> list[dict[str, Any]]:
+        path = "/iss/rms/engines/futures/objects/limits.json"
+        payload = self._get_json(
+            path,
+            params={
+                "iss.meta": "off",
+                "date": trade_date.isoformat(),
+                "lang": "en",
+            },
+            event_context={
+                "operation": "futures_rms_limits",
+                "trade_date": trade_date.isoformat(),
+            },
+        )
+        block = payload.get("limits")
+        if not isinstance(block, dict):
+            raise ValueError("MOEX RMS limits payload is missing `limits` block")
+        return _rows_to_dicts(block)
+
+    def fetch_futures_rms_staticparams(self, *, trade_date: date) -> list[dict[str, Any]]:
+        path = "/iss/rms/engines/futures/objects/staticparams.json"
+        payload = self._get_json(
+            path,
+            params={
+                "iss.meta": "off",
+                "date": trade_date.isoformat(),
+                "lang": "en",
+            },
+            event_context={
+                "operation": "futures_rms_staticparams",
+                "trade_date": trade_date.isoformat(),
+            },
+        )
+        block = payload.get("staticparams")
+        if not isinstance(block, dict):
+            raise ValueError("MOEX RMS staticparams payload is missing `staticparams` block")
+        return _rows_to_dicts(block)
+
     def fetch_futures_session_schedule(
         self,
         *,

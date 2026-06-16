@@ -81,6 +81,49 @@ class _FailingTwoDayClient(MoexISSClient):
         )
 
 
+class _PagedEconomicsClient(MoexISSClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls: list[tuple[str, dict[str, str], dict[str, object] | None]] = []
+
+    def _get_json(  # type: ignore[override]
+        self,
+        path: str,
+        *,
+        params: dict[str, str],
+        event_context: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        self.calls.append((path, dict(params), dict(event_context or {})))
+        if path.endswith("/forts/securities.json"):
+            data = (
+                [["BRN6", "BR", 0.01, 10, 7.19077, 17721.61, "2026-07-15"]]
+                if params["start"] == "0"
+                else []
+            )
+            return {
+                "securities": {
+                    "columns": [
+                        "SECID",
+                        "ASSETCODE",
+                        "MINSTEP",
+                        "LOTVOLUME",
+                        "STEPPRICE",
+                        "INITIALMARGIN",
+                        "MATDATE",
+                    ],
+                    "data": data,
+                }
+            }
+        if path.endswith("/indicativerates/securities.json"):
+            return {
+                "securities": {
+                    "columns": ["tradedate", "tradetime", "secid", "rate", "clearing"],
+                    "data": [["2026-06-11", "19:00:00", "USD/RUB", 71.9077, "mc"]],
+                }
+            }
+        raise AssertionError(path)
+
+
 def test_iter_candles_splits_failing_window_and_recovers() -> None:
     events: list[dict[str, object]] = []
     client = _AdaptiveSplitClient(events)
@@ -131,6 +174,52 @@ def test_iter_candles_does_not_split_small_tail_window_after_transport_failure()
     assert not any(event.get("event") == "moex_candles_chunk_split" for event in events)
     assert events[-1]["event"] == "moex_candles_chunk"
     assert events[-1]["status"] == "fail"
+
+
+def test_fetch_futures_contract_securities_pages_forts_endpoint() -> None:
+    client = _PagedEconomicsClient()
+
+    rows = client.fetch_futures_contract_securities()
+
+    assert rows == [
+        {
+            "SECID": "BRN6",
+            "ASSETCODE": "BR",
+            "MINSTEP": 0.01,
+            "LOTVOLUME": 10,
+            "STEPPRICE": 7.19077,
+            "INITIALMARGIN": 17721.61,
+            "MATDATE": "2026-07-15",
+        }
+    ]
+    first_path, first_params, first_context = client.calls[0]
+    assert first_path == "/iss/engines/futures/markets/forts/securities.json"
+    assert first_params["iss.only"] == "securities"
+    assert first_context["operation"] == "futures_contract_securities"
+    assert len(client.calls) == 1
+
+
+def test_fetch_futures_indicative_rates_reads_securities_block() -> None:
+    client = _PagedEconomicsClient()
+
+    rows = client.fetch_futures_indicative_rates(
+        date_from=date(2026, 6, 11),
+        date_till=date(2026, 6, 11),
+    )
+
+    assert rows == [
+        {
+            "tradedate": "2026-06-11",
+            "tradetime": "19:00:00",
+            "secid": "USD/RUB",
+            "rate": 71.9077,
+            "clearing": "mc",
+        }
+    ]
+    path, params, context = client.calls[0]
+    assert path == "/iss/statistics/engines/futures/markets/indicativerates/securities.json"
+    assert params["from"] == "2026-06-11"
+    assert context["operation"] == "futures_indicative_rates"
 
 
 class _JsonResponse:

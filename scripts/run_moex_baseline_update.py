@@ -62,6 +62,8 @@ def main() -> None:
     parser.add_argument("--raw-table-path", default="")
     parser.add_argument("--canonical-bars-path", default="")
     parser.add_argument("--canonical-provenance-path", default="")
+    parser.add_argument("--raw-economics-root", default="")
+    parser.add_argument("--canonical-economics-root", default="")
     parser.add_argument("--evidence-root", default="")
     parser.add_argument("--run-id", default="")
     parser.add_argument("--ingest-till-utc", default="")
@@ -72,6 +74,12 @@ def main() -> None:
     parser.add_argument("--refresh-overlap-minutes", type=int, default=180)
     parser.add_argument("--max-changed-window-days", type=int, default=10)
     parser.add_argument("--stability-lag-minutes", type=int, default=20)
+    parser.add_argument(
+        "--economics-mode",
+        choices=["skip", "refresh"],
+        default="refresh",
+        help="Refresh MOEX money-math side tables before canonical bars refresh.",
+    )
     parser.add_argument(
         "--coverage-mode",
         choices=["local_tail", "live_discovery"],
@@ -124,6 +132,18 @@ def main() -> None:
         field_name="--evidence-root",
         default_subdir=BASELINE_UPDATE_STORAGE_DIRNAME,
     )
+    raw_economics_root = resolve_external_root(
+        args.raw_economics_root,
+        repo_root=ROOT,
+        field_name="--raw-economics-root",
+        default_subdir="raw/economics",
+    )
+    canonical_economics_root = resolve_external_root(
+        args.canonical_economics_root,
+        repo_root=ROOT,
+        field_name="--canonical-economics-root",
+        default_subdir="canonical/economics",
+    )
 
     report = run_moex_baseline_update(
         mapping_registry_path=_resolve_repo_path(Path(args.mapping_registry)),
@@ -143,6 +163,9 @@ def main() -> None:
         contract_discovery_step_days=int(args.contract_discovery_step_days),
         expand_contract_chain=bool(args.expand_contract_chain),
         coverage_mode=str(args.coverage_mode),
+        economics_mode=str(args.economics_mode),
+        raw_economics_root=raw_economics_root,
+        canonical_economics_root=canonical_economics_root,
         repo_root=ROOT,
         allow_run_id_retry=bool(args.allow_run_id_retry),
     )
