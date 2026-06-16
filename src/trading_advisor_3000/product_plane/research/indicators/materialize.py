@@ -3,8 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
+from typing import AbstractSet
 
 import pandas as pd
 import pandas_ta_classic as ta
@@ -57,6 +59,8 @@ from .volume_profile import (
     VP_QUALITY_NO_SOURCE,
     compute_volume_profile_features,
 )
+
+INDICATOR_FRAME_MATERIALIZATION_LOCK_FILENAME = ".research_indicator_frames.lock.json"
 
 
 def _resolved_series_mode(row_series_mode: object, *, requested_series_mode: str) -> str:
@@ -497,6 +501,23 @@ def _load_dataset_manifest(
     return rows[0]
 
 
+def _dataset_manifest_timeframes(dataset_manifest: Mapping[str, object]) -> frozenset[str]:
+    raw = dataset_manifest.get("timeframes_json")
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return frozenset()
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            parsed = [item.strip() for item in text.split(",")]
+    elif isinstance(raw, Sequence) and not isinstance(raw, (bytes, bytearray)):
+        parsed = raw
+    else:
+        parsed = ()
+    return frozenset(str(item).strip() for item in parsed if str(item).strip())
+
+
 def _bar_partition_key_from_row(
     row: dict[str, object],
     *,
@@ -533,6 +554,7 @@ def _load_bar_partition_counts(
     series_mode: str,
     timeframes: Sequence[str] = (),
     dataset_instrument_ids: Sequence[str] = (),
+    active_timeframes: AbstractSet[str] = frozenset(),
 ) -> dict[IndicatorFramePartitionKey, int]:
     table_path = dataset_output_dir / "research_bar_views.delta"
     requested_columns = [
@@ -589,6 +611,8 @@ def _load_bar_partition_counts(
             indicator_set_version=indicator_set_version,
             series_mode=series_mode,
         )
+        if active_timeframes and key.timeframe not in active_timeframes:
+            continue
         counts[key] = int(row.get("count_all") or 0)
     return counts
 
@@ -1444,6 +1468,64 @@ def _existing_partition_matches(
     )
 
 
+def _metadata_fast_reuse_report(
+    *,
+    existing_by_partition: dict[IndicatorFramePartitionKey, dict[str, object]],
+    current_dataset_bars_hash: str,
+    profile_version: str,
+    target_output_columns: tuple[str, ...],
+    target_output_columns_hash: str,
+    existing_output_columns: set[str],
+    output_paths: dict[str, str],
+    resolved_profile: IndicatorProfile,
+) -> dict[str, object] | None:
+    if not current_dataset_bars_hash or not existing_by_partition:
+        return None
+    legacy_output_columns_match = set(target_output_columns).issubset(existing_output_columns)
+    indicator_row_count = 0
+    for metadata in existing_by_partition.values():
+        row_count = int(metadata.get("row_count", -1) or -1)
+        source_hash = str(metadata.get("source_bars_hash") or "")
+        if (
+            not source_hash
+            or row_count < 0
+            or str(metadata.get("source_dataset_bars_hash") or "") != current_dataset_bars_hash
+            or not _existing_partition_matches(
+                metadata,
+                source_hash=source_hash,
+                profile_version=profile_version,
+                row_count=row_count,
+                output_columns_hash=target_output_columns_hash,
+                legacy_output_columns_match=legacy_output_columns_match,
+            )
+        ):
+            return None
+        indicator_row_count += row_count
+
+    volume_profile_source_status = "not_required"
+    if _profile_requires_volume_profile(resolved_profile):
+        volume_profile_source_status = "reused_without_source_scan"
+    return {
+        "indicator_row_count": indicator_row_count,
+        "bar_usage_policy_id": BAR_USAGE_POLICY_ID,
+        "indicator_usage_policy_id": INDICATOR_USAGE_POLICY_ID,
+        "refreshed_row_count": 0,
+        "refreshed_partition_count": 0,
+        "reused_partition_count": len(existing_by_partition),
+        "extended_partition_count": 0,
+        "recomputed_partition_count": 0,
+        "deleted_partition_count": 0,
+        "write_batch_count": 0,
+        "volume_profile_source_status": volume_profile_source_status,
+        "volume_profile_missing_source_partition_count": 0,
+        "profile_version": resolved_profile.version,
+        "output_columns_hash": target_output_columns_hash,
+        "reuse_plan_mode": "metadata_fast_path",
+        "output_paths": output_paths,
+        "delta_manifest": indicator_store_contract(profile=resolved_profile),
+    }
+
+
 def _timestamp_after(left: object, right: object) -> bool:
     if not left or not right:
         return False
@@ -1646,32 +1728,91 @@ def materialize_indicator_frames(
     volume_profile_raw_1m_table_path: Path | None = None,
     volume_profile_tick_size_by_instrument: Mapping[str, float] | None = None,
 ) -> dict[str, object]:
+    lock_path = _acquire_indicator_frame_materialization_lock(
+        indicator_output_dir=indicator_output_dir,
+        dataset_version=dataset_version,
+        indicator_set_version=indicator_set_version,
+        contour_id=contour_id,
+    )
+    try:
+        return _materialize_indicator_frames_unlocked(
+            dataset_output_dir=dataset_output_dir,
+            indicator_output_dir=indicator_output_dir,
+            dataset_version=dataset_version,
+            indicator_set_version=indicator_set_version,
+            contour_id=contour_id,
+            profile=profile,
+            profile_version=profile_version,
+            timeframes=timeframes,
+            dataset_instrument_ids=dataset_instrument_ids,
+            volume_profile_source_rows=volume_profile_source_rows,
+            volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
+            volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
+        )
+    finally:
+        _release_indicator_frame_materialization_lock(lock_path)
+
+
+def _acquire_indicator_frame_materialization_lock(
+    *,
+    indicator_output_dir: Path,
+    dataset_version: str,
+    indicator_set_version: str,
+    contour_id: str,
+) -> Path:
+    indicator_output_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = indicator_output_dir / INDICATOR_FRAME_MATERIALIZATION_LOCK_FILENAME
+    payload = {
+        "table_name": "research_indicator_frames",
+        "dataset_version": dataset_version,
+        "indicator_set_version": indicator_set_version,
+        "contour_id": contour_id,
+        "pid": os.getpid(),
+        "created_at_utc": pd.Timestamp.utcnow().isoformat().replace("+00:00", "Z"),
+    }
+    try:
+        descriptor = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError as exc:
+        raise RuntimeError(
+            f"blocked by active research_indicator_frames writer lock: {lock_path.as_posix()}"
+        ) from exc
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+        handle.write("\n")
+    return lock_path
+
+
+def _release_indicator_frame_materialization_lock(lock_path: Path) -> None:
+    lock_path.unlink(missing_ok=True)
+
+
+def _materialize_indicator_frames_unlocked(
+    *,
+    dataset_output_dir: Path,
+    indicator_output_dir: Path,
+    dataset_version: str,
+    indicator_set_version: str,
+    contour_id: str = "native_tradable",
+    profile: IndicatorProfile | None = None,
+    profile_version: str | None = None,
+    timeframes: Sequence[str] = (),
+    dataset_instrument_ids: Sequence[str] = (),
+    volume_profile_source_rows: Mapping[tuple[str, str], Sequence[Mapping[str, object]]]
+    | None = None,
+    volume_profile_raw_1m_table_path: Path | None = None,
+    volume_profile_tick_size_by_instrument: Mapping[str, float] | None = None,
+) -> dict[str, object]:
     dataset_manifest = _load_dataset_manifest(
         output_dir=dataset_output_dir,
         dataset_version=dataset_version,
         contour_id=contour_id,
     )
     series_mode = str(dataset_manifest.get("series_mode", "contract"))
-    adjustment_ladder_rows = (
-        _load_adjustment_ladder_rows(
-            dataset_output_dir=dataset_output_dir, dataset_version=dataset_version
-        )
-        if series_mode == "continuous_front"
-        else ()
-    )
+    active_timeframes = _dataset_manifest_timeframes(dataset_manifest)
     current_dataset_bars_hash = str(dataset_manifest.get("bars_hash") or "")
     current_dataset_created_at = str(dataset_manifest.get("created_at") or "")
     registry: IndicatorProfileRegistry = build_indicator_profile_registry()
     resolved_profile = profile or registry.get(profile_version or "core_v1")
-    partition_counts = _load_bar_partition_counts(
-        dataset_output_dir=dataset_output_dir,
-        dataset_version=dataset_version,
-        contour_id=contour_id,
-        indicator_set_version=indicator_set_version,
-        series_mode=series_mode,
-        timeframes=timeframes,
-        dataset_instrument_ids=dataset_instrument_ids,
-    )
     scoped_timeframes = frozenset(str(item).strip() for item in timeframes if str(item).strip())
     scoped_instruments = frozenset(
         str(item).strip() for item in dataset_instrument_ids if str(item).strip()
@@ -1685,19 +1826,6 @@ def materialize_indicator_frames(
     table_exists = (
         indicator_output_dir / "research_indicator_frames.delta" / "_delta_log"
     ).exists()
-    source_table_commit_ts = _latest_delta_commit_timestamp(
-        dataset_output_dir / "research_bar_views.delta"
-    )
-    indicator_table_commit_ts = (
-        _latest_delta_commit_timestamp(indicator_output_dir / "research_indicator_frames.delta")
-        if table_exists
-        else None
-    )
-    legacy_table_covers_source_commit = bool(
-        source_table_commit_ts is not None
-        and indicator_table_commit_ts is not None
-        and indicator_table_commit_ts >= source_table_commit_ts
-    )
     existing_metadata = (
         load_indicator_partition_metadata(
             output_dir=indicator_output_dir,
@@ -1711,6 +1839,12 @@ def materialize_indicator_frames(
     existing_by_partition = _group_existing_partition_metadata(
         rows=existing_metadata, series_mode=series_mode
     )
+    if active_timeframes:
+        existing_by_partition = {
+            key: metadata
+            for key, metadata in existing_by_partition.items()
+            if key.timeframe in active_timeframes
+        }
     target_output_columns = resolved_profile.expected_output_columns()
     target_output_columns_hash = indicator_output_columns_hash(target_output_columns)
     existing_output_columns = (
@@ -1721,6 +1855,54 @@ def materialize_indicator_frames(
     reusable_existing_columns = tuple(
         column for column in target_output_columns if column in existing_output_columns
     )
+    output_paths = {
+        "research_indicator_frames": (
+            indicator_output_dir / "research_indicator_frames.delta"
+        ).as_posix()
+    }
+    fast_reuse_report = _metadata_fast_reuse_report(
+        existing_by_partition=existing_by_partition,
+        current_dataset_bars_hash=current_dataset_bars_hash,
+        profile_version=resolved_profile.version,
+        target_output_columns=target_output_columns,
+        target_output_columns_hash=target_output_columns_hash,
+        existing_output_columns=existing_output_columns,
+        output_paths=output_paths,
+        resolved_profile=resolved_profile,
+    )
+    if fast_reuse_report is not None:
+        return fast_reuse_report
+
+    adjustment_ladder_rows = (
+        _load_adjustment_ladder_rows(
+            dataset_output_dir=dataset_output_dir, dataset_version=dataset_version
+        )
+        if series_mode == "continuous_front"
+        else ()
+    )
+    partition_counts = _load_bar_partition_counts(
+        dataset_output_dir=dataset_output_dir,
+        dataset_version=dataset_version,
+        contour_id=contour_id,
+        indicator_set_version=indicator_set_version,
+        series_mode=series_mode,
+        timeframes=timeframes,
+        dataset_instrument_ids=dataset_instrument_ids,
+        active_timeframes=active_timeframes,
+    )
+    source_table_commit_ts = _latest_delta_commit_timestamp(
+        dataset_output_dir / "research_bar_views.delta"
+    )
+    indicator_table_commit_ts = (
+        _latest_delta_commit_timestamp(indicator_output_dir / "research_indicator_frames.delta")
+        if table_exists
+        else None
+    )
+    legacy_table_covers_source_commit = bool(
+        source_table_commit_ts is not None
+        and indicator_table_commit_ts is not None
+        and indicator_table_commit_ts >= source_table_commit_ts
+    )
 
     current_partitions: set[IndicatorFramePartitionKey] = set()
     replace_partitions: list[IndicatorFramePartitionKey] = []
@@ -1729,6 +1911,8 @@ def materialize_indicator_frames(
             IndicatorFramePartitionKey,
             IndicatorProfile,
             tuple[str, ...] | None,
+            list[ResearchBarView],
+            Mapping[tuple[str, str], Sequence[Mapping[str, object]]] | None,
         ]
     ] = []
     reused_partitions = 0
@@ -1762,11 +1946,6 @@ def materialize_indicator_frames(
             ),
         )
     )
-    output_paths = {
-        "research_indicator_frames": (
-            indicator_output_dir / "research_indicator_frames.delta"
-        ).as_posix()
-    }
 
     if not table_exists:
 
@@ -1871,10 +2050,7 @@ def materialize_indicator_frames(
             and _timestamp_after(current_dataset_created_at, existing_materialized_at)
         )
         source_changed = (
-            source_row_count != row_count
-            or not source_hash
-            or dataset_may_have_changed
-            or series_mode == "continuous_front"
+            source_row_count != row_count or not source_hash or dataset_may_have_changed
         )
         if source_changed:
             series = _load_bar_partition_rows(
@@ -1919,7 +2095,7 @@ def materialize_indicator_frames(
                 if local_volume_profile_source_rows is not None
                 else target_bars_hash
             )
-        if series_mode != "continuous_front" and _existing_partition_matches(
+        if _existing_partition_matches(
             existing_partition_metadata,
             source_hash=source_hash,
             profile_version=resolved_profile.version,
@@ -1965,6 +2141,8 @@ def materialize_indicator_frames(
                 partition_key,
                 compute_profile,
                 existing_value_columns,
+                series,
+                local_volume_profile_source_rows,
             )
         )
         replace_partitions.append(partition_key)
@@ -1984,13 +2162,13 @@ def materialize_indicator_frames(
         def _partition_row_batches() -> Iterator[
             tuple[IndicatorFramePartitionKey, list[IndicatorFrameRow]]
         ]:
-            for partition_key, compute_profile, existing_value_columns in refresh_plan:
-                series = _load_bar_partition_rows(
-                    dataset_output_dir=dataset_output_dir,
-                    dataset_version=dataset_version,
-                    contour_id=contour_id,
-                    partition=partition_key,
-                )
+            for (
+                partition_key,
+                compute_profile,
+                existing_value_columns,
+                series,
+                local_volume_profile_source_rows,
+            ) in refresh_plan:
                 existing_rows = (
                     load_indicator_partition_rows(
                         output_dir=indicator_output_dir,
@@ -1998,11 +2176,6 @@ def materialize_indicator_frames(
                         value_columns=existing_value_columns,
                     )
                     if existing_value_columns is not None
-                    else None
-                )
-                local_volume_profile_source_rows = (
-                    _load_volume_profile_rows(partition_key, series)
-                    if _profile_requires_volume_profile(resolved_profile)
                     else None
                 )
                 yield (
