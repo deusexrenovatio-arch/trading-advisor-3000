@@ -33,6 +33,7 @@ ROW_HASH_VERSION = "continuous-front-indicator-row-hash-v2"
 
 BAR_VIEW_INPUT_COLUMNS = (
     "dataset_version",
+    "contour_id",
     "contract_id",
     "instrument_id",
     "timeframe",
@@ -183,6 +184,8 @@ def _validate_sources_before_spark(
         table_path=materialized_output_dir / "continuous_front_adjustment_ladder.delta",
         required_columns=(
             "dataset_version",
+            "roll_policy_version",
+            "adjustment_policy_version",
             "instrument_id",
             "timeframe",
             "roll_sequence",
@@ -354,7 +357,11 @@ def _build_input_frame(
     ladder = (
         spark.read.format("delta")
         .load(str(materialized_output_dir / "continuous_front_adjustment_ladder.delta"))
-        .where(F.col("dataset_version") == F.lit(dataset_version))
+        .where(
+            (F.col("dataset_version") == F.lit(dataset_version))
+            & (F.col("roll_policy_version") == F.lit(roll_policy_version))
+            & (F.col("adjustment_policy_version") == F.lit(adjustment_policy_version))
+        )
         .select(
             "instrument_id",
             "timeframe",
