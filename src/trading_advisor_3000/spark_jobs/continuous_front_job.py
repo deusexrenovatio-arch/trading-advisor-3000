@@ -17,6 +17,11 @@ from trading_advisor_3000.product_plane.research.datasets import (
     CALENDAR_EXPIRY_CONTINUOUS_FRONT_POLICY,
     ContinuousFrontPolicy,
 )
+from trading_advisor_3000.product_plane.runtime.stage_timings import (
+    StageTimings,
+    record_stage_timing,
+    stage_timer,
+)
 
 from .canonical_bars_job import DEFAULT_SPARK_MASTER, _create_spark_session
 
@@ -1173,8 +1178,12 @@ def run_continuous_front_spark_job(
     resolved_policy = policy or ContinuousFrontPolicy()
     _require_spark_native_policy(resolved_policy)
     spark_factory = spark_session_factory or _create_spark_session
+    stage_timings: StageTimings = {}
+    stage_started = stage_timer()
     spark = spark_factory(spec.app_name, spark_master)
+    record_stage_timing(stage_timings, "start_spark", stage_started, master=spark_master)
     try:
+        stage_started = stage_timer()
         for table_path in (
             canonical_bars_path,
             canonical_session_calendar_path,
@@ -1182,12 +1191,18 @@ def run_continuous_front_spark_job(
         ):
             if not has_delta_log(table_path):
                 raise RuntimeError(f"missing canonical delta table: {table_path.as_posix()}")
+        record_stage_timing(stage_timings, "validate_inputs", stage_started)
+
+        stage_started = stage_timer()
         spark.read.format("delta").load(str(canonical_session_calendar_path)).select(
             "instrument_id"
         ).count()
         spark.read.format("delta").load(str(canonical_roll_map_path)).select(
             "instrument_id"
         ).count()
+        record_stage_timing(stage_timings, "source_sidecar_counts", stage_started)
+
+        stage_started = stage_timer()
         tables = _build_spark_native_tables(
             spark=spark,
             canonical_bars_path=canonical_bars_path,
@@ -1199,8 +1214,10 @@ def run_continuous_front_spark_job(
             start_ts=start_ts,
             end_ts=end_ts,
         )
+        record_stage_timing(stage_timings, "build_spark_native_tables", stage_started)
 
         staging_dir = output_dir / "_staging" / "continuous_front_spark" / run_id
+        stage_started = stage_timer()
         staged_output_paths = _write_spark_dataframe_tables(
             spark=spark,
             output_dir=staging_dir,
@@ -1211,6 +1228,14 @@ def run_continuous_front_spark_job(
             start_ts=start_ts,
             end_ts=end_ts,
         )
+        record_stage_timing(
+            stage_timings,
+            "write_staging_tables",
+            stage_started,
+            table_count=len(staged_output_paths),
+        )
+
+        stage_started = stage_timer()
         qc_rows = _qc_rows_from_spark(tables["continuous_front_qc_report"])
         blocking_rows = [row for row in qc_rows if row.get("status") == "BLOCKED"]
         if blocking_rows:
@@ -1219,7 +1244,15 @@ def run_continuous_front_spark_job(
                 for row in blocking_rows
             )
             raise RuntimeError(f"continuous_front Spark QC failed closed: {blocked}")
+        record_stage_timing(
+            stage_timings,
+            "qc",
+            stage_started,
+            qc_row_count=len(qc_rows),
+            blocking_row_count=len(blocking_rows),
+        )
 
+        stage_started = stage_timer()
         output_paths = _write_spark_dataframe_tables(
             spark=spark,
             output_dir=output_dir,
@@ -1230,18 +1263,40 @@ def run_continuous_front_spark_job(
             start_ts=start_ts,
             end_ts=end_ts,
         )
+        record_stage_timing(
+            stage_timings,
+            "write_output_tables",
+            stage_started,
+            table_count=len(output_paths),
+        )
+
+        stage_started = stage_timer()
         contract_errors = _validate_spark_promoted_contracts(output_paths)
         if contract_errors:
             raise RuntimeError(
                 "continuous_front Spark contract validation failed: " + "; ".join(contract_errors)
             )
+        record_stage_timing(
+            stage_timings,
+            "contract_validation",
+            stage_started,
+            error_count=len(contract_errors),
+        )
 
+        stage_started = stage_timer()
         rows_by_table = {
             table_name: count_delta_table_rows(
                 Path(path), filters=[("dataset_version", "=", dataset_version)]
             )
             for table_name, path in output_paths.items()
         }
+        record_stage_timing(
+            stage_timings,
+            "row_counts",
+            stage_started,
+            table_count=len(rows_by_table),
+            row_count=sum(rows_by_table.values()),
+        )
         return {
             "success": True,
             "status": "PASS",
@@ -1253,6 +1308,7 @@ def run_continuous_front_spark_job(
             "rows_by_table": rows_by_table,
             "qc_rows": qc_rows,
             "contract_check_errors": contract_errors,
+            "stage_timings": stage_timings,
             "delta_manifest": continuous_front_store_contract(),
             "spark_profile": {
                 "app_name": spec.app_name,

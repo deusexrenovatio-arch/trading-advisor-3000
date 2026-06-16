@@ -200,6 +200,11 @@ def _is_market_data_public_import(module_name: str) -> bool:
     return module_name.startswith(allowed_prefixes)
 
 
+def _is_runtime_public_import(module_name: str) -> bool:
+    allowed_prefixes = (f"{PRODUCT_PLANE_IMPORT_PREFIX}.runtime.stage_timings",)
+    return module_name.startswith(allowed_prefixes)
+
+
 def classify_import(
     origin_module: str,
     target_module: str,
@@ -219,6 +224,11 @@ def classify_import(
         if _is_market_data_public_import(imported_module):
             return PUBLIC_API, "research data consumes public market-data outputs/helpers"
         return REVIEW_REQUIRED, "research data may be reaching into market-data internals"
+
+    if origin_module == RESEARCH_DATA_FACTORY and target_module == RUNTIME_PLANE:
+        if _is_runtime_public_import(imported_module):
+            return PUBLIC_API, "research data records public runtime telemetry"
+        return REVIEW_REQUIRED, "research data may be reaching into runtime internals"
 
     if origin_module == STRATEGY_FACTORY and target_module == RESEARCH_DATA_FACTORY:
         return PUBLIC_API, "strategy consumes research-ready frames or manifests"

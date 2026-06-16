@@ -18,6 +18,11 @@ from trading_advisor_3000.product_plane.research.derived_indicators.source_frame
     derived_source_indicator_columns_hash,
     research_derived_source_frame_store_contract,
 )
+from trading_advisor_3000.product_plane.runtime.stage_timings import (
+    StageTimings,
+    record_stage_timing,
+    stage_timer,
+)
 
 from .canonical_bars_job import DEFAULT_SPARK_MASTER, _create_spark_session
 from .research_bar_views_job import (
@@ -154,10 +159,14 @@ def run_research_derived_source_frames_spark_job(
     dataset_instrument_ids: Sequence[str] = (),
     spark_session_factory: Callable[[str, str], object] | None = None,
 ) -> dict[str, object]:
+    stage_timings: StageTimings = {}
+    stage_started = stage_timer()
     for table_path in (bar_views_path, indicator_frames_path):
         if not has_delta_log(table_path):
             raise RuntimeError(f"missing Delta table: {table_path.as_posix()}")
+    record_stage_timing(stage_timings, "validate_inputs", stage_started)
 
+    stage_started = stage_timer()
     available_indicator_columns = set(delta_table_columns(indicator_frames_path))
     missing_indicator_columns = tuple(
         column for column in source_indicator_columns if column not in available_indicator_columns
@@ -167,14 +176,23 @@ def run_research_derived_source_frames_spark_job(
             "derived source-frame requires source indicator columns: "
             + ", ".join(missing_indicator_columns)
         )
+    record_stage_timing(
+        stage_timings,
+        "source_column_check",
+        stage_started,
+        source_indicator_column_count=len(source_indicator_columns),
+    )
 
     spec = ResearchDerivedSourceFramesSparkJobSpec()
     spark_factory = spark_session_factory or _create_spark_session
+    stage_started = stage_timer()
     spark = spark_factory(spec.app_name, spark_master)
+    record_stage_timing(stage_timings, "start_spark", stage_started, master=spark_master)
     output_path = output_dir / DERIVED_SOURCE_FRAME_DELTA
     try:
         from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
+        stage_started = stage_timer()
         bars = (
             spark.read.format("delta")
             .load(str(bar_views_path))
@@ -212,6 +230,15 @@ def run_research_derived_source_frames_spark_job(
             "timeframe",
             "ts",
         )
+        record_stage_timing(
+            stage_timings,
+            "load_scoped_sources",
+            stage_started,
+            timeframe_count=len(scoped_timeframes),
+            instrument_count=len(scoped_instruments),
+        )
+
+        stage_started = stage_timer()
         duplicate_indicator_key_count = int(
             indicators.groupBy(*join_keys).count().where(F.col("count") > F.lit(1)).count()
         )
@@ -242,6 +269,9 @@ def run_research_derived_source_frames_spark_job(
             ],
             "left",
         )
+        record_stage_timing(stage_timings, "build_join_frame", stage_started)
+
+        stage_started = stage_timer()
         l0_row_count = int(bars.count())
         l1_row_count = int(indicators.count())
         joined_row_count = int(joined.count())
@@ -257,7 +287,18 @@ def run_research_derived_source_frames_spark_job(
                 "derived source-frame requires L1 rows for every L0 key; "
                 f"missing={missing_indicator_key_count}"
             )
+        record_stage_timing(
+            stage_timings,
+            "join_quality_counts",
+            stage_started,
+            l0_row_count=l0_row_count,
+            l1_row_count=l1_row_count,
+            joined_row_count=joined_row_count,
+            duplicate_indicator_key_count=duplicate_indicator_key_count,
+            missing_indicator_key_count=missing_indicator_key_count,
+        )
 
+        stage_started = stage_timer()
         source_l0_delta_version = _latest_delta_version(bar_views_path)
         source_l1_delta_version = _latest_delta_version(indicator_frames_path)
         source_l0_delta_hash = _delta_log_hash(bar_views_path)
@@ -265,6 +306,14 @@ def run_research_derived_source_frames_spark_job(
         source_indicator_columns_hash = derived_source_indicator_columns_hash(
             source_indicator_columns
         )
+        record_stage_timing(
+            stage_timings,
+            "source_fingerprint",
+            stage_started,
+            source_count=2,
+        )
+
+        stage_started = stage_timer()
         selected = joined.select(
             *[
                 F.col(f"bar.{column}").alias(column)
@@ -299,6 +348,9 @@ def run_research_derived_source_frames_spark_job(
             F.lit("").alias("source_indicators_hash"),
             F.current_timestamp().alias("source_frame_created_at"),
         )
+        record_stage_timing(stage_timings, "select_source_frame", stage_started)
+
+        stage_started = stage_timer()
         _write_source_frame_table(
             dataframe=selected,
             table_path=output_path,
@@ -311,12 +363,24 @@ def run_research_derived_source_frames_spark_job(
             ),
             source_indicator_columns=source_indicator_columns,
         )
+        record_stage_timing(stage_timings, "write_source_frame", stage_started)
+
         scoped_filters = _scope_filters(
             dataset_version=dataset_version,
             contour_id=contour_id,
             indicator_set_version=indicator_set_version,
             timeframes=scoped_timeframes,
             dataset_instrument_ids=scoped_instruments,
+        )
+        stage_started = stage_timer()
+        rows_by_table = {
+            DERIVED_SOURCE_FRAME_TABLE: count_delta_table_rows(output_path, filters=scoped_filters)
+        }
+        record_stage_timing(
+            stage_timings,
+            "row_counts",
+            stage_started,
+            row_count=sum(rows_by_table.values()),
         )
         return {
             "success": True,
@@ -336,11 +400,7 @@ def run_research_derived_source_frames_spark_job(
                 "research_bar_views": source_l0_delta_hash,
                 "research_indicator_frames": source_l1_delta_hash,
             },
-            "rows_by_table": {
-                DERIVED_SOURCE_FRAME_TABLE: count_delta_table_rows(
-                    output_path, filters=scoped_filters
-                )
-            },
+            "rows_by_table": rows_by_table,
             "row_counts": {
                 "l0_row_count": l0_row_count,
                 "l1_row_count": l1_row_count,
@@ -349,6 +409,7 @@ def run_research_derived_source_frames_spark_job(
                 "missing_indicator_key_count": missing_indicator_key_count,
             },
             "output_paths": {DERIVED_SOURCE_FRAME_TABLE: output_path.as_posix()},
+            "stage_timings": stage_timings,
             "delta_manifest": research_derived_source_frame_store_contract(
                 source_indicator_columns=source_indicator_columns
             ),

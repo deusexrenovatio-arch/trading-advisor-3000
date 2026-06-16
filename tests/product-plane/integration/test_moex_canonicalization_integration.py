@@ -19,6 +19,7 @@ from trading_advisor_3000.product_plane.data_plane.moex.canonicalization import 
 )
 from trading_advisor_3000.spark_jobs.moex_canonicalization_job import (
     run_moex_canonicalization_spark_delta_job,
+    run_moex_canonicalization_spark_job,
 )
 
 RAW_COLUMNS: dict[str, str] = {
@@ -67,6 +68,14 @@ def _read_batched_delta_rows(table_path: Path) -> list[dict[str, object]]:
         )
         for row in batch
     ]
+
+
+def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _raw_rows(*, with_source_provider: bool) -> list[dict[str, object]]:
@@ -566,6 +575,243 @@ def test_canonicalization_admits_moex_opening_minute_begin_end_label(
     assert admission["admitted_source_rows"] == 2
     assert admission["rejected_out_of_session_rows"] == 0
     assert report["publish_decision"] == "publish"
+
+
+def test_canonicalization_ignores_corroborated_opening_boundary_hour_bucket(
+    tmp_path: Path,
+) -> None:
+    opening_minute_open = datetime(2026, 4, 2, 9, 59, tzinfo=UTC)
+    source_rows = [
+        {
+            "contract_id": "BRM6@MOEX",
+            "instrument_id": "FUT_BR",
+            "source_timeframe": "1m",
+            "source_interval": 1,
+            "ts_open": _iso(opening_minute_open),
+            "ts_close": _iso(opening_minute_open + timedelta(seconds=59)),
+            "open": 100.0,
+            "high": 101.0,
+            "low": 99.0,
+            "close": 100.5,
+            "volume": 10,
+            "open_interest": 0,
+            "open_interest_imputed": True,
+            "source_provider": "moex_iss",
+            "source_run_id": "raw-ingest-opening-boundary",
+            "source_ingest_run_id": "raw-ingest-opening-boundary",
+        },
+        {
+            "contract_id": "BRM6@MOEX",
+            "instrument_id": "FUT_BR",
+            "source_timeframe": "1m",
+            "source_interval": 1,
+            "ts_open": _iso(opening_minute_open + timedelta(minutes=1)),
+            "ts_close": _iso(opening_minute_open + timedelta(minutes=1, seconds=59)),
+            "open": 101.0,
+            "high": 102.0,
+            "low": 100.0,
+            "close": 101.5,
+            "volume": 11,
+            "open_interest": 0,
+            "open_interest_imputed": True,
+            "source_provider": "moex_iss",
+            "source_run_id": "raw-ingest-opening-boundary",
+            "source_ingest_run_id": "raw-ingest-opening-boundary",
+        },
+        {
+            "contract_id": "BRM6@MOEX",
+            "instrument_id": "FUT_BR",
+            "source_timeframe": "1h",
+            "source_interval": 60,
+            "ts_open": _iso(opening_minute_open.replace(minute=0)),
+            "ts_close": _iso(opening_minute_open + timedelta(seconds=59)),
+            "open": 100.0,
+            "high": 101.0,
+            "low": 99.0,
+            "close": 100.5,
+            "volume": 10,
+            "open_interest": 0,
+            "open_interest_imputed": True,
+            "source_provider": "moex_iss",
+            "source_run_id": "raw-ingest-opening-boundary",
+            "source_ingest_run_id": "raw-ingest-opening-boundary",
+        },
+    ]
+    source_path = tmp_path / "spark" / "normalized-source.jsonl"
+    session_intervals_path = tmp_path / "spark" / "session-intervals.jsonl"
+    selected_intervals_path = tmp_path / "spark" / "selected-source-intervals.jsonl"
+    _write_jsonl(source_path, source_rows)
+    _write_jsonl(
+        session_intervals_path,
+        [
+            {
+                "instrument_id": "FUT_BR",
+                "session_date": "2026-04-02",
+                "interval_id": "FUT_BR-2026-04-02-regular-1",
+                "interval_seq": 1,
+                "expected_open_ts": "2026-04-02T10:00:00Z",
+                "expected_close_ts": "2026-04-02T10:15:00Z",
+                "session_class": "regular",
+                "interval_type": "regular_trading",
+                "policy_id": "moex-official-session-v1",
+                "source_id": "moex-official-schedule-fixture",
+                "source_document_hash": "sha256:fixture",
+            }
+        ],
+    )
+    _write_jsonl(
+        selected_intervals_path,
+        [
+            {
+                "contract_id": "BRM6@MOEX",
+                "moex_secid": "BRM6",
+                "instrument_id": "FUT_BR",
+                "timeframe": "15m",
+                "target_minutes": 15,
+                "source_interval": 1,
+            },
+            {
+                "contract_id": "BRM6@MOEX",
+                "moex_secid": "BRM6",
+                "instrument_id": "FUT_BR",
+                "timeframe": "1h",
+                "target_minutes": 60,
+                "source_interval": 60,
+            },
+        ],
+    )
+
+    report = run_moex_canonicalization_spark_job(
+        normalized_source_path=source_path,
+        selected_source_intervals_path=selected_intervals_path,
+        session_intervals_path=session_intervals_path,
+        output_dir=tmp_path / "spark" / "canonicalization-opening-boundary-hour",
+        build_run_id="canonicalization-opening-boundary-hour",
+        built_at_utc="2026-04-02T10:10:00Z",
+        spark_master="local[2]",
+    )
+
+    admission = report["session_admission_report"]
+    assert admission["admitted_source_rows"] == 2
+    assert admission["out_of_schedule_rows"] == 1
+    assert admission["ignored_out_of_schedule_rows"] == 1
+    assert admission["ignored_out_of_schedule_reason_counts"] == {"finer_covered_coarse_bucket": 1}
+    assert admission["ignored_opening_boundary_rows"] == 1
+    assert admission["rejected_out_of_session_rows"] == 0
+    assert report["canonical_rows"] == 1
+
+
+def test_canonicalization_classifies_finer_covered_and_uncorroborated_coarse_buckets(
+    tmp_path: Path,
+) -> None:
+    session_start = datetime(2026, 4, 2, 10, 0, tzinfo=UTC)
+    source_rows: list[dict[str, object]] = []
+    instruments = [
+        ("BRM6@MOEX", "FUT_BR", 100.0, 12, "nonfatal"),
+        ("NGM6@MOEX", "FUT_NG", 200.0, 13, "fatal"),
+    ]
+    for contract_id, instrument_id, base_price, coarse_volume, _case in instruments:
+        minute_open = session_start + timedelta(minutes=28)
+        for offset, volume in enumerate([5, 7]):
+            ts_open = minute_open + timedelta(minutes=offset)
+            source_rows.append(
+                {
+                    "contract_id": contract_id,
+                    "instrument_id": instrument_id,
+                    "source_timeframe": "1m",
+                    "source_interval": 1,
+                    "ts_open": _iso(ts_open),
+                    "ts_close": _iso(ts_open + timedelta(minutes=1)),
+                    "open": base_price + (2 * offset),
+                    "high": base_price + 3 + offset,
+                    "low": base_price - 1 + (2 * offset),
+                    "close": base_price + 2 + offset,
+                    "volume": volume,
+                    "open_interest": 0,
+                    "open_interest_imputed": True,
+                    "source_provider": "moex_iss",
+                    "source_run_id": "raw-ingest-coarse-bucket",
+                    "source_ingest_run_id": "raw-ingest-coarse-bucket",
+                }
+            )
+        source_rows.append(
+            {
+                "contract_id": contract_id,
+                "instrument_id": instrument_id,
+                "source_timeframe": "1h",
+                "source_interval": 60,
+                "ts_open": _iso(session_start),
+                "ts_close": _iso(session_start + timedelta(minutes=59, seconds=59)),
+                "open": base_price,
+                "high": base_price + 4,
+                "low": base_price - 1,
+                "close": base_price + 3,
+                "volume": coarse_volume,
+                "open_interest": 0,
+                "open_interest_imputed": True,
+                "source_provider": "moex_iss",
+                "source_run_id": "raw-ingest-coarse-bucket",
+                "source_ingest_run_id": "raw-ingest-coarse-bucket",
+            }
+        )
+
+    source_path = tmp_path / "spark" / "normalized-source.jsonl"
+    session_intervals_path = tmp_path / "spark" / "session-intervals.jsonl"
+    selected_intervals_path = tmp_path / "spark" / "selected-source-intervals.jsonl"
+    _write_jsonl(source_path, source_rows)
+    _write_jsonl(
+        session_intervals_path,
+        [
+            {
+                "instrument_id": instrument_id,
+                "session_date": "2026-04-02",
+                "interval_id": f"{instrument_id}-2026-04-02-regular-1",
+                "interval_seq": 1,
+                "expected_open_ts": "2026-04-02T10:00:00Z",
+                "expected_close_ts": "2026-04-02T10:30:00Z",
+                "session_class": "regular",
+                "interval_type": "regular_trading",
+                "policy_id": "moex-official-session-v1",
+                "source_id": "moex-official-schedule-fixture",
+                "source_document_hash": "sha256:fixture",
+            }
+            for _contract_id, instrument_id, _base_price, _coarse_volume, _case in instruments
+        ],
+    )
+    _write_jsonl(
+        selected_intervals_path,
+        [
+            {
+                "contract_id": contract_id,
+                "moex_secid": contract_id.split("@", maxsplit=1)[0],
+                "instrument_id": instrument_id,
+                "timeframe": timeframe,
+                "target_minutes": target_minutes,
+                "source_interval": source_interval,
+            }
+            for contract_id, instrument_id, _base_price, _coarse_volume, _case in instruments
+            for timeframe, target_minutes, source_interval in [("15m", 15, 1), ("1h", 60, 60)]
+        ],
+    )
+
+    report = run_moex_canonicalization_spark_job(
+        normalized_source_path=source_path,
+        selected_source_intervals_path=selected_intervals_path,
+        session_intervals_path=session_intervals_path,
+        output_dir=tmp_path / "spark" / "canonicalization-coarse-buckets",
+        build_run_id="canonicalization-coarse-buckets",
+        built_at_utc="2026-04-02T10:35:00Z",
+        spark_master="local[2]",
+    )
+
+    admission = report["session_admission_report"]
+    assert admission["admitted_source_rows"] == 4
+    assert admission["out_of_schedule_rows"] == 2
+    assert admission["ignored_out_of_schedule_rows"] == 1
+    assert admission["ignored_out_of_schedule_reason_counts"] == {"finer_covered_coarse_bucket": 1}
+    assert admission["ignored_opening_boundary_rows"] == 0
+    assert admission["rejected_out_of_session_rows"] == 1
+    assert report["canonical_rows"] == 2
 
 
 def test_canonicalization_uses_moscow_session_date_for_utc_boundary(

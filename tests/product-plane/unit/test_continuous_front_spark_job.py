@@ -107,6 +107,16 @@ def test_continuous_front_spark_job_uses_native_spark_contour(
     assert report["spark_profile"]["delta_reader"] == "spark"
     assert report["spark_profile"]["delta_writer"] == "spark"
     assert report["spark_profile"]["causal_roll_engine"] == "spark-native-window-batch"
+    assert set(report["stage_timings"]) >= {
+        "validate_inputs",
+        "source_sidecar_counts",
+        "build_spark_native_tables",
+        "write_staging_tables",
+        "qc",
+        "write_output_tables",
+        "contract_validation",
+        "row_counts",
+    }
     assert "calendar_contract_windows" not in str(report["spark_profile"]["sql_plan"])
     assert set(report["spark_profile"]) == {
         "app_name",

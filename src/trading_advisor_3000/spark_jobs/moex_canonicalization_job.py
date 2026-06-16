@@ -505,8 +505,14 @@ def _build_session_bounded_outputs(
                 "official_session_interval_rows": int(intervals_df.count()),
                 "admission_open_tolerance_seconds": SESSION_ADMISSION_OPEN_TOLERANCE_SECONDS,
                 "admitted_source_rows": 0,
+                "out_of_schedule_rows": 0,
+                "ignored_out_of_schedule_rows": 0,
+                "ignored_out_of_schedule_reason_counts": {},
+                "ignored_out_of_schedule_samples": [],
                 "rejected_out_of_session_rows": 0,
                 "rejected_non_1m_source_rows": 0,
+                "ignored_opening_boundary_rows": 0,
+                "ignored_opening_boundary_samples": [],
                 "unselected_source_rows": source_row_count,
                 "selected_source_interval_rows": 0,
                 "rejected_samples": [],
@@ -543,6 +549,7 @@ def _build_session_bounded_outputs(
         .cache()
     )
     selected_source_rows = int(source_for_admission_df.count())
+    source_for_admission_df = source_for_admission_df.localCheckpoint(eager=True)
     unselected_source_rows = source_row_count - selected_source_rows
     affected_single_session_scope_df = source_for_admission_df.where(
         functions.col("source_interval") <= functions.lit(1440)
@@ -612,6 +619,9 @@ def _build_session_bounded_outputs(
             functions.col(f"{intervals_alias_name}.expected_close_ts").alias("expected_close_ts"),
         ]
 
+    def _cut_lineage(dataframe: Any) -> Any:
+        return dataframe.localCheckpoint(eager=True)
+
     intervals_alias = intervals_df.alias("intervals")
     admission_open_ts = functions.col("intervals.expected_open_ts") - functions.expr(
         f"INTERVAL {SESSION_ADMISSION_OPEN_TOLERANCE_SECONDS} SECONDS"
@@ -678,8 +688,173 @@ def _build_session_bounded_outputs(
     ).select(*_admitted_columns("source", "coverage"))
     admitted = admitted_intraday.unionByName(admitted_daily).unionByName(admitted_multi_day).cache()
     admitted_source_rows = int(admitted.count())
+    admitted = _cut_lineage(admitted)
     admitted_ids = admitted.select("_source_row_id").distinct()
-    rejected_df = source_for_admission_df.join(admitted_ids, on="_source_row_id", how="left_anti")
+    raw_rejected_df = source_for_admission_df.join(
+        admitted_ids, on="_source_row_id", how="left_anti"
+    ).cache()
+    out_of_schedule_rows = int(raw_rejected_df.count())
+    raw_rejected_df = _cut_lineage(raw_rejected_df)
+    rejected_coarse_intraday_df = raw_rejected_df.where(
+        (functions.col("source_interval") > functions.lit(1))
+        & (functions.col("source_interval") < functions.lit(1440))
+    ).cache()
+    rejected_coarse_intraday_df = _cut_lineage(rejected_coarse_intraday_df)
+    coarse = rejected_coarse_intraday_df.alias("coarse")
+    finer = admitted.alias("finer")
+    finer_matches_df = (
+        coarse.join(
+            finer,
+            (functions.col("coarse.contract_id") == functions.col("finer.contract_id"))
+            & (functions.col("coarse.instrument_id") == functions.col("finer.instrument_id"))
+            & (functions.col("coarse._session_date") == functions.col("finer.session_date"))
+            & (functions.col("finer.source_interval") < functions.col("coarse.source_interval"))
+            & (functions.col("finer.ts_open") >= functions.col("coarse.ts_open"))
+            & (functions.col("finer.ts_close") <= functions.col("coarse.ts_close")),
+            "inner",
+        )
+        .select(
+            functions.col("coarse._source_row_id").alias("_source_row_id"),
+            functions.col("finer.ts_open").alias("finer_ts_open"),
+            functions.col("finer.ts_close").alias("finer_ts_close"),
+            functions.col("finer.open").alias("finer_open"),
+            functions.col("finer.high").alias("finer_high"),
+            functions.col("finer.low").alias("finer_low"),
+            functions.col("finer.close").alias("finer_close"),
+            functions.col("finer.volume").alias("finer_volume"),
+        )
+        .cache()
+    )
+    finer_matches_df = _cut_lineage(finer_matches_df)
+    finer_covered_aggregates_df = finer_matches_df.groupBy("_source_row_id").agg(
+        functions.count(functions.lit(1)).alias("covered_finer_rows"),
+        functions.max(functions.col("finer_high")).alias("covered_high"),
+        functions.min(functions.col("finer_low")).alias("covered_low"),
+        functions.sum(functions.col("finer_volume")).cast("long").alias("covered_volume"),
+    )
+    first_finer_window = window.partitionBy("_source_row_id").orderBy(
+        functions.col("finer_ts_open").asc(), functions.col("finer_ts_close").asc()
+    )
+    last_finer_window = window.partitionBy("_source_row_id").orderBy(
+        functions.col("finer_ts_open").desc(), functions.col("finer_ts_close").desc()
+    )
+    covered_open_df = (
+        finer_matches_df.withColumn("_rn", functions.row_number().over(first_finer_window))
+        .where(functions.col("_rn") == functions.lit(1))
+        .select("_source_row_id", functions.col("finer_open").alias("covered_open"))
+    )
+    covered_close_df = (
+        finer_matches_df.withColumn("_rn", functions.row_number().over(last_finer_window))
+        .where(functions.col("_rn") == functions.lit(1))
+        .select("_source_row_id", functions.col("finer_close").alias("covered_close"))
+    )
+    rejected_coarse_comparison_df = rejected_coarse_intraday_df.select(
+        "_source_row_id",
+        functions.col("open").alias("coarse_open"),
+        functions.col("high").alias("coarse_high"),
+        functions.col("low").alias("coarse_low"),
+        functions.col("close").alias("coarse_close"),
+        functions.col("volume").alias("coarse_volume"),
+    )
+    finer_covered_coarse_bucket_ids = (
+        rejected_coarse_comparison_df.join(
+            finer_covered_aggregates_df, on="_source_row_id", how="inner"
+        )
+        .join(covered_open_df, on="_source_row_id", how="inner")
+        .join(covered_close_df, on="_source_row_id", how="inner")
+        .where(
+            (functions.col("covered_finer_rows") > functions.lit(0))
+            & functions.col("coarse_open").eqNullSafe(functions.col("covered_open"))
+            & functions.col("coarse_high").eqNullSafe(functions.col("covered_high"))
+            & functions.col("coarse_low").eqNullSafe(functions.col("covered_low"))
+            & functions.col("coarse_close").eqNullSafe(functions.col("covered_close"))
+            & functions.col("coarse_volume").eqNullSafe(functions.col("covered_volume"))
+        )
+        .select("_source_row_id")
+        .distinct()
+        .cache()
+    )
+    finer_covered_coarse_bucket_ids = _cut_lineage(finer_covered_coarse_bucket_ids)
+    ignored_out_of_schedule_ids = (
+        finer_covered_coarse_bucket_ids.withColumn(
+            "reason", functions.lit("finer_covered_coarse_bucket")
+        )
+        .select("_source_row_id", "reason")
+        .cache()
+    )
+    ignored_out_of_schedule_rows = int(ignored_out_of_schedule_ids.count())
+    ignored_out_of_schedule_reason_counts = {
+        str(row["reason"]): int(row["count"])
+        for row in ignored_out_of_schedule_ids.groupBy("reason").count().collect()
+    }
+    ignored_out_of_schedule_samples = [
+        str(row.asDict())
+        for row in raw_rejected_df.join(
+            ignored_out_of_schedule_ids, on="_source_row_id", how="inner"
+        )
+        .select(
+            "reason",
+            "contract_id",
+            "instrument_id",
+            "source_timeframe",
+            "ts_open",
+            "ts_close",
+        )
+        .limit(20)
+        .collect()
+    ]
+    opening_boundary_candidates_df = (
+        rejected_coarse_intraday_df.alias("source")
+        .join(
+            intervals_alias,
+            (functions.col("source.instrument_id") == functions.col("intervals.instrument_id"))
+            & (functions.col("source._session_date") == functions.col("intervals.session_date"))
+            & (functions.col("source.ts_open") < admission_open_ts)
+            & (functions.col("source.ts_close") >= admission_open_ts)
+            & (functions.col("source.ts_close") < functions.col("intervals.expected_open_ts")),
+            "inner",
+        )
+        .select(
+            functions.col("source._source_row_id").alias("_source_row_id"),
+            functions.col("source.contract_id").alias("contract_id"),
+            functions.col("source.instrument_id").alias("instrument_id"),
+            functions.col("source.source_timeframe").alias("source_timeframe"),
+            functions.col("source.source_interval").alias("source_interval"),
+            functions.col("source.ts_open").alias("ts_open"),
+            functions.col("source.ts_close").alias("ts_close"),
+            functions.col("source.open").alias("open"),
+            functions.col("source.high").alias("high"),
+            functions.col("source.low").alias("low"),
+            functions.col("source.close").alias("close"),
+            functions.col("source.volume").alias("volume"),
+            functions.col("intervals.session_date").alias("session_date"),
+            functions.col("intervals.expected_open_ts").alias("expected_open_ts"),
+        )
+        .cache()
+    )
+    corroborated_opening_boundary_ids = (
+        opening_boundary_candidates_df.join(
+            ignored_out_of_schedule_ids.select("_source_row_id"),
+            on="_source_row_id",
+            how="inner",
+        )
+        .select("_source_row_id")
+        .distinct()
+        .cache()
+    )
+    ignored_opening_boundary_rows = int(corroborated_opening_boundary_ids.count())
+    ignored_opening_boundary_samples = [
+        str(row.asDict())
+        for row in opening_boundary_candidates_df.join(
+            corroborated_opening_boundary_ids, on="_source_row_id", how="inner"
+        )
+        .select("contract_id", "instrument_id", "source_timeframe", "ts_open", "ts_close")
+        .limit(20)
+        .collect()
+    ]
+    rejected_df = raw_rejected_df.join(
+        ignored_out_of_schedule_ids.select("_source_row_id"), on="_source_row_id", how="left_anti"
+    )
     rejected_out_of_session_rows = int(rejected_df.count())
     rejected_samples = [
         str(row.asDict())
@@ -743,8 +918,14 @@ def _build_session_bounded_outputs(
             "admission_open_tolerance_seconds": SESSION_ADMISSION_OPEN_TOLERANCE_SECONDS,
             "missing_official_coverage_rows": missing_official_coverage_rows,
             "admitted_source_rows": admitted_source_rows,
+            "out_of_schedule_rows": out_of_schedule_rows,
+            "ignored_out_of_schedule_rows": ignored_out_of_schedule_rows,
+            "ignored_out_of_schedule_reason_counts": ignored_out_of_schedule_reason_counts,
+            "ignored_out_of_schedule_samples": ignored_out_of_schedule_samples,
             "rejected_out_of_session_rows": rejected_out_of_session_rows,
             "rejected_non_1m_source_rows": 0,
+            "ignored_opening_boundary_rows": ignored_opening_boundary_rows,
+            "ignored_opening_boundary_samples": ignored_opening_boundary_samples,
             "unselected_source_rows": unselected_source_rows,
             "selected_source_interval_rows": selected_interval_rows,
             "rejected_samples": rejected_samples,
@@ -772,8 +953,14 @@ def _build_unbounded_outputs(
                 "official_session_interval_rows": 0,
                 "missing_official_coverage_rows": 0,
                 "admitted_source_rows": 0,
+                "out_of_schedule_rows": 0,
+                "ignored_out_of_schedule_rows": 0,
+                "ignored_out_of_schedule_reason_counts": {},
+                "ignored_out_of_schedule_samples": [],
                 "rejected_out_of_session_rows": 0,
                 "rejected_non_1m_source_rows": 0,
+                "ignored_opening_boundary_rows": 0,
+                "ignored_opening_boundary_samples": [],
                 "selected_source_interval_rows": 0,
                 "rejected_samples": [],
             },
@@ -813,8 +1000,14 @@ def _build_unbounded_outputs(
             "official_session_interval_rows": 0,
             "missing_official_coverage_rows": 0,
             "admitted_source_rows": admitted_source_rows,
+            "out_of_schedule_rows": 0,
+            "ignored_out_of_schedule_rows": 0,
+            "ignored_out_of_schedule_reason_counts": {},
+            "ignored_out_of_schedule_samples": [],
             "rejected_out_of_session_rows": 0,
             "rejected_non_1m_source_rows": 0,
+            "ignored_opening_boundary_rows": 0,
+            "ignored_opening_boundary_samples": [],
             "selected_source_interval_rows": selected_interval_rows,
             "rejected_samples": [],
         },
@@ -843,8 +1036,14 @@ def run_moex_canonicalization_spark_job(
     session_admission_report: dict[str, object] = {
         "official_session_interval_rows": 0,
         "admitted_source_rows": 0,
+        "out_of_schedule_rows": 0,
+        "ignored_out_of_schedule_rows": 0,
+        "ignored_out_of_schedule_reason_counts": {},
+        "ignored_out_of_schedule_samples": [],
         "rejected_out_of_session_rows": 0,
         "rejected_non_1m_source_rows": 0,
+        "ignored_opening_boundary_rows": 0,
+        "ignored_opening_boundary_samples": [],
         "selected_source_interval_rows": selected_interval_row_count,
         "rejected_samples": [],
     }
@@ -964,8 +1163,14 @@ def run_moex_canonicalization_spark_delta_job(
     session_admission_report: dict[str, object] = {
         "official_session_interval_rows": 0,
         "admitted_source_rows": 0,
+        "out_of_schedule_rows": 0,
+        "ignored_out_of_schedule_rows": 0,
+        "ignored_out_of_schedule_reason_counts": {},
+        "ignored_out_of_schedule_samples": [],
         "rejected_out_of_session_rows": 0,
         "rejected_non_1m_source_rows": 0,
+        "ignored_opening_boundary_rows": 0,
+        "ignored_opening_boundary_samples": [],
         "selected_source_interval_rows": selected_interval_row_count,
         "rejected_samples": [],
     }

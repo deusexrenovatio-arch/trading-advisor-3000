@@ -108,6 +108,20 @@ def test_spark_publish_rewrites_session_sidecars_when_physical_layout_drifted() 
     assert ".coalesce(target_file_count)" in replace_source
 
 
+def test_spark_publish_scopes_sidecar_provenance_before_bar_join() -> None:
+    sidecar_source = inspect.getsource(publish_job._sidecar_frames)
+
+    provenance_scope_index = sidecar_source.index(
+        "scoped_provenance_df = provenance_with_session_df.join"
+    )
+    bar_join_index = sidecar_source.index('with_session = bars_df.alias("bar").join')
+
+    assert "provenance_with_session_df = provenance_df.withColumn" in sidecar_source
+    assert '["instrument_id", "session_date"]' in sidecar_source
+    assert 'scoped_provenance_df.alias("provenance")' in sidecar_source
+    assert provenance_scope_index < bar_join_index
+
+
 def test_default_route_uses_scoped_spark_delta_publish_without_python_delta_reads(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

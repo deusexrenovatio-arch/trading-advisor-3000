@@ -51,6 +51,12 @@ from trading_advisor_3000.product_plane.research.indicators import (
 from trading_advisor_3000.product_plane.research.indicators.store import (
     existing_indicator_value_columns,
 )
+from trading_advisor_3000.product_plane.runtime.stage_timings import (
+    StageTimings,
+    record_skipped_stage,
+    record_stage_timing,
+    stage_timer,
+)
 from trading_advisor_3000.spark_jobs import DEFAULT_SPARK_MASTER
 from trading_advisor_3000.spark_jobs.research_derived_source_frames_job import (
     run_research_derived_source_frames_spark_job,
@@ -1733,6 +1739,8 @@ def materialize_derived_indicator_frames(
     timeframes: Sequence[str] = (),
     dataset_instrument_ids: Sequence[str] = (),
 ) -> dict[str, object]:
+    stage_timings: StageTimings = {}
+    stage_started = stage_timer()
     dataset_manifest = _load_dataset_manifest(
         output_dir=dataset_output_dir,
         dataset_version=dataset_version,
@@ -1750,6 +1758,16 @@ def materialize_derived_indicator_frames(
     registry: DerivedIndicatorProfileRegistry = build_derived_indicator_profile_registry()
     resolved_profile = profile or registry.get(profile_version or "core_v1")
     required_source_indicator_columns = _source_indicator_columns_for_profile(resolved_profile)
+    record_stage_timing(
+        stage_timings,
+        "load_dataset_manifest",
+        stage_started,
+        series_mode=series_mode,
+        profile_version=resolved_profile.version,
+        adjustment_ladder_row_count=len(adjustment_ladder_rows),
+    )
+
+    stage_started = stage_timer()
     indicator_table_exists = (
         indicator_output_dir / "research_indicator_frames.delta" / "_delta_log"
     ).exists()
@@ -1768,7 +1786,15 @@ def materialize_derived_indicator_frames(
         raise ValueError(
             f"derived indicator materialization requires source indicator columns: {missing_joined}"
         )
+    record_stage_timing(
+        stage_timings,
+        "source_column_check",
+        stage_started,
+        source_indicator_column_count=len(required_source_indicator_columns),
+        available_indicator_column_count=len(available_indicator_columns),
+    )
 
+    stage_started = stage_timer()
     source_frame_report = run_research_derived_source_frames_spark_job(
         bar_views_path=dataset_output_dir / "research_bar_views.delta",
         indicator_frames_path=indicator_output_dir / "research_indicator_frames.delta",
@@ -1782,6 +1808,14 @@ def materialize_derived_indicator_frames(
         timeframes=timeframes,
         dataset_instrument_ids=dataset_instrument_ids,
     )
+    source_rows_by_table = dict(source_frame_report.get("rows_by_table", {}))
+    record_stage_timing(
+        stage_timings,
+        "build_source_frames_spark",
+        stage_started,
+        row_count=int(source_rows_by_table.get(DERIVED_SOURCE_FRAME_TABLE, 0) or 0),
+    )
+
     scoped_timeframes = frozenset(str(item).strip() for item in timeframes if str(item).strip())
     scoped_instruments = frozenset(
         str(item).strip() for item in dataset_instrument_ids if str(item).strip()
@@ -1792,6 +1826,7 @@ def materialize_derived_indicator_frames(
             not scoped_instruments or partition.instrument_id in scoped_instruments
         )
 
+    stage_started = stage_timer()
     source_metadata = load_derived_source_frame_partition_metadata(
         output_dir=derived_indicator_output_dir,
         dataset_version=dataset_version,
@@ -1809,6 +1844,13 @@ def materialize_derived_indicator_frames(
         row_count = int(row.get("partition_row_count") or row.get("joined_row_count") or 0)
         counts_by_timeframe = partition_counts.setdefault(series_key, {})
         counts_by_timeframe[timeframe] = counts_by_timeframe.get(timeframe, 0) + row_count
+    record_stage_timing(
+        stage_timings,
+        "load_source_metadata",
+        stage_started,
+        partition_family_count=len(partition_counts),
+        source_metadata_row_count=len(source_metadata),
+    )
 
     source_rows_cache: dict[
         tuple[DerivedSeriesKey, str],
@@ -1931,6 +1973,7 @@ def materialize_derived_indicator_frames(
         source_frames_by_family[family_key] = source_frames
         return source_frames
 
+    stage_started = stage_timer()
     for series_key, counts_by_timeframe in sorted(
         partition_counts.items(),
         key=lambda item: (item[0].instrument_id, item[0].contract_id or ""),
@@ -2063,6 +2106,18 @@ def materialize_derived_indicator_frames(
         if partition not in current_partitions and _partition_in_requested_scope(partition)
     )
     replace_partitions.extend(deleted_partitions)
+    record_stage_timing(
+        stage_timings,
+        "build_refresh_plan",
+        stage_started,
+        partition_family_count=len(partition_counts),
+        refreshed_partition_count=refreshed_partitions,
+        reused_partition_count=reused_partitions,
+        extended_partition_count=extended_partitions,
+        recomputed_partition_count=recomputed_partitions,
+        deleted_partition_count=len(deleted_partitions),
+        loaded_source_frame_partition_count=len(source_rows_cache),
+    )
 
     current_total_rows = sum(
         row_count
@@ -2111,6 +2166,7 @@ def materialize_derived_indicator_frames(
                         else (),
                     )
 
+        stage_started = stage_timer()
         derived_output_paths, refreshed_row_count, batch_count = (
             write_derived_indicator_frame_batches(
                 output_dir=derived_indicator_output_dir,
@@ -2120,7 +2176,20 @@ def materialize_derived_indicator_frames(
             )
         )
         output_paths.update(derived_output_paths)
-    source_rows_by_table = dict(source_frame_report.get("rows_by_table", {}))
+        record_stage_timing(
+            stage_timings,
+            "write_derived_indicator_frames",
+            stage_started,
+            refreshed_partition_count=refreshed_partitions,
+            refreshed_row_count=refreshed_row_count,
+            write_batch_count=batch_count,
+        )
+    else:
+        record_skipped_stage(
+            stage_timings,
+            "write_derived_indicator_frames",
+            reason="all partitions reusable",
+        )
     source_frame_row_count = int(
         source_rows_by_table.get(DERIVED_SOURCE_FRAME_TABLE, current_total_rows) or 0
     )
@@ -2145,6 +2214,7 @@ def materialize_derived_indicator_frames(
         "loaded_indicator_partition_count": 0,
         "loaded_source_frame_partition_count": len(source_rows_cache),
         "output_paths": output_paths,
+        "stage_timings": stage_timings,
         "delta_manifest": {
             **research_derived_source_frame_store_contract(
                 source_indicator_columns=required_source_indicator_columns
