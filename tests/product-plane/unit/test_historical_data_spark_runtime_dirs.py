@@ -35,6 +35,8 @@ def test_hadoop_home_bin_is_added_to_path_once(monkeypatch, tmp_path: Path) -> N
     hadoop_home = tmp_path / "hadoop"
     hadoop_bin = hadoop_home / "bin"
     hadoop_bin.mkdir(parents=True)
+    (hadoop_bin / "winutils.exe").write_text("stub", encoding="utf-8")
+    (hadoop_bin / "hadoop.dll").write_text("stub", encoding="utf-8")
     existing_path = str(tmp_path / "existing-bin")
     monkeypatch.setenv("HADOOP_HOME", str(hadoop_home))
     monkeypatch.setenv("PATH", existing_path)
@@ -45,6 +47,32 @@ def test_hadoop_home_bin_is_added_to_path_once(monkeypatch, tmp_path: Path) -> N
     path_entries = os.environ["PATH"].split(os.pathsep)
     assert path_entries[0] == str(hadoop_bin)
     assert path_entries.count(str(hadoop_bin)) == 1
+    assert existing_path in path_entries
+
+
+def test_incomplete_hadoop_home_falls_back_to_ta3000_hadoop_home(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    incomplete_home = tmp_path / "incomplete-hadoop"
+    incomplete_bin = incomplete_home / "bin"
+    incomplete_bin.mkdir(parents=True)
+    (incomplete_bin / "winutils.exe").write_text("stub", encoding="utf-8")
+    complete_home = tmp_path / "complete-hadoop"
+    complete_bin = complete_home / "bin"
+    complete_bin.mkdir(parents=True)
+    (complete_bin / "winutils.exe").write_text("stub", encoding="utf-8")
+    (complete_bin / "hadoop.dll").write_text("stub", encoding="utf-8")
+    existing_path = str(tmp_path / "existing-bin")
+    monkeypatch.setenv("HADOOP_HOME", str(incomplete_home))
+    monkeypatch.setenv("TA3000_HADOOP_HOME", str(complete_home))
+    monkeypatch.setenv("PATH", existing_path)
+
+    _ensure_hadoop_home_bin_on_path()
+
+    assert os.environ["HADOOP_HOME"] == str(complete_home)
+    path_entries = os.environ["PATH"].split(os.pathsep)
+    assert path_entries[0] == str(complete_bin)
     assert existing_path in path_entries
 
 

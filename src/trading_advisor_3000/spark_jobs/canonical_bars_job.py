@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import shutil
 from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Callable
 
@@ -181,6 +182,19 @@ def _ensure_java_home() -> None:
 
 def _ensure_hadoop_home_bin_on_path() -> None:
     hadoop_home = os.environ.get("HADOOP_HOME", "").strip()
+    if os.name == "nt":
+        current = Path(hadoop_home) if hadoop_home else None
+        if current is None or not (
+            (current / "bin" / "winutils.exe").is_file()
+            and (current / "bin" / "hadoop.dll").is_file()
+        ):
+            for candidate in _windows_hadoop_home_candidates():
+                if (candidate / "bin" / "winutils.exe").is_file() and (
+                    candidate / "bin" / "hadoop.dll"
+                ).is_file():
+                    os.environ["HADOOP_HOME"] = str(candidate)
+                    hadoop_home = str(candidate)
+                    break
     if not hadoop_home:
         return
 
@@ -199,6 +213,31 @@ def _ensure_hadoop_home_bin_on_path() -> None:
     os.environ["PATH"] = (
         hadoop_bin_text if not path_value else hadoop_bin_text + os.pathsep + path_value
     )
+
+
+def _windows_hadoop_home_candidates() -> list[Path]:
+    candidates: list[Path] = []
+    for env_name in ("TA3000_HADOOP_HOME", "CODEX_HOME"):
+        value = os.environ.get(env_name, "").strip()
+        if not value:
+            continue
+        root = Path(value)
+        if env_name == "CODEX_HOME":
+            candidates.extend(
+                (
+                    root / "runtime" / "hadoop-winutils-3.3.6",
+                    root / "runtime" / "hadoop-winutils",
+                )
+            )
+        else:
+            candidates.append(root)
+    candidates.extend(
+        (
+            Path("D:/CodexHome/runtime/hadoop-winutils-3.3.6"),
+            Path("D:/CodexHome/runtime/hadoop-winutils"),
+        )
+    )
+    return candidates
 
 
 def _load_spark_modules() -> tuple[Any, Any, Any, Any]:
@@ -224,7 +263,7 @@ def _spark_runtime_dirs() -> dict[str, str]:
     if not runtime_root:
         return {}
 
-    runtime_path = Path(runtime_root)
+    runtime_path = Path(runtime_root).resolve()
     ivy_path = runtime_path / ".ivy2"
     local_dir_path = runtime_path / "local"
     ivy_path.mkdir(parents=True, exist_ok=True)
@@ -243,6 +282,14 @@ def _spark_config_overrides_from_env() -> dict[str, str]:
         if value:
             overrides[spark_config_key] = value
     return overrides
+
+
+def _delta_extra_packages() -> list[str]:
+    try:
+        delta_version = version("delta_spark")
+    except PackageNotFoundError:
+        return []
+    return [f"io.delta:delta-storage:{delta_version}"]
 
 
 def _create_spark_session(app_name: str, master: str) -> Any:
@@ -267,7 +314,7 @@ def _create_spark_session(app_name: str, master: str) -> Any:
         )
     for spark_config_key, value in _spark_config_overrides_from_env().items():
         builder = builder.config(spark_config_key, value)
-    return configure(builder).getOrCreate()
+    return configure(builder, extra_packages=_delta_extra_packages()).getOrCreate()
 
 
 def _write_delta_dataframe(
