@@ -44,6 +44,7 @@ def test_moex_data_rebuild_profile_registry_rejects_unknown_profile() -> None:
 def test_moex_data_rebuild_profiles_are_whitelisted_data_layer_only() -> None:
     assert set(MOEX_DATA_REBUILD_PROFILE_NAMES) == {
         "full_raw_to_canonical",
+        "money_math_bootstrap",
         "canonical_from_existing_raw",
         "cf_rebuild",
         "research_bar_rebuild",
@@ -57,6 +58,16 @@ def test_moex_data_rebuild_profiles_are_whitelisted_data_layer_only() -> None:
     assert full.stage_names == ("raw", "sessions", "canonical")
     assert full.source_mode == "full_raw_ingest"
     assert full.requires_raw_ingest is True
+
+    money_math = resolve_moex_data_rebuild_profile("money_math_bootstrap")
+    assert money_math.stage_names == (
+        "economics_raw",
+        "economics_canonical",
+        "continuous_front",
+        "research_bar",
+    )
+    assert money_math.source_mode == "existing_raw_delta"
+    assert money_math.requires_raw_ingest is False
 
     canonical = resolve_moex_data_rebuild_profile("canonical_from_existing_raw")
     assert canonical.stage_names == ("sessions", "canonical")
@@ -78,7 +89,8 @@ def test_moex_data_rebuild_profiles_are_whitelisted_data_layer_only() -> None:
 
 
 def test_moex_data_rebuild_stage_resolver_rejects_out_of_scope_layers() -> None:
-    assert resolve_moex_data_layer_stages(["indicator", "derived"]) == (
+    assert resolve_moex_data_layer_stages(["indicator", "derived", "economics_raw"]) == (
+        "economics_raw",
         "indicator",
         "derived",
     )

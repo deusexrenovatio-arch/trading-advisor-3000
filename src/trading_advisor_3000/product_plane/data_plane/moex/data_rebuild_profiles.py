@@ -12,8 +12,10 @@ from trading_advisor_3000.product_plane.data_plane.moex.runtime_instances import
 
 DATA_LAYER_REBUILD_STAGE_NAMES = (
     "raw",
+    "economics_raw",
     "sessions",
     "canonical",
+    "economics_canonical",
     "continuous_front",
     "research_bar",
     "indicator",
@@ -38,13 +40,15 @@ _STALE_TARGET_ORDER = (
 )
 _STAGE_ORDER = {
     "raw": 0,
-    "sessions": 1,
-    "canonical": 2,
-    "continuous_front": 3,
-    "research_bar": 4,
-    "indicator": 5,
-    "derived": 6,
-    "indicator_sidecar": 7,
+    "economics_raw": 1,
+    "sessions": 2,
+    "canonical": 3,
+    "economics_canonical": 4,
+    "continuous_front": 5,
+    "research_bar": 6,
+    "indicator": 7,
+    "derived": 8,
+    "indicator_sidecar": 9,
 }
 
 
@@ -85,6 +89,23 @@ MOEX_DATA_REBUILD_PROFILES: dict[str, MoexDataRebuildProfile] = {
         source_mode="full_raw_ingest",
         requires_raw_ingest=True,
         description="Rebuild raw MOEX history, manual session intervals, and canonical bars.",
+    ),
+    "money_math_bootstrap": MoexDataRebuildProfile(
+        name="money_math_bootstrap",
+        stage_names=resolve_moex_data_layer_stages(
+            (
+                "economics_raw",
+                "economics_canonical",
+                "continuous_front",
+                "research_bar",
+            )
+        ),
+        source_mode="existing_raw_delta",
+        requires_raw_ingest=False,
+        description=(
+            "One-time MOEX money-math bootstrap: refresh economics side tables, "
+            "then rebuild continuous-front and research bar views without rewriting bars."
+        ),
     ),
     "canonical_from_existing_raw": MoexDataRebuildProfile(
         name="canonical_from_existing_raw",
@@ -163,7 +184,7 @@ def dependent_stale_targets_for_stages(stage_names: Sequence[str]) -> tuple[str,
     if not stages:
         return FORBIDDEN_REBUILD_STAGE_NAMES
     lowest_changed_index = min(_STAGE_ORDER[stage] for stage in stages)
-    if lowest_changed_index <= _STAGE_ORDER["canonical"]:
+    if lowest_changed_index <= _STAGE_ORDER["economics_canonical"]:
         first_target = "continuous_front"
     else:
         changed_stage = min(stages, key=lambda stage: _STAGE_ORDER[stage])

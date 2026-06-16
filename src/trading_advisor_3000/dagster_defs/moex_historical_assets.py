@@ -31,6 +31,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delt
 from trading_advisor_3000.product_plane.data_plane.moex.baseline_update import (
     BASELINE_UPDATE_REPORT_FILENAME,
     DEFAULT_CF_CATCH_UP_TIMEFRAMES,
+    ECONOMICS_REFRESH_MODE_REFRESH,
     run_moex_baseline_update,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.data_rebuild_profiles import (
@@ -177,6 +178,9 @@ MOEX_BASELINE_UPDATE_OP_CONFIG_SCHEMA = {
     "canonical_session_intervals_path": DagsterField(str, is_required=False),
     "canonical_session_calendar_path": DagsterField(str, is_required=False),
     "canonical_roll_map_path": DagsterField(str, is_required=False),
+    "economics_mode": DagsterField(str, is_required=False),
+    "raw_economics_root": DagsterField(str, is_required=False),
+    "canonical_economics_root": DagsterField(str, is_required=False),
     "evidence_root": DagsterField(str, is_required=False),
     "timeframes": DagsterField(str, is_required=False),
     "refresh_window_days": DagsterField(int, is_required=False),
@@ -329,6 +333,8 @@ def _baseline_paths_from_root(root: Path) -> dict[str, Path]:
         "canonical_session_calendar_path": canonical_root
         / CANONICAL_BASELINE_SESSION_CALENDAR_FILENAME,
         "canonical_roll_map_path": canonical_root / CANONICAL_BASELINE_ROLL_MAP_FILENAME,
+        "raw_economics_root": root / "raw" / "economics",
+        "canonical_economics_root": root / "canonical" / "economics",
         "evidence_root": root / BASELINE_UPDATE_STORAGE_DIRNAME,
     }
 
@@ -351,6 +357,7 @@ def build_moex_baseline_update_run_config(
     stability_lag_minutes: int = DEFAULT_STABILITY_LAG_MINUTES,
     expand_contract_chain: bool = True,
     coverage_mode: str = "local_tail",
+    economics_mode: str = ECONOMICS_REFRESH_MODE_REFRESH,
 ) -> dict[str, object]:
     resolved_run_id = validate_moex_runtime_run_id(
         run_id, name="build_moex_baseline_update_run_config.run_id"
@@ -392,6 +399,9 @@ def build_moex_baseline_update_run_config(
                         "canonical_session_calendar_path"
                     ].as_posix(),
                     "canonical_roll_map_path": paths["canonical_roll_map_path"].as_posix(),
+                    "economics_mode": str(economics_mode),
+                    "raw_economics_root": paths["raw_economics_root"].as_posix(),
+                    "canonical_economics_root": paths["canonical_economics_root"].as_posix(),
                     "evidence_root": paths["evidence_root"].as_posix(),
                     "timeframes": resolved_timeframes,
                     "refresh_window_days": int(refresh_window_days),
@@ -979,6 +989,14 @@ def moex_baseline_update(context) -> dict[str, object]:
         _text_value(op_config, "canonical_roll_map_path")
         or default_paths["canonical_roll_map_path"].as_posix()
     ).resolve()
+    raw_economics_root = Path(
+        _text_value(op_config, "raw_economics_root")
+        or default_paths["raw_economics_root"].as_posix()
+    ).resolve()
+    canonical_economics_root = Path(
+        _text_value(op_config, "canonical_economics_root")
+        or default_paths["canonical_economics_root"].as_posix()
+    ).resolve()
     evidence_root = Path(
         _text_value(op_config, "evidence_root") or default_paths["evidence_root"].as_posix()
     ).resolve()
@@ -1048,6 +1066,9 @@ def moex_baseline_update(context) -> dict[str, object]:
         ),
         expand_contract_chain=_bool_value(op_config, "expand_contract_chain", default=True),
         coverage_mode=_text_value(op_config, "coverage_mode") or "local_tail",
+        economics_mode=_text_value(op_config, "economics_mode") or ECONOMICS_REFRESH_MODE_REFRESH,
+        raw_economics_root=raw_economics_root,
+        canonical_economics_root=canonical_economics_root,
         repo_root=REPO_ROOT,
     )
     if str(report.get("publish_decision", "")).strip() != "publish":
@@ -1070,6 +1091,8 @@ def moex_baseline_update(context) -> dict[str, object]:
             ),
             "raw_table_path": str(report.get("raw_table_path", "")),
             "canonical_bars_path": str(report.get("canonical_bars_path", "")),
+            "economics_mode": str(report.get("economics_mode", "")),
+            "canonical_economics_root": str(report.get("canonical_economics_root", "")),
             "canonical_session_intervals_path": str(
                 report.get("canonical_session_intervals_path", "")
             ),

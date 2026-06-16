@@ -311,6 +311,12 @@ def test_baseline_update_run_config_can_target_verification_staging_root(tmp_pat
             baseline_root / "canonical" / "moex" / "baseline-4y-current" / "canonical_bars.delta"
         ).as_posix()
     )
+    assert op_config["economics_mode"] == "refresh"
+    assert op_config["raw_economics_root"] == (baseline_root / "raw" / "economics").as_posix()
+    assert (
+        op_config["canonical_economics_root"]
+        == (baseline_root / "canonical" / "economics").as_posix()
+    )
     assert op_config["evidence_root"] == (baseline_root / "moex-baseline-update").as_posix()
     assert op_config["run_id"] == "proof-run-1"
 
