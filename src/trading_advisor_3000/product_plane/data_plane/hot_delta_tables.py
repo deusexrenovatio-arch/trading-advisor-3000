@@ -20,6 +20,22 @@ HOT_DELTA_TABLES: tuple[HotDeltaTable, ...] = (
         "raw_moex",
     ),
     HotDeltaTable(
+        "raw_moex_contract_securities",
+        "raw_moex_contract_securities.delta",
+        "raw_moex_economics",
+    ),
+    HotDeltaTable(
+        "raw_moex_indicative_fx_rates",
+        "raw_moex_indicative_fx_rates.delta",
+        "raw_moex_economics",
+    ),
+    HotDeltaTable("raw_moex_rms_limits", "raw_moex_rms_limits.delta", "raw_moex_economics"),
+    HotDeltaTable(
+        "raw_moex_rms_staticparams",
+        "raw_moex_rms_staticparams.delta",
+        "raw_moex_economics",
+    ),
+    HotDeltaTable(
         "canonical_session_intervals",
         "canonical_session_intervals.delta",
         "canonical_sidecar",
@@ -32,6 +48,17 @@ HOT_DELTA_TABLES: tuple[HotDeltaTable, ...] = (
     HotDeltaTable("canonical_roll_map", "canonical_roll_map.delta", "canonical_sidecar"),
     HotDeltaTable("canonical_contracts", "canonical_contracts.delta", "canonical_sidecar"),
     HotDeltaTable("canonical_instruments", "canonical_instruments.delta", "canonical_sidecar"),
+    HotDeltaTable("canonical_fx_rates", "canonical_fx_rates.delta", "canonical_economics"),
+    HotDeltaTable(
+        "canonical_asset_risk_parameters",
+        "canonical_asset_risk_parameters.delta",
+        "canonical_economics",
+    ),
+    HotDeltaTable(
+        "canonical_contract_economics",
+        "canonical_contract_economics.delta",
+        "canonical_economics",
+    ),
     HotDeltaTable("research_bar_views", "research_bar_views.delta", "research"),
     HotDeltaTable("research_indicator_frames", "research_indicator_frames.delta", "research"),
     HotDeltaTable(

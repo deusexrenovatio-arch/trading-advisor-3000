@@ -177,10 +177,17 @@ def test_bounded_read_requires_real_filter_or_limit_value() -> None:
 def test_hot_delta_table_inventory_is_explicit() -> None:
     expected = {
         "raw_moex_history.delta",
+        "raw_moex_contract_securities.delta",
+        "raw_moex_indicative_fx_rates.delta",
+        "raw_moex_rms_limits.delta",
+        "raw_moex_rms_staticparams.delta",
         "canonical_bars.delta",
         "canonical_bar_provenance.delta",
         "canonical_session_calendar.delta",
         "canonical_roll_map.delta",
+        "canonical_fx_rates.delta",
+        "canonical_asset_risk_parameters.delta",
+        "canonical_contract_economics.delta",
         "research_bar_views.delta",
         "research_indicator_frames.delta",
         "research_derived_source_frames.delta",
