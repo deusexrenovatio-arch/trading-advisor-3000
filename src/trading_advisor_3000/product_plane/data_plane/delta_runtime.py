@@ -358,6 +358,12 @@ def has_delta_log(path: Path) -> bool:
     return (path / "_delta_log").exists()
 
 
+def delta_table_version(table_path: Path) -> int:
+    if not has_delta_log(table_path):
+        raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
+    return int(DeltaTable(str(table_path)).version())
+
+
 def write_delta_table_rows(
     *,
     table_path: Path,

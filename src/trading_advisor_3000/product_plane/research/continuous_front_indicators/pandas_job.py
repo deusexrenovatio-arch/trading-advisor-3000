@@ -11,6 +11,7 @@ import pyarrow as pa
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
     delta_table_columns,
+    delta_table_version,
     has_delta_log,
     iter_delta_table_row_batches,
     read_delta_table_arrow,
@@ -23,6 +24,15 @@ from trading_advisor_3000.product_plane.research.derived_indicators.registry imp
 )
 from trading_advisor_3000.product_plane.research.indicators.registry import (
     default_indicator_profile,
+)
+from trading_advisor_3000.product_plane.runtime.stage_timings import (
+    StageTimings,
+    record_stage_timing,
+    stage_timer,
+)
+from trading_advisor_3000.spark_jobs.continuous_front_indicator_sidecar_job import (
+    ContinuousFrontIndicatorSidecarSparkUnavailable,
+    run_continuous_front_indicator_sidecar_spark_job,
 )
 
 from .contracts import CF_INDICATOR_TABLES, continuous_front_indicator_store_contract
@@ -56,6 +66,19 @@ REQUIRED_ACCEPTANCE_QC_GROUPS = frozenset(
         "schema",
     }
 )
+HOT_PATH_ACCEPTANCE_QC_GROUPS = frozenset(
+    {
+        "adapter_authorization",
+        "input_projection",
+        "lineage",
+        "rule_coverage",
+        "schema",
+    }
+)
+AUDIT_ONLY_QC_GROUPS = REQUIRED_ACCEPTANCE_QC_GROUPS - HOT_PATH_ACCEPTANCE_QC_GROUPS
+VALID_QC_MODES = frozenset({"hot_path", "audit"})
+VALID_SIDECAR_MATERIALIZATION_MODES = frozenset({"auto", "spark"})
+HOT_PATH_INPUT_PROJECTION_SAMPLE_ROWS = 128
 
 MINIMUM_FORMULA_SAMPLE_COLUMNS = (
     ("base", "sma_20"),
@@ -165,6 +188,30 @@ DERIVED_SOURCE_RESERVED_COLUMNS = (
 )
 
 
+def _normalize_qc_mode(qc_mode: str) -> str:
+    normalized = str(qc_mode or "hot_path").strip().lower().replace("-", "_")
+    if normalized == "full":
+        normalized = "audit"
+    if normalized not in VALID_QC_MODES:
+        raise ValueError(
+            "continuous-front indicator qc_mode must be one of "
+            f"{sorted(VALID_QC_MODES)}, got {qc_mode!r}"
+        )
+    return normalized
+
+
+def _normalize_sidecar_materialization_mode(mode: str) -> str:
+    normalized = str(mode or "auto").strip().lower().replace("-", "_")
+    if normalized in {"spark_native", "spark_delta"}:
+        normalized = "spark"
+    if normalized not in VALID_SIDECAR_MATERIALIZATION_MODES:
+        raise ValueError(
+            "continuous-front sidecar_materialization_mode must be one of "
+            f"{sorted(VALID_SIDECAR_MATERIALIZATION_MODES)}, got {mode!r}"
+        )
+    return normalized
+
+
 def _load_dataset_manifest(
     *, materialized_output_dir: Path, dataset_version: str, contour_id: str = "pit_active_front"
 ) -> dict[str, object]:
@@ -265,11 +312,325 @@ def _source_versions_hash(paths: dict[str, Path]) -> tuple[str, str]:
     versions = {
         table_name: {
             "path": path.as_posix(),
-            "row_count": count_delta_table_rows(path) if has_delta_log(path) else 0,
+            "delta_version": delta_table_version(path) if has_delta_log(path) else None,
         }
         for table_name, path in sorted(paths.items())
     }
     return json.dumps(versions, ensure_ascii=False, sort_keys=True), stable_hash(versions)
+
+
+def _scoped_delta_count_or_none(
+    *,
+    table_path: Path,
+    filters: list[tuple[str, str, object]],
+    required_columns: Iterable[str],
+) -> int | None:
+    if not has_delta_log(table_path):
+        return None
+    existing_columns = set(delta_table_columns(table_path))
+    filter_columns = {column for column, _, _ in filters}
+    if not filter_columns.issubset(existing_columns):
+        return None
+    if not set(required_columns).issubset(existing_columns):
+        return None
+    return count_delta_table_rows(table_path, filters=filters)
+
+
+def _sidecar_output_versions_payload(
+    *,
+    input_row_count: int,
+    rule_count: int,
+    base_row_count: int,
+    derived_row_count: int | None = None,
+) -> dict[str, int]:
+    payload = {
+        "cf_indicator_input_frame": input_row_count,
+        "indicator_roll_rules": rule_count,
+        "continuous_front_indicator_frames": base_row_count,
+    }
+    if derived_row_count is not None:
+        payload["continuous_front_derived_indicator_frames"] = derived_row_count
+    return payload
+
+
+def _normalize_int_payload(value: object) -> dict[str, int]:
+    payload = _json_payload(value)
+    normalized: dict[str, int] = {}
+    for key, item in payload.items():
+        try:
+            normalized[str(key)] = int(item)
+        except (TypeError, ValueError):
+            return {}
+    return normalized
+
+
+def _matching_sidecar_manifest_row(
+    *,
+    output_dir: Path,
+    dataset_version: str,
+    roll_policy_version: str,
+    adjustment_policy_version: str,
+    indicator_set_version: str,
+    derived_set_version: str,
+    rule_set_version: str,
+    source_versions_digest: str,
+    output_versions_payload: dict[str, int],
+    rule_hash: str,
+    adapter_hash: str,
+    formula_kernel_hash: str,
+    code_artifact_hash: str,
+    dependency_lock_hash: str,
+) -> dict[str, object] | None:
+    manifest_path = output_dir / "continuous_front_indicator_run_manifest.delta"
+    if not has_delta_log(manifest_path):
+        return None
+    required_columns = {
+        "dataset_version",
+        "roll_policy_version",
+        "adjustment_policy_version",
+        "indicator_set_version",
+        "derived_set_version",
+        "rule_set_version",
+        "input_delta_versions_hash",
+        "output_delta_versions_json",
+        "rule_set_hash",
+        "adapter_bundle_hash",
+        "formula_kernel_hash",
+        "code_artifact_hash",
+        "dependency_lock_hash",
+        "publish_status",
+    }
+    if not required_columns.issubset(set(delta_table_columns(manifest_path))):
+        return None
+    candidates = read_delta_table_rows(
+        manifest_path,
+        filters=[
+            ("dataset_version", "=", dataset_version),
+            ("roll_policy_version", "=", roll_policy_version),
+            ("adjustment_policy_version", "=", adjustment_policy_version),
+            ("indicator_set_version", "=", indicator_set_version),
+            ("derived_set_version", "=", derived_set_version),
+            ("rule_set_version", "=", rule_set_version),
+            ("publish_status", "=", "accepted"),
+        ],
+    )
+    for row in sorted(
+        candidates,
+        key=lambda item: str(item.get("created_at_utc") or ""),
+        reverse=True,
+    ):
+        if (
+            str(row.get("input_delta_versions_hash") or "") == source_versions_digest
+            and _normalize_int_payload(row.get("output_delta_versions_json"))
+            == output_versions_payload
+            and str(row.get("rule_set_hash") or "") == rule_hash
+            and str(row.get("adapter_bundle_hash") or "") == adapter_hash
+            and str(row.get("formula_kernel_hash") or "") == formula_kernel_hash
+            and str(row.get("code_artifact_hash") or "") == code_artifact_hash
+            and str(row.get("dependency_lock_hash") or "") == dependency_lock_hash
+        ):
+            return dict(row)
+    return None
+
+
+def _accepted_sidecar_refresh_reuse(
+    *,
+    output_dir: Path,
+    dataset_version: str,
+    source_canonical_version: str,
+    roll_policy_version: str,
+    adjustment_policy_version: str,
+    indicator_set_version: str,
+    derived_set_version: str,
+    rule_set_version: str,
+    source_versions_digest: str,
+    rule_count: int,
+    rule_hash: str,
+    adapter_hash: str,
+    formula_kernel_hash: str,
+    code_artifact_hash: str,
+    dependency_lock_hash: str,
+    contract: dict[str, dict[str, object]],
+    include_derived: bool,
+) -> dict[str, object] | None:
+    input_filters = [
+        ("dataset_version", "=", dataset_version),
+        ("source_canonical_version", "=", source_canonical_version),
+        ("roll_policy_version", "=", roll_policy_version),
+        ("adjustment_policy_version", "=", adjustment_policy_version),
+    ]
+    base_filters = [
+        ("dataset_version", "=", dataset_version),
+        ("roll_policy_version", "=", roll_policy_version),
+        ("adjustment_policy_version", "=", adjustment_policy_version),
+        ("indicator_set_version", "=", indicator_set_version),
+        ("rule_set_version", "=", rule_set_version),
+    ]
+    input_row_count = _scoped_delta_count_or_none(
+        table_path=output_dir / "cf_indicator_input_frame.delta",
+        filters=input_filters,
+        required_columns=contract["cf_indicator_input_frame"]["columns"].keys(),
+    )
+    base_row_count = _scoped_delta_count_or_none(
+        table_path=output_dir / "continuous_front_indicator_frames.delta",
+        filters=base_filters,
+        required_columns=contract["continuous_front_indicator_frames"]["columns"].keys(),
+    )
+    if input_row_count is None or base_row_count is None:
+        return None
+
+    derived_row_count: int | None = None
+    if include_derived:
+        derived_filters = [
+            *base_filters,
+            ("derived_set_version", "=", derived_set_version),
+        ]
+        derived_row_count = _scoped_delta_count_or_none(
+            table_path=output_dir / "continuous_front_derived_indicator_frames.delta",
+            filters=derived_filters,
+            required_columns=contract["continuous_front_derived_indicator_frames"][
+                "columns"
+            ].keys(),
+        )
+        if derived_row_count is None:
+            return None
+
+    output_versions_payload = _sidecar_output_versions_payload(
+        input_row_count=input_row_count,
+        rule_count=rule_count,
+        base_row_count=base_row_count,
+        derived_row_count=derived_row_count,
+    )
+    manifest_row = _matching_sidecar_manifest_row(
+        output_dir=output_dir,
+        dataset_version=dataset_version,
+        roll_policy_version=roll_policy_version,
+        adjustment_policy_version=adjustment_policy_version,
+        indicator_set_version=indicator_set_version,
+        derived_set_version=derived_set_version,
+        rule_set_version=rule_set_version,
+        source_versions_digest=source_versions_digest,
+        output_versions_payload=output_versions_payload,
+        rule_hash=rule_hash,
+        adapter_hash=adapter_hash,
+        formula_kernel_hash=formula_kernel_hash,
+        code_artifact_hash=code_artifact_hash,
+        dependency_lock_hash=dependency_lock_hash,
+    )
+    if manifest_row is None:
+        return None
+    row_counts = {
+        "cf_indicator_input_frame": input_row_count,
+        "indicator_roll_rules": rule_count,
+        "continuous_front_indicator_frames": base_row_count,
+    }
+    if derived_row_count is not None:
+        row_counts["continuous_front_derived_indicator_frames"] = derived_row_count
+    return {
+        "source_run_id": str(manifest_row.get("run_id") or ""),
+        "row_counts": row_counts,
+        "output_versions_payload": output_versions_payload,
+    }
+
+
+def _materialize_sidecar_tables(
+    *,
+    materialization_mode: str,
+    materialized_output_dir: Path,
+    output_dir: Path,
+    dataset_version: str,
+    contour_id: str,
+    source_canonical_version: str,
+    roll_policy_version: str,
+    adjustment_policy_version: str,
+    indicator_set_version: str,
+    derived_set_version: str,
+    rule_set_version: str,
+    adapter_hash: str,
+    indicator_value_columns: tuple[str, ...],
+    derived_value_columns: tuple[str, ...],
+    max_base_cross_contract_window_bars: int,
+    max_derived_cross_contract_window_bars: int,
+    created_at_utc: str,
+    contract: dict[str, dict[str, object]],
+    rule_count: int,
+    include_derived: bool,
+) -> dict[str, object]:
+    normalized_mode = _normalize_sidecar_materialization_mode(materialization_mode)
+    stage_timings: StageTimings = {}
+    refreshed_sidecar_tables = [
+        "cf_indicator_input_frame",
+        "continuous_front_indicator_frames",
+    ]
+    if include_derived:
+        refreshed_sidecar_tables.append("continuous_front_derived_indicator_frames")
+
+    stage_started = stage_timer()
+    try:
+        spark_result = run_continuous_front_indicator_sidecar_spark_job(
+            materialized_output_dir=materialized_output_dir,
+            output_dir=output_dir,
+            dataset_version=dataset_version,
+            contour_id=contour_id,
+            source_canonical_version=source_canonical_version,
+            roll_policy_version=roll_policy_version,
+            adjustment_policy_version=adjustment_policy_version,
+            indicator_set_version=indicator_set_version,
+            derived_set_version=derived_set_version,
+            rule_set_version=rule_set_version,
+            adapter_hash=adapter_hash,
+            indicator_value_columns=indicator_value_columns,
+            derived_value_columns=derived_value_columns,
+            max_base_cross_contract_window_bars=max_base_cross_contract_window_bars,
+            max_derived_cross_contract_window_bars=max_derived_cross_contract_window_bars,
+            created_at_utc=created_at_utc,
+            contract=contract,
+            include_derived=include_derived,
+            rule_count=rule_count,
+        )
+    except ContinuousFrontIndicatorSidecarSparkUnavailable as exc:
+        record_stage_timing(
+            stage_timings,
+            "run_spark_sidecar",
+            stage_started,
+            status="FAILED",
+            reason=str(exc),
+            requested_mode=normalized_mode,
+        )
+        raise
+    record_stage_timing(
+        stage_timings,
+        "run_spark_sidecar",
+        stage_started,
+        status="PASS",
+        requested_mode=normalized_mode,
+    )
+
+    row_counts = {
+        str(table_name): int(row_count)
+        for table_name, row_count in dict(spark_result.get("rows_by_table") or {}).items()
+    }
+    input_row_count = int(row_counts["cf_indicator_input_frame"])
+    base_row_count = int(row_counts["continuous_front_indicator_frames"])
+    derived_row_count = (
+        int(row_counts["continuous_front_derived_indicator_frames"]) if include_derived else None
+    )
+    output_versions_payload = _sidecar_output_versions_payload(
+        input_row_count=input_row_count,
+        rule_count=rule_count,
+        base_row_count=base_row_count,
+        derived_row_count=derived_row_count,
+    )
+    return {
+        "row_counts": dict(output_versions_payload),
+        "output_versions_payload": output_versions_payload,
+        "sidecar_refresh_mode": "spark_delta_join_write",
+        "sidecar_reuse_source_run_id": "",
+        "refreshed_sidecar_tables": refreshed_sidecar_tables,
+        "spark_profile": dict(spark_result.get("spark_profile") or {}),
+        "stage_timings": stage_timings,
+        "spark_stage_timings": dict(spark_result.get("stage_timings") or {}),
+    }
 
 
 def _hash_normalized_value(value: object) -> object:
@@ -1298,10 +1659,13 @@ def _verify_lineage(
 
 
 def _verify_required_qc_groups(
-    *, run_id: str, qc_rows: list[dict[str, object]]
+    *,
+    run_id: str,
+    qc_rows: list[dict[str, object]],
+    required_groups: frozenset[str] = REQUIRED_ACCEPTANCE_QC_GROUPS,
 ) -> dict[str, object]:
     present = {str(row.get("check_group")) for row in qc_rows}
-    missing = sorted(REQUIRED_ACCEPTANCE_QC_GROUPS - present)
+    missing = sorted(required_groups - present)
     return qc_observation(
         run_id=run_id,
         check_id="required_acceptance_qc_groups_present",
@@ -1312,6 +1676,24 @@ def _verify_required_qc_groups(
         observed_value={"missing": missing},
         expected_value="all_required_acceptance_qc_groups_present",
         sample_rows={"missing": missing},
+    )
+
+
+def _verify_runtime_evidence(
+    *,
+    run_id: str,
+    dataset_version: str,
+    runtime_evidence: dict[str, object],
+) -> dict[str, object]:
+    return qc_observation(
+        run_id=run_id,
+        check_id="sidecar_lineage_runtime_evidence",
+        check_group="lineage",
+        severity="blocker",
+        status="pass" if all(runtime_evidence.values()) else "fail",
+        entity_key=dataset_version,
+        observed_value=runtime_evidence,
+        expected_value="runtime evidence present for sidecar materialization",
     )
 
 
@@ -1360,6 +1742,7 @@ def _verify_input_projection_identity_delta(
     run_id: str,
     table_path: Path,
     dataset_version: str,
+    max_rows: int | None = None,
 ) -> dict[str, object]:
     failures: list[dict[str, object]] = []
     checked = 0
@@ -1382,7 +1765,7 @@ def _verify_input_projection_identity_delta(
         table_path,
         columns=_available_columns(table_path, columns),
         filters=[("dataset_version", "=", dataset_version)],
-        batch_size=ARROW_SCAN_BATCH_ROWS,
+        batch_size=min(ARROW_SCAN_BATCH_ROWS, max_rows or ARROW_SCAN_BATCH_ROWS),
     ):
         for row in batch:
             checked += 1
@@ -1408,7 +1791,9 @@ def _verify_input_projection_identity_delta(
                         break
             if len(failures) >= 20:
                 break
-        if len(failures) >= 20:
+            if max_rows is not None and checked >= max_rows:
+                break
+        if len(failures) >= 20 or (max_rows is not None and checked >= max_rows):
             break
     return qc_observation(
         run_id=run_id,
@@ -1417,7 +1802,12 @@ def _verify_input_projection_identity_delta(
         severity="blocker",
         status="fail" if failures else "pass",
         entity_key="cf_indicator_input_frame",
-        observed_value={"checked": checked, "failures": len(failures)},
+        observed_value={
+            "checked": checked,
+            "failures": len(failures),
+            "validation_scope": "bounded_sample" if max_rows is not None else "full",
+            "max_rows": max_rows,
+        },
         expected_value={"failures": 0},
         sample_rows=failures,
     )
@@ -1779,8 +2169,12 @@ def run_continuous_front_base_indicator_sidecar_job(
     run_id: str = "continuous_front_base_indicator_refresh",
     calculation_app_id: str = "",
     event_log_path: str = "",
+    sidecar_materialization_mode: str = "auto",
 ) -> dict[str, object]:
     resolved_output_dir = output_dir or materialized_output_dir
+    normalized_sidecar_materialization_mode = _normalize_sidecar_materialization_mode(
+        sidecar_materialization_mode
+    )
     manifest = _load_dataset_manifest(
         materialized_output_dir=materialized_output_dir,
         dataset_version=dataset_version,
@@ -1808,32 +2202,6 @@ def run_continuous_front_base_indicator_sidecar_job(
         derived_profile=derived_profile,
     )
 
-    input_row_count = _write_cf_indicator_input_frame_delta(
-        materialized_output_dir=materialized_output_dir,
-        output_dir=resolved_output_dir,
-        dataset_version=dataset_version,
-        contour_id=contour_id,
-        source_canonical_version=str(manifest.get("source_table") or ""),
-        roll_policy_version=roll_policy_version,
-        adjustment_policy_version=adjustment_policy_version,
-        created_at_utc=created_at,
-        contract=contract,
-    )
-    base_row_count = _write_base_sidecar_delta(
-        materialized_output_dir=materialized_output_dir,
-        output_dir=resolved_output_dir,
-        dataset_version=dataset_version,
-        contour_id=contour_id,
-        roll_policy_version=roll_policy_version,
-        adjustment_policy_version=adjustment_policy_version,
-        indicator_set_version=indicator_set_version,
-        rule_set_version=rule_set_version,
-        adapter_hash=adapter_hash,
-        indicator_value_columns=indicator_value_columns,
-        max_cross_contract_window_bars=_max_strict_roll_window_bars(rules, output_family="base"),
-        created_at_utc=created_at,
-        contract=contract,
-    )
     source_versions_json, source_versions_digest = _source_versions_hash(
         {
             "research_datasets": materialized_output_dir / "research_datasets.delta",
@@ -1844,13 +2212,6 @@ def run_continuous_front_base_indicator_sidecar_job(
             / "continuous_front_adjustment_ladder.delta",
         }
     )
-    output_versions_payload = {
-        "cf_indicator_input_frame": input_row_count,
-        "indicator_roll_rules": len(rules),
-        "continuous_front_indicator_frames": base_row_count,
-    }
-    output_versions_json = json.dumps(output_versions_payload, ensure_ascii=False, sort_keys=True)
-    output_versions_digest = stable_hash(output_versions_payload)
     formula_kernel_hash = stable_hash({"rules": rule_hash, "adapters": adapter_hash})
     job_config_hash = stable_hash(
         {
@@ -1861,6 +2222,82 @@ def run_continuous_front_base_indicator_sidecar_job(
             "phase_boundary": "indicators_only",
         }
     )
+    code_artifact_hash = stable_hash({"module": __name__, "version": "base-v2"})
+    dependency_lock_hash = stable_hash(
+        {
+            "base_runtime": "pandas_ta_classic",
+            "storage_runtime": "delta",
+            "adapter_bundle_hash": adapter_hash,
+        }
+    )
+    reusable_sidecar = _accepted_sidecar_refresh_reuse(
+        output_dir=resolved_output_dir,
+        dataset_version=dataset_version,
+        source_canonical_version=str(manifest.get("source_table") or ""),
+        roll_policy_version=roll_policy_version,
+        adjustment_policy_version=adjustment_policy_version,
+        indicator_set_version=indicator_set_version,
+        derived_set_version=derived_set_version,
+        rule_set_version=rule_set_version,
+        source_versions_digest=source_versions_digest,
+        rule_count=len(rules),
+        rule_hash=rule_hash,
+        adapter_hash=adapter_hash,
+        formula_kernel_hash=formula_kernel_hash,
+        code_artifact_hash=code_artifact_hash,
+        dependency_lock_hash=dependency_lock_hash,
+        contract=contract,
+        include_derived=False,
+    )
+    if reusable_sidecar is not None:
+        known_row_counts = dict(reusable_sidecar["row_counts"])
+        input_row_count = int(known_row_counts["cf_indicator_input_frame"])
+        base_row_count = int(known_row_counts["continuous_front_indicator_frames"])
+        output_versions_payload = dict(reusable_sidecar["output_versions_payload"])
+        sidecar_refresh_mode = "metadata_reuse"
+        sidecar_reuse_source_run_id = str(reusable_sidecar["source_run_id"])
+        refreshed_sidecar_tables: list[str] = []
+        sidecar_spark_profile: dict[str, object] = {}
+    else:
+        materialized_sidecar = _materialize_sidecar_tables(
+            materialization_mode=normalized_sidecar_materialization_mode,
+            materialized_output_dir=materialized_output_dir,
+            output_dir=resolved_output_dir,
+            dataset_version=dataset_version,
+            contour_id=contour_id,
+            source_canonical_version=str(manifest.get("source_table") or ""),
+            roll_policy_version=roll_policy_version,
+            adjustment_policy_version=adjustment_policy_version,
+            indicator_set_version=indicator_set_version,
+            derived_set_version=derived_set_version,
+            rule_set_version=rule_set_version,
+            adapter_hash=adapter_hash,
+            indicator_value_columns=indicator_value_columns,
+            derived_value_columns=(),
+            max_base_cross_contract_window_bars=_max_strict_roll_window_bars(
+                rules, output_family="base"
+            ),
+            max_derived_cross_contract_window_bars=0,
+            created_at_utc=created_at,
+            contract=contract,
+            rule_count=len(rules),
+            include_derived=False,
+        )
+        known_row_counts = {
+            str(table_name): int(row_count)
+            for table_name, row_count in dict(materialized_sidecar["row_counts"]).items()
+        }
+        input_row_count = int(known_row_counts["cf_indicator_input_frame"])
+        base_row_count = int(known_row_counts["continuous_front_indicator_frames"])
+        output_versions_payload = dict(materialized_sidecar["output_versions_payload"])
+        sidecar_refresh_mode = str(materialized_sidecar["sidecar_refresh_mode"])
+        sidecar_reuse_source_run_id = str(materialized_sidecar["sidecar_reuse_source_run_id"])
+        refreshed_sidecar_tables = [
+            str(table_name) for table_name in materialized_sidecar["refreshed_sidecar_tables"]
+        ]
+        sidecar_spark_profile = dict(materialized_sidecar["spark_profile"])
+    output_versions_json = json.dumps(output_versions_payload, ensure_ascii=False, sort_keys=True)
+    output_versions_digest = stable_hash(output_versions_payload)
     runtime_evidence = {
         "spark_app_id": str(calculation_app_id or ""),
         "spark_event_log_path": str(event_log_path or ""),
@@ -1870,14 +2307,8 @@ def run_continuous_front_base_indicator_sidecar_job(
         "adapter_bundle_hash": adapter_hash,
         "formula_kernel_hash": formula_kernel_hash,
         "job_config_hash": job_config_hash,
-        "code_artifact_hash": stable_hash({"module": __name__, "version": "base-v1"}),
-        "dependency_lock_hash": stable_hash(
-            {
-                "base_runtime": "pandas_ta_classic",
-                "storage_runtime": "delta",
-                "adapter_bundle_hash": adapter_hash,
-            }
-        ),
+        "code_artifact_hash": code_artifact_hash,
+        "dependency_lock_hash": dependency_lock_hash,
         "created_by_pipeline": "spark_delta_governed",
     }
     input_path = resolved_output_dir / "cf_indicator_input_frame.delta"
@@ -1886,6 +2317,7 @@ def run_continuous_front_base_indicator_sidecar_job(
             run_id=run_id,
             table_path=input_path,
             dataset_version=dataset_version,
+            max_rows=HOT_PATH_INPUT_PROJECTION_SAMPLE_ROWS,
         ),
         verify_rule_coverage(
             run_id=run_id,
@@ -1955,7 +2387,11 @@ def run_continuous_front_base_indicator_sidecar_job(
                 "orchestration": "dagster_asset_job",
                 "adapter_orchestrator": "spark_delta_governed",
                 "proof_mode": "delta_native_materialized_read",
-                "sidecar_materialization": "delta_arrow_join_batch_write",
+                "sidecar_materialization": sidecar_refresh_mode,
+                "sidecar_materialization_requested_mode": (normalized_sidecar_materialization_mode),
+                "sidecar_reuse_source_run_id": sidecar_reuse_source_run_id,
+                "refreshed_sidecar_tables": refreshed_sidecar_tables,
+                "sidecar_spark_profile": sidecar_spark_profile,
                 "phase_boundary": "indicators_only",
                 "base_runtime": "pandas_ta_classic",
                 "base_adapters": sorted(
@@ -2022,6 +2458,9 @@ def run_continuous_front_base_indicator_sidecar_job(
     }
     rows_by_table: dict[str, int] = {}
     for table_name, path in output_paths.items():
+        if table_name in known_row_counts:
+            rows_by_table[table_name] = int(known_row_counts[table_name])
+            continue
         table_path = Path(path)
         columns = set(delta_table_columns(table_path)) if has_delta_log(table_path) else set()
         filters: list[tuple[str, str, object]] = []
@@ -2043,6 +2482,11 @@ def run_continuous_front_base_indicator_sidecar_job(
         "rule_set_version": rule_set_version,
         "rule_set_hash": rule_hash,
         "adapter_bundle_hash": adapter_hash,
+        "sidecar_materialization_mode": normalized_sidecar_materialization_mode,
+        "sidecar_refresh_mode": sidecar_refresh_mode,
+        "sidecar_reuse_source_run_id": sidecar_reuse_source_run_id,
+        "refreshed_sidecar_tables": refreshed_sidecar_tables,
+        "sidecar_spark_profile": sidecar_spark_profile,
         "output_paths": output_paths,
         "rows_by_table": rows_by_table,
         "qc_rows": qc_rows,
@@ -2073,8 +2517,26 @@ def run_continuous_front_indicator_pandas_job(
     run_id: str = "continuous_front_indicator_refresh",
     calculation_app_id: str = "",
     event_log_path: str = "",
+    qc_mode: str = "hot_path",
+    sidecar_materialization_mode: str = "auto",
 ) -> dict[str, object]:
+    stage_timings: StageTimings = {}
+    stage_started = stage_timer()
     resolved_output_dir = output_dir or materialized_output_dir
+    normalized_qc_mode = _normalize_qc_mode(qc_mode)
+    normalized_sidecar_materialization_mode = _normalize_sidecar_materialization_mode(
+        sidecar_materialization_mode
+    )
+    audit_qc_enabled = normalized_qc_mode == "audit"
+    record_stage_timing(
+        stage_timings,
+        "normalize_config",
+        stage_started,
+        qc_mode=normalized_qc_mode,
+        sidecar_materialization_mode=normalized_sidecar_materialization_mode,
+    )
+
+    stage_started = stage_timer()
     manifest = _load_dataset_manifest(
         materialized_output_dir=materialized_output_dir,
         dataset_version=dataset_version,
@@ -2084,7 +2546,14 @@ def run_continuous_front_indicator_pandas_job(
         raise RuntimeError(
             "continuous_front indicator job requires research dataset series_mode=continuous_front"
         )
+    record_stage_timing(
+        stage_timings,
+        "load_dataset_manifest",
+        stage_started,
+        source_table=str(manifest.get("source_table") or ""),
+    )
 
+    stage_started = stage_timer()
     indicator_profile = default_indicator_profile()
     derived_profile = current_derived_indicator_profile()
     rules = default_indicator_roll_rules(
@@ -2103,48 +2572,6 @@ def run_continuous_front_indicator_pandas_job(
         derived_profile=derived_profile,
     )
 
-    input_row_count = _write_cf_indicator_input_frame_delta(
-        materialized_output_dir=materialized_output_dir,
-        output_dir=resolved_output_dir,
-        dataset_version=dataset_version,
-        contour_id=contour_id,
-        source_canonical_version=str(manifest.get("source_table") or ""),
-        roll_policy_version=roll_policy_version,
-        adjustment_policy_version=adjustment_policy_version,
-        created_at_utc=created_at,
-        contract=contract,
-    )
-    base_row_count = _write_base_sidecar_delta(
-        materialized_output_dir=materialized_output_dir,
-        output_dir=resolved_output_dir,
-        dataset_version=dataset_version,
-        contour_id=contour_id,
-        roll_policy_version=roll_policy_version,
-        adjustment_policy_version=adjustment_policy_version,
-        indicator_set_version=indicator_set_version,
-        rule_set_version=rule_set_version,
-        adapter_hash=adapter_hash,
-        indicator_value_columns=indicator_value_columns,
-        max_cross_contract_window_bars=_max_strict_roll_window_bars(rules, output_family="base"),
-        created_at_utc=created_at,
-        contract=contract,
-    )
-    derived_row_count = _write_derived_sidecar_delta(
-        materialized_output_dir=materialized_output_dir,
-        output_dir=resolved_output_dir,
-        dataset_version=dataset_version,
-        contour_id=contour_id,
-        roll_policy_version=roll_policy_version,
-        adjustment_policy_version=adjustment_policy_version,
-        indicator_set_version=indicator_set_version,
-        derived_set_version=derived_set_version,
-        rule_set_version=rule_set_version,
-        adapter_hash=adapter_hash,
-        derived_value_columns=derived_value_columns,
-        max_cross_contract_window_bars=_max_strict_roll_window_bars(rules, output_family="derived"),
-        created_at_utc=created_at,
-        contract=contract,
-    )
     source_versions_json, source_versions_digest = _source_versions_hash(
         {
             "research_datasets": materialized_output_dir / "research_datasets.delta",
@@ -2157,14 +2584,6 @@ def run_continuous_front_indicator_pandas_job(
             / "continuous_front_adjustment_ladder.delta",
         }
     )
-    output_versions_payload = {
-        "cf_indicator_input_frame": input_row_count,
-        "indicator_roll_rules": len(rules),
-        "continuous_front_indicator_frames": base_row_count,
-        "continuous_front_derived_indicator_frames": derived_row_count,
-    }
-    output_versions_json = json.dumps(output_versions_payload, ensure_ascii=False, sort_keys=True)
-    output_versions_digest = stable_hash(output_versions_payload)
     formula_kernel_hash = stable_hash({"rules": rule_hash, "adapters": adapter_hash})
     job_config_hash = stable_hash(
         {
@@ -2172,11 +2591,12 @@ def run_continuous_front_indicator_pandas_job(
             "indicator_set_version": indicator_set_version,
             "derived_set_version": derived_set_version,
             "rule_set_version": rule_set_version,
+            "qc_mode": normalized_qc_mode,
         }
     )
     spark_app_id = str(calculation_app_id or "")
     spark_event_log_path = str(event_log_path or "")
-    code_artifact_hash = stable_hash({"module": __name__, "version": "v1"})
+    code_artifact_hash = stable_hash({"module": __name__, "version": "v2"})
     dependency_lock_hash = stable_hash(
         {
             "base_runtime": "pandas_ta_classic",
@@ -2185,6 +2605,107 @@ def run_continuous_front_indicator_pandas_job(
             "adapter_bundle_hash": adapter_hash,
         }
     )
+    record_stage_timing(
+        stage_timings,
+        "build_profiles_and_hashes",
+        stage_started,
+        rule_count=len(rules),
+        indicator_column_count=len(indicator_value_columns),
+        derived_column_count=len(derived_value_columns),
+    )
+
+    stage_started = stage_timer()
+    reusable_sidecar = _accepted_sidecar_refresh_reuse(
+        output_dir=resolved_output_dir,
+        dataset_version=dataset_version,
+        source_canonical_version=str(manifest.get("source_table") or ""),
+        roll_policy_version=roll_policy_version,
+        adjustment_policy_version=adjustment_policy_version,
+        indicator_set_version=indicator_set_version,
+        derived_set_version=derived_set_version,
+        rule_set_version=rule_set_version,
+        source_versions_digest=source_versions_digest,
+        rule_count=len(rules),
+        rule_hash=rule_hash,
+        adapter_hash=adapter_hash,
+        formula_kernel_hash=formula_kernel_hash,
+        code_artifact_hash=code_artifact_hash,
+        dependency_lock_hash=dependency_lock_hash,
+        contract=contract,
+        include_derived=True,
+    )
+    record_stage_timing(
+        stage_timings,
+        "reuse_check",
+        stage_started,
+        reusable=reusable_sidecar is not None,
+    )
+    if reusable_sidecar is not None:
+        known_row_counts = dict(reusable_sidecar["row_counts"])
+        input_row_count = int(known_row_counts["cf_indicator_input_frame"])
+        base_row_count = int(known_row_counts["continuous_front_indicator_frames"])
+        derived_row_count = int(known_row_counts["continuous_front_derived_indicator_frames"])
+        output_versions_payload = dict(reusable_sidecar["output_versions_payload"])
+        sidecar_refresh_mode = "metadata_reuse"
+        sidecar_reuse_source_run_id = str(reusable_sidecar["source_run_id"])
+        refreshed_sidecar_tables: list[str] = []
+        sidecar_spark_profile: dict[str, object] = {}
+        sidecar_stage_timings: dict[str, dict[str, object]] = {}
+        sidecar_spark_stage_timings: dict[str, dict[str, object]] = {}
+    else:
+        stage_started = stage_timer()
+        materialized_sidecar = _materialize_sidecar_tables(
+            materialization_mode=normalized_sidecar_materialization_mode,
+            materialized_output_dir=materialized_output_dir,
+            output_dir=resolved_output_dir,
+            dataset_version=dataset_version,
+            contour_id=contour_id,
+            source_canonical_version=str(manifest.get("source_table") or ""),
+            roll_policy_version=roll_policy_version,
+            adjustment_policy_version=adjustment_policy_version,
+            indicator_set_version=indicator_set_version,
+            derived_set_version=derived_set_version,
+            rule_set_version=rule_set_version,
+            adapter_hash=adapter_hash,
+            indicator_value_columns=indicator_value_columns,
+            derived_value_columns=derived_value_columns,
+            max_base_cross_contract_window_bars=_max_strict_roll_window_bars(
+                rules, output_family="base"
+            ),
+            max_derived_cross_contract_window_bars=_max_strict_roll_window_bars(
+                rules, output_family="derived"
+            ),
+            created_at_utc=created_at,
+            contract=contract,
+            rule_count=len(rules),
+            include_derived=True,
+        )
+        record_stage_timing(
+            stage_timings,
+            "materialize_sidecars",
+            stage_started,
+            refresh_mode=str(materialized_sidecar["sidecar_refresh_mode"]),
+        )
+        known_row_counts = {
+            str(table_name): int(row_count)
+            for table_name, row_count in dict(materialized_sidecar["row_counts"]).items()
+        }
+        input_row_count = int(known_row_counts["cf_indicator_input_frame"])
+        base_row_count = int(known_row_counts["continuous_front_indicator_frames"])
+        derived_row_count = int(known_row_counts["continuous_front_derived_indicator_frames"])
+        output_versions_payload = dict(materialized_sidecar["output_versions_payload"])
+        sidecar_refresh_mode = str(materialized_sidecar["sidecar_refresh_mode"])
+        sidecar_reuse_source_run_id = str(materialized_sidecar["sidecar_reuse_source_run_id"])
+        refreshed_sidecar_tables = [
+            str(table_name) for table_name in materialized_sidecar["refreshed_sidecar_tables"]
+        ]
+        sidecar_spark_profile = dict(materialized_sidecar["spark_profile"])
+        sidecar_stage_timings = dict(materialized_sidecar.get("stage_timings") or {})
+        sidecar_spark_stage_timings = dict(materialized_sidecar.get("spark_stage_timings") or {})
+
+    stage_started = stage_timer()
+    output_versions_json = json.dumps(output_versions_payload, ensure_ascii=False, sort_keys=True)
+    output_versions_digest = stable_hash(output_versions_payload)
     runtime_evidence = {
         "spark_app_id": spark_app_id,
         "spark_event_log_path": spark_event_log_path,
@@ -2206,6 +2727,7 @@ def run_continuous_front_indicator_pandas_job(
             run_id=run_id,
             table_path=input_path,
             dataset_version=dataset_version,
+            max_rows=None if audit_qc_enabled else HOT_PATH_INPUT_PROJECTION_SAMPLE_ROWS,
         ),
         verify_rule_coverage(
             run_id=run_id,
@@ -2250,53 +2772,80 @@ def run_continuous_front_indicator_pandas_job(
             expected_value="registered adapters only",
         ),
     ]
-    qc_rows.extend(
-        [
-            _verify_materialized_prefix_window_coverage_delta(
+    if audit_qc_enabled:
+        qc_rows.extend(
+            [
+                _verify_materialized_prefix_window_coverage_delta(
+                    run_id=run_id,
+                    input_path=input_path,
+                    base_path=base_path,
+                    derived_path=derived_path,
+                    dataset_version=dataset_version,
+                    input_rows=input_row_count,
+                    base_rows=base_row_count,
+                    derived_rows=derived_row_count,
+                    max_base_cross_contract_window_bars=_max_strict_roll_window_bars(
+                        rules, output_family="base"
+                    ),
+                    max_derived_cross_contract_window_bars=_max_strict_roll_window_bars(
+                        rules, output_family="derived"
+                    ),
+                ),
+                _verify_formula_samples_delta(
+                    run_id=run_id,
+                    base_path=base_path,
+                    derived_path=derived_path,
+                    indicator_profile=indicator_profile,
+                    derived_profile=derived_profile,
+                ),
+                _verify_pandas_ta_parity_delta(
+                    run_id=run_id,
+                    rules=rules,
+                    base_path=base_path,
+                    indicator_value_columns=indicator_value_columns,
+                ),
+                _verify_lineage_delta(
+                    run_id=run_id,
+                    source_versions_digest=source_versions_digest,
+                    output_versions_digest=output_versions_digest,
+                    runtime_evidence=runtime_evidence,
+                    input_path=input_path,
+                    base_path=base_path,
+                    derived_path=derived_path,
+                    dataset_version=dataset_version,
+                    indicator_value_columns=indicator_value_columns,
+                    derived_value_columns=derived_value_columns,
+                ),
+            ]
+        )
+        required_qc_groups = REQUIRED_ACCEPTANCE_QC_GROUPS
+        skipped_qc_groups: tuple[str, ...] = ()
+    else:
+        qc_rows.append(
+            _verify_runtime_evidence(
                 run_id=run_id,
-                input_path=input_path,
-                base_path=base_path,
-                derived_path=derived_path,
                 dataset_version=dataset_version,
-                input_rows=input_row_count,
-                base_rows=base_row_count,
-                derived_rows=derived_row_count,
-                max_base_cross_contract_window_bars=_max_strict_roll_window_bars(
-                    rules, output_family="base"
-                ),
-                max_derived_cross_contract_window_bars=_max_strict_roll_window_bars(
-                    rules, output_family="derived"
-                ),
-            ),
-            _verify_formula_samples_delta(
-                run_id=run_id,
-                base_path=base_path,
-                derived_path=derived_path,
-                indicator_profile=indicator_profile,
-                derived_profile=derived_profile,
-            ),
-            _verify_pandas_ta_parity_delta(
-                run_id=run_id,
-                rules=rules,
-                base_path=base_path,
-                indicator_value_columns=indicator_value_columns,
-            ),
-            _verify_lineage_delta(
-                run_id=run_id,
-                source_versions_digest=source_versions_digest,
-                output_versions_digest=output_versions_digest,
                 runtime_evidence=runtime_evidence,
-                input_path=input_path,
-                base_path=base_path,
-                derived_path=derived_path,
-                dataset_version=dataset_version,
-                indicator_value_columns=indicator_value_columns,
-                derived_value_columns=derived_value_columns,
-            ),
-        ]
+            )
+        )
+        required_qc_groups = HOT_PATH_ACCEPTANCE_QC_GROUPS
+        skipped_qc_groups = tuple(sorted(AUDIT_ONLY_QC_GROUPS))
+    qc_rows.append(
+        _verify_required_qc_groups(
+            run_id=run_id,
+            qc_rows=qc_rows,
+            required_groups=required_qc_groups,
+        )
     )
-    qc_rows.append(_verify_required_qc_groups(run_id=run_id, qc_rows=qc_rows))
     publish_status = publish_status_from_qc(qc_rows)
+    record_stage_timing(
+        stage_timings,
+        "build_qc",
+        stage_started,
+        qc_row_count=len(qc_rows),
+        publish_status=publish_status,
+        audit_qc_enabled=audit_qc_enabled,
+    )
 
     manifest_rows = [
         {
@@ -2327,8 +2876,18 @@ def run_continuous_front_indicator_pandas_job(
                 "storage": "delta",
                 "orchestration": "dagster_asset_job",
                 "adapter_orchestrator": "spark_delta_governed",
-                "proof_mode": "delta_native_materialized_read",
-                "sidecar_materialization": "delta_arrow_join_batch_write",
+                "proof_mode": (
+                    "delta_native_materialized_read_audit"
+                    if audit_qc_enabled
+                    else "delta_native_hot_path_bounded_qc"
+                ),
+                "qc_mode": normalized_qc_mode,
+                "skipped_qc_groups": list(skipped_qc_groups),
+                "sidecar_materialization": sidecar_refresh_mode,
+                "sidecar_materialization_requested_mode": (normalized_sidecar_materialization_mode),
+                "sidecar_reuse_source_run_id": sidecar_reuse_source_run_id,
+                "refreshed_sidecar_tables": refreshed_sidecar_tables,
+                "sidecar_spark_profile": sidecar_spark_profile,
                 "base_runtime": "pandas_ta_classic",
                 "derived_runtime": "pandas",
                 "base_adapters": sorted(
@@ -2358,13 +2917,14 @@ def run_continuous_front_indicator_pandas_job(
             "formula_sample_fail_count": fail_count(qc_rows, "formula_sample"),
             "pandas_ta_parity_fail_count": fail_count(qc_rows, "pandas_ta_parity"),
             "lineage_fail_count": fail_count(qc_rows, "lineage"),
-            "run_type": "full",
-            "skipped_qc_groups_json": "[]",
+            "run_type": "full" if audit_qc_enabled else "hot_path",
+            "skipped_qc_groups_json": json.dumps(list(skipped_qc_groups), ensure_ascii=False),
             "publish_status": publish_status,
             "created_at_utc": created_at,
         }
     ]
 
+    stage_started = stage_timer()
     output_paths = {
         "cf_indicator_input_frame": (
             resolved_output_dir / "cf_indicator_input_frame.delta"
@@ -2400,8 +2960,18 @@ def run_continuous_front_indicator_pandas_job(
             contract=contract,
         ),
     }
+    record_stage_timing(
+        stage_timings,
+        "write_reports",
+        stage_started,
+        table_count=len(output_paths),
+    )
+    stage_started = stage_timer()
     rows_by_table: dict[str, int] = {}
     for table_name, path in output_paths.items():
+        if table_name in known_row_counts:
+            rows_by_table[table_name] = int(known_row_counts[table_name])
+            continue
         table_path = Path(path)
         columns = set(delta_table_columns(table_path)) if has_delta_log(table_path) else set()
         filters: list[tuple[str, str, object]] = []
@@ -2414,18 +2984,35 @@ def run_continuous_front_indicator_pandas_job(
             if filters
             else count_delta_table_rows(table_path)
         )
+    record_stage_timing(
+        stage_timings,
+        "row_counts",
+        stage_started,
+        table_count=len(rows_by_table),
+        row_count=sum(rows_by_table.values()),
+    )
     return {
         "success": publish_status == "accepted",
         "status": "PASS" if publish_status == "accepted" else "QUARANTINED",
         "publish_status": publish_status,
         "run_id": run_id,
         "dataset_version": dataset_version,
+        "qc_mode": normalized_qc_mode,
+        "skipped_qc_groups": list(skipped_qc_groups),
         "rule_set_version": rule_set_version,
         "rule_set_hash": rule_hash,
         "adapter_bundle_hash": adapter_hash,
+        "sidecar_materialization_mode": normalized_sidecar_materialization_mode,
+        "sidecar_refresh_mode": sidecar_refresh_mode,
+        "sidecar_reuse_source_run_id": sidecar_reuse_source_run_id,
+        "refreshed_sidecar_tables": refreshed_sidecar_tables,
+        "sidecar_spark_profile": sidecar_spark_profile,
+        "sidecar_stage_timings": sidecar_stage_timings,
+        "sidecar_spark_stage_timings": sidecar_spark_stage_timings,
         "output_paths": output_paths,
         "rows_by_table": rows_by_table,
         "qc_rows": qc_rows,
         "acceptance_report": acceptance_rows[0],
+        "stage_timings": stage_timings,
         "delta_manifest": {name: contract[name] for name in CF_INDICATOR_TABLES},
     }
