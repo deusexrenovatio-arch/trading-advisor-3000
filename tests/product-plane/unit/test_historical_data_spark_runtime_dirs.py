@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
+
 from trading_advisor_3000.spark_jobs.canonical_bars_job import (
     _ensure_hadoop_home_bin_on_path,
     _spark_config_overrides_from_env,
@@ -54,6 +56,8 @@ def test_incomplete_hadoop_home_falls_back_to_ta3000_hadoop_home(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
+    if os.name != "nt":
+        pytest.skip("Windows Hadoop fallback is only active on Windows")
     incomplete_home = tmp_path / "incomplete-hadoop"
     incomplete_bin = incomplete_home / "bin"
     incomplete_bin.mkdir(parents=True)
