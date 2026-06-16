@@ -106,6 +106,18 @@ def test_research_bar_views_persist_usage_contract_without_runtime_masks() -> No
     assert "price_risk_valid" not in columns
 
 
+def test_research_bar_views_persist_execution_economics_contract() -> None:
+    columns = research_dataset_store_contract()["research_bar_views"]["columns"]
+
+    assert columns["execution_step_price_rub"] == "double"
+    assert columns["execution_lot_volume"] == "double"
+    assert columns["execution_tick_value_currency"] == "double"
+    assert columns["execution_margin_required_estimate"] == "double"
+    assert columns["execution_margin_buffer_pct"] == "double"
+    assert columns["economics_effective_from_ts"] == "timestamp"
+    assert columns["economics_model_version"] == "string"
+
+
 def test_moex_bar_usage_policy_registry_flags_fail_closed() -> None:
     assert BAR_USAGE_POLICY_ID == "moex_bar_usage_v1"
     assert bar_usage_flags_for_profile("regular_trading") == 127
@@ -205,9 +217,27 @@ def test_spark_l0_job_requires_canonical_session_metadata_inputs() -> None:
 
     assert "canonical_bar_provenance_path" in signature.parameters
     assert "canonical_session_intervals_path" in signature.parameters
+    assert "execution_economics_required" in signature.parameters
     plan = spark_l0_job.build_research_l0_sql_plan()
     assert "canonical_bar_provenance" in plan
     assert "canonical_session_intervals" in plan
+
+
+def test_spark_l0_job_requires_execution_economics_when_production_flag_is_set(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(RuntimeError, match="canonical_contract_economics_path is required"):
+        spark_l0_job.run_research_bar_views_spark_job(
+            canonical_bars_path=tmp_path / "canonical_bars.delta",
+            canonical_bar_provenance_path=tmp_path / "canonical_bar_provenance.delta",
+            canonical_session_intervals_path=tmp_path / "canonical_session_intervals.delta",
+            canonical_session_calendar_path=tmp_path / "canonical_session_calendar.delta",
+            canonical_roll_map_path=tmp_path / "canonical_roll_map.delta",
+            continuous_front_bars_path=tmp_path / "continuous_front_bars.delta",
+            output_dir=tmp_path / "research",
+            dataset_version="requires-economics-v1",
+            execution_economics_required=True,
+        )
 
 
 def test_canonical_sidecars_expose_strict_bar_usage_metadata_contract() -> None:
@@ -253,6 +283,17 @@ def test_spark_l0_bar_usage_contract_uses_only_canonical_metadata_fallbacks() ->
     assert '"day_session_class"' in context_source
     assert "daily_contract_id" in context_source
     assert 'bar.contract_id") == F.col("weekly_actual.daily_contract_id")' in usage_source
+
+
+def test_spark_l0_manifest_lineage_includes_contract_economics_when_present() -> None:
+    import inspect
+
+    run_source = inspect.getsource(spark_l0_job.run_research_bar_views_spark_job)
+
+    assert '"canonical_contract_economics"' in run_source
+    assert 'source_delta_versions["canonical_contract_economics"]' in run_source
+    assert 'source_delta_hashes["canonical_contract_economics"]' in run_source
+    assert "*economics_source_tables" in run_source
 
 
 def test_spark_l0_bar_usage_contract_uses_single_metadata_validation_action() -> None:

@@ -48,6 +48,13 @@ class ResearchBarView:
     execution_high: float | None = None
     execution_low: float | None = None
     execution_close: float | None = None
+    execution_step_price_rub: float | None = None
+    execution_lot_volume: float | None = None
+    execution_tick_value_currency: float | None = None
+    execution_margin_required_estimate: float | None = None
+    execution_margin_buffer_pct: float | None = None
+    economics_effective_from_ts: str | None = None
+    economics_model_version: str | None = None
     previous_contract_id: str | None = None
     candidate_contract_id: str | None = None
     adjustment_mode: str = ""
@@ -121,6 +128,13 @@ class ResearchBarView:
             "execution_close": self.execution_close
             if self.execution_close is not None
             else self.close,
+            "execution_step_price_rub": self.execution_step_price_rub,
+            "execution_lot_volume": self.execution_lot_volume,
+            "execution_tick_value_currency": self.execution_tick_value_currency,
+            "execution_margin_required_estimate": self.execution_margin_required_estimate,
+            "execution_margin_buffer_pct": self.execution_margin_buffer_pct,
+            "economics_effective_from_ts": self.economics_effective_from_ts,
+            "economics_model_version": self.economics_model_version,
             "previous_contract_id": self.previous_contract_id,
             "candidate_contract_id": self.candidate_contract_id,
             "adjustment_mode": self.adjustment_mode,
@@ -215,6 +229,27 @@ class ResearchBarView:
             execution_close=None
             if payload.get("execution_close") is None
             else float(payload["execution_close"]),
+            execution_step_price_rub=None
+            if payload.get("execution_step_price_rub") is None
+            else float(payload["execution_step_price_rub"]),
+            execution_lot_volume=None
+            if payload.get("execution_lot_volume") is None
+            else float(payload["execution_lot_volume"]),
+            execution_tick_value_currency=None
+            if payload.get("execution_tick_value_currency") is None
+            else float(payload["execution_tick_value_currency"]),
+            execution_margin_required_estimate=None
+            if payload.get("execution_margin_required_estimate") is None
+            else float(payload["execution_margin_required_estimate"]),
+            execution_margin_buffer_pct=None
+            if payload.get("execution_margin_buffer_pct") is None
+            else float(payload["execution_margin_buffer_pct"]),
+            economics_effective_from_ts=None
+            if payload.get("economics_effective_from_ts") is None
+            else str(payload["economics_effective_from_ts"]),
+            economics_model_version=None
+            if payload.get("economics_model_version") is None
+            else str(payload["economics_model_version"]),
             previous_contract_id=None
             if payload.get("previous_contract_id") is None
             else str(payload["previous_contract_id"]),

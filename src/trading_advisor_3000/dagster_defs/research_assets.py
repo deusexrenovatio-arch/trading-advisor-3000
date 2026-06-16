@@ -646,6 +646,7 @@ def _research_config_schema() -> dict[str, object]:
         "dataset_contract_ids": [str],
         "dataset_instrument_ids": [str],
         "changed_windows": Field([dict], default_value=[], is_required=False),
+        "canonical_contract_economics_path": Field(str, default_value="", is_required=False),
         "spark_master": Field(str, default_value="", is_required=False),
         "indicator_set_version": str,
         "indicator_profile_version": str,
@@ -764,6 +765,34 @@ def _prepare_strategy_space_run_config(
 def _canonical_table_path(config: dict[str, object], table_name: str) -> Path:
     return (
         Path(str(_config_value(config, "canonical_output_dir"))).resolve() / f"{table_name}.delta"
+    )
+
+
+def _canonical_contract_economics_path(config: dict[str, object]) -> Path | None:
+    explicit = str(_config_value(config, "canonical_contract_economics_path", "")).strip()
+    if explicit:
+        candidate = Path(explicit).resolve()
+        if not has_delta_log(candidate):
+            raise RuntimeError(
+                "canonical_contract_economics_path is configured but missing `_delta_log`: "
+                f"{candidate.as_posix()}"
+            )
+        return candidate
+
+    canonical_output_dir = Path(str(_config_value(config, "canonical_output_dir"))).resolve()
+    candidates = [canonical_output_dir / "canonical_contract_economics.delta"]
+    for path in (canonical_output_dir, *canonical_output_dir.parents):
+        if path.name == "canonical":
+            candidates.append(path / "economics" / "canonical_contract_economics.delta")
+            break
+
+    for candidate in candidates:
+        if has_delta_log(candidate):
+            return candidate.resolve()
+    checked = ", ".join(candidate.as_posix() for candidate in candidates)
+    raise RuntimeError(
+        "canonical_contract_economics.delta is required for research execution economics; "
+        f"checked: {checked}"
     )
 
 
@@ -1424,6 +1453,8 @@ def continuous_front_bars(context) -> dict[str, object]:
             start_ts=str(_config_value(config, "start_ts", "")) or None,
             end_ts=str(_config_value(config, "end_ts", "")) or None,
             refresh_windows=_changed_windows_from_research_config(config),
+            canonical_contract_economics_path=_canonical_contract_economics_path(config),
+            execution_economics_required=True,
             spark_master=str(_config_value(config, "spark_master", "")) or DEFAULT_SPARK_MASTER,
         )
     else:
@@ -1606,6 +1637,8 @@ def research_datasets(context) -> dict[str, object]:
             split_method=str(_config_value(config, "split_method", "holdout")),
             split_params=validation_plan,
             contours=research_l0_contours,
+            canonical_contract_economics_path=_canonical_contract_economics_path(config),
+            execution_economics_required=True,
             spark_master=str(_config_value(config, "spark_master", "")) or DEFAULT_SPARK_MASTER,
         )
     strategy_space_config = _config_value(config, "strategy_space", {})

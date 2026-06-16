@@ -5,7 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from trading_advisor_3000.product_plane.research.continuous_front import CONTINUOUS_FRONT_TABLES
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
+from trading_advisor_3000.product_plane.data_plane.moex.economics import (
+    moex_economics_store_contract,
+)
+from trading_advisor_3000.product_plane.research.continuous_front import (
+    CONTINUOUS_FRONT_TABLES,
+    continuous_front_store_contract,
+)
 from trading_advisor_3000.product_plane.research.datasets import ContinuousFrontPolicy
 from trading_advisor_3000.spark_jobs import continuous_front_job as job
 
@@ -47,6 +54,51 @@ class _FakeSpark:
 
     def stop(self) -> None:
         self.stopped = True
+
+
+def _contract_economics_row(
+    *,
+    contract_id: str,
+    step_price_rub: float,
+    margin_required_estimate: float,
+) -> dict[str, object]:
+    return {
+        "contract_id": contract_id,
+        "instrument_id": "BR",
+        "moex_secid": contract_id.replace("@MOEX", ""),
+        "assetcode": "BR",
+        "economics_session_date": "2022-03-20",
+        "effective_session_date": "2022-03-21",
+        "clearing_type": "tc",
+        "effective_from_ts": "2022-03-20T19:00:00Z",
+        "effective_to_ts": None,
+        "min_step": 0.01,
+        "lot_volume": 10.0,
+        "quote_currency": "USD",
+        "fx_rate_to_rub": 95.0,
+        "tick_value_currency": 0.1,
+        "step_price_rub": step_price_rub,
+        "official_step_price": step_price_rub,
+        "official_initial_margin": margin_required_estimate / 1.05,
+        "last_settle_price": 100.0,
+        "mr1": 0.12,
+        "radius_pct": 15.0,
+        "radius_source": "source",
+        "margin_formula_base": 10_000.0,
+        "margin_radius_adjusted": 11_500.0,
+        "margin_required_no_buffer": margin_required_estimate / 1.05,
+        "margin_buffer_pct": 0.05,
+        "margin_required_estimate": margin_required_estimate,
+        "maturity_rank": 1,
+        "days_to_expiry": 30,
+        "expiration_date": "2022-04-15",
+        "model_version": "v1",
+        "buffer_policy_version": "buffer-v1",
+        "model_quality": "estimated",
+        "source_flags_json": "{}",
+        "source_document_hashes_json": "{}",
+        "created_at": "2022-03-20T19:05:00Z",
+    }
 
 
 def test_continuous_front_spark_job_uses_native_spark_contour(
@@ -154,7 +206,18 @@ def test_continuous_front_spark_writer_uses_scoped_replace_without_destructive_d
     assert "shutil.rmtree" not in source
     assert ".delete(" in source
     assert "_continuous_front_replace_filters(" in source
-    assert 'filters=[("dataset_version", "=", dataset_version)]' in source
+
+
+def test_continuous_front_bars_contract_carries_active_contract_economics() -> None:
+    columns = continuous_front_store_contract()["continuous_front_bars"]["columns"]
+
+    assert columns["execution_step_price_rub"] == "double"
+    assert columns["execution_lot_volume"] == "double"
+    assert columns["execution_tick_value_currency"] == "double"
+    assert columns["execution_margin_required_estimate"] == "double"
+    assert columns["execution_margin_buffer_pct"] == "double"
+    assert columns["economics_effective_from_ts"] == "timestamp"
+    assert columns["economics_model_version"] == "string"
 
 
 def test_continuous_front_partial_replace_scope_tracks_request_filters() -> None:
@@ -248,6 +311,21 @@ def test_continuous_front_spark_job_rejects_unsupported_policy(
         )
 
 
+def test_continuous_front_spark_job_requires_execution_economics_when_flag_is_set(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(RuntimeError, match="canonical_contract_economics_path is required"):
+        job.run_continuous_front_spark_job(
+            canonical_bars_path=tmp_path / "canonical_bars.delta",
+            canonical_session_calendar_path=tmp_path / "canonical_session_calendar.delta",
+            canonical_roll_map_path=tmp_path / "canonical_roll_map.delta",
+            output_dir=tmp_path / "continuous-front",
+            dataset_version="spark-cf-v1",
+            execution_economics_required=True,
+            spark_session_factory=lambda _app_name, _master: _FakeSpark(),
+        )
+
+
 def test_continuous_front_spark_job_rejects_calendar_expiry_policy_variant(
     tmp_path: Path,
 ) -> None:
@@ -313,10 +391,30 @@ def test_spark_native_adjustment_uses_backward_current_anchor(
             """
         )
         monkeypatch.setattr(job, "_load_filtered_bars", lambda **_kwargs: bars)
+        economics_path = tmp_path / "canonical_contract_economics.delta"
+        write_delta_table_rows(
+            table_path=economics_path,
+            columns=dict(
+                moex_economics_store_contract()["canonical_contract_economics"]["columns"]
+            ),
+            rows=[
+                _contract_economics_row(
+                    contract_id="BRK2@MOEX",
+                    step_price_rub=9.5,
+                    margin_required_estimate=21_000.0,
+                ),
+                _contract_economics_row(
+                    contract_id="BRM2@MOEX",
+                    step_price_rub=10.25,
+                    margin_required_estimate=23_500.0,
+                ),
+            ],
+        )
 
         tables = job._build_spark_native_tables(  # type: ignore[attr-defined]
             spark=spark,
             canonical_bars_path=tmp_path / "canonical_bars.delta",
+            canonical_contract_economics_path=economics_path,
             dataset_version="spark-current-anchor-v1",
             policy=ContinuousFrontPolicy(
                 roll_policy_version="front_liquidity_oi_v1",
@@ -356,6 +454,12 @@ def test_spark_native_adjustment_uses_backward_current_anchor(
             [100.0, 101.0, 112.0, 113.0]
         )
         assert [row["native_close"] for row in front] == pytest.approx([100.0, 101.0, 112.0, 113.0])
+        assert [row["execution_step_price_rub"] for row in front] == pytest.approx(
+            [9.5, 9.5, 10.25, 10.25]
+        )
+        assert [row["execution_margin_required_estimate"] for row in front] == pytest.approx(
+            [21_000.0, 21_000.0, 23_500.0, 23_500.0]
+        )
         assert [row["cumulative_additive_offset"] for row in front] == pytest.approx(
             [0.0, 0.0, 0.0, 0.0]
         )
