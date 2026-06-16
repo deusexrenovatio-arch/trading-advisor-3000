@@ -12,11 +12,15 @@ from trading_advisor_3000.product_plane.runtime.stage_timings import (
     stage_timer,
 )
 from trading_advisor_3000.spark_jobs import (
+    continuous_front_indicator_sidecar_job,
     continuous_front_job,
     research_bar_views_job,
     research_derived_source_frames_job,
 )
 
+cf_indicator_pandas_job = importlib.import_module(
+    "trading_advisor_3000.product_plane.research.continuous_front_indicators.pandas_job"
+)
 indicator_materialize = importlib.import_module(
     "trading_advisor_3000.product_plane.research.indicators.materialize"
 )
@@ -59,8 +63,16 @@ def test_stage_timing_payload_is_report_safe() -> None:
             ("build_spark_native_tables", "write_staging_tables", "qc", "row_counts"),
         ),
         (
+            continuous_front_indicator_sidecar_job.run_continuous_front_indicator_sidecar_spark_job,
+            ("build_input_frame", "write_base_sidecar", "write_derived_sidecar", "row_counts"),
+        ),
+        (
             research_derived_source_frames_job.run_research_derived_source_frames_spark_job,
             ("load_scoped_sources", "join_quality_counts", "write_source_frame", "row_counts"),
+        ),
+        (
+            cf_indicator_pandas_job.run_continuous_front_indicator_pandas_job,
+            ("reuse_check", "materialize_sidecars", "build_qc", "write_reports"),
         ),
         (
             indicator_materialize._materialize_indicator_frames_unlocked,

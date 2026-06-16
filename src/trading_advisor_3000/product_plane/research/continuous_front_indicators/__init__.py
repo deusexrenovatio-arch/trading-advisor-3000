@@ -1,11 +1,9 @@
 from __future__ import annotations
 
+from typing import Any
+
 from .contracts import CF_INDICATOR_TABLES, continuous_front_indicator_store_contract
 from .input_projection import build_cf_indicator_input_rows, materialize_cf_indicator_input_frame
-from .pandas_job import (
-    run_continuous_front_base_indicator_sidecar_job,
-    run_continuous_front_indicator_pandas_job,
-)
 from .rules import (
     CALCULATION_GROUPS,
     DEFAULT_RULE_SET_VERSION,
@@ -29,3 +27,24 @@ __all__ = [
     "run_continuous_front_base_indicator_sidecar_job",
     "run_continuous_front_indicator_pandas_job",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    if name in {
+        "run_continuous_front_base_indicator_sidecar_job",
+        "run_continuous_front_indicator_pandas_job",
+    }:
+        from .pandas_job import (
+            run_continuous_front_base_indicator_sidecar_job,
+            run_continuous_front_indicator_pandas_job,
+        )
+
+        return {
+            "run_continuous_front_base_indicator_sidecar_job": (
+                run_continuous_front_base_indicator_sidecar_job
+            ),
+            "run_continuous_front_indicator_pandas_job": (
+                run_continuous_front_indicator_pandas_job
+            ),
+        }[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

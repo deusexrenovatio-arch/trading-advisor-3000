@@ -103,6 +103,15 @@ def _stub_existing_research_context(
             "reuse_existing_materialization": bool(
                 config.get("reuse_existing_materialization", False)
             ),
+            "continuous_front_indicator_qc_mode": str(
+                config.get("continuous_front_indicator_qc_mode", "hot_path")
+            ),
+            "continuous_front_indicator_sidecar_materialization_mode": str(
+                config.get(
+                    "continuous_front_indicator_sidecar_materialization_mode",
+                    "auto",
+                )
+            ),
             "campaign_run_id": str(config.get("campaign_run_id", "crun-test")),
             "dataset_manifest": dataset_manifest
             or {"series_mode": str(config.get("series_mode", "contract"))},
@@ -454,6 +463,47 @@ def test_dagster_indicator_asset_fails_on_quarantined_continuous_front_sidecar(
                 )
             )
         )
+
+
+def test_dagster_indicator_asset_passes_continuous_front_qc_mode(tmp_path, monkeypatch) -> None:
+    _stub_existing_research_context(
+        monkeypatch,
+        tmp_path,
+        dataset_manifest={"series_mode": "continuous_front"},
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_run_continuous_front_indicator_pandas_job(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {
+            "success": True,
+            "status": "PASS",
+            "publish_status": "accepted",
+            "run_id": str(kwargs["run_id"]),
+            "rows_by_table": {"continuous_front_indicator_acceptance_report": 1},
+        }
+
+    monkeypatch.setattr(
+        research_assets,
+        "run_continuous_front_indicator_pandas_job",
+        _fake_run_continuous_front_indicator_pandas_job,
+    )
+
+    result = research_assets.continuous_front_indicator_acceptance_report(
+        build_op_context(
+            op_config=_full_research_config(
+                tmp_path,
+                campaign_run_id="cf-audit-run",
+                series_mode="continuous_front",
+                continuous_front_indicator_qc_mode="audit",
+                continuous_front_indicator_sidecar_materialization_mode="spark",
+            )
+        )
+    )
+
+    assert captured["qc_mode"] == "audit"
+    assert captured["sidecar_materialization_mode"] == "spark"
+    assert result["sidecar_publish_status"] == "accepted"
 
 
 def test_reused_dagster_indicator_asset_validates_existing_volume_profile_identity(

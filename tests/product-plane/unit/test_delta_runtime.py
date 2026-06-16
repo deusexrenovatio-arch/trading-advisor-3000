@@ -6,6 +6,7 @@ from trading_advisor_3000.product_plane.data_plane import delta_runtime as delta
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
     delta_table_columns,
+    delta_table_version,
     ensure_delta_table_columns,
     iter_delta_table_row_batches,
     read_delta_table_rows,
@@ -66,6 +67,26 @@ def test_count_delta_table_rows_accepts_filters(tmp_path) -> None:
         )
         == 1
     )
+
+
+def test_delta_table_version_tracks_transaction_log_version(tmp_path) -> None:
+    table_path = tmp_path / "versioned.delta"
+    columns = {"id": "string", "value": "int"}
+    write_delta_table_rows(
+        table_path=table_path,
+        columns=columns,
+        rows=[{"id": "a", "value": 1}],
+    )
+    first_version = delta_table_version(table_path)
+
+    write_delta_table_rows(
+        table_path=table_path,
+        columns=columns,
+        rows=[{"id": "a", "value": 2}],
+    )
+
+    assert first_version >= 0
+    assert delta_table_version(table_path) > first_version
 
 
 def test_read_filtered_delta_table_rows_requires_filters(tmp_path) -> None:
