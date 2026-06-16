@@ -151,6 +151,42 @@ def test_normalize_campaign_accepts_optuna_strategy_optimizer(tmp_path: Path) ->
     assert normalized["strategy_space"]["optimizer"] == strategy_space["optimizer"]
 
 
+def test_campaign_routes_continuous_front_indicator_execution_modes(tmp_path: Path) -> None:
+    payload = _campaign_payload(tmp_path, target_stage="data_prep")
+    execution = dict(payload["execution"])  # type: ignore[arg-type]
+    execution["continuous_front_indicator_qc_mode"] = "audit"
+    execution["continuous_front_indicator_sidecar_materialization_mode"] = "spark"
+    execution["spark_master"] = "local[4]"
+    payload["execution"] = execution
+
+    normalized = campaigns.normalize_campaign_config(repo_root=ROOT, raw=payload)
+    common = campaigns._dagster_common_kwargs(  # type: ignore[attr-defined]
+        normalized_config=normalized,
+        materialized_root=tmp_path / "materialized",
+        results_root=tmp_path / "runs",
+        reuse_existing_materialization=False,
+        campaign_id="campaign",
+        campaign_run_id="run",
+    )
+
+    assert common["continuous_front_indicator_qc_mode"] == "audit"
+    assert common["continuous_front_indicator_sidecar_materialization_mode"] == "spark"
+    assert common["spark_master"] == "local[4]"
+
+
+def test_campaign_rejects_python_continuous_front_sidecar_mode(tmp_path: Path) -> None:
+    payload = _campaign_payload(tmp_path, target_stage="data_prep")
+    execution = dict(payload["execution"])  # type: ignore[arg-type]
+    execution["continuous_front_indicator_sidecar_materialization_mode"] = "python"
+    payload["execution"] = execution
+
+    with pytest.raises(
+        ValueError,
+        match="execution.continuous_front_indicator_sidecar_materialization_mode",
+    ):
+        campaigns.normalize_campaign_config(repo_root=ROOT, raw=payload)
+
+
 def test_normalize_campaign_builds_default_nested_validation_plan(tmp_path: Path) -> None:
     payload = _campaign_payload(tmp_path, target_stage="backtest")
     dataset = dict(payload["dataset"])  # type: ignore[arg-type]

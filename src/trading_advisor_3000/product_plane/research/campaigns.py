@@ -115,6 +115,8 @@ RESEARCH_DATA_PREP_KWARGS = {
     "volume_profile_raw_1m_table_path",
     "volume_profile_tick_size_by_instrument",
     "validation_plan",
+    "continuous_front_indicator_qc_mode",
+    "continuous_front_indicator_sidecar_materialization_mode",
     "code_version",
     "reuse_existing_materialization",
 }
@@ -764,6 +766,15 @@ def _dagster_common_kwargs(
         "volume_profile_tick_size_by_instrument": dict(
             volume_profile.get("tick_size_by_instrument", {})
         ),
+        "continuous_front_indicator_qc_mode": str(
+            normalized_config["execution"]["continuous_front_indicator_qc_mode"]
+        ),
+        "continuous_front_indicator_sidecar_materialization_mode": str(
+            normalized_config["execution"][
+                "continuous_front_indicator_sidecar_materialization_mode"
+            ]
+        ),
+        "spark_master": str(normalized_config["execution"]["spark_master"]),
         "code_version": "product-plane-run-campaign",
         "strategy_space": dict(normalized_config["strategy_space"]),
         "param_batch_size": int(backtest["param_batch_size"]),
@@ -2027,6 +2038,17 @@ def _normalize_execution(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "force_rematerialize": bool(payload["force_rematerialize"]),
         "raise_on_error": bool(payload["raise_on_error"]),
+        "continuous_front_indicator_qc_mode": _normalized_enum(
+            payload.get("continuous_front_indicator_qc_mode", "hot_path"),
+            {"hot_path", "audit"},
+            field="execution.continuous_front_indicator_qc_mode",
+        ),
+        "continuous_front_indicator_sidecar_materialization_mode": _normalized_enum(
+            payload.get("continuous_front_indicator_sidecar_materialization_mode", "auto"),
+            {"auto", "spark"},
+            field="execution.continuous_front_indicator_sidecar_materialization_mode",
+        ),
+        "spark_master": str(payload.get("spark_master") or ""),
     }
 
 

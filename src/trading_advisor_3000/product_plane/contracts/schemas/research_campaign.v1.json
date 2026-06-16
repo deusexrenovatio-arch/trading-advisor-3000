@@ -291,7 +291,10 @@
       "required": ["force_rematerialize", "raise_on_error"],
       "properties": {
         "force_rematerialize": {"type": "boolean"},
-        "raise_on_error": {"type": "boolean"}
+        "raise_on_error": {"type": "boolean"},
+        "continuous_front_indicator_qc_mode": {"type": "string", "enum": ["hot_path", "audit"]},
+        "continuous_front_indicator_sidecar_materialization_mode": {"type": "string", "enum": ["auto", "spark"]},
+        "spark_master": {"type": "string"}
       },
       "additionalProperties": false
     }
