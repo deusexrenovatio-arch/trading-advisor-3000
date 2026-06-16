@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Callable, Mapping, Sequence
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
-    count_delta_table_rows,
     delta_table_columns,
     has_delta_log,
 )
@@ -37,6 +36,14 @@ class ResearchDerivedSourceFramesSparkJobSpec:
     app_name: str = "ta3000-research-derived-source-frames-l2"
     delta_reader: str = "spark"
     delta_writer: str = "spark"
+
+
+@dataclass(frozen=True)
+class DerivedSourceFrameRefreshWindow:
+    instrument_id: str
+    timeframe: str
+    start_ts: str | None = None
+    end_ts: str | None = None
 
 
 def build_research_derived_source_frame_sql_plan() -> str:
@@ -92,7 +99,8 @@ def _write_source_frame_table(
     *,
     dataframe,
     table_path: Path,
-    replace_scope: list[tuple[str, str, object]],
+    replace_scope: list[tuple[str, str, object]] | None = None,
+    replace_scope_groups: Sequence[list[tuple[str, str, object]]] | None = None,
     source_indicator_columns: tuple[str, ...],
 ) -> None:
     contract = research_derived_source_frame_store_contract(
@@ -108,15 +116,62 @@ def _write_source_frame_table(
         writer.save(str(table_path))
         return
 
-    casted.limit(0).write.format("delta").mode("append").option("mergeSchema", "true").save(
-        str(table_path)
-    )
-
     from delta.tables import DeltaTable  # type: ignore[import-not-found]
 
+    if replace_scope_groups is not None:
+        scoped_delete_condition = _scoped_delete_disjunction(replace_scope_groups)
+    elif replace_scope is not None:
+        scoped_delete_condition = _scoped_delete_disjunction([replace_scope])
+    else:
+        raise ValueError("source-frame scoped replace requires a delete scope")
+
     delta_table = DeltaTable.forPath(dataframe.sparkSession, str(table_path))
-    delta_table.delete(_scoped_delete_condition(replace_scope))
+    delta_table.delete(scoped_delete_condition)
     casted.write.format("delta").mode("append").option("mergeSchema", "true").save(str(table_path))
+
+
+def _window_text(window: Mapping[str, object], field_name: str, *, required: bool) -> str | None:
+    value = window.get(field_name)
+    if value in (None, ""):
+        if required:
+            raise ValueError(f"derived source-frame refresh window requires `{field_name}`")
+        return None
+    return str(value)
+
+
+def _normalize_refresh_windows(
+    refresh_windows: Sequence[Mapping[str, object] | DerivedSourceFrameRefreshWindow] | None = None,
+) -> tuple[DerivedSourceFrameRefreshWindow, ...]:
+    normalized: list[DerivedSourceFrameRefreshWindow] = []
+    for window in refresh_windows or ():
+        if isinstance(window, DerivedSourceFrameRefreshWindow):
+            normalized.append(window)
+            continue
+        if not isinstance(window, Mapping):
+            raise TypeError("derived source-frame refresh windows must be mappings")
+        normalized.append(
+            DerivedSourceFrameRefreshWindow(
+                instrument_id=str(_window_text(window, "instrument_id", required=True)),
+                timeframe=str(_window_text(window, "timeframe", required=True)),
+                start_ts=_window_text(window, "start_ts", required=False),
+                end_ts=_window_text(window, "end_ts", required=False),
+            )
+        )
+    return tuple(normalized)
+
+
+def _unique_scope_values(
+    refresh_windows: tuple[DerivedSourceFrameRefreshWindow, ...],
+    field_name: str,
+) -> tuple[str, ...]:
+    values: list[str] = []
+    seen: set[str] = set()
+    for window in refresh_windows:
+        value = str(getattr(window, field_name))
+        if value and value not in seen:
+            values.append(value)
+            seen.add(value)
+    return tuple(values)
 
 
 def _scope_filters(
@@ -126,6 +181,8 @@ def _scope_filters(
     indicator_set_version: str | None = None,
     timeframes: Sequence[str] = (),
     dataset_instrument_ids: Sequence[str] = (),
+    start_ts: str | None = None,
+    end_ts: str | None = None,
 ) -> list[tuple[str, str, object]]:
     filters: list[tuple[str, str, object]] = [
         ("dataset_version", "=", dataset_version),
@@ -141,7 +198,74 @@ def _scope_filters(
     )
     if scoped_instruments:
         filters.append(("instrument_id", "in", scoped_instruments))
+    if start_ts:
+        filters.append(("ts", ">=", start_ts))
+    if end_ts:
+        filters.append(("ts", "<=", end_ts))
     return filters
+
+
+def _scope_filter_groups(
+    *,
+    dataset_version: str,
+    contour_id: str,
+    indicator_set_version: str,
+    timeframes: Sequence[str] = (),
+    dataset_instrument_ids: Sequence[str] = (),
+    refresh_windows: tuple[DerivedSourceFrameRefreshWindow, ...] = (),
+) -> list[list[tuple[str, str, object]]]:
+    if refresh_windows:
+        return [
+            _scope_filters(
+                dataset_version=dataset_version,
+                contour_id=contour_id,
+                indicator_set_version=indicator_set_version,
+                timeframes=(window.timeframe,),
+                dataset_instrument_ids=(window.instrument_id,),
+                start_ts=window.start_ts,
+                end_ts=window.end_ts,
+            )
+            for window in refresh_windows
+        ]
+    return [
+        _scope_filters(
+            dataset_version=dataset_version,
+            contour_id=contour_id,
+            indicator_set_version=indicator_set_version,
+            timeframes=timeframes,
+            dataset_instrument_ids=dataset_instrument_ids,
+        )
+    ]
+
+
+def _scoped_delete_disjunction(filter_groups: Sequence[list[tuple[str, str, object]]]) -> str:
+    conditions = [_scoped_delete_condition(filters) for filters in filter_groups]
+    if not conditions:
+        raise ValueError("scoped Delta delete requires at least one scope group")
+    if len(conditions) == 1:
+        return conditions[0]
+    return " OR ".join(f"({condition})" for condition in conditions)
+
+
+def _filter_to_refresh_windows(
+    dataframe, refresh_windows: tuple[DerivedSourceFrameRefreshWindow, ...]
+):
+    if not refresh_windows:
+        return dataframe
+
+    from pyspark.sql import functions as F  # type: ignore[import-not-found]
+
+    condition = None
+    for window in refresh_windows:
+        window_condition = (F.col("instrument_id") == F.lit(window.instrument_id)) & (
+            F.col("timeframe") == F.lit(window.timeframe)
+        )
+        if window.start_ts:
+            window_condition = window_condition & (F.col("ts") >= F.lit(window.start_ts))
+        if window.end_ts:
+            window_condition = window_condition & (F.col("ts") <= F.lit(window.end_ts))
+        condition = window_condition if condition is None else condition | window_condition
+    return dataframe.where(condition)
 
 
 def run_research_derived_source_frames_spark_job(
@@ -157,6 +281,7 @@ def run_research_derived_source_frames_spark_job(
     spark_master: str = DEFAULT_SPARK_MASTER,
     timeframes: Sequence[str] = (),
     dataset_instrument_ids: Sequence[str] = (),
+    refresh_windows: Sequence[Mapping[str, object] | DerivedSourceFrameRefreshWindow] | None = None,
     spark_session_factory: Callable[[str, str], object] | None = None,
 ) -> dict[str, object]:
     stage_timings: StageTimings = {}
@@ -184,11 +309,27 @@ def run_research_derived_source_frames_spark_job(
     )
 
     spec = ResearchDerivedSourceFramesSparkJobSpec()
+    normalized_refresh_windows = _normalize_refresh_windows(refresh_windows)
+    scoped_timeframes = (
+        _unique_scope_values(normalized_refresh_windows, "timeframe")
+        if normalized_refresh_windows
+        else tuple(str(item).strip() for item in timeframes if str(item).strip())
+    )
+    scoped_instruments = (
+        _unique_scope_values(normalized_refresh_windows, "instrument_id")
+        if normalized_refresh_windows
+        else tuple(str(item).strip() for item in dataset_instrument_ids if str(item).strip())
+    )
+    output_path = output_dir / DERIVED_SOURCE_FRAME_DELTA
+    if normalized_refresh_windows and not has_delta_log(output_path):
+        raise RuntimeError(
+            "windowed derived source-frame refresh requires an existing "
+            f"Delta table: {output_path.as_posix()}"
+        )
     spark_factory = spark_session_factory or _create_spark_session
     stage_started = stage_timer()
     spark = spark_factory(spec.app_name, spark_master)
     record_stage_timing(stage_timings, "start_spark", stage_started, master=spark_master)
-    output_path = output_dir / DERIVED_SOURCE_FRAME_DELTA
     try:
         from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
@@ -210,16 +351,15 @@ def run_research_derived_source_frames_spark_job(
                 & (F.col("indicator_set_version") == F.lit(indicator_set_version))
             )
         )
-        scoped_timeframes = tuple(str(item).strip() for item in timeframes if str(item).strip())
-        scoped_instruments = tuple(
-            str(item).strip() for item in dataset_instrument_ids if str(item).strip()
-        )
         if scoped_timeframes:
             bars = bars.where(F.col("timeframe").isin(*scoped_timeframes))
             indicators = indicators.where(F.col("timeframe").isin(*scoped_timeframes))
         if scoped_instruments:
             bars = bars.where(F.col("instrument_id").isin(*scoped_instruments))
             indicators = indicators.where(F.col("instrument_id").isin(*scoped_instruments))
+        if normalized_refresh_windows:
+            bars = _filter_to_refresh_windows(bars, normalized_refresh_windows)
+            indicators = _filter_to_refresh_windows(indicators, normalized_refresh_windows)
         join_keys = (
             "dataset_version",
             "contour_id",
@@ -236,6 +376,7 @@ def run_research_derived_source_frames_spark_job(
             stage_started,
             timeframe_count=len(scoped_timeframes),
             instrument_count=len(scoped_instruments),
+            refresh_window_count=len(normalized_refresh_windows),
         )
 
         stage_started = stage_timer()
@@ -351,30 +492,31 @@ def run_research_derived_source_frames_spark_job(
         record_stage_timing(stage_timings, "select_source_frame", stage_started)
 
         stage_started = stage_timer()
-        _write_source_frame_table(
-            dataframe=selected,
-            table_path=output_path,
-            replace_scope=_scope_filters(
-                dataset_version=dataset_version,
-                contour_id=contour_id,
-                indicator_set_version=indicator_set_version,
-                timeframes=scoped_timeframes,
-                dataset_instrument_ids=scoped_instruments,
-            ),
-            source_indicator_columns=source_indicator_columns,
-        )
-        record_stage_timing(stage_timings, "write_source_frame", stage_started)
-
-        scoped_filters = _scope_filters(
+        replace_scope_groups = _scope_filter_groups(
             dataset_version=dataset_version,
             contour_id=contour_id,
             indicator_set_version=indicator_set_version,
             timeframes=scoped_timeframes,
             dataset_instrument_ids=scoped_instruments,
+            refresh_windows=normalized_refresh_windows,
         )
+        _write_source_frame_table(
+            dataframe=selected,
+            table_path=output_path,
+            replace_scope_groups=replace_scope_groups,
+            source_indicator_columns=source_indicator_columns,
+        )
+        record_stage_timing(stage_timings, "write_source_frame", stage_started)
+
         stage_started = stage_timer()
+        scoped_delete_condition = _scoped_delete_disjunction(replace_scope_groups)
         rows_by_table = {
-            DERIVED_SOURCE_FRAME_TABLE: count_delta_table_rows(output_path, filters=scoped_filters)
+            DERIVED_SOURCE_FRAME_TABLE: int(
+                spark.read.format("delta")
+                .load(str(output_path))
+                .where(scoped_delete_condition)
+                .count()
+            )
         }
         record_stage_timing(
             stage_timings,
@@ -391,6 +533,7 @@ def run_research_derived_source_frames_spark_job(
             "derived_profile_version": derived_profile_version,
             "timeframes": scoped_timeframes,
             "dataset_instrument_ids": scoped_instruments,
+            "refresh_window_count": len(normalized_refresh_windows),
             "source_indicator_columns_hash": source_indicator_columns_hash,
             "source_delta_versions": {
                 "research_bar_views": source_l0_delta_version,
@@ -418,6 +561,7 @@ def run_research_derived_source_frames_spark_job(
                 "master": spark_master,
                 "delta_reader": spec.delta_reader,
                 "delta_writer": spec.delta_writer,
+                "refresh_window_count": len(normalized_refresh_windows),
                 "sql_plan": build_research_derived_source_frame_sql_plan(),
             },
         }

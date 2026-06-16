@@ -645,6 +645,7 @@ def _research_config_schema() -> dict[str, object]:
         ),
         "dataset_contract_ids": [str],
         "dataset_instrument_ids": [str],
+        "changed_windows": Field([dict], default_value=[], is_required=False),
         "spark_master": Field(str, default_value="", is_required=False),
         "indicator_set_version": str,
         "indicator_profile_version": str,
@@ -1268,6 +1269,10 @@ def _existing_research_dataset_context(config: dict[str, object]) -> dict[str, o
         "derived_indicator_profile_version": str(
             _config_value(config, "derived_indicator_profile_version", "core_v1")
         ),
+        "timeframes": _config_string_sequence(config, "timeframes"),
+        "dataset_instrument_ids": _config_string_sequence(config, "dataset_instrument_ids"),
+        "changed_windows": _changed_windows_from_research_config(config),
+        "spark_master": str(_config_value(config, "spark_master", "")) or DEFAULT_SPARK_MASTER,
         "continuous_front_indicator_qc_mode": str(
             _config_value(config, "continuous_front_indicator_qc_mode", "hot_path")
         ),
@@ -1375,6 +1380,22 @@ def _seed_manifest(config: dict[str, object]) -> ResearchDatasetManifest:
     )
 
 
+def _changed_windows_from_research_config(
+    config: Mapping[str, object],
+) -> tuple[dict[str, object], ...]:
+    raw_windows = _config_value(config, "changed_windows", [])
+    if raw_windows in (None, ""):
+        return ()
+    if not isinstance(raw_windows, Sequence) or isinstance(raw_windows, (str, bytes)):
+        raise ValueError("research config `changed_windows` must be a list of mappings")
+    windows: list[dict[str, object]] = []
+    for window in raw_windows:
+        if not isinstance(window, Mapping):
+            raise ValueError("research config `changed_windows` must contain only mappings")
+        windows.append(dict(window))
+    return tuple(windows)
+
+
 @asset(group_name="research", config_schema=_research_config_schema())
 def continuous_front_bars(context) -> dict[str, object]:
     config = dict(context.op_execution_context.op_config)
@@ -1402,6 +1423,7 @@ def continuous_front_bars(context) -> dict[str, object]:
             timeframes=tuple(str(item) for item in _config_value(config, "timeframes", [])),
             start_ts=str(_config_value(config, "start_ts", "")) or None,
             end_ts=str(_config_value(config, "end_ts", "")) or None,
+            refresh_windows=_changed_windows_from_research_config(config),
             spark_master=str(_config_value(config, "spark_master", "")) or DEFAULT_SPARK_MASTER,
         )
     else:
@@ -1418,6 +1440,7 @@ def continuous_front_bars(context) -> dict[str, object]:
         "output_paths": report["output_paths"],
         "rows_by_table": report["rows_by_table"],
         "qc_rows": report["qc_rows"],
+        "stage_timings": report.get("stage_timings", {}),
         "spark_profile": report.get("spark_profile"),
     }
 
@@ -1615,6 +1638,7 @@ def research_datasets(context) -> dict[str, object]:
         ),
         "timeframes": _config_string_sequence(config, "timeframes"),
         "dataset_instrument_ids": _config_string_sequence(config, "dataset_instrument_ids"),
+        "changed_windows": _changed_windows_from_research_config(config),
         "spark_master": str(_config_value(config, "spark_master", "")) or DEFAULT_SPARK_MASTER,
         "validation_plan": validation_plan,
         "volume_profile_raw_1m_table_path": resolved_volume_profile_raw_1m_table_path,
@@ -1806,6 +1830,7 @@ def research_derived_indicator_frames(context) -> dict[str, object]:
             spark_master=str(research_datasets.get("spark_master") or "") or DEFAULT_SPARK_MASTER,
             timeframes=tuple(research_datasets.get("timeframes") or ()),
             dataset_instrument_ids=tuple(research_datasets.get("dataset_instrument_ids") or ()),
+            refresh_windows=tuple(research_datasets.get("changed_windows") or ()),
         )
         or {}
     )
@@ -2986,17 +3011,57 @@ def _required_window_text(window: Mapping[str, object], key: str) -> str:
     return value
 
 
+def _optional_window_text(window: Mapping[str, object], key: str) -> str:
+    return str(window.get(key) or "").strip()
+
+
+def _unique_texts(values: Sequence[str]) -> tuple[str, ...]:
+    unique: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if value and value not in seen:
+            unique.append(value)
+            seen.add(value)
+    return tuple(unique)
+
+
+def _normalize_cf_catch_up_windows(
+    windows: Sequence[Mapping[str, object]],
+) -> tuple[dict[str, object], ...]:
+    normalized: list[dict[str, object]] = []
+    for window in windows:
+        row: dict[str, object] = {
+            "instrument_id": _required_window_text(window, "instrument_id"),
+            "timeframe": _required_window_text(window, "timeframe"),
+            "start_ts": _required_window_text(window, "start_ts"),
+            "end_ts": _required_window_text(window, "end_ts"),
+        }
+        window_hash = _optional_window_text(window, "window_hash_sha256")
+        if window_hash:
+            row["window_hash_sha256"] = window_hash
+        overlap_minutes = window.get("overlap_minutes")
+        if overlap_minutes not in (None, ""):
+            row["overlap_minutes"] = overlap_minutes
+        normalized.append(row)
+    if not normalized:
+        raise ValueError("cf_catch_up run config requires at least one window")
+    return tuple(normalized)
+
+
 def _build_moex_cf_catch_up_run_config(
     *,
     canonical_output_dir: Path,
     dataset_version: str,
     campaign_run_id: str,
-    window: Mapping[str, object],
+    window: Mapping[str, object] | None = None,
+    windows: Sequence[Mapping[str, object]] | None = None,
 ) -> dict[str, object]:
-    instrument_id = _required_window_text(window, "instrument_id")
-    timeframe = _required_window_text(window, "timeframe")
-    start_ts = _required_window_text(window, "start_ts")
-    end_ts = _required_window_text(window, "end_ts")
+    selected_windows = windows if windows is not None else ((window,) if window is not None else ())
+    normalized_windows = _normalize_cf_catch_up_windows(tuple(selected_windows))
+    instrument_ids = _unique_texts([str(item["instrument_id"]) for item in normalized_windows])
+    timeframes = _unique_texts([str(item["timeframe"]) for item in normalized_windows])
+    start_ts = min(str(item["start_ts"]) for item in normalized_windows)
+    end_ts = max(str(item["end_ts"]) for item in normalized_windows)
     resolved_materialized_output_dir = _env_path(
         RESEARCH_DATA_PREP_MATERIALIZED_OUTPUT_DIR_ENV,
         _default_research_materialized_output_dir(),
@@ -3015,15 +3080,16 @@ def _build_moex_cf_catch_up_run_config(
         dataset_version=dataset_version,
         dataset_name="moex-cf-catch-up",
         universe_id="moex-futures",
-        timeframes=(timeframe,),
-        base_timeframe=timeframe,
+        timeframes=timeframes,
+        base_timeframe=timeframes[0],
         start_ts=start_ts,
         end_ts=end_ts,
         warmup_bars=DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS,
         split_method="holdout",
         series_mode="continuous_front",
         continuous_front_policy=scheduled_continuous_front_policy_config(),
-        dataset_instrument_ids=(instrument_id,),
+        dataset_instrument_ids=instrument_ids,
+        changed_windows=normalized_windows,
         indicator_set_version="indicators-v1",
         indicator_profile_version="core_v1",
         derived_indicator_set_version=DEFAULT_DERIVED_INDICATOR_SET_VERSION,
@@ -3052,6 +3118,9 @@ def moex_cf_catch_up_after_moex_baseline_sensor(context):
     windows = _cf_catch_up_windows_from_moex_baseline_update(context.dagster_run.run_config)
     if not windows:
         return None
+    payload = _baseline_update_report_payload_from_run_config(context.dagster_run.run_config) or {}
+    cf_catch_up = payload.get("cf_catch_up", {})
+    cf_catch_up_payload = cf_catch_up if isinstance(cf_catch_up, Mapping) else {}
     canonical_output_dir = _moex_canonical_output_dir_from_run_config(
         context.dagster_run.run_config
     )
@@ -3065,34 +3134,30 @@ def moex_cf_catch_up_after_moex_baseline_sensor(context):
         RESEARCH_DATA_PREP_DATASET_VERSION_ENV,
         DEFAULT_RESEARCH_DATA_PREP_DATASET_VERSION,
     )
-    requests: list[RunRequest] = []
-    for window in windows:
-        window_hash = _required_window_text(window, "window_hash_sha256")
-        instrument_id = _required_window_text(window, "instrument_id")
-        timeframe = _required_window_text(window, "timeframe")
-        overlap_minutes = str(window.get("overlap_minutes") or "").strip()
-        requests.append(
-            RunRequest(
-                run_key=f"{MOEX_CF_CATCH_UP_JOB_NAME}:{upstream_run_id}:{window_hash}",
-                run_config=_build_moex_cf_catch_up_run_config(
-                    canonical_output_dir=canonical_output_dir,
-                    dataset_version=dataset_version,
-                    campaign_run_id=f"cf_catch_up_after_{upstream_run_id}_{window_hash[:12]}",
-                    window=window,
-                ),
-                tags={
-                    "ta3000/upstream_job": MOEX_BASELINE_UPDATE_JOB_NAME,
-                    "ta3000/upstream_run_id": upstream_run_id,
-                    "ta3000/dataset_version": dataset_version,
-                    "ta3000/series_mode": "continuous_front",
-                    "ta3000/cf_catch_up_window_hash": window_hash,
-                    "ta3000/cf_catch_up_overlap_minutes": overlap_minutes,
-                    "ta3000/instrument_id": instrument_id,
-                    "ta3000/timeframe": timeframe,
-                },
-            )
+    windows_hash = str(cf_catch_up_payload.get("windows_hash_sha256") or "").strip()
+    if not windows_hash:
+        windows_hash = _required_window_text(windows[0], "window_hash_sha256")
+    overlap_minutes = str(cf_catch_up_payload.get("overlap_minutes") or "").strip()
+    return [
+        RunRequest(
+            run_key=f"{MOEX_CF_CATCH_UP_JOB_NAME}:{upstream_run_id}:{windows_hash}",
+            run_config=_build_moex_cf_catch_up_run_config(
+                canonical_output_dir=canonical_output_dir,
+                dataset_version=dataset_version,
+                campaign_run_id=f"cf_catch_up_after_{upstream_run_id}_{windows_hash[:12]}",
+                windows=windows,
+            ),
+            tags={
+                "ta3000/upstream_job": MOEX_BASELINE_UPDATE_JOB_NAME,
+                "ta3000/upstream_run_id": upstream_run_id,
+                "ta3000/dataset_version": dataset_version,
+                "ta3000/series_mode": "continuous_front",
+                "ta3000/cf_catch_up_windows_hash": windows_hash,
+                "ta3000/cf_catch_up_window_count": str(len(windows)),
+                "ta3000/cf_catch_up_overlap_minutes": overlap_minutes,
+            },
         )
-    return requests
+    ]
 
 
 @run_status_sensor(
@@ -3339,6 +3404,7 @@ def _research_run_config(
     continuous_front_policy: dict[str, object] | None = None,
     dataset_contract_ids: Sequence[str] = (),
     dataset_instrument_ids: Sequence[str] = (),
+    changed_windows: Sequence[Mapping[str, object]] = (),
     spark_master: str = "",
     indicator_set_version: str,
     indicator_profile_version: str,
@@ -3417,6 +3483,7 @@ def _research_run_config(
         ),
         "dataset_contract_ids": [str(item) for item in dataset_contract_ids],
         "dataset_instrument_ids": [str(item) for item in dataset_instrument_ids],
+        "changed_windows": [dict(item) for item in changed_windows],
         "spark_master": spark_master,
         "indicator_set_version": indicator_set_version,
         "indicator_profile_version": indicator_profile_version,

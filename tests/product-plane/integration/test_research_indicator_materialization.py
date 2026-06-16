@@ -1918,7 +1918,7 @@ def test_derived_indicator_materialization_extends_profile_without_recomputing_e
     assert second_rows[-1].profile_version == "core_v1_plus_new_derived"
 
 
-def test_continuous_front_derived_profile_extension_recomputes_existing_columns(
+def test_continuous_front_derived_profile_extension_reuses_same_profile_and_recomputes_new_profile(
     tmp_path: Path,
 ) -> None:
     bars = [
@@ -1992,22 +1992,6 @@ def test_continuous_front_derived_profile_extension_recomputes_existing_columns(
             ("indicator_set_version", "=", "indicators-v1"),
         ],
     )
-    corrupted_rows = [{**row, "session_vwap": -999.0} for row in first_rows]
-    replace_delta_table_rows(
-        table_path=derived_dir / "research_derived_indicator_frames.delta",
-        rows=corrupted_rows,
-        columns=research_derived_indicator_store_contract(profile=base_derived_profile)[
-            "research_derived_indicator_frames"
-        ]["columns"],
-        predicate=delta_equals_predicate(
-            {
-                "dataset_version": dataset_version,
-                "contour_id": "pit_active_front",
-                "indicator_set_version": "indicators-v1",
-            }
-        ),
-    )
-
     same_profile_report = materialize_derived_indicator_frames(
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
@@ -2018,9 +2002,9 @@ def test_continuous_front_derived_profile_extension_recomputes_existing_columns(
         profile=base_derived_profile,
     )
     assert same_profile_report["derived_indicator_row_count"] == 60
-    assert same_profile_report["refreshed_partition_count"] == 1
-    assert same_profile_report["reused_partition_count"] == 0
-    assert same_profile_report["recomputed_partition_count"] == 1
+    assert same_profile_report["refreshed_partition_count"] == 0
+    assert same_profile_report["reused_partition_count"] == 1
+    assert same_profile_report["recomputed_partition_count"] == 0
     repaired_rows = read_delta_table_rows(
         derived_dir / "research_derived_indicator_frames.delta",
         filters=[
@@ -2029,7 +2013,7 @@ def test_continuous_front_derived_profile_extension_recomputes_existing_columns(
             ("indicator_set_version", "=", "indicators-v1"),
         ],
     )
-    assert all(row["session_vwap"] != -999.0 for row in repaired_rows)
+    assert repaired_rows == first_rows
 
     corrupted_rows = [{**row, "session_vwap": -999.0} for row in repaired_rows]
     replace_delta_table_rows(
