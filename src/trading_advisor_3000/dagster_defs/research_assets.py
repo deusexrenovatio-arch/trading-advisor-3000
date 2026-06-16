@@ -637,6 +637,12 @@ def _research_config_schema() -> dict[str, object]:
         "validation_plan": Field(dict, default_value={}, is_required=False),
         "series_mode": str,
         "continuous_front_policy": dict,
+        "continuous_front_indicator_qc_mode": Field(
+            str, default_value="hot_path", is_required=False
+        ),
+        "continuous_front_indicator_sidecar_materialization_mode": Field(
+            str, default_value="auto", is_required=False
+        ),
         "dataset_contract_ids": [str],
         "dataset_instrument_ids": [str],
         "spark_master": Field(str, default_value="", is_required=False),
@@ -1262,6 +1268,16 @@ def _existing_research_dataset_context(config: dict[str, object]) -> dict[str, o
         "derived_indicator_profile_version": str(
             _config_value(config, "derived_indicator_profile_version", "core_v1")
         ),
+        "continuous_front_indicator_qc_mode": str(
+            _config_value(config, "continuous_front_indicator_qc_mode", "hot_path")
+        ),
+        "continuous_front_indicator_sidecar_materialization_mode": str(
+            _config_value(
+                config,
+                "continuous_front_indicator_sidecar_materialization_mode",
+                "auto",
+            )
+        ),
         "volume_profile_raw_1m_table_path": _resolve_volume_profile_raw_1m_table_path(
             _config_value(config, "volume_profile_raw_1m_table_path", "")
         ),
@@ -1850,6 +1866,13 @@ def _run_continuous_front_indicator_sidecar(
         event_log_path=(
             "dagster://continuous_front_indicator_refresh/"
             f"{continuous_front_indicator_run_id}/spark-event-log"
+        ),
+        qc_mode=str(research_datasets.get("continuous_front_indicator_qc_mode", "hot_path")),
+        sidecar_materialization_mode=str(
+            research_datasets.get(
+                "continuous_front_indicator_sidecar_materialization_mode",
+                "auto",
+            )
         ),
     )
     if (
@@ -3323,6 +3346,8 @@ def _research_run_config(
     derived_indicator_profile_version: str,
     volume_profile_raw_1m_table_path: str | Path | None = None,
     volume_profile_tick_size_by_instrument: Mapping[str, float] | None = None,
+    continuous_front_indicator_qc_mode: str = "hot_path",
+    continuous_front_indicator_sidecar_materialization_mode: str = "auto",
     code_version: str = "research-orchestration",
     strategy_space: dict[str, object] | None = None,
     strategy_space_id: str = "",
@@ -3399,6 +3424,10 @@ def _research_run_config(
         "derived_indicator_profile_version": derived_indicator_profile_version,
         "volume_profile_raw_1m_table_path": resolved_volume_profile_raw_1m_table_path,
         "volume_profile_tick_size_by_instrument": resolved_volume_profile_tick_size_by_instrument,
+        "continuous_front_indicator_qc_mode": continuous_front_indicator_qc_mode,
+        "continuous_front_indicator_sidecar_materialization_mode": (
+            continuous_front_indicator_sidecar_materialization_mode
+        ),
         "code_version": code_version,
         "strategy_space": resolved_strategy_space,
         "strategy_space_id": strategy_space_id,
@@ -3463,6 +3492,8 @@ def _materialize_research_assets(
     derived_indicator_profile_version: str = "core_v1",
     volume_profile_raw_1m_table_path: str | Path | None = None,
     volume_profile_tick_size_by_instrument: Mapping[str, float] | None = None,
+    continuous_front_indicator_qc_mode: str = "hot_path",
+    continuous_front_indicator_sidecar_materialization_mode: str = "auto",
     code_version: str = "research-orchestration",
     strategy_space: dict[str, object] | None = None,
     combination_count: int = 1,
@@ -3575,6 +3606,10 @@ def _materialize_research_assets(
         derived_indicator_profile_version=derived_indicator_profile_version,
         volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
         volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
+        continuous_front_indicator_qc_mode=continuous_front_indicator_qc_mode,
+        continuous_front_indicator_sidecar_materialization_mode=(
+            continuous_front_indicator_sidecar_materialization_mode
+        ),
         code_version=code_version,
         strategy_space=dict(strategy_space or _default_strategy_space()),
         strategy_space_id=strategy_space_id,
@@ -3735,6 +3770,8 @@ def materialize_research_data_prep_assets(
     derived_indicator_profile_version: str = "core_v1",
     volume_profile_raw_1m_table_path: str | Path | None = None,
     volume_profile_tick_size_by_instrument: Mapping[str, float] | None = None,
+    continuous_front_indicator_qc_mode: str = "hot_path",
+    continuous_front_indicator_sidecar_materialization_mode: str = "auto",
     code_version: str = "research-data-prep-orchestration",
     reuse_existing_materialization: bool = False,
     selection: Sequence[str] | None = None,
@@ -3771,6 +3808,10 @@ def materialize_research_data_prep_assets(
         derived_indicator_profile_version=derived_indicator_profile_version,
         volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
         volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
+        continuous_front_indicator_qc_mode=continuous_front_indicator_qc_mode,
+        continuous_front_indicator_sidecar_materialization_mode=(
+            continuous_front_indicator_sidecar_materialization_mode
+        ),
         code_version=code_version,
         reuse_existing_materialization=reuse_existing_materialization,
         raise_on_error=raise_on_error,

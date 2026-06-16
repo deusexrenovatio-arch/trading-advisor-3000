@@ -284,6 +284,94 @@ def _write_materialized_indicator_frames(
     return indicator_rows, derived_rows
 
 
+@pytest.fixture(autouse=True)
+def _fake_spark_sidecar_writer_for_job_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    from trading_advisor_3000.product_plane.research.continuous_front_indicators import (
+        pandas_job,
+    )
+
+    write_input = pandas_job._write_cf_indicator_input_frame_delta
+    write_base = pandas_job._write_base_sidecar_delta
+    write_derived = pandas_job._write_derived_sidecar_delta
+
+    def fake_spark_sidecar_writer(**kwargs: object) -> dict[str, object]:
+        output_dir = Path(str(kwargs["output_dir"]))
+        input_rows = write_input(
+            materialized_output_dir=Path(str(kwargs["materialized_output_dir"])),
+            output_dir=output_dir,
+            dataset_version=str(kwargs["dataset_version"]),
+            contour_id=str(kwargs["contour_id"]),
+            source_canonical_version=str(kwargs["source_canonical_version"]),
+            roll_policy_version=str(kwargs["roll_policy_version"]),
+            adjustment_policy_version=str(kwargs["adjustment_policy_version"]),
+            created_at_utc=str(kwargs["created_at_utc"]),
+            contract=kwargs["contract"],
+        )
+        base_rows = write_base(
+            materialized_output_dir=Path(str(kwargs["materialized_output_dir"])),
+            output_dir=output_dir,
+            dataset_version=str(kwargs["dataset_version"]),
+            contour_id=str(kwargs["contour_id"]),
+            roll_policy_version=str(kwargs["roll_policy_version"]),
+            adjustment_policy_version=str(kwargs["adjustment_policy_version"]),
+            indicator_set_version=str(kwargs["indicator_set_version"]),
+            rule_set_version=str(kwargs["rule_set_version"]),
+            adapter_hash=str(kwargs["adapter_hash"]),
+            indicator_value_columns=tuple(kwargs["indicator_value_columns"]),
+            max_cross_contract_window_bars=int(kwargs["max_base_cross_contract_window_bars"]),
+            created_at_utc=str(kwargs["created_at_utc"]),
+            contract=kwargs["contract"],
+        )
+        rows_by_table = {
+            "cf_indicator_input_frame": input_rows,
+            "indicator_roll_rules": int(kwargs["rule_count"]),
+            "continuous_front_indicator_frames": base_rows,
+        }
+        output_paths = {
+            "cf_indicator_input_frame": (output_dir / "cf_indicator_input_frame.delta").as_posix(),
+            "continuous_front_indicator_frames": (
+                output_dir / "continuous_front_indicator_frames.delta"
+            ).as_posix(),
+        }
+        if bool(kwargs["include_derived"]):
+            derived_rows = write_derived(
+                materialized_output_dir=Path(str(kwargs["materialized_output_dir"])),
+                output_dir=output_dir,
+                dataset_version=str(kwargs["dataset_version"]),
+                contour_id=str(kwargs["contour_id"]),
+                roll_policy_version=str(kwargs["roll_policy_version"]),
+                adjustment_policy_version=str(kwargs["adjustment_policy_version"]),
+                indicator_set_version=str(kwargs["indicator_set_version"]),
+                derived_set_version=str(kwargs["derived_set_version"]),
+                rule_set_version=str(kwargs["rule_set_version"]),
+                adapter_hash=str(kwargs["adapter_hash"]),
+                derived_value_columns=tuple(kwargs["derived_value_columns"]),
+                max_cross_contract_window_bars=int(
+                    kwargs["max_derived_cross_contract_window_bars"]
+                ),
+                created_at_utc=str(kwargs["created_at_utc"]),
+                contract=kwargs["contract"],
+            )
+            rows_by_table["continuous_front_derived_indicator_frames"] = derived_rows
+            output_paths["continuous_front_derived_indicator_frames"] = (
+                output_dir / "continuous_front_derived_indicator_frames.delta"
+            ).as_posix()
+        return {
+            "success": True,
+            "status": "PASS",
+            "rows_by_table": rows_by_table,
+            "output_paths": output_paths,
+            "spark_profile": {"app_name": "fake-spark-sidecar"},
+            "stage_timings": {},
+        }
+
+    monkeypatch.setattr(
+        pandas_job,
+        "run_continuous_front_indicator_sidecar_spark_job",
+        fake_spark_sidecar_writer,
+    )
+
+
 def test_roll_rule_catalog_covers_every_base_and_derived_output() -> None:
     rules = default_indicator_roll_rules()
     columns = {rule.output_column for rule in rules}
@@ -741,9 +829,11 @@ def test_continuous_front_indicator_job_writes_governed_sidecar_tables(tmp_path:
         run_id="cf-indicator-test",
         calculation_app_id="spark-test-continuous-front-indicators",
         event_log_path="file:///tmp/spark-events/cf-indicator-test",
+        qc_mode="audit",
     )
 
     assert report["publish_status"] == "accepted"
+    assert report["qc_mode"] == "audit"
     for table_name in CF_INDICATOR_TABLES:
         assert has_delta_log(materialized_dir / f"{table_name}.delta")
     assert read_delta_table_rows(materialized_dir / "indicator_roll_rules.delta")
@@ -813,6 +903,64 @@ def test_continuous_front_indicator_job_writes_governed_sidecar_tables(tmp_path:
     assert set(continuous_front_indicator_store_contract()) == set(CF_INDICATOR_TABLES)
 
 
+def test_continuous_front_indicator_job_defaults_to_hot_path_qc(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    materialized_dir = tmp_path / "materialized"
+    views = _write_continuous_front_materialized_inputs(materialized_dir)
+    _write_materialized_indicator_frames(materialized_dir, views)
+
+    from trading_advisor_3000.product_plane.research.continuous_front_indicators import (
+        pandas_job,
+    )
+
+    def fail_audit_check(*args: object, **kwargs: object) -> None:
+        raise AssertionError("full audit QC must not run in the default hot path")
+
+    monkeypatch.setattr(
+        pandas_job, "_verify_materialized_prefix_window_coverage_delta", fail_audit_check
+    )
+    monkeypatch.setattr(pandas_job, "_verify_formula_samples_delta", fail_audit_check)
+    monkeypatch.setattr(pandas_job, "_verify_pandas_ta_parity_delta", fail_audit_check)
+    monkeypatch.setattr(pandas_job, "_verify_lineage_delta", fail_audit_check)
+
+    report = run_continuous_front_indicator_pandas_job(
+        materialized_output_dir=materialized_dir,
+        dataset_version="cf-dataset-v1",
+        indicator_set_version="indicators-v1",
+        derived_set_version="derived-v1",
+        run_id="cf-indicator-hot-path",
+        calculation_app_id="spark-test-continuous-front-indicators",
+        event_log_path="file:///tmp/spark-events/cf-indicator-hot-path",
+    )
+
+    assert report["publish_status"] == "accepted"
+    assert report["qc_mode"] == "hot_path"
+    acceptance = read_delta_table_rows(
+        materialized_dir / "continuous_front_indicator_acceptance_report.delta",
+        filters=[
+            ("dataset_version", "=", "cf-dataset-v1"),
+            ("run_id", "=", "cf-indicator-hot-path"),
+        ],
+    )[0]
+    assert acceptance["run_type"] == "hot_path"
+    assert set(json.loads(str(acceptance["skipped_qc_groups_json"]))) == {
+        "formula_sample",
+        "pandas_ta_parity",
+        "prefix_invariance",
+    }
+    qc_groups = {
+        row["check_group"]
+        for row in read_delta_table_rows(
+            materialized_dir / "continuous_front_indicator_qc_observations.delta",
+            filters=[("run_id", "=", "cf-indicator-hot-path")],
+        )
+    }
+    assert {"schema", "adapter_authorization", "input_projection", "lineage"} <= qc_groups
+    assert {"formula_sample", "pandas_ta_parity", "prefix_invariance"}.isdisjoint(qc_groups)
+
+
 def test_continuous_front_base_indicator_sidecar_job_does_not_write_derived_output(
     tmp_path: Path,
 ) -> None:
@@ -852,6 +1000,53 @@ def test_continuous_front_base_indicator_sidecar_job_does_not_write_derived_outp
         filters=[("dataset_version", "=", "cf-dataset-v1")],
     )[0]
     assert base_sidecar_row["indicator_row_hash_version"]
+
+
+def test_continuous_front_base_indicator_sidecar_job_reuses_accepted_refresh(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    materialized_dir = tmp_path / "materialized"
+    views = _write_continuous_front_materialized_inputs(materialized_dir)
+    _write_materialized_indicator_frames(materialized_dir, views)
+
+    first = run_continuous_front_base_indicator_sidecar_job(
+        materialized_output_dir=materialized_dir,
+        dataset_version="cf-dataset-v1",
+        indicator_set_version="indicators-v1",
+        derived_set_version="derived-v1",
+        run_id="cf-base-sidecar-first",
+        calculation_app_id="spark-test-continuous-front-base-indicators",
+        event_log_path="file:///tmp/spark-events/cf-base-sidecar-first",
+    )
+    assert first["publish_status"] == "accepted"
+    assert first["sidecar_refresh_mode"] == "spark_delta_join_write"
+
+    from trading_advisor_3000.product_plane.research.continuous_front_indicators import (
+        pandas_job,
+    )
+
+    def fail_sidecar_write(*args: object, **kwargs: object) -> int:
+        raise AssertionError("accepted base sidecar refresh should be reused without rewrite")
+
+    monkeypatch.setattr(pandas_job, "_write_cf_indicator_input_frame_delta", fail_sidecar_write)
+    monkeypatch.setattr(pandas_job, "_write_base_sidecar_delta", fail_sidecar_write)
+
+    second = run_continuous_front_base_indicator_sidecar_job(
+        materialized_output_dir=materialized_dir,
+        dataset_version="cf-dataset-v1",
+        indicator_set_version="indicators-v1",
+        derived_set_version="derived-v1",
+        run_id="cf-base-sidecar-second",
+        calculation_app_id="spark-test-continuous-front-base-indicators",
+        event_log_path="file:///tmp/spark-events/cf-base-sidecar-second",
+    )
+
+    assert second["publish_status"] == "accepted"
+    assert second["sidecar_refresh_mode"] == "metadata_reuse"
+    assert second["sidecar_reuse_source_run_id"] == "cf-base-sidecar-first"
+    assert second["rows_by_table"]["continuous_front_indicator_frames"] == len(views)
+    assert "continuous_front_derived_indicator_frames" not in second["output_paths"]
 
 
 def test_continuous_front_indicator_job_reads_materialized_frames_without_recompute(
@@ -940,6 +1135,340 @@ def test_continuous_front_indicator_job_avoids_full_row_python_loaders(
         ],
     )[0]
     assert "delta_native" in str(manifest["calculation_engines_json"])
+
+
+def test_continuous_front_indicator_job_reuses_accepted_sidecar_refresh(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    materialized_dir = tmp_path / "materialized"
+    views = _write_continuous_front_materialized_inputs(materialized_dir)
+    _write_materialized_indicator_frames(materialized_dir, views)
+
+    first = run_continuous_front_indicator_pandas_job(
+        materialized_output_dir=materialized_dir,
+        dataset_version="cf-dataset-v1",
+        indicator_set_version="indicators-v1",
+        derived_set_version="derived-v1",
+        run_id="cf-indicator-sidecar-first",
+        calculation_app_id="spark-test-continuous-front-indicators",
+        event_log_path="file:///tmp/spark-events/cf-indicator-sidecar-first",
+    )
+    assert first["publish_status"] == "accepted"
+    assert first["sidecar_refresh_mode"] == "spark_delta_join_write"
+
+    from trading_advisor_3000.product_plane.research.continuous_front_indicators import (
+        pandas_job,
+    )
+
+    def fail_sidecar_write(*args: object, **kwargs: object) -> int:
+        raise AssertionError("accepted sidecar refresh should be reused without rewrite")
+
+    monkeypatch.setattr(pandas_job, "_write_cf_indicator_input_frame_delta", fail_sidecar_write)
+    monkeypatch.setattr(pandas_job, "_write_base_sidecar_delta", fail_sidecar_write)
+    monkeypatch.setattr(pandas_job, "_write_derived_sidecar_delta", fail_sidecar_write)
+
+    second = run_continuous_front_indicator_pandas_job(
+        materialized_output_dir=materialized_dir,
+        dataset_version="cf-dataset-v1",
+        indicator_set_version="indicators-v1",
+        derived_set_version="derived-v1",
+        run_id="cf-indicator-sidecar-second",
+        calculation_app_id="spark-test-continuous-front-indicators",
+        event_log_path="file:///tmp/spark-events/cf-indicator-sidecar-second",
+    )
+
+    assert second["publish_status"] == "accepted"
+    assert second["sidecar_refresh_mode"] == "metadata_reuse"
+    assert second["sidecar_reuse_source_run_id"] == "cf-indicator-sidecar-first"
+    assert second["rows_by_table"]["continuous_front_indicator_frames"] == len(views)
+    assert second["rows_by_table"]["continuous_front_derived_indicator_frames"] == len(views)
+    manifest = read_delta_table_rows(
+        materialized_dir / "continuous_front_indicator_run_manifest.delta",
+        filters=[
+            ("dataset_version", "=", "cf-dataset-v1"),
+            ("run_id", "=", "cf-indicator-sidecar-second"),
+        ],
+    )[0]
+    engines = json.loads(str(manifest["calculation_engines_json"]))
+    assert engines["sidecar_materialization"] == "metadata_reuse"
+    assert engines["sidecar_reuse_source_run_id"] == "cf-indicator-sidecar-first"
+
+
+def test_continuous_front_indicator_job_prefers_spark_sidecar_writer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    materialized_dir = tmp_path / "materialized"
+    views = _write_continuous_front_materialized_inputs(materialized_dir)
+    _write_materialized_indicator_frames(materialized_dir, views)
+
+    from trading_advisor_3000.product_plane.research.continuous_front_indicators import (
+        pandas_job,
+    )
+
+    write_input = pandas_job._write_cf_indicator_input_frame_delta
+    write_base = pandas_job._write_base_sidecar_delta
+    write_derived = pandas_job._write_derived_sidecar_delta
+    captured: dict[str, object] = {}
+
+    def fake_spark_sidecar_writer(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        input_rows = write_input(
+            materialized_output_dir=Path(str(kwargs["materialized_output_dir"])),
+            output_dir=Path(str(kwargs["output_dir"])),
+            dataset_version=str(kwargs["dataset_version"]),
+            contour_id=str(kwargs["contour_id"]),
+            source_canonical_version=str(kwargs["source_canonical_version"]),
+            roll_policy_version=str(kwargs["roll_policy_version"]),
+            adjustment_policy_version=str(kwargs["adjustment_policy_version"]),
+            created_at_utc=str(kwargs["created_at_utc"]),
+            contract=kwargs["contract"],
+        )
+        base_rows = write_base(
+            materialized_output_dir=Path(str(kwargs["materialized_output_dir"])),
+            output_dir=Path(str(kwargs["output_dir"])),
+            dataset_version=str(kwargs["dataset_version"]),
+            contour_id=str(kwargs["contour_id"]),
+            roll_policy_version=str(kwargs["roll_policy_version"]),
+            adjustment_policy_version=str(kwargs["adjustment_policy_version"]),
+            indicator_set_version=str(kwargs["indicator_set_version"]),
+            rule_set_version=str(kwargs["rule_set_version"]),
+            adapter_hash=str(kwargs["adapter_hash"]),
+            indicator_value_columns=tuple(kwargs["indicator_value_columns"]),
+            max_cross_contract_window_bars=int(kwargs["max_base_cross_contract_window_bars"]),
+            created_at_utc=str(kwargs["created_at_utc"]),
+            contract=kwargs["contract"],
+        )
+        derived_rows = write_derived(
+            materialized_output_dir=Path(str(kwargs["materialized_output_dir"])),
+            output_dir=Path(str(kwargs["output_dir"])),
+            dataset_version=str(kwargs["dataset_version"]),
+            contour_id=str(kwargs["contour_id"]),
+            roll_policy_version=str(kwargs["roll_policy_version"]),
+            adjustment_policy_version=str(kwargs["adjustment_policy_version"]),
+            indicator_set_version=str(kwargs["indicator_set_version"]),
+            derived_set_version=str(kwargs["derived_set_version"]),
+            rule_set_version=str(kwargs["rule_set_version"]),
+            adapter_hash=str(kwargs["adapter_hash"]),
+            derived_value_columns=tuple(kwargs["derived_value_columns"]),
+            max_cross_contract_window_bars=int(kwargs["max_derived_cross_contract_window_bars"]),
+            created_at_utc=str(kwargs["created_at_utc"]),
+            contract=kwargs["contract"],
+        )
+        return {
+            "success": True,
+            "status": "PASS",
+            "rows_by_table": {
+                "cf_indicator_input_frame": input_rows,
+                "indicator_roll_rules": int(kwargs["rule_count"]),
+                "continuous_front_indicator_frames": base_rows,
+                "continuous_front_derived_indicator_frames": derived_rows,
+            },
+            "output_paths": {
+                "cf_indicator_input_frame": (
+                    Path(str(kwargs["output_dir"])) / "cf_indicator_input_frame.delta"
+                ).as_posix(),
+                "continuous_front_indicator_frames": (
+                    Path(str(kwargs["output_dir"])) / "continuous_front_indicator_frames.delta"
+                ).as_posix(),
+                "continuous_front_derived_indicator_frames": (
+                    Path(str(kwargs["output_dir"]))
+                    / "continuous_front_derived_indicator_frames.delta"
+                ).as_posix(),
+            },
+            "spark_profile": {"app_name": "fake-spark-sidecar"},
+        }
+
+    def fail_python_writer(*args: object, **kwargs: object) -> int:
+        raise AssertionError("Spark sidecar route should own the first materialization")
+
+    monkeypatch.setattr(
+        pandas_job, "run_continuous_front_indicator_sidecar_spark_job", fake_spark_sidecar_writer
+    )
+    monkeypatch.setattr(pandas_job, "_write_cf_indicator_input_frame_delta", fail_python_writer)
+    monkeypatch.setattr(pandas_job, "_write_base_sidecar_delta", fail_python_writer)
+    monkeypatch.setattr(pandas_job, "_write_derived_sidecar_delta", fail_python_writer)
+
+    report = run_continuous_front_indicator_pandas_job(
+        materialized_output_dir=materialized_dir,
+        dataset_version="cf-dataset-v1",
+        indicator_set_version="indicators-v1",
+        derived_set_version="derived-v1",
+        run_id="cf-indicator-spark-sidecar",
+        calculation_app_id="spark-test-continuous-front-indicators",
+        event_log_path="file:///tmp/spark-events/cf-indicator-spark-sidecar",
+        sidecar_materialization_mode="spark",
+    )
+
+    assert captured["include_derived"] is True
+    assert report["publish_status"] == "accepted"
+    assert report["sidecar_refresh_mode"] == "spark_delta_join_write"
+    assert report["sidecar_spark_profile"] == {"app_name": "fake-spark-sidecar"}
+    assert report["rows_by_table"]["continuous_front_indicator_frames"] == len(views)
+    assert report["rows_by_table"]["continuous_front_derived_indicator_frames"] == len(views)
+
+
+def test_continuous_front_base_indicator_job_prefers_spark_sidecar_writer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    materialized_dir = tmp_path / "materialized"
+    views = _write_continuous_front_materialized_inputs(materialized_dir)
+    _write_materialized_indicator_frames(materialized_dir, views)
+
+    from trading_advisor_3000.product_plane.research.continuous_front_indicators import (
+        pandas_job,
+    )
+
+    write_input = pandas_job._write_cf_indicator_input_frame_delta
+    write_base = pandas_job._write_base_sidecar_delta
+    captured: dict[str, object] = {}
+
+    def fake_spark_sidecar_writer(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        input_rows = write_input(
+            materialized_output_dir=Path(str(kwargs["materialized_output_dir"])),
+            output_dir=Path(str(kwargs["output_dir"])),
+            dataset_version=str(kwargs["dataset_version"]),
+            contour_id=str(kwargs["contour_id"]),
+            source_canonical_version=str(kwargs["source_canonical_version"]),
+            roll_policy_version=str(kwargs["roll_policy_version"]),
+            adjustment_policy_version=str(kwargs["adjustment_policy_version"]),
+            created_at_utc=str(kwargs["created_at_utc"]),
+            contract=kwargs["contract"],
+        )
+        base_rows = write_base(
+            materialized_output_dir=Path(str(kwargs["materialized_output_dir"])),
+            output_dir=Path(str(kwargs["output_dir"])),
+            dataset_version=str(kwargs["dataset_version"]),
+            contour_id=str(kwargs["contour_id"]),
+            roll_policy_version=str(kwargs["roll_policy_version"]),
+            adjustment_policy_version=str(kwargs["adjustment_policy_version"]),
+            indicator_set_version=str(kwargs["indicator_set_version"]),
+            rule_set_version=str(kwargs["rule_set_version"]),
+            adapter_hash=str(kwargs["adapter_hash"]),
+            indicator_value_columns=tuple(kwargs["indicator_value_columns"]),
+            max_cross_contract_window_bars=int(kwargs["max_base_cross_contract_window_bars"]),
+            created_at_utc=str(kwargs["created_at_utc"]),
+            contract=kwargs["contract"],
+        )
+        return {
+            "success": True,
+            "status": "PASS",
+            "rows_by_table": {
+                "cf_indicator_input_frame": input_rows,
+                "indicator_roll_rules": int(kwargs["rule_count"]),
+                "continuous_front_indicator_frames": base_rows,
+            },
+            "output_paths": {
+                "cf_indicator_input_frame": (
+                    Path(str(kwargs["output_dir"])) / "cf_indicator_input_frame.delta"
+                ).as_posix(),
+                "continuous_front_indicator_frames": (
+                    Path(str(kwargs["output_dir"])) / "continuous_front_indicator_frames.delta"
+                ).as_posix(),
+            },
+            "spark_profile": {"app_name": "fake-base-spark-sidecar"},
+        }
+
+    def fail_python_writer(*args: object, **kwargs: object) -> int:
+        raise AssertionError("Spark sidecar route should own the base materialization")
+
+    monkeypatch.setattr(
+        pandas_job, "run_continuous_front_indicator_sidecar_spark_job", fake_spark_sidecar_writer
+    )
+    monkeypatch.setattr(pandas_job, "_write_cf_indicator_input_frame_delta", fail_python_writer)
+    monkeypatch.setattr(pandas_job, "_write_base_sidecar_delta", fail_python_writer)
+
+    report = run_continuous_front_base_indicator_sidecar_job(
+        materialized_output_dir=materialized_dir,
+        dataset_version="cf-dataset-v1",
+        indicator_set_version="indicators-v1",
+        derived_set_version="derived-v1",
+        run_id="cf-base-indicator-spark-sidecar",
+        calculation_app_id="spark-test-continuous-front-base-indicators",
+        event_log_path="file:///tmp/spark-events/cf-base-indicator-spark-sidecar",
+        sidecar_materialization_mode="spark",
+    )
+
+    assert captured["include_derived"] is False
+    assert report["publish_status"] == "accepted"
+    assert report["sidecar_refresh_mode"] == "spark_delta_join_write"
+    assert report["sidecar_spark_profile"] == {"app_name": "fake-base-spark-sidecar"}
+    assert report["rows_by_table"]["continuous_front_indicator_frames"] == len(views)
+    assert "continuous_front_derived_indicator_frames" not in report["output_paths"]
+
+
+def test_continuous_front_indicator_job_auto_fails_when_spark_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    materialized_dir = tmp_path / "materialized"
+    views = _write_continuous_front_materialized_inputs(materialized_dir)
+    _write_materialized_indicator_frames(materialized_dir, views)
+
+    from trading_advisor_3000.product_plane.research.continuous_front_indicators import (
+        pandas_job,
+    )
+
+    def unavailable_spark_sidecar_writer(**_: object) -> dict[str, object]:
+        raise pandas_job.ContinuousFrontIndicatorSidecarSparkUnavailable("java missing")
+
+    monkeypatch.setattr(
+        pandas_job,
+        "run_continuous_front_indicator_sidecar_spark_job",
+        unavailable_spark_sidecar_writer,
+    )
+    monkeypatch.setattr(
+        pandas_job,
+        "_write_cf_indicator_input_frame_delta",
+        lambda *_, **__: pytest.fail("Python sidecar writer must not run"),
+    )
+    monkeypatch.setattr(
+        pandas_job,
+        "_write_base_sidecar_delta",
+        lambda *_, **__: pytest.fail("Python sidecar writer must not run"),
+    )
+    monkeypatch.setattr(
+        pandas_job,
+        "_write_derived_sidecar_delta",
+        lambda *_, **__: pytest.fail("Python sidecar writer must not run"),
+    )
+
+    with pytest.raises(
+        pandas_job.ContinuousFrontIndicatorSidecarSparkUnavailable,
+        match="java missing",
+    ):
+        run_continuous_front_indicator_pandas_job(
+            materialized_output_dir=materialized_dir,
+            dataset_version="cf-dataset-v1",
+            indicator_set_version="indicators-v1",
+            derived_set_version="derived-v1",
+            run_id="cf-indicator-auto-spark-required",
+            calculation_app_id="spark-test-continuous-front-indicators",
+            event_log_path="file:///tmp/spark-events/cf-indicator-auto-spark-required",
+            sidecar_materialization_mode="auto",
+        )
+
+
+def test_continuous_front_indicator_job_rejects_python_sidecar_mode(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="sidecar_materialization_mode"):
+        run_continuous_front_indicator_pandas_job(
+            materialized_output_dir=tmp_path,
+            dataset_version="cf-dataset-v1",
+            indicator_set_version="indicators-v1",
+            derived_set_version="derived-v1",
+            sidecar_materialization_mode="python",
+        )
+    with pytest.raises(ValueError, match="sidecar_materialization_mode"):
+        run_continuous_front_base_indicator_sidecar_job(
+            materialized_output_dir=tmp_path,
+            dataset_version="cf-dataset-v1",
+            indicator_set_version="indicators-v1",
+            derived_set_version="derived-v1",
+            sidecar_materialization_mode="python",
+        )
 
 
 def test_lineage_gate_fails_without_runtime_evidence() -> None:
