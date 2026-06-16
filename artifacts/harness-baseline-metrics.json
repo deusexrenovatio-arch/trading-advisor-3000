@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-15",
+  "generated_at": "2026-06-16",
   "plans": {
     "total_items": 2,
     "active_items": 0,
@@ -25,7 +25,7 @@
     }
   },
   "dev_loop_baseline": {
-    "generated_at": "2026-06-15",
+    "generated_at": "2026-06-16",
     "task_outcomes_total": 45,
     "terminal_outcomes_total": 45,
     "outcomes_with_patch_timing": 2,

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-15",
+  "generated_at": "2026-06-16",
   "overall_status": "green",
   "sections": {
     "lifecycle": {
@@ -28,7 +28,7 @@
         "target": 8
       },
       "observation_window_start": "2026-03-25",
-      "observation_window_days": 82,
+      "observation_window_days": 83,
       "observation_window_min_days": 7,
       "observation_window_max_days": 14,
       "observation_window_status": "review_due",
@@ -36,7 +36,7 @@
     }
   },
   "baseline_metrics": {
-    "generated_at": "2026-06-15",
+    "generated_at": "2026-06-16",
     "plans": {
       "total_items": 2,
       "active_items": 0,
@@ -62,7 +62,7 @@
       }
     },
     "dev_loop_baseline": {
-      "generated_at": "2026-06-15",
+      "generated_at": "2026-06-16",
       "task_outcomes_total": 45,
       "terminal_outcomes_total": 45,
       "outcomes_with_patch_timing": 2,
