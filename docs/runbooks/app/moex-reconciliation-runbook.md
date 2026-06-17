@@ -12,7 +12,7 @@ This runbook covers:
 Route role:
 - This is an auxiliary verification contour for reconciliation proof and local diagnostics.
 - It is not the scheduled historical route and it is not the canonical overnight operator path.
-- The active governed route stays `Dagster -> Python raw ingest -> Spark canonical refresh`.
+- The active governed route stays `Dagster -> Python MOEX extraction/staging -> Spark raw Delta ingest -> Spark canonical refresh`.
 
 ## Mandatory Finam Metadata
 Each Finam snapshot row must provide explicit non-empty fields:

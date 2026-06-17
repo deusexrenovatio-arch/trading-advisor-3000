@@ -25,7 +25,7 @@ If this document conflicts with older MOEX architecture narratives, this route-d
 ## Decision Summary
 The historical route is fixed as one directional flow:
 
-`Dagster orchestration -> Python raw ingest -> authoritative raw delta -> Spark canonical refresh -> authoritative canonical delta`
+`Dagster orchestration -> Python MOEX extraction/staging -> Spark raw Delta ingest -> authoritative raw delta -> Spark canonical refresh -> authoritative canonical delta`
 
 This means:
 1. There is one orchestration owner.
@@ -40,9 +40,9 @@ This means:
 | Responsibility | Canonical owner | Why |
 | --- | --- | --- |
 | Refresh window, order of execution, retries, single-writer discipline | Dagster | This is orchestration, not compute or connector logic. |
-| MOEX extraction, source-aware retries, chunking, overlap, raw validation | Python `moex_raw_ingest` job | This is connector behavior and needs precise request diagnostics. |
+| MOEX extraction, source-aware retries, chunking, overlap planning, raw staging | Python foundation job | This is connector behavior and needs precise request diagnostics before Spark owns storage mutation. |
+| Raw Delta storage mutation, tail append, scoped overlap reconcile, raw validation report | Spark `moex_raw_ingest_spark_delta` job | Raw history is a durable Delta table; Spark/Delta Lake own the write, merge, and storage proof path. |
 | Heavy canonical recompute, resampling, provenance rebuild | Spark `moex_canonical_refresh` job | This is batch compute and should stay out of the connector layer. |
-| Raw storage mutation | Python raw ingest only | Prevents accidental canonical or orchestration code from writing source history. |
 | Canonical storage mutation | Spark canonical refresh only | Keeps canonical ownership obvious and fail-closed. |
 
 ## Storage Decision
@@ -56,6 +56,8 @@ This means:
   - `D:/TA3000-data/trading-advisor-3000-nightly/raw/moex/baseline-4y-current/raw_moex_history.delta`
   - `D:/TA3000-data/trading-advisor-3000-nightly/canonical/moex/baseline-4y-current/canonical_bars.delta`
   - `D:/TA3000-data/trading-advisor-3000-nightly/canonical/moex/baseline-4y-current/canonical_bar_provenance.delta`
+- Raw Delta physical layout is partitioned only by derived `ts_close_year`.
+- The raw layout migration is a one-time Spark rewrite with explicit stage/report/promote steps; it must not remain as an alternate active raw route after promotion.
 - Derived storage stays reserved under:
   - `D:/TA3000-data/trading-advisor-3000-nightly/derived/moex`
 - Downstream readers must bind to the stable raw/canonical baseline paths, not to whichever rerun folder happened to be created last.
@@ -67,6 +69,7 @@ This means:
 | Entry point | Decision | Role after cleanup |
 | --- | --- | --- |
 | `scripts/run_moex_raw_ingest.py` | Keep as manual-only support tool | Manual bootstrap and repair entrypoint; not part of the scheduled route. |
+| `scripts/run_moex_raw_layout_migration.py` | Keep as manual-only support tool | One-time Spark raw layout migration: stage, validate, and explicitly promote the stable raw Delta root. |
 | `scripts/run_moex_canonical_refresh.py` | Keep as manual-only support tool | Manual canonical refresh entrypoint; not part of the scheduled route. |
 | `scripts/run_moex_route_refresh.py` | Retire from normal operations | Manual full-route runner; blocked by default and allowed only by explicit acknowledgement for forensic reruns. |
 | `scripts/run_phase2a_dagster_proof.py` | Keep as proof-only until cleanup | Tested Dagster proof contour, not the canonical production-like route. |
@@ -92,11 +95,12 @@ Reason:
 Operators should see only one clear answer to "which route is responsible for historical data":
 
 1. Scheduled refresh ownership belongs to Dagster.
-2. Raw history ownership belongs to the Python raw ingest job.
-3. Canonical ownership belongs to the Spark canonical refresh job.
-4. Repair and backfill must reuse the same Dagster-owned cutover job and the same single-writer ledger discipline.
-5. Manual helper scripts are allowed only for bounded bootstrap, repair, or forensic use.
-6. Manual full-route reruns are not a normal operating path.
+2. MOEX request/extraction ownership belongs to the Python foundation job.
+3. Raw Delta mutation belongs to the Spark raw ingest job.
+4. Canonical ownership belongs to the Spark canonical refresh job.
+5. Repair and backfill must reuse the same Dagster-owned cutover job and the same single-writer ledger discipline.
+6. Manual helper scripts are allowed only for bounded bootstrap, repair, or forensic use.
+7. Manual full-route reruns are not a normal operating path.
 
 ## Cleanup Rule
 To avoid accidental launches of the wrong contour:
