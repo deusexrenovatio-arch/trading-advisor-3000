@@ -185,7 +185,7 @@ def test_raw_ingest_spark_delta_job_merges_corrections_without_python_table_rewr
                 "watermark_utc": "2026-04-01T07:19:59Z",
             }
         ],
-        initial_watermarks={("FUT_BR", "1m", 1, "BRQ6"): "2026-04-01T07:19:59Z"},
+        initial_watermarks={("FUT_BR", "1m", "BRQ6"): "2026-04-01T07:19:59Z"},
         run_id="spark-raw-ingest",
         ingest_till_utc="2026-04-01T08:00:00Z",
         refresh_overlap_minutes=20,
@@ -266,7 +266,7 @@ def test_raw_ingest_spark_delta_job_deletes_target_rows_missing_from_refresh_win
                 "watermark_utc": "2026-04-01T07:29:59Z",
             }
         ],
-        initial_watermarks={("FUT_BR", "1m", 1, "BRQ6"): "2026-04-01T07:29:59Z"},
+        initial_watermarks={("FUT_BR", "1m", "BRQ6"): "2026-04-01T07:29:59Z"},
         run_id="spark-raw-delete",
         ingest_till_utc="2026-04-01T08:00:00Z",
         refresh_overlap_minutes=60,
@@ -340,7 +340,7 @@ def test_raw_ingest_spark_delta_job_reconciles_multiple_scopes_without_window_pr
                 "watermark_utc": "2026-04-01T08:19:59Z",
             },
         ],
-        initial_watermarks={("FUT_BR", "1m", 1, "BRQ6"): "2026-04-01T08:19:59Z"},
+        initial_watermarks={("FUT_BR", "1m", "BRQ6"): "2026-04-01T08:19:59Z"},
         run_id="spark-multi-scope",
         ingest_till_utc="2026-04-01T08:30:00Z",
         refresh_overlap_minutes=90,
@@ -406,7 +406,7 @@ def test_raw_ingest_spark_delta_job_fingerprint_detects_provider_metadata_change
                 "watermark_utc": "2026-04-01T07:09:59Z",
             }
         ],
-        initial_watermarks={("FUT_BR", "1m", 1, "BRQ6"): "2026-04-01T07:09:59Z"},
+        initial_watermarks={("FUT_BR", "1m", "BRQ6"): "2026-04-01T07:09:59Z"},
         run_id="spark-raw-fingerprint",
         ingest_till_utc="2026-04-01T08:00:00Z",
         refresh_overlap_minutes=60,

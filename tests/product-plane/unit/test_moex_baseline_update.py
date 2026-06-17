@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
-    append_delta_table_rows,
     read_delta_table_rows,
     read_filtered_delta_table_rows,
     write_delta_table_rows,
@@ -266,7 +265,7 @@ def test_baseline_update_writes_to_stable_paths_and_scoped_canonical_refresh(
     assert cf_15m_window["window_hash_sha256"]
     assert report["runtime_boundary"] == {
         "orchestrator": "dagster",
-        "hot_table_runtime": "delta_rs_raw_tail+spark_delta_canonical",
+        "hot_table_runtime": "spark_delta_raw_tail+spark_delta_canonical",
         "python_role": "source_adapter_config_and_evidence",
     }
     assert not (tmp_path / "evidence" / "pending-changed-windows.json").exists()
@@ -1207,136 +1206,95 @@ def _raw_row(
     }
 
 
-def test_raw_watermark_uses_bounded_delta_without_spark(
+def test_raw_watermark_delegates_to_spark_job_with_three_part_keys(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     raw_table_path = tmp_path / "raw" / "moex" / "baseline-4y-current" / "raw_moex_history.delta"
-    write_delta_table_rows(
-        table_path=raw_table_path,
-        rows=[
-            _raw_row(ts_open="2026-04-01T07:00:00Z", ts_close="2026-04-01T07:09:59Z", close=100.5),
-            _raw_row(ts_open="2026-04-01T07:10:00Z", ts_close="2026-04-01T07:19:59Z", close=101.2),
-        ],
-        columns=RAW_COLUMNS,
-    )
 
     import trading_advisor_3000.product_plane.data_plane.moex.foundation as foundation_module
     import trading_advisor_3000.spark_jobs.moex_raw_ingest_job as spark_raw_module
 
+    captured: dict[str, object] = {}
+
+    def _fake_compute_raw_watermarks_spark_delta(**kwargs):
+        captured.update(kwargs)
+        return {("FUT_BR", "1m", "BRQ6"): "2026-04-01T07:19:59Z"}
+
     monkeypatch.setattr(
         spark_raw_module,
         "compute_raw_watermarks_spark_delta",
-        lambda **_kwargs: pytest.fail("tail watermark must not start Spark"),
+        _fake_compute_raw_watermarks_spark_delta,
     )
 
     watermarks = foundation_module.compute_raw_watermarks_spark_delta(
         table_path=raw_table_path,
-        keys={("FUT_BR", "1m", 1, "BRQ6")},
+        keys={("FUT_BR", "1m", "BRQ6")},
         min_ts_close_utc="2026-04-01T00:00:00Z",
     )
 
-    assert watermarks == {("FUT_BR", "1m", 1, "BRQ6"): "2026-04-01T07:19:59Z"}
+    assert captured == {
+        "table_path": raw_table_path,
+        "keys": {("FUT_BR", "1m", "BRQ6")},
+    }
+    assert watermarks == {("FUT_BR", "1m", "BRQ6"): "2026-04-01T07:19:59Z"}
 
 
-def test_raw_watermark_delta_read_is_time_bounded(
+def test_raw_watermark_wrapper_does_not_use_legacy_delta_rs_path(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import trading_advisor_3000.product_plane.data_plane.moex.foundation as foundation_module
+    import trading_advisor_3000.spark_jobs.moex_raw_ingest_job as spark_raw_module
 
-    captured: dict[str, object] = {}
-
-    def _fake_read_filtered_delta_table_rows(*_args, **kwargs):
-        captured.update(kwargs)
-        return [
-            {
-                "internal_id": "FUT_BR",
-                "timeframe": "1m",
-                "source_interval": 1,
-                "moex_secid": "BRQ6",
-                "ts_close": "2026-06-08T20:49:59Z",
-            }
-        ]
-
-    monkeypatch.setattr(foundation_module, "has_delta_log", lambda _path: True)
     monkeypatch.setattr(
         foundation_module,
-        "read_filtered_delta_table_rows",
-        _fake_read_filtered_delta_table_rows,
+        "_compute_raw_watermarks_delta_rs",
+        lambda **_kwargs: pytest.fail("raw watermark wrapper must delegate to Spark"),
     )
     monkeypatch.setattr(
-        foundation_module,
-        "_compute_raw_watermarks_delta_log_tail",
-        lambda **_kwargs: None,
+        spark_raw_module,
+        "compute_raw_watermarks_spark_delta",
+        lambda **_kwargs: {},
     )
 
-    watermarks = foundation_module.compute_raw_watermarks_spark_delta(
-        table_path=Path("D:/TA3000-data/raw.delta"),
-        keys={("FUT_BR", "1m", 1, "BRQ6")},
-        min_ts_close_utc="2026-06-07T20:47:59Z",
+    assert (
+        foundation_module.compute_raw_watermarks_spark_delta(
+            table_path=tmp_path / "raw_moex_history.delta",
+            keys={("FUT_BR", "1m", "BRQ6")},
+        )
+        == {}
     )
 
-    assert watermarks == {("FUT_BR", "1m", 1, "BRQ6"): "2026-06-08T20:49:59Z"}
-    assert ("ts_close", ">=", "2026-06-07T20:47:59Z") in captured["filters"]
+
+def test_watermark_key_for_discovery_excludes_source_interval() -> None:
+    import trading_advisor_3000.product_plane.data_plane.moex.foundation as foundation_module
+
+    record = DiscoveryRecord(
+        internal_id="FUT_BR",
+        finam_symbol="BRQ6",
+        moex_engine="futures",
+        moex_market="forts",
+        moex_board="RFUD",
+        moex_secid="BRQ6",
+        asset_group="commodity",
+        requested_target_timeframes="5m,15m",
+        source_interval=1,
+        source_timeframe="1m",
+        coverage_begin_utc="2026-04-01T00:00:00Z",
+        coverage_end_utc="2026-04-01T07:29:59Z",
+        discovered_at_utc="2026-04-01T07:29:59Z",
+        discovery_url="local-tail://mapping-registry/FUT_BR/1/BRQ6",
+    )
+
+    assert foundation_module._watermark_key_for_discovery(record) == ("FUT_BR", "1m", "BRQ6")
 
 
-def test_raw_watermark_uses_delta_log_tail_files_without_wide_filtered_read(
+def test_baseline_raw_tail_ingest_delegates_staged_rows_to_spark_job(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     raw_table_path = tmp_path / "raw" / "moex" / "baseline-4y-current" / "raw_moex_history.delta"
-    write_delta_table_rows(
-        table_path=raw_table_path,
-        rows=[
-            _raw_row(
-                ts_open="2026-05-01T07:00:00Z",
-                ts_close="2026-05-01T07:09:59Z",
-                close=100.5,
-            ),
-        ],
-        columns=RAW_COLUMNS,
-    )
-    append_delta_table_rows(
-        table_path=raw_table_path,
-        rows=[
-            _raw_row(
-                ts_open="2026-06-08T20:40:00Z",
-                ts_close="2026-06-08T20:49:59Z",
-                close=101.2,
-            ),
-        ],
-        columns=RAW_COLUMNS,
-    )
-
-    import trading_advisor_3000.product_plane.data_plane.moex.foundation as foundation_module
-
-    monkeypatch.setattr(
-        foundation_module,
-        "read_filtered_delta_table_rows",
-        lambda *_args, **_kwargs: pytest.fail("tail watermark must use Delta log candidate files"),
-    )
-
-    watermarks = foundation_module.compute_raw_watermarks_spark_delta(
-        table_path=raw_table_path,
-        keys={("FUT_BR", "1m", 1, "BRQ6")},
-        min_ts_close_utc="2026-06-07T20:47:59Z",
-    )
-
-    assert watermarks == {("FUT_BR", "1m", 1, "BRQ6"): "2026-06-08T20:49:59Z"}
-
-
-def test_baseline_raw_tail_ingest_uses_delta_rs_without_spark_and_is_idempotent(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    raw_table_path = tmp_path / "raw" / "moex" / "baseline-4y-current" / "raw_moex_history.delta"
-    write_delta_table_rows(
-        table_path=raw_table_path,
-        rows=[
-            _raw_row(ts_open="2026-04-01T07:00:00Z", ts_close="2026-04-01T07:09:59Z", close=100.5),
-        ],
-        columns=RAW_COLUMNS,
-    )
     coverage = [
         DiscoveryRecord(
             internal_id="FUT_BR",
@@ -1356,67 +1314,70 @@ def test_baseline_raw_tail_ingest_uses_delta_rs_without_spark_and_is_idempotent(
         )
     ]
 
-    import trading_advisor_3000.spark_jobs.moex_raw_ingest_job as spark_raw_module
+    import trading_advisor_3000.product_plane.data_plane.moex.foundation as foundation_module
+
+    captured: dict[str, object] = {}
+
+    def _fake_compute_raw_watermarks_spark_delta(**kwargs):
+        assert kwargs["keys"] == {("FUT_BR", "1m", "BRQ6")}
+        return {("FUT_BR", "1m", "BRQ6"): "2026-04-01T07:09:59Z"}
+
+    def _fake_run_moex_raw_ingest_spark_delta_job(**kwargs):
+        captured.update(kwargs)
+        source_rows_path = kwargs["source_rows_path"]
+        source_rows = [
+            line
+            for line in source_rows_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        return {
+            "status": "PASS",
+            "source_rows": len(source_rows),
+            "incremental_rows": len(source_rows),
+            "deduplicated_rows": 0,
+            "stale_rows": 0,
+            "watermark_by_key": {"FUT_BR|1m|BRQ6": "2026-04-01T07:29:59Z"},
+            "changed_windows": [],
+        }
 
     monkeypatch.setattr(
-        spark_raw_module,
+        foundation_module,
         "compute_raw_watermarks_spark_delta",
-        lambda **_kwargs: pytest.fail("tail watermark must not start Spark"),
+        _fake_compute_raw_watermarks_spark_delta,
     )
     monkeypatch.setattr(
-        spark_raw_module,
+        foundation_module,
         "run_moex_raw_ingest_spark_delta_job",
-        lambda **_kwargs: pytest.fail("tail raw ingest must not start Spark"),
+        _fake_run_moex_raw_ingest_spark_delta_job,
     )
 
-    first_report = ingest_moex_baseline_window(
+    report = ingest_moex_baseline_window(
         client=_BaselineWindowClient(),
         coverage=coverage,
         table_path=raw_table_path,
-        run_id="baseline-delta-rs-first",
+        run_id="baseline-spark-tail",
         ingest_till_utc="2026-04-01T07:29:59Z",
         refresh_window_days=1,
         stability_lag_minutes=0,
         refresh_overlap_minutes=20,
     )
-    rows_after_first = read_filtered_delta_table_rows(
-        raw_table_path,
-        filters=[
-            ("internal_id", "=", "FUT_BR"),
-            ("timeframe", "=", "1m"),
-            ("source_interval", "=", 1),
-            ("moex_secid", "=", "BRQ6"),
-        ],
-    )
 
-    second_report = ingest_moex_baseline_window(
-        client=_BaselineWindowClient(),
-        coverage=coverage,
-        table_path=raw_table_path,
-        run_id="baseline-delta-rs-second",
-        ingest_till_utc="2026-04-01T07:29:59Z",
-        refresh_window_days=1,
-        stability_lag_minutes=0,
-        refresh_overlap_minutes=20,
-    )
-    rows_after_second = read_filtered_delta_table_rows(
-        raw_table_path,
-        filters=[
-            ("internal_id", "=", "FUT_BR"),
-            ("timeframe", "=", "1m"),
-            ("source_interval", "=", 1),
-            ("moex_secid", "=", "BRQ6"),
-        ],
-    )
-
-    assert first_report["status"] == "PASS"
-    assert first_report["source_rows"] == 3
-    assert first_report["incremental_rows"] > 0
-    assert len(rows_after_first) == 3
-    assert second_report["status"] == "PASS-NOOP"
-    assert second_report["source_rows"] == 0
-    assert second_report["incremental_rows"] == 0
-    assert rows_after_second == rows_after_first
+    assert report["status"] == "PASS"
+    assert report["source_rows"] == 3
+    assert captured["table_path"] == raw_table_path
+    assert captured["initial_watermarks"] == {("FUT_BR", "1m", "BRQ6"): "2026-04-01T07:09:59Z"}
+    assert captured["refresh_overlap_minutes"] == 20
+    assert captured["window_scopes"] == [
+        {
+            "internal_id": "FUT_BR",
+            "timeframe": "1m",
+            "source_interval": 1,
+            "moex_secid": "BRQ6",
+            "window_start_utc": "2026-04-01T06:49:59Z",
+            "window_end_utc": "2026-04-01T07:29:59Z",
+            "watermark_utc": "2026-04-01T07:09:59Z",
+        }
+    ]
 
 
 def test_baseline_raw_tail_noop_skips_fetch_and_reconcile(
@@ -1462,6 +1423,11 @@ def test_baseline_raw_tail_noop_skips_fetch_and_reconcile(
 
     monkeypatch.setattr(
         foundation_module,
+        "compute_raw_watermarks_spark_delta",
+        lambda **_kwargs: {("FUT_BR", "1m", "BRQ6"): "2026-04-01T07:19:59Z"},
+    )
+    monkeypatch.setattr(
+        foundation_module,
         "run_moex_raw_ingest_spark_delta_job",
         lambda **_kwargs: pytest.fail("noop tail must not enter raw reconcile"),
     )
@@ -1486,7 +1452,7 @@ def test_baseline_raw_tail_noop_skips_fetch_and_reconcile(
     assert report["source_rows"] == 0
     assert report["incremental_rows"] == 0
     assert report["changed_windows"] == []
-    assert report["watermark_by_key"] == {"FUT_BR|1m|1|BRQ6": "2026-04-01T07:19:59Z"}
+    assert report["watermark_by_key"] == {"FUT_BR|1m|BRQ6": "2026-04-01T07:19:59Z"}
     assert "noop_reason" in progress_path.read_text(encoding="utf-8")
 
 
@@ -1531,6 +1497,11 @@ def test_baseline_raw_tail_skips_single_missing_source_interval_gap(
 
     import trading_advisor_3000.product_plane.data_plane.moex.foundation as foundation_module
 
+    monkeypatch.setattr(
+        foundation_module,
+        "compute_raw_watermarks_spark_delta",
+        lambda **_kwargs: {("FUT_BR", "1m", "BRQ6"): "2026-04-01T07:19:59Z"},
+    )
     monkeypatch.setattr(
         foundation_module,
         "run_moex_raw_ingest_spark_delta_job",
@@ -1599,6 +1570,11 @@ def test_baseline_raw_tail_skips_short_sparse_trade_gap(
 
     import trading_advisor_3000.product_plane.data_plane.moex.foundation as foundation_module
 
+    monkeypatch.setattr(
+        foundation_module,
+        "compute_raw_watermarks_spark_delta",
+        lambda **_kwargs: {("FUT_BR", "1m", "BRQ6"): "2026-04-01T07:19:59Z"},
+    )
     monkeypatch.setattr(
         foundation_module,
         "run_moex_raw_ingest_spark_delta_job",
@@ -1838,7 +1814,7 @@ def test_baseline_raw_window_updates_only_scoped_rows_without_full_table_read(
 
     def _spark_watermarks(**kwargs):
         captured["watermark_kwargs"] = kwargs
-        return {("FUT_BR", "1m", 1, "BRQ6"): "2026-04-01T07:19:59Z"}
+        return {("FUT_BR", "1m", "BRQ6"): "2026-04-01T07:19:59Z"}
 
     def _spark_raw_ingest(**kwargs):
         captured["spark_ingest_kwargs"] = kwargs
@@ -1918,7 +1894,7 @@ def test_baseline_raw_window_updates_only_scoped_rows_without_full_table_read(
 
     assert report["incremental_rows"] == 2
     assert report["deduplicated_rows"] == 1
-    assert captured["watermark_kwargs"]["keys"] == {("FUT_BR", "1m", 1, "BRQ6")}
+    assert captured["watermark_kwargs"]["keys"] == {("FUT_BR", "1m", "BRQ6")}
     spark_kwargs = captured["spark_ingest_kwargs"]
     assert spark_kwargs["table_path"] == raw_table_path
     assert spark_kwargs["source_rows_path"].name == "baseline-scoped-source-rows.jsonl"
@@ -1976,7 +1952,7 @@ def test_baseline_raw_window_skips_completed_watermark_even_with_overlap(
     monkeypatch.setattr(
         foundation_module,
         "compute_raw_watermarks_spark_delta",
-        lambda **_kwargs: {("FUT_BR", "1m", 1, "BRQ6"): "2026-04-01T08:00:00Z"},
+        lambda **_kwargs: {("FUT_BR", "1m", "BRQ6"): "2026-04-01T08:00:00Z"},
     )
 
     monkeypatch.setattr(
@@ -2039,7 +2015,7 @@ def test_bootstrap_raw_window_uses_spark_delta_hot_table_runtime(
 
     def _spark_watermarks(**kwargs):
         captured["watermark_kwargs"] = kwargs
-        return {("FUT_BR", "1m", 1, "BRQ6"): "2026-04-01T07:19:59Z"}
+        return {("FUT_BR", "1m", "BRQ6"): "2026-04-01T07:19:59Z"}
 
     def _spark_raw_ingest(**kwargs):
         captured["spark_ingest_kwargs"] = kwargs
@@ -2119,7 +2095,7 @@ def test_bootstrap_raw_window_uses_spark_delta_hot_table_runtime(
 
     assert report["incremental_rows"] == 2
     assert report["deduplicated_rows"] == 1
-    assert captured["watermark_kwargs"]["keys"] == {("FUT_BR", "1m", 1, "BRQ6")}
+    assert captured["watermark_kwargs"]["keys"] == {("FUT_BR", "1m", "BRQ6")}
     spark_kwargs = captured["spark_ingest_kwargs"]
     assert spark_kwargs["table_path"] == raw_table_path
     assert spark_kwargs["source_rows_path"].name == "bootstrap-scoped-source-rows.jsonl"

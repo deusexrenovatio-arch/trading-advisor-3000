@@ -16,8 +16,9 @@ from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contrac
 from .canonical_bars_job import DEFAULT_SPARK_MASTER, _create_spark_session, _load_spark_modules
 
 LOGGER = logging.getLogger(__name__)
-KEY_SCOPE_COLUMNS = ("internal_id", "timeframe", "source_interval", "moex_secid")
+KEY_SCOPE_COLUMNS = ("internal_id", "timeframe", "moex_secid")
 RAW_KEY_COLUMNS = KEY_SCOPE_COLUMNS + ("ts_open", "ts_close")
+SCOPE_DETAIL_COLUMNS = ("internal_id", "timeframe", "source_interval", "moex_secid")
 RAW_SOURCE_TIMESTAMP_COLUMNS = ("ts_open", "ts_close")
 RAW_PROVIDER_METADATA_COLUMNS = (
     "finam_symbol",
@@ -30,6 +31,11 @@ RAW_PROVIDER_METADATA_COLUMNS = (
 RAW_VALUE_COLUMNS = ("open", "high", "low", "close", "volume", "open_interest")
 RAW_FINGERPRINT_COLUMNS = RAW_KEY_COLUMNS + RAW_PROVIDER_METADATA_COLUMNS + RAW_VALUE_COLUMNS
 RECONCILE_WINDOW_COLUMNS = KEY_SCOPE_COLUMNS + ("_window_start_utc", "_window_end_utc")
+CHANGED_WINDOW_COLUMNS = SCOPE_DETAIL_COLUMNS + ("_window_start_utc", "_window_end_utc")
+RAW_LAYOUT_COLUMNS = {"ts_close_year": "int"}
+RAW_STORAGE_COLUMNS = dict(RAW_COLUMNS)
+RAW_STORAGE_COLUMNS.update(RAW_LAYOUT_COLUMNS)
+RAW_LAYOUT_PARTITION_COLUMNS = ("ts_close_year",)
 _NULL_FINGERPRINT_TOKEN = "__TA3000_NULL__"
 _VOLATILE_PROVENANCE_KEYS = (
     "run_id",
@@ -72,6 +78,12 @@ def _to_iso_utc(value: object) -> str:
     return parsed.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
+def _to_spark_collected_iso_utc(value: object) -> str:
+    if isinstance(value, datetime) and value.tzinfo is None:
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+    return _to_iso_utc(value)
+
+
 def _spark_type(types_module: Any, type_name: str) -> Any:
     normalized = type_name.strip().lower()
     if normalized in {"string", "json"}:
@@ -97,12 +109,20 @@ def _raw_schema(types_module: Any, *, include_source_order: bool = False) -> Any
     return types_module.StructType(fields)
 
 
+def _raw_storage_schema(types_module: Any) -> Any:
+    return types_module.StructType(
+        [
+            types_module.StructField(column, _spark_type(types_module, type_name), True)
+            for column, type_name in RAW_STORAGE_COLUMNS.items()
+        ]
+    )
+
+
 def _key_schema(types_module: Any) -> Any:
     return types_module.StructType(
         [
             types_module.StructField("internal_id", types_module.StringType(), False),
             types_module.StructField("timeframe", types_module.StringType(), False),
-            types_module.StructField("source_interval", types_module.IntegerType(), False),
             types_module.StructField("moex_secid", types_module.StringType(), False),
         ]
     )
@@ -110,8 +130,11 @@ def _key_schema(types_module: Any) -> Any:
 
 def _scope_schema(types_module: Any) -> Any:
     return types_module.StructType(
-        list(_key_schema(types_module).fields)
-        + [
+        [
+            types_module.StructField("internal_id", types_module.StringType(), False),
+            types_module.StructField("timeframe", types_module.StringType(), False),
+            types_module.StructField("source_interval", types_module.IntegerType(), False),
+            types_module.StructField("moex_secid", types_module.StringType(), False),
             types_module.StructField("window_start_utc", types_module.TimestampType(), False),
             types_module.StructField("window_end_utc", types_module.TimestampType(), False),
             types_module.StructField("watermark_utc", types_module.TimestampType(), True),
@@ -142,22 +165,41 @@ def _normalize_raw_row(row: Mapping[str, Any], source_order: int) -> dict[str, o
     return normalized
 
 
+def _raw_target_uses_layout(spark: Any, table_path: Path) -> bool:
+    if not has_delta_log(table_path):
+        return True
+    existing_columns = set(spark.read.format("delta").load(str(table_path)).columns)
+    return set(RAW_LAYOUT_COLUMNS).issubset(existing_columns)
+
+
+def _with_raw_layout_columns(dataframe: Any, functions: Any) -> Any:
+    return dataframe.select(
+        *[functions.col(column).alias(column) for column in RAW_COLUMNS],
+        functions.year(functions.col("ts_close")).alias("ts_close_year"),
+    )
+
+
+def _storage_frame(dataframe: Any, functions: Any, *, include_layout: bool) -> Any:
+    if include_layout:
+        return _with_raw_layout_columns(dataframe, functions)
+    return dataframe.select(*RAW_COLUMNS)
+
+
 def _normalize_scope(
     scope: Mapping[str, Any],
-    initial_watermarks: Mapping[tuple[str, str, int, str], str],
+    initial_watermarks: Mapping[tuple[str, str, str], str],
 ) -> dict[str, object]:
     key = (
         str(scope["internal_id"]),
         str(scope["timeframe"]),
-        int(scope["source_interval"]),
         str(scope["moex_secid"]),
     )
     watermark = scope.get("watermark_utc") or initial_watermarks.get(key)
     return {
         "internal_id": key[0],
         "timeframe": key[1],
-        "source_interval": key[2],
-        "moex_secid": key[3],
+        "source_interval": int(scope["source_interval"]),
+        "moex_secid": key[2],
         "window_start_utc": _parse_iso_utc(scope["window_start_utc"]),
         "window_end_utc": _parse_iso_utc(scope["window_end_utc"]),
         "watermark_utc": _parse_iso_utc(watermark),
@@ -183,10 +225,10 @@ def _raw_fingerprint_expr(functions: Any, *, prefix: str = "") -> Any:
     provenance_column = f"{prefix}provenance_json"
     stable_provenance = functions.coalesce(
         functions.expr(
-            "to_json(map_filter("
+            "to_json(map_from_entries(array_sort(map_entries(map_filter("
             f"from_json({provenance_column}, 'map<string,string>'), "
             f"(k, v) -> NOT array_contains(array({volatile_keys}), k)"
-            "))"
+            ")))))"
         ),
         functions.lit(_NULL_FINGERPRINT_TOKEN),
     ).alias("provenance_json")
@@ -210,10 +252,10 @@ def _raw_fingerprint_expr(functions: Any, *, prefix: str = "") -> Any:
 def compute_raw_watermarks_spark_delta(
     *,
     table_path: Path,
-    keys: set[tuple[str, str, int, str]],
+    keys: set[tuple[str, str, str]],
     spark_master: str = DEFAULT_SPARK_MASTER,
     spark_session_factory: Callable[[str, str], object] | None = None,
-) -> dict[tuple[str, str, int, str], str]:
+) -> dict[tuple[str, str, str], str]:
     if not keys or not has_delta_log(table_path):
         return {}
 
@@ -228,10 +270,9 @@ def compute_raw_watermarks_spark_delta(
             {
                 "internal_id": internal_id,
                 "timeframe": timeframe,
-                "source_interval": int(source_interval),
                 "moex_secid": moex_secid,
             }
-            for internal_id, timeframe, source_interval, moex_secid in sorted(keys)
+            for internal_id, timeframe, moex_secid in sorted(keys)
         ]
         keys_df = spark.createDataFrame(key_rows, schema=_key_schema(spark_types))
         raw_df = spark.read.format("delta").load(str(table_path))
@@ -244,9 +285,8 @@ def compute_raw_watermarks_spark_delta(
             (
                 str(row["internal_id"]),
                 str(row["timeframe"]),
-                int(row["source_interval"]),
                 str(row["moex_secid"]),
-            ): _to_iso_utc(row["ts_close"])
+            ): _to_spark_collected_iso_utc(row["ts_close"])
             for row in watermark_df.collect()
             if row["ts_close"] is not None
         }
@@ -257,8 +297,49 @@ def compute_raw_watermarks_spark_delta(
             LOGGER.debug("Spark session cleanup failed: %s", cleanup_exc)
 
 
-def _filtered_raw_by_scopes(raw_df: Any, scopes_df: Any, functions: Any) -> Any:
-    raw = raw_df.alias("raw")
+def _scope_pushdown_condition(scopes: list[Mapping[str, Any]]) -> str:
+    parts: list[str] = []
+    for scope in scopes:
+        start = _to_spark_collected_iso_utc(scope.get("window_start_utc"))
+        end = _to_spark_collected_iso_utc(scope.get("window_end_utc"))
+        if not start or not end:
+            continue
+        parts.append(
+            "("
+            + " AND ".join(
+                [
+                    f"internal_id = {_sql_string_literal(scope['internal_id'])}",
+                    f"timeframe = {_sql_string_literal(scope['timeframe'])}",
+                    f"moex_secid = {_sql_string_literal(scope['moex_secid'])}",
+                    f"ts_close >= {_sql_string_literal(start)}",
+                    f"ts_close <= {_sql_string_literal(end)}",
+                ]
+            )
+            + ")"
+        )
+    return " OR ".join(parts)
+
+
+def _filtered_raw_by_scopes(
+    raw_df: Any,
+    scopes_df: Any,
+    functions: Any,
+    scope_rows: list[Mapping[str, Any]] | None = None,
+) -> Any:
+    if scope_rows is None:
+        scope_rows = [
+            row.asDict()
+            for row in scopes_df.select(
+                *KEY_SCOPE_COLUMNS,
+                "window_start_utc",
+                "window_end_utc",
+            )
+            .distinct()
+            .toLocalIterator()
+        ]
+    pushdown_condition = _scope_pushdown_condition(scope_rows)
+    filtered_raw_df = raw_df.where(pushdown_condition) if pushdown_condition else raw_df
+    raw = filtered_raw_df.alias("raw")
     scope = scopes_df.alias("scope")
     join_condition = [raw[column] == scope[column] for column in KEY_SCOPE_COLUMNS]
     return (
@@ -276,19 +357,17 @@ def _filtered_raw_by_scopes(raw_df: Any, scopes_df: Any, functions: Any) -> Any:
 
 
 def _collect_changed_windows(changed_raw_df: Any, functions: Any) -> list[dict[str, object]]:
-    grouped = changed_raw_df.groupBy(
-        *KEY_SCOPE_COLUMNS,
-        "_window_start_utc",
-        "_window_end_utc",
-    ).agg(functions.count(functions.lit(1)).alias("incremental_rows"))
+    grouped = changed_raw_df.groupBy(*CHANGED_WINDOW_COLUMNS).agg(
+        functions.count(functions.lit(1)).alias("incremental_rows")
+    )
     return [
         {
             "internal_id": str(row["internal_id"]),
             "source_timeframe": str(row["timeframe"]),
             "source_interval": int(row["source_interval"]),
             "moex_secid": str(row["moex_secid"]),
-            "window_start_utc": _to_iso_utc(row["_window_start_utc"]),
-            "window_end_utc": _to_iso_utc(row["_window_end_utc"]),
+            "window_start_utc": _to_spark_collected_iso_utc(row["_window_start_utc"]),
+            "window_end_utc": _to_spark_collected_iso_utc(row["_window_end_utc"]),
             "incremental_rows": int(row["incremental_rows"]),
         }
         for row in grouped.collect()
@@ -307,13 +386,53 @@ def _collect_post_watermarks(*, raw_df: Any, keys_df: Any, functions: Any) -> di
             (
                 str(row["internal_id"]),
                 str(row["timeframe"]),
-                str(row["source_interval"]),
                 str(row["moex_secid"]),
             )
-        ): _to_iso_utc(row["ts_close"])
+        ): _to_spark_collected_iso_utc(row["ts_close"])
         for row in watermark_df.collect()
         if row["ts_close"] is not None
     }
+
+
+def _collect_tail_append_watermarks(
+    *,
+    append_source_df: Any,
+    scope_payload: list[Mapping[str, object]],
+    functions: Any,
+) -> dict[str, str]:
+    watermark_by_key: dict[str, str] = {}
+    for scope in scope_payload:
+        watermark = _to_iso_utc(scope.get("watermark_utc"))
+        if not watermark:
+            continue
+        watermark_by_key[
+            "|".join(
+                (
+                    str(scope["internal_id"]),
+                    str(scope["timeframe"]),
+                    str(scope["moex_secid"]),
+                )
+            )
+        ] = watermark
+
+    source_watermarks_df = append_source_df.groupBy(*KEY_SCOPE_COLUMNS).agg(
+        functions.max("ts_close").alias("ts_close")
+    )
+    for row in source_watermarks_df.collect():
+        ts_close = _to_spark_collected_iso_utc(row["ts_close"])
+        if not ts_close:
+            continue
+        key = "|".join(
+            (
+                str(row["internal_id"]),
+                str(row["timeframe"]),
+                str(row["moex_secid"]),
+            )
+        )
+        current = watermark_by_key.get(key)
+        if current is None or ts_close > current:
+            watermark_by_key[key] = ts_close
+    return watermark_by_key
 
 
 def run_moex_raw_ingest_spark_delta_job(
@@ -322,7 +441,7 @@ def run_moex_raw_ingest_spark_delta_job(
     source_rows: list[Mapping[str, Any]] | None = None,
     source_rows_path: Path | None = None,
     window_scopes: list[Mapping[str, Any]],
-    initial_watermarks: Mapping[tuple[str, str, int, str], str],
+    initial_watermarks: Mapping[tuple[str, str, str], str],
     run_id: str,
     ingest_till_utc: str,
     refresh_overlap_minutes: int,
@@ -367,26 +486,35 @@ def run_moex_raw_ingest_spark_delta_job(
             ]
             source_df = spark.createDataFrame(source_payload, schema=source_schema).cache()
         scopes_df = spark.createDataFrame(scope_payload, schema=_scope_schema(spark_types)).cache()
-        keys_df = scopes_df.select(*KEY_SCOPE_COLUMNS).distinct().cache()
+        scope_windows_df = (
+            scopes_df.select(
+                *KEY_SCOPE_COLUMNS,
+                "window_start_utc",
+                "window_end_utc",
+                "watermark_utc",
+            )
+            .distinct()
+            .cache()
+        )
+        keys_df = scope_windows_df.select(*KEY_SCOPE_COLUMNS).distinct().cache()
         source_rows_count = int(source_df.count())
         table_exists = has_delta_log(table_path)
+        target_uses_layout = _raw_target_uses_layout(spark, table_path)
 
         if source_rows_count == 0 and not table_exists:
             table_path.parent.mkdir(parents=True, exist_ok=True)
-            spark.createDataFrame([], schema=raw_schema).write.format("delta").mode(
-                "overwrite"
-            ).save(str(table_path))
+            (
+                spark.createDataFrame([], schema=_raw_storage_schema(spark_types))
+                .write.format("delta")
+                .mode("overwrite")
+                .option("overwriteSchema", "true")
+                .partitionBy(*RAW_LAYOUT_PARTITION_COLUMNS)
+                .save(str(table_path))
+            )
             table_exists = True
+            target_uses_layout = True
 
         if source_rows_count == 0 and not scope_payload:
-            raw_after_df = (
-                spark.read.format("delta").load(str(table_path)) if table_exists else source_df
-            )
-            watermark_by_key = (
-                _collect_post_watermarks(raw_df=raw_after_df, keys_df=keys_df, functions=functions)
-                if scope_payload
-                else {}
-            )
             report = build_raw_ingest_run_report_v2(
                 run_id=run_id,
                 ingest_till_utc=ingest_till_utc,
@@ -394,7 +522,7 @@ def run_moex_raw_ingest_spark_delta_job(
                 incremental_rows=0,
                 deduplicated_rows=0,
                 stale_rows=0,
-                watermark_by_key=watermark_by_key,
+                watermark_by_key={},
                 raw_table_path=table_path.as_posix(),
                 raw_ingest_progress_path=progress_path.as_posix(),
                 raw_ingest_error_path=error_path.as_posix(),
@@ -442,7 +570,7 @@ def run_moex_raw_ingest_spark_delta_job(
             | within_overlap
         )
         source_scope_candidates = unique_source.join(
-            scopes_df, list(KEY_SCOPE_COLUMNS), "left"
+            scope_windows_df, list(KEY_SCOPE_COLUMNS), "left"
         ).cache()
         source_with_scope = source_scope_candidates.where(
             functions.col("window_start_utc").isNotNull()
@@ -469,10 +597,26 @@ def run_moex_raw_ingest_spark_delta_job(
         )
         eligible_source_count = int(eligible_source_with_scope.count())
         stale_rows = unique_source_count - eligible_source_count
+        tail_append_only = table_exists and refresh_overlap_minutes == 0 and bool(scope_payload)
 
-        if table_exists:
+        if tail_append_only:
+            changed_source_df = eligible_source_with_scope.select(
+                *RAW_COLUMNS,
+                "_window_start_utc",
+                "_window_end_utc",
+            ).cache()
+            changed_window_events_df = changed_source_df.select(*CHANGED_WINDOW_COLUMNS).cache()
+            append_source_df = changed_source_df.select(*RAW_COLUMNS).cache()
+            replacement_source_df = append_source_df
+            target_missing_rows = 0
+        elif table_exists and not tail_append_only:
             raw_existing = spark.read.format("delta").load(str(table_path))
-            baseline_scoped = _filtered_raw_by_scopes(raw_existing, scopes_df, functions).cache()
+            baseline_scoped = _filtered_raw_by_scopes(
+                raw_existing,
+                scope_windows_df,
+                functions,
+                scope_payload,
+            ).cache()
             baseline_compare = (
                 baseline_scoped.withColumn(
                     "_target_fingerprint_sha256",
@@ -505,8 +649,8 @@ def run_moex_raw_ingest_spark_delta_job(
                 .cache()
             )
             changed_window_events_df = (
-                changed_source_df.select(*RECONCILE_WINDOW_COLUMNS)
-                .unionByName(target_missing_raw_df.select(*RECONCILE_WINDOW_COLUMNS))
+                changed_source_df.select(*CHANGED_WINDOW_COLUMNS)
+                .unionByName(target_missing_raw_df.select(*CHANGED_WINDOW_COLUMNS))
                 .cache()
             )
             windows_to_reconcile_df = (
@@ -528,7 +672,7 @@ def run_moex_raw_ingest_spark_delta_job(
                 "_window_start_utc",
                 "_window_end_utc",
             ).cache()
-            changed_window_events_df = changed_source_df.select(*RECONCILE_WINDOW_COLUMNS).cache()
+            changed_window_events_df = changed_source_df.select(*CHANGED_WINDOW_COLUMNS).cache()
             windows_to_reconcile_df = (
                 changed_window_events_df.select(*RECONCILE_WINDOW_COLUMNS).distinct().cache()
             )
@@ -543,16 +687,35 @@ def run_moex_raw_ingest_spark_delta_job(
 
         table_path.parent.mkdir(parents=True, exist_ok=True)
         if not table_exists:
-            replacement_source_df.select(*RAW_COLUMNS).write.format("delta").mode("overwrite").save(
-                str(table_path)
+            (
+                _storage_frame(replacement_source_df, functions, include_layout=True)
+                .write.format("delta")
+                .mode("overwrite")
+                .option("overwriteSchema", "true")
+                .partitionBy(*RAW_LAYOUT_PARTITION_COLUMNS)
+                .save(str(table_path))
             )
+        elif tail_append_only:
+            if changed_source_rows > 0:
+                _storage_frame(
+                    append_source_df,
+                    functions,
+                    include_layout=target_uses_layout,
+                ).write.format("delta").mode("append").save(str(table_path))
         elif incremental_rows > 0:
-            upsert_action_df = replacement_source_df.select(*RAW_COLUMNS).withColumn(
-                "_raw_reconcile_action", functions.lit("upsert")
+            merge_value_columns = (
+                tuple(RAW_STORAGE_COLUMNS) if target_uses_layout else tuple(RAW_COLUMNS)
             )
-            delete_action_df = target_missing_raw_df.select(*RAW_COLUMNS).withColumn(
-                "_raw_reconcile_action", functions.lit("delete")
-            )
+            upsert_action_df = _storage_frame(
+                replacement_source_df,
+                functions,
+                include_layout=target_uses_layout,
+            ).withColumn("_raw_reconcile_action", functions.lit("upsert"))
+            delete_action_df = _storage_frame(
+                target_missing_raw_df,
+                functions,
+                include_layout=target_uses_layout,
+            ).withColumn("_raw_reconcile_action", functions.lit("delete"))
             reconcile_action_df = (
                 upsert_action_df.unionByName(delete_action_df)
                 .dropDuplicates(list(RAW_KEY_COLUMNS) + ["_raw_reconcile_action"])
@@ -572,21 +735,28 @@ def run_moex_raw_ingest_spark_delta_job(
                 .whenMatchedDelete(condition="source._raw_reconcile_action = 'delete'")
                 .whenMatchedUpdate(
                     condition=upsert_condition,
-                    set={column: f"source.{column}" for column in RAW_COLUMNS},
+                    set={column: f"source.{column}" for column in merge_value_columns},
                 )
                 .whenNotMatchedInsert(
                     condition=upsert_condition,
-                    values={column: f"source.{column}" for column in RAW_COLUMNS},
+                    values={column: f"source.{column}" for column in merge_value_columns},
                 )
                 .execute()
             )
 
-        raw_after_df = spark.read.format("delta").load(str(table_path))
-        watermark_by_key = _collect_post_watermarks(
-            raw_df=raw_after_df,
-            keys_df=keys_df,
-            functions=functions,
-        )
+        if tail_append_only:
+            watermark_by_key = _collect_tail_append_watermarks(
+                append_source_df=append_source_df,
+                scope_payload=scope_payload,
+                functions=functions,
+            )
+        else:
+            raw_after_df = spark.read.format("delta").load(str(table_path))
+            watermark_by_key = _collect_post_watermarks(
+                raw_df=raw_after_df,
+                keys_df=keys_df,
+                functions=functions,
+            )
         report = build_raw_ingest_run_report_v2(
             run_id=run_id,
             ingest_till_utc=ingest_till_utc,

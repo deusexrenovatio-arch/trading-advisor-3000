@@ -9,7 +9,16 @@ from trading_advisor_3000.spark_jobs import moex_raw_ingest_job
 
 def test_raw_ingest_fingerprint_contract_covers_source_metadata_and_provenance() -> None:
     fingerprint_columns = set(moex_raw_ingest_job.RAW_FINGERPRINT_COLUMNS)
+    fingerprint_source = inspect.getsource(moex_raw_ingest_job._raw_fingerprint_expr)
 
+    assert moex_raw_ingest_job.KEY_SCOPE_COLUMNS == ("internal_id", "timeframe", "moex_secid")
+    assert moex_raw_ingest_job.RAW_KEY_COLUMNS == (
+        "internal_id",
+        "timeframe",
+        "moex_secid",
+        "ts_open",
+        "ts_close",
+    )
     assert set(moex_raw_ingest_job.RAW_SOURCE_TIMESTAMP_COLUMNS) == {"ts_open", "ts_close"}
     for column in [
         "finam_symbol",
@@ -29,10 +38,12 @@ def test_raw_ingest_fingerprint_contract_covers_source_metadata_and_provenance()
 
     assert "ingest_run_id" not in fingerprint_columns
     assert "ingested_at_utc" not in fingerprint_columns
+    assert "map_from_entries(array_sort(map_entries(map_filter(" in fingerprint_source
 
 
 def test_raw_ingest_reconcile_uses_window_scoped_merge_transaction() -> None:
     source = inspect.getsource(moex_raw_ingest_job.run_moex_raw_ingest_spark_delta_job)
+    scoped_filter = inspect.getsource(moex_raw_ingest_job._filtered_raw_by_scopes)
 
     assert "source_rows_path" in source
     assert "FileNotFoundError" in source
@@ -49,33 +60,72 @@ def test_raw_ingest_reconcile_uses_window_scoped_merge_transaction() -> None:
     assert "toLocalIterator()" not in source
     assert ".whenNotMatchedBySourceDelete(" not in source
     assert ".delete(" not in source
-    assert '.mode("append")' not in source
     assert "windows_to_reconcile_df.collect()" not in source
     assert "windows_to_reconcile_df.toLocalIterator()" not in source
+    assert "_filtered_raw_by_scopes(" in source
+    assert "raw_existing," in source
+    assert "scope_windows_df," in source
+    assert "scope_payload," in source
+    assert "scope_rows: list[Mapping[str, Any]] | None = None" in scoped_filter
+    assert "_scope_pushdown_condition" in scoped_filter
 
 
-def test_delta_rs_raw_reconcile_uses_action_merge_not_window_predicates() -> None:
-    route_source = inspect.getsource(foundation.run_moex_raw_ingest_delta_rs_job)
-    merge_source = inspect.getsource(foundation._merge_raw_reconcile_delta_rs)
-    table_source = inspect.getsource(foundation._raw_reconcile_action_table)
-    source = route_source + merge_source + table_source
+def test_raw_ingest_tail_catchup_uses_spark_append_without_target_reconcile() -> None:
+    source = inspect.getsource(moex_raw_ingest_job.run_moex_raw_ingest_spark_delta_job)
 
-    assert "_raw_reconcile_action" in source
-    assert "_merge_raw_reconcile_delta_rs(" in route_source
-    assert ".merge(" in source
-    assert ".when_matched_delete(" in source
-    assert ".when_matched_update(" in source
-    assert ".when_not_matched_insert(" in source
-    assert "delete_delta_table_rows(" not in route_source
-    assert "_raw_window_delete_predicate" not in route_source
-    assert "append_delta_table_rows(" not in route_source
+    assert "tail_append_only" in source
+    assert "refresh_overlap_minutes == 0" in source
+    assert "and bool(scope_payload)" in source
+    assert 'all(scope.get("watermark_utc") is not None for scope in scope_payload)' not in source
+    assert "_storage_frame(" in source
+    assert "include_layout=target_uses_layout" in source
+    assert '.mode("append")' in source
+    assert ".save(str(table_path))" in source
+    assert "watermark_by_key = _collect_tail_append_watermarks(" in source
+    assert "elif table_exists and not tail_append_only:" in source
 
 
-def test_raw_ingest_watermark_keys_include_source_interval() -> None:
+def test_foundation_raw_delta_mutation_delegates_to_spark_job() -> None:
+    source = inspect.getsource(foundation.run_moex_raw_ingest_spark_delta_job)
+    baseline_source = inspect.getsource(foundation.ingest_moex_baseline_window)
+    bootstrap_source = inspect.getsource(foundation.ingest_moex_bootstrap_window)
+
+    assert "trading_advisor_3000.spark_jobs.moex_raw_ingest_job" in source
+    assert "_run_moex_raw_ingest_spark_delta_job(**kwargs)" in source
+    for inspected in (source, baseline_source, bootstrap_source):
+        assert "deltalake" not in inspected
+        assert "write_delta_table_rows" not in inspected
+        assert "DeltaTable" not in inspected
+
+
+def test_raw_ingest_scope_pushdown_uses_literal_window_predicates() -> None:
+    condition = moex_raw_ingest_job._scope_pushdown_condition(
+        [
+            {
+                "internal_id": "FUT_WHEAT",
+                "timeframe": "1m",
+                "source_interval": 1,
+                "moex_secid": "W4M6",
+                "window_start_utc": "2026-06-08T20:40:00Z",
+                "window_end_utc": "2026-06-09T20:40:00Z",
+            }
+        ]
+    )
+
+    assert "internal_id = 'FUT_WHEAT'" in condition
+    assert "timeframe = '1m'" in condition
+    assert "source_interval" not in condition
+    assert "moex_secid = 'W4M6'" in condition
+    assert "ts_close >= '2026-06-08T20:40:00Z'" in condition
+    assert "ts_close <= '2026-06-09T20:40:00Z'" in condition
+    assert "TIMESTAMP" not in condition
+
+
+def test_raw_ingest_watermark_keys_exclude_source_interval() -> None:
     source = inspect.getsource(moex_raw_ingest_job._collect_post_watermarks)
 
     assert "KEY_SCOPE_COLUMNS" in source
-    assert 'row["source_interval"]' in source
+    assert 'row["source_interval"]' not in source
 
 
 def test_raw_ingest_timestamp_parser_keeps_utc_for_spark_scope_values() -> None:
