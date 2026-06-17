@@ -727,8 +727,8 @@ def _compute_watermarks(rows: list[dict[str, Any]]) -> dict[tuple[str, str, str]
     return watermarks
 
 
-def _watermark_key_for_discovery(row: DiscoveryRecord) -> tuple[str, str, int, str]:
-    return (row.internal_id, row.source_timeframe, row.source_interval, row.moex_secid)
+def _watermark_key_for_discovery(row: DiscoveryRecord) -> tuple[str, str, str]:
+    return (row.internal_id, row.source_timeframe, row.moex_secid)
 
 
 def _raw_scope_key(row: Mapping[str, Any]) -> tuple[str, str, int, str]:
@@ -1170,14 +1170,18 @@ def _collect_changed_windows_delta_rs(rows: list[Mapping[str, Any]]) -> list[dic
 
 
 def _raw_report_watermarks(
-    watermarks: Mapping[tuple[str, str, int, str], str],
+    watermarks: Mapping[tuple[str, ...], str],
 ) -> dict[str, str]:
-    return {
-        "|".join((internal_id, timeframe, str(source_interval), moex_secid)): watermark
-        for (internal_id, timeframe, source_interval, moex_secid), watermark in sorted(
-            watermarks.items()
-        )
-    }
+    report: dict[str, str] = {}
+    for key, watermark in sorted(watermarks.items()):
+        if len(key) == 4:
+            internal_id, timeframe, _source_interval, moex_secid = key
+        elif len(key) == 3:
+            internal_id, timeframe, moex_secid = key
+        else:
+            raise ValueError(f"unsupported raw watermark key shape: {key!r}")
+        report["|".join((internal_id, timeframe, moex_secid))] = watermark
+    return report
 
 
 def _strip_raw_internal_columns(row: Mapping[str, Any]) -> dict[str, object]:
@@ -1449,10 +1453,14 @@ def run_moex_raw_ingest_delta_rs_job(
 def compute_raw_watermarks_spark_delta(
     *,
     table_path: Path,
-    keys: set[tuple[str, str, int, str]],
+    keys: set[tuple[str, str, str]],
     min_ts_close_utc: str | None = None,
-) -> dict[tuple[str, str, int, str], str]:
-    return _compute_raw_watermarks_delta_rs(
+) -> dict[tuple[str, str, str], str]:
+    from trading_advisor_3000.spark_jobs.moex_raw_ingest_job import (
+        compute_raw_watermarks_spark_delta as _compute_raw_watermarks_spark_delta,
+    )
+
+    return _compute_raw_watermarks_spark_delta(
         table_path=table_path,
         keys=keys,
         min_ts_close_utc=min_ts_close_utc,
@@ -1460,7 +1468,11 @@ def compute_raw_watermarks_spark_delta(
 
 
 def run_moex_raw_ingest_spark_delta_job(**kwargs: Any) -> dict[str, Any]:
-    return run_moex_raw_ingest_delta_rs_job(**kwargs)
+    from trading_advisor_3000.spark_jobs.moex_raw_ingest_job import (
+        run_moex_raw_ingest_spark_delta_job as _run_moex_raw_ingest_spark_delta_job,
+    )
+
+    return _run_moex_raw_ingest_spark_delta_job(**kwargs)
 
 
 def _raw_source_rows_stage_path(*, table_path: Path, run_id: str) -> Path:
@@ -1678,7 +1690,7 @@ def ingest_moex_baseline_window(
     if not window_scopes:
         progress_payload = {
             "run_id": run_id,
-            "runtime_owner": "delta_rs",
+            "runtime_owner": "spark_delta",
             "source_rows": 0,
             "incremental_rows": 0,
             "deduplicated_rows": 0,

@@ -53,6 +53,13 @@ powershell -ExecutionPolicy Bypass -File scripts/pin_moex_baseline_storage.ps1 `
 Raw root:
 - `raw_moex_history.delta`
 
+Raw Delta physical layout:
+- partition columns: `ts_close_year`
+- `ts_close_year` is a storage/layout column derived from `ts_close`
+- logical raw consumers must continue to key rows by `internal_id`, `timeframe`, `moex_secid`, `ts_open`, `ts_close`
+- `source_interval` remains a MOEX request/provenance column, not a raw identity or watermark key
+- daily Spark raw ingest writes the same partitioned layout after the migration is promoted
+
 Canonical root:
 - `baseline-manifest.json`
 - `README.md`
@@ -68,6 +75,37 @@ Derived root placeholders:
 - `indicators/`
 
 The retained baseline is materialized directly into the data root. It must not depend on junction-style links back to historical source runs.
+
+## Raw Layout Migration Procedure
+The raw layout migration is a one-time controlled Spark rewrite, not a second raw-ingest route.
+
+Stage the new layout into a migration run folder:
+
+```bash
+export TA3000_MOEX_HISTORICAL_DATA_ROOT=D:/TA3000-data/trading-advisor-3000-nightly
+
+python scripts/run_moex_raw_layout_migration.py stage \
+  --run-id 20260617T120000Z
+```
+
+The stage command:
+- reads the stable `raw_moex_history.delta`
+- writes `moex-raw-layout-migration/<run_id>/raw_moex_history.layout-staged.delta`
+- writes `raw-layout-migration-report.json`
+- fails closed unless row count, distinct raw key count, duplicate-key count, watermark comparison, schema, partition columns, file profile, and `_delta_log` checks pass
+
+Promote only after the report status is `PASS`:
+
+```bash
+python scripts/run_moex_raw_layout_migration.py promote \
+  --run-id 20260617T120000Z \
+  --staged-table-path D:/TA3000-data/trading-advisor-3000-nightly/moex-raw-layout-migration/20260617T120000Z/raw_moex_history.layout-staged.delta \
+  --report-path D:/TA3000-data/trading-advisor-3000-nightly/moex-raw-layout-migration/20260617T120000Z/raw-layout-migration-report.json
+```
+
+Promotion moves the current stable raw table to a backup path named like
+`raw_moex_history.pre-layout-<run_id>.delta`, then moves the staged table into the stable
+`raw_moex_history.delta` path. The backup is rollback material only; downstream readers must keep using the stable raw path.
 
 ## Consumer Rule
 Downstream readers must use these stable data-root paths:

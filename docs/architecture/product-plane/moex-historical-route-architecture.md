@@ -17,14 +17,14 @@ See also:
 - The active scheduled route is the baseline updater:
   - job: `moex_baseline_update_job`
   - schedule: `moex_baseline_daily_update_schedule`
-- The updater reads the baseline raw watermark, fetches a bounded daily window, appends/merges raw rows into the stable raw baseline, and Spark-refreshes only changed canonical windows into the stable canonical baseline.
+- The updater reads the baseline raw watermark, fetches a bounded daily window through Python MOEX extraction/staging, Spark-appends or Spark-reconciles raw rows into the stable raw baseline, and Spark-refreshes only changed canonical windows into the stable canonical baseline.
 - The previous candidate-refresh schedule `moex_historical_nightly_schedule` is not registered in active definitions.
 
 ## Design Principles
 1. There should be one obvious directional flow of historical data.
 2. Nightly refresh must ingest only delta plus controlled overlap, not the full 4-year horizon.
-3. Python should own external connector behavior, request chunking, retries, and source-specific quirks.
-4. Spark should own heavy canonical recompute and resampling.
+3. Python should own external connector behavior, request chunking, retries, source-specific quirks, and raw-row staging.
+4. Spark should own raw Delta mutation, heavy canonical recompute, and resampling.
 5. Dagster should own orchestration and refresh-window control.
 6. Runtime hot-path must remain independent from Spark.
 
@@ -40,8 +40,9 @@ flowchart LR
     E1["E1 MOEX ISS"]
     E2["E2 Dagster daily schedule"]
 
-    P1("P1 MOEX raw ingest job<br/>Python")
-    P2("P2 Canonical bars job<br/>Spark")
+    P1("P1 MOEX extraction + raw staging<br/>Python")
+    P2("P2 Raw Delta ingest job<br/>Spark")
+    P3("P3 Canonical bars job<br/>Spark")
 
     D1[("D1 Authoritative raw delta")]
     D2[("D2 Authoritative canonical delta")]
@@ -50,14 +51,16 @@ flowchart LR
     E2 -->|"refresh window + run parameters"| P1
     E1 -->|"coverage + candles"| P1
     D1 -->|"raw watermark + overlap anchor"| P1
-    P1 -->|"append / merge raw rows"| D1
-    P1 -->|"ingest report + request logs + changed windows"| D3
+    P1 -->|"staged raw rows + window scopes"| P2
+    P2 -->|"append / merge raw rows"| D1
+    P1 -->|"request logs"| D3
+    P2 -->|"ingest report + changed windows"| D3
 
-    E2 -->|"run canonical refresh for changed windows"| P2
-    D1 -->|"changed raw window"| P2
-    D3 -->|"changed window set"| P2
-    P2 -->|"append / merge canonical bars + provenance"| D2
-    P2 -->|"canonical report + QC result"| D3
+    E2 -->|"run canonical refresh for changed windows"| P3
+    D1 -->|"changed raw window"| P3
+    D3 -->|"changed window set"| P3
+    P3 -->|"append / merge canonical bars + provenance"| D2
+    P3 -->|"canonical report + QC result"| D3
 ```
 
 ### Current Live Broker State DFD
@@ -83,8 +86,9 @@ flowchart LR
 ```
 
 ## Decisions Applied In The DFD
-- `P1 MOEX raw ingest job`: Python keeps ownership of source-specific behavior: MOEX HTTP requests, retries, chunking, disconnect handling, overlap control, and watermark logic.
-- `P2 Canonical bars job`: Spark owns heavy recompute and resampling because this is batch compute, not connector logic.
+- `P1 MOEX extraction + raw staging`: Python keeps ownership of source-specific behavior: MOEX HTTP requests, retries, chunking, disconnect handling, window planning, and staged row production.
+- `P2 Raw Delta ingest job`: Spark owns raw Delta mutation: tail append, scoped overlap reconcile, Delta transaction evidence, and raw ingest report production.
+- `P3 Canonical bars job`: Spark owns heavy recompute and resampling because this is batch compute, not connector logic.
 - `D1 Authoritative raw delta`: the raw store is long-lived and incrementally extended; nightly is not allowed to rebuild it from scratch by default.
 - `D2 Authoritative canonical delta`: canonical is rebuilt only for the changed window set derived from raw refresh, then merged back.
 - `D3 Refresh ledger / job evidence`: this is not a mandatory separate product table, but a small technical ledger is recommended for changed-window tracking, audit, and recovery.
@@ -108,9 +112,15 @@ Data-root truth source:
 
 ### A. Authoritative raw storage
 - Root: `D:/TA3000-data/trading-advisor-3000-nightly/raw/moex/baseline-4y-current`
-- Role: append/merge target for validated historical source rows
+- Role: partitioned append/merge target for validated historical source rows
 - Contents:
   - `raw_moex_history.delta`
+- Physical layout:
+  - partition columns: `ts_close_year`
+  - `ts_close_year` is a storage column derived from `ts_close`
+  - source identity remains the raw key: `internal_id`, `timeframe`, `moex_secid`, `ts_open`, `ts_close`
+  - `source_interval` remains a MOEX request/provenance column and is not part of raw identity or watermark keys
+  - `timeframe`, symbol, contract, and calendar day remain row fields and predicates, not partition directories
 
 ### B. Authoritative canonical storage
 - Root: `D:/TA3000-data/trading-advisor-3000-nightly/canonical/moex/baseline-4y-current`
@@ -125,7 +135,6 @@ Data-root truth source:
 - Root: `D:/TA3000-data/trading-advisor-3000-nightly/derived/moex`
 - Role: reserved data-only space for downstream computed layers that must stay outside the baseline roots.
 - Contents:
-  - `indicators/`
   - `indicators/`
 
 ### D. Baseline update evidence
@@ -145,13 +154,15 @@ Python remains responsible for MOEX-specific ingest behavior:
 - request chunking
 - timeout / disconnect retries
 - source request logs
-- watermark calculation
-- raw delta append into the authoritative raw baseline
+- watermark-driven request planning
+- raw source-row staging for Spark ingest
 
 This is the right place for source-aware logic because Spark is a bad fit for external HTTP retry choreography.
 
 ### Spark responsibility
-Spark becomes the heavy compute engine for:
+Spark becomes the durable Delta and heavy compute engine for:
+- raw Delta tail append and scoped overlap reconcile
+- raw Delta layout migration and explicit root promotion
 - canonical refresh from authoritative baseline raw
 - deterministic resampling
 - provenance rebuild for touched windows
@@ -172,6 +183,7 @@ Dagster becomes the orchestrator for:
 
 The Dagster route is now implemented as the canonical baseline update owner. The manual Python tools may still exist only as bounded support entrypoints:
 - `scripts/run_moex_raw_ingest.py`
+- `scripts/run_moex_raw_layout_migration.py`
 - `scripts/run_moex_canonical_refresh.py`
 - `scripts/run_moex_baseline_update.py`
 
@@ -179,7 +191,7 @@ They are not the target-state operator-facing route under the active governed pl
 
 ## Target Job Set
 
-The optimized route exposes one scheduled baseline update job with two internal data steps.
+The optimized route exposes one scheduled baseline update job with three internal data steps.
 
 ### Scheduled job. `moex_baseline_update_job`
 - Engine: Dagster asset job
@@ -190,18 +202,27 @@ The optimized route exposes one scheduled baseline update job with two internal 
   - `refresh_overlap_minutes=180`
   - `max_changed_window_days=10`
 
-### Internal step 1. `moex_raw_ingest`
+### Internal step 1. `moex_raw_source_stage`
 - Engine: Python
 - Inputs:
   - MOEX ISS
   - current raw watermark from authoritative raw storage
 - Outputs:
-  - authoritative raw delta append / merge
+  - staged raw source rows
   - request logs
+  - planned window scopes
+
+### Internal step 2. `moex_raw_ingest`
+- Engine: Spark
+- Inputs:
+  - staged raw source rows
+  - planned window scopes
+- Outputs:
+  - authoritative raw delta append / merge
   - touched-window manifest
   - ingest evidence
 
-### Internal step 2. `moex_canonical_refresh`
+### Internal step 3. `moex_canonical_refresh`
 - Engine: Spark
 - Inputs:
   - authoritative raw delta
@@ -227,6 +248,15 @@ The optimized route exposes one scheduled baseline update job with two internal 
   - new bars after baseline watermark
   - small configured overlap window for corrections
   - optional bounded repair windows
+- The promoted raw layout must let overlap reads prune by `ts_close_year` instead of scanning the full raw history.
+- Daily/monthly raw partitions are not the default: they create too many small files for the current raw volume.
+- This raw layout is not a template for larger canonical, research, or indicator fact tables; those tables must choose partitioning from their own row volume and read patterns.
+
+### Raw layout migration
+- The layout migration is a one-time Spark rewrite from the stable raw table into a staged Delta table.
+- The staged table is accepted only when row count, distinct raw key count, duplicate-key count, watermark comparison, schema, partition columns, file profile, and `_delta_log` checks pass.
+- Promotion is a separate explicit root swap: move the old stable raw table to backup, then move the staged table into the stable `raw_moex_history.delta` path.
+- The old root remains rollback material only; it is not an alternate active route.
 
 ### Canonical refresh
 - Recompute only affected:

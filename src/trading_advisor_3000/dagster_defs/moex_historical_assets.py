@@ -205,8 +205,8 @@ MOEX_HISTORICAL_NIGHTLY_CRON = MOEX_BASELINE_DAILY_CRON
 MOEX_HISTORICAL_EXECUTION_TIMEZONE = "Europe/Moscow"
 MOEX_HISTORICAL_RETRY_POLICY = RetryPolicy(max_retries=3, delay=60)
 MOEX_BASELINE_UPDATE_RETRY_POLICY = RetryPolicy(max_retries=0, delay=0)
-MOEX_BASELINE_UPDATE_HOT_TABLE_RUNTIME = "delta_rs_raw_tail+spark_delta_canonical"
-MOEX_BASELINE_UPDATE_RUNTIME_BOUNDARY_TAG = "dagster+delta_rs_raw_tail+spark_delta_canonical"
+MOEX_BASELINE_UPDATE_HOT_TABLE_RUNTIME = "spark_delta_raw_tail+spark_delta_canonical"
+MOEX_BASELINE_UPDATE_RUNTIME_BOUNDARY_TAG = "dagster+spark_delta_raw_tail+spark_delta_canonical"
 
 
 def moex_historical_asset_specs() -> list[AssetSpec]:

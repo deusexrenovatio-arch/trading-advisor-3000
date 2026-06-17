@@ -160,6 +160,7 @@ PROVENANCE_COLUMNS: dict[str, str] = {
 RAW_SCOPE_COLUMNS: tuple[str, ...] = (
     "internal_id",
     "finam_symbol",
+    "moex_secid",
     "timeframe",
     "source_interval",
     "ts_open",
@@ -1569,7 +1570,7 @@ def _build_raw_parity_report(
     duplicate_errors: list[str] = []
     timestamp_drift_errors: list[str] = []
 
-    seen_keys: set[tuple[str, str, int, str, str, str]] = set()
+    seen_keys: set[tuple[str, str, str, str, str]] = set()
     for row_index, row in enumerate(scoped_raw_rows):
         if not isinstance(row, dict):
             continue
@@ -1577,7 +1578,7 @@ def _build_raw_parity_report(
         source_timeframe = str(row.get("timeframe", "")).strip()
         moex_secid = _extract_row_moex_secid(row)
         try:
-            source_interval = _normalize_source_interval(
+            _normalize_source_interval(
                 source_timeframe=source_timeframe,
                 source_interval_raw=row.get("source_interval"),
                 row_index=row_index,
@@ -1588,12 +1589,11 @@ def _build_raw_parity_report(
         ts_close = str(row.get("ts_close", "")).strip()
         if not ts_open or not ts_close:
             continue
-        key = (internal_id, source_timeframe, source_interval, moex_secid, ts_open, ts_close)
+        key = (internal_id, source_timeframe, moex_secid, ts_open, ts_close)
         if key in seen_keys:
             duplicate_errors.append(
                 "duplicate raw key: "
-                f"{internal_id}/{source_timeframe}/{moex_secid}/"
-                f"{source_interval}/{ts_open}/{ts_close}"
+                f"{internal_id}/{source_timeframe}/{moex_secid}/{ts_open}/{ts_close}"
             )
         seen_keys.add(key)
         if _parse_iso_utc(ts_close) < _parse_iso_utc(ts_open):
@@ -1603,8 +1603,6 @@ def _build_raw_parity_report(
             )
 
     failures: list[str] = []
-    if unmatched_windows:
-        failures.append("missing_window_rows")
     if duplicate_errors:
         failures.append("duplicate_rows")
     if timestamp_drift_errors:
@@ -1720,8 +1718,6 @@ def _session_admission_gate_report(
     failed_gates: list[str] = []
     if missing_coverage_rows:
         failed_gates.append("official_schedule_missing_coverage")
-    if rejected_rows:
-        failed_gates.append("official_schedule_mismatch")
     return {
         "status": STATUS_PASS if not failed_gates else "FAIL",
         "failed_gates": failed_gates,

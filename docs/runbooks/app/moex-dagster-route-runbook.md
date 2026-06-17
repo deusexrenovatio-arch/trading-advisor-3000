@@ -132,4 +132,4 @@ Treat the proof as blocked when any condition appears:
 
 ## Notes
 - This flow does not introduce a second route.
-- This flow preserves the current route decision: `Dagster -> Python raw ingest -> Spark canonical refresh`.
+- This flow preserves the current route decision: `Dagster -> Python MOEX extraction/staging -> Spark raw Delta ingest -> Spark canonical refresh`.

@@ -52,7 +52,7 @@ the default strategy signal input.
 Target flow:
 
 ```text
-Dagster -> Python raw ingest -> Spark canonical refresh
+Dagster -> Python MOEX extraction/staging -> Spark raw Delta ingest -> Spark canonical refresh
   -> canonical contract bars + session calendar + roll map
   -> Spark continuous signal layer
   -> indicators on adjusted signal bars

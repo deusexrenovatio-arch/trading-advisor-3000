@@ -21,6 +21,7 @@ def test_delta_schema_manifest_contains_required_tables() -> None:
     manifest = historical_data_delta_schema_manifest()
     assert {
         "raw_market_backfill",
+        "raw_moex_history",
         "raw_moex_session_schedule",
         "canonical_session_intervals",
         "canonical_bars",

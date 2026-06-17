@@ -233,7 +233,7 @@ def test_publish_scope_uses_selected_contract_not_changed_window_interval() -> N
     ]
 
 
-def test_session_admission_gate_blocks_official_schedule_mismatch() -> None:
+def test_session_admission_gate_reports_rejected_source_rows_without_blocking() -> None:
     report = canonical_module._session_admission_gate_report(
         {
             "session_admission_report": {
@@ -243,8 +243,61 @@ def test_session_admission_gate_blocks_official_schedule_mismatch() -> None:
         }
     )
 
+    assert report["status"] == "PASS"
+    assert report["failed_gates"] == []
+    assert report["rejected_out_of_session_rows"] == 3
+
+
+def test_spark_raw_parity_reports_unmatched_windows_without_blocking() -> None:
+    report = canonical_module._build_spark_raw_parity_report(
+        run_id="run-with-empty-weekly-window",
+        changed_windows=[
+            canonical_module.ChangedWindowScope(
+                internal_id="FUT_WHEAT",
+                source_timeframe="1w",
+                source_interval=7,
+                moex_secid="W4H7",
+                window_start_utc=datetime(2026, 6, 7, 21, 0, tzinfo=UTC),
+                window_end_utc=datetime(2026, 6, 14, 21, 0, tzinfo=UTC),
+                incremental_rows=2,
+            )
+        ],
+        spark_execution_report={
+            "source_rows": 42,
+            "unmatched_window_rows": 1,
+            "unmatched_windows": ["FUT_WHEAT/W4H7/1w"],
+        },
+    )
+
+    assert report["status"] == "PASS"
+    assert report["failure_classes"] == []
+    assert report["unmatched_windows_count"] == 1
+    assert report["samples"]["unmatched_windows"] == ["FUT_WHEAT/W4H7/1w"]
+
+
+def test_spark_raw_parity_still_blocks_when_changed_scope_has_no_source_rows() -> None:
+    report = canonical_module._build_spark_raw_parity_report(
+        run_id="run-without-source",
+        changed_windows=[
+            canonical_module.ChangedWindowScope(
+                internal_id="FUT_WHEAT",
+                source_timeframe="1w",
+                source_interval=7,
+                moex_secid="W4H7",
+                window_start_utc=datetime(2026, 6, 7, 21, 0, tzinfo=UTC),
+                window_end_utc=datetime(2026, 6, 14, 21, 0, tzinfo=UTC),
+                incremental_rows=2,
+            )
+        ],
+        spark_execution_report={
+            "source_rows": 0,
+            "unmatched_window_rows": 1,
+            "unmatched_windows": ["FUT_WHEAT/W4H7/1w"],
+        },
+    )
+
     assert report["status"] == "FAIL"
-    assert report["failed_gates"] == ["official_schedule_mismatch"]
+    assert report["failure_classes"] == ["missing_scoped_source_rows"]
 
 
 def test_session_admission_gate_blocks_missing_official_schedule_input() -> None:

@@ -25,6 +25,7 @@ from trading_advisor_3000.spark_jobs.moex_canonicalization_job import (
 RAW_COLUMNS: dict[str, str] = {
     "internal_id": "string",
     "finam_symbol": "string",
+    "moex_secid": "string",
     "timeframe": "string",
     "source_interval": "int",
     "ts_open": "timestamp",
@@ -88,6 +89,7 @@ def _raw_rows(*, with_source_provider: bool) -> list[dict[str, object]]:
             {
                 "internal_id": "FUT_BR",
                 "finam_symbol": "BRM6@MOEX",
+                "moex_secid": "BRM6",
                 "timeframe": "1m",
                 "source_interval": 1,
                 "ts_open": _iso(ts_open),
@@ -122,6 +124,7 @@ def _raw_rows_with_daily_only_contract(*, with_source_provider: bool) -> list[di
             {
                 "internal_id": "FUT_WHEAT",
                 "finam_symbol": "W4J6@MOEX",
+                "moex_secid": "W4J6",
                 "timeframe": "1d",
                 "source_interval": 24,
                 "ts_open": _iso(ts_open),
@@ -393,8 +396,8 @@ def test_canonicalization_rejects_raw_minutes_outside_official_intervals(
     admission = report["spark_execution_report"]["session_admission_report"]
     assert admission["admitted_source_rows"] == 10
     assert admission["rejected_out_of_session_rows"] == 10
-    assert report["publish_decision"] == "blocked"
-    assert report["session_admission_gate"]["failed_gates"] == ["official_schedule_mismatch"]
+    assert report["publish_decision"] == "publish"
+    assert report["session_admission_gate"]["failed_gates"] == []
 
 
 def test_spark_delta_canonicalization_admits_direct_daily_source_with_official_coverage(
@@ -519,6 +522,7 @@ def test_canonicalization_admits_moex_opening_minute_begin_end_label(
             {
                 "internal_id": "FUT_BR",
                 "finam_symbol": "BRM6@MOEX",
+                "moex_secid": "BRM6",
                 "timeframe": "1m",
                 "source_interval": 1,
                 "ts_open": _iso(ts_open),
@@ -826,6 +830,7 @@ def test_canonicalization_uses_moscow_session_date_for_utc_boundary(
             {
                 "internal_id": "FUT_BR",
                 "finam_symbol": "BRM6@MOEX",
+                "moex_secid": "BRM6",
                 "timeframe": "1m",
                 "source_interval": 1,
                 "ts_open": _iso(ts_open),

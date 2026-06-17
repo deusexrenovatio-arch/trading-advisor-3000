@@ -222,7 +222,7 @@ def test_historical_dagster_cutover_definitions_are_executable(
     assert binding["runtime_boundary"]["orchestrator"] == "dagster"
     assert (
         binding["runtime_boundary"]["hot_table_runtime"]
-        == "delta_rs_raw_tail+spark_delta_canonical"
+        == "spark_delta_raw_tail+spark_delta_canonical"
     )
 
     schedule_def = repository.get_schedule_def("moex_baseline_daily_update_schedule")

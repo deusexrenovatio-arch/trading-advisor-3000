@@ -70,9 +70,9 @@ Do not use that script as the normal overnight historical refresh path.
 
 The authoritative routing decision is:
 - scheduled ownership: `moex_baseline_update_job`
-- scheduled flow: `Dagster -> Python raw ingest into baseline raw -> Spark canonical refresh into baseline canonical`
+- scheduled flow: `Dagster -> Python MOEX extraction/staging -> Spark raw Delta ingest into baseline raw -> Spark canonical refresh into baseline canonical`
 - scheduled refresh horizon: bounded daily window (`refresh_window_days=7`, `contract_discovery_lookback_days=45`, `max_changed_window_days=10`) instead of full-history replay
-- manual step tools only: `scripts/run_moex_raw_ingest.py` and `scripts/run_moex_canonical_refresh.py`
+- manual step tools only: `scripts/run_moex_raw_ingest.py`, `scripts/run_moex_raw_layout_migration.py`, and `scripts/run_moex_canonical_refresh.py`
 
 Reference:
 - `docs/architecture/product-plane/moex-historical-route-decision.md`
