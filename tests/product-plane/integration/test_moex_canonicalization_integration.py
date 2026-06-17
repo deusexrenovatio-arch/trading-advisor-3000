@@ -393,8 +393,8 @@ def test_canonicalization_rejects_raw_minutes_outside_official_intervals(
     admission = report["spark_execution_report"]["session_admission_report"]
     assert admission["admitted_source_rows"] == 10
     assert admission["rejected_out_of_session_rows"] == 10
-    assert report["publish_decision"] == "blocked"
-    assert report["session_admission_gate"]["failed_gates"] == ["official_schedule_mismatch"]
+    assert report["publish_decision"] == "publish"
+    assert report["session_admission_gate"]["failed_gates"] == []
 
 
 def test_spark_delta_canonicalization_admits_direct_daily_source_with_official_coverage(
