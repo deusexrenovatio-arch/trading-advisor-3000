@@ -21,6 +21,10 @@ from .moex_raw_ingest_job import (
     compute_raw_watermarks_spark_delta,
     run_moex_raw_ingest_spark_delta_job,
 )
+from .moex_raw_layout_migration_job import (
+    promote_moex_raw_layout_migration,
+    run_moex_raw_layout_migration_spark_job,
+)
 from .research_bar_views_job import run_research_bar_views_spark_job
 from .research_candidates_job import (
     ResearchSparkJobSpec,
@@ -54,6 +58,8 @@ __all__ = [
     "run_research_derived_source_frames_spark_job",
     "compute_raw_watermarks_spark_delta",
     "run_moex_raw_ingest_spark_delta_job",
+    "run_moex_raw_layout_migration_spark_job",
+    "promote_moex_raw_layout_migration",
     "spark_candidate_id_expr",
     "validate_spark_output_contract",
 ]
