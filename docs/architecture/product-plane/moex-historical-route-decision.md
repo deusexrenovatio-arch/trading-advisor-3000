@@ -41,7 +41,7 @@ This means:
 | --- | --- | --- |
 | Refresh window, order of execution, retries, single-writer discipline | Dagster | This is orchestration, not compute or connector logic. |
 | MOEX extraction, source-aware retries, chunking, overlap planning, raw staging | Python foundation job | This is connector behavior and needs precise request diagnostics before Spark owns storage mutation. |
-| Raw Delta storage mutation, tail append, scoped overlap reconcile, raw validation report | Spark `moex_raw_ingest_spark_delta` job | Raw history is a durable Delta table; Spark/Delta Lake own the write, merge, and storage proof path. |
+| Raw Delta storage mutation, tail append, scoped overlap reconcile, raw validation report | Spark `moex_raw_ingest` job | Raw history is a durable Delta table; Spark/Delta Lake own the write, merge, and storage proof path. |
 | Heavy canonical recompute, resampling, provenance rebuild | Spark `moex_canonical_refresh` job | This is batch compute and should stay out of the connector layer. |
 | Canonical storage mutation | Spark canonical refresh only | Keeps canonical ownership obvious and fail-closed. |
 

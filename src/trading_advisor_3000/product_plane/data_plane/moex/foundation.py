@@ -1456,7 +1456,6 @@ def compute_raw_watermarks_spark_delta(
     keys: set[tuple[str, str, str]],
     min_ts_close_utc: str | None = None,
 ) -> dict[tuple[str, str, str], str]:
-    del min_ts_close_utc
     from trading_advisor_3000.spark_jobs.moex_raw_ingest_job import (
         compute_raw_watermarks_spark_delta as _compute_raw_watermarks_spark_delta,
     )
@@ -1464,6 +1463,7 @@ def compute_raw_watermarks_spark_delta(
     return _compute_raw_watermarks_spark_delta(
         table_path=table_path,
         keys=keys,
+        min_ts_close_utc=min_ts_close_utc,
     )
 
 

@@ -45,6 +45,8 @@ _VOLATILE_PROVENANCE_KEYS = (
     "window_end_utc",
     "stability_lag_minutes",
     "refresh_overlap_minutes",
+    "requested_target_timeframes",
+    "discovery_url",
 )
 
 
@@ -80,6 +82,8 @@ def _to_iso_utc(value: object) -> str:
 
 def _to_spark_collected_iso_utc(value: object) -> str:
     if isinstance(value, datetime) and value.tzinfo is None:
+        # Spark returns collected timestamps as naive host-local values on Windows.
+        # astimezone(UTC) preserves the instant; replace(tzinfo=UTC) shifts it.
         return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
     return _to_iso_utc(value)
 
@@ -253,6 +257,7 @@ def compute_raw_watermarks_spark_delta(
     *,
     table_path: Path,
     keys: set[tuple[str, str, str]],
+    min_ts_close_utc: str | None = None,
     spark_master: str = DEFAULT_SPARK_MASTER,
     spark_session_factory: Callable[[str, str], object] | None = None,
 ) -> dict[tuple[str, str, str], str]:
@@ -276,6 +281,14 @@ def compute_raw_watermarks_spark_delta(
         ]
         keys_df = spark.createDataFrame(key_rows, schema=_key_schema(spark_types))
         raw_df = spark.read.format("delta").load(str(table_path))
+        min_ts = _parse_iso_utc(min_ts_close_utc)
+        if min_ts is not None:
+            min_ts_text = _to_iso_utc(min_ts)
+            raw_df = raw_df.where(functions.expr(f"ts_close >= {_sql_string_literal(min_ts_text)}"))
+            if "ts_close_year" in raw_df.columns:
+                raw_df = raw_df.where(
+                    functions.col("ts_close_year") >= functions.lit(int(min_ts.year))
+                )
         watermark_df = (
             raw_df.join(keys_df, list(KEY_SCOPE_COLUMNS), "inner")
             .groupBy(*KEY_SCOPE_COLUMNS)

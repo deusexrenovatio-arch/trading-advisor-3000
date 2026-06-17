@@ -38,7 +38,10 @@ def test_raw_ingest_fingerprint_contract_covers_source_metadata_and_provenance()
 
     assert "ingest_run_id" not in fingerprint_columns
     assert "ingested_at_utc" not in fingerprint_columns
-    assert "map_from_entries(array_sort(map_entries(map_filter(" in fingerprint_source
+    assert "requested_target_timeframes" in moex_raw_ingest_job._VOLATILE_PROVENANCE_KEYS
+    assert "discovery_url" in moex_raw_ingest_job._VOLATILE_PROVENANCE_KEYS
+    for fragment in ("map_filter(", "map_entries(", "array_sort(", "map_from_entries("):
+        assert fragment in fingerprint_source
 
 
 def test_raw_ingest_reconcile_uses_window_scoped_merge_transaction() -> None:
@@ -66,7 +69,10 @@ def test_raw_ingest_reconcile_uses_window_scoped_merge_transaction() -> None:
     assert "raw_existing," in source
     assert "scope_windows_df," in source
     assert "scope_payload," in source
-    assert "scope_rows: list[Mapping[str, Any]] | None = None" in scoped_filter
+    scope_rows_param = inspect.signature(moex_raw_ingest_job._filtered_raw_by_scopes).parameters[
+        "scope_rows"
+    ]
+    assert scope_rows_param.default is None
     assert "_scope_pushdown_condition" in scoped_filter
 
 
@@ -123,9 +129,15 @@ def test_raw_ingest_scope_pushdown_uses_literal_window_predicates() -> None:
 
 def test_raw_ingest_watermark_keys_exclude_source_interval() -> None:
     source = inspect.getsource(moex_raw_ingest_job._collect_post_watermarks)
+    watermark_source = inspect.getsource(moex_raw_ingest_job.compute_raw_watermarks_spark_delta)
+    watermark_signature = inspect.signature(moex_raw_ingest_job.compute_raw_watermarks_spark_delta)
 
     assert "KEY_SCOPE_COLUMNS" in source
     assert 'row["source_interval"]' not in source
+    assert "min_ts_close_utc" in watermark_signature.parameters
+    assert watermark_signature.parameters["min_ts_close_utc"].default is None
+    assert "ts_close >=" in watermark_source
+    assert "ts_close_year" in watermark_source
 
 
 def test_raw_ingest_timestamp_parser_keeps_utc_for_spark_scope_values() -> None:

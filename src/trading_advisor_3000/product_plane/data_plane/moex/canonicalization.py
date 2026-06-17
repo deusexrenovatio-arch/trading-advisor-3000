@@ -160,6 +160,7 @@ PROVENANCE_COLUMNS: dict[str, str] = {
 RAW_SCOPE_COLUMNS: tuple[str, ...] = (
     "internal_id",
     "finam_symbol",
+    "moex_secid",
     "timeframe",
     "source_interval",
     "ts_open",

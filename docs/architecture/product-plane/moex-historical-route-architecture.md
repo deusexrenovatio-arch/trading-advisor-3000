@@ -136,7 +136,6 @@ Data-root truth source:
 - Role: reserved data-only space for downstream computed layers that must stay outside the baseline roots.
 - Contents:
   - `indicators/`
-  - `indicators/`
 
 ### D. Baseline update evidence
 - Root: `D:/TA3000-data/trading-advisor-3000-nightly/moex-baseline-update`
@@ -184,6 +183,7 @@ Dagster becomes the orchestrator for:
 
 The Dagster route is now implemented as the canonical baseline update owner. The manual Python tools may still exist only as bounded support entrypoints:
 - `scripts/run_moex_raw_ingest.py`
+- `scripts/run_moex_raw_layout_migration.py`
 - `scripts/run_moex_canonical_refresh.py`
 - `scripts/run_moex_baseline_update.py`
 

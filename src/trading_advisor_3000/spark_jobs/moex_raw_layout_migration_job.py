@@ -42,8 +42,16 @@ def _delta_log_payload(path: Path) -> dict[str, object]:
 
 
 def _parquet_file_profile(path: Path) -> dict[str, object]:
-    files = list(path.rglob("*.parquet")) if path.exists() else []
-    sizes = [file.stat().st_size for file in files if file.is_file()]
+    files = (
+        [
+            file
+            for file in path.rglob("*.parquet")
+            if file.is_file() and "_delta_log" not in file.relative_to(path).parts
+        ]
+        if path.exists()
+        else []
+    )
+    sizes = [file.stat().st_size for file in files]
     total_bytes = sum(sizes)
     return {
         "parquet_files": len(sizes),
@@ -52,6 +60,15 @@ def _parquet_file_profile(path: Path) -> dict[str, object]:
         "min_bytes": min(sizes) if sizes else 0,
         "max_bytes": max(sizes) if sizes else 0,
     }
+
+
+def _remove_path(path: Path) -> None:
+    if not path.exists():
+        return
+    if path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
 
 
 def _file_profile_passes(
@@ -327,8 +344,11 @@ def _load_passed_migration_report(report_path: Path, staged_table_path: Path) ->
         )
     if payload.get("status") != "PASS":
         raise RuntimeError("raw layout promotion requires a passed migration report")
-    expected_staged = str(payload.get("staged_table_path", "")).strip()
-    if expected_staged and Path(expected_staged).resolve() != staged_table_path.resolve():
+    expected_staged_raw = payload.get("staged_table_path")
+    if not isinstance(expected_staged_raw, str) or not expected_staged_raw.strip():
+        raise RuntimeError("raw layout migration report is missing staged_table_path")
+    expected_staged = expected_staged_raw.strip()
+    if Path(expected_staged).resolve() != staged_table_path.resolve():
         raise RuntimeError(
             "raw layout migration report staged path does not match requested staged table: "
             f"{expected_staged} vs {staged_table_path.as_posix()}"
@@ -393,7 +413,8 @@ def promote_moex_raw_layout_migration(
         moved_current = True
         shutil.move(str(staged_table_path), str(current_table_path))
     except Exception:
-        if moved_current and backup_table_path.exists() and not current_table_path.exists():
+        if moved_current and backup_table_path.exists():
+            _remove_path(current_table_path)
             shutil.move(str(backup_table_path), str(current_table_path))
         raise
 

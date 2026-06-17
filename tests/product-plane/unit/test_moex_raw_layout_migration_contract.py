@@ -82,6 +82,21 @@ def test_raw_layout_schema_validation_accepts_spark_physical_json_type() -> None
     assert moex_raw_layout_migration_job._raw_storage_schema_matches(_SparkFrame())
 
 
+def test_raw_layout_file_profile_ignores_delta_log_checkpoints(tmp_path: Path) -> None:
+    table = tmp_path / "raw_moex_history.delta"
+    data_file = table / "ts_close_year=2026" / "part-00000.parquet"
+    checkpoint_file = table / "_delta_log" / "00000000000000000010.checkpoint.parquet"
+    data_file.parent.mkdir(parents=True)
+    checkpoint_file.parent.mkdir(parents=True)
+    data_file.write_bytes(b"data")
+    checkpoint_file.write_bytes(b"checkpoint")
+
+    profile = moex_raw_layout_migration_job._parquet_file_profile(table)
+
+    assert profile["parquet_files"] == 1
+    assert profile["total_bytes"] == len(b"data")
+
+
 def test_raw_layout_promote_requires_passed_report_and_moves_roots(tmp_path: Path) -> None:
     current = tmp_path / "raw_moex_history.delta"
     staged = tmp_path / "raw_moex_history.layout-staged.delta"
@@ -117,6 +132,27 @@ def test_raw_layout_promote_requires_passed_report_and_moves_roots(tmp_path: Pat
     assert not staged.exists()
 
 
+def test_raw_layout_promote_requires_report_staged_path(tmp_path: Path) -> None:
+    staged = tmp_path / "raw_moex_history.layout-staged.delta"
+    report = tmp_path / "raw-layout-migration-report.json"
+    report.write_text(
+        json.dumps(
+            {
+                "status": "PASS",
+                "partition_columns": {
+                    "actual": list(moex_raw_layout_migration_job.RAW_LAYOUT_PARTITION_COLUMNS),
+                    "expected": list(moex_raw_layout_migration_job.RAW_LAYOUT_PARTITION_COLUMNS),
+                },
+                "file_profile_passes": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="missing staged_table_path"):
+        moex_raw_layout_migration_job._load_passed_migration_report(report, staged)
+
+
 def test_raw_layout_promote_blocks_report_without_file_profile_proof(tmp_path: Path) -> None:
     current = tmp_path / "raw_moex_history.delta"
     staged = tmp_path / "raw_moex_history.layout-staged.delta"
@@ -148,6 +184,59 @@ def test_raw_layout_promote_blocks_report_without_file_profile_proof(tmp_path: P
         )
 
     assert (current / "old-root.txt").exists()
+    assert (staged / "new-root.txt").exists()
+    assert not backup.exists()
+
+
+def test_raw_layout_promote_restores_backup_after_partial_current_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current = tmp_path / "raw_moex_history.delta"
+    staged = tmp_path / "raw_moex_history.layout-staged.delta"
+    backup = tmp_path / "raw_moex_history.pre-layout-backup.delta"
+    report = tmp_path / "raw-layout-migration-report.json"
+    _delta_dir(current, "old-root.txt")
+    _delta_dir(staged, "new-root.txt")
+    report.write_text(
+        json.dumps(
+            {
+                "status": "PASS",
+                "staged_table_path": staged.as_posix(),
+                "partition_columns": {
+                    "actual": list(moex_raw_layout_migration_job.RAW_LAYOUT_PARTITION_COLUMNS),
+                    "expected": list(moex_raw_layout_migration_job.RAW_LAYOUT_PARTITION_COLUMNS),
+                },
+                "file_profile_passes": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    real_move = moex_raw_layout_migration_job.shutil.move
+
+    def _move(src: str, dst: str) -> str:
+        src_path = Path(src)
+        dst_path = Path(dst)
+        if src_path == current and dst_path == backup:
+            return real_move(src, dst)
+        if src_path == staged and dst_path == current:
+            current.mkdir(parents=True, exist_ok=True)
+            (current / "partial-root.txt").write_text("partial", encoding="utf-8")
+            raise RuntimeError("staged move failed")
+        return real_move(src, dst)
+
+    monkeypatch.setattr(moex_raw_layout_migration_job.shutil, "move", _move)
+
+    with pytest.raises(RuntimeError, match="staged move failed"):
+        moex_raw_layout_migration_job.promote_moex_raw_layout_migration(
+            current_table_path=current,
+            staged_table_path=staged,
+            backup_table_path=backup,
+            report_path=report,
+        )
+
+    assert (current / "old-root.txt").exists()
+    assert not (current / "partial-root.txt").exists()
     assert (staged / "new-root.txt").exists()
     assert not backup.exists()
 

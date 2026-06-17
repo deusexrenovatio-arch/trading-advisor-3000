@@ -1236,6 +1236,7 @@ def test_raw_watermark_delegates_to_spark_job_with_three_part_keys(
     assert captured == {
         "table_path": raw_table_path,
         "keys": {("FUT_BR", "1m", "BRQ6")},
+        "min_ts_close_utc": "2026-04-01T00:00:00Z",
     }
     assert watermarks == {("FUT_BR", "1m", "BRQ6"): "2026-04-01T07:19:59Z"}
 
