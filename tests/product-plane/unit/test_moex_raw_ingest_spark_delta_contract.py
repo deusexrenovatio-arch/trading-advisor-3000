@@ -96,6 +96,14 @@ def test_foundation_raw_delta_mutation_delegates_to_spark_job() -> None:
     baseline_source = inspect.getsource(foundation.ingest_moex_baseline_window)
     bootstrap_source = inspect.getsource(foundation.ingest_moex_bootstrap_window)
 
+    for retired_name in [
+        "run_moex_raw_ingest_delta_rs_job",
+        "_compute_raw_watermarks_delta_rs",
+        "_load_scoped_raw_rows_delta_rs",
+        "_merge_raw_reconcile_delta_rs",
+        "_raw_reconcile_action_table",
+    ]:
+        assert not hasattr(foundation, retired_name)
     assert "trading_advisor_3000.spark_jobs.moex_raw_ingest_job" in source
     assert "_run_moex_raw_ingest_spark_delta_job(**kwargs)" in source
     for inspected in (source, baseline_source, bootstrap_source):

@@ -95,6 +95,20 @@ def _copy_tree(*, source: Path, target: Path, label: str, overwrite: bool) -> di
     }
 
 
+def _copy_optional_tree(
+    *, source: Path, target: Path, label: str, overwrite: bool
+) -> dict[str, object]:
+    if not source.exists():
+        return {
+            "label": label,
+            "source": source.as_posix(),
+            "target": target.as_posix(),
+            "copied": False,
+            "skipped_reason": "source_missing",
+        }
+    return _copy_tree(source=source, target=target, label=label, overwrite=overwrite)
+
+
 def _seed_baseline_root(
     *, source_root: Path, target_root: Path, overwrite: bool
 ) -> dict[str, object]:
@@ -111,6 +125,18 @@ def _seed_baseline_root(
             source=source_root / CANONICAL_BASELINE_ROOT_RELATIVE_PATH,
             target=target_root / CANONICAL_BASELINE_ROOT_RELATIVE_PATH,
             label="canonical_baseline_root",
+            overwrite=overwrite,
+        ),
+        _copy_optional_tree(
+            source=source_root / "raw" / "economics",
+            target=target_root / "raw" / "economics",
+            label="raw_economics_root",
+            overwrite=overwrite,
+        ),
+        _copy_optional_tree(
+            source=source_root / "canonical" / "economics",
+            target=target_root / "canonical" / "economics",
+            label="canonical_economics_root",
             overwrite=overwrite,
         ),
     ]
