@@ -540,6 +540,95 @@ def test_contract_economics_spark_job_merges_canonical_updates_without_losing_hi
     ]
 
 
+def test_contract_economics_spark_job_deduplicates_latest_risk_snapshot_before_merge(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("pyspark.sql")
+    _configure_windows_spark_runtime(tmp_path, monkeypatch)
+
+    raw_root = tmp_path / "raw"
+    raw_paths = _write_single_day_raw_economics_fixture(
+        raw_root=raw_root,
+        trade_date="2026-06-11",
+        settle_price=93.99,
+        official_margin=17_721.61,
+        fx_rate=71.9077,
+    )
+    write_delta_table_rows(
+        table_path=raw_paths["limits"],
+        columns=_columns("raw_moex_rms_limits"),
+        mode="append",
+        rows=[
+            {
+                "source_id": "ncc_derivatives_limits",
+                "source_url": "https://www.nationalclearingcentre.com/rates/derivativesStaticParams",
+                "source_document_id": "BR-2026-06-11-limits-newer",
+                "source_document_hash": "limits-hash-2026-06-11-BR-newer",
+                "fetched_at_utc": "2026-06-11T20:03:00Z",
+                "trade_date": "2026-06-11",
+                "assetcode": "BR",
+                "mr1": 0.33,
+                "mr2": 0.39,
+                "mr3": 0.46,
+                "lk1": 0.0,
+                "lk2": 0.0,
+                "title": "BR",
+                "group_title": "Fixture",
+                "update_time": "2026-06-11T20:00:00Z",
+                "raw_payload_json": json.dumps({"ASSETCODE": "BR", "MR1": 0.33}),
+            }
+        ],
+    )
+    write_delta_table_rows(
+        table_path=raw_paths["staticparams"],
+        columns=_columns("raw_moex_rms_staticparams"),
+        mode="append",
+        rows=[
+            {
+                "source_id": "ncc_derivatives_staticparams",
+                "source_url": "https://www.nationalclearingcentre.com/rates/derivativesStaticParams",
+                "source_document_id": "BR-2026-06-11-staticparams-newer",
+                "source_document_hash": "staticparams-hash-2026-06-11-BR-newer",
+                "fetched_at_utc": "2026-06-11T20:03:00Z",
+                "trade_date": "2026-06-11",
+                "assetcode": "BR",
+                "radius_pct": 25.0,
+                "update_time": "2026-06-11T20:00:00Z",
+                "raw_payload_json": json.dumps({"ASSETCODE": "BR", "RADIUS": 25.0}),
+            }
+        ],
+    )
+
+    output_dir = tmp_path / "canonical"
+    for run_id in ("economics-risk-dedupe-first", "economics-risk-dedupe-second"):
+        report = run_moex_contract_economics_spark_job(
+            raw_contract_specs_path=raw_paths["contracts"],
+            raw_fx_rates_path=raw_paths["fx"],
+            raw_rms_limits_path=raw_paths["limits"],
+            raw_rms_staticparams_path=raw_paths["staticparams"],
+            output_dir=output_dir,
+            run_id=run_id,
+        )
+
+    risk_rows = read_delta_table_rows(
+        output_dir / "canonical_asset_risk_parameters.delta",
+        limit=10,
+    )
+    economics_rows = read_delta_table_rows(
+        output_dir / "canonical_contract_economics.delta",
+        limit=10,
+    )
+    assert report["row_counts"]["canonical_asset_risk_parameters"] == 1
+    assert report["row_counts"]["canonical_contract_economics"] == 1
+    assert len(risk_rows) == 1
+    assert len(economics_rows) == 1
+    assert risk_rows[0]["mr1"] == pytest.approx(0.33)
+    assert risk_rows[0]["radius_pct"] == pytest.approx(25.0)
+    assert economics_rows[0]["mr1"] == pytest.approx(0.33)
+    assert economics_rows[0]["radius_pct"] == pytest.approx(25.0)
+
+
 def test_contract_economics_spark_job_applies_linked_asset_buffer_for_rub_quote(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

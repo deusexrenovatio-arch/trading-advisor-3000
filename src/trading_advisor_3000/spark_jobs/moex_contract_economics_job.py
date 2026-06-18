@@ -91,6 +91,37 @@ def _cast_to_contract(dataframe, table_name: str):
     return dataframe.select(*selected)
 
 
+def _latest_snapshot_by_key(dataframe, *, key_columns: tuple[str, ...]):
+    from pyspark.sql import Window  # type: ignore[import-not-found]
+    from pyspark.sql import functions as F  # type: ignore[import-not-found]
+
+    order_columns = [
+        column_name
+        for column_name in ("update_time", "fetched_at_utc", "source_document_hash")
+        if column_name in dataframe.columns
+    ]
+    row_fingerprint = F.sha2(
+        F.to_json(
+            F.struct(
+                *[
+                    F.col(column_name).cast("string").alias(column_name)
+                    for column_name in sorted(dataframe.columns)
+                ]
+            )
+        ),
+        256,
+    )
+    order_by = [F.col(column_name).desc_nulls_last() for column_name in order_columns]
+    order_by.append(F.col("__snapshot_row_fingerprint").desc_nulls_last())
+    snapshot_window = Window.partitionBy(*key_columns).orderBy(*order_by)
+    return (
+        dataframe.withColumn("__snapshot_row_fingerprint", row_fingerprint)
+        .withColumn("__snapshot_rank", F.row_number().over(snapshot_window))
+        .where(F.col("__snapshot_rank") == F.lit(1))
+        .drop("__snapshot_rank", "__snapshot_row_fingerprint")
+    )
+
+
 def _write_spark_delta_table(dataframe, *, table_path: Path, table_name: str) -> None:
     contract = moex_economics_store_contract()[table_name]
     casted = _cast_to_contract(dataframe, table_name)
@@ -309,6 +340,10 @@ def _asset_risk_parameters_frame(spark: object, limits_path: Path, staticparams_
         .withColumn("source_limits_hash", F.col("source_document_hash"))
         .where(F.col("assetcode").isNotNull() & F.col("risk_session_date").isNotNull())
     )
+    limits = _latest_snapshot_by_key(
+        limits,
+        key_columns=("assetcode", "risk_session_date"),
+    )
     static = (
         static_raw.withColumn(
             "assetcode",
@@ -329,6 +364,10 @@ def _asset_risk_parameters_frame(spark: object, limits_path: Path, staticparams_
         )
         .withColumn("source_staticparams_hash", F.col("source_document_hash"))
         .where(F.col("assetcode").isNotNull() & F.col("risk_session_date").isNotNull())
+    )
+    static = _latest_snapshot_by_key(
+        static,
+        key_columns=("assetcode", "risk_session_date"),
     )
     joined = limits.alias("limits").join(
         static.alias("static"),
