@@ -78,6 +78,7 @@
 - Local Codex Desktop, Windows path/session/env/temp/interpreter, or runaway-service issues: global `codex-windows-runtime-recovery`.
 - TA3000 active product-surface naming, phase/debug labels, capability naming, and active/archive/provenance separation: repo-local `ta3000-product-surface-naming-cleanup`.
 - TA3000 data-plane proof on `D:/TA3000-data`, Delta `_delta_log`, row counts, report JSON, canonical tail alignment, or real production-route materialization: repo-local `ta3000-data-plane-proof`.
+- TA3000 futures contract economics, MOEX money math, margin/tick/step value, research `execution_*` propagation, vectorbt-vs-ledger money truth, fees/slippage/PnL, or risk sizing: repo-local `ta3000-futures-money-math-and-execution-economics`.
 - TA3000 vectorbt, pandas-ta-classic, signal matrices, indicator/derived compute, or research backtest integration: repo-local `ta3000-quant-compute-methodology`.
 - TA3000 strategy hypothesis, trading intent, market regimes, research protocol, acceptance, or rejection: repo-local `ta3000-strategy-research-methodology`.
 - TA3000 technical-analysis system design, trend, momentum, mean reversion, breakout, volatility, volume, divergence, or multi-timeframe logic: repo-local `ta3000-technical-analysis-system-design`.
@@ -87,6 +88,7 @@
 ## Product-Plane Research Routing
 - For new or revised trading ideas, start with `ta3000-strategy-research-methodology`; add `ta3000-technical-analysis-system-design` when the idea is expressed through indicators, chart structure, or technical-analysis regimes.
 - For compute implementation of indicators, derived indicators, signal matrices, vectorbt, or pandas-ta-classic, add `ta3000-quant-compute-methodology` before editing code so library-native patterns are checked before local adaptation.
+- For futures money math, margin estimates, fees/slippage/PnL assumptions, or propagation of contract economics into research/backtest/ranking outputs, add `ta3000-futures-money-math-and-execution-economics` and keep contract economics, vectorbt simulation truth, and execution ledger truth separate.
 - For strategy testing, promotion, or "does this work?" questions, add `ta3000-backtest-validation-and-overfit-control` before claiming strategy quality.
 - For user-facing output, Telegram-style advisory signals, paper routing, semi-auto approval, live execution, or robot questions, add `ta3000-signal-to-action-lifecycle` and keep the output mode explicit.
 - Pair these repo-local skills with global implementation, testing, review, and verification skills as needed; repo-local research skills do not replace executable evidence or standard PR hygiene.
