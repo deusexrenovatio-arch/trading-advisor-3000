@@ -1,0 +1,294 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: "ru-RU"
+focus: balanced
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  commit_status: true
+  fail_commit_status: false
+  poem: false
+  in_progress_fortune: false
+  sequence_diagrams: false
+  estimate_code_review_effort: false
+  suggested_labels: false
+  suggested_reviewers: false
+  related_issues: false
+  related_prs: false
+  enable_prompt_for_ai_agents: false
+
+  auto_review:
+    enabled: true
+    drafts: false
+    auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 1
+    labels:
+      - "!coderabbit:skip"
+    ignore_title_keywords:
+      - "[skip review]"
+      - "[coderabbit skip]"
+
+  path_filters:
+    - "!codex_ai_delivery_shell_package/**"
+    - "!docs/tasks/archive/**"
+    - "!docs/archive/**"
+    - "!memory/**"
+    - "!plans/**"
+    - "!artifacts/**"
+    - "!.runlogs/**"
+    - "!.tmp/**"
+    - "!.tmp_openspace/**"
+    - "!.pytest_cache/**"
+    - "!.ruff_cache/**"
+    - "!.serena/**"
+    - "!.cursor/**"
+    - "!**/__pycache__/**"
+    - "!docs/agent/plugin-eval/**/exec-runs/**"
+    - "!docs/agent/plugin-eval/**/runs/**"
+    - "!docs/agent/plugin-eval/**/results/**"
+    - "!docs/agent/plugin-eval/**/reports/**"
+    - "!**/*.zip"
+
+  path_instructions:
+    - path: "AGENTS.md"
+      instructions: |
+        Review as the repository operating contract. Focus on dual-surface boundaries,
+        required gates, canonical names, and whether agent instructions remain actionable.
+        Flag any instruction that would move product/trading logic into the shell surface
+        or weaken PR-only main policy.
+
+    - path: "docs/agent/**"
+      instructions: |
+        Review as hot-path agent policy. Focus on routing clarity, check order,
+        required skill boundaries, and consistency with AGENTS.md and DEV_WORKFLOW.md.
+        Do not copyedit prose unless wording changes an enforceable rule.
+
+    - path: "docs/DEV_WORKFLOW.md"
+      instructions: |
+        Review as the delivery workflow contract. Check lane names, merge requirements,
+        local/hosted CI fallback behavior, and direct-main restrictions. Flag drift from
+        run_loop_gate.py, run_pr_gate.py, pr-lane, branch-lane, and CodeRabbit status policy.
+
+    - path: ".github/workflows/**"
+      instructions: |
+        Focus on merge-required lane semantics, permissions, secrets exposure, concurrency,
+        runner cost controls, and whether jobs call the canonical gate scripts. Do not invent
+        new security requirements unless they are supported by repository policy or clear risk.
+
+    - path: ".githooks/**"
+      instructions: |
+        Focus on deterministic local enforcement, non-interactive behavior, Windows-safe
+        command handling, and preserving user work. Hooks must not bypass PR-only main policy
+        or perform destructive work without explicit intent.
+
+    - path: "scripts/**"
+      instructions: |
+        Review scripts by their owning surface. For shell/governance scripts, focus on
+        fail-closed validation, deterministic git diff handling, clear exit codes, and
+        stable JSON/Markdown evidence. For product operation scripts, focus on runtime owner
+        boundaries, explicit data roots, idempotency, and safe subprocess behavior.
+
+    - path: "configs/**"
+      instructions: |
+        Focus on explicit defaults, environment override safety, secret redaction, stable
+        path handling, and consistency with the runtime or governance surface that consumes
+        each config file.
+
+    - path: "registry/**"
+      instructions: |
+        Review as registry-as-code. Focus on ownership, source-of-truth drift, contract and
+        data-product references, schema/version consistency, and whether downstream docs or
+        tests need to move with the registry change.
+
+    - path: ".codex/skills/**"
+      instructions: |
+        Review repo-local skills as TA3000-specific knowledge only. Flag generic engineering
+        guidance that belongs in global Codex skills, overbroad routing triggers, stale path
+        references, missing verification expectations, and any instruction that could bypass
+        AGENTS.md or product/shell boundaries.
+
+    - path: "src/trading_advisor_3000/product_plane/contracts/**"
+      instructions: |
+        Focus on schema compatibility, explicit versioning, fail-closed validation, required
+        field semantics, backward/forward compatibility, and tests that prove invalid payloads
+        are rejected. Flag silent coercion of contract data.
+
+    - path: "src/trading_advisor_3000/product_plane/config/**"
+      instructions: |
+        Focus on configuration precedence, environment variable validation, safe defaults,
+        secret handling, and clear failure modes when required runtime settings are missing.
+
+    - path: "src/trading_advisor_3000/product_plane/common/**"
+      instructions: |
+        Review shared helpers for narrow API shape, deterministic behavior, testability, and
+        avoiding hidden product-domain policy. Flag helpers that become implicit cross-module
+        contracts without tests or docs.
+
+    - path: "src/trading_advisor_3000/product_plane/domain/**"
+      instructions: |
+        Focus on explicit domain invariants, naming clarity, pure data semantics, and avoiding
+        runtime side effects. Flag ambiguity that could leak into research, execution, or data
+        contracts.
+
+    - path: "src/trading_advisor_3000/product_plane/interfaces/**"
+      instructions: |
+        Focus on stable public APIs between product modules. Flag private helper imports,
+        unclear boundary ownership, missing error contracts, and changes that require caller
+        migration without tests.
+
+    - path: "src/trading_advisor_3000/product_plane/data_plane/**"
+      instructions: |
+        Focus on data integrity, strong keys, timezone/session correctness, idempotent writes,
+        promotion safety, bounded reads, duplicate-key prevention, and explicit authoritative
+        storage roots. For MOEX paths, pay special attention to canonical/raw tail alignment.
+
+    - path: "src/trading_advisor_3000/spark_jobs/**"
+      instructions: |
+        Review as native Spark/Delta execution. Focus on partition scope, predicate pushdown,
+        schema evolution, _delta_log safety, staged promotion, retry/idempotency behavior,
+        memory blowups from collect/toPandas, and persisted proof artifacts.
+
+    - path: "src/trading_advisor_3000/dagster_defs/**"
+      instructions: |
+        Focus on orchestration contracts: assets must surface failures instead of swallowing
+        them, resources and schedules must point at the intended runtime/data roots, and
+        handoff artifacts must match downstream jobs.
+
+    - path: "src/trading_advisor_3000/product_plane/research/**"
+      instructions: |
+        Focus on leakage prevention, walk-forward/out-of-sample discipline, indicator and
+        derived-indicator boundaries, vectorbt/Optuna ownership, Delta-native data loading,
+        cost/slippage propagation, and reproducible campaign evidence.
+
+    - path: "src/trading_advisor_3000/product_plane/runtime/**"
+      instructions: |
+        Focus on operator-visible runtime state, auditability, recovery behavior, health
+        reporting, and ensuring runtime code does not hide data-plane or execution failures.
+
+    - path: "src/trading_advisor_3000/product_plane/execution/**"
+      instructions: |
+        Focus on signal-to-action safety: explicit paper/live boundaries, risk gates,
+        idempotent order intents, audit logs, operator override paths, and prevention of
+        unintended live execution.
+
+    - path: "src/trading_advisor_3000/migrations/**"
+      instructions: |
+        Focus on reversible migration intent, compatibility with existing data, ordering,
+        deterministic identifiers, and clear rollback or remediation notes.
+
+    - path: "deployment/**"
+      instructions: |
+        Focus on runtime wiring, container path mounts, port exposure, environment variables,
+        secret handling, Windows/Linux path assumptions, and whether deployment changes match
+        documented product runtime ownership.
+
+    - path: "product-plane/**"
+      instructions: |
+        Review as product-plane navigation and operator-facing guidance. Focus on whether it
+        points to current architecture/runbooks and avoids stale phase or legacy route claims.
+
+    - path: "shell/**"
+      instructions: |
+        Review as shell/control-plane guidance. Focus on governance, validation, durable
+        state, and agent workflow. Flag any product business logic or trading rules added here.
+
+    - path: "docs/architecture/product-plane/**"
+      instructions: |
+        Review as product architecture truth. Focus on module ownership, runtime ownership,
+        contract surfaces, current operational routes, and consistency with active source and
+        runbooks. Flag stale historical language presented as current truth.
+
+    - path: "docs/runbooks/app/**"
+      instructions: |
+        Review as operator runbooks. Focus on executable commands, data roots, expected
+        artifacts, failure handling, rollback/retry guidance, and whether the route described
+        is still the supported current route.
+
+    - path: "docs/workflows/app/**"
+      instructions: |
+        Focus on product workflow correctness, handoff points, runtime owners, and evidence
+        required before an operator treats a workflow as complete.
+
+    - path: "docs/checklists/app/**"
+      instructions: |
+        Focus on acceptance criteria that prove product behavior with real runtime or stored
+        evidence. Flag checklist items that can pass without testing the claimed surface.
+
+    - path: "docs/architecture/**"
+      instructions: |
+        For shared architecture docs, focus on boundary consistency between shell and
+        product-plane, source-of-truth placement, dependency direction, and current-vs-historical
+        wording. Avoid stylistic copyediting.
+
+    - path: "docs/runbooks/**"
+      instructions: |
+        For non-app runbooks, focus on reproducible operations, explicit commands, expected
+        outputs, failure modes, and consistency with gate/check documentation.
+
+    - path: "docs/workflows/**"
+      instructions: |
+        Focus on workflow ordering, required evidence, handoff boundaries, and whether the
+        described workflow can be followed without hidden tribal knowledge.
+
+    - path: "docs/checklists/**"
+      instructions: |
+        Focus on whether checklist items are objectively verifiable and mapped to the right
+        surface. Flag checklist language that permits false acceptance.
+
+    - path: "docs/project-map/**"
+      instructions: |
+        Review as generated or semi-generated navigation state. Focus on broken references,
+        stale active-state claims, and contradictions with canonical architecture docs.
+
+    - path: "docs/**"
+      instructions: |
+        General docs review should prioritize factual drift, broken links, stale current-state
+        claims, and contradictions with AGENTS.md, DEV_WORKFLOW.md, or product architecture.
+        Avoid grammar, tone, and markdown nitpicks unless they block use.
+
+    - path: "tests/product-plane/**"
+      instructions: |
+        Focus on whether tests prove the changed product behavior, include negative/fail-closed
+        paths, and use realistic fixtures for data/time/session semantics. For data-plane claims,
+        note when unit tests are insufficient without runtime or persisted evidence.
+
+    - path: "tests/process/**"
+      instructions: |
+        Focus on shell policy enforcement, gate behavior, fail-closed paths, fixture clarity,
+        and whether tests prevent regression of PR-only, size-gate, skill-routing, or context
+        routing contracts.
+
+    - path: "tests/architecture/**"
+      instructions: |
+        Focus on module boundaries, dependency direction, CODEOWNERS/registry alignment, and
+        whether tests encode the intended architecture rather than a stale file layout.
+
+    - path: "tests/support/**"
+      instructions: |
+        Focus on fixture determinism, isolation, reusable helpers, and avoiding helpers that
+        mask failures or make broad tests pass for the wrong reason.
+
+    - path: "pyproject.toml"
+      instructions: |
+        Focus on dependency/runtime drift, test and lint configuration, package discovery,
+        optional extras, and whether tool settings match the repository's current quality gates.
+
+    - path: "Makefile"
+      instructions: |
+        Focus on command reproducibility, Windows compatibility expectations, canonical script
+        names, and whether targets hide failing commands or bypass documented gates.
+
+    - path: "README.md"
+      instructions: |
+        Review as the first navigation contract. Focus on dual-surface clarity, canonical path
+        pointers, PR-only policy, and avoiding stale bootstrap or product-route claims.
+
+    - path: "CODEOWNERS"
+      instructions: |
+        Focus on ownership coverage, review routing consistency with registry/module ownership,
+        and whether new active paths have an appropriate owner.
+
+knowledge_base:
+  code_guidelines:
+    enabled: true
