@@ -117,9 +117,16 @@ def _patch_common_inputs(
     monkeypatch.setattr(
         baseline_module,
         "materialize_reconstructed_session_schedule_for_changed_windows",
-        lambda **_kwargs: (_ for _ in ()).throw(
-            AssertionError("baseline update must not materialize session schedule")
-        ),
+        lambda **kwargs: {
+            "status": "PASS" if kwargs["changed_windows"] else "PASS-NOOP",
+            "mode": "static_reconstructed",
+            "raw_schedule_path": kwargs["raw_schedule_path"].as_posix(),
+            "canonical_session_intervals_path": kwargs[
+                "canonical_session_intervals_path"
+            ].as_posix(),
+            "raw_schedule_rows": len(kwargs["changed_windows"]),
+            "canonical_session_interval_rows": len(kwargs["changed_windows"]),
+        },
         raising=False,
     )
 
@@ -187,8 +194,24 @@ def test_baseline_update_writes_to_stable_paths_and_scoped_canonical_refresh(
     ]
     _patch_common_inputs(monkeypatch, changed_windows)
     captured: dict[str, object] = {}
+    stage_order: list[str] = []
+
+    def _fake_session_schedule(**kwargs):
+        stage_order.append("session_schedule")
+        captured["session_schedule"] = kwargs
+        return {
+            "status": "PASS",
+            "mode": "static_reconstructed",
+            "raw_schedule_path": kwargs["raw_schedule_path"].as_posix(),
+            "canonical_session_intervals_path": kwargs[
+                "canonical_session_intervals_path"
+            ].as_posix(),
+            "raw_schedule_rows": 1,
+            "canonical_session_interval_rows": 1,
+        }
 
     def _fake_canonical(**kwargs):
+        stage_order.append("canonical")
         captured.update(kwargs)
         return {
             "status": "PASS",
@@ -199,6 +222,11 @@ def test_baseline_update_writes_to_stable_paths_and_scoped_canonical_refresh(
             "mutation_applied": True,
         }
 
+    monkeypatch.setattr(
+        baseline_module,
+        "materialize_reconstructed_session_schedule_for_changed_windows",
+        _fake_session_schedule,
+    )
     monkeypatch.setattr(baseline_module, "run_historical_canonical_route", _fake_canonical)
 
     report = baseline_module.run_moex_baseline_update(
@@ -217,6 +245,7 @@ def test_baseline_update_writes_to_stable_paths_and_scoped_canonical_refresh(
     )
 
     assert report["status"] == "PASS"
+    assert stage_order == ["session_schedule", "canonical"]
     assert captured["raw_table_path"] == raw_table_path
     assert captured["canonical_bars_path"] == canonical_bars_path
     assert captured["canonical_provenance_path"] == canonical_provenance_path
@@ -224,7 +253,10 @@ def test_baseline_update_writes_to_stable_paths_and_scoped_canonical_refresh(
         captured["canonical_session_calendar_path"]
         == canonical_bars_path.parent / "canonical_session_calendar.delta"
     )
-    assert captured.get("canonical_session_intervals_path") is None
+    assert (
+        captured["canonical_session_intervals_path"]
+        == canonical_bars_path.parent / "canonical_session_intervals.delta"
+    )
     assert (
         captured["canonical_roll_map_path"]
         == canonical_bars_path.parent / "canonical_roll_map.delta"
@@ -236,12 +268,25 @@ def test_baseline_update_writes_to_stable_paths_and_scoped_canonical_refresh(
         report["canonical_session_calendar_path"]
         == (canonical_bars_path.parent / "canonical_session_calendar.delta").as_posix()
     )
-    assert report["session_schedule_mode"] == "manual_backfill_required"
+    assert report["session_schedule_mode"] == "auto_reconstructed"
     assert report["session_schedule_required"] is True
-    assert report["canonical_session_intervals_path"] == ""
-    assert report["raw_session_schedule_path"] == ""
-    assert report["artifact_paths"]["session_schedule_report"] == ""
+    assert (
+        report["canonical_session_intervals_path"]
+        == (canonical_bars_path.parent / "canonical_session_intervals.delta").as_posix()
+    )
+    assert (
+        report["raw_session_schedule_path"]
+        == (raw_table_path.parent / "raw_moex_session_schedule.delta").as_posix()
+    )
+    assert (
+        report["artifact_paths"]["session_schedule_report"]
+        == (tmp_path / "evidence" / "baseline-daily" / "session-schedule-report.json").as_posix()
+    )
     assert report["artifact_paths"]["official_session_schedule_report"] == ""
+    assert (
+        captured["session_schedule"]["changed_windows"]
+        == captured["raw_ingest_run_report"]["changed_windows"]
+    )
     assert (
         report["canonical_roll_map_path"]
         == (canonical_bars_path.parent / "canonical_roll_map.delta").as_posix()
@@ -382,7 +427,14 @@ def test_contract_economics_refresh_writes_iss_raw_side_tables(
                     "secid": "USD/RUB",
                     "rate": 71.9077,
                     "clearing": "mc",
-                }
+                },
+                {
+                    "tradedate": "2026-06-11",
+                    "tradetime": "19:00:00",
+                    "secid": "USD/RUB",
+                    "rate": 71.9077,
+                    "clearing": "mc",
+                },
             ]
 
         def fetch_futures_rms_limits(self, **_kwargs) -> list[dict[str, object]]:
@@ -421,6 +473,7 @@ def test_contract_economics_refresh_writes_iss_raw_side_tables(
         current_contract = next(row for row in contract_rows if row["trade_date"] == "2026-06-11")
         assert current_contract["moex_secid"] == "BRN6"
         assert json.loads(str(current_contract["raw_payload_json"]))["SECID"] == "BRN6"
+        assert len(fx_rows) == 1
         assert fx_rows[0]["fx_pair"] == "USD/RUB"
         assert json.loads(str(fx_rows[0]["raw_payload_json"]))["secid"] == "USD/RUB"
         assert limits_rows[0]["assetcode"] == "BR"
@@ -486,6 +539,188 @@ def test_contract_economics_refresh_writes_iss_raw_side_tables(
         "raw_moex_rms_staticparams": 1,
     }
     assert report["raw_refresh"]["raw_write_mode"] == "scoped_replace_by_trade_date"
+
+
+def test_contract_economics_raw_refresh_refuses_partial_write_without_fx(
+    tmp_path: Path,
+) -> None:
+    class _Client:
+        def fetch_futures_contract_securities(self) -> list[dict[str, object]]:
+            return [
+                {
+                    "SECID": "BRM6",
+                    "ASSETCODE": "BR",
+                    "SHORTNAME": "BR-6.26",
+                    "MATDATE": "2026-06-15",
+                    "MINSTEP": 0.01,
+                    "LOTVOLUME": 10,
+                    "STEPPRICE": 1,
+                    "INITIALMARGIN": 1000,
+                    "LASTSETTLEPRICE": 70,
+                }
+            ]
+
+        def fetch_futures_indicative_rates(self, **_kwargs) -> list[dict[str, object]]:
+            return []
+
+        def fetch_futures_rms_limits(self, **_kwargs) -> list[dict[str, object]]:
+            return [{"assetcode": "BR", "tradedate": "2026-06-19", "mr1": 0.1}]
+
+        def fetch_futures_rms_staticparams(self, **_kwargs) -> list[dict[str, object]]:
+            return [{"assetcode": "BR", "tradedate": "2026-06-19", "radius": 10}]
+
+    raw_root = tmp_path / "raw" / "economics"
+
+    with pytest.raises(RuntimeError, match="no indicative FX rows"):
+        baseline_module._write_iss_economics_raw_tables(
+            client=_Client(),
+            raw_economics_root=raw_root,
+            ingest_till_utc="2026-06-19T07:00:00Z",
+        )
+
+    for table_name in (
+        "raw_moex_contract_securities.delta",
+        "raw_moex_indicative_fx_rates.delta",
+        "raw_moex_rms_limits.delta",
+        "raw_moex_rms_staticparams.delta",
+    ):
+        assert not (raw_root / table_name / "_delta_log").exists()
+
+
+def test_contract_economics_raw_refresh_uses_payload_trade_date_for_weekend_run(
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, list[str]] = {"fx": [], "limits": [], "staticparams": []}
+
+    class _Client:
+        def fetch_futures_contract_securities(self) -> list[dict[str, object]]:
+            return [
+                {
+                    "SECID": "BRM6",
+                    "ASSETCODE": "BR",
+                    "SHORTNAME": "BR-6.26",
+                    "IMTIME": "2026-06-19 09:00:01",
+                    "MATDATE": "2026-06-15",
+                    "MINSTEP": 0.01,
+                    "LOTVOLUME": 10,
+                    "STEPPRICE": 1,
+                    "INITIALMARGIN": 1000,
+                    "LASTSETTLEPRICE": 70,
+                }
+            ]
+
+        def fetch_futures_indicative_rates(self, **kwargs) -> list[dict[str, object]]:
+            captured["fx"].append(str(kwargs["date_from"]))
+            return [
+                {
+                    "tradedate": "2026-06-19",
+                    "tradetime": "19:00:00",
+                    "secid": "USD/RUB",
+                    "rate": 78.5,
+                    "clearing": "mc",
+                }
+            ]
+
+        def fetch_futures_rms_limits(self, **kwargs) -> list[dict[str, object]]:
+            captured["limits"].append(str(kwargs["trade_date"]))
+            return [{"assetcode": "BR", "tradedate": "2026-06-19", "mr1": 0.1}]
+
+        def fetch_futures_rms_staticparams(self, **kwargs) -> list[dict[str, object]]:
+            captured["staticparams"].append(str(kwargs["trade_date"]))
+            return [{"assetcode": "BR", "tradedate": "2026-06-19", "radius": 10}]
+
+    raw_root = tmp_path / "raw" / "economics"
+
+    report = baseline_module._write_iss_economics_raw_tables(
+        client=_Client(),
+        raw_economics_root=raw_root,
+        ingest_till_utc="2026-06-21T07:00:00Z",
+    )
+
+    contract_rows = read_delta_table_rows(
+        raw_root / "raw_moex_contract_securities.delta",
+        limit=10,
+    )
+    assert {str(row["trade_date"]) for row in contract_rows} == {"2026-06-19"}
+    assert report["economics_source_dates"] == ["2026-06-19"]
+    assert captured == {
+        "fx": ["2026-06-19"],
+        "limits": ["2026-06-19"],
+        "staticparams": ["2026-06-19"],
+    }
+
+
+def test_contract_economics_raw_refresh_uses_one_snapshot_date_for_contract_imtime(
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, list[str]] = {"fx": [], "limits": [], "staticparams": []}
+
+    class _Client:
+        def fetch_futures_contract_securities(self) -> list[dict[str, object]]:
+            return [
+                {
+                    "SECID": "OLD6",
+                    "ASSETCODE": "OLD",
+                    "IMTIME": "2026-06-02 09:00:01",
+                    "MATDATE": "2026-07-15",
+                    "MINSTEP": 0.01,
+                    "LOTVOLUME": 10,
+                    "STEPPRICE": 1,
+                    "INITIALMARGIN": 1000,
+                    "LASTSETTLEPRICE": 70,
+                },
+                {
+                    "SECID": "BRQ6",
+                    "ASSETCODE": "BR",
+                    "IMTIME": "2026-06-26 19:00:01",
+                    "MATDATE": "2026-07-15",
+                    "MINSTEP": 0.01,
+                    "LOTVOLUME": 10,
+                    "STEPPRICE": 1,
+                    "INITIALMARGIN": 1000,
+                    "LASTSETTLEPRICE": 70,
+                },
+            ]
+
+        def fetch_futures_indicative_rates(self, **kwargs) -> list[dict[str, object]]:
+            captured["fx"].append(str(kwargs["date_from"]))
+            return [
+                {
+                    "tradedate": "2026-06-26",
+                    "tradetime": "19:00:00",
+                    "secid": "USD/RUB",
+                    "rate": 78.5,
+                    "clearing": "mc",
+                }
+            ]
+
+        def fetch_futures_rms_limits(self, **kwargs) -> list[dict[str, object]]:
+            captured["limits"].append(str(kwargs["trade_date"]))
+            return [{"assetcode": "BR", "tradedate": "2026-06-26", "mr1": 0.1}]
+
+        def fetch_futures_rms_staticparams(self, **kwargs) -> list[dict[str, object]]:
+            captured["staticparams"].append(str(kwargs["trade_date"]))
+            return [{"assetcode": "BR", "tradedate": "2026-06-26", "radius": 10}]
+
+    raw_root = tmp_path / "raw" / "economics"
+
+    report = baseline_module._write_iss_economics_raw_tables(
+        client=_Client(),
+        raw_economics_root=raw_root,
+        ingest_till_utc="2026-06-26T23:00:00Z",
+    )
+
+    contract_rows = read_delta_table_rows(
+        raw_root / "raw_moex_contract_securities.delta",
+        limit=10,
+    )
+    assert {str(row["trade_date"]) for row in contract_rows} == {"2026-06-26"}
+    assert report["economics_source_dates"] == ["2026-06-26"]
+    assert captured == {
+        "fx": ["2026-06-26"],
+        "limits": ["2026-06-26"],
+        "staticparams": ["2026-06-26"],
+    }
 
 
 def test_baseline_update_heartbeats_during_canonical_refresh(
@@ -646,6 +881,121 @@ def test_baseline_update_persists_pending_windows_when_canonical_refresh_fails(
     assert heartbeat["status"] == "FAILED"
     assert heartbeat["error_type"] == "RuntimeError"
     assert heartbeat["completed_at_utc"]
+
+
+def test_baseline_update_persists_pending_windows_when_session_schedule_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_table_path, canonical_bars_path, canonical_provenance_path = _write_empty_baseline(tmp_path)
+    changed_windows = [
+        {
+            "internal_id": "FUT_BR",
+            "source_timeframe": "1m",
+            "source_interval": 1,
+            "moex_secid": "BRM6@MOEX",
+            "window_start_utc": "2026-04-21T00:00:00Z",
+            "window_end_utc": "2026-04-22T00:00:00Z",
+            "incremental_rows": 12,
+        }
+    ]
+    _patch_common_inputs(monkeypatch, changed_windows)
+
+    def _failing_session_schedule(**_kwargs):
+        raise RuntimeError("session schedule failed")
+
+    def _unexpected_canonical(**_kwargs):
+        raise AssertionError("canonical route must not run after session schedule failure")
+
+    monkeypatch.setattr(
+        baseline_module,
+        "materialize_reconstructed_session_schedule_for_changed_windows",
+        _failing_session_schedule,
+    )
+    monkeypatch.setattr(baseline_module, "run_historical_canonical_route", _unexpected_canonical)
+
+    with pytest.raises(RuntimeError, match="session schedule failed"):
+        baseline_module.run_moex_baseline_update(
+            mapping_registry_path=tmp_path / "mapping.yaml",
+            universe_path=tmp_path / "universe.yaml",
+            raw_table_path=raw_table_path,
+            canonical_bars_path=canonical_bars_path,
+            canonical_provenance_path=canonical_provenance_path,
+            evidence_dir=tmp_path / "evidence",
+            run_id="baseline-session-schedule-failed",
+            timeframes={"5m"},
+            ingest_till_utc="2026-04-22T00:00:00Z",
+            refresh_window_days=7,
+            contract_discovery_lookback_days=45,
+            max_changed_window_days=10,
+        )
+
+    pending_path = tmp_path / "evidence" / "pending-changed-windows.json"
+    pending = json.loads(pending_path.read_text(encoding="utf-8"))
+    assert pending["status"] == "PENDING"
+    assert pending["reason"] == "session_schedule_refresh_failed"
+    assert pending["changed_windows"] == changed_windows
+    assert not (
+        tmp_path / "evidence" / "baseline-session-schedule-failed" / "canonical-refresh"
+    ).exists()
+
+
+def test_baseline_update_persists_pending_windows_when_economics_refresh_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_table_path, canonical_bars_path, canonical_provenance_path = _write_empty_baseline(tmp_path)
+    changed_windows = [
+        {
+            "internal_id": "FUT_BR",
+            "source_timeframe": "1m",
+            "source_interval": 1,
+            "moex_secid": "BRM6@MOEX",
+            "window_start_utc": "2026-04-21T00:00:00Z",
+            "window_end_utc": "2026-04-22T00:00:00Z",
+            "incremental_rows": 12,
+        }
+    ]
+    _patch_common_inputs(monkeypatch, changed_windows)
+    stage_order: list[str] = []
+
+    def _failing_economics(**kwargs):
+        stage_order.append("economics")
+        assert kwargs["changed_windows"] == changed_windows
+        raise RuntimeError("economics inputs missing")
+
+    def _unexpected_canonical(**_kwargs):
+        raise AssertionError("canonical route must not run after economics refresh failure")
+
+    monkeypatch.setattr(baseline_module, "refresh_moex_contract_economics", _failing_economics)
+    monkeypatch.setattr(baseline_module, "run_historical_canonical_route", _unexpected_canonical)
+
+    with pytest.raises(RuntimeError, match="economics inputs missing"):
+        baseline_module.run_moex_baseline_update(
+            mapping_registry_path=tmp_path / "mapping.yaml",
+            universe_path=tmp_path / "universe.yaml",
+            raw_table_path=raw_table_path,
+            canonical_bars_path=canonical_bars_path,
+            canonical_provenance_path=canonical_provenance_path,
+            evidence_dir=tmp_path / "evidence",
+            run_id="baseline-economics-failed",
+            timeframes={"5m"},
+            ingest_till_utc="2026-04-22T00:00:00Z",
+            refresh_window_days=7,
+            contract_discovery_lookback_days=45,
+            max_changed_window_days=10,
+            economics_mode="refresh",
+            raw_economics_root=tmp_path / "raw" / "economics",
+            canonical_economics_root=tmp_path / "canonical" / "economics",
+        )
+
+    pending_path = tmp_path / "evidence" / "pending-changed-windows.json"
+    pending = json.loads(pending_path.read_text(encoding="utf-8"))
+    assert stage_order == ["economics"]
+    assert pending["status"] == "PENDING"
+    assert pending["reason"] == "economics_refresh_failed"
+    assert pending["changed_windows"] == changed_windows
+    assert not (tmp_path / "evidence" / "baseline-economics-failed" / "canonical-refresh").exists()
 
 
 def test_baseline_update_rehashes_pending_windows_for_canonical_after_raw_noop(

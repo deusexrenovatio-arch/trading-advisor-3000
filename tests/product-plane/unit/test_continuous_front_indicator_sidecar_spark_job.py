@@ -87,6 +87,31 @@ def _write_empty_sidecar_sources(
     )
 
 
+def test_spark_sidecar_job_rejects_native_contour_before_spark(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="pit_active_front"):
+        run_continuous_front_indicator_sidecar_spark_job(
+            materialized_output_dir=tmp_path,
+            output_dir=tmp_path,
+            dataset_version="cf-dataset-v1",
+            contour_id="native_tradable",
+            source_canonical_version="continuous_front_bars",
+            roll_policy_version="front_liquidity_oi_v1",
+            adjustment_policy_version="backward_current_anchor_additive_v1",
+            indicator_set_version="indicators-v1",
+            derived_set_version="derived-v1",
+            rule_set_version="continuous_front_indicators_v1",
+            adapter_hash="ADAPTER",
+            indicator_value_columns=("sma_20",),
+            derived_value_columns=("session_vwap",),
+            max_base_cross_contract_window_bars=20,
+            max_derived_cross_contract_window_bars=20,
+            created_at_utc="2026-06-16T00:00:00Z",
+            contract=continuous_front_indicator_store_contract(),
+            include_derived=True,
+            spark_session_factory=lambda _app, _master: pytest.fail("Spark should not start"),
+        )
+
+
 def test_spark_sidecar_job_rejects_missing_base_indicator_columns_before_spark(
     tmp_path: Path,
 ) -> None:

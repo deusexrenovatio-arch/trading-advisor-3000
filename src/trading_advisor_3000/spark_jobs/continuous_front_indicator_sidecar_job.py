@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -30,6 +31,7 @@ from .canonical_bars_job import DEFAULT_SPARK_MASTER, _create_spark_session
 from .research_bar_views_job import _scoped_delete_condition
 
 ROW_HASH_VERSION = "continuous-front-indicator-row-hash-v2"
+CONTINUOUS_FRONT_SIDECAR_CONTOUR_ID = "pit_active_front"
 
 BAR_VIEW_INPUT_COLUMNS = (
     "dataset_version",
@@ -111,6 +113,38 @@ INPUT_JOIN_COLUMNS = (
     "input_front_row_hash",
 )
 
+SIDECAR_UNIQUE_KEYS_BY_TABLE = {
+    "cf_indicator_input_frame": (
+        "dataset_version",
+        "roll_policy_version",
+        "adjustment_policy_version",
+        "instrument_id",
+        "timeframe",
+        "ts",
+    ),
+    "continuous_front_indicator_frames": (
+        "dataset_version",
+        "roll_policy_version",
+        "adjustment_policy_version",
+        "indicator_set_version",
+        "rule_set_version",
+        "instrument_id",
+        "timeframe",
+        "ts",
+    ),
+    "continuous_front_derived_indicator_frames": (
+        "dataset_version",
+        "roll_policy_version",
+        "adjustment_policy_version",
+        "indicator_set_version",
+        "derived_set_version",
+        "rule_set_version",
+        "instrument_id",
+        "timeframe",
+        "ts",
+    ),
+}
+
 
 @dataclass(frozen=True)
 class ContinuousFrontIndicatorSidecarSparkJobSpec:
@@ -166,6 +200,51 @@ def _required_columns_present(
     missing = sorted(set(required_columns) - available)
     if missing:
         raise ValueError(f"{table_label} missing: {', '.join(missing)}")
+
+
+def _json_safe_value(value: object) -> object:
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    return value
+
+
+def _assert_unique_by_key(
+    dataframe,
+    *,
+    table_name: str,
+    key_columns: tuple[str, ...],
+    frame_role: str,
+) -> None:
+    from pyspark.sql import functions as F  # type: ignore[import-not-found]
+
+    missing = [column for column in key_columns if column not in dataframe.columns]
+    if missing:
+        raise RuntimeError(f"missing required {table_name} columns: {', '.join(sorted(missing))}")
+    duplicate_count_column = "__duplicate_key_count"
+    duplicates = (
+        dataframe.groupBy(*[F.col(column_name) for column_name in key_columns])
+        .count()
+        .withColumnRenamed("count", duplicate_count_column)
+        .where(F.col(duplicate_count_column) > F.lit(1))
+        .orderBy(*[F.col(column_name).asc_nulls_first() for column_name in key_columns])
+        .limit(5)
+        .collect()
+    )
+    if not duplicates:
+        return
+
+    samples = []
+    for row in duplicates:
+        payload = row.asDict()
+        samples.append(
+            {column_name: _json_safe_value(payload.get(column_name)) for column_name in key_columns}
+            | {"count": int(payload[duplicate_count_column])}
+        )
+    raise RuntimeError(
+        f"{table_name} {frame_role} violates key uniqueness on "
+        f"{', '.join(key_columns)}; duplicate key samples: "
+        f"{json.dumps(samples, ensure_ascii=False, sort_keys=True)}"
+    )
 
 
 def _validate_sources_before_spark(
@@ -284,6 +363,12 @@ def _write_sidecar_delta_table(
 ) -> None:
     table_path = output_dir / f"{table_name}.delta"
     casted = _cast_to_sidecar_contract(dataframe, table_name=table_name, contract=contract)
+    _assert_unique_by_key(
+        casted,
+        table_name=table_name,
+        key_columns=SIDECAR_UNIQUE_KEYS_BY_TABLE[table_name],
+        frame_role="write source",
+    )
     partition_by = list(contract[table_name].get("partition_by") or [])
     table_path.parent.mkdir(parents=True, exist_ok=True)
     if not has_delta_log(table_path):
@@ -353,6 +438,26 @@ def _build_input_frame(
             (F.col("dataset_version") == F.lit(dataset_version))
             & (F.col("contour_id") == F.lit(contour_id))
         )
+    )
+    _assert_unique_by_key(
+        bars,
+        table_name="research_bar_views",
+        key_columns=(
+            "dataset_version",
+            "contour_id",
+            "series_mode",
+            "series_id",
+            "instrument_id",
+            "timeframe",
+            "ts",
+        ),
+        frame_role="continuous-front sidecar source",
+    )
+    _assert_unique_by_key(
+        bars,
+        table_name="research_bar_views",
+        key_columns=("instrument_id", "timeframe", "ts"),
+        frame_role="continuous-front sidecar join source",
     )
     ladder = (
         spark.read.format("delta")
@@ -500,10 +605,17 @@ def _build_input_frame(
         F.lit(created_at_utc).cast("timestamp").alias("created_at_utc"),
     )
     input_hash_udf = F.udf(_input_row_hash_from_payload, StringType())
-    return selected.withColumn(
+    result = selected.withColumn(
         "input_front_row_hash",
         input_hash_udf(F.struct(*[F.col(column) for column in selected.columns])),
     )
+    _assert_unique_by_key(
+        result,
+        table_name="cf_indicator_input_frame",
+        key_columns=SIDECAR_UNIQUE_KEYS_BY_TABLE["cf_indicator_input_frame"],
+        frame_role="output",
+    )
+    return result
 
 
 def _build_base_sidecar_frame(
@@ -535,6 +647,32 @@ def _build_base_sidecar_frame(
         )
     )
     input_projection = input_frame.select(*[F.col(column) for column in INPUT_JOIN_COLUMNS])
+    _assert_unique_by_key(
+        base_source,
+        table_name="research_indicator_frames",
+        key_columns=(
+            "dataset_version",
+            "contour_id",
+            "series_mode",
+            "series_id",
+            "indicator_set_version",
+            "timeframe",
+            "ts",
+        ),
+        frame_role="continuous-front sidecar source",
+    )
+    _assert_unique_by_key(
+        base_source,
+        table_name="research_indicator_frames",
+        key_columns=("instrument_id", "timeframe", "ts"),
+        frame_role="continuous-front sidecar join source",
+    )
+    _assert_unique_by_key(
+        input_projection,
+        table_name="cf_indicator_input_frame",
+        key_columns=("instrument_id", "timeframe", "ts"),
+        frame_role="base sidecar join source",
+    )
     joined = base_source.alias("base").join(
         input_projection.alias("input"),
         [
@@ -572,7 +710,7 @@ def _build_base_sidecar_frame(
         lambda payload: _sidecar_row_hash_from_payload(payload, indicator_value_columns),
         StringType(),
     )
-    return selected.withColumn(
+    result = selected.withColumn(
         "indicator_row_hash",
         row_hash_udf(
             F.struct(
@@ -589,6 +727,13 @@ def _build_base_sidecar_frame(
             )
         ),
     ).withColumn("indicator_row_hash_version", F.lit(ROW_HASH_VERSION))
+    _assert_unique_by_key(
+        result,
+        table_name="continuous_front_indicator_frames",
+        key_columns=SIDECAR_UNIQUE_KEYS_BY_TABLE["continuous_front_indicator_frames"],
+        frame_role="output",
+    )
+    return result
 
 
 def _build_derived_sidecar_frame(
@@ -629,6 +774,39 @@ def _build_derived_sidecar_frame(
         "ts",
         "indicator_row_hash",
         "indicator_row_hash_version",
+    )
+    _assert_unique_by_key(
+        derived_source,
+        table_name="research_derived_indicator_frames",
+        key_columns=(
+            "dataset_version",
+            "contour_id",
+            "series_mode",
+            "series_id",
+            "indicator_set_version",
+            "derived_indicator_set_version",
+            "timeframe",
+            "ts",
+        ),
+        frame_role="continuous-front sidecar source",
+    )
+    _assert_unique_by_key(
+        derived_source,
+        table_name="research_derived_indicator_frames",
+        key_columns=("instrument_id", "timeframe", "ts"),
+        frame_role="continuous-front sidecar join source",
+    )
+    _assert_unique_by_key(
+        input_projection,
+        table_name="cf_indicator_input_frame",
+        key_columns=("instrument_id", "timeframe", "ts"),
+        frame_role="derived sidecar join source",
+    )
+    _assert_unique_by_key(
+        base_hash_projection,
+        table_name="continuous_front_indicator_frames",
+        key_columns=("instrument_id", "timeframe", "ts"),
+        frame_role="derived sidecar join source",
     )
     with_input = derived_source.alias("derived").join(
         input_projection.alias("input"),
@@ -681,7 +859,7 @@ def _build_derived_sidecar_frame(
         lambda payload: _sidecar_row_hash_from_payload(payload, derived_value_columns),
         StringType(),
     )
-    return selected.withColumn(
+    result = selected.withColumn(
         "derived_row_hash",
         row_hash_udf(
             F.struct(
@@ -698,6 +876,13 @@ def _build_derived_sidecar_frame(
             )
         ),
     ).withColumn("derived_row_hash_version", F.lit(ROW_HASH_VERSION))
+    _assert_unique_by_key(
+        result,
+        table_name="continuous_front_derived_indicator_frames",
+        key_columns=SIDECAR_UNIQUE_KEYS_BY_TABLE["continuous_front_derived_indicator_frames"],
+        frame_role="output",
+    )
+    return result
 
 
 def run_continuous_front_indicator_sidecar_spark_job(
@@ -726,6 +911,11 @@ def run_continuous_front_indicator_sidecar_spark_job(
 ) -> dict[str, object]:
     stage_timings: StageTimings = {}
     stage_started = stage_timer()
+    if contour_id != CONTINUOUS_FRONT_SIDECAR_CONTOUR_ID:
+        raise ValueError(
+            "continuous-front indicator sidecar requires "
+            f"contour_id={CONTINUOUS_FRONT_SIDECAR_CONTOUR_ID!r}; got {contour_id!r}"
+        )
     _validate_sources_before_spark(
         materialized_output_dir=materialized_output_dir,
         indicator_value_columns=indicator_value_columns,

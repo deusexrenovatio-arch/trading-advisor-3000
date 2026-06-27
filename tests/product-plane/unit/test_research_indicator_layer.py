@@ -28,6 +28,10 @@ from trading_advisor_3000.product_plane.research.indicators.materialize import (
     _target_bar_close_ts,
     _timeframe_delta,
 )
+from trading_advisor_3000.product_plane.research.indicators.store import (
+    write_indicator_frame_batches,
+    write_indicator_frame_partition_batches,
+)
 from trading_advisor_3000.product_plane.research.indicators.volume_profile import (
     _price_to_tick_floor,
 )
@@ -250,6 +254,51 @@ def _sma2_profile() -> IndicatorProfile:
             ),
         ),
     )
+
+
+def _sma2_indicator_row() -> IndicatorFrameRow:
+    return IndicatorFrameRow(
+        dataset_version="dataset-v3",
+        indicator_set_version="sma2_test",
+        profile_version="sma2_test",
+        contract_id="BR-6.26",
+        instrument_id="BR",
+        timeframe="15m",
+        ts="2026-03-16T09:00:00Z",
+        values={"sma_2": 80.0},
+        source_bars_hash="SRC-BARS",
+        row_count=2,
+        warmup_span=2,
+        null_warmup_span=0,
+        created_at="2026-03-16T12:00:00Z",
+        series_id="BR-6.26",
+    )
+
+
+def test_indicator_batch_writer_rejects_duplicate_logical_keys(tmp_path) -> None:
+    row = _sma2_indicator_row()
+    duplicate = replace(row, values={"sma_2": 81.0})
+
+    with pytest.raises(ValueError, match="research_indicator_frames duplicate logical key"):
+        write_indicator_frame_batches(
+            output_dir=tmp_path,
+            row_batches=([row], [duplicate]),
+            profile=_sma2_profile(),
+        )
+
+
+def test_indicator_partition_writer_rejects_duplicate_ts_inside_series_partition(
+    tmp_path,
+) -> None:
+    row = _sma2_indicator_row()
+    duplicate = replace(row, values={"sma_2": 81.0})
+
+    with pytest.raises(ValueError, match="research_indicator_frames duplicate logical key"):
+        write_indicator_frame_partition_batches(
+            output_dir=tmp_path,
+            partition_row_batches=((row.partition_key(series_mode="contract"), [row, duplicate]),),
+            profile=_sma2_profile(),
+        )
 
 
 def test_indicator_registry_exposes_versioned_profiles_and_richer_specs() -> None:

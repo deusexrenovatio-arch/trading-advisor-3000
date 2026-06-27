@@ -122,11 +122,55 @@ def _latest_snapshot_by_key(dataframe, *, key_columns: tuple[str, ...]):
     )
 
 
+def _assert_unique_by_key(
+    dataframe,
+    *,
+    table_name: str,
+    key_columns: tuple[str, ...],
+    frame_role: str,
+) -> None:
+    from pyspark.sql import functions as F  # type: ignore[import-not-found]
+
+    duplicate_count_column = "__duplicate_key_count"
+    duplicates = (
+        dataframe.groupBy(*[F.col(column_name) for column_name in key_columns])
+        .count()
+        .withColumnRenamed("count", duplicate_count_column)
+        .where(F.col(duplicate_count_column) > F.lit(1))
+        .orderBy(*[F.col(column_name).asc_nulls_first() for column_name in key_columns])
+        .limit(5)
+        .collect()
+    )
+    if not duplicates:
+        return
+
+    samples = []
+    for row in duplicates:
+        payload = row.asDict()
+        samples.append(
+            {column_name: _json_safe_value(payload.get(column_name)) for column_name in key_columns}
+            | {"count": int(payload[duplicate_count_column])}
+        )
+    raise RuntimeError(
+        "MOEX economics "
+        f"{frame_role} for {table_name} violates merge-key uniqueness "
+        f"on {', '.join(key_columns)}; duplicate key samples: "
+        f"{json.dumps(samples, ensure_ascii=False, sort_keys=True)}"
+    )
+
+
 def _write_spark_delta_table(dataframe, *, table_path: Path, table_name: str) -> None:
     contract = moex_economics_store_contract()[table_name]
     casted = _cast_to_contract(dataframe, table_name)
     table_path.parent.mkdir(parents=True, exist_ok=True)
     partition_by = list(contract.get("partition_by") or [])
+    key_columns = _CANONICAL_MERGE_KEYS[table_name]
+    _assert_unique_by_key(
+        casted,
+        table_name=table_name,
+        key_columns=key_columns,
+        frame_role="source",
+    )
     if not has_delta_log(table_path):
         writer = casted.write.format("delta").mode("overwrite").option("overwriteSchema", "true")
         if partition_by:
@@ -138,7 +182,12 @@ def _write_spark_delta_table(dataframe, *, table_path: Path, table_name: str) ->
 
     from delta.tables import DeltaTable  # type: ignore[import-not-found]
 
-    key_columns = _CANONICAL_MERGE_KEYS[table_name]
+    _assert_unique_by_key(
+        casted.sparkSession.read.format("delta").load(str(table_path)),
+        table_name=table_name,
+        key_columns=key_columns,
+        frame_role="target",
+    )
     condition = " AND ".join(f"target.{column} <=> source.{column}" for column in key_columns)
     (
         DeltaTable.forPath(casted.sparkSession, str(table_path))
@@ -261,7 +310,7 @@ def _fx_rates_frame(spark: object, table_path: Path):
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
     raw = spark.read.format("delta").load(str(table_path))
-    parsed = (
+    parsed_source = (
         raw.withColumn("fx_pair", F.upper(_column_or_json(raw, "fx_pair", "secid", "SECID")))
         .withColumn(
             "rate_date",
@@ -280,14 +329,19 @@ def _fx_rates_frame(spark: object, table_path: Path):
         .withColumn("base_currency", F.split(F.col("fx_pair"), "/").getItem(0))
         .withColumn("quote_currency", F.lit("RUB"))
         .withColumn("source_id", F.col("source_id"))
+        .withColumn("source_document_id", F.col("source_document_id"))
         .withColumn("source_document_hash", F.col("source_document_hash"))
-        .withColumn("model_version", F.lit(MOEX_CONTRACT_ECONOMICS_MODEL_VERSION))
-        .withColumn("created_at", F.current_timestamp())
+        .withColumn("fetched_at_utc", _optional_column(raw, "fetched_at_utc", "timestamp"))
         .where(
             F.col("base_currency").isNotNull()
             & F.col("rate_date").isNotNull()
             & F.col("rate_to_rub").isNotNull()
         )
+        .where(F.col("fx_pair") != F.lit("RUB/RUB"))
+    )
+    parsed = _latest_snapshot_by_key(
+        parsed_source,
+        key_columns=("rate_date", "fx_pair", "clearing_type"),
     )
     rub_rates = (
         parsed.select("rate_date", "clearing_type")
@@ -298,21 +352,22 @@ def _fx_rates_frame(spark: object, table_path: Path):
         .withColumn("rate_to_rub", F.lit(1.0))
         .withColumn("source_id", F.lit("policy_identity_rate"))
         .withColumn("source_document_hash", F.lit("policy_identity_rate"))
+    )
+    return (
+        parsed.select(
+            "rate_date",
+            "fx_pair",
+            "base_currency",
+            "quote_currency",
+            "clearing_type",
+            "rate_to_rub",
+            "source_id",
+            "source_document_hash",
+        )
+        .unionByName(rub_rates)
         .withColumn("model_version", F.lit(MOEX_CONTRACT_ECONOMICS_MODEL_VERSION))
         .withColumn("created_at", F.current_timestamp())
     )
-    return parsed.select(
-        "rate_date",
-        "fx_pair",
-        "base_currency",
-        "quote_currency",
-        "clearing_type",
-        "rate_to_rub",
-        "source_id",
-        "source_document_hash",
-        "model_version",
-        "created_at",
-    ).unionByName(rub_rates)
 
 
 def _asset_risk_parameters_frame(spark: object, limits_path: Path, staticparams_path: Path):
@@ -481,6 +536,85 @@ def _with_effective_sessions(contract_specs, *, canonical_session_calendar_path:
     )
 
 
+def _filter_non_session_contract_specs(
+    contract_specs,
+    fx_rates,
+    risk_parameters,
+    *,
+    canonical_session_calendar_path: Path | None,
+):
+    from pyspark.sql import functions as F  # type: ignore[import-not-found]
+
+    fx_dates = (
+        fx_rates.where(F.col("rate_to_rub").isNotNull() & (F.col("rate_to_rub") > 0))
+        .select(F.col("rate_date").alias("__fx_support_date"))
+        .distinct()
+    )
+    risk_dates = (
+        risk_parameters.where(F.col("mr1").isNotNull() & (F.col("mr1") > 0))
+        .select(F.col("risk_session_date").alias("__risk_support_date"))
+        .distinct()
+    )
+    support_dates = (
+        fx_dates.join(
+            risk_dates,
+            F.col("__fx_support_date") == F.col("__risk_support_date"),
+            "inner",
+        )
+        .select(F.col("__fx_support_date").alias("__economics_support_date"))
+        .distinct()
+    )
+    filtered = contract_specs.join(
+        support_dates,
+        F.col("trade_date") == F.col("__economics_support_date"),
+        "left",
+    )
+
+    if canonical_session_calendar_path is not None:
+        spark = contract_specs.sparkSession
+        session_dates = (
+            spark.read.format("delta")
+            .load(str(canonical_session_calendar_path))
+            .select(F.col("session_date").alias("__calendar_session_date"))
+            .where(F.col("__calendar_session_date").isNotNull())
+            .distinct()
+        )
+        session_bounds = session_dates.agg(
+            F.min("__calendar_session_date").alias("__min_calendar_session_date"),
+            F.max("__calendar_session_date").alias("__max_calendar_session_date"),
+        )
+        filtered = filtered.join(
+            session_dates,
+            F.col("trade_date") == F.col("__calendar_session_date"),
+            "left",
+        ).crossJoin(session_bounds)
+    else:
+        filtered = (
+            filtered.withColumn("__calendar_session_date", F.lit(None).cast("date"))
+            .withColumn("__min_calendar_session_date", F.lit(None).cast("date"))
+            .withColumn("__max_calendar_session_date", F.lit(None).cast("date"))
+        )
+
+    weekend_without_support = F.col("__economics_support_date").isNull() & F.dayofweek(
+        F.col("trade_date")
+    ).isin(1, 7)
+    known_calendar_non_session_without_support = (
+        F.col("__economics_support_date").isNull()
+        & F.col("__calendar_session_date").isNull()
+        & F.col("__min_calendar_session_date").isNotNull()
+        & (F.col("trade_date") >= F.col("__min_calendar_session_date"))
+        & (F.col("trade_date") <= F.col("__max_calendar_session_date"))
+    )
+    return filtered.where(
+        ~(weekend_without_support | known_calendar_non_session_without_support)
+    ).drop(
+        "__economics_support_date",
+        "__calendar_session_date",
+        "__min_calendar_session_date",
+        "__max_calendar_session_date",
+    )
+
+
 def _economics_frame(
     contract_specs,
     fx_rates,
@@ -491,6 +625,12 @@ def _economics_frame(
     from pyspark.sql import Window  # type: ignore[import-not-found]
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
+    contract_specs = _filter_non_session_contract_specs(
+        contract_specs,
+        fx_rates,
+        risk_parameters,
+        canonical_session_calendar_path=canonical_session_calendar_path,
+    )
     contract_specs = _with_effective_sessions(
         contract_specs,
         canonical_session_calendar_path=canonical_session_calendar_path,
@@ -513,12 +653,49 @@ def _economics_frame(
         .where(F.col("__fx_rank") == F.lit(1))
         .drop("__fx_priority", "__fx_rank")
     )
+    risk_for_economics = (
+        contract_specs.select("contract_id", "trade_date", "assetcode")
+        .distinct()
+        .alias("spec_risk")
+        .join(
+            risk_parameters.alias("risk"),
+            (F.col("spec_risk.assetcode") == F.col("risk.assetcode"))
+            & (F.col("risk.risk_session_date") <= F.col("spec_risk.trade_date")),
+            "left",
+        )
+        .withColumn(
+            "__risk_rank",
+            F.row_number().over(
+                Window.partitionBy(
+                    F.col("spec_risk.contract_id"),
+                    F.col("spec_risk.trade_date"),
+                    F.col("spec_risk.assetcode"),
+                ).orderBy(F.col("risk.risk_session_date").desc_nulls_last())
+            ),
+        )
+        .where(F.col("__risk_rank") == F.lit(1))
+        .select(
+            F.col("spec_risk.contract_id").alias("__risk_contract_id"),
+            F.col("spec_risk.trade_date").alias("__risk_contract_trade_date"),
+            F.col("spec_risk.assetcode").alias("__risk_contract_assetcode"),
+            F.col("risk.assetcode").alias("assetcode"),
+            F.col("risk.risk_session_date").alias("risk_session_date"),
+            F.col("risk.mr1").alias("mr1"),
+            F.col("risk.mr2").alias("mr2"),
+            F.col("risk.mr3").alias("mr3"),
+            F.col("risk.radius_pct").alias("radius_pct"),
+            F.col("risk.radius_source").alias("radius_source"),
+            F.col("risk.source_limits_hash").alias("source_limits_hash"),
+            F.col("risk.source_staticparams_hash").alias("source_staticparams_hash"),
+        )
+    )
     joined = (
         contract_specs.alias("spec")
         .join(
-            risk_parameters.alias("risk"),
-            (F.col("spec.assetcode") == F.col("risk.assetcode"))
-            & (F.col("spec.trade_date") == F.col("risk.risk_session_date")),
+            risk_for_economics.alias("risk"),
+            (F.col("spec.contract_id") == F.col("risk.__risk_contract_id"))
+            & (F.col("spec.trade_date") == F.col("risk.__risk_contract_trade_date"))
+            & (F.col("spec.assetcode") == F.col("risk.__risk_contract_assetcode")),
             "left",
         )
         .join(
@@ -564,6 +741,7 @@ def _economics_frame(
             F.to_json(
                 F.struct(
                     F.col("risk.radius_source").alias("radius_source"),
+                    F.col("risk.risk_session_date").cast("string").alias("risk_session_date"),
                     F.col("fx.fx_pair").alias("fx_pair"),
                     F.col("spec.effective_session_source").alias("effective_session_source"),
                 )

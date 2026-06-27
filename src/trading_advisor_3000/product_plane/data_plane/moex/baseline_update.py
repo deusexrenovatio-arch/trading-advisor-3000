@@ -45,13 +45,18 @@ from .historical_route_contracts import (
     normalize_changed_windows,
 )
 from .iss_client import MoexISSClient
+from .session_schedule import (
+    DEFAULT_PUBLIC_RULE_CATALOG_PATH,
+    materialize_reconstructed_session_schedule_for_changed_windows,
+)
+from .storage_roots import CANONICAL_BASELINE_SESSION_INTERVALS_FILENAME
 
 BASELINE_UPDATE_REPORT_FILENAME = "baseline-update-report.json"
 PENDING_CHANGED_WINDOWS_FILENAME = "pending-changed-windows.json"
 CANONICAL_REFRESH_HEARTBEAT_FILENAME = "canonical-refresh-heartbeat.json"
 CANONICAL_REFRESH_HEARTBEAT_INTERVAL_SECONDS = 30.0
-SESSION_SCHEDULE_MODE_MANUAL_OPTIONAL = "manual_backfill_optional"
-SESSION_SCHEDULE_MODE_MANUAL_REQUIRED = "manual_backfill_required"
+RAW_SESSION_SCHEDULE_FILENAME = "raw_moex_session_schedule.delta"
+SESSION_SCHEDULE_MODE_AUTO_RECONSTRUCTED = "auto_reconstructed"
 BASELINE_COVERAGE_MODE_LOCAL_TAIL = "local_tail"
 BASELINE_COVERAGE_MODE_LIVE_DISCOVERY = "live_discovery"
 BASELINE_COVERAGE_MODES = {
@@ -387,12 +392,99 @@ def _baseline_raw_report_for_canonical(
     return payload
 
 
+def _materialize_baseline_session_schedule(
+    *,
+    run_dir: Path,
+    run_id: str,
+    raw_table_path: Path,
+    canonical_session_intervals_path: Path,
+    mappings: Sequence[object],
+    changed_windows: list[dict[str, object]],
+) -> dict[str, object]:
+    raw_schedule_path = raw_table_path.parent / RAW_SESSION_SCHEDULE_FILENAME
+    report_path = run_dir / "session-schedule-report.json"
+    report = dict(
+        materialize_reconstructed_session_schedule_for_changed_windows(
+            changed_windows=changed_windows,
+            mappings=mappings,
+            raw_table_path=raw_table_path,
+            raw_schedule_path=raw_schedule_path,
+            canonical_session_intervals_path=canonical_session_intervals_path,
+            rule_catalog_path=DEFAULT_PUBLIC_RULE_CATALOG_PATH,
+            allow_candle_inference=True,
+        )
+    )
+    report["run_id"] = run_id
+    report["step"] = "moex_baseline_session_schedule"
+    report.setdefault("raw_schedule_path", raw_schedule_path.as_posix())
+    report.setdefault(
+        "canonical_session_intervals_path",
+        canonical_session_intervals_path.as_posix(),
+    )
+    report["report_path"] = report_path.as_posix()
+    _write_json(report_path, report)
+    return report
+
+
 def _economics_columns(table_name: str) -> dict[str, str]:
     return dict(moex_economics_store_contract()[table_name]["columns"])
 
 
 def _economics_trade_date(ingest_till_utc: str) -> datetime:
     return datetime.fromisoformat(ingest_till_utc.replace("Z", "+00:00")).astimezone(UTC)
+
+
+def _economics_payload_trade_date(
+    payload: Mapping[str, object],
+    *,
+    fallback_trade_date: date,
+    include_imtime: bool = False,
+) -> date:
+    keys = ["tradedate", "TRADEDATE", "trade_date"]
+    if include_imtime:
+        keys.extend(("IMTIME", "imtime"))
+    for key in keys:
+        value = payload.get(key)
+        if value is None or value == "":
+            continue
+        if isinstance(value, datetime):
+            return value.astimezone(UTC).date() if value.tzinfo else value.date()
+        if isinstance(value, date):
+            return value
+        try:
+            return date.fromisoformat(str(value).strip()[:10])
+        except ValueError:
+            continue
+    return fallback_trade_date
+
+
+def _contract_snapshot_trade_date(
+    payloads: Sequence[Mapping[str, object]],
+    *,
+    fallback_trade_date: date,
+) -> date:
+    explicit_dates = [
+        _economics_payload_trade_date(payload, fallback_trade_date=fallback_trade_date)
+        for payload in payloads
+        if any(
+            payload.get(key) not in (None, "") for key in ("tradedate", "TRADEDATE", "trade_date")
+        )
+    ]
+    if explicit_dates:
+        return max(explicit_dates)
+
+    imtime_dates = [
+        _economics_payload_trade_date(
+            payload,
+            fallback_trade_date=fallback_trade_date,
+            include_imtime=True,
+        )
+        for payload in payloads
+        if any(payload.get(key) not in (None, "") for key in ("IMTIME", "imtime"))
+    ]
+    if imtime_dates:
+        return max(imtime_dates)
+    return fallback_trade_date
 
 
 def _payload_value(payload: Mapping[str, object], *keys: str) -> object:
@@ -429,6 +521,20 @@ def _trade_date_replace_predicate(
     return f"trade_date IN ({joined})"
 
 
+def _deduplicate_rows_by_key(
+    rows: list[dict[str, object]], *, key_columns: tuple[str, ...]
+) -> list[dict[str, object]]:
+    seen: set[tuple[object, ...]] = set()
+    deduplicated: list[dict[str, object]] = []
+    for row in rows:
+        key = tuple(row.get(column_name) for column_name in key_columns)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduplicated.append(row)
+    return deduplicated
+
+
 def _write_iss_economics_raw_tables(
     *,
     client: MoexISSClient,
@@ -439,14 +545,36 @@ def _write_iss_economics_raw_tables(
     trade_date = trade_datetime.date()
     fetched_at_utc = _utc_now_iso()
     contract_payloads = client.fetch_futures_contract_securities()
-    fx_payloads = client.fetch_futures_indicative_rates(
-        date_from=trade_date,
-        date_till=trade_date,
+    contract_snapshot_trade_date = _contract_snapshot_trade_date(
+        contract_payloads,
+        fallback_trade_date=trade_date,
     )
-    rms_limits_payloads = client.fetch_futures_rms_limits(trade_date=trade_date)
-    rms_staticparams_payloads = client.fetch_futures_rms_staticparams(trade_date=trade_date)
+    contract_payload_rows = [
+        (
+            payload,
+            contract_snapshot_trade_date,
+        )
+        for payload in contract_payloads
+    ]
+    economics_source_dates = sorted({row_trade_date for _, row_trade_date in contract_payload_rows})
+    if not economics_source_dates:
+        economics_source_dates = [trade_date]
+    fx_payloads: list[dict[str, object]] = []
+    rms_limits_payloads: list[dict[str, object]] = []
+    rms_staticparams_payloads: list[dict[str, object]] = []
+    for source_trade_date in economics_source_dates:
+        fx_payloads.extend(
+            client.fetch_futures_indicative_rates(
+                date_from=source_trade_date,
+                date_till=source_trade_date,
+            )
+        )
+        rms_limits_payloads.extend(client.fetch_futures_rms_limits(trade_date=source_trade_date))
+        rms_staticparams_payloads.extend(
+            client.fetch_futures_rms_staticparams(trade_date=source_trade_date)
+        )
     contract_rows = []
-    for payload in contract_payloads:
+    for payload, row_trade_date in contract_payload_rows:
         secid = str(payload.get("SECID") or payload.get("secid") or "").strip()
         if not secid:
             continue
@@ -454,14 +582,14 @@ def _write_iss_economics_raw_tables(
             {
                 "source_id": "moex_iss_forts_securities",
                 "source_url": "https://iss.moex.com/iss/engines/futures/markets/forts/securities.json",
-                "source_document_id": f"{secid}-{trade_date.isoformat()}",
+                "source_document_id": f"{secid}-{row_trade_date.isoformat()}",
                 "source_document_hash": _sha256_json(payload),
                 "fetched_at_utc": fetched_at_utc,
                 "engine": "futures",
                 "market": "forts",
                 "board": str(payload.get("BOARDID") or "RFUD"),
                 "moex_secid": secid,
-                "trade_date": trade_date.isoformat(),
+                "trade_date": row_trade_date.isoformat(),
                 "assetcode": str(payload.get("ASSETCODE") or payload.get("assetcode") or ""),
                 "contract_shortname": str(payload.get("SHORTNAME") or ""),
                 "last_trade_date": payload.get("MATDATE") or payload.get("LASTTRADEDATE"),
@@ -474,6 +602,10 @@ def _write_iss_economics_raw_tables(
                 "raw_payload_json": _raw_payload_json(payload),
             }
         )
+    contract_rows = _deduplicate_rows_by_key(
+        contract_rows,
+        key_columns=("source_document_id", "source_document_hash"),
+    )
     fx_rows = []
     for payload in fx_payloads:
         fx_pair = str(payload.get("secid") or payload.get("SECID") or "").strip()
@@ -498,6 +630,15 @@ def _write_iss_economics_raw_tables(
                 "rate": payload.get("rate") or payload.get("RATE"),
                 "raw_payload_json": _raw_payload_json(payload),
             }
+        )
+    fx_rows = _deduplicate_rows_by_key(
+        fx_rows,
+        key_columns=("source_document_id", "source_document_hash"),
+    )
+    if contract_rows and not fx_rows:
+        raise RuntimeError(
+            "MOEX economics raw refresh produced no indicative FX rows for "
+            f"{trade_date.isoformat()}; refusing to write partial economics raw tables"
         )
 
     limits_rows = []
@@ -526,6 +667,10 @@ def _write_iss_economics_raw_tables(
                 "raw_payload_json": _raw_payload_json(payload),
             }
         )
+    limits_rows = _deduplicate_rows_by_key(
+        limits_rows,
+        key_columns=("source_document_id", "source_document_hash"),
+    )
     staticparams_rows = []
     for payload in rms_staticparams_payloads:
         assetcode = str(payload.get("assetcode") or payload.get("ASSETCODE") or "").strip()
@@ -548,6 +693,10 @@ def _write_iss_economics_raw_tables(
                 "raw_payload_json": _raw_payload_json(payload),
             }
         )
+    staticparams_rows = _deduplicate_rows_by_key(
+        staticparams_rows,
+        key_columns=("source_document_id", "source_document_hash"),
+    )
 
     raw_economics_root.mkdir(parents=True, exist_ok=True)
     contract_table_path = raw_economics_root / "raw_moex_contract_securities.delta"
@@ -594,6 +743,9 @@ def _write_iss_economics_raw_tables(
     )
     return {
         "trade_date": trade_date.isoformat(),
+        "economics_source_dates": [
+            source_trade_date.isoformat() for source_trade_date in economics_source_dates
+        ],
         "fetched_at_utc": fetched_at_utc,
         "raw_write_mode": "scoped_replace_by_trade_date",
         "raw_replace_predicates": raw_replace_predicates,
@@ -827,10 +979,9 @@ def run_moex_baseline_update(
         or (canonical_bars_path.parent / "canonical_session_calendar.delta")
     ).resolve()
     canonical_session_intervals_path = (
-        canonical_session_intervals_path.resolve()
-        if canonical_session_intervals_path is not None
-        else None
-    )
+        canonical_session_intervals_path
+        or (canonical_bars_path.parent / CANONICAL_BASELINE_SESSION_INTERVALS_FILENAME)
+    ).resolve()
     canonical_roll_map_path = (
         canonical_roll_map_path or (canonical_bars_path.parent / "canonical_roll_map.delta")
     ).resolve()
@@ -947,20 +1098,47 @@ def run_moex_baseline_update(
     canonical_input_report_path = run_dir / "canonical-input-raw-ingest-report.json"
     _write_json(canonical_input_report_path, canonical_raw_report)
 
-    if resolved_economics_mode == ECONOMICS_REFRESH_MODE_REFRESH:
-        economics_report = refresh_moex_contract_economics(
-            client=client,
-            universe=universe,
-            mappings=mappings,
-            raw_economics_root=raw_economics_root,
-            canonical_economics_root=canonical_economics_root,
-            canonical_session_calendar_path=canonical_session_calendar_path,
-            evidence_dir=run_dir / "economics-refresh",
+    try:
+        session_schedule_report = _materialize_baseline_session_schedule(
+            run_dir=run_dir,
             run_id=run_id,
-            ingest_till_utc=ingest_till_utc,
+            raw_table_path=raw_table_path,
+            canonical_session_intervals_path=canonical_session_intervals_path,
+            mappings=mappings,
             changed_windows=merged_changed_windows,
-            refresh_window_days=refresh_window_days,
         )
+    except Exception:
+        _write_pending_changed_windows(
+            path=pending_changed_windows_path,
+            run_id=run_id,
+            changed_windows=merged_changed_windows,
+            reason="session_schedule_refresh_failed",
+        )
+        raise
+
+    if resolved_economics_mode == ECONOMICS_REFRESH_MODE_REFRESH:
+        try:
+            economics_report = refresh_moex_contract_economics(
+                client=client,
+                universe=universe,
+                mappings=mappings,
+                raw_economics_root=raw_economics_root,
+                canonical_economics_root=canonical_economics_root,
+                canonical_session_calendar_path=canonical_session_calendar_path,
+                evidence_dir=run_dir / "economics-refresh",
+                run_id=run_id,
+                ingest_till_utc=ingest_till_utc,
+                changed_windows=merged_changed_windows,
+                refresh_window_days=refresh_window_days,
+            )
+        except Exception:
+            _write_pending_changed_windows(
+                path=pending_changed_windows_path,
+                run_id=run_id,
+                changed_windows=merged_changed_windows,
+                reason="economics_refresh_failed",
+            )
+            raise
     else:
         economics_report = {
             "status": "PASS-NOOP",
@@ -1096,14 +1274,10 @@ def run_moex_baseline_update(
         "raw_table_path": raw_table_path.as_posix(),
         "canonical_bars_path": canonical_bars_path.as_posix(),
         "canonical_provenance_path": canonical_provenance_path.as_posix(),
-        "session_schedule_mode": SESSION_SCHEDULE_MODE_MANUAL_REQUIRED,
+        "session_schedule_mode": SESSION_SCHEDULE_MODE_AUTO_RECONSTRUCTED,
         "session_schedule_required": True,
-        "raw_session_schedule_path": "",
-        "canonical_session_intervals_path": (
-            canonical_session_intervals_path.as_posix()
-            if canonical_session_intervals_path is not None
-            else ""
-        ),
+        "raw_session_schedule_path": str(session_schedule_report.get("raw_schedule_path", "")),
+        "canonical_session_intervals_path": canonical_session_intervals_path.as_posix(),
         "canonical_session_calendar_path": canonical_session_calendar_path.as_posix(),
         "canonical_roll_map_path": canonical_roll_map_path.as_posix(),
         "raw_economics_root": raw_economics_root.as_posix(),
@@ -1142,7 +1316,7 @@ def run_moex_baseline_update(
                     else "",
                 )
             ),
-            "session_schedule_report": "",
+            "session_schedule_report": str(session_schedule_report.get("report_path", "")),
             "official_session_schedule_report": "",
             "canonical_refresh_report": (
                 canonical_refresh_report_path.as_posix()

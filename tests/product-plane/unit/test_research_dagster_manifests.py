@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from dagster import build_op_context
@@ -1065,6 +1066,71 @@ def test_reused_data_prep_validation_does_not_reload_materialized_research_rows(
             ("derived_indicator_set_version", "=", "derived-v1"),
         ],
     ) in count_filters
+
+
+def test_materialize_research_assets_reports_rows_with_requested_timeframe_scope(
+    tmp_path, monkeypatch
+) -> None:
+    materialized_dir = tmp_path / "materialized"
+    indicator_contract = indicator_store_contract()
+    derived_contract = research_derived_indicator_store_contract()
+    base_row = {
+        "dataset_version": "dataset-v1",
+        "contour_id": "native_tradable",
+        "indicator_set_version": "indicators-v1",
+        "profile_version": "core_v1",
+        "contract_id": "BRQ2@MOEX",
+        "instrument_id": "FUT_BR",
+        "ts": "2026-04-30T10:00:00Z",
+        "series_mode": "contract",
+        "series_id": "BRQ2@MOEX",
+    }
+    indicator_rows = [
+        {**base_row, "timeframe": "15m"},
+        {**base_row, "timeframe": "1m", "ts": "2026-04-30T10:01:00Z"},
+    ]
+    derived_rows = [
+        {
+            **row,
+            "derived_indicator_set_version": "derived-v1",
+        }
+        for row in indicator_rows
+    ]
+    write_delta_table_rows(
+        table_path=materialized_dir / "research_indicator_frames.delta",
+        columns=indicator_contract["research_indicator_frames"]["columns"],
+        rows=indicator_rows,
+    )
+    write_delta_table_rows(
+        table_path=materialized_dir / "research_derived_indicator_frames.delta",
+        columns=derived_contract["research_derived_indicator_frames"]["columns"],
+        rows=derived_rows,
+    )
+
+    monkeypatch.setattr(research_assets, "assert_research_definitions_executable", lambda: None)
+    monkeypatch.setattr(
+        research_assets,
+        "materialize",
+        lambda **_: SimpleNamespace(success=True),
+    )
+
+    report = research_assets._materialize_research_assets(  # type: ignore[attr-defined]
+        canonical_output_dir=tmp_path / "canonical",
+        materialized_output_dir=materialized_dir,
+        results_output_dir=tmp_path / "results",
+        dataset_version="dataset-v1",
+        timeframes=("15m",),
+        indicator_set_version="indicators-v1",
+        derived_indicator_set_version="derived-v1",
+        default_assets=("research_indicator_frames", "research_derived_indicator_frames"),
+        allowed_assets=("research_indicator_frames", "research_derived_indicator_frames"),
+        expand_dependencies=False,
+    )
+
+    assert report["total_rows_by_table"]["research_indicator_frames"] == 2
+    assert report["total_rows_by_table"]["research_derived_indicator_frames"] == 2
+    assert report["rows_by_table"]["research_indicator_frames"] == 1
+    assert report["rows_by_table"]["research_derived_indicator_frames"] == 1
 
 
 def test_research_dataset_materialization_replaces_delta_version_without_existing_row_reload(
