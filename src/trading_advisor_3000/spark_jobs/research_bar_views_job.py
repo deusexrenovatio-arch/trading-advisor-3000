@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Callable, Mapping
 from uuid import uuid4
@@ -207,6 +208,49 @@ def _require_columns(dataframe, *, table_name: str, columns: tuple[str, ...]) ->
     missing = [column for column in columns if column not in dataframe.columns]
     if missing:
         raise RuntimeError(f"missing required {table_name} columns: {', '.join(sorted(missing))}")
+
+
+def _json_safe_value(value: object) -> object:
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    return value
+
+
+def _assert_unique_by_key(
+    dataframe,
+    *,
+    table_name: str,
+    key_columns: tuple[str, ...],
+    frame_role: str,
+) -> None:
+    from pyspark.sql import functions as F  # type: ignore[import-not-found]
+
+    _require_columns(dataframe, table_name=table_name, columns=key_columns)
+    duplicate_count_column = "__duplicate_key_count"
+    duplicates = (
+        dataframe.groupBy(*[F.col(column_name) for column_name in key_columns])
+        .count()
+        .withColumnRenamed("count", duplicate_count_column)
+        .where(F.col(duplicate_count_column) > F.lit(1))
+        .orderBy(*[F.col(column_name).asc_nulls_first() for column_name in key_columns])
+        .limit(5)
+        .collect()
+    )
+    if not duplicates:
+        return
+
+    samples = []
+    for row in duplicates:
+        payload = row.asDict()
+        samples.append(
+            {column_name: _json_safe_value(payload.get(column_name)) for column_name in key_columns}
+            | {"count": int(payload[duplicate_count_column])}
+        )
+    raise RuntimeError(
+        f"{table_name} {frame_role} violates key uniqueness on "
+        f"{', '.join(key_columns)}; duplicate key samples: "
+        f"{json.dumps(samples, ensure_ascii=False, sort_keys=True)}"
+    )
 
 
 def _canonical_provenance_frame(spark: object, table_path: Path):
@@ -773,6 +817,12 @@ def _native_bar_views(
         bars = bars.where(F.col("ts") <= F.lit(end_ts))
 
     provenance = _canonical_provenance_frame(spark, canonical_bar_provenance_path)
+    _assert_unique_by_key(
+        provenance,
+        table_name="canonical_bar_provenance",
+        key_columns=("prov_contract_id", "prov_timeframe", "prov_ts"),
+        frame_role="research L0 join source",
+    )
     scoped_start_ts = start_ts if warmup_bars <= 0 else None
     calendar = _session_calendar_frame(
         spark,
@@ -781,6 +831,12 @@ def _native_bar_views(
         timeframes=timeframes,
         start_ts=scoped_start_ts,
         end_ts=end_ts,
+    )
+    _assert_unique_by_key(
+        calendar,
+        table_name="canonical_session_calendar",
+        key_columns=("cal_instrument_id", "cal_timeframe", "cal_session_date"),
+        frame_role="research L0 join source",
     )
     roll_map = (
         spark.read.format("delta")
@@ -804,6 +860,12 @@ def _native_bar_views(
     roll_map = roll_map.groupBy("roll_instrument_id", "roll_session_date").agg(
         F.countDistinct("roll_active_contract_id").alias("roll_active_contract_count"),
         F.first("roll_active_contract_id", ignorenulls=True).alias("roll_active_contract_id"),
+    )
+    _assert_unique_by_key(
+        roll_map,
+        table_name="canonical_roll_map",
+        key_columns=("roll_instrument_id", "roll_session_date"),
+        frame_role="research L0 normalized join source",
     )
     with_session = (
         bars.join(
@@ -938,6 +1000,12 @@ def _pit_active_front_bar_views(
         bars = bars.where(F.col("ts") <= F.lit(end_ts))
 
     provenance = _canonical_provenance_frame(spark, canonical_bar_provenance_path)
+    _assert_unique_by_key(
+        provenance,
+        table_name="canonical_bar_provenance",
+        key_columns=("prov_contract_id", "prov_timeframe", "prov_ts"),
+        frame_role="research L0 join source",
+    )
     scoped_start_ts = start_ts if warmup_bars <= 0 else None
     calendar = _session_calendar_frame(
         spark,
@@ -946,6 +1014,12 @@ def _pit_active_front_bar_views(
         timeframes=timeframes,
         start_ts=scoped_start_ts,
         end_ts=end_ts,
+    )
+    _assert_unique_by_key(
+        calendar,
+        table_name="canonical_session_calendar",
+        key_columns=("cal_instrument_id", "cal_timeframe", "cal_session_date"),
+        frame_role="research L0 join source",
     )
     with_session = (
         bars.join(
@@ -1257,6 +1331,29 @@ def _write_spark_delta_table(
     table_path.parent.mkdir(parents=True, exist_ok=True)
     casted = _cast_to_contract(dataframe, table_name)
     partition_by = list(contract.get("partition_by") or [])
+    key_columns_by_table = {
+        "research_bar_views": (
+            "dataset_version",
+            "contour_id",
+            "series_mode",
+            "series_id",
+            "timeframe",
+            "ts",
+        ),
+        "research_instrument_tree": (
+            "dataset_version",
+            "contour_id",
+            "instrument_id",
+            "internal_id",
+        ),
+    }
+    key_columns = key_columns_by_table[table_name]
+    _assert_unique_by_key(
+        casted,
+        table_name=table_name,
+        key_columns=key_columns,
+        frame_role="write source",
+    )
     if not has_delta_log(table_path):
         writer = casted.write.format("delta").mode("overwrite").option("overwriteSchema", "true")
         if partition_by:
@@ -1274,6 +1371,12 @@ def _write_spark_delta_table(
         replace_scope,
         include_legacy_null_contour=table_name
         in {"research_bar_views", "research_instrument_tree"},
+    )
+    _assert_unique_by_key(
+        dataframe.sparkSession.read.format("delta").load(str(table_path)),
+        table_name=table_name,
+        key_columns=key_columns,
+        frame_role="write target",
     )
     if not _delta_table_layout_matches_contract(
         spark=dataframe.sparkSession,
@@ -1293,23 +1396,6 @@ def _write_spark_delta_table(
     delta_table = DeltaTable.forPath(dataframe.sparkSession, str(table_path))
     delta_table.delete(delete_condition)
 
-    key_columns_by_table = {
-        "research_bar_views": (
-            "dataset_version",
-            "contour_id",
-            "series_mode",
-            "series_id",
-            "timeframe",
-            "ts",
-        ),
-        "research_instrument_tree": (
-            "dataset_version",
-            "contour_id",
-            "instrument_id",
-            "internal_id",
-        ),
-    }
-    key_columns = key_columns_by_table[table_name]
     merge_condition = " AND ".join(f"target.{column} = source.{column}" for column in key_columns)
     (
         delta_table.alias("target")

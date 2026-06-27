@@ -63,6 +63,16 @@ DERIVED_INDICATOR_RESERVED_COLUMNS = {
     "created_at",
     "output_columns_hash",
 }
+DERIVED_INDICATOR_FRAME_LOGICAL_KEY = (
+    "dataset_version",
+    "contour_id",
+    "series_mode",
+    "series_id",
+    "indicator_set_version",
+    "derived_indicator_set_version",
+    "timeframe",
+    "ts",
+)
 
 
 def _derived_indicator_value_type(column: str) -> str:
@@ -370,6 +380,25 @@ def _replace_partitions_predicate(
     return " OR ".join(_partition_delete_predicate(partition) for partition in unique_partitions)
 
 
+def _assert_unique_write_rows(
+    rows: list[dict[str, object]],
+    *,
+    table_name: str,
+    key_columns: tuple[str, ...],
+    seen_keys: set[tuple[object, ...]],
+) -> None:
+    for row in rows:
+        key = tuple(row.get(column) for column in key_columns)
+        if key not in seen_keys:
+            seen_keys.add(key)
+            continue
+        sample = ", ".join(f"{column}={value}" for column, value in zip(key_columns, key))
+        raise ValueError(
+            f"{table_name} duplicate logical key in write batch on "
+            f"{', '.join(key_columns)}: {sample}"
+        )
+
+
 def write_derived_indicator_frame_batches(
     *,
     output_dir: Path,
@@ -388,9 +417,22 @@ def write_derived_indicator_frame_batches(
         if replace_partitions is not None
         else None
     )
+    seen_keys: set[tuple[object, ...]] = set()
+
+    def _validated_row_batches() -> Iterable[list[dict[str, object]]]:
+        for batch in row_batches:
+            rows = [row.to_dict() for row in batch]
+            _assert_unique_write_rows(
+                rows,
+                table_name="research_derived_indicator_frames",
+                key_columns=DERIVED_INDICATOR_FRAME_LOGICAL_KEY,
+                seen_keys=seen_keys,
+            )
+            yield rows
+
     row_count, batch_count = write_delta_table_row_batches(
         table_path=path,
-        row_batches=([row.to_dict() for row in batch] for batch in row_batches),
+        row_batches=_validated_row_batches(),
         columns=columns,
         max_rows_per_delta_write=max_rows_per_delta_write,
         replace_predicate=replace_predicate,

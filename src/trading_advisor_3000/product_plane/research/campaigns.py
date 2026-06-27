@@ -23,6 +23,8 @@ from trading_advisor_3000.product_plane.contracts.schema_validation import (
     validate_schema,
 )
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    delta_table_column_value_counts,
+    delta_table_columns,
     has_delta_log,
     read_delta_table_frame,
     read_delta_table_rows,
@@ -327,9 +329,11 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
     validation_plan = _build_validation_plan(normalized_config)
     materialized_root = Path(str(normalized_config["materialized_root"]))
     registry_root = research_registry_root(materialized_root=materialized_root)
+    expected_timeframes = tuple(str(item) for item in normalized_config["dataset"]["timeframes"])
     materialization_exists = _has_reusable_materialization(
         materialized_root,
         materialization_key=materialization_key,
+        expected_timeframes=expected_timeframes,
     )
     reuse_existing_materialization = materialization_exists and not bool(
         normalized_config["execution"]["force_rematerialize"]
@@ -409,6 +413,13 @@ def run_campaign(*, config_path: Path, repo_root: Path | None = None) -> dict[st
             raise CampaignBlockedError(
                 "; ".join(contract_validation["errors"]) or "research contract validation failed"
             )
+        timeframe_qc = _data_prep_timeframe_qc(
+            materialized_root=materialized_root,
+            expected_timeframes=expected_timeframes,
+            output_paths=dict(report["output_paths"]),
+        )
+        report["timeframe_qc"] = timeframe_qc
+        _assert_data_prep_timeframe_qc(timeframe_qc)
         if "research_data_prep" in executed_steps:
             _write_materialization_lock(
                 materialized_root=materialized_root,
@@ -2193,10 +2204,97 @@ def _read_materialization_lock(materialized_root: Path) -> dict[str, object] | N
     return payload if isinstance(payload, dict) else None
 
 
+def _data_prep_timeframe_qc(
+    *,
+    materialized_root: Path,
+    expected_timeframes: Sequence[str],
+    output_paths: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    allowed_timeframes = tuple(dict.fromkeys(str(item) for item in expected_timeframes))
+    allowed = set(allowed_timeframes)
+    provided_paths = {str(key): value for key, value in dict(output_paths or {}).items()}
+    table_names = tuple(
+        table_name
+        for table_name in DATA_PREP_TABLES
+        if not provided_paths or table_name in provided_paths
+    )
+    tables: dict[str, dict[str, Any]] = {}
+    failed = False
+
+    for table_name in table_names:
+        raw_path = provided_paths.get(table_name)
+        table_path = Path(str(raw_path)) if raw_path else materialized_root / f"{table_name}.delta"
+        entry: dict[str, Any] = {
+            "path": table_path.as_posix(),
+            "status": "not_applicable",
+            "unexpected_timeframes": {},
+        }
+        if not has_delta_log(table_path):
+            entry["status"] = "missing"
+            failed = True
+            tables[table_name] = entry
+            continue
+        try:
+            table_columns = set(delta_table_columns(table_path))
+            if "timeframe" not in table_columns:
+                tables[table_name] = entry
+                continue
+            counts = delta_table_column_value_counts(table_path, column="timeframe")
+        except Exception as exc:
+            entry["status"] = "unreadable"
+            entry["error"] = f"{type(exc).__name__}: {exc}"
+            failed = True
+            tables[table_name] = entry
+            continue
+
+        unexpected = {
+            timeframe: int(count) for timeframe, count in counts.items() if timeframe not in allowed
+        }
+        entry["status"] = "failed" if unexpected else "passed"
+        entry["row_count"] = int(sum(counts.values()))
+        entry["expected_timeframes"] = list(allowed_timeframes)
+        entry["unexpected_timeframes"] = unexpected
+        if unexpected:
+            failed = True
+        tables[table_name] = entry
+
+    return {
+        "status": "failed" if failed else "passed",
+        "expected_timeframes": list(allowed_timeframes),
+        "tables": tables,
+    }
+
+
+def _data_prep_timeframe_qc_message(qc: dict[str, Any]) -> str:
+    messages: list[str] = []
+    for table_name, raw_entry in dict(qc.get("tables", {})).items():
+        entry = dict(raw_entry) if isinstance(raw_entry, dict) else {}
+        status = str(entry.get("status", ""))
+        unexpected = dict(entry.get("unexpected_timeframes", {}))
+        if unexpected:
+            values = ", ".join(f"{timeframe}={count}" for timeframe, count in unexpected.items())
+            messages.append(f"{table_name}: unexpected timeframes {values}")
+        elif status in {"missing", "unreadable"}:
+            detail = str(entry.get("error", "")).strip()
+            suffix = f" ({detail})" if detail else ""
+            messages.append(f"{table_name}: {status}{suffix}")
+    return "; ".join(messages)
+
+
+def _assert_data_prep_timeframe_qc(qc: dict[str, Any]) -> None:
+    if str(qc.get("status", "")) == "passed":
+        return
+    detail = _data_prep_timeframe_qc_message(qc)
+    raise CampaignBlockedError(
+        "research data prep timeframe scope violation" + (f": {detail}" if detail else "")
+    )
+
+
 def _has_reusable_materialization(
     materialized_root: Path,
     *,
     materialization_key: str | None = None,
+    expected_timeframes: Sequence[str] | None = None,
 ) -> bool:
     if not all(
         has_delta_log(materialized_root / f"{table_name}.delta") for table_name in DATA_PREP_TABLES
@@ -2205,7 +2303,15 @@ def _has_reusable_materialization(
     if materialization_key is None:
         return True
     lock = _read_materialization_lock(materialized_root)
-    return lock is not None and str(lock.get("materialization_key", "")) == materialization_key
+    if lock is None or str(lock.get("materialization_key", "")) != materialization_key:
+        return False
+    if expected_timeframes is None:
+        return True
+    qc = _data_prep_timeframe_qc(
+        materialized_root=materialized_root,
+        expected_timeframes=expected_timeframes,
+    )
+    return str(qc.get("status", "")) == "passed"
 
 
 def _write_materialization_lock(
@@ -2249,6 +2355,7 @@ def _write_materialization_lock(
             "validation": validation,
             "validation_plan": validation_plan,
             "rows_by_table": dict(report.get("rows_by_table", {})),
+            "timeframe_qc": dict(report.get("timeframe_qc", {})),
             "output_paths": data_prep_output_paths,
             "created_at": utc_now_iso(),
         },

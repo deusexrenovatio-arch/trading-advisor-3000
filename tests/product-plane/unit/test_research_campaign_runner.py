@@ -518,6 +518,11 @@ def test_run_campaign_forwards_volume_profile_config_to_data_prep(
 
     monkeypatch.setattr(campaigns, "materialize_research_data_prep_assets", _data_prep)
     monkeypatch.setattr(
+        campaigns,
+        "_data_prep_timeframe_qc",
+        lambda **_: {"status": "passed", "tables": {}},
+    )
+    monkeypatch.setattr(
         campaigns, "validate_research_contracts", lambda **_: _passed_contract_validation()
     )
 
@@ -633,6 +638,11 @@ def test_run_campaign_reuse_decision_respects_force_flag(
 
     monkeypatch.setattr(campaigns, "materialize_research_backtest_assets", _backtest)
     monkeypatch.setattr(
+        campaigns,
+        "_data_prep_timeframe_qc",
+        lambda **_: {"status": "passed", "tables": {}},
+    )
+    monkeypatch.setattr(
         campaigns, "validate_research_contracts", lambda **_: _passed_contract_validation()
     )
 
@@ -642,6 +652,70 @@ def test_run_campaign_reuse_decision_respects_force_flag(
     assert captured["min_fold_count"] == 2
     assert summary["materialized_root"] == materialized_root.as_posix()
     assert summary["reused_steps"] == (["research_data_prep"] if expected_reuse else [])
+
+
+def test_data_prep_timeframe_qc_flags_unscoped_physical_rows(tmp_path: Path) -> None:
+    materialized_root = tmp_path / "materialized"
+    table_path = materialized_root / "research_indicator_frames.delta"
+    write_delta_table_rows(
+        table_path=table_path,
+        columns={"timeframe": "string"},
+        rows=[{"timeframe": "15m"}, {"timeframe": "5m"}, {"timeframe": "5m"}],
+    )
+
+    qc = campaigns._data_prep_timeframe_qc(  # type: ignore[attr-defined]
+        materialized_root=materialized_root,
+        expected_timeframes=("15m",),
+        output_paths={"research_indicator_frames": table_path.as_posix()},
+    )
+
+    assert qc["status"] == "failed"
+    assert qc["tables"]["research_indicator_frames"]["unexpected_timeframes"] == {"5m": 2}
+
+
+def test_run_campaign_does_not_reuse_unscoped_timeframe_materialization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload = _campaign_payload(tmp_path, target_stage="backtest", force_rematerialize=False)
+    normalized = campaigns.normalize_campaign_config(repo_root=ROOT, raw=payload)
+    materialization_key = campaigns.build_materialization_key(normalized)
+    materialized_root = Path(str(normalized["materialized_root"]))
+    _seed_reusable_materialization(materialized_root, materialization_key=materialization_key)
+
+    config_path = tmp_path / "campaign.yaml"
+    _write_campaign(config_path, payload)
+
+    captured: dict[str, object] = {}
+
+    def _backtest(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return _mock_report(
+            materialized_root=Path(str(kwargs["materialized_output_dir"])),
+            results_root=Path(str(kwargs["results_output_dir"])),
+            target_stage="backtest",
+        )
+
+    monkeypatch.setattr(campaigns, "materialize_research_backtest_assets", _backtest)
+    monkeypatch.setattr(
+        campaigns,
+        "_data_prep_timeframe_qc",
+        lambda **_: {
+            "status": "failed",
+            "tables": {
+                "research_indicator_frames": {
+                    "unexpected_timeframes": {"5m": 2},
+                },
+            },
+        },
+    )
+    monkeypatch.setattr(
+        campaigns, "validate_research_contracts", lambda **_: _passed_contract_validation()
+    )
+
+    summary = campaigns.run_campaign(config_path=config_path, repo_root=ROOT)
+
+    assert captured["reuse_existing_materialization"] is False
+    assert summary["reused_steps"] == []
 
 
 def test_run_campaign_persists_blocked_evidence_for_invalid_config(tmp_path: Path) -> None:
@@ -677,6 +751,11 @@ def test_run_campaign_writes_run_folder_layout(
         )
 
     monkeypatch.setattr(campaigns, "materialize_research_data_prep_assets", _data_prep)
+    monkeypatch.setattr(
+        campaigns,
+        "_data_prep_timeframe_qc",
+        lambda **_: {"status": "passed", "tables": {}},
+    )
     monkeypatch.setattr(
         campaigns, "validate_research_contracts", lambda **_: _passed_contract_validation()
     )
