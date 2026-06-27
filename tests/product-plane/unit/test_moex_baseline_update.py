@@ -7,7 +7,6 @@ import pytest
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     read_delta_table_rows,
-    read_filtered_delta_table_rows,
     write_delta_table_rows,
 )
 from trading_advisor_3000.product_plane.data_plane.moex import baseline_update as baseline_module
@@ -1248,11 +1247,7 @@ def test_raw_watermark_wrapper_does_not_use_legacy_delta_rs_path(
     import trading_advisor_3000.product_plane.data_plane.moex.foundation as foundation_module
     import trading_advisor_3000.spark_jobs.moex_raw_ingest_job as spark_raw_module
 
-    monkeypatch.setattr(
-        foundation_module,
-        "_compute_raw_watermarks_delta_rs",
-        lambda **_kwargs: pytest.fail("raw watermark wrapper must delegate to Spark"),
-    )
+    assert not hasattr(foundation_module, "_compute_raw_watermarks_delta_rs")
     monkeypatch.setattr(
         spark_raw_module,
         "compute_raw_watermarks_spark_delta",
@@ -1438,7 +1433,7 @@ def test_baseline_raw_tail_noop_skips_fetch_and_reconcile(
         client=_UnexpectedClient(),
         coverage=coverage,
         table_path=raw_table_path,
-        run_id="baseline-delta-rs-noop-fast",
+        run_id="baseline-spark-noop-fast",
         ingest_till_utc="2026-04-01T07:19:59Z",
         refresh_window_days=1,
         stability_lag_minutes=0,
@@ -1601,180 +1596,6 @@ def test_baseline_raw_tail_skips_short_sparse_trade_gap(
     assert report["source_rows"] == 0
     assert report["incremental_rows"] == 0
     assert report["changed_windows"] == []
-
-
-def test_raw_reconcile_ignores_pipeline_provenance_only_changes(
-    tmp_path: Path,
-) -> None:
-    raw_table_path = tmp_path / "raw" / "moex" / "baseline-4y-current" / "raw_moex_history.delta"
-    existing = _raw_row(
-        ts_open="2026-04-01T07:10:00Z",
-        ts_close="2026-04-01T07:19:59Z",
-        close=101.2,
-    )
-    existing["ingest_run_id"] = "old-run"
-    existing["ingested_at_utc"] = "2026-04-01T07:20:00Z"
-    existing["provenance_json"] = {
-        "source_provider": "moex_iss",
-        "source_interval": 1,
-        "source_timeframe": "1m",
-        "requested_target_timeframes": "5m,15m",
-        "run_id": "old-run",
-        "window_start_utc": "2026-04-01T04:19:59Z",
-        "window_end_utc": "2026-04-01T07:19:59Z",
-        "stability_lag_minutes": 20,
-        "refresh_overlap_minutes": 180,
-        "discovery_url": "https://iss.moex.com/old/candleborders.json",
-    }
-    write_delta_table_rows(table_path=raw_table_path, rows=[existing], columns=RAW_COLUMNS)
-    version_before = sorted((raw_table_path / "_delta_log").glob("*.json"))[-1].name
-
-    source = dict(existing)
-    source["ingest_run_id"] = "new-run"
-    source["ingested_at_utc"] = "2026-04-01T08:00:00Z"
-    source["provenance_json"] = {
-        "source_provider": "moex_iss",
-        "source_interval": 1,
-        "source_timeframe": "1m",
-        "requested_target_timeframes": "1m,5m,15m",
-        "run_id": "new-run",
-        "window_start_utc": "2026-04-01T04:19:59Z",
-        "window_end_utc": "2026-04-01T07:19:59Z",
-        "stability_lag_minutes": 0,
-        "refresh_overlap_minutes": 180,
-        "discovery_url": "local-tail://canonical-roll-map/FUT_BR/1/BRQ6/2026-04-01",
-    }
-
-    import trading_advisor_3000.product_plane.data_plane.moex.foundation as foundation_module
-
-    report = foundation_module.run_moex_raw_ingest_delta_rs_job(
-        table_path=raw_table_path,
-        source_rows=[source],
-        window_scopes=[
-            {
-                "internal_id": "FUT_BR",
-                "timeframe": "1m",
-                "source_interval": 1,
-                "moex_secid": "BRQ6",
-                "window_start_utc": "2026-04-01T07:10:00Z",
-                "window_end_utc": "2026-04-01T07:19:59Z",
-                "watermark_utc": "2026-04-01T07:09:59Z",
-            }
-        ],
-        initial_watermarks={("FUT_BR", "1m", 1, "BRQ6"): "2026-04-01T07:09:59Z"},
-        run_id="raw-provenance-only",
-        ingest_till_utc="2026-04-01T07:19:59Z",
-        refresh_overlap_minutes=180,
-        progress_path=tmp_path / "raw-ingest-progress.jsonl",
-        progress_latest_path=tmp_path / "raw-ingest-progress.latest.json",
-        error_path=tmp_path / "raw-ingest-errors.jsonl",
-        error_latest_path=tmp_path / "raw-ingest-error.latest.json",
-    )
-    version_after = sorted((raw_table_path / "_delta_log").glob("*.json"))[-1].name
-
-    assert report["status"] == "PASS-NOOP"
-    assert report["source_rows"] == 1
-    assert report["incremental_rows"] == 0
-    assert report["deduplicated_rows"] == 1
-    assert report["changed_windows"] == []
-    assert version_after == version_before
-
-
-def test_raw_reconcile_delta_rs_uses_action_merge_for_update_and_delete(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    raw_table_path = tmp_path / "raw" / "moex" / "baseline-4y-current" / "raw_moex_history.delta"
-    write_delta_table_rows(
-        table_path=raw_table_path,
-        rows=[
-            _raw_row(ts_open="2026-04-01T07:00:00Z", ts_close="2026-04-01T07:09:59Z", close=100.5),
-            _raw_row(ts_open="2026-04-01T07:10:00Z", ts_close="2026-04-01T07:19:59Z", close=101.2),
-            _raw_row(ts_open="2026-04-01T07:20:00Z", ts_close="2026-04-01T07:29:59Z", close=101.8),
-        ],
-        columns=RAW_COLUMNS,
-    )
-
-    import trading_advisor_3000.product_plane.data_plane.moex.foundation as foundation_module
-
-    def _forbidden_window_rewrite(*_args, **_kwargs):
-        pytest.fail(
-            "raw reconcile must use Delta merge action rows, not delete/append window rewrites"
-        )
-
-    monkeypatch.setattr(
-        foundation_module,
-        "delete_delta_table_rows",
-        _forbidden_window_rewrite,
-        raising=False,
-    )
-    monkeypatch.setattr(
-        foundation_module,
-        "append_delta_table_rows",
-        _forbidden_window_rewrite,
-        raising=False,
-    )
-
-    report = foundation_module.run_moex_raw_ingest_delta_rs_job(
-        table_path=raw_table_path,
-        source_rows=[
-            _raw_row(
-                ts_open="2026-04-01T07:00:00Z",
-                ts_close="2026-04-01T07:09:59Z",
-                close=99.75,
-                run_id="raw-action-merge",
-            ),
-            _raw_row(
-                ts_open="2026-04-01T07:20:00Z",
-                ts_close="2026-04-01T07:29:59Z",
-                close=101.8,
-                run_id="raw-action-merge",
-            ),
-        ],
-        window_scopes=[
-            {
-                "internal_id": "FUT_BR",
-                "timeframe": "1m",
-                "source_interval": 1,
-                "moex_secid": "BRQ6",
-                "window_start_utc": "2026-04-01T06:59:59Z",
-                "window_end_utc": "2026-04-01T08:00:00Z",
-                "watermark_utc": "2026-04-01T07:29:59Z",
-            }
-        ],
-        initial_watermarks={("FUT_BR", "1m", 1, "BRQ6"): "2026-04-01T07:29:59Z"},
-        run_id="raw-action-merge",
-        ingest_till_utc="2026-04-01T08:00:00Z",
-        refresh_overlap_minutes=60,
-        progress_path=tmp_path / "raw-ingest-progress.jsonl",
-        progress_latest_path=tmp_path / "raw-ingest-progress.latest.json",
-        error_path=tmp_path / "raw-ingest-errors.jsonl",
-        error_latest_path=tmp_path / "raw-ingest-error.latest.json",
-    )
-
-    rows = read_filtered_delta_table_rows(
-        raw_table_path,
-        filters=[("internal_id", "=", "FUT_BR")],
-        columns=["ts_close", "close"],
-    )
-    rows_by_ts_close = {str(row["ts_close"]): float(row["close"]) for row in rows}
-
-    assert report["incremental_rows"] == 2
-    assert report["changed_windows"] == [
-        {
-            "internal_id": "FUT_BR",
-            "source_timeframe": "1m",
-            "source_interval": 1,
-            "moex_secid": "BRQ6",
-            "window_start_utc": "2026-04-01T06:59:59Z",
-            "window_end_utc": "2026-04-01T08:00:00Z",
-            "incremental_rows": 2,
-        }
-    ]
-    assert rows_by_ts_close == {
-        "2026-04-01T07:09:59Z": 99.75,
-        "2026-04-01T07:29:59Z": 101.8,
-    }
 
 
 def test_baseline_raw_window_updates_only_scoped_rows_without_full_table_read(

@@ -422,3 +422,82 @@ def test_raw_ingest_spark_delta_job_fingerprint_detects_provider_metadata_change
     assert report["incremental_rows"] == 1
     assert rows[0]["moex_board"] == "RFUD-CORR"
     assert provenance_payload["revision"] == "corrected"
+
+
+def test_raw_ingest_spark_delta_job_ignores_pipeline_provenance_only_changes(
+    tmp_path: Path,
+) -> None:
+    if os.name == "nt" and not os.environ.get("HADOOP_HOME"):
+        pytest.skip(
+            "local Windows Spark execution requires HADOOP_HOME; Docker/Linux proof profile runs this path"
+        )
+
+    raw_table_path = tmp_path / "raw" / "moex" / "baseline-4y-current" / "raw_moex_history.delta"
+    existing = _raw_row(
+        ts_open="2026-04-01T07:10:00Z",
+        ts_close="2026-04-01T07:19:59Z",
+        close=101.2,
+        run_id="old-run",
+        provenance_json={
+            "source_provider": "moex_iss",
+            "source_interval": 1,
+            "source_timeframe": "1m",
+            "requested_target_timeframes": "5m,15m",
+            "run_id": "old-run",
+            "window_start_utc": "2026-04-01T04:19:59Z",
+            "window_end_utc": "2026-04-01T07:19:59Z",
+            "stability_lag_minutes": 20,
+            "refresh_overlap_minutes": 180,
+            "discovery_url": "https://iss.moex.com/old/candleborders.json",
+        },
+    )
+    write_delta_table_rows(table_path=raw_table_path, rows=[existing], columns=RAW_COLUMNS)
+    version_before = sorted((raw_table_path / "_delta_log").glob("*.json"))[-1].name
+
+    source = dict(existing)
+    source["ingest_run_id"] = "new-run"
+    source["ingested_at_utc"] = "2026-04-01T08:00:00Z"
+    source["provenance_json"] = {
+        "source_provider": "moex_iss",
+        "source_interval": 1,
+        "source_timeframe": "1m",
+        "requested_target_timeframes": "1m,5m,15m",
+        "run_id": "new-run",
+        "window_start_utc": "2026-04-01T04:19:59Z",
+        "window_end_utc": "2026-04-01T07:19:59Z",
+        "stability_lag_minutes": 0,
+        "refresh_overlap_minutes": 180,
+        "discovery_url": "local-tail://canonical-roll-map/FUT_BR/1/BRQ6/2026-04-01",
+    }
+
+    report = run_moex_raw_ingest_spark_delta_job(
+        table_path=raw_table_path,
+        source_rows=[source],
+        window_scopes=[
+            {
+                "internal_id": "FUT_BR",
+                "timeframe": "1m",
+                "source_interval": 1,
+                "moex_secid": "BRQ6",
+                "window_start_utc": "2026-04-01T07:10:00Z",
+                "window_end_utc": "2026-04-01T07:19:59Z",
+                "watermark_utc": "2026-04-01T07:09:59Z",
+            }
+        ],
+        initial_watermarks={("FUT_BR", "1m", "BRQ6"): "2026-04-01T07:09:59Z"},
+        run_id="spark-provenance-only",
+        ingest_till_utc="2026-04-01T07:19:59Z",
+        refresh_overlap_minutes=180,
+        progress_path=tmp_path / "raw-ingest-progress.jsonl",
+        progress_latest_path=tmp_path / "raw-ingest-progress.latest.json",
+        error_path=tmp_path / "raw-ingest-errors.jsonl",
+        error_latest_path=tmp_path / "raw-ingest-error.latest.json",
+    )
+    version_after = sorted((raw_table_path / "_delta_log").glob("*.json"))[-1].name
+
+    assert report["status"] == "PASS-NOOP"
+    assert report["source_rows"] == 1
+    assert report["incremental_rows"] == 0
+    assert report["deduplicated_rows"] == 1
+    assert report["changed_windows"] == []
+    assert version_after == version_before
