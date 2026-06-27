@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 from dagster import DagsterInstance, build_schedule_context
@@ -217,6 +218,7 @@ def test_historical_dagster_cutover_definitions_are_executable(
     assert "moex_historical_nightly_schedule" not in schedule_names
     binding = build_moex_historical_dagster_binding_artifact()
     assert binding["schedule"]["cron"] == "0 2 * * *"
+    assert binding["schedule"]["ingest_till_policy"] == "last_closed_europe_moscow_calendar_day"
     assert binding["job"]["name"] == "moex_baseline_update_job"
     assert binding["retry_policy"]["max_retries"] == 0
     assert binding["runtime_boundary"]["orchestrator"] == "dagster"
@@ -229,7 +231,7 @@ def test_historical_dagster_cutover_definitions_are_executable(
     schedule_context = build_schedule_context(
         instance=DagsterInstance.ephemeral(),
         repository_def=repository,
-        scheduled_execution_time=datetime(2026, 4, 15, 2, 0, tzinfo=UTC),
+        scheduled_execution_time=datetime(2026, 6, 19, 2, 0, tzinfo=ZoneInfo("Europe/Moscow")),
     )
     execution_data = schedule_def.evaluate_tick(schedule_context)
     run_requests = list(getattr(execution_data, "run_requests", []) or [])
@@ -238,6 +240,7 @@ def test_historical_dagster_cutover_definitions_are_executable(
     assert isinstance(run_request.run_config, dict)
     assert run_request.run_config.get("ops")
     op_config = run_request.run_config["ops"]["moex_baseline_update"]["config"]
+    assert op_config["ingest_till_utc"] == "2026-06-18T21:00:00Z"
     assert "raw_session_schedule_path" not in op_config
     assert op_config["canonical_session_calendar_path"].endswith(
         "canonical/moex/baseline-4y-current/canonical_session_calendar.delta"
@@ -319,6 +322,7 @@ def test_baseline_update_run_config_can_target_verification_staging_root(tmp_pat
     )
     assert op_config["evidence_root"] == (baseline_root / "moex-baseline-update").as_posix()
     assert op_config["run_id"] == "proof-run-1"
+    assert op_config["ingest_till_utc"] == "2026-04-15T00:00:00Z"
 
 
 def test_baseline_update_output_paths_keep_reports_inside_selected_staging_root(

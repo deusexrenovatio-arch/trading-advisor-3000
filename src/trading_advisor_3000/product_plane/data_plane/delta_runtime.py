@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from collections.abc import Iterable, Iterator
 from datetime import date, datetime, time, timezone
 from pathlib import Path
@@ -510,6 +511,22 @@ def delta_table_columns(table_path: Path) -> tuple[str, ...]:
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
     table = DeltaTable(str(table_path))
     return tuple(str(field.name) for field in table.to_pyarrow_dataset().schema)
+
+
+def delta_table_column_value_counts(table_path: Path, *, column: str) -> dict[str, int]:
+    if not has_delta_log(table_path):
+        raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
+    table = DeltaTable(str(table_path))
+    dataset = table.to_pyarrow_dataset()
+    if column not in dataset.schema.names:
+        return {}
+
+    counts: Counter[str] = Counter()
+    scanner = dataset.scanner(columns=[column])
+    for batch in scanner.to_batches():
+        for value in batch.column(0).to_pylist():
+            counts["<null>" if value is None else str(value)] += 1
+    return dict(sorted(counts.items()))
 
 
 def ensure_delta_table_columns(*, table_path: Path, columns: dict[str, str]) -> bool:

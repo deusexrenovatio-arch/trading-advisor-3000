@@ -366,6 +366,25 @@ def test_spark_l0_roll_map_join_is_deduplicated_and_conflict_checked() -> None:
     assert "conflicting canonical roll map active contracts" in source
 
 
+def test_spark_l0_join_sources_and_writer_enforce_key_uniqueness() -> None:
+    import inspect
+
+    native_source = inspect.getsource(spark_l0_job._native_bar_views)
+    pit_source = inspect.getsource(spark_l0_job._pit_active_front_bar_views)
+    writer_source = inspect.getsource(spark_l0_job._write_spark_delta_table)
+
+    assert 'table_name="canonical_bar_provenance"' in native_source
+    assert 'table_name="canonical_session_calendar"' in native_source
+    assert 'table_name="canonical_roll_map"' in native_source
+    assert 'frame_role="research L0 join source"' in native_source
+    assert 'table_name="canonical_bar_provenance"' in pit_source
+    assert 'table_name="canonical_session_calendar"' in pit_source
+    assert 'frame_role="research L0 join source"' in pit_source
+    assert 'frame_role="write source"' in writer_source
+    assert 'frame_role="write target"' in writer_source
+    assert '"research_bar_views": (' in writer_source
+
+
 def test_legacy_python_bar_view_builder_is_removed_from_public_api() -> None:
     import trading_advisor_3000.product_plane.research.datasets as datasets
 

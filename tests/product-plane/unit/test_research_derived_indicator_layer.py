@@ -451,6 +451,29 @@ def test_derived_indicator_batch_writer_coalesces_delta_writes(tmp_path) -> None
     assert "research_derived_indicator_frames" in paths
 
 
+def test_derived_indicator_batch_writer_rejects_duplicate_logical_keys(tmp_path) -> None:
+    bars = [_view(ts_index=index, close=80.0 + index * 0.25) for index in range(32)]
+    indicators = [_indicator_row(ts_index=index, close=80.0 + index * 0.25) for index in range(32)]
+    rows = build_derived_indicator_frames(
+        dataset_version="dataset-v5",
+        indicator_set_version="indicators-v1",
+        derived_indicator_set_version="derived-v1",
+        bar_views=bars,
+        indicator_rows=indicators,
+        series_mode="contract",
+    )
+    duplicate = replace(
+        rows[0],
+        values={**rows[0].values, "distance_to_ema_20_atr": 999.0},
+    )
+
+    with pytest.raises(ValueError, match="research_derived_indicator_frames duplicate logical key"):
+        write_derived_indicator_frame_batches(
+            output_dir=tmp_path,
+            row_batches=([rows[0]], [duplicate]),
+        )
+
+
 def test_derived_legacy_partitions_rehash_when_source_table_is_newer() -> None:
     assert _source_bars_may_have_changed(
         source_bars_hash="legacy-bars-hash",

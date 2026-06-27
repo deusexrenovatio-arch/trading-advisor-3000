@@ -6,9 +6,10 @@ import subprocess
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
 from pathlib import Path
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from dagster import (
     AssetSelection,
@@ -273,6 +274,23 @@ def _default_route_run_id(*, scheduled_execution_time: datetime | None = None) -
     return anchor.strftime("%Y%m%dT%H%M%SZ")
 
 
+def _default_closed_daily_ingest_till_utc(
+    *, scheduled_execution_time: datetime | None = None
+) -> str:
+    anchor = scheduled_execution_time or datetime.now(tz=UTC)
+    if anchor.tzinfo is None:
+        anchor = anchor.replace(tzinfo=UTC)
+    market_tz = ZoneInfo(MOEX_HISTORICAL_EXECUTION_TIMEZONE)
+    local_anchor = anchor.astimezone(market_tz)
+    local_session_boundary = datetime.combine(local_anchor.date(), time.min, tzinfo=market_tz)
+    return (
+        local_session_boundary.astimezone(UTC)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+
 def _build_nightly_schedule_run_config(context) -> dict[str, object]:
     scheduled_execution_time = getattr(context, "scheduled_execution_time", None)
     run_id = _default_route_run_id(scheduled_execution_time=scheduled_execution_time)
@@ -366,7 +384,7 @@ def build_moex_baseline_update_run_config(
     resolved_ingest_till_utc = (
         ingest_till_utc.strip()
         if ingest_till_utc and ingest_till_utc.strip()
-        else datetime.now(tz=UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        else _default_closed_daily_ingest_till_utc()
     )
     resolved_timeframes = (
         timeframes.strip()
@@ -433,13 +451,8 @@ def build_moex_baseline_update_run_config(
 def _build_baseline_daily_schedule_run_config(context) -> dict[str, object]:
     scheduled_execution_time = getattr(context, "scheduled_execution_time", None)
     run_id = _default_route_run_id(scheduled_execution_time=scheduled_execution_time)
-    ingest_till_utc = (
-        scheduled_execution_time.astimezone(UTC)
-        .replace(microsecond=0)
-        .isoformat()
-        .replace("+00:00", "Z")
-        if scheduled_execution_time is not None
-        else datetime.now(tz=UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    ingest_till_utc = _default_closed_daily_ingest_till_utc(
+        scheduled_execution_time=scheduled_execution_time
     )
     return build_moex_baseline_update_run_config(
         baseline_root=_route_artifact_root(),
@@ -782,6 +795,7 @@ def build_moex_historical_dagster_binding_artifact() -> dict[str, object]:
             "name": MOEX_BASELINE_DAILY_SCHEDULE_NAME,
             "cron": MOEX_BASELINE_DAILY_CRON,
             "execution_timezone": MOEX_HISTORICAL_EXECUTION_TIMEZONE,
+            "ingest_till_policy": "last_closed_europe_moscow_calendar_day",
             "default_status": DefaultScheduleStatus.RUNNING.value,
         },
         "retry_policy": {
@@ -1004,9 +1018,9 @@ def moex_baseline_update(context) -> dict[str, object]:
         _text_value(op_config, "run_id", "canonical_run_id") or _default_route_run_id(),
         name="moex_baseline_update.run_id",
     )
-    ingest_till_utc = _text_value(op_config, "ingest_till_utc") or datetime.now(tz=UTC).replace(
-        microsecond=0
-    ).isoformat().replace("+00:00", "Z")
+    ingest_till_utc = (
+        _text_value(op_config, "ingest_till_utc") or _default_closed_daily_ingest_till_utc()
+    )
 
     report = run_moex_baseline_update(
         mapping_registry_path=mapping_registry_path,

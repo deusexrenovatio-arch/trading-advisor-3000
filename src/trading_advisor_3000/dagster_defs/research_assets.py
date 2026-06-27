@@ -3802,6 +3802,8 @@ def _materialize_research_assets(
             contour_id=contour_id,
             indicator_set_version=indicator_set_version,
             derived_indicator_set_version=derived_indicator_set_version,
+            timeframes=timeframes,
+            dataset_instrument_ids=dataset_instrument_ids,
         )
     findings_path = Path(output_paths["research_run_findings"])
     if has_delta_log(findings_path):

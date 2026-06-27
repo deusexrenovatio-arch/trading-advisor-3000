@@ -12,9 +12,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import pyarrow as pa
 import yaml
-from deltalake import DeltaTable, write_deltalake
+from deltalake import write_deltalake
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -43,6 +42,11 @@ from trading_advisor_3000.product_plane.data_plane.moex.foundation import (
     validate_universe_mapping_alignment,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.iss_client import MoexISSClient
+from trading_advisor_3000.product_plane.data_plane.moex.raw_shard_merge import (
+    iter_deduplicated_raw_shard_tables,
+    validate_disjoint_raw_shard_scopes,
+    validate_raw_shard_rows_deduplicable,
+)
 
 DEFAULT_MAPPING_REGISTRY = Path("configs/moex_foundation/instrument_mapping_registry.v1.yaml")
 DEFAULT_UNIVERSE = Path("configs/moex_foundation/universe/moex-futures-priority.v1.yaml")
@@ -387,15 +391,16 @@ def _append_delta_table(
     *,
     source_path: Path,
     target_path: Path,
+    shard_id: str,
     batch_size: int,
     has_written_target: bool,
 ) -> bool:
-    source_table = DeltaTable(str(source_path))
-    scanner = source_table.to_pyarrow_dataset().scanner(batch_size=batch_size)
-
     wrote_any = has_written_target
-    for batch in scanner.to_batches():
-        table = pa.Table.from_batches([batch], schema=batch.schema)
+    for table in iter_deduplicated_raw_shard_tables(
+        source_path,
+        shard_id=shard_id,
+        batch_size=batch_size,
+    ):
         mode = "append" if wrote_any else "overwrite"
         write_deltalake(str(target_path), table, mode=mode)
         wrote_any = True
@@ -408,6 +413,19 @@ def _merge_raw_tables(
     target_raw_path: Path,
     batch_size: int,
 ) -> int:
+    raw_shards: list[tuple[str, Path]] = []
+    for item in sorted(shard_reports, key=lambda row: str(row["shard_id"])):
+        report = item["report"]
+        if not isinstance(report, dict):
+            continue
+        source_raw = Path(str(report.get("raw_table_path", "")))
+        if not source_raw.exists() or not has_delta_log(source_raw):
+            continue
+        raw_shards.append((str(item["shard_id"]), source_raw))
+
+    validate_disjoint_raw_shard_scopes(raw_shards, batch_size=batch_size)
+    validate_raw_shard_rows_deduplicable(raw_shards, batch_size=batch_size)
+
     if target_raw_path.exists():
         import shutil
 
@@ -416,16 +434,11 @@ def _merge_raw_tables(
 
     wrote_any = False
     written_shards = 0
-    for item in sorted(shard_reports, key=lambda row: str(row["shard_id"])):
-        report = item["report"]
-        if not isinstance(report, dict):
-            continue
-        source_raw = Path(str(report.get("raw_table_path", "")))
-        if not source_raw.exists() or not has_delta_log(source_raw):
-            continue
+    for shard_id, source_raw in raw_shards:
         wrote_any = _append_delta_table(
             source_path=source_raw,
             target_path=target_raw_path,
+            shard_id=shard_id,
             batch_size=batch_size,
             has_written_target=wrote_any,
         )

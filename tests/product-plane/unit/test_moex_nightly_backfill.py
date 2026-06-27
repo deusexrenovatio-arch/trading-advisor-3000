@@ -3,11 +3,23 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 import scripts.run_moex_nightly_backfill as nightly
-from trading_advisor_3000.product_plane.data_plane.moex.foundation import DiscoveryRecord, load_universe
+import scripts.run_moex_route_refresh as route_refresh
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    read_delta_table_rows,
+    write_delta_table_rows,
+)
+from trading_advisor_3000.product_plane.data_plane.moex.foundation import (
+    DiscoveryRecord,
+    load_universe,
+)
 
 
-def _coverage_record(*, internal_id: str, secid: str, source_interval: int, source_timeframe: str) -> DiscoveryRecord:
+def _coverage_record(
+    *, internal_id: str, secid: str, source_interval: int, source_timeframe: str
+) -> DiscoveryRecord:
     return DiscoveryRecord(
         internal_id=internal_id,
         finam_symbol=internal_id if secid == "BRQ6" else f"{secid}@MOEX",
@@ -27,6 +39,154 @@ def _coverage_record(*, internal_id: str, secid: str, source_interval: int, sour
             f"securities/{secid}/candleborders.json"
         ),
     )
+
+
+def _raw_row(
+    *,
+    internal_id: str,
+    secid: str,
+    timeframe: str = "1m",
+    minute: int = 0,
+    close: float = 80.0,
+) -> dict[str, object]:
+    return {
+        "internal_id": internal_id,
+        "finam_symbol": f"{secid}@MOEX",
+        "moex_engine": "futures",
+        "moex_market": "forts",
+        "moex_board": "RFUD",
+        "moex_secid": secid,
+        "asset_group": "commodity",
+        "timeframe": timeframe,
+        "source_interval": 1,
+        "ts_open": f"2026-04-01T09:{minute:02d}:00Z",
+        "ts_close": f"2026-04-01T09:{minute + 1:02d}:00Z",
+        "open": close,
+        "high": close + 0.5,
+        "low": close - 0.5,
+        "close": close,
+        "volume": 1000 + minute,
+        "open_interest": 20_000 + minute,
+        "ingest_run_id": "test-raw-shard",
+        "ingested_at_utc": "2026-04-01T10:00:00Z",
+        "provenance_json": "{}",
+    }
+
+
+def test_merge_raw_tables_rejects_overlapping_shard_scopes_before_target_rewrite(
+    tmp_path: Path,
+) -> None:
+    shard_one = tmp_path / "shard-01" / "raw.delta"
+    shard_two = tmp_path / "shard-02" / "raw.delta"
+    target = tmp_path / "target" / "raw.delta"
+    write_delta_table_rows(
+        table_path=shard_one,
+        rows=[_raw_row(internal_id="FUT_BR", secid="BRQ6", minute=0)],
+        columns=nightly.RAW_COLUMNS,
+    )
+    write_delta_table_rows(
+        table_path=shard_two,
+        rows=[_raw_row(internal_id="FUT_BR", secid="BRQ6", minute=1)],
+        columns=nightly.RAW_COLUMNS,
+    )
+    write_delta_table_rows(
+        table_path=target,
+        rows=[_raw_row(internal_id="FUT_SI", secid="SIM6", minute=0)],
+        columns=nightly.RAW_COLUMNS,
+    )
+    shard_reports = [
+        {"shard_id": "shard-01", "report": {"raw_table_path": shard_one.as_posix()}},
+        {"shard_id": "shard-02", "report": {"raw_table_path": shard_two.as_posix()}},
+    ]
+
+    with pytest.raises(RuntimeError, match="overlapping shard scopes"):
+        nightly._merge_raw_tables(
+            shard_reports=shard_reports,
+            target_raw_path=target,
+            batch_size=10,
+        )
+
+    assert read_delta_table_rows(target, limit=10)[0]["internal_id"] == "FUT_SI"
+
+
+def test_merge_raw_tables_collapses_identical_raw_bar_duplicates(tmp_path: Path) -> None:
+    shard = tmp_path / "dedupe-shard" / "raw.delta"
+    target = tmp_path / "dedupe-target" / "raw.delta"
+    row = _raw_row(internal_id="FUT_BR", secid="BRQ6", minute=0)
+    write_delta_table_rows(
+        table_path=shard,
+        rows=[row, dict(row)],
+        columns=nightly.RAW_COLUMNS,
+    )
+
+    written_shards = nightly._merge_raw_tables(
+        shard_reports=[{"shard_id": "shard-01", "report": {"raw_table_path": shard.as_posix()}}],
+        target_raw_path=target,
+        batch_size=1,
+    )
+
+    rows = read_delta_table_rows(target, limit=10)
+    assert written_shards == 1
+    assert len(rows) == 1
+    assert rows[0]["close"] == 80.0
+
+
+def test_merge_raw_tables_rejects_conflicting_raw_bar_duplicates_before_target_rewrite(
+    tmp_path: Path,
+) -> None:
+    shard = tmp_path / "conflict-shard" / "raw.delta"
+    target = tmp_path / "conflict-target" / "raw.delta"
+    write_delta_table_rows(
+        table_path=shard,
+        rows=[
+            _raw_row(internal_id="FUT_BR", secid="BRQ6", minute=0, close=80.0),
+            _raw_row(internal_id="FUT_BR", secid="BRQ6", minute=0, close=81.0),
+        ],
+        columns=nightly.RAW_COLUMNS,
+    )
+    write_delta_table_rows(
+        table_path=target,
+        rows=[_raw_row(internal_id="FUT_SI", secid="SIM6", minute=0)],
+        columns=nightly.RAW_COLUMNS,
+    )
+
+    with pytest.raises(RuntimeError, match="conflicting rows for the same raw bar key"):
+        nightly._merge_raw_tables(
+            shard_reports=[
+                {"shard_id": "shard-01", "report": {"raw_table_path": shard.as_posix()}}
+            ],
+            target_raw_path=target,
+            batch_size=1,
+        )
+
+    assert read_delta_table_rows(target, limit=10)[0]["internal_id"] == "FUT_SI"
+
+
+def test_route_refresh_merge_raw_tables_rejects_overlapping_shard_scopes(
+    tmp_path: Path,
+) -> None:
+    shard_one = tmp_path / "route-shard-01" / "raw.delta"
+    shard_two = tmp_path / "route-shard-02" / "raw.delta"
+    write_delta_table_rows(
+        table_path=shard_one,
+        rows=[_raw_row(internal_id="FUT_BR", secid="BRQ6", minute=0)],
+        columns=route_refresh.RAW_COLUMNS,
+    )
+    write_delta_table_rows(
+        table_path=shard_two,
+        rows=[_raw_row(internal_id="FUT_BR", secid="BRQ6", minute=1)],
+        columns=route_refresh.RAW_COLUMNS,
+    )
+
+    with pytest.raises(RuntimeError, match="overlapping shard scopes"):
+        route_refresh._merge_raw_tables(
+            shard_reports=[
+                {"shard_id": "shard-01", "report": {"raw_table_path": shard_one.as_posix()}},
+                {"shard_id": "shard-02", "report": {"raw_table_path": shard_two.as_posix()}},
+            ],
+            target_raw_path=tmp_path / "route-target" / "raw.delta",
+            batch_size=10,
+        )
 
 
 def test_build_jobs_scopes_shared_discovery_by_internal_id(tmp_path: Path) -> None:
@@ -51,7 +211,7 @@ def test_build_jobs_scopes_shared_discovery_by_internal_id(tmp_path: Path) -> No
 
     jobs = nightly._build_jobs(
         run_id="nightly-shared-discovery",
-        phase01_run_dir=tmp_path / "phase01",
+        raw_ingest_run_dir=tmp_path / "phase01",
         shards_dir=tmp_path / "nightly" / "shards",
         shards=[[active_symbols[0]], [active_symbols[1]]],
         coverage=coverage,
@@ -103,7 +263,10 @@ def test_run_shard_job_reuses_cached_success(monkeypatch, tmp_path: Path) -> Non
             "stale_rows": 0,
             "processed_at_utc": "2026-04-02T12:06:00Z",
         }
-        progress_path.write_text(json.dumps(progress_payload, ensure_ascii=False) + "\n", encoding="utf-8")
+        progress_path.write_text(
+            json.dumps(progress_payload, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
         progress_latest_path.write_text(
             json.dumps(progress_payload, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
