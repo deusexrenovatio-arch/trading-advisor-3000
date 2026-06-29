@@ -113,6 +113,8 @@ INPUT_JOIN_COLUMNS = (
     "input_front_row_hash",
 )
 
+SIDECAR_JOIN_KEY_COLUMNS = ("instrument_id", "timeframe", "ts")
+
 SIDECAR_UNIQUE_KEYS_BY_TABLE = {
     "cf_indicator_input_frame": (
         "dataset_version",
@@ -456,7 +458,7 @@ def _build_input_frame(
     _assert_unique_by_key(
         bars,
         table_name="research_bar_views",
-        key_columns=("instrument_id", "timeframe", "ts"),
+        key_columns=SIDECAR_JOIN_KEY_COLUMNS,
         frame_role="continuous-front sidecar join source",
     )
     ladder = (
@@ -618,6 +620,54 @@ def _build_input_frame(
     return result
 
 
+def _derived_sidecar_scope_keys(
+    *,
+    spark,
+    materialized_output_dir: Path,
+    dataset_version: str,
+    contour_id: str,
+    indicator_set_version: str,
+    derived_set_version: str,
+):
+    from pyspark.sql import functions as F  # type: ignore[import-not-found]
+
+    keys = (
+        spark.read.format("delta")
+        .load(str(materialized_output_dir / "research_derived_indicator_frames.delta"))
+        .where(
+            (F.col("dataset_version") == F.lit(dataset_version))
+            & (F.col("contour_id") == F.lit(contour_id))
+            & (F.col("indicator_set_version") == F.lit(indicator_set_version))
+            & (F.col("derived_indicator_set_version") == F.lit(derived_set_version))
+        )
+        .select(*SIDECAR_JOIN_KEY_COLUMNS)
+    )
+    _assert_unique_by_key(
+        keys,
+        table_name="research_derived_indicator_frames",
+        key_columns=SIDECAR_JOIN_KEY_COLUMNS,
+        frame_role="continuous-front sidecar derived scope",
+    )
+    if int(keys.count()) == 0:
+        raise ValueError("continuous-front derived sidecar source scope is empty")
+    return keys
+
+
+def _filter_to_sidecar_key_scope(dataframe, scope_keys):
+    from pyspark.sql import functions as F  # type: ignore[import-not-found]
+
+    source = dataframe.alias("source")
+    scope = scope_keys.alias("scope")
+    return source.join(
+        scope,
+        [
+            F.col(f"source.{column}").eqNullSafe(F.col(f"scope.{column}"))
+            for column in SIDECAR_JOIN_KEY_COLUMNS
+        ],
+        "inner",
+    ).select("source.*")
+
+
 def _build_base_sidecar_frame(
     *,
     spark,
@@ -664,13 +714,13 @@ def _build_base_sidecar_frame(
     _assert_unique_by_key(
         base_source,
         table_name="research_indicator_frames",
-        key_columns=("instrument_id", "timeframe", "ts"),
+        key_columns=SIDECAR_JOIN_KEY_COLUMNS,
         frame_role="continuous-front sidecar join source",
     )
     _assert_unique_by_key(
         input_projection,
         table_name="cf_indicator_input_frame",
-        key_columns=("instrument_id", "timeframe", "ts"),
+        key_columns=SIDECAR_JOIN_KEY_COLUMNS,
         frame_role="base sidecar join source",
     )
     joined = base_source.alias("base").join(
@@ -793,29 +843,46 @@ def _build_derived_sidecar_frame(
     _assert_unique_by_key(
         derived_source,
         table_name="research_derived_indicator_frames",
-        key_columns=("instrument_id", "timeframe", "ts"),
+        key_columns=SIDECAR_JOIN_KEY_COLUMNS,
         frame_role="continuous-front sidecar join source",
     )
     _assert_unique_by_key(
         input_projection,
         table_name="cf_indicator_input_frame",
-        key_columns=("instrument_id", "timeframe", "ts"),
+        key_columns=SIDECAR_JOIN_KEY_COLUMNS,
         frame_role="derived sidecar join source",
     )
     _assert_unique_by_key(
         base_hash_projection,
         table_name="continuous_front_indicator_frames",
-        key_columns=("instrument_id", "timeframe", "ts"),
+        key_columns=SIDECAR_JOIN_KEY_COLUMNS,
         frame_role="derived sidecar join source",
     )
-    with_input = derived_source.alias("derived").join(
-        input_projection.alias("input"),
-        [
-            F.col("derived.instrument_id").eqNullSafe(F.col("input.instrument_id")),
-            F.col("derived.timeframe").eqNullSafe(F.col("input.timeframe")),
-            F.col("derived.ts").eqNullSafe(F.col("input.ts")),
-        ],
-        "inner",
+    with_input = (
+        derived_source.alias("derived")
+        .join(
+            input_projection.alias("input"),
+            [
+                F.col("derived.instrument_id").eqNullSafe(F.col("input.instrument_id")),
+                F.col("derived.timeframe").eqNullSafe(F.col("input.timeframe")),
+                F.col("derived.ts").eqNullSafe(F.col("input.ts")),
+            ],
+            "inner",
+        )
+        .select(
+            F.col("derived.instrument_id").alias("instrument_id"),
+            F.col("derived.timeframe").alias("timeframe"),
+            F.col("derived.ts").alias("ts"),
+            F.col("input.ts_close").alias("ts_close"),
+            F.col("input.session_date").alias("session_date"),
+            F.col("input.active_contract_id").alias("active_contract_id"),
+            F.col("input.roll_epoch_id").alias("roll_epoch_id"),
+            F.col("input.roll_seq").alias("roll_seq"),
+            F.col("input.bars_since_roll").alias("bars_since_roll"),
+            F.col("input.cumulative_additive_offset").alias("cumulative_additive_offset"),
+            F.col("input.input_front_row_hash").alias("input_front_row_hash"),
+            *[F.col(f"derived.{column}").alias(column) for column in derived_value_columns],
+        )
     )
     joined = with_input.alias("joined").join(
         base_hash_projection.alias("base_hash"),
@@ -945,6 +1012,28 @@ def run_continuous_front_indicator_sidecar_spark_job(
             created_at_utc=created_at_utc,
         ).cache()
         record_stage_timing(stage_timings, "build_input_frame", stage_started)
+
+        if include_derived:
+            stage_started = stage_timer()
+            derived_scope_keys = _derived_sidecar_scope_keys(
+                spark=spark,
+                materialized_output_dir=materialized_output_dir,
+                dataset_version=dataset_version,
+                contour_id=contour_id,
+                indicator_set_version=indicator_set_version,
+                derived_set_version=derived_set_version,
+            ).cache()
+            scoped_input_frame = _filter_to_sidecar_key_scope(
+                input_frame, derived_scope_keys
+            ).cache()
+            input_frame.unpersist()
+            input_frame = scoped_input_frame
+            record_stage_timing(
+                stage_timings,
+                "scope_input_frame_to_derived_source",
+                stage_started,
+                scope_row_count=int(derived_scope_keys.count()),
+            )
 
         stage_started = stage_timer()
         base_frame = _build_base_sidecar_frame(
@@ -1128,7 +1217,7 @@ def run_continuous_front_indicator_sidecar_spark_job(
             },
         }
     finally:
-        for frame_name in ("derived_frame", "base_frame", "input_frame"):
+        for frame_name in ("derived_frame", "base_frame", "input_frame", "derived_scope_keys"):
             frame = locals().get(frame_name)
             unpersist = getattr(frame, "unpersist", None)
             if callable(unpersist):

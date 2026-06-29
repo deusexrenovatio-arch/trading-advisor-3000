@@ -995,6 +995,7 @@ def _pit_active_front_bar_views(
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
     bars = spark.read.format("delta").load(str(continuous_front_bars_path))
+    bars = bars.where(F.col("dataset_version") == F.lit(dataset_version))
     bars = _apply_filters(bars, instrument_ids=instrument_ids, timeframes=timeframes)
     if end_ts:
         bars = bars.where(F.col("ts") <= F.lit(end_ts))
