@@ -16,6 +16,8 @@ from trading_advisor_3000.product_plane.research.indicators import indicator_sto
 from trading_advisor_3000.spark_jobs.continuous_front_indicator_sidecar_job import (
     BASE_SOURCE_RESERVED_COLUMNS,
     DERIVED_SOURCE_RESERVED_COLUMNS,
+    SIDECAR_JOIN_KEY_COLUMNS,
+    _build_derived_sidecar_frame,
     run_continuous_front_indicator_sidecar_spark_job,
 )
 
@@ -216,3 +218,28 @@ def test_spark_sidecar_job_rejects_missing_derived_columns_before_spark(
             include_derived=True,
             spark_session_factory=lambda _app, _master: pytest.fail("Spark should not start"),
         )
+
+
+def test_derived_sidecar_join_projects_unique_key_columns_before_hash_join() -> None:
+    import inspect
+
+    source = inspect.getsource(_build_derived_sidecar_frame)
+
+    assert SIDECAR_JOIN_KEY_COLUMNS == ("instrument_id", "timeframe", "ts")
+    assert 'F.col("derived.instrument_id").alias("instrument_id")' in source
+    assert 'F.col("input.ts_close").alias("ts_close")' in source
+    assert source.index('F.col("derived.instrument_id").alias("instrument_id")') < (
+        source.index('with_input.alias("joined").join(')
+    )
+
+
+def test_full_sidecar_scopes_input_to_derived_source_before_base_join() -> None:
+    import inspect
+
+    source = inspect.getsource(run_continuous_front_indicator_sidecar_spark_job)
+
+    assert "_derived_sidecar_scope_keys(" in source
+    assert "_filter_to_sidecar_key_scope(" in source
+    assert source.index("_filter_to_sidecar_key_scope(") < source.index(
+        "base_frame = _build_base_sidecar_frame("
+    )
