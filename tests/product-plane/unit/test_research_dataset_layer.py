@@ -385,6 +385,19 @@ def test_spark_l0_join_sources_and_writer_enforce_key_uniqueness() -> None:
     assert '"research_bar_views": (' in writer_source
 
 
+def test_spark_l0_pit_active_front_filters_continuous_front_dataset_version() -> None:
+    import inspect
+
+    pit_source = inspect.getsource(spark_l0_job._pit_active_front_bar_views)
+
+    assert 'F.col("dataset_version") == F.lit(dataset_version)' in pit_source
+    assert pit_source.index('F.col("dataset_version") == F.lit(dataset_version)') < (
+        pit_source.index(
+            "bars = _apply_filters(bars, instrument_ids=instrument_ids, timeframes=timeframes)"
+        )
+    )
+
+
 def test_legacy_python_bar_view_builder_is_removed_from_public_api() -> None:
     import trading_advisor_3000.product_plane.research.datasets as datasets
 
