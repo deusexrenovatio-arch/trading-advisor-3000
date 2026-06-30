@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -116,6 +117,9 @@ RESEARCH_BACKTEST_JOB_NAME = "research_backtest_job"
 RESEARCH_PROJECTION_JOB_NAME = "research_projection_job"
 RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME = "research_data_prep_after_moex_sensor"
 MOEX_CF_CATCH_UP_AFTER_MOEX_BASELINE_SENSOR_NAME = "moex_cf_catch_up_after_moex_baseline_sensor"
+RESEARCH_DATA_PREP_AFTER_MOEX_CF_CATCH_UP_SENSOR_NAME = (
+    "research_data_prep_after_moex_cf_catch_up_sensor"
+)
 MOEX_HISTORICAL_DATA_REBUILD_RESEARCH_PREP_SENSOR_NAME = (
     "research_data_prep_after_moex_data_rebuild_sensor"
 )
@@ -2857,6 +2861,14 @@ _RESEARCH_CONFIG_OP_CANDIDATES = (
     "continuous_front_indicator_acceptance_report",
 )
 
+_RESEARCH_DATA_PREP_CONFIG_OPS = (
+    "continuous_front_bars",
+    "research_datasets",
+    "research_indicator_frames",
+    "research_derived_indicator_frames",
+    "continuous_front_indicator_acceptance_report",
+)
+
 
 def _op_config_from_run_config(run_config: object, op_name: str) -> dict[str, object] | None:
     if not isinstance(run_config, Mapping):
@@ -2921,6 +2933,19 @@ def _strategy_registry_run_config_from_research_config(
     }
 
 
+def _research_data_prep_run_config_from_research_config(
+    research_config: Mapping[str, object],
+) -> dict[str, object]:
+    return {
+        "ops": {
+            op_name: {
+                "config": dict(research_config),
+            }
+            for op_name in _RESEARCH_DATA_PREP_CONFIG_OPS
+        }
+    }
+
+
 def build_research_data_prep_run_config(
     *,
     canonical_output_dir: Path | None = None,
@@ -2931,8 +2956,13 @@ def build_research_data_prep_run_config(
     universe_id: str = "moex-futures",
     timeframes: Sequence[str] | None = None,
     base_timeframe: str = DEFAULT_RESEARCH_DATA_PREP_BASE_TIMEFRAME,
+    start_ts: str = "",
+    end_ts: str = "",
+    warmup_bars: int = DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS,
     series_mode: str = "continuous_front",
     continuous_front_policy: dict[str, object] | None = None,
+    dataset_instrument_ids: Sequence[str] | None = None,
+    changed_windows: Sequence[Mapping[str, object]] | None = None,
     campaign_run_id: str = "research_data_prep_scheduled",
     indicator_set_version: str = "indicators-v1",
     indicator_profile_version: str = "core_v1",
@@ -2940,6 +2970,9 @@ def build_research_data_prep_run_config(
     derived_indicator_profile_version: str = "core_v1",
     volume_profile_raw_1m_table_path: str | Path | None = None,
     volume_profile_tick_size_by_instrument: Mapping[str, float] | None = None,
+    continuous_front_indicator_qc_mode: str = "hot_path",
+    continuous_front_indicator_sidecar_materialization_mode: str = "auto",
+    code_version: str = "research-data-prep-after-moex",
 ) -> dict[str, object]:
     resolved_canonical_output_dir = (
         canonical_output_dir.resolve()
@@ -3004,37 +3037,28 @@ def build_research_data_prep_run_config(
         universe_id=universe_id,
         timeframes=resolved_timeframes,
         base_timeframe=base_timeframe,
+        start_ts=start_ts,
+        end_ts=end_ts,
+        warmup_bars=warmup_bars,
         series_mode=series_mode,
         continuous_front_policy=continuous_front_policy,
+        dataset_instrument_ids=tuple(dataset_instrument_ids or ()),
+        changed_windows=tuple(changed_windows or ()),
         indicator_set_version=indicator_set_version,
         indicator_profile_version=indicator_profile_version,
         derived_indicator_set_version=derived_indicator_set_version,
         derived_indicator_profile_version=derived_indicator_profile_version,
         volume_profile_raw_1m_table_path=resolved_volume_profile_raw_1m_table_path,
         volume_profile_tick_size_by_instrument=resolved_volume_profile_tick_size_by_instrument,
-        code_version="research-data-prep-after-moex",
+        continuous_front_indicator_qc_mode=continuous_front_indicator_qc_mode,
+        continuous_front_indicator_sidecar_materialization_mode=(
+            continuous_front_indicator_sidecar_materialization_mode
+        ),
+        code_version=code_version,
         strategy_space_id="",
         combination_count=0,
     )
-    return {
-        "ops": {
-            "continuous_front_bars": {
-                "config": research_config,
-            },
-            "research_datasets": {
-                "config": research_config,
-            },
-            "research_indicator_frames": {
-                "config": research_config,
-            },
-            "research_derived_indicator_frames": {
-                "config": research_config,
-            },
-            "continuous_front_indicator_acceptance_report": {
-                "config": research_config,
-            },
-        }
-    }
+    return _research_data_prep_run_config_from_research_config(research_config)
 
 
 def _required_window_text(window: Mapping[str, object], key: str) -> str:
@@ -3136,6 +3160,16 @@ def _build_moex_cf_catch_up_run_config(
     return {"ops": {"continuous_front_bars": {"config": research_config}}}
 
 
+def _cf_catch_up_windows_hash(windows: Sequence[Mapping[str, object]]) -> str:
+    payload = json.dumps(
+        [dict(window) for window in windows],
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 @run_status_sensor(
     run_status=DagsterRunStatus.SUCCESS,
     name=MOEX_CF_CATCH_UP_AFTER_MOEX_BASELINE_SENSOR_NAME,
@@ -3205,6 +3239,113 @@ def moex_cf_catch_up_after_moex_baseline_sensor(context):
 )
 def research_data_prep_after_moex_sensor(_context):
     return None
+
+
+@run_status_sensor(
+    run_status=DagsterRunStatus.SUCCESS,
+    name=RESEARCH_DATA_PREP_AFTER_MOEX_CF_CATCH_UP_SENSOR_NAME,
+    monitored_jobs=[moex_cf_catch_up_job],
+    request_job=research_data_prep_job,
+    default_status=DefaultSensorStatus.RUNNING,
+    description=(
+        "Start scoped research_data_prep_job after windowed continuous-front catch-up succeeds."
+    ),
+)
+def research_data_prep_after_moex_cf_catch_up_sensor(context):
+    cf_config = _research_config_from_run_config(context.dagster_run.run_config)
+    if cf_config is None:
+        return None
+    series_mode = _research_series_mode_from_config(cf_config) or "continuous_front"
+    if series_mode != "continuous_front":
+        raise ValueError(
+            "moex_cf_catch_up_job can only trigger research_data_prep_job for "
+            "series_mode=continuous_front"
+        )
+    changed_windows = _changed_windows_from_research_config(cf_config)
+    if not changed_windows:
+        return None
+    windows = _normalize_cf_catch_up_windows(changed_windows)
+
+    upstream_run_id = str(context.dagster_run.run_id)
+    tags = getattr(context.dagster_run, "tags", {}) or {}
+    tagged_windows_hash = (
+        str(tags.get("ta3000/cf_catch_up_windows_hash") or "").strip()
+        if isinstance(tags, Mapping)
+        else ""
+    )
+    windows_hash = tagged_windows_hash or _cf_catch_up_windows_hash(windows)
+    dataset_version = _research_dataset_version_from_context(context, cf_config)
+    timeframes = tuple(_config_string_sequence(cf_config, "timeframes"))
+    dataset_instrument_ids = tuple(_config_string_sequence(cf_config, "dataset_instrument_ids"))
+    return RunRequest(
+        run_key=(
+            f"{RESEARCH_DATA_PREP_JOB_NAME}:{MOEX_CF_CATCH_UP_JOB_NAME}:"
+            f"{upstream_run_id}:{windows_hash}"
+        ),
+        run_config=build_research_data_prep_run_config(
+            canonical_output_dir=Path(str(_config_value(cf_config, "canonical_output_dir"))),
+            materialized_output_dir=Path(str(_config_value(cf_config, "materialized_output_dir"))),
+            results_output_dir=Path(str(_config_value(cf_config, "results_output_dir"))),
+            dataset_version=dataset_version,
+            dataset_name=str(
+                _config_value(cf_config, "dataset_name", DEFAULT_RESEARCH_DATA_PREP_DATASET_NAME)
+            ),
+            universe_id=str(_config_value(cf_config, "universe_id", "moex-futures")),
+            timeframes=timeframes,
+            base_timeframe=str(_config_value(cf_config, "base_timeframe", "")),
+            start_ts=str(_config_value(cf_config, "start_ts", "")),
+            end_ts=str(_config_value(cf_config, "end_ts", "")),
+            warmup_bars=int(
+                _config_value(
+                    cf_config,
+                    "warmup_bars",
+                    DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS,
+                )
+            ),
+            series_mode="continuous_front",
+            continuous_front_policy=dict(_config_value(cf_config, "continuous_front_policy", {})),
+            dataset_instrument_ids=dataset_instrument_ids,
+            changed_windows=windows,
+            indicator_set_version=str(_config_value(cf_config, "indicator_set_version")),
+            indicator_profile_version=str(_config_value(cf_config, "indicator_profile_version")),
+            derived_indicator_set_version=str(
+                _config_value(
+                    cf_config,
+                    "derived_indicator_set_version",
+                    DEFAULT_DERIVED_INDICATOR_SET_VERSION,
+                )
+            ),
+            derived_indicator_profile_version=str(
+                _config_value(cf_config, "derived_indicator_profile_version", "core_v1")
+            ),
+            volume_profile_raw_1m_table_path=str(
+                _config_value(cf_config, "volume_profile_raw_1m_table_path", "")
+            ),
+            volume_profile_tick_size_by_instrument=dict(
+                _config_value(cf_config, "volume_profile_tick_size_by_instrument", {})
+            ),
+            continuous_front_indicator_qc_mode=str(
+                _config_value(cf_config, "continuous_front_indicator_qc_mode", "hot_path")
+            ),
+            continuous_front_indicator_sidecar_materialization_mode=str(
+                _config_value(
+                    cf_config,
+                    "continuous_front_indicator_sidecar_materialization_mode",
+                    "auto",
+                )
+            ),
+            code_version="research-data-prep-after-moex-cf-catch-up",
+            campaign_run_id=(f"research_data_prep_after_cf_{upstream_run_id}_{windows_hash[:12]}"),
+        ),
+        tags={
+            "ta3000/upstream_job": MOEX_CF_CATCH_UP_JOB_NAME,
+            "ta3000/upstream_run_id": upstream_run_id,
+            "ta3000/dataset_version": dataset_version,
+            "ta3000/series_mode": "continuous_front",
+            "ta3000/cf_catch_up_windows_hash": windows_hash,
+            "ta3000/cf_catch_up_window_count": str(len(windows)),
+        },
+    )
 
 
 @run_status_sensor(
