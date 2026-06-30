@@ -24,6 +24,7 @@ from .research_assets import (
     RESEARCH_ASSETS,
     RESEARCH_BACKTEST_AFTER_STRATEGY_REGISTRY_SENSOR_NAME,
     RESEARCH_BACKTEST_JOB_NAME,
+    RESEARCH_DATA_PREP_AFTER_MOEX_CF_CATCH_UP_SENSOR_NAME,
     RESEARCH_DATA_PREP_JOB_NAME,
     RESEARCH_PROJECTION_AFTER_BACKTEST_SENSOR_NAME,
     RESEARCH_PROJECTION_JOB_NAME,
@@ -39,6 +40,7 @@ from .research_assets import (
     moex_research_indicator_sidecar_job,
     research_backtest_after_strategy_registry_sensor,
     research_backtest_job,
+    research_data_prep_after_moex_cf_catch_up_sensor,
     research_data_prep_after_moex_data_rebuild_sensor,
     research_data_prep_job,
     research_projection_after_backtest_sensor,
@@ -85,6 +87,7 @@ product_plane_definitions = Definitions(
     schedules=[moex_baseline_daily_update_schedule],
     sensors=[
         moex_cf_catch_up_after_moex_baseline_sensor,
+        research_data_prep_after_moex_cf_catch_up_sensor,
         research_data_prep_after_moex_data_rebuild_sensor,
         strategy_registry_refresh_after_research_data_prep_sensor,
         research_backtest_after_strategy_registry_sensor,
@@ -111,6 +114,7 @@ def assert_product_plane_definitions_executable(definitions: Definitions | None 
     sensor_names = {sensor.name for sensor in repository.sensor_defs}
     required_sensors = {
         MOEX_CF_CATCH_UP_AFTER_MOEX_BASELINE_SENSOR_NAME,
+        RESEARCH_DATA_PREP_AFTER_MOEX_CF_CATCH_UP_SENSOR_NAME,
         MOEX_HISTORICAL_DATA_REBUILD_RESEARCH_PREP_SENSOR_NAME,
         RESEARCH_STRATEGY_REGISTRY_AFTER_DATA_PREP_SENSOR_NAME,
         RESEARCH_BACKTEST_AFTER_STRATEGY_REGISTRY_SENSOR_NAME,
