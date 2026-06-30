@@ -27,6 +27,7 @@ from trading_advisor_3000.dagster_defs import (
     MOEX_RESEARCH_INDICATOR_SIDECAR_JOB_NAME,
     RESEARCH_BACKTEST_AFTER_STRATEGY_REGISTRY_SENSOR_NAME,
     RESEARCH_BACKTEST_JOB_NAME,
+    RESEARCH_DATA_PREP_AFTER_MOEX_CF_CATCH_UP_SENSOR_NAME,
     RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME,
     RESEARCH_DATA_PREP_ASSETS,
     RESEARCH_DATA_PREP_JOB_NAME,
@@ -985,6 +986,7 @@ def test_research_definitions_expose_isolated_data_layer_jobs_without_moex_succe
     }
     isolated_sensor_names = {sensor.name for sensor in repository.sensor_defs}
     assert RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME not in isolated_sensor_names
+    assert RESEARCH_DATA_PREP_AFTER_MOEX_CF_CATCH_UP_SENSOR_NAME not in isolated_sensor_names
     assert MOEX_HISTORICAL_DATA_REBUILD_RESEARCH_PREP_SENSOR_NAME not in isolated_sensor_names
     assert RESEARCH_STRATEGY_REGISTRY_AFTER_DATA_PREP_SENSOR_NAME not in isolated_sensor_names
     assert RESEARCH_BACKTEST_AFTER_STRATEGY_REGISTRY_SENSOR_NAME not in isolated_sensor_names
@@ -1185,6 +1187,83 @@ def test_moex_cf_catch_up_sensor_starts_windowed_job_after_moex_baseline_change(
             "overlap_minutes": 180,
         },
     ]
+    assert op_config["series_mode"] == "continuous_front"
+
+
+def test_research_data_prep_after_moex_cf_catch_up_sensor_starts_scoped_job(
+    tmp_path: Path,
+) -> None:
+    windows = [
+        {
+            "instrument_id": "FUT_BR",
+            "timeframe": "15m",
+            "start_ts": "2026-04-20T21:00:00Z",
+            "end_ts": "2026-04-22T00:00:00Z",
+            "window_hash_sha256": "a" * 64,
+            "overlap_minutes": 180,
+        },
+        {
+            "instrument_id": "FUT_GOLD",
+            "timeframe": "1h",
+            "start_ts": "2026-04-21T21:00:00Z",
+            "end_ts": "2026-04-23T00:00:00Z",
+            "window_hash_sha256": "c" * 64,
+            "overlap_minutes": 180,
+        },
+    ]
+    cf_run_config = research_assets._build_moex_cf_catch_up_run_config(
+        canonical_output_dir=tmp_path / "canonical",
+        dataset_version="partial-data-v1",
+        campaign_run_id="cf-catch-up-run",
+        windows=windows,
+    )
+    context = SimpleNamespace(
+        dagster_run=SimpleNamespace(
+            run_id="cf-run-1",
+            run_config=cf_run_config,
+            tags={
+                "ta3000/cf_catch_up_windows_hash": "d" * 64,
+                "ta3000/dataset_version": "partial-data-v1",
+            },
+        )
+    )
+
+    request = _single_sensor_run_request(
+        research_assets.research_data_prep_after_moex_cf_catch_up_sensor,
+        context,
+    )
+
+    assert request.run_key == (
+        f"{RESEARCH_DATA_PREP_JOB_NAME}:{MOEX_CF_CATCH_UP_JOB_NAME}:cf-run-1:{'d' * 64}"
+    )
+    assert request.tags["ta3000/upstream_job"] == MOEX_CF_CATCH_UP_JOB_NAME
+    assert request.tags["ta3000/upstream_run_id"] == "cf-run-1"
+    assert request.tags["ta3000/dataset_version"] == "partial-data-v1"
+    assert request.tags["ta3000/series_mode"] == "continuous_front"
+    assert request.tags["ta3000/cf_catch_up_windows_hash"] == "d" * 64
+    assert request.tags["ta3000/cf_catch_up_window_count"] == "2"
+    assert set(request.run_config["ops"]) == {
+        "continuous_front_bars",
+        "research_datasets",
+        "research_indicator_frames",
+        "research_derived_indicator_frames",
+        "continuous_front_indicator_acceptance_report",
+    }
+    op_config = request.run_config["ops"]["research_datasets"]["config"]
+    assert request.run_config["ops"]["continuous_front_bars"]["config"] == op_config
+    assert (
+        request.run_config["ops"]["continuous_front_indicator_acceptance_report"]["config"]
+        == op_config
+    )
+    assert op_config["campaign_run_id"] == f"research_data_prep_after_cf_cf-run-1_{'d' * 12}"
+    assert op_config["dataset_version"] == "partial-data-v1"
+    assert op_config["dataset_name"] == "moex-cf-catch-up"
+    assert op_config["code_version"] == "research-data-prep-after-moex-cf-catch-up"
+    assert op_config["dataset_instrument_ids"] == ["FUT_BR", "FUT_GOLD"]
+    assert op_config["timeframes"] == ["15m", "1h"]
+    assert op_config["start_ts"] == "2026-04-20T21:00:00Z"
+    assert op_config["end_ts"] == "2026-04-23T00:00:00Z"
+    assert op_config["changed_windows"] == windows
     assert op_config["series_mode"] == "continuous_front"
 
 
