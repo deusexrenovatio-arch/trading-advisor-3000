@@ -15,6 +15,7 @@ from trading_advisor_3000.dagster_defs import (
     MOEX_CF_CATCH_UP_JOB_NAME,
     MOEX_CF_REBUILD_ASSETS,
     MOEX_CF_REBUILD_JOB_NAME,
+    MOEX_DATA_REBUILD_JOB_NAME,
     MOEX_DATA_REBUILD_OP_NAME,
     MOEX_DERIVED_INDICATOR_REBUILD_ASSETS,
     MOEX_DERIVED_INDICATOR_REBUILD_JOB_NAME,
@@ -1265,9 +1266,33 @@ def test_research_data_prep_after_moex_cf_catch_up_sensor_starts_scoped_job(
     assert op_config["end_ts"] == "2026-04-23T00:00:00Z"
     assert op_config["changed_windows"] == windows
     assert op_config["series_mode"] == "continuous_front"
+    assert op_config["start_strategy_cascade"] is False
 
 
 def test_research_downstream_cascade_sensors_forward_dataset_context(tmp_path: Path) -> None:
+    data_only_run_config = build_research_data_prep_run_config(
+        canonical_output_dir=tmp_path / "canonical",
+        materialized_output_dir=tmp_path / "materialized",
+        results_output_dir=tmp_path / "results",
+        dataset_version="cascade-data-v1",
+        timeframes=("15m",),
+        series_mode="continuous_front",
+    )
+    data_only_context = SimpleNamespace(
+        dagster_run=SimpleNamespace(
+            run_id="data-only-prep-run-1",
+            run_config=data_only_run_config,
+            tags={},
+        )
+    )
+
+    assert (
+        research_assets.strategy_registry_refresh_after_research_data_prep_sensor._run_status_sensor_fn(
+            data_only_context
+        )
+        is None
+    )
+
     prep_run_config = build_research_data_prep_run_config(
         canonical_output_dir=tmp_path / "canonical",
         materialized_output_dir=tmp_path / "materialized",
@@ -1275,6 +1300,7 @@ def test_research_downstream_cascade_sensors_forward_dataset_context(tmp_path: P
         dataset_version="cascade-data-v1",
         timeframes=("15m",),
         series_mode="continuous_front",
+        start_strategy_cascade=True,
     )
     prep_context = SimpleNamespace(
         dagster_run=SimpleNamespace(
@@ -1297,6 +1323,7 @@ def test_research_downstream_cascade_sensors_forward_dataset_context(tmp_path: P
     assert registry_config["dataset_version"] == "cascade-data-v1"
     assert registry_config["campaign_run_id"] == "strategy_registry_after_prep-run-1"
     assert registry_config["code_version"] == "strategy-registry-after-research-data-prep"
+    assert registry_config["start_strategy_cascade"] is True
     assert registry_config["prepare_strategy_space"] is True
 
     prepared_registry_config = research_assets._prepare_strategy_space_run_config(
@@ -1387,6 +1414,23 @@ def test_moex_data_rebuild_research_refresh_sensor_ignores_preview_and_research_
     assert not research_assets._should_start_research_after_moex_data_rebuild(
         research_only_run_config
     )
+
+    context = SimpleNamespace(
+        dagster_run=SimpleNamespace(
+            run_id="promoted-rebuild-run-1",
+            run_config=promoted_canonical_run_config,
+            tags={},
+        )
+    )
+    request = _single_sensor_run_request(
+        research_assets.research_data_prep_after_moex_data_rebuild_sensor,
+        context,
+    )
+
+    assert request.run_key == f"{RESEARCH_DATA_PREP_JOB_NAME}:promoted-rebuild-run-1"
+    assert request.tags["ta3000/upstream_job"] == MOEX_DATA_REBUILD_JOB_NAME
+    prep_config = request.run_config["ops"]["research_datasets"]["config"]
+    assert prep_config["start_strategy_cascade"] is True
 
 
 def test_scheduled_research_refresh_uses_calendar_expiry_policy(monkeypatch) -> None:

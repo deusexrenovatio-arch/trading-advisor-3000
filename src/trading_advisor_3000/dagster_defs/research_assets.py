@@ -659,6 +659,7 @@ def _research_config_schema() -> dict[str, object]:
         "volume_profile_raw_1m_table_path": Field(str, default_value="", is_required=False),
         "volume_profile_tick_size_by_instrument": Field(dict, default_value={}, is_required=False),
         "code_version": str,
+        "start_strategy_cascade": Field(bool, default_value=False, is_required=False),
         "prepare_strategy_space": Field(bool, default_value=False, is_required=False),
         "strategy_space": dict,
         "strategy_space_id": str,
@@ -2973,6 +2974,7 @@ def build_research_data_prep_run_config(
     continuous_front_indicator_qc_mode: str = "hot_path",
     continuous_front_indicator_sidecar_materialization_mode: str = "auto",
     code_version: str = "research-data-prep-after-moex",
+    start_strategy_cascade: bool = False,
 ) -> dict[str, object]:
     resolved_canonical_output_dir = (
         canonical_output_dir.resolve()
@@ -3055,6 +3057,7 @@ def build_research_data_prep_run_config(
             continuous_front_indicator_sidecar_materialization_mode
         ),
         code_version=code_version,
+        start_strategy_cascade=start_strategy_cascade,
         strategy_space_id="",
         combination_count=0,
     )
@@ -3381,6 +3384,7 @@ def research_data_prep_after_moex_data_rebuild_sensor(context):
             dataset_version=dataset_version,
             series_mode="continuous_front",
             continuous_front_policy=scheduled_continuous_front_policy_config(),
+            start_strategy_cascade=True,
         ),
         tags={
             "ta3000/upstream_job": MOEX_DATA_REBUILD_JOB_NAME,
@@ -3397,12 +3401,17 @@ def research_data_prep_after_moex_data_rebuild_sensor(context):
     monitored_jobs=[research_data_prep_job],
     request_job=strategy_registry_refresh_job,
     default_status=DefaultSensorStatus.RUNNING,
-    description="Start strategy_registry_refresh_job after research_data_prep_job succeeds.",
+    description=(
+        "Start strategy_registry_refresh_job after explicitly strategy-enabled "
+        "research_data_prep_job runs."
+    ),
 )
 def strategy_registry_refresh_after_research_data_prep_sensor(context):
     upstream_run_id = str(context.dagster_run.run_id)
     research_config = _research_config_from_run_config(context.dagster_run.run_config)
     if research_config is None:
+        return None
+    if not bool(research_config.get("start_strategy_cascade", False)):
         return None
     dataset_version = _research_dataset_version_from_context(context, research_config)
     series_mode = _research_series_mode_from_config(research_config)
@@ -3589,6 +3598,7 @@ def _research_run_config(
     continuous_front_indicator_qc_mode: str = "hot_path",
     continuous_front_indicator_sidecar_materialization_mode: str = "auto",
     code_version: str = "research-orchestration",
+    start_strategy_cascade: bool = False,
     strategy_space: dict[str, object] | None = None,
     strategy_space_id: str = "",
     search_specs: Sequence[dict[str, object]] = (),
@@ -3670,6 +3680,7 @@ def _research_run_config(
             continuous_front_indicator_sidecar_materialization_mode
         ),
         "code_version": code_version,
+        "start_strategy_cascade": start_strategy_cascade,
         "strategy_space": resolved_strategy_space,
         "strategy_space_id": strategy_space_id,
         "search_specs": [dict(item) for item in search_specs],
