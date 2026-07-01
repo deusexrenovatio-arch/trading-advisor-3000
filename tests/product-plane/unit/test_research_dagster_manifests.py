@@ -280,6 +280,8 @@ def test_research_config_schema_keeps_volume_profile_keys_optional() -> None:
     assert schema["volume_profile_raw_1m_table_path"].default_value == ""
     assert schema["volume_profile_tick_size_by_instrument"].is_required is False
     assert schema["volume_profile_tick_size_by_instrument"].default_value == {}
+    assert schema["start_strategy_cascade"].is_required is False
+    assert schema["start_strategy_cascade"].default_value is False
 
 
 def test_research_run_config_uses_volume_profile_defaults_for_falsy_inputs(
