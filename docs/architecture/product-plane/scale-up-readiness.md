@@ -20,7 +20,7 @@ Prepare architecture and core contracts for expansion without blocking refactors
 - archived checklist batch: `docs/archive/product-plane-acceptance-checklists/2026-05-06/README.md`
 
 ## Design Decisions
-1. Adapter/provider extensibility is registry-first: core flow uses catalogs/registries, not hardcoded if-else branches.
+1. Adapter/provider extensibility is registry/catalog-first: core flow uses catalogs/registries, not hardcoded if-else branches.
 2. Fundamentals/news path is wired into runtime orchestration: `build_runtime_stack*` injects `ContextProviderRegistry` into `SignalRuntimeEngine`, and replay persists context slices as signal events.
 3. Execution adapter growth uses `ExecutionAdapterCatalog` with mode contracts (`supports_live`, `supports_paper`) plus adapter-to-transport bindings, so submit/cancel/replace dispatch is adapter-driven (not hardcoded sidecar-only).
 4. Scale-up readiness is accepted only with explicit non-blocking architecture path and validated seam tests.

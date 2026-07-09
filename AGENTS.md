@@ -76,14 +76,24 @@ Business and trading logic remain out of scope for shell control-plane surfaces.
   phase, or explicit user request makes a skill the owner of the next decision.
 - Do not classify a behavior, bugfix, data/compute, contract, or user-facing semantic change as "small" to bypass risk classification. Diff size is not the routing signal; semantic risk is.
 - For behavior changes and bugfixes, prefer a failing regression or characterization test before implementation when practical. If the code was already changed, use focused proof that the changed behavior is covered or record the residual risk explicitly.
-- Route through global Codex skills for reusable engineering behavior. Use `codex-skill-routing` when the task is about skill selection, prompt routing, or preventing missed skills.
+- Route through Matt Pocock global skills for reusable engineering behavior. Use `ask-matt` when the task is about skill selection, prompt routing, or preventing missed skills.
 - Before substantial work, name only the selected skill or direct route and why it applies. If no skill is needed, say why briefly and continue.
 - Select skills by sequence, not keyword count: start with the skill that owns the current artifact, add neighboring skills only when their phase is reached, and keep evidence/acceptance skills for closeout.
-- For non-trivial implementation, use `code-implementation-worker` plus the relevant architecture, contract, executable-test, documentation, and verification skills in that order.
-- Before closeout, use `verification-before-completion` and include an explicit self-review for behavior/contract changes: what changed, which contract moved, which old behavior is now forbidden, which test catches it, and what residual risk remains.
-- For review, unblock, or "is this done?" questions, use `code-reviewer` and/or `verification-before-completion` as appropriate. Do not replace self-review with test output alone.
+- For non-trivial implementation, use `implement`, with `tdd`, `code-review`, `codebase-design`, `domain-modeling`, or `grill-with-docs` only when their phase owns the next artifact.
+- Before closeout, run the Matt implementation/review loop and include an explicit self-review for behavior/contract changes: what changed, which contract moved, which old behavior is now forbidden, which test catches it, and what residual risk remains.
+- For review, unblock, or "is this done?" questions, use `code-review` and `diagnosing-bugs` as appropriate. Do not replace self-review with test output alone.
 - If a required skill is missing from the current session metadata but exists on disk under `D:/CodexHome/skills`, read that skill's main instruction file directly and state it as a fallback.
 - Open repo-local skills only for TA3000-specific product/trading/data/compute knowledge under `.codex/skills`.
+
+## Agent skills
+### Issue tracker
+GitHub Issues are the issue tracker for this repo; external PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+Matt Pocock skills use the default triage labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+Domain docs use a multi-context layout through `CONTEXT-MAP.md`; the map points to existing TA3000 hot docs instead of duplicating them. See `docs/agents/domain.md`.
 
 ## Phase-Aware Delivery Loop
 ### Phase 1 baseline

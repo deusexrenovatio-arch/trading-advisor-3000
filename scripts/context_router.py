@@ -58,14 +58,13 @@ PRODUCT_PLANE_CONTEXT_IDS: tuple[str, ...] = (
     "CTX-DOMAIN",
 )
 CRITICAL_CONTOUR_REVIEW_LENSES: tuple[str, ...] = (
-    "architecture-review",
+    "codebase-design",
     "qa-test-engineer",
-    "verification-before-completion",
+    "code-review",
 )
 CI_WORKFLOW_PREFIXES: tuple[str, ...] = (".github/workflows/",)
 CI_REVIEW_LENSES: tuple[str, ...] = (
-    "ci-bootstrap",
-    "github-actions-ops",
+    "repo-ci-checks",
     "commit-and-pr-hygiene",
 )
 
@@ -400,7 +399,9 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         context_id="CTX-SKILLS",
         summary="Repo-local product-plane skills catalog and governance policy.",
         owned_paths=(
+            "CONTEXT-MAP.md",
             "docs/agent-contexts/CTX-SKILLS.md",
+            "docs/agents/",
             ".codex/skills/",
             ".cursor/skills/",
             "docs/agent/skills-catalog.md",
@@ -418,6 +419,8 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         ),
         guarded_paths=("src/trading_advisor_3000/",),
         source_of_truth=(
+            "CONTEXT-MAP.md",
+            "docs/agents/domain.md",
             "docs/agent/skills-routing.md",
             "docs/workflows/skill-governance-sync.md",
         ),
@@ -428,6 +431,8 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         intent_keywords=("skill", "skills", "catalog", "routing", "governance"),
         facets=("skill-routing", "repo-local-catalog", "legacy-cursor-cleanup"),
         search_seeds=(
+            "CONTEXT-MAP.md",
+            "docs/agents/",
             "docs/agent/skills-routing.md",
             "scripts/sync_skills_catalog.py",
             "scripts/validate_skills.py",
