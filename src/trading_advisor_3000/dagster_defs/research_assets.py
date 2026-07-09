@@ -3894,23 +3894,7 @@ def _materialize_research_assets(
         reuse_existing_materialization=reuse_existing_materialization,
     )
 
-    op_configs = {
-        "continuous_front_bars": {
-            "config": research_config,
-        },
-        "research_datasets": {
-            "config": research_config,
-        },
-        "research_indicator_frames": {
-            "config": research_config,
-        },
-        "research_derived_indicator_frames": {
-            "config": research_config,
-        },
-        "continuous_front_indicator_acceptance_report": {
-            "config": research_config,
-        },
-    }
+    op_configs = _research_data_prep_run_config_from_research_config(research_config)["ops"]
 
     result = materialize(
         assets=list(RESEARCH_ASSETS),
