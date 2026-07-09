@@ -12,11 +12,20 @@ Read these first:
 - [research-plane-platform.md](docs/architecture/product-plane/research-plane-platform.md) - stable map of the current research-plane primary path.
 - [strategy-evaluation-layer-v1.md](docs/architecture/product-plane/strategy-evaluation-layer-v1.md) - post-backtest layer that records ranking, projection evidence, and readiness verdicts in one evaluation output.
 - [continuous-signal-layer-technical-specification.md](docs/architecture/product-plane/continuous-signal-layer-technical-specification.md) - implementation-ready target spec for continuous adjusted signal bars, raw active-contract execution alignment, indicator/derived retargeting, and vectorbt loader changes.
+- [continuous-front-market-structure-state-spec.md](docs/architecture/product-plane/continuous-front-market-structure-state-spec.md) - phase 1: deterministic trend-state semantics and source boundary.
+- [continuous-front-market-structure-fsm.md](docs/architecture/product-plane/continuous-front-market-structure-fsm.md) - phase 2: finite-state-machine transition contract.
+- [continuous-front-market-structure-delta-contract.md](docs/architecture/product-plane/continuous-front-market-structure-delta-contract.md) - phase 3: Delta table contract for frames, QC, manifests, and acceptance reports.
+- [continuous-front-market-structure-spark-computation.md](docs/architecture/product-plane/continuous-front-market-structure-spark-computation.md) - phase 4: Spark/Delta compute route.
+- [continuous-front-market-structure-dagster-integration.md](docs/architecture/product-plane/continuous-front-market-structure-dagster-integration.md) - phase 5: Dagster asset/job integration.
 - [contract-change-policy.md](docs/architecture/product-plane/contract-change-policy.md) - compatibility and versioning policy for release-blocking envelopes.
 - [approved-universe-v1.md](docs/architecture/product-plane/approved-universe-v1.md) - governed universe and promotion contract for medium-term multi-asset evaluation.
 - [moex-historical-route-decision.md](docs/architecture/product-plane/moex-historical-route-decision.md) - authoritative job ownership, reusable vs retired entrypoints, and one fixed historical data route.
 - [moex-baseline-storage-runbook.md](docs/runbooks/app/moex-baseline-storage-runbook.md) - authoritative MOEX data-root layout for raw, canonical, and derived storage.
 - [moex-historical-route-architecture.md](docs/architecture/product-plane/moex-historical-route-architecture.md) - target-shape route architecture; active operator route truth stays in [moex-historical-route-decision.md](docs/architecture/product-plane/moex-historical-route-decision.md).
+
+Market-structure implementation requirements are owned by the linked phase
+documents. Do not create a second merged specification for the same feature;
+tickets should reference the owning phase document directly.
 
 Repository naming note:
 - Use `product-plane` as the canonical term in docs and PR text.

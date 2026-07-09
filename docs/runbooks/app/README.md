@@ -5,6 +5,8 @@ Product runtime and operational runbooks live in this directory.
 - `docs/runbooks/app/bootstrap.md` - canonical local bootstrap and migration path.
 - `docs/runbooks/app/research-campaign-route.md` - supported Product Plane front door for research campaigns.
 - `docs/runbooks/app/research-plane-operations.md` - operational reading guide for campaign runs, artifacts, and failure interpretation.
+- `docs/runbooks/app/continuous-front-market-structure-refresh.md` - phase 6: refresh and proof route for continuous-front market-structure tables.
+- `docs/runbooks/app/continuous-front-market-structure-performance-acceptance.md` - phase 7: performance acceptance gate comparing market-structure runtime with indicator-frame runtime.
 - `docs/runbooks/app/shadow-replay-runbook.md` - integrated shadow-forward replay and outcome validation.
 - `docs/runbooks/app/live-execution-incident-runbook.md` - controlled live execution sync and incident response.
 - `docs/runbooks/app/observability-runbook.md` - review metrics validation and observability smoke/triage.
@@ -21,3 +23,6 @@ Product runtime and operational runbooks live in this directory.
 - `docs/runbooks/app/ta3000-production-nightly.md` - production Windows nightly contour using `D:/TA3000-production` and `ta3000-production`.
 - `docs/runbooks/app/moex-reconciliation-runbook.md` - MOEX reconciliation contour (Finam archive ingest, overlap drift metrics, threshold-driven alert/escalation evidence).
 - `docs/runbooks/app/moex-operations-readiness-runbook.md` - MOEX operations readiness (scheduler observability, recovery replay, monitoring evidence, release decision bundle).
+
+Market-structure runbooks extend the phase-owned architecture documents. They
+must not duplicate the semantic, schema, Spark, or Dagster contracts.
