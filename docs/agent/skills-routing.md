@@ -9,8 +9,10 @@
 - Retrieval rule: use global skills first; open repo-local skill files only when a targeted, project-specific trigger requires them.
 
 ## Global Skill Layer
+- Matt Pocock skills are the ordinary-chat baseline for reusable engineering process: planning, implementation, tests, review, debugging, architecture vocabulary, tickets, and handoff.
+- Other global skills remain active only for core data-engineering surfaces not covered by Matt: data pipeline design, source onboarding, lineage, quality gates, and external connector design.
 - Global skills are optional engineering lenses, not a mandatory preflight.
-- Use global skills for reusable engineering behavior when they own the next artifact or decision: implementation, review, tests, architecture, CI, documentation, data engineering, or security.
+- Use global skills for reusable engineering behavior when they own the next artifact or decision.
 - Use repo-local skills only for TA3000-specific trading semantics, product-plane data/research knowledge, local data roots, or compute-runtime constraints.
 - An empty repo-local skill catalog is valid when the needed behavior is generic and already covered globally.
 - A global skill may be only a working lens; it does not always imply an extra tool call.
@@ -37,7 +39,7 @@
 ## Ordinary Chat Guard
 1. Classify the change surface and semantic risk.
 2. Run the semantic-risk check before deciding a task is small: behavior, bugfix, data/compute semantics, contract, user-facing output, docs-only, generated/mechanical, or investigation-only.
-3. Use `codex-skill-routing` for questions about skill selection, prompt routing, and missed-skill protection.
+3. Use `ask-matt` for questions about ordinary engineering skill selection, prompt routing, and missed-skill protection.
 4. Before substantial work, name the selected skill or direct route briefly and why it applies.
 5. If a needed global skill is not present in current session metadata but exists under `D:/CodexHome/skills`, read its main instruction file directly and state the fallback.
 6. If a needed skill is generic, keep it in the global Codex skill root instead of adding it to this repo.
@@ -48,34 +50,34 @@
 - Route by the artifact or decision currently being produced, not by keyword count.
 - Start with the skill that owns the next decision, then hand off when the artifact changes.
 - Load adjacent skills only when their output is immediately needed; do not preload a whole skill family.
-- Keep `verification-before-completion` near closeout, after evidence exists.
-- Treat `code-reviewer` as the default self-review closeout lens for behavior or contract changes, even when no external review was requested.
-- Use `pr-commit-history-and-summary` after the diff shape is known, unless the user asks for history planning before edits.
+- Keep closeout verification near the end, after evidence exists; use the Matt implementation/review loop first.
+- Treat `code-review` as the default self-review closeout lens for behavior or contract changes, even when no external review was requested.
+- Use `to-spec` or `to-tickets` when the work needs durable planning or tracker-ready breakdown before implementation.
 
 ## Common Global Skill Sequences
 - Normal implementation:
-  `code-implementation-worker` -> `executable-test-suite` when tests are affected -> `docs-sync` when docs changed -> self-review through `code-reviewer` for behavior/contract changes -> `verification-before-completion` -> `pr-commit-history-and-summary` before PR publication.
+  `implement` -> `tdd` when tests are affected -> `grill-with-docs` or `domain-modeling` when docs/domain terms changed -> self-review through `code-review` for behavior/contract changes -> closeout evidence.
 - Architecture-sensitive implementation:
-  `architecture-review` -> `registry-first` when contracts or data products change -> surface-specific contract skill -> `code-implementation-worker` -> `executable-test-suite` -> `docs-sync` -> `verification-before-completion`.
+  `codebase-design` or `improve-codebase-architecture` -> direct contract/data-product source-of-truth update when contracts move -> `implement` -> `tdd` -> closeout evidence.
 - Review or acceptance:
-  `code-reviewer` -> `executable-test-suite` when tests must be added or run -> `verification-before-completion`.
+  `code-review` -> `tdd` when tests must be added or run -> closeout evidence.
 - Event contracts:
-  `registry-first` -> `event-contracts` for topics/payloads/producers/consumers -> `executable-test-suite` -> `docs-sync` -> `verification-before-completion`.
+  use direct contract/source-of-truth inspection and `tdd` when tests are affected -> closeout evidence.
 - Data or integration:
-  `integration-connector` for external access/raw landing -> `source-onboarding` for canonical keys/crosswalks -> `data-quality-gates` for QC -> `data-lineage` for provenance/ownership -> `data-engineer` for transforms/storage/orchestration -> `executable-test-suite` -> `verification-before-completion`.
+  `integration-connector` for external access/raw landing -> `source-onboarding` for canonical keys/crosswalks -> `data-quality-gates` for QC -> `data-lineage` for provenance/ownership -> `data-engineer` for transforms/storage/orchestration -> `tdd` when tests are affected -> closeout evidence.
 - Document knowledge pipeline:
-  `document-postgres-ingestion` -> `document-knowledge-graph-neo4j` -> `document-vector-indexing` -> `document-crosslayer-consistency` -> `verification-before-completion`.
+  use direct source inspection, data-quality checks, and `tdd` when tests are affected -> closeout evidence.
 - CI and PR:
-  `ci-bootstrap` only when CI or merge gates are missing -> `github-actions-ops` for existing Actions failures/hardening -> `pr-commit-history-and-summary` -> `verification-before-completion`.
+  use direct repo checks, GitHub CLI, and `to-spec` or `to-tickets` when PR scope needs planning -> closeout evidence.
 
 ## Memory-Backed Failure Routing
-- When the user says "again", "still broken", "not that", or the same symptom repeats after a focused fix, route through `repeated-issue-review` before another patch.
+- When the user says "again", "still broken", "not that", or the same symptom repeats after a focused fix, route through `diagnosing-bugs` before another patch.
 - Use scoped local memory or repo history for history-sensitive repeated failures, but keep it advisory. Verify any drift-prone memory hit against live repo/runtime/log/artifact evidence before completion.
 - If a repeated failure pattern is stable and reusable, promote it into an active global or repo-local skill rather than leaving it only in raw memory.
 - Keep memory recall lightweight: use it when it can reduce wrong turns or context load, not as a default hard gate for every localized edit.
 
 ## Failure-Pattern Skill Map
-- Local Codex Desktop, Windows path/session/env/temp/interpreter, or runaway-service issues: global `codex-windows-runtime-recovery`.
+- Local Codex Desktop, Windows path/session/env/temp/interpreter, or runaway-service issues: use direct runtime inspection; the archived Windows recovery skill is not part of the active data-engineering skill baseline.
 - TA3000 active product-surface naming, phase/debug labels, capability naming, and active/archive/provenance separation: repo-local `ta3000-product-surface-naming-cleanup`.
 - TA3000 data-plane proof on `D:/TA3000-data`, Delta `_delta_log`, row counts, report JSON, canonical tail alignment, or real production-route materialization: repo-local `ta3000-data-plane-proof`.
 - TA3000 futures contract economics, MOEX money math, margin/tick/step value, research `execution_*` propagation, vectorbt-vs-ledger money truth, fees/slippage/PnL, or risk sizing: repo-local `ta3000-futures-money-math-and-execution-economics`.
@@ -108,7 +110,7 @@
 - Treat loops over bars, instruments, parameter rows, or table rows as review triggers when a native runtime can express the same operation.
 
 ## Generic-First Routing
-1. Start from generic process/architecture/testing/governance skills.
+1. Start from Matt process/architecture/testing skills.
 2. Apply stack skills only after stack surfaces are present and validated.
 3. Keep domain-specialized skills outside baseline shell runtime.
 4. Prefer integration into an existing skill when overlap is high; add new skills only for missing, non-trivial capabilities.
@@ -121,7 +123,7 @@
   - `docs/architecture/repository-surfaces.md`
 - When implementation status matters, also open:
   - `docs/architecture/product-plane/STATUS.md`
-- Route `architecture-review` first for design and boundary questions.
+- Route `codebase-design` first for design and boundary questions; use `improve-codebase-architecture` when scanning for deeper architecture opportunities.
 - Use Graphify as an optional companion context for architecture mapping,
   ownership, cross-module relationships, dependency tracing, or "where does this
   concept live?" questions when a local Graphify report or graph JSON exists.
@@ -138,33 +140,27 @@
 - Do not run Graphify semantic extraction across secrets, production data,
   generated artifacts, archives, memory, or plans. Keep `.graphifyignore`
   aligned with that boundary.
-- Co-load `docs-sync` when the architecture docs themselves need to be corrected
-  or synchronized.
-- Co-load `module-scaffold` when the task creates a new module or moves a module
-  between architectural zones.
-- Co-load `document-crosslayer-consistency` only when the task crosses Postgres,
-  Neo4j, FAISS, and provenance links in the document retrieval pipeline.
+- Co-load `grill-with-docs` or `domain-modeling` when the architecture docs themselves need to be corrected, synchronized, or tied to glossary/ADR decisions.
+- For new modules or moved modules, follow local repository patterns directly and update registry/docs when contracts move.
+- When a task crosses Postgres, Neo4j, FAISS, and provenance links, inspect those layers directly and document the consistency proof.
 
 ## Worker Coding Routing
 - When the active phase is implementation and the request is code-writing focused, load:
-  - `code-implementation-worker` (primary)
+  - `implement` (primary)
 - Co-load conditionally:
-  - `registry-first` when contracts/schemas/interfaces change
-  - `document-crosslayer-consistency` when changes cross document retrieval layers or boundaries
-  - `executable-test-suite` for primary changed-path coverage only
+  - direct contract/source-of-truth update when contracts/schemas/interfaces change
+  - direct cross-layer proof when changes cross document retrieval layers or boundaries
+  - `tdd` for primary changed-path coverage only
 - Do not auto-load intake-oriented or acceptance-only skills for worker coding by default.
 
 ## Pipeline Routing
-- When changes touch `.github/workflows/**` or lane wiring, load:
-  - `ci-bootstrap`
-  - `github-actions-ops`
-  - `pr-commit-history-and-summary`
-- Use this set for both lane design and failing-check remediation so CI changes remain policy-aligned and reviewable.
+- When changes touch `.github/workflows/**` or lane wiring, use direct repo checks, GitHub CLI evidence, and `to-spec` or `to-tickets` when CI/PR scope needs durable planning.
+- CI changes must remain policy-aligned and reviewable even without a dedicated CI skill.
 
 ## Critical Contour Routing
 - When changed files match `configs/critical_contours.yaml`, route `CTX-ARCHITECTURE` as a companion context even when no architecture doc changed directly.
-- For critical contours, load `architecture-review` before implementation so the chosen path is checked against target shape and executable evidence.
-- If the task claims contour closure or acceptance, also load `verification-before-completion`.
+- For critical contours, load `codebase-design` before implementation so the chosen path is checked against target shape and executable evidence.
+- If the task claims contour closure or acceptance, include explicit closeout evidence.
 - Critical contour work must declare `target`, `staged`, or `fallback` in PR evidence before code changes begin.
 - If the chosen path is simpler than the target shape, the agent must name that fact explicitly instead of presenting it as target closure.
 
