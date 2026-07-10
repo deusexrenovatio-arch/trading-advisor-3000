@@ -1,186 +1,322 @@
 from __future__ import annotations
 
-import inspect
-from datetime import UTC
+import json
+from pathlib import Path
 
-from trading_advisor_3000.product_plane.data_plane.moex import foundation
-from trading_advisor_3000.spark_jobs import moex_raw_ingest_job
+import pytest
+from support.spark_runtime import require_configured_spark_delta_profile
+
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    read_delta_table_rows,
+    write_delta_table_rows,
+)
+from trading_advisor_3000.product_plane.data_plane.moex.foundation import RAW_COLUMNS
+from trading_advisor_3000.spark_jobs import moex_raw_ingest_job as raw_ingest_job
+from trading_advisor_3000.spark_jobs.moex_raw_ingest_job import (
+    run_moex_raw_ingest_spark_delta_job,
+)
 
 
-def test_raw_ingest_fingerprint_contract_covers_source_metadata_and_provenance() -> None:
-    fingerprint_columns = set(moex_raw_ingest_job.RAW_FINGERPRINT_COLUMNS)
-    fingerprint_source = inspect.getsource(moex_raw_ingest_job._raw_fingerprint_expr)
+def _raw_row(
+    *,
+    ts_open: str,
+    ts_close: str,
+    close: float,
+    run_id: str = "seed",
+    moex_board: str = "RFUD",
+    provenance_json: dict[str, object] | None = None,
+) -> dict[str, object]:
+    return {
+        "internal_id": "FUT_BR",
+        "finam_symbol": "BRQ6",
+        "moex_engine": "futures",
+        "moex_market": "forts",
+        "moex_board": moex_board,
+        "moex_secid": "BRQ6",
+        "asset_group": "commodity",
+        "timeframe": "1m",
+        "source_interval": 1,
+        "ts_open": ts_open,
+        "ts_close": ts_close,
+        "open": 100.0,
+        "high": 102.0,
+        "low": 98.0,
+        "close": close,
+        "volume": 50,
+        "open_interest": None,
+        "ingest_run_id": run_id,
+        "ingested_at_utc": "2026-04-01T08:00:00Z",
+        "provenance_json": provenance_json
+        or {"source_provider": "moex_iss", "revision": "initial", "run_id": run_id},
+    }
 
-    assert moex_raw_ingest_job.KEY_SCOPE_COLUMNS == ("internal_id", "timeframe", "moex_secid")
-    assert moex_raw_ingest_job.RAW_KEY_COLUMNS == (
-        "internal_id",
-        "timeframe",
-        "moex_secid",
-        "ts_open",
-        "ts_close",
+
+def _scope(
+    *,
+    window_start_utc: str = "2026-04-01T06:59:59Z",
+    window_end_utc: str = "2026-04-01T08:00:00Z",
+    watermark_utc: str = "2026-04-01T07:29:59Z",
+) -> dict[str, object]:
+    return {
+        "internal_id": "FUT_BR",
+        "timeframe": "1m",
+        "source_interval": 1,
+        "moex_secid": "BRQ6",
+        "window_start_utc": window_start_utc,
+        "window_end_utc": window_end_utc,
+        "watermark_utc": watermark_utc,
+    }
+
+
+def _job_paths(tmp_path: Path) -> dict[str, Path]:
+    return {
+        "progress_path": tmp_path / "raw-ingest-progress.jsonl",
+        "progress_latest_path": tmp_path / "raw-ingest-progress.latest.json",
+        "error_path": tmp_path / "raw-ingest-errors.jsonl",
+        "error_latest_path": tmp_path / "raw-ingest-error.latest.json",
+    }
+
+
+def _read_rows(raw_table_path: Path) -> list[dict[str, object]]:
+    return read_delta_table_rows(
+        raw_table_path,
+        filters=[
+            ("internal_id", "=", "FUT_BR"),
+            ("timeframe", "=", "1m"),
+            ("source_interval", "=", 1),
+            ("moex_secid", "=", "BRQ6"),
+        ],
+        limit=20,
     )
-    assert set(moex_raw_ingest_job.RAW_SOURCE_TIMESTAMP_COLUMNS) == {"ts_open", "ts_close"}
-    for column in [
-        "finam_symbol",
-        "moex_engine",
-        "moex_market",
-        "moex_board",
-        "asset_group",
-        "open",
-        "high",
-        "low",
-        "close",
-        "volume",
-        "open_interest",
-        "provenance_json",
-    ]:
-        assert column in fingerprint_columns
 
+
+def test_raw_ingest_job_requires_configured_windows_spark_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(raw_ingest_job.os, "name", "nt", raising=False)
+    monkeypatch.delenv("HADOOP_HOME", raising=False)
+    raw_table_path = tmp_path / "raw_moex_history.delta"
+
+    with pytest.raises(RuntimeError, match="HADOOP_HOME.*Docker/Linux Spark proof profile"):
+        run_moex_raw_ingest_spark_delta_job(
+            table_path=raw_table_path,
+            source_rows=[],
+            window_scopes=[],
+            initial_watermarks={},
+            run_id="missing-hadoop",
+            ingest_till_utc="2026-04-01T08:00:00Z",
+            refresh_overlap_minutes=20,
+            **_job_paths(tmp_path),
+        )
+
+    assert not raw_table_path.exists()
+
+
+def test_raw_ingest_job_writes_empty_delta_report_for_empty_bootstrap(tmp_path: Path) -> None:
+    require_configured_spark_delta_profile()
+    raw_table_path = tmp_path / "raw" / "moex" / "baseline-current" / "raw_moex_history.delta"
+
+    report = run_moex_raw_ingest_spark_delta_job(
+        table_path=raw_table_path,
+        source_rows=[],
+        window_scopes=[],
+        initial_watermarks={},
+        run_id="empty-bootstrap",
+        ingest_till_utc="2026-04-01T08:00:00Z",
+        refresh_overlap_minutes=20,
+        **_job_paths(tmp_path),
+    )
+
+    progress_latest = json.loads(
+        (tmp_path / "raw-ingest-progress.latest.json").read_text(encoding="utf-8")
+    )
+    assert report["status"] == "PASS-NOOP"
+    assert report["source_rows"] == 0
+    assert report["changed_windows"] == []
+    assert (raw_table_path / "_delta_log").exists()
+    assert progress_latest["runtime_owner"] == "spark_delta"
+    assert progress_latest["incremental_rows"] == 0
+
+
+def test_raw_ingest_job_reconciles_changed_rows_and_deletes_missing_window_rows(
+    tmp_path: Path,
+) -> None:
+    require_configured_spark_delta_profile()
+    raw_table_path = tmp_path / "raw" / "moex" / "baseline-current" / "raw_moex_history.delta"
+    write_delta_table_rows(
+        table_path=raw_table_path,
+        rows=[
+            _raw_row(ts_open="2026-04-01T07:00:00Z", ts_close="2026-04-01T07:09:59Z", close=100.5),
+            _raw_row(ts_open="2026-04-01T07:10:00Z", ts_close="2026-04-01T07:19:59Z", close=101.2),
+            _raw_row(ts_open="2026-04-01T07:20:00Z", ts_close="2026-04-01T07:29:59Z", close=101.8),
+        ],
+        columns=RAW_COLUMNS,
+    )
+
+    report = run_moex_raw_ingest_spark_delta_job(
+        table_path=raw_table_path,
+        source_rows=[
+            _raw_row(
+                ts_open="2026-04-01T07:00:00Z",
+                ts_close="2026-04-01T07:09:59Z",
+                close=99.75,
+                run_id="reconcile",
+            ),
+            _raw_row(
+                ts_open="2026-04-01T07:20:00Z",
+                ts_close="2026-04-01T07:29:59Z",
+                close=101.8,
+                run_id="reconcile",
+            ),
+        ],
+        window_scopes=[_scope()],
+        initial_watermarks={("FUT_BR", "1m", "BRQ6"): "2026-04-01T07:29:59Z"},
+        run_id="reconcile",
+        ingest_till_utc="2026-04-01T08:00:00Z",
+        refresh_overlap_minutes=60,
+        **_job_paths(tmp_path),
+    )
+
+    rows_by_ts_close = {
+        str(row["ts_close"]): float(row["close"]) for row in _read_rows(raw_table_path)
+    }
+    progress_latest = json.loads(
+        (tmp_path / "raw-ingest-progress.latest.json").read_text(encoding="utf-8")
+    )
+    fingerprint_columns = set(progress_latest["fingerprint_columns"])
+
+    assert report["status"] == "PASS"
+    assert report["incremental_rows"] == 2
+    assert report["changed_windows"] == [
+        {
+            "internal_id": "FUT_BR",
+            "source_timeframe": "1m",
+            "source_interval": 1,
+            "moex_secid": "BRQ6",
+            "window_start_utc": "2026-04-01T06:59:59Z",
+            "window_end_utc": "2026-04-01T08:00:00Z",
+            "incremental_rows": 2,
+        }
+    ]
+    assert rows_by_ts_close == {
+        "2026-04-01T07:09:59Z": 99.75,
+        "2026-04-01T07:29:59Z": 101.8,
+    }
+    assert progress_latest["deleted_rows"] == 1
+    assert {"moex_board", "open_interest", "provenance_json"} <= fingerprint_columns
     assert "ingest_run_id" not in fingerprint_columns
     assert "ingested_at_utc" not in fingerprint_columns
-    assert "requested_target_timeframes" in moex_raw_ingest_job._VOLATILE_PROVENANCE_KEYS
-    assert "discovery_url" in moex_raw_ingest_job._VOLATILE_PROVENANCE_KEYS
-    for fragment in ("map_filter(", "map_entries(", "array_sort(", "map_from_entries("):
-        assert fragment in fingerprint_source
 
 
-def test_raw_ingest_reconcile_uses_window_scoped_merge_transaction() -> None:
-    source = inspect.getsource(moex_raw_ingest_job.run_moex_raw_ingest_spark_delta_job)
-    scoped_filter = inspect.getsource(moex_raw_ingest_job._filtered_raw_by_scopes)
-
-    assert "source_rows_path" in source
-    assert "FileNotFoundError" in source
-    assert "unmatched_source_count" in source
-    assert "raw source rows did not match declared window scopes" in source
-    assert "left_anti" in source
-    assert '_raw_reconcile_action", functions.lit("upsert")' in source
-    assert '_raw_reconcile_action", functions.lit("delete")' in source
-    assert ".merge(" in source
-    assert ".whenMatchedDelete(" in source
-    assert ".whenMatchedUpdate(" in source
-    assert ".whenNotMatchedInsert(" in source
-    assert "_build_window_delete_condition" not in source
-    assert "toLocalIterator()" not in source
-    assert ".whenNotMatchedBySourceDelete(" not in source
-    assert ".delete(" not in source
-    assert "windows_to_reconcile_df.collect()" not in source
-    assert "windows_to_reconcile_df.toLocalIterator()" not in source
-    assert "_filtered_raw_by_scopes(" in source
-    assert "raw_existing," in source
-    assert "scope_windows_df," in source
-    assert "scope_payload," in source
-    scope_rows_param = inspect.signature(moex_raw_ingest_job._filtered_raw_by_scopes).parameters[
-        "scope_rows"
-    ]
-    assert scope_rows_param.default is None
-    assert "_scope_pushdown_condition" in scoped_filter
-
-
-def test_raw_ingest_tail_catchup_uses_spark_append_without_target_reconcile() -> None:
-    source = inspect.getsource(moex_raw_ingest_job.run_moex_raw_ingest_spark_delta_job)
-
-    assert "tail_append_only" in source
-    assert "refresh_overlap_minutes == 0" in source
-    assert "and bool(scope_payload)" in source
-    assert 'all(scope.get("watermark_utc") is not None for scope in scope_payload)' not in source
-    assert "_storage_frame(" in source
-    assert "include_layout=target_uses_layout" in source
-    assert '.mode("append")' in source
-    assert ".save(str(table_path))" in source
-    assert "watermark_by_key = _collect_tail_append_watermarks(" in source
-    assert "elif table_exists and not tail_append_only:" in source
-
-
-def test_foundation_raw_delta_mutation_delegates_to_spark_job() -> None:
-    source = inspect.getsource(foundation.run_moex_raw_ingest_spark_delta_job)
-    baseline_source = inspect.getsource(foundation.ingest_moex_baseline_window)
-    bootstrap_source = inspect.getsource(foundation.ingest_moex_bootstrap_window)
-
-    for retired_name in [
-        "run_moex_raw_ingest_delta_rs_job",
-        "_compute_raw_watermarks_delta_rs",
-        "_load_scoped_raw_rows_delta_rs",
-        "_merge_raw_reconcile_delta_rs",
-        "_raw_reconcile_action_table",
-    ]:
-        assert not hasattr(foundation, retired_name)
-    assert "trading_advisor_3000.spark_jobs.moex_raw_ingest_job" in source
-    assert "_run_moex_raw_ingest_spark_delta_job(**kwargs)" in source
-    for inspected in (source, baseline_source, bootstrap_source):
-        assert "deltalake" not in inspected
-        assert "write_delta_table_rows" not in inspected
-        assert "DeltaTable" not in inspected
-
-
-def test_raw_ingest_scope_pushdown_uses_literal_window_predicates() -> None:
-    condition = moex_raw_ingest_job._scope_pushdown_condition(
-        [
-            {
-                "internal_id": "FUT_WHEAT",
-                "timeframe": "1m",
-                "source_interval": 1,
-                "moex_secid": "W4M6",
-                "window_start_utc": "2026-06-08T20:40:00Z",
-                "window_end_utc": "2026-06-09T20:40:00Z",
-            }
-        ]
+def test_raw_ingest_job_tail_catchup_appends_new_rows(tmp_path: Path) -> None:
+    require_configured_spark_delta_profile()
+    raw_table_path = tmp_path / "raw" / "moex" / "baseline-current" / "raw_moex_history.delta"
+    write_delta_table_rows(
+        table_path=raw_table_path,
+        rows=[
+            _raw_row(ts_open="2026-04-01T07:00:00Z", ts_close="2026-04-01T07:09:59Z", close=100.5),
+        ],
+        columns=RAW_COLUMNS,
     )
+    version_before = sorted((raw_table_path / "_delta_log").glob("*.json"))[-1].name
 
-    assert "internal_id = 'FUT_WHEAT'" in condition
-    assert "timeframe = '1m'" in condition
-    assert "source_interval" not in condition
-    assert "moex_secid = 'W4M6'" in condition
-    assert "ts_close >= '2026-06-08T20:40:00Z'" in condition
-    assert "ts_close <= '2026-06-09T20:40:00Z'" in condition
-    assert "TIMESTAMP" not in condition
+    report = run_moex_raw_ingest_spark_delta_job(
+        table_path=raw_table_path,
+        source_rows=[
+            _raw_row(
+                ts_open="2026-04-01T07:10:00Z",
+                ts_close="2026-04-01T07:19:59Z",
+                close=101.2,
+                run_id="tail",
+            )
+        ],
+        window_scopes=[
+            _scope(
+                window_start_utc="2026-04-01T07:10:00Z",
+                window_end_utc="2026-04-01T07:19:59Z",
+                watermark_utc="2026-04-01T07:09:59Z",
+            )
+        ],
+        initial_watermarks={("FUT_BR", "1m", "BRQ6"): "2026-04-01T07:09:59Z"},
+        run_id="tail",
+        ingest_till_utc="2026-04-01T07:19:59Z",
+        refresh_overlap_minutes=0,
+        **_job_paths(tmp_path),
+    )
+    version_after = sorted((raw_table_path / "_delta_log").glob("*.json"))[-1].name
+
+    assert report["status"] == "PASS"
+    assert report["incremental_rows"] == 1
+    assert {row["ts_close"] for row in _read_rows(raw_table_path)} == {
+        "2026-04-01T07:09:59Z",
+        "2026-04-01T07:19:59Z",
+    }
+    assert version_after > version_before
 
 
-def test_raw_ingest_watermark_keys_exclude_source_interval() -> None:
-    source = inspect.getsource(moex_raw_ingest_job._collect_post_watermarks)
-    watermark_source = inspect.getsource(moex_raw_ingest_job.compute_raw_watermarks_spark_delta)
-    watermark_signature = inspect.signature(moex_raw_ingest_job.compute_raw_watermarks_spark_delta)
-
-    assert "KEY_SCOPE_COLUMNS" in source
-    assert 'row["source_interval"]' not in source
-    assert "min_ts_close_utc" in watermark_signature.parameters
-    assert watermark_signature.parameters["min_ts_close_utc"].default is None
-    assert "ts_close >=" in watermark_source
-    assert "ts_close_year" in watermark_source
-
-
-def test_raw_ingest_timestamp_parser_keeps_utc_for_spark_scope_values() -> None:
-    parsed = moex_raw_ingest_job._parse_iso_utc("2026-06-09T21:00:00Z")
-    naive = moex_raw_ingest_job._parse_iso_utc("2026-06-09T21:00:00")
-    scope = moex_raw_ingest_job._normalize_scope(
-        {
-            "internal_id": "FUT_WHEAT",
-            "timeframe": "1d",
-            "source_interval": 24,
-            "moex_secid": "W4Z6",
-            "window_start_utc": "2026-06-08T21:00:00Z",
-            "window_end_utc": "2026-06-09T21:00:00Z",
-            "watermark_utc": "",
+def test_raw_ingest_job_ignores_volatile_pipeline_provenance_only_changes(
+    tmp_path: Path,
+) -> None:
+    require_configured_spark_delta_profile()
+    raw_table_path = tmp_path / "raw" / "moex" / "baseline-current" / "raw_moex_history.delta"
+    existing = _raw_row(
+        ts_open="2026-04-01T07:10:00Z",
+        ts_close="2026-04-01T07:19:59Z",
+        close=101.2,
+        run_id="old-run",
+        provenance_json={
+            "source_provider": "moex_iss",
+            "source_interval": 1,
+            "source_timeframe": "1m",
+            "requested_target_timeframes": "5m,15m",
+            "run_id": "old-run",
+            "window_start_utc": "2026-04-01T04:19:59Z",
+            "window_end_utc": "2026-04-01T07:19:59Z",
+            "stability_lag_minutes": 20,
+            "refresh_overlap_minutes": 180,
+            "discovery_url": "https://iss.moex.com/old/candleborders.json",
         },
-        {},
     )
+    write_delta_table_rows(table_path=raw_table_path, rows=[existing], columns=RAW_COLUMNS)
+    version_before = sorted((raw_table_path / "_delta_log").glob("*.json"))[-1].name
 
-    assert parsed is not None
-    assert parsed.tzinfo is UTC
-    assert naive is not None
-    assert naive.tzinfo is UTC
-    assert scope["window_start_utc"].tzinfo is UTC
-    assert scope["window_end_utc"].tzinfo is UTC
+    source = dict(existing)
+    source["ingest_run_id"] = "new-run"
+    source["ingested_at_utc"] = "2026-04-01T08:00:00Z"
+    source["provenance_json"] = {
+        "source_provider": "moex_iss",
+        "source_interval": 1,
+        "source_timeframe": "1m",
+        "requested_target_timeframes": "1m,5m,15m",
+        "run_id": "new-run",
+        "window_start_utc": "2026-04-01T04:19:59Z",
+        "window_end_utc": "2026-04-01T07:19:59Z",
+        "stability_lag_minutes": 0,
+        "refresh_overlap_minutes": 180,
+        "discovery_url": "local-tail://canonical-roll-map/FUT_BR/1/BRQ6/2026-04-01",
+    }
 
+    report = run_moex_raw_ingest_spark_delta_job(
+        table_path=raw_table_path,
+        source_rows=[source],
+        window_scopes=[
+            _scope(
+                window_start_utc="2026-04-01T07:10:00Z",
+                window_end_utc="2026-04-01T07:19:59Z",
+                watermark_utc="2026-04-01T07:09:59Z",
+            )
+        ],
+        initial_watermarks={("FUT_BR", "1m", "BRQ6"): "2026-04-01T07:09:59Z"},
+        run_id="provenance-only",
+        ingest_till_utc="2026-04-01T07:19:59Z",
+        refresh_overlap_minutes=180,
+        **_job_paths(tmp_path),
+    )
+    version_after = sorted((raw_table_path / "_delta_log").glob("*.json"))[-1].name
 
-def test_foundation_stages_raw_source_rows_without_per_row_file_reopen() -> None:
-    assert not hasattr(foundation, "_append_raw_source_row")
-
-    for target in [
-        foundation.ingest_moex_baseline_window,
-        foundation.ingest_moex_bootstrap_window,
-    ]:
-        source = inspect.getsource(target)
-        assert 'with source_rows_path.open("a", encoding="utf-8") as source_rows_handle' in source
-        assert "_write_raw_source_row(" in source
-        assert "source_rows_handle" in source
-        assert "_append_raw_source_row" not in source
+    assert report["status"] == "PASS-NOOP"
+    assert report["incremental_rows"] == 0
+    assert report["deduplicated_rows"] == 1
+    assert report["changed_windows"] == []
+    assert version_after == version_before

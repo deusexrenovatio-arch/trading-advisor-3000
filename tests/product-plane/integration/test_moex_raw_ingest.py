@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from support.spark_runtime import require_configured_spark_delta_profile
+
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import iter_delta_table_row_batches
 from trading_advisor_3000.product_plane.data_plane.moex.foundation import (
     load_mapping_registry,
@@ -144,6 +146,7 @@ class _OverlapRefreshClient:
 
 
 def test_raw_route_foundation_ingest_is_idempotent_and_watermark_safe(tmp_path: Path) -> None:
+    require_configured_spark_delta_profile()
     mapping_registry = Path("configs/moex_foundation/instrument_mapping_registry.v1.yaml")
     universe = Path("configs/moex_foundation/universe/moex-futures-priority.v1.yaml")
     client = _FakeMoexClient()
@@ -205,6 +208,7 @@ def test_raw_route_foundation_ingest_is_idempotent_and_watermark_safe(tmp_path: 
 def test_raw_route_foundation_refresh_overlap_applies_near_watermark_corrections_without_duplicates(
     tmp_path: Path,
 ) -> None:
+    require_configured_spark_delta_profile()
     mapping_registry = Path("configs/moex_foundation/instrument_mapping_registry.v1.yaml")
     universe = Path("configs/moex_foundation/universe/moex-futures-priority.v1.yaml")
     client = _OverlapRefreshClient()
