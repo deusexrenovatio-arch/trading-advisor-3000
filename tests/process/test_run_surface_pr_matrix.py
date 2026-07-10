@@ -5,7 +5,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
@@ -44,6 +43,14 @@ def test_data_contour_plan_uses_data_proof_profile() -> None:
     assert plan.gate_profile == "data-proof"
     assert "data-proof" in plan.dependency_profiles
     assert any("test_historical_data_spark_execution.py" in command for command in plan.checks)
+    assert any(
+        "test_moex_raw_ingest_spark_delta_contract.py" in command
+        and "test_moex_raw_ingest.py" in command
+        for command in plan.checks
+    )
+    assert any(
+        "test_moex_canonical_publish_spark_delta_job.py" in command for command in plan.checks
+    )
 
 
 def test_mixed_contour_plan_uses_integration_profile() -> None:
@@ -64,9 +71,7 @@ def test_mixed_contour_plan_uses_integration_profile() -> None:
 
 
 def test_governance_only_plan_requires_no_app_matrix_checks() -> None:
-    plan = build_pr_surface_matrix_plan(
-        _surface(["docs/README.md"])
-    )
+    plan = build_pr_surface_matrix_plan(_surface(["docs/README.md"]))
 
     assert plan.contour == "governance-only"
     assert plan.gate_profile == "governance"

@@ -80,7 +80,25 @@ class _FakeMoexClient:
 
 
 def _read_batched_delta_rows(table_path: Path) -> list[dict[str, object]]:
-    return [row for batch in iter_delta_table_row_batches(table_path) for row in batch]
+    return [
+        row
+        for batch in iter_delta_table_row_batches(
+            table_path,
+            columns=[
+                "internal_id",
+                "timeframe",
+                "source_interval",
+                "ts_open",
+                "close",
+                "provenance_json",
+            ],
+            filters=[
+                ("timeframe", "=", "1m"),
+                ("source_interval", "=", 1),
+            ],
+        )
+        for row in batch
+    ]
 
 
 class _OverlapRefreshClient:
