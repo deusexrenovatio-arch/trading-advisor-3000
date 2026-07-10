@@ -193,6 +193,17 @@ def _run_fast_pytest(repo_root: Path, *, timeout: int | None) -> int:
     )
 
 
+def _run_test_audit_matrix_check(repo_root: Path, *, timeout: int | None) -> int:
+    if os.getenv("AI_SHELL_BORING_SKIP_FAST_TESTS") == "1":
+        print("[boring] test audit matrix skipped for re-entrant gate subprocess")
+        return 0
+    return _run(
+        [sys.executable, "scripts/sync_test_audit_matrix.py", "--check"],
+        repo_root=repo_root,
+        timeout=timeout,
+    )
+
+
 def _run_mypy(
     repo_root: Path,
     scope: str,
@@ -243,6 +254,7 @@ def _run_profile(repo_root: Path, args: argparse.Namespace, python_targets: list
         steps.append(lambda root: _run_compileall(root, python_targets))
     if args.profile in {"quick", "full"}:
         steps.append(lambda root: _run_fast_pytest(root, timeout=args.timeout))
+        steps.append(lambda root: _run_test_audit_matrix_check(root, timeout=args.timeout))
     if args.profile in {"type", "full"}:
         steps.append(lambda root: _run_mypy(root, args.scope, python_targets, timeout=args.timeout))
 
