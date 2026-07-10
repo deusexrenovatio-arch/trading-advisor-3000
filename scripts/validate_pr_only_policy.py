@@ -28,7 +28,7 @@ REQUIRED_GITHUB_RULE_TYPES = (
 )
 REQUIRED_STATUS_CHECKS = (
     "pr-lane",
-    "CodeRabbit",
+    "CodeRabbit / Review",
 )
 GITHUB_API_ROOT = "https://api.github.com"
 GITHUB_API_VERSION = "2026-03-10"

@@ -35,10 +35,10 @@ Default order: `loop gate -> pr gate -> nightly gate -> dashboard refresh`.
    - default is disabled to avoid false-red checks when hosted runners are unavailable.
 
 Main merge requirement:
-- GitHub protection for `main` must require successful `pr-lane` and `CodeRabbit` before merge.
+- GitHub protection for `main` must require successful `pr-lane` and `CodeRabbit / Review` before merge.
 - `pr-lane` is reserved for pull request events so push-range failures cannot shadow a green PR-range check.
 - PR size is enforced inside `pr-lane` by `python scripts/validate_pr_size.py`.
-- `CodeRabbit` is an external required review status; automatic integration must wait for it.
+- `CodeRabbit / Review` is an external required review status; automatic integration must wait for it.
 - `nightly-lane` and `dashboard-refresh` are non-merge lanes and remain post-PR hygiene/report lanes.
 
 ## Hosted CI fallback
