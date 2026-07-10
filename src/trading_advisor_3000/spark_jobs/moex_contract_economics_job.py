@@ -164,7 +164,54 @@ def _assert_unique_by_key(
     )
 
 
-def _write_spark_delta_table(dataframe, *, table_path: Path, table_name: str) -> None:
+def _replace_obsolete_contract_economics_model(
+    dataframe,
+    *,
+    table_path: Path,
+    partition_by: list[str],
+) -> int:
+    from pyspark.sql import functions as F  # type: ignore[import-not-found]
+
+    target = dataframe.sparkSession.read.format("delta").load(str(table_path))
+    if "model_version" not in target.columns:
+        obsolete = target
+    else:
+        obsolete = target.where(
+            F.col("model_version").isNull()
+            | (F.col("model_version") != F.lit(MOEX_CONTRACT_ECONOMICS_MODEL_VERSION))
+        )
+    obsolete_rows = int(obsolete.count())
+    if obsolete_rows == 0:
+        return 0
+
+    identity_columns = ("contract_id", "economics_session_date")
+    uncovered = (
+        target.select(*identity_columns)
+        .distinct()
+        .join(dataframe.select(*identity_columns).distinct(), list(identity_columns), "left_anti")
+        .orderBy(*identity_columns)
+        .limit(5)
+        .collect()
+    )
+    if uncovered:
+        samples = [
+            {key: _json_safe_value(value) for key, value in row.asDict().items()}
+            for row in uncovered
+        ]
+        raise RuntimeError(
+            "MOEX canonical contract economics model migration does not cover existing "
+            "contract/date identities; refusing replacement; samples: "
+            + json.dumps(samples, ensure_ascii=False, sort_keys=True)
+        )
+
+    writer = dataframe.write.format("delta").mode("overwrite").option("overwriteSchema", "true")
+    if partition_by:
+        writer = writer.partitionBy(*partition_by)
+    writer.save(str(table_path))
+    return obsolete_rows
+
+
+def _write_spark_delta_table(dataframe, *, table_path: Path, table_name: str) -> int:
     contract = moex_economics_store_contract()[table_name]
     casted = _cast_to_contract(dataframe, table_name)
     table_path.parent.mkdir(parents=True, exist_ok=True)
@@ -181,21 +228,30 @@ def _write_spark_delta_table(dataframe, *, table_path: Path, table_name: str) ->
         if partition_by:
             writer = writer.partitionBy(*partition_by)
         writer.save(str(table_path))
-        return
+        return 0
 
     casted = casted.cache()
     try:
         if casted.limit(1).count() == 0:
-            return
+            return 0
 
         from delta.tables import DeltaTable  # type: ignore[import-not-found]
 
+        target = casted.sparkSession.read.format("delta").load(str(table_path))
         _assert_unique_by_key(
-            casted.sparkSession.read.format("delta").load(str(table_path)),
+            target,
             table_name=table_name,
             key_columns=key_columns,
             frame_role="target",
         )
+        if table_name == "canonical_contract_economics":
+            obsolete_rows = _replace_obsolete_contract_economics_model(
+                casted,
+                table_path=table_path,
+                partition_by=partition_by,
+            )
+            if obsolete_rows:
+                return obsolete_rows
         condition = " AND ".join(f"target.{column} <=> source.{column}" for column in key_columns)
         (
             DeltaTable.forPath(casted.sparkSession, str(table_path))
@@ -206,6 +262,7 @@ def _write_spark_delta_table(dataframe, *, table_path: Path, table_name: str) ->
             .whenNotMatchedInsertAll()
             .execute()
         )
+        return 0
     finally:
         casted.unpersist()
 
@@ -1457,7 +1514,7 @@ def run_moex_contract_economics_spark_job(
             table_path=output_paths["canonical_asset_risk_parameters"],
             table_name="canonical_asset_risk_parameters",
         )
-        _write_spark_delta_table(
+        obsolete_model_rows_replaced = _write_spark_delta_table(
             economics,
             table_path=output_paths["canonical_contract_economics"],
             table_name="canonical_contract_economics",
@@ -1490,6 +1547,7 @@ def run_moex_contract_economics_spark_job(
             "mode": "moex_contract_economics_spark_job",
             "run_id": run_id,
             "row_counts": row_counts,
+            "obsolete_model_rows_replaced": obsolete_model_rows_replaced,
             "missing_economics_rows": unavailable_economics_rows,
             "missing_required_input_counts": missing_counts,
             "historical_missing_input_counts": historical_missing_counts,

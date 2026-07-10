@@ -1038,6 +1038,81 @@ def test_contract_economics_spark_job_merges_canonical_updates_without_losing_hi
     ]
 
 
+def test_contract_economics_spark_job_atomically_replaces_obsolete_model_history(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("pyspark.sql")
+    _configure_windows_spark_runtime(tmp_path, monkeypatch)
+
+    raw_root = tmp_path / "raw"
+    raw_paths = _write_single_day_raw_economics_fixture(
+        raw_root=raw_root,
+        trade_date="2026-06-11",
+        fx_clearing_type="mc",
+    )
+    output_dir = tmp_path / "canonical"
+    target_path = output_dir / "canonical_contract_economics.delta"
+    write_delta_table_rows(
+        table_path=target_path,
+        columns=_columns("canonical_contract_economics"),
+        rows=[
+            {
+                "contract_id": "BRN6",
+                "instrument_id": "FUT_BR",
+                "moex_secid": "BRN6",
+                "assetcode": "BR",
+                "economics_session_date": "2026-06-11",
+                "effective_session_date": "2026-06-12",
+                "clearing_type": "tc",
+                "effective_from_ts": "2026-06-12T00:00:00Z",
+                "effective_to_ts": None,
+                "min_step": 0.01,
+                "lot_volume": 10.0,
+                "quote_currency": "USD",
+                "fx_rate_to_rub": 71.9077,
+                "tick_value_currency": 0.1,
+                "step_price_rub": 7.19077,
+                "official_step_price": 7.19077,
+                "official_initial_margin": 17_721.61,
+                "last_settle_price": 93.99,
+                "mr1": 0.12,
+                "radius_pct": 15.0,
+                "radius_source": "source",
+                "margin_formula_base": 8_100.0,
+                "margin_radius_adjusted": 9_315.0,
+                "margin_required_no_buffer": 17_721.61,
+                "margin_buffer_pct": 0.05,
+                "margin_required_estimate": 18_607.69,
+                "maturity_rank": 1,
+                "days_to_expiry": 34,
+                "expiration_date": "2026-07-15",
+                "model_version": "moex_contract_economics_v1",
+                "buffer_policy_version": "buffer-v1",
+                "model_quality": "estimated",
+                "source_flags_json": "{}",
+                "source_document_hashes_json": "{}",
+                "created_at": "2026-06-11T19:05:00Z",
+            }
+        ],
+    )
+    report = run_moex_contract_economics_spark_job(
+        raw_contract_specs_path=raw_paths["contracts"],
+        raw_fx_rates_path=raw_paths["fx"],
+        raw_rms_limits_path=raw_paths["limits"],
+        raw_rms_staticparams_path=raw_paths["staticparams"],
+        output_dir=output_dir,
+        run_id="economics-model-v6-replacement",
+    )
+
+    rows = read_delta_table_rows(target_path, limit=10)
+    assert report["obsolete_model_rows_replaced"] == 1
+    assert report["row_counts"]["canonical_contract_economics"] == 1
+    assert len(rows) == 1
+    assert rows[0]["model_version"] == "moex_contract_economics_v6"
+    assert rows[0]["clearing_type"] == "mc"
+
+
 def test_contract_economics_spark_job_deduplicates_latest_risk_snapshot_before_merge(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
