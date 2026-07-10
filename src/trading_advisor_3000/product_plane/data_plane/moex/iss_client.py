@@ -804,23 +804,28 @@ class MoexISSClient:
         date_till: date,
     ) -> list[dict[str, Any]]:
         path = "/iss/statistics/engines/futures/markets/indicativerates/securities.json"
-        payload = self._get_json(
-            path,
-            params={
-                "iss.meta": "off",
-                "from": date_from.isoformat(),
-                "till": date_till.isoformat(),
-            },
-            event_context={
-                "operation": "futures_indicative_rates",
-                "date_from": date_from.isoformat(),
-                "date_till": date_till.isoformat(),
-            },
-        )
-        block = payload.get("securities")
-        if not isinstance(block, dict):
-            raise ValueError("MOEX indicative rates payload is missing `securities` block")
-        return _rows_to_dicts(block)
+        rows: list[dict[str, Any]] = []
+        current = date_from
+        while current <= date_till:
+            payload = self._get_json(
+                path,
+                params={
+                    "iss.meta": "off",
+                    "date": current.isoformat(),
+                },
+                event_context={
+                    "operation": "futures_indicative_rates",
+                    "trade_date": current.isoformat(),
+                    "date_from": date_from.isoformat(),
+                    "date_till": date_till.isoformat(),
+                },
+            )
+            block = payload.get("securities")
+            if not isinstance(block, dict):
+                raise ValueError("MOEX indicative rates payload is missing `securities` block")
+            rows.extend(_rows_to_dicts(block))
+            current += timedelta(days=1)
+        return rows
 
     def fetch_futures_rms_limits(self, *, trade_date: date) -> list[dict[str, Any]]:
         path = "/iss/rms/engines/futures/objects/limits.json"

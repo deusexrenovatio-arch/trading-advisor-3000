@@ -734,6 +734,9 @@ def _with_execution_economics(
         .load(str(canonical_contract_economics_path))
         .select(
             F.col("contract_id").alias("econ_contract_id"),
+            F.regexp_replace(F.col("contract_id").cast("string"), "@MOEX$", "").alias(
+                "econ_contract_join_key"
+            ),
             F.col("effective_from_ts").alias("econ_effective_from_ts"),
             F.col("effective_to_ts").alias("econ_effective_to_ts"),
             F.col("step_price_rub").alias("execution_step_price_rub"),
@@ -758,7 +761,10 @@ def _with_execution_economics(
         bar_frame.alias("bar")
         .join(
             economics.alias("econ"),
-            (F.col(f"bar.{contract_column}") == F.col("econ.econ_contract_id"))
+            (
+                F.regexp_replace(F.col(f"bar.{contract_column}").cast("string"), "@MOEX$", "")
+                == F.col("econ.econ_contract_join_key")
+            )
             & (F.col("bar.__economics_join_ts") >= F.col("econ.econ_effective_from_ts"))
             & (
                 F.col("econ.econ_effective_to_ts").isNull()

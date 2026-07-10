@@ -115,10 +115,11 @@ class _PagedEconomicsClient(MoexISSClient):
                 }
             }
         if path.endswith("/indicativerates/securities.json"):
+            trade_date = params["date"]
             return {
                 "securities": {
                     "columns": ["tradedate", "tradetime", "secid", "rate", "clearing"],
-                    "data": [["2026-06-11", "19:00:00", "USD/RUB", 71.9077, "mc"]],
+                    "data": [[trade_date, "19:00:00", "USD/RUB", 71.9077, "mc"]],
                 }
             }
         raise AssertionError(path)
@@ -218,8 +219,29 @@ def test_fetch_futures_indicative_rates_reads_securities_block() -> None:
     ]
     path, params, context = client.calls[0]
     assert path == "/iss/statistics/engines/futures/markets/indicativerates/securities.json"
-    assert params["from"] == "2026-06-11"
+    assert params["date"] == "2026-06-11"
     assert context["operation"] == "futures_indicative_rates"
+
+
+def test_fetch_futures_indicative_rates_queries_each_trade_date() -> None:
+    client = _PagedEconomicsClient()
+
+    rows = client.fetch_futures_indicative_rates(
+        date_from=date(2026, 6, 10),
+        date_till=date(2026, 6, 12),
+    )
+
+    assert [row["tradedate"] for row in rows] == [
+        "2026-06-10",
+        "2026-06-11",
+        "2026-06-12",
+    ]
+    requested_dates = [
+        params["date"]
+        for path, params, _context in client.calls
+        if path.endswith("/indicativerates/securities.json")
+    ]
+    assert requested_dates == ["2026-06-10", "2026-06-11", "2026-06-12"]
 
 
 class _JsonResponse:
