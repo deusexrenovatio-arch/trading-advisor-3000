@@ -21,7 +21,7 @@
 | Legacy namespace growth | `python scripts/validate_legacy_namespace_growth.py` | fail closed when changed files introduce new legacy rename tokens outside migration allowlist |
 | Product surface naming | `python scripts/validate_product_surface_naming.py` | fail closed when active product-facing names reintroduce numbered delivery labels |
 | Product-plane module import inventory | `python scripts/report_product_plane_module_imports.py --format markdown` | report-only inventory of current imports against product-plane module charters |
-| Test audit matrix drift | `python scripts/sync_test_audit_matrix.py --check` | keep every collected pytest nodeid represented with valid package-owned audit state |
+| Test audit matrix drift | `python scripts/sync_test_audit_matrix.py --check` | validate package-owned audit state and test-tree/config fingerprints without optional runtime imports |
 
 Quality baseline note:
 - `run_boring_checks.py --profile quick --scope changed` is the mandatory

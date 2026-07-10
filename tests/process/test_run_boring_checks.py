@@ -79,7 +79,13 @@ def test_test_audit_matrix_check_runs_public_sync_cli(
 
     assert _run_test_audit_matrix_check(tmp_path, timeout=17) == 0
     assert observed == {
-        "command": [sys.executable, "scripts/sync_test_audit_matrix.py", "--check"],
+        "command": [
+            sys.executable,
+            "scripts/sync_test_audit_matrix.py",
+            "--check",
+            "--collection-mode",
+            "static",
+        ],
         "repo_root": tmp_path,
         "timeout": 17,
         "env": None,

@@ -205,7 +205,13 @@ def _run_test_audit_matrix_check(repo_root: Path, *, timeout: int | None) -> int
         print("[boring] test audit matrix skipped for re-entrant gate subprocess")
         return 0
     return _run(
-        [sys.executable, "scripts/sync_test_audit_matrix.py", "--check"],
+        [
+            sys.executable,
+            "scripts/sync_test_audit_matrix.py",
+            "--check",
+            "--collection-mode",
+            "static",
+        ],
         repo_root=repo_root,
         timeout=timeout,
     )

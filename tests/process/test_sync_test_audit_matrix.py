@@ -399,3 +399,68 @@ def test_update_fragment_requires_deterministic_nodeid_order(tmp_path: Path) -> 
 
     assert rejected.returncode != 0
     assert "nodeids must be sorted" in (rejected.stdout + rejected.stderr)
+
+
+def test_static_check_avoids_optional_imports_and_detects_test_tree_drift(
+    tmp_path: Path,
+) -> None:
+    test_file = tmp_path / "tests" / "unit" / "test_optional_runtime.py"
+    test_file.parent.mkdir(parents=True, exist_ok=True)
+    test_file.write_text(
+        "import dependency_that_is_intentionally_missing\n\n"
+        "def test_public_behavior():\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+    nodeid = "tests/unit/test_optional_runtime.py::test_public_behavior"
+    collection = tmp_path / "nodeids.txt"
+    matrix = tmp_path / "test-audit-matrix.csv"
+    summary = tmp_path / "test-audit-summary.md"
+    collection.write_text(f"{nodeid}\n", encoding="utf-8")
+
+    write = _run(
+        "--write",
+        "--repo-root",
+        str(tmp_path),
+        "--collection-file",
+        str(collection),
+        "--matrix",
+        str(matrix),
+        "--summary",
+        str(summary),
+        cwd=tmp_path,
+    )
+    assert write.returncode == 0, write.stdout + "\n" + write.stderr
+
+    static_check = _run(
+        "--check",
+        "--collection-mode",
+        "static",
+        "--repo-root",
+        str(tmp_path),
+        "--matrix",
+        str(matrix),
+        "--summary",
+        str(summary),
+        cwd=tmp_path,
+    )
+    assert static_check.returncode == 0, static_check.stdout + "\n" + static_check.stderr
+
+    test_file.write_text(
+        test_file.read_text(encoding="utf-8") + "# collection-affecting change\n",
+        encoding="utf-8",
+    )
+    drift = _run(
+        "--check",
+        "--collection-mode",
+        "static",
+        "--repo-root",
+        str(tmp_path),
+        "--matrix",
+        str(matrix),
+        "--summary",
+        str(summary),
+        cwd=tmp_path,
+    )
+    assert drift.returncode != 0
+    assert "summary drift" in (drift.stdout + drift.stderr)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import ast
 import csv
+import hashlib
 import subprocess
 import sys
 from collections import Counter
@@ -511,7 +512,47 @@ def write_matrix(path: Path, rows: Sequence[dict[str, str]]) -> None:
         writer.writerows(rows)
 
 
-def render_summary(rows: Sequence[dict[str, str]]) -> str:
+def _fingerprint_files(repo_root: Path, paths: Iterable[Path]) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(paths):
+        relative_path = path.relative_to(repo_root).as_posix()
+        digest.update(relative_path.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def collection_fingerprints(repo_root: Path) -> tuple[str, str]:
+    tests_root = repo_root / "tests"
+    test_files = (
+        [
+            path
+            for path in tests_root.rglob("*")
+            if path.is_file()
+            and "__pycache__" not in path.parts
+            and path.suffix not in {".pyc", ".pyo"}
+        ]
+        if tests_root.exists()
+        else []
+    )
+    config_files = [
+        path
+        for name in ("pyproject.toml", "pytest.ini", "setup.cfg", "tox.ini")
+        if (path := repo_root / name).is_file()
+    ]
+    return (
+        _fingerprint_files(repo_root, test_files),
+        _fingerprint_files(repo_root, config_files),
+    )
+
+
+def render_summary(
+    rows: Sequence[dict[str, str]],
+    *,
+    test_tree_fingerprint: str,
+    collection_config_fingerprint: str,
+) -> str:
     active = [row for row in rows if row["collection_state"] == "active"]
     retired = [row for row in rows if row["collection_state"] == "retired"]
     completed = sum(_is_complete(row) for row in active)
@@ -522,6 +563,8 @@ def render_summary(rows: Sequence[dict[str, str]]) -> str:
         f"- Current pytest tests: `{len(active)}`",
         f"- Retired audited tests: `{len(retired)}`",
         f"- Completed audits: `{completed}/{len(active)}`",
+        f"- Test tree fingerprint: `sha256:{test_tree_fingerprint}`",
+        f"- Collection config fingerprint: `sha256:{collection_config_fingerprint}`",
         "",
         "| Block | Scope | Active | Pending | Reviewed | Fixed | Verified |",
         "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
@@ -598,11 +641,32 @@ def run(
     summary_path: Path,
     updates_dir: Path,
     collection_file: Path | None,
+    collection_mode: str | None,
     check: bool,
     require_complete: bool,
 ) -> int:
-    nodeids = collect_nodeids(repo_root, collection_file)
     existing = read_matrix(matrix_path)
+    resolved_mode = collection_mode or ("static" if check and collection_file is None else "pytest")
+    if collection_file is not None:
+        nodeids = collect_nodeids(repo_root, collection_file)
+    elif resolved_mode == "static":
+        nodeids = [row["nodeid"] for row in existing if row.get("collection_state") == "active"]
+        if not nodeids:
+            print(
+                "test audit matrix: ERROR: static check requires an existing active matrix",
+                file=sys.stderr,
+            )
+            return 1
+    else:
+        nodeids = collect_nodeids(repo_root)
+
+    if not check and collection_file is None and resolved_mode != "pytest":
+        print(
+            "test audit matrix: ERROR: write requires authoritative pytest collection",
+            file=sys.stderr,
+        )
+        return 1
+
     update_rows, update_errors = read_update_rows(updates_dir)
     if update_errors:
         for error in update_errors:
@@ -628,11 +692,16 @@ def run(
     errors = validate_rows(
         existing if check else expected, nodeids, require_complete=require_complete
     )
+    test_tree_fingerprint, collection_config_fingerprint = collection_fingerprints(repo_root)
+    expected_summary = render_summary(
+        expected,
+        test_tree_fingerprint=test_tree_fingerprint,
+        collection_config_fingerprint=collection_config_fingerprint,
+    )
 
     if check:
         if existing != expected:
             errors.append("matrix drift: run sync_test_audit_matrix.py --write")
-        expected_summary = render_summary(expected)
         if (
             not summary_path.exists()
             or summary_path.read_text(encoding="utf-8") != expected_summary
@@ -647,7 +716,7 @@ def run(
     if not check:
         write_matrix(matrix_path, expected)
         summary_path.parent.mkdir(parents=True, exist_ok=True)
-        summary_path.write_text(render_summary(expected), encoding="utf-8")
+        summary_path.write_text(expected_summary, encoding="utf-8")
 
     action = "check" if check else "write"
     active_count = sum(row["collection_state"] == "active" for row in expected)
@@ -667,6 +736,7 @@ def main() -> None:
     parser.add_argument("--summary", type=Path, default=DEFAULT_SUMMARY)
     parser.add_argument("--updates-dir", type=Path, default=DEFAULT_UPDATES_DIR)
     parser.add_argument("--collection-file", type=Path)
+    parser.add_argument("--collection-mode", choices=("static", "pytest"))
     parser.add_argument("--require-complete", action="store_true")
     args = parser.parse_args()
 
@@ -679,6 +749,7 @@ def main() -> None:
             summary_path=_resolved(repo_root, args.summary),
             updates_dir=_resolved(repo_root, args.updates_dir),
             collection_file=collection_file,
+            collection_mode=args.collection_mode,
             check=args.check,
             require_complete=args.require_complete,
         )

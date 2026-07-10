@@ -6,12 +6,15 @@
 - Generated master matrix: `docs/agent/audits/test-audit-matrix.csv`.
 - Generated rollup: `docs/agent/audits/test-audit-summary.md`.
 - Agent-owned updates: `docs/agent/audits/test-audit-updates/<BLOCK>.csv`.
-- Synchronizer: `python scripts/sync_test_audit_matrix.py --write`.
-- Drift check: `python scripts/sync_test_audit_matrix.py --check`.
-- Campaign closeout: `python scripts/sync_test_audit_matrix.py --check --require-complete`.
+- Authoritative synchronizer: `python scripts/sync_test_audit_matrix.py --write`.
+- Dependency-neutral drift check: `python scripts/sync_test_audit_matrix.py --check`.
+- Authoritative collection check: `python scripts/sync_test_audit_matrix.py --check --collection-mode pytest`.
+- Campaign closeout: `python scripts/sync_test_audit_matrix.py --check --collection-mode pytest --require-complete`.
 
 The master CSV is generated. Agents must not edit it directly. Each agent owns one block update
-fragment; the orchestrator regenerates the master after integrating fragments.
+fragment; the orchestrator regenerates the master after integrating fragments. The static CI check
+proves the test tree and collection configuration still match the last authoritative pytest
+collection by SHA-256 fingerprint without importing optional product runtimes.
 
 ## Good Test Contract
 
@@ -107,7 +110,8 @@ focused suite still passes. For rewrite, evidence names the replacement behavior
    proof, then the next test.
 5. Use structured CSV parsing/writing. Preserve the exact update schema and deterministic nodeid
    order.
-6. Run `--write` and `--check` locally. Do not stage the generated master in an agent commit.
+6. Run `--write`, `--check`, and `--check --collection-mode pytest` locally. Do not stage the
+   generated master in an agent commit.
 7. Stage only the package fragment and owned code/tests. Report changed files, commands, results,
    residual risks, and commit SHA.
 8. The orchestrator integrates non-overlapping commits, regenerates the master once, runs all

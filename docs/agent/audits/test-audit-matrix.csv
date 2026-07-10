@@ -184,6 +184,7 @@ tests/process/test_sync_test_audit_matrix.py::test_invalid_update_does_not_mutat
 tests/process/test_sync_test_audit_matrix.py::test_merge_rows_preserves_manual_audit_fields_and_adds_new_tests,active,G1,process,pending,,,none,,,,
 tests/process/test_sync_test_audit_matrix.py::test_package_update_fragment_overlays_matrix_and_rejects_wrong_owner,active,G1,process,pending,,,none,,,,
 tests/process/test_sync_test_audit_matrix.py::test_require_complete_rejects_unverified_remediation,active,G1,process,pending,,,none,,,,
+tests/process/test_sync_test_audit_matrix.py::test_static_check_avoids_optional_imports_and_detects_test_tree_drift,active,G1,process,pending,,,none,source-structure,,,
 tests/process/test_sync_test_audit_matrix.py::test_update_fragment_requires_deterministic_nodeid_order,active,G1,process,pending,,,none,,,,
 tests/process/test_sync_test_audit_matrix.py::test_validate_rows_rejects_collection_drift_and_incomplete_reviews,active,G1,process,pending,,,none,,,,
 tests/process/test_ta3000_direct_routes_contract.py::test_ta3000_direct_route_task_installer_contract,active,G1,process,pending,,,none,,,,
