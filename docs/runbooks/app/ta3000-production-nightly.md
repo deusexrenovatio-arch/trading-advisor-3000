@@ -89,6 +89,11 @@ project, binds `/workspace` to `D:/TA3000-production`, binds
 that `moex_baseline_daily_update_schedule` and `moex_baseline_update_job` are
 available.
 
+The product containers set Spark driver memory to `4g` by default through both
+`TA3000_SPARK_DRIVER_MEMORY` and `PYSPARK_SUBMIT_ARGS`. Override
+`TA3000_SPARK_DRIVER_MEMORY` before bootstrap only when the host capacity and a
+verified workload require a different value.
+
 Dagster daemon owns the actual nightly run through:
 
 - schedule: `moex_baseline_daily_update_schedule`;

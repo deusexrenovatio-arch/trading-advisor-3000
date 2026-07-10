@@ -47,6 +47,8 @@ def test_product_staging_compose_defaults_to_production_checkout() -> None:
     assert "D:/CodexHome/worktrees/moex-product-main" not in text
     assert "TA3000_MOEX_PRODUCT_STAGING_ROOT_HOST" in text
     assert "/ta3000-data/moex-historical" in text
+    assert text.count('TA3000_SPARK_DRIVER_MEMORY: "${TA3000_SPARK_DRIVER_MEMORY:-4g}"') == 2
+    assert text.count("--driver-memory ${TA3000_SPARK_DRIVER_MEMORY:-4g} pyspark-shell") == 2
 
 
 def test_production_nightly_runbook_forbids_host_python_baseline_update() -> None:
