@@ -36,7 +36,7 @@ orchestration runtimes, also read:
 7. Run context routing before broad repo reading: `python scripts/context_router.py --from-git --format text`.
 8. Read the primary context card first and follow `navigation_order` only as far as the matched files require.
 9. For code work, use the primary context card's `Search Seeds` as Serena entrypoints before opening whole files.
-10. Select global Codex skills for ordinary engineering behavior only when one owns the current artifact or decision. Use `codex-skill-routing` when the task is about skill routing or prompt protection.
+10. Select Matt Pocock global skills for ordinary engineering behavior only when one owns the current artifact or decision. Use `ask-matt` when the task is about skill routing or prompt protection.
 11. Apply skill sequence rules from `docs/agent/skills-routing.md`: load the skill that owns the current artifact first, add adjacent skills only when their phase is reached, and keep verification/acceptance skills for closeout.
 12. If a relevant global skill is not present in session metadata but exists under `D:/CodexHome/skills`, read that skill's main instruction file directly and state the fallback.
 13. Open repo-local skills only for TA3000-specific product/trading/data/compute knowledge under `.codex/skills`; `.cursor/skills` is legacy cleanup state only.

@@ -50,8 +50,14 @@ def _write_single_day_raw_economics_fixture(
     fx_rate: float = 71.9077,
     settle_price: float = 93.99,
     official_margin: float = 17_721.61,
+    official_step_price: float | None = None,
     min_step: float = 0.01,
     lot_volume: float = 10.0,
+    historical_market: dict[str, object] | None = None,
+    fx_clearing_type: str = "tc",
+    expiration_date: str = "2026-07-15",
+    mode: str = "overwrite",
+    write_shared_inputs: bool = True,
 ) -> dict[str, Path]:
     risk_trade_date = risk_trade_date or trade_date
     raw_contracts = raw_root / "raw_moex_contract_securities.delta"
@@ -75,15 +81,33 @@ def _write_single_day_raw_economics_fixture(
                 "trade_date": trade_date,
                 "assetcode": assetcode,
                 "contract_shortname": contract_id,
-                "last_trade_date": "2026-07-15",
-                "last_del_date": "2026-07-15",
+                "last_trade_date": expiration_date,
+                "last_del_date": expiration_date,
                 "min_step": min_step,
                 "lot_volume": lot_volume,
-                "official_step_price": min_step * lot_volume * fx_rate,
+                "official_step_price": (
+                    None
+                    if historical_market is not None
+                    else min_step * lot_volume * fx_rate
+                    if official_step_price is None
+                    else official_step_price
+                ),
                 "official_initial_margin": official_margin,
                 "last_settle_price": settle_price,
                 "raw_payload_json": json.dumps(
                     {
+                        "history": historical_market,
+                        "description": {
+                            "ASSETCODE": assetcode,
+                            "LOTSIZE": str(lot_volume),
+                        },
+                        "inference": {
+                            "min_step_source": "current_secid",
+                            "lot_volume_source": "description_lotsize",
+                        },
+                    }
+                    if historical_market is not None
+                    else {
                         "SECID": contract_id,
                         "ASSETCODE": assetcode,
                         "MINSTEP": min_step,
@@ -91,12 +115,21 @@ def _write_single_day_raw_economics_fixture(
                         "LASTSETTLEPRICE": settle_price,
                         "INITIALMARGIN": official_margin,
                         "CURRENCYID": quote_currency,
-                        "MATDATE": "2026-07-15",
+                        "MATDATE": expiration_date,
                     }
                 ),
             }
         ],
+        mode=mode,
     )
+    paths = {
+        "contracts": raw_contracts,
+        "fx": raw_fx,
+        "limits": raw_limits,
+        "staticparams": raw_staticparams,
+    }
+    if not write_shared_inputs:
+        return paths
     write_delta_table_rows(
         table_path=raw_fx,
         columns=_columns("raw_moex_indicative_fx_rates"),
@@ -104,13 +137,13 @@ def _write_single_day_raw_economics_fixture(
             {
                 "source_id": "moex_iss_indicativerates",
                 "source_url": "https://iss.moex.com/iss/statistics/engines/futures/markets/indicativerates/securities.json",
-                "source_document_id": f"USD-RUB-{trade_date}-tc",
+                "source_document_id": f"USD-RUB-{trade_date}-{fx_clearing_type}",
                 "source_document_hash": f"fx-hash-{trade_date}",
                 "fetched_at_utc": f"{trade_date}T19:02:00Z",
                 "trade_date": trade_date,
                 "trade_time": "19:00:00",
                 "fx_pair": "USD/RUB",
-                "clearing_type": "tc",
+                "clearing_type": fx_clearing_type,
                 "rate": fx_rate,
                 "raw_payload_json": json.dumps(
                     {
@@ -118,11 +151,12 @@ def _write_single_day_raw_economics_fixture(
                         "tradetime": "19:00:00",
                         "secid": "USD/RUB",
                         "rate": fx_rate,
-                        "clearing": "tc",
+                        "clearing": fx_clearing_type,
                     }
                 ),
             }
         ],
+        mode=mode,
     )
     write_delta_table_rows(
         table_path=raw_limits,
@@ -147,6 +181,7 @@ def _write_single_day_raw_economics_fixture(
                 "raw_payload_json": json.dumps({"ASSETCODE": assetcode, "MR1": 0.12}),
             }
         ],
+        mode=mode,
     )
     write_delta_table_rows(
         table_path=raw_staticparams,
@@ -165,13 +200,9 @@ def _write_single_day_raw_economics_fixture(
                 "raw_payload_json": json.dumps({"ASSETCODE": assetcode, "RADIUS": 15.0}),
             }
         ],
+        mode=mode,
     )
-    return {
-        "contracts": raw_contracts,
-        "fx": raw_fx,
-        "limits": raw_limits,
-        "staticparams": raw_staticparams,
-    }
+    return paths
 
 
 def test_contract_economics_spark_job_materializes_canonical_side_tables(
@@ -345,9 +376,429 @@ def test_contract_economics_spark_job_materializes_canonical_side_tables(
     assert len(rows) == 1
     row = rows[0]
     assert row["contract_id"] == "BRN6"
-    assert row["clearing_type"] == "tc"
+    assert row["clearing_type"] == "mc"
     assert row["step_price_rub"] == pytest.approx(7.19077)
-    assert row["margin_required_estimate"] == pytest.approx(18_607.6905)
+    assert row["margin_required_estimate"] == pytest.approx(17_721.61)
+
+
+def test_contract_economics_spark_job_uses_official_stepprice_for_si(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("pyspark.sql")
+    _configure_windows_spark_runtime(tmp_path, monkeypatch)
+    raw_paths = _write_single_day_raw_economics_fixture(
+        raw_root=tmp_path / "raw",
+        trade_date="2026-07-09",
+        contract_id="SiU6",
+        assetcode="SI",
+        quote_currency="RUB",
+        fx_rate=76.4026,
+        settle_price=77_426.0,
+        official_margin=12_316.83,
+        official_step_price=1.0,
+        min_step=1.0,
+        lot_volume=1_000.0,
+    )
+
+    output_dir = tmp_path / "canonical"
+    report = run_moex_contract_economics_spark_job(
+        raw_contract_specs_path=raw_paths["contracts"],
+        raw_fx_rates_path=raw_paths["fx"],
+        raw_rms_limits_path=raw_paths["limits"],
+        raw_rms_staticparams_path=raw_paths["staticparams"],
+        output_dir=output_dir,
+        run_id="economics-si-stepprice-fixture",
+    )
+
+    row = read_delta_table_rows(output_dir / "canonical_contract_economics.delta", limit=5)[0]
+    assert report["status"] == "PASS"
+    assert row["step_price_rub"] == pytest.approx(1.0)
+    assert row["radius_pct"] == pytest.approx(15.0)
+    assert row["radius_source"] == "source"
+    assert row["margin_formula_base"] == pytest.approx(9_291.12)
+    assert row["margin_required_estimate"] == pytest.approx(12_316.83)
+
+
+def test_contract_economics_spark_job_zeros_radius_for_pure_rub_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("pyspark.sql")
+    _configure_windows_spark_runtime(tmp_path, monkeypatch)
+    raw_paths = _write_single_day_raw_economics_fixture(
+        raw_root=tmp_path / "raw",
+        trade_date="2026-07-09",
+        contract_id="SBERU6",
+        assetcode="SBER",
+        quote_currency="RUB",
+        fx_rate=1.0,
+        settle_price=100.0,
+        official_margin=1.0,
+        official_step_price=1.0,
+        min_step=1.0,
+        lot_volume=1.0,
+    )
+
+    output_dir = tmp_path / "canonical"
+    report = run_moex_contract_economics_spark_job(
+        raw_contract_specs_path=raw_paths["contracts"],
+        raw_fx_rates_path=raw_paths["fx"],
+        raw_rms_limits_path=raw_paths["limits"],
+        raw_rms_staticparams_path=raw_paths["staticparams"],
+        output_dir=output_dir,
+        run_id="economics-pure-rub-radius-fixture",
+    )
+
+    row = read_delta_table_rows(output_dir / "canonical_contract_economics.delta", limit=1)[0]
+    assert report["status"] == "PASS"
+    assert row["radius_pct"] == pytest.approx(0.0)
+    assert row["radius_source"] == "not_applicable_pure_rub"
+    assert row["margin_formula_base"] == pytest.approx(12.0)
+    assert row["margin_radius_adjusted"] == pytest.approx(12.0)
+    assert row["margin_required_estimate"] == pytest.approx(1.0)
+
+
+def test_contract_economics_spark_job_reconstructs_historical_br_stepprice(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("pyspark.sql")
+    _configure_windows_spark_runtime(tmp_path, monkeypatch)
+    raw_paths = _write_single_day_raw_economics_fixture(
+        raw_root=tmp_path / "raw",
+        trade_date="2024-06-14",
+        contract_id="BRN4",
+        assetcode="BR",
+        quote_currency="USD",
+        fx_rate=89.0658,
+        fx_clearing_type="mc",
+        settle_price=82.84,
+        official_margin=17_721.61,
+        official_step_price=None,
+        min_step=0.01,
+        lot_volume=10.0,
+        historical_market={
+            "VALUE": 10_595_079_985.34,
+            "VOLUME": 143_606,
+            "WAPRICE": 82.84,
+        },
+    )
+
+    output_dir = tmp_path / "canonical"
+    report = run_moex_contract_economics_spark_job(
+        raw_contract_specs_path=raw_paths["contracts"],
+        raw_fx_rates_path=raw_paths["fx"],
+        raw_rms_limits_path=raw_paths["limits"],
+        raw_rms_staticparams_path=raw_paths["staticparams"],
+        output_dir=output_dir,
+        run_id="economics-historical-br-stepprice",
+    )
+
+    row = read_delta_table_rows(output_dir / "canonical_contract_economics.delta", limit=1)[0]
+    source_flags = json.loads(str(row["source_flags_json"]))
+    assert report["status"] == "PASS"
+    assert row["official_step_price"] is None
+    assert row["lot_volume"] == pytest.approx(10.0)
+    assert row["step_price_rub"] == pytest.approx(8.90658)
+    assert row["tick_value_currency"] == pytest.approx(0.1)
+    assert source_flags["step_price_source"] == "contract_parameter_regime"
+    assert source_flags["step_price_rule_id"] == "BR-2022-2026-v1"
+    profile = report["step_price_rule_profiles"][0]
+    assert profile["min_step"] == pytest.approx(0.01)
+    assert profile["lot_volume"] == pytest.approx(10.0)
+    assert profile["tick_value_quote"] == pytest.approx(0.1)
+    assert set(profile) == {
+        "rule_id",
+        "assetcode",
+        "quote_currency",
+        "min_step",
+        "lot_volume",
+        "tick_value_quote",
+        "rule_rows",
+        "validation_rows",
+        "validation_p95_relative_error",
+        "validation_max_relative_error",
+    }
+    assert profile["validation_rows"] == 1
+
+
+def test_contract_economics_spark_job_calibrates_history_by_asset_and_maturity_rank(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("pyspark.sql")
+    _configure_windows_spark_runtime(tmp_path, monkeypatch)
+    raw_root = tmp_path / "raw"
+
+    fixture = {
+        "assetcode": "BR",
+        "quote_currency": "USD",
+        "fx_rate": 100.0,
+        "settle_price": 100.0,
+        "official_step_price": 10.0,
+        "min_step": 0.01,
+        "lot_volume": 10.0,
+        "fx_clearing_type": "mc",
+    }
+    raw_paths = _write_single_day_raw_economics_fixture(
+        raw_root=raw_root,
+        trade_date="2026-07-09",
+        contract_id="BRN6",
+        official_margin=27_600.0,
+        expiration_date="2026-07-15",
+        **fixture,
+    )
+    _write_single_day_raw_economics_fixture(
+        raw_root=raw_root,
+        trade_date="2026-07-09",
+        contract_id="BRU6",
+        official_margin=41_400.0,
+        expiration_date="2026-09-17",
+        mode="append",
+        write_shared_inputs=False,
+        **fixture,
+    )
+
+    historical_market = {"VALUE": 100_000.0, "VOLUME": 1.0, "WAPRICE": 100.0}
+    for index, (contract_id, expiration_date) in enumerate(
+        (
+            ("BRN4", "2024-07-18"),
+            ("BRU4", "2024-09-19"),
+            ("BRZ4", "2024-12-19"),
+        )
+    ):
+        _write_single_day_raw_economics_fixture(
+            raw_root=raw_root,
+            trade_date="2024-06-14",
+            contract_id=contract_id,
+            official_margin=0.0,
+            expiration_date=expiration_date,
+            historical_market=historical_market,
+            mode="append",
+            write_shared_inputs=index == 0,
+            **fixture,
+        )
+
+    output_dir = tmp_path / "canonical"
+    report = run_moex_contract_economics_spark_job(
+        raw_contract_specs_path=raw_paths["contracts"],
+        raw_fx_rates_path=raw_paths["fx"],
+        raw_rms_limits_path=raw_paths["limits"],
+        raw_rms_staticparams_path=raw_paths["staticparams"],
+        output_dir=output_dir,
+        run_id="economics-margin-calibration",
+    )
+
+    rows = read_delta_table_rows(output_dir / "canonical_contract_economics.delta", limit=10)
+    historical = {
+        int(row["maturity_rank"]): row
+        for row in rows
+        if str(row["economics_session_date"]) == "2024-06-14"
+    }
+    assert report["status"] == "PASS"
+    assert report["margin_calibration_as_of_date"] == "2026-07-09"
+    assert report["calibrated_margin_rows"] == 3
+    assert report["nonzero_margin_buffer_rows"] == 0
+    assert historical[1]["margin_calibration_factor"] == pytest.approx(2.0)
+    assert historical[1]["margin_calibration_rank"] == 1
+    assert historical[1]["margin_calibration_source"] == "latest_official_asset_rank"
+    assert historical[1]["margin_required_estimate"] == pytest.approx(27_600.0)
+    assert historical[2]["margin_calibration_factor"] == pytest.approx(3.0)
+    assert historical[2]["margin_calibration_rank"] == 2
+    assert historical[2]["margin_required_estimate"] == pytest.approx(41_400.0)
+    assert historical[3]["margin_calibration_factor"] == pytest.approx(3.0)
+    assert historical[3]["margin_calibration_rank"] == 2
+    assert historical[3]["margin_calibration_source"] == "latest_official_nearest_rank"
+    assert historical[3]["margin_required_estimate"] == pytest.approx(41_400.0)
+    assert all(row["margin_buffer_pct"] == pytest.approx(0.0) for row in rows)
+
+
+def test_contract_economics_spark_job_rejects_historical_lotvolume_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("pyspark.sql")
+    _configure_windows_spark_runtime(tmp_path, monkeypatch)
+    raw_paths = _write_single_day_raw_economics_fixture(
+        raw_root=tmp_path / "raw",
+        trade_date="2024-06-14",
+        contract_id="BRN4",
+        assetcode="BR",
+        quote_currency="USD",
+        fx_rate=89.0658,
+        fx_clearing_type="mc",
+        settle_price=82.84,
+        official_margin=17_721.61,
+        official_step_price=None,
+        min_step=0.01,
+        lot_volume=11.0,
+        historical_market={
+            "VALUE": 10_595_079_985.34,
+            "VOLUME": 143_606,
+            "WAPRICE": 82.84,
+        },
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"LOTVOLUME expected=10\.0 observed=11\.0",
+    ):
+        run_moex_contract_economics_spark_job(
+            raw_contract_specs_path=raw_paths["contracts"],
+            raw_fx_rates_path=raw_paths["fx"],
+            raw_rms_limits_path=raw_paths["limits"],
+            raw_rms_staticparams_path=raw_paths["staticparams"],
+            output_dir=tmp_path / "canonical",
+            run_id="economics-historical-br-lotvolume-mismatch",
+        )
+
+
+def test_contract_economics_spark_job_rejects_missing_latest_stepprice(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("pyspark.sql")
+    _configure_windows_spark_runtime(tmp_path, monkeypatch)
+    raw_paths = _write_single_day_raw_economics_fixture(
+        raw_root=tmp_path / "raw",
+        trade_date="2026-07-09",
+        official_step_price=0.0,
+    )
+
+    with pytest.raises(RuntimeError, match=r"STEPPRICE=1"):
+        run_moex_contract_economics_spark_job(
+            raw_contract_specs_path=raw_paths["contracts"],
+            raw_fx_rates_path=raw_paths["fx"],
+            raw_rms_limits_path=raw_paths["limits"],
+            raw_rms_staticparams_path=raw_paths["staticparams"],
+            output_dir=tmp_path / "canonical",
+            run_id="economics-missing-latest-stepprice",
+        )
+
+
+def test_contract_economics_spark_job_deduplicates_rms_snapshots_by_update_time(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("pyspark.sql")
+    _configure_windows_spark_runtime(tmp_path, monkeypatch)
+
+    trade_date = "2026-01-05"
+    assetcode = "BR"
+    raw_paths = _write_single_day_raw_economics_fixture(
+        raw_root=tmp_path / "raw",
+        trade_date=trade_date,
+        assetcode=assetcode,
+        official_margin=20_000.0,
+        fx_clearing_type="mc",
+    )
+    write_delta_table_rows(
+        table_path=raw_paths["limits"],
+        columns=_columns("raw_moex_rms_limits"),
+        mode="append",
+        rows=[
+            {
+                "source_id": "ncc_derivatives_limits",
+                "source_url": "https://www.nationalclearingcentre.com/rates/derivativesStaticParams",
+                "source_document_id": f"{assetcode}-{trade_date}-limits-old",
+                "source_document_hash": "limits-hash-old",
+                "fetched_at_utc": f"{trade_date}T09:03:00Z",
+                "trade_date": trade_date,
+                "assetcode": assetcode,
+                "mr1": 0.10,
+                "mr2": 0.0,
+                "mr3": 0.0,
+                "lk1": 0.0,
+                "lk2": 0.0,
+                "title": assetcode,
+                "group_title": "Fixture",
+                "update_time": f"{trade_date}T09:00:00Z",
+                "raw_payload_json": json.dumps({"ASSETCODE": assetcode, "MR1": 0.10}),
+            },
+            {
+                "source_id": "ncc_derivatives_limits",
+                "source_url": "https://www.nationalclearingcentre.com/rates/derivativesStaticParams",
+                "source_document_id": f"{assetcode}-{trade_date}-limits-latest",
+                "source_document_hash": "limits-hash-latest",
+                "fetched_at_utc": f"{trade_date}T20:03:00Z",
+                "trade_date": trade_date,
+                "assetcode": assetcode,
+                "mr1": 0.15,
+                "mr2": 0.0,
+                "mr3": 0.0,
+                "lk1": 0.0,
+                "lk2": 0.0,
+                "title": assetcode,
+                "group_title": "Fixture",
+                "update_time": f"{trade_date}T20:00:00Z",
+                "raw_payload_json": json.dumps({"ASSETCODE": assetcode, "MR1": 0.15}),
+            },
+        ],
+    )
+    write_delta_table_rows(
+        table_path=raw_paths["staticparams"],
+        columns=_columns("raw_moex_rms_staticparams"),
+        mode="append",
+        rows=[
+            {
+                "source_id": "ncc_derivatives_staticparams",
+                "source_url": "https://www.nationalclearingcentre.com/rates/derivativesStaticParams",
+                "source_document_id": f"{assetcode}-{trade_date}-staticparams-old",
+                "source_document_hash": "staticparams-hash-old",
+                "fetched_at_utc": f"{trade_date}T09:03:00Z",
+                "trade_date": trade_date,
+                "assetcode": assetcode,
+                "radius_pct": 11.0,
+                "update_time": f"{trade_date}T09:00:00Z",
+                "raw_payload_json": json.dumps({"ASSETCODE": assetcode, "RADIUS": 11.0}),
+            },
+            {
+                "source_id": "ncc_derivatives_staticparams",
+                "source_url": "https://www.nationalclearingcentre.com/rates/derivativesStaticParams",
+                "source_document_id": f"{assetcode}-{trade_date}-staticparams-latest",
+                "source_document_hash": "staticparams-hash-latest",
+                "fetched_at_utc": f"{trade_date}T20:03:00Z",
+                "trade_date": trade_date,
+                "assetcode": assetcode,
+                "radius_pct": 21.0,
+                "update_time": f"{trade_date}T20:00:00Z",
+                "raw_payload_json": json.dumps({"ASSETCODE": assetcode, "RADIUS": 21.0}),
+            },
+        ],
+    )
+
+    output_dir = tmp_path / "canonical"
+    report = run_moex_contract_economics_spark_job(
+        raw_contract_specs_path=raw_paths["contracts"],
+        raw_fx_rates_path=raw_paths["fx"],
+        raw_rms_limits_path=raw_paths["limits"],
+        raw_rms_staticparams_path=raw_paths["staticparams"],
+        output_dir=output_dir,
+        run_id="economics-rms-dedupe-fixture",
+        report_path=tmp_path / "evidence" / "contract-economics-report.json",
+    )
+
+    assert report["status"] == "PASS"
+    assert report["row_counts"]["canonical_asset_risk_parameters"] == 1
+    assert report["row_counts"]["canonical_contract_economics"] == 1
+
+    risk_rows = read_delta_table_rows(output_dir / "canonical_asset_risk_parameters.delta", limit=5)
+    assert len(risk_rows) == 1
+    risk_row = risk_rows[0]
+    assert risk_row["mr1"] == pytest.approx(0.15)
+    assert risk_row["radius_pct"] == pytest.approx(21.0)
+    assert risk_row["source_limits_hash"] == "limits-hash-latest"
+    assert risk_row["source_staticparams_hash"] == "staticparams-hash-latest"
+
+    economics_rows = read_delta_table_rows(
+        output_dir / "canonical_contract_economics.delta", limit=5
+    )
+    assert len(economics_rows) == 1
+    economics_row = economics_rows[0]
+    assert economics_row["mr1"] == pytest.approx(0.15)
+    assert economics_row["radius_pct"] == pytest.approx(21.0)
+    assert economics_row["margin_formula_base"] == pytest.approx(93.99 * 719.077 * 0.15)
 
 
 def test_contract_economics_spark_job_closes_effective_intervals(
@@ -361,14 +812,15 @@ def test_contract_economics_spark_job_closes_effective_intervals(
     raw_fx = raw_root / "raw_moex_indicative_fx_rates.delta"
     raw_limits = raw_root / "raw_moex_rms_limits.delta"
     raw_staticparams = raw_root / "raw_moex_rms_staticparams.delta"
+    canonical_calendar = tmp_path / "canonical_session_calendar.delta"
 
     contract_rows = []
     fx_rows = []
     limit_rows = []
     static_rows = []
-    for trade_date, settle_price, margin, fx_rate in (
-        ("2026-06-11", 93.99, 17_721.61, 71.9077),
-        ("2026-06-12", 94.25, 17_900.00, 72.1000),
+    for trade_date, settle_price, margin, fx_rate, official_step_price in (
+        ("2026-06-11", 93.99, 17_721.61, 71.9077, None),
+        ("2026-06-12", 94.25, 17_900.00, 72.1000, 7.21),
     ):
         contract_rows.append(
             {
@@ -388,7 +840,7 @@ def test_contract_economics_spark_job_closes_effective_intervals(
                 "last_del_date": "2026-07-15",
                 "min_step": 0.01,
                 "lot_volume": 10,
-                "official_step_price": fx_rate * 0.1,
+                "official_step_price": official_step_price,
                 "official_initial_margin": margin,
                 "last_settle_price": settle_price,
                 "raw_payload_json": json.dumps({"SECID": "BRN6", "ASSETCODE": "BR"}),
@@ -446,6 +898,10 @@ def test_contract_economics_spark_job_closes_effective_intervals(
             }
         )
 
+    fx_rows = [row for row in fx_rows if row["trade_date"] == "2026-06-12"]
+    limit_rows = [row for row in limit_rows if row["trade_date"] == "2026-06-12"]
+    static_rows = [row for row in static_rows if row["trade_date"] == "2026-06-12"]
+
     write_delta_table_rows(
         table_path=raw_contracts,
         columns=_columns("raw_moex_contract_securities"),
@@ -466,6 +922,27 @@ def test_contract_economics_spark_job_closes_effective_intervals(
         columns=_columns("raw_moex_rms_staticparams"),
         rows=static_rows,
     )
+    write_delta_table_rows(
+        table_path=canonical_calendar,
+        columns={
+            "instrument_id": "string",
+            "timeframe": "string",
+            "session_date": "date",
+            "session_open_ts": "timestamp",
+            "session_close_ts": "timestamp",
+            "session_class": "string",
+        },
+        rows=[
+            {
+                "instrument_id": "FUT_BR",
+                "timeframe": "1d",
+                "session_date": "2026-06-16",
+                "session_open_ts": "2026-06-16T07:00:00Z",
+                "session_close_ts": "2026-06-16T21:00:00Z",
+                "session_class": "regular",
+            }
+        ],
+    )
 
     output_dir = tmp_path / "canonical"
     report = run_moex_contract_economics_spark_job(
@@ -474,10 +951,18 @@ def test_contract_economics_spark_job_closes_effective_intervals(
         raw_rms_limits_path=raw_limits,
         raw_rms_staticparams_path=raw_staticparams,
         output_dir=output_dir,
+        canonical_session_calendar_path=canonical_calendar,
         run_id="economics-intervals",
     )
 
     assert report["status"] == "PASS"
+    assert report["step_price_unavailable_rows"] == 1
+    assert report["missing_economics_rows"] == 0
+    assert report["formula_margin_dominates_rows"] == 0
+    assert report["historical_missing_input_counts"]["FX"] == 1
+    assert report["historical_missing_input_counts"]["MR1"] == 1
+    assert report["zero_or_negative_effective_intervals"] == 0
+    assert report["duplicate_effective_from_rows"] == 0
     rows = sorted(
         read_delta_table_rows(output_dir / "canonical_contract_economics.delta", limit=10),
         key=lambda row: str(row["effective_from_ts"]),
@@ -487,6 +972,12 @@ def test_contract_economics_spark_job_closes_effective_intervals(
     assert rows[0]["effective_session_date"] == "2026-06-12"
     assert rows[0]["effective_from_ts"] == "2026-06-12T00:00:00Z"
     assert rows[0]["effective_to_ts"] == "2026-06-13T00:00:00Z"
+    assert rows[0]["step_price_rub"] is None
+    assert rows[0]["margin_required_estimate"] == pytest.approx(17_721.61)
+    assert rows[0]["model_quality"] == "official_initial_margin"
+    assert json.loads(str(rows[0]["source_flags_json"]))["effective_session_source"] == (
+        "calendar_gap_fallback"
+    )
     assert rows[1]["economics_session_date"] == "2026-06-12"
     assert rows[1]["effective_session_date"] == "2026-06-13"
     assert rows[1]["effective_from_ts"] == "2026-06-13T00:00:00Z"
@@ -507,6 +998,7 @@ def test_contract_economics_spark_job_merges_canonical_updates_without_losing_hi
         settle_price=93.99,
         official_margin=17_721.61,
         fx_rate=71.9077,
+        fx_clearing_type="mc",
     )
     output_dir = tmp_path / "canonical"
     run_moex_contract_economics_spark_job(
@@ -524,6 +1016,7 @@ def test_contract_economics_spark_job_merges_canonical_updates_without_losing_hi
         settle_price=94.25,
         official_margin=17_900.00,
         fx_rate=72.1000,
+        fx_clearing_type="mc",
     )
     report = run_moex_contract_economics_spark_job(
         raw_contract_specs_path=raw_paths["contracts"],
@@ -559,6 +1052,7 @@ def test_contract_economics_spark_job_deduplicates_latest_risk_snapshot_before_m
         settle_price=93.99,
         official_margin=17_721.61,
         fx_rate=71.9077,
+        fx_clearing_type="mc",
     )
     write_delta_table_rows(
         table_path=raw_paths["limits"],
@@ -873,7 +1367,7 @@ def test_contract_economics_spark_job_ignores_legacy_non_session_contract_dates(
     assert rows[0]["effective_session_date"] == "2026-06-22"
 
 
-def test_contract_economics_spark_job_applies_linked_asset_buffer_for_rub_quote(
+def test_contract_economics_spark_job_zeros_buffer_for_linked_rub_quote(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -906,7 +1400,7 @@ def test_contract_economics_spark_job_applies_linked_asset_buffer_for_rub_quote(
     assert len(rows) == 1
     assert rows[0]["quote_currency"] == "RUB"
     assert rows[0]["fx_rate_to_rub"] == pytest.approx(1.0)
-    assert rows[0]["margin_buffer_pct"] == pytest.approx(0.05)
+    assert rows[0]["margin_buffer_pct"] == pytest.approx(0.0)
 
 
 def test_research_execution_economics_join_uses_latest_asof_without_duplicates(
@@ -973,7 +1467,7 @@ def test_research_execution_economics_join_uses_latest_asof_without_duplicates(
         bars = spark.sql(
             """
             SELECT
-              'BRN6' AS contract_id,
+              'BRN6@MOEX' AS contract_id,
               CAST('2026-06-13 10:00:00' AS TIMESTAMP) AS ts
             """
         )
@@ -987,6 +1481,7 @@ def test_research_execution_economics_join_uses_latest_asof_without_duplicates(
         spark.stop()
 
     assert len(rows) == 1
+    assert rows[0]["contract_id"] == "BRN6@MOEX"
     assert rows[0]["execution_step_price_rub"] == pytest.approx(7.21)
     assert rows[0]["execution_margin_required_estimate"] == pytest.approx(18_795.0)
 

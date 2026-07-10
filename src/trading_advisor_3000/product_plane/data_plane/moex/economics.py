@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -10,8 +11,8 @@ from trading_advisor_3000.product_plane.data_plane.schemas.delta import (
     historical_data_delta_schema_manifest,
 )
 
-MOEX_CONTRACT_ECONOMICS_MODEL_VERSION = "moex_contract_economics_v1"
-MOEX_MARGIN_BUFFER_POLICY_VERSION = "moex_margin_buffer_policy_v1"
+MOEX_CONTRACT_ECONOMICS_MODEL_VERSION = "moex_contract_economics_v6"
+MOEX_MARGIN_BUFFER_POLICY_VERSION = "moex_margin_buffer_policy_none_v2"
 MOEX_DEFAULT_RADIUS_PCT = 15.0
 
 MOEX_ECONOMICS_RAW_TABLES = (
@@ -37,6 +38,8 @@ MOEX_USD_LINKED_ASSETS = frozenset(
         "SILVM",
         "NG",
         "NGM",
+        "PLD",
+        "PLT",
         "RTS",
         "RTSM",
         "SPYF",
@@ -59,6 +62,166 @@ MOEX_FX_LINKED_ASSETS = frozenset(
     }
 )
 MOEX_FX_OR_USD_LINKED_ASSETS = frozenset(sorted(MOEX_USD_LINKED_ASSETS | MOEX_FX_LINKED_ASSETS))
+
+
+@dataclass(frozen=True)
+class MoexContractParameterRegime:
+    rule_id: str
+    assetcode: str
+    effective_from: str
+    effective_to: str
+    min_step: float
+    lot_volume: float
+    quote_currency: str
+    tick_value_quote: float
+    source_document_id: str
+
+
+MOEX_HISTORICAL_CONTRACT_PARAMETER_REGIMES = (
+    MoexContractParameterRegime(
+        "BR-2022-2026-v1",
+        "BR",
+        "2022-06-17",
+        "2026-06-16",
+        0.01,
+        10.0,
+        "USD",
+        0.1,
+        "moex-productbook-2022",
+    ),
+    MoexContractParameterRegime(
+        "GOLD-2022-2026-v1",
+        "GOLD",
+        "2022-06-17",
+        "2026-06-16",
+        0.1,
+        1.0,
+        "USD",
+        0.1,
+        "moex-productbook-2022",
+    ),
+    MoexContractParameterRegime(
+        "SILV-2022-2026-v1",
+        "SILV",
+        "2022-06-17",
+        "2026-06-16",
+        0.01,
+        10.0,
+        "USD",
+        0.1,
+        "moex-productbook-2022",
+    ),
+    MoexContractParameterRegime(
+        "PLD-2022-2026-v1",
+        "PLD",
+        "2022-06-17",
+        "2026-06-16",
+        0.01,
+        1.0,
+        "USD",
+        0.01,
+        "moex-precious-metals-parameters",
+    ),
+    MoexContractParameterRegime(
+        "PLT-2022-2026-v1",
+        "PLT",
+        "2022-06-17",
+        "2026-06-16",
+        0.1,
+        1.0,
+        "USD",
+        0.1,
+        "moex-productbook-2022",
+    ),
+    MoexContractParameterRegime(
+        "NG-2022-2026-v1",
+        "NG",
+        "2022-06-17",
+        "2026-06-16",
+        0.001,
+        100.0,
+        "USD",
+        0.1,
+        "moex-productbook-2022",
+    ),
+    MoexContractParameterRegime(
+        "SPYF-2022-2026-v1",
+        "SPYF",
+        "2022-06-17",
+        "2026-06-16",
+        0.01,
+        1.0,
+        "USD",
+        0.01,
+        "moex-productbook-2022",
+    ),
+    MoexContractParameterRegime(
+        "NASD-2022-2026-v1",
+        "NASD",
+        "2022-06-17",
+        "2026-06-16",
+        1.0,
+        41.0,
+        "USD",
+        0.01,
+        "moex-n51134",
+    ),
+    MoexContractParameterRegime(
+        "RTS-2022-2026-v1",
+        "RTS",
+        "2022-06-17",
+        "2026-06-16",
+        10.0,
+        1.0,
+        "USD",
+        0.2,
+        "moex-productbook-2022",
+    ),
+    MoexContractParameterRegime(
+        "MIX-2022-2026-v1",
+        "MIX",
+        "2022-06-17",
+        "2026-06-16",
+        25.0,
+        1.0,
+        "RUB",
+        25.0,
+        "moex-productbook-2022",
+    ),
+    MoexContractParameterRegime(
+        "MXI-2022-2026-v1",
+        "MXI",
+        "2022-06-17",
+        "2026-06-16",
+        0.05,
+        1.0,
+        "RUB",
+        0.5,
+        "moex-documents-10061",
+    ),
+    MoexContractParameterRegime(
+        "RGBI-2022-2026-v1",
+        "RGBI",
+        "2022-06-17",
+        "2026-06-16",
+        1.0,
+        1.0,
+        "RUB",
+        1.0,
+        "moex-n41302",
+    ),
+    MoexContractParameterRegime(
+        "WHEAT-2022-2026-v1",
+        "WHEAT",
+        "2022-06-17",
+        "2026-06-16",
+        10.0,
+        1.0,
+        "RUB",
+        10.0,
+        "moex-documents-24522",
+    ),
+)
 
 
 def _utc_now_iso() -> str:
@@ -104,18 +267,8 @@ def margin_buffer_pct(
     days_to_expiry: int | None,
     assetcode: str | None = None,
 ) -> float:
-    if maturity_rank is not None and maturity_rank >= 3:
-        return 0.30
-    if days_to_expiry is not None and days_to_expiry > 120:
-        return 0.30
-
-    currency = (quote_currency or "RUB").strip().upper()
-    resolved_assetcode = _normalized_assetcode(instrument_id, assetcode)
-    if currency != "RUB":
-        return 0.05
-    if resolved_assetcode in MOEX_FX_OR_USD_LINKED_ASSETS:
-        return 0.05
-    return 0.01
+    del instrument_id, quote_currency, maturity_rank, days_to_expiry, assetcode
+    return 0.0
 
 
 def compute_contract_economics(
@@ -137,6 +290,10 @@ def compute_contract_economics(
     assetcode: str | None = None,
     moex_secid: str | None = None,
     official_step_price: object | None = None,
+    margin_calibration_factor: object | None = None,
+    margin_calibration_as_of_date: str | date | None = None,
+    margin_calibration_rank: int | None = None,
+    margin_calibration_source: str | None = None,
     expiration_date: str | date | None = None,
     effective_session_date: str | date | None = None,
     effective_from_ts: str | None = None,
@@ -158,7 +315,12 @@ def compute_contract_economics(
     mr1_value = _as_positive_float(mr1, field_name="MR1")
     official_margin = _as_float(official_initial_margin, field_name="INITIALMARGIN", required=False)
     official_margin = 0.0 if official_margin is None else max(0.0, official_margin)
-    official_step = _as_float(official_step_price, field_name="STEPPRICE", required=False)
+    official_step = _as_positive_float(official_step_price, field_name="STEPPRICE")
+    resolved_assetcode = _normalized_assetcode(resolved_instrument_id, assetcode)
+    resolved_quote_currency = (quote_currency or "RUB").strip().upper() or "RUB"
+    currency_radius_applies = (
+        resolved_quote_currency != "RUB" or resolved_assetcode in MOEX_FX_OR_USD_LINKED_ASSETS
+    )
     if radius_pct is None or radius_pct == "":
         radius_value = MOEX_DEFAULT_RADIUS_PCT
         radius_source = "policy_default"
@@ -168,12 +330,48 @@ def compute_contract_economics(
         if radius_value < 0:
             raise ValueError("RADIUS must be >= 0 for MOEX contract economics")
         radius_source = "source"
+    if not currency_radius_applies:
+        radius_value = 0.0
+        radius_source = "not_applicable_pure_rub"
 
-    tick_value_currency = min_step_value * lot_volume_value
-    step_price_rub = tick_value_currency * fx_rate_value
+    step_price_rub = official_step
+    tick_value_currency = (
+        step_price_rub
+        if (quote_currency or "RUB").strip().upper() == "RUB"
+        else step_price_rub / fx_rate_value
+    )
     margin_formula_base = settle_value * (step_price_rub / min_step_value) * mr1_value
     margin_radius_adjusted = margin_formula_base * (1.0 + radius_value / 100.0)
-    margin_required_no_buffer = max(official_margin, margin_radius_adjusted)
+    calibration_factor = _as_float(
+        margin_calibration_factor,
+        field_name="margin_calibration_factor",
+        required=False,
+    )
+    if calibration_factor is not None and calibration_factor <= 0:
+        raise ValueError("margin_calibration_factor must be > 0 for MOEX contract economics")
+    calibrated_margin = (
+        margin_radius_adjusted * calibration_factor if calibration_factor is not None else None
+    )
+    resolved_calibration_source = (
+        margin_calibration_source.strip()
+        if margin_calibration_source and margin_calibration_source.strip()
+        else "latest_official_asset_rank"
+        if calibration_factor is not None
+        else None
+    )
+    if official_margin > 0:
+        margin_required_no_buffer = official_margin
+        model_quality = "official_initial_margin"
+    elif calibrated_margin is not None:
+        margin_required_no_buffer = calibrated_margin
+        model_quality = (
+            "calibrated_nearest_rank"
+            if resolved_calibration_source == "latest_official_nearest_rank"
+            else "calibrated_asset_rank"
+        )
+    else:
+        margin_required_no_buffer = None
+        model_quality = "unavailable"
     buffer_pct = margin_buffer_pct(
         instrument_id=resolved_instrument_id,
         quote_currency=quote_currency,
@@ -196,10 +394,17 @@ def compute_contract_economics(
         if isinstance(expiration_date, date)
         else (str(expiration_date) if expiration_date else None)
     )
+    calibration_as_of_text = (
+        margin_calibration_as_of_date.isoformat()
+        if isinstance(margin_calibration_as_of_date, date)
+        else str(margin_calibration_as_of_date)
+        if margin_calibration_as_of_date
+        else None
+    )
     effective_from = effective_from_ts or f"{session_date_text}T19:00:00Z"
-    resolved_assetcode = _normalized_assetcode(resolved_instrument_id, assetcode)
     resolved_source_flags = dict(source_flags or {})
     resolved_source_flags.setdefault("radius_source", radius_source)
+    resolved_source_flags.setdefault("step_price_source", "moex_stepprice")
     return {
         "contract_id": resolved_contract_id,
         "instrument_id": resolved_instrument_id,
@@ -212,7 +417,7 @@ def compute_contract_economics(
         "effective_to_ts": effective_to_ts,
         "min_step": min_step_value,
         "lot_volume": lot_volume_value,
-        "quote_currency": (quote_currency or "RUB").strip().upper() or "RUB",
+        "quote_currency": resolved_quote_currency,
         "fx_rate_to_rub": fx_rate_value,
         "tick_value_currency": tick_value_currency,
         "step_price_rub": step_price_rub,
@@ -224,15 +429,19 @@ def compute_contract_economics(
         "radius_source": radius_source,
         "margin_formula_base": margin_formula_base,
         "margin_radius_adjusted": margin_radius_adjusted,
+        "margin_calibration_factor": calibration_factor,
+        "margin_calibration_as_of_date": calibration_as_of_text,
+        "margin_calibration_rank": margin_calibration_rank,
+        "margin_calibration_source": resolved_calibration_source,
         "margin_required_no_buffer": margin_required_no_buffer,
         "margin_buffer_pct": buffer_pct,
-        "margin_required_estimate": margin_required_no_buffer * (1.0 + buffer_pct),
+        "margin_required_estimate": margin_required_no_buffer,
         "maturity_rank": maturity_rank,
         "days_to_expiry": days_to_expiry,
         "expiration_date": expiration_date_text,
         "model_version": MOEX_CONTRACT_ECONOMICS_MODEL_VERSION,
         "buffer_policy_version": MOEX_MARGIN_BUFFER_POLICY_VERSION,
-        "model_quality": "estimated",
+        "model_quality": model_quality,
         "source_flags_json": resolved_source_flags,
         "source_document_hashes_json": dict(source_document_hashes or {}),
         "created_at": _utc_now_iso(),
