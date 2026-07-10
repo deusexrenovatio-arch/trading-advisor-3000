@@ -399,12 +399,12 @@ def test_spark_native_adjustment_uses_backward_current_anchor(
             ),
             rows=[
                 _contract_economics_row(
-                    contract_id="BRK2@MOEX",
+                    contract_id="BRK2",
                     step_price_rub=9.5,
                     margin_required_estimate=21_000.0,
                 ),
                 _contract_economics_row(
-                    contract_id="BRM2@MOEX",
+                    contract_id="BRM2",
                     step_price_rub=10.25,
                     margin_required_estimate=23_500.0,
                 ),
