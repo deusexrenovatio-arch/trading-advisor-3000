@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass
-from datetime import UTC, datetime
 import hashlib
 import json
 import math
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from statistics import median
 
@@ -16,7 +16,6 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     read_delta_table_rows,
     write_delta_table_rows,
 )
-
 
 MANDATORY_RECONCILIATION_DIMENSIONS: tuple[str, ...] = (
     "close_drift_bps",
@@ -211,7 +210,9 @@ def _fingerprint_finam_source(path: Path) -> dict[str, object]:
     }
 
 
-def _require_text(payload: dict[str, object], key: str, *, row_index: int, aliases: tuple[str, ...] = ()) -> str:
+def _require_text(
+    payload: dict[str, object], key: str, *, row_index: int, aliases: tuple[str, ...] = ()
+) -> str:
     for name in (key, *aliases):
         value = payload.get(name)
         if isinstance(value, str) and value.strip():
@@ -220,7 +221,9 @@ def _require_text(payload: dict[str, object], key: str, *, row_index: int, alias
     raise ValueError(f"row[{row_index}] `{key}` must be a non-empty string{alias_text}")
 
 
-def _require_number(payload: dict[str, object], key: str, *, row_index: int, aliases: tuple[str, ...] = ()) -> float:
+def _require_number(
+    payload: dict[str, object], key: str, *, row_index: int, aliases: tuple[str, ...] = ()
+) -> float:
     for name in (key, *aliases):
         value = payload.get(name)
         if isinstance(value, bool):
@@ -231,7 +234,9 @@ def _require_number(payload: dict[str, object], key: str, *, row_index: int, ali
     raise ValueError(f"row[{row_index}] `{key}` must be a number{alias_text}")
 
 
-def _require_int(payload: dict[str, object], key: str, *, row_index: int, aliases: tuple[str, ...] = ()) -> int:
+def _require_int(
+    payload: dict[str, object], key: str, *, row_index: int, aliases: tuple[str, ...] = ()
+) -> int:
     for name in (key, *aliases):
         value = payload.get(name)
         if isinstance(value, bool):
@@ -270,7 +275,10 @@ def _load_snapshot_source_rows(path: Path) -> list[dict[str, object]]:
                 if isinstance(row, dict)
             ]
 
-    raise ValueError(f"unsupported finam archive format: {resolved.as_posix()} (expected .json/.csv or delta table)")
+    raise ValueError(
+        f"unsupported finam archive format: {resolved.as_posix()} "
+        "(expected .json/.csv or delta table)"
+    )
 
 
 def _classify_lag(*, latency_seconds: float, lag_class_seconds: dict[str, int]) -> str:
@@ -321,7 +329,9 @@ def load_reconciliation_threshold_policy(path: Path) -> ThresholdPolicy:
         raise ValueError("threshold policy `close_drift_bps` must be object")
     close_by_group_raw = close_raw.get("hard_by_asset_group")
     if not isinstance(close_by_group_raw, dict) or not close_by_group_raw:
-        raise ValueError("threshold policy `close_drift_bps.hard_by_asset_group` must be non-empty object")
+        raise ValueError(
+            "threshold policy `close_drift_bps.hard_by_asset_group` must be non-empty object"
+        )
     close_by_group: dict[str, float] = {}
     for key, value in close_by_group_raw.items():
         if isinstance(value, bool) or not isinstance(value, (int, float)) or float(value) <= 0:
@@ -335,7 +345,9 @@ def load_reconciliation_threshold_policy(path: Path) -> ThresholdPolicy:
         raise ValueError("threshold policy `volume_drift_ratio` must be object")
     volume_by_tf_raw = volume_raw.get("hard_by_timeframe")
     if not isinstance(volume_by_tf_raw, dict) or not volume_by_tf_raw:
-        raise ValueError("threshold policy `volume_drift_ratio.hard_by_timeframe` must be non-empty object")
+        raise ValueError(
+            "threshold policy `volume_drift_ratio.hard_by_timeframe` must be non-empty object"
+        )
     volume_by_timeframe: dict[str, float] = {}
     for key, value in volume_by_tf_raw.items():
         if isinstance(value, bool) or not isinstance(value, (int, float)) or float(value) <= 0:
@@ -346,7 +358,11 @@ def load_reconciliation_threshold_policy(path: Path) -> ThresholdPolicy:
     if not isinstance(missing_raw, dict):
         raise ValueError("threshold policy `missing_bars_ratio` must be object")
     missing_hard = missing_raw.get("hard_max")
-    if isinstance(missing_hard, bool) or not isinstance(missing_hard, (int, float)) or not (0 <= float(missing_hard) < 1):
+    if (
+        isinstance(missing_hard, bool)
+        or not isinstance(missing_hard, (int, float))
+        or not (0 <= float(missing_hard) < 1)
+    ):
         raise ValueError("threshold policy `missing_bars_ratio.hard_max` must be in [0, 1)")
 
     lag_mismatch_raw = payload.get("lag_class_mismatch_ratio")
@@ -364,7 +380,9 @@ def load_reconciliation_threshold_policy(path: Path) -> ThresholdPolicy:
     if not isinstance(escalation_raw, dict):
         raise ValueError("threshold policy `escalation` must be object")
     require_alert_simulation = bool(escalation_raw.get("require_alert_simulation", True))
-    hard_violation_requires_incident = bool(escalation_raw.get("hard_violation_requires_incident", True))
+    hard_violation_requires_incident = bool(
+        escalation_raw.get("hard_violation_requires_incident", True)
+    )
     channels_raw = escalation_raw.get("channels")
     if not isinstance(channels_raw, list) or not channels_raw:
         raise ValueError("threshold policy `escalation.channels` must be non-empty list")
@@ -401,8 +419,12 @@ def _normalize_finam_snapshots(
             errors.append(f"row[{row_index}] must be object")
             continue
         try:
-            contract_id = _require_text(payload, "contract_id", row_index=row_index, aliases=("finam_symbol",))
-            instrument_id = _require_text(payload, "instrument_id", row_index=row_index, aliases=("internal_id",))
+            contract_id = _require_text(
+                payload, "contract_id", row_index=row_index, aliases=("finam_symbol",)
+            )
+            instrument_id = _require_text(
+                payload, "instrument_id", row_index=row_index, aliases=("internal_id",)
+            )
             timeframe = _require_text(payload, "timeframe", row_index=row_index)
             ts = _require_text(payload, "ts", row_index=row_index)
             close = _require_number(payload, "close", row_index=row_index)
@@ -423,7 +445,9 @@ def _normalize_finam_snapshots(
             source_dt = _parse_iso_utc(source_ts_utc)
             received_dt = _parse_iso_utc(received_at_utc)
             latency_seconds = max(0.0, (received_dt - source_dt).total_seconds())
-            lag_class = _classify_lag(latency_seconds=latency_seconds, lag_class_seconds=lag_class_seconds)
+            lag_class = _classify_lag(
+                latency_seconds=latency_seconds, lag_class_seconds=lag_class_seconds
+            )
             archive_batch_id = _require_text(payload, "archive_batch_id", row_index=row_index)
             source_provider = _require_text(payload, "source_provider", row_index=row_index)
             source_binding = _require_text(payload, "source_binding", row_index=row_index)
@@ -458,10 +482,7 @@ def _normalize_finam_snapshots(
         current = dedup.get(key)
         if current is None or row.received_at_utc > current.received_at_utc:
             dedup[key] = row
-    return [
-        dedup[key]
-        for key in sorted(dedup)
-    ]
+    return [dedup[key] for key in sorted(dedup)]
 
 
 def ingest_finam_archive_snapshots(
@@ -618,7 +639,8 @@ def _load_moex_overlap_rows(
             provenance = provenance_by_key.get((contract_id, timeframe, ts))
             if provenance is None:
                 raise ValueError(
-                    f"canonical row[{row_index}] missing provenance for key {contract_id}/{timeframe}/{ts}"
+                    f"canonical row[{row_index}] missing provenance for key "
+                    f"{contract_id}/{timeframe}/{ts}"
                 )
             source_ts = _require_text(
                 provenance,
@@ -630,8 +652,12 @@ def _load_moex_overlap_rows(
                 "built_at_utc",
                 row_index=row_index,
             )
-            latency = max(0.0, (_parse_iso_utc(built_at) - _parse_iso_utc(source_ts)).total_seconds())
-            lag_class = _classify_lag(latency_seconds=latency, lag_class_seconds=policy.lag_class_seconds)
+            latency = max(
+                0.0, (_parse_iso_utc(built_at) - _parse_iso_utc(source_ts)).total_seconds()
+            )
+            lag_class = _classify_lag(
+                latency_seconds=latency, lag_class_seconds=policy.lag_class_seconds
+            )
             source_provider = str(provenance.get("source_provider", "")).strip()
             normalized.append(
                 MoexOverlapRow(
@@ -755,11 +781,13 @@ def run_moex_reconciliation(
     generated_at_utc = _utc_now_iso()
 
     finam_table_path = output_dir / "delta" / "finam_archive_snapshots.delta"
-    finam_snapshots, finam_ingest_report, finam_provenance_artifact = ingest_finam_archive_snapshots(
-        source_path=finam_archive_source_path,
-        table_path=finam_table_path,
-        run_id=run_id,
-        policy=policy,
+    finam_snapshots, finam_ingest_report, finam_provenance_artifact = (
+        ingest_finam_archive_snapshots(
+            source_path=finam_archive_source_path,
+            table_path=finam_table_path,
+            run_id=run_id,
+            policy=policy,
+        )
     )
     moex_rows = _load_moex_overlap_rows(
         canonical_bars_path=canonical_bars_path,
@@ -769,14 +797,8 @@ def run_moex_reconciliation(
     )
     asset_group_by_contract = _load_moex_asset_groups(mapping_registry_path)
 
-    moex_by_key = {
-        (row.contract_id, row.timeframe, row.ts): row
-        for row in moex_rows
-    }
-    finam_by_key = {
-        (row.contract_id, row.timeframe, row.ts): row
-        for row in finam_snapshots
-    }
+    moex_by_key = {(row.contract_id, row.timeframe, row.ts): row for row in moex_rows}
+    finam_by_key = {(row.contract_id, row.timeframe, row.ts): row for row in finam_snapshots}
     moex_keys = set(moex_by_key)
     finam_keys = set(finam_by_key)
     matched_keys = sorted(moex_keys & finam_keys)
@@ -809,7 +831,9 @@ def run_moex_reconciliation(
         )
         volume_threshold = policy.volume_drift_hard_by_timeframe.get(moex.timeframe)
         if volume_threshold is None:
-            raise ValueError(f"threshold policy missing volume ratio threshold for timeframe `{moex.timeframe}`")
+            raise ValueError(
+                f"threshold policy missing volume ratio threshold for timeframe `{moex.timeframe}`"
+            )
 
         close_hard = close_drift_bps > close_threshold
         volume_hard = volume_drift_ratio > volume_threshold
@@ -951,7 +975,9 @@ def run_moex_reconciliation(
             "hard_max": policy.missing_bars_ratio_hard_max,
             "value": round(missing_ratio, 6),
             "violations": len(missing_in_finam),
-            "samples": _sample_errors([f"{contract}/{timeframe}/{ts}" for contract, timeframe, ts in missing_in_finam]),
+            "samples": _sample_errors(
+                [f"{contract}/{timeframe}/{ts}" for contract, timeframe, ts in missing_in_finam]
+            ),
         },
         {
             "gate": "lag_class",
@@ -1065,14 +1091,10 @@ def run_moex_reconciliation(
             "threshold_policy": threshold_policy_path.resolve().as_posix(),
         },
         "overlap_window_utc": {
-            "begin": min(
-                [row.ts for row in moex_rows] + [row.ts for row in finam_snapshots]
-            )
+            "begin": min([row.ts for row in moex_rows] + [row.ts for row in finam_snapshots])
             if moex_rows or finam_snapshots
             else "",
-            "end": max(
-                [row.ts for row in moex_rows] + [row.ts for row in finam_snapshots]
-            )
+            "end": max([row.ts for row in moex_rows] + [row.ts for row in finam_snapshots])
             if moex_rows or finam_snapshots
             else "",
         },

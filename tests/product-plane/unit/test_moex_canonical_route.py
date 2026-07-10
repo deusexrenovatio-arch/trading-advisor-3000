@@ -555,6 +555,7 @@ def test_spark_canonicalization_uses_raw_delta_input_instead_of_source_jsonl(
         '"source_document_hash":"sha256:fixture"}\n',
         encoding="utf-8",
     )
+
     def _fake_run(command, **_kwargs):
         output_json = Path(command[command.index("--output-json") + 1])
         output_json.parent.mkdir(parents=True, exist_ok=True)

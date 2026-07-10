@@ -242,9 +242,10 @@ def test_default_route_uses_scoped_spark_delta_publish_without_python_delta_read
     assert Path(str(report["artifact_paths"]["spark_publish_report"])).exists()
     assert report["spark_publish_report"]["output_paths"] == report["output_paths"]
     assert report["spark_publish_report"]["scoped_canonical_rows"] == 6
-    assert report["spark_publish_report"]["delta_log"]["canonical_session_calendar"][
-        "delta_log"
-    ] is True
+    assert (
+        report["spark_publish_report"]["delta_log"]["canonical_session_calendar"]["delta_log"]
+        is True
+    )
 
 
 def test_default_route_blocks_when_manual_session_intervals_are_absent(

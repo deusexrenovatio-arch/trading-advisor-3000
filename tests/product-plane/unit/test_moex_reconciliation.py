@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -11,7 +11,6 @@ from trading_advisor_3000.product_plane.data_plane.moex.reconciliation import (
     load_reconciliation_threshold_policy,
     run_moex_reconciliation,
 )
-
 
 CANONICAL_COLUMNS: dict[str, str] = {
     "contract_id": "string",
@@ -144,7 +143,9 @@ def _mapping_registry_path() -> Path:
     return Path("configs/moex_foundation/instrument_mapping_registry.v1.yaml")
 
 
-def test_reconciliation_threshold_policy_rejects_missing_lag_class_dimension(tmp_path: Path) -> None:
+def test_reconciliation_threshold_policy_rejects_missing_lag_class_dimension(
+    tmp_path: Path,
+) -> None:
     payload = {
         "version": 1,
         "policy_id": "broken.v1",
@@ -158,7 +159,11 @@ def test_reconciliation_threshold_policy_rejects_missing_lag_class_dimension(tmp
         "volume_drift_ratio": {"hard_by_timeframe": {"5m": 0.2}},
         "missing_bars_ratio": {"hard_max": 0.05},
         "lag_class_mismatch_ratio": {"hard_max": 0.2},
-        "escalation": {"require_alert_simulation": True, "hard_violation_requires_incident": True, "channels": ["ops"]},
+        "escalation": {
+            "require_alert_simulation": True,
+            "hard_violation_requires_incident": True,
+            "channels": ["ops"],
+        },
     }
     broken = tmp_path / "policy.yaml"
     broken.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")

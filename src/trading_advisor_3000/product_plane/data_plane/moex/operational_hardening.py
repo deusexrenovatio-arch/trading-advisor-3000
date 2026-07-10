@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import UTC, datetime
 import hashlib
 import json
-from pathlib import Path
 import re
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 
 import yaml
-
 
 MANDATORY_OPERATIONAL_JOB_IDS: tuple[str, ...] = (
     "moex_backfill_bootstrap",
@@ -202,14 +201,17 @@ def _validate_source_provenance(
     if not immutable_export_sha256:
         provenance_errors.append("source_provenance.immutable_export_sha256 is missing")
     elif not SHA256_HEX_RE.match(immutable_export_sha256):
-        provenance_errors.append("source_provenance.immutable_export_sha256 must be lowercase sha256 hex")
+        provenance_errors.append(
+            "source_provenance.immutable_export_sha256 must be lowercase sha256 hex"
+        )
 
     resolved_export_sha256 = ""
     if immutable_export_path is not None:
         resolved_export_sha256 = _sha256_path(immutable_export_path)
         if immutable_export_sha256 and immutable_export_sha256 != resolved_export_sha256:
             provenance_errors.append(
-                "source_provenance.immutable_export_sha256 does not match immutable export content hash"
+                "source_provenance.immutable_export_sha256 does not match "
+                "immutable export content hash"
             )
 
     for item in provenance_errors:
@@ -225,7 +227,9 @@ def _validate_source_provenance(
         "exported_at_utc": exported_at_utc,
         "collected_at_utc": collected_at_utc,
         "immutable_export_path": (
-            immutable_export_path.as_posix() if immutable_export_path is not None else immutable_export_path_raw
+            immutable_export_path.as_posix()
+            if immutable_export_path is not None
+            else immutable_export_path_raw
         ),
         "immutable_export_sha256": immutable_export_sha256,
         "resolved_export_sha256": resolved_export_sha256,
@@ -289,11 +293,19 @@ def load_operational_scheduler_policy(path: Path) -> SchedulerPolicy:
         raise ValueError("scheduler policy `scheduler_system` must be non-empty string")
 
     max_tick_age_minutes = payload.get("max_tick_age_minutes")
-    if isinstance(max_tick_age_minutes, bool) or not isinstance(max_tick_age_minutes, int) or max_tick_age_minutes <= 0:
+    if (
+        isinstance(max_tick_age_minutes, bool)
+        or not isinstance(max_tick_age_minutes, int)
+        or max_tick_age_minutes <= 0
+    ):
         raise ValueError("scheduler policy `max_tick_age_minutes` must be positive integer")
 
     max_queued_runs_per_job = payload.get("max_queued_runs_per_job")
-    if isinstance(max_queued_runs_per_job, bool) or not isinstance(max_queued_runs_per_job, int) or max_queued_runs_per_job < 0:
+    if (
+        isinstance(max_queued_runs_per_job, bool)
+        or not isinstance(max_queued_runs_per_job, int)
+        or max_queued_runs_per_job < 0
+    ):
         raise ValueError("scheduler policy `max_queued_runs_per_job` must be integer >= 0")
 
     jobs_raw = payload.get("jobs")
@@ -325,17 +337,26 @@ def load_operational_scheduler_policy(path: Path) -> SchedulerPolicy:
         if not isinstance(retry_raw, dict):
             raise ValueError(f"scheduler policy jobs[{index}].retry must be object")
         retry_max_attempts = retry_raw.get("max_attempts")
-        if isinstance(retry_max_attempts, bool) or not isinstance(retry_max_attempts, int) or retry_max_attempts <= 0:
-            raise ValueError(f"scheduler policy jobs[{index}].retry.max_attempts must be positive integer")
+        if (
+            isinstance(retry_max_attempts, bool)
+            or not isinstance(retry_max_attempts, int)
+            or retry_max_attempts <= 0
+        ):
+            raise ValueError(
+                f"scheduler policy jobs[{index}].retry.max_attempts must be positive integer"
+            )
 
         backoff_raw = retry_raw.get("backoff_seconds")
         if not isinstance(backoff_raw, list) or not backoff_raw:
-            raise ValueError(f"scheduler policy jobs[{index}].retry.backoff_seconds must be non-empty list")
+            raise ValueError(
+                f"scheduler policy jobs[{index}].retry.backoff_seconds must be non-empty list"
+            )
         backoff: list[int] = []
         for item in backoff_raw:
             if isinstance(item, bool) or not isinstance(item, int) or item <= 0:
                 raise ValueError(
-                    f"scheduler policy jobs[{index}].retry.backoff_seconds values must be positive integers"
+                    f"scheduler policy jobs[{index}].retry.backoff_seconds values "
+                    "must be positive integers"
                 )
             backoff.append(int(item))
 
@@ -374,7 +395,9 @@ def load_operational_monitoring_policy(path: Path) -> MonitoringPolicy:
         raise ValueError("monitoring policy `version` must be positive integer")
 
     freshness_sla_seconds = payload.get("freshness_sla_seconds")
-    if isinstance(freshness_sla_seconds, bool) or not isinstance(freshness_sla_seconds, (int, float)):
+    if isinstance(freshness_sla_seconds, bool) or not isinstance(
+        freshness_sla_seconds, (int, float)
+    ):
         raise ValueError("monitoring policy `freshness_sla_seconds` must be number")
     if float(freshness_sla_seconds) <= 0:
         raise ValueError("monitoring policy `freshness_sla_seconds` must be > 0")
@@ -412,7 +435,9 @@ def load_operational_monitoring_policy(path: Path) -> MonitoringPolicy:
             )
         )
 
-    missing_mandatory = sorted(set(MANDATORY_MONITORING_METRICS) - {item.metric_id for item in metric_rules})
+    missing_mandatory = sorted(
+        set(MANDATORY_MONITORING_METRICS) - {item.metric_id for item in metric_rules}
+    )
     if missing_mandatory:
         missing_text = ", ".join(missing_mandatory)
         raise ValueError(f"monitoring policy missing mandatory metrics: {missing_text}")
@@ -420,14 +445,18 @@ def load_operational_monitoring_policy(path: Path) -> MonitoringPolicy:
     dashboards_raw = payload.get("required_dashboards")
     if not isinstance(dashboards_raw, list) or not dashboards_raw:
         raise ValueError("monitoring policy `required_dashboards` must be non-empty list")
-    required_dashboards = tuple(sorted({str(item).strip() for item in dashboards_raw if str(item).strip()}))
+    required_dashboards = tuple(
+        sorted({str(item).strip() for item in dashboards_raw if str(item).strip()})
+    )
     if not required_dashboards:
         raise ValueError("monitoring policy `required_dashboards` must contain non-empty values")
 
     queries_raw = payload.get("required_queries")
     if not isinstance(queries_raw, list) or not queries_raw:
         raise ValueError("monitoring policy `required_queries` must be non-empty list")
-    required_queries = tuple(sorted({str(item).strip() for item in queries_raw if str(item).strip()}))
+    required_queries = tuple(
+        sorted({str(item).strip() for item in queries_raw if str(item).strip()})
+    )
     if not required_queries:
         raise ValueError("monitoring policy `required_queries` must contain non-empty values")
 
@@ -630,7 +659,8 @@ def _validate_scheduler_evidence(
                 row_reasons.append("last_tick_utc is in the future relative to collected_at_utc")
             if tick_age_minutes > float(policy.max_tick_age_minutes):
                 row_reasons.append(
-                    f"tick age {tick_age_minutes}m exceeds max_tick_age_minutes={policy.max_tick_age_minutes}"
+                    f"tick age {tick_age_minutes}m exceeds "
+                    f"max_tick_age_minutes={policy.max_tick_age_minutes}"
                 )
 
         if isinstance(queued_runs_raw, bool) or not isinstance(queued_runs_raw, int):
@@ -640,7 +670,8 @@ def _validate_scheduler_evidence(
             queued_runs = int(queued_runs_raw)
             if queued_runs > policy.max_queued_runs_per_job:
                 row_reasons.append(
-                    f"queued_runs={queued_runs} exceeds max_queued_runs_per_job={policy.max_queued_runs_per_job}"
+                    f"queued_runs={queued_runs} exceeds "
+                    f"max_queued_runs_per_job={policy.max_queued_runs_per_job}"
                 )
 
         job_results.append(
@@ -752,7 +783,9 @@ def _validate_monitoring_evidence(
             }
         )
 
-    failed_metrics = sorted(item["metric_id"] for item in metric_results if item["status"] == "FAIL")
+    failed_metrics = sorted(
+        item["metric_id"] for item in metric_results if item["status"] == "FAIL"
+    )
     if failed_metrics:
         errors.append(f"required monitoring metrics failed: {', '.join(failed_metrics)}")
 
@@ -768,7 +801,9 @@ def _validate_monitoring_evidence(
         if not url:
             errors.append(f"monitoring dashboard `{dashboard_id}` requires non-empty url")
         elif "example" in url.lower():
-            errors.append(f"monitoring dashboard `{dashboard_id}` url must not use example placeholder")
+            errors.append(
+                f"monitoring dashboard `{dashboard_id}` url must not use example placeholder"
+            )
 
     dashboard_ids = _extract_id_set(dashboards_raw)
     missing_dashboards = sorted(set(policy.required_dashboard_ids) - dashboard_ids)
@@ -866,7 +901,9 @@ def _validate_recovery_drill(
             }
         )
 
-    missing_stages = sorted(stage for stage in MANDATORY_RECOVERY_STAGES if stage not in stage_results)
+    missing_stages = sorted(
+        stage for stage in MANDATORY_RECOVERY_STAGES if stage not in stage_results
+    )
     if missing_stages:
         errors.append(f"recovery sequence missing mandatory stages: {', '.join(missing_stages)}")
 
@@ -1192,7 +1229,9 @@ def run_moex_operational_hardening(
         "route_signal": normalized_route_signal,
         "proof_class": "live-real",
         "status": "PASS" if allow_release else "BLOCKED",
-        "publish_decision": "release_decision_allow" if allow_release else "release_decision_blocked",
+        "publish_decision": "release_decision_allow"
+        if allow_release
+        else "release_decision_blocked",
         "target_release_decision": final_decision,
         "accepted_state_label": "release_decision" if allow_release else "planned",
         "release_surface_transition": {
@@ -1217,7 +1256,9 @@ def run_moex_operational_hardening(
             "monitoring_policy": monitoring_policy_path.resolve().as_posix(),
             "monitoring_evidence_source": monitoring_evidence_source_path.resolve().as_posix(),
             "recovery_drill_source": recovery_drill_source_path.resolve().as_posix(),
-            "defects_source": defects_source_path.resolve().as_posix() if defects_source_path else "",
+            "defects_source": defects_source_path.resolve().as_posix()
+            if defects_source_path
+            else "",
         },
         "artifact_paths": {
             "scheduler_snapshot": scheduler_snapshot_path.as_posix(),
