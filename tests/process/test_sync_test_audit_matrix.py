@@ -13,6 +13,7 @@ if str(SCRIPTS) not in sys.path:
 from sync_test_audit_matrix import (  # noqa: E402
     AUDIT_UPDATE_COLUMNS,
     classify_work_package,
+    collection_fingerprints,
     detect_file_signals,
     merge_rows,
     validate_rows,
@@ -464,3 +465,17 @@ def test_static_check_avoids_optional_imports_and_detects_test_tree_drift(
     )
     assert drift.returncode != 0
     assert "summary drift" in (drift.stdout + drift.stderr)
+
+
+def test_collection_fingerprint_is_stable_across_text_line_endings(tmp_path: Path) -> None:
+    test_file = tmp_path / "tests" / "unit" / "test_example.py"
+    test_file.parent.mkdir(parents=True, exist_ok=True)
+    config_file = tmp_path / "pyproject.toml"
+    test_file.write_bytes(b"def test_example():\r\n    assert True\r\n")
+    config_file.write_bytes(b"[tool.pytest.ini_options]\r\naddopts = '-q'\r\n")
+    crlf_fingerprints = collection_fingerprints(tmp_path)
+
+    test_file.write_bytes(b"def test_example():\n    assert True\n")
+    config_file.write_bytes(b"[tool.pytest.ini_options]\naddopts = '-q'\n")
+
+    assert collection_fingerprints(tmp_path) == crlf_fingerprints

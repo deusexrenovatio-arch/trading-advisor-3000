@@ -179,6 +179,7 @@ tests/process/test_sync_skills_catalog.py::test_sync_skills_catalog_detects_drif
 tests/process/test_sync_skills_catalog.py::test_sync_skills_catalog_generate_and_check,active,G2,process,pending,,,none,source-structure,,,
 tests/process/test_sync_test_audit_matrix.py::test_classify_work_package_uses_stable_domain_blocks,active,G1,process,pending,,,none,,,,
 tests/process/test_sync_test_audit_matrix.py::test_cli_write_preserves_reviews_and_check_detects_drift,active,G1,process,pending,,,none,source-structure,,,
+tests/process/test_sync_test_audit_matrix.py::test_collection_fingerprint_is_stable_across_text_line_endings,active,G1,process,pending,,,none,,,,
 tests/process/test_sync_test_audit_matrix.py::test_detect_file_signals_marks_skip_and_source_structure_checks,active,G1,process,pending,,,none,,,,
 tests/process/test_sync_test_audit_matrix.py::test_invalid_update_does_not_mutate_generated_state,active,G1,process,pending,,,none,,,,
 tests/process/test_sync_test_audit_matrix.py::test_merge_rows_preserves_manual_audit_fields_and_adds_new_tests,active,G1,process,pending,,,none,,,,

@@ -518,7 +518,13 @@ def _fingerprint_files(repo_root: Path, paths: Iterable[Path]) -> str:
         relative_path = path.relative_to(repo_root).as_posix()
         digest.update(relative_path.encode("utf-8"))
         digest.update(b"\0")
-        digest.update(path.read_bytes())
+        content = path.read_bytes()
+        try:
+            normalized = content.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+            content = normalized.encode("utf-8")
+        except UnicodeDecodeError:
+            pass
+        digest.update(content)
         digest.update(b"\0")
     return digest.hexdigest()
 
