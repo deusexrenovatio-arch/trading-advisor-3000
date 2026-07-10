@@ -17,6 +17,7 @@ from run_boring_checks import (  # noqa: E402
     _parse_pyproject,
     _python_targets,
     _run_test_audit_matrix_check,
+    _test_audit_matrix_required,
 )
 
 
@@ -83,6 +84,14 @@ def test_test_audit_matrix_check_runs_public_sync_cli(
         "timeout": 17,
         "env": None,
     }
+
+
+def test_test_audit_matrix_check_is_collection_sensitive() -> None:
+    assert _test_audit_matrix_required("changed", ["tests/product-plane/unit/test_new.py"])
+    assert _test_audit_matrix_required("changed", ["pyproject.toml"])
+    assert _test_audit_matrix_required("changed", ["docs/agent/audits/test-audit-updates/M1.csv"])
+    assert _test_audit_matrix_required("all", ["docs/README.md"])
+    assert not _test_audit_matrix_required("changed", ["docs/README.md"])
 
 
 def test_pyproject_change_runs_config_smoke_target() -> None:

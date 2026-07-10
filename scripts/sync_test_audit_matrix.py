@@ -482,10 +482,12 @@ def read_update_rows(updates_dir: Path) -> tuple[list[dict[str, str]], list[str]
             if tuple(reader.fieldnames or ()) != AUDIT_UPDATE_COLUMNS:
                 errors.append(f"{path.name}: update schema drift")
                 continue
+            package_nodeids: list[str] = []
             for source_row in reader:
                 row = {column: source_row.get(column, "") for column in AUDIT_UPDATE_COLUMNS}
                 nodeid = _normalize_nodeid(row["nodeid"])
                 row["nodeid"] = nodeid
+                package_nodeids.append(nodeid)
                 actual_package = classify_work_package(nodeid)
                 if actual_package != package:
                     errors.append(f"{nodeid}: belongs to {actual_package}, not {package}")
@@ -496,6 +498,8 @@ def read_update_rows(updates_dir: Path) -> tuple[list[dict[str, str]], list[str]
                     )
                 owners[nodeid] = package
                 updates.append(row)
+            if package_nodeids != sorted(package_nodeids):
+                errors.append(f"{path.name}: nodeids must be sorted")
     return updates, errors
 
 
@@ -634,15 +638,16 @@ def run(
             or summary_path.read_text(encoding="utf-8") != expected_summary
         ):
             errors.append("summary drift: run sync_test_audit_matrix.py --write")
-    else:
-        write_matrix(matrix_path, expected)
-        summary_path.parent.mkdir(parents=True, exist_ok=True)
-        summary_path.write_text(render_summary(expected), encoding="utf-8")
 
     if errors:
         for error in errors:
             print(f"test audit matrix: ERROR: {error}", file=sys.stderr)
         return 1
+
+    if not check:
+        write_matrix(matrix_path, expected)
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        summary_path.write_text(render_summary(expected), encoding="utf-8")
 
     action = "check" if check else "write"
     active_count = sum(row["collection_state"] == "active" for row in expected)

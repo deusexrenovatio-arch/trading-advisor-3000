@@ -297,3 +297,105 @@ def test_package_update_fragment_overlays_matrix_and_rejects_wrong_owner(tmp_pat
 
     assert rejected.returncode != 0
     assert "belongs to G2, not X" in (rejected.stdout + rejected.stderr)
+
+
+def test_invalid_update_does_not_mutate_generated_state(tmp_path: Path) -> None:
+    nodeid = "tests/process/test_process_reports.py::test_report"
+    collection = tmp_path / "nodeids.txt"
+    matrix = tmp_path / "test-audit-matrix.csv"
+    summary = tmp_path / "test-audit-summary.md"
+    updates = tmp_path / "updates"
+    collection.write_text(f"{nodeid}\n", encoding="utf-8")
+
+    initial = _run(
+        "--write",
+        "--collection-file",
+        str(collection),
+        "--matrix",
+        str(matrix),
+        "--summary",
+        str(summary),
+        cwd=tmp_path,
+    )
+    assert initial.returncode == 0, initial.stdout + "\n" + initial.stderr
+    matrix_before = matrix.read_bytes()
+    summary_before = summary.read_bytes()
+
+    _write_update(
+        updates / "G2.csv",
+        {
+            "nodeid": nodeid,
+            "collection_state": "active",
+            "audit_status": "reviewed",
+            "decision": "good",
+            "problem_codes": "none",
+            "skip_policy": "none",
+            "behavior_contract": "",
+            "evidence": "",
+            "reviewed_by": "agent-g2",
+        },
+    )
+    rejected = _run(
+        "--write",
+        "--collection-file",
+        str(collection),
+        "--matrix",
+        str(matrix),
+        "--summary",
+        str(summary),
+        "--updates-dir",
+        str(updates),
+        cwd=tmp_path,
+    )
+
+    assert rejected.returncode != 0
+    assert "requires behavior_contract" in (rejected.stdout + rejected.stderr)
+    assert matrix.read_bytes() == matrix_before
+    assert summary.read_bytes() == summary_before
+
+
+def test_update_fragment_requires_deterministic_nodeid_order(tmp_path: Path) -> None:
+    first = "tests/process/test_agent_process_telemetry.py::test_metrics"
+    second = "tests/process/test_process_reports.py::test_report"
+    collection = tmp_path / "nodeids.txt"
+    matrix = tmp_path / "test-audit-matrix.csv"
+    summary = tmp_path / "test-audit-summary.md"
+    update_path = tmp_path / "updates" / "G2.csv"
+    collection.write_text(f"{first}\n{second}\n", encoding="utf-8")
+    update_path.parent.mkdir(parents=True, exist_ok=True)
+
+    rows = []
+    for nodeid in (second, first):
+        rows.append(
+            {
+                "nodeid": nodeid,
+                "collection_state": "active",
+                "audit_status": "reviewed",
+                "decision": "good",
+                "problem_codes": "none",
+                "skip_policy": "none",
+                "behavior_contract": "Observable process report behavior.",
+                "evidence": "pytest focused proof",
+                "reviewed_by": "agent-g2",
+            }
+        )
+    with update_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=AUDIT_UPDATE_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    rejected = _run(
+        "--write",
+        "--collection-file",
+        str(collection),
+        "--matrix",
+        str(matrix),
+        "--summary",
+        str(summary),
+        "--updates-dir",
+        str(update_path.parent),
+        cwd=tmp_path,
+    )
+
+    assert rejected.returncode != 0
+    assert "nodeids must be sorted" in (rejected.stdout + rejected.stderr)
