@@ -10,16 +10,16 @@ if TYPE_CHECKING:
     from .moex import (
         run_moex_foundation,
         run_historical_canonical_route,
-        run_phase03_reconciliation,
-        run_phase04_production_hardening,
+        run_moex_reconciliation,
+        run_moex_operational_hardening,
     )
 
 
 _MOEX_EXPORTS = {
     "run_moex_foundation",
     "run_historical_canonical_route",
-    "run_phase03_reconciliation",
-    "run_phase04_production_hardening",
+    "run_moex_reconciliation",
+    "run_moex_operational_hardening",
 }
 
 

@@ -33,15 +33,15 @@ if TYPE_CHECKING:
         takeover_technical_route_lease,
     )
     from .iss_client import MoexISSClient
-    from .phase03_reconciliation import (
-        ingest_finam_archive_snapshots,
-        load_phase03_threshold_policy,
-        run_phase03_reconciliation,
+    from .operational_hardening import (
+        load_operational_monitoring_policy,
+        load_operational_scheduler_policy,
+        run_moex_operational_hardening,
     )
-    from .phase04_operations import (
-        load_phase04_monitoring_policy,
-        load_phase04_scheduler_policy,
-        run_phase04_production_hardening,
+    from .reconciliation import (
+        ingest_finam_archive_snapshots,
+        load_reconciliation_threshold_policy,
+        run_moex_reconciliation,
     )
     from .route_staging_binding import build_route_staging_binding_report
     from .runtime_instances import (
@@ -94,11 +94,20 @@ _MODULE_EXPORTS = {
     ),
     "ingest_moex_baseline_window": (".foundation", "ingest_moex_baseline_window"),
     "ingest_moex_bootstrap_window": (".foundation", "ingest_moex_bootstrap_window"),
-    "ingest_finam_archive_snapshots": (".phase03_reconciliation", "ingest_finam_archive_snapshots"),
+    "ingest_finam_archive_snapshots": (".reconciliation", "ingest_finam_archive_snapshots"),
     "load_mapping_registry": (".foundation", "load_mapping_registry"),
-    "load_phase03_threshold_policy": (".phase03_reconciliation", "load_phase03_threshold_policy"),
-    "load_phase04_monitoring_policy": (".phase04_operations", "load_phase04_monitoring_policy"),
-    "load_phase04_scheduler_policy": (".phase04_operations", "load_phase04_scheduler_policy"),
+    "load_reconciliation_threshold_policy": (
+        ".reconciliation",
+        "load_reconciliation_threshold_policy",
+    ),
+    "load_operational_monitoring_policy": (
+        ".operational_hardening",
+        "load_operational_monitoring_policy",
+    ),
+    "load_operational_scheduler_policy": (
+        ".operational_hardening",
+        "load_operational_scheduler_policy",
+    ),
     "load_moex_runtime_instances_registry": (
         ".runtime_instances",
         "load_moex_runtime_instances_registry",
@@ -131,8 +140,11 @@ _MODULE_EXPORTS = {
         ".historical_dagster_cutover",
         "run_historical_dagster_cutover",
     ),
-    "run_phase03_reconciliation": (".phase03_reconciliation", "run_phase03_reconciliation"),
-    "run_phase04_production_hardening": (".phase04_operations", "run_phase04_production_hardening"),
+    "run_moex_reconciliation": (".reconciliation", "run_moex_reconciliation"),
+    "run_moex_operational_hardening": (
+        ".operational_hardening",
+        "run_moex_operational_hardening",
+    ),
     "run_qc_gates": (".historical_canonical_route", "run_qc_gates"),
     "run_runtime_decoupling_check": (".historical_canonical_route", "run_runtime_decoupling_check"),
     "render_moex_runtime_instance_paths": (

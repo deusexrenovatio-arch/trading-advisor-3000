@@ -572,10 +572,19 @@ def _load_moex_overlap_rows(
     *,
     canonical_bars_path: Path,
     canonical_provenance_path: Path,
+    finam_snapshots: list[FinamArchiveSnapshot],
     policy: ThresholdPolicy,
 ) -> list[MoexOverlapRow]:
-    bars = read_delta_table_rows(canonical_bars_path)
-    provenance_rows = read_delta_table_rows(canonical_provenance_path)
+    if not finam_snapshots:
+        raise ValueError("finam archive produced no snapshots for MOEX reconciliation overlap")
+    filters = [
+        ("contract_id", "in", sorted({row.contract_id for row in finam_snapshots})),
+        ("timeframe", "in", sorted({row.timeframe for row in finam_snapshots})),
+        ("ts", ">=", min(row.ts for row in finam_snapshots)),
+        ("ts", "<=", max(row.ts for row in finam_snapshots)),
+    ]
+    bars = read_delta_table_rows(canonical_bars_path, filters=filters)
+    provenance_rows = read_delta_table_rows(canonical_provenance_path, filters=filters)
     provenance_by_key: dict[tuple[str, str, str], dict[str, object]] = {}
 
     for row in provenance_rows:
@@ -755,6 +764,7 @@ def run_moex_reconciliation(
     moex_rows = _load_moex_overlap_rows(
         canonical_bars_path=canonical_bars_path,
         canonical_provenance_path=canonical_provenance_path,
+        finam_snapshots=finam_snapshots,
         policy=policy,
     )
     asset_group_by_contract = _load_moex_asset_groups(mapping_registry_path)

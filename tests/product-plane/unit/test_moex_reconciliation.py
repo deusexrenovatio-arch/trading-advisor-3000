@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
-from trading_advisor_3000.product_plane.data_plane.moex.reconciliation_reconciliation import (
+from trading_advisor_3000.product_plane.data_plane.moex.reconciliation import (
     load_reconciliation_threshold_policy,
     run_moex_reconciliation,
 )
@@ -205,7 +205,7 @@ def test_reconciliation_blocks_when_alert_simulation_not_executed(
         )
 
     monkeypatch.setattr(
-        "trading_advisor_3000.product_plane.data_plane.moex.reconciliation_reconciliation._build_alert_simulation",
+        "trading_advisor_3000.product_plane.data_plane.moex.reconciliation._build_alert_simulation",
         _disabled_alerts,
     )
 

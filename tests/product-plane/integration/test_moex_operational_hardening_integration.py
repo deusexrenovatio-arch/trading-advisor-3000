@@ -96,7 +96,7 @@ def _phase_reports(base: Path) -> tuple[Path, Path, Path, Path, Path, Path]:
     raw_ingest_acceptance = _write_acceptance_report(base / "raw-ingest-acceptance.json")
     canonicalization_acceptance = _write_acceptance_report(base / "canonicalization-acceptance.json")
     reconciliation_acceptance = _write_acceptance_report(base / "reconciliation-acceptance.json")
-    return raw_ingest, canonicalization, reconciliation, raw_ingest_acceptance, canonicalization_acceptance, reconciliation_acceptance
+    return phase01, phase02, phase03, raw_ingest_acceptance, canonicalization_acceptance, reconciliation_acceptance
 
 
 def _scheduler_policy() -> dict[str, object]:
@@ -455,9 +455,9 @@ def test_operational_hardening_integration_filters_template_real_bindings(tmp_pa
     recovery_evidence = _recovery_evidence(tmp_path / "inputs" / "recovery.json")
 
     report = run_moex_operational_hardening(
-        raw_ingest_report_path=raw_ingest,
-        canonicalization_report_path=canonicalization,
-        reconciliation_report_path=reconciliation,
+        raw_ingest_report_path=phase01,
+        canonicalization_report_path=phase02,
+        reconciliation_report_path=phase03,
         raw_ingest_acceptance_path=raw_ingest_acceptance,
         canonicalization_acceptance_path=canonicalization_acceptance,
         reconciliation_acceptance_path=reconciliation_acceptance,
