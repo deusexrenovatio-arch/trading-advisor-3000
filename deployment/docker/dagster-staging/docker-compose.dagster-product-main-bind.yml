@@ -24,6 +24,8 @@ services:
       TA3000_MOEX_PRODUCT_RUNTIME_STAGING_ROOT: /ta3000-data/staging/product/moex-historical
       TA3000_MOEX_VERIFICATION_STAGING_ROOT: /ta3000-data/staging/test/moex-verification
       TA3000_MOEX_CANONICALIZATION_SPARK_PROFILE: local
+      TA3000_SPARK_DRIVER_MEMORY: "${TA3000_SPARK_DRIVER_MEMORY:-4g}"
+      PYSPARK_SUBMIT_ARGS: "--driver-memory ${TA3000_SPARK_DRIVER_MEMORY:-4g} pyspark-shell"
     ports:
       - "${TA3000_DAGSTER_PORT:-3000}:3000"
     volumes:
@@ -66,6 +68,8 @@ services:
       TA3000_MOEX_PRODUCT_RUNTIME_STAGING_ROOT: /ta3000-data/staging/product/moex-historical
       TA3000_MOEX_VERIFICATION_STAGING_ROOT: /ta3000-data/staging/test/moex-verification
       TA3000_MOEX_CANONICALIZATION_SPARK_PROFILE: local
+      TA3000_SPARK_DRIVER_MEMORY: "${TA3000_SPARK_DRIVER_MEMORY:-4g}"
+      PYSPARK_SUBMIT_ARGS: "--driver-memory ${TA3000_SPARK_DRIVER_MEMORY:-4g} pyspark-shell"
     volumes:
       - dagster-product-home:/opt/dagster/dagster_home
       - "${TA3000_PRODUCT_MAIN_WORKTREE:-D:/TA3000-production}:/workspace:ro"
