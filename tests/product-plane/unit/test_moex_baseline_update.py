@@ -56,6 +56,44 @@ def _write_empty_baseline(tmp_path: Path) -> tuple[Path, Path, Path]:
     return raw_table_path, canonical_bars_path, canonical_provenance_path
 
 
+def _contract_economics_row(
+    contract_id: str,
+    *,
+    economics_session_date: str = "2026-07-10",
+    effective_session_date: str = "2026-07-11",
+    effective_from_ts: str = "2026-07-11T06:00:00Z",
+    effective_to_ts: str | None = None,
+    fx_rate_to_rub: float = 1.0,
+) -> dict[str, object]:
+    return {
+        "contract_id": contract_id,
+        "instrument_id": f"FUT_{contract_id}",
+        "moex_secid": contract_id,
+        "assetcode": contract_id[:2],
+        "economics_session_date": economics_session_date,
+        "effective_session_date": effective_session_date,
+        "clearing_type": "mc",
+        "effective_from_ts": effective_from_ts,
+        "effective_to_ts": effective_to_ts,
+        "min_step": 1.0,
+        "lot_volume": 1.0,
+        "quote_currency": "RUB",
+        "fx_rate_to_rub": fx_rate_to_rub,
+        "tick_value_currency": 1.0,
+        "step_price_rub": 1.0,
+        "official_step_price": 1.0,
+        "official_initial_margin": 0.0,
+        "last_settle_price": 100.0,
+        "mr1": 0.1,
+        "radius_pct": 15.0,
+        "margin_required_estimate": 1_000.0,
+        "model_quality": "calibrated_asset_rank",
+        "model_version": "test-model",
+        "buffer_policy_version": "test-buffer-policy",
+        "created_at": "2026-07-10T23:10:24Z",
+    }
+
+
 def _write_contract_economics_table(
     table_path: Path,
     *,
@@ -65,39 +103,20 @@ def _write_contract_economics_table(
     effective_from_ts: str = "2026-07-11T06:00:00Z",
     effective_to_ts: str | None = None,
     invalid_contract_id: str | None = None,
+    additional_rows: tuple[dict[str, object], ...] = (),
 ) -> None:
-    rows = []
-    for contract_id in contract_ids:
-        positive_value = 0.0 if contract_id == invalid_contract_id else 1.0
-        rows.append(
-            {
-                "contract_id": contract_id,
-                "instrument_id": f"FUT_{contract_id}",
-                "moex_secid": contract_id,
-                "assetcode": contract_id[:2],
-                "economics_session_date": economics_session_date,
-                "effective_session_date": effective_session_date,
-                "clearing_type": "mc",
-                "effective_from_ts": effective_from_ts,
-                "effective_to_ts": effective_to_ts,
-                "min_step": 1.0,
-                "lot_volume": 1.0,
-                "quote_currency": "RUB",
-                "fx_rate_to_rub": positive_value,
-                "tick_value_currency": 1.0,
-                "step_price_rub": 1.0,
-                "official_step_price": 1.0,
-                "official_initial_margin": 0.0,
-                "last_settle_price": 100.0,
-                "mr1": 0.1,
-                "radius_pct": 15.0,
-                "margin_required_estimate": 1_000.0,
-                "model_quality": "calibrated_asset_rank",
-                "model_version": "test-model",
-                "buffer_policy_version": "test-buffer-policy",
-                "created_at": "2026-07-10T23:10:24Z",
-            }
+    rows = [
+        _contract_economics_row(
+            contract_id,
+            economics_session_date=economics_session_date,
+            effective_session_date=effective_session_date,
+            effective_from_ts=effective_from_ts,
+            effective_to_ts=effective_to_ts,
+            fx_rate_to_rub=0.0 if contract_id == invalid_contract_id else 1.0,
         )
+        for contract_id in contract_ids
+    ]
+    rows.extend(additional_rows)
     write_delta_table_rows(
         table_path=table_path,
         rows=rows,
@@ -474,7 +493,25 @@ def test_baseline_update_reuses_covered_published_economics_when_source_is_tempo
     _patch_common_inputs(monkeypatch, changed_windows)
     canonical_economics_root = tmp_path / "canonical" / "economics"
     economics_table_path = canonical_economics_root / "canonical_contract_economics.delta"
-    _write_contract_economics_table(economics_table_path, contract_ids=("BRM6",))
+    older_invalid_rows = (
+        (
+            _contract_economics_row(
+                "BRM6",
+                economics_session_date="2026-07-09",
+                effective_session_date="2026-07-10",
+                effective_from_ts="2026-07-10T06:00:00Z",
+                effective_to_ts="2026-07-11T12:00:00Z",
+                fx_rate_to_rub=0.0,
+            ),
+        )
+        if target_session_date == "2026-07-11"
+        else ()
+    )
+    _write_contract_economics_table(
+        economics_table_path,
+        contract_ids=("BRM6",),
+        additional_rows=older_invalid_rows,
+    )
     version_before = delta_table_version(economics_table_path)
     stage_order: list[str] = []
 
@@ -532,6 +569,12 @@ def test_baseline_update_reuses_covered_published_economics_when_source_is_tempo
         report["economics_refresh"]["published_coverage"]["target_session_date"]
         == target_session_date
     )
+    assert report["economics_refresh"]["published_coverage"]["effective_session_dates"] == [
+        "2026-07-11"
+    ]
+    assert report["economics_refresh"]["published_coverage"]["economics_session_dates"] == [
+        "2026-07-10"
+    ]
     assert report["economics_refresh"]["published_coverage"]["delta_version"] == version_before
     assert delta_table_version(economics_table_path) == version_before
     assert not (tmp_path / "evidence" / "pending-changed-windows.json").exists()
@@ -544,10 +587,29 @@ def test_baseline_update_reuses_covered_published_economics_when_source_is_tempo
         "expected_missing_contract_ids",
         "expected_invalid_contracts",
         "error_match",
+        "target_session_date",
+        "effective_to_ts",
     ),
     [
-        (("BRM6", "SiU6"), None, ["SiU6"], {}, "SiU6"),
-        (("BRM6",), "BRM6", [], {"BRM6": ["fx_rate_to_rub"]}, "BRM6"),
+        (("BRM6", "SiU6"), None, ["SiU6"], {}, "SiU6", "2026-07-11", None),
+        (
+            ("BRM6",),
+            "BRM6",
+            [],
+            {"BRM6": ["fx_rate_to_rub"]},
+            "BRM6",
+            "2026-07-11",
+            None,
+        ),
+        (
+            ("BRM6",),
+            None,
+            ["BRM6"],
+            {},
+            "BRM6",
+            "2026-07-12",
+            "2026-07-12T12:00:00Z",
+        ),
     ],
 )
 def test_baseline_update_fails_closed_when_published_economics_coverage_is_incomplete_or_invalid(
@@ -558,6 +620,8 @@ def test_baseline_update_fails_closed_when_published_economics_coverage_is_incom
     expected_missing_contract_ids: list[str],
     expected_invalid_contracts: dict[str, list[str]],
     error_match: str,
+    target_session_date: str,
+    effective_to_ts: str | None,
 ) -> None:
     raw_table_path, canonical_bars_path, canonical_provenance_path = _write_empty_baseline(tmp_path)
     changed_windows = [
@@ -578,12 +642,13 @@ def test_baseline_update_fails_closed_when_published_economics_coverage_is_incom
         economics_table_path,
         contract_ids=("BRM6",),
         invalid_contract_id=invalid_contract_id,
+        effective_to_ts=effective_to_ts,
     )
     version_before = delta_table_version(economics_table_path)
 
     def _source_unavailable(**_kwargs):
         raise baseline_module.EconomicsSourceUnavailable(
-            target_session_date="2026-07-11",
+            target_session_date=target_session_date,
             required_contract_ids=required_contract_ids,
             missing_sources=("indicative_fx",),
         )
