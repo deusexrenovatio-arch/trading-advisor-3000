@@ -264,7 +264,7 @@ def build_moex_baseline_run_config_for_instance(
                     "canonical_session_calendar_path": paths["canonical_session_calendar"],
                     "canonical_roll_map_path": paths["canonical_roll_map"],
                     "economics_mode": _require_text(
-                        defaults.get("economics_mode", "refresh"),
+                        defaults.get("economics_mode"),
                         name=f"{instance.instance_id}.launch_defaults.economics_mode",
                     ),
                     "raw_economics_root": paths["raw_economics_root"],
@@ -280,7 +280,7 @@ def build_moex_baseline_run_config_for_instance(
                     ),
                     "refresh_overlap_minutes": int(defaults.get("refresh_overlap_minutes", 180)),
                     "cf_catch_up_timeframes": _require_text(
-                        defaults.get("cf_catch_up_timeframes", "15m,1h,4h,1d"),
+                        defaults.get("cf_catch_up_timeframes"),
                         name=f"{instance.instance_id}.launch_defaults.cf_catch_up_timeframes",
                     ),
                     "max_changed_window_days": int(defaults.get("max_changed_window_days", 10)),
@@ -290,7 +290,7 @@ def build_moex_baseline_run_config_for_instance(
                         name=f"{instance.instance_id}.launch_defaults.expand_contract_chain",
                     ),
                     "coverage_mode": _require_text(
-                        defaults.get("coverage_mode", "local_tail"),
+                        defaults.get("coverage_mode"),
                         name=f"{instance.instance_id}.launch_defaults.coverage_mode",
                     ),
                     "ingest_till_utc": _require_text(ingest_till_utc, name="ingest_till_utc"),

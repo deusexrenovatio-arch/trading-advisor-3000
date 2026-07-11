@@ -87,12 +87,12 @@ def _write_contract_economics_table(
                 "tick_value_currency": 1.0,
                 "step_price_rub": 1.0,
                 "official_step_price": 1.0,
-                "official_initial_margin": 1_000.0,
+                "official_initial_margin": 0.0,
                 "last_settle_price": 100.0,
                 "mr1": 0.1,
                 "radius_pct": 15.0,
                 "margin_required_estimate": 1_000.0,
-                "model_quality": "official_initial_margin",
+                "model_quality": "calibrated_asset_rank",
                 "model_version": "test-model",
                 "buffer_policy_version": "test-buffer-policy",
                 "created_at": "2026-07-10T23:10:24Z",
@@ -532,9 +532,27 @@ def test_baseline_update_reuses_covered_published_economics_when_source_is_tempo
     assert not (tmp_path / "evidence" / "pending-changed-windows.json").exists()
 
 
-def test_baseline_update_fails_closed_when_published_economics_has_a_coverage_gap(
+@pytest.mark.parametrize(
+    (
+        "required_contract_ids",
+        "invalid_contract_id",
+        "expected_missing_contract_ids",
+        "expected_invalid_contracts",
+        "error_match",
+    ),
+    [
+        (("BRM6", "SiU6"), None, ["SiU6"], {}, "SiU6"),
+        (("BRM6",), "BRM6", [], {"BRM6": ["fx_rate_to_rub"]}, "BRM6"),
+    ],
+)
+def test_baseline_update_fails_closed_when_published_economics_coverage_is_incomplete_or_invalid(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    required_contract_ids: tuple[str, ...],
+    invalid_contract_id: str | None,
+    expected_missing_contract_ids: list[str],
+    expected_invalid_contracts: dict[str, list[str]],
+    error_match: str,
 ) -> None:
     raw_table_path, canonical_bars_path, canonical_provenance_path = _write_empty_baseline(tmp_path)
     changed_windows = [
@@ -551,13 +569,17 @@ def test_baseline_update_fails_closed_when_published_economics_has_a_coverage_ga
     _patch_common_inputs(monkeypatch, changed_windows)
     canonical_economics_root = tmp_path / "canonical" / "economics"
     economics_table_path = canonical_economics_root / "canonical_contract_economics.delta"
-    _write_contract_economics_table(economics_table_path, contract_ids=("BRM6",))
+    _write_contract_economics_table(
+        economics_table_path,
+        contract_ids=("BRM6",),
+        invalid_contract_id=invalid_contract_id,
+    )
     version_before = delta_table_version(economics_table_path)
 
     def _source_unavailable(**_kwargs):
         raise baseline_module.EconomicsSourceUnavailable(
             target_session_date="2026-07-11",
-            required_contract_ids=("BRM6", "SiU6"),
+            required_contract_ids=required_contract_ids,
             missing_sources=("indicative_fx",),
         )
 
@@ -571,7 +593,10 @@ def test_baseline_update_fails_closed_when_published_economics_has_a_coverage_ga
     )
     monkeypatch.setattr(baseline_module, "run_historical_canonical_route", _unexpected_canonical)
 
-    with pytest.raises(RuntimeError, match="published economics coverage failed.*SiU6"):
+    with pytest.raises(
+        RuntimeError,
+        match=f"published economics coverage failed.*{error_match}",
+    ):
         baseline_module.run_moex_baseline_update(
             mapping_registry_path=tmp_path / "mapping.yaml",
             universe_path=tmp_path / "universe.yaml",
@@ -605,32 +630,11 @@ def test_baseline_update_fails_closed_when_published_economics_has_a_coverage_ga
         ).read_text(encoding="utf-8")
     )
     assert blocked_report["status"] == "BLOCKED"
-    assert blocked_report["published_coverage"]["missing_contract_ids"] == ["SiU6"]
-
-
-def test_published_economics_coverage_rejects_nonpositive_money_fields(
-    tmp_path: Path,
-) -> None:
-    canonical_economics_root = tmp_path / "canonical" / "economics"
-    _write_contract_economics_table(
-        canonical_economics_root / "canonical_contract_economics.delta",
-        contract_ids=("BRM6",),
-        invalid_contract_id="BRM6",
+    assert (
+        blocked_report["published_coverage"]["missing_contract_ids"]
+        == expected_missing_contract_ids
     )
-    source_error = baseline_module.EconomicsSourceUnavailable(
-        target_session_date="2026-07-12",
-        required_contract_ids=("BRM6",),
-        missing_sources=("indicative_fx",),
-    )
-
-    coverage = baseline_module._published_contract_economics_coverage(
-        canonical_economics_root=canonical_economics_root,
-        source_error=source_error,
-    )
-
-    assert coverage["status"] == "BLOCKED"
-    assert coverage["covered_contracts"] == 0
-    assert coverage["invalid_contracts"] == {"BRM6": ["fx_rate_to_rub"]}
+    assert blocked_report["published_coverage"]["invalid_contracts"] == expected_invalid_contracts
 
 
 def test_contract_economics_refresh_writes_iss_raw_side_tables(
