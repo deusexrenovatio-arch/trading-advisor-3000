@@ -6,10 +6,14 @@ from pathlib import Path
 import pytest
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    delta_table_version,
     read_delta_table_rows,
     write_delta_table_rows,
 )
 from trading_advisor_3000.product_plane.data_plane.moex import baseline_update as baseline_module
+from trading_advisor_3000.product_plane.data_plane.moex.economics import (
+    moex_economics_store_contract,
+)
 from trading_advisor_3000.product_plane.data_plane.moex.foundation import (
     RAW_COLUMNS,
     DiscoveryRecord,
@@ -50,6 +54,55 @@ def _write_empty_baseline(tmp_path: Path) -> tuple[Path, Path, Path]:
         table_path=canonical_provenance_path, rows=[], columns=PROVENANCE_COLUMNS
     )
     return raw_table_path, canonical_bars_path, canonical_provenance_path
+
+
+def _write_contract_economics_table(
+    table_path: Path,
+    *,
+    contract_ids: tuple[str, ...],
+    economics_session_date: str = "2026-07-10",
+    effective_session_date: str = "2026-07-11",
+    effective_from_ts: str = "2026-07-11T00:00:00Z",
+    effective_to_ts: str | None = None,
+    invalid_contract_id: str | None = None,
+) -> None:
+    rows = []
+    for contract_id in contract_ids:
+        positive_value = 0.0 if contract_id == invalid_contract_id else 1.0
+        rows.append(
+            {
+                "contract_id": contract_id,
+                "instrument_id": f"FUT_{contract_id}",
+                "moex_secid": contract_id,
+                "assetcode": contract_id[:2],
+                "economics_session_date": economics_session_date,
+                "effective_session_date": effective_session_date,
+                "clearing_type": "mc",
+                "effective_from_ts": effective_from_ts,
+                "effective_to_ts": effective_to_ts,
+                "min_step": 1.0,
+                "lot_volume": 1.0,
+                "quote_currency": "RUB",
+                "fx_rate_to_rub": positive_value,
+                "tick_value_currency": 1.0,
+                "step_price_rub": 1.0,
+                "official_step_price": 1.0,
+                "official_initial_margin": 1_000.0,
+                "last_settle_price": 100.0,
+                "mr1": 0.1,
+                "radius_pct": 15.0,
+                "margin_required_estimate": 1_000.0,
+                "model_quality": "official_initial_margin",
+                "model_version": "test-model",
+                "buffer_policy_version": "test-buffer-policy",
+                "created_at": "2026-07-10T23:10:24Z",
+            }
+        )
+    write_delta_table_rows(
+        table_path=table_path,
+        rows=rows,
+        columns=moex_economics_store_contract()["canonical_contract_economics"]["columns"],
+    )
 
 
 def _patch_common_inputs(
@@ -400,6 +453,186 @@ def test_baseline_update_can_refresh_money_math_side_tables_before_canonical_rou
     )
 
 
+def test_baseline_update_reuses_covered_published_economics_when_source_is_temporarily_empty(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_table_path, canonical_bars_path, canonical_provenance_path = _write_empty_baseline(tmp_path)
+    changed_windows = [
+        {
+            "internal_id": "FUT_BR",
+            "source_timeframe": "1d",
+            "source_interval": 24,
+            "moex_secid": "BRM6",
+            "window_start_utc": "2026-07-10T00:00:00Z",
+            "window_end_utc": "2026-07-10T21:00:00Z",
+            "incremental_rows": 1,
+        }
+    ]
+    _patch_common_inputs(monkeypatch, changed_windows)
+    canonical_economics_root = tmp_path / "canonical" / "economics"
+    economics_table_path = canonical_economics_root / "canonical_contract_economics.delta"
+    _write_contract_economics_table(economics_table_path, contract_ids=("BRM6",))
+    version_before = delta_table_version(economics_table_path)
+    stage_order: list[str] = []
+
+    def _source_unavailable(**_kwargs):
+        stage_order.append("economics")
+        raise baseline_module.EconomicsSourceUnavailable(
+            target_session_date="2026-07-12",
+            required_contract_ids=("BRM6",),
+            missing_sources=("indicative_fx", "rms_limits", "rms_staticparams"),
+        )
+
+    def _fake_canonical(**_kwargs):
+        stage_order.append("canonical")
+        return {
+            "status": "PASS",
+            "publish_decision": "publish",
+            "scoped_source_rows": 1,
+            "scoped_canonical_rows": 1,
+            "canonical_rows": 1,
+            "mutation_applied": True,
+        }
+
+    monkeypatch.setattr(
+        baseline_module,
+        "refresh_moex_contract_economics",
+        _source_unavailable,
+    )
+    monkeypatch.setattr(baseline_module, "run_historical_canonical_route", _fake_canonical)
+
+    report = baseline_module.run_moex_baseline_update(
+        mapping_registry_path=tmp_path / "mapping.yaml",
+        universe_path=tmp_path / "universe.yaml",
+        raw_table_path=raw_table_path,
+        canonical_bars_path=canonical_bars_path,
+        canonical_provenance_path=canonical_provenance_path,
+        evidence_dir=tmp_path / "evidence",
+        run_id="baseline-weekend-economics-reuse",
+        timeframes={"1d"},
+        ingest_till_utc="2026-07-10T21:00:00Z",
+        refresh_window_days=7,
+        contract_discovery_lookback_days=45,
+        max_changed_window_days=10,
+        economics_mode="refresh",
+        raw_economics_root=tmp_path / "raw" / "economics",
+        canonical_economics_root=canonical_economics_root,
+    )
+
+    assert stage_order == ["economics", "canonical"]
+    assert report["status"] == "PASS"
+    assert report["economics_refresh"]["status"] == "PASS-NOOP"
+    assert report["economics_refresh"]["refresh_status"] == "DEFERRED"
+    assert report["economics_refresh"]["skipped_reason"] == "published_economics_covers_target"
+    assert report["economics_refresh"]["published_coverage"]["covered_contracts"] == 1
+    assert report["economics_refresh"]["published_coverage"]["target_session_date"] == "2026-07-12"
+    assert report["economics_refresh"]["published_coverage"]["delta_version"] == version_before
+    assert delta_table_version(economics_table_path) == version_before
+    assert not (tmp_path / "evidence" / "pending-changed-windows.json").exists()
+
+
+def test_baseline_update_fails_closed_when_published_economics_has_a_coverage_gap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_table_path, canonical_bars_path, canonical_provenance_path = _write_empty_baseline(tmp_path)
+    changed_windows = [
+        {
+            "internal_id": "FUT_BR",
+            "source_timeframe": "1d",
+            "source_interval": 24,
+            "moex_secid": "BRM6",
+            "window_start_utc": "2026-07-10T00:00:00Z",
+            "window_end_utc": "2026-07-10T21:00:00Z",
+            "incremental_rows": 1,
+        }
+    ]
+    _patch_common_inputs(monkeypatch, changed_windows)
+    canonical_economics_root = tmp_path / "canonical" / "economics"
+    economics_table_path = canonical_economics_root / "canonical_contract_economics.delta"
+    _write_contract_economics_table(economics_table_path, contract_ids=("BRM6",))
+    version_before = delta_table_version(economics_table_path)
+
+    def _source_unavailable(**_kwargs):
+        raise baseline_module.EconomicsSourceUnavailable(
+            target_session_date="2026-07-11",
+            required_contract_ids=("BRM6", "SiU6"),
+            missing_sources=("indicative_fx",),
+        )
+
+    def _unexpected_canonical(**_kwargs):
+        raise AssertionError("canonical route must not run after economics coverage failure")
+
+    monkeypatch.setattr(
+        baseline_module,
+        "refresh_moex_contract_economics",
+        _source_unavailable,
+    )
+    monkeypatch.setattr(baseline_module, "run_historical_canonical_route", _unexpected_canonical)
+
+    with pytest.raises(RuntimeError, match="published economics coverage failed.*SiU6"):
+        baseline_module.run_moex_baseline_update(
+            mapping_registry_path=tmp_path / "mapping.yaml",
+            universe_path=tmp_path / "universe.yaml",
+            raw_table_path=raw_table_path,
+            canonical_bars_path=canonical_bars_path,
+            canonical_provenance_path=canonical_provenance_path,
+            evidence_dir=tmp_path / "evidence",
+            run_id="baseline-weekend-economics-gap",
+            timeframes={"1d"},
+            ingest_till_utc="2026-07-10T21:00:00Z",
+            refresh_window_days=7,
+            contract_discovery_lookback_days=45,
+            max_changed_window_days=10,
+            economics_mode="refresh",
+            raw_economics_root=tmp_path / "raw" / "economics",
+            canonical_economics_root=canonical_economics_root,
+        )
+
+    assert delta_table_version(economics_table_path) == version_before
+    pending = json.loads(
+        (tmp_path / "evidence" / "pending-changed-windows.json").read_text(encoding="utf-8")
+    )
+    assert pending["reason"] == "economics_refresh_failed"
+    blocked_report = json.loads(
+        (
+            tmp_path
+            / "evidence"
+            / "baseline-weekend-economics-gap"
+            / "economics-refresh"
+            / "contract-economics-report.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert blocked_report["status"] == "BLOCKED"
+    assert blocked_report["published_coverage"]["missing_contract_ids"] == ["SiU6"]
+
+
+def test_published_economics_coverage_rejects_nonpositive_money_fields(
+    tmp_path: Path,
+) -> None:
+    canonical_economics_root = tmp_path / "canonical" / "economics"
+    _write_contract_economics_table(
+        canonical_economics_root / "canonical_contract_economics.delta",
+        contract_ids=("BRM6",),
+        invalid_contract_id="BRM6",
+    )
+    source_error = baseline_module.EconomicsSourceUnavailable(
+        target_session_date="2026-07-12",
+        required_contract_ids=("BRM6",),
+        missing_sources=("indicative_fx",),
+    )
+
+    coverage = baseline_module._published_contract_economics_coverage(
+        canonical_economics_root=canonical_economics_root,
+        source_error=source_error,
+    )
+
+    assert coverage["status"] == "BLOCKED"
+    assert coverage["covered_contracts"] == 0
+    assert coverage["invalid_contracts"] == {"BRM6": ["fx_rate_to_rub"]}
+
+
 def test_contract_economics_refresh_writes_iss_raw_side_tables(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -571,12 +804,19 @@ def test_contract_economics_raw_refresh_refuses_partial_write_without_fx(
 
     raw_root = tmp_path / "raw" / "economics"
 
-    with pytest.raises(RuntimeError, match="no indicative FX rows"):
+    with pytest.raises(
+        baseline_module.EconomicsSourceUnavailable,
+        match="no indicative FX rows",
+    ) as exc_info:
         baseline_module._write_iss_economics_raw_tables(
             client=_Client(),
             raw_economics_root=raw_root,
             ingest_till_utc="2026-06-19T07:00:00Z",
         )
+
+    assert exc_info.value.target_session_date == "2026-06-19"
+    assert exc_info.value.required_contract_ids == ("BRM6",)
+    assert exc_info.value.missing_sources == ("indicative_fx",)
 
     for table_name in (
         "raw_moex_contract_securities.delta",
