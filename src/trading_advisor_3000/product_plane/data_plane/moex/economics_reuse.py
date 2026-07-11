@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Sequence
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
@@ -139,33 +139,61 @@ def _published_contract_economics_coverage(
             "model_quality",
         ],
     )
-    target_at_utc = datetime(
+    target_day_start_utc = datetime(
         target_session_date.year,
         target_session_date.month,
         target_session_date.day,
         tzinfo=UTC,
     )
-    active_rows_by_contract: dict[str, list[dict[str, object]]] = {
+    target_day_end_utc = target_day_start_utc + timedelta(days=1)
+    rows_by_contract: dict[str, list[dict[str, object]]] = {
         contract_id: [] for contract_id in required_contract_ids
     }
     for row in rows:
         contract_id = str(row.get("contract_id") or "").strip()
-        if contract_id not in active_rows_by_contract:
+        if contract_id not in rows_by_contract:
             continue
-        effective_from = _try_parse_utc_timestamp(row.get("effective_from_ts"))
-        effective_to = _try_parse_utc_timestamp(row.get("effective_to_ts"))
-        if effective_from is None or effective_from > target_at_utc:
-            continue
-        if effective_to is not None and effective_to <= target_at_utc:
-            continue
-        active_rows_by_contract[contract_id].append(row)
+        rows_by_contract[contract_id].append(row)
 
     missing_contract_ids: list[str] = []
     invalid_contracts: dict[str, list[str]] = {}
     covered_rows: list[dict[str, object]] = []
     source_age_days: list[int] = []
     for contract_id in required_contract_ids:
-        candidates = active_rows_by_contract[contract_id]
+        dated_rows: list[tuple[date, dict[str, object]]] = []
+        for row in rows_by_contract[contract_id]:
+            try:
+                effective_session_date = date.fromisoformat(
+                    str(row.get("effective_session_date") or "")[:10]
+                )
+            except ValueError:
+                continue
+            dated_rows.append((effective_session_date, row))
+        if not dated_rows:
+            missing_contract_ids.append(contract_id)
+            continue
+        latest_effective_session_date = max(item[0] for item in dated_rows)
+        candidates: list[dict[str, object]] = []
+        for effective_session_date, row in dated_rows:
+            if effective_session_date != latest_effective_session_date:
+                continue
+            effective_from = _try_parse_utc_timestamp(row.get("effective_from_ts"))
+            effective_to = _try_parse_utc_timestamp(row.get("effective_to_ts"))
+            if effective_from is None:
+                continue
+            if latest_effective_session_date == target_session_date:
+                if effective_from >= target_day_end_utc:
+                    continue
+                if effective_to is not None and (
+                    effective_to <= effective_from or effective_to <= target_day_start_utc
+                ):
+                    continue
+            else:
+                if effective_from >= target_day_start_utc:
+                    continue
+                if effective_to is not None and effective_to < target_day_end_utc:
+                    continue
+            candidates.append(row)
         if not candidates:
             missing_contract_ids.append(contract_id)
             continue

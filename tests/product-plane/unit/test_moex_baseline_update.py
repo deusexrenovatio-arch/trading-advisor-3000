@@ -62,7 +62,7 @@ def _write_contract_economics_table(
     contract_ids: tuple[str, ...],
     economics_session_date: str = "2026-07-10",
     effective_session_date: str = "2026-07-11",
-    effective_from_ts: str = "2026-07-11T00:00:00Z",
+    effective_from_ts: str = "2026-07-11T06:00:00Z",
     effective_to_ts: str | None = None,
     invalid_contract_id: str | None = None,
 ) -> None:
@@ -453,9 +453,11 @@ def test_baseline_update_can_refresh_money_math_side_tables_before_canonical_rou
     )
 
 
+@pytest.mark.parametrize("target_session_date", ["2026-07-11", "2026-07-12"])
 def test_baseline_update_reuses_covered_published_economics_when_source_is_temporarily_empty(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    target_session_date: str,
 ) -> None:
     raw_table_path, canonical_bars_path, canonical_provenance_path = _write_empty_baseline(tmp_path)
     changed_windows = [
@@ -479,7 +481,7 @@ def test_baseline_update_reuses_covered_published_economics_when_source_is_tempo
     def _source_unavailable(**_kwargs):
         stage_order.append("economics")
         raise baseline_module.EconomicsSourceUnavailable(
-            target_session_date="2026-07-12",
+            target_session_date=target_session_date,
             required_contract_ids=("BRM6",),
             missing_sources=("indicative_fx", "rms_limits", "rms_staticparams"),
         )
@@ -509,7 +511,7 @@ def test_baseline_update_reuses_covered_published_economics_when_source_is_tempo
         canonical_bars_path=canonical_bars_path,
         canonical_provenance_path=canonical_provenance_path,
         evidence_dir=tmp_path / "evidence",
-        run_id="baseline-weekend-economics-reuse",
+        run_id=f"baseline-weekend-economics-reuse-{target_session_date}",
         timeframes={"1d"},
         ingest_till_utc="2026-07-10T21:00:00Z",
         refresh_window_days=7,
@@ -526,7 +528,10 @@ def test_baseline_update_reuses_covered_published_economics_when_source_is_tempo
     assert report["economics_refresh"]["refresh_status"] == "DEFERRED"
     assert report["economics_refresh"]["skipped_reason"] == "published_economics_covers_target"
     assert report["economics_refresh"]["published_coverage"]["covered_contracts"] == 1
-    assert report["economics_refresh"]["published_coverage"]["target_session_date"] == "2026-07-12"
+    assert (
+        report["economics_refresh"]["published_coverage"]["target_session_date"]
+        == target_session_date
+    )
     assert report["economics_refresh"]["published_coverage"]["delta_version"] == version_before
     assert delta_table_version(economics_table_path) == version_before
     assert not (tmp_path / "evidence" / "pending-changed-windows.json").exists()
