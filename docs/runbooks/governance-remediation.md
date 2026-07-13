@@ -55,9 +55,9 @@ Use this runbook when a governance gate fails.
 - Keep GitHub server-side protection active for `main`.
 - Required GitHub merge checks for `main` are:
   - `pr-lane`
-  - `CodeRabbit / Review`
+  - `CodeRabbit`
 - `pr-lane` is a PR-only context. Branch pushes and manual diagnostic runs use `branch-lane` so push-range failures do not block a green PR-range merge gate.
-- `CodeRabbit / Review` is a required external review status so automatic integration cannot skip it.
+- `CodeRabbit` is a required external review status so automatic integration cannot skip it.
 - `pr-lane` must include `python scripts/validate_pr_size.py` through `run_pr_gate.py`.
 - Public GitHub repositories can validate rules anonymously; private repositories require `GH_TOKEN` or `GITHUB_TOKEN`.
 

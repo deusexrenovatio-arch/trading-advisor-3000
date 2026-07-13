@@ -42,7 +42,7 @@ Quality baseline note:
 Hosted CI note:
 - GitHub-hosted lane execution is enabled only when `AI_SHELL_ENABLE_HOSTED_CI=1`.
 - Default-off mode prevents infrastructure-side billing errors from producing false-red checks.
-- Required GitHub statuses are `pr-lane` and `CodeRabbit / Review`; branch push feedback uses `branch-lane`.
+- Required GitHub statuses are `pr-lane` and `CodeRabbit`; branch push feedback uses `branch-lane`.
 
 ## Durable-state checks
 - `python scripts/validate_plans.py`
