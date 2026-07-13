@@ -38,9 +38,12 @@ instances:
       contract_discovery_lookback_days: 45
       contract_discovery_step_days: 14
       refresh_overlap_minutes: 180
+      cf_catch_up_timeframes: 15m,1h,4h,1d
       max_changed_window_days: 10
       stability_lag_minutes: 20
       expand_contract_chain: true
+      coverage_mode: local_tail
+      economics_mode: refresh
     mutation_policy:
       product_runtime_write: true
       manual_launch_allowed: true
@@ -70,9 +73,12 @@ instances:
       contract_discovery_lookback_days: 7
       contract_discovery_step_days: 7
       refresh_overlap_minutes: 180
+      cf_catch_up_timeframes: 15m,1h,4h,1d
       max_changed_window_days: 2
       stability_lag_minutes: 20
       expand_contract_chain: false
+      coverage_mode: local_tail
+      economics_mode: refresh
     mutation_policy:
       product_runtime_write: false
       manual_launch_allowed: true
