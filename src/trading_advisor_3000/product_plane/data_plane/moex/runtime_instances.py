@@ -227,8 +227,11 @@ def render_moex_runtime_instance_paths(
         "canonical_root": canonical_root,
         "canonical_bars": f"{canonical_root}/canonical_bars.delta",
         "canonical_provenance": f"{canonical_root}/canonical_bar_provenance.delta",
+        "canonical_session_intervals": f"{canonical_root}/canonical_session_intervals.delta",
         "canonical_session_calendar": f"{canonical_root}/canonical_session_calendar.delta",
         "canonical_roll_map": f"{canonical_root}/canonical_roll_map.delta",
+        "raw_economics_root": f"{data_root}/raw/economics",
+        "canonical_economics_root": f"{data_root}/canonical/economics",
         "evidence_root": f"{data_root}/moex-baseline-update",
     }
 
@@ -257,8 +260,15 @@ def build_moex_baseline_run_config_for_instance(
                     "raw_table_path": paths["raw_table"],
                     "canonical_bars_path": paths["canonical_bars"],
                     "canonical_provenance_path": paths["canonical_provenance"],
+                    "canonical_session_intervals_path": paths["canonical_session_intervals"],
                     "canonical_session_calendar_path": paths["canonical_session_calendar"],
                     "canonical_roll_map_path": paths["canonical_roll_map"],
+                    "economics_mode": _require_text(
+                        defaults.get("economics_mode"),
+                        name=f"{instance.instance_id}.launch_defaults.economics_mode",
+                    ),
+                    "raw_economics_root": paths["raw_economics_root"],
+                    "canonical_economics_root": paths["canonical_economics_root"],
                     "evidence_root": paths["evidence_root"],
                     "timeframes": _require_text(defaults.get("timeframes"), name="timeframes"),
                     "refresh_window_days": int(defaults.get("refresh_window_days", 7)),
@@ -269,11 +279,19 @@ def build_moex_baseline_run_config_for_instance(
                         defaults.get("contract_discovery_step_days", 14)
                     ),
                     "refresh_overlap_minutes": int(defaults.get("refresh_overlap_minutes", 180)),
+                    "cf_catch_up_timeframes": _require_text(
+                        defaults.get("cf_catch_up_timeframes"),
+                        name=f"{instance.instance_id}.launch_defaults.cf_catch_up_timeframes",
+                    ),
                     "max_changed_window_days": int(defaults.get("max_changed_window_days", 10)),
                     "stability_lag_minutes": int(defaults.get("stability_lag_minutes", 20)),
                     "expand_contract_chain": _require_bool(
                         defaults.get("expand_contract_chain", True),
                         name=f"{instance.instance_id}.launch_defaults.expand_contract_chain",
+                    ),
+                    "coverage_mode": _require_text(
+                        defaults.get("coverage_mode"),
+                        name=f"{instance.instance_id}.launch_defaults.coverage_mode",
                     ),
                     "ingest_till_utc": _require_text(ingest_till_utc, name="ingest_till_utc"),
                     "run_id": resolved_run_id,
