@@ -17,6 +17,10 @@ from trading_advisor_3000.product_plane.data_plane.moex.economics import (
     moex_economics_store_contract,
 )
 
+from .economics_reuse import (
+    EconomicsSourceUnavailable,
+    reuse_published_economics_after_source_unavailable,
+)
 from .foundation import (
     DEFAULT_CONTRACT_DISCOVERY_STEP_DAYS,
     DEFAULT_REFRESH_OVERLAP_MINUTES,
@@ -635,12 +639,6 @@ def _write_iss_economics_raw_tables(
         fx_rows,
         key_columns=("source_document_id", "source_document_hash"),
     )
-    if contract_rows and not fx_rows:
-        raise RuntimeError(
-            "MOEX economics raw refresh produced no indicative FX rows for "
-            f"{trade_date.isoformat()}; refusing to write partial economics raw tables"
-        )
-
     limits_rows = []
     for payload in rms_limits_payloads:
         assetcode = str(payload.get("assetcode") or payload.get("ASSETCODE") or "").strip()
@@ -697,6 +695,23 @@ def _write_iss_economics_raw_tables(
         staticparams_rows,
         key_columns=("source_document_id", "source_document_hash"),
     )
+
+    missing_sources: list[str] = []
+    if contract_rows:
+        if not fx_rows:
+            missing_sources.append("indicative_fx")
+        if not limits_rows:
+            missing_sources.append("rms_limits")
+        if not staticparams_rows:
+            missing_sources.append("rms_staticparams")
+    if missing_sources:
+        raise EconomicsSourceUnavailable(
+            target_session_date=contract_snapshot_trade_date.isoformat(),
+            required_contract_ids=tuple(
+                str(row["moex_secid"]) for row in contract_rows if row.get("moex_secid")
+            ),
+            missing_sources=missing_sources,
+        )
 
     raw_economics_root.mkdir(parents=True, exist_ok=True)
     contract_table_path = raw_economics_root / "raw_moex_contract_securities.delta"
@@ -1118,19 +1133,27 @@ def run_moex_baseline_update(
 
     if resolved_economics_mode == ECONOMICS_REFRESH_MODE_REFRESH:
         try:
-            economics_report = refresh_moex_contract_economics(
-                client=client,
-                universe=universe,
-                mappings=mappings,
-                raw_economics_root=raw_economics_root,
-                canonical_economics_root=canonical_economics_root,
-                canonical_session_calendar_path=canonical_session_calendar_path,
-                evidence_dir=run_dir / "economics-refresh",
-                run_id=run_id,
-                ingest_till_utc=ingest_till_utc,
-                changed_windows=merged_changed_windows,
-                refresh_window_days=refresh_window_days,
-            )
+            try:
+                economics_report = refresh_moex_contract_economics(
+                    client=client,
+                    universe=universe,
+                    mappings=mappings,
+                    raw_economics_root=raw_economics_root,
+                    canonical_economics_root=canonical_economics_root,
+                    canonical_session_calendar_path=canonical_session_calendar_path,
+                    evidence_dir=run_dir / "economics-refresh",
+                    run_id=run_id,
+                    ingest_till_utc=ingest_till_utc,
+                    changed_windows=merged_changed_windows,
+                    refresh_window_days=refresh_window_days,
+                )
+            except EconomicsSourceUnavailable as exc:
+                economics_report = reuse_published_economics_after_source_unavailable(
+                    canonical_economics_root=canonical_economics_root,
+                    evidence_dir=run_dir / "economics-refresh",
+                    run_id=run_id,
+                    source_error=exc,
+                )
         except Exception:
             _write_pending_changed_windows(
                 path=pending_changed_windows_path,

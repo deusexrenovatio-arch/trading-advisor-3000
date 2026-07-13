@@ -63,21 +63,52 @@ def test_moex_runtime_instances_render_product_and_test_paths() -> None:
     )
 
 
-def test_moex_runtime_instances_build_baseline_run_config() -> None:
+@pytest.mark.parametrize(
+    ("instance_id", "run_id", "expected_data_root", "expected_timeframes"),
+    [
+        (
+            "moex_product_staging",
+            "manual-proof",
+            "/ta3000-data/moex-historical",
+            "1m,5m,15m,1h,4h,1d,1w",
+        ),
+        (
+            "moex_test_staging_on_demand",
+            "verification-proof",
+            "/ta3000-data/staging/test/moex-verification/verification-proof",
+            "1d",
+        ),
+    ],
+)
+def test_moex_runtime_instances_build_baseline_run_config(
+    instance_id: str,
+    run_id: str,
+    expected_data_root: str,
+    expected_timeframes: str,
+) -> None:
     registry = load_moex_runtime_instances_registry(repo_root=REPO_ROOT)
-    instance = registry.default_product_runtime()
+    instance = registry.instance(instance_id)
 
     run_config = build_moex_baseline_run_config_for_instance(
         instance,
-        run_id="manual-proof",
+        run_id=run_id,
         ingest_till_utc="2026-05-08T12:39:47Z",
     )
 
     config = run_config["ops"]["moex_baseline_update"]["config"]
-    assert config["run_id"] == "manual-proof"
+    canonical_root = f"{expected_data_root}/canonical/moex/baseline-4y-current"
+    assert config["run_id"] == run_id
     assert config["ingest_till_utc"] == "2026-05-08T12:39:47Z"
-    assert config["timeframes"] == "1m,5m,15m,1h,4h,1d,1w"
-    assert config["raw_table_path"].startswith("/ta3000-data/moex-historical/")
+    assert config["timeframes"] == expected_timeframes
+    assert config["raw_table_path"].startswith(f"{expected_data_root}/")
+    assert config["canonical_session_intervals_path"] == (
+        f"{canonical_root}/canonical_session_intervals.delta"
+    )
+    assert config["cf_catch_up_timeframes"] == "15m,1h,4h,1d"
+    assert config["coverage_mode"] == "local_tail"
+    assert config["economics_mode"] == "refresh"
+    assert config["raw_economics_root"] == f"{expected_data_root}/raw/economics"
+    assert config["canonical_economics_root"] == f"{expected_data_root}/canonical/economics"
 
 
 def test_moex_runtime_instances_reject_unknown_instance() -> None:
