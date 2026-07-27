@@ -26,10 +26,7 @@ REQUIRED_GITHUB_RULE_TYPES = (
     "required_status_checks",
     "non_fast_forward",
 )
-REQUIRED_STATUS_CHECKS = (
-    "pr-lane",
-    "CodeRabbit",
-)
+REQUIRED_STATUS_CHECKS = ("pr-lane",)
 GITHUB_API_ROOT = "https://api.github.com"
 GITHUB_API_VERSION = "2026-03-10"
 GITHUB_API_ATTEMPTS = 3
@@ -248,6 +245,10 @@ def _validate_github_branch_rules(*, repo_slug: str, branch: str, token: str | N
     if missing_contexts:
         rendered = ", ".join(missing_contexts)
         errors.append(f"GitHub required status checks are missing: {rendered}")
+    unexpected_contexts = sorted(contexts.difference(REQUIRED_STATUS_CHECKS))
+    if unexpected_contexts:
+        rendered = ", ".join(unexpected_contexts)
+        errors.append(f"GitHub required status checks are unexpected: {rendered}")
 
     return errors
 
