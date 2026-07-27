@@ -206,29 +206,33 @@ def test_projection_interval_scanner_prefers_moex_secid_for_publish_scope() -> N
     assert selected == {("BRM6", "FUT_BR", "1d"): 1440}
 
 
-def test_publish_scope_uses_selected_contract_not_changed_window_interval() -> None:
+def test_publish_scope_excludes_targets_owned_by_unchanged_source_interval() -> None:
     rows = canonical_module._publish_scope_rows(
         changed_windows=[
             canonical_module.ChangedWindowScope(
                 internal_id="FUT_BR",
-                source_timeframe="5m",
-                source_interval=5,
-                moex_secid="BRM6@MOEX",
-                window_start_utc="2026-04-02T10:00:00Z",
-                window_end_utc="2026-04-02T10:20:00Z",
-                incremental_rows=4,
+                source_timeframe="1w",
+                source_interval=10080,
+                moex_secid="BRQ6@MOEX",
+                window_start_utc="2026-07-19T21:00:00Z",
+                window_end_utc="2026-07-26T20:40:00Z",
+                incremental_rows=1,
             )
         ],
-        selected_source_intervals={("BRM6@MOEX", "FUT_BR", "15m"): 1},
+        selected_source_intervals={
+            ("BRQ6@MOEX", "FUT_BR", "15m"): 1,
+            ("BRQ6@MOEX", "FUT_BR", "1d"): 1440,
+            ("BRQ6@MOEX", "FUT_BR", "1w"): 10080,
+        },
     )
 
     assert rows == [
         {
             "instrument_id": "FUT_BR",
-            "timeframe": "15m",
-            "target_minutes": 15,
-            "window_start_utc": "2026-04-02T10:00:00Z",
-            "window_end_utc": "2026-04-02T10:20:00Z",
+            "timeframe": "1w",
+            "target_minutes": 10080,
+            "window_start_utc": "2026-07-19T21:00:00Z",
+            "window_end_utc": "2026-07-26T20:40:00Z",
         }
     ]
 
