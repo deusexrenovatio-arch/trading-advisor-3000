@@ -194,6 +194,32 @@ def test_reconstructed_session_schedule_uses_static_rule_catalog_without_client(
     assert "fixture public source" in raw_rows[0]["raw_payload_json"]
 
 
+def test_reconstructed_session_schedule_deduplicates_contract_chain_intervals(
+    tmp_path: Path,
+) -> None:
+    changed_windows = _changed_window()
+    changed_windows.append({**changed_windows[0], "moex_secid": "BRU6@MOEX"})
+    raw_schedule_path = tmp_path / "raw_moex_session_schedule.delta"
+    intervals_path = tmp_path / "canonical_session_intervals.delta"
+
+    report = materialize_reconstructed_session_schedule_for_changed_windows(
+        changed_windows=changed_windows,
+        mappings=[],
+        raw_schedule_path=raw_schedule_path,
+        canonical_session_intervals_path=intervals_path,
+        rule_catalog_path=_rule_catalog(tmp_path / "rules.json"),
+        allow_candle_inference=False,
+        fetched_at_utc="2026-04-21T00:00:00Z",
+    )
+
+    raw_rows = read_delta_table_rows(raw_schedule_path, limit=10)
+    interval_rows = read_delta_table_rows(intervals_path, limit=10)
+    assert report["affected_instrument_count"] == 2
+    assert len(raw_rows) == 2
+    assert len(interval_rows) == 1
+    assert interval_rows[0]["interval_seq"] == 1
+
+
 def test_reconstructed_session_schedule_fails_closed_without_rule_catalog(
     tmp_path: Path,
 ) -> None:
