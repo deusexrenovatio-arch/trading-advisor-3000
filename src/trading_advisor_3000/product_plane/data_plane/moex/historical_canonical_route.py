@@ -1161,6 +1161,8 @@ def _publish_scope_rows(
                 continue
             if instrument_id != window.internal_id:
                 continue
+            if _source_interval != window.source_interval:
+                continue
             rows.append(
                 {
                     "instrument_id": instrument_id,
