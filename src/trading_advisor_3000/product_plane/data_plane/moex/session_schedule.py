@@ -734,25 +734,31 @@ def normalize_raw_session_schedule_rows(
 
     intervals: list[dict[str, object]] = []
     for (instrument_id, session_date), rows in sorted(grouped.items()):
-        parsed: list[tuple[datetime, datetime, dict[str, object]]] = []
+        parsed: list[tuple[datetime, datetime, str, str, str, dict[str, object]]] = []
+        seen_intervals: set[tuple[datetime, datetime, str, str, str]] = set()
         for row in rows:
             payload = json.loads(str(row["raw_payload_json"]))
             if not payload.get("time_from") and payload.get("trading_status"):
                 continue
-            parsed.append(
-                (
-                    _parse_datetime(payload.get("time_from"), field_name="time_from"),
-                    _parse_datetime(payload.get("time_till"), field_name="time_till"),
-                    row,
-                )
-            )
-        for seq, (open_ts, close_ts, row) in enumerate(
-            sorted(parsed, key=lambda item: (item[0], item[1])), start=1
-        ):
-            payload = json.loads(str(row["raw_payload_json"]))
+            open_ts = _parse_datetime(payload.get("time_from"), field_name="time_from")
+            close_ts = _parse_datetime(payload.get("time_till"), field_name="time_till")
             session_type = str(payload.get("type") or "regular").strip()
             session_class = str(payload.get("session_class") or "regular").strip()
             policy_id = str(payload.get("policy_id") or OFFICIAL_FUTURES_SESSION_POLICY_ID).strip()
+            normalized_interval = (
+                open_ts,
+                close_ts,
+                session_type,
+                session_class,
+                policy_id,
+            )
+            if normalized_interval in seen_intervals:
+                continue
+            seen_intervals.add(normalized_interval)
+            parsed.append((*normalized_interval, row))
+        for seq, (open_ts, close_ts, session_type, session_class, policy_id, row) in enumerate(
+            sorted(parsed, key=lambda item: (item[0], item[1])), start=1
+        ):
             intervals.append(
                 {
                     "instrument_id": instrument_id,
