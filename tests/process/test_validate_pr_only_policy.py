@@ -60,7 +60,6 @@ def test_validate_pr_only_policy_passes_with_required_github_rules(
                     "strict_required_status_checks_policy": True,
                     "required_status_checks": [
                         {"context": "pr-lane"},
-                        {"context": "CodeRabbit / Review"},
                     ],
                 },
             },
@@ -77,7 +76,42 @@ def test_validate_pr_only_policy_passes_with_required_github_rules(
     )
 
 
-def test_validate_pr_only_policy_fails_closed_when_required_check_is_missing(
+def test_validate_pr_only_policy_fails_closed_when_pr_lane_is_missing(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    _write_policy_files(tmp_path)
+
+    def _fake_fetch_branch_rules(
+        *, repo_slug: str, branch: str, token: str | None
+    ) -> list[dict[str, object]]:
+        return [
+            {"type": "pull_request"},
+            {
+                "type": "required_status_checks",
+                "parameters": {
+                    "strict_required_status_checks_policy": True,
+                    "required_status_checks": [
+                        {"context": "optional-review"},
+                    ],
+                },
+            },
+            {"type": "non_fast_forward"},
+        ]
+
+    monkeypatch.setattr(validate_pr_only_policy, "_fetch_branch_rules", _fake_fetch_branch_rules)
+    result = validate_pr_only_policy.run(
+        tmp_path,
+        github_repo="deusexrenovatio-arch/trading-advisor-3000",
+    )
+
+    captured = capsys.readouterr()
+    assert result == 1
+    assert "GitHub required status checks are missing: pr-lane" in captured.out
+
+
+def test_validate_pr_only_policy_fails_closed_when_extra_required_check_remains(
     tmp_path: Path,
     capsys,
     monkeypatch,
@@ -95,6 +129,7 @@ def test_validate_pr_only_policy_fails_closed_when_required_check_is_missing(
                     "strict_required_status_checks_policy": True,
                     "required_status_checks": [
                         {"context": "pr-lane"},
+                        {"context": "optional-review"},
                     ],
                 },
             },
@@ -109,7 +144,7 @@ def test_validate_pr_only_policy_fails_closed_when_required_check_is_missing(
 
     captured = capsys.readouterr()
     assert result == 1
-    assert "GitHub required status checks are missing: CodeRabbit / Review" in captured.out
+    assert "GitHub required status checks are unexpected: optional-review" in captured.out
 
 
 def test_github_api_get_json_retries_transient_url_error(monkeypatch) -> None:

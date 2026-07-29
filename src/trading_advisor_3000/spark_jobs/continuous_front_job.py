@@ -1032,6 +1032,9 @@ def _build_spark_native_tables(
             .load(str(canonical_contract_economics_path))
             .select(
                 F.col("contract_id").alias("econ_contract_id"),
+                F.regexp_replace(F.col("contract_id").cast("string"), "@MOEX$", "").alias(
+                    "econ_contract_join_key"
+                ),
                 F.col("effective_from_ts").alias("econ_effective_from_ts"),
                 F.col("effective_to_ts").alias("econ_effective_to_ts"),
                 F.col("step_price_rub").alias("execution_step_price_rub"),
@@ -1047,7 +1050,10 @@ def _build_spark_native_tables(
             bars_with_offsets.alias("bar")
             .join(
                 econ.alias("econ"),
-                (F.col("bar.active_contract_id") == F.col("econ.econ_contract_id"))
+                (
+                    F.regexp_replace(F.col("bar.active_contract_id").cast("string"), "@MOEX$", "")
+                    == F.col("econ.econ_contract_join_key")
+                )
                 & (F.col("bar.ts") >= F.col("econ.econ_effective_from_ts"))
                 & (
                     F.col("econ.econ_effective_to_ts").isNull()

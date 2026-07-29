@@ -6,10 +6,14 @@ from pathlib import Path
 import pytest
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    delta_table_version,
     read_delta_table_rows,
     write_delta_table_rows,
 )
 from trading_advisor_3000.product_plane.data_plane.moex import baseline_update as baseline_module
+from trading_advisor_3000.product_plane.data_plane.moex.economics import (
+    moex_economics_store_contract,
+)
 from trading_advisor_3000.product_plane.data_plane.moex.foundation import (
     RAW_COLUMNS,
     DiscoveryRecord,
@@ -52,6 +56,74 @@ def _write_empty_baseline(tmp_path: Path) -> tuple[Path, Path, Path]:
     return raw_table_path, canonical_bars_path, canonical_provenance_path
 
 
+def _contract_economics_row(
+    contract_id: str,
+    *,
+    economics_session_date: str = "2026-07-10",
+    effective_session_date: str = "2026-07-11",
+    effective_from_ts: str = "2026-07-11T06:00:00Z",
+    effective_to_ts: str | None = None,
+    fx_rate_to_rub: float = 1.0,
+) -> dict[str, object]:
+    return {
+        "contract_id": contract_id,
+        "instrument_id": f"FUT_{contract_id}",
+        "moex_secid": contract_id,
+        "assetcode": contract_id[:2],
+        "economics_session_date": economics_session_date,
+        "effective_session_date": effective_session_date,
+        "clearing_type": "mc",
+        "effective_from_ts": effective_from_ts,
+        "effective_to_ts": effective_to_ts,
+        "min_step": 1.0,
+        "lot_volume": 1.0,
+        "quote_currency": "RUB",
+        "fx_rate_to_rub": fx_rate_to_rub,
+        "tick_value_currency": 1.0,
+        "step_price_rub": 1.0,
+        "official_step_price": 1.0,
+        "official_initial_margin": 0.0,
+        "last_settle_price": 100.0,
+        "mr1": 0.1,
+        "radius_pct": 15.0,
+        "margin_required_estimate": 1_000.0,
+        "model_quality": "calibrated_asset_rank",
+        "model_version": "test-model",
+        "buffer_policy_version": "test-buffer-policy",
+        "created_at": "2026-07-10T23:10:24Z",
+    }
+
+
+def _write_contract_economics_table(
+    table_path: Path,
+    *,
+    contract_ids: tuple[str, ...],
+    economics_session_date: str = "2026-07-10",
+    effective_session_date: str = "2026-07-11",
+    effective_from_ts: str = "2026-07-11T06:00:00Z",
+    effective_to_ts: str | None = None,
+    invalid_contract_id: str | None = None,
+    additional_rows: tuple[dict[str, object], ...] = (),
+) -> None:
+    rows = [
+        _contract_economics_row(
+            contract_id,
+            economics_session_date=economics_session_date,
+            effective_session_date=effective_session_date,
+            effective_from_ts=effective_from_ts,
+            effective_to_ts=effective_to_ts,
+            fx_rate_to_rub=0.0 if contract_id == invalid_contract_id else 1.0,
+        )
+        for contract_id in contract_ids
+    ]
+    rows.extend(additional_rows)
+    write_delta_table_rows(
+        table_path=table_path,
+        rows=rows,
+        columns=moex_economics_store_contract()["canonical_contract_economics"]["columns"],
+    )
+
+
 def _patch_common_inputs(
     monkeypatch: pytest.MonkeyPatch, changed_windows: list[dict[str, object]]
 ) -> None:
@@ -92,7 +164,45 @@ def _patch_common_inputs(
     monkeypatch.setattr(
         baseline_module, "validate_universe_mapping_alignment", lambda _universe, _mappings: None
     )
-    monkeypatch.setattr(baseline_module, "discover_coverage", lambda **_kwargs: [])
+
+    def _discover_current_coverage(**kwargs):
+        ingest_till_utc = kwargs["ingest_till_utc"]
+        source_by_target = {
+            "1m": (1, "1m"),
+            "5m": (1, "1m"),
+            "15m": (1, "1m"),
+            "1h": (60, "1h"),
+            "4h": (60, "1h"),
+            "1d": (24, "1d"),
+            "1w": (7, "1w"),
+        }
+        target_timeframes_by_interval: dict[int, list[str]] = {}
+        source_labels: dict[int, str] = {}
+        for target_timeframe in sorted(kwargs["timeframes"]):
+            source_interval, source_label = source_by_target[target_timeframe]
+            target_timeframes_by_interval.setdefault(source_interval, []).append(target_timeframe)
+            source_labels[source_interval] = source_label
+        return [
+            DiscoveryRecord(
+                internal_id="FUT_BR",
+                finam_symbol="BRM6@MOEX",
+                moex_engine="futures",
+                moex_market="forts",
+                moex_board="RFUD",
+                moex_secid="BRM6",
+                asset_group="energy",
+                requested_target_timeframes=",".join(target_timeframes),
+                source_interval=source_interval,
+                source_timeframe=source_labels[source_interval],
+                coverage_begin_utc="2026-01-01T00:00:00Z",
+                coverage_end_utc=ingest_till_utc,
+                discovered_at_utc=kwargs["discovered_at_utc"],
+                discovery_url="https://iss.moex.com/BRM6/candleborders.json",
+            )
+            for source_interval, target_timeframes in sorted(target_timeframes_by_interval.items())
+        ]
+
+    monkeypatch.setattr(baseline_module, "discover_coverage", _discover_current_coverage)
     monkeypatch.setattr(
         baseline_module,
         "ingest_moex_baseline_window",
@@ -400,6 +510,241 @@ def test_baseline_update_can_refresh_money_math_side_tables_before_canonical_rou
     )
 
 
+@pytest.mark.parametrize("target_session_date", ["2026-07-11", "2026-07-12"])
+def test_baseline_update_reuses_covered_published_economics_when_source_is_temporarily_empty(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    target_session_date: str,
+) -> None:
+    raw_table_path, canonical_bars_path, canonical_provenance_path = _write_empty_baseline(tmp_path)
+    changed_windows = [
+        {
+            "internal_id": "FUT_BR",
+            "source_timeframe": "1d",
+            "source_interval": 24,
+            "moex_secid": "BRM6",
+            "window_start_utc": "2026-07-10T00:00:00Z",
+            "window_end_utc": "2026-07-10T21:00:00Z",
+            "incremental_rows": 1,
+        }
+    ]
+    _patch_common_inputs(monkeypatch, changed_windows)
+    canonical_economics_root = tmp_path / "canonical" / "economics"
+    economics_table_path = canonical_economics_root / "canonical_contract_economics.delta"
+    older_invalid_rows = (
+        (
+            _contract_economics_row(
+                "BRM6",
+                economics_session_date="2026-07-09",
+                effective_session_date="2026-07-10",
+                effective_from_ts="2026-07-10T06:00:00Z",
+                effective_to_ts="2026-07-11T12:00:00Z",
+                fx_rate_to_rub=0.0,
+            ),
+        )
+        if target_session_date == "2026-07-11"
+        else ()
+    )
+    _write_contract_economics_table(
+        economics_table_path,
+        contract_ids=("BRM6",),
+        additional_rows=older_invalid_rows,
+    )
+    version_before = delta_table_version(economics_table_path)
+    stage_order: list[str] = []
+
+    def _source_unavailable(**_kwargs):
+        stage_order.append("economics")
+        raise baseline_module.EconomicsSourceUnavailable(
+            target_session_date=target_session_date,
+            required_contract_ids=("BRM6",),
+            missing_sources=("indicative_fx", "rms_limits", "rms_staticparams"),
+        )
+
+    def _fake_canonical(**_kwargs):
+        stage_order.append("canonical")
+        return {
+            "status": "PASS",
+            "publish_decision": "publish",
+            "scoped_source_rows": 1,
+            "scoped_canonical_rows": 1,
+            "canonical_rows": 1,
+            "mutation_applied": True,
+        }
+
+    monkeypatch.setattr(
+        baseline_module,
+        "refresh_moex_contract_economics",
+        _source_unavailable,
+    )
+    monkeypatch.setattr(baseline_module, "run_historical_canonical_route", _fake_canonical)
+
+    report = baseline_module.run_moex_baseline_update(
+        mapping_registry_path=tmp_path / "mapping.yaml",
+        universe_path=tmp_path / "universe.yaml",
+        raw_table_path=raw_table_path,
+        canonical_bars_path=canonical_bars_path,
+        canonical_provenance_path=canonical_provenance_path,
+        evidence_dir=tmp_path / "evidence",
+        run_id=f"baseline-weekend-economics-reuse-{target_session_date}",
+        timeframes={"1d"},
+        ingest_till_utc="2026-07-10T21:00:00Z",
+        refresh_window_days=7,
+        contract_discovery_lookback_days=45,
+        max_changed_window_days=10,
+        economics_mode="refresh",
+        raw_economics_root=tmp_path / "raw" / "economics",
+        canonical_economics_root=canonical_economics_root,
+    )
+
+    assert stage_order == ["economics", "canonical"]
+    assert report["status"] == "PASS"
+    assert report["economics_refresh"]["status"] == "PASS-NOOP"
+    assert report["economics_refresh"]["refresh_status"] == "DEFERRED"
+    assert report["economics_refresh"]["skipped_reason"] == "published_economics_covers_target"
+    assert report["economics_refresh"]["published_coverage"]["covered_contracts"] == 1
+    assert (
+        report["economics_refresh"]["published_coverage"]["target_session_date"]
+        == target_session_date
+    )
+    assert report["economics_refresh"]["published_coverage"]["effective_session_dates"] == [
+        "2026-07-11"
+    ]
+    assert report["economics_refresh"]["published_coverage"]["economics_session_dates"] == [
+        "2026-07-10"
+    ]
+    assert report["economics_refresh"]["published_coverage"]["delta_version"] == version_before
+    assert delta_table_version(economics_table_path) == version_before
+    assert not (tmp_path / "evidence" / "pending-changed-windows.json").exists()
+
+
+@pytest.mark.parametrize(
+    (
+        "required_contract_ids",
+        "invalid_contract_id",
+        "expected_missing_contract_ids",
+        "expected_invalid_contracts",
+        "error_match",
+        "target_session_date",
+        "effective_to_ts",
+    ),
+    [
+        (("BRM6", "SiU6"), None, ["SiU6"], {}, "SiU6", "2026-07-11", None),
+        (
+            ("BRM6",),
+            "BRM6",
+            [],
+            {"BRM6": ["fx_rate_to_rub"]},
+            "BRM6",
+            "2026-07-11",
+            None,
+        ),
+        (
+            ("BRM6",),
+            None,
+            ["BRM6"],
+            {},
+            "BRM6",
+            "2026-07-12",
+            "2026-07-12T12:00:00Z",
+        ),
+    ],
+)
+def test_baseline_update_fails_closed_when_published_economics_coverage_is_incomplete_or_invalid(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    required_contract_ids: tuple[str, ...],
+    invalid_contract_id: str | None,
+    expected_missing_contract_ids: list[str],
+    expected_invalid_contracts: dict[str, list[str]],
+    error_match: str,
+    target_session_date: str,
+    effective_to_ts: str | None,
+) -> None:
+    raw_table_path, canonical_bars_path, canonical_provenance_path = _write_empty_baseline(tmp_path)
+    changed_windows = [
+        {
+            "internal_id": "FUT_BR",
+            "source_timeframe": "1d",
+            "source_interval": 24,
+            "moex_secid": "BRM6",
+            "window_start_utc": "2026-07-10T00:00:00Z",
+            "window_end_utc": "2026-07-10T21:00:00Z",
+            "incremental_rows": 1,
+        }
+    ]
+    _patch_common_inputs(monkeypatch, changed_windows)
+    canonical_economics_root = tmp_path / "canonical" / "economics"
+    economics_table_path = canonical_economics_root / "canonical_contract_economics.delta"
+    _write_contract_economics_table(
+        economics_table_path,
+        contract_ids=("BRM6",),
+        invalid_contract_id=invalid_contract_id,
+        effective_to_ts=effective_to_ts,
+    )
+    version_before = delta_table_version(economics_table_path)
+
+    def _source_unavailable(**_kwargs):
+        raise baseline_module.EconomicsSourceUnavailable(
+            target_session_date=target_session_date,
+            required_contract_ids=required_contract_ids,
+            missing_sources=("indicative_fx",),
+        )
+
+    def _unexpected_canonical(**_kwargs):
+        raise AssertionError("canonical route must not run after economics coverage failure")
+
+    monkeypatch.setattr(
+        baseline_module,
+        "refresh_moex_contract_economics",
+        _source_unavailable,
+    )
+    monkeypatch.setattr(baseline_module, "run_historical_canonical_route", _unexpected_canonical)
+
+    with pytest.raises(
+        RuntimeError,
+        match=f"published economics coverage failed.*{error_match}",
+    ):
+        baseline_module.run_moex_baseline_update(
+            mapping_registry_path=tmp_path / "mapping.yaml",
+            universe_path=tmp_path / "universe.yaml",
+            raw_table_path=raw_table_path,
+            canonical_bars_path=canonical_bars_path,
+            canonical_provenance_path=canonical_provenance_path,
+            evidence_dir=tmp_path / "evidence",
+            run_id="baseline-weekend-economics-gap",
+            timeframes={"1d"},
+            ingest_till_utc="2026-07-10T21:00:00Z",
+            refresh_window_days=7,
+            contract_discovery_lookback_days=45,
+            max_changed_window_days=10,
+            economics_mode="refresh",
+            raw_economics_root=tmp_path / "raw" / "economics",
+            canonical_economics_root=canonical_economics_root,
+        )
+
+    assert delta_table_version(economics_table_path) == version_before
+    pending = json.loads(
+        (tmp_path / "evidence" / "pending-changed-windows.json").read_text(encoding="utf-8")
+    )
+    assert pending["reason"] == "economics_refresh_failed"
+    blocked_report = json.loads(
+        (
+            tmp_path
+            / "evidence"
+            / "baseline-weekend-economics-gap"
+            / "economics-refresh"
+            / "contract-economics-report.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert blocked_report["status"] == "BLOCKED"
+    assert (
+        blocked_report["published_coverage"]["missing_contract_ids"]
+        == expected_missing_contract_ids
+    )
+    assert blocked_report["published_coverage"]["invalid_contracts"] == expected_invalid_contracts
+
+
 def test_contract_economics_refresh_writes_iss_raw_side_tables(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -571,12 +916,19 @@ def test_contract_economics_raw_refresh_refuses_partial_write_without_fx(
 
     raw_root = tmp_path / "raw" / "economics"
 
-    with pytest.raises(RuntimeError, match="no indicative FX rows"):
+    with pytest.raises(
+        baseline_module.EconomicsSourceUnavailable,
+        match="no indicative FX rows",
+    ) as exc_info:
         baseline_module._write_iss_economics_raw_tables(
             client=_Client(),
             raw_economics_root=raw_root,
             ingest_till_utc="2026-06-19T07:00:00Z",
         )
+
+    assert exc_info.value.target_session_date == "2026-06-19"
+    assert exc_info.value.required_contract_ids == ("BRM6",)
+    assert exc_info.value.missing_sources == ("indicative_fx",)
 
     for table_name in (
         "raw_moex_contract_securities.delta",
@@ -1196,11 +1548,29 @@ def test_baseline_update_blocks_duplicate_completed_run_id_before_discovery(
         )
 
 
-def test_baseline_update_uses_local_tail_coverage_without_live_discovery(
+def test_baseline_update_uses_fresh_roll_map_tail_without_live_discovery(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     raw_table_path, canonical_bars_path, canonical_provenance_path = _write_empty_baseline(tmp_path)
+    canonical_roll_map_path = canonical_bars_path.parent / "canonical_roll_map.delta"
+    write_delta_table_rows(
+        table_path=canonical_roll_map_path,
+        rows=[
+            {
+                "instrument_id": "FUT_BR",
+                "session_date": "2026-04-22",
+                "active_contract_id": "BRM6@MOEX",
+                "reason": "fresh-front",
+            }
+        ],
+        columns={
+            "instrument_id": "string",
+            "session_date": "date",
+            "active_contract_id": "string",
+            "reason": "string",
+        },
+    )
     universe = [
         UniverseSymbol(
             internal_id="FUT_BR",
@@ -1290,6 +1660,7 @@ def test_baseline_update_uses_local_tail_coverage_without_live_discovery(
         raw_table_path=raw_table_path,
         canonical_bars_path=canonical_bars_path,
         canonical_provenance_path=canonical_provenance_path,
+        canonical_roll_map_path=canonical_roll_map_path,
         evidence_dir=tmp_path / "evidence",
         run_id="baseline-tail",
         timeframes={"5m", "15m"},
@@ -1308,7 +1679,7 @@ def test_baseline_update_uses_local_tail_coverage_without_live_discovery(
     assert item.source_interval == 1
     assert item.requested_target_timeframes == "5m,15m"
     assert item.coverage_end_utc == "2026-04-22T00:00:00Z"
-    assert item.discovery_url == "local-tail://mapping-registry/FUT_BR/1/BRM6"
+    assert item.discovery_url == "local-tail://canonical-roll-map/FUT_BR/1/BRM6/2026-04-22"
     assert captured["client_kwargs"]["timeout_seconds"] == 6.0
     assert captured["client_kwargs"]["max_retries"] == 1
     assert captured["client_kwargs"]["retry_backoff_seconds"] == 0.5
@@ -1484,6 +1855,319 @@ def test_baseline_update_local_tail_uses_latest_roll_map_contract_over_stale_map
     assert item.moex_secid == "BRQ6"
     assert item.finam_symbol == "BRQ6@MOEX"
     assert item.discovery_url == "local-tail://canonical-roll-map/FUT_BR/1/BRQ6/2026-06-08"
+
+
+def _pld_local_tail_inputs() -> tuple[list[UniverseSymbol], list[MappingRecord]]:
+    return (
+        [
+            UniverseSymbol(
+                internal_id="FUT_PLD",
+                asset_class="futures",
+                asset_group="commodity",
+                status="active",
+                finam_symbol="PDM6@MOEX",
+                moex_engine="futures",
+                moex_market="forts",
+                moex_board="RFUD",
+                moex_secid="PDM6",
+                moex_asset_codes=("PLD",),
+            )
+        ],
+        [
+            MappingRecord(
+                internal_id="FUT_PLD",
+                finam_symbol="PDM6@MOEX",
+                moex_engine="futures",
+                moex_market="forts",
+                moex_board="RFUD",
+                moex_secid="PDM6",
+                asset_class="futures",
+                asset_group="commodity",
+                mapping_version=1,
+                is_active=True,
+                activated_at_utc="2026-04-01T00:00:00Z",
+                deactivated_at_utc=None,
+                change_reason="stale-front",
+            )
+        ],
+    )
+
+
+def _write_pld_roll_map(path: Path, *, session_date: str) -> None:
+    write_delta_table_rows(
+        table_path=path,
+        rows=[
+            {
+                "instrument_id": "FUT_PLD",
+                "session_date": session_date,
+                "active_contract_id": "PDM6@MOEX",
+                "reason": "expired-front",
+            }
+        ],
+        columns={
+            "instrument_id": "string",
+            "session_date": "date",
+            "active_contract_id": "string",
+            "reason": "string",
+        },
+    )
+
+
+def _prepare_pld_baseline_case(
+    *,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    roll_session_date: str | None,
+) -> tuple[Path, Path, Path, Path]:
+    raw_table_path, canonical_bars_path, canonical_provenance_path = _write_empty_baseline(tmp_path)
+    canonical_roll_map_path = canonical_bars_path.parent / "canonical_roll_map.delta"
+    if roll_session_date is not None:
+        _write_pld_roll_map(canonical_roll_map_path, session_date=roll_session_date)
+    universe, mappings = _pld_local_tail_inputs()
+    _patch_common_inputs(monkeypatch, [])
+    monkeypatch.setattr(baseline_module, "load_universe", lambda _path: universe)
+    monkeypatch.setattr(baseline_module, "load_mapping_registry", lambda _path: mappings)
+    return (
+        raw_table_path,
+        canonical_bars_path,
+        canonical_provenance_path,
+        canonical_roll_map_path,
+    )
+
+
+@pytest.mark.parametrize(
+    ("case_name", "roll_session_date", "refresh_window_days"),
+    [
+        ("stale-roll-map", "2026-06-19", 7),
+        ("missing-roll-map", None, 7),
+        ("wide-refresh-window", "2026-06-26", 45),
+    ],
+)
+def test_baseline_update_local_tail_recovers_invalid_roll_state_with_live_discovery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    case_name: str,
+    roll_session_date: str | None,
+    refresh_window_days: int,
+) -> None:
+    (
+        raw_table_path,
+        canonical_bars_path,
+        canonical_provenance_path,
+        canonical_roll_map_path,
+    ) = _prepare_pld_baseline_case(
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+        roll_session_date=roll_session_date,
+    )
+    captured: dict[str, object] = {}
+
+    def _discover_replacement(**kwargs):
+        captured["discovery_internal_ids"] = {
+            item.internal_id for item in kwargs["universe"] if item.is_active
+        }
+        return [
+            DiscoveryRecord(
+                internal_id="FUT_PLD",
+                finam_symbol="PDU6@MOEX",
+                moex_engine="futures",
+                moex_market="forts",
+                moex_board="RFUD",
+                moex_secid="PDU6",
+                asset_group="commodity",
+                requested_target_timeframes="5m,15m",
+                source_interval=1,
+                source_timeframe="1m",
+                coverage_begin_utc="2025-09-22T09:32:00Z",
+                coverage_end_utc="2026-07-26T15:59:59Z",
+                discovered_at_utc="2026-07-26T20:40:00Z",
+                discovery_url="https://iss.moex.com/PDU6/candleborders.json",
+            )
+        ]
+
+    monkeypatch.setattr(baseline_module, "discover_coverage", _discover_replacement)
+
+    def _fake_ingest(**kwargs):
+        captured["coverage"] = kwargs["coverage"]
+        return {
+            "run_id": kwargs["run_id"],
+            "status": "PASS-NOOP",
+            "ingest_till_utc": kwargs["ingest_till_utc"],
+            "source_rows": 0,
+            "incremental_rows": 0,
+            "deduplicated_rows": 0,
+            "stale_rows": 0,
+            "watermark_by_key": {},
+            "raw_table_path": kwargs["table_path"].as_posix(),
+            "raw_ingest_progress_path": kwargs["progress_path"].as_posix(),
+            "raw_ingest_error_path": kwargs["error_path"].as_posix(),
+            "raw_ingest_error_latest_path": kwargs["error_latest_path"].as_posix(),
+            "changed_windows": [],
+        }
+
+    monkeypatch.setattr(baseline_module, "ingest_moex_baseline_window", _fake_ingest)
+
+    report = baseline_module.run_moex_baseline_update(
+        mapping_registry_path=tmp_path / "mapping.yaml",
+        universe_path=tmp_path / "universe.yaml",
+        raw_table_path=raw_table_path,
+        canonical_bars_path=canonical_bars_path,
+        canonical_provenance_path=canonical_provenance_path,
+        canonical_roll_map_path=canonical_roll_map_path,
+        evidence_dir=tmp_path / "evidence",
+        run_id=f"baseline-{case_name}-recovery",
+        timeframes={"5m", "15m"},
+        ingest_till_utc="2026-07-26T20:40:00Z",
+        refresh_window_days=refresh_window_days,
+        contract_discovery_lookback_days=45,
+        max_changed_window_days=10,
+    )
+
+    coverage = captured["coverage"]
+    assert {item.moex_secid for item in coverage} == {"PDU6"}
+    assert captured["discovery_internal_ids"] == {"FUT_PLD"}
+    assert report["coverage_recovery"] == {
+        "status": "RECOVERED",
+        "stale_internal_ids": ["FUT_PLD"],
+        "recovered_internal_ids": ["FUT_PLD"],
+        "unresolved_internal_ids": [],
+    }
+
+
+def test_local_tail_recovery_blocks_and_reports_non_current_required_interval(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (
+        raw_table_path,
+        canonical_bars_path,
+        canonical_provenance_path,
+        canonical_roll_map_path,
+    ) = _prepare_pld_baseline_case(
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+        roll_session_date="2026-06-19",
+    )
+
+    def _discover_partial_tail(**kwargs):
+        common = {
+            "internal_id": "FUT_PLD",
+            "finam_symbol": "PDU6@MOEX",
+            "moex_engine": "futures",
+            "moex_market": "forts",
+            "moex_board": "RFUD",
+            "moex_secid": "PDU6",
+            "asset_group": "commodity",
+            "coverage_begin_utc": "2025-09-22T09:32:00Z",
+            "discovered_at_utc": kwargs["discovered_at_utc"],
+            "discovery_url": "https://iss.moex.com/PDU6/candleborders.json",
+        }
+        return [
+            DiscoveryRecord(
+                **common,
+                requested_target_timeframes="5m",
+                source_interval=1,
+                source_timeframe="1m",
+                coverage_end_utc="2026-07-26T15:59:59Z",
+            ),
+            DiscoveryRecord(
+                **common,
+                requested_target_timeframes="1h",
+                source_interval=60,
+                source_timeframe="1h",
+                coverage_end_utc="2026-07-20T15:59:59Z",
+            ),
+        ]
+
+    monkeypatch.setattr(baseline_module, "discover_coverage", _discover_partial_tail)
+
+    with pytest.raises(RuntimeError, match="FUT_PLD"):
+        baseline_module.run_moex_baseline_update(
+            mapping_registry_path=tmp_path / "mapping.yaml",
+            universe_path=tmp_path / "universe.yaml",
+            raw_table_path=raw_table_path,
+            canonical_bars_path=canonical_bars_path,
+            canonical_provenance_path=canonical_provenance_path,
+            canonical_roll_map_path=canonical_roll_map_path,
+            evidence_dir=tmp_path / "evidence",
+            run_id="baseline-incomplete-tail-recovery",
+            timeframes={"5m", "1h"},
+            ingest_till_utc="2026-07-26T20:40:00Z",
+            refresh_window_days=7,
+            contract_discovery_lookback_days=45,
+            max_changed_window_days=10,
+        )
+
+    report = json.loads(
+        (
+            tmp_path
+            / "evidence"
+            / "baseline-incomplete-tail-recovery"
+            / baseline_module.BASELINE_UPDATE_REPORT_FILENAME
+        ).read_text(encoding="utf-8")
+    )
+    assert report["status"] == "BLOCKED"
+    assert report["coverage_recovery"] == {
+        "status": "BLOCKED",
+        "stale_internal_ids": ["FUT_PLD"],
+        "recovered_internal_ids": [],
+        "unresolved_internal_ids": ["FUT_PLD"],
+    }
+
+
+def test_local_tail_recovery_reports_live_discovery_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (
+        raw_table_path,
+        canonical_bars_path,
+        canonical_provenance_path,
+        canonical_roll_map_path,
+    ) = _prepare_pld_baseline_case(
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+        roll_session_date="2026-06-19",
+    )
+
+    def _failed_discovery(**_kwargs):
+        raise RuntimeError("ISS unavailable")
+
+    monkeypatch.setattr(baseline_module, "discover_coverage", _failed_discovery)
+
+    with pytest.raises(RuntimeError, match="ISS unavailable"):
+        baseline_module.run_moex_baseline_update(
+            mapping_registry_path=tmp_path / "mapping.yaml",
+            universe_path=tmp_path / "universe.yaml",
+            raw_table_path=raw_table_path,
+            canonical_bars_path=canonical_bars_path,
+            canonical_provenance_path=canonical_provenance_path,
+            canonical_roll_map_path=canonical_roll_map_path,
+            evidence_dir=tmp_path / "evidence",
+            run_id="baseline-discovery-failure",
+            timeframes={"5m"},
+            ingest_till_utc="2026-07-26T20:40:00Z",
+            refresh_window_days=7,
+            contract_discovery_lookback_days=45,
+            max_changed_window_days=10,
+        )
+
+    report = json.loads(
+        (
+            tmp_path
+            / "evidence"
+            / "baseline-discovery-failure"
+            / baseline_module.BASELINE_UPDATE_REPORT_FILENAME
+        ).read_text(encoding="utf-8")
+    )
+    assert report["status"] == "BLOCKED"
+    assert report["error_type"] == "RuntimeError"
+    assert report["coverage_recovery"] == {
+        "status": "BLOCKED",
+        "stale_internal_ids": ["FUT_PLD"],
+        "recovered_internal_ids": [],
+        "unresolved_internal_ids": ["FUT_PLD"],
+    }
 
 
 class _BaselineWindowClient:

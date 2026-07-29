@@ -17,6 +17,10 @@ from trading_advisor_3000.product_plane.data_plane.moex.economics import (
     moex_economics_store_contract,
 )
 
+from .economics_reuse import (
+    EconomicsSourceUnavailable,
+    reuse_published_economics_after_source_unavailable,
+)
 from .foundation import (
     DEFAULT_CONTRACT_DISCOVERY_STEP_DAYS,
     DEFAULT_REFRESH_OVERLAP_MINUTES,
@@ -71,6 +75,8 @@ ECONOMICS_REFRESH_MODES = {
     ECONOMICS_REFRESH_MODE_REFRESH,
 }
 LOCAL_TAIL_ROLL_MAP_LOOKBACK_DAYS = 45
+LOCAL_TAIL_MAX_ROLL_MAP_AGE_DAYS = 7
+LOCAL_TAIL_MAX_COVERAGE_AGE_DAYS = 3
 BASELINE_TAIL_REQUEST_TIMEOUT_SECONDS = 6.0
 BASELINE_TAIL_REQUEST_MAX_RETRIES = 1
 BASELINE_TAIL_REQUEST_RETRY_BACKOFF_SECONDS = 0.5
@@ -635,12 +641,6 @@ def _write_iss_economics_raw_tables(
         fx_rows,
         key_columns=("source_document_id", "source_document_hash"),
     )
-    if contract_rows and not fx_rows:
-        raise RuntimeError(
-            "MOEX economics raw refresh produced no indicative FX rows for "
-            f"{trade_date.isoformat()}; refusing to write partial economics raw tables"
-        )
-
     limits_rows = []
     for payload in rms_limits_payloads:
         assetcode = str(payload.get("assetcode") or payload.get("ASSETCODE") or "").strip()
@@ -697,6 +697,23 @@ def _write_iss_economics_raw_tables(
         staticparams_rows,
         key_columns=("source_document_id", "source_document_hash"),
     )
+
+    missing_sources: list[str] = []
+    if contract_rows:
+        if not fx_rows:
+            missing_sources.append("indicative_fx")
+        if not limits_rows:
+            missing_sources.append("rms_limits")
+        if not staticparams_rows:
+            missing_sources.append("rms_staticparams")
+    if missing_sources:
+        raise EconomicsSourceUnavailable(
+            target_session_date=contract_snapshot_trade_date.isoformat(),
+            required_contract_ids=tuple(
+                str(row["moex_secid"]) for row in contract_rows if row.get("moex_secid")
+            ),
+            missing_sources=missing_sources,
+        )
 
     raw_economics_root.mkdir(parents=True, exist_ok=True)
     contract_table_path = raw_economics_root / "raw_moex_contract_securities.delta"
@@ -852,7 +869,7 @@ def _local_tail_coverage(
     refresh_window_days: int,
     canonical_roll_map_path: Path | None = None,
     roll_map_lookback_days: int = LOCAL_TAIL_ROLL_MAP_LOOKBACK_DAYS,
-) -> list[DiscoveryRecord]:
+) -> tuple[list[DiscoveryRecord], tuple[str, ...]]:
     ordered_timeframes = _sorted_target_timeframes(timeframes)
     target_timeframes_by_interval: dict[int, list[str]] = {}
     for target_timeframe in ordered_timeframes:
@@ -873,6 +890,22 @@ def _local_tail_coverage(
     )
 
     ingest_till = datetime.fromisoformat(ingest_till_utc.replace("Z", "+00:00"))
+    roll_map_available = canonical_roll_map_path is not None and has_delta_log(
+        canonical_roll_map_path
+    )
+    stale_cutoff = (ingest_till - timedelta(days=LOCAL_TAIL_MAX_ROLL_MAP_AGE_DAYS)).date()
+    stale_internal_ids = tuple(
+        sorted(
+            mapping.internal_id
+            for mapping in active_mappings
+            if not roll_map_available
+            or (
+                latest_roll_contracts.get(mapping.internal_id) is None
+                or date.fromisoformat(latest_roll_contracts[mapping.internal_id]["session_date"])
+                < stale_cutoff
+            )
+        )
+    )
     coverage_begin = ingest_till - timedelta(days=refresh_window_days)
     coverage_begin_utc = (
         coverage_begin.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -914,15 +947,45 @@ def _local_tail_coverage(
                     ),
                 )
             )
-    return sorted(
-        records,
-        key=lambda row: (
-            row.internal_id,
-            row.source_interval,
-            row.coverage_begin_utc,
-            row.coverage_end_utc,
-            row.moex_secid,
-        ),
+    return (
+        sorted(records, key=_coverage_sort_key),
+        stale_internal_ids,
+    )
+
+
+def _coverage_sort_key(row: DiscoveryRecord) -> tuple[str, int, str, str, str]:
+    return (
+        row.internal_id,
+        row.source_interval,
+        row.coverage_begin_utc,
+        row.coverage_end_utc,
+        row.moex_secid,
+    )
+
+
+def _write_coverage_recovery_failure_report(
+    *,
+    run_dir: Path,
+    run_id: str,
+    coverage_mode: str,
+    discovered_at_utc: str,
+    ingest_till_utc: str,
+    coverage_recovery: dict[str, object],
+    error: Exception,
+) -> None:
+    _write_json(
+        run_dir / BASELINE_UPDATE_REPORT_FILENAME,
+        {
+            "run_id": run_id,
+            "status": "BLOCKED",
+            "failure_stage": "coverage_recovery",
+            "error_type": type(error).__name__,
+            "error": str(error),
+            "coverage_mode": coverage_mode,
+            "discovered_at_utc": discovered_at_utc,
+            "ingest_till_utc": ingest_till_utc,
+            "coverage_recovery": coverage_recovery,
+        },
     )
 
 
@@ -1036,6 +1099,12 @@ def run_moex_baseline_update(
         ),
     )
     discovered_at_utc = _utc_now_iso()
+    coverage_recovery: dict[str, object] = {
+        "status": "NOT_APPLICABLE",
+        "stale_internal_ids": [],
+        "recovered_internal_ids": [],
+        "unresolved_internal_ids": [],
+    }
     if coverage_mode == BASELINE_COVERAGE_MODE_LIVE_DISCOVERY:
         coverage = discover_coverage(
             client=client,
@@ -1050,7 +1119,7 @@ def run_moex_baseline_update(
             contract_discovery_lookback_days=contract_discovery_lookback_days,
         )
     else:
-        coverage = _local_tail_coverage(
+        coverage, stale_internal_ids = _local_tail_coverage(
             universe=universe,
             mappings=mappings,
             timeframes=resolved_timeframes,
@@ -1063,6 +1132,103 @@ def run_moex_baseline_update(
                 contract_discovery_lookback_days,
             ),
         )
+        coverage_recovery["status"] = "NOT_REQUIRED"
+        coverage_recovery["stale_internal_ids"] = list(stale_internal_ids)
+        if stale_internal_ids:
+            stale_set = set(stale_internal_ids)
+            recovery_tail_cutoff = (
+                datetime.fromisoformat(ingest_till_utc.replace("Z", "+00:00")).astimezone(UTC)
+                - timedelta(days=LOCAL_TAIL_MAX_COVERAGE_AGE_DAYS)
+            ).date()
+            try:
+                recovered_coverage = [
+                    item
+                    for item in discover_coverage(
+                        client=client,
+                        universe=[
+                            item
+                            for item in universe
+                            if getattr(item, "internal_id", None) in stale_set
+                        ],
+                        mappings=[
+                            item
+                            for item in mappings
+                            if getattr(item, "internal_id", None) in stale_set
+                        ],
+                        timeframes=resolved_timeframes,
+                        discovered_at_utc=discovered_at_utc,
+                        ingest_till_utc=ingest_till_utc,
+                        bootstrap_window_days=refresh_window_days,
+                        expand_contract_chain=True,
+                        contract_discovery_step_days=contract_discovery_step_days,
+                        contract_discovery_lookback_days=contract_discovery_lookback_days,
+                    )
+                    if _parse_utc_timestamp(
+                        item.coverage_end_utc,
+                        field_name="coverage_end_utc",
+                    ).date()
+                    >= recovery_tail_cutoff
+                ]
+            except Exception as error:
+                coverage_recovery = {
+                    "status": "BLOCKED",
+                    "stale_internal_ids": list(stale_internal_ids),
+                    "recovered_internal_ids": [],
+                    "unresolved_internal_ids": list(stale_internal_ids),
+                }
+                _write_coverage_recovery_failure_report(
+                    run_dir=run_dir,
+                    run_id=run_id,
+                    coverage_mode=coverage_mode,
+                    discovered_at_utc=discovered_at_utc,
+                    ingest_till_utc=ingest_till_utc,
+                    coverage_recovery=coverage_recovery,
+                    error=error,
+                )
+                raise
+            required_keys = {
+                (item.internal_id, item.source_interval)
+                for item in coverage
+                if item.internal_id in stale_set
+            }
+            recovered_keys = {
+                (item.internal_id, item.source_interval) for item in recovered_coverage
+            }
+            unresolved_internal_ids = sorted(
+                internal_id
+                for internal_id in stale_internal_ids
+                if any(
+                    required_internal_id == internal_id
+                    and (required_internal_id, source_interval) not in recovered_keys
+                    for required_internal_id, source_interval in required_keys
+                )
+            )
+            recovered_internal_ids = sorted(stale_set - set(unresolved_internal_ids))
+            coverage_recovery = {
+                "status": "RECOVERED" if not unresolved_internal_ids else "BLOCKED",
+                "stale_internal_ids": list(stale_internal_ids),
+                "recovered_internal_ids": recovered_internal_ids,
+                "unresolved_internal_ids": unresolved_internal_ids,
+            }
+            if unresolved_internal_ids:
+                error = RuntimeError(
+                    "local tail coverage recovery could not resolve active instruments: "
+                    + ",".join(unresolved_internal_ids)
+                )
+                _write_coverage_recovery_failure_report(
+                    run_dir=run_dir,
+                    run_id=run_id,
+                    coverage_mode=coverage_mode,
+                    discovered_at_utc=discovered_at_utc,
+                    ingest_till_utc=ingest_till_utc,
+                    coverage_recovery=coverage_recovery,
+                    error=error,
+                )
+                raise error
+            coverage = [
+                item for item in coverage if item.internal_id not in stale_set
+            ] + recovered_coverage
+            coverage.sort(key=_coverage_sort_key)
     coverage_json, coverage_csv = _write_coverage_artifacts(coverage, output_dir=run_dir)
 
     raw_report = ingest_moex_baseline_window(
@@ -1118,19 +1284,27 @@ def run_moex_baseline_update(
 
     if resolved_economics_mode == ECONOMICS_REFRESH_MODE_REFRESH:
         try:
-            economics_report = refresh_moex_contract_economics(
-                client=client,
-                universe=universe,
-                mappings=mappings,
-                raw_economics_root=raw_economics_root,
-                canonical_economics_root=canonical_economics_root,
-                canonical_session_calendar_path=canonical_session_calendar_path,
-                evidence_dir=run_dir / "economics-refresh",
-                run_id=run_id,
-                ingest_till_utc=ingest_till_utc,
-                changed_windows=merged_changed_windows,
-                refresh_window_days=refresh_window_days,
-            )
+            try:
+                economics_report = refresh_moex_contract_economics(
+                    client=client,
+                    universe=universe,
+                    mappings=mappings,
+                    raw_economics_root=raw_economics_root,
+                    canonical_economics_root=canonical_economics_root,
+                    canonical_session_calendar_path=canonical_session_calendar_path,
+                    evidence_dir=run_dir / "economics-refresh",
+                    run_id=run_id,
+                    ingest_till_utc=ingest_till_utc,
+                    changed_windows=merged_changed_windows,
+                    refresh_window_days=refresh_window_days,
+                )
+            except EconomicsSourceUnavailable as exc:
+                economics_report = reuse_published_economics_after_source_unavailable(
+                    canonical_economics_root=canonical_economics_root,
+                    evidence_dir=run_dir / "economics-refresh",
+                    run_id=run_id,
+                    source_error=exc,
+                )
         except Exception:
             _write_pending_changed_windows(
                 path=pending_changed_windows_path,
@@ -1261,6 +1435,7 @@ def run_moex_baseline_update(
         "publish_decision": "publish" if status == "PASS" else "blocked",
         "mode": "baseline_update",
         "coverage_mode": coverage_mode,
+        "coverage_recovery": coverage_recovery,
         "economics_mode": resolved_economics_mode,
         "runtime_boundary": {
             "orchestrator": "dagster",
