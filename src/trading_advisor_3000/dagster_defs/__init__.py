@@ -47,6 +47,13 @@ from .product_plane_definitions import (
     build_product_plane_definitions,
     product_plane_definitions,
 )
+from .rebuild_storage_layout_assets import (
+    REBUILD_STORAGE_LAYOUT_JOB_NAME,
+    REBUILD_STORAGE_LAYOUT_OP_NAME,
+    build_rebuild_storage_layout_run_config,
+    rebuild_storage_layout,
+    rebuild_storage_layout_job,
+)
 from .research_assets import (
     MOEX_CF_CATCH_UP_AFTER_MOEX_BASELINE_SENSOR_NAME,
     MOEX_CF_CATCH_UP_ASSETS,
@@ -144,6 +151,8 @@ __all__ = [
     "MOEX_RESEARCH_INDICATOR_SIDECAR_JOB_NAME",
     "PRODUCT_PLANE_NIGHTLY_JOB_NAMES",
     "RESEARCH_ASSETS",
+    "REBUILD_STORAGE_LAYOUT_JOB_NAME",
+    "REBUILD_STORAGE_LAYOUT_OP_NAME",
     "RESEARCH_BACKTEST_AFTER_STRATEGY_REGISTRY_SENSOR_NAME",
     "RESEARCH_BACKTEST_ASSETS",
     "RESEARCH_BACKTEST_JOB_NAME",
@@ -176,6 +185,7 @@ __all__ = [
     "build_moex_historical_run_config",
     "build_product_plane_definitions",
     "build_research_campaign_run_config",
+    "build_rebuild_storage_layout_run_config",
     "build_research_data_prep_run_config",
     "build_research_definitions",
     "execute_moex_baseline_update_job",
@@ -228,6 +238,8 @@ __all__ = [
     "research_instrument_tree",
     "research_projection_after_backtest_sensor",
     "research_projection_job",
+    "rebuild_storage_layout",
+    "rebuild_storage_layout_job",
     "strategy_registry_refresh_after_research_data_prep_sensor",
     "strategy_registry_refresh_job",
 ]
