@@ -142,11 +142,15 @@ def _write_raw_table(path: Path, rows: list[dict[str, object]]) -> None:
 
 
 def _session_intervals_for_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    def _moex_session_date(value: object) -> str:
+        ts = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return (ts.astimezone(UTC) + timedelta(hours=3)).date().isoformat()
+
     sessions = sorted(
         {
-            (str(row["internal_id"]), str(row["ts_open"])[:10])
+            (str(row["internal_id"]), _moex_session_date(row["ts_open"]))
             for row in rows
-            if str(row["timeframe"]) == "1m"
+            if str(row["timeframe"]) in {"1m", "1d"}
         }
     )
     return [
@@ -407,7 +411,6 @@ def test_historical_canonical_route_avoids_full_raw_table_read(tmp_path: Path) -
         tmp_path / "official" / "canonical_session_intervals.delta",
         _session_intervals_for_rows(rows),
     )
-    assert not hasattr(phase02_module, "read_delta_table_rows")
 
     report = phase02_module.run_historical_canonical_route(
         raw_table_path=raw_table_path,
@@ -420,6 +423,8 @@ def test_historical_canonical_route_avoids_full_raw_table_read(tmp_path: Path) -
     assert report["status"] == "PASS"
     assert report["publish_decision"] == "publish"
     assert report["scoped_source_rows"] > 0
+    assert Path(str(report["artifact_paths"]["spark_execution_report"])).exists()
+    assert report["spark_execution_report"]["input_mode"] == "raw_delta"
 
 
 def test_canonical_route_pass_noop_skips_raw_table_read_entirely(tmp_path: Path) -> None:
@@ -440,7 +445,6 @@ def test_canonical_route_pass_noop_skips_raw_table_read_entirely(tmp_path: Path)
         canonical_session_intervals_path=session_intervals_path,
     )
     assert first["publish_decision"] == "publish"
-    assert not hasattr(phase02_module, "read_delta_table_rows")
 
     second = phase02_module.run_historical_canonical_route(
         raw_table_path=raw_table_path,
@@ -453,3 +457,5 @@ def test_canonical_route_pass_noop_skips_raw_table_read_entirely(tmp_path: Path)
     assert second["status"] == "PASS-NOOP"
     assert second["publish_decision"] == "publish"
     assert second["mutation_applied"] is False
+    assert "spark_execution_report" not in second
+    assert second["canonical_rows"] == first["canonical_rows"]

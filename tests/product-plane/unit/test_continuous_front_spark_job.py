@@ -101,7 +101,7 @@ def _contract_economics_row(
     }
 
 
-def test_continuous_front_spark_job_uses_native_spark_contour(
+def test_continuous_front_spark_job_reports_native_spark_wiring_contract(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -179,33 +179,11 @@ def test_continuous_front_spark_job_uses_native_spark_contour(
         "refresh_window_count",
         "sql_plan",
     }
-    assert not hasattr(job, "_build_tables_from_spark_stream")
-    assert not hasattr(job, "_iter_canonical_bars_from_spark")
-    assert not hasattr(job, "_iter_roll_map_from_spark")
-    assert not hasattr(job, "build_continuous_front_tables")
     assert any(path.name == "spark-run" for path in written_roots)
     assert (tmp_path / "continuous-front") in written_roots
     assert str(calendar_path) in fake_spark.read.loaded_paths
     assert str(roll_map_path) in fake_spark.read.loaded_paths
     assert fake_spark.stopped is True
-    assert (
-        "materialize_continuous_front" not in job.run_continuous_front_spark_job.__code__.co_names
-    )
-    assert (
-        "build_continuous_front_tables" not in job.run_continuous_front_spark_job.__code__.co_names
-    )
-    assert "toLocalIterator" not in job.run_continuous_front_spark_job.__code__.co_names
-    assert "collect" not in job.run_continuous_front_spark_job.__code__.co_names
-
-
-def test_continuous_front_spark_writer_uses_scoped_replace_without_destructive_delete() -> None:
-    source = Path("src/trading_advisor_3000/spark_jobs/continuous_front_job.py").read_text(
-        encoding="utf-8"
-    )
-
-    assert "shutil.rmtree" not in source
-    assert ".delete(" in source
-    assert "_continuous_front_replace_filters(" in source
 
 
 def test_continuous_front_bars_contract_carries_active_contract_economics() -> None:

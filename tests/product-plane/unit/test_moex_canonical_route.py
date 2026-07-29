@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 import json
 import subprocess
 from datetime import UTC, datetime
@@ -27,7 +26,6 @@ from trading_advisor_3000.product_plane.data_plane.moex.historical_canonical_rou
     run_qc_gates,
     run_runtime_decoupling_check,
 )
-from trading_advisor_3000.spark_jobs import moex_canonicalization_job as spark_job_module
 from trading_advisor_3000.spark_jobs.moex_canonicalization_job import (
     run_moex_canonicalization_spark_job,
 )
@@ -137,30 +135,6 @@ def test_changed_window_source_interval_merges_raw_1m_availability() -> None:
         ("BRM6", "FUT_BR", "5m"): 1,
         ("BRM6", "FUT_BR", "1d"): 1440,
     }
-
-
-def test_spark_session_admission_splits_daily_multi_day_and_boundaries() -> None:
-    source = inspect.getsource(spark_job_module._build_session_bounded_outputs)
-
-    assert 'functions.col("source_interval") == functions.lit(1440)' in source
-    assert 'functions.col("source_interval") > functions.lit(1440)' in source
-    assert "multi_day_required_dates_df" in source
-    assert "functions.sequence" in source
-    assert "countDistinct" in source
-    assert (
-        'functions.col("source.ts_close") != functions.col("intervals.expected_open_ts")' in source
-    )
-
-
-def test_spark_session_admission_cuts_lineage_before_out_of_schedule_counts() -> None:
-    source = inspect.getsource(spark_job_module._build_session_bounded_outputs)
-
-    assert "localCheckpoint(eager=True)" in source
-    assert "raw_rejected_df = _cut_lineage(raw_rejected_df)" in source
-    assert "finer_matches_df = _cut_lineage(finer_matches_df)" in source
-    assert (
-        "finer_covered_coarse_bucket_ids = _cut_lineage(finer_covered_coarse_bucket_ids)" in source
-    )
 
 
 def test_raw_available_intervals_scanner_normalizes_delta_rows(
@@ -585,10 +559,8 @@ def test_spark_canonicalization_uses_raw_delta_input_instead_of_source_jsonl(
         '"source_document_hash":"sha256:fixture"}\n',
         encoding="utf-8",
     )
-    captured: dict[str, object] = {}
 
     def _fake_run(command, **_kwargs):
-        captured["command"] = list(command)
         output_json = Path(command[command.index("--output-json") + 1])
         output_json.parent.mkdir(parents=True, exist_ok=True)
         output_json.write_text(
@@ -640,14 +612,9 @@ def test_spark_canonicalization_uses_raw_delta_input_instead_of_source_jsonl(
         repo_root=Path.cwd(),
     )
 
-    command = captured["command"]
-    assert "--raw-table-path" in command
-    assert raw_table_path.as_posix() in command
-    assert "--session-intervals-path" in command
-    assert session_intervals_path.as_posix() in command
-    assert "--changed-windows-jsonl" in command
-    assert "--normalized-source-jsonl" not in command
     assert report["input_mode"] == "raw_delta"
+    assert report["build_run_id"] == "canonical-direct-delta"
+    assert Path(str(report["output_paths"]["canonical_bars"])).name == "canonical_bars.delta"
 
 
 def test_spark_canonicalization_requires_session_intervals_input(

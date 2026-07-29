@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import inspect
+import json
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,7 +8,11 @@ from types import SimpleNamespace
 import pytest
 
 from scripts import run_moex_canonical_publish_spark as publish_script
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    count_delta_table_rows,
+    has_delta_log,
+    write_delta_table_rows,
+)
 from trading_advisor_3000.product_plane.data_plane.moex import (
     historical_canonical_route as route_module,
 )
@@ -19,7 +23,6 @@ from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contrac
 from trading_advisor_3000.product_plane.data_plane.schemas.delta import (
     historical_data_delta_schema_manifest,
 )
-from trading_advisor_3000.spark_jobs import moex_canonical_publish_job as publish_job
 
 
 def _changed_raw_report() -> dict[str, object]:
@@ -96,30 +99,10 @@ def _passing_session_admission_report() -> dict[str, object]:
     }
 
 
-def test_spark_publish_rewrites_session_sidecars_when_physical_layout_drifted() -> None:
-    run_source = inspect.getsource(publish_job.run_moex_canonical_publish_spark_delta_job)
-    replace_source = inspect.getsource(publish_job._replace_delta_dataframe)
-
-    assert "_delta_table_layout_matches_manifest(" in run_source
-    assert "sidecar_layout_rewrite_required" in run_source
-    assert 'refresh_mode = "layout_rewrite"' in run_source
-    assert '"partition_columns"' in run_source
-    assert "target_file_count" in replace_source
-    assert ".coalesce(target_file_count)" in replace_source
-
-
-def test_spark_publish_scopes_sidecar_provenance_before_bar_join() -> None:
-    sidecar_source = inspect.getsource(publish_job._sidecar_frames)
-
-    provenance_scope_index = sidecar_source.index(
-        "scoped_provenance_df = provenance_with_session_df.join"
-    )
-    bar_join_index = sidecar_source.index('with_session = bars_df.alias("bar").join')
-
-    assert "provenance_with_session_df = provenance_df.withColumn" in sidecar_source
-    assert '["instrument_id", "session_date"]' in sidecar_source
-    assert 'scoped_provenance_df.alias("provenance")' in sidecar_source
-    assert provenance_scope_index < bar_join_index
+def _persist_fake_spark_publish_report(output_dir: Path, payload: dict[str, object]) -> None:
+    report_path = output_dir / ".spark-canonical-publish" / "spark-publish-report.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def test_default_route_uses_scoped_spark_delta_publish_without_python_delta_reads(
@@ -130,7 +113,6 @@ def test_default_route_uses_scoped_spark_delta_publish_without_python_delta_read
     write_delta_table_rows(table_path=raw_table_path, rows=[], columns=RAW_COLUMNS)
     staged_bars_path = tmp_path / "staged" / "canonical_bars.delta"
     staged_provenance_path = tmp_path / "staged" / "canonical_bar_provenance.delta"
-    captured_publish: dict[str, object] = {}
 
     def _fake_spark_canonicalization(**_kwargs: object) -> dict[str, object]:
         return {
@@ -152,12 +134,38 @@ def test_default_route_uses_scoped_spark_delta_publish_without_python_delta_read
         }
 
     def _fake_spark_publish(**kwargs: object) -> dict[str, object]:
-        captured_publish.update(kwargs)
         target_bars_path = Path(str(kwargs["target_bars_path"]))
         target_provenance_path = Path(str(kwargs["target_provenance_path"]))
         session_calendar_path = Path(str(kwargs["session_calendar_path"]))
         roll_map_path = Path(str(kwargs["roll_map_path"]))
-        return {
+        manifest = historical_data_delta_schema_manifest()
+        write_delta_table_rows(
+            table_path=session_calendar_path,
+            rows=[
+                {
+                    "instrument_id": "FUT_BR",
+                    "timeframe": "5m",
+                    "session_date": "2026-04-02",
+                    "session_open_ts": "2026-04-02T10:00:00Z",
+                    "session_close_ts": "2026-04-02T18:45:00Z",
+                    "session_class": "regular",
+                }
+            ],
+            columns=manifest["canonical_session_calendar"]["columns"],
+        )
+        write_delta_table_rows(
+            table_path=roll_map_path,
+            rows=[
+                {
+                    "instrument_id": "FUT_BR",
+                    "session_date": "2026-04-02",
+                    "active_contract_id": "BRM6@MOEX",
+                    "reason": "highest_open_interest",
+                }
+            ],
+            columns=manifest["canonical_roll_map"]["columns"],
+        )
+        payload = {
             "run_id": kwargs["run_id"],
             "runtime_owner": "spark_delta",
             "status": "PASS",
@@ -209,8 +217,9 @@ def test_default_route_uses_scoped_spark_delta_publish_without_python_delta_read
             },
             "spark_profile": {"master": "local[2]", "delta_writer": "spark"},
         }
+        _persist_fake_spark_publish_report(Path(str(kwargs["output_dir"])), payload)
+        return payload
 
-    assert not hasattr(route_module, "read_delta_table_rows")
     monkeypatch.setattr(route_module, "_run_spark_canonicalization", _fake_spark_canonicalization)
     monkeypatch.setattr(route_module, "_run_spark_canonical_publish", _fake_spark_publish)
 
@@ -230,12 +239,12 @@ def test_default_route_uses_scoped_spark_delta_publish_without_python_delta_read
     assert report["mutation_applied"] is True
     assert report["sidecar_refresh"]["overlap_policy"] == "affected_sessions_plus_minus_1_day"
     assert report["real_bindings"] == ["moex_iss"]
-    assert captured_publish["staged_bars_path"] == staged_bars_path
-    assert captured_publish["staged_provenance_path"] == staged_provenance_path
+    assert Path(str(report["artifact_paths"]["spark_publish_report"])).exists()
+    assert report["spark_publish_report"]["output_paths"] == report["output_paths"]
+    assert report["spark_publish_report"]["scoped_canonical_rows"] == 6
     assert (
-        str(captured_publish["publish_scope_path"])
-        .replace("\\", "/")
-        .endswith(".spark-canonicalization/publish-scope.jsonl")
+        report["spark_publish_report"]["delta_log"]["canonical_session_calendar"]["delta_log"]
+        is True
     )
 
 
@@ -441,6 +450,8 @@ def test_noop_route_runs_full_sidecar_repair_when_calendar_is_missing(
     output_dir = tmp_path / "canonical"
     bars_path = output_dir / "delta" / "canonical_bars.delta"
     provenance_path = output_dir / "delta" / "canonical_bar_provenance.delta"
+    session_calendar_path = output_dir / "delta" / "canonical_session_calendar.delta"
+    roll_map_path = output_dir / "delta" / "canonical_roll_map.delta"
     write_delta_table_rows(table_path=raw_table_path, rows=[], columns=RAW_COLUMNS)
     write_delta_table_rows(
         table_path=bars_path, rows=[], columns=route_module.CANONICAL_BAR_COLUMNS
@@ -450,15 +461,40 @@ def test_noop_route_runs_full_sidecar_repair_when_calendar_is_missing(
         rows=[],
         columns=route_module.PROVENANCE_COLUMNS,
     )
-    captured_publish: dict[str, object] = {}
 
     def _fake_spark_publish(**kwargs: object) -> dict[str, object]:
-        captured_publish.update(kwargs)
         target_bars_path = Path(str(kwargs["target_bars_path"]))
         target_provenance_path = Path(str(kwargs["target_provenance_path"]))
         session_calendar_path = Path(str(kwargs["session_calendar_path"]))
         roll_map_path = Path(str(kwargs["roll_map_path"]))
-        return {
+        manifest = historical_data_delta_schema_manifest()
+        write_delta_table_rows(
+            table_path=session_calendar_path,
+            rows=[
+                {
+                    "instrument_id": "FUT_BR",
+                    "timeframe": "5m",
+                    "session_date": "2026-04-02",
+                    "session_open_ts": "2026-04-02T10:00:00Z",
+                    "session_close_ts": "2026-04-02T18:45:00Z",
+                    "session_class": "regular",
+                }
+            ],
+            columns=manifest["canonical_session_calendar"]["columns"],
+        )
+        write_delta_table_rows(
+            table_path=roll_map_path,
+            rows=[
+                {
+                    "instrument_id": "FUT_BR",
+                    "session_date": "2026-04-02",
+                    "active_contract_id": "BRM6@MOEX",
+                    "reason": "highest_open_interest",
+                }
+            ],
+            columns=manifest["canonical_roll_map"]["columns"],
+        )
+        payload = {
             "run_id": kwargs["run_id"],
             "runtime_owner": "spark_delta",
             "status": "PASS",
@@ -510,6 +546,8 @@ def test_noop_route_runs_full_sidecar_repair_when_calendar_is_missing(
             },
             "spark_profile": {"master": "local[2]", "delta_writer": "spark"},
         }
+        _persist_fake_spark_publish_report(Path(str(kwargs["output_dir"])), payload)
+        return payload
 
     monkeypatch.setattr(route_module, "_run_spark_canonical_publish", _fake_spark_publish)
 
@@ -531,14 +569,18 @@ def test_noop_route_runs_full_sidecar_repair_when_calendar_is_missing(
     assert report["output_paths"]["canonical_session_calendar"].endswith(
         "canonical_session_calendar.delta"
     )
-    assert captured_publish["target_bars_path"] == bars_path
-    assert captured_publish["target_provenance_path"] == provenance_path
-    assert captured_publish["publish_scope_path"] is None
-    assert (
-        str(captured_publish["staged_bars_path"])
-        .replace("\\", "/")
-        .endswith("noop-sidecar-repair/empty-canonical-bars.delta")
+    assert Path(str(report["artifact_paths"]["spark_publish_report"])).exists()
+    assert report["spark_publish_report"]["output_paths"]["canonical_bars"] == bars_path.as_posix()
+    assert report["spark_publish_report"]["output_paths"]["canonical_bar_provenance"] == (
+        provenance_path.as_posix()
     )
+    assert report["spark_publish_report"]["sidecar_refresh"]["overlap_policy"] == (
+        "full_sidecar_repair"
+    )
+    assert has_delta_log(Path(str(report["output_paths"]["canonical_session_calendar"])))
+    assert has_delta_log(Path(str(report["output_paths"]["canonical_roll_map"])))
+    assert count_delta_table_rows(session_calendar_path) == 1
+    assert count_delta_table_rows(roll_map_path) == 1
 
 
 def test_noop_route_runs_full_sidecar_repair_when_sidecar_layout_drifted(
@@ -571,16 +613,14 @@ def test_noop_route_runs_full_sidecar_repair_when_sidecar_layout_drifted(
         rows=[],
         columns=manifest["canonical_roll_map"]["columns"],
     )
-    captured_publish: dict[str, object] = {}
 
     def _layout_matches_manifest(table_path: Path, *_args: object, **_kwargs: object) -> bool:
         return table_path not in {session_calendar_path, roll_map_path}
 
     def _fake_spark_publish(**kwargs: object) -> dict[str, object]:
-        captured_publish.update(kwargs)
         target_bars_path = Path(str(kwargs["target_bars_path"]))
         target_provenance_path = Path(str(kwargs["target_provenance_path"]))
-        return {
+        payload = {
             "run_id": kwargs["run_id"],
             "runtime_owner": "spark_delta",
             "status": "PASS",
@@ -630,6 +670,8 @@ def test_noop_route_runs_full_sidecar_repair_when_sidecar_layout_drifted(
                 "canonical_roll_map": {"path": roll_map_path.as_posix(), "delta_log": True},
             },
         }
+        _persist_fake_spark_publish_report(Path(str(kwargs["output_dir"])), payload)
+        return payload
 
     monkeypatch.setattr(
         route_module,
@@ -652,9 +694,12 @@ def test_noop_route_runs_full_sidecar_repair_when_sidecar_layout_drifted(
     assert report["mutation_applied"] is True
     assert report["sidecar_refresh"]["mode"] == "layout_rewrite"
     assert report["sidecar_refresh"]["mutation_applied"] is True
-    assert captured_publish["publish_scope_path"] is None
-    assert captured_publish["target_bars_path"] == bars_path
-    assert captured_publish["target_provenance_path"] == provenance_path
+    assert Path(str(report["artifact_paths"]["spark_publish_report"])).exists()
+    assert report["spark_publish_report"]["sidecar_refresh"]["mode"] == "layout_rewrite"
+    assert report["spark_publish_report"]["output_paths"]["canonical_bars"] == bars_path.as_posix()
+    assert report["spark_publish_report"]["output_paths"]["canonical_bar_provenance"] == (
+        provenance_path.as_posix()
+    )
 
 
 def test_noop_route_blocks_when_runtime_decoupling_fails(

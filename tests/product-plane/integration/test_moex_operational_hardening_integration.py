@@ -94,9 +94,18 @@ def _phase_reports(base: Path) -> tuple[Path, Path, Path, Path, Path, Path]:
         },
     )
     raw_ingest_acceptance = _write_acceptance_report(base / "raw-ingest-acceptance.json")
-    canonicalization_acceptance = _write_acceptance_report(base / "canonicalization-acceptance.json")
+    canonicalization_acceptance = _write_acceptance_report(
+        base / "canonicalization-acceptance.json"
+    )
     reconciliation_acceptance = _write_acceptance_report(base / "reconciliation-acceptance.json")
-    return raw_ingest, canonicalization, reconciliation, raw_ingest_acceptance, canonicalization_acceptance, reconciliation_acceptance
+    return (
+        phase01,
+        phase02,
+        phase03,
+        raw_ingest_acceptance,
+        canonicalization_acceptance,
+        reconciliation_acceptance,
+    )
 
 
 def _scheduler_policy() -> dict[str, object]:
@@ -226,9 +235,18 @@ def _monitoring_evidence(path: Path) -> Path:
             "publish_freshness_lag_seconds": 95.0,
         },
         "dashboards": [
-            {"id": "moex-operations-overview", "url": "https://grafana.prod.trading-advisor.local/d/moex-ops"},
-            {"id": "moex-qc-reconciliation", "url": "https://grafana.prod.trading-advisor.local/d/moex-qc"},
-            {"id": "moex-freshness-sla", "url": "https://grafana.prod.trading-advisor.local/d/moex-freshness"},
+            {
+                "id": "moex-operations-overview",
+                "url": "https://grafana.prod.trading-advisor.local/d/moex-ops",
+            },
+            {
+                "id": "moex-qc-reconciliation",
+                "url": "https://grafana.prod.trading-advisor.local/d/moex-qc",
+            },
+            {
+                "id": "moex-freshness-sla",
+                "url": "https://grafana.prod.trading-advisor.local/d/moex-freshness",
+            },
         ],
         "queries": [
             {"id": "pipeline_run_latency_seconds", "expression": "histogram_quantile(...)"},
@@ -287,7 +305,14 @@ def _recovery_evidence(path: Path) -> Path:
 
 
 def test_operational_hardening_generates_release_bundle_and_checklist(tmp_path: Path) -> None:
-    raw_ingest, canonicalization, reconciliation, raw_ingest_acceptance, canonicalization_acceptance, reconciliation_acceptance = _phase_reports(tmp_path / "reports")
+    (
+        raw_ingest,
+        canonicalization,
+        reconciliation,
+        raw_ingest_acceptance,
+        canonicalization_acceptance,
+        reconciliation_acceptance,
+    ) = _phase_reports(tmp_path / "reports")
     scheduler_policy = _write_yaml(tmp_path / "config" / "scheduler.yaml", _scheduler_policy())
     monitoring_policy = _write_yaml(tmp_path / "config" / "monitoring.yaml", _monitoring_policy())
     scheduler_evidence = _scheduler_evidence(tmp_path / "inputs" / "scheduler.json")
@@ -336,7 +361,14 @@ def test_operational_hardening_generates_release_bundle_and_checklist(tmp_path: 
 
 
 def test_operational_hardening_denies_release_when_open_p1_exists(tmp_path: Path) -> None:
-    raw_ingest, canonicalization, reconciliation, raw_ingest_acceptance, canonicalization_acceptance, reconciliation_acceptance = _phase_reports(tmp_path / "reports")
+    (
+        raw_ingest,
+        canonicalization,
+        reconciliation,
+        raw_ingest_acceptance,
+        canonicalization_acceptance,
+        reconciliation_acceptance,
+    ) = _phase_reports(tmp_path / "reports")
     scheduler_policy = _write_yaml(tmp_path / "config" / "scheduler.yaml", _scheduler_policy())
     monitoring_policy = _write_yaml(tmp_path / "config" / "monitoring.yaml", _monitoring_policy())
     scheduler_evidence = _scheduler_evidence(tmp_path / "inputs" / "scheduler.json")
@@ -371,11 +403,22 @@ def test_operational_hardening_denies_release_when_open_p1_exists(tmp_path: Path
 
     assert report["status"] == "BLOCKED"
     assert report["target_release_decision"] == "DENY_MOEX_SPARK_DELTA_PRODUCTION_CONTOUR"
-    assert report["unresolved_p1_p2_defects"] == [{"id": "D-100", "severity": "P1", "status": "open"}]
+    assert report["unresolved_p1_p2_defects"] == [
+        {"id": "D-100", "severity": "P1", "status": "open"}
+    ]
 
 
-def test_operational_hardening_integration_blocks_when_monitoring_provenance_hash_mismatch(tmp_path: Path) -> None:
-    raw_ingest, canonicalization, reconciliation, raw_ingest_acceptance, canonicalization_acceptance, reconciliation_acceptance = _phase_reports(tmp_path / "reports")
+def test_operational_hardening_integration_blocks_when_monitoring_provenance_hash_mismatch(
+    tmp_path: Path,
+) -> None:
+    (
+        raw_ingest,
+        canonicalization,
+        reconciliation,
+        raw_ingest_acceptance,
+        canonicalization_acceptance,
+        reconciliation_acceptance,
+    ) = _phase_reports(tmp_path / "reports")
     scheduler_policy = _write_yaml(tmp_path / "config" / "scheduler.yaml", _scheduler_policy())
     monitoring_policy = _write_yaml(tmp_path / "config" / "monitoring.yaml", _monitoring_policy())
     scheduler_evidence = _scheduler_evidence(tmp_path / "inputs" / "scheduler.json")
@@ -386,7 +429,9 @@ def test_operational_hardening_integration_blocks_when_monitoring_provenance_has
     source_provenance = monitoring_payload.get("source_provenance")
     assert isinstance(source_provenance, dict)
     source_provenance["immutable_export_sha256"] = "f" * 64
-    monitoring_evidence.write_text(json.dumps(monitoring_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    monitoring_evidence.write_text(
+        json.dumps(monitoring_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
 
     report = run_moex_operational_hardening(
         raw_ingest_report_path=raw_ingest,
@@ -446,8 +491,12 @@ def test_operational_hardening_integration_filters_template_real_bindings(tmp_pa
         },
     )
     raw_ingest_acceptance = _write_acceptance_report(reports_dir / "raw-ingest-acceptance.json")
-    canonicalization_acceptance = _write_acceptance_report(reports_dir / "canonicalization-acceptance.json")
-    reconciliation_acceptance = _write_acceptance_report(reports_dir / "reconciliation-acceptance.json")
+    canonicalization_acceptance = _write_acceptance_report(
+        reports_dir / "canonicalization-acceptance.json"
+    )
+    reconciliation_acceptance = _write_acceptance_report(
+        reports_dir / "reconciliation-acceptance.json"
+    )
     scheduler_policy = _write_yaml(tmp_path / "config" / "scheduler.yaml", _scheduler_policy())
     monitoring_policy = _write_yaml(tmp_path / "config" / "monitoring.yaml", _monitoring_policy())
     scheduler_evidence = _scheduler_evidence(tmp_path / "inputs" / "scheduler.json")
@@ -455,9 +504,9 @@ def test_operational_hardening_integration_filters_template_real_bindings(tmp_pa
     recovery_evidence = _recovery_evidence(tmp_path / "inputs" / "recovery.json")
 
     report = run_moex_operational_hardening(
-        raw_ingest_report_path=raw_ingest,
-        canonicalization_report_path=canonicalization,
-        reconciliation_report_path=reconciliation,
+        raw_ingest_report_path=phase01,
+        canonicalization_report_path=phase02,
+        reconciliation_report_path=phase03,
         raw_ingest_acceptance_path=raw_ingest_acceptance,
         canonicalization_acceptance_path=canonicalization_acceptance,
         reconciliation_acceptance_path=reconciliation_acceptance,
@@ -475,10 +524,17 @@ def test_operational_hardening_integration_filters_template_real_bindings(tmp_pa
     assert not any("<SECID>" in binding for binding in report["real_bindings"])
 
 
-def test_operational_hardening_integration_blocks_without_prior_acceptance_closure(tmp_path: Path) -> None:
-    raw_ingest, canonicalization, reconciliation, raw_ingest_acceptance, canonicalization_acceptance, reconciliation_acceptance = _phase_reports(
-        tmp_path / "reports"
-    )
+def test_operational_hardening_integration_blocks_without_prior_acceptance_closure(
+    tmp_path: Path,
+) -> None:
+    (
+        raw_ingest,
+        canonicalization,
+        reconciliation,
+        raw_ingest_acceptance,
+        canonicalization_acceptance,
+        reconciliation_acceptance,
+    ) = _phase_reports(tmp_path / "reports")
     _write_acceptance_report(reconciliation_acceptance, verdict="BLOCKED")
     scheduler_policy = _write_yaml(tmp_path / "config" / "scheduler.yaml", _scheduler_policy())
     monitoring_policy = _write_yaml(tmp_path / "config" / "monitoring.yaml", _monitoring_policy())
@@ -508,4 +564,3 @@ def test_operational_hardening_integration_blocks_without_prior_acceptance_closu
     gate_c = next(item for item in report["gate_results"] if item["gate"] == "C")
     reasons = gate_c["reasons"]
     assert "acceptance_closure:verdict=BLOCKED" in reasons
-

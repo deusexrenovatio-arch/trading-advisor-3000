@@ -5,21 +5,20 @@ from typing import TYPE_CHECKING
 from .pipeline import run_sample_backfill
 from .providers import DataProviderRegistry, DataProviderSpec, default_data_provider_registry
 
-
 if TYPE_CHECKING:
     from .moex import (
-        run_moex_foundation,
         run_historical_canonical_route,
-        run_phase03_reconciliation,
-        run_phase04_production_hardening,
+        run_moex_foundation,
+        run_moex_operational_hardening,
+        run_moex_reconciliation,
     )
 
 
 _MOEX_EXPORTS = {
     "run_moex_foundation",
     "run_historical_canonical_route",
-    "run_phase03_reconciliation",
-    "run_phase04_production_hardening",
+    "run_moex_reconciliation",
+    "run_moex_operational_hardening",
 }
 
 
@@ -37,9 +36,9 @@ __all__ = [
     "DataProviderRegistry",
     "DataProviderSpec",
     "default_data_provider_registry",
+    "run_historical_canonical_route",
     "run_moex_foundation",
-    "run_moex_canonicalization",
-    "run_moex_reconciliation",
     "run_moex_operational_hardening",
+    "run_moex_reconciliation",
     "run_sample_backfill",
 ]

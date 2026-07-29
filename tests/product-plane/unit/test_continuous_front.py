@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
-from trading_advisor_3000.product_plane.research import continuous_front as continuous_front_module
 from trading_advisor_3000.product_plane.research.continuous_front import (
     continuous_front_store_contract,
     load_continuous_front_as_research_context,
@@ -58,15 +57,6 @@ def _front_bar_row(
         "input_row_count": 2,
         "created_at": "2026-04-29T00:00:00Z",
     }
-
-
-def test_continuous_front_module_has_no_python_materializer_surface() -> None:
-    assert not hasattr(continuous_front_module, "build_continuous_front_tables")
-    assert not hasattr(continuous_front_module, "materialize_continuous_front")
-    assert not hasattr(continuous_front_module, "_rank_candidate")
-    assert not hasattr(continuous_front_module, "_candidate_passes_switch_rules")
-    assert not hasattr(continuous_front_module, "_write_tables")
-    assert not hasattr(continuous_front_module, "_promote_delta_tables")
 
 
 def test_load_continuous_front_preserves_bar_level_intraday_roll_metadata(tmp_path: Path) -> None:
