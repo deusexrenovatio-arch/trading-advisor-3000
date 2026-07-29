@@ -21,3 +21,10 @@ def test_data_plane_public_exports_resolve() -> None:
 
     assert data_plane.__all__
     assert all(getattr(data_plane, name) is not None for name in data_plane.__all__)
+
+
+def test_moex_phase_named_exports_remain_compatible_with_capability_names() -> None:
+    moex = importlib.import_module("trading_advisor_3000.product_plane.data_plane.moex")
+
+    assert moex.run_phase03_reconciliation is moex.run_moex_reconciliation
+    assert moex.run_phase04_production_hardening is moex.run_moex_operational_hardening

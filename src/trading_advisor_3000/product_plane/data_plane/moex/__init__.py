@@ -145,6 +145,11 @@ _MODULE_EXPORTS = {
         ".operational_hardening",
         "run_moex_operational_hardening",
     ),
+    "run_phase03_reconciliation": (".reconciliation", "run_moex_reconciliation"),
+    "run_phase04_production_hardening": (
+        ".operational_hardening",
+        "run_moex_operational_hardening",
+    ),
     "run_qc_gates": (".historical_canonical_route", "run_qc_gates"),
     "run_runtime_decoupling_check": (".historical_canonical_route", "run_runtime_decoupling_check"),
     "render_moex_runtime_instance_paths": (
