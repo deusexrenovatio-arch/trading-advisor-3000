@@ -1345,6 +1345,51 @@ def test_materialize_research_assets_reports_rows_with_requested_timeframe_scope
     assert report["rows_by_table"]["research_derived_indicator_frames"] == 1
 
 
+def test_reused_backtest_materialization_targets_only_backtest_op(tmp_path, monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_prepare_strategy_space(**_: object) -> SimpleNamespace:
+        return SimpleNamespace(
+            strategy_space_id="space-v1",
+            family_search_specs=[
+                SimpleNamespace(
+                    to_dict=_search_spec_payload,
+                    search_spec=SimpleNamespace(parameter_space={"fast": [3], "slow": [9]}),
+                )
+            ],
+        )
+
+    class _Result:
+        success = True
+
+    def _fake_materialize(**kwargs: object) -> _Result:
+        captured.update(kwargs)
+        return _Result()
+
+    monkeypatch.setattr(research_assets, "prepare_strategy_space", _fake_prepare_strategy_space)
+    monkeypatch.setattr(research_assets, "materialize", _fake_materialize)
+    monkeypatch.setattr(research_assets, "has_delta_log", lambda _path: True)
+    monkeypatch.setattr(research_assets, "count_delta_table_rows", lambda _path: 1)
+    monkeypatch.setattr(research_assets, "_count_materialized_table_rows", lambda **_: 1)
+
+    report = research_assets.materialize_research_backtest_assets(
+        canonical_output_dir=tmp_path / "canonical",
+        materialized_output_dir=tmp_path / "materialized",
+        results_output_dir=tmp_path / "results",
+        dataset_version="dataset-v1",
+        timeframes=("15m",),
+        indicator_set_version="indicators-v1",
+        derived_indicator_set_version="derived-v1",
+        reuse_existing_materialization=True,
+    )
+
+    assert report["success"] is True
+    assert set(captured["run_config"]["ops"]) == {"research_backtest_batches"}
+    assert "research_indicator_frames" not in captured["selection"]
+    assert "research_derived_indicator_frames" not in captured["selection"]
+    assert "research_datasets" not in captured["selection"]
+
+
 def test_research_dataset_materialization_replaces_delta_version_without_existing_row_reload(
     tmp_path, monkeypatch
 ) -> None:

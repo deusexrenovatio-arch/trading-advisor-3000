@@ -2550,13 +2550,6 @@ def research_datasets(context) -> dict[str, object]:
         )
     )
     series_mode = str(_config_value(config, "series_mode", "contract"))
-    continuous_front_policy = (
-        ContinuousFrontPolicy.from_config(
-            dict(_config_value(config, "continuous_front_policy", {}))
-        )
-        if series_mode == "continuous_front"
-        else None
-    )
     validation_plan = dict(_config_value(config, "validation_plan", {}))
     continuous_front_status = _continuous_front_status_from_store(
         materialized_output_dir=materialized_output_dir,
@@ -2655,7 +2648,6 @@ def research_datasets(context) -> dict[str, object]:
             contours=research_l0_contours,
             canonical_contract_economics_path=_canonical_contract_economics_path(config),
             execution_economics_required=True,
-            continuous_front_policy=continuous_front_policy,
             spark_master=str(_config_value(config, "spark_master", "")) or DEFAULT_SPARK_MASTER,
         )
     optimizer_policy = _optimizer_policy_from_research_config(config)
@@ -5551,6 +5543,12 @@ def _materialize_research_assets(
     )
 
     op_configs = _research_data_prep_run_config_from_research_config(research_config)["ops"]
+    op_configs.update(
+        {
+            "research_backtest_batches": {"config": research_config},
+            "research_signal_candidates": {"config": research_config},
+        }
+    )
 
     result = materialize(
         assets=list(RESEARCH_ASSETS),
