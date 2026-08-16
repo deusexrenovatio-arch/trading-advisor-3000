@@ -29,6 +29,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     read_delta_table_frame,
     read_delta_table_rows,
 )
+from trading_advisor_3000.product_plane.research.backtests import SIZING_MODE_RISK_PER_TRADE
 from trading_advisor_3000.product_plane.research.datasets import ContinuousFrontPolicy
 from trading_advisor_3000.product_plane.research.jobs._common import (
     validate_research_contracts,
@@ -798,6 +799,12 @@ def _dagster_common_kwargs(
         "slippage_bps": float(backtest["slippage_bps"]),
         "allow_short": bool(backtest["allow_short"]),
         "window_count": int(backtest["window_count"]),
+        "sizing_mode": str(backtest["sizing_mode"]),
+        "risk_per_trade_pct": float(backtest["risk_per_trade_pct"]),
+        "max_contracts": backtest["max_contracts"],
+        "max_margin_fraction": backtest["max_margin_fraction"],
+        "commission_per_contract": float(backtest["commission_per_contract"]),
+        "slippage_ticks": float(backtest["slippage_ticks"]),
         "ranking_policy_id": str(ranking["policy_id"]),
         "ranking_metric_order": tuple(str(item) for item in ranking["metric_order"]),
         "require_out_of_sample_pass": bool(ranking["require_out_of_sample_pass"]),
@@ -1969,6 +1976,25 @@ def _normalize_strategy_optimizer(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _normalize_backtest(payload: dict[str, Any]) -> dict[str, Any]:
+    risk_per_trade_pct = _normalized_ratio(
+        payload.get("risk_per_trade_pct", 0.01), field="backtest.risk_per_trade_pct"
+    )
+    if risk_per_trade_pct <= 0.0:
+        raise CampaignBlockedError("backtest.risk_per_trade_pct must be positive")
+    raw_max_contracts = payload.get("max_contracts")
+    max_contracts = (
+        None
+        if raw_max_contracts is None
+        else _normalized_positive_int(raw_max_contracts, field="backtest.max_contracts")
+    )
+    raw_max_margin_fraction = payload.get("max_margin_fraction", 1.0)
+    max_margin_fraction = (
+        None
+        if raw_max_margin_fraction is None
+        else _normalized_ratio(raw_max_margin_fraction, field="backtest.max_margin_fraction")
+    )
+    if max_margin_fraction is not None and max_margin_fraction <= 0.0:
+        raise CampaignBlockedError("backtest.max_margin_fraction must be positive when provided")
     return {
         "param_batch_size": _normalized_positive_int(
             payload["param_batch_size"], field="backtest.param_batch_size"
@@ -1984,6 +2010,21 @@ def _normalize_backtest(payload: dict[str, Any]) -> dict[str, Any]:
         "allow_short": bool(payload["allow_short"]),
         "window_count": _normalized_positive_int(
             payload["window_count"], field="backtest.window_count"
+        ),
+        "sizing_mode": _normalized_enum(
+            payload.get("sizing_mode", SIZING_MODE_RISK_PER_TRADE),
+            {SIZING_MODE_RISK_PER_TRADE},
+            field="backtest.sizing_mode",
+        ),
+        "risk_per_trade_pct": risk_per_trade_pct,
+        "max_contracts": max_contracts,
+        "max_margin_fraction": max_margin_fraction,
+        "commission_per_contract": _normalized_non_negative_number(
+            payload.get("commission_per_contract", 0.0),
+            field="backtest.commission_per_contract",
+        ),
+        "slippage_ticks": _normalized_non_negative_number(
+            payload.get("slippage_ticks", 0.0), field="backtest.slippage_ticks"
         ),
     }
 

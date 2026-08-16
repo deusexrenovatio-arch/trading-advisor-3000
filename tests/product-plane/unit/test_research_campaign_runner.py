@@ -8,6 +8,7 @@ import pytest
 import yaml
 
 from trading_advisor_3000.dagster_defs.research_assets import _resolve_research_output_dirs
+from trading_advisor_3000.product_plane.contracts.schema_validation import SchemaValidationError
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
 from trading_advisor_3000.product_plane.research import campaigns
 from trading_advisor_3000.product_plane.research.backtests.results import (
@@ -149,6 +150,49 @@ def test_normalize_campaign_accepts_optuna_strategy_optimizer(tmp_path: Path) ->
     normalized = campaigns.normalize_campaign_config(repo_root=ROOT, raw=payload)
 
     assert normalized["strategy_space"]["optimizer"] == strategy_space["optimizer"]
+
+
+def test_normalize_campaign_forwards_money_backtest_policy(tmp_path: Path) -> None:
+    payload = _campaign_payload(tmp_path, target_stage="backtest")
+    backtest = payload["backtest"]
+    assert isinstance(backtest, dict)
+    backtest.update(
+        {
+            "sizing_mode": "risk_per_trade",
+            "risk_per_trade_pct": 0.02,
+            "max_contracts": 7,
+            "max_margin_fraction": 0.4,
+            "commission_per_contract": 3.5,
+            "slippage_ticks": 1.25,
+        }
+    )
+
+    normalized = campaigns.normalize_campaign_config(repo_root=ROOT, raw=payload)
+    common = campaigns._dagster_common_kwargs(  # type: ignore[attr-defined]
+        normalized_config=normalized,
+        materialized_root=tmp_path / "materialized",
+        results_root=tmp_path / "results",
+        reuse_existing_materialization=False,
+        campaign_id="campaign",
+        campaign_run_id="run",
+    )
+
+    assert common["sizing_mode"] == "risk_per_trade"
+    assert common["risk_per_trade_pct"] == 0.02
+    assert common["max_contracts"] == 7
+    assert common["max_margin_fraction"] == 0.4
+    assert common["commission_per_contract"] == 3.5
+    assert common["slippage_ticks"] == 1.25
+
+
+def test_normalize_campaign_rejects_removed_money_mode(tmp_path: Path) -> None:
+    payload = _campaign_payload(tmp_path, target_stage="backtest")
+    backtest = payload["backtest"]
+    assert isinstance(backtest, dict)
+    backtest["money_mode"] = "legacy_vectorbt"
+
+    with pytest.raises(SchemaValidationError, match="money_mode"):
+        campaigns.normalize_campaign_config(repo_root=ROOT, raw=payload)
 
 
 def test_campaign_routes_continuous_front_indicator_execution_modes(tmp_path: Path) -> None:
