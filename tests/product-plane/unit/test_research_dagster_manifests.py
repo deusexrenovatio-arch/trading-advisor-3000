@@ -7,7 +7,15 @@ from types import SimpleNamespace
 import pytest
 from dagster import build_op_context
 
-from trading_advisor_3000.dagster_defs import research_asset_specs, research_assets
+from trading_advisor_3000.dagster_defs import (
+    RESEARCH_BACKTEST_JOB_NAME,
+    RESEARCH_DATA_PREP_JOB_NAME,
+    RESEARCH_PROJECTION_JOB_NAME,
+    STRATEGY_REGISTRY_REFRESH_JOB_NAME,
+    build_product_plane_definitions,
+    research_asset_specs,
+    research_assets,
+)
 from trading_advisor_3000.product_plane.contracts.ids import candidate_id
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     read_delta_table_rows,
@@ -16,6 +24,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
 from trading_advisor_3000.product_plane.data_plane.moex.economics import (
     moex_economics_store_contract,
 )
+from trading_advisor_3000.product_plane.research import campaigns
 from trading_advisor_3000.product_plane.research.backtests.results import (
     backtest_store_contract,
     results_store_contract,
@@ -73,6 +82,111 @@ def _full_research_config(tmp_path: Path, **overrides: object) -> dict[str, obje
     )
     config.update(overrides)
     return config
+
+
+def _search_spec_payload() -> dict[str, object]:
+    return {
+        "search_spec_version": "search-spec-v1",
+        "family_key": "ma_cross",
+        "template_key": "tmpl-ma",
+        "strategy_version_label": "test",
+        "intent": "test strategy",
+        "allowed_clock_profiles": ["regular"],
+        "allowed_market_states": ["any"],
+        "required_price_inputs": ["close"],
+        "required_materialized_indicators": [],
+        "required_materialized_derived": [],
+        "signal_surface_key": "ma_cross",
+        "signal_surface_mode": "entries_exits",
+        "parameter_mode": "product",
+        "parameter_space": {"fast": [3], "slow": [9]},
+    }
+
+
+def _campaign_payload(tmp_path: Path, *, target_stage: str = "backtest") -> dict[str, object]:
+    return {
+        "campaign_name": f"dagster-{target_stage}",
+        "target_stage": target_stage,
+        "canonical_output_dir": (tmp_path / "canonical").as_posix(),
+        "materialized_root": (tmp_path / "materialized").as_posix(),
+        "runs_root": (tmp_path / "runs").as_posix(),
+        "dataset": {
+            "dataset_version": "dataset-v1",
+            "dataset_name": "dataset",
+            "universe_id": "moex-futures",
+            "series_mode": "contract",
+            "timeframes": ["15m"],
+            "base_timeframe": "15m",
+            "start_ts": None,
+            "end_ts": None,
+            "warmup_bars": 10,
+            "split_method": "walk_forward",
+            "contract_ids": [],
+            "instrument_ids": [],
+        },
+        "profiles": {
+            "indicator_set_version": "indicators-v1",
+            "indicator_profile_version": "core_v1",
+            "derived_indicator_set_version": "derived-v1",
+            "derived_indicator_profile_version": "core_v1",
+        },
+        "strategy_space": {
+            "family_keys": ["ma_cross"],
+            "template_ids": [],
+            "exclude_template_manifest_hashes": [],
+            "max_parameter_combinations": 64,
+            "search_space_overrides": {},
+        },
+        "backtest": {
+            "param_batch_size": 10,
+            "series_batch_size": 2,
+            "backtest_timeframe": "15m",
+            "fees_bps": 0.0,
+            "slippage_bps": 2.5,
+            "allow_short": True,
+            "window_count": 1,
+        },
+        "ranking_policy": {
+            "policy_id": "research_screen_strict_v1",
+            "metric_order": ["sharpe", "profit_factor", "max_drawdown", "total_return"],
+            "require_out_of_sample_pass": True,
+            "min_trade_count": 12,
+            "min_trade_count_per_fold": 4,
+            "min_fold_count": 2,
+            "max_drawdown_cap": 0.25,
+            "min_positive_fold_ratio": 0.67,
+            "stress_slippage_bps": 12.5,
+            "min_parameter_stability": 0.55,
+            "min_slippage_score": 0.6,
+        },
+        "projection_policy": {
+            "selection_policy": "all_policy_pass",
+            "max_candidates_per_partition": 1,
+            "min_robust_score": 0.0,
+            "decision_lag_bars_max": 4,
+        },
+        "execution": {
+            "force_rematerialize": False,
+            "raise_on_error": True,
+        },
+    }
+
+
+def _seed_reusable_campaign_materialization(payload: dict[str, object]) -> None:
+    normalized = campaigns.normalize_campaign_config(
+        repo_root=Path(__file__).resolve().parents[3],
+        raw=payload,
+    )
+    materialized_root = Path(str(normalized["materialized_root"]))
+    materialized_root.mkdir(parents=True, exist_ok=True)
+    for table_name in campaigns.DATA_PREP_TABLES:
+        log_dir = materialized_root / f"{table_name}.delta" / "_delta_log"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        (log_dir / "00000000000000000000.json").write_text("{}", encoding="utf-8")
+    (materialized_root / campaigns.MATERIALIZATION_LOCK_FILENAME).write_text(
+        json.dumps({"materialization_key": campaigns.build_materialization_key(normalized)}),
+        encoding="utf-8",
+    )
 
 
 def _stub_existing_research_context(
@@ -139,6 +253,75 @@ def _stub_existing_research_context(
     )
 
 
+def test_research_jobs_use_campaign_context_and_strict_stage_surfaces() -> None:
+    repository = build_product_plane_definitions().get_repository_def()
+
+    data_prep_nodes = set(repository.get_job(RESEARCH_DATA_PREP_JOB_NAME).graph.node_dict)
+    registry_nodes = set(repository.get_job(STRATEGY_REGISTRY_REFRESH_JOB_NAME).graph.node_dict)
+    backtest_nodes = set(repository.get_job(RESEARCH_BACKTEST_JOB_NAME).graph.node_dict)
+    projection_nodes = set(repository.get_job(RESEARCH_PROJECTION_JOB_NAME).graph.node_dict)
+
+    assert "research_campaign_context" in data_prep_nodes
+    assert "research_campaign_context" in registry_nodes
+    assert "research_campaign_context" in backtest_nodes
+    assert "research_campaign_context" in projection_nodes
+    assert "research_campaign_data_prep_summary" in data_prep_nodes
+    assert "research_campaign_backtest_summary" in backtest_nodes
+    assert "research_campaign_projection_summary" in projection_nodes
+
+    forbidden_backtest_upstream = {
+        "research_datasets",
+        "research_indicator_frames",
+        "research_derived_indicator_frames",
+    }
+    assert forbidden_backtest_upstream.isdisjoint(backtest_nodes)
+    assert "research_backtest_batches" in backtest_nodes
+    assert "research_strategy_rankings" in backtest_nodes
+
+    forbidden_projection_upstream = {
+        *forbidden_backtest_upstream,
+        "research_backtest_batches",
+        "research_strategy_rankings",
+    }
+    assert forbidden_projection_upstream.isdisjoint(projection_nodes)
+    assert "research_signal_candidates" in projection_nodes
+
+
+def test_research_campaign_run_config_carries_context_without_data_prep_upstream(
+    tmp_path: Path,
+) -> None:
+    campaign_payload = _campaign_payload(tmp_path, target_stage="backtest")
+    _seed_reusable_campaign_materialization(campaign_payload)
+
+    run_config = research_assets.build_research_campaign_run_config(
+        campaign_config=campaign_payload,
+        repo_root=Path(__file__).resolve().parents[3],
+    )
+
+    assert set(run_config["ops"]) == {"research_campaign_context", "research_backtest_batches"}
+    context_config = run_config["ops"]["research_campaign_context"]["config"]
+    assert context_config["campaign_config"]["target_stage"] == "backtest"
+    assert "research_datasets" not in run_config["ops"]
+    assert "research_indicator_frames" not in run_config["ops"]
+    assert "research_derived_indicator_frames" not in run_config["ops"]
+
+
+def test_research_campaign_job_config_mapping_expands_context_config(tmp_path: Path) -> None:
+    mapped = research_assets._research_campaign_job_config_fn(  # type: ignore[attr-defined]
+        {
+            "campaign_config": _campaign_payload(tmp_path, target_stage="data_prep"),
+            "repo_root": Path(__file__).resolve().parents[3].as_posix(),
+        },
+        dagster_job_name=RESEARCH_DATA_PREP_JOB_NAME,
+    )
+
+    assert "research_campaign_context" in mapped["ops"]
+    assert "research_datasets" in mapped["ops"]
+    assert mapped["ops"]["research_campaign_context"]["config"]["dagster_job_name"] == (
+        RESEARCH_DATA_PREP_JOB_NAME
+    )
+
+
 def _write_empty_contract_economics_table(table_path: Path) -> None:
     write_delta_table_rows(
         table_path=table_path,
@@ -168,6 +351,7 @@ def test_research_dagster_asset_specs_declared() -> None:
     specs = {spec.key: spec for spec in research_asset_specs()}
     keys = set(specs)
     assert {
+        "research_campaign_context",
         "continuous_front_bars",
         "continuous_front_roll_events",
         "continuous_front_adjustment_ladder",
@@ -204,6 +388,9 @@ def test_research_dagster_asset_specs_declared() -> None:
         "research_strategy_rankings",
         "research_strategy_evaluation_profiles",
         "research_signal_candidates",
+        "research_campaign_data_prep_summary",
+        "research_campaign_backtest_summary",
+        "research_campaign_projection_summary",
     } == keys
     assert set(specs["research_datasets"].inputs) == {
         "continuous_front_qc_report_delta",
@@ -1156,6 +1343,51 @@ def test_materialize_research_assets_reports_rows_with_requested_timeframe_scope
     assert report["total_rows_by_table"]["research_derived_indicator_frames"] == 2
     assert report["rows_by_table"]["research_indicator_frames"] == 1
     assert report["rows_by_table"]["research_derived_indicator_frames"] == 1
+
+
+def test_reused_backtest_materialization_targets_only_backtest_op(tmp_path, monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_prepare_strategy_space(**_: object) -> SimpleNamespace:
+        return SimpleNamespace(
+            strategy_space_id="space-v1",
+            family_search_specs=[
+                SimpleNamespace(
+                    to_dict=_search_spec_payload,
+                    search_spec=SimpleNamespace(parameter_space={"fast": [3], "slow": [9]}),
+                )
+            ],
+        )
+
+    class _Result:
+        success = True
+
+    def _fake_materialize(**kwargs: object) -> _Result:
+        captured.update(kwargs)
+        return _Result()
+
+    monkeypatch.setattr(research_assets, "prepare_strategy_space", _fake_prepare_strategy_space)
+    monkeypatch.setattr(research_assets, "materialize", _fake_materialize)
+    monkeypatch.setattr(research_assets, "has_delta_log", lambda _path: True)
+    monkeypatch.setattr(research_assets, "count_delta_table_rows", lambda _path: 1)
+    monkeypatch.setattr(research_assets, "_count_materialized_table_rows", lambda **_: 1)
+
+    report = research_assets.materialize_research_backtest_assets(
+        canonical_output_dir=tmp_path / "canonical",
+        materialized_output_dir=tmp_path / "materialized",
+        results_output_dir=tmp_path / "results",
+        dataset_version="dataset-v1",
+        timeframes=("15m",),
+        indicator_set_version="indicators-v1",
+        derived_indicator_set_version="derived-v1",
+        reuse_existing_materialization=True,
+    )
+
+    assert report["success"] is True
+    assert set(captured["run_config"]["ops"]) == {"research_backtest_batches"}
+    assert "research_indicator_frames" not in captured["selection"]
+    assert "research_derived_indicator_frames" not in captured["selection"]
+    assert "research_datasets" not in captured["selection"]
 
 
 def test_research_dataset_materialization_replaces_delta_version_without_existing_row_reload(
