@@ -1,57 +1,38 @@
 from __future__ import annotations
 
+import importlib.util
 import json
-import subprocess
-import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
-import yaml
 
-from trading_advisor_3000.product_plane.data_plane import run_sample_backfill
+from trading_advisor_3000.dagster_defs import (
+    RESEARCH_BACKTEST_JOB_NAME,
+    RESEARCH_DATA_PREP_JOB_NAME,
+    build_product_plane_definitions,
+    build_research_campaign_run_config,
+    research_assets,
+)
 from trading_advisor_3000.product_plane.research import campaigns
 
 ROOT = Path(__file__).resolve().parents[3]
-RAW_FIXTURE = (
-    ROOT / "tests" / "product-plane" / "fixtures" / "data_plane" / "raw_backfill_sample.jsonl"
-)
 RUNBOOK_ROUTE = ROOT / "docs" / "runbooks" / "app" / "research-campaign-route.md"
 RUNBOOK_OPERATIONS = ROOT / "docs" / "runbooks" / "app" / "research-plane-operations.md"
 
 
-def _load_json(path: Path) -> dict[str, object]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    assert isinstance(payload, dict)
-    return payload
-
-
-def _write_campaign(path: Path, payload: dict[str, object]) -> None:
-    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
-
-
-def _seed_canonical(canonical_dir: Path) -> None:
-    run_sample_backfill(
-        source_path=RAW_FIXTURE,
-        output_dir=canonical_dir,
-        whitelist_contracts={"BR-6.26", "Si-6.26"},
-    )
-
-
 def _campaign_payload(
-    canonical_dir: Path,
-    materialized_root: Path,
-    runs_root: Path,
+    tmp_path: Path,
     *,
     campaign_name: str,
     target_stage: str,
-    indicator_profile_version: str = "core_v1",
 ) -> dict[str, object]:
     return {
         "campaign_name": campaign_name,
         "target_stage": target_stage,
-        "canonical_output_dir": canonical_dir.as_posix(),
-        "materialized_root": materialized_root.as_posix(),
-        "runs_root": runs_root.as_posix(),
+        "canonical_output_dir": (tmp_path / "canonical").as_posix(),
+        "materialized_root": (tmp_path / "materialized").as_posix(),
+        "runs_root": (tmp_path / "runs").as_posix(),
         "dataset": {
             "dataset_version": "campaign-dataset-v1",
             "dataset_name": "campaign-dataset",
@@ -68,7 +49,7 @@ def _campaign_payload(
         },
         "profiles": {
             "indicator_set_version": "indicators-v1",
-            "indicator_profile_version": indicator_profile_version,
+            "indicator_profile_version": "core_v1",
             "derived_indicator_set_version": "derived-v1",
             "derived_indicator_profile_version": "core_v1",
         },
@@ -114,255 +95,109 @@ def _campaign_payload(
     }
 
 
-def test_data_prep_campaign_module_executes_research_data_prep_and_writes_summary(
-    tmp_path: Path,
-) -> None:
-    canonical_dir = tmp_path / "canonical"
-    _seed_canonical(canonical_dir)
-
-    config_path = tmp_path / "campaign.yaml"
-    _write_campaign(
-        config_path,
-        _campaign_payload(
-            canonical_dir,
-            tmp_path / "materialized",
-            tmp_path / "runs",
-            campaign_name="data-prep-route",
-            target_stage="data_prep",
-        ),
+def _seed_reusable_materialization(payload: dict[str, object]) -> None:
+    normalized = campaigns.normalize_campaign_config(repo_root=ROOT, raw=payload)
+    materialized_root = Path(str(normalized["materialized_root"]))
+    materialized_root.mkdir(parents=True, exist_ok=True)
+    for table_name in campaigns.DATA_PREP_TABLES:
+        log_dir = materialized_root / f"{table_name}.delta" / "_delta_log"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        (log_dir / "00000000000000000000.json").write_text("{}", encoding="utf-8")
+    (materialized_root / campaigns.MATERIALIZATION_LOCK_FILENAME).write_text(
+        json.dumps({"materialization_key": campaigns.build_materialization_key(normalized)}),
+        encoding="utf-8",
     )
 
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "trading_advisor_3000.product_plane.research.jobs.run_campaign",
-            "--config",
-            config_path.as_posix(),
-        ],
-        cwd=ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
+
+def _stub_prepare_strategy_space(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _fake_prepare_strategy_space(**_: object) -> SimpleNamespace:
+        return SimpleNamespace(
+            strategy_space_id="space-v1",
+            family_search_specs=[
+                SimpleNamespace(
+                    to_dict=lambda: {
+                        "search_spec_version": "search-spec-v1",
+                        "family_key": "ma_cross",
+                        "template_key": "tmpl-ma",
+                        "strategy_version_label": "test",
+                        "intent": "test strategy",
+                        "allowed_clock_profiles": ["regular"],
+                        "allowed_market_states": ["any"],
+                        "required_price_inputs": ["close"],
+                        "required_materialized_indicators": [],
+                        "required_materialized_derived": [],
+                        "signal_surface_key": "ma_cross",
+                        "signal_surface_mode": "entries_exits",
+                        "parameter_mode": "product",
+                        "parameter_space": {"fast": [3], "slow": [9]},
+                    },
+                    search_spec=SimpleNamespace(parameter_space={"fast": [3], "slow": [9]}),
+                )
+            ],
+        )
+
+    monkeypatch.setattr(research_assets, "prepare_strategy_space", _fake_prepare_strategy_space)
+
+
+def test_run_campaign_module_is_removed_operator_route() -> None:
+    assert (
+        importlib.util.find_spec("trading_advisor_3000.product_plane.research.jobs.run_campaign")
+        is None
     )
 
-    assert result.returncode == 0, result.stderr
-    payload = json.loads(result.stdout.strip())
-    run_root = Path(str(payload["run_root"]))
 
-    assert payload["status"] == "success"
-    for table_name in (
-        "continuous_front_bars",
-        "continuous_front_roll_events",
-        "continuous_front_adjustment_ladder",
-        "continuous_front_qc_report",
-        "research_datasets",
-        "research_instrument_tree",
-        "research_bar_views",
-        "research_indicator_frames",
-        "research_derived_indicator_frames",
-    ):
-        assert table_name in payload["rows_by_table"]
-        assert Path(str(payload["output_paths"][table_name])).exists()
-    assert "research_strategy_families" not in payload["rows_by_table"]
-    assert (run_root / "run-summary.json").exists()
-    assert _load_json(run_root / "status.json")["status"] == "success"
-    assert payload["executed_steps"] == ["research_data_prep"]
-
-
-def test_data_prep_campaign_dispatches_through_research_data_prep_boundary(
+def test_dagster_campaign_run_config_targets_existing_jobs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    canonical_dir = tmp_path / "canonical"
-    _seed_canonical(canonical_dir)
-
+    _stub_prepare_strategy_space(monkeypatch)
+    repository = build_product_plane_definitions().get_repository_def()
+    data_prep_nodes = set(repository.get_job(RESEARCH_DATA_PREP_JOB_NAME).graph.node_dict)
+    backtest_nodes = set(repository.get_job(RESEARCH_BACKTEST_JOB_NAME).graph.node_dict)
     payload = _campaign_payload(
-        canonical_dir,
-        tmp_path / "materialized",
-        tmp_path / "runs",
-        campaign_name="data-prep-dispatch",
-        target_stage="data_prep",
+        tmp_path,
+        campaign_name="dagster-config",
+        target_stage="backtest",
     )
-    config_path = tmp_path / "campaign.yaml"
-    _write_campaign(config_path, payload)
+    _seed_reusable_materialization(payload)
 
-    calls: list[dict[str, object]] = []
-
-    def _data_prep(**kwargs: object) -> dict[str, object]:
-        calls.append(dict(kwargs))
-        materialized_root = Path(str(kwargs["materialized_output_dir"]))
-        results_root = Path(str(kwargs["results_output_dir"]))
-        return {
-            "success": True,
-            "selected_assets": list(campaigns.DATA_PREP_TABLES),
-            "materialized_assets": list(campaigns.DATA_PREP_TABLES),
-            "output_paths": {
-                "continuous_front_bars": (
-                    materialized_root / "continuous_front_bars.delta"
-                ).as_posix(),
-                "continuous_front_roll_events": (
-                    materialized_root / "continuous_front_roll_events.delta"
-                ).as_posix(),
-                "continuous_front_adjustment_ladder": (
-                    materialized_root / "continuous_front_adjustment_ladder.delta"
-                ).as_posix(),
-                "continuous_front_qc_report": (
-                    materialized_root / "continuous_front_qc_report.delta"
-                ).as_posix(),
-                "research_datasets": (materialized_root / "research_datasets.delta").as_posix(),
-                "research_instrument_tree": (
-                    materialized_root / "research_instrument_tree.delta"
-                ).as_posix(),
-                "research_bar_views": (materialized_root / "research_bar_views.delta").as_posix(),
-                "research_indicator_frames": (
-                    materialized_root / "research_indicator_frames.delta"
-                ).as_posix(),
-                "research_derived_indicator_frames": (
-                    materialized_root / "research_derived_indicator_frames.delta"
-                ).as_posix(),
-                "research_backtest_batches": (
-                    results_root / "research_backtest_batches.delta"
-                ).as_posix(),
-            },
-            "rows_by_table": {table_name: 1 for table_name in campaigns.DATA_PREP_TABLES},
-        }
-
-    monkeypatch.setattr(campaigns, "materialize_research_data_prep_assets", _data_prep)
-    monkeypatch.setattr(
-        campaigns,
-        "validate_research_contracts",
-        lambda **_: {
-            "status": "passed",
-            "validated_tables": [],
-            "warnings": [],
-            "errors": [],
-            "row_counts": {},
-        },
+    run_config = build_research_campaign_run_config(
+        campaign_config=payload,
+        repo_root=ROOT,
+        dagster_job_name=RESEARCH_BACKTEST_JOB_NAME,
     )
 
-    summary = campaigns.run_campaign(config_path=config_path, repo_root=ROOT)
-
-    assert summary["status"] == "success"
-    assert len(calls) == 1
-    assert calls[0]["dataset_version"] == "campaign-dataset-v1"
-    assert calls[0]["derived_indicator_set_version"] == "derived-v1"
-    assert Path(str(summary["run_root"])).exists()
+    assert "research_campaign_context" in data_prep_nodes
+    assert "research_campaign_context" in backtest_nodes
+    assert "research_backtest_batches" in run_config["ops"]
+    assert "research_datasets" not in run_config["ops"]
+    assert "research_indicator_frames" not in run_config["ops"]
 
 
-def test_backtest_campaign_reuses_existing_compatible_materialized_layer(tmp_path: Path) -> None:
-    canonical_dir = tmp_path / "canonical"
-    materialized_root = tmp_path / "materialized"
-    runs_root = tmp_path / "runs"
-    _seed_canonical(canonical_dir)
-
-    config_path = tmp_path / "campaign-backtest.yaml"
-    _write_campaign(
-        config_path,
-        _campaign_payload(
-            canonical_dir,
-            materialized_root,
-            runs_root,
-            campaign_name="reuse-check",
-            target_stage="backtest",
-        ),
-    )
-
-    first = campaigns.run_campaign(config_path=config_path, repo_root=ROOT)
-    second = campaigns.run_campaign(config_path=config_path, repo_root=ROOT)
-
-    assert first["status"] == "success"
-    assert second["status"] == "success"
-    assert first["materialized_root"] == second["materialized_root"]
-    assert first["run_root"] != second["run_root"]
-    assert first["reused_steps"] == []
-    assert second["reused_steps"] == ["research_data_prep"]
-
-
-def test_changed_profile_version_forces_gold_rematerialization_without_changing_root(
+def test_backtest_campaign_run_config_fails_closed_without_existing_gold(
     tmp_path: Path,
 ) -> None:
-    canonical_dir = tmp_path / "canonical"
-    materialized_root = tmp_path / "materialized"
-    runs_root = tmp_path / "runs"
-    _seed_canonical(canonical_dir)
-
-    first_path = tmp_path / "campaign-first.yaml"
-    second_path = tmp_path / "campaign-second.yaml"
-    _write_campaign(
-        first_path,
-        _campaign_payload(
-            canonical_dir,
-            materialized_root,
-            runs_root,
-            campaign_name="profile-v1",
-            target_stage="backtest",
-            indicator_profile_version="core_v1",
-        ),
-    )
-    _write_campaign(
-        second_path,
-        _campaign_payload(
-            canonical_dir,
-            materialized_root,
-            runs_root,
-            campaign_name="profile-v2",
-            target_stage="backtest",
-            indicator_profile_version="core_intraday_v1",
-        ),
+    payload = _campaign_payload(
+        tmp_path,
+        campaign_name="missing-gold",
+        target_stage="backtest",
     )
 
-    first = campaigns.run_campaign(config_path=first_path, repo_root=ROOT)
-    second = campaigns.run_campaign(config_path=second_path, repo_root=ROOT)
-
-    assert first["status"] == "success"
-    assert second["status"] == "success"
-    assert first["materialization_key"] != second["materialization_key"]
-    assert first["materialized_root"] == second["materialized_root"]
-    assert second["reused_steps"] == []
+    with pytest.raises(ValueError, match="existing research gold layer"):
+        build_research_campaign_run_config(
+            campaign_config=payload,
+            repo_root=ROOT,
+            dagster_job_name=RESEARCH_BACKTEST_JOB_NAME,
+        )
 
 
-def test_projection_campaign_emits_ranking_and_candidate_summaries(tmp_path: Path) -> None:
-    canonical_dir = tmp_path / "canonical"
-    _seed_canonical(canonical_dir)
-
-    config_path = tmp_path / "campaign-projection.yaml"
-    _write_campaign(
-        config_path,
-        _campaign_payload(
-            canonical_dir,
-            tmp_path / "materialized",
-            tmp_path / "runs",
-            campaign_name="projection-digest",
-            target_stage="projection",
-        ),
-    )
-
-    summary = campaigns.run_campaign(config_path=config_path, repo_root=ROOT)
-    digest = dict(summary["result_digest"])
-
-    assert summary["status"] == "success"
-    assert "ranking_top_rows" in digest
-    assert "projection_qualified_count" in digest
-    assert "candidate_count" in digest
-    assert "candidate_rows_by_strategy" in digest
-    assert "candidate_rows_by_timeframe" in digest
-
-
-def test_research_runbooks_publish_only_campaign_runner_route() -> None:
-    expected_command = "python -m trading_advisor_3000.product_plane.research.jobs.run_campaign"
-    extra_module_marker = "trading_advisor_3000.product_plane.research.jobs."
-
+def test_research_runbooks_publish_dagster_job_route() -> None:
+    old_command = "python -m trading_advisor_3000.product_plane.research.jobs.run_campaign"
     route_text = RUNBOOK_ROUTE.read_text(encoding="utf-8")
     operations_text = RUNBOOK_OPERATIONS.read_text(encoding="utf-8")
 
-    assert expected_command in route_text
-    assert expected_command in operations_text
-    assert "## Route Boundary" in route_text
-    assert "## Operational Boundary" in operations_text
-    assert extra_module_marker not in route_text.replace(expected_command, "")
-    assert extra_module_marker not in operations_text.replace(expected_command, "")
-    assert "trading_advisor_3000.product_plane.research.run_research_from_bars" not in route_text
-    assert (
-        "trading_advisor_3000.product_plane.research.run_research_from_bars" not in operations_text
-    )
+    assert old_command not in route_text
+    assert old_command not in operations_text
+    assert "research_campaign_context" in route_text
+    assert RESEARCH_DATA_PREP_JOB_NAME in route_text
+    assert RESEARCH_BACKTEST_JOB_NAME in route_text

@@ -111,10 +111,10 @@ canonical data
   -> runtime
 ```
 
-The operational route is the campaign runner:
+The operational route is the matching Dagster research job:
 
-```powershell
-python -m trading_advisor_3000.product_plane.research.jobs.run_campaign --config product-plane/campaigns/fut_br_base_15m.explore.yaml
+```yaml
+campaign_config_path: product-plane/campaigns/fut_br_base_15m.explore.yaml
 ```
 
 Important boundary: completion claims for data/research/compute/optimization

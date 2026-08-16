@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import inspect
 import json
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
-import yaml
 
+from trading_advisor_3000.dagster_defs import research_assets
 from trading_advisor_3000.dagster_defs.research_assets import _resolve_research_output_dirs
 from trading_advisor_3000.product_plane.contracts.schema_validation import SchemaValidationError
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
@@ -16,6 +18,7 @@ from trading_advisor_3000.product_plane.research.backtests.results import (
     results_store_contract,
 )
 from trading_advisor_3000.product_plane.research.datasets import ContinuousFrontPolicy
+from trading_advisor_3000.product_plane.research.registry_store import research_registry_root
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -94,14 +97,14 @@ def _campaign_payload(
     }
 
 
-def _write_campaign(path: Path, payload: dict[str, object]) -> None:
-    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
-
-
 def _load_json(path: Path) -> dict[str, object]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert isinstance(payload, dict)
     return payload
+
+
+def test_run_campaign_route_is_removed_from_operator_surface() -> None:
+    assert not hasattr(campaigns, "run_campaign")
 
 
 def _seed_reusable_materialization(
@@ -116,6 +119,36 @@ def _seed_reusable_materialization(
             json.dumps({"materialization_key": materialization_key}),
             encoding="utf-8",
         )
+
+
+def _stub_prepare_strategy_space(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _fake_prepare_strategy_space(**_: object) -> SimpleNamespace:
+        return SimpleNamespace(
+            strategy_space_id="space-v1",
+            family_search_specs=[
+                SimpleNamespace(
+                    to_dict=lambda: {
+                        "search_spec_version": "search-spec-v1",
+                        "family_key": "ma_cross",
+                        "template_key": "tmpl-ma",
+                        "strategy_version_label": "test",
+                        "intent": "test strategy",
+                        "allowed_clock_profiles": ["regular"],
+                        "allowed_market_states": ["any"],
+                        "required_price_inputs": ["close"],
+                        "required_materialized_indicators": [],
+                        "required_materialized_derived": [],
+                        "signal_surface_key": "ma_cross",
+                        "signal_surface_mode": "entries_exits",
+                        "parameter_mode": "product",
+                        "parameter_space": {"fast": [3], "slow": [9]},
+                    },
+                    search_spec=SimpleNamespace(parameter_space={"fast": [3], "slow": [9]}),
+                )
+            ],
+        )
+
+    monkeypatch.setattr(research_assets, "prepare_strategy_space", _fake_prepare_strategy_space)
 
 
 def test_normalize_campaign_accepts_optuna_strategy_optimizer(tmp_path: Path) -> None:
@@ -218,6 +251,34 @@ def test_campaign_routes_continuous_front_indicator_execution_modes(tmp_path: Pa
     assert common["spark_master"] == "local[4]"
 
 
+def test_campaign_common_kwargs_match_backtest_and_projection_asset_helpers(
+    tmp_path: Path,
+) -> None:
+    payload = _campaign_payload(tmp_path, target_stage="backtest")
+    execution = dict(payload["execution"])  # type: ignore[arg-type]
+    execution["continuous_front_indicator_qc_mode"] = "audit"
+    execution["continuous_front_indicator_sidecar_materialization_mode"] = "spark"
+    execution["spark_master"] = "local[4]"
+    payload["execution"] = execution
+
+    normalized = campaigns.normalize_campaign_config(repo_root=ROOT, raw=payload)
+    common = campaigns._dagster_common_kwargs(  # type: ignore[attr-defined]
+        normalized_config=normalized,
+        materialized_root=tmp_path / "materialized",
+        results_root=tmp_path / "results",
+        reuse_existing_materialization=False,
+        campaign_id="campaign",
+        campaign_run_id="run",
+    )
+
+    for helper in (
+        research_assets.materialize_research_backtest_assets,
+        research_assets.materialize_research_projection_assets,
+    ):
+        helper_params = set(inspect.signature(helper).parameters)
+        assert sorted(set(common) - helper_params) == []
+
+
 def test_campaign_rejects_python_continuous_front_sidecar_mode(tmp_path: Path) -> None:
     payload = _campaign_payload(tmp_path, target_stage="data_prep")
     execution = dict(payload["execution"])  # type: ignore[arg-type]
@@ -257,7 +318,7 @@ def test_normalize_campaign_builds_default_nested_validation_plan(tmp_path: Path
 def _mock_report(
     *, materialized_root: Path, results_root: Path, target_stage: str
 ) -> dict[str, object]:
-    registry_root = campaigns.research_registry_root(materialized_root=materialized_root)
+    registry_root = research_registry_root(materialized_root=materialized_root)
     output_paths = {
         "continuous_front_bars": (materialized_root / "continuous_front_bars.delta").as_posix(),
         "continuous_front_roll_events": (
@@ -536,8 +597,8 @@ def test_materialization_lock_records_continuous_front_policy(tmp_path: Path) ->
     assert lock["continuous_front_policy"]["confirmation_bars"] == 3
 
 
-def test_run_campaign_forwards_volume_profile_config_to_data_prep(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_campaign_run_config_forwards_volume_profile_config_to_data_prep(
+    tmp_path: Path,
 ) -> None:
     payload = _campaign_payload(tmp_path, target_stage="data_prep")
     raw_1m_path = tmp_path / "raw" / "raw_moex_history.delta"
@@ -548,42 +609,20 @@ def test_run_campaign_forwards_volume_profile_config_to_data_prep(
     execution = dict(payload["execution"])  # type: ignore[arg-type]
     execution["spark_master"] = "local[4]"
     payload["execution"] = execution
-    config_path = tmp_path / "volume-profile-campaign.yaml"
-    _write_campaign(config_path, payload)
-    captured: dict[str, object] = {}
 
-    def _data_prep(**kwargs: object) -> dict[str, object]:
-        captured.update(kwargs)
-        return _mock_report(
-            materialized_root=Path(str(kwargs["materialized_output_dir"])),
-            results_root=Path(str(kwargs["results_output_dir"])),
-            target_stage="data_prep",
-        )
-
-    monkeypatch.setattr(campaigns, "materialize_research_data_prep_assets", _data_prep)
-    monkeypatch.setattr(
-        campaigns,
-        "_data_prep_timeframe_qc",
-        lambda **_: {"status": "passed", "tables": {}},
+    run_config = research_assets.build_research_campaign_run_config(
+        campaign_config=payload,
+        repo_root=ROOT,
+        dagster_job_name=research_assets.RESEARCH_DATA_PREP_JOB_NAME,
     )
-    monkeypatch.setattr(
-        campaigns, "validate_research_contracts", lambda **_: _passed_contract_validation()
-    )
+    context_config = run_config["ops"]["research_campaign_context"]["config"]
+    data_prep_config = run_config["ops"]["research_datasets"]["config"]
 
-    summary = campaigns.run_campaign(config_path=config_path, repo_root=ROOT)
-
-    assert summary["status"] == "success"
-    assert captured["derived_indicator_profile_version"] == "core_v1"
-    assert captured["spark_master"] == "local[4]"
-    assert captured["volume_profile_raw_1m_table_path"] == raw_1m_path.resolve().as_posix()
-    assert captured["volume_profile_tick_size_by_instrument"] == {"BR": 1.0, "Si": 10.0}
-    materialization_lock = _load_json(
-        Path(str(summary["materialized_root"])) / campaigns.MATERIALIZATION_LOCK_FILENAME
-    )
-    assert materialization_lock["volume_profile"] == {
-        "raw_1m_table_path": raw_1m_path.resolve().as_posix(),
-        "tick_size_by_instrument": {"BR": 1.0, "Si": 10.0},
-    }
+    assert context_config["campaign_config"]["target_stage"] == "data_prep"
+    assert data_prep_config["derived_indicator_profile_version"] == "core_v1"
+    assert data_prep_config["spark_master"] == "local[4]"
+    assert data_prep_config["volume_profile_raw_1m_table_path"] == raw_1m_path.resolve().as_posix()
+    assert data_prep_config["volume_profile_tick_size_by_instrument"] == {"BR": 1.0, "Si": 10.0}
 
 
 def test_research_output_dirs_fail_closed_for_partial_or_mixed_dir_inputs(tmp_path: Path) -> None:
@@ -597,53 +636,8 @@ def test_research_output_dirs_fail_closed_for_partial_or_mixed_dir_inputs(tmp_pa
         )
 
 
-@pytest.mark.parametrize(
-    ("target_stage", "expected_helper"),
-    (
-        ("data_prep", "data_prep"),
-        ("backtest", "backtest"),
-        ("projection", "projection"),
-    ),
-)
-def test_dispatch_campaign_selects_route_by_target_stage(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    target_stage: str,
-    expected_helper: str,
-) -> None:
-    calls: list[str] = []
-
-    def _data_prep(**_: object) -> dict[str, object]:
-        calls.append("data_prep")
-        return {"route": "data_prep"}
-
-    def _backtest(**_: object) -> dict[str, object]:
-        calls.append("backtest")
-        return {"route": "backtest"}
-
-    def _projection(**_: object) -> dict[str, object]:
-        calls.append("projection")
-        return {"route": "projection"}
-
-    monkeypatch.setattr(campaigns, "materialize_research_data_prep_assets", _data_prep)
-    monkeypatch.setattr(campaigns, "materialize_research_backtest_assets", _backtest)
-    monkeypatch.setattr(campaigns, "materialize_research_projection_assets", _projection)
-
-    normalized = campaigns.normalize_campaign_config(
-        repo_root=ROOT,
-        raw=_campaign_payload(tmp_path, target_stage=target_stage),
-    )
-    report = campaigns._dispatch_campaign(  # type: ignore[attr-defined]
-        normalized_config=normalized,
-        materialized_root=tmp_path / "materialized-root",
-        results_root=tmp_path / "results-root",
-        reuse_existing_materialization=False,
-        campaign_id="camp_test",
-        campaign_run_id="crun_test",
-    )
-
-    assert report["route"] == expected_helper
-    assert calls == [expected_helper]
+def test_dispatch_campaign_route_is_removed() -> None:
+    assert not hasattr(campaigns, "_dispatch_campaign")
 
 
 @pytest.mark.parametrize(
@@ -653,12 +647,13 @@ def test_dispatch_campaign_selects_route_by_target_stage(
         (True, False),
     ),
 )
-def test_run_campaign_reuse_decision_respects_force_flag(
+def test_campaign_run_config_reuse_decision_respects_force_flag(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     force_rematerialize: bool,
     expected_reuse: bool,
 ) -> None:
+    _stub_prepare_strategy_space(monkeypatch)
     payload = _campaign_payload(
         tmp_path, target_stage="backtest", force_rematerialize=force_rematerialize
     )
@@ -667,162 +662,42 @@ def test_run_campaign_reuse_decision_respects_force_flag(
     materialized_root = Path(str(normalized["materialized_root"]))
     _seed_reusable_materialization(materialized_root, materialization_key=materialization_key)
 
-    config_path = tmp_path / "campaign.yaml"
-    _write_campaign(config_path, payload)
-
-    captured: dict[str, object] = {}
-
-    def _backtest(**kwargs: object) -> dict[str, object]:
-        captured.update(kwargs)
-        return _mock_report(
-            materialized_root=Path(str(kwargs["materialized_output_dir"])),
-            results_root=Path(str(kwargs["results_output_dir"])),
-            target_stage="backtest",
-        )
-
-    monkeypatch.setattr(campaigns, "materialize_research_backtest_assets", _backtest)
-    monkeypatch.setattr(
-        campaigns,
-        "_data_prep_timeframe_qc",
-        lambda **_: {"status": "passed", "tables": {}},
+    run_config = research_assets.build_research_campaign_run_config(
+        campaign_config=payload,
+        repo_root=ROOT,
+        dagster_job_name=research_assets.RESEARCH_BACKTEST_JOB_NAME,
     )
-    monkeypatch.setattr(
-        campaigns, "validate_research_contracts", lambda **_: _passed_contract_validation()
-    )
+    backtest_config = run_config["ops"]["research_backtest_batches"]["config"]
 
-    summary = campaigns.run_campaign(config_path=config_path, repo_root=ROOT)
-
-    assert captured["reuse_existing_materialization"] is expected_reuse
-    assert captured["min_fold_count"] == 2
-    assert summary["materialized_root"] == materialized_root.as_posix()
-    assert summary["reused_steps"] == (["research_data_prep"] if expected_reuse else [])
+    assert backtest_config["reuse_existing_materialization"] is expected_reuse
+    assert backtest_config["min_fold_count"] == 2
+    assert backtest_config["materialized_output_dir"] == materialized_root.as_posix()
 
 
-def test_data_prep_timeframe_qc_flags_unscoped_physical_rows(tmp_path: Path) -> None:
-    materialized_root = tmp_path / "materialized"
-    table_path = materialized_root / "research_indicator_frames.delta"
-    write_delta_table_rows(
-        table_path=table_path,
-        columns={"timeframe": "string"},
-        rows=[{"timeframe": "15m"}, {"timeframe": "5m"}, {"timeframe": "5m"}],
-    )
-
-    qc = campaigns._data_prep_timeframe_qc(  # type: ignore[attr-defined]
-        materialized_root=materialized_root,
-        expected_timeframes=("15m",),
-        output_paths={"research_indicator_frames": table_path.as_posix()},
-    )
-
-    assert qc["status"] == "failed"
-    assert qc["tables"]["research_indicator_frames"]["unexpected_timeframes"] == {"5m": 2}
-
-
-def test_run_campaign_does_not_reuse_unscoped_timeframe_materialization(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    payload = _campaign_payload(tmp_path, target_stage="backtest", force_rematerialize=False)
-    normalized = campaigns.normalize_campaign_config(repo_root=ROOT, raw=payload)
-    materialization_key = campaigns.build_materialization_key(normalized)
-    materialized_root = Path(str(normalized["materialized_root"]))
-    _seed_reusable_materialization(materialized_root, materialization_key=materialization_key)
-
-    config_path = tmp_path / "campaign.yaml"
-    _write_campaign(config_path, payload)
-
-    captured: dict[str, object] = {}
-
-    def _backtest(**kwargs: object) -> dict[str, object]:
-        captured.update(kwargs)
-        return _mock_report(
-            materialized_root=Path(str(kwargs["materialized_output_dir"])),
-            results_root=Path(str(kwargs["results_output_dir"])),
-            target_stage="backtest",
-        )
-
-    monkeypatch.setattr(campaigns, "materialize_research_backtest_assets", _backtest)
-    monkeypatch.setattr(
-        campaigns,
-        "_data_prep_timeframe_qc",
-        lambda **_: {
-            "status": "failed",
-            "tables": {
-                "research_indicator_frames": {
-                    "unexpected_timeframes": {"5m": 2},
-                },
-            },
-        },
-    )
-    monkeypatch.setattr(
-        campaigns, "validate_research_contracts", lambda **_: _passed_contract_validation()
-    )
-
-    summary = campaigns.run_campaign(config_path=config_path, repo_root=ROOT)
-
-    assert captured["reuse_existing_materialization"] is False
-    assert summary["reused_steps"] == []
-
-
-def test_run_campaign_persists_blocked_evidence_for_invalid_config(tmp_path: Path) -> None:
+def test_campaign_run_config_rejects_invalid_config(tmp_path: Path) -> None:
     payload = _campaign_payload(tmp_path, target_stage="backtest")
     del payload["dataset"]["base_timeframe"]  # type: ignore[index]
-    config_path = tmp_path / "invalid-campaign.yaml"
-    _write_campaign(config_path, payload)
 
-    summary = campaigns.run_campaign(config_path=config_path, repo_root=ROOT)
-    run_root = Path(str(summary["run_root"]))
-    campaign_lock = _load_json(run_root / "campaign.lock.json")
-
-    assert summary["status"] == "blocked"
-    assert (run_root / "campaign.lock.json").exists()
-    assert (run_root / "run-summary.json").exists()
-    assert _load_json(run_root / "status.json")["status"] == "blocked"
-    assert campaign_lock["validation_status"] == "blocked"
-    assert campaign_lock["error"]["type"] == "SchemaValidationError"
-
-
-def test_run_campaign_writes_run_folder_layout(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    payload = _campaign_payload(tmp_path, target_stage="data_prep")
-    config_path = tmp_path / "campaign.yaml"
-    _write_campaign(config_path, payload)
-
-    def _data_prep(**kwargs: object) -> dict[str, object]:
-        return _mock_report(
-            materialized_root=Path(str(kwargs["materialized_output_dir"])),
-            results_root=Path(str(kwargs["results_output_dir"])),
-            target_stage="data_prep",
+    with pytest.raises(SchemaValidationError):
+        research_assets.build_research_campaign_run_config(
+            campaign_config=payload,
+            repo_root=ROOT,
+            dagster_job_name=research_assets.RESEARCH_BACKTEST_JOB_NAME,
         )
 
-    monkeypatch.setattr(campaigns, "materialize_research_data_prep_assets", _data_prep)
-    monkeypatch.setattr(
-        campaigns,
-        "_data_prep_timeframe_qc",
-        lambda **_: {"status": "passed", "tables": {}},
-    )
-    monkeypatch.setattr(
-        campaigns, "validate_research_contracts", lambda **_: _passed_contract_validation()
+
+def test_campaign_run_config_does_not_write_artifacts_before_dagster_run(
+    tmp_path: Path,
+) -> None:
+    payload = _campaign_payload(tmp_path, target_stage="data_prep")
+    run_config = research_assets.build_research_campaign_run_config(
+        campaign_config=payload,
+        repo_root=ROOT,
+        dagster_job_name=research_assets.RESEARCH_DATA_PREP_JOB_NAME,
     )
 
-    summary = campaigns.run_campaign(config_path=config_path, repo_root=ROOT)
-    run_root = Path(str(summary["run_root"]))
-
-    assert summary["status"] == "success"
-    assert (run_root / "campaign.lock.json").exists()
-    assert (run_root / "status.json").exists()
-    assert (run_root / "run-summary.json").exists()
-    assert (run_root / "artifacts-index.json").exists()
-    assert (run_root / "logs" / "stdout.log").exists()
-    assert (run_root / "logs" / "stderr.log").exists()
-    assert (run_root / "results" / "publish-commit.json").exists()
-    assert _load_json(run_root / "status.json")["status"] == "success"
-    assert "backtest_runs_per_second" in summary["durations"]
-    assert "research_strategy_families" not in summary["output_paths"]
-    assert "research_campaigns" in summary["output_paths"]
-    materialization_lock = _load_json(
-        Path(str(summary["materialized_root"])) / campaigns.MATERIALIZATION_LOCK_FILENAME
-    )
-    assert set(materialization_lock["output_paths"]) == set(campaigns.DATA_PREP_TABLES)
+    assert "research_campaign_context" in run_config["ops"]
+    assert not (tmp_path / "runs").exists()
 
 
 def test_duration_metrics_use_backtest_batch_duration_for_backtest_throughput(
@@ -1085,71 +960,118 @@ def test_result_digest_records_forced_data_prep_proof(tmp_path: Path) -> None:
     assert proof["tables"]["research_bar_views"]["has_delta_log"] is True
 
 
-def test_run_campaign_emits_failure_summary_when_dispatch_fails(
+def test_dagster_failure_summary_writer_persists_failed_campaign_artifacts(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     payload = _campaign_payload(tmp_path, target_stage="backtest")
-    config_path = tmp_path / "campaign.yaml"
-    _write_campaign(config_path, payload)
+    normalized = campaigns.normalize_campaign_config(repo_root=ROOT, raw=payload)
+    _seed_reusable_materialization(
+        Path(str(normalized["materialized_root"])),
+        materialization_key=campaigns.build_materialization_key(normalized),
+    )
+    run_config = research_assets.build_research_campaign_run_config(
+        campaign_config=payload,
+        repo_root=ROOT,
+        dagster_job_name=research_assets.RESEARCH_BACKTEST_JOB_NAME,
+        run_id="failed-dagster-run",
+    )
 
-    def _backtest(**_: object) -> dict[str, object]:
-        raise RuntimeError("simulated dispatch failure")
-
-    monkeypatch.setattr(campaigns, "materialize_research_backtest_assets", _backtest)
-
-    summary = campaigns.run_campaign(config_path=config_path, repo_root=ROOT)
-    run_root = Path(str(summary["run_root"]))
+    wrote = research_assets._write_failed_research_campaign_summary(  # type: ignore[attr-defined]
+        run_config=run_config,
+        dagster_job_name=research_assets.RESEARCH_BACKTEST_JOB_NAME,
+        dagster_run_id="dagster-run-id",
+    )
+    context_config = run_config["ops"]["research_campaign_context"]["config"]
+    campaign_context = research_assets._build_research_campaign_context_payload(  # type: ignore[attr-defined]
+        context_config=context_config,
+        dagster_job_name=research_assets.RESEARCH_BACKTEST_JOB_NAME,
+        dagster_run_id="dagster-run-id",
+        write_start_artifacts=False,
+    )
+    run_root = Path(str(campaign_context["run_root"]))
     persisted_summary = _load_json(run_root / "run-summary.json")
 
-    assert summary["status"] == "failed"
+    assert wrote is True
     assert persisted_summary["status"] == "failed"
-    assert persisted_summary["error"] == {
-        "type": "RuntimeError",
-        "message": "simulated dispatch failure",
-    }
+    assert persisted_summary["error"]["type"] == "DagsterRunFailure"
+    assert persisted_summary["dagster_selected_assets"][0] == "research_campaign_context"
     assert _load_json(run_root / "status.json")["status"] == "failed"
 
 
-def test_run_campaign_quarantines_uncommitted_publish_when_registry_publish_fails(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+def test_continuous_front_sidecar_failure_marks_campaign_status_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     payload = _campaign_payload(tmp_path, target_stage="data_prep")
-    config_path = tmp_path / "campaign.yaml"
-    _write_campaign(config_path, payload)
-
-    def _data_prep(**kwargs: object) -> dict[str, object]:
-        results_root = Path(str(kwargs["results_output_dir"]))
-        staged_table = results_root / "research_backtest_batches.delta"
-        (staged_table / "_delta_log").mkdir(parents=True, exist_ok=True)
-        return {
-            **_mock_report(
-                materialized_root=Path(str(kwargs["materialized_output_dir"])),
-                results_root=results_root,
-                target_stage="data_prep",
-            ),
-            "output_paths": {"research_backtest_batches": staged_table.as_posix()},
-        }
-
-    original_write_campaign_run = campaigns.write_campaign_run
-
-    def _write_campaign_run(**kwargs: object) -> object:
-        if kwargs.get("status") == "publishing":
-            raise RuntimeError("simulated registry publish failure")
-        return original_write_campaign_run(**kwargs)
-
-    monkeypatch.setattr(campaigns, "materialize_research_data_prep_assets", _data_prep)
-    monkeypatch.setattr(
-        campaigns, "validate_research_contracts", lambda **_: _passed_contract_validation()
+    dataset = dict(payload["dataset"])  # type: ignore[arg-type]
+    dataset["series_mode"] = "continuous_front"
+    payload["dataset"] = dataset
+    run_config = research_assets.build_research_campaign_run_config(
+        campaign_config=payload,
+        repo_root=ROOT,
+        dagster_job_name=research_assets.RESEARCH_DATA_PREP_JOB_NAME,
+        run_id="failed-data-prep-run",
     )
-    monkeypatch.setattr(campaigns, "write_campaign_run", _write_campaign_run)
+    op_config = run_config["ops"]["continuous_front_indicator_acceptance_report"]["config"]
+    dagster_run = SimpleNamespace(
+        run_config=run_config,
+        job_name=research_assets.RESEARCH_DATA_PREP_JOB_NAME,
+        run_id="dagster-run-id",
+    )
+    context = SimpleNamespace(
+        op_execution_context=SimpleNamespace(
+            op_config=op_config,
+            run_config=run_config,
+            dagster_run=dagster_run,
+            job_name=research_assets.RESEARCH_DATA_PREP_JOB_NAME,
+            run_id="dagster-run-id",
+        ),
+        dagster_run=dagster_run,
+        job_name=research_assets.RESEARCH_DATA_PREP_JOB_NAME,
+        run_id="dagster-run-id",
+        log=SimpleNamespace(warning=lambda *_args, **_kwargs: None),
+    )
 
-    summary = campaigns.run_campaign(config_path=config_path, repo_root=ROOT)
-    run_root = Path(str(summary["run_root"]))
+    monkeypatch.setattr(
+        research_assets,
+        "_existing_research_dataset_context",
+        lambda _config: {
+            "materialized_output_dir": (tmp_path / "materialized").as_posix(),
+            "dataset_manifest": {"series_mode": "continuous_front"},
+        },
+    )
 
-    assert summary["status"] == "failed"
-    assert not (run_root / "results" / "publish-commit.json").exists()
-    assert (
-        run_root / "results-quarantine" / "research_backtest_batches.delta" / "_delta_log"
-    ).exists()
+    def _fail_sidecar(_research_datasets: dict[str, object]) -> dict[str, object]:
+        raise RuntimeError("sidecar failed")
+
+    monkeypatch.setattr(
+        research_assets,
+        "_run_continuous_front_indicator_sidecar",
+        _fail_sidecar,
+    )
+
+    with pytest.raises(RuntimeError, match="sidecar failed"):
+        research_assets.continuous_front_indicator_acceptance_report.op.compute_fn.decorated_fn(  # type: ignore[attr-defined]
+            context
+        )
+
+    context_config = run_config["ops"]["research_campaign_context"]["config"]
+    campaign_context = research_assets._build_research_campaign_context_payload(  # type: ignore[attr-defined]
+        context_config=context_config,
+        dagster_job_name=research_assets.RESEARCH_DATA_PREP_JOB_NAME,
+        dagster_run_id="dagster-run-id",
+        write_start_artifacts=False,
+    )
+    run_root = Path(str(campaign_context["run_root"]))
+
+    assert _load_json(run_root / "status.json")["status"] == "failed"
+    assert _load_json(run_root / "run-summary.json")["status"] == "failed"
+
+
+def test_dagster_failure_summary_writer_ignores_non_campaign_runs() -> None:
+    wrote = research_assets._write_failed_research_campaign_summary(  # type: ignore[attr-defined]
+        run_config={"ops": {}},
+        dagster_job_name=research_assets.RESEARCH_BACKTEST_JOB_NAME,
+        dagster_run_id="dagster-run-id",
+    )
+
+    assert wrote is False

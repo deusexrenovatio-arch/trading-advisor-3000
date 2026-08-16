@@ -62,11 +62,12 @@ The primary comparison is against a fresh isolated materialization. Reuse runs a
 allowed, but they must be labeled separately because they measure cache/reuse
 behavior, not full downstream rebuild cost.
 
-## Command
+## Dagster Launch Config
 
-```powershell
-python -m trading_advisor_3000.product_plane.research.jobs.run_campaign `
-  --config product-plane/campaigns/moex_performance_baseline_research_data_prep.yaml
+Launch `research_data_prep_job` with:
+
+```yaml
+campaign_config_path: product-plane/campaigns/moex_performance_baseline_research_data_prep.yaml
 ```
 
 Before a full rebuild comparison, use a new empty materialized root or archive the

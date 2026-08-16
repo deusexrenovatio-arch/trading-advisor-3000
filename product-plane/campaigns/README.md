@@ -4,20 +4,20 @@ This directory holds Product Plane campaign configs for the canonical research r
 
 Official route:
 
-```powershell
-python -m trading_advisor_3000.product_plane.research.jobs.run_campaign --config product-plane/campaigns/fut_br_base_15m.explore.yaml
+```yaml
+campaign_config_path: product-plane/campaigns/fut_br_base_15m.explore.yaml
 ```
 
 Approved-universe data prep route:
 
-```powershell
-python -m trading_advisor_3000.product_plane.research.jobs.run_campaign --config product-plane/campaigns/moex_approved_universe_data_prep.yaml
+```yaml
+campaign_config_path: product-plane/campaigns/moex_approved_universe_data_prep.yaml
 ```
 
 Forced verification data-prep proof for the Optuna/vectorbt trend MTF pullback campaign:
 
-```powershell
-python -m trading_advisor_3000.product_plane.research.jobs.run_campaign --config product-plane/campaigns/moex_approved_subset_optuna_15m.trend_mtf_pullback_research.data_prep_proof.yaml
+```yaml
+campaign_config_path: product-plane/campaigns/moex_approved_subset_optuna_15m.trend_mtf_pullback_research.data_prep_proof.yaml
 ```
 
 Rules:
@@ -32,5 +32,5 @@ Rules:
 - backtest stages must consume those Delta tables through native Delta/Arrow filters and strategy-column projection; Python row-object reloaders are not a campaign fallback.
 - `continuous_front` is a historical/batch research contour; it is not a live intraday decision source.
 
-Committed configs should describe the full operator path through `run_campaign`.
+Committed configs should describe the full operator path through the matching Dagster research job.
 Implementation modules and benchmark tooling are intentionally outside this config contract.
