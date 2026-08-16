@@ -35,6 +35,7 @@ What this means in practice:
 - strategy registry refresh is intentionally separate from data prep, so strategy inventory changes do not masquerade as canonical data freshness work;
 - strategy templates live in Delta registry tables; concrete `StrategyInstance` rows are created only after promotion from parametric results;
 - backtest inputs are read from Delta through native Delta/Arrow predicates and strategy-column projection before Python/vectorbt sees them;
+- reused backtest runs enter through `research_backtest_job` and validate the existing gold layer through `research_campaign_context` and `research_backtest_batches` run config instead of rematerializing data-prep assets;
 - vectorbt receives family-level MTF-resolved matrix inputs, generates entry/exit indices through `SignalFactory.from_choice_func`, and executes through `Portfolio.from_signals`;
 - primary result identity is `param_hash`, while compatibility tables may still expose downstream run/stat/trade rows for ranking and projection consumers;
 - adaptive optimizer state is Delta-first run provenance; Optuna proposes trial parameters, while `research_optimizer_studies`, `research_optimizer_trials`, and `research_optimizer_selections` explain selected `param_hash` rows and vectorbt result tables remain the execution truth;
@@ -80,10 +81,10 @@ This policy keeps inventory/provenance semantics stable while campaign routing r
 ## Stable Entry Points
 
 ### Supported Operational Route
-- `python -m trading_advisor_3000.product_plane.research.jobs.run_campaign --config <campaign.yaml>`
+- Launch the matching existing Dagster job with `campaign_config_path` or inline `campaign_config` mapped through `research_campaign_context`.
 
 This is the only supported user-facing route.
-It is a thin Product Plane launcher that validates a machine-readable campaign config, writes immutable run artifacts, and dispatches only into the Dagster research contour.
+`research_campaign_context` validates the machine-readable campaign config, writes immutable start artifacts, and expands the internal stage asset config inside the Dagster run. The old `run_campaign` Python route is removed from the active product surface.
 
 Campaign contracts:
 - `research_campaign.v1.json`
@@ -149,7 +150,7 @@ Research storage is split into two layers:
 - reusable gold outputs under `<materialized_root>/`
 - immutable run artifacts under `<runs_root>/<campaign_name>/<run_id>/`
 
-Canonical research runs are created only by `run_campaign`. A canonical run must have a
+Canonical research runs are created only by the matching Dagster research job. A canonical run must have a
 `research_campaign_runs` row that points at its `results_output_dir`, plus the matching
 `campaign.lock.json`, `run-summary.json`, `artifacts-index.json`, and Delta result tables.
 
