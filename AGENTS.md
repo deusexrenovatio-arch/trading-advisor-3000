@@ -14,10 +14,9 @@ Business and trading logic remain out of scope for shell control-plane surfaces.
 4. `plans/items/` is canonical and `plans/PLANS.yaml` is generated compatibility output (enabled in Phase 5).
 5. Domain skills are excluded from the baseline shell.
 6. Every change set must declare a change surface: `shell`, `product-plane`, or `mixed`.
-7. Generic engineering skills belong in the global Codex skill root (`D:/CodexHome/skills`); repo-local skills are only for TA3000-specific trading, product-domain, or compute-runtime knowledge.
-8. `.cursor/skills` is a retired legacy skill catalog. Do not add skills there; use global Codex skills for ordinary chat routing and `.codex/skills` only for TA3000-specific product-plane/trading/data/compute knowledge.
-9. GraphQL and Node.js are not active TA3000 baseline surfaces. Do not route GraphQL/Node-specific skills unless active source files or contracts appear outside ignored temporary, generated, archive, or package-intake paths.
-10. PRs must stay reviewable: `run_pr_gate.py` enforces the hard PR size gate before merge.
+7. Ordinary engineering work uses the repository's direct workflow, tests, and gates; it must not depend on a global filesystem skill catalog.
+8. `.cursor/skills` is a retired legacy skill catalog. Do not add skills there; `.codex/skills` is reserved for TA3000-specific product-plane/trading/data/compute knowledge.
+9. PRs must stay reviewable: `run_pr_gate.py` enforces the hard PR size gate before merge.
 
 ## Source-Of-Truth Layers
 ### Hot (read first)
@@ -25,7 +24,6 @@ Business and trading logic remain out of scope for shell control-plane surfaces.
 - `docs/agent/domains.md`
 - `docs/agent/checks.md`
 - `docs/agent/runtime.md`
-- `docs/agent/skills-routing.md`
 - `docs/DEV_WORKFLOW.md`
 
 ### Warm (read by signal)
@@ -68,29 +66,17 @@ Business and trading logic remain out of scope for shell control-plane surfaces.
 - Direct search/read fallback is allowed only for docs-only work, generated/artifact paths, config/non-code-only tasks, tiny already-localized edits, unsupported file types, or Serena unavailability.
 - If Serena is skipped or unavailable on a code task, state the fallback reason briefly and continue with the lightest reliable tools.
 
-## Ordinary Chat Skill Routing
+## Ordinary Chat Routing
 - Ordinary chat uses a short route: classify the surface and semantic risk,
-  gather the minimum current context, then load only the skill that owns the
-  next artifact or decision.
-- Use process or engineering skills only when the semantic risk, requested
-  phase, or explicit user request makes a skill the owner of the next decision.
+  then gather the minimum current context.
 - Do not classify a behavior, bugfix, data/compute, contract, or user-facing semantic change as "small" to bypass risk classification. Diff size is not the routing signal; semantic risk is.
 - For behavior changes and bugfixes, prefer a failing regression or characterization test before implementation when practical. If the code was already changed, use focused proof that the changed behavior is covered or record the residual risk explicitly.
-- Route through Matt Pocock global skills for reusable engineering behavior. Use `ask-matt` when the task is about skill selection, prompt routing, or preventing missed skills.
-- Before substantial work, name only the selected skill or direct route and why it applies. If no skill is needed, say why briefly and continue.
-- Select skills by sequence, not keyword count: start with the skill that owns the current artifact, add neighboring skills only when their phase is reached, and keep evidence/acceptance skills for closeout.
-- For non-trivial implementation, use `implement`, with `tdd`, `code-review`, `codebase-design`, `domain-modeling`, or `grill-with-docs` only when their phase owns the next artifact.
-- Before closeout, run the Matt implementation/review loop and include an explicit self-review for behavior/contract changes: what changed, which contract moved, which old behavior is now forbidden, which test catches it, and what residual risk remains.
-- For review, unblock, or "is this done?" questions, use `code-review` and `diagnosing-bugs` as appropriate. Do not replace self-review with test output alone.
-- If a required skill is missing from the current session metadata but exists on disk under `D:/CodexHome/skills`, read that skill's main instruction file directly and state it as a fallback.
-- Open repo-local skills only for TA3000-specific product/trading/data/compute knowledge under `.codex/skills`.
+- Before substantial work, state the selected direct route and why it applies.
+- Before closeout, include an explicit self-review for behavior/contract changes: what changed, which contract moved, which old behavior is now forbidden, which test catches it, and what residual risk remains.
 
-## Agent skills
+## Agent support
 ### Issue tracker
 GitHub Issues are the issue tracker for this repo; external PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-Matt Pocock skills use the default triage labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 Domain docs use a multi-context layout through `CONTEXT-MAP.md`; the map points to existing TA3000 hot docs instead of duplicating them. See `docs/agents/domain.md`.
@@ -100,10 +86,9 @@ Domain docs use a multi-context layout through `CONTEXT-MAP.md`; the map points 
 1. Read hot docs.
 2. Confirm change surface and keep domain logic out of shell files.
 3. For non-trivial code work, start code discovery through Serena before broad scans or implementation.
-4. For architecture-heavy or cross-module work, follow architecture routing in `docs/agent/skills-routing.md`.
-5. Implement one small patch set.
-6. Run checks from `docs/agent/checks.md`.
-7. Prepare PR-oriented change summary.
+4. Implement one small patch set.
+5. Run checks from `docs/agent/checks.md`.
+6. Prepare PR-oriented change summary.
 
 ### Default loop
 `diagnose -> patch -> verify -> commit plan -> PR delivery contract -> loop gate -> pr gate`

@@ -7,11 +7,10 @@ Provide a predictable and enforceable workflow for governance-first delivery in 
 1. Read hot docs (`docs/agent/*`).
 2. Confirm the change surface (`shell`, `product-plane`, or `mixed`), keep domain logic out of shell control-plane files, and keep the same surface declaration in PR metadata.
 3. For non-trivial code changes or new code inside an existing subsystem, start with Serena for code discovery, local pattern learning, impact analysis, and reference checks before broad scans, whole-file reads, or implementation.
-4. For architecture-heavy, cross-module, ownership-sensitive, or concept-location uncertain code tasks, follow Architecture Orientation Routing in `docs/agent/skills-routing.md`.
-5. Use the minimal skill/context route that owns the current artifact or risk.
-6. If the diff matches a critical contour, keep the claim explicit: target, staged, or fallback, with matching evidence in the PR.
-7. Run loop gate: `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`.
-8. Run PR gate before closeout.
+4. Use the minimal context route that owns the current artifact or risk.
+5. If the diff matches a critical contour, keep the claim explicit: target, staged, or fallback, with matching evidence in the PR.
+6. Run loop gate: `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`.
+7. Run PR gate before closeout.
 
 For product-plane tasks, read `docs/architecture/product-plane/STATUS.md` before treating older phase-closure language as current truth.
 

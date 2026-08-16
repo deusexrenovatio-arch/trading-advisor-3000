@@ -26,8 +26,6 @@ REQUIRED_FILES = [
     "docs/agent/checks.md",
     "docs/agent/critical-contours.md",
     "docs/agent/runtime.md",
-    "docs/agent/skills-routing.md",
-    "docs/agent/skills-catalog.md",
 ]
 
 
