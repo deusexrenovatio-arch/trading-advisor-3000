@@ -17,6 +17,16 @@ from vectorbt.portfolio import enums
 from trading_advisor_3000.product_plane.research.io.loaders import ResearchSeriesFrame
 from trading_advisor_3000.product_plane.research.strategies import StrategySpec
 
+from .money import (
+    MONEY_EQUITY_MODE,
+    MONEY_MODEL_VERSION,
+    MONEY_SOURCE,
+    SIZING_MODE_RISK_PER_TRADE,
+    MoneySizingConfig,
+    execution_economics_from_row,
+    prepare_money_surface,
+    trade_ledger_from_vectorbt_records,
+)
 from .ranking import RankingPolicy, default_ranking_policy, score_optimizer_trial
 
 PRICE_INPUTS = ("open", "high", "low", "close")
@@ -166,6 +176,12 @@ class BacktestEngineConfig:
     session_hours_utc: tuple[int, int] | None = None
     window_count: int = 1
     signal_shift_bars: int = 1
+    sizing_mode: str = SIZING_MODE_RISK_PER_TRADE
+    risk_per_trade_pct: float = 0.01
+    max_contracts: int | None = None
+    max_margin_fraction: float | None = 1.0
+    commission_per_contract: float = 0.0
+    slippage_ticks: float = 0.0
 
     def __post_init__(self) -> None:
         if self.initial_cash <= 0:
@@ -180,6 +196,18 @@ class BacktestEngineConfig:
             raise ValueError("window_count must be positive")
         if self.signal_shift_bars < 0:
             raise ValueError("signal_shift_bars must be non-negative")
+        if self.sizing_mode != SIZING_MODE_RISK_PER_TRADE:
+            raise ValueError("unsupported sizing_mode")
+        if self.risk_per_trade_pct <= 0:
+            raise ValueError("risk_per_trade_pct must be positive")
+        if self.max_contracts is not None and self.max_contracts <= 0:
+            raise ValueError("max_contracts must be positive when provided")
+        if self.max_margin_fraction is not None and self.max_margin_fraction <= 0:
+            raise ValueError("max_margin_fraction must be positive when provided")
+        if self.commission_per_contract < 0:
+            raise ValueError("commission_per_contract must be non-negative")
+        if self.slippage_ticks < 0:
+            raise ValueError("slippage_ticks must be non-negative")
 
 
 @dataclass(frozen=True)
@@ -468,8 +496,15 @@ class VectorBTSignalSurfaceResult:
     exits: pd.DataFrame
     short_entries: pd.DataFrame
     short_exits: pd.DataFrame
+    long_intent: pd.DataFrame
+    short_intent: pd.DataFrame
     sl_stop: pd.DataFrame
     tp_stop: pd.DataFrame
+    money_size: pd.DataFrame
+    money_risk_cash: pd.DataFrame
+    money_risk_per_contract: pd.DataFrame
+    money_margin_required: pd.DataFrame
+    money_rejection_events: tuple[dict[str, object], ...] = field(default_factory=tuple)
     diagnostics: Mapping[str, object] = field(default_factory=dict)
 
 
@@ -1177,6 +1212,13 @@ def build_input_bundle(
         "price_space",
         "series_id",
         "series_mode",
+        "execution_step_price_rub",
+        "execution_lot_volume",
+        "execution_tick_value_currency",
+        "execution_margin_required_estimate",
+        "execution_margin_buffer_pct",
+        "economics_effective_from_ts",
+        "economics_model_version",
     )
     execution_metadata: dict[str, pd.DataFrame] = {}
     signal_price_spaces: dict[str, str] = {}
@@ -1823,6 +1865,41 @@ def build_signal_surface(
             return frame.astype(dtype)
         return frame
 
+    entries_frame = _frame(entries, "bool")
+    exits_frame = _frame(exits, "bool")
+    short_entries_frame = _frame(short_entries, "bool")
+    short_exits_frame = _frame(short_exits, "bool")
+    sl_stop_frame = _frame(sl_stop)
+    tp_stop_frame = _frame(tp_stop)
+    long_intent_frame = _frame(long_state, "bool")
+    short_intent_frame = _frame(short_state, "bool")
+    metadata_by_instrument = bundle.metadata.get("execution_metadata", {})
+    if not isinstance(metadata_by_instrument, Mapping):
+        metadata_by_instrument = {}
+    money_prepared = prepare_money_surface(
+        entries=entries_frame,
+        short_entries=short_entries_frame,
+        close=_expanded_close(bundle, columns),
+        sl_stop=sl_stop_frame,
+        metadata_by_instrument=metadata_by_instrument,
+        initial_cash=config.initial_cash,
+        sizing_config=MoneySizingConfig(
+            risk_per_trade_pct=config.risk_per_trade_pct,
+            max_contracts=config.max_contracts,
+            max_margin_fraction=config.max_margin_fraction,
+        ),
+        commission_per_contract=config.commission_per_contract,
+        slippage_ticks=config.slippage_ticks,
+        default_size=config.position_size,
+    )
+    entries_frame = money_prepared.entries
+    short_entries_frame = money_prepared.short_entries
+    diagnostics["money_model_version"] = MONEY_MODEL_VERSION
+    diagnostics["money_source"] = MONEY_SOURCE
+    diagnostics["sizing_mode"] = config.sizing_mode
+    diagnostics["equity_mode"] = MONEY_EQUITY_MODE
+    diagnostics["money_rejection_count"] = len(money_prepared.rejection_events)
+
     surface_id = "VSURF-" + _stable_hash(
         f"{search_run_id}|{spec.family_key}|{','.join(param_hashes)}"
     )
@@ -1845,12 +1922,19 @@ def build_signal_surface(
         param_rows=tuple(dict(row) for row in param_rows),
         parameter_index=parameter_index,
         indicator_plan=indicator_plan,
-        entries=_frame(entries, "bool"),
-        exits=_frame(exits, "bool"),
-        short_entries=_frame(short_entries, "bool"),
-        short_exits=_frame(short_exits, "bool"),
-        sl_stop=_frame(sl_stop),
-        tp_stop=_frame(tp_stop),
+        entries=entries_frame,
+        exits=exits_frame,
+        short_entries=short_entries_frame,
+        short_exits=short_exits_frame,
+        long_intent=long_intent_frame,
+        short_intent=short_intent_frame,
+        sl_stop=sl_stop_frame,
+        tp_stop=tp_stop_frame,
+        money_size=money_prepared.size,
+        money_risk_cash=money_prepared.risk_cash,
+        money_risk_per_contract=money_prepared.risk_per_contract,
+        money_margin_required=money_prepared.margin_required,
+        money_rejection_events=money_prepared.rejection_events,
         diagnostics=diagnostics,
     )
 
@@ -2642,17 +2726,18 @@ def run_surface_portfolio(
     surface: VectorBTSignalSurfaceResult,
     config: BacktestEngineConfig,
 ) -> vbt.Portfolio:
-    fees = config.fees_bps / 10_000.0
-    slippage = config.slippage_bps / 10_000.0
+    fees = 0.0
+    slippage = 0.0
     close = _expanded_close(bundle, surface.columns)
     timeframe = str(bundle.metadata["execution_tf"])
+    size = surface.money_size
     return vbt.Portfolio.from_signals(
         close,
         surface.entries,
         surface.exits,
         short_entries=surface.short_entries,
         short_exits=surface.short_exits,
-        size=config.position_size,
+        size=size,
         size_type=enums.SizeType.Amount,
         fees=fees,
         slippage=slippage,
@@ -2693,17 +2778,6 @@ def _records_by_col(records: pd.DataFrame) -> dict[int, list[dict[str, object]]]
     return grouped
 
 
-def _orders_fee_by_col(records: pd.DataFrame, columns: pd.MultiIndex) -> pd.Series:
-    fees = pd.Series(0.0, index=columns, dtype=float)
-    if records.empty or "col" not in records.columns or "fees" not in records.columns:
-        return fees
-    for _, record in records.iterrows():
-        col = int(record["col"])
-        if 0 <= col < len(columns):
-            fees.iloc[col] += float(record["fees"])
-    return fees
-
-
 def _run_id(
     *,
     search_run_id: str,
@@ -2729,6 +2803,7 @@ def collect_surface_rows(
     bundle: VectorBTInputBundle,
     surface: VectorBTSignalSurfaceResult,
     spec: StrategyFamilySearchSpec,
+    config: BacktestEngineConfig,
     param_lookup: Mapping[str, dict[str, object]],
     backtest_batch_id: str,
     campaign_run_id: str,
@@ -2740,17 +2815,10 @@ def collect_surface_rows(
 ) -> dict[str, list[dict[str, object]]]:
     columns = surface.columns
     created_at = _created_at()
-    total_return = _safe_metric(columns, portfolio.total_return)
     sharpe = _safe_metric(columns, portfolio.sharpe_ratio)
     sortino = _safe_metric(columns, portfolio.sortino_ratio)
     calmar = _safe_metric(columns, portfolio.calmar_ratio)
-    max_drawdown = _safe_metric(columns, portfolio.max_drawdown)
-    trade_count = _safe_metric(columns, portfolio.trades.count).astype(int)
-    profit_factor = _safe_metric(columns, portfolio.trades.profit_factor)
-    win_rate = _safe_metric(columns, portfolio.trades.win_rate)
-    expectancy = _safe_metric(columns, portfolio.trades.expectancy)
     order_count = _safe_metric(columns, portfolio.orders.count).astype(int)
-    fees_paid = _orders_fee_by_col(portfolio.orders.records, columns)
     trade_records = _records_by_col(portfolio.trades.records)
     order_records = _records_by_col(portfolio.orders.records)
     drawdown_records = _records_by_col(portfolio.drawdowns.records)
@@ -2832,19 +2900,44 @@ def collect_surface_rows(
             "execution_mode": "from_signals",
             "engine_name": "vectorbt",
             "row_count": periods,
-            "trade_count": int(_scalar_metric(trade_count, column)),
+            "trade_count": 0,
             "status": "success",
             "started_at": created_at,
             "finished_at": created_at,
+            "initial_cash": config.initial_cash,
             "stop_ref": 0.0,
             "target_ref": 0.0,
             "signal_price_space": str(signal_price_space),
             "execution_price_space": str(bundle.metadata.get("execution_price_space", "native")),
+            "money_model_version": MONEY_MODEL_VERSION,
+            "money_source": MONEY_SOURCE,
+            "sizing_mode": config.sizing_mode,
+            "equity_mode": MONEY_EQUITY_MODE,
         }
+        ledger = trade_ledger_from_vectorbt_records(
+            records=trade_records.get(col_index, []),
+            run_row=row_seed,
+            index=index,
+            metadata_frame=metadata_frame if isinstance(metadata_frame, pd.DataFrame) else None,
+            risk_cash_frame=surface.money_risk_cash[column],
+            risk_per_contract_frame=surface.money_risk_per_contract[column],
+            margin_required_frame=surface.money_margin_required[column],
+            commission_per_contract=config.commission_per_contract,
+            slippage_ticks=config.slippage_ticks,
+        )
+        money_metrics = ledger.aggregate_metrics
+        money_trade_rows_by_id = {str(row["trade_id"]): dict(row) for row in ledger.trade_rows}
+        total = float(money_metrics["total_return"])
+        trades = int(money_metrics["trade_count"])
+        fees = float(money_metrics["fees_paid"])
+        slippage_total = float(money_metrics["slippage_paid"])
+        profit_factor_value = float(money_metrics["profit_factor"])
+        win_rate_value = float(money_metrics["win_rate"])
+        expectancy_value = float(money_metrics["avg_trade"])
+        max_drawdown_value = float(money_metrics["max_drawdown"])
+        net_pnl_value = float(money_metrics["net_pnl"])
+        row_seed["trade_count"] = trades
         run_rows.append(row_seed)
-        total = _scalar_metric(total_return, column)
-        trades = int(_scalar_metric(trade_count, column))
-        fees = _scalar_metric(fees_paid, column)
         stat_row = {
             "backtest_run_id": run_id,
             "search_run_id": surface.search_run_id,
@@ -2869,19 +2962,23 @@ def collect_surface_rows(
             "sharpe": _scalar_metric(sharpe, column),
             "sortino": _scalar_metric(sortino, column),
             "calmar": _scalar_metric(calmar, column),
-            "max_drawdown": abs(_scalar_metric(max_drawdown, column)),
-            "profit_factor": _scalar_metric(profit_factor, column),
-            "win_rate": _scalar_metric(win_rate, column),
-            "expectancy": _scalar_metric(expectancy, column),
-            "avg_trade": _scalar_metric(expectancy, column),
+            "max_drawdown": max_drawdown_value,
+            "profit_factor": profit_factor_value,
+            "win_rate": win_rate_value,
+            "expectancy": expectancy_value,
+            "avg_trade": expectancy_value,
             "avg_holding_bars": 0.0,
             "turnover": float(_scalar_metric(order_count, column)) / max(float(periods), 1.0),
             "exposure": 0.0,
             "commission_total": fees,
-            "slippage_total": 0.0,
+            "slippage_total": slippage_total,
             "trade_count": trades,
             "status": "success",
             "created_at": created_at,
+            "money_model_version": row_seed["money_model_version"],
+            "money_source": row_seed["money_source"],
+            "sizing_mode": row_seed["sizing_mode"],
+            "equity_mode": row_seed["equity_mode"],
         }
         stat_rows.append(stat_row)
         param_result_rows.append(
@@ -2895,7 +2992,7 @@ def collect_surface_rows(
                 "fold_id": window_id,
                 "params_json": params,
                 "indicator_plan_hash": surface.indicator_plan.plan_hash,
-                "net_pnl": total * 100.0,
+                "net_pnl": net_pnl_value,
                 "sharpe": stat_row["sharpe"],
                 "sortino": stat_row["sortino"],
                 "calmar": stat_row["calmar"],
@@ -2907,9 +3004,13 @@ def collect_surface_rows(
                 "turnover": stat_row["turnover"],
                 "avg_holding_minutes": 0.0,
                 "fees_paid": fees,
-                "slippage_paid": 0.0,
+                "slippage_paid": slippage_total,
                 "exposure_avg": 0.0,
                 "stress_label": "base",
+                "money_model_version": row_seed["money_model_version"],
+                "money_source": row_seed["money_source"],
+                "sizing_mode": row_seed["sizing_mode"],
+                "equity_mode": row_seed["equity_mode"],
                 "created_at": created_at,
             }
         )
@@ -2947,6 +3048,7 @@ def collect_surface_rows(
                 run_row=row_seed,
                 index=index,
                 metadata_frame=metadata_frame if isinstance(metadata_frame, pd.DataFrame) else None,
+                money_rows_by_trade_id=money_trade_rows_by_id,
             )
         )
         order_rows.extend(
@@ -2955,6 +3057,8 @@ def collect_surface_rows(
                 run_row=row_seed,
                 index=index,
                 metadata_frame=metadata_frame if isinstance(metadata_frame, pd.DataFrame) else None,
+                commission_per_contract=config.commission_per_contract,
+                slippage_ticks=config.slippage_ticks,
             )
         )
         drawdown_rows.extend(
@@ -2995,6 +3099,7 @@ def _trade_rows(
     run_row: Mapping[str, object],
     index: Sequence[object],
     metadata_frame: pd.DataFrame | None = None,
+    money_rows_by_trade_id: Mapping[str, Mapping[str, object]] | None = None,
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for record in records:
@@ -3020,56 +3125,58 @@ def _trade_rows(
         entry_fees = float(record.get("entry_fees", 0.0) or 0.0)
         exit_fees = float(record.get("exit_fees", 0.0) or 0.0)
         pnl = float(record.get("pnl", 0.0) or 0.0)
-        rows.append(
-            {
-                "backtest_run_id": run_row["backtest_run_id"],
-                "campaign_run_id": run_row["campaign_run_id"],
-                "strategy_instance_id": run_row["strategy_instance_id"],
-                "strategy_template_id": run_row["strategy_template_id"],
-                "family_id": run_row["family_id"],
-                "family_key": run_row["family_key"],
-                "contract_id": run_row["contract_id"],
-                "series_id": run_row.get("series_id", run_row["contract_id"]),
-                "series_mode": run_row.get("series_mode", "contract"),
-                "instrument_id": run_row["instrument_id"],
-                "timeframe": run_row["timeframe"],
-                "window_id": run_row["window_id"],
-                "param_hash": run_row["param_hash"],
-                "trade_id": f"{run_row['backtest_run_id']}-TRD-{int(record.get('id', 0)):04d}",
-                "side": direction,
-                "status": status,
-                "entry_ts": entry_ts,
-                "exit_ts": exit_ts,
-                "entry_price": float(record.get("entry_price", 0.0) or 0.0),
-                "exit_price": float(record.get("exit_price", 0.0) or 0.0),
-                "qty": abs(float(record.get("size", 0.0) or 0.0)),
-                "gross_pnl": pnl,
-                "net_pnl": pnl - (entry_fees + exit_fees),
-                "commission": entry_fees + exit_fees,
-                "slippage": 0.0,
-                "holding_bars": duration_bars,
-                "stop_ref": run_row["stop_ref"],
-                "target_ref": run_row["target_ref"],
-                "signal_price_space": run_row.get("signal_price_space", "native"),
-                "execution_price_space": run_row.get("execution_price_space", "native"),
-                "entry_active_contract_id": str(
-                    entry_meta.get("active_contract_id", run_row["contract_id"])
-                ),
-                "exit_active_contract_id": str(
-                    exit_meta.get("active_contract_id", run_row["contract_id"])
-                ),
-                "entry_roll_epoch": int(entry_meta.get("roll_epoch", 0) or 0),
-                "exit_roll_epoch": int(exit_meta.get("roll_epoch", 0) or 0),
-                "entry_roll_event_id": None
-                if entry_meta.get("roll_event_id") is None
-                else str(entry_meta.get("roll_event_id")),
-                "exit_roll_event_id": None
-                if exit_meta.get("roll_event_id") is None
-                else str(exit_meta.get("roll_event_id")),
-                "entry_is_roll_bar": bool(entry_meta.get("is_roll_bar", False)),
-                "exit_is_roll_bar": bool(exit_meta.get("is_roll_bar", False)),
-            }
-        )
+        trade_id = f"{run_row['backtest_run_id']}-TRD-{int(record.get('id', 0)):04d}"
+        row = {
+            "backtest_run_id": run_row["backtest_run_id"],
+            "campaign_run_id": run_row["campaign_run_id"],
+            "strategy_instance_id": run_row["strategy_instance_id"],
+            "strategy_template_id": run_row["strategy_template_id"],
+            "family_id": run_row["family_id"],
+            "family_key": run_row["family_key"],
+            "contract_id": run_row["contract_id"],
+            "series_id": run_row.get("series_id", run_row["contract_id"]),
+            "series_mode": run_row.get("series_mode", "contract"),
+            "instrument_id": run_row["instrument_id"],
+            "timeframe": run_row["timeframe"],
+            "window_id": run_row["window_id"],
+            "param_hash": run_row["param_hash"],
+            "trade_id": trade_id,
+            "side": direction,
+            "status": status,
+            "entry_ts": entry_ts,
+            "exit_ts": exit_ts,
+            "entry_price": float(record.get("entry_price", 0.0) or 0.0),
+            "exit_price": float(record.get("exit_price", 0.0) or 0.0),
+            "qty": abs(float(record.get("size", 0.0) or 0.0)),
+            "gross_pnl": pnl,
+            "net_pnl": pnl - (entry_fees + exit_fees),
+            "commission": entry_fees + exit_fees,
+            "slippage": 0.0,
+            "holding_bars": duration_bars,
+            "stop_ref": run_row["stop_ref"],
+            "target_ref": run_row["target_ref"],
+            "signal_price_space": run_row.get("signal_price_space", "native"),
+            "execution_price_space": run_row.get("execution_price_space", "native"),
+            "entry_active_contract_id": str(
+                entry_meta.get("active_contract_id", run_row["contract_id"])
+            ),
+            "exit_active_contract_id": str(
+                exit_meta.get("active_contract_id", run_row["contract_id"])
+            ),
+            "entry_roll_epoch": int(entry_meta.get("roll_epoch", 0) or 0),
+            "exit_roll_epoch": int(exit_meta.get("roll_epoch", 0) or 0),
+            "entry_roll_event_id": None
+            if entry_meta.get("roll_event_id") is None
+            else str(entry_meta.get("roll_event_id")),
+            "exit_roll_event_id": None
+            if exit_meta.get("roll_event_id") is None
+            else str(exit_meta.get("roll_event_id")),
+            "entry_is_roll_bar": bool(entry_meta.get("is_roll_bar", False)),
+            "exit_is_roll_bar": bool(exit_meta.get("is_roll_bar", False)),
+        }
+        if money_rows_by_trade_id and trade_id in money_rows_by_trade_id:
+            row.update(dict(money_rows_by_trade_id[trade_id]))
+        rows.append(row)
     return rows
 
 
@@ -3079,6 +3186,8 @@ def _order_rows(
     run_row: Mapping[str, object],
     index: Sequence[object],
     metadata_frame: pd.DataFrame | None = None,
+    commission_per_contract: float = 0.0,
+    slippage_ticks: float = 0.0,
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for record in records:
@@ -3092,40 +3201,56 @@ def _order_rows(
         action = "buy" if int(record.get("side", 0)) == 0 else "sell"
         price = float(record.get("price", 0.0) or 0.0)
         size = float(record.get("size", 0.0) or 0.0)
-        rows.append(
-            {
-                "backtest_run_id": run_row["backtest_run_id"],
-                "campaign_run_id": run_row["campaign_run_id"],
-                "strategy_instance_id": run_row["strategy_instance_id"],
-                "family_key": run_row["family_key"],
-                "contract_id": run_row["contract_id"],
-                "series_id": run_row.get("series_id", run_row["contract_id"]),
-                "series_mode": run_row.get("series_mode", "contract"),
-                "instrument_id": run_row["instrument_id"],
-                "timeframe": run_row["timeframe"],
-                "window_id": run_row["window_id"],
-                "param_hash": run_row["param_hash"],
-                "order_id": f"{run_row['backtest_run_id']}-ORD-{int(record.get('id', 0)):04d}",
-                "ts": ts,
-                "side": action,
-                "order_type": "market",
-                "price": price,
-                "qty": abs(size),
-                "fill_price": price,
-                "fill_qty": abs(size),
-                "commission": float(record.get("fees", 0.0) or 0.0),
-                "slippage": 0.0,
-                "status": "filled",
-                "signal_price_space": run_row.get("signal_price_space", "native"),
-                "execution_price_space": run_row.get("execution_price_space", "native"),
-                "active_contract_id": str(meta.get("active_contract_id", run_row["contract_id"])),
-                "roll_epoch": int(meta.get("roll_epoch", 0) or 0),
-                "roll_event_id": None
-                if meta.get("roll_event_id") is None
-                else str(meta.get("roll_event_id")),
-                "is_roll_bar": bool(meta.get("is_roll_bar", False)),
-            }
+        commission = float(record.get("fees", 0.0) or 0.0)
+        slippage = 0.0
+        economics = execution_economics_from_row(
+            meta,
+            entry_price=price,
+            commission_per_contract=commission_per_contract,
+            slippage_ticks=slippage_ticks,
         )
+        commission = economics.commission_per_contract * abs(size)
+        slippage = economics.slippage_ticks * economics.tick_value * abs(size)
+        money_fields = {
+            "money_model_version": economics.money_model_version,
+            "money_source": economics.money_source,
+            "sizing_mode": SIZING_MODE_RISK_PER_TRADE,
+            "equity_mode": MONEY_EQUITY_MODE,
+        }
+        row = {
+            "backtest_run_id": run_row["backtest_run_id"],
+            "campaign_run_id": run_row["campaign_run_id"],
+            "strategy_instance_id": run_row["strategy_instance_id"],
+            "family_key": run_row["family_key"],
+            "contract_id": run_row["contract_id"],
+            "series_id": run_row.get("series_id", run_row["contract_id"]),
+            "series_mode": run_row.get("series_mode", "contract"),
+            "instrument_id": run_row["instrument_id"],
+            "timeframe": run_row["timeframe"],
+            "window_id": run_row["window_id"],
+            "param_hash": run_row["param_hash"],
+            "order_id": f"{run_row['backtest_run_id']}-ORD-{int(record.get('id', 0)):04d}",
+            "ts": ts,
+            "side": action,
+            "order_type": "market",
+            "price": price,
+            "qty": abs(size),
+            "fill_price": price,
+            "fill_qty": abs(size),
+            "commission": commission,
+            "slippage": slippage,
+            "status": "filled",
+            "signal_price_space": run_row.get("signal_price_space", "native"),
+            "execution_price_space": run_row.get("execution_price_space", "native"),
+            "active_contract_id": str(meta.get("active_contract_id", run_row["contract_id"])),
+            "roll_epoch": int(meta.get("roll_epoch", 0) or 0),
+            "roll_event_id": None
+            if meta.get("roll_event_id") is None
+            else str(meta.get("roll_event_id")),
+            "is_roll_bar": bool(meta.get("is_roll_bar", False)),
+        }
+        row.update(money_fields)
+        rows.append(row)
     return rows
 
 
@@ -3744,6 +3869,7 @@ def _run_optuna_family_search(
                         bundle=bundle,
                         surface=surface,
                         spec=effective_spec,
+                        config=config,
                         param_lookup=param_lookup,
                         backtest_batch_id=backtest_batch_id,
                         campaign_run_id=campaign_run_id,
@@ -4061,6 +4187,7 @@ def _run_optuna_family_search(
                     bundle=bundle,
                     surface=surface,
                     spec=effective_spec,
+                    config=config,
                     param_lookup=param_lookup,
                     backtest_batch_id=backtest_batch_id,
                     campaign_run_id=campaign_run_id,
@@ -4242,6 +4369,7 @@ def run_vectorbt_family_search(
                 bundle=bundle,
                 surface=surface,
                 spec=search_spec,
+                config=config,
                 param_lookup=param_lookup,
                 backtest_batch_id=backtest_batch_id,
                 campaign_run_id=campaign_run_id,

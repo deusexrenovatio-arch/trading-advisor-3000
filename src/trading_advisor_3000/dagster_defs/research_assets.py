@@ -47,6 +47,7 @@ from trading_advisor_3000.product_plane.research.backtests import (
     DEFAULT_RANKING_MIN_TRADE_COUNT_PER_FOLD,
     DEFAULT_RANKING_POLICY_ID,
     DEFAULT_RANKING_STRESS_SLIPPAGE_BPS,
+    SIZING_MODE_RISK_PER_TRADE,
     BacktestBatchRequest,
     BacktestEngineConfig,
     CandidateProjectionRequest,
@@ -674,6 +675,12 @@ def _research_config_schema() -> dict[str, object]:
         "slippage_bps": float,
         "allow_short": bool,
         "window_count": int,
+        "sizing_mode": Field(str, default_value=SIZING_MODE_RISK_PER_TRADE, is_required=False),
+        "risk_per_trade_pct": Field(float, default_value=0.01, is_required=False),
+        "max_contracts": Field(int, default_value=0, is_required=False),
+        "max_margin_fraction": Field(float, default_value=1.0, is_required=False),
+        "commission_per_contract": Field(float, default_value=0.0, is_required=False),
+        "slippage_ticks": Field(float, default_value=0.0, is_required=False),
         "ranking_policy_id": str,
         "ranking_metric_order": [str],
         "require_out_of_sample_pass": bool,
@@ -697,6 +704,24 @@ def _config_value(config: dict[str, object], key: str, default: object | None = 
     if value is None:
         raise KeyError(f"missing research config value: {key}")
     return value
+
+
+def _config_optional_positive_int(config: dict[str, object], key: str) -> int | None:
+    value = config.get(key)
+    if value is None or str(value).strip() == "":
+        return None
+    normalized = int(value)
+    return normalized if normalized > 0 else None
+
+
+def _config_optional_positive_float(
+    config: dict[str, object], key: str, default: float | None = None
+) -> float | None:
+    value = config.get(key, default)
+    if value is None or str(value).strip() == "":
+        return None
+    normalized = float(value)
+    return normalized if normalized > 0.0 else None
 
 
 def _config_string_sequence(config: dict[str, object], key: str) -> tuple[str, ...]:
@@ -749,6 +774,14 @@ def _prepare_strategy_space_run_config(
             "slippage_bps": float(_config_value(config, "slippage_bps", 0.0)),
             "allow_short": bool(_config_value(config, "allow_short", True)),
             "window_count": int(_config_value(config, "window_count", 1)),
+            "sizing_mode": str(_config_value(config, "sizing_mode", SIZING_MODE_RISK_PER_TRADE)),
+            "risk_per_trade_pct": float(_config_value(config, "risk_per_trade_pct", 0.01)),
+            "max_contracts": _config_optional_positive_int(config, "max_contracts"),
+            "max_margin_fraction": _config_optional_positive_float(
+                config, "max_margin_fraction", 1.0
+            ),
+            "commission_per_contract": float(_config_value(config, "commission_per_contract", 0.0)),
+            "slippage_ticks": float(_config_value(config, "slippage_ticks", 0.0)),
         },
         campaign_id=campaign_id,
         campaign_run_id=campaign_run_id,
@@ -1710,6 +1743,14 @@ def research_datasets(context) -> dict[str, object]:
             "slippage_bps": float(_config_value(config, "slippage_bps", 0.0)),
             "allow_short": bool(_config_value(config, "allow_short", True)),
             "window_count": int(_config_value(config, "window_count", 1)),
+            "sizing_mode": str(_config_value(config, "sizing_mode", SIZING_MODE_RISK_PER_TRADE)),
+            "risk_per_trade_pct": float(_config_value(config, "risk_per_trade_pct", 0.01)),
+            "max_contracts": _config_optional_positive_int(config, "max_contracts"),
+            "max_margin_fraction": _config_optional_positive_float(
+                config, "max_margin_fraction", 1.0
+            ),
+            "commission_per_contract": float(_config_value(config, "commission_per_contract", 0.0)),
+            "slippage_ticks": float(_config_value(config, "slippage_ticks", 0.0)),
         },
         "ranking_policy": {
             "policy_id": str(_config_value(config, "ranking_policy_id", DEFAULT_RANKING_POLICY_ID)),
@@ -2147,11 +2188,23 @@ def _backtest_request_config(research_datasets: dict[str, object]) -> BacktestBa
 
 def _engine_config(research_datasets: dict[str, object]) -> BacktestEngineConfig:
     payload = dict(research_datasets["engine_config"])
+    raw_max_contracts = payload.get("max_contracts")
+    max_contracts = None if raw_max_contracts in (None, 0, "") else int(raw_max_contracts)
+    raw_max_margin_fraction = payload.get("max_margin_fraction", 1.0)
+    max_margin_fraction = (
+        None if raw_max_margin_fraction in (None, 0, "") else float(raw_max_margin_fraction)
+    )
     return BacktestEngineConfig(
         fees_bps=float(payload["fees_bps"]),
         slippage_bps=float(payload["slippage_bps"]),
         allow_short=bool(payload["allow_short"]),
         window_count=int(payload["window_count"]),
+        sizing_mode=str(payload.get("sizing_mode", SIZING_MODE_RISK_PER_TRADE)),
+        risk_per_trade_pct=float(payload.get("risk_per_trade_pct", 0.01)),
+        max_contracts=max_contracts,
+        max_margin_fraction=max_margin_fraction,
+        commission_per_contract=float(payload.get("commission_per_contract", 0.0)),
+        slippage_ticks=float(payload.get("slippage_ticks", 0.0)),
     )
 
 
@@ -3612,6 +3665,12 @@ def _research_run_config(
     slippage_bps: float = 0.0,
     allow_short: bool = True,
     window_count: int = 1,
+    sizing_mode: str = SIZING_MODE_RISK_PER_TRADE,
+    risk_per_trade_pct: float = 0.01,
+    max_contracts: int | None = None,
+    max_margin_fraction: float | None = 1.0,
+    commission_per_contract: float = 0.0,
+    slippage_ticks: float = 0.0,
     ranking_policy_id: str = DEFAULT_RANKING_POLICY_ID,
     ranking_metric_order: Sequence[str] = DEFAULT_RANKING_METRIC_ORDER,
     require_out_of_sample_pass: bool = True,
@@ -3694,6 +3753,12 @@ def _research_run_config(
         "slippage_bps": slippage_bps,
         "allow_short": allow_short,
         "window_count": window_count,
+        "sizing_mode": sizing_mode,
+        "risk_per_trade_pct": risk_per_trade_pct,
+        "max_contracts": int(max_contracts or 0),
+        "max_margin_fraction": float(max_margin_fraction or 0.0),
+        "commission_per_contract": commission_per_contract,
+        "slippage_ticks": slippage_ticks,
         "ranking_policy_id": ranking_policy_id,
         "ranking_metric_order": [str(item) for item in ranking_metric_order],
         "require_out_of_sample_pass": require_out_of_sample_pass,
@@ -3758,6 +3823,12 @@ def _materialize_research_assets(
     slippage_bps: float = 0.0,
     allow_short: bool = True,
     window_count: int = 1,
+    sizing_mode: str = SIZING_MODE_RISK_PER_TRADE,
+    risk_per_trade_pct: float = 0.01,
+    max_contracts: int | None = None,
+    max_margin_fraction: float | None = 1.0,
+    commission_per_contract: float = 0.0,
+    slippage_ticks: float = 0.0,
     ranking_policy_id: str = DEFAULT_RANKING_POLICY_ID,
     ranking_metric_order: Sequence[str] = DEFAULT_RANKING_METRIC_ORDER,
     require_out_of_sample_pass: bool = True,
@@ -3815,6 +3886,12 @@ def _materialize_research_assets(
                 "slippage_bps": slippage_bps,
                 "allow_short": allow_short,
                 "window_count": window_count,
+                "sizing_mode": sizing_mode,
+                "risk_per_trade_pct": risk_per_trade_pct,
+                "max_contracts": max_contracts,
+                "max_margin_fraction": max_margin_fraction,
+                "commission_per_contract": commission_per_contract,
+                "slippage_ticks": slippage_ticks,
             },
             campaign_id=campaign_id,
             campaign_run_id=campaign_run_id,
@@ -3876,6 +3953,12 @@ def _materialize_research_assets(
         slippage_bps=slippage_bps,
         allow_short=allow_short,
         window_count=window_count,
+        sizing_mode=sizing_mode,
+        risk_per_trade_pct=risk_per_trade_pct,
+        max_contracts=max_contracts,
+        max_margin_fraction=max_margin_fraction,
+        commission_per_contract=commission_per_contract,
+        slippage_ticks=slippage_ticks,
         ranking_policy_id=ranking_policy_id,
         ranking_metric_order=ranking_metric_order,
         require_out_of_sample_pass=require_out_of_sample_pass,
@@ -4533,6 +4616,12 @@ def materialize_strategy_registry_refresh_assets(
     slippage_bps: float = 0.0,
     allow_short: bool = True,
     window_count: int = 1,
+    sizing_mode: str = SIZING_MODE_RISK_PER_TRADE,
+    risk_per_trade_pct: float = 0.01,
+    max_contracts: int | None = None,
+    max_margin_fraction: float | None = 1.0,
+    commission_per_contract: float = 0.0,
+    slippage_ticks: float = 0.0,
     reuse_existing_materialization: bool = True,
     selection: Sequence[str] | None = None,
     raise_on_error: bool = True,
@@ -4579,6 +4668,12 @@ def materialize_strategy_registry_refresh_assets(
         slippage_bps=slippage_bps,
         allow_short=allow_short,
         window_count=window_count,
+        sizing_mode=sizing_mode,
+        risk_per_trade_pct=risk_per_trade_pct,
+        max_contracts=max_contracts,
+        max_margin_fraction=max_margin_fraction,
+        commission_per_contract=commission_per_contract,
+        slippage_ticks=slippage_ticks,
         reuse_existing_materialization=reuse_existing_materialization,
         raise_on_error=raise_on_error,
     )
@@ -4624,6 +4719,12 @@ def materialize_research_backtest_assets(
     slippage_bps: float = 0.0,
     allow_short: bool = True,
     window_count: int = 1,
+    sizing_mode: str = SIZING_MODE_RISK_PER_TRADE,
+    risk_per_trade_pct: float = 0.01,
+    max_contracts: int | None = None,
+    max_margin_fraction: float | None = 1.0,
+    commission_per_contract: float = 0.0,
+    slippage_ticks: float = 0.0,
     ranking_policy_id: str = DEFAULT_RANKING_POLICY_ID,
     ranking_metric_order: Sequence[str] = DEFAULT_RANKING_METRIC_ORDER,
     require_out_of_sample_pass: bool = True,
@@ -4685,6 +4786,12 @@ def materialize_research_backtest_assets(
         slippage_bps=slippage_bps,
         allow_short=allow_short,
         window_count=window_count,
+        sizing_mode=sizing_mode,
+        risk_per_trade_pct=risk_per_trade_pct,
+        max_contracts=max_contracts,
+        max_margin_fraction=max_margin_fraction,
+        commission_per_contract=commission_per_contract,
+        slippage_ticks=slippage_ticks,
         ranking_policy_id=ranking_policy_id,
         ranking_metric_order=ranking_metric_order,
         require_out_of_sample_pass=require_out_of_sample_pass,
@@ -4745,6 +4852,12 @@ def materialize_research_projection_assets(
     slippage_bps: float = 0.0,
     allow_short: bool = True,
     window_count: int = 1,
+    sizing_mode: str = SIZING_MODE_RISK_PER_TRADE,
+    risk_per_trade_pct: float = 0.01,
+    max_contracts: int | None = None,
+    max_margin_fraction: float | None = 1.0,
+    commission_per_contract: float = 0.0,
+    slippage_ticks: float = 0.0,
     ranking_policy_id: str = DEFAULT_RANKING_POLICY_ID,
     ranking_metric_order: Sequence[str] = DEFAULT_RANKING_METRIC_ORDER,
     selection_policy: str = "top_robust_per_series",
@@ -4806,6 +4919,12 @@ def materialize_research_projection_assets(
         slippage_bps=slippage_bps,
         allow_short=allow_short,
         window_count=window_count,
+        sizing_mode=sizing_mode,
+        risk_per_trade_pct=risk_per_trade_pct,
+        max_contracts=max_contracts,
+        max_margin_fraction=max_margin_fraction,
+        commission_per_contract=commission_per_contract,
+        slippage_ticks=slippage_ticks,
         ranking_policy_id=ranking_policy_id,
         ranking_metric_order=ranking_metric_order,
         selection_policy=selection_policy,

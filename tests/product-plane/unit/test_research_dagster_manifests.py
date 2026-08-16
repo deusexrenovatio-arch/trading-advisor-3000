@@ -284,6 +284,29 @@ def test_research_config_schema_keeps_volume_profile_keys_optional() -> None:
     assert schema["start_strategy_cascade"].default_value is False
 
 
+def test_research_run_config_propagates_money_policy_to_engine(tmp_path: Path) -> None:
+    config = _full_research_config(
+        tmp_path,
+        sizing_mode="risk_per_trade",
+        risk_per_trade_pct=0.02,
+        max_contracts=7,
+        max_margin_fraction=0.4,
+        commission_per_contract=3.5,
+        slippage_ticks=1.25,
+    )
+
+    engine_config = research_assets._engine_config(  # type: ignore[attr-defined]
+        {"engine_config": config}
+    )
+
+    assert engine_config.sizing_mode == "risk_per_trade"
+    assert engine_config.risk_per_trade_pct == 0.02
+    assert engine_config.max_contracts == 7
+    assert engine_config.max_margin_fraction == 0.4
+    assert engine_config.commission_per_contract == 3.5
+    assert engine_config.slippage_ticks == 1.25
+
+
 def test_research_run_config_uses_volume_profile_defaults_for_falsy_inputs(
     tmp_path, monkeypatch
 ) -> None:
