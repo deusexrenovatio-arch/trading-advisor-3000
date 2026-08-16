@@ -28,6 +28,7 @@ from trading_advisor_3000.dagster_defs import (
     MOEX_RESEARCH_INDICATOR_SIDECAR_JOB_NAME,
     RESEARCH_BACKTEST_AFTER_STRATEGY_REGISTRY_SENSOR_NAME,
     RESEARCH_BACKTEST_JOB_NAME,
+    RESEARCH_CAMPAIGN_FAILURE_SUMMARY_SENSOR_NAME,
     RESEARCH_DATA_PREP_AFTER_MOEX_CF_CATCH_UP_SENSOR_NAME,
     RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME,
     RESEARCH_DATA_PREP_ASSETS,
@@ -982,6 +983,7 @@ def test_research_definitions_expose_isolated_data_layer_jobs_without_moex_succe
     assert set(derived_job.graph.node_dict) == set(MOEX_DERIVED_INDICATOR_REBUILD_ASSETS)
     assert set(sidecar_job.graph.node_dict) == set(MOEX_RESEARCH_INDICATOR_SIDECAR_ASSETS)
     assert set(strategy_job.graph.node_dict) == {
+        "research_campaign_context",
         "research_datasets",
         *STRATEGY_REGISTRY_REFRESH_ASSETS,
     }
@@ -992,6 +994,7 @@ def test_research_definitions_expose_isolated_data_layer_jobs_without_moex_succe
     assert RESEARCH_STRATEGY_REGISTRY_AFTER_DATA_PREP_SENSOR_NAME not in isolated_sensor_names
     assert RESEARCH_BACKTEST_AFTER_STRATEGY_REGISTRY_SENSOR_NAME not in isolated_sensor_names
     assert RESEARCH_PROJECTION_AFTER_BACKTEST_SENSOR_NAME not in isolated_sensor_names
+    assert RESEARCH_CAMPAIGN_FAILURE_SUMMARY_SENSOR_NAME in isolated_sensor_names
 
     run_config = build_research_data_prep_run_config(
         canonical_output_dir=tmp_path / "canonical",
@@ -1348,7 +1351,10 @@ def test_research_downstream_cascade_sensors_forward_dataset_context(tmp_path: P
     )
 
     assert backtest_request.run_key == f"{RESEARCH_BACKTEST_JOB_NAME}:registry-run-1"
-    assert backtest_request.run_config == {}
+    assert set(backtest_request.run_config["ops"]) == {"research_backtest_batches"}
+    backtest_config = backtest_request.run_config["ops"]["research_backtest_batches"]["config"]
+    assert backtest_config["dataset_version"] == "cascade-data-v1"
+    assert backtest_config["reuse_existing_materialization"] is True
     assert backtest_request.tags["ta3000/upstream_job"] == STRATEGY_REGISTRY_REFRESH_JOB_NAME
     assert backtest_request.tags["ta3000/dataset_version"] == "cascade-data-v1"
     assert backtest_request.tags["ta3000/series_mode"] == "continuous_front"
@@ -1366,7 +1372,10 @@ def test_research_downstream_cascade_sensors_forward_dataset_context(tmp_path: P
     )
 
     assert projection_request.run_key == f"{RESEARCH_PROJECTION_JOB_NAME}:backtest-run-1"
-    assert projection_request.run_config == {}
+    assert set(projection_request.run_config["ops"]) == {"research_signal_candidates"}
+    projection_config = projection_request.run_config["ops"]["research_signal_candidates"]["config"]
+    assert projection_config["dataset_version"] == "cascade-data-v1"
+    assert projection_config["reuse_existing_materialization"] is True
     assert projection_request.tags["ta3000/upstream_job"] == RESEARCH_BACKTEST_JOB_NAME
     assert projection_request.tags["ta3000/dataset_version"] == "cascade-data-v1"
 

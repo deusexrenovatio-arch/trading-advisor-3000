@@ -10,6 +10,7 @@ from pathlib import Path
 
 from dagster import (
     AssetSelection,
+    ConfigMapping,
     DagsterRunStatus,
     DefaultSensorStatus,
     Definitions,
@@ -83,8 +84,13 @@ from trading_advisor_3000.product_plane.research.indicators import (
     materialize_indicator_frames,
 )
 from trading_advisor_3000.product_plane.research.registry_store import (
+    build_campaign_id,
+    build_campaign_run_id,
     registry_output_paths,
     research_registry_root,
+    write_campaign_definition,
+    write_campaign_run,
+    write_strategy_note,
 )
 from trading_advisor_3000.product_plane.research.strategies.families import (
     phase_stg02_family_adapters,
@@ -105,6 +111,13 @@ from .moex_historical_assets import (
     moex_baseline_update_job,
     moex_data_rebuild_job,
 )
+
+
+def _research_campaigns():
+    from trading_advisor_3000.product_plane.research import campaigns
+
+    return campaigns
+
 
 RESEARCH_DATA_PREP_JOB_NAME = "research_data_prep_job"
 MOEX_CF_CATCH_UP_JOB_NAME = "moex_cf_catch_up_job"
@@ -133,6 +146,7 @@ RESEARCH_BACKTEST_AFTER_STRATEGY_REGISTRY_SENSOR_NAME = (
 RESEARCH_PROJECTION_AFTER_BACKTEST_SENSOR_NAME = (
     "research_projection_after_research_backtest_sensor"
 )
+RESEARCH_CAMPAIGN_FAILURE_SUMMARY_SENSOR_NAME = "research_campaign_failure_summary_sensor"
 
 RESEARCH_DATA_PREP_CANONICAL_OUTPUT_DIR_ENV = "TA3000_RESEARCH_DATA_PREP_CANONICAL_OUTPUT_DIR"
 RESEARCH_DATA_PREP_MATERIALIZED_OUTPUT_DIR_ENV = "TA3000_RESEARCH_DATA_PREP_MATERIALIZED_OUTPUT_DIR"
@@ -174,6 +188,17 @@ DEFAULT_VOLUME_PROFILE_TICK_SIZE_BY_INSTRUMENT = {
     "FUT_SPYF": 0.01,
     "FUT_RGBI": 1.0,
 }
+
+RESEARCH_CAMPAIGN_CONTEXT_ASSET = "research_campaign_context"
+RESEARCH_CAMPAIGN_DATA_PREP_SUMMARY_ASSET = "research_campaign_data_prep_summary"
+RESEARCH_CAMPAIGN_BACKTEST_SUMMARY_ASSET = "research_campaign_backtest_summary"
+RESEARCH_CAMPAIGN_PROJECTION_SUMMARY_ASSET = "research_campaign_projection_summary"
+RESEARCH_CAMPAIGN_LIFECYCLE_ASSETS = (
+    RESEARCH_CAMPAIGN_CONTEXT_ASSET,
+    RESEARCH_CAMPAIGN_DATA_PREP_SUMMARY_ASSET,
+    RESEARCH_CAMPAIGN_BACKTEST_SUMMARY_ASSET,
+    RESEARCH_CAMPAIGN_PROJECTION_SUMMARY_ASSET,
+)
 
 RESEARCH_DATA_PREP_ASSETS = (
     "continuous_front_bars",
@@ -239,11 +264,15 @@ RESEARCH_BACKTEST_ASSETS = (
 RESEARCH_PROJECTION_ASSETS = ("research_signal_candidates",)
 
 RESEARCH_ASSET_KEYS = (
+    RESEARCH_CAMPAIGN_CONTEXT_ASSET,
     *RESEARCH_DATA_PREP_ASSETS,
     *MOEX_RESEARCH_INDICATOR_SIDECAR_ASSETS,
     *STRATEGY_REGISTRY_REFRESH_ASSETS,
     *RESEARCH_BACKTEST_ASSETS,
     *RESEARCH_PROJECTION_ASSETS,
+    RESEARCH_CAMPAIGN_DATA_PREP_SUMMARY_ASSET,
+    RESEARCH_CAMPAIGN_BACKTEST_SUMMARY_ASSET,
+    RESEARCH_CAMPAIGN_PROJECTION_SUMMARY_ASSET,
 )
 
 RESEARCH_DEPENDENCIES: dict[str, tuple[str, ...]] = {
@@ -309,6 +338,15 @@ RESEARCH_DEPENDENCIES: dict[str, tuple[str, ...]] = {
 
 def research_asset_specs() -> list[AssetSpec]:
     return [
+        AssetSpec(
+            key=RESEARCH_CAMPAIGN_CONTEXT_ASSET,
+            description=(
+                "Validate campaign config, allocate run artifacts, and publish "
+                "the Dagster-owned research run context."
+            ),
+            inputs=("research_campaign_config",),
+            outputs=("research_campaign_context",),
+        ),
         AssetSpec(
             key="continuous_front_bars",
             description=(
@@ -607,6 +645,24 @@ def research_asset_specs() -> list[AssetSpec]:
             ),
             outputs=("research_signal_candidates_delta",),
         ),
+        AssetSpec(
+            key=RESEARCH_CAMPAIGN_DATA_PREP_SUMMARY_ASSET,
+            description="Finalize the Dagster-owned data-prep campaign run artifacts.",
+            inputs=("research_campaign_context", "research_derived_indicator_frames_delta"),
+            outputs=("research_campaign_run_summary_json",),
+        ),
+        AssetSpec(
+            key=RESEARCH_CAMPAIGN_BACKTEST_SUMMARY_ASSET,
+            description="Finalize the Dagster-owned backtest campaign run artifacts.",
+            inputs=("research_campaign_context", "research_strategy_rankings_delta"),
+            outputs=("research_campaign_run_summary_json",),
+        ),
+        AssetSpec(
+            key=RESEARCH_CAMPAIGN_PROJECTION_SUMMARY_ASSET,
+            description="Finalize the Dagster-owned projection campaign run artifacts.",
+            inputs=("research_campaign_context", "research_signal_candidates_delta"),
+            outputs=("research_campaign_run_summary_json",),
+        ),
     ]
 
 
@@ -696,6 +752,600 @@ def _research_config_schema() -> dict[str, object]:
         "max_candidates_per_partition": int,
         "min_robust_score": float,
         "decision_lag_bars_max": int,
+    }
+
+
+def _research_campaign_context_config_schema() -> dict[str, object]:
+    return {
+        "campaign_config_path": Field(str, default_value="", is_required=False),
+        "campaign_config": Field(dict, default_value={}, is_required=False),
+        "repo_root": Field(str, default_value="", is_required=False),
+        "run_id": Field(str, default_value="", is_required=False),
+        "dagster_job_name": Field(str, default_value="", is_required=False),
+    }
+
+
+def _research_campaign_job_config_schema() -> dict[str, object]:
+    return {
+        **_research_campaign_context_config_schema(),
+        "ops": Field(dict, default_value={}, is_required=False),
+    }
+
+
+def _research_campaign_job_config_fn(
+    config: Mapping[str, object],
+    *,
+    dagster_job_name: str,
+) -> dict[str, object]:
+    ops_config = config.get("ops")
+    if isinstance(ops_config, Mapping) and ops_config:
+        return {"ops": dict(ops_config)}
+    context_config = {
+        "campaign_config_path": str(config.get("campaign_config_path") or ""),
+        "campaign_config": dict(config.get("campaign_config") or {}),
+        "repo_root": str(config.get("repo_root") or ""),
+        "run_id": str(config.get("run_id") or ""),
+        "dagster_job_name": dagster_job_name,
+    }
+    return _campaign_run_config_from_context_config(context_config)
+
+
+def _research_campaign_job_config_mapping(dagster_job_name: str) -> ConfigMapping:
+    return ConfigMapping(
+        config_schema=_research_campaign_job_config_schema(),
+        config_fn=lambda config: _research_campaign_job_config_fn(
+            config,
+            dagster_job_name=dagster_job_name,
+        ),
+    )
+
+
+_CAMPAIGN_TARGETS_BY_JOB = {
+    RESEARCH_DATA_PREP_JOB_NAME: {"data_prep", "backtest", "projection"},
+    STRATEGY_REGISTRY_REFRESH_JOB_NAME: {"backtest", "projection"},
+    RESEARCH_BACKTEST_JOB_NAME: {"backtest", "projection"},
+    RESEARCH_PROJECTION_JOB_NAME: {"projection"},
+}
+
+_CAMPAIGN_TERMINAL_STAGE_BY_SUMMARY_ASSET = {
+    RESEARCH_CAMPAIGN_DATA_PREP_SUMMARY_ASSET: "data_prep",
+    RESEARCH_CAMPAIGN_BACKTEST_SUMMARY_ASSET: "backtest",
+    RESEARCH_CAMPAIGN_PROJECTION_SUMMARY_ASSET: "projection",
+}
+
+
+def _campaign_context_config_from_run_config(run_config: object) -> dict[str, object] | None:
+    return _op_config_from_run_config(run_config, RESEARCH_CAMPAIGN_CONTEXT_ASSET)
+
+
+def _repo_root_from_campaign_context_config(context_config: Mapping[str, object]) -> Path:
+    raw_repo_root = str(context_config.get("repo_root") or "").strip()
+    return (
+        Path(raw_repo_root).resolve()
+        if raw_repo_root
+        else _research_campaigns().resolve_repo_root()
+    )
+
+
+def _raw_campaign_from_context_config(
+    context_config: Mapping[str, object],
+) -> tuple[dict[str, object], Path | None, Path]:
+    repo_root = _repo_root_from_campaign_context_config(context_config)
+    inline_config = context_config.get("campaign_config")
+    if isinstance(inline_config, Mapping) and inline_config:
+        return dict(inline_config), None, repo_root
+    raw_config_path = str(context_config.get("campaign_config_path") or "").strip()
+    if not raw_config_path:
+        raise ValueError(
+            "research_campaign_context requires campaign_config_path or campaign_config"
+        )
+    config_path = _research_campaigns().resolve_path(repo_root=repo_root, raw=raw_config_path)
+    return (
+        _research_campaigns().load_campaign_file(config_path=config_path),
+        config_path,
+        repo_root,
+    )
+
+
+def _normalized_campaign_from_context_config(
+    context_config: Mapping[str, object],
+) -> tuple[dict[str, object], Path | None, Path]:
+    raw_campaign, config_path, repo_root = _raw_campaign_from_context_config(context_config)
+    return (
+        _research_campaigns().normalize_campaign_config(
+            repo_root=repo_root, raw=dict(raw_campaign)
+        ),
+        config_path,
+        repo_root,
+    )
+
+
+def _job_name_from_campaign_context(context: object, context_config: Mapping[str, object]) -> str:
+    configured_job_name = str(context_config.get("dagster_job_name") or "").strip()
+    if configured_job_name:
+        return configured_job_name
+    job_name = str(getattr(context, "job_name", "") or "").strip()
+    if job_name:
+        return job_name
+    dagster_run = getattr(context, "dagster_run", None)
+    return str(getattr(dagster_run, "job_name", "") or "").strip()
+
+
+def _validate_campaign_target_for_job(*, target_stage: str, job_name: str) -> None:
+    allowed_targets = _CAMPAIGN_TARGETS_BY_JOB.get(job_name)
+    if allowed_targets is None or target_stage in allowed_targets:
+        return
+    raise ValueError(
+        f"campaign target_stage `{target_stage}` is not compatible with Dagster job `{job_name}`"
+    )
+
+
+def _stage_steps_for_campaign(
+    *, target_stage: str, reuse_existing_materialization: bool
+) -> tuple[list[str], list[str]]:
+    stage_steps = list(_research_campaigns().TARGET_STEPS[target_stage])
+    reused_steps = ["research_data_prep"] if reuse_existing_materialization else []
+    executed_steps = [step for step in stage_steps if step not in reused_steps]
+    if target_stage == "data_prep" and reuse_existing_materialization:
+        executed_steps = []
+    return executed_steps, reused_steps
+
+
+def _campaign_research_config(
+    *,
+    normalized_config: Mapping[str, object],
+    materialized_root: Path,
+    results_root: Path,
+    registry_root: Path,
+    campaign_id: str,
+    campaign_run_id: str,
+    reuse_existing_materialization: bool,
+    prepare_strategy_space_config: bool,
+) -> dict[str, object]:
+    common = _research_campaigns()._dagster_common_kwargs(  # type: ignore[attr-defined]
+        normalized_config=dict(normalized_config),
+        materialized_root=materialized_root,
+        results_root=results_root,
+        reuse_existing_materialization=reuse_existing_materialization,
+        campaign_id=campaign_id,
+        campaign_run_id=campaign_run_id,
+    )
+    research_config = _research_run_config(
+        canonical_output_dir=Path(str(common["canonical_output_dir"])),
+        registry_root=registry_root,
+        materialized_output_dir=materialized_root,
+        results_output_dir=results_root,
+        campaign_run_id=campaign_run_id,
+        dataset_version=str(common["dataset_version"]),
+        dataset_name=str(common["dataset_name"]),
+        universe_id=str(common["universe_id"]),
+        timeframes=tuple(str(item) for item in common["timeframes"]),
+        base_timeframe=str(common["base_timeframe"]),
+        start_ts=str(common["start_ts"]),
+        end_ts=str(common["end_ts"]),
+        warmup_bars=int(common["warmup_bars"]),
+        split_method=str(common["split_method"]),
+        validation_plan=dict(common["validation_plan"]),
+        series_mode=str(common["series_mode"]),
+        continuous_front_policy=dict(common["continuous_front_policy"]),
+        dataset_contract_ids=tuple(str(item) for item in common["dataset_contract_ids"]),
+        dataset_instrument_ids=tuple(str(item) for item in common["dataset_instrument_ids"]),
+        spark_master=str(common["spark_master"]),
+        indicator_set_version=str(common["indicator_set_version"]),
+        indicator_profile_version=str(common["indicator_profile_version"]),
+        derived_indicator_set_version=str(common["derived_indicator_set_version"]),
+        derived_indicator_profile_version=str(common["derived_indicator_profile_version"]),
+        volume_profile_raw_1m_table_path=str(common["volume_profile_raw_1m_table_path"]),
+        volume_profile_tick_size_by_instrument=dict(
+            common["volume_profile_tick_size_by_instrument"]
+        ),
+        continuous_front_indicator_qc_mode=str(common["continuous_front_indicator_qc_mode"]),
+        continuous_front_indicator_sidecar_materialization_mode=str(
+            common["continuous_front_indicator_sidecar_materialization_mode"]
+        ),
+        code_version="dagster-first-research-campaign",
+        start_strategy_cascade=str(normalized_config["target_stage"]) in {"backtest", "projection"},
+        strategy_space=dict(common["strategy_space"]),
+        param_batch_size=int(common["param_batch_size"]),
+        series_batch_size=int(common["series_batch_size"]),
+        backtest_timeframe=str(common["backtest_timeframe"]),
+        backtest_contract_ids=tuple(str(item) for item in common["backtest_contract_ids"]),
+        backtest_instrument_ids=tuple(str(item) for item in common["backtest_instrument_ids"]),
+        fees_bps=float(common["fees_bps"]),
+        slippage_bps=float(common["slippage_bps"]),
+        allow_short=bool(common["allow_short"]),
+        window_count=int(common["window_count"]),
+        sizing_mode=str(common["sizing_mode"]),
+        risk_per_trade_pct=float(common["risk_per_trade_pct"]),
+        max_contracts=common["max_contracts"],
+        max_margin_fraction=common["max_margin_fraction"],
+        commission_per_contract=float(common["commission_per_contract"]),
+        slippage_ticks=float(common["slippage_ticks"]),
+        ranking_policy_id=str(common["ranking_policy_id"]),
+        ranking_metric_order=tuple(str(item) for item in common["ranking_metric_order"]),
+        require_out_of_sample_pass=bool(common["require_out_of_sample_pass"]),
+        min_trade_count=int(common["min_trade_count"]),
+        min_trade_count_per_fold=int(common["min_trade_count_per_fold"]),
+        min_fold_count=int(common["min_fold_count"]),
+        max_drawdown_cap=float(common["max_drawdown_cap"]),
+        min_positive_fold_ratio=float(common["min_positive_fold_ratio"]),
+        stress_slippage_bps=float(common["stress_slippage_bps"]),
+        min_parameter_stability=float(common["min_parameter_stability"]),
+        min_slippage_score=float(common["min_slippage_score"]),
+        selection_policy=str(common["selection_policy"]),
+        max_candidates_per_partition=int(common["max_candidates_per_partition"]),
+        min_robust_score=float(common["min_robust_score"]),
+        decision_lag_bars_max=int(common["decision_lag_bars_max"]),
+        reuse_existing_materialization=reuse_existing_materialization,
+    )
+    if prepare_strategy_space_config:
+        return _prepare_strategy_space_run_config(
+            research_config,
+            campaign_id=campaign_id,
+            campaign_run_id=campaign_run_id,
+        )
+    return research_config
+
+
+def _build_research_campaign_context_payload(
+    *,
+    context_config: Mapping[str, object],
+    dagster_job_name: str,
+    dagster_run_id: str,
+    write_start_artifacts: bool,
+) -> dict[str, object]:
+    normalized_config, config_path, repo_root = _normalized_campaign_from_context_config(
+        context_config
+    )
+    target_stage = str(normalized_config["target_stage"])
+    _validate_campaign_target_for_job(target_stage=target_stage, job_name=dagster_job_name)
+    run_id = str(context_config.get("run_id") or "").strip() or dagster_run_id
+    if not run_id:
+        run_id = _research_campaigns().build_run_id()
+    campaign_name = str(normalized_config["campaign_name"])
+    materialized_root = Path(str(normalized_config["materialized_root"])).resolve()
+    run_root = Path(str(normalized_config["runs_root"])).resolve() / campaign_name / run_id
+    final_results_root = run_root / "results"
+    registry_root = research_registry_root(materialized_root=materialized_root)
+    config_fingerprint = _research_campaigns().build_config_fingerprint(normalized_config)
+    campaign_id = build_campaign_id(config_fingerprint=config_fingerprint)
+    campaign_run_id = build_campaign_run_id(
+        campaign_id=campaign_id,
+        run_id=run_id,
+    )
+    materialization_key = _research_campaigns().build_materialization_key(normalized_config)
+    materialization_exists = _research_campaigns()._has_reusable_materialization(  # type: ignore[attr-defined]
+        materialized_root,
+        materialization_key=materialization_key,
+    )
+    if (
+        dagster_job_name
+        in {
+            STRATEGY_REGISTRY_REFRESH_JOB_NAME,
+            RESEARCH_BACKTEST_JOB_NAME,
+            RESEARCH_PROJECTION_JOB_NAME,
+        }
+        and not materialization_exists
+    ):
+        raise ValueError(
+            f"{dagster_job_name} requires an existing research gold layer for "
+            f"materialization_key `{materialization_key}`"
+        )
+    reuse_existing_materialization = materialization_exists and not bool(
+        normalized_config["execution"]["force_rematerialize"]
+    )
+    executed_steps, reused_steps = _stage_steps_for_campaign(
+        target_stage=target_stage,
+        reuse_existing_materialization=reuse_existing_materialization,
+    )
+    prepare_strategy_space_config = dagster_job_name in {
+        STRATEGY_REGISTRY_REFRESH_JOB_NAME,
+        RESEARCH_BACKTEST_JOB_NAME,
+        RESEARCH_PROJECTION_JOB_NAME,
+    }
+    research_config = _campaign_research_config(
+        normalized_config=normalized_config,
+        materialized_root=materialized_root,
+        results_root=final_results_root,
+        registry_root=registry_root,
+        campaign_id=campaign_id,
+        campaign_run_id=campaign_run_id,
+        reuse_existing_materialization=reuse_existing_materialization,
+        prepare_strategy_space_config=prepare_strategy_space_config,
+    )
+    warnings: list[str] = []
+    if reuse_existing_materialization:
+        warnings.append("materialized research gold layer reused from matching materialization_key")
+    payload: dict[str, object] = {
+        "repo_root": repo_root.as_posix(),
+        "config_path": config_path.as_posix() if config_path else "",
+        "dagster_job_name": dagster_job_name,
+        "dagster_run_id": dagster_run_id,
+        "run_id": run_id,
+        "campaign_id": campaign_id,
+        "campaign_run_id": campaign_run_id,
+        "campaign_name": campaign_name,
+        "target_stage": target_stage,
+        "normalized_config": normalized_config,
+        "research_config": research_config,
+        "config_fingerprint": config_fingerprint,
+        "materialization_key": materialization_key,
+        "registry_root": registry_root.as_posix(),
+        "materialized_root": materialized_root.as_posix(),
+        "run_root": run_root.as_posix(),
+        "results_output_dir": final_results_root.as_posix(),
+        "reuse_existing_materialization": reuse_existing_materialization,
+        "executed_steps": executed_steps,
+        "reused_steps": reused_steps,
+        "warnings": warnings,
+        "started_at": _research_campaigns().utc_now_iso(),
+        "output_paths": _research_output_paths(
+            registry_root=registry_root,
+            materialized_output_dir=materialized_root,
+            results_output_dir=final_results_root,
+        ),
+    }
+    if write_start_artifacts:
+        run_root.mkdir(parents=True, exist_ok=True)
+        (run_root / "logs").mkdir(parents=True, exist_ok=True)
+        final_results_root.mkdir(parents=True, exist_ok=True)
+        _research_campaigns()._write_status(  # type: ignore[attr-defined]
+            run_root / "status.json",
+            run_id=run_id,
+            campaign_name=campaign_name,
+            status="running",
+        )
+        _research_campaigns().write_json(
+            run_root / "campaign.lock.json",
+            {
+                "run_id": run_id,
+                "campaign_id": campaign_id,
+                "campaign_run_id": campaign_run_id,
+                "config_path": payload["config_path"],
+                "config_fingerprint": config_fingerprint,
+                "materialization_key": materialization_key,
+                "registry_root": registry_root.as_posix(),
+                "materialized_output_dir": materialized_root.as_posix(),
+                "results_output_dir": final_results_root.as_posix(),
+                "reuse_existing_materialization": reuse_existing_materialization,
+                "campaign": normalized_config,
+                "validation_plan": research_config.get("validation_plan", {}),
+                "created_at": _research_campaigns().utc_now_iso(),
+                "orchestrator": "dagster",
+                "dagster_job_name": dagster_job_name,
+                "dagster_run_id": dagster_run_id,
+            },
+        )
+        write_campaign_definition(
+            registry_root=registry_root,
+            campaign_id=campaign_id,
+            campaign_name=campaign_name,
+            target_stage=target_stage,
+            config_fingerprint=config_fingerprint,
+            dataset_version=str(normalized_config["dataset"]["dataset_version"]),
+            indicator_set_version=str(normalized_config["profiles"]["indicator_set_version"]),
+            indicator_profile_version=str(
+                normalized_config["profiles"]["indicator_profile_version"]
+            ),
+            derived_indicator_set_version=str(
+                normalized_config["profiles"]["derived_indicator_set_version"]
+            ),
+            derived_indicator_profile_version=str(
+                normalized_config["profiles"]["derived_indicator_profile_version"]
+            ),
+            strategy_space=dict(normalized_config["strategy_space"]),
+            backtest_policy=dict(normalized_config["backtest"]),
+            ranking_policy=dict(normalized_config["ranking_policy"]),
+            projection_policy=dict(normalized_config["projection_policy"]),
+            execution_policy=dict(normalized_config["execution"]),
+            campaign_config=dict(normalized_config),
+        )
+    return payload
+
+
+def _context_config_for_next_campaign_job(
+    run_config: object,
+    *,
+    upstream_run_id: str,
+    dagster_job_name: str,
+) -> dict[str, object] | None:
+    context_config = _campaign_context_config_from_run_config(run_config)
+    if context_config is None:
+        return None
+    copied = dict(context_config)
+    copied["dagster_job_name"] = dagster_job_name
+    copied["run_id"] = str(copied.get("run_id") or upstream_run_id)
+    return copied
+
+
+def _target_stage_from_campaign_context_config(context_config: Mapping[str, object]) -> str:
+    normalized_config, _, _ = _normalized_campaign_from_context_config(context_config)
+    return str(normalized_config["target_stage"])
+
+
+def build_research_campaign_run_config(
+    *,
+    campaign_config_path: str | Path | None = None,
+    campaign_config: Mapping[str, object] | None = None,
+    repo_root: Path | None = None,
+    dagster_job_name: str = "",
+    run_id: str = "",
+) -> dict[str, object]:
+    context_config: dict[str, object] = {
+        "campaign_config_path": Path(campaign_config_path).as_posix()
+        if campaign_config_path is not None
+        else "",
+        "campaign_config": dict(campaign_config or {}),
+        "repo_root": (repo_root.resolve().as_posix() if repo_root is not None else ""),
+        "run_id": run_id.strip() if run_id else _research_campaigns().build_run_id(),
+        "dagster_job_name": dagster_job_name,
+    }
+    normalized_config, _, _ = _normalized_campaign_from_context_config(context_config)
+    job_name = (
+        dagster_job_name
+        or {
+            "data_prep": RESEARCH_DATA_PREP_JOB_NAME,
+            "backtest": RESEARCH_BACKTEST_JOB_NAME,
+            "projection": RESEARCH_PROJECTION_JOB_NAME,
+        }[str(normalized_config["target_stage"])]
+    )
+    context_config["dagster_job_name"] = job_name
+    campaign_context = _build_research_campaign_context_payload(
+        context_config=context_config,
+        dagster_job_name=job_name,
+        dagster_run_id=str(context_config["run_id"]),
+        write_start_artifacts=False,
+    )
+    research_config = dict(campaign_context["research_config"])
+    ops: dict[str, object] = {
+        RESEARCH_CAMPAIGN_CONTEXT_ASSET: {"config": context_config},
+    }
+    if job_name == RESEARCH_DATA_PREP_JOB_NAME:
+        for op_name in (
+            "continuous_front_bars",
+            "research_datasets",
+            "research_indicator_frames",
+            "research_derived_indicator_frames",
+            "continuous_front_indicator_acceptance_report",
+        ):
+            ops[op_name] = {"config": research_config}
+    elif job_name == STRATEGY_REGISTRY_REFRESH_JOB_NAME:
+        ops["research_datasets"] = {"config": {**research_config, "prepare_strategy_space": True}}
+    elif job_name == RESEARCH_BACKTEST_JOB_NAME:
+        ops["research_backtest_batches"] = {"config": research_config}
+    elif job_name == RESEARCH_PROJECTION_JOB_NAME:
+        ops["research_signal_candidates"] = {"config": research_config}
+    else:
+        raise ValueError(f"unsupported research campaign Dagster job `{job_name}`")
+    return {"ops": ops}
+
+
+def _campaign_run_config_from_context_config(
+    context_config: Mapping[str, object],
+) -> dict[str, object]:
+    raw_campaign_config = context_config.get("campaign_config")
+    campaign_config = (
+        dict(raw_campaign_config) if isinstance(raw_campaign_config, Mapping) else None
+    )
+    raw_config_path = str(context_config.get("campaign_config_path") or "").strip()
+    raw_repo_root = str(context_config.get("repo_root") or "").strip()
+    return build_research_campaign_run_config(
+        campaign_config_path=raw_config_path or None,
+        campaign_config=campaign_config,
+        repo_root=Path(raw_repo_root) if raw_repo_root else None,
+        dagster_job_name=str(context_config.get("dagster_job_name") or ""),
+        run_id=str(context_config.get("run_id") or ""),
+    )
+
+
+def _campaign_run_config_for_next_job(
+    *,
+    upstream_run_config: object,
+    upstream_run_id: str,
+    dagster_job_name: str,
+    allowed_target_stages: set[str],
+) -> dict[str, object] | None:
+    next_context = _context_config_for_next_campaign_job(
+        upstream_run_config,
+        upstream_run_id=upstream_run_id,
+        dagster_job_name=dagster_job_name,
+    )
+    if next_context is None:
+        return None
+    target_stage = _target_stage_from_campaign_context_config(next_context)
+    if target_stage not in allowed_target_stages:
+        return None
+    return _campaign_run_config_from_context_config(next_context)
+
+
+def _scheduled_research_data_prep_campaign_config(
+    *,
+    canonical_output_dir: Path,
+    dataset_version: str,
+    continuous_front_policy: Mapping[str, object],
+) -> dict[str, object]:
+    timeframes = _split_env_csv(
+        os.environ.get(RESEARCH_DATA_PREP_TIMEFRAMES_ENV, ""),
+        default=DEFAULT_RESEARCH_DATA_PREP_TIMEFRAMES,
+    )
+    materialized_root = _env_path(
+        RESEARCH_DATA_PREP_MATERIALIZED_OUTPUT_DIR_ENV,
+        _default_research_materialized_output_dir(),
+    )
+    runs_root = _env_path(
+        RESEARCH_DATA_PREP_RESULTS_OUTPUT_DIR_ENV,
+        _default_research_results_output_dir(),
+    )
+    base_timeframe = DEFAULT_RESEARCH_DATA_PREP_BASE_TIMEFRAME
+    return {
+        "campaign_name": "scheduled_research_data_prep",
+        "target_stage": "projection",
+        "canonical_output_dir": canonical_output_dir.resolve().as_posix(),
+        "materialized_root": materialized_root.as_posix(),
+        "runs_root": runs_root.as_posix(),
+        "dataset": {
+            "dataset_version": dataset_version,
+            "dataset_name": DEFAULT_RESEARCH_DATA_PREP_DATASET_NAME,
+            "universe_id": "moex-futures",
+            "series_mode": "continuous_front",
+            "continuous_front_policy": dict(continuous_front_policy),
+            "timeframes": list(timeframes),
+            "base_timeframe": base_timeframe,
+            "start_ts": "",
+            "end_ts": "",
+            "warmup_bars": DEFAULT_RESEARCH_DATA_PREP_WARMUP_BARS,
+            "split_method": "holdout",
+            "contract_ids": [],
+            "instrument_ids": [],
+        },
+        "profiles": {
+            "indicator_set_version": "indicators-v1",
+            "indicator_profile_version": "core_v1",
+            "derived_indicator_set_version": DEFAULT_DERIVED_INDICATOR_SET_VERSION,
+            "derived_indicator_profile_version": "core_v1",
+        },
+        "strategy_space": _default_strategy_space(),
+        "backtest": {
+            "param_batch_size": 25,
+            "series_batch_size": 4,
+            "backtest_timeframe": base_timeframe,
+            "fees_bps": 0.0,
+            "slippage_bps": 0.0,
+            "allow_short": True,
+            "window_count": 1,
+            "sizing_mode": SIZING_MODE_RISK_PER_TRADE,
+            "risk_per_trade_pct": 0.01,
+            "max_contracts": None,
+            "max_margin_fraction": 1.0,
+            "commission_per_contract": 0.0,
+            "slippage_ticks": 0.0,
+        },
+        "ranking_policy": {
+            "policy_id": DEFAULT_RANKING_POLICY_ID,
+            "metric_order": list(DEFAULT_RANKING_METRIC_ORDER),
+            "require_out_of_sample_pass": True,
+            "min_trade_count": DEFAULT_RANKING_MIN_TRADE_COUNT,
+            "min_trade_count_per_fold": DEFAULT_RANKING_MIN_TRADE_COUNT_PER_FOLD,
+            "min_fold_count": DEFAULT_RANKING_MIN_FOLD_COUNT,
+            "max_drawdown_cap": DEFAULT_RANKING_MAX_DRAWDOWN_CAP,
+            "min_positive_fold_ratio": DEFAULT_RANKING_MIN_POSITIVE_FOLD_RATIO,
+            "stress_slippage_bps": DEFAULT_RANKING_STRESS_SLIPPAGE_BPS,
+            "min_parameter_stability": DEFAULT_RANKING_MIN_PARAMETER_STABILITY,
+            "min_slippage_score": DEFAULT_RANKING_MIN_SLIPPAGE_SCORE,
+        },
+        "projection_policy": {
+            "selection_policy": "top_robust_per_series",
+            "max_candidates_per_partition": 1,
+            "min_robust_score": 0.55,
+            "decision_lag_bars_max": 1,
+        },
+        "execution": {
+            "force_rematerialize": True,
+            "raise_on_error": True,
+            "continuous_front_indicator_qc_mode": "hot_path",
+            "continuous_front_indicator_sidecar_materialization_mode": "auto",
+            "spark_master": "",
+        },
     }
 
 
@@ -960,6 +1610,43 @@ def _delta_table_summary(
     }
 
 
+def _assert_unique_materialized_table_key(
+    *,
+    table_path: Path,
+    table_name: str,
+    filters: list[tuple[str, str, object]],
+    key_columns: tuple[str, ...],
+) -> None:
+    scoped_filters = _filters_for_existing_materialized_columns(table_path, list(filters)) or list(
+        filters
+    )
+    frame = read_delta_table_frame(table_path, columns=list(key_columns), filters=scoped_filters)
+    if frame.empty:
+        return
+    missing = [column for column in key_columns if column not in frame.columns]
+    if missing:
+        raise RuntimeError(
+            f"missing key columns for `{table_name}` uniqueness QC: {', '.join(missing)}"
+        )
+    counts = (
+        frame.groupby(list(key_columns), dropna=False)
+        .size()
+        .reset_index(name="duplicate_row_count")
+    )
+    duplicates = counts[counts["duplicate_row_count"] > 1]
+    if duplicates.empty:
+        return
+    duplicate_key_count = int(len(duplicates))
+    duplicate_row_count = int(duplicates["duplicate_row_count"].sum())
+    sample = duplicates.head(5).to_dict("records")
+    raise RuntimeError(
+        f"{table_name} violates unique({', '.join(key_columns)}): "
+        f"duplicate_key_count={duplicate_key_count}; "
+        f"duplicate_row_count={duplicate_row_count}; "
+        f"sample={sample}"
+    )
+
+
 def _utc_now_iso() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -1084,6 +1771,31 @@ def _results_output_dir(config: dict[str, object]) -> Path:
     return Path(str(_config_value(config, "results_output_dir"))).resolve()
 
 
+def _require_materialization_lock(
+    *,
+    materialized_output_dir: Path,
+    materialization_key: str = "",
+) -> None:
+    lock = _research_campaigns()._read_materialization_lock(  # type: ignore[attr-defined]
+        materialized_output_dir
+    )
+    lock_path = materialized_output_dir / _research_campaigns().MATERIALIZATION_LOCK_FILENAME
+    if lock is None:
+        raise RuntimeError(
+            f"missing materialization.lock.json for reusable research data prep: "
+            f"{lock_path.as_posix()}"
+        )
+    expected_key = materialization_key.strip()
+    if not expected_key:
+        return
+    actual_key = str(lock.get("materialization_key", ""))
+    if actual_key != expected_key:
+        raise RuntimeError(
+            "materialization.lock.json materialization_key mismatch: "
+            f"expected={expected_key}; actual={actual_key or '<missing>'}"
+        )
+
+
 def _require_existing_data_prep(
     *,
     materialized_output_dir: Path,
@@ -1129,45 +1841,91 @@ def _require_existing_data_prep(
         table_name="research_datasets",
         filters=[("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
     )
+    bar_filters = _scoped_filters(
+        bar_views_path,
+        [("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
+    )
+    instrument_tree_filters = _scoped_filters(
+        instrument_tree_path,
+        [("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
+    )
+    indicator_filters = _scoped_filters(
+        indicator_path,
+        [
+            ("dataset_version", "=", dataset_version),
+            ("contour_id", "=", contour_id),
+            ("indicator_set_version", "=", indicator_set_version),
+        ],
+    )
+    derived_indicator_filters = _scoped_filters(
+        derived_indicator_path,
+        [
+            ("dataset_version", "=", dataset_version),
+            ("contour_id", "=", contour_id),
+            ("indicator_set_version", "=", indicator_set_version),
+            ("derived_indicator_set_version", "=", derived_indicator_set_version),
+        ],
+    )
     _require_delta_table_row(
         table_path=bar_views_path,
         table_name="research_bar_views",
-        filters=_scoped_filters(
-            bar_views_path,
-            [("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
-        ),
+        filters=bar_filters,
     )
     _require_delta_table_row(
         table_path=instrument_tree_path,
         table_name="research_instrument_tree",
-        filters=_scoped_filters(
-            instrument_tree_path,
-            [("dataset_version", "=", dataset_version), ("contour_id", "=", contour_id)],
-        ),
+        filters=instrument_tree_filters,
     )
     _require_delta_table_row(
         table_path=indicator_path,
         table_name="research_indicator_frames",
-        filters=_scoped_filters(
-            indicator_path,
-            [
-                ("dataset_version", "=", dataset_version),
-                ("contour_id", "=", contour_id),
-                ("indicator_set_version", "=", indicator_set_version),
-            ],
-        ),
+        filters=indicator_filters,
     )
     _require_delta_table_row(
         table_path=derived_indicator_path,
         table_name="research_derived_indicator_frames",
-        filters=_scoped_filters(
-            derived_indicator_path,
-            [
-                ("dataset_version", "=", dataset_version),
-                ("contour_id", "=", contour_id),
-                ("indicator_set_version", "=", indicator_set_version),
-                ("derived_indicator_set_version", "=", derived_indicator_set_version),
-            ],
+        filters=derived_indicator_filters,
+    )
+    _assert_unique_materialized_table_key(
+        table_path=bar_views_path,
+        table_name="research_bar_views",
+        filters=bar_filters,
+        key_columns=(
+            "dataset_version",
+            "contour_id",
+            "series_mode",
+            "series_id",
+            "timeframe",
+            "ts",
+        ),
+    )
+    _assert_unique_materialized_table_key(
+        table_path=indicator_path,
+        table_name="research_indicator_frames",
+        filters=indicator_filters,
+        key_columns=(
+            "dataset_version",
+            "contour_id",
+            "series_mode",
+            "series_id",
+            "indicator_set_version",
+            "timeframe",
+            "ts",
+        ),
+    )
+    _assert_unique_materialized_table_key(
+        table_path=derived_indicator_path,
+        table_name="research_derived_indicator_frames",
+        filters=derived_indicator_filters,
+        key_columns=(
+            "dataset_version",
+            "contour_id",
+            "series_mode",
+            "series_id",
+            "indicator_set_version",
+            "derived_indicator_set_version",
+            "timeframe",
+            "ts",
         ),
     )
 
@@ -1370,6 +2128,147 @@ def _existing_research_dataset_context(config: dict[str, object]) -> dict[str, o
     }
 
 
+def _optimizer_policy_from_research_config(config: Mapping[str, object]) -> dict[str, object]:
+    strategy_space_config = config.get("strategy_space", {})
+    if isinstance(strategy_space_config, Mapping):
+        return dict(strategy_space_config.get("optimizer", {"engine": "grid"}))
+    return {"engine": "grid"}
+
+
+def _existing_research_backtest_context(config: dict[str, object]) -> dict[str, object]:
+    materialized_output_dir = _materialized_output_dir(config)
+    dataset_version = str(_config_value(config, "dataset_version"))
+    indicator_set_version = str(_config_value(config, "indicator_set_version", "indicators-v1"))
+    derived_indicator_set_version = str(
+        _config_value(
+            config,
+            "derived_indicator_set_version",
+            DEFAULT_DERIVED_INDICATOR_SET_VERSION,
+        )
+    )
+    series_mode = str(_config_value(config, "series_mode", "contract"))
+    contour_id = "pit_active_front" if series_mode == "continuous_front" else "native_tradable"
+    timeframes = _config_string_sequence(config, "timeframes")
+    dataset_instrument_ids = _config_string_sequence(config, "dataset_instrument_ids")
+    if _reuse_existing_materialization(config):
+        _require_materialization_lock(
+            materialized_output_dir=materialized_output_dir,
+            materialization_key=str(config.get("materialization_key") or ""),
+        )
+    _require_existing_data_prep(
+        materialized_output_dir=materialized_output_dir,
+        dataset_version=dataset_version,
+        contour_id=contour_id,
+        indicator_set_version=indicator_set_version,
+        derived_indicator_set_version=derived_indicator_set_version,
+        timeframes=timeframes,
+        dataset_instrument_ids=dataset_instrument_ids,
+    )
+    research_datasets = _existing_research_dataset_context(config)
+    registry_root = Path(str(research_datasets["registry_root"])).resolve()
+    _validate_strategy_seed_inventory(registry_root=registry_root)
+    validation_plan = dict(_config_value(config, "validation_plan", {}))
+    return {
+        **research_datasets,
+        "validation_plan": validation_plan,
+        "backtest_request": {
+            "strategy_space_id": str(_config_value(config, "strategy_space_id")),
+            "search_specs": [dict(item) for item in _config_value(config, "search_specs", [])],
+            "combination_count": int(_config_value(config, "combination_count", 1)),
+            "param_batch_size": int(_config_value(config, "param_batch_size", 25)),
+            "series_batch_size": int(_config_value(config, "series_batch_size", 4)),
+            "timeframe": str(
+                _config_value(
+                    config,
+                    "backtest_timeframe",
+                    str(_config_value(config, "base_timeframe", "15m")),
+                )
+            ),
+            "contract_ids": tuple(
+                str(item) for item in _config_value(config, "backtest_contract_ids", [])
+            ),
+            "instrument_ids": tuple(
+                str(item) for item in _config_value(config, "backtest_instrument_ids", [])
+            ),
+            "optimizer_policy": _optimizer_policy_from_research_config(config),
+        },
+        "engine_config": {
+            "fees_bps": float(_config_value(config, "fees_bps", 0.0)),
+            "slippage_bps": float(_config_value(config, "slippage_bps", 0.0)),
+            "allow_short": bool(_config_value(config, "allow_short", True)),
+            "window_count": int(_config_value(config, "window_count", 1)),
+            "sizing_mode": str(_config_value(config, "sizing_mode", SIZING_MODE_RISK_PER_TRADE)),
+            "risk_per_trade_pct": float(_config_value(config, "risk_per_trade_pct", 0.01)),
+            "max_contracts": _config_optional_positive_int(config, "max_contracts"),
+            "max_margin_fraction": _config_optional_positive_float(
+                config, "max_margin_fraction", 1.0
+            ),
+            "commission_per_contract": float(_config_value(config, "commission_per_contract", 0.0)),
+            "slippage_ticks": float(_config_value(config, "slippage_ticks", 0.0)),
+        },
+        "ranking_policy": {
+            "policy_id": str(_config_value(config, "ranking_policy_id", DEFAULT_RANKING_POLICY_ID)),
+            "metric_order": tuple(
+                str(item)
+                for item in _config_value(
+                    config,
+                    "ranking_metric_order",
+                    DEFAULT_RANKING_METRIC_ORDER,
+                )
+            ),
+            "require_out_of_sample_pass": bool(
+                _config_value(config, "require_out_of_sample_pass", True)
+            ),
+            "min_trade_count": int(
+                _config_value(config, "min_trade_count", DEFAULT_RANKING_MIN_TRADE_COUNT)
+            ),
+            "min_trade_count_per_fold": int(
+                _config_value(
+                    config,
+                    "min_trade_count_per_fold",
+                    DEFAULT_RANKING_MIN_TRADE_COUNT_PER_FOLD,
+                )
+            ),
+            "min_fold_count": int(
+                _config_value(config, "min_fold_count", DEFAULT_RANKING_MIN_FOLD_COUNT)
+            ),
+            "max_drawdown_cap": float(
+                _config_value(config, "max_drawdown_cap", DEFAULT_RANKING_MAX_DRAWDOWN_CAP)
+            ),
+            "min_positive_fold_ratio": float(
+                _config_value(
+                    config,
+                    "min_positive_fold_ratio",
+                    DEFAULT_RANKING_MIN_POSITIVE_FOLD_RATIO,
+                )
+            ),
+            "stress_slippage_bps": float(
+                _config_value(config, "stress_slippage_bps", DEFAULT_RANKING_STRESS_SLIPPAGE_BPS)
+            ),
+            "min_parameter_stability": float(
+                _config_value(
+                    config,
+                    "min_parameter_stability",
+                    DEFAULT_RANKING_MIN_PARAMETER_STABILITY,
+                )
+            ),
+            "min_slippage_score": float(
+                _config_value(config, "min_slippage_score", DEFAULT_RANKING_MIN_SLIPPAGE_SCORE)
+            ),
+        },
+        "projection_request": {
+            "selection_policy": str(
+                _config_value(config, "selection_policy", "top_robust_per_series")
+            ),
+            "max_candidates_per_partition": int(
+                _config_value(config, "max_candidates_per_partition", 1)
+            ),
+            "min_robust_score": float(_config_value(config, "min_robust_score", 0.55)),
+            "decision_lag_bars_max": int(_config_value(config, "decision_lag_bars_max", 1)),
+        },
+    }
+
+
 def _continuous_front_qc_order_key(row: dict[str, object]) -> tuple[datetime, str]:
     for field_name in ("completed_at", "started_at"):
         value = row.get(field_name)
@@ -1461,6 +2360,78 @@ def _changed_windows_from_research_config(
             raise ValueError("research config `changed_windows` must contain only mappings")
         windows.append(dict(window))
     return tuple(windows)
+
+
+def _optional_context_attr(source: object, name: str) -> object | None:
+    try:
+        return getattr(source, name, None)
+    except Exception:
+        return None
+
+
+def _dagster_run_id_from_context(context: object) -> str:
+    run_id = str(_optional_context_attr(context, "run_id") or "").strip()
+    if run_id:
+        return run_id
+    dagster_run = _optional_context_attr(context, "dagster_run")
+    return str(_optional_context_attr(dagster_run, "run_id") or "").strip()
+
+
+def _dagster_run_config_from_context(context: object) -> object:
+    op_context = _optional_context_attr(context, "op_execution_context")
+    sources = (
+        context,
+        op_context,
+        _optional_context_attr(context, "dagster_run"),
+        _optional_context_attr(op_context, "dagster_run"),
+    )
+    for source in sources:
+        if source is None:
+            continue
+        try:
+            run_config = getattr(source, "run_config")
+        except Exception:
+            continue
+        if isinstance(run_config, Mapping):
+            return dict(run_config)
+    return {}
+
+
+def _write_failed_research_campaign_summary_from_context(context: object) -> bool:
+    run_config = _dagster_run_config_from_context(context)
+    context_config = _campaign_context_config_from_run_config(run_config)
+    if context_config is None:
+        return False
+    op_context = getattr(context, "op_execution_context", context)
+    dagster_job_name = _job_name_from_campaign_context(context, context_config) or (
+        _job_name_from_campaign_context(op_context, context_config)
+    )
+    dagster_run_id = _dagster_run_id_from_context(context) or _dagster_run_id_from_context(
+        op_context
+    )
+    try:
+        return _write_failed_research_campaign_summary(
+            run_config=run_config,
+            dagster_job_name=dagster_job_name,
+            dagster_run_id=dagster_run_id,
+        )
+    except Exception as exc:
+        logger = getattr(context, "log", None)
+        if logger is not None:
+            logger.warning("failed to write research campaign failure summary: %s", exc)
+        return False
+
+
+@asset(group_name="research", config_schema=_research_campaign_context_config_schema())
+def research_campaign_context(context) -> dict[str, object]:
+    context_config = dict(context.op_execution_context.op_config)
+    job_name = _job_name_from_campaign_context(context, context_config)
+    return _build_research_campaign_context_payload(
+        context_config=context_config,
+        dagster_job_name=job_name,
+        dagster_run_id=_dagster_run_id_from_context(context),
+        write_start_artifacts=True,
+    )
 
 
 @asset(group_name="research", config_schema=_research_config_schema())
@@ -1579,6 +2550,13 @@ def research_datasets(context) -> dict[str, object]:
         )
     )
     series_mode = str(_config_value(config, "series_mode", "contract"))
+    continuous_front_policy = (
+        ContinuousFrontPolicy.from_config(
+            dict(_config_value(config, "continuous_front_policy", {}))
+        )
+        if series_mode == "continuous_front"
+        else None
+    )
     validation_plan = dict(_config_value(config, "validation_plan", {}))
     continuous_front_status = _continuous_front_status_from_store(
         materialized_output_dir=materialized_output_dir,
@@ -1677,14 +2655,10 @@ def research_datasets(context) -> dict[str, object]:
             contours=research_l0_contours,
             canonical_contract_economics_path=_canonical_contract_economics_path(config),
             execution_economics_required=True,
+            continuous_front_policy=continuous_front_policy,
             spark_master=str(_config_value(config, "spark_master", "")) or DEFAULT_SPARK_MASTER,
         )
-    strategy_space_config = _config_value(config, "strategy_space", {})
-    optimizer_policy = (
-        dict(strategy_space_config.get("optimizer", {"engine": "grid"}))
-        if isinstance(strategy_space_config, Mapping)
-        else {"engine": "grid"}
-    )
+    optimizer_policy = _optimizer_policy_from_research_config(config)
     resolved_volume_profile_raw_1m_table_path = _resolve_volume_profile_raw_1m_table_path(
         _config_value(config, "volume_profile_raw_1m_table_path", "")
     )
@@ -2015,7 +2989,11 @@ def _continuous_front_indicator_sidecar_manifest(
 def continuous_front_indicator_acceptance_report(context) -> dict[str, object]:
     config = dict(context.op_execution_context.op_config)
     research_datasets = _existing_research_dataset_context(config)
-    sidecar_result = _run_continuous_front_indicator_sidecar(research_datasets)
+    try:
+        sidecar_result = _run_continuous_front_indicator_sidecar(research_datasets)
+    except Exception:
+        _write_failed_research_campaign_summary_from_context(context)
+        raise
     manifest = _continuous_front_indicator_sidecar_manifest(
         {
             "research_datasets": research_datasets,
@@ -2339,16 +3317,19 @@ def _backtest_result_rows(
     return read_delta_table_rows(table_path)
 
 
-@asset(group_name="research")
-def research_backtest_batches(
-    research_datasets: dict[str, object],
-    research_indicator_frames: dict[str, object],
-    research_derived_indicator_frames: dict[str, object],
-    research_strategy_template_modules: list[dict[str, object]],
-) -> dict[str, object]:
-    del research_indicator_frames
-    del research_derived_indicator_frames
-    del research_strategy_template_modules
+@asset(
+    group_name="research",
+    config_schema=_research_config_schema(),
+    deps=[
+        research_datasets,
+        research_indicator_frames,
+        research_derived_indicator_frames,
+        research_strategy_template_modules,
+    ],
+)
+def research_backtest_batches(context) -> dict[str, object]:
+    config = dict(context.op_execution_context.op_config)
+    research_datasets = _existing_research_backtest_context(config)
     materialized_output_dir = Path(str(research_datasets["materialized_output_dir"]))
     results_output_dir = Path(str(research_datasets["results_output_dir"]))
     report = run_backtest_batch(
@@ -2513,24 +3494,26 @@ def research_strategy_evaluation_profiles(
     }
 
 
-@asset(group_name="research")
-def research_signal_candidates(
-    research_datasets: dict[str, object],
-    research_derived_indicator_frames: dict[str, object],
-    research_strategy_rankings: dict[str, object],
-) -> dict[str, object]:
-    del research_derived_indicator_frames
+@asset(
+    group_name="research",
+    config_schema=_research_config_schema(),
+    deps=[research_datasets, research_derived_indicator_frames, research_strategy_rankings],
+)
+def research_signal_candidates(context) -> dict[str, object]:
+    config = dict(context.op_execution_context.op_config)
+    research_datasets = _existing_research_backtest_context(config)
     materialized_output_dir = Path(str(research_datasets["materialized_output_dir"]))
     results_output_dir = Path(str(research_datasets["results_output_dir"]))
-    ranking_table_path = Path(str(research_strategy_rankings["table_path"]))
+    ranking_table_path = Path(str(research_datasets["output_paths"]["research_strategy_rankings"]))
     projection_request = _projection_request(research_datasets)
-    ranking_rows = (
-        read_filtered_delta_table_rows(
-            ranking_table_path,
-            filters=[("ranking_policy_id", "=", projection_request.ranking_policy_id)],
+    if not has_delta_log(ranking_table_path):
+        raise RuntimeError(
+            "research_projection_job requires persisted research_strategy_rankings.delta; "
+            f"missing `_delta_log` at {ranking_table_path.as_posix()}"
         )
-        if has_delta_log(ranking_table_path)
-        else []
+    ranking_rows = read_filtered_delta_table_rows(
+        ranking_table_path,
+        filters=[("ranking_policy_id", "=", projection_request.ranking_policy_id)],
     )
     report = project_runtime_candidates(
         dataset_output_dir=materialized_output_dir,
@@ -2550,7 +3533,434 @@ def research_signal_candidates(
     }
 
 
+def _row_count_for_campaign_table(
+    *,
+    table_name: str,
+    table_path: Path,
+    campaign_context: Mapping[str, object],
+) -> int:
+    if not has_delta_log(table_path):
+        return 0
+    research_config = dict(campaign_context["research_config"])
+    dataset_version = str(research_config["dataset_version"])
+    series_mode = str(research_config.get("series_mode", "contract"))
+    contour_id = "pit_active_front" if series_mode == "continuous_front" else "native_tradable"
+    if table_name in {
+        *RESEARCH_DATA_PREP_ASSETS,
+        "research_derived_source_frames",
+        *CF_INDICATOR_TABLES,
+    }:
+        return _count_materialized_table_rows(
+            table_path=table_path,
+            table_name=table_name,
+            dataset_version=dataset_version,
+            contour_id=contour_id,
+            indicator_set_version=str(
+                research_config.get("indicator_set_version", "indicators-v1")
+            ),
+            derived_indicator_set_version=str(
+                research_config.get(
+                    "derived_indicator_set_version",
+                    DEFAULT_DERIVED_INDICATOR_SET_VERSION,
+                )
+            ),
+            timeframes=tuple(str(item) for item in research_config.get("timeframes", [])),
+            dataset_instrument_ids=tuple(
+                str(item) for item in research_config.get("dataset_instrument_ids", [])
+            ),
+        )
+    return count_delta_table_rows(table_path)
+
+
+def _campaign_report_from_materialized_assets(
+    *,
+    campaign_context: Mapping[str, object],
+    selected_assets: Sequence[str],
+    materialized_assets: Sequence[str],
+) -> dict[str, object]:
+    output_paths = dict(campaign_context["output_paths"])
+    rows_by_table: dict[str, int] = {}
+    total_rows_by_table: dict[str, int] = {}
+    for asset_name in materialized_assets:
+        raw_path = output_paths.get(asset_name)
+        if raw_path is None:
+            continue
+        table_path = Path(str(raw_path))
+        total_rows_by_table[asset_name] = (
+            count_delta_table_rows(table_path) if has_delta_log(table_path) else 0
+        )
+        rows_by_table[asset_name] = _row_count_for_campaign_table(
+            table_name=asset_name,
+            table_path=table_path,
+            campaign_context=campaign_context,
+        )
+    findings_path = Path(str(output_paths["research_run_findings"]))
+    if has_delta_log(findings_path):
+        rows_by_table["research_run_findings"] = count_delta_table_rows(findings_path)
+        total_rows_by_table["research_run_findings"] = rows_by_table["research_run_findings"]
+    return {
+        "success": True,
+        "strategy_space_id": str(
+            dict(campaign_context["research_config"]).get("strategy_space_id", "")
+        ),
+        "selected_assets": list(selected_assets),
+        "materialized_assets": list(materialized_assets),
+        "output_paths": output_paths,
+        "rows_by_table": rows_by_table,
+        "total_rows_by_table": total_rows_by_table,
+    }
+
+
+def _finalize_research_campaign_stage(
+    *,
+    campaign_context: Mapping[str, object],
+    terminal_stage: str,
+    selected_assets: Sequence[str],
+    materialized_assets: Sequence[str],
+) -> dict[str, object]:
+    target_stage = str(campaign_context["target_stage"])
+    if target_stage != terminal_stage and terminal_stage != "data_prep":
+        return {
+            "status": "skipped",
+            "reason": f"campaign target_stage is `{target_stage}`",
+            "terminal_stage": terminal_stage,
+        }
+    repo_root = Path(str(campaign_context["repo_root"]))
+    run_root = Path(str(campaign_context["run_root"]))
+    results_root = Path(str(campaign_context["results_output_dir"]))
+    registry_root = Path(str(campaign_context["registry_root"]))
+    materialized_root = Path(str(campaign_context["materialized_root"]))
+    normalized_config = dict(campaign_context["normalized_config"])
+    report = _campaign_report_from_materialized_assets(
+        campaign_context=campaign_context,
+        selected_assets=selected_assets,
+        materialized_assets=materialized_assets,
+    )
+    contract_validation = _research_campaigns().validate_research_contracts(
+        output_paths=dict(report["output_paths"]),
+        materialized_assets=list(report["materialized_assets"]),
+        rows_by_table=dict(report.get("rows_by_table", {})),
+    )
+    warnings = list(campaign_context.get("warnings", []))
+    warnings.extend(list(contract_validation.get("warnings", [])))
+    if contract_validation["status"] != "passed":
+        raise RuntimeError(
+            "; ".join(contract_validation["errors"]) or "research contract validation failed"
+        )
+    if "research_data_prep" in list(campaign_context["executed_steps"]):
+        _research_campaigns()._write_materialization_lock(  # type: ignore[attr-defined]
+            materialized_root=materialized_root,
+            materialization_key=str(campaign_context["materialization_key"]),
+            normalized_config=normalized_config,
+            campaign_id=str(campaign_context["campaign_id"]),
+            campaign_run_id=str(campaign_context["campaign_run_id"]),
+            report=dict(report),
+        )
+    if target_stage != terminal_stage:
+        return {
+            "status": "stage_completed",
+            "target_stage": target_stage,
+            "completed_stage": terminal_stage,
+            "materialization_key": str(campaign_context["materialization_key"]),
+            "materialized_assets": list(materialized_assets),
+            "rows_by_table": dict(report.get("rows_by_table", {})),
+        }
+    registry_paths = _research_campaigns()._campaign_registry_output_paths(  # type: ignore[attr-defined]
+        registry_root=registry_root
+    )
+    index_paths = _research_campaigns()._publish_global_indices(  # type: ignore[attr-defined]
+        registry_root=registry_root,
+        results_root=results_root,
+    )
+    duration_metrics = _research_campaigns()._build_duration_metrics(  # type: ignore[attr-defined]
+        total_seconds=0.0,
+        rows_by_table=dict(report.get("rows_by_table", {})),
+        results_root=results_root,
+    )
+    output_paths = {**dict(report["output_paths"]), **registry_paths, **index_paths}
+    result_digest = _research_campaigns()._build_result_digest(  # type: ignore[attr-defined]
+        target_stage=target_stage,
+        results_root=results_root,
+        duration_metrics=duration_metrics,
+        rows_by_table=dict(report.get("rows_by_table", {})),
+        materialized_root=materialized_root,
+        output_paths=output_paths,
+        executed_steps=list(campaign_context["executed_steps"]),
+        reused_steps=list(campaign_context["reused_steps"]),
+        force_rematerialize=bool(normalized_config["execution"]["force_rematerialize"]),
+    )
+    success_run_record = {
+        "registry_root": registry_root,
+        "campaign_run_id": str(campaign_context["campaign_run_id"]),
+        "campaign_id": str(campaign_context["campaign_id"]),
+        "campaign_name": str(campaign_context["campaign_name"]),
+        "target_stage": target_stage,
+        "config_fingerprint": str(campaign_context["config_fingerprint"]),
+        "strategy_space_id": str(report.get("strategy_space_id", "")),
+        "materialization_key": str(campaign_context["materialization_key"]),
+        "materialized_output_dir": materialized_root.as_posix(),
+        "results_output_dir": results_root.as_posix(),
+        "reuse_existing_materialization": bool(campaign_context["reuse_existing_materialization"]),
+        "executed_steps": list(campaign_context["executed_steps"]),
+        "reused_steps": list(campaign_context["reused_steps"]),
+        "rows_by_table": dict(report.get("rows_by_table", {})),
+        "output_paths": output_paths,
+        "warnings": warnings,
+        "started_at": str(campaign_context["started_at"]),
+        "finished_at": _research_campaigns().utc_now_iso(),
+        "result_digest": result_digest,
+    }
+    write_campaign_run(**success_run_record, status="publishing")
+    write_strategy_note(
+        registry_root=registry_root,
+        entity_type="campaign_run",
+        entity_id=str(campaign_context["campaign_run_id"]),
+        note_kind="verdict",
+        summary=f"campaign run {campaign_context['campaign_name']} completed successfully",
+        source="system",
+        tags=("campaign", target_stage, "success", "dagster"),
+    )
+    _research_campaigns()._write_publish_commit(  # type: ignore[attr-defined]
+        final_results_root=results_root,
+        campaign_run_id=str(campaign_context["campaign_run_id"]),
+        published_output_paths={
+            table_name: path
+            for table_name, path in dict(report["output_paths"]).items()
+            if Path(str(path)).exists()
+        },
+        registry_output_paths={**registry_paths, **index_paths},
+    )
+    write_campaign_run(**success_run_record, status="success")
+    summary = _research_campaigns()._build_terminal_summary(  # type: ignore[attr-defined]
+        repo_root=repo_root,
+        run_id=str(campaign_context["run_id"]),
+        campaign_id=str(campaign_context["campaign_id"]),
+        campaign_run_id=str(campaign_context["campaign_run_id"]),
+        campaign_name=str(campaign_context["campaign_name"]),
+        target_stage=target_stage,
+        canonical_output_dir=str(normalized_config["canonical_output_dir"]),
+        registry_root=registry_root.as_posix(),
+        materialization_key=str(campaign_context["materialization_key"]),
+        strategy_space_id=str(report.get("strategy_space_id", "")),
+        materialized_root=materialized_root.as_posix(),
+        run_root=run_root.as_posix(),
+        dataset_version=str(normalized_config["dataset"]["dataset_version"]),
+        config_fingerprint=str(campaign_context["config_fingerprint"]),
+        executed_steps=list(campaign_context["executed_steps"]),
+        reused_steps=list(campaign_context["reused_steps"]),
+        durations=duration_metrics,
+        rows_by_table=dict(report.get("rows_by_table", {})),
+        output_paths=output_paths,
+        dagster_selected_assets=list(report["selected_assets"]),
+        dagster_materialized_assets=list(report["materialized_assets"]),
+        warnings=warnings,
+        status="success",
+        error=None,
+        result_digest=result_digest,
+    )
+    _research_campaigns().write_json(
+        run_root / "artifacts-index.json",
+        _research_campaigns()._build_artifacts_index(  # type: ignore[attr-defined]
+            output_paths,
+            report.get("rows_by_table", {}),
+        ),
+    )
+    _research_campaigns()._write_logs(  # type: ignore[attr-defined]
+        run_root=run_root,
+        stdout_lines=[],
+        stderr_lines=[],
+    )
+    _research_campaigns()._write_terminal_artifacts(  # type: ignore[attr-defined]
+        run_root=run_root,
+        summary=summary,
+    )
+    _research_campaigns()._write_status(  # type: ignore[attr-defined]
+        run_root / "status.json",
+        run_id=str(campaign_context["run_id"]),
+        campaign_name=str(campaign_context["campaign_name"]),
+        status="success",
+    )
+    return summary
+
+
+def _campaign_job_selected_assets(job_name: str) -> list[str]:
+    if job_name == RESEARCH_DATA_PREP_JOB_NAME:
+        return [
+            RESEARCH_CAMPAIGN_CONTEXT_ASSET,
+            *RESEARCH_DATA_PREP_JOB_ASSETS,
+            RESEARCH_CAMPAIGN_DATA_PREP_SUMMARY_ASSET,
+        ]
+    if job_name == STRATEGY_REGISTRY_REFRESH_JOB_NAME:
+        return [RESEARCH_CAMPAIGN_CONTEXT_ASSET, *STRATEGY_REGISTRY_REFRESH_EXECUTION_ASSETS]
+    if job_name == RESEARCH_BACKTEST_JOB_NAME:
+        return [
+            RESEARCH_CAMPAIGN_CONTEXT_ASSET,
+            *RESEARCH_BACKTEST_ASSETS,
+            RESEARCH_CAMPAIGN_BACKTEST_SUMMARY_ASSET,
+        ]
+    if job_name == RESEARCH_PROJECTION_JOB_NAME:
+        return [
+            RESEARCH_CAMPAIGN_CONTEXT_ASSET,
+            *RESEARCH_PROJECTION_ASSETS,
+            RESEARCH_CAMPAIGN_PROJECTION_SUMMARY_ASSET,
+        ]
+    return []
+
+
+def _write_failed_research_campaign_summary(
+    *,
+    run_config: object,
+    dagster_job_name: str,
+    dagster_run_id: str,
+) -> bool:
+    context_config = _campaign_context_config_from_run_config(run_config)
+    if context_config is None:
+        return False
+    context_config = dict(context_config)
+    context_config["dagster_job_name"] = dagster_job_name
+    context_config["run_id"] = str(context_config.get("run_id") or dagster_run_id)
+    campaign_context = _build_research_campaign_context_payload(
+        context_config=context_config,
+        dagster_job_name=dagster_job_name,
+        dagster_run_id=dagster_run_id,
+        write_start_artifacts=False,
+    )
+    repo_root = Path(str(campaign_context["repo_root"]))
+    run_root = Path(str(campaign_context["run_root"]))
+    results_root = Path(str(campaign_context["results_output_dir"]))
+    registry_root = Path(str(campaign_context["registry_root"]))
+    materialized_root = Path(str(campaign_context["materialized_root"]))
+    normalized_config = dict(campaign_context["normalized_config"])
+    output_paths = dict(campaign_context.get("output_paths", {}))
+    warnings = list(campaign_context.get("warnings", []))
+    message = f"Dagster job `{dagster_job_name}` failed before campaign terminal summary"
+
+    run_root.mkdir(parents=True, exist_ok=True)
+    (run_root / "logs").mkdir(parents=True, exist_ok=True)
+    results_root.mkdir(parents=True, exist_ok=True)
+    finished_at = _research_campaigns().utc_now_iso()
+    summary = _research_campaigns()._build_terminal_summary(  # type: ignore[attr-defined]
+        repo_root=repo_root,
+        run_id=str(campaign_context["run_id"]),
+        campaign_id=str(campaign_context["campaign_id"]),
+        campaign_run_id=str(campaign_context["campaign_run_id"]),
+        campaign_name=str(campaign_context["campaign_name"]),
+        target_stage=str(campaign_context["target_stage"]),
+        canonical_output_dir=str(normalized_config["canonical_output_dir"]),
+        registry_root=registry_root.as_posix(),
+        materialization_key=str(campaign_context["materialization_key"]),
+        strategy_space_id=str(
+            dict(campaign_context["research_config"]).get("strategy_space_id", "")
+        ),
+        materialized_root=materialized_root.as_posix(),
+        run_root=run_root.as_posix(),
+        dataset_version=str(normalized_config["dataset"]["dataset_version"]),
+        config_fingerprint=str(campaign_context["config_fingerprint"]),
+        executed_steps=list(campaign_context["executed_steps"]),
+        reused_steps=list(campaign_context["reused_steps"]),
+        durations={"total_seconds": 0.0},
+        rows_by_table={},
+        output_paths={str(key): str(value) for key, value in output_paths.items()},
+        dagster_selected_assets=_campaign_job_selected_assets(dagster_job_name),
+        dagster_materialized_assets=[],
+        warnings=warnings,
+        status="failed",
+        error={"type": "DagsterRunFailure", "message": message},
+        result_digest=None,
+    )
+    write_campaign_run(
+        registry_root=registry_root,
+        campaign_run_id=str(campaign_context["campaign_run_id"]),
+        campaign_id=str(campaign_context["campaign_id"]),
+        campaign_name=str(campaign_context["campaign_name"]),
+        target_stage=str(campaign_context["target_stage"]),
+        config_fingerprint=str(campaign_context["config_fingerprint"]),
+        strategy_space_id=str(
+            dict(campaign_context["research_config"]).get("strategy_space_id", "")
+        ),
+        materialization_key=str(campaign_context["materialization_key"]),
+        materialized_output_dir=materialized_root.as_posix(),
+        results_output_dir=results_root.as_posix(),
+        reuse_existing_materialization=bool(campaign_context["reuse_existing_materialization"]),
+        executed_steps=list(campaign_context["executed_steps"]),
+        reused_steps=list(campaign_context["reused_steps"]),
+        rows_by_table={},
+        output_paths={str(key): str(value) for key, value in output_paths.items()},
+        warnings=warnings,
+        status="failed",
+        started_at=str(campaign_context["started_at"]),
+        finished_at=finished_at,
+        result_digest=None,
+    )
+    _research_campaigns().write_json(
+        run_root / "artifacts-index.json",
+        _research_campaigns()._build_artifacts_index(  # type: ignore[attr-defined]
+            output_paths,
+            {},
+        ),
+    )
+    _research_campaigns()._write_logs(  # type: ignore[attr-defined]
+        run_root=run_root,
+        stdout_lines=[],
+        stderr_lines=[message],
+    )
+    _research_campaigns()._write_terminal_artifacts(  # type: ignore[attr-defined]
+        run_root=run_root,
+        summary=summary,
+    )
+    _research_campaigns()._write_status(  # type: ignore[attr-defined]
+        run_root / "status.json",
+        run_id=str(campaign_context["run_id"]),
+        campaign_name=str(campaign_context["campaign_name"]),
+        status="failed",
+    )
+    return True
+
+
+@asset(group_name="research")
+def research_campaign_data_prep_summary(
+    research_campaign_context: dict[str, object],
+    continuous_front_indicator_acceptance_report: dict[str, object],
+) -> dict[str, object]:
+    del continuous_front_indicator_acceptance_report
+    return _finalize_research_campaign_stage(
+        campaign_context=research_campaign_context,
+        terminal_stage="data_prep",
+        selected_assets=RESEARCH_DATA_PREP_JOB_ASSETS,
+        materialized_assets=RESEARCH_DATA_PREP_JOB_ASSETS,
+    )
+
+
+@asset(group_name="research")
+def research_campaign_backtest_summary(
+    research_campaign_context: dict[str, object],
+    research_strategy_evaluation_profiles: dict[str, object],
+) -> dict[str, object]:
+    del research_strategy_evaluation_profiles
+    return _finalize_research_campaign_stage(
+        campaign_context=research_campaign_context,
+        terminal_stage="backtest",
+        selected_assets=RESEARCH_BACKTEST_ASSETS,
+        materialized_assets=RESEARCH_BACKTEST_ASSETS,
+    )
+
+
+@asset(group_name="research")
+def research_campaign_projection_summary(
+    research_campaign_context: dict[str, object],
+    research_signal_candidates: dict[str, object],
+) -> dict[str, object]:
+    del research_signal_candidates
+    return _finalize_research_campaign_stage(
+        campaign_context=research_campaign_context,
+        terminal_stage="projection",
+        selected_assets=RESEARCH_PROJECTION_ASSETS,
+        materialized_assets=RESEARCH_PROJECTION_ASSETS,
+    )
+
+
 RESEARCH_ASSETS = (
+    research_campaign_context,
     continuous_front_bars,
     continuous_front_roll_events,
     continuous_front_adjustment_ladder,
@@ -2587,11 +3997,15 @@ RESEARCH_ASSETS = (
     research_strategy_rankings,
     research_strategy_evaluation_profiles,
     research_signal_candidates,
+    research_campaign_data_prep_summary,
+    research_campaign_backtest_summary,
+    research_campaign_projection_summary,
 )
 
 research_data_prep_job = define_asset_job(
     name=RESEARCH_DATA_PREP_JOB_NAME,
     selection=AssetSelection.assets(
+        research_campaign_context,
         continuous_front_bars,
         continuous_front_roll_events,
         continuous_front_adjustment_ladder,
@@ -2608,7 +4022,9 @@ research_data_prep_job = define_asset_job(
         continuous_front_indicator_qc_observations,
         continuous_front_indicator_run_manifest,
         continuous_front_indicator_acceptance_report,
+        research_campaign_data_prep_summary,
     ),
+    config=_research_campaign_job_config_mapping(RESEARCH_DATA_PREP_JOB_NAME),
 )
 
 moex_cf_catch_up_job = define_asset_job(
@@ -2666,16 +4082,19 @@ moex_research_indicator_sidecar_job = define_asset_job(
 strategy_registry_refresh_job = define_asset_job(
     name=STRATEGY_REGISTRY_REFRESH_JOB_NAME,
     selection=AssetSelection.assets(
+        research_campaign_context,
         research_datasets,
         research_strategy_families,
         research_strategy_templates,
         research_strategy_template_modules,
     ),
+    config=_research_campaign_job_config_mapping(STRATEGY_REGISTRY_REFRESH_JOB_NAME),
 )
 
 research_backtest_job = define_asset_job(
     name=RESEARCH_BACKTEST_JOB_NAME,
     selection=AssetSelection.assets(
+        research_campaign_context,
         research_backtest_batches,
         research_strategy_search_specs,
         research_vbt_search_runs,
@@ -2692,12 +4111,19 @@ research_backtest_job = define_asset_job(
         research_drawdown_records,
         research_strategy_rankings,
         research_strategy_evaluation_profiles,
+        research_campaign_backtest_summary,
     ),
+    config=_research_campaign_job_config_mapping(RESEARCH_BACKTEST_JOB_NAME),
 )
 
 research_projection_job = define_asset_job(
     name=RESEARCH_PROJECTION_JOB_NAME,
-    selection=AssetSelection.assets(research_signal_candidates),
+    selection=AssetSelection.assets(
+        research_campaign_context,
+        research_signal_candidates,
+        research_campaign_projection_summary,
+    ),
+    config=_research_campaign_job_config_mapping(RESEARCH_PROJECTION_JOB_NAME),
 )
 
 
@@ -2908,6 +4334,8 @@ def _should_start_research_after_moex_data_rebuild(run_config: object) -> bool:
 
 
 _RESEARCH_CONFIG_OP_CANDIDATES = (
+    "research_backtest_batches",
+    "research_signal_candidates",
     "research_datasets",
     "continuous_front_bars",
     "research_indicator_frames",
@@ -2996,6 +4424,52 @@ def _research_data_prep_run_config_from_research_config(
                 "config": dict(research_config),
             }
             for op_name in _RESEARCH_DATA_PREP_CONFIG_OPS
+        }
+    }
+
+
+def _backtest_run_config_from_research_config(
+    research_config: Mapping[str, object],
+    *,
+    upstream_run_id: str,
+) -> dict[str, object]:
+    campaign_run_id = f"research_backtest_after_{upstream_run_id}"
+    backtest_config = _prepare_strategy_space_run_config(
+        dict(research_config),
+        campaign_id="camp_regular_research_cascade",
+        campaign_run_id=campaign_run_id,
+    )
+    backtest_config["campaign_run_id"] = campaign_run_id
+    backtest_config["code_version"] = "research-backtest-after-strategy-registry"
+    backtest_config["reuse_existing_materialization"] = True
+    return {
+        "ops": {
+            "research_backtest_batches": {
+                "config": backtest_config,
+            }
+        }
+    }
+
+
+def _projection_run_config_from_research_config(
+    research_config: Mapping[str, object],
+    *,
+    upstream_run_id: str,
+) -> dict[str, object]:
+    campaign_run_id = f"research_projection_after_{upstream_run_id}"
+    projection_config = _prepare_strategy_space_run_config(
+        dict(research_config),
+        campaign_id="camp_regular_research_cascade",
+        campaign_run_id=campaign_run_id,
+    )
+    projection_config["campaign_run_id"] = campaign_run_id
+    projection_config["code_version"] = "research-projection-after-backtest"
+    projection_config["reuse_existing_materialization"] = True
+    return {
+        "ops": {
+            "research_signal_candidates": {
+                "config": projection_config,
+            }
         }
     }
 
@@ -3429,15 +4903,19 @@ def research_data_prep_after_moex_data_rebuild_sensor(context):
         RESEARCH_DATA_PREP_DATASET_VERSION_ENV,
         DEFAULT_RESEARCH_DATA_PREP_DATASET_VERSION,
     )
+    campaign_config = _scheduled_research_data_prep_campaign_config(
+        canonical_output_dir=canonical_output_dir,
+        dataset_version=dataset_version,
+        continuous_front_policy=scheduled_continuous_front_policy_config(),
+    )
+    campaign_run_id = f"research_data_prep_after_{upstream_run_id}"
     return RunRequest(
         run_key=f"{RESEARCH_DATA_PREP_JOB_NAME}:{upstream_run_id}",
-        run_config=build_research_data_prep_run_config(
-            canonical_output_dir=canonical_output_dir,
-            campaign_run_id=f"research_data_prep_after_{upstream_run_id}",
-            dataset_version=dataset_version,
-            series_mode="continuous_front",
-            continuous_front_policy=scheduled_continuous_front_policy_config(),
-            start_strategy_cascade=True,
+        run_config=build_research_campaign_run_config(
+            campaign_config=campaign_config,
+            repo_root=_research_campaigns().resolve_repo_root(),
+            dagster_job_name=RESEARCH_DATA_PREP_JOB_NAME,
+            run_id=campaign_run_id,
         ),
         tags={
             "ta3000/upstream_job": MOEX_DATA_REBUILD_JOB_NAME,
@@ -3461,19 +4939,30 @@ def research_data_prep_after_moex_data_rebuild_sensor(context):
 )
 def strategy_registry_refresh_after_research_data_prep_sensor(context):
     upstream_run_id = str(context.dagster_run.run_id)
-    research_config = _research_config_from_run_config(context.dagster_run.run_config)
-    if research_config is None:
-        return None
-    if not bool(research_config.get("start_strategy_cascade", False)):
-        return None
+    upstream_run_config = context.dagster_run.run_config
+    next_run_config = _campaign_run_config_for_next_job(
+        upstream_run_config=upstream_run_config,
+        upstream_run_id=upstream_run_id,
+        dagster_job_name=STRATEGY_REGISTRY_REFRESH_JOB_NAME,
+        allowed_target_stages={"backtest", "projection"},
+    )
+    if next_run_config is None:
+        research_config = _research_config_from_run_config(upstream_run_config)
+        if research_config is None or not bool(
+            research_config.get("start_strategy_cascade", False)
+        ):
+            return None
+        next_run_config = _strategy_registry_run_config_from_research_config(
+            research_config,
+            upstream_run_id=upstream_run_id,
+        )
+    else:
+        research_config = _research_config_from_run_config(next_run_config)
     dataset_version = _research_dataset_version_from_context(context, research_config)
     series_mode = _research_series_mode_from_config(research_config)
     return RunRequest(
         run_key=f"{STRATEGY_REGISTRY_REFRESH_JOB_NAME}:{upstream_run_id}",
-        run_config=_strategy_registry_run_config_from_research_config(
-            research_config,
-            upstream_run_id=upstream_run_id,
-        ),
+        run_config=next_run_config,
         tags={
             "ta3000/upstream_job": RESEARCH_DATA_PREP_JOB_NAME,
             "ta3000/upstream_run_id": upstream_run_id,
@@ -3493,12 +4982,30 @@ def strategy_registry_refresh_after_research_data_prep_sensor(context):
 )
 def research_backtest_after_strategy_registry_sensor(context):
     upstream_run_id = str(context.dagster_run.run_id)
-    research_config = _research_config_from_run_config(context.dagster_run.run_config)
+    upstream_run_config = context.dagster_run.run_config
+    next_run_config = _campaign_run_config_for_next_job(
+        upstream_run_config=upstream_run_config,
+        upstream_run_id=upstream_run_id,
+        dagster_job_name=RESEARCH_BACKTEST_JOB_NAME,
+        allowed_target_stages={"backtest", "projection"},
+    )
+    if next_run_config is None:
+        research_config = _research_config_from_run_config(upstream_run_config)
+        if research_config is None or not bool(
+            research_config.get("start_strategy_cascade", False)
+        ):
+            return None
+        next_run_config = _backtest_run_config_from_research_config(
+            research_config,
+            upstream_run_id=upstream_run_id,
+        )
+    else:
+        research_config = _research_config_from_run_config(next_run_config)
     dataset_version = _research_dataset_version_from_context(context, research_config)
     series_mode = _research_series_mode_from_config(research_config)
     return RunRequest(
         run_key=f"{RESEARCH_BACKTEST_JOB_NAME}:{upstream_run_id}",
-        run_config={},
+        run_config=next_run_config,
         tags={
             "ta3000/upstream_job": STRATEGY_REGISTRY_REFRESH_JOB_NAME,
             "ta3000/upstream_run_id": upstream_run_id,
@@ -3518,16 +5025,64 @@ def research_backtest_after_strategy_registry_sensor(context):
 )
 def research_projection_after_backtest_sensor(context):
     upstream_run_id = str(context.dagster_run.run_id)
-    dataset_version = _research_dataset_version_from_context(context)
+    upstream_run_config = context.dagster_run.run_config
+    next_run_config = _campaign_run_config_for_next_job(
+        upstream_run_config=upstream_run_config,
+        upstream_run_id=upstream_run_id,
+        dagster_job_name=RESEARCH_PROJECTION_JOB_NAME,
+        allowed_target_stages={"projection"},
+    )
+    if next_run_config is None:
+        research_config = _research_config_from_run_config(upstream_run_config)
+        if research_config is None or not bool(
+            research_config.get("start_strategy_cascade", False)
+        ):
+            return None
+        next_run_config = _projection_run_config_from_research_config(
+            research_config,
+            upstream_run_id=upstream_run_id,
+        )
+    else:
+        research_config = _research_config_from_run_config(next_run_config)
+    dataset_version = _research_dataset_version_from_context(context, research_config)
+    series_mode = _research_series_mode_from_config(research_config)
     return RunRequest(
         run_key=f"{RESEARCH_PROJECTION_JOB_NAME}:{upstream_run_id}",
-        run_config={},
+        run_config=next_run_config,
         tags={
             "ta3000/upstream_job": RESEARCH_BACKTEST_JOB_NAME,
             "ta3000/upstream_run_id": upstream_run_id,
             "ta3000/dataset_version": dataset_version,
+            "ta3000/series_mode": series_mode,
         },
     )
+
+
+@run_status_sensor(
+    run_status=DagsterRunStatus.FAILURE,
+    name=RESEARCH_CAMPAIGN_FAILURE_SUMMARY_SENSOR_NAME,
+    monitored_jobs=[
+        research_data_prep_job,
+        strategy_registry_refresh_job,
+        research_backtest_job,
+        research_projection_job,
+    ],
+    default_status=DefaultSensorStatus.RUNNING,
+    description=(
+        "Write failed campaign summary artifacts when a research campaign Dagster job fails."
+    ),
+)
+def research_campaign_failure_summary_sensor(context):
+    dagster_run = context.dagster_run
+    try:
+        _write_failed_research_campaign_summary(
+            run_config=dagster_run.run_config,
+            dagster_job_name=str(dagster_run.job_name),
+            dagster_run_id=str(dagster_run.run_id),
+        )
+    except Exception as exc:  # pragma: no cover - sensor logging safety net
+        context.log.warning("failed to write research campaign failure summary: %s", exc)
+    return None
 
 
 research_definitions = Definitions(
@@ -3543,7 +5098,7 @@ research_definitions = Definitions(
         research_backtest_job,
         research_projection_job,
     ],
-    sensors=[],
+    sensors=[research_campaign_failure_summary_sensor],
 )
 
 
@@ -3557,10 +5112,28 @@ def assert_research_definitions_executable(definitions: Definitions | None = Non
         MOEX_INDICATOR_REBUILD_JOB_NAME: set(MOEX_INDICATOR_REBUILD_ASSETS),
         MOEX_DERIVED_INDICATOR_REBUILD_JOB_NAME: set(MOEX_DERIVED_INDICATOR_REBUILD_ASSETS),
         MOEX_RESEARCH_INDICATOR_SIDECAR_JOB_NAME: set(MOEX_RESEARCH_INDICATOR_SIDECAR_ASSETS),
-        STRATEGY_REGISTRY_REFRESH_JOB_NAME: set(STRATEGY_REGISTRY_REFRESH_EXECUTION_ASSETS),
-        RESEARCH_BACKTEST_JOB_NAME: set(RESEARCH_BACKTEST_ASSETS),
-        RESEARCH_PROJECTION_JOB_NAME: set(RESEARCH_PROJECTION_ASSETS),
+        STRATEGY_REGISTRY_REFRESH_JOB_NAME: {
+            RESEARCH_CAMPAIGN_CONTEXT_ASSET,
+            *STRATEGY_REGISTRY_REFRESH_EXECUTION_ASSETS,
+        },
+        RESEARCH_BACKTEST_JOB_NAME: {
+            RESEARCH_CAMPAIGN_CONTEXT_ASSET,
+            *RESEARCH_BACKTEST_ASSETS,
+            RESEARCH_CAMPAIGN_BACKTEST_SUMMARY_ASSET,
+        },
+        RESEARCH_PROJECTION_JOB_NAME: {
+            RESEARCH_CAMPAIGN_CONTEXT_ASSET,
+            *RESEARCH_PROJECTION_ASSETS,
+            RESEARCH_CAMPAIGN_PROJECTION_SUMMARY_ASSET,
+        },
     }
+    job_names = {job.name for job in repository.get_all_jobs()}
+    if RESEARCH_DATA_PREP_JOB_NAME in job_names:
+        expected_by_job[RESEARCH_DATA_PREP_JOB_NAME] = {
+            RESEARCH_CAMPAIGN_CONTEXT_ASSET,
+            *RESEARCH_DATA_PREP_JOB_ASSETS,
+            RESEARCH_CAMPAIGN_DATA_PREP_SUMMARY_ASSET,
+        }
     for job_name, expected_assets in expected_by_job.items():
         job = repository.get_job(job_name)
         actual_nodes = set(job.graph.node_dict.keys())
@@ -4701,12 +6274,15 @@ def materialize_research_backtest_assets(
     continuous_front_policy: dict[str, object] | None = None,
     dataset_contract_ids: Sequence[str] = (),
     dataset_instrument_ids: Sequence[str] = (),
+    spark_master: str = "",
     indicator_set_version: str = "indicators-v1",
     indicator_profile_version: str = "core_v1",
     derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
     derived_indicator_profile_version: str = "core_v1",
     volume_profile_raw_1m_table_path: str | Path | None = None,
     volume_profile_tick_size_by_instrument: Mapping[str, float] | None = None,
+    continuous_front_indicator_qc_mode: str = "hot_path",
+    continuous_front_indicator_sidecar_materialization_mode: str = "auto",
     code_version: str = "research-backtest-orchestration",
     strategy_space: dict[str, object] | None = None,
     combination_count: int = 1,
@@ -4765,6 +6341,7 @@ def materialize_research_backtest_assets(
         continuous_front_policy=continuous_front_policy,
         dataset_contract_ids=dataset_contract_ids,
         dataset_instrument_ids=dataset_instrument_ids,
+        spark_master=spark_master,
         default_assets=RESEARCH_BACKTEST_ASSETS,
         allowed_assets=RESEARCH_BACKTEST_ASSETS,
         selection=selection,
@@ -4774,6 +6351,10 @@ def materialize_research_backtest_assets(
         derived_indicator_profile_version=derived_indicator_profile_version,
         volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
         volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
+        continuous_front_indicator_qc_mode=continuous_front_indicator_qc_mode,
+        continuous_front_indicator_sidecar_materialization_mode=(
+            continuous_front_indicator_sidecar_materialization_mode
+        ),
         code_version=code_version,
         strategy_space=strategy_space,
         combination_count=combination_count,
@@ -4808,6 +6389,7 @@ def materialize_research_backtest_assets(
         min_robust_score=min_robust_score,
         decision_lag_bars_max=decision_lag_bars_max,
         reuse_existing_materialization=reuse_existing_materialization,
+        expand_dependencies=not reuse_existing_materialization,
         raise_on_error=raise_on_error,
     )
 
@@ -4834,12 +6416,15 @@ def materialize_research_projection_assets(
     continuous_front_policy: dict[str, object] | None = None,
     dataset_contract_ids: Sequence[str] = (),
     dataset_instrument_ids: Sequence[str] = (),
+    spark_master: str = "",
     indicator_set_version: str = "indicators-v1",
     indicator_profile_version: str = "core_v1",
     derived_indicator_set_version: str = DEFAULT_DERIVED_INDICATOR_SET_VERSION,
     derived_indicator_profile_version: str = "core_v1",
     volume_profile_raw_1m_table_path: str | Path | None = None,
     volume_profile_tick_size_by_instrument: Mapping[str, float] | None = None,
+    continuous_front_indicator_qc_mode: str = "hot_path",
+    continuous_front_indicator_sidecar_materialization_mode: str = "auto",
     code_version: str = "research-projection-orchestration",
     strategy_space: dict[str, object] | None = None,
     combination_count: int = 1,
@@ -4898,6 +6483,7 @@ def materialize_research_projection_assets(
         continuous_front_policy=continuous_front_policy,
         dataset_contract_ids=dataset_contract_ids,
         dataset_instrument_ids=dataset_instrument_ids,
+        spark_master=spark_master,
         default_assets=RESEARCH_PROJECTION_ASSETS,
         allowed_assets=RESEARCH_PROJECTION_ASSETS,
         selection=selection,
@@ -4907,6 +6493,10 @@ def materialize_research_projection_assets(
         derived_indicator_profile_version=derived_indicator_profile_version,
         volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
         volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
+        continuous_front_indicator_qc_mode=continuous_front_indicator_qc_mode,
+        continuous_front_indicator_sidecar_materialization_mode=(
+            continuous_front_indicator_sidecar_materialization_mode
+        ),
         code_version=code_version,
         strategy_space=strategy_space,
         combination_count=combination_count,
