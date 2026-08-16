@@ -25,7 +25,6 @@ source_refs:
 - docs/architecture/repository-surfaces.md
 - docs/agent/entrypoint.md
 - docs/agent/checks.md
-- docs/agent/skills-routing.md
 dfd_refs:
 - docs/obsidian/dfd/level-1-delivery-shell.md
 proof_refs:
@@ -35,8 +34,7 @@ proof_refs:
 
 # Delivery Shell
 
-Control plane for policy, context routing, risk-triggered skill selection,
-gates, PR evidence, and closeout.
+Control plane for policy, context routing, gates, PR evidence, and closeout.
 
 ## Current Note
 

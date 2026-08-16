@@ -12,7 +12,7 @@ needs_user_attention: false
 confidence: medium
 last_verified: 2026-05-05
 update_rule: source-doc-backed
-state_source: docs/agent/entrypoint.md, docs/agent/skills-routing.md
+state_source: docs/agent/entrypoint.md
 tags:
 - ta3000/project-node
 - ta3000/project-graph
@@ -23,20 +23,18 @@ source_refs:
 - AGENTS.md
 - docs/agent/entrypoint.md
 - docs/agent/domains.md
-- docs/agent/skills-routing.md
 - docs/agent-contexts/README.md
 dfd_refs:
-- docs/obsidian/dfd/level-2-shell-context-and-skill-routing.md
+- docs/obsidian/dfd/level-2-shell-context-routing.md
 proof_refs:
 - scripts/context_router.py
 - scripts/validate_agent_contexts.py
-- scripts/validate_skills.py
 ---
 
 # Agent Entry And Routing
 
-Entry docs, domain routing, skill selection, and context-card orientation for
-agent work in the repository.
+Entry docs, domain routing, and context-card orientation for agent work in the
+repository.
 
 ## Graph Links
 
@@ -45,5 +43,4 @@ agent work in the repository.
 
 ## Update Rule
 
-Update this node when agent entry docs, routing rules, skill rules, or context
-cards change.
+Update this node when agent entry docs, routing rules, or context cards change.

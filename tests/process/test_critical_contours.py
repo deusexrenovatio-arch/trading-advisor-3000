@@ -244,4 +244,4 @@ def test_context_router_adds_critical_contour_policy_signals() -> None:
     context_ids = [entry["id"] for entry in result["contexts"]]
     assert "data-integration-closure" in result["critical_contours"]
     assert "CTX-ARCHITECTURE" in context_ids
-    assert "qa-test-engineer" in result["required_review_lenses"]
+    assert "required_review_lenses" not in result

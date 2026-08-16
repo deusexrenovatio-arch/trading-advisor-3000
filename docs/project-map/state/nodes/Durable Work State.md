@@ -23,7 +23,7 @@ source_refs:
 - docs/DEV_WORKFLOW.md
 - docs/agent/runtime.md
 dfd_refs:
-- docs/obsidian/dfd/level-2-shell-context-and-skill-routing.md
+- docs/obsidian/dfd/level-2-shell-context-routing.md
 proof_refs:
 - scripts/validate_plans.py
 - scripts/validate_agent_memory.py

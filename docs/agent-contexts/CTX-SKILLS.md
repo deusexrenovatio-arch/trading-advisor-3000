@@ -6,8 +6,8 @@ Repo-local product-plane skills catalog and skill governance policy.
 ## Inside This Context
 - Repo-local skill catalog policy, generated skill catalog, validation scripts, and legacy Cursor cleanup state.
 - This context governs when TA3000-specific skill material is allowed in the repo.
-- Typical questions: is this skill generic or repo-local, is the catalog generated from the active root, did legacy `.cursor/skills` grow?
-- Not inside: global Codex skills themselves.
+- Typical questions: is this skill TA3000-specific, is the catalog generated from the active root, did legacy `.cursor/skills` grow?
+- Not inside: ordinary engineering process.
 
 ## Access Policy
 - Keep `.codex/skills/**` and legacy `.cursor/skills/**` cold-by-default in hot context.
@@ -36,7 +36,6 @@ Repo-local product-plane skills catalog and skill governance policy.
 
 ## Navigation Notes
 - Keep repo-local skill files cold unless the task is explicitly TA3000-specific.
-- Generic process, testing, architecture, and review skills belong in the global Codex skill root.
 
 ## Minimum Checks
 - `python scripts/validate_skills.py`
