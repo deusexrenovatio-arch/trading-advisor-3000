@@ -6,6 +6,8 @@ import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
+from urllib.parse import unquote, urlparse
+from urllib.request import url2pathname
 
 from deltalake import DeltaTable
 
@@ -146,23 +148,53 @@ def finalize_rebuild_storage_layout(
     resolved_run_id = run_id.strip()
     if not resolved_run_id:
         raise ValueError("rebuild layout run_id must be non-empty")
+    if not published_current_roots:
+        raise ValueError("rebuild layout published_current_roots must be explicitly supplied")
     source, target = _ensure_distinct_roots(source_root, target_root)
     current_roots = _ensure_outside_published_current(
         source, published_current_roots, label="source_root"
     )
     _ensure_outside_published_current(target, current_roots, label="target_root")
     _ensure_outside_published_current(report_path, current_roots, label="report_path")
+    report = report_path.resolve()
+    temporary_report = report.with_name(f".{report.name}.tmp").resolve()
+    for output in (report, temporary_report):
+        _ensure_outside_published_current(output, current_roots, label="report_path")
+        if (
+            any(
+                _is_relative_to(output, root) or _is_relative_to(root, output)
+                for root in (source, target)
+            )
+            or output == layout.manifest_path.resolve()
+        ):
+            raise ValueError("rebuild layout report_path must be outside data roots and manifest")
     if target.exists():
         raise FileExistsError(
             "rebuild layout target_root already exists; use a fresh isolated root: "
             f"{target.as_posix()}"
         )
 
+    table_paths = []
+    for table in layout.tables:
+        source_path = layout.table_path(source, table.name).resolve()
+        staged_path = layout.table_path(target, table.name).resolve()
+        for path, root, label in (
+            (source_path, source, "source table"),
+            (staged_path, target, "target table"),
+        ):
+            if path == root or not _is_relative_to(path, root):
+                raise ValueError(f"rebuild layout {label} must stay inside its root")
+            _ensure_outside_published_current(path, current_roots, label=label)
+        table_paths.append((table, source_path, staged_path))
+    for index, (_, source_path, staged_path) in enumerate(table_paths):
+        for _, other_source, other_target in table_paths[:index]:
+            for left, right in ((source_path, other_source), (staged_path, other_target)):
+                if _is_relative_to(left, right) or _is_relative_to(right, left):
+                    raise ValueError("rebuild layout resolved table paths must not overlap")
+
     table_reports: list[dict[str, object]] = []
     blockers: list[str] = []
-    for table in layout.tables:
-        source_path = layout.table_path(source, table.name)
-        staged_path = layout.table_path(target, table.name)
+    for table, source_path, staged_path in table_paths:
         if not has_delta_log(source_path):
             table_blockers = ["missing_source_delta_log"]
             proof: dict[str, object] = {
@@ -242,11 +274,14 @@ def finalize_rebuild_storage_layout(
 
 
 def _parquet_file_profile(table_path: Path) -> dict[str, object]:
-    files = sorted(
-        path
-        for path in table_path.rglob("*.parquet")
-        if "_delta_log" not in path.relative_to(table_path).parts
-    )
+    files = []
+    for uri in DeltaTable(str(table_path)).file_uris():
+        parsed = urlparse(uri)
+        path = Path(url2pathname(parsed.path)) if parsed.scheme == "file" else Path(unquote(uri))
+        path = path.resolve()
+        if not _is_relative_to(path, table_path.resolve()):
+            raise ValueError("rebuild layout active Delta file must stay inside table root")
+        files.append(path)
     files_by_partition: dict[str, int] = {}
     max_file_bytes_by_partition: dict[str, int] = {}
     for path in files:
@@ -287,9 +322,12 @@ class SparkDeltaTableMaterializer:
         mode: str,
         max_rows_per_file: int | None = None,
     ) -> None:
-        writer = dataframe.write.format("delta").mode(mode).option("overwriteSchema", "true")
-        if max_rows_per_file is not None:
-            writer = writer.option("maxRecordsPerFile", str(max_rows_per_file))
+        writer = (
+            dataframe.write.format("delta")
+            .mode(mode)
+            .option("overwriteSchema", "true")
+            .option("maxRecordsPerFile", str(max_rows_per_file or 0))
+        )
         if table.partition_by:
             writer = writer.partitionBy(*table.partition_by)
         writer.save(str(staged_path))
@@ -385,7 +423,13 @@ class SparkDeltaTableMaterializer:
     ) -> dict[str, object]:
         from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
-        source = self._spark.read.format("delta").load(str(source_path))
+        source_version = DeltaTable(str(source_path)).version()
+        self._spark.conf.set("spark.sql.session.timeZone", "UTC")
+        source = (
+            self._spark.read.format("delta")
+            .option("versionAsOf", source_version)
+            .load(str(source_path))
+        )
         source_columns = set(source.columns)
         if table.partition_source_column is not None:
             if table.partition_source_column not in source_columns:
@@ -401,6 +445,8 @@ class SparkDeltaTableMaterializer:
                 "ts_close_year",
                 F.year(F.col(table.partition_source_column).cast("timestamp")).cast("int"),
             )
+            if source.where(F.col("ts_close_year").isNull()).limit(1).count():
+                raise RuntimeError(f"{table.name} contains invalid year partition timestamps")
 
         source_row_count = int(source.count())
         sort_columns = [column for column in table.sort_columns if column in source.columns]
@@ -442,6 +488,7 @@ class SparkDeltaTableMaterializer:
                 else "BLOCKED"
             ),
             "source_row_count": source_row_count,
+            "source_delta_version": source_version,
             "row_count": staged_row_count,
             "partition_columns": list(partition_columns),
             "delta_log": has_delta_log(staged_path),

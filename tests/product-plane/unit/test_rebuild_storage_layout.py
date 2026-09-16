@@ -196,6 +196,7 @@ def test_layout_finalizer_materializes_every_table_into_isolated_root(tmp_path: 
         report_path=report_path,
         run_id="layout-test",
         materializer=materializer,
+        published_current_roots=(tmp_path / "published",),
     )
 
     assert report["status"] == "PASS"
@@ -225,6 +226,7 @@ def test_layout_finalizer_blocks_overlap_and_oversized_files(tmp_path: Path) -> 
             report_path=tmp_path / "overlap.json",
             run_id="layout-test",
             materializer=_RecordingMaterializer(),
+            published_current_roots=(tmp_path / "published",),
         )
 
     with pytest.raises(RuntimeError, match="512 MiB"):
@@ -235,6 +237,7 @@ def test_layout_finalizer_blocks_overlap_and_oversized_files(tmp_path: Path) -> 
             report_path=tmp_path / "oversize.json",
             run_id="layout-test",
             materializer=_RecordingMaterializer(oversize=True),
+            published_current_roots=(tmp_path / "published",),
         )
 
 
@@ -292,6 +295,7 @@ def test_layout_finalizer_allows_only_proven_size_driven_extra_files(tmp_path: P
         report_path=tmp_path / "size-split.json",
         run_id="layout-test",
         materializer=_RecordingMaterializer(proven_size_split=True),
+        published_current_roots=(tmp_path / "published",),
     )
 
     assert report["status"] == "PASS"
@@ -311,6 +315,7 @@ def test_layout_finalizer_rejects_more_than_minimum_size_split(tmp_path: Path) -
             report_path=tmp_path / "excessive-size-split.json",
             run_id="layout-test",
             materializer=_RecordingMaterializer(excessive_size_split=True),
+            published_current_roots=(tmp_path / "published",),
         )
 
 
@@ -335,3 +340,99 @@ def test_layout_finalizer_has_governed_dagster_job_binding(tmp_path: Path) -> No
     ).product_plane_definitions
     job = product_defs.get_repository_def().get_job("rebuild_storage_layout_job")
     assert set(job.graph.node_dict) == {"rebuild_storage_layout"}
+
+
+@pytest.mark.parametrize("report_location", ["source", "target", "manifest"])
+def test_layout_finalizer_rejects_report_collisions_before_writing(
+    tmp_path: Path, report_location: str
+) -> None:
+    manifest = _layout_manifest(tmp_path / "layout.yaml")
+    original_manifest = manifest.read_bytes()
+    layout = _load_layout_builder()(manifest)
+    source = tmp_path / "compute"
+    target = tmp_path / "final"
+    _source_tables(source)
+    materializer = _RecordingMaterializer()
+    report = {
+        "source": source / "canonical/moex/canonical_bars.delta/_delta_log/000.json",
+        "target": target / "canonical/moex/canonical_bars.delta/_delta_log/000.json",
+        "manifest": manifest,
+    }[report_location]
+    with pytest.raises(ValueError, match="report_path"):
+        _load_layout_runner()(
+            layout=layout,
+            source_root=source,
+            target_root=target,
+            report_path=report,
+            run_id="collision",
+            materializer=materializer,
+            published_current_roots=(tmp_path / "published",),
+        )
+    assert not materializer.calls
+    assert not target.exists()
+    assert manifest.read_bytes() == original_manifest
+
+
+def test_layout_loader_rejects_nested_table_paths(tmp_path: Path) -> None:
+    manifest = _layout_manifest(tmp_path / "layout.yaml")
+    payload = yaml.safe_load(manifest.read_text(encoding="utf-8"))
+    payload["tables"][1]["path"] = payload["tables"][0]["path"] + "/child.delta"
+    manifest.write_text(yaml.safe_dump(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="overlap"):
+        _load_layout_builder()(manifest)
+
+
+def test_layout_finalizer_rejects_source_table_link_escape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    layout = _load_layout_builder()(_layout_manifest(tmp_path / "layout.yaml"))
+    source = tmp_path / "compute"
+    _source_tables(source)
+    linked_table = layout.table_path(source, "canonical_bars")
+    resolve = Path.resolve
+
+    def resolve_link(path, *args, **kwargs):
+        if path == linked_table:
+            return tmp_path / "published" / "bars.delta"
+        return resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", resolve_link)
+    materializer = _RecordingMaterializer()
+    with pytest.raises(ValueError, match="source table"):
+        _load_layout_runner()(
+            layout=layout,
+            source_root=source,
+            target_root=tmp_path / "final",
+            report_path=tmp_path / "report.json",
+            run_id="linked-source",
+            materializer=materializer,
+            published_current_roots=(tmp_path / "published",),
+        )
+    assert not materializer.calls
+
+
+def test_layout_file_profile_counts_only_active_delta_files(tmp_path: Path) -> None:
+    import pyarrow as pa
+    from deltalake import DeltaTable, write_deltalake
+
+    from trading_advisor_3000.spark_jobs.rebuild_storage_layout_job import _parquet_file_profile
+
+    table = tmp_path / "table.delta"
+    write_deltalake(str(table), pa.table({"value": [1]}))
+    write_deltalake(str(table), pa.table({"value": [2]}), mode="overwrite")
+    assert len(list(table.glob("*.parquet"))) == 2
+    assert len(DeltaTable(str(table)).file_uris()) == 1
+    assert _parquet_file_profile(table)["parquet_files"] == 1
+
+
+def test_layout_finalizer_requires_published_roots(tmp_path: Path) -> None:
+    layout = _load_layout_builder()(_layout_manifest(tmp_path / "layout.yaml"))
+    with pytest.raises(ValueError, match="published_current_roots"):
+        _load_layout_runner()(
+            layout=layout,
+            source_root=tmp_path / "source",
+            target_root=tmp_path / "target",
+            report_path=tmp_path / "report.json",
+            run_id="missing-protection",
+            materializer=_RecordingMaterializer(),
+        )

@@ -50,6 +50,10 @@ Optional: `spark_master`.
 
 The source and target roots must be disjoint. Source, target, and report paths
 must not overlap published `current`. The target must not already exist.
+Published roots must be supplied explicitly. The report and its temporary file
+must stay outside both data roots and must not replace the layout manifest.
+Resolved table paths must remain inside their roots and must not overlap other
+tables, including through directory links.
 A heavy table normally produces one file per non-empty
 `ts_close_year`. If that file exceeds the manifest limit, the writer performs
 the smallest proven size-driven split and records it in
@@ -57,6 +61,27 @@ the smallest proven size-driven split and records it in
 
 Any missing source `_delta_log`, row-count mismatch, partition drift,
 unexplained extra file, or oversized final file blocks the job.
+
+Each table read pins a Delta version and records `source_delta_version` in its
+proof. File counts and sizes use active Delta files, excluding tombstones and
+checkpoints. UTC year derivation rejects null or invalid timestamps. The writer
+sets its file-record limit explicitly so ambient Spark settings cannot silently
+override the layout contract.
+
+## Review And Validation Boundary
+
+Regression tests cover report collisions, overlapping table paths, resolved
+path escapes, missing published-root protection, and active-file accounting.
+Spark/Delta integration tests cover partitioned and unpartitioned writes,
+size-driven splitting, row equality, invalid dates, and a source append during
+materialization. Dagster definition tests verify registration with current main.
+
+The finalizer changes physical layout only. It does not acquire data, trim the
+target window, validate business keys, or establish one cross-table snapshot.
+Freeze upstream versions before running it; the separate semantic QC contract
+still owns dataset identity, warmup exclusion, completeness, and promotion.
+Unusual compression or row-size skew that cannot satisfy the strict minimum
+file count and size limit remains blocked, rather than silently relaxing policy.
 
 ## Remaining Gate
 

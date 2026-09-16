@@ -179,6 +179,8 @@ def load_rebuild_storage_layout(path: Path) -> RebuildStorageLayout:
         raise ValueError("rebuild layout table names must be unique")
     if len(paths) != len(set(paths)):
         raise ValueError("rebuild layout table paths must be unique")
+    if any(left in right.parents or right in left.parents for left in paths for right in paths):
+        raise ValueError("rebuild layout table paths must not overlap")
 
     totals = _required_mapping(payload, "totals")
     required_tables = _positive_int(totals, "required_tables")
