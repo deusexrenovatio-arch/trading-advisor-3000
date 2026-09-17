@@ -4,6 +4,11 @@ from typing import TYPE_CHECKING
 
 from .pipeline import run_sample_backfill
 from .providers import DataProviderRegistry, DataProviderSpec, default_data_provider_registry
+from .rebuild_layout import (
+    RebuildStorageLayout,
+    RebuildTableLayout,
+    load_rebuild_storage_layout,
+)
 
 if TYPE_CHECKING:
     from .moex import (
@@ -35,7 +40,10 @@ def __getattr__(name: str) -> object:
 __all__ = [
     "DataProviderRegistry",
     "DataProviderSpec",
+    "RebuildStorageLayout",
+    "RebuildTableLayout",
     "default_data_provider_registry",
+    "load_rebuild_storage_layout",
     "run_historical_canonical_route",
     "run_moex_foundation",
     "run_moex_operational_hardening",

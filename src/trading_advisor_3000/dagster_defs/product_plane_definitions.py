@@ -12,6 +12,7 @@ from .moex_historical_assets import (
     moex_baseline_update_job,
     moex_data_rebuild_job,
 )
+from .rebuild_storage_layout_assets import rebuild_storage_layout_job
 from .research_assets import (
     MOEX_CF_CATCH_UP_AFTER_MOEX_BASELINE_SENSOR_NAME,
     MOEX_CF_CATCH_UP_JOB_NAME,
@@ -75,6 +76,7 @@ product_plane_definitions = Definitions(
     jobs=[
         moex_baseline_update_job,
         moex_data_rebuild_job,
+        rebuild_storage_layout_job,
         research_data_prep_job,
         moex_cf_catch_up_job,
         moex_cf_rebuild_job,
