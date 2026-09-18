@@ -34,12 +34,16 @@ Canonical, research, publication and scheduler remain outside this authorization
   active scope is downloaded again, while its original bytes remain preserved.
 - HTTP concurrency is bounded to 16 workers; initial operation uses 12 with a
   shared 16 requests/second limit. Overload responses reduce the requested rate.
+- The parallel connector reuses one HTTP connection per active scope, including
+  native request retries, through the existing httpx dependency. Sequential
+  callers retain the original urllib transport. A real local HTTP server proves
+  connection reuse and the retry contract.
 - Docker temporary storage must permit native library execution (`/tmp:rw,exec`).
   Dagster whole-stage retries are zero. Production data roots are not mounted.
 
 ## Verification and self-review
 
-Six focused tests cover sequential output parity, cutoff filtering, partial
+Seven focused tests cover sequential output parity, cutoff filtering, partial
 failure/resume, corruption, overlapping scopes, concurrent workers and duplicate
 writers, and source preservation across failed Delta attempts. Native Linux proof checks actual Delta commit/readback, UTC timestamps
 and unique keys; synthetic proof does not establish real-data completeness.

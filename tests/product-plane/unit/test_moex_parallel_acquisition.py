@@ -1,5 +1,6 @@
 from dataclasses import replace
-from threading import Barrier, Lock
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Barrier, Lock, Thread
 
 import pytest
 
@@ -7,6 +8,8 @@ from trading_advisor_3000.product_plane.data_plane.moex import foundation
 from trading_advisor_3000.product_plane.data_plane.moex.foundation import DiscoveryRecord
 from trading_advisor_3000.product_plane.data_plane.moex.iss_client import MoexCandle
 from trading_advisor_3000.product_plane.data_plane.moex.parallel_acquisition import (
+    LimitedMoexClient,
+    RequestLimiter,
     combine_sources,
     download_scopes,
     materialize_sources,
@@ -115,6 +118,47 @@ def test_corruption_stops_resume_without_overwrite(tmp_path):
     assert Client.calls == ["TEST"]
     with pytest.raises(ValueError, match="checksum"):
         combine_sources(scopes, tmp_path)
+
+
+def test_http_connection_is_reused_and_native_http_retry_is_preserved():
+    connections = []
+    events = []
+
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def do_GET(self):
+            connections.append(self.client_address)
+            body = b'{"ok": true}'
+            self.send_response(503 if len(connections) == 1 else 200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    client = LimitedMoexClient(
+        limiter=RequestLimiter(32),
+        base_url=f"http://127.0.0.1:{server.server_port}",
+        retry_backoff_seconds=0,
+        request_event_hook=events.append,
+    )
+    try:
+        assert client._get_json("/retry", params={}) == {"ok": True}
+        assert client._get_json("/again", params={}) == {"ok": True}
+        assert len(connections) == 3
+        assert connections[-1] == connections[-2]
+        assert [event["status"] for event in events] == ["retry", "success", "success"]
+    finally:
+        client.close()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
 
 
 def test_overlapping_scope_keys_and_invalid_worker_limits_are_rejected(tmp_path):

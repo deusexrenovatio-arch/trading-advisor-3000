@@ -7,10 +7,14 @@ import shutil
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError, URLError
 from uuid import uuid4
+
+import httpx
 
 from .foundation import (
     DiscoveryRecord,
@@ -100,10 +104,33 @@ class LimitedMoexClient(MoexISSClient):
     def __init__(self, *, limiter: RequestLimiter, **kwargs: Any):
         super().__init__(**kwargs)
         self.limiter = limiter
+        self.http = httpx.Client(
+            follow_redirects=True,
+            limits=httpx.Limits(max_connections=1, max_keepalive_connections=1, keepalive_expiry=30)
+        )
 
-    def _get_json(self, path: str, *, params: dict[str, str], event_context=None):
+    @contextmanager
+    def _open_request(self, req, *, timeout):
         self.limiter.acquire()
-        return super()._get_json(path, params=params, event_context=event_context)
+        try:
+            with self.http.stream(
+                "GET", req.full_url, headers=dict(req.header_items()), timeout=timeout
+            ) as response:
+                response.read()
+                if response.status_code >= 400:
+                    raise HTTPError(
+                        req.full_url,
+                        response.status_code,
+                        response.reason_phrase,
+                        response.headers,
+                        None,
+                    )
+                yield response
+        except httpx.HTTPError as exc:
+            raise URLError(f"{type(exc).__name__}: {exc}") from exc
+
+    def close(self):
+        self.http.close()
 
 
 def read_checkpoint(root: Path, scope: dict[str, Any]) -> dict[str, Any] | None:
@@ -152,8 +179,6 @@ def _download_one(scope, root, run_id, ingested_at_utc, client_factory, limiter)
             handle.write(json.dumps(payload, ensure_ascii=True) + "\n")
         if "429" in str(payload.get("error", "")) or "503" in str(payload.get("error", "")):
             limiter.cool_down()
-        if payload.get("status") == "retry":
-            limiter.acquire()
 
     client = client_factory(request_event_hook=request_event)
     try:
@@ -213,6 +238,10 @@ def _download_one(scope, root, run_id, ingested_at_utc, client_factory, limiter)
     except Exception as exc:
         _write_json(pending / "error.json", {"error": str(exc), "scope_id": scope["id"]})
         raise
+    finally:
+        close = getattr(client, "close", None)
+        if close is not None:
+            close()
 
 
 def _download_scopes(
