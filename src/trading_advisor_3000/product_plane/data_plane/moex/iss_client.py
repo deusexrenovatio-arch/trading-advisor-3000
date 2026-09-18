@@ -269,7 +269,7 @@ class MoexISSClient:
             req = request.Request(url, headers={"User-Agent": self.user_agent})
             started = time.perf_counter()
             try:
-                with request.urlopen(req, timeout=timeout_seconds) as response:
+                with self._open_request(req, timeout=timeout_seconds) as response:
                     content_type = str(
                         getattr(response, "headers", {}).get("Content-Type", "") or ""
                     ).strip()
@@ -355,6 +355,9 @@ class MoexISSClient:
         raise MoexRequestError(
             url=url, params=params, attempts=max_retries + 1, last_error=last_error
         ) from last_error
+
+    def _open_request(self, req, *, timeout):
+        return request.urlopen(req, timeout=timeout)
 
     def fetch_candleborders(
         self,
