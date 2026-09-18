@@ -106,7 +106,9 @@ class LimitedMoexClient(MoexISSClient):
         self.limiter = limiter
         self.http = httpx.Client(
             follow_redirects=True,
-            limits=httpx.Limits(max_connections=1, max_keepalive_connections=1, keepalive_expiry=30)
+            limits=httpx.Limits(
+                max_connections=1, max_keepalive_connections=1, keepalive_expiry=30
+            ),
         )
 
     @contextmanager
