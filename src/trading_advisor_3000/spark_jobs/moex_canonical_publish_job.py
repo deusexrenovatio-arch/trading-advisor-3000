@@ -8,6 +8,7 @@ from time import perf_counter
 from typing import Any, Callable
 from uuid import uuid4
 
+from trading_advisor_3000.product_plane.common.table_layout import with_spark_close_year
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log
 from trading_advisor_3000.product_plane.data_plane.schemas import (
     historical_data_delta_schema_manifest,
@@ -288,6 +289,30 @@ def _merge_upsert_delta_dataframe(
         .whenNotMatchedInsertAll()
         .execute()
     )
+
+
+def _with_existing_target_close_year(
+    *,
+    spark: Any,
+    table_path: Path,
+    dataframe: Any,
+    close_provenance: Any,
+    functions: Any,
+) -> Any:
+    if _delta_table_partition_columns(spark, table_path) != ("ts_close_year",):
+        return dataframe
+    close_keys = close_provenance.select(
+        *CANONICAL_KEY_COLUMNS, functions.col("bar_end_ts").alias("ts_close")
+    )
+    years = with_spark_close_year(close_keys, functions=functions).select(
+        *CANONICAL_KEY_COLUMNS, "ts_close_year"
+    )
+    if years.groupBy(*CANONICAL_KEY_COLUMNS).count().where("count != 1").limit(1).count():
+        raise ValueError("canonical UTC close-year join has duplicate provenance keys")
+    prepared = dataframe.join(years, list(CANONICAL_KEY_COLUMNS), "left")
+    if prepared.where(functions.col("ts_close_year").isNull()).limit(1).count():
+        raise ValueError("canonical UTC close-year join is missing authoritative provenance")
+    return prepared
 
 
 def _merge_replace_delta_dataframe(
@@ -1221,7 +1246,13 @@ def run_moex_canonical_publish_spark_delta_job(
                     _merge_replace_delta_dataframe(
                         spark=spark,
                         table_path=target_bars_path,
-                        staged_dataframe=staged_bars_df,
+                        staged_dataframe=_with_existing_target_close_year(
+                            spark=spark,
+                            table_path=target_bars_path,
+                            dataframe=staged_bars_df,
+                            close_provenance=staged_provenance_df,
+                            functions=functions,
+                        ),
                         stale_keys_path=stale_bar_keys_path,
                         stale_key_count=stale_bar_rows,
                         key_columns=CANONICAL_KEY_COLUMNS,
@@ -1253,7 +1284,13 @@ def run_moex_canonical_publish_spark_delta_job(
                     _merge_replace_delta_dataframe(
                         spark=spark,
                         table_path=target_provenance_path,
-                        staged_dataframe=staged_provenance_df,
+                        staged_dataframe=_with_existing_target_close_year(
+                            spark=spark,
+                            table_path=target_provenance_path,
+                            dataframe=staged_provenance_df,
+                            close_provenance=staged_provenance_df,
+                            functions=functions,
+                        ),
                         stale_keys_path=stale_provenance_keys_path,
                         stale_key_count=stale_provenance_rows,
                         key_columns=CANONICAL_KEY_COLUMNS,
