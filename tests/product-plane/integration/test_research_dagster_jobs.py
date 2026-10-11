@@ -105,6 +105,126 @@ requires_spark_delta_runtime = pytest.mark.skipif(
 )
 
 
+@requires_spark_delta_runtime
+def test_research_l0_year_writer_retains_identity_history_and_values(tmp_path: Path) -> None:
+    from deltalake import DeltaTable
+    from pyspark.sql import functions as F
+
+    from trading_advisor_3000.spark_jobs import research_bar_views_job as owner
+
+    spark = owner._create_spark_session("research-close-year-proof", "local[2]")
+    proof = {"scope": "isolated native writer fixture", "tables": []}
+    try:
+        spark.conf.set("spark.sql.session.timeZone", "Europe/Moscow")
+        proof["actual_jvm_max_heap_bytes"] = int(
+            spark.sparkContext._jvm.java.lang.Runtime.getRuntime().maxMemory()
+        )
+        columns = list(research_dataset_store_contract()["research_bar_views"]["columns"])
+        rows = []
+        for timeframe, opened, closed in (
+            ("1m", datetime(2026, 12, 31, 23, 59, tzinfo=UTC), datetime(2027, 1, 1, tzinfo=UTC)),
+            ("1d", datetime(2026, 12, 31, tzinfo=UTC), datetime(2026, 12, 31, 22, 1, tzinfo=UTC)),
+        ):
+            row = dict.fromkeys([*columns, "ts_close_year"])
+            row.update(
+                dataset_version="year-proof",
+                contour_id="native_tradable",
+                contract_id="BR-3.27",
+                instrument_id="FUT_BR",
+                series_mode="contract",
+                series_id="BR-3.27",
+                timeframe=timeframe,
+                ts=opened,
+                bar_end_ts=closed,
+                close=1.0,
+                ts_close_year=1999,
+            )
+            rows.append(row)
+        frame = spark.createDataFrame(rows, owner._schema_from_contract("research_bar_views"))
+        for physical_type in ("int", "long"):
+            path = tmp_path / physical_type / "research_bar_views.delta"
+            scope = [("dataset_version", "=", "year-proof")]
+            if physical_type == "int":
+                owner._write_spark_delta_table(
+                    dataframe=frame,
+                    table_path=path,
+                    table_name="research_bar_views",
+                    replace_scope=scope,
+                )
+            else:
+                owner._cast_to_contract(frame, "research_bar_views").withColumn(
+                    "ts_close_year", F.col("ts_close_year").cast("long")
+                ).write.format("delta").partitionBy("ts_close_year").save(str(path))
+            old = DeltaTable(str(path))
+            identity, version = old.metadata().id, old.version()
+            old_rows = sorted(
+                old.to_pyarrow_table(columns=["timeframe", "close"]).to_pylist(),
+                key=lambda row: row["timeframe"],
+            )
+            owner._write_spark_delta_table(
+                dataframe=frame.withColumn("close", F.lit(3.0)),
+                table_path=path,
+                table_name="research_bar_views",
+                replace_scope=scope,
+            )
+            current = DeltaTable(str(path))
+            assert current.metadata().id == identity
+            assert current.metadata().partition_columns == ["ts_close_year"]
+            assert (
+                sorted(
+                    DeltaTable(str(path), version=version)
+                    .to_pyarrow_table(columns=["timeframe", "close"])
+                    .to_pylist(),
+                    key=lambda row: row["timeframe"],
+                )
+                == old_rows
+            )
+            actual = current.to_pyarrow_table(
+                columns=["timeframe", "ts", "bar_end_ts", "close", "ts_close_year"]
+            ).to_pylist()
+            assert {r["timeframe"]: r["ts_close_year"] for r in actual} == {"1m": 2027, "1d": 2026}
+            for row in actual:
+                original = next(r for r in rows if r["timeframe"] == row["timeframe"])
+                assert row["ts"].timestamp() == original["ts"].timestamp()
+                assert row["bar_end_ts"].timestamp() == original["bar_end_ts"].timestamp()
+                assert row["close"] == 3.0
+            assert owner._validate_tables({"research_bar_views": str(path)}) == []
+            actions = current.get_add_actions(flatten=True).to_pylist()
+            assert len(actions) == 2
+            assert all(0 < item["size_bytes"] <= 512 * 1024 * 1024 for item in actions)
+            assert spark.read.format("delta").load(str(path)).schema[
+                "ts_close_year"
+            ].dataType.simpleString() == ("int" if physical_type == "int" else "bigint")
+            proof["tables"].append(
+                dict(
+                    table_id=identity,
+                    old_version=version,
+                    new_version=current.version(),
+                    physical_type=physical_type,
+                    active_files=[
+                        {
+                            key: item[key]
+                            for key in (
+                                "path",
+                                "size_bytes",
+                                "num_records",
+                                "partition.ts_close_year",
+                            )
+                        }
+                        for item in actions
+                    ],
+                    rows=2,
+                )
+            )
+        assert spark.conf.get("spark.sql.session.timeZone") == "Europe/Moscow"
+        if os.environ.get("TA3000_RESEARCH_CARRIER_PROOF"):
+            Path(os.environ["TA3000_RESEARCH_CARRIER_PROOF"]).write_text(
+                json.dumps(proof, indent=2)
+            )
+    finally:
+        spark.stop()
+
+
 def _read_batched_delta_rows(table_path: Path) -> list[dict[str, object]]:
     return [row for batch in iter_delta_table_row_batches(table_path) for row in batch]
 

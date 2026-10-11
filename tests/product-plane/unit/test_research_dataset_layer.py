@@ -77,16 +77,24 @@ def test_research_dataset_contract_uses_contour_aware_l0_key() -> None:
     contract = research_dataset_store_contract()["research_bar_views"]
 
     assert "contour_id" in contract["columns"]
-    assert contract["partition_by"] == [
-        "dataset_version",
-        "contour_id",
-        "instrument_id",
-        "timeframe",
-    ]
+    assert contract["partition_by"] == ["ts_close_year"]
     assert (
         "unique(dataset_version, contour_id, series_mode, series_id, timeframe, ts)"
         in contract["constraints"]
     )
+
+
+def test_research_l0_physical_year_carrier_is_not_business_schema() -> None:
+    contract = research_dataset_store_contract()
+    assert "ts_close_year INT" in spark_l0_job._schema_from_contract("research_bar_views")
+    assert "ts_close_year" not in contract["research_bar_views"]["columns"]
+    assert contract["research_bar_views"]["physical_columns"] == {"ts_close_year": "int"}
+    assert contract["research_bar_views"]["partition_close_column"] == "bar_end_ts"
+    assert contract["research_bar_views"]["file_policy"]["max_compressed_file_bytes"] == (
+        512 * 1024 * 1024
+    )
+    assert contract["research_instrument_tree"]["partition_by"] == []
+    assert contract["research_datasets"]["partition_by"] == []
 
 
 def test_research_bar_views_persist_usage_contract_without_runtime_masks() -> None:
@@ -443,57 +451,32 @@ def test_spark_l0_writer_preserves_existing_delta_tables_or_rewrites_layout_once
     assert '"total_rows_by_table"' in source
 
 
-def test_spark_l0_replace_restores_existing_table_when_target_rename_fails(
+def test_spark_l0_rejects_legacy_layout_before_cast_or_empty_append(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     table_path = tmp_path / "research_bar_views.delta"
     table_path.mkdir()
     (table_path / "old-file").write_text("old", encoding="utf-8")
 
-    class _FakeWriter:
-        def format(self, value: str) -> "_FakeWriter":
-            assert value == "delta"
-            return self
-
-        def mode(self, value: str) -> "_FakeWriter":
-            assert value == "overwrite"
-            return self
-
-        def option(self, key: str, value: str) -> "_FakeWriter":
-            assert (key, value) == ("overwriteSchema", "true")
-            return self
-
-        def partitionBy(self, *_: str) -> "_FakeWriter":
-            return self
-
-        def save(self, value: str) -> None:
-            output_path = Path(value)
-            output_path.mkdir(parents=True)
-            (output_path / "_delta_log").mkdir()
-            (output_path / "new-file").write_text("new", encoding="utf-8")
-
     class _FakeDataFrame:
-        write = _FakeWriter()
+        sparkSession = object()
 
+    def _unexpected_cast(*_args):
+        raise AssertionError("cast reached before layout admission")
+
+    monkeypatch.setattr(spark_l0_job, "has_delta_log", lambda _path: True)
+    monkeypatch.setattr(spark_l0_job, "_delta_table_layout_matches_contract", lambda **_: False)
     monkeypatch.setattr(
         spark_l0_job,
         "_cast_to_contract",
-        lambda dataframe, table_name: dataframe,
+        _unexpected_cast,
     )
-    original_rename = Path.rename
-
-    def _rename(self: Path, target: Path) -> Path:
-        if self.name.startswith(f".{table_path.name}.rewrite-"):
-            raise OSError("simulated target rename failure")
-        return original_rename(self, target)
-
-    monkeypatch.setattr(Path, "rename", _rename)
-
-    with pytest.raises(OSError, match="simulated target rename failure"):
-        spark_l0_job._replace_spark_delta_table(
+    with pytest.raises(ValueError, match="isolated layout migration"):
+        spark_l0_job._write_spark_delta_table(
             dataframe=_FakeDataFrame(),
             table_path=table_path,
             table_name="research_bar_views",
+            replace_scope=[],
         )
 
     assert (table_path / "old-file").read_text(encoding="utf-8") == "old"

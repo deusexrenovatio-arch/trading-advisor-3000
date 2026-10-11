@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import hashlib
 import json
-import shutil
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Callable, Mapping
-from uuid import uuid4
 
 from trading_advisor_3000.product_plane.common.data_snapshots import read_spark_delta
+from trading_advisor_3000.product_plane.common.table_layout import (
+    YEAR_PARTITION_COLUMN,
+    compact_spark_table,
+    with_spark_close_year,
+)
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
     delta_table_columns,
@@ -138,7 +141,8 @@ def _combined_source_hash(source_hashes: dict[str, str], keys: tuple[str, ...]) 
 
 
 def _schema_from_contract(table_name: str) -> str:
-    contract = research_dataset_store_contract()[table_name]["columns"]
+    table = research_dataset_store_contract()[table_name]
+    contract = {**table["columns"], **table.get("physical_columns", {})}
     spark_types = {
         "string": "STRING",
         "timestamp": "TIMESTAMP",
@@ -159,7 +163,12 @@ def _empty_dataframe(spark: object, table_name: str):
 def _cast_to_contract(dataframe, table_name: str):
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
-    columns = research_dataset_store_contract()[table_name]["columns"]
+    contract = research_dataset_store_contract()[table_name]
+    columns = contract["columns"]
+    close_column = contract.get("partition_close_column")
+    if close_column in dataframe.columns:
+        if dataframe.schema[close_column].dataType.simpleString() == "timestamp_ntz":
+            raise ValueError("research physical close timestamps require LTZ instants")
     casted = dataframe
     for column, kind in columns.items():
         if column not in casted.columns:
@@ -174,7 +183,14 @@ def _cast_to_contract(dataframe, table_name: str):
             casted = casted.withColumn(column, F.col(column).cast("long"))
         else:
             casted = casted.withColumn(column, F.col(column).cast(kind))
-    return casted.select(*columns.keys())
+    casted = casted.select(*columns.keys())
+    if YEAR_PARTITION_COLUMN in contract.get("physical_columns", {}):
+        # bar_end_ts is the existing authoritative provenance close for both
+        # native and CF views. Do not derive a close from the bar-open key ts.
+        casted = with_spark_close_year(
+            casted.withColumn("ts_close", F.col(str(close_column))), functions=F
+        ).drop("ts_close")
+    return casted
 
 
 def _apply_filters(dataframe, *, instrument_ids: tuple[str, ...], timeframes: tuple[str, ...]):
@@ -1318,44 +1334,17 @@ def _research_instrument_tree_replace_filters(
     return filters
 
 
-def _replace_spark_delta_table(*, dataframe, table_path: Path, table_name: str) -> None:
-    contract = research_dataset_store_contract()[table_name]
-    partition_by = list(contract.get("partition_by") or [])
-    temp_path = table_path.parent / f".{table_path.name}.rewrite-{uuid4().hex}"
-    backup_path = table_path.parent / f".{table_path.name}.backup-{uuid4().hex}"
-    if temp_path.exists():
-        shutil.rmtree(temp_path)
-    writer = (
-        _cast_to_contract(dataframe, table_name)
-        .write.format("delta")
-        .mode("overwrite")
-        .option("overwriteSchema", "true")
-    )
-    if partition_by:
-        writer = writer.partitionBy(*partition_by)
-    writer.save(str(temp_path))
-    backup_created = False
-    try:
-        if table_path.exists():
-            table_path.rename(backup_path)
-            backup_created = True
-        temp_path.rename(table_path)
-    except Exception:
-        if backup_created and backup_path.exists() and not table_path.exists():
-            backup_path.rename(table_path)
-        raise
-    else:
-        if backup_path.exists():
-            shutil.rmtree(backup_path)
-    finally:
-        if temp_path.exists():
-            shutil.rmtree(temp_path)
-
-
 def _write_spark_delta_table(
     *, dataframe, table_path: Path, table_name: str, replace_scope: list[tuple[str, str, object]]
 ) -> None:
     contract = research_dataset_store_contract()[table_name]
+    exists = has_delta_log(table_path)
+    if exists and not _delta_table_layout_matches_contract(
+        spark=dataframe.sparkSession, table_path=table_path, table_name=table_name
+    ):
+        raise ValueError(
+            f"{table_name} requires an isolated layout migration; existing Delta identity retained"
+        )
     table_path.parent.mkdir(parents=True, exist_ok=True)
     casted = _cast_to_contract(dataframe, table_name)
     partition_by = list(contract.get("partition_by") or [])
@@ -1382,16 +1371,34 @@ def _write_spark_delta_table(
         key_columns=key_columns,
         frame_role="write source",
     )
-    if not has_delta_log(table_path):
+    if not exists:
         writer = casted.write.format("delta").mode("overwrite").option("overwriteSchema", "true")
         if partition_by:
             writer = writer.partitionBy(*partition_by)
         writer.save(str(table_path))
+        if table_name == "research_bar_views":
+            compact_spark_table(dataframe.sparkSession, table_path, family=table_name)
         return
 
-    _empty_dataframe(dataframe.sparkSession, table_name).write.format("delta").mode(
-        "append"
-    ).option("mergeSchema", "true").save(str(table_path))
+    empty = _empty_dataframe(dataframe.sparkSession, table_name)
+    if table_name == "research_bar_views":
+        from pyspark.sql import functions as F  # type: ignore[import-not-found]
+
+        carrier_type = (
+            read_spark_delta(dataframe.sparkSession, str(table_path))
+            .schema[YEAR_PARTITION_COLUMN]
+            .dataType
+        )
+        if carrier_type.simpleString() not in {"int", "bigint"}:
+            raise ValueError("research physical year carrier requires an integer storage type")
+        # Preserve the copied table's physical INT/BIGINT carrier type and pins.
+        casted = casted.withColumn(
+            YEAR_PARTITION_COLUMN, F.col(YEAR_PARTITION_COLUMN).cast(carrier_type)
+        )
+        empty = empty.withColumn(
+            YEAR_PARTITION_COLUMN, F.col(YEAR_PARTITION_COLUMN).cast(carrier_type)
+        )
+    empty.write.format("delta").mode("append").option("mergeSchema", "true").save(str(table_path))
 
     from delta.tables import DeltaTable  # type: ignore[import-not-found]
 
@@ -1406,21 +1413,6 @@ def _write_spark_delta_table(
         key_columns=key_columns,
         frame_role="write target",
     )
-    if not _delta_table_layout_matches_contract(
-        spark=dataframe.sparkSession,
-        table_path=table_path,
-        table_name=table_name,
-    ):
-        existing = read_spark_delta(dataframe.sparkSession, str(table_path))
-        retained = _cast_to_contract(existing.where(f"NOT ({delete_condition})"), table_name)
-        rewritten = retained.unionByName(casted, allowMissingColumns=True)
-        _replace_spark_delta_table(
-            dataframe=rewritten,
-            table_path=table_path,
-            table_name=table_name,
-        )
-        return
-
     delta_table = DeltaTable.forPath(dataframe.sparkSession, str(table_path))
     delta_table.delete(delete_condition)
 
@@ -1432,6 +1424,8 @@ def _write_spark_delta_table(
         .whenNotMatchedInsertAll()
         .execute()
     )
+    if table_name == "research_bar_views":
+        compact_spark_table(dataframe.sparkSession, table_path, family=table_name)
 
 
 def _validate_tables(output_paths: dict[str, str]) -> list[str]:
@@ -1444,7 +1438,9 @@ def _validate_tables(output_paths: dict[str, str]) -> list[str]:
         if not has_delta_log(table_path):
             errors.append(f"missing `_delta_log` for `{table_name}` at {table_path.as_posix()}")
             continue
-        expected_columns = list(dict(contract[table_name]["columns"]).keys())
+        expected_columns = list(
+            {**contract[table_name]["columns"], **contract[table_name].get("physical_columns", {})}
+        )
         actual_columns = list(delta_table_columns(table_path))
         missing = [column for column in expected_columns if column not in actual_columns]
         extra = [column for column in actual_columns if column not in expected_columns]
