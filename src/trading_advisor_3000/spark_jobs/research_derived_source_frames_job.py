@@ -7,6 +7,7 @@ from typing import Callable, Mapping, Sequence
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     delta_table_columns,
     has_delta_log,
+    read_delta_table_arrow,
 )
 from trading_advisor_3000.product_plane.research.datasets import (
     research_dataset_store_contract,
@@ -205,6 +206,50 @@ def _scope_filters(
     return filters
 
 
+def _source_projection_contract_changed(
+    *,
+    table_path: Path,
+    expected_hash: str,
+    dataset_version: str,
+    contour_id: str,
+    indicator_set_version: str,
+    dataset_instrument_ids: Sequence[str] = (),
+    source_indicator_columns: tuple[str, ...] = (),
+) -> bool:
+    """Check the entire scoped MTF family before applying timeframe/date windows."""
+    if not has_delta_log(table_path):
+        return False
+    hash_column = "source_indicator_columns_hash"
+    available_columns = set(delta_table_columns(table_path))
+    if hash_column not in available_columns:
+        return True
+
+    import pyarrow.compute as pc
+
+    metadata = read_delta_table_arrow(
+        table_path,
+        columns=[hash_column],
+        filters=_scope_filters(
+            dataset_version=dataset_version,
+            contour_id=contour_id,
+            indicator_set_version=indicator_set_version,
+            dataset_instrument_ids=dataset_instrument_ids,
+        ),
+    )
+    # Native distinct over the projected metadata column; NULL is a separate value.
+    hashes = pc.unique(metadata.column(hash_column))
+    if len(hashes) > 1:
+        raise ValueError("mixed source projection contracts in scoped derived source frames")
+    changed = len(hashes) == 0 or hashes[0].as_py() != expected_hash
+    missing_columns = set(source_indicator_columns) - available_columns
+    if not changed and missing_columns:
+        raise ValueError(
+            "current source projection contract is missing declared columns: "
+            + ", ".join(sorted(missing_columns))
+        )
+    return changed
+
+
 def _scope_filter_groups(
     *,
     dataset_version: str,
@@ -315,10 +360,13 @@ def run_research_derived_source_frames_spark_job(
         if normalized_refresh_windows
         else tuple(str(item).strip() for item in timeframes if str(item).strip())
     )
+    declared_instruments = tuple(
+        str(item).strip() for item in dataset_instrument_ids if str(item).strip()
+    )
     scoped_instruments = (
         _unique_scope_values(normalized_refresh_windows, "instrument_id")
         if normalized_refresh_windows
-        else tuple(str(item).strip() for item in dataset_instrument_ids if str(item).strip())
+        else declared_instruments
     )
     output_path = output_dir / DERIVED_SOURCE_FRAME_DELTA
     if normalized_refresh_windows and not has_delta_log(output_path):
@@ -326,6 +374,31 @@ def run_research_derived_source_frames_spark_job(
             "windowed derived source-frame refresh requires an existing "
             f"Delta table: {output_path.as_posix()}"
         )
+    source_indicator_columns_hash = derived_source_indicator_columns_hash(source_indicator_columns)
+    stage_started = stage_timer()
+    source_projection_contract_changed = _source_projection_contract_changed(
+        table_path=output_path,
+        expected_hash=source_indicator_columns_hash,
+        dataset_version=dataset_version,
+        contour_id=contour_id,
+        indicator_set_version=indicator_set_version,
+        dataset_instrument_ids=declared_instruments,
+        source_indicator_columns=source_indicator_columns,
+    )
+    requested_refresh_window_count = len(normalized_refresh_windows)
+    if source_projection_contract_changed:
+        # A narrow update would leave historical rows and higher-timeframe dependencies
+        # under the old projection. Restore the declared instrument scope, not the
+        # window instruments; an empty declared scope means the entire dataset.
+        normalized_refresh_windows = ()
+        scoped_timeframes = ()
+        scoped_instruments = declared_instruments
+    record_stage_timing(
+        stage_timings,
+        "source_projection_contract_check",
+        stage_started,
+        source_projection_contract_changed=source_projection_contract_changed,
+    )
     spark_factory = spark_session_factory or _create_spark_session
     stage_started = stage_timer()
     spark = spark_factory(spec.app_name, spark_master)
@@ -444,9 +517,6 @@ def run_research_derived_source_frames_spark_job(
         source_l1_delta_version = _latest_delta_version(indicator_frames_path)
         source_l0_delta_hash = _delta_log_hash(bar_views_path)
         source_l1_delta_hash = _delta_log_hash(indicator_frames_path)
-        source_indicator_columns_hash = derived_source_indicator_columns_hash(
-            source_indicator_columns
-        )
         record_stage_timing(
             stage_timings,
             "source_fingerprint",
@@ -534,6 +604,8 @@ def run_research_derived_source_frames_spark_job(
             "timeframes": scoped_timeframes,
             "dataset_instrument_ids": scoped_instruments,
             "refresh_window_count": len(normalized_refresh_windows),
+            "requested_refresh_window_count": requested_refresh_window_count,
+            "source_projection_contract_changed": source_projection_contract_changed,
             "source_indicator_columns_hash": source_indicator_columns_hash,
             "source_delta_versions": {
                 "research_bar_views": source_l0_delta_version,

@@ -243,6 +243,8 @@ def test_derived_indicator_store_contract_is_separate_wide_layer() -> None:
             "source_indicators_hash",
             "source_indicator_profile_version",
             "source_indicator_output_columns_hash",
+            "source_indicator_columns_hash",
+            "mtf_source_family_hash",
             "row_count",
             "warmup_span",
             "null_warmup_span",
@@ -502,6 +504,7 @@ def test_derived_legacy_partition_without_output_hash_is_not_reused_as_complete(
         profile_version="core_v1",
         row_count=12,
         output_columns_hash="TARGET-COLUMNS",
+        mtf_source_family_hash="CURRENT-FAMILY",
     )
 
 
