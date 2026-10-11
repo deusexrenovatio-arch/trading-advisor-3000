@@ -21,7 +21,9 @@ from .canonical_bars_job import (
 )
 from .moex_canonicalization_job import (
     MOEX_SESSION_TIMEZONE,
+    _prepare_closed_session_dates,
     _prepare_official_session_intervals,
+    _source_session_end_date,
 )
 
 CANONICAL_KEY_COLUMNS = ("contract_id", "instrument_id", "timeframe", "ts")
@@ -739,6 +741,7 @@ def _sidecar_frames(
     provenance_df: Any,
     affected_sessions_df: Any,
     session_intervals_path: Path,
+    closed_session_dates_path: Path | None = None,
     sidecars_exist: bool,
     window: Any,
     functions: Any,
@@ -775,8 +778,60 @@ def _sidecar_frames(
         functions=functions,
         window=window,
     )
+    closed_dates_df = _prepare_closed_session_dates(
+        spark=spark,
+        closed_session_dates_path=closed_session_dates_path,
+        intervals_df=official_intervals_df,
+        functions=functions,
+    )
+    # A W1 key retains the source period anchor, even when that date is closed.
+    # Its bounds cover the actual trading sessions across the included period.
+    period_scope_df = (
+        with_session.withColumn("ts_close", functions.col("source_ts_close_last"))
+        .withColumn(
+            "_period_end_date",
+            functions.when(
+                functions.col("timeframe") == "1w", _source_session_end_date(functions)
+            ).otherwise(functions.col("session_date")),
+        )
+        .groupBy("instrument_id", "timeframe", "session_date")
+        .agg(functions.max("_period_end_date").alias("_period_end_date"))
+    )
+    invalid_periods = period_scope_df.where(
+        functions.col("_period_end_date").isNull()
+        | (functions.col("_period_end_date") < functions.col("session_date"))
+    ).count()
+    if invalid_periods:
+        raise ValueError(f"invalid canonical sidecar periods: rows={invalid_periods}")
+    required_dates_df = period_scope_df.select(
+        "instrument_id",
+        "timeframe",
+        "session_date",
+        functions.explode(functions.sequence("session_date", "_period_end_date")).alias(
+            "_required_date"
+        ),
+    )
+    known_dates_df = (
+        official_intervals_df.select("instrument_id", "session_date")
+        .unionByName(closed_dates_df)
+        .distinct()
+        .withColumnRenamed("session_date", "_required_date")
+    )
+    missing_dates = required_dates_df.join(
+        known_dates_df, ["instrument_id", "_required_date"], "left_anti"
+    ).count()
+    if missing_dates:
+        raise ValueError(
+            "official session interval coverage is incomplete for canonical sidecars: "
+            f"unknown_period_dates={missing_dates}"
+        )
+    period_intervals_df = required_dates_df.join(
+        official_intervals_df.withColumnRenamed("session_date", "_required_date"),
+        ["instrument_id", "_required_date"],
+        "inner",
+    )
     official_session_bounds_df = (
-        official_intervals_df.groupBy("instrument_id", "session_date")
+        period_intervals_df.groupBy("instrument_id", "timeframe", "session_date")
         .agg(
             functions.min("expected_open_ts").alias("session_open_ts"),
             functions.max("expected_close_ts").alias("session_close_ts"),
@@ -797,6 +852,7 @@ def _sidecar_frames(
         )
         .select(
             "instrument_id",
+            "timeframe",
             "session_date",
             "session_open_ts",
             "session_close_ts",
@@ -815,7 +871,7 @@ def _sidecar_frames(
     session_scope_df = with_session.select("instrument_id", "timeframe", "session_date").distinct()
     session_calendar_df = session_scope_df.join(
         official_session_bounds_df,
-        on=["instrument_id", "session_date"],
+        on=["instrument_id", "timeframe", "session_date"],
         how="inner",
     )
     expected_session_rows = int(session_scope_df.count())
@@ -917,6 +973,7 @@ def run_moex_canonical_publish_spark_delta_job(
     output_dir: Path,
     run_id: str,
     publish_scope_path: Path | None = None,
+    closed_session_dates_path: Path | None = None,
     spark_master: str = DEFAULT_SPARK_MASTER,
     spark_session_factory: Callable[[str, str], object] | None = None,
 ) -> dict[str, object]:
@@ -1318,6 +1375,7 @@ def run_moex_canonical_publish_spark_delta_job(
                 provenance_df=final_provenance_df,
                 affected_sessions_df=sidecar_scope_sessions_df,
                 session_intervals_path=session_intervals_path,
+                closed_session_dates_path=closed_session_dates_path,
                 sidecars_exist=sidecars_exist and not sidecar_layout_rewrite_required,
                 window=window,
                 functions=functions,

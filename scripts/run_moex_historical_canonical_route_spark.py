@@ -114,6 +114,7 @@ def _docker_python_command(
     changed_windows_jsonl: Path | None,
     selected_source_intervals_jsonl: Path,
     session_intervals_path: Path | None,
+    closed_session_dates_path: Path | None = None,
     output_dir: Path,
     run_id: str,
     built_at_utc: str,
@@ -136,6 +137,8 @@ def _docker_python_command(
         "--spark-master",
         spark_master,
     ]
+    if closed_session_dates_path is not None:
+        command.extend(["--closed-session-dates-path", _container_path(closed_session_dates_path)])
     if session_intervals_path is not None:
         command.extend(["--session-intervals-path", _container_path(session_intervals_path)])
     if raw_table_path is not None:
@@ -165,6 +168,7 @@ def _docker_exec_args(
     changed_windows_jsonl: Path | None,
     selected_source_intervals_jsonl: Path,
     session_intervals_path: Path | None,
+    closed_session_dates_path: Path | None = None,
     output_dir: Path,
     run_id: str,
     built_at_utc: str,
@@ -177,6 +181,7 @@ def _docker_exec_args(
         changed_windows_jsonl=changed_windows_jsonl,
         selected_source_intervals_jsonl=selected_source_intervals_jsonl,
         session_intervals_path=session_intervals_path,
+        closed_session_dates_path=closed_session_dates_path,
         output_dir=output_dir,
         run_id=run_id,
         built_at_utc=built_at_utc,
@@ -201,6 +206,7 @@ def _run_in_docker(
     changed_windows_jsonl: Path | None,
     selected_source_intervals_jsonl: Path,
     session_intervals_path: Path | None,
+    closed_session_dates_path: Path | None = None,
     output_dir: Path,
     run_id: str,
     built_at_utc: str,
@@ -251,6 +257,7 @@ def _run_in_docker(
                 changed_windows_jsonl=changed_windows_jsonl,
                 selected_source_intervals_jsonl=selected_source_intervals_jsonl,
                 session_intervals_path=session_intervals_path,
+                closed_session_dates_path=closed_session_dates_path,
                 output_dir=output_dir,
                 run_id=run_id,
                 built_at_utc=built_at_utc,
@@ -307,6 +314,7 @@ def main() -> None:
     parser.add_argument("--changed-windows-jsonl", default="")
     parser.add_argument("--selected-source-intervals-jsonl", required=True)
     parser.add_argument("--session-intervals-path", default="")
+    parser.add_argument("--closed-session-dates-path", default="")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--built-at-utc", required=True)
@@ -337,6 +345,11 @@ def main() -> None:
         if str(args.session_intervals_path).strip()
         else None
     )
+    closed_session_dates_path = (
+        _resolve_repo_path(Path(args.closed_session_dates_path))
+        if args.closed_session_dates_path
+        else None
+    )
     output_dir = _resolve_repo_path(Path(args.output_dir))
     output_json = _resolve_repo_path(Path(args.output_json)) if args.output_json else None
     if raw_table_path is not None and changed_windows_jsonl is None:
@@ -354,6 +367,7 @@ def main() -> None:
             changed_windows_jsonl=changed_windows_jsonl,
             selected_source_intervals_jsonl=selected_source_intervals_jsonl,
             session_intervals_path=session_intervals_path,
+            closed_session_dates_path=closed_session_dates_path,
             output_dir=output_dir,
             run_id=args.run_id,
             built_at_utc=args.built_at_utc,
@@ -369,6 +383,7 @@ def main() -> None:
             changed_windows_path=changed_windows_jsonl,
             selected_source_intervals_path=selected_source_intervals_jsonl,
             session_intervals_path=session_intervals_path,
+            closed_session_dates_path=closed_session_dates_path,
             output_dir=output_dir,
             build_run_id=args.run_id,
             built_at_utc=args.built_at_utc,
@@ -380,6 +395,7 @@ def main() -> None:
             normalized_source_path=normalized_source_jsonl,
             selected_source_intervals_path=selected_source_intervals_jsonl,
             session_intervals_path=session_intervals_path,
+            closed_session_dates_path=closed_session_dates_path,
             output_dir=output_dir,
             build_run_id=args.run_id,
             built_at_utc=args.built_at_utc,

@@ -167,6 +167,9 @@ def _run_local(args: argparse.Namespace) -> dict[str, object]:
         if str(args.session_intervals_path).strip()
         else None,
         roll_map_path=Path(args.roll_map_path).resolve(),
+        closed_session_dates_path=Path(args.closed_session_dates_path).resolve()
+        if args.closed_session_dates_path
+        else None,
         output_dir=Path(args.output_dir).resolve(),
         run_id=args.run_id,
         spark_master=args.spark_master,
@@ -212,6 +215,13 @@ def _docker_exec_args(args: argparse.Namespace) -> list[str]:
         )
     if args.output_json:
         python_command.extend(["--output-json", _container_path(Path(args.output_json).resolve())])
+    if args.closed_session_dates_path:
+        python_command.extend(
+            [
+                "--closed-session-dates-path",
+                _container_path(Path(args.closed_session_dates_path).resolve()),
+            ]
+        )
     owner = docker_host_owner()
     chown_targets = [_container_path(Path(args.output_dir).resolve())]
     if args.output_json:
@@ -297,6 +307,7 @@ def main() -> None:
     parser.add_argument("--target-provenance-path", required=True)
     parser.add_argument("--session-calendar-path", required=True)
     parser.add_argument("--session-intervals-path", default="")
+    parser.add_argument("--closed-session-dates-path", default="")
     parser.add_argument("--roll-map-path", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--run-id", required=True)
