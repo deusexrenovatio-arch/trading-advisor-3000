@@ -103,8 +103,10 @@ and NTZ normalization; all six now pass in the bounded 59-test suite. Existing
 Delta-reader tests preserve PR180 behavior. Native Spark tests prove borrowed
 Moscow LTZ boundaries, genuine NTZ-source rejection before target write, staged
 migration/source pins, and stable create/append/correction/delete/noop/empty input.
-Native Linux proof passed 10 integration cases plus 2 fixture-corrected physical
-migration cases: 12 distinct Spark/Delta +59 unit PASS. Measured JVM heap 4 GiB,
+Linux fixture proof passed 10 integration cases plus 2 fixture-corrected physical
+migration cases: 12 distinct integration cases +59 unit PASS. The integration
+count includes guard-only Windows/HADOOP_HOME checks; native owning cases prove
+the Spark/Delta behavior above. Measured JVM heap 4 GiB,
 full-batch cgroup peak 5,006,192,640 bytes /6 GiB, OOM=0. Runner infrastructure and
 test-adapter failures are retained separately; product runtime was unchanged.
 Loop and actual PR gates passed, including 244 process/architecture tests and the
