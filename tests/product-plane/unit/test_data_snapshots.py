@@ -643,3 +643,144 @@ def test_spark_adapter_selects_exact_version_and_blocks_unknown_path_before_load
             snapshots.read_spark_delta(spark, tmp_path / "unknown.delta")
     assert spark.read.loads == [manifest["tables"]["source"]["table_path"]]
     # This tests the adapter contract; native Spark old-version proof remains separate.
+
+
+def test_materialization_owner_cannot_replace_accepted_scope(source):
+    manifest = _manifest(source)
+    with snapshots.snapshot_read_scope(manifest):
+        with pytest.raises(ValueError, match="cannot replace an active snapshot scope"):
+            with snapshots.materialization_snapshot_scope(manifest, writable_paths=[source]):
+                pass
+        with pytest.raises(ValueError, match="capture is forbidden"):
+            snapshots.capture_table(source)
+
+
+def test_materialization_owner_pins_inputs_and_reads_owned_outputs(source, tmp_path):
+    output = tmp_path / "owner-output.delta"
+    write_deltalake(str(output), _table([1], [2026], [True], [2]), partition_by=["year"])
+    manifest = _manifest(source)
+    _append(source)
+    with snapshots.materialization_snapshot_scope(manifest, writable_paths=[output]) as reads:
+        assert delta_runtime.count_delta_table_rows(source) == 4
+        _append(output)
+        assert delta_runtime.count_delta_table_rows(output) == 5
+        assert set(reads.plain_tables()) == {"source"}
+    with pytest.raises(snapshots.SnapshotUnavailableError, match="changed during calculation"):
+        snapshots.assert_tables_unchanged(reads.plain_tables())
+
+
+def test_materialization_owner_captures_additional_input_immutably(source, tmp_path):
+    with snapshots.materialization_snapshot_scope(None) as reads:
+        assert delta_runtime.count_delta_table_rows(source) == 4
+        with pytest.raises(TypeError):
+            reads.tables[source.stem]["delta_version"] = 999
+        with pytest.raises(ValueError, match="capture is forbidden"):
+            snapshots.capture_table(source)
+        process_path = snapshots.save_snapshot_scope(tmp_path / "process")
+    assert snapshots.load_snapshot(process_path)["tables"] == reads.plain_tables()
+    snapshots.assert_tables_unchanged(reads.plain_tables())
+
+
+def test_materialization_process_mapping_preserves_pins_and_checks_digest(source, tmp_path):
+    manifest = _manifest(source)
+    path = snapshots.save_snapshot(tmp_path / "registry", manifest)
+    mapping_path = snapshots.snapshot_process_path_mapping(
+        path, tmp_path / "mount-map.json", lambda value: value.as_posix()
+    )
+    child = snapshots.load_process_snapshot(path, mapping_path)
+    assert child["tables"] == manifest["tables"]
+    assert child["parameters"]["process_source_manifest_sha256"] == manifest["manifest_sha256"]
+    payload = json.loads(path.read_text())
+    payload["tables"]["source"]["delta_version"] = 999
+    path.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="source manifest digest mismatch"):
+        snapshots.load_process_snapshot(path, mapping_path)
+    payload = dict(manifest)
+    payload["schema_version"] = "unsupported"
+    payload.pop("manifest_sha256")
+    payload["manifest_sha256"] = snapshots._hash(payload)
+    path.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="unsupported data snapshot schema"):
+        snapshots.load_process_snapshot(path, mapping_path)
+
+
+def test_materialization_research_direct_context_keeps_legacy_contract():
+    from trading_advisor_3000.product_plane.research.data_snapshots import snapshot_materialization
+
+    context = SimpleNamespace(op_config={})
+
+    @snapshot_materialization(("research_datasets",))
+    def existing_owner(actual):
+        assert actual is context
+        return {"success": True, "legacy": 7}
+
+    assert existing_owner(context) == {"success": True, "legacy": 7}
+
+
+def test_materialization_research_explicit_parent_requires_current_admission(source, tmp_path):
+    from trading_advisor_3000.product_plane.research.data_snapshots import _initial, _pending_path
+
+    canonical = tmp_path / "canonical"
+    manifest = _manifest(source)
+    path = snapshots.save_snapshot(canonical / ".data_snapshots", manifest)
+    context = SimpleNamespace(run_id="owner-run")
+    config = {
+        "canonical_output_dir": str(canonical),
+        "materialized_output_dir": str(tmp_path / "research"),
+        "dataset_version": "owner-v1",
+        "code_version": "owner-code",
+        "series_mode": "contract",
+        "data_snapshot_manifest_path": str(path),
+    }
+    with pytest.raises(ValueError, match="not the accepted current snapshot"):
+        _initial(context, config)
+    snapshots.publish_snapshot(canonical / ".data_snapshots", path, expected_current_id=None)
+    pending = _initial(context, config)
+    assert pending["parents"] == [manifest["snapshot_id"]]
+    snapshots.atomic_json(_pending_path(context, config), pending)
+    replacement = _manifest(source)
+    replacement_path = snapshots.save_snapshot(canonical / ".data_snapshots", replacement)
+    snapshots.publish_snapshot(
+        canonical / ".data_snapshots", replacement_path, expected_current_id=manifest["snapshot_id"]
+    )
+    with pytest.raises(ValueError, match="accepted Data parent changed"):
+        _initial(context, config)
+
+
+def test_materialization_spark_explicit_version_cannot_override_scope(source):
+    manifest = _manifest(source)
+    spark = SimpleNamespace(read=None)
+    with snapshots.snapshot_read_scope(manifest):
+        with pytest.raises(
+            snapshots.SnapshotUnavailableError, match="differs from the input snapshot pin"
+        ):
+            snapshots.read_spark_delta(spark, source, version=1)
+
+
+def test_materialization_failed_status_never_captures_or_stamps_old_outputs(
+    source, tmp_path, monkeypatch
+):
+    from trading_advisor_3000.product_plane.research import data_snapshots as owner
+
+    pending = {
+        "tables": {"source": snapshots.capture_table(source)},
+        "dataset_version": "test",
+        "run_id": "test",
+        "code_version": "test",
+        "quality_checks": {},
+    }
+    monkeypatch.setattr(owner, "_initial", lambda *_: pending)
+    monkeypatch.setattr(
+        owner, "capture_table", lambda *_: pytest.fail("failed stage captured old output")
+    )
+    context = SimpleNamespace(
+        op_config={"data_snapshot_enabled": True, "materialized_output_dir": str(tmp_path)}
+    )
+
+    @owner.snapshot_materialization(("old_output",))
+    def failed_stage(_):
+        return {"success": True, "status": "FAIL"}
+
+    with pytest.raises(ValueError, match="failed QC"):
+        failed_stage(context)
+    assert pending["quality_checks"] == {}

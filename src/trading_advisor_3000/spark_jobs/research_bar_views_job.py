@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Callable, Mapping
 from uuid import uuid4
 
+from trading_advisor_3000.product_plane.common.data_snapshots import read_spark_delta
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
     delta_table_columns,
@@ -257,7 +258,7 @@ def _assert_unique_by_key(
 def _canonical_provenance_frame(spark: object, table_path: Path):
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
-    provenance = spark.read.format("delta").load(str(table_path))
+    provenance = read_spark_delta(spark, str(table_path))
     _require_columns(
         provenance,
         table_name="canonical_bar_provenance",
@@ -297,7 +298,7 @@ def _session_calendar_frame(
 ):
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
-    calendar = spark.read.format("delta").load(str(table_path))
+    calendar = read_spark_delta(spark, str(table_path))
     if instrument_ids:
         calendar = calendar.where(F.col("instrument_id").isin([*instrument_ids]))
     if timeframes:
@@ -333,7 +334,7 @@ def _session_calendar_frame(
 def _session_intervals_frame(spark: object, table_path: Path):
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
-    intervals = spark.read.format("delta").load(str(table_path))
+    intervals = read_spark_delta(spark, str(table_path))
     interval_type = _optional_casted_column(intervals, ("interval_type",), "string")
     return intervals.select(
         F.col("instrument_id").alias("interval_instrument_id"),
@@ -446,10 +447,8 @@ def _bar_usage_context_frames(
     day_meta = day_meta.withColumnRenamed(
         "interval_instrument_id", "day_instrument_id"
     ).withColumnRenamed("interval_session_date", "day_session_date")
-    actual_daily = (
-        spark.read.format("delta")
-        .load(str(canonical_bars_path))
-        .where(F.lower(F.col("timeframe")).isin([*DAILY_TIMEFRAMES]))
+    actual_daily = read_spark_delta(spark, str(canonical_bars_path)).where(
+        F.lower(F.col("timeframe")).isin([*DAILY_TIMEFRAMES])
     )
     if instrument_ids:
         actual_daily = actual_daily.where(F.col("instrument_id").isin([*instrument_ids]))
@@ -747,24 +746,20 @@ def _with_execution_economics(
             .withColumn("economics_model_version", F.lit(None).cast("string"))
         )
 
-    economics = (
-        spark.read.format("delta")
-        .load(str(canonical_contract_economics_path))
-        .select(
-            F.col("contract_id").alias("econ_contract_id"),
-            F.regexp_replace(F.col("contract_id").cast("string"), "@MOEX$", "").alias(
-                "econ_contract_join_key"
-            ),
-            F.col("effective_from_ts").alias("econ_effective_from_ts"),
-            F.col("effective_to_ts").alias("econ_effective_to_ts"),
-            F.col("step_price_rub").alias("execution_step_price_rub"),
-            F.col("lot_volume").alias("execution_lot_volume"),
-            F.col("tick_value_currency").alias("execution_tick_value_currency"),
-            F.col("margin_required_estimate").alias("execution_margin_required_estimate"),
-            F.col("margin_buffer_pct").alias("execution_margin_buffer_pct"),
-            F.col("effective_from_ts").alias("economics_effective_from_ts"),
-            F.col("model_version").alias("economics_model_version"),
-        )
+    economics = read_spark_delta(spark, str(canonical_contract_economics_path)).select(
+        F.col("contract_id").alias("econ_contract_id"),
+        F.regexp_replace(F.col("contract_id").cast("string"), "@MOEX$", "").alias(
+            "econ_contract_join_key"
+        ),
+        F.col("effective_from_ts").alias("econ_effective_from_ts"),
+        F.col("effective_to_ts").alias("econ_effective_to_ts"),
+        F.col("step_price_rub").alias("execution_step_price_rub"),
+        F.col("lot_volume").alias("execution_lot_volume"),
+        F.col("tick_value_currency").alias("execution_tick_value_currency"),
+        F.col("margin_required_estimate").alias("execution_margin_required_estimate"),
+        F.col("margin_buffer_pct").alias("execution_margin_buffer_pct"),
+        F.col("effective_from_ts").alias("economics_effective_from_ts"),
+        F.col("model_version").alias("economics_model_version"),
     )
     join_ts = F.col(ts_column)
     if "timeframe" in dataframe.columns and "bar_end_ts" in dataframe.columns:
@@ -845,7 +840,7 @@ def _native_bar_views(
 ):
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
-    bars = spark.read.format("delta").load(str(canonical_bars_path))
+    bars = read_spark_delta(spark, str(canonical_bars_path))
     bars = _apply_filters(bars, instrument_ids=instrument_ids, timeframes=timeframes)
     if contract_ids:
         bars = bars.where(F.col("contract_id").isin([*contract_ids]))
@@ -874,14 +869,10 @@ def _native_bar_views(
         key_columns=("cal_instrument_id", "cal_timeframe", "cal_session_date"),
         frame_role="research L0 join source",
     )
-    roll_map = (
-        spark.read.format("delta")
-        .load(str(canonical_roll_map_path))
-        .select(
-            F.col("instrument_id").alias("roll_instrument_id"),
-            F.col("session_date").alias("roll_session_date"),
-            F.col("active_contract_id").alias("roll_active_contract_id"),
-        )
+    roll_map = read_spark_delta(spark, str(canonical_roll_map_path)).select(
+        F.col("instrument_id").alias("roll_instrument_id"),
+        F.col("session_date").alias("roll_session_date"),
+        F.col("active_contract_id").alias("roll_active_contract_id"),
     )
     if instrument_ids:
         roll_map = roll_map.where(F.col("roll_instrument_id").isin([*instrument_ids]))
@@ -1030,7 +1021,7 @@ def _pit_active_front_bar_views(
 ):
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
-    bars = spark.read.format("delta").load(str(continuous_front_bars_path))
+    bars = read_spark_delta(spark, str(continuous_front_bars_path))
     bars = bars.where(F.col("dataset_version") == F.lit(dataset_version))
     bars = _apply_filters(bars, instrument_ids=instrument_ids, timeframes=timeframes)
     if end_ts:
@@ -1410,7 +1401,7 @@ def _write_spark_delta_table(
         in {"research_bar_views", "research_instrument_tree"},
     )
     _assert_unique_by_key(
-        dataframe.sparkSession.read.format("delta").load(str(table_path)),
+        read_spark_delta(dataframe.sparkSession, str(table_path)),
         table_name=table_name,
         key_columns=key_columns,
         frame_role="write target",
@@ -1420,7 +1411,7 @@ def _write_spark_delta_table(
         table_path=table_path,
         table_name=table_name,
     ):
-        existing = dataframe.sparkSession.read.format("delta").load(str(table_path))
+        existing = read_spark_delta(dataframe.sparkSession, str(table_path))
         retained = _cast_to_contract(existing.where(f"NOT ({delete_condition})"), table_name)
         rewritten = retained.unionByName(casted, allowMissingColumns=True)
         _replace_spark_delta_table(
@@ -1644,13 +1635,9 @@ def run_research_bar_views_spark_job(
         from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
         stage_started = stage_timer()
-        tree_source = (
-            spark.read.format("delta")
-            .load(output_paths["research_bar_views"])
-            .where(
-                (F.col("dataset_version") == F.lit(dataset_version))
-                & (F.col("contour_id").isin([*contours]))
-            )
+        tree_source = read_spark_delta(spark, output_paths["research_bar_views"]).where(
+            (F.col("dataset_version") == F.lit(dataset_version))
+            & (F.col("contour_id").isin([*contours]))
         )
         if instrument_ids:
             tree_source = tree_source.where(F.col("instrument_id").isin([*instrument_ids]))

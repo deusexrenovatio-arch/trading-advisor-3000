@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 
 try:
@@ -41,6 +42,11 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from trading_advisor_3000.product_plane.common.data_snapshots import (
+    load_process_snapshot,
+    materialization_snapshot_scope,
+    snapshot_process_path_mapping,
+)
 from trading_advisor_3000.spark_jobs import DEFAULT_SPARK_MASTER
 from trading_advisor_3000.spark_jobs.moex_canonicalization_job import (
     run_moex_canonicalization_spark_delta_job,
@@ -117,6 +123,8 @@ def _docker_python_command(
     closed_session_dates_path: Path | None = None,
     daily_open_interest_path: Path | None = None,
     daily_open_interest_version: int | None = None,
+    snapshot_manifest_path: Path | None = None,
+    snapshot_path_map_json: Path | None = None,
     output_dir: Path,
     run_id: str,
     built_at_utc: str,
@@ -169,6 +177,10 @@ def _docker_python_command(
         command.extend(["--normalized-source-jsonl", _container_path(normalized_source_jsonl)])
     if output_json is not None:
         command.extend(["--output-json", _container_path(output_json)])
+    if snapshot_manifest_path is not None:
+        command.extend(["--snapshot-manifest-path", _container_path(snapshot_manifest_path)])
+    if snapshot_path_map_json is not None:
+        command.extend(["--snapshot-path-map-json", _container_path(snapshot_path_map_json)])
     return command
 
 
@@ -182,6 +194,8 @@ def _docker_exec_args(
     closed_session_dates_path: Path | None = None,
     daily_open_interest_path: Path | None = None,
     daily_open_interest_version: int | None = None,
+    snapshot_manifest_path: Path | None = None,
+    snapshot_path_map_json: Path | None = None,
     output_dir: Path,
     run_id: str,
     built_at_utc: str,
@@ -197,6 +211,8 @@ def _docker_exec_args(
         closed_session_dates_path=closed_session_dates_path,
         daily_open_interest_path=daily_open_interest_path,
         daily_open_interest_version=daily_open_interest_version,
+        snapshot_manifest_path=snapshot_manifest_path,
+        snapshot_path_map_json=snapshot_path_map_json,
         output_dir=output_dir,
         run_id=run_id,
         built_at_utc=built_at_utc,
@@ -224,6 +240,8 @@ def _run_in_docker(
     closed_session_dates_path: Path | None = None,
     daily_open_interest_path: Path | None = None,
     daily_open_interest_version: int | None = None,
+    snapshot_manifest_path: Path | None = None,
+    snapshot_path_map_json: Path | None = None,
     output_dir: Path,
     run_id: str,
     built_at_utc: str,
@@ -233,6 +251,10 @@ def _run_in_docker(
     dockerfile: Path,
     runtime_root: str,
 ) -> dict[str, object]:
+    if snapshot_manifest_path is not None:
+        snapshot_path_map_json = snapshot_process_path_mapping(
+            snapshot_manifest_path, output_dir / "snapshot-input-paths.json", _container_path
+        )
     _ensure_docker_image(image, dockerfile)
 
     repo_root = _repo_root().resolve()
@@ -277,6 +299,8 @@ def _run_in_docker(
                 closed_session_dates_path=closed_session_dates_path,
                 daily_open_interest_path=daily_open_interest_path,
                 daily_open_interest_version=daily_open_interest_version,
+                snapshot_manifest_path=snapshot_manifest_path,
+                snapshot_path_map_json=snapshot_path_map_json,
                 output_dir=output_dir,
                 run_id=run_id,
                 built_at_utc=built_at_utc,
@@ -336,6 +360,8 @@ def main() -> None:
     parser.add_argument("--closed-session-dates-path", default="")
     parser.add_argument("--daily-open-interest-path", default="")
     parser.add_argument("--daily-open-interest-version", type=int, default=None)
+    parser.add_argument("--snapshot-manifest-path", default="")
+    parser.add_argument("--snapshot-path-map-json", default="")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--built-at-utc", required=True)
@@ -390,55 +416,76 @@ def main() -> None:
     if raw_table_path is None and normalized_source_jsonl is None:
         raise SystemExit("provide either --raw-table-path or --normalized-source-jsonl")
 
-    if args.profile == "docker":
-        runtime_root = normalize_runtime_root(
-            args.docker_runtime_root, field_name="docker runtime root"
+    snapshot_manifest_path = (
+        _resolve_repo_path(Path(args.snapshot_manifest_path))
+        if args.snapshot_manifest_path
+        else None
+    )
+    scope = (
+        materialization_snapshot_scope(
+            load_process_snapshot(
+                snapshot_manifest_path,
+                Path(args.snapshot_path_map_json) if args.snapshot_path_map_json else None,
+            ),
+            writable_paths=[
+                output_dir / "canonical_bars.delta",
+                output_dir / "canonical_bar_provenance.delta",
+            ],
         )
-        report = _run_in_docker(
-            normalized_source_jsonl=normalized_source_jsonl,
-            raw_table_path=raw_table_path,
-            changed_windows_jsonl=changed_windows_jsonl,
-            selected_source_intervals_jsonl=selected_source_intervals_jsonl,
-            session_intervals_path=session_intervals_path,
-            closed_session_dates_path=closed_session_dates_path,
-            daily_open_interest_path=daily_open_interest_path,
-            daily_open_interest_version=daily_open_interest_version,
-            output_dir=output_dir,
-            run_id=args.run_id,
-            built_at_utc=args.built_at_utc,
-            spark_master=args.spark_master,
-            output_json=output_json,
-            image=args.docker_image,
-            dockerfile=_resolve_repo_path(Path(args.dockerfile)),
-            runtime_root=runtime_root,
-        )
-    elif raw_table_path is not None:
-        report = run_moex_canonicalization_spark_delta_job(
-            raw_table_path=raw_table_path,
-            changed_windows_path=changed_windows_jsonl,
-            selected_source_intervals_path=selected_source_intervals_jsonl,
-            session_intervals_path=session_intervals_path,
-            closed_session_dates_path=closed_session_dates_path,
-            daily_open_interest_path=daily_open_interest_path,
-            daily_open_interest_version=daily_open_interest_version,
-            output_dir=output_dir,
-            build_run_id=args.run_id,
-            built_at_utc=args.built_at_utc,
-            spark_master=args.spark_master,
-        )
-        report["proof_profile"] = "local-spark"
-    else:
-        report = run_moex_canonicalization_spark_job(
-            normalized_source_path=normalized_source_jsonl,
-            selected_source_intervals_path=selected_source_intervals_jsonl,
-            session_intervals_path=session_intervals_path,
-            closed_session_dates_path=closed_session_dates_path,
-            output_dir=output_dir,
-            build_run_id=args.run_id,
-            built_at_utc=args.built_at_utc,
-            spark_master=args.spark_master,
-        )
-        report["proof_profile"] = "local-spark"
+        if snapshot_manifest_path is not None and args.profile == "local"
+        else nullcontext()
+    )
+    with scope:
+        if args.profile == "docker":
+            runtime_root = normalize_runtime_root(
+                args.docker_runtime_root, field_name="docker runtime root"
+            )
+            report = _run_in_docker(
+                normalized_source_jsonl=normalized_source_jsonl,
+                raw_table_path=raw_table_path,
+                changed_windows_jsonl=changed_windows_jsonl,
+                selected_source_intervals_jsonl=selected_source_intervals_jsonl,
+                session_intervals_path=session_intervals_path,
+                closed_session_dates_path=closed_session_dates_path,
+                daily_open_interest_path=daily_open_interest_path,
+                daily_open_interest_version=daily_open_interest_version,
+                snapshot_manifest_path=snapshot_manifest_path,
+                output_dir=output_dir,
+                run_id=args.run_id,
+                built_at_utc=args.built_at_utc,
+                spark_master=args.spark_master,
+                output_json=output_json,
+                image=args.docker_image,
+                dockerfile=_resolve_repo_path(Path(args.dockerfile)),
+                runtime_root=runtime_root,
+            )
+        elif raw_table_path is not None:
+            report = run_moex_canonicalization_spark_delta_job(
+                raw_table_path=raw_table_path,
+                changed_windows_path=changed_windows_jsonl,
+                selected_source_intervals_path=selected_source_intervals_jsonl,
+                session_intervals_path=session_intervals_path,
+                closed_session_dates_path=closed_session_dates_path,
+                daily_open_interest_path=daily_open_interest_path,
+                daily_open_interest_version=daily_open_interest_version,
+                output_dir=output_dir,
+                build_run_id=args.run_id,
+                built_at_utc=args.built_at_utc,
+                spark_master=args.spark_master,
+            )
+            report["proof_profile"] = "local-spark"
+        else:
+            report = run_moex_canonicalization_spark_job(
+                normalized_source_path=normalized_source_jsonl,
+                selected_source_intervals_path=selected_source_intervals_jsonl,
+                session_intervals_path=session_intervals_path,
+                closed_session_dates_path=closed_session_dates_path,
+                output_dir=output_dir,
+                build_run_id=args.run_id,
+                built_at_utc=args.built_at_utc,
+                spark_master=args.spark_master,
+            )
+            report["proof_profile"] = "local-spark"
 
     payload = json.dumps(report, ensure_ascii=False, indent=2)
     if output_json is not None:
