@@ -501,3 +501,202 @@ def test_raw_ingest_spark_delta_job_ignores_pipeline_provenance_only_changes(
     assert report["deduplicated_rows"] == 1
     assert report["changed_windows"] == []
     assert version_after == version_before
+
+
+def test_raw_close_year_uses_utc_for_borrowed_moscow_ltz_and_rejects_ntz() -> None:
+    from support.spark_runtime import require_configured_spark_delta_profile
+
+    from trading_advisor_3000.product_plane.common.table_layout import with_spark_close_year
+
+    require_configured_spark_delta_profile()
+    spark = raw_ingest_job._create_spark_session("raw-close-year-timezones", "local[2]")
+    _, _, functions, _ = raw_ingest_job._load_spark_modules()
+    try:
+        spark.conf.set("spark.sql.session.timeZone", "Europe/Moscow")
+        source = spark.createDataFrame(
+            [("2026-01-01T00:00:00Z", 1999), ("2026-01-01T01:00:00+03:00", 1999)],
+            "close_text string, ts_close_year int",
+        ).withColumn("ts_close", functions.to_timestamp("close_text"))
+        output = with_spark_close_year(source, functions=functions).orderBy("close_text")
+        assert [row.ts_close_year for row in output.select("ts_close_year").collect()] == [
+            2026,
+            2025,
+        ]
+        assert output.select("ts_close").exceptAll(source.select("ts_close")).count() == 0
+        ntz = spark.sql(
+            "SELECT TIMESTAMP_NTZ '2026-01-01 00:00:00' AS ts_close, 1999 AS ts_close_year"
+        )
+        with pytest.raises(ValueError, match="timestamp_ntz"):
+            with_spark_close_year(ntz, functions=functions)
+        assert spark.conf.get("spark.sql.session.timeZone") == "Europe/Moscow"
+    finally:
+        spark.stop()
+
+
+def test_raw_stable_owner_preserves_pins_through_append_correction_delete_noop(
+    tmp_path: Path,
+) -> None:
+    from deltalake import DeltaTable
+    from support.spark_runtime import require_configured_spark_delta_profile
+
+    from trading_advisor_3000.product_plane.common.table_layout import MAX_COMPRESSED_FILE_BYTES
+
+    require_configured_spark_delta_profile()
+    target = tmp_path / "raw_moex_history.delta"
+    paths = {
+        "progress_path": tmp_path / "progress.jsonl",
+        "progress_latest_path": tmp_path / "progress.json",
+        "error_path": tmp_path / "errors.jsonl",
+        "error_latest_path": tmp_path / "errors.json",
+    }
+    first = _raw_row(ts_open="2025-12-31T23:59:00Z", ts_close="2026-01-01T00:00:00Z", close=100.0)
+    second = _raw_row(ts_open="2026-01-01T00:00:00Z", ts_close="2026-01-01T00:01:00Z", close=101.0)
+    scope = {
+        "internal_id": "FUT_BR",
+        "timeframe": "1m",
+        "source_interval": 1,
+        "moex_secid": "BRQ6",
+        "window_start_utc": "2025-12-31T23:58:00Z",
+        "window_end_utc": "2026-01-01T00:01:00Z",
+        "watermark_utc": None,
+    }
+
+    def run(rows, run_id):
+        return run_moex_raw_ingest_spark_delta_job(
+            table_path=target,
+            source_rows=rows,
+            window_scopes=[scope],
+            initial_watermarks={},
+            run_id=run_id,
+            ingest_till_utc="2026-01-01T00:01:00Z",
+            refresh_overlap_minutes=60,
+            **paths,
+        )
+
+    assert run([first], "create")["status"] == "PASS"
+    initial = DeltaTable(str(target))
+    identity, pin = initial.metadata().id, initial.version()
+    assert run([first, second], "append")["status"] == "PASS"
+    revised = {**first, "close": 99.75}
+    assert run([revised, second], "correct")["status"] == "PASS"
+    assert run([revised], "delete")["status"] == "PASS"
+    current = DeltaTable(str(target))
+    version = current.version()
+    assert run([revised], "noop")["status"] == "PASS-NOOP"
+    current = DeltaTable(str(target))
+    assert current.metadata().id == identity
+    assert current.version() == version
+    assert current.metadata().partition_columns == ["ts_close_year"]
+    assert current.to_pyarrow_table().column("close").to_pylist() == [99.75]
+    assert current.to_pyarrow_table().column("ts_close_year").to_pylist() == [2026]
+    assert DeltaTable(str(target), version=pin).to_pyarrow_table().column("close").to_pylist() == [
+        100.0
+    ]
+    actions = current.get_add_actions(flatten=True).to_pylist()
+    assert len(actions) == 1
+    assert 0 < actions[0]["size_bytes"] <= MAX_COMPRESSED_FILE_BYTES
+    assert actions[0]["num_records"] == 1
+
+
+@pytest.mark.parametrize("ntz_source", [False, True], ids=["moscow-ltz", "reject-native-ntz"])
+def test_raw_migration_owns_utc_year_or_rejects_ntz_before_target_write(
+    tmp_path: Path,
+    ntz_source: bool,
+) -> None:
+    from deltalake import DeltaTable
+    from support.spark_runtime import require_configured_spark_delta_profile
+
+    from trading_advisor_3000.product_plane.common.table_layout import validate_default_table_files
+    from trading_advisor_3000.spark_jobs import moex_raw_layout_migration_job as migration
+
+    require_configured_spark_delta_profile()
+    source_path = tmp_path / "source.delta"
+    target_path = tmp_path / "raw_moex_history.layout-staged.delta"
+    spark = raw_ingest_job._create_spark_session("raw-migration-native-close", "local[2]")
+    _, _, functions, _ = raw_ingest_job._load_spark_modules()
+    from pyspark.sql import types as spark_types
+
+    spark.conf.set("spark.sql.session.timeZone", "Europe/Moscow")
+    rows = [
+        _raw_row(ts_open="2025-12-31T23:59:00Z", ts_close="2026-01-01T00:00:00Z", close=100.0),
+        _raw_row(ts_open="2025-12-31T20:59:00Z", ts_close="2026-01-01T01:00:00+03:00", close=101.0),
+    ]
+    try:
+        source = spark.createDataFrame(
+            [raw_ingest_job._normalize_raw_row(row, index) for index, row in enumerate(rows)],
+            schema=raw_ingest_job._raw_schema(spark_types),
+        ).withColumn("ts_close_year", functions.lit(1999))
+        if ntz_source:
+            source = source.withColumn("ts_close", functions.col("ts_close").cast("timestamp_ntz"))
+        source.write.format("delta").mode("overwrite").save(str(source_path))
+        original = DeltaTable(str(source_path))
+        identity, pin = original.metadata().id, original.version()
+        report_path = tmp_path / "migration-report.json"
+        args = dict(
+            source_table_path=source_path,
+            staged_table_path=target_path,
+            report_path=report_path,
+            run_id="native-migration-close",
+            spark_session_factory=lambda *_: spark,
+        )
+        if ntz_source:
+            with pytest.raises(ValueError, match="timestamp_ntz"):
+                migration.run_moex_raw_layout_migration_spark_job(**args)
+            assert not target_path.exists()
+            assert not report_path.exists()
+        else:
+            report = migration.run_moex_raw_layout_migration_spark_job(**args)
+            assert report["status"] == "PASS"
+            assert report["storage_file_policy_passes"] is True
+            current = DeltaTable(str(target_path))
+            assert current.metadata().partition_columns == ["ts_close_year"]
+            output = current.to_pyarrow_table().to_pylist()
+            assert sorted(row["ts_close_year"] for row in output) == [2025, 2026]
+            assert sorted(row["close"] for row in output) == [100.0, 101.0]
+            expected = (
+                DeltaTable(str(source_path), version=pin)
+                .to_pyarrow_table()
+                .select(list(RAW_COLUMNS))
+            )
+            actual = current.to_pyarrow_table().select(list(RAW_COLUMNS))
+            assert sorted(actual.to_pylist(), key=lambda row: row["ts_close"]) == sorted(
+                expected.to_pylist(), key=lambda row: row["ts_close"]
+            )
+            validate_default_table_files(target_path)
+        preserved = DeltaTable(str(source_path))
+        assert (preserved.metadata().id, preserved.version()) == (identity, pin)
+    finally:
+        spark.stop()
+
+
+def test_raw_stable_owner_empty_bootstrap_and_empty_retry_are_readonly(tmp_path: Path) -> None:
+    from deltalake import DeltaTable
+    from support.spark_runtime import require_configured_spark_delta_profile
+
+    require_configured_spark_delta_profile()
+    target = tmp_path / "raw_moex_history.delta"
+    args = dict(
+        table_path=target,
+        source_rows=[],
+        window_scopes=[],
+        initial_watermarks={},
+        ingest_till_utc="2026-01-01T00:00:00Z",
+        refresh_overlap_minutes=0,
+        progress_path=tmp_path / "progress.jsonl",
+        progress_latest_path=tmp_path / "progress.json",
+        error_path=tmp_path / "errors.jsonl",
+        error_latest_path=tmp_path / "errors.json",
+    )
+    assert (
+        run_moex_raw_ingest_spark_delta_job(run_id="empty-create", **args)["status"] == "PASS-NOOP"
+    )
+    original = DeltaTable(str(target))
+    identity, pin = original.metadata().id, original.version()
+    assert original.metadata().partition_columns == ["ts_close_year"]
+    assert original.get_add_actions(flatten=True).num_rows == 0
+    assert (
+        run_moex_raw_ingest_spark_delta_job(run_id="empty-retry", **args)["status"] == "PASS-NOOP"
+    )
+    current = DeltaTable(str(target))
+    assert (current.metadata().id, current.version()) == (identity, pin)
+    assert current.get_add_actions(flatten=True).num_rows == 0
