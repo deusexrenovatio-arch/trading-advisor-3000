@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
+from numbers import Real
 from typing import Any
 
 from trading_advisor_3000.product_plane.data_plane.schemas.delta import (
@@ -75,6 +76,7 @@ class MoexContractParameterRegime:
     quote_currency: str
     tick_value_quote: float
     source_document_id: str
+    validation_method: str = "turnover"
 
 
 _MOEX_2022_CONTRACT_PARAMETER_REGIMES = (
@@ -273,6 +275,80 @@ MOEX_HISTORICAL_CONTRACT_PARAMETER_REGIMES += tuple(
     for rule in _MOEX_2022_CONTRACT_PARAMETER_REGIMES
     if rule.assetcode in _MOEX_PRE2020_PARAMETER_STARTS
 )
+
+
+def validate_contract_parameter_regimes(
+    additional: tuple[MoexContractParameterRegime, ...] = (),
+    *,
+    registered: tuple[MoexContractParameterRegime, ...] | None = None,
+) -> tuple[MoexContractParameterRegime, ...]:
+    """Validate small configuration only, before native runtime acquisition."""
+    if type(additional) is not tuple:
+        raise TypeError("additional_contract_parameter_regimes must be tuple")
+    baseline = MOEX_HISTORICAL_CONTRACT_PARAMETER_REGIMES if registered is None else registered
+    if type(baseline) is not tuple:
+        raise TypeError("registered contract parameter regimes must be tuple")
+    known_assets = {rule.assetcode for rule in MOEX_HISTORICAL_CONTRACT_PARAMETER_REGIMES}
+    regimes = (*baseline, *additional)
+    ids: set[str] = set()
+    intervals: dict[str, list[tuple[date, date, str]]] = {}
+    for rule in regimes:
+        if type(rule) is not MoexContractParameterRegime:
+            raise TypeError("contract parameter regime must be MoexContractParameterRegime")
+        for name in (
+            "rule_id",
+            "assetcode",
+            "quote_currency",
+            "source_document_id",
+            "validation_method",
+        ):
+            text = getattr(rule, name)
+            if (
+                type(text) is not str
+                or not text
+                or text != text.strip()
+                or any(ord(char) < 32 or ord(char) == 127 for char in text)
+            ):
+                raise ValueError(f"{name} must be nonblank canonical text")
+        if rule.assetcode != rule.assetcode.upper() or rule.assetcode not in known_assets:
+            raise ValueError("assetcode must be canonical uppercase registered asset")
+        if rule.quote_currency not in {"USD", "RUB"}:
+            raise ValueError("unknown parameter quote_currency")
+        if rule.validation_method not in {"turnover", "dated_official_tc"}:
+            raise ValueError("unknown parameter validation_method")
+        if rule.rule_id in ids:
+            raise ValueError(f"duplicate parameter rule_id: {rule.rule_id}")
+        ids.add(rule.rule_id)
+        dates = []
+        for name in ("effective_from", "effective_to"):
+            text = getattr(rule, name)
+            try:
+                parsed = date.fromisoformat(text) if type(text) is str else None
+            except ValueError:
+                parsed = None
+            if parsed is None or parsed.isoformat() != text:
+                raise ValueError(f"{name} must be canonical YYYY-MM-DD")
+            dates.append(parsed)
+        start, end = dates
+        if start > end:
+            raise ValueError(f"reversed parameter interval: {rule.rule_id}")
+        for name in ("min_step", "lot_volume", "tick_value_quote"):
+            value = getattr(rule, name)
+            if isinstance(value, bool) or not isinstance(value, Real):
+                raise ValueError(f"{name} must be finite positive real, excluding bool")
+            try:
+                valid = math.isfinite(value) and value > 0
+            except (OverflowError, TypeError, ValueError):
+                valid = False
+            if not valid:
+                raise ValueError(f"{name} must be finite positive real")
+        intervals.setdefault(rule.assetcode, []).append((start, end, rule.rule_id))
+    for asset, entries in intervals.items():
+        ordered = sorted(entries)
+        for prior, following in zip(ordered, ordered[1:]):
+            if following[0] <= prior[1]:
+                raise ValueError(f"overlapping parameter regimes: {asset}/{following[2]}")
+    return regimes
 
 
 def _utc_now_iso() -> str:
