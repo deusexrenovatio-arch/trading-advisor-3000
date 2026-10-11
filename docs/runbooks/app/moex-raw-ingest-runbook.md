@@ -58,4 +58,5 @@ Treat raw ingest as blocked when any condition appears:
 - Mapping changes must be versioned and soft-deactivated. Do not hard-delete historical rows.
 - Raw table `timeframe` stores native MOEX source timeframe labels. Runtime targets (`5m/15m/1h/4h/1d/1w`) stay a downstream resampling concern.
 - After the stable raw layout migration is promoted, Spark raw ingest writes the partitioned layout with derived `ts_close_year`; do not use Python or delta-rs writers to mutate the stable raw table.
+- Raw close-year/file policy and fresh Arrow candidate boundaries: [writer delivery](docs/runbooks/app/raw-close-year-writer-delivery.md). Stable root swap/pin-copy promotion is deferred; a stage-only storage report is not publication acceptance.
 - This runbook proves only the raw-ingest step and does not claim canonical refresh, Dagster-route proof, or reconciliation closure.

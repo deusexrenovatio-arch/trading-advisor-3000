@@ -83,18 +83,21 @@ def test_raw_layout_schema_validation_accepts_spark_physical_json_type() -> None
 
 
 def test_raw_layout_file_profile_ignores_delta_log_checkpoints(tmp_path: Path) -> None:
+    import pyarrow as pa
+    from deltalake import DeltaTable, write_deltalake
+
     table = tmp_path / "raw_moex_history.delta"
-    data_file = table / "ts_close_year=2026" / "part-00000.parquet"
-    checkpoint_file = table / "_delta_log" / "00000000000000000010.checkpoint.parquet"
-    data_file.parent.mkdir(parents=True)
-    checkpoint_file.parent.mkdir(parents=True)
-    data_file.write_bytes(b"data")
-    checkpoint_file.write_bytes(b"checkpoint")
-
+    write_deltalake(str(table), pa.table({"id": [1]}))
+    pinned = DeltaTable(str(table), version=0)
+    write_deltalake(str(table), pa.table({"id": [2]}), mode="overwrite")
+    current = DeltaTable(str(table))
+    current.create_checkpoint()
+    active_bytes = sum((table / relative).stat().st_size for relative in current.files())
     profile = moex_raw_layout_migration_job._parquet_file_profile(table)
-
     assert profile["parquet_files"] == 1
-    assert profile["total_bytes"] == len(b"data")
+    assert profile["total_bytes"] == active_bytes
+    assert len(list(table.rglob("*.parquet"))) == 3
+    assert pinned.to_pyarrow_table().column("id").to_pylist() == [1]
 
 
 def test_raw_layout_promote_requires_passed_report_and_moves_roots(tmp_path: Path) -> None:
@@ -261,3 +264,37 @@ def test_raw_layout_promote_blocks_failed_report_without_moving_roots(tmp_path: 
     assert (current / "old-root.txt").exists()
     assert (staged / "new-root.txt").exists()
     assert not backup.exists()
+
+
+def test_raw_migration_rejects_existing_staged_delta_even_with_overwrite(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import pyarrow as pa
+    from deltalake import DeltaTable, write_deltalake
+
+    source = tmp_path / "source.delta"
+    target = tmp_path / "raw_moex_history.layout-staged.delta"
+    seed = pa.table({"id": [1]})
+    write_deltalake(str(source), seed)
+    write_deltalake(str(target), seed)
+    before = DeltaTable(str(target))
+    identity, version = before.metadata().id, before.version()
+
+    def unexpected_spark():
+        raise AssertionError("target guard must precede Spark launch")
+
+    monkeypatch.setattr(
+        moex_raw_layout_migration_job, "_ensure_spark_delta_runtime_available", unexpected_spark
+    )
+    with pytest.raises(FileExistsError, match="new isolated candidate"):
+        moex_raw_layout_migration_job.run_moex_raw_layout_migration_spark_job(
+            source_table_path=source,
+            staged_table_path=target,
+            report_path=tmp_path / "report.json",
+            run_id="reuse-forbidden",
+            overwrite_staged=True,
+        )
+    assert (DeltaTable(str(target)).metadata().id, DeltaTable(str(target)).version()) == (
+        identity,
+        version,
+    )
