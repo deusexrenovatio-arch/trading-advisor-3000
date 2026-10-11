@@ -1228,7 +1228,9 @@ def moex_baseline_update(context) -> dict[str, object]:
         expand_contract_chain=_bool_value(op_config, "expand_contract_chain", default=True),
         coverage_mode=_text_value(op_config, "coverage_mode") or "local_tail",
         economics_mode=_text_value(op_config, "economics_mode") or ECONOMICS_REFRESH_MODE_REFRESH,
-        economics_history_refresh=_bool_value(op_config, "economics_history_refresh", default=False),
+        economics_history_refresh=_bool_value(
+            op_config, "economics_history_refresh", default=False
+        ),
         raw_economics_root=raw_economics_root,
         canonical_economics_root=canonical_economics_root,
         economics_source_paths={
