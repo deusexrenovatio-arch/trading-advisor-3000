@@ -246,3 +246,181 @@ def test_money_math_update_filters_historical_fx_jsonl_by_trade_window(
         "2026-06-10",
         "2026-06-11",
     ]
+
+
+@pytest.mark.parametrize("historical_mode", [False, True])
+def test_money_math_update_forwards_explicit_margin_calibration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, historical_mode: bool
+) -> None:
+    from datetime import date
+
+    module = _load_update_script()
+    captured: dict[str, object] = {}
+    writes: list[str] = []
+    monkeypatch.setattr(module, "MoexISSClient", lambda **_kwargs: SimpleNamespace())
+    monkeypatch.setattr(module, "_read_jsonl", lambda _path: [{"trade_date": "2026-10-05"}])
+    monkeypatch.setattr(module, "resolve_external_root", lambda value, **_kwargs: Path(value))
+    for name in ("_raw_contract_rows", "_raw_fx_rows", "_risk_rows_from_jsonl"):
+        monkeypatch.setattr(module, name, lambda **_kwargs: [])
+    monkeypatch.setattr(
+        module,
+        "_write_raw_table_for_mode",
+        lambda **kwargs: writes.append(str(kwargs["table_name"])) or "captured",
+    )
+
+    def capture_runner(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"status": "PASS"}
+
+    monkeypatch.setattr(module, "run_moex_contract_economics_spark_job", capture_runner)
+    arguments = [
+        "run_moex_contract_economics_update.py",
+        "--trade-date",
+        "2026-10-05",
+        "--contracts-jsonl",
+        "contracts.jsonl",
+        "--fx-jsonl",
+        "fx.jsonl",
+        "--rms-source",
+        "jsonl",
+        "--rms-limits-jsonl",
+        "limits.jsonl",
+        "--rms-staticparams-jsonl",
+        "staticparams.jsonl",
+        "--raw-economics-root",
+        str(tmp_path / "raw"),
+        "--canonical-economics-root",
+        str(tmp_path / "canonical"),
+        "--evidence-root",
+        str(tmp_path / "evidence"),
+    ]
+    if historical_mode:
+        arguments += [
+            "--allow-calibrated-latest-margin",
+            "--margin-calibration-as-of-date",
+            "2026-08-14",
+        ]
+    monkeypatch.setattr(sys, "argv", arguments)
+    module.main()
+
+    assert len(writes) == 4
+    assert captured.get("allow_calibrated_latest_margin", False) is historical_mode
+    assert captured.get("margin_calibration_as_of_date") == (
+        date(2026, 8, 14) if historical_mode else None
+    )
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["--allow-calibrated-latest-margin"],
+        ["--margin-calibration-as-of-date", "2026-08-14"],
+    ],
+)
+def test_money_math_update_requires_paired_calibration_before_acquisition(
+    monkeypatch: pytest.MonkeyPatch, arguments: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = _load_update_script()
+
+    def forbidden_acquisition(**_kwargs: object) -> None:
+        pytest.fail("invalid calibration configuration reached acquisition/write")
+
+    monkeypatch.setattr(module, "MoexISSClient", forbidden_acquisition)
+    monkeypatch.setattr(module, "_write_raw_table_for_mode", forbidden_acquisition)
+    monkeypatch.setattr(sys, "argv", ["run_moex_contract_economics_update.py", *arguments])
+    with pytest.raises(SystemExit, match="2"):
+        module.main()
+    assert "must be supplied together" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("calibration_date", ["2026-02-30", "14.08.2026"])
+def test_money_math_update_requires_typed_iso_calibration_before_acquisition(
+    monkeypatch: pytest.MonkeyPatch, calibration_date: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = _load_update_script()
+
+    def forbidden_acquisition(**_kwargs: object) -> None:
+        pytest.fail("invalid calibration date reached acquisition/write")
+
+    monkeypatch.setattr(module, "MoexISSClient", forbidden_acquisition)
+    monkeypatch.setattr(module, "_write_raw_table_for_mode", forbidden_acquisition)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_moex_contract_economics_update.py",
+            "--allow-calibrated-latest-margin",
+            "--margin-calibration-as-of-date",
+            calibration_date,
+        ],
+    )
+    with pytest.raises(SystemExit, match="2"):
+        module.main()
+    assert "invalid fromisoformat value" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "allow,calibration,expected_error",
+    [
+        (True, None, ValueError),
+        (False, "2026-08-14", TypeError),
+        (True, "2026-08-14", TypeError),
+        ("true", None, TypeError),
+        (1, None, TypeError),
+    ],
+)
+def test_economics_direct_run_rejects_invalid_calibration_before_spark(
+    tmp_path, allow, calibration, expected_error
+):
+    from trading_advisor_3000.spark_jobs.moex_contract_economics_job import (
+        run_moex_contract_economics_spark_job,
+    )
+
+    def forbidden_factory(*args):
+        pytest.fail("invalid calibration reached Spark acquisition")
+
+    output = tmp_path / "canonical"
+    with pytest.raises(expected_error):
+        run_moex_contract_economics_spark_job(
+            raw_contract_specs_path=tmp_path / "contracts",
+            raw_fx_rates_path=tmp_path / "fx",
+            raw_rms_limits_path=tmp_path / "limits",
+            raw_rms_staticparams_path=tmp_path / "staticparams",
+            output_dir=output,
+            allow_calibrated_latest_margin=allow,
+            margin_calibration_as_of_date=calibration,
+            spark_session_factory=forbidden_factory,
+        )
+    assert not output.exists()
+
+
+def test_economics_direct_run_requires_paired_date_and_rejects_datetime(tmp_path):
+    from datetime import date, datetime
+
+    from trading_advisor_3000.spark_jobs.moex_contract_economics_job import (
+        run_moex_contract_economics_spark_job,
+    )
+
+    def forbidden_factory(*args):
+        pytest.fail("invalid calibration reached Spark acquisition")
+
+    output = tmp_path / "canonical"
+    kwargs = {
+        "raw_contract_specs_path": tmp_path / "contracts",
+        "raw_fx_rates_path": tmp_path / "fx",
+        "raw_rms_limits_path": tmp_path / "limits",
+        "raw_rms_staticparams_path": tmp_path / "staticparams",
+        "output_dir": output,
+        "spark_session_factory": forbidden_factory,
+    }
+    with pytest.raises(ValueError, match="must be supplied together"):
+        run_moex_contract_economics_spark_job(
+            **kwargs, margin_calibration_as_of_date=date(2026, 8, 14)
+        )
+    with pytest.raises(TypeError, match="excluding datetime"):
+        run_moex_contract_economics_spark_job(
+            **kwargs,
+            allow_calibrated_latest_margin=True,
+            margin_calibration_as_of_date=datetime(2026, 8, 14),
+        )
+    assert not output.exists()

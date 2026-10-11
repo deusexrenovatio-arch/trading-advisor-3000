@@ -736,7 +736,9 @@ def _with_effective_sessions(contract_specs, *, canonical_session_calendar_path:
     )
 
 
-def _with_latest_margin_calibration(economics):
+def _with_latest_margin_calibration(
+    economics, *, margin_calibration_as_of_date: date | None = None
+):
     from pyspark.sql import Window  # type: ignore[import-not-found]
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
@@ -746,7 +748,12 @@ def _with_latest_margin_calibration(economics):
         & F.col("assetcode").isNotNull()
         & F.col("maturity_rank").isNotNull()
     )
-    calibration_as_of = economics.where(valid_calibration).agg(
+    calibration_inputs = economics.where(valid_calibration)
+    if margin_calibration_as_of_date is not None:
+        calibration_inputs = calibration_inputs.where(
+            F.col("economics_session_date") == F.lit(margin_calibration_as_of_date)
+        )
+    calibration_as_of = calibration_inputs.agg(
         F.max("economics_session_date").alias("__calibration_as_of_date")
     )
     calibration_lookup = (
@@ -953,6 +960,7 @@ def _economics_frame(
     risk_parameters,
     *,
     canonical_session_calendar_path: Path | None = None,
+    margin_calibration_as_of_date: date | None = None,
 ):
     from pyspark.sql import Window  # type: ignore[import-not-found]
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
@@ -1318,7 +1326,9 @@ def _economics_frame(
         rule_validation_relative_error.alias("__step_price_rule_validation_relative_error"),
         F.current_timestamp().alias("created_at"),
     )
-    return _with_latest_margin_calibration(uncalibrated)
+    return _with_latest_margin_calibration(
+        uncalibrated, margin_calibration_as_of_date=margin_calibration_as_of_date
+    )
 
 
 def _missing_input_counts(economics) -> dict[str, int]:
@@ -1350,6 +1360,9 @@ def _missing_input_counts(economics) -> dict[str, int]:
 
 def _fail_closed_on_missing_inputs(
     economics,
+    *,
+    allow_calibrated_latest_margin: bool = False,
+    margin_calibration_as_of_date: date | None = None,
 ) -> tuple[dict[str, int], dict[str, int]]:
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
@@ -1365,8 +1378,32 @@ def _fail_closed_on_missing_inputs(
     offenders = [
         f"{key}={value}"
         for key, value in latest_missing_counts.items()
-        if value and key != "OFFICIAL_STEPPRICE"
+        if value
+        and key != "OFFICIAL_STEPPRICE"
+        and not (allow_calibrated_latest_margin and key == "INITIALMARGIN")
     ]
+    if allow_calibrated_latest_margin:
+        if margin_calibration_as_of_date is None:
+            raise ValueError("historical margin mode requires an explicit calibration date")
+        modeled_latest = economics.where(
+            (F.col("economics_session_date") == F.lit(latest_session_date))
+            & ~F.coalesce(F.col("official_initial_margin") > F.lit(0.0), F.lit(False))
+        )
+        valid_model = (
+            F.col("model_quality").isin("calibrated_asset_rank", "calibrated_nearest_rank")
+            & (F.col("margin_calibration_as_of_date") == F.lit(margin_calibration_as_of_date))
+            & (F.col("margin_calibration_as_of_date") <= F.col("economics_session_date"))
+            & (F.col("margin_calibration_factor") > F.lit(0.0))
+            & (F.col("margin_calibration_factor") < F.lit(float("inf")))
+            & (F.col("margin_required_estimate") > F.lit(0.0))
+            & (F.col("margin_required_estimate") < F.lit(float("inf")))
+            & F.col("margin_calibration_source").isin(
+                "latest_official_asset_rank", "latest_official_nearest_rank"
+            )
+        )
+        invalid_model_rows = modeled_latest.where(~F.coalesce(valid_model, F.lit(False))).count()
+        if invalid_model_rows:
+            offenders.append(f"CALIBRATED_INITIALMARGIN={invalid_model_rows}")
     if offenders:
         raise RuntimeError(
             "MOEX contract economics latest session missing required inputs: "
@@ -1598,11 +1635,25 @@ def run_moex_contract_economics_spark_job(
     raw_asset_risk_parameters_path: Path | None = None,
     output_dir: Path,
     canonical_session_calendar_path: Path | None = None,
+    allow_calibrated_latest_margin: bool = False,
+    margin_calibration_as_of_date: date | None = None,
     run_id: str = "contract-economics",
     report_path: Path | None = None,
     spark_master: str = DEFAULT_SPARK_MASTER,
     spark_session_factory: Callable[[str, str], object] | None = None,
 ) -> dict[str, object]:
+    if type(allow_calibrated_latest_margin) is not bool:
+        raise TypeError("allow_calibrated_latest_margin must be bool")
+    if (
+        margin_calibration_as_of_date is not None
+        and type(margin_calibration_as_of_date) is not date
+    ):
+        raise TypeError("margin_calibration_as_of_date must be date, excluding datetime")
+    if allow_calibrated_latest_margin != (margin_calibration_as_of_date is not None):
+        raise ValueError(
+            "allow_calibrated_latest_margin and margin_calibration_as_of_date "
+            "must be supplied together"
+        )
     if raw_asset_risk_parameters_path is not None and (
         raw_rms_limits_path is None or raw_rms_staticparams_path is None
     ):
@@ -1645,11 +1696,16 @@ def run_moex_contract_economics_spark_job(
             fx_rates,
             risk_parameters,
             canonical_session_calendar_path=canonical_session_calendar_path,
+            margin_calibration_as_of_date=margin_calibration_as_of_date,
         ).cache()
         contract_parameter_regime_mismatch_rows = (
             _fail_closed_on_contract_parameter_regime_mismatches(economics)
         )
-        missing_counts, historical_missing_counts = _fail_closed_on_missing_inputs(economics)
+        missing_counts, historical_missing_counts = _fail_closed_on_missing_inputs(
+            economics,
+            allow_calibrated_latest_margin=allow_calibrated_latest_margin,
+            margin_calibration_as_of_date=margin_calibration_as_of_date,
+        )
         step_price_rule_profiles = _fail_closed_on_step_price_rule_validation(economics)
         interval_counts = _fail_closed_on_invalid_intervals(economics)
         margin_calibration_report = _margin_calibration_report(economics)
@@ -1702,6 +1758,12 @@ def run_moex_contract_economics_spark_job(
             "status": "PASS",
             "mode": "moex_contract_economics_spark_job",
             "run_id": run_id,
+            "allow_calibrated_latest_margin": allow_calibrated_latest_margin,
+            "requested_margin_calibration_as_of_date": (
+                margin_calibration_as_of_date.isoformat()
+                if margin_calibration_as_of_date is not None
+                else None
+            ),
             "row_counts": row_counts,
             "obsolete_model_rows_replaced": obsolete_model_rows_replaced,
             "missing_economics_rows": unavailable_economics_rows,
