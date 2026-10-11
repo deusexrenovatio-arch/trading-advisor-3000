@@ -224,7 +224,7 @@ def _filter_clause_expression(clause: tuple[str, str, object]) -> ds.Expression:
     column_name, operator, value = clause
     field = ds.field(str(column_name))
     normalized_operator = str(operator).strip().lower()
-    if normalized_operator == "=":
+    if normalized_operator in {"=", "=="}:
         return field == value
     if normalized_operator in {"!=", "<>"}:
         return field != value
@@ -279,6 +279,47 @@ def _filters_to_dataset_expression(filters: DeltaReadFilters) -> ds.Expression |
     for item in group_expressions[1:]:
         expression = expression | item
     return expression
+
+
+def _filtered_delta_dataset(table: DeltaTable, filters: DeltaReadFilters) -> ds.Dataset:
+    dataset = table.to_pyarrow_dataset()
+    if not filters:
+        return dataset
+    groups = [filters] if isinstance(filters[0], tuple) else filters
+    predicate_columns = {clause[0] for group in groups for clause in group}
+    partition_columns = set(table.metadata().partition_columns)
+    data_columns = predicate_columns - partition_columns
+    if not data_columns:
+        return dataset
+    actions = table.get_add_actions().to_pylist()
+    if not any(
+        (action.get(bound) or {}).get(column) is None
+        for action in actions
+        for column in data_columns
+        for bound in ("min", "max")
+    ):
+        return dataset
+
+    # delta-rs 0.25 fills absent bounds with NULL, then treats them as constraints.
+    # Keep the pinned active file set and actual partition values; Parquet still
+    # supplies row-group statistics and applies the original predicate exactly.
+    fragments = []
+    for action in actions:
+        partition_expression = ds.scalar(True)
+        for column in partition_columns:
+            value = (action.get("partition_values") or {}).get(column)
+            expression = (
+                ds.field(column).is_null()
+                if value is None
+                else (ds.field(column) == pa.scalar(value).cast(dataset.schema.field(column).type))
+            )
+            partition_expression = partition_expression & expression
+        fragments.append(
+            dataset.format.make_fragment(
+                action["path"], dataset.filesystem, partition_expression=partition_expression
+            )
+        )
+    return ds.FileSystemDataset(fragments, dataset.schema, dataset.format, dataset.filesystem)
 
 
 def _normalize_loaded_rows(rows: list[object]) -> list[dict[str, object]]:
@@ -503,7 +544,8 @@ def count_delta_table_rows(table_path: Path, *, filters: DeltaReadFilters = None
     if filters is None:
         return int(table.to_pyarrow_dataset().count_rows())
     normalized_filters = _normalize_filters_for_schema(filters, table.to_pyarrow_dataset().schema)
-    return int(table.to_pyarrow_table(columns=[], filters=normalized_filters).num_rows)
+    dataset = _filtered_delta_dataset(table, normalized_filters)
+    return int(dataset.count_rows(filter=_filters_to_dataset_expression(normalized_filters)))
 
 
 def delta_table_columns(table_path: Path) -> tuple[str, ...]:
@@ -553,6 +595,7 @@ def iter_delta_table_row_batches(
     dataset = table.to_pyarrow_dataset()
     normalized_filters = _normalize_filters_for_schema(filters, dataset.schema)
     _enforce_hot_delta_batch_bound(table_path, filters=normalized_filters)
+    dataset = _filtered_delta_dataset(table, normalized_filters)
     scanner = dataset.scanner(
         columns=columns,
         filter=_filters_to_dataset_expression(normalized_filters),
@@ -574,11 +617,14 @@ def read_delta_table_arrow(
     dataset = table.to_pyarrow_dataset()
     normalized_filters = _normalize_filters_for_schema(filters, dataset.schema)
     _enforce_hot_delta_read_bound(table_path, filters=normalized_filters)
+    dataset = _filtered_delta_dataset(table, normalized_filters)
     selected_columns = columns
     if selected_columns is not None:
         available = set(dataset.schema.names)
         selected_columns = [column for column in selected_columns if column in available]
-    return table.to_pyarrow_table(columns=selected_columns, filters=normalized_filters)
+    return dataset.to_table(
+        columns=selected_columns, filter=_filters_to_dataset_expression(normalized_filters)
+    )
 
 
 def read_delta_table_rows(
@@ -598,6 +644,7 @@ def read_delta_table_rows(
     _enforce_hot_delta_read_bound(table_path, filters=normalized_filters, limit=limit)
     if limit == 0:
         return []
+    dataset = _filtered_delta_dataset(table, normalized_filters)
     if limit is not None:
         scanner = dataset.scanner(
             columns=columns,
@@ -610,7 +657,9 @@ def read_delta_table_rows(
                 break
             rows.extend(_normalize_loaded_rows(batch.to_pylist())[:remaining])
         return rows
-    arrow_table = table.to_pyarrow_table(columns=columns, filters=normalized_filters)
+    arrow_table = dataset.to_table(
+        columns=columns, filter=_filters_to_dataset_expression(normalized_filters)
+    )
     return _normalize_loaded_rows(arrow_table.to_pylist())
 
 
@@ -626,11 +675,14 @@ def read_delta_table_frame(
     dataset = table.to_pyarrow_dataset()
     normalized_filters = _normalize_filters_for_schema(filters, dataset.schema)
     _enforce_hot_delta_read_bound(table_path, filters=normalized_filters)
+    dataset = _filtered_delta_dataset(table, normalized_filters)
     selected_columns = columns
     if selected_columns is not None:
         available = set(dataset.schema.names)
         selected_columns = [column for column in selected_columns if column in available]
-    arrow_table = table.to_pyarrow_table(columns=selected_columns, filters=normalized_filters)
+    arrow_table = dataset.to_table(
+        columns=selected_columns, filter=_filters_to_dataset_expression(normalized_filters)
+    )
     return arrow_table.to_pandas()
 
 
