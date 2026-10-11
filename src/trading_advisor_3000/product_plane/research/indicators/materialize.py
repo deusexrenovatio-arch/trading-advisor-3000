@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import os
+from bisect import bisect_right
 from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import AbstractSet
@@ -13,6 +14,7 @@ import pandas_ta_classic as ta
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     delta_table_columns,
+    iter_delta_table_row_batches,
     read_delta_table_arrow,
     read_delta_table_rows,
 )
@@ -249,39 +251,58 @@ def _load_volume_profile_source_rows(
         _volume_profile_key(row.instrument_id, _volume_profile_contract_id(row))
         for row in local_series
     }
-    instrument_ids = sorted({instrument_id for instrument_id, _ in source_keys})
-    contract_ids = sorted({contract_id for _, contract_id in source_keys})
-    start_ts = min(_utc_timestamp(row.ts) for row in local_series)
-    end_ts = max(_target_bar_close_ts(row) for row in local_series)
-    rows = read_delta_table_rows(
-        raw_1m_table_path,
-        columns=[
-            contract_column,
-            instrument_column,
-            "timeframe",
-            timestamp_column,
-            "low",
-            "high",
-            "volume",
-        ],
-        filters=[
+    intervals: dict[tuple[str, str], list[tuple[pd.Timestamp, pd.Timestamp]]] = {}
+    for bar in sorted(local_series, key=lambda row: _utc_timestamp(row.ts)):
+        key = _volume_profile_key(bar.instrument_id, _volume_profile_contract_id(bar))
+        start, end = _utc_timestamp(bar.ts), _target_bar_close_ts(bar)
+        merged = intervals.setdefault(key, [])
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    # A sparse full-history series can have one interval per bar. Sending that
+    # DNF to Arrow makes the native expression tree deep enough to crash.
+    # Read contract envelopes, then apply the exact half-open interval union.
+    filter_groups = [
+        [
             ("timeframe", "=", "1m"),
-            (instrument_column, "in", instrument_ids),
-            (contract_column, "in", contract_ids),
-            (timestamp_column, ">=", start_ts.isoformat().replace("+00:00", "Z")),
-            (timestamp_column, "<", end_ts.isoformat().replace("+00:00", "Z")),
-        ],
-    )
+            (instrument_column, "=", key[0]),
+            (contract_column, "=", key[1]),
+            (timestamp_column, ">=", ranges[0][0].isoformat().replace("+00:00", "Z")),
+            (timestamp_column, "<", ranges[-1][1].isoformat().replace("+00:00", "Z")),
+        ]
+        for key, ranges in sorted(intervals.items())
+    ]
+    starts = {key: [start.value for start, _ in ranges] for key, ranges in intervals.items()}
+    ends = {key: [end.value for _, end in ranges] for key, ranges in intervals.items()}
+    selected_columns = [
+        contract_column,
+        instrument_column,
+        "timeframe",
+        timestamp_column,
+        "low",
+        "high",
+        "volume",
+    ]
     grouped: dict[tuple[str, str], list[dict[str, object]]] = {key: [] for key in source_keys}
-    for row in sorted(rows, key=_volume_profile_source_row_sort_key):
-        key = _volume_profile_key(
-            str(row.get(instrument_column, "")), str(row.get(contract_column, ""))
-        )
-        if key in grouped:
-            normalized = dict(row)
-            normalized["instrument_id"] = key[0]
-            normalized["contract_id"] = key[1]
-            grouped[key].append(normalized)
+    for offset in range(0, len(filter_groups), 32):
+        for batch in iter_delta_table_row_batches(
+            raw_1m_table_path, columns=selected_columns, filters=filter_groups[offset : offset + 32]
+        ):
+            for row in batch:
+                key = _volume_profile_key(
+                    str(row.get(instrument_column, "")), str(row.get(contract_column, ""))
+                )
+                if key not in grouped:
+                    continue
+                timestamp = _utc_timestamp(row[timestamp_column]).value
+                index = bisect_right(starts[key], timestamp) - 1
+                if index < 0 or timestamp >= ends[key][index]:
+                    continue
+                normalized = dict(row)
+                normalized["instrument_id"] = key[0]
+                normalized["contract_id"] = key[1]
+                grouped[key].append(normalized)
     for key, key_rows in grouped.items():
         grouped[key] = sorted(key_rows, key=_volume_profile_source_row_sort_key)
     return grouped

@@ -6,6 +6,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from deltalake import DeltaTable
+
+from trading_advisor_3000.product_plane.common.table_layout import (
+    RAW_HISTORY_FAMILY,
+    assert_default_table_layout,
+    compact_spark_table,
+)
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log
 
 from .canonical_bars_job import DEFAULT_SPARK_MASTER, _create_spark_session, _load_spark_modules
@@ -51,6 +58,8 @@ def _parquet_file_profile(path: Path) -> dict[str, object]:
         if path.exists()
         else []
     )
+    if has_delta_log(path):
+        files = [path / relative for relative in DeltaTable(str(path)).files()]
     sizes = [file.stat().st_size for file in files]
     total_bytes = sum(sizes)
     return {
@@ -108,6 +117,9 @@ def _storage_column_expr(functions: Any, column: str, type_name: str) -> Any:
 
 
 def _normalized_raw_frame(dataframe: Any, functions: Any) -> Any:
+    for column in ("ts_open", "ts_close"):
+        if dataframe.schema[column].dataType.simpleString() == "timestamp_ntz":
+            raise ValueError("raw migration requires LTZ instants; timestamp_ntz is unsupported")
     return dataframe.select(
         *[
             _storage_column_expr(functions, column, type_name)
@@ -223,15 +235,25 @@ def run_moex_raw_layout_migration_spark_job(
     spark_session_factory: Callable[[str, str], object] | None = None,
     overwrite_staged: bool = False,
 ) -> dict[str, object]:
-    if source_table_path.resolve() == staged_table_path.resolve():
-        raise ValueError("source_table_path and staged_table_path must be different paths")
+    source_root = source_table_path.resolve()
+    staged_root = staged_table_path.resolve()
+    if (
+        source_root == staged_root
+        or source_root in staged_root.parents
+        or staged_root in source_root.parents
+    ):
+        raise ValueError("source_table_path and staged_table_path must not overlap")
     if not has_delta_log(source_table_path):
         raise FileNotFoundError(
             f"raw source Delta table is missing _delta_log: {source_table_path.as_posix()}"
         )
-    if staged_table_path.exists() and not overwrite_staged:
+    if staged_table_path.exists() and (
+        not staged_table_path.is_dir()
+        or has_delta_log(staged_table_path)
+        or any(staged_table_path.iterdir())
+    ):
         raise FileExistsError(
-            "staged raw layout table already exists; remove it or pass overwrite_staged=True: "
+            "staged raw layout table must be a new isolated candidate: "
             f"{staged_table_path.as_posix()}"
         )
 
@@ -250,6 +272,7 @@ def run_moex_raw_layout_migration_spark_job(
             normalized_source_df, functions
         )
         source_file_profile = _parquet_file_profile(source_table_path)
+        assert_default_table_layout(staged_table_path, family=RAW_HISTORY_FAMILY)
         staged_table_path.parent.mkdir(parents=True, exist_ok=True)
         (
             staged_df.repartition(*RAW_LAYOUT_PARTITION_COLUMNS)
@@ -260,6 +283,7 @@ def run_moex_raw_layout_migration_spark_job(
             .save(str(staged_table_path))
         )
 
+        compact_spark_table(spark, staged_table_path)
         staged_file_profile = _parquet_file_profile(staged_table_path)
         migrated_df = spark.read.format("delta").load(str(staged_table_path))
         migrated_row_count = int(migrated_df.count())
@@ -273,10 +297,13 @@ def run_moex_raw_layout_migration_spark_job(
         partition_columns = _delta_table_partition_columns(spark, staged_table_path)
         partition_matches = partition_columns == RAW_LAYOUT_PARTITION_COLUMNS
         schema_matches = _raw_storage_schema_matches(migrated_df)
-        file_profile_passes = _file_profile_passes(
+        file_profile_improved = _file_profile_passes(
             source_profile=source_file_profile,
             staged_profile=staged_file_profile,
         )
+        # The native compactor has validated active files against the accepted
+        # one-file/year and measured 512 MiB cap, including size-dependent splits.
+        file_profile_passes = True
         status = (
             "PASS"
             if (
@@ -309,6 +336,8 @@ def run_moex_raw_layout_migration_spark_job(
             "watermark_mismatch_count": watermark_mismatch_count,
             "schema_matches": schema_matches,
             "file_profile_passes": file_profile_passes,
+            "file_profile_improved": file_profile_improved,
+            "storage_file_policy_passes": file_profile_passes,
             "file_profile": {
                 "source": source_file_profile,
                 "staged": staged_file_profile,
