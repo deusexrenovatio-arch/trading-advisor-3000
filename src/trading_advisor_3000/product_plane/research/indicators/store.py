@@ -3,9 +3,12 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+
+import pyarrow as pa
+import pyarrow.compute as pc
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     append_delta_table_rows,
@@ -16,6 +19,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     read_delta_table_arrow,
     read_delta_table_rows,
     write_delta_table_row_batches,
+    write_delta_table_rows,
 )
 from trading_advisor_3000.product_plane.research.indicators.registry import (
     IndicatorProfile,
@@ -41,8 +45,11 @@ INDICATOR_PARTITION_METADATA_COLUMNS = (
     "created_at",
     "row_count",
     "output_columns_hash",
+    "compute_contract_hash",
+    "refresh_context_hash",
 )
 INDICATOR_RESERVED_COLUMNS = {
+    "ts_close_year",
     "dataset_version",
     "contour_id",
     "series_mode",
@@ -60,6 +67,10 @@ INDICATOR_RESERVED_COLUMNS = {
     "null_warmup_span",
     "created_at",
     "output_columns_hash",
+    "compute_contract_hash",
+    "input_row_hash",
+    "refresh_context_hash",
+    "volume_profile_input_hash",
 }
 INDICATOR_FRAME_LOGICAL_KEY = (
     "dataset_version",
@@ -136,6 +147,10 @@ class IndicatorFrameRow:
     contour_id: str = "native_tradable"
     series_mode: str = "contract"
     series_id: str = ""
+    compute_contract_hash: str = ""
+    input_row_hash: str = ""
+    refresh_context_hash: str = ""
+    volume_profile_input_hash: str = ""
 
     def partition_key(self, *, series_mode: str) -> IndicatorFramePartitionKey:
         return IndicatorFramePartitionKey(
@@ -169,29 +184,15 @@ class IndicatorFrameRow:
             "null_warmup_span": self.null_warmup_span,
             "created_at": self.created_at,
             "output_columns_hash": self.output_columns_hash,
+            "compute_contract_hash": self.compute_contract_hash,
+            "input_row_hash": self.input_row_hash,
+            "refresh_context_hash": self.refresh_context_hash,
+            "volume_profile_input_hash": self.volume_profile_input_hash,
         }
 
     @classmethod
     def from_dict(cls, payload: dict[str, object]) -> "IndicatorFrameRow":
-        reserved = {
-            "dataset_version",
-            "contour_id",
-            "series_mode",
-            "series_id",
-            "indicator_set_version",
-            "profile_version",
-            "contract_id",
-            "instrument_id",
-            "timeframe",
-            "ts",
-            "source_bars_hash",
-            "source_dataset_bars_hash",
-            "row_count",
-            "warmup_span",
-            "null_warmup_span",
-            "created_at",
-            "output_columns_hash",
-        }
+        reserved = INDICATOR_RESERVED_COLUMNS
         values = {}
         for key in payload:
             if key in reserved:
@@ -224,6 +225,10 @@ class IndicatorFrameRow:
             created_at=str(payload["created_at"]),
             output_columns_hash=str(payload.get("output_columns_hash") or ""),
             source_dataset_bars_hash=str(payload.get("source_dataset_bars_hash") or ""),
+            compute_contract_hash=str(payload.get("compute_contract_hash") or ""),
+            input_row_hash=str(payload.get("input_row_hash") or ""),
+            refresh_context_hash=str(payload.get("refresh_context_hash") or ""),
+            volume_profile_input_hash=str(payload.get("volume_profile_input_hash") or ""),
         )
 
 
@@ -258,8 +263,12 @@ def indicator_store_contract(
         "null_warmup_span": "int",
         "created_at": "timestamp",
         "output_columns_hash": "string",
+        "compute_contract_hash": "string",
+        "input_row_hash": "string",
+        "refresh_context_hash": "string",
+        "volume_profile_input_hash": "string",
     }
-    return {
+    contracts = {
         "research_indicator_frames": {
             "format": "delta",
             "partition_by": [
@@ -276,6 +285,7 @@ def indicator_store_contract(
             "columns": columns,
         }
     }
+    return contracts
 
 
 def write_indicator_frames(
@@ -390,27 +400,81 @@ def write_indicator_frame_partition_batches(
     delete_partitions: tuple[IndicatorFramePartitionKey, ...] = (),
     max_rows_per_delta_write: int = DEFAULT_INDICATOR_WRITE_BATCH_ROWS,
     profile: IndicatorProfile | None = None,
+    partition_start_ts: Mapping[IndicatorFramePartitionKey, str] | None = None,
 ) -> tuple[dict[str, str], int, int]:
     if max_rows_per_delta_write <= 0:
         raise ValueError("max_rows_per_delta_write must be > 0")
     contract = indicator_store_contract(profile=profile)
     path = output_dir / "research_indicator_frames.delta"
     columns = contract["research_indicator_frames"]["columns"]
-    if has_delta_log(path):
-        ensure_delta_table_columns(table_path=path, columns=dict(columns))
+    columns_prepared = False
 
     row_count = 0
     batch_count = 0
     wrote_table = has_delta_log(path)
-    seen_keys: set[tuple[object, ...]] = set()
+    seen_partitions: set[tuple[object, ...]] = set()
+    seen_written_prefixes: set[tuple[object, ...]] = set()
     for partition, batch in partition_row_batches:
+        if (
+            partition_start_ts is not None
+            and partition in partition_start_ts
+            and len(batch) > max_rows_per_delta_write
+        ):
+            raise ValueError(
+                "atomic indicator suffix exceeds max_rows_per_delta_write; "
+                "use a reviewed full-partition refresh instead of chunked predicate overwrites"
+            )
+        logical_partition = (
+            partition.dataset_version,
+            partition.contour_id,
+            partition.series_mode,
+            partition.series_id,
+            partition.indicator_set_version,
+            partition.timeframe,
+        )
+        if logical_partition in seen_partitions:
+            raise ValueError("research_indicator_frames duplicate logical key in partition stream")
+        seen_partitions.add(logical_partition)
         rows = [row.to_dict() for row in batch]
+        prefixes = {
+            tuple(row[column] for column in INDICATOR_FRAME_LOGICAL_KEY[:-1]) for row in rows
+        }
+        if len(prefixes) > 1 or prefixes & seen_written_prefixes:
+            raise ValueError(
+                "research_indicator_frames duplicate logical key or mixed partition stream"
+            )
+        for row in batch:
+            if row.partition_key(series_mode=partition.series_mode) != partition:
+                raise ValueError(
+                    "research_indicator_frames row does not match its partition identity"
+                )
+        seen_written_prefixes.update(prefixes)
         _assert_unique_write_rows(
             rows,
             table_name="research_indicator_frames",
             key_columns=INDICATOR_FRAME_LOGICAL_KEY,
-            seen_keys=seen_keys,
+            seen_keys=set(),
         )
+        if not columns_prepared:
+            if has_delta_log(path):
+                ensure_delta_table_columns(table_path=path, columns=dict(columns))
+            columns_prepared = True
+        if partition_start_ts is not None and partition in partition_start_ts:
+            start_ts = partition_start_ts[partition]
+            predicate = (
+                f"({_partition_delete_predicate(partition)}) AND "
+                f"ts >= {_quote_delta_sql_string(start_ts)}"
+            )
+            write_delta_table_rows(
+                table_path=path,
+                rows=rows,
+                columns=columns,
+                replace_predicate=predicate,
+            )
+            wrote_table = True
+            row_count += len(rows)
+            batch_count += 1
+            continue
         if has_delta_log(path):
             delete_delta_table_rows(
                 table_path=path,
@@ -425,6 +489,7 @@ def write_indicator_frame_partition_batches(
             wrote_table = True
             row_count += len(chunk)
             batch_count += 1
+        del batch, rows
 
     for partition in delete_partitions:
         if has_delta_log(path):
@@ -487,7 +552,6 @@ def load_indicator_partition_metadata(
     ]
     if not group_columns:
         return []
-    aggregate_columns = [column for column in read_columns if column not in group_columns]
     filters = [
         item
         for item in (
@@ -500,14 +564,47 @@ def load_indicator_partition_metadata(
     table = read_delta_table_arrow(path, columns=read_columns, filters=filters)
     if table.num_rows == 0:
         return []
-    grouped = table.group_by(group_columns).aggregate(
-        [(column, "max") for column in aggregate_columns]
+    if "series_id" in group_columns and "contract_id" in group_columns:
+        contract_identity = table.column("contract_id")
+        fallback_series = contract_identity
+        if "series_mode" in read_columns and "instrument_id" in read_columns:
+            continuous = pc.fill_null(
+                pc.equal(table.column("series_mode"), "continuous_front"), False
+            )
+            fallback_series = pc.if_else(
+                continuous, table.column("instrument_id"), contract_identity
+            )
+            contract_identity = pc.if_else(
+                continuous, pa.scalar(None, type=contract_identity.type), contract_identity
+            )
+        series_identity = pc.if_else(
+            pc.fill_null(pc.equal(table.column("series_id"), ""), True),
+            fallback_series,
+            table.column("series_id"),
+        )
+        table = table.append_column("_metadata_series_identity", series_identity)
+        table = table.append_column("_metadata_contract_identity", contract_identity)
+        group_columns.remove("series_id")
+        group_columns.remove("contract_id")
+        group_columns.extend(["_metadata_series_identity", "_metadata_contract_identity"])
+    aggregate_columns = [column for column in read_columns if column not in group_columns]
+    # Tail writes leave historical row provenance intact. Select one complete
+    # latest metadata record, rather than unrelated maxima of its fields.
+    if "created_at" in read_columns:
+        table = table.sort_by([("created_at", "descending")])
+    grouped = table.group_by(group_columns, use_threads=False).aggregate(
+        [
+            (column, "first", pc.ScalarAggregateOptions(skip_nulls=False))
+            for column in aggregate_columns
+        ]
     )
     metadata_by_partition: dict[tuple[object, ...], dict[str, object]] = {}
     for grouped_row in grouped.to_pylist():
-        row = {column: grouped_row.get(column) for column in group_columns}
+        row = {
+            column: grouped_row.get(column) for column in group_columns if column in read_columns
+        }
         for column in aggregate_columns:
-            row[column] = grouped_row.get(f"{column}_max")
+            row[column] = grouped_row.get(f"{column}_first")
         if (
             row.get("dataset_version") != dataset_version
             or str(row.get("contour_id") or "native_tradable") != contour_id
@@ -569,6 +666,10 @@ def load_indicator_partition_rows(
                 "null_warmup_span",
                 "created_at",
                 "output_columns_hash",
+                "compute_contract_hash",
+                "input_row_hash",
+                "refresh_context_hash",
+                "volume_profile_input_hash",
             )
         )
     )
@@ -616,6 +717,10 @@ def load_indicator_frames(
                     "null_warmup_span",
                     "created_at",
                     "output_columns_hash",
+                    "compute_contract_hash",
+                    "input_row_hash",
+                    "refresh_context_hash",
+                    "volume_profile_input_hash",
                 )
             )
         )

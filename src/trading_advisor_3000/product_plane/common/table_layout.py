@@ -181,7 +181,11 @@ def write_layout_arrow_table(
     family: str | None = None,
     compact: bool = True,
     candidate_id: str | None = None,
+    replace_predicate: str | None = None,
 ) -> None:
+    if replace_predicate is not None:
+        if mode != "overwrite" or not replace_predicate.strip():
+            raise ValueError("predicate replacement requires overwrite and a non-empty predicate")
     partitions = default_partition_columns(table_path, family=family)
     options: dict[str, Any] = {}
     if partitions is not None:
@@ -190,7 +194,9 @@ def write_layout_arrow_table(
         )
         table = with_arrow_close_year(table)
         options = {"partition_by": list(partitions), "target_file_size": MAX_COMPRESSED_FILE_BYTES}
-    schema_mode = "overwrite" if mode == "overwrite" else "merge"
+    if replace_predicate is not None:
+        options["predicate"] = replace_predicate
+    schema_mode = "overwrite" if mode == "overwrite" and replace_predicate is None else "merge"
     write_deltalake(str(table_path), table, mode=mode, schema_mode=schema_mode, **options)
     if compact:
         owned_id = candidate_id

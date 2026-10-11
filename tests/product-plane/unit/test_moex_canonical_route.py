@@ -377,14 +377,14 @@ def test_canonical_route_contract_compatibility_detects_schema_drift(tmp_path: P
         / "product_plane"
         / "contracts"
         / "schemas"
-        / "canonical_bar.v1.json"
+        / "canonical_bar.v2.json"
     )
     schema_path.parent.mkdir(parents=True, exist_ok=True)
     schema_path.write_text(
         json.dumps(
             {
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
-                "$id": "contracts/canonical_bar.v1.json",
+                "$id": "contracts/canonical_bar.v2.json",
                 "type": "object",
                 "required": [
                     "contract_id",

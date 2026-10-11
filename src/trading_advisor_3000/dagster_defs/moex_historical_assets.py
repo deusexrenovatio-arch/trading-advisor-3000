@@ -120,6 +120,8 @@ MOEX_HISTORICAL_OP_CONFIG_SCHEMA = {
     "raw_ingest_report_path": DagsterField(str, is_required=False),
     "raw_session_schedule_path": DagsterField(str, is_required=False),
     "raw_session_schedule_version": DagsterField(int, is_required=False),
+    "daily_open_interest_path": DagsterField(str, is_required=False),
+    "daily_open_interest_version": DagsterField(int, is_required=False),
     "canonical_output_dir": DagsterField(str, is_required=False),
     "canonical_target_output_dir": DagsterField(str, is_required=False),
     "canonical_bars_path": DagsterField(str, is_required=False),
@@ -555,6 +557,8 @@ def build_moex_data_rebuild_op_config(
     raw_ingest_report_path: Path | None = None,
     raw_session_schedule_path: Path | None = None,
     raw_session_schedule_version: int | None = None,
+    daily_open_interest_path: Path | None = None,
+    daily_open_interest_version: int | None = None,
     mapping_registry_path: Path | None = None,
     canonical_bars_path: Path | None = None,
     canonical_provenance_path: Path | None = None,
@@ -662,6 +666,15 @@ def build_moex_data_rebuild_op_config(
     if raw_session_schedule_path is not None:
         config["raw_session_schedule_path"] = raw_session_schedule_path.resolve().as_posix()
         config["raw_session_schedule_version"] = raw_session_schedule_version
+    if daily_open_interest_path is not None:
+        if (
+            isinstance(daily_open_interest_version, bool)
+            or not isinstance(daily_open_interest_version, int)
+            or daily_open_interest_version < 0
+        ):
+            raise ValueError("daily OI requires a pinned non-negative Delta version")
+        config["daily_open_interest_path"] = daily_open_interest_path.resolve().as_posix()
+        config["daily_open_interest_version"] = daily_open_interest_version
     if mapping_registry_path is not None:
         config["mapping_registry_path"] = mapping_registry_path.resolve().as_posix()
     if canonical_target_output_dir is not None:
@@ -721,6 +734,8 @@ def build_moex_data_rebuild_run_config(
     raw_ingest_report_path: Path | None = None,
     raw_session_schedule_path: Path | None = None,
     raw_session_schedule_version: int | None = None,
+    daily_open_interest_path: Path | None = None,
+    daily_open_interest_version: int | None = None,
     mapping_registry_path: Path | None = None,
     canonical_bars_path: Path | None = None,
     canonical_provenance_path: Path | None = None,
@@ -750,6 +765,8 @@ def build_moex_data_rebuild_run_config(
         raw_ingest_report_path=raw_ingest_report_path,
         raw_session_schedule_path=raw_session_schedule_path,
         raw_session_schedule_version=raw_session_schedule_version,
+        daily_open_interest_path=daily_open_interest_path,
+        daily_open_interest_version=daily_open_interest_version,
         mapping_registry_path=mapping_registry_path,
         canonical_output_dir=canonical_output_dir,
         canonical_target_output_dir=canonical_target_output_dir,
@@ -1249,6 +1266,8 @@ def moex_canonical_refresh(context, moex_raw_ingest: dict[str, object]) -> dict[
         canonical_roll_map_path=Path(canonical_roll_map_text).resolve()
         if canonical_roll_map_text
         else None,
+        daily_open_interest_path=_optional_path_value(op_config, "daily_open_interest_path"),
+        daily_open_interest_version=op_config.get("daily_open_interest_version"),
         canonical_merge_strategy=CANONICAL_MERGE_SCOPED_DELETE_INSERT,
     )
     publish_decision = str(report.get("publish_decision", "")).strip().lower()
@@ -1493,6 +1512,8 @@ def _run_existing_raw_canonical_rebuild(
         ),
         canonical_session_calendar_path=publish_paths["canonical_session_calendar"],
         canonical_roll_map_path=publish_paths["canonical_roll_map"],
+        daily_open_interest_path=_optional_path_value(op_config, "daily_open_interest_path"),
+        daily_open_interest_version=op_config.get("daily_open_interest_version"),
         selection=MOEX_HISTORICAL_ASSET_KEYS,
         raise_on_error=True,
     )
@@ -1977,6 +1998,8 @@ def execute_moex_data_rebuild_job(
     raw_ingest_report_path: Path | None = None,
     raw_session_schedule_path: Path | None = None,
     raw_session_schedule_version: int | None = None,
+    daily_open_interest_path: Path | None = None,
+    daily_open_interest_version: int | None = None,
     mapping_registry_path: Path | None = None,
     canonical_output_dir: Path,
     canonical_target_output_dir: Path | None = None,
@@ -2021,6 +2044,8 @@ def execute_moex_data_rebuild_job(
         raw_ingest_report_path=raw_ingest_report_path,
         raw_session_schedule_path=raw_session_schedule_path,
         raw_session_schedule_version=raw_session_schedule_version,
+        daily_open_interest_path=daily_open_interest_path,
+        daily_open_interest_version=daily_open_interest_version,
         mapping_registry_path=mapping_registry_path,
         canonical_output_dir=canonical_output_dir,
         canonical_target_output_dir=canonical_target_output_dir,
@@ -2204,6 +2229,8 @@ def materialize_moex_historical_assets(
     canonical_provenance_path: Path | None = None,
     canonical_session_intervals_path: Path | None = None,
     canonical_closed_session_dates_path: Path | None = None,
+    daily_open_interest_path: Path | None = None,
+    daily_open_interest_version: int | None = None,
     canonical_session_calendar_path: Path | None = None,
     canonical_roll_map_path: Path | None = None,
     selection: Sequence[str] | None = None,
@@ -2225,6 +2252,15 @@ def materialize_moex_historical_assets(
         "canonical_output_dir": canonical_output_dir.resolve().as_posix(),
         "canonical_run_id": resolved_canonical_run_id,
     }
+    if daily_open_interest_path is not None:
+        if (
+            isinstance(daily_open_interest_version, bool)
+            or not isinstance(daily_open_interest_version, int)
+            or daily_open_interest_version < 0
+        ):
+            raise ValueError("daily OI requires a pinned non-negative Delta version")
+        op_config["daily_open_interest_path"] = daily_open_interest_path.resolve().as_posix()
+        op_config["daily_open_interest_version"] = daily_open_interest_version
     if canonical_session_intervals_path is not None:
         op_config["canonical_session_intervals_path"] = (
             canonical_session_intervals_path.resolve().as_posix()

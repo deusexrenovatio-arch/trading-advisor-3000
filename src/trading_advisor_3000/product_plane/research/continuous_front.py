@@ -165,7 +165,7 @@ class ContinuousFrontResearchBar:
     low: float
     close: float
     volume: int
-    open_interest: int
+    open_interest: int | None
     series_id: str
     series_mode: str
     active_contract_id: str
@@ -270,7 +270,9 @@ def load_continuous_front_as_research_context(
                 "low": float(row["continuous_low"]),
                 "close": float(row["continuous_close"]),
                 "volume": int(row["native_volume"]),
-                "open_interest": int(row["native_open_interest"]),
+                "open_interest": None
+                if row["native_open_interest"] is None
+                else int(row["native_open_interest"]),
             }
         )
         bars.append(

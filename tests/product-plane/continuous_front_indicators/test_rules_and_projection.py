@@ -448,11 +448,16 @@ def test_roll_rule_catalog_covers_every_base_and_derived_output() -> None:
         assert not rule.group.allow_cross_contract_window
 
 
-def test_input_projection_materializes_causal_zero_anchor_prices_from_ladder() -> None:
+@pytest.mark.parametrize("oi", [None, 0, 2000])
+def test_input_projection_materializes_causal_zero_anchor_prices_from_ladder(oi) -> None:
     rows = build_cf_indicator_input_rows(
         bar_views=[
             _view(
-                ts="2026-03-16T09:00:00Z", close=100.0, roll_epoch=0, active_contract_id="BRK2@MOEX"
+                ts="2026-03-16T09:00:00Z",
+                close=100.0,
+                roll_epoch=0,
+                active_contract_id="BRK2@MOEX",
+                open_interest=oi,
             ),
             _view(
                 ts="2026-03-16T09:15:00Z",
@@ -478,6 +483,15 @@ def test_input_projection_materializes_causal_zero_anchor_prices_from_ladder() -
     )
 
     assert rows[0]["close0"] == pytest.approx(100.0)
+    assert rows[0]["native_open_interest"] == oi
+    view = _view(
+        ts="2026-03-16T09:00:00Z",
+        close=100.0,
+        roll_epoch=0,
+        active_contract_id="BRK2@MOEX",
+        open_interest=oi,
+    )
+    assert ResearchBarView.from_dict(view.to_dict()).open_interest == oi
     assert rows[0]["cumulative_additive_offset"] == pytest.approx(0.0)
     assert rows[0]["price_space_normalized"] == "causal_zero_anchor"
     assert rows[0]["ts_close"] == "2026-03-16T09:15:00Z"
