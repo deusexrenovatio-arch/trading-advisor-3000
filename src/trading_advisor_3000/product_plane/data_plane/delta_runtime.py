@@ -12,6 +12,7 @@ import pyarrow as pa
 import pyarrow.dataset as ds
 from deltalake import DeltaTable
 
+from trading_advisor_3000.product_plane.common.data_snapshots import open_read_table
 from trading_advisor_3000.product_plane.common.table_layout import (
     assert_default_table_layout,
     assert_fresh_arrow_candidate,
@@ -19,8 +20,6 @@ from trading_advisor_3000.product_plane.common.table_layout import (
     default_partition_columns,
     write_layout_arrow_table,
 )
-
-from trading_advisor_3000.product_plane.common.data_snapshots import open_read_table
 
 from .hot_delta_tables import is_hot_delta_table_path
 
