@@ -311,15 +311,24 @@ def _contract_specs_frame(spark: object, table_path: Path):
         )
         .withColumn(
             "history_value_rub",
-            F.get_json_object(F.col("raw_payload_json"), "$.history.VALUE").cast("double"),
+            F.coalesce(
+                F.get_json_object(F.col("raw_payload_json"), "$.history.VALUE"),
+                F.get_json_object(F.col("raw_payload_json"), "$.VALUE"),
+            ).cast("double"),
         )
         .withColumn(
             "history_volume",
-            F.get_json_object(F.col("raw_payload_json"), "$.history.VOLUME").cast("double"),
+            F.coalesce(
+                F.get_json_object(F.col("raw_payload_json"), "$.history.VOLUME"),
+                F.get_json_object(F.col("raw_payload_json"), "$.VOLUME"),
+            ).cast("double"),
         )
         .withColumn(
             "history_waprice",
-            F.get_json_object(F.col("raw_payload_json"), "$.history.WAPRICE").cast("double"),
+            F.coalesce(
+                F.get_json_object(F.col("raw_payload_json"), "$.history.WAPRICE"),
+                F.get_json_object(F.col("raw_payload_json"), "$.WAPRICE"),
+            ).cast("double"),
         )
         .withColumn(
             "official_step_price",
@@ -432,7 +441,7 @@ def _fx_rates_frame(spark: object, table_path: Path):
         )
         .withColumn("rate_to_rub", _column_or_json(raw, "rate", "RATE").cast("double"))
         .withColumn("base_currency", F.split(F.col("fx_pair"), "/").getItem(0))
-        .withColumn("quote_currency", F.lit("RUB"))
+        .withColumn("quote_currency", F.split(F.col("fx_pair"), "/").getItem(1))
         .withColumn("source_id", F.col("source_id"))
         .withColumn("source_document_id", F.col("source_document_id"))
         .withColumn("source_document_hash", F.col("source_document_hash"))
@@ -442,7 +451,7 @@ def _fx_rates_frame(spark: object, table_path: Path):
             & F.col("rate_date").isNotNull()
             & F.col("rate_to_rub").isNotNull()
         )
-        .where(F.col("fx_pair") != F.lit("RUB/RUB"))
+        .where(F.col("fx_pair").rlike("^[A-Z]{3}/RUB$") & (F.col("fx_pair") != "RUB/RUB"))
     )
     parsed = _latest_snapshot_by_key(
         parsed_source,
@@ -485,14 +494,30 @@ def _asset_risk_parameters_frame(spark: object, limits_path: Path, staticparams_
             _column_or_json(dataframe, "updatetime", "UPDATETIME", "update_time", "UPDATE_TIME"),
         )
 
-    def _latest_snapshot(frame, source_hash_column: str):
+    def _source_available_ts(dataframe):
+        # Normalized timestamps are UTC; native ISS updatetime is Moscow local.
+        return F.coalesce(
+            F.to_timestamp(_optional_column(dataframe, "update_time")),
+            F.to_utc_timestamp(
+                F.to_timestamp(_column_or_json(dataframe, "updatetime", "UPDATETIME")),
+                "Europe/Moscow",
+            ),
+        )
+
+    def _latest_snapshot(frame, source_hash_column: str, history_column: str, history_fields):
         snapshot_window = Window.partitionBy("assetcode", "risk_session_date").orderBy(
             F.col("__source_update_ts").desc_nulls_last(),
             F.col("__source_update_text").desc_nulls_last(),
             F.col(source_hash_column).desc_nulls_last(),
         )
         return (
-            frame.withColumn("__source_row_rank", F.row_number().over(snapshot_window))
+            frame.withColumn(
+                history_column,
+                F.collect_list(F.struct(*history_fields)).over(
+                    Window.partitionBy("assetcode", "risk_session_date")
+                ),
+            )
+            .withColumn("__source_row_rank", F.row_number().over(snapshot_window))
             .where(F.col("__source_row_rank") == F.lit(1))
             .drop("__source_update_text", "__source_update_ts", "__source_row_rank")
         )
@@ -517,10 +542,19 @@ def _asset_risk_parameters_frame(spark: object, limits_path: Path, staticparams_
         .withColumn("mr2", _column_or_json(limits_raw, "mr2", "MR2").cast("double"))
         .withColumn("mr3", _column_or_json(limits_raw, "mr3", "MR3").cast("double"))
         .withColumn("source_limits_hash", F.col("source_document_hash"))
+        .withColumn("__limits_available_ts", _source_available_ts(limits_raw))
         .withColumn("__source_update_text", _source_update_text(limits_raw))
         .withColumn("__source_update_ts", F.to_timestamp(F.col("__source_update_text")))
         .where(F.col("assetcode").isNotNull() & F.col("risk_session_date").isNotNull()),
         "source_limits_hash",
+        "__limits_history",
+        [
+            F.col("__limits_available_ts").alias("available_from_ts"),
+            F.col("source_limits_hash").alias("source_hash"),
+            F.col("mr1"),
+            F.col("mr2"),
+            F.col("mr3"),
+        ],
     )
     static = _latest_snapshot(
         static_raw.withColumn(
@@ -541,10 +575,17 @@ def _asset_risk_parameters_frame(spark: object, limits_path: Path, staticparams_
             _column_or_json(static_raw, "radius_pct", "radius", "RADIUS").cast("double"),
         )
         .withColumn("source_staticparams_hash", F.col("source_document_hash"))
+        .withColumn("__static_available_ts", _source_available_ts(static_raw))
         .withColumn("__source_update_text", _source_update_text(static_raw))
         .withColumn("__source_update_ts", F.to_timestamp(F.col("__source_update_text")))
         .where(F.col("assetcode").isNotNull() & F.col("risk_session_date").isNotNull()),
         "source_staticparams_hash",
+        "__static_history",
+        [
+            F.col("__static_available_ts").alias("available_from_ts"),
+            F.col("source_staticparams_hash").alias("source_hash"),
+            F.col("source_radius_pct").alias("radius_pct"),
+        ],
     )
     joined = limits.alias("limits").join(
         static.alias("static"),
@@ -568,6 +609,16 @@ def _asset_risk_parameters_frame(spark: object, limits_path: Path, staticparams_
         .alias("radius_source"),
         F.col("limits.source_limits_hash").alias("source_limits_hash"),
         F.col("static.source_staticparams_hash").alias("source_staticparams_hash"),
+        F.when(
+            F.col("limits.__limits_available_ts").isNotNull()
+            & (
+                F.col("static.source_staticparams_hash").isNull()
+                | F.col("static.__static_available_ts").isNotNull()
+            ),
+            F.greatest("limits.__limits_available_ts", "static.__static_available_ts"),
+        ).alias("__risk_available_from_ts"),
+        F.col("limits.__limits_history").alias("__limits_history"),
+        F.col("static.__static_history").alias("__static_history"),
         F.lit(MOEX_CONTRACT_ECONOMICS_MODEL_VERSION).alias("model_version"),
         F.current_timestamp().alias("created_at"),
     )
@@ -775,7 +826,8 @@ def _with_latest_margin_calibration(economics):
         .otherwise(F.lit(None).cast("double"))
     )
     model_quality = (
-        F.when(
+        F.when(margin_required.isNull(), F.lit("unavailable"))
+        .when(
             F.col("official_initial_margin") > F.lit(0.0),
             F.lit("official_initial_margin"),
         )
@@ -933,16 +985,108 @@ def _economics_frame(
         .where(F.col("__fx_rank") == F.lit(1))
         .drop("__fx_priority", "__fx_rank")
     )
-    risk_for_economics = (
-        contract_specs.select("contract_id", "trade_date", "assetcode")
+    risk_parameters = risk_parameters.withColumn(
+        "__risk_available_from_ts",
+        _optional_column(risk_parameters, "__risk_available_from_ts").cast("timestamp"),
+    )
+    prior_risk = F.col("risk.risk_session_date") <= F.col("spec_risk.trade_date")
+    risk_candidates = (
+        contract_specs.select(
+            "contract_id", "trade_date", "assetcode", "effective_session_date", "effective_from_ts"
+        )
         .distinct()
         .alias("spec_risk")
         .join(
             risk_parameters.alias("risk"),
             (F.col("spec_risk.assetcode") == F.col("risk.assetcode"))
-            & (F.col("risk.risk_session_date") <= F.col("spec_risk.trade_date")),
+            & (
+                prior_risk
+                | (F.col("risk.risk_session_date") <= F.col("spec_risk.effective_session_date"))
+            ),
             "left",
         )
+    )
+    future_available_ts = F.col("risk.__risk_available_from_ts")
+    future_values = {
+        name: F.col(f"risk.{name}")
+        for name in (
+            "mr1",
+            "mr2",
+            "mr3",
+            "radius_pct",
+            "radius_source",
+            "source_limits_hash",
+            "source_staticparams_hash",
+        )
+    }
+    future_eligible = (future_available_ts <= F.col("spec_risk.effective_from_ts")) & (
+        F.col("risk.mr1") > F.lit(0.0)
+    )
+    if {"__limits_history", "__static_history"}.issubset(risk_parameters.columns):
+        # Daily rows remain latest/day. Only launch fallback consults compact
+        # source history before its publication cutoff; never a raw cross join.
+        cutoff = F.col("spec_risk.effective_from_ts")
+        risk_candidates = risk_candidates.withColumn(
+            "__published_limits_snapshot",
+            F.when(
+                ~prior_risk,
+                F.element_at(
+                    F.sort_array(
+                        F.filter(
+                            F.col("risk.__limits_history"),
+                            lambda snapshot: (
+                                (snapshot.available_from_ts <= cutoff) & (snapshot.mr1 > F.lit(0.0))
+                            ),
+                        )
+                    ),
+                    -1,
+                ),
+            ),
+        ).withColumn(
+            "__published_static_snapshot",
+            F.when(
+                ~prior_risk,
+                F.element_at(
+                    F.sort_array(
+                        F.filter(
+                            F.col("risk.__static_history"),
+                            lambda snapshot: snapshot.available_from_ts <= cutoff,
+                        )
+                    ),
+                    -1,
+                ),
+            ),
+        )
+        limits_snapshot = F.col("__published_limits_snapshot")
+        static_snapshot = F.col("__published_static_snapshot")
+        future_available_ts = F.greatest(
+            limits_snapshot.available_from_ts, static_snapshot.available_from_ts
+        )
+        future_eligible = limits_snapshot.isNotNull() & (
+            ~F.coalesce(F.size(F.col("risk.__static_history")) > F.lit(0), F.lit(False))
+            | static_snapshot.isNotNull()
+        )
+        future_values = {
+            "mr1": limits_snapshot.mr1,
+            "mr2": limits_snapshot.mr2,
+            "mr3": limits_snapshot.mr3,
+            "radius_pct": F.coalesce(static_snapshot.radius_pct, F.lit(MOEX_DEFAULT_RADIUS_PCT)),
+            "radius_source": F.when(
+                static_snapshot.radius_pct.isNull(), F.lit("policy_default")
+            ).otherwise(F.lit("source")),
+            "source_limits_hash": limits_snapshot.source_hash,
+            "source_staticparams_hash": static_snapshot.source_hash,
+        }
+    for name, future_value in future_values.items():
+        risk_candidates = risk_candidates.withColumn(
+            f"__selected_{name}", F.when(prior_risk, F.col(f"risk.{name}")).otherwise(future_value)
+        )
+    risk_candidates = risk_candidates.withColumn(
+        "__selected_available_from_ts",
+        F.when(prior_risk, F.col("risk.__risk_available_from_ts")).otherwise(future_available_ts),
+    )
+    risk_for_economics = (
+        risk_candidates.where(F.col("risk.assetcode").isNull() | prior_risk | future_eligible)
         .withColumn(
             "__risk_rank",
             F.row_number().over(
@@ -950,7 +1094,13 @@ def _economics_frame(
                     F.col("spec_risk.contract_id"),
                     F.col("spec_risk.trade_date"),
                     F.col("spec_risk.assetcode"),
-                ).orderBy(F.col("risk.risk_session_date").desc_nulls_last())
+                ).orderBy(
+                    F.when(prior_risk, 0).otherwise(1),
+                    F.col("risk.risk_session_date").desc_nulls_last(),
+                    F.col("__selected_available_from_ts").desc_nulls_last(),
+                    F.col("__selected_source_limits_hash").desc_nulls_last(),
+                    F.col("__selected_source_staticparams_hash").desc_nulls_last(),
+                )
             ),
         )
         .where(F.col("__risk_rank") == F.lit(1))
@@ -960,13 +1110,15 @@ def _economics_frame(
             F.col("spec_risk.assetcode").alias("__risk_contract_assetcode"),
             F.col("risk.assetcode").alias("assetcode"),
             F.col("risk.risk_session_date").alias("risk_session_date"),
-            F.col("risk.mr1").alias("mr1"),
-            F.col("risk.mr2").alias("mr2"),
-            F.col("risk.mr3").alias("mr3"),
-            F.col("risk.radius_pct").alias("radius_pct"),
-            F.col("risk.radius_source").alias("radius_source"),
-            F.col("risk.source_limits_hash").alias("source_limits_hash"),
-            F.col("risk.source_staticparams_hash").alias("source_staticparams_hash"),
+            *[F.col(f"__selected_{name}").alias(name) for name in future_values],
+            F.col("__selected_available_from_ts").alias("__risk_available_from_ts"),
+            F.when(
+                F.col("risk.risk_session_date") > F.col("spec_risk.trade_date"),
+                F.lit("first_published_before_effective_session"),
+            )
+            .when(F.col("risk.risk_session_date").isNotNull(), F.lit("latest_prior_source_date"))
+            .otherwise(F.lit("unavailable"))
+            .alias("__risk_selection"),
         )
     )
     contract_parameter_regimes = _contract_parameter_regimes_frame(contract_specs.sparkSession)
@@ -1078,6 +1230,10 @@ def _economics_frame(
                 F.struct(
                     applied_radius_source.alias("radius_source"),
                     F.col("risk.risk_session_date").cast("string").alias("risk_session_date"),
+                    F.col("risk.__risk_available_from_ts").alias("risk_available_from_ts"),
+                    F.coalesce(F.col("risk.__risk_selection"), F.lit("unavailable")).alias(
+                        "risk_selection"
+                    ),
                     F.coalesce(F.col("step_fx.fx_pair"), F.col("fx.fx_pair")).alias("fx_pair"),
                     step_price_source.alias("step_price_source"),
                     F.col("rule.rule_id").alias("step_price_rule_id"),
@@ -1489,7 +1645,7 @@ def run_moex_contract_economics_spark_job(
             fx_rates,
             risk_parameters,
             canonical_session_calendar_path=canonical_session_calendar_path,
-        )
+        ).cache()
         contract_parameter_regime_mismatch_rows = (
             _fail_closed_on_contract_parameter_regime_mismatches(economics)
         )

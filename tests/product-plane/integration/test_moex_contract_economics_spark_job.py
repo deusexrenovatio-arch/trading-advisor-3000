@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,12 @@ from trading_advisor_3000.product_plane.data_plane.schemas.delta import (
 from trading_advisor_3000.spark_jobs import research_bar_views_job
 from trading_advisor_3000.spark_jobs.canonical_bars_job import _create_spark_session
 from trading_advisor_3000.spark_jobs.moex_contract_economics_job import (
+    _asset_risk_parameters_frame,
+    _contract_specs_frame,
+    _economics_frame,
+    _fx_rates_frame,
+    _with_latest_margin_calibration,
+    _write_spark_delta_table,
     run_moex_contract_economics_spark_job,
 )
 
@@ -26,10 +33,177 @@ def _columns(table_name: str) -> dict[str, str]:
     return dict(moex_economics_store_contract()[table_name]["columns"])
 
 
+def test_launch_risk_requires_publication_before_effective_interval(tmp_path, monkeypatch):
+    pytest.importorskip("pyspark.sql")
+    from pyspark.sql import functions as F
+
+    _configure_windows_spark_runtime(tmp_path, monkeypatch)
+    paths = _write_single_day_raw_economics_fixture(
+        raw_root=tmp_path / "raw", trade_date="2026-06-26"
+    )
+    cases = [
+        ("EARLY", "2026-06-27", None, "2026-06-27 00:31:00", 0.07),
+        ("EXACT", "2026-06-27", "2026-06-27T00:00:00Z", None, 0.08),
+        ("LATE", "2026-06-27", "2026-06-27T00:00:01Z", None, 0.09),
+        ("UNKNOWN", "2026-06-27", None, None, 0.10),
+        ("PRIOR", "2026-06-25", "2026-06-25T19:00:00Z", None, 0.12),
+        ("PRIOR", "2026-06-27", "2026-06-26T21:31:00Z", None, 0.99),
+    ]
+    write_delta_table_rows(
+        table_path=paths["limits"],
+        columns=_columns("raw_moex_rms_limits"),
+        rows=[
+            {
+                "assetcode": asset,
+                "trade_date": day,
+                "mr1": mr1,
+                "update_time": stamp,
+                "source_document_hash": f"{asset}-{day}",
+                "raw_payload_json": json.dumps({"updatetime": local_stamp}),
+            }
+            for asset, day, stamp, local_stamp, mr1 in cases
+        ],
+    )
+    spark = _create_spark_session("launch-risk-publication", "local[2]")
+    try:
+        specs = (
+            _contract_specs_frame(spark, paths["contracts"])
+            .withColumn(
+                "assetcode",
+                F.explode(
+                    F.array(*[F.lit(s) for s in ["EARLY", "EXACT", "LATE", "UNKNOWN", "PRIOR"]])
+                ),
+            )
+            .withColumn("contract_id", F.col("assetcode"))
+        )
+        risk = _asset_risk_parameters_frame(spark, paths["limits"], paths["staticparams"])
+        rows = {
+            r.assetcode: r.asDict()
+            for r in _economics_frame(specs, _fx_rates_frame(spark, paths["fx"]), risk).collect()
+        }
+        assert rows["EARLY"]["mr1"] == pytest.approx(0.07)
+        assert rows["EXACT"]["mr1"] == pytest.approx(0.08)
+        assert rows["LATE"]["mr1"] is None
+        assert rows["UNKNOWN"]["mr1"] is None
+        assert rows["PRIOR"]["mr1"] == pytest.approx(0.12)
+        flags = json.loads(rows["EARLY"]["source_flags_json"])
+        assert flags["risk_selection"] == "first_published_before_effective_session"
+        assert flags["risk_available_from_ts"].startswith("2026-06-26T21:31:00")
+        assert (
+            json.loads(rows["EARLY"]["source_document_hashes_json"])["limits"] == "EARLY-2026-06-27"
+        )
+    finally:
+        spark.stop()
+
+
+@pytest.mark.parametrize("static_history", ["absent", "eligible", "late_only"])
+def test_launch_risk_keeps_latest_eligible_same_day_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, static_history: str
+) -> None:
+    pytest.importorskip("pyspark.sql")
+    from pyspark.sql import functions as F
+
+    _configure_windows_spark_runtime(tmp_path, monkeypatch)
+    paths = _write_single_day_raw_economics_fixture(
+        raw_root=tmp_path / "raw", trade_date="2026-06-26"
+    )
+    write_delta_table_rows(
+        table_path=paths["limits"],
+        columns=_columns("raw_moex_rms_limits"),
+        rows=[
+            {
+                "assetcode": "LAUNCH",
+                "trade_date": "2026-06-27",
+                "mr1": mr1,
+                "update_time": stamp,
+                "source_document_hash": source_hash,
+            }
+            for stamp, mr1, source_hash in [
+                ("2026-06-26T23:58:00Z", 0.06, "older-eligible-limit"),
+                ("2026-06-26T23:59:00Z", 0.071, "eligible-limit-a"),
+                ("2026-06-26T23:59:00Z", 0.07, "eligible-limit-z"),
+                ("2026-06-27T00:01:00Z", 0.99, "later-limit"),
+            ]
+        ],
+    )
+    if static_history != "absent":
+        write_delta_table_rows(
+            table_path=paths["staticparams"],
+            columns=_columns("raw_moex_rms_staticparams"),
+            rows=[
+                {
+                    "assetcode": "LAUNCH",
+                    "trade_date": "2026-06-27",
+                    "radius_pct": radius,
+                    "update_time": stamp,
+                    "source_document_hash": source_hash,
+                }
+                for stamp, radius, source_hash in [
+                    *(
+                        [("2026-06-26T23:58:00Z", 0.5, "eligible-static")]
+                        if static_history == "eligible"
+                        else []
+                    ),
+                    ("2026-06-27T00:01:00Z", 3.5, "later-static"),
+                ]
+            ],
+        )
+    spark = _create_spark_session("launch-risk-same-day-history", "local[2]")
+    try:
+        specs = (
+            _contract_specs_frame(spark, paths["contracts"])
+            .withColumn("assetcode", F.lit("LAUNCH"))
+            .withColumn("contract_id", F.lit("LAUNCH"))
+        )
+        risk = _asset_risk_parameters_frame(spark, paths["limits"], paths["staticparams"])
+        daily = risk.where(F.col("assetcode") == "LAUNCH")
+        assert daily.count() == 1
+        assert daily.first().mr1 == pytest.approx(0.99)
+        canonical_path = tmp_path / "canonical-risk.delta"
+        _write_spark_delta_table(
+            daily,
+            table_path=canonical_path,
+            table_name="canonical_asset_risk_parameters",
+        )
+        canonical = read_delta_table_rows(canonical_path)
+        assert len(canonical) == 1
+        assert canonical[0]["mr1"] == pytest.approx(0.99)
+        assert canonical[0]["source_limits_hash"] == "later-limit"
+        assert "__limits_history" not in canonical[0]
+        assert "__static_history" not in canonical[0]
+
+        fx = _fx_rates_frame(spark, paths["fx"])
+        row = _economics_frame(specs, fx, risk).first()
+        flags = json.loads(row.source_flags_json)
+        if static_history == "late_only":
+            assert row.mr1 is None
+            assert flags["risk_selection"] == "unavailable"
+        else:
+            assert row.mr1 == pytest.approx(0.07)
+            hashes = json.loads(row.source_document_hashes_json)
+            assert hashes["limits"] == "eligible-limit-z"
+            assert flags["risk_selection"] == "first_published_before_effective_session"
+            assert flags["risk_available_from_ts"].startswith("2026-06-26T23:59:00")
+            if static_history == "eligible":
+                assert row.radius_pct == pytest.approx(0.5)
+                assert hashes["staticparams"] == "eligible-static"
+
+        prior_specs = specs.withColumn("trade_date", F.to_date(F.lit("2026-06-29")))
+        prior_fx = fx.withColumn("rate_date", F.to_date(F.lit("2026-06-29")))
+        prior = _economics_frame(prior_specs, prior_fx, risk).first()
+        assert prior.mr1 == pytest.approx(0.99)
+        assert json.loads(prior.source_document_hashes_json)["limits"] == "later-limit"
+        assert json.loads(prior.source_flags_json)["risk_selection"] == "latest_prior_source_date"
+    finally:
+        spark.stop()
+
+
 def _configure_windows_spark_runtime(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    if os.name != "nt":
+        return
     hadoop_home = Path("D:/CodexHome/runtime/hadoop-winutils-3.3.6")
     if not (hadoop_home / "bin" / "winutils.exe").exists():
         hadoop_home = Path("D:/CodexHome/runtime/hadoop-winutils")
@@ -203,6 +377,102 @@ def _write_single_day_raw_economics_fixture(
         mode=mode,
     )
     return paths
+
+
+def test_economics_fx_excludes_cross_pairs_and_keeps_rub_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("pyspark.sql")
+    _configure_windows_spark_runtime(tmp_path, monkeypatch)
+    paths = _write_single_day_raw_economics_fixture(
+        raw_root=tmp_path / "raw", trade_date="2020-01-27", fx_clearing_type="mc"
+    )
+    original = read_delta_table_rows(paths["fx"], limit=1)[0]
+    write_delta_table_rows(
+        table_path=paths["fx"],
+        columns=_columns("raw_moex_indicative_fx_rates"),
+        mode="append",
+        rows=[
+            {**original, "fx_pair": pair, "rate": rate, "source_document_hash": pair}
+            for pair, rate in [("USD/JPY", 108.914), ("USD/CNY", 6.9334)]
+        ],
+    )
+    spark = _create_spark_session("test-rub-quote-filter", "local[2]")
+    try:
+        rates = _fx_rates_frame(spark, paths["fx"])
+        rows = {row.fx_pair: row.rate_to_rub for row in rates.collect()}
+        assert rows == {"USD/RUB": 71.9077, "RUB/RUB": 1.0}
+        assert (
+            rates.groupBy("base_currency", "rate_date", "clearing_type")
+            .count()
+            .where("count > 1")
+            .count()
+            == 0
+        )
+    finally:
+        spark.stop()
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_economics_reads_turnover_from_both_history_payload_shapes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, nested: bool
+) -> None:
+    pytest.importorskip("pyspark.sql")
+    _configure_windows_spark_runtime(tmp_path, monkeypatch)
+    history = {"VALUE": 71000.0, "VOLUME": 10.0, "WAPRICE": 100.0}
+    paths = _write_single_day_raw_economics_fixture(
+        raw_root=tmp_path / "raw", trade_date="2020-01-27", historical_market=history
+    )
+    if not nested:
+        row = read_delta_table_rows(paths["contracts"], limit=1)[0]
+        row["raw_payload_json"] = json.dumps(history)
+        write_delta_table_rows(
+            table_path=paths["contracts"],
+            columns=_columns("raw_moex_contract_securities"),
+            rows=[row],
+        )
+    spark = _create_spark_session("test-history-payload-shape", "local[2]")
+    try:
+        row = _contract_specs_frame(spark, paths["contracts"]).first()
+        assert (row.history_value_rub, row.history_volume, row.history_waprice) == (
+            71000.0,
+            10.0,
+            100.0,
+        )
+    finally:
+        spark.stop()
+
+
+def test_margin_quality_is_unavailable_when_formula_is_missing_despite_calibration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("pyspark.sql")
+    _configure_windows_spark_runtime(tmp_path, monkeypatch)
+    spark = _create_spark_session("test-incomplete-margin-quality", "local[2]")
+    try:
+        frame = spark.createDataFrame(
+            [
+                ("current", "BR", "2026-07-28", "mc", 1, 100.0, 50.0),
+                ("missing", "BR", "2020-01-27", "mc", 1, None, None),
+                ("zero", "BR", "2020-01-27", "mc", 2, None, 0.0),
+                ("valid", "BR", "2020-01-27", "mc", 1, None, 25.0),
+                ("nearest", "BR", "2020-01-27", "mc", 2, None, 25.0),
+            ],
+            "contract_id string, assetcode string, economics_session_date string, "
+            "clearing_type string, maturity_rank int, official_initial_margin double, "
+            "margin_radius_adjusted double",
+        )
+        rows = {r.contract_id: r for r in _with_latest_margin_calibration(frame).collect()}
+        for key in ("missing", "zero"):
+            assert rows[key].margin_calibration_factor == 2.0
+            assert rows[key].margin_required_estimate is None
+            assert rows[key].model_quality == "unavailable"
+        assert rows["current"].model_quality == "official_initial_margin"
+        assert rows["valid"].model_quality == "calibrated_asset_rank"
+        assert rows["nearest"].model_quality == "calibrated_nearest_rank"
+        assert rows["valid"].margin_required_estimate == 50.0
+    finally:
+        spark.stop()
 
 
 def test_contract_economics_spark_job_materializes_canonical_side_tables(
@@ -459,15 +729,25 @@ def test_contract_economics_spark_job_zeros_radius_for_pure_rub_contract(
     assert row["margin_required_estimate"] == pytest.approx(1.0)
 
 
+@pytest.mark.parametrize(
+    ("trade_date", "rule_id"),
+    [
+        ("2024-06-14", "BR-2022-2026-v1"),
+        ("2020-01-27", "BR-pre2022-v1"),
+        ("2018-06-26", "BR-pre2020-v1"),
+    ],
+)
 def test_contract_economics_spark_job_reconstructs_historical_br_stepprice(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    trade_date: str,
+    rule_id: str,
 ) -> None:
     pytest.importorskip("pyspark.sql")
     _configure_windows_spark_runtime(tmp_path, monkeypatch)
     raw_paths = _write_single_day_raw_economics_fixture(
         raw_root=tmp_path / "raw",
-        trade_date="2024-06-14",
+        trade_date=trade_date,
         contract_id="BRN4",
         assetcode="BR",
         quote_currency="USD",
@@ -503,7 +783,7 @@ def test_contract_economics_spark_job_reconstructs_historical_br_stepprice(
     assert row["step_price_rub"] == pytest.approx(8.90658)
     assert row["tick_value_currency"] == pytest.approx(0.1)
     assert source_flags["step_price_source"] == "contract_parameter_regime"
-    assert source_flags["step_price_rule_id"] == "BR-2022-2026-v1"
+    assert source_flags["step_price_rule_id"] == rule_id
     profile = report["step_price_rule_profiles"][0]
     assert profile["min_step"] == pytest.approx(0.01)
     assert profile["lot_volume"] == pytest.approx(10.0)
