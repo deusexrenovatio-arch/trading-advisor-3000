@@ -11,6 +11,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     write_delta_table_rows,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.economics import (
+    MOEX_HISTORICAL_CONTRACT_PARAMETER_REGIMES,
     moex_economics_store_contract,
 )
 from trading_advisor_3000.product_plane.data_plane.schemas.delta import (
@@ -20,8 +21,11 @@ from trading_advisor_3000.spark_jobs import research_bar_views_job
 from trading_advisor_3000.spark_jobs.canonical_bars_job import _create_spark_session
 from trading_advisor_3000.spark_jobs.moex_contract_economics_job import (
     _asset_risk_parameters_frame,
+    _contract_parameter_regimes_frame,
     _contract_specs_frame,
     _economics_frame,
+    _fail_closed_on_missing_inputs,
+    _fail_closed_on_step_price_rule_validation,
     _fx_rates_frame,
     _with_latest_margin_calibration,
     _write_spark_delta_table,
@@ -2085,3 +2089,370 @@ def test_contract_economics_explicit_calibration_without_later_official_snapshot
     assert tail["margin_buffer_pct"] == 0.0
     assert raw_versions == {name: DeltaTable(str(path)).version() for name, path in paths.items()}
     assert all((Path(path) / "_delta_log").is_dir() for path in report["output_paths"].values())
+
+
+def _bounded_regimes():
+    from dataclasses import replace
+
+    return tuple(
+        replace(
+            rule,
+            rule_id=f"{rule.assetcode}-bounded-tail-20261005-v1",
+            effective_from="2026-07-29",
+            effective_to="2026-10-05",
+            validation_method="dated_official_tc",
+        )
+        for rule in MOEX_HISTORICAL_CONTRACT_PARAMETER_REGIMES[:13]
+    )
+
+
+def test_parameter_metadata_native_preserves_defaults_and_literal_strings(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    pytest.importorskip("pyspark.sql")
+    _configure_windows_spark_runtime(tmp_path, monkeypatch)
+    spark = _create_spark_session("parameter-metadata", "local[2]")
+    try:
+        rows = {r.rule_id: r.asDict() for r in _contract_parameter_regimes_frame(spark).collect()}
+        assert len(rows) == 32
+        for r in MOEX_HISTORICAL_CONTRACT_PARAMETER_REGIMES:
+            assert rows[r.rule_id]["rule_min_step"] == r.min_step
+            assert rows[r.rule_id]["rule_tick_value_quote"] == r.tick_value_quote
+            assert rows[r.rule_id]["rule_validation_method"] == "turnover"
+        literal = replace(_bounded_regimes()[0], source_document_id="fixture'\\literal")
+        extra = (
+            _contract_parameter_regimes_frame(spark, (literal,))
+            .where(f"rule_id = '{literal.rule_id}'")
+            .first()
+        )
+        assert extra.rule_source_document_id == "fixture'\\literal"
+    finally:
+        spark.stop()
+
+
+def test_parameter_owning_reader_pins_zero_when_current_advances(tmp_path, monkeypatch):
+    from deltalake import DeltaTable
+
+    from trading_advisor_3000.product_plane.data_plane.moex.contract_parameter_continuation import (
+        bind_contract_parameter_input,
+    )
+
+    pytest.importorskip("pyspark.sql")
+    _configure_windows_spark_runtime(tmp_path, monkeypatch)
+    paths = _write_single_day_raw_economics_fixture(
+        raw_root=tmp_path / "raw", trade_date="2026-07-29", expiration_date="2026-12-15"
+    )
+    original = DeltaTable(str(paths["contracts"]))
+    _write_single_day_raw_economics_fixture(
+        raw_root=tmp_path / "raw",
+        trade_date="2026-10-05",
+        expiration_date="2026-12-15",
+        mode="append",
+        write_shared_inputs=False,
+    )
+    verified = {"prepared_input_table_id": original.metadata().id, "prepared_input_version": 0}
+    assert bind_contract_parameter_input(paths["contracts"], verified) == 0
+    spark = _create_spark_session("parameter-pinned-reader", "local[2]")
+    try:
+        assert _contract_specs_frame(spark, paths["contracts"]).count() == 2
+        pinned = _contract_specs_frame(spark, paths["contracts"], source_version=0).collect()
+        assert len(pinned) == 1
+        assert pinned[0].trade_date.isoformat() == "2026-07-29"
+        assert pinned[0].last_settle_price == 93.99
+        assert DeltaTable(str(paths["contracts"])).version() == 1
+    finally:
+        spark.stop()
+
+
+@pytest.mark.parametrize(
+    "day,inside",
+    [("2026-07-28", False), ("2026-07-29", True), ("2026-10-05", True), ("2026-10-06", False)],
+)
+def test_parameter_interval_native_is_inclusive_and_not_renewed(tmp_path, monkeypatch, day, inside):
+    pytest.importorskip("pyspark.sql")
+    from pyspark.sql import functions as F
+
+    _configure_windows_spark_runtime(tmp_path, monkeypatch)
+    paths = _write_single_day_raw_economics_fixture(
+        raw_root=tmp_path / "raw", trade_date=day, expiration_date="2026-12-15"
+    )
+    spark = _create_spark_session("parameter-boundary", "local[2]")
+    try:
+        specs = _contract_specs_frame(spark, paths["contracts"]).withColumn(
+            "official_step_price", F.lit(None).cast("double")
+        )
+        fx = _fx_rates_frame(spark, paths["fx"])
+        fx = fx.unionByName(
+            fx.where(F.col("base_currency") == "USD").withColumn("clearing_type", F.lit("mc"))
+        )
+        risk = _asset_risk_parameters_frame(spark, paths["limits"], paths["staticparams"])
+        frame = _economics_frame(
+            specs, fx, risk, additional_contract_parameter_regimes=(_bounded_regimes()[0],)
+        ).cache()
+        row = frame.first()
+        assert (row["__step_price_rule_id"] is not None) == inside
+        if inside:
+            assert row.step_price_rub == pytest.approx(0.1 * 71.9077)
+        else:
+            assert row.step_price_rub is None
+            with pytest.raises(RuntimeError, match="STEPPRICE=1"):
+                _fail_closed_on_missing_inputs(frame)
+        frame.unpersist()
+    finally:
+        spark.stop()
+
+
+@pytest.mark.parametrize(
+    "clearing,error,passes", [("tc", 0.0, True), ("mc", 0.0, False), ("tc", 0.002, False)]
+)
+def test_parameter_dated_tc_gate_validates_official_source(
+    tmp_path, monkeypatch, clearing, error, passes
+):
+    pytest.importorskip("pyspark.sql")
+    _configure_windows_spark_runtime(tmp_path, monkeypatch)
+    paths = _write_single_day_raw_economics_fixture(
+        raw_root=tmp_path / "raw",
+        trade_date="2026-08-14",
+        fx_clearing_type=clearing,
+        official_step_price=0.1 * 71.9077 * (1 + error),
+        expiration_date="2026-12-15",
+    )
+    spark = _create_spark_session("parameter-dated-tc", "local[2]")
+    try:
+        frame = _economics_frame(
+            _contract_specs_frame(spark, paths["contracts"]),
+            _fx_rates_frame(spark, paths["fx"]),
+            _asset_risk_parameters_frame(spark, paths["limits"], paths["staticparams"]),
+            additional_contract_parameter_regimes=(_bounded_regimes()[0],),
+        ).cache()
+        assert frame.first()["__step_price_source"] == "moex_stepprice"
+        if passes:
+            profiles = _fail_closed_on_step_price_rule_validation(
+                frame, additional_regimes=(_bounded_regimes()[0],)
+            )
+            assert profiles[0]["validation_rows"] == 1
+            assert profiles[0]["validation_method"] == "dated_official_tc"
+            with pytest.raises(RuntimeError, match="GOLD-bounded"):
+                _fail_closed_on_step_price_rule_validation(
+                    frame, additional_regimes=_bounded_regimes()[:2]
+                )
+        else:
+            with pytest.raises(RuntimeError, match="rule validation failed"):
+                _fail_closed_on_step_price_rule_validation(
+                    frame, additional_regimes=(_bounded_regimes()[0],)
+                )
+        frame.unpersist()
+    finally:
+        spark.stop()
+
+
+@pytest.mark.parametrize("rub_rule", [False, True])
+def test_parameter_validation_uses_rule_currency_and_rub_identity(tmp_path, monkeypatch, rub_rule):
+    pytest.importorskip("pyspark.sql")
+    _configure_windows_spark_runtime(tmp_path, monkeypatch)
+    rule = next(r for r in _bounded_regimes() if r.assetcode == ("MIX" if rub_rule else "BR"))
+    paths = _write_single_day_raw_economics_fixture(
+        raw_root=tmp_path / "raw",
+        trade_date="2026-08-14",
+        assetcode=rule.assetcode,
+        quote_currency="RUB",
+        min_step=rule.min_step,
+        lot_volume=rule.lot_volume,
+        official_step_price=25.0 if rub_rule else 0.1,
+        fx_rate=70.0,
+        fx_clearing_type="mc" if rub_rule else "tc",
+        expiration_date="2026-12-15",
+    )
+    spark = _create_spark_session("parameter-rule-currency", "local[2]")
+    try:
+        frame = _economics_frame(
+            _contract_specs_frame(spark, paths["contracts"]),
+            _fx_rates_frame(spark, paths["fx"]),
+            _asset_risk_parameters_frame(spark, paths["limits"], paths["staticparams"]),
+            additional_contract_parameter_regimes=(rule,),
+        ).cache()
+        if rub_rule:
+            assert (
+                _fail_closed_on_step_price_rule_validation(frame, additional_regimes=(rule,))[0][
+                    "validation_p95_relative_error"
+                ]
+                == 0.0
+            )
+        else:
+            # Rule USD must use USD TC70, never spec RUB's identity1.
+            with pytest.raises(RuntimeError, match="rule validation failed"):
+                _fail_closed_on_step_price_rule_validation(frame, additional_regimes=(rule,))
+        frame.unpersist()
+    finally:
+        spark.stop()
+
+
+def test_parameter_full_admission_native_preserves_schema_and_calibration(tmp_path, monkeypatch):
+    import hashlib
+    from dataclasses import asdict, replace
+    from datetime import date
+
+    from deltalake import DeltaTable
+
+    from trading_advisor_3000.product_plane.data_plane.moex import (
+        contract_parameter_continuation as admission,
+    )
+
+    pytest.importorskip("pyspark.sql")
+    _configure_windows_spark_runtime(tmp_path, monkeypatch)
+    template = _write_single_day_raw_economics_fixture(
+        raw_root=tmp_path / "template", trade_date="2026-07-29", expiration_date="2026-12-15"
+    )
+    source_templates = {
+        name: read_delta_table_rows(path, limit=1)[0] for name, path in template.items()
+    }
+    raw = tmp_path / "raw"
+    paths = {name: raw / path.name for name, path in template.items()}
+    rules = _bounded_regimes()
+    rows = {name: [] for name in paths}
+    for day in ("2026-07-29", "2026-08-14", "2026-10-05"):
+        for rule in rules:
+            margin = None if day == "2026-10-05" else 200.0
+            step = (
+                None
+                if day == "2026-10-05"
+                else rule.tick_value_quote * (1 if rule.quote_currency == "RUB" else 70)
+            )
+            contract = {
+                **source_templates["contracts"],
+                "trade_date": day,
+                "moex_secid": rule.assetcode + "Z6",
+                "assetcode": rule.assetcode,
+                "min_step": rule.min_step,
+                "lot_volume": rule.lot_volume,
+                "official_step_price": step,
+                "official_initial_margin": margin,
+                "last_settle_price": 120.0 if day == "2026-10-05" else 100.0,
+                "source_document_hash": f"fixture-{day}-{rule.assetcode}",
+                "raw_payload_json": json.dumps({"CURRENCYID": rule.quote_currency}),
+            }
+            rows["contracts"].append(contract)
+            for name in ("limits", "staticparams"):
+                rows[name].append(
+                    {
+                        **source_templates[name],
+                        "trade_date": day,
+                        "assetcode": rule.assetcode,
+                        "update_time": day + "T19:00:00Z",
+                        "source_document_hash": f"{name}-{day}-{rule.assetcode}",
+                    }
+                )
+        for clearing, rate in (("tc", 70.0), ("mc", 60.0)):
+            rows["fx"].append(
+                {
+                    **source_templates["fx"],
+                    "trade_date": day,
+                    "clearing_type": clearing,
+                    "rate": rate,
+                    "source_document_hash": f"fx-{day}-{clearing}",
+                }
+            )
+    for name, table_name in (
+        ("contracts", "raw_moex_contract_securities"),
+        ("fx", "raw_moex_indicative_fx_rates"),
+        ("limits", "raw_moex_rms_limits"),
+        ("staticparams", "raw_moex_rms_staticparams"),
+    ):
+        write_delta_table_rows(
+            table_path=paths[name], rows=rows[name], columns=_columns(table_name)
+        )
+    dated = {
+        "status": "PASS",
+        "validation_method": "dated_official_tc",
+        "snapshot_version": 134,
+        "dated_official_rows": 674,
+        "extrapolation_scope": ["2026-07-29", "2026-10-05"],
+        "inference_not_daily_official": True,
+        "turnover_proxy_rejected_due_to_nonidentical_trade_baskets": True,
+        "profiles": [
+            {
+                "assetcode": r.assetcode,
+                "rows": 111
+                if r.assetcode == "WHEAT"
+                else 67
+                if r.assetcode == "BR"
+                else 64
+                if r.assetcode == "NG"
+                else 72
+                if r.assetcode in {"MIX", "MXI"}
+                else 36,
+                "p95": 0.0,
+                "maximum": 0.0,
+            }
+            for r in rules
+        ],
+    }
+    dated_path = tmp_path / "dated.json"
+    dated_path.write_text(json.dumps(dated), encoding="utf-8")
+    dated_sha = hashlib.sha256(dated_path.read_bytes()).hexdigest()
+    rules = tuple(
+        replace(r, source_document_id=r.source_document_id + ";sha256:" + dated_sha) for r in rules
+    )
+    rules_path = tmp_path / "rules.json"
+    rules_path.write_text(json.dumps([asdict(r) for r in rules]), encoding="utf-8")
+    original = {
+        name: (DeltaTable(str(path)).metadata().id, DeltaTable(str(path)).version())
+        for name, path in paths.items()
+    }
+    # Fixture-only admitted definition: production admission never accepts caller pins.
+    monkeypatch.setattr(
+        admission,
+        "_ADMITTED_BUNDLE",
+        replace(
+            admission._ADMITTED_BUNDLE,
+            regimes_sha256=hashlib.sha256(rules_path.read_bytes()).hexdigest(),
+            evidence_sha256=dated_sha,
+            prepared_table_id=original["contracts"][0],
+        ),
+    )
+    output = tmp_path / "canonical"
+    report = run_moex_contract_economics_spark_job(
+        raw_contract_specs_path=paths["contracts"],
+        raw_fx_rates_path=paths["fx"],
+        raw_rms_limits_path=paths["limits"],
+        raw_rms_staticparams_path=paths["staticparams"],
+        output_dir=output,
+        allow_calibrated_latest_margin=True,
+        margin_calibration_as_of_date=date(2026, 8, 14),
+        additional_contract_parameter_regimes=rules,
+        contract_parameter_evidence=admission.MoexContractParameterEvidence(
+            "bounded-tail-20261005-v1", rules_path, dated_path
+        ),
+        report_path=tmp_path / "report.json",
+    )
+    assert report["status"] == "PASS"
+    assert len(report["additional_contract_parameter_regimes"]) == 13
+    assert report["contract_parameter_evidence"]["prepared_input_version"] == 0
+    assert sum(p["validation_rows"] for p in report["step_price_rule_profiles"]) == 26
+    assert all(
+        p["validation_method"] == "dated_official_tc" for p in report["step_price_rule_profiles"]
+    )
+    table = output / "canonical_contract_economics.delta"
+    canonical = read_delta_table_rows(table, limit=40)
+    assert len(canonical) == 39
+    assert set(DeltaTable(str(table)).schema().to_pyarrow().names) == set(
+        _columns("canonical_contract_economics")
+    )
+    for row in canonical:
+        assert (
+            json.loads(row["source_flags_json"])["step_price_rule_validation_method"]
+            == "dated_official_tc"
+        )
+        expected_margin = 200.0
+        if str(row["economics_session_date"]) == "2026-10-05":
+            expected_margin = 200.0 * (120.0 / 100.0)
+            if row["quote_currency"] == "USD":
+                expected_margin *= 60.0 / 70.0
+        assert row["margin_required_estimate"] == pytest.approx(expected_margin)
+        if str(row["economics_session_date"]) == "2026-10-05":
+            assert row["official_initial_margin"] is None
+            assert str(row["margin_calibration_as_of_date"]) == "2026-08-14"
+    assert original == {
+        name: (DeltaTable(str(path)).metadata().id, DeltaTable(str(path)).version())
+        for name, path in paths.items()
+    }

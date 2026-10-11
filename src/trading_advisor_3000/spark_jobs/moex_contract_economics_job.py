@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -11,13 +11,20 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
     has_delta_log,
 )
+from trading_advisor_3000.product_plane.data_plane.moex.contract_parameter_continuation import (
+    MoexContractParameterEvidence,
+    bind_contract_parameter_input,
+    validate_contract_parameter_evidence,
+)
 from trading_advisor_3000.product_plane.data_plane.moex.economics import (
     MOEX_CONTRACT_ECONOMICS_MODEL_VERSION,
     MOEX_DEFAULT_RADIUS_PCT,
     MOEX_FX_OR_USD_LINKED_ASSETS,
     MOEX_HISTORICAL_CONTRACT_PARAMETER_REGIMES,
     MOEX_MARGIN_BUFFER_POLICY_VERSION,
+    MoexContractParameterRegime,
     moex_economics_store_contract,
+    validate_contract_parameter_regimes,
 )
 
 from .canonical_bars_job import DEFAULT_SPARK_MASTER, _create_spark_session
@@ -281,11 +288,14 @@ def _json_safe_value(value: object) -> object:
     return value
 
 
-def _contract_specs_frame(spark: object, table_path: Path):
+def _contract_specs_frame(spark: object, table_path: Path, *, source_version: int | None = None):
     from pyspark.sql import Window  # type: ignore[import-not-found]
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
-    raw = spark.read.format("delta").load(str(table_path))
+    reader = spark.read.format("delta")
+    if source_version is not None:
+        reader = reader.option("versionAsOf", source_version)
+    raw = reader.load(str(table_path))
     assetcode = F.upper(_column_or_json(raw, "assetcode", "asset_code", "ASSETCODE"))
     base = (
         raw.withColumn("contract_id", _column_or_json(raw, "moex_secid", "SECID", "secid"))
@@ -381,42 +391,34 @@ def _contract_specs_frame(spark: object, table_path: Path):
     return base.withColumn("maturity_rank", F.dense_rank().over(rank_window))
 
 
-def _contract_parameter_regimes_frame(spark: object):
-    values_sql = ",\n".join(
-        "("
-        + ", ".join(
-            (
-                f"'{rule.rule_id}'",
-                f"'{rule.assetcode}'",
-                f"DATE '{rule.effective_from}'",
-                f"DATE '{rule.effective_to}'",
-                str(rule.min_step),
-                str(rule.lot_volume),
-                f"'{rule.quote_currency}'",
-                str(rule.tick_value_quote),
-                f"'{rule.source_document_id}'",
-            )
-        )
-        + ")"
-        for rule in MOEX_HISTORICAL_CONTRACT_PARAMETER_REGIMES
+def _contract_parameter_regimes_frame(
+    spark: object, additional_regimes: tuple[MoexContractParameterRegime, ...] = ()
+):
+    regimes = validate_contract_parameter_regimes(
+        additional_regimes, registered=MOEX_HISTORICAL_CONTRACT_PARAMETER_REGIMES
     )
-    return spark.sql(
-        f"""
-        SELECT *
-        FROM VALUES
-        {values_sql}
-        AS regimes(
-            rule_id,
-            rule_assetcode,
-            rule_effective_from,
-            rule_effective_to,
-            rule_min_step,
-            rule_lot_volume,
-            rule_quote_currency,
-            rule_tick_value_quote,
-            rule_source_document_id
-        )
-        """
+    return spark.createDataFrame(
+        [
+            (
+                rule.rule_id,
+                rule.assetcode,
+                date.fromisoformat(rule.effective_from),
+                date.fromisoformat(rule.effective_to),
+                float(rule.min_step),
+                float(rule.lot_volume),
+                rule.quote_currency,
+                float(rule.tick_value_quote),
+                rule.source_document_id,
+                rule.validation_method,
+            )
+            for rule in regimes
+        ],
+        schema=(
+            "rule_id STRING, rule_assetcode STRING, rule_effective_from DATE, "
+            "rule_effective_to DATE, rule_min_step DOUBLE, rule_lot_volume DOUBLE, "
+            "rule_quote_currency STRING, rule_tick_value_quote DOUBLE, "
+            "rule_source_document_id STRING, rule_validation_method STRING"
+        ),
     )
 
 
@@ -961,6 +963,7 @@ def _economics_frame(
     *,
     canonical_session_calendar_path: Path | None = None,
     margin_calibration_as_of_date: date | None = None,
+    additional_contract_parameter_regimes: tuple[MoexContractParameterRegime, ...] = (),
 ):
     from pyspark.sql import Window  # type: ignore[import-not-found]
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
@@ -1129,8 +1132,11 @@ def _economics_frame(
             .alias("__risk_selection"),
         )
     )
-    contract_parameter_regimes = _contract_parameter_regimes_frame(contract_specs.sparkSession)
+    contract_parameter_regimes = _contract_parameter_regimes_frame(
+        contract_specs.sparkSession, additional_contract_parameter_regimes
+    )
     main_clearing_fx = fx_rates.where(F.col("clearing_type") == F.lit("mc"))
+    dated_tc_fx = fx_rates.where(F.col("clearing_type") == F.lit("tc"))
     joined = (
         contract_specs.alias("spec")
         .join(
@@ -1157,6 +1163,12 @@ def _economics_frame(
             main_clearing_fx.alias("step_fx"),
             (F.col("rule.rule_quote_currency") == F.col("step_fx.base_currency"))
             & (F.col("spec.trade_date") == F.col("step_fx.rate_date")),
+            "left",
+        )
+        .join(
+            dated_tc_fx.alias("validation_fx"),
+            (F.col("rule.rule_quote_currency") == F.col("validation_fx.base_currency"))
+            & (F.col("spec.trade_date") == F.col("validation_fx.rate_date")),
             "left",
         )
     )
@@ -1196,10 +1208,34 @@ def _economics_frame(
             * F.col("spec.min_step")
         ),
     ).otherwise(F.lit(None).cast("double"))
-    rule_validation_relative_error = F.when(
-        (rule_step_price_rub > F.lit(0.0)) & turnover_implied_step_price_rub.isNotNull(),
-        F.abs(turnover_implied_step_price_rub / rule_step_price_rub - F.lit(1.0)),
-    ).otherwise(F.lit(None).cast("double"))
+    dated_validation_rate = F.when(
+        F.col("rule.rule_quote_currency") == F.lit("RUB"), F.lit(1.0)
+    ).otherwise(F.col("validation_fx.rate_to_rub"))
+    rule_validation_relative_error = (
+        F.when(
+            F.col("rule.rule_validation_method") == F.lit("dated_official_tc"),
+            F.when(
+                (F.col("spec.official_step_price") > F.lit(0.0))
+                & (F.col("spec.official_step_price") < F.lit(float("inf")))
+                & (
+                    (F.col("validation_fx.clearing_type") == F.lit("tc"))
+                    | (F.col("rule.rule_quote_currency") == F.lit("RUB"))
+                )
+                & (dated_validation_rate > F.lit(0.0))
+                & (dated_validation_rate < F.lit(float("inf"))),
+                F.abs(
+                    F.col("spec.official_step_price")
+                    / (F.col("rule.rule_tick_value_quote") * dated_validation_rate)
+                    - F.lit(1.0)
+                ),
+            ),
+        )
+        .when(
+            (rule_step_price_rub > F.lit(0.0)) & turnover_implied_step_price_rub.isNotNull(),
+            F.abs(turnover_implied_step_price_rub / rule_step_price_rub - F.lit(1.0)),
+        )
+        .otherwise(F.lit(None).cast("double"))
+    )
     tick_value_currency = F.when(
         F.upper(resolved_quote_currency) == F.lit("RUB"),
         step_price_rub,
@@ -1245,6 +1281,7 @@ def _economics_frame(
                     F.coalesce(F.col("step_fx.fx_pair"), F.col("fx.fx_pair")).alias("fx_pair"),
                     step_price_source.alias("step_price_source"),
                     F.col("rule.rule_id").alias("step_price_rule_id"),
+                    F.col("rule.rule_validation_method").alias("step_price_rule_validation_method"),
                     F.col("rule.rule_source_document_id").alias(
                         "step_price_rule_source_document_id"
                     ),
@@ -1316,6 +1353,7 @@ def _economics_frame(
         "source_document_hashes_json",
         step_price_source.alias("__step_price_source"),
         F.col("rule.rule_id").alias("__step_price_rule_id"),
+        F.col("rule.rule_validation_method").alias("__step_price_rule_validation_method"),
         F.col("rule.rule_assetcode").alias("__step_price_rule_assetcode"),
         F.col("rule.rule_quote_currency").alias("__step_price_rule_quote_currency"),
         F.col("rule.rule_min_step").alias("__step_price_rule_min_step"),
@@ -1462,17 +1500,23 @@ def _fail_closed_on_contract_parameter_regime_mismatches(economics) -> int:
     )
 
 
-def _fail_closed_on_step_price_rule_validation(economics) -> list[dict[str, object]]:
+def _fail_closed_on_step_price_rule_validation(
+    economics, *, additional_regimes: tuple[MoexContractParameterRegime, ...] = ()
+) -> list[dict[str, object]]:
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
     raw_profiles = [
         row.asDict()
         for row in economics.where(
             F.col("__step_price_rule_id").isNotNull()
-            & (F.col("__step_price_source") == F.lit("contract_parameter_regime"))
+            & (
+                (F.col("__step_price_source") == F.lit("contract_parameter_regime"))
+                | (F.col("__step_price_rule_validation_method") == F.lit("dated_official_tc"))
+            )
         )
         .groupBy(
             "__step_price_rule_id",
+            "__step_price_rule_validation_method",
             "__step_price_rule_assetcode",
             "__step_price_rule_quote_currency",
             "__step_price_rule_min_step",
@@ -1497,6 +1541,11 @@ def _fail_closed_on_step_price_rule_validation(economics) -> list[dict[str, obje
     profiles = [
         {
             "rule_id": raw["__step_price_rule_id"],
+            **(
+                {"validation_method": "dated_official_tc"}
+                if raw["__step_price_rule_validation_method"] == "dated_official_tc"
+                else {}
+            ),
             "assetcode": raw["__step_price_rule_assetcode"],
             "quote_currency": raw["__step_price_rule_quote_currency"],
             "min_step": _json_safe_value(raw["__step_price_rule_min_step"]),
@@ -1516,6 +1565,12 @@ def _fail_closed_on_step_price_rule_validation(economics) -> list[dict[str, obje
         or float(profile["validation_p95_relative_error"] or 0.0)
         > MOEX_STEP_PRICE_RULE_VALIDATION_P95_LIMIT
     ]
+    observed_ids = {profile["rule_id"] for profile in profiles}
+    offenders.extend(
+        rule.rule_id
+        for rule in additional_regimes
+        if rule.validation_method == "dated_official_tc" and rule.rule_id not in observed_ids
+    )
     if offenders:
         raise RuntimeError("MOEX step-price rule validation failed: " + ", ".join(offenders))
     return profiles
@@ -1637,6 +1692,8 @@ def run_moex_contract_economics_spark_job(
     canonical_session_calendar_path: Path | None = None,
     allow_calibrated_latest_margin: bool = False,
     margin_calibration_as_of_date: date | None = None,
+    additional_contract_parameter_regimes: tuple[MoexContractParameterRegime, ...] = (),
+    contract_parameter_evidence: MoexContractParameterEvidence | None = None,
     run_id: str = "contract-economics",
     report_path: Path | None = None,
     spark_master: str = DEFAULT_SPARK_MASTER,
@@ -1654,6 +1711,14 @@ def run_moex_contract_economics_spark_job(
             "allow_calibrated_latest_margin and margin_calibration_as_of_date "
             "must be supplied together"
         )
+    verified_parameter_evidence = validate_contract_parameter_evidence(
+        additional_contract_parameter_regimes, contract_parameter_evidence
+    )
+    prepared_source_version = (
+        bind_contract_parameter_input(raw_contract_specs_path, verified_parameter_evidence)
+        if verified_parameter_evidence is not None
+        else None
+    )
     if raw_asset_risk_parameters_path is not None and (
         raw_rms_limits_path is None or raw_rms_staticparams_path is None
     ):
@@ -1684,7 +1749,9 @@ def run_moex_contract_economics_spark_job(
     spark_factory = spark_session_factory or _create_spark_session
     spark = spark_factory(spec.app_name, spark_master)
     try:
-        contract_specs = _contract_specs_frame(spark, raw_contract_specs_path)
+        contract_specs = _contract_specs_frame(
+            spark, raw_contract_specs_path, source_version=prepared_source_version
+        )
         fx_rates = _fx_rates_frame(spark, raw_fx_rates_path)
         risk_parameters = _asset_risk_parameters_frame(
             spark,
@@ -1697,6 +1764,7 @@ def run_moex_contract_economics_spark_job(
             risk_parameters,
             canonical_session_calendar_path=canonical_session_calendar_path,
             margin_calibration_as_of_date=margin_calibration_as_of_date,
+            additional_contract_parameter_regimes=additional_contract_parameter_regimes,
         ).cache()
         contract_parameter_regime_mismatch_rows = (
             _fail_closed_on_contract_parameter_regime_mismatches(economics)
@@ -1706,7 +1774,9 @@ def run_moex_contract_economics_spark_job(
             allow_calibrated_latest_margin=allow_calibrated_latest_margin,
             margin_calibration_as_of_date=margin_calibration_as_of_date,
         )
-        step_price_rule_profiles = _fail_closed_on_step_price_rule_validation(economics)
+        step_price_rule_profiles = _fail_closed_on_step_price_rule_validation(
+            economics, additional_regimes=additional_contract_parameter_regimes
+        )
         interval_counts = _fail_closed_on_invalid_intervals(economics)
         margin_calibration_report = _margin_calibration_report(economics)
 
@@ -1759,6 +1829,10 @@ def run_moex_contract_economics_spark_job(
             "mode": "moex_contract_economics_spark_job",
             "run_id": run_id,
             "allow_calibrated_latest_margin": allow_calibrated_latest_margin,
+            "additional_contract_parameter_regimes": [
+                asdict(rule) for rule in additional_contract_parameter_regimes
+            ],
+            "contract_parameter_evidence": verified_parameter_evidence,
             "requested_margin_calibration_as_of_date": (
                 margin_calibration_as_of_date.isoformat()
                 if margin_calibration_as_of_date is not None
