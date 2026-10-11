@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 from deltalake import DeltaTable
@@ -83,6 +83,8 @@ def validate_contract_parameter_evidence(
 ) -> dict[str, object] | None:
     """Validate tuple and receipt bytes before touching any Delta source."""
     validate_contract_parameter_regimes(additional)
+    if type(evidence) is _OwnedRenewalEvidence:
+        return _validate_owned_renewal(additional, evidence)
     if not additional:
         if evidence is not None:
             raise ValueError("empty additional tuple requires no parameter evidence")
@@ -172,3 +174,131 @@ def bind_contract_parameter_input(table_path: Path, verified: dict[str, object])
     ):
         raise ValueError("parameter prepared input Delta identity/version mismatch")
     return version
+
+
+@dataclass(frozen=True)
+class _OwnedRenewalEvidence:
+    renewal: object
+
+
+def renew_contract_parameter_evidence(renewal):
+    """Only the owning native acquisition result can renew reviewed constant units."""
+    evidence = _OwnedRenewalEvidence(renewal)
+    rules = _renewed_rules(renewal)
+    _validate_owned_renewal(rules, evidence)
+    return rules, evidence
+
+
+def _renewed_rules(renewal):
+    from .native_history_refresh import _RENEWAL_OWNER, NativeHistoryRenewal
+
+    if type(renewal) is not NativeHistoryRenewal or renewal._owner is not _RENEWAL_OWNER:
+        raise TypeError("parameter renewal requires the actual owning history result")
+    return tuple(
+        replace(
+            rule,
+            effective_to=renewal.observed_date_end,
+            rule_id=f"{rule.assetcode}-native-history-{renewal.observed_date_end}",
+        )
+        for rule in renewal.base_rules
+    )
+
+
+def _validate_owned_renewal(additional, evidence):
+    from datetime import date
+
+    import pyarrow.dataset as ds
+
+    from .native_history_refresh import HISTORY_SOURCE, PREPARED_SOURCE, _hash
+
+    renewal = evidence.renewal
+    if additional != _renewed_rules(renewal):
+        raise ValueError("renewed native parameter tuple differs from owning result")
+    base = validate_contract_parameter_evidence(renewal.base_rules, renewal.base_evidence)
+    expected_proof = _hash(
+        dict(
+            tables=renewal.tables,
+            crosscheck=renewal.current_crosscheck,
+            source_hash=renewal.source_hash,
+            observed_dates=[renewal.observed_date_start, renewal.observed_date_end],
+            admitted_date_end=renewal.admitted_date_end,
+        )
+    )
+    if expected_proof != renewal.proof_sha256:
+        raise ValueError("owning native renewal result was altered")
+    start, end, admitted = (
+        date.fromisoformat(value)
+        for value in (
+            renewal.observed_date_start,
+            renewal.observed_date_end,
+            renewal.admitted_date_end,
+        )
+    )
+    if not start <= admitted <= end or (end - start).days > 31:
+        raise ValueError("native renewal bounds lack actual dated coverage")
+    identities = {
+        "raw": "ae9e49f9-9e8f-405d-9e07-0a2079eee691",
+        "prepared": base["prepared_input_table_id"],
+        "oi": "026176bf-9d3b-4192-adcf-559cd33f7c93",
+    }
+    tables = {}
+    for name, identity in identities.items():
+        ref = renewal.tables[name]
+        path, version = Path(ref["table_path"]), ref["delta_version"]
+        if not path.is_absolute() or type(version) is not int or version < 0:
+            raise ValueError("native renewal table ref requires absolute path/exact version")
+        table = DeltaTable(str(path), version=version)
+        if table.metadata().id != identity or ref["table_id"] != identity:
+            raise ValueError("native renewal owning table identity mismatch")
+        tables[name] = table
+    predicate = (ds.field("trade_date") >= start) & (ds.field("trade_date") <= end)
+    raw = (
+        tables["raw"]
+        .to_pyarrow_dataset()
+        .scanner(
+            columns=["source_document_hash"],
+            filter=predicate & (ds.field("source_id") == HISTORY_SOURCE),
+        )
+        .head(10001)
+        .to_pylist()
+    )
+    if (
+        len(raw) > 10000
+        or _hash(sorted(row["source_document_hash"] for row in raw)) != renewal.source_hash
+    ):
+        raise ValueError("native renewal history hashes differ from pinned source")
+    prepared = (
+        tables["prepared"]
+        .to_pyarrow_dataset()
+        .scanner(
+            columns=["assetcode", "min_step", "lot_volume", "enrichment_provenance_json"],
+            filter=predicate & (ds.field("source_id") == PREPARED_SOURCE),
+        )
+        .head(10001)
+        .to_pylist()
+    )
+    native = {rule.assetcode: rule for rule in renewal.base_rules}
+    if not prepared or len(prepared) > 10000 or {row["assetcode"] for row in prepared} != _ASSETS:
+        raise ValueError("native prepared scope lacks reviewed thirteen assets")
+    for row in prepared:
+        rule = native[row["assetcode"]]
+        provenance = json.loads(row["enrichment_provenance_json"])
+        if (
+            row["min_step"] != rule.min_step
+            or row["lot_volume"] != rule.lot_volume
+            or provenance.get("parameter_validation_evidence_sha256")
+            != base["dated_official_tc_evidence_sha256"]
+            or provenance.get("current_snapshot_crosscheck_sha256")
+            != _hash(renewal.current_crosscheck)
+            or provenance.get("current_snapshot_not_daily_official") is not True
+        ):
+            raise ValueError("native prepared row differs from reviewed renewal provenance")
+    return {
+        **base,
+        "bundle_id": f"native-history-{renewal.observed_date_end}",
+        "regimes_sha256": _hash([asdict(rule) for rule in additional]),
+        "prepared_input_version": renewal.tables["prepared"]["delta_version"],
+        "renewal_proof_sha256": renewal.proof_sha256,
+        "renewal_admitted_date_end": renewal.admitted_date_end,
+        "current_snapshot_mc_crosscheck": renewal.current_crosscheck,
+    }

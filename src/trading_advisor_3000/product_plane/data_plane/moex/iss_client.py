@@ -6,7 +6,7 @@ import time
 
 # ruff: noqa: E501
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from urllib import parse, request
@@ -52,6 +52,7 @@ class HistorySecurity:
     assetcode: str
     volume: int
     numtrades: int
+    payload: dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -710,6 +711,7 @@ class MoexISSClient:
                         assetcode=assetcode,
                         volume=max(0, volume),
                         numtrades=max(0, numtrades),
+                        payload=dict(row),
                     )
                 )
 

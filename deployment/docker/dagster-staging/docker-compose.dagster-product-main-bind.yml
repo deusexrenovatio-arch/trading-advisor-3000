@@ -5,6 +5,9 @@ services:
     image: ta3000-dagster-staging:latest
     container_name: ta3000-dagster-webserver
     working_dir: /workspace
+    mem_limit: "${TA3000_DAGSTER_MEMORY_LIMIT:-12g}"
+    memswap_limit: "${TA3000_DAGSTER_MEMORY_LIMIT:-12g}"
+    cpus: "${TA3000_DAGSTER_CPUS:-2}"
     command:
       - dagster-webserver
       - -m
@@ -23,13 +26,23 @@ services:
       TA3000_MOEX_HISTORICAL_DATA_ROOT: /ta3000-data/moex-historical
       TA3000_MOEX_PRODUCT_RUNTIME_STAGING_ROOT: /ta3000-data/staging/product/moex-historical
       TA3000_MOEX_VERIFICATION_STAGING_ROOT: /ta3000-data/staging/test/moex-verification
+      TA3000_RESEARCH_DATA_PREP_DATASET_VERSION: "${TA3000_RESEARCH_DATA_PREP_DATASET_VERSION:-moex_research_current}"
       TA3000_MOEX_CANONICALIZATION_SPARK_PROFILE: local
       TA3000_SPARK_DRIVER_MEMORY: "${TA3000_SPARK_DRIVER_MEMORY:-4g}"
+      TA3000_SPARK_EXECUTOR_MEMORY: "${TA3000_SPARK_EXECUTOR_MEMORY:-4g}"
+      TA3000_SPARK_DRIVER_MAX_RESULT_SIZE: "${TA3000_SPARK_DRIVER_MAX_RESULT_SIZE:-512m}"
+      TA3000_SPARK_SQL_SHUFFLE_PARTITIONS: "${TA3000_SPARK_SQL_SHUFFLE_PARTITIONS:-2}"
+      TA3000_MOEX_CANONICALIZATION_SPARK_MASTER: "local[2]"
+      SPARK_LOCAL_IP: "127.0.0.1"
+      TMPDIR: /tmp
+      NUMBA_CACHE_DIR: /tmp/numba
       PYSPARK_SUBMIT_ARGS: "--driver-memory ${TA3000_SPARK_DRIVER_MEMORY:-4g} pyspark-shell"
     ports:
       - "${TA3000_DAGSTER_PORT:-3000}:3000"
     volumes:
+      - "${TA3000_SPARK_SCRATCH_ROOT_HOST:-D:/TA3000-data/ta3000-production-scratch}/webserver:/tmp"
       - dagster-product-home:/opt/dagster/dagster_home
+      - ./dagster-product-instance.yaml:/opt/dagster/dagster_home/dagster.yaml:ro
       - "${TA3000_PRODUCT_MAIN_WORKTREE:-D:/TA3000-production}:/workspace:ro"
       - "${TA3000_MOEX_PRODUCT_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-nightly}:/ta3000-data/moex-historical"
       - "${TA3000_MOEX_PRODUCT_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-nightly}:/ta3000-data/staging/product/moex-historical"
@@ -52,6 +65,9 @@ services:
     image: ta3000-dagster-staging:latest
     container_name: ta3000-dagster-daemon
     working_dir: /workspace
+    mem_limit: "${TA3000_DAGSTER_MEMORY_LIMIT:-12g}"
+    memswap_limit: "${TA3000_DAGSTER_MEMORY_LIMIT:-12g}"
+    cpus: "${TA3000_DAGSTER_CPUS:-2}"
     command:
       - dagster-daemon
       - run
@@ -67,11 +83,21 @@ services:
       TA3000_MOEX_HISTORICAL_DATA_ROOT: /ta3000-data/moex-historical
       TA3000_MOEX_PRODUCT_RUNTIME_STAGING_ROOT: /ta3000-data/staging/product/moex-historical
       TA3000_MOEX_VERIFICATION_STAGING_ROOT: /ta3000-data/staging/test/moex-verification
+      TA3000_RESEARCH_DATA_PREP_DATASET_VERSION: "${TA3000_RESEARCH_DATA_PREP_DATASET_VERSION:-moex_research_current}"
       TA3000_MOEX_CANONICALIZATION_SPARK_PROFILE: local
       TA3000_SPARK_DRIVER_MEMORY: "${TA3000_SPARK_DRIVER_MEMORY:-4g}"
+      TA3000_SPARK_EXECUTOR_MEMORY: "${TA3000_SPARK_EXECUTOR_MEMORY:-4g}"
+      TA3000_SPARK_DRIVER_MAX_RESULT_SIZE: "${TA3000_SPARK_DRIVER_MAX_RESULT_SIZE:-512m}"
+      TA3000_SPARK_SQL_SHUFFLE_PARTITIONS: "${TA3000_SPARK_SQL_SHUFFLE_PARTITIONS:-2}"
+      TA3000_MOEX_CANONICALIZATION_SPARK_MASTER: "local[2]"
+      SPARK_LOCAL_IP: "127.0.0.1"
+      TMPDIR: /tmp
+      NUMBA_CACHE_DIR: /tmp/numba
       PYSPARK_SUBMIT_ARGS: "--driver-memory ${TA3000_SPARK_DRIVER_MEMORY:-4g} pyspark-shell"
     volumes:
+      - "${TA3000_SPARK_SCRATCH_ROOT_HOST:-D:/TA3000-data/ta3000-production-scratch}/daemon:/tmp"
       - dagster-product-home:/opt/dagster/dagster_home
+      - ./dagster-product-instance.yaml:/opt/dagster/dagster_home/dagster.yaml:ro
       - "${TA3000_PRODUCT_MAIN_WORKTREE:-D:/TA3000-production}:/workspace:ro"
       - "${TA3000_MOEX_PRODUCT_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-nightly}:/ta3000-data/moex-historical"
       - "${TA3000_MOEX_PRODUCT_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-nightly}:/ta3000-data/staging/product/moex-historical"

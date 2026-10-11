@@ -27,6 +27,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
 )
 from trading_advisor_3000.product_plane.data_plane.moex.contract_parameter_continuation import (
     bind_contract_parameter_input,
+    renew_contract_parameter_evidence,
     validate_contract_parameter_evidence,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.economics import (
@@ -65,6 +66,7 @@ from .historical_route_contracts import (
     normalize_changed_windows,
 )
 from .iss_client import MoexISSClient
+from .native_history_refresh import refresh_native_history_support
 from .session_schedule import (
     DEFAULT_PUBLIC_RULE_CATALOG_PATH,
     materialize_reconstructed_session_schedule_for_changed_windows,
@@ -562,11 +564,18 @@ def _write_iss_economics_raw_tables(
     client: MoexISSClient,
     raw_economics_root: Path,
     ingest_till_utc: str,
+    contract_payloads: Sequence[Mapping[str, object]] | None = None,
+    fx_payloads: Sequence[Mapping[str, object]] | None = None,
+    write_contract_snapshot: bool = True,
 ) -> dict[str, object]:
     trade_datetime = _economics_trade_date(ingest_till_utc)
     trade_date = trade_datetime.date()
     fetched_at_utc = _utc_now_iso()
-    contract_payloads = client.fetch_futures_contract_securities()
+    contract_payloads = (
+        client.fetch_futures_contract_securities()
+        if contract_payloads is None
+        else list(contract_payloads)
+    )
     contract_snapshot_trade_date = _contract_snapshot_trade_date(
         contract_payloads,
         fallback_trade_date=trade_date,
@@ -581,16 +590,18 @@ def _write_iss_economics_raw_tables(
     economics_source_dates = sorted({row_trade_date for _, row_trade_date in contract_payload_rows})
     if not economics_source_dates:
         economics_source_dates = [trade_date]
-    fx_payloads: list[dict[str, object]] = []
+    fetch_fx = fx_payloads is None
+    fx_payloads = list(fx_payloads or [])
     rms_limits_payloads: list[dict[str, object]] = []
     rms_staticparams_payloads: list[dict[str, object]] = []
     for source_trade_date in economics_source_dates:
-        fx_payloads.extend(
-            client.fetch_futures_indicative_rates(
-                date_from=source_trade_date,
-                date_till=source_trade_date,
+        if fetch_fx:
+            fx_payloads.extend(
+                client.fetch_futures_indicative_rates(
+                    date_from=source_trade_date,
+                    date_till=source_trade_date,
+                )
             )
-        )
         rms_limits_payloads.extend(client.fetch_futures_rms_limits(trade_date=source_trade_date))
         rms_staticparams_payloads.extend(
             client.fetch_futures_rms_staticparams(trade_date=source_trade_date)
@@ -750,12 +761,13 @@ def _write_iss_economics_raw_tables(
             staticparams_rows, fallback_trade_date=trade_date
         ),
     }
-    replace_delta_table_rows(
-        table_path=contract_table_path,
-        rows=contract_rows,
-        columns=_economics_columns("raw_moex_contract_securities"),
-        predicate=raw_replace_predicates["raw_moex_contract_securities"],
-    )
+    if write_contract_snapshot:
+        replace_delta_table_rows(
+            table_path=contract_table_path,
+            rows=contract_rows,
+            columns=_economics_columns("raw_moex_contract_securities"),
+            predicate=raw_replace_predicates["raw_moex_contract_securities"],
+        )
     replace_delta_table_rows(
         table_path=fx_table_path,
         rows=fx_rows,
@@ -789,7 +801,7 @@ def _write_iss_economics_raw_tables(
             "raw_moex_rms_staticparams": staticparams_table_path.as_posix(),
         },
         "raw_written_rows": {
-            "raw_moex_contract_securities": len(contract_rows),
+            "raw_moex_contract_securities": len(contract_rows) if write_contract_snapshot else 0,
             "raw_moex_indicative_fx_rates": len(fx_rows),
             "raw_moex_rms_limits": len(limits_rows),
             "raw_moex_rms_staticparams": len(staticparams_rows),
@@ -836,8 +848,10 @@ def refresh_moex_contract_economics(
     refresh_window_days: int,
     economics_source_paths: Mapping[str, Path] | None = None,
     economics_calculation_options: Mapping[str, object] | None = None,
+    economics_history_refresh: bool = False,
+    daily_open_interest_path: Path | None = None,
 ) -> dict[str, object]:
-    del universe, mappings, changed_windows, refresh_window_days
+    del universe, mappings, changed_windows
 
     from trading_advisor_3000.spark_jobs.moex_contract_economics_job import (
         run_moex_contract_economics_spark_job,
@@ -845,6 +859,16 @@ def refresh_moex_contract_economics(
 
     options = dict(economics_calculation_options or {})
     _validate_economics_options(options)
+    if type(economics_history_refresh) is not bool:
+        raise TypeError("economics_history_refresh must be bool")
+    if economics_history_refresh and (
+        not 1 <= refresh_window_days <= 32
+        or daily_open_interest_path is None
+        or not daily_open_interest_path.is_absolute()
+    ):
+        raise ValueError(
+            "native history refresh needs absolute daily OI input and a 1-32 day window"
+        )
     sources = {
         "raw_contract_specs_path": raw_economics_root / "raw_moex_contract_securities.delta",
         "raw_fx_rates_path": raw_economics_root / "raw_moex_indicative_fx_rates.delta",
@@ -863,11 +887,50 @@ def refresh_moex_contract_economics(
     )
     if verified is not None:
         bind_contract_parameter_input(sources["raw_contract_specs_path"], verified)
-    raw_refresh_report = _write_iss_economics_raw_tables(
-        client=client,
-        raw_economics_root=raw_economics_root,
-        ingest_till_utc=ingest_till_utc,
-    )
+    renewal = None
+    if economics_history_refresh:
+        if verified is None:
+            raise ValueError("native history refresh requires the existing admitted base evidence")
+        end = _economics_trade_date(ingest_till_utc).date()
+        trade_dates = [
+            end - timedelta(days=offset) for offset in range(refresh_window_days - 1, -1, -1)
+        ]
+        current_securities = client.fetch_futures_contract_securities()
+        dated_fx_rows = client.fetch_futures_indicative_rates(
+            date_from=trade_dates[0], date_till=end
+        )
+        renewal = refresh_native_history_support(
+            client=client,
+            raw_contract_specs_path=raw_economics_root / "raw_moex_contract_securities.delta",
+            prepared_path=sources["raw_contract_specs_path"],
+            daily_open_interest_path=daily_open_interest_path,
+            trade_dates=trade_dates,
+            base_rules=options["additional_contract_parameter_regimes"],
+            base_evidence=options["contract_parameter_evidence"],
+            current_securities=current_securities,
+            dated_fx_rows=dated_fx_rows,
+            run_id=run_id,
+        )
+        rules, evidence = renew_contract_parameter_evidence(renewal)
+        options.update(
+            additional_contract_parameter_regimes=rules, contract_parameter_evidence=evidence
+        )
+        verified = validate_contract_parameter_evidence(rules, evidence)
+        bind_contract_parameter_input(sources["raw_contract_specs_path"], verified)
+        raw_refresh_report = _write_iss_economics_raw_tables(
+            client=client,
+            raw_economics_root=raw_economics_root,
+            ingest_till_utc=ingest_till_utc,
+            contract_payloads=current_securities,
+            fx_payloads=dated_fx_rows,
+            write_contract_snapshot=False,
+        )
+    else:
+        raw_refresh_report = _write_iss_economics_raw_tables(
+            client=client,
+            raw_economics_root=raw_economics_root,
+            ingest_till_utc=ingest_till_utc,
+        )
     inputs = {
         (
             "prepared_raw_moex_contract_securities"
@@ -910,6 +973,15 @@ def refresh_moex_contract_economics(
     assert_tables_unchanged(inputs)
     report["snapshot_inputs"] = inputs
     report["raw_refresh"] = raw_refresh_report
+    if renewal is not None:
+        report["native_history_renewal"] = {
+            "observed_date_start": renewal.observed_date_start,
+            "observed_date_end": renewal.observed_date_end,
+            "admitted_date_end": renewal.admitted_date_end,
+            "tables": renewal.tables,
+            "source_hash": renewal.source_hash,
+            "current_crosscheck": renewal.current_crosscheck,
+        }
     return report
 
 
@@ -1112,7 +1184,10 @@ def run_moex_baseline_update(
     daily_open_interest_path: Path | None = None,
     daily_open_interest_version: int | None = None,
     canonical_closed_session_dates_path: Path | None = None,
+    economics_history_refresh: bool = False,
 ) -> dict[str, object]:
+    if type(economics_history_refresh) is not bool:
+        raise TypeError("economics_history_refresh must be bool")
     _validate_economics_options(dict(economics_calculation_options or {}))
     if (daily_open_interest_path is None) != (daily_open_interest_version is None):
         raise ValueError("daily OI path/version must be supplied together")
@@ -1144,6 +1219,26 @@ def run_moex_baseline_update(
     if resolved_economics_mode not in ECONOMICS_REFRESH_MODES:
         joined = ", ".join(sorted(ECONOMICS_REFRESH_MODES))
         raise ValueError(f"economics_mode must be one of: {joined}")
+
+    if economics_history_refresh and (
+        resolved_economics_mode != ECONOMICS_REFRESH_MODE_REFRESH
+        or daily_open_interest_path is None
+        or not daily_open_interest_path.is_absolute()
+        or not 1 <= refresh_window_days <= 32
+        or not (economics_source_paths or {}).get("raw_contract_specs_path")
+    ):
+        raise ValueError(
+            "native history refresh needs refresh economics, absolute daily OI/prepared paths and a 1-32 day window"
+        )
+    if (
+        economics_history_refresh
+        and validate_contract_parameter_evidence(
+            (economics_calculation_options or {}).get("additional_contract_parameter_regimes", ()),
+            (economics_calculation_options or {}).get("contract_parameter_evidence"),
+        )
+        is None
+    ):
+        raise ValueError("native history refresh requires the existing admitted base evidence")
 
     raw_table_path = raw_table_path.resolve()
     canonical_bars_path = canonical_bars_path.resolve()
@@ -1412,6 +1507,8 @@ def run_moex_baseline_update(
                     refresh_window_days=refresh_window_days,
                     economics_source_paths=economics_source_paths,
                     economics_calculation_options=economics_calculation_options,
+                    economics_history_refresh=economics_history_refresh,
+                    daily_open_interest_path=daily_open_interest_path,
                 )
             except EconomicsSourceUnavailable as exc:
                 economics_report = reuse_published_economics_after_source_unavailable(
@@ -1420,6 +1517,11 @@ def run_moex_baseline_update(
                     run_id=run_id,
                     source_error=exc,
                 )
+            if economics_history_refresh:
+                oi_ref = economics_report["native_history_renewal"]["tables"]["oi"]
+                if Path(str(oi_ref["table_path"])).resolve() != daily_open_interest_path.resolve():
+                    raise ValueError("renewed daily OI output differs from configured input")
+                daily_open_interest_version = int(oi_ref["delta_version"])
         except Exception:
             _write_pending_changed_windows(
                 path=pending_changed_windows_path,
