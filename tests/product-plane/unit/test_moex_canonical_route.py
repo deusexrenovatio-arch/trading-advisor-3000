@@ -80,14 +80,14 @@ def test_spark_canonicalization_subprocess_has_timeout_contract() -> None:
     assert canonical_module.SPARK_CANONICALIZATION_SUBPROCESS_TIMEOUT_SECONDS <= 3600
 
 
-def test_session_bounded_bucket_admits_pre_open_tolerance_to_first_bucket() -> None:
+def test_session_bounded_bucket_keeps_pre_open_minute_clock_label() -> None:
     row = spark_canonicalization_module.RawCandle(
         contract_id="BRM6@MOEX",
         instrument_id="FUT_BR",
         source_timeframe="1m",
         source_interval=1,
-        ts_open="2026-04-02T09:59:30Z",
-        ts_close="2026-04-02T10:00:00Z",
+        ts_open="2026-04-02T09:59:00Z",
+        ts_close="2026-04-02T09:59:59Z",
         open=100.0,
         high=101.0,
         low=99.0,
@@ -112,7 +112,7 @@ def test_session_bounded_bucket_admits_pre_open_tolerance_to_first_bucket() -> N
             target_minutes=1,
             intervals_by_instrument={"FUT_BR": [interval]},
         )
-        == "2026-04-02T10:00:00Z"
+        == "2026-04-02T09:59:00Z"
     )
 
 
