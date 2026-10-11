@@ -73,7 +73,8 @@ session normalizer before canonical refresh and writes
 `canonical/delta/canonical_session_intervals.delta` relative to the selected
 run layout. The exact output is `<canonical_output_dir>/delta/canonical_session_intervals.delta`.
 Use `mapping_registry_path` to bind the registry used for the frozen snapshot.
-Set `downstream_mode=none` for normalization-only runs.
+Set `downstream_mode=none` to disable downstream research; canonical
+materialization still runs.
 
 The input Delta table remains unchanged. Unmapped SECIDs, overlapping paths,
 missing versions, existing interval targets and production prewrites are rejected.
