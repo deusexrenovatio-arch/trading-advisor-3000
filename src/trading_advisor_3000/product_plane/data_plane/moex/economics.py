@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -77,7 +77,7 @@ class MoexContractParameterRegime:
     source_document_id: str
 
 
-MOEX_HISTORICAL_CONTRACT_PARAMETER_REGIMES = (
+_MOEX_2022_CONTRACT_PARAMETER_REGIMES = (
     MoexContractParameterRegime(
         "BR-2022-2026-v1",
         "BR",
@@ -221,6 +221,57 @@ MOEX_HISTORICAL_CONTRACT_PARAMETER_REGIMES = (
         10.0,
         "moex-documents-24522",
     ),
+)
+
+
+# Bounded extension backed by archived specifications and the full turnover audit
+# in docs/research/moex-futures-contract-parameter-history.md.
+_MOEX_EARLY_PARAMETER_STARTS = {
+    "BR": "2020-01-27",
+    "GOLD": "2020-01-27",
+    "SILV": "2020-01-27",
+    "PLD": "2020-01-27",
+    "PLT": "2020-01-27",
+    "NG": "2020-02-03",
+    "SPYF": "2021-05-25",
+    "RTS": "2020-01-27",
+    "MIX": "2020-01-27",
+    "MXI": "2020-01-27",
+    "RGBI": "2022-02-28",
+}
+MOEX_HISTORICAL_CONTRACT_PARAMETER_REGIMES = _MOEX_2022_CONTRACT_PARAMETER_REGIMES + tuple(
+    replace(
+        rule,
+        rule_id=f"{rule.assetcode}-pre2022-v1",
+        effective_from=_MOEX_EARLY_PARAMETER_STARTS[rule.assetcode],
+        effective_to="2022-06-16",
+        source_document_id=f"{rule.source_document_id}+ta3000-parameter-audit-20260929",
+    )
+    for rule in _MOEX_2022_CONTRACT_PARAMETER_REGIMES
+    if rule.assetcode in _MOEX_EARLY_PARAMETER_STARTS
+)
+
+# Separate audited intervals preserve the original 2020+ regime IDs and evidence.
+_MOEX_PRE2020_PARAMETER_STARTS = {
+    "BR": "2018-06-26",
+    "GOLD": "2019-03-07",
+    "SILV": "2019-03-07",
+    "PLD": "2019-06-07",
+    "PLT": "2019-06-07",
+    "RTS": "2018-01-10",
+    "MIX": "2019-03-07",
+    "MXI": "2019-03-07",
+}
+MOEX_HISTORICAL_CONTRACT_PARAMETER_REGIMES += tuple(
+    replace(
+        rule,
+        rule_id=f"{rule.assetcode}-pre2020-v1",
+        effective_from=_MOEX_PRE2020_PARAMETER_STARTS[rule.assetcode],
+        effective_to="2020-01-26",
+        source_document_id=f"{rule.source_document_id}+ta3000-early-audit-17ab91c2",
+    )
+    for rule in _MOEX_2022_CONTRACT_PARAMETER_REGIMES
+    if rule.assetcode in _MOEX_PRE2020_PARAMETER_STARTS
 )
 
 

@@ -41,12 +41,58 @@ def test_historical_contract_parameter_regimes_keep_canonical_moex_parameters() 
 
     assert actual == expected
     assert {"PLD", "PLT"}.issubset(MOEX_USD_LINKED_ASSETS)
-    assert all(
-        rule.effective_from == "2022-06-17" for rule in MOEX_HISTORICAL_CONTRACT_PARAMETER_REGIMES
-    )
-    assert all(
-        rule.effective_to == "2026-06-16" for rule in MOEX_HISTORICAL_CONTRACT_PARAMETER_REGIMES
-    )
+    legacy = [
+        r for r in MOEX_HISTORICAL_CONTRACT_PARAMETER_REGIMES if r.rule_id.endswith("2026-v1")
+    ]
+    assert len(legacy) == 13
+    assert all(r.effective_from == "2022-06-17" and r.effective_to == "2026-06-16" for r in legacy)
+
+
+def test_pre2020_regimes_require_dated_evidence_and_keep_later_regimes() -> None:
+    early = [
+        r for r in MOEX_HISTORICAL_CONTRACT_PARAMETER_REGIMES if r.rule_id.endswith("pre2020-v1")
+    ]
+    assert {r.assetcode: r.effective_from for r in early} == {
+        "BR": "2018-06-26",
+        "GOLD": "2019-03-07",
+        "SILV": "2019-03-07",
+        "PLD": "2019-06-07",
+        "PLT": "2019-06-07",
+        "RTS": "2018-01-10",
+        "MIX": "2019-03-07",
+        "MXI": "2019-03-07",
+    }
+    assert all(r.effective_to == "2020-01-26" for r in early)
+    assert all("ta3000-early-audit-17ab91c2" in r.source_document_id for r in early)
+
+
+def test_early_parameter_regimes_are_bounded_and_do_not_overlap_existing_history() -> None:
+    early = [
+        r for r in MOEX_HISTORICAL_CONTRACT_PARAMETER_REGIMES if r.rule_id.endswith("pre2022-v1")
+    ]
+    assert len(early) == 11
+    starts = {r.assetcode: r.effective_from for r in early}
+    assert starts == {
+        "BR": "2020-01-27",
+        "GOLD": "2020-01-27",
+        "SILV": "2020-01-27",
+        "PLD": "2020-01-27",
+        "PLT": "2020-01-27",
+        "NG": "2020-02-03",
+        "SPYF": "2021-05-25",
+        "RTS": "2020-01-27",
+        "MIX": "2020-01-27",
+        "MXI": "2020-01-27",
+        "RGBI": "2022-02-28",
+    }
+    assert all(r.effective_to == "2022-06-16" for r in early)
+    assert all("ta3000-parameter-audit-20260929" in r.source_document_id for r in early)
+    for asset in starts:
+        regimes = sorted(
+            (r for r in MOEX_HISTORICAL_CONTRACT_PARAMETER_REGIMES if r.assetcode == asset),
+            key=lambda r: r.effective_from,
+        )
+        assert all(a.effective_to < b.effective_from for a, b in zip(regimes, regimes[1:]))
 
 
 def test_br_step_price_and_margin_formula_use_moex_stepprice() -> None:
