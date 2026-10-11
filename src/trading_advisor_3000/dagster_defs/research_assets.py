@@ -2843,6 +2843,7 @@ def research_indicator_frames(context) -> dict[str, object]:
         profile_version=profile_version,
         timeframes=tuple(research_datasets.get("timeframes", ())),
         dataset_instrument_ids=tuple(research_datasets.get("dataset_instrument_ids", ())),
+        changed_windows=tuple(research_datasets.get("changed_windows") or ()) or None,
         volume_profile_raw_1m_table_path=raw_1m_table_path,
         volume_profile_tick_size_by_instrument=tick_size_by_instrument or None,
     )

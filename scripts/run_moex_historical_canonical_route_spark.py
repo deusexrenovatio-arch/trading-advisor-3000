@@ -115,6 +115,8 @@ def _docker_python_command(
     selected_source_intervals_jsonl: Path,
     session_intervals_path: Path | None,
     closed_session_dates_path: Path | None = None,
+    daily_open_interest_path: Path | None = None,
+    daily_open_interest_version: int | None = None,
     output_dir: Path,
     run_id: str,
     built_at_utc: str,
@@ -137,6 +139,15 @@ def _docker_python_command(
         "--spark-master",
         spark_master,
     ]
+    if daily_open_interest_path is not None:
+        command.extend(
+            [
+                "--daily-open-interest-path",
+                _container_path(daily_open_interest_path),
+                "--daily-open-interest-version",
+                str(daily_open_interest_version),
+            ]
+        )
     if closed_session_dates_path is not None:
         command.extend(["--closed-session-dates-path", _container_path(closed_session_dates_path)])
     if session_intervals_path is not None:
@@ -169,6 +180,8 @@ def _docker_exec_args(
     selected_source_intervals_jsonl: Path,
     session_intervals_path: Path | None,
     closed_session_dates_path: Path | None = None,
+    daily_open_interest_path: Path | None = None,
+    daily_open_interest_version: int | None = None,
     output_dir: Path,
     run_id: str,
     built_at_utc: str,
@@ -182,6 +195,8 @@ def _docker_exec_args(
         selected_source_intervals_jsonl=selected_source_intervals_jsonl,
         session_intervals_path=session_intervals_path,
         closed_session_dates_path=closed_session_dates_path,
+        daily_open_interest_path=daily_open_interest_path,
+        daily_open_interest_version=daily_open_interest_version,
         output_dir=output_dir,
         run_id=run_id,
         built_at_utc=built_at_utc,
@@ -207,6 +222,8 @@ def _run_in_docker(
     selected_source_intervals_jsonl: Path,
     session_intervals_path: Path | None,
     closed_session_dates_path: Path | None = None,
+    daily_open_interest_path: Path | None = None,
+    daily_open_interest_version: int | None = None,
     output_dir: Path,
     run_id: str,
     built_at_utc: str,
@@ -258,6 +275,8 @@ def _run_in_docker(
                 selected_source_intervals_jsonl=selected_source_intervals_jsonl,
                 session_intervals_path=session_intervals_path,
                 closed_session_dates_path=closed_session_dates_path,
+                daily_open_interest_path=daily_open_interest_path,
+                daily_open_interest_version=daily_open_interest_version,
                 output_dir=output_dir,
                 run_id=run_id,
                 built_at_utc=built_at_utc,
@@ -315,6 +334,8 @@ def main() -> None:
     parser.add_argument("--selected-source-intervals-jsonl", required=True)
     parser.add_argument("--session-intervals-path", default="")
     parser.add_argument("--closed-session-dates-path", default="")
+    parser.add_argument("--daily-open-interest-path", default="")
+    parser.add_argument("--daily-open-interest-version", type=int, default=None)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--built-at-utc", required=True)
@@ -350,6 +371,18 @@ def main() -> None:
         if args.closed_session_dates_path
         else None
     )
+    daily_open_interest_path = (
+        _resolve_repo_path(Path(args.daily_open_interest_path))
+        if args.daily_open_interest_path
+        else None
+    )
+    daily_open_interest_version = args.daily_open_interest_version
+    if daily_open_interest_path is not None and (
+        raw_table_path is None or daily_open_interest_version is None
+    ):
+        raise SystemExit(
+            "daily OI requires raw Delta input and a pinned --daily-open-interest-version"
+        )
     output_dir = _resolve_repo_path(Path(args.output_dir))
     output_json = _resolve_repo_path(Path(args.output_json)) if args.output_json else None
     if raw_table_path is not None and changed_windows_jsonl is None:
@@ -368,6 +401,8 @@ def main() -> None:
             selected_source_intervals_jsonl=selected_source_intervals_jsonl,
             session_intervals_path=session_intervals_path,
             closed_session_dates_path=closed_session_dates_path,
+            daily_open_interest_path=daily_open_interest_path,
+            daily_open_interest_version=daily_open_interest_version,
             output_dir=output_dir,
             run_id=args.run_id,
             built_at_utc=args.built_at_utc,
@@ -384,6 +419,8 @@ def main() -> None:
             selected_source_intervals_path=selected_source_intervals_jsonl,
             session_intervals_path=session_intervals_path,
             closed_session_dates_path=closed_session_dates_path,
+            daily_open_interest_path=daily_open_interest_path,
+            daily_open_interest_version=daily_open_interest_version,
             output_dir=output_dir,
             build_run_id=args.run_id,
             built_at_utc=args.built_at_utc,

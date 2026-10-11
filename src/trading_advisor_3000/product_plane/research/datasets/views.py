@@ -15,7 +15,7 @@ class ResearchBarView:
     low: float
     close: float
     volume: int
-    open_interest: int
+    open_interest: int | None
     session_date: str
     session_open_ts: str | None
     session_close_ts: str | None
@@ -160,7 +160,9 @@ class ResearchBarView:
             low=float(payload["low"]),
             close=float(payload["close"]),
             volume=int(payload["volume"]),
-            open_interest=int(payload["open_interest"]),
+            open_interest=None
+            if payload["open_interest"] is None
+            else int(payload["open_interest"]),
             session_date=str(payload["session_date"]),
             session_open_ts=nullable_str("session_open_ts"),
             session_close_ts=nullable_str("session_close_ts"),

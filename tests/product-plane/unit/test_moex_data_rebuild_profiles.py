@@ -41,6 +41,37 @@ def test_moex_data_rebuild_profile_registry_rejects_unknown_profile() -> None:
         resolve_moex_data_rebuild_profile("strategy_rebuild")
 
 
+@pytest.mark.parametrize("version", [None, True, -1])
+def test_daily_oi_requires_a_pinned_delta_version(tmp_path, version):
+    with pytest.raises(ValueError, match="daily OI requires a pinned"):
+        build_moex_data_rebuild_run_config(
+            profile_name="canonical_from_existing_raw",
+            canonical_run_id="oi",
+            canonical_output_dir=tmp_path / "canonical",
+            publish_mode="staging_only",
+            raw_table_path=tmp_path / "raw.delta",
+            raw_ingest_report_path=tmp_path / "raw.json",
+            daily_open_interest_path=tmp_path / "oi.delta",
+            daily_open_interest_version=version,
+        )
+
+
+def test_daily_oi_version_and_path_reach_dagster_op_config(tmp_path):
+    config = build_moex_data_rebuild_run_config(
+        profile_name="canonical_from_existing_raw",
+        canonical_run_id="oi",
+        canonical_output_dir=tmp_path / "canonical",
+        publish_mode="staging_only",
+        raw_table_path=tmp_path / "raw.delta",
+        raw_ingest_report_path=tmp_path / "raw.json",
+        daily_open_interest_path=tmp_path / "oi.delta",
+        daily_open_interest_version=0,
+    )
+    op = config["ops"][moex_historical_assets.MOEX_DATA_REBUILD_OP_NAME]["config"]
+    assert op["daily_open_interest_path"] == (tmp_path / "oi.delta").resolve().as_posix()
+    assert op["daily_open_interest_version"] == 0
+
+
 def test_moex_data_rebuild_profiles_are_whitelisted_data_layer_only() -> None:
     assert set(MOEX_DATA_REBUILD_PROFILE_NAMES) == {
         "full_raw_to_canonical",

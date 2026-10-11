@@ -156,6 +156,9 @@ PROVENANCE_COLUMNS: dict[str, str] = {
     "open_interest_imputed": "boolean",
     "build_run_id": "string",
     "built_at_utc": "timestamp",
+    "open_interest_trade_date": "date",
+    "open_interest_source_trade_date": "date",
+    "open_interest_availability_status": "string",
 }
 
 RAW_SCOPE_COLUMNS: tuple[str, ...] = (
@@ -283,7 +286,7 @@ class RawCandle:
     low: float
     close: float
     volume: int
-    open_interest: int
+    open_interest: int | None
     open_interest_imputed: bool
     source_provider: str
     source_run_id: str
@@ -318,6 +321,9 @@ class CanonicalProvenance:
     open_interest_imputed: bool
     build_run_id: str
     built_at_utc: str
+    open_interest_trade_date: str | None = None
+    open_interest_source_trade_date: str | None = None
+    open_interest_availability_status: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -339,6 +345,9 @@ class CanonicalProvenance:
             "open_interest_imputed": self.open_interest_imputed,
             "build_run_id": self.build_run_id,
             "built_at_utc": self.built_at_utc,
+            "open_interest_trade_date": self.open_interest_trade_date,
+            "open_interest_source_trade_date": self.open_interest_source_trade_date,
+            "open_interest_availability_status": self.open_interest_availability_status,
         }
 
 
@@ -406,7 +415,7 @@ def _normalize_raw_rows(rows: list[dict[str, object]]) -> list[RawCandle]:
         open_interest_raw = payload.get("open_interest")
         open_interest_imputed = open_interest_raw is None
         if open_interest_imputed:
-            open_interest = 0
+            open_interest = None
         else:
             if isinstance(open_interest_raw, bool) or not isinstance(open_interest_raw, int):
                 raise ValueError(f"raw row[{row_index}] `open_interest` must be integer or null")
@@ -432,7 +441,7 @@ def _normalize_raw_rows(rows: list[dict[str, object]]) -> list[RawCandle]:
                 close=_require_number(payload, "close", row_index=row_index),
                 volume=_require_int(payload, "volume", row_index=row_index),
                 open_interest=open_interest,
-                open_interest_imputed=open_interest_imputed,
+                open_interest_imputed=False,
                 source_provider=source_provider,
                 source_run_id=source_run_id,
                 source_ingest_run_id=_require_string(payload, "ingest_run_id", row_index=row_index),
@@ -667,7 +676,7 @@ def run_qc_gates(
             ohlcv_errors.append(
                 f"negative volume: {bar.contract_id}/{bar.timeframe.value}/{bar.ts}"
             )
-        if bar.open_interest < 0:
+        if bar.open_interest is not None and bar.open_interest < 0:
             ohlcv_errors.append(
                 f"negative open_interest: {bar.contract_id}/{bar.timeframe.value}/{bar.ts}"
             )
@@ -751,7 +760,7 @@ def run_contract_compatibility_check(
         / "product_plane"
         / "contracts"
         / "schemas"
-        / "canonical_bar.v1.json"
+        / "canonical_bar.v2.json"
     )
     payload = json.loads(schema_path.read_text(encoding="utf-8"))
     required = payload.get("required")
@@ -760,7 +769,7 @@ def run_contract_compatibility_check(
 
     if not isinstance(required, list) or not isinstance(properties, dict):
         raise ValueError(
-            "canonical_bar.v1 schema must define `required` list and `properties` object"
+            "canonical_bar.v2 schema must define `required` list and `properties` object"
         )
 
     required_fields = {str(item) for item in required}
@@ -1004,6 +1013,15 @@ def _canonical_provenance_from_dict(
         open_interest_imputed=_require_bool_value("open_interest_imputed"),
         build_run_id=_require_text("build_run_id"),
         built_at_utc=_require_text("built_at_utc"),
+        open_interest_trade_date=None
+        if payload.get("open_interest_trade_date") is None
+        else str(payload["open_interest_trade_date"]),
+        open_interest_source_trade_date=None
+        if payload.get("open_interest_source_trade_date") is None
+        else str(payload["open_interest_source_trade_date"]),
+        open_interest_availability_status=None
+        if payload.get("open_interest_availability_status") is None
+        else str(payload["open_interest_availability_status"]),
     )
 
 
@@ -1058,6 +1076,15 @@ def _canonical_provenance_from_dict_lenient(
         open_interest_imputed=_bool_value("open_interest_imputed"),
         build_run_id=_text("build_run_id"),
         built_at_utc=_text("built_at_utc"),
+        open_interest_trade_date=None
+        if payload.get("open_interest_trade_date") is None
+        else str(payload["open_interest_trade_date"]),
+        open_interest_source_trade_date=None
+        if payload.get("open_interest_source_trade_date") is None
+        else str(payload["open_interest_source_trade_date"]),
+        open_interest_availability_status=None
+        if payload.get("open_interest_availability_status") is None
+        else str(payload["open_interest_availability_status"]),
     )
 
 

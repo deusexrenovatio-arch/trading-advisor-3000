@@ -35,8 +35,8 @@ release_blocking_boundaries:
     release_blocking: true
     contracts:
       - contract_id: canonical_bar
-        schema: canonical_bar.v1.json
-        fixture: canonical_bar.v1.json
+        schema: canonical_bar.v2.json
+        fixture: canonical_bar.v2.json
         compatibility: strict
         coverage_tests_any:
           - tests/product-plane/contracts/test_contract_scaffolding.py

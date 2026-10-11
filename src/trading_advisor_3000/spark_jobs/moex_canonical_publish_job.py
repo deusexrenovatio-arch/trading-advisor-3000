@@ -61,6 +61,9 @@ CANONICAL_PROVENANCE_COLUMNS: dict[str, str] = {
     "open_interest_imputed": "int",
     "build_run_id": "string",
     "built_at_utc": "timestamp",
+    "open_interest_trade_date": "date",
+    "open_interest_source_trade_date": "date",
+    "open_interest_availability_status": "string",
 }
 
 
@@ -658,7 +661,7 @@ def _build_contract_compatibility_report(
         / "product_plane"
         / "contracts"
         / "schemas"
-        / "canonical_bar.v1.json"
+        / "canonical_bar.v2.json"
     )
     schema_payload = json.loads(schema_path.read_text(encoding="utf-8"))
     required_fields = {str(item) for item in schema_payload.get("required", [])}
@@ -698,7 +701,6 @@ def _build_contract_compatibility_report(
         | functions.col("low").isNull()
         | functions.col("close").isNull()
         | functions.col("volume").isNull()
-        | functions.col("open_interest").isNull()
     )
     unsupported_timeframes = bars_df.where(
         ~functions.col("timeframe").isin(sorted(allowed_timeframes))

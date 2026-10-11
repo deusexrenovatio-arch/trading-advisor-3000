@@ -184,7 +184,9 @@ def build_cf_indicator_input_rows(
                 "native_low": native_low,
                 "native_close": native_close,
                 "native_volume": int(source.volume),
-                "native_open_interest": int(source.open_interest),
+                "native_open_interest": None
+                if source.open_interest is None
+                else int(source.open_interest),
                 "cumulative_additive_offset": offset,
                 "open0": open0,
                 "high0": high0,

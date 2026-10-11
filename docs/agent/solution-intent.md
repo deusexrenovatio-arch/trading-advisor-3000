@@ -3,13 +3,12 @@
 - Solution Class: staged
 - Critical Contour: data-integration-closure
 - Forbidden Shortcuts: fixture path, tests/product-plane/fixtures/, sample artifact, synthetic upstream, scaffold-only
-- Closure Evidence: bounded parameter admission/evidence units, pinned native Spark/Delta reader and dated TC profiles, existing historical/calibration economics regressions, loop gate and PR gate; not full target closure of canonical dataset/downstream research or runtime-ready surface.
+- Closure Evidence: accepted frozen R5 numerical semantics retained; cache-owner nine focused Arrow/Delta cases PASS; fresh raw Dagster acquisition and physical Delta readback PASS. Current PR gate, candidate cache migration, canonical dataset and downstream research closure remain pending.
 - Shortcut Waiver: none
 
-Change surface: mixed. Product-plane bounded contract parameter continuation plus
-required shell delivery metadata only. No trading logic enters shell files.
-Admitted thirteen intervals only; existing32 registry, model/schema/formulas,
-risk-publication history, NULL-margin quality and explicit calibration guards
-preserved. No source acquisition or scheduler/CLI forwarding in this group.
-Design and remaining scheduled/full-dataset scope:
-`docs/runbooks/app/moex-contract-parameter-continuation.md`.
+Change surface: mixed. Product-plane existing indicator cache owners and accepted
+canonical daily OI contract/route restoration; required shell delivery metadata.
+No trading logic enters shell files. Native OI, NULL/zero and next verified open
+trade-date semantics retained; no new producer or scheduler.
+Delivery and remaining candidate acceptance:
+`docs/runbooks/app/indicator-cache-relocation.md`.

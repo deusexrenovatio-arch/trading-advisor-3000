@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from collections import Counter
 from collections.abc import Iterable, Iterator
@@ -415,6 +416,21 @@ def delta_table_version(table_path: Path) -> int:
     return int(open_read_table(table_path, unscoped_open=DeltaTable).version())
 
 
+def delta_table_identity(table_path: Path) -> dict[str, str]:
+    """Stable native metadata identity; the selected read pin owns this lookup."""
+    if not has_delta_log(table_path):
+        raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
+    table = open_read_table(table_path)
+    schema = json.loads(table.schema().to_json())
+    schema_bytes = json.dumps(
+        schema, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return {
+        "table_id": str(table.metadata().id),
+        "schema_hash": hashlib.sha256(schema_bytes).hexdigest(),
+    }
+
+
 def write_delta_table_rows(
     *,
     table_path: Path,
@@ -424,6 +440,7 @@ def write_delta_table_rows(
     compact: bool = True,
     family: str | None = None,
     candidate_id: str | None = None,
+    replace_predicate: str | None = None,
 ) -> None:
     table_path.parent.mkdir(parents=True, exist_ok=True)
     schema = _build_schema(columns)
@@ -442,6 +459,7 @@ def write_delta_table_rows(
         compact=compact,
         family=family,
         candidate_id=candidate_id,
+        replace_predicate=replace_predicate,
     )
 
 
