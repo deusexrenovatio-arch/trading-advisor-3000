@@ -43,12 +43,19 @@ from trading_advisor_3000.product_plane.data_plane.moex.data_rebuild_profiles im
     resolve_moex_data_rebuild_profile,
     write_moex_data_rebuild_manifest,
 )
+from trading_advisor_3000.product_plane.data_plane.moex.foundation import (
+    load_mapping_registry,
+    validate_mapping_registry,
+)
 from trading_advisor_3000.product_plane.data_plane.moex.historical_canonical_route import (
     CANONICAL_MERGE_SCOPED_DELETE_INSERT,
     run_historical_canonical_route,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.runtime_instances import (
     validate_moex_runtime_run_id,
+)
+from trading_advisor_3000.product_plane.data_plane.moex.session_schedule import (
+    materialize_session_intervals_from_frozen_raw,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     BASELINE_UPDATE_STORAGE_DIRNAME,
@@ -111,11 +118,14 @@ MOEX_HISTORICAL_DEPENDENCIES: dict[str, tuple[str, ...]] = {
 MOEX_HISTORICAL_OP_CONFIG_SCHEMA = {
     "raw_table_path": DagsterField(str, is_required=False),
     "raw_ingest_report_path": DagsterField(str, is_required=False),
+    "raw_session_schedule_path": DagsterField(str, is_required=False),
+    "raw_session_schedule_version": DagsterField(int, is_required=False),
     "canonical_output_dir": DagsterField(str, is_required=False),
     "canonical_target_output_dir": DagsterField(str, is_required=False),
     "canonical_bars_path": DagsterField(str, is_required=False),
     "canonical_provenance_path": DagsterField(str, is_required=False),
     "canonical_session_intervals_path": DagsterField(str, is_required=False),
+    "canonical_closed_session_dates_path": DagsterField(str, is_required=False),
     "canonical_session_calendar_path": DagsterField(str, is_required=False),
     "canonical_roll_map_path": DagsterField(str, is_required=False),
     "canonical_run_id": DagsterField(str, is_required=False),
@@ -543,6 +553,9 @@ def build_moex_data_rebuild_op_config(
     canonical_target_output_dir: Path | None = None,
     raw_table_path: Path | None = None,
     raw_ingest_report_path: Path | None = None,
+    raw_session_schedule_path: Path | None = None,
+    raw_session_schedule_version: int | None = None,
+    mapping_registry_path: Path | None = None,
     canonical_bars_path: Path | None = None,
     canonical_provenance_path: Path | None = None,
     canonical_session_intervals_path: Path | None = None,
@@ -623,7 +636,18 @@ def build_moex_data_rebuild_op_config(
             "canonical rebuild publish_mode=promote requires canonical_target_output_dir "
             "or explicit target paths for canonical bars, provenance, session calendar, and roll map"
         )
-    config: dict[str, str] = {
+    if raw_session_schedule_path is not None:
+        if resolved_publish_mode != "staging_only":
+            raise ValueError("frozen session preparation requires publish_mode=staging_only")
+        if (
+            isinstance(raw_session_schedule_version, bool)
+            or not isinstance(raw_session_schedule_version, int)
+            or raw_session_schedule_version < 0
+        ):
+            raise ValueError(
+                "raw_session_schedule_path requires a pinned raw_session_schedule_version"
+            )
+    config: dict[str, object] = {
         "profile_name": profile.name,
         "source_mode": resolved_source_mode,
         "publish_mode": resolved_publish_mode,
@@ -635,6 +659,11 @@ def build_moex_data_rebuild_op_config(
         config["raw_table_path"] = raw_table_path.resolve().as_posix()
     if raw_ingest_report_path is not None:
         config["raw_ingest_report_path"] = raw_ingest_report_path.resolve().as_posix()
+    if raw_session_schedule_path is not None:
+        config["raw_session_schedule_path"] = raw_session_schedule_path.resolve().as_posix()
+        config["raw_session_schedule_version"] = raw_session_schedule_version
+    if mapping_registry_path is not None:
+        config["mapping_registry_path"] = mapping_registry_path.resolve().as_posix()
     if canonical_target_output_dir is not None:
         config["canonical_target_output_dir"] = canonical_target_output_dir.resolve().as_posix()
     for key, value in explicit_target_paths.items():
@@ -690,6 +719,9 @@ def build_moex_data_rebuild_run_config(
     canonical_target_output_dir: Path | None = None,
     raw_table_path: Path | None = None,
     raw_ingest_report_path: Path | None = None,
+    raw_session_schedule_path: Path | None = None,
+    raw_session_schedule_version: int | None = None,
+    mapping_registry_path: Path | None = None,
     canonical_bars_path: Path | None = None,
     canonical_provenance_path: Path | None = None,
     canonical_session_intervals_path: Path | None = None,
@@ -716,6 +748,9 @@ def build_moex_data_rebuild_run_config(
         profile_name=profile_name,
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_ingest_report_path,
+        raw_session_schedule_path=raw_session_schedule_path,
+        raw_session_schedule_version=raw_session_schedule_version,
+        mapping_registry_path=mapping_registry_path,
         canonical_output_dir=canonical_output_dir,
         canonical_target_output_dir=canonical_target_output_dir,
         canonical_run_id=canonical_run_id,
@@ -1205,6 +1240,9 @@ def moex_canonical_refresh(context, moex_raw_ingest: dict[str, object]) -> dict[
         if canonical_provenance_text
         else None,
         canonical_session_intervals_path=session_intervals_path,
+        canonical_closed_session_dates_path=_optional_path_value(
+            op_config, "canonical_closed_session_dates_path"
+        ),
         canonical_session_calendar_path=Path(canonical_session_calendar_text).resolve()
         if canonical_session_calendar_text
         else None,
@@ -1268,6 +1306,7 @@ def _data_rebuild_input_roots(op_config: dict[str, object]) -> dict[str, Path]:
         "session_root",
         "research_root",
         "raw_table_path",
+        "raw_session_schedule_path",
         "canonical_output_dir",
         "canonical_target_output_dir",
         "canonical_bars_path",
@@ -1413,6 +1452,24 @@ def _run_existing_raw_canonical_rebuild(
         publish_mode=publish_mode,
         staging_output_dir=staging_output_dir,
     )
+    session_input_report = None
+    raw_schedule_path = _optional_path_value(op_config, "raw_session_schedule_path")
+    if raw_schedule_path is not None:
+        if publish_mode != "staging_only":
+            raise ValueError("frozen session preparation requires publish_mode=staging_only")
+        mappings = load_mapping_registry(
+            _optional_path_value(op_config, "mapping_registry_path") or DEFAULT_MAPPING_REGISTRY
+        )
+        validate_mapping_registry(mappings)
+        session_input_report = materialize_session_intervals_from_frozen_raw(
+            raw_schedule_path=raw_schedule_path,
+            raw_delta_version=op_config.get("raw_session_schedule_version"),
+            canonical_session_intervals_path=staging_paths["canonical_session_intervals"],
+            mappings=mappings,
+        )
+        (staging_output_dir / "session-input-report.json").write_text(
+            json.dumps(session_input_report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
     report = materialize_moex_historical_assets(
         raw_table_path=_required_path_value(
             op_config,
@@ -1429,12 +1486,19 @@ def _run_existing_raw_canonical_rebuild(
         canonical_bars_path=publish_paths["canonical_bars"],
         canonical_provenance_path=publish_paths["canonical_bar_provenance"],
         canonical_session_intervals_path=publish_paths["canonical_session_intervals"],
+        canonical_closed_session_dates_path=(
+            Path(str(session_input_report["canonical_closed_session_dates_path"]))
+            if session_input_report is not None
+            else _optional_path_value(op_config, "canonical_closed_session_dates_path")
+        ),
         canonical_session_calendar_path=publish_paths["canonical_session_calendar"],
         canonical_roll_map_path=publish_paths["canonical_roll_map"],
         selection=MOEX_HISTORICAL_ASSET_KEYS,
         raise_on_error=True,
     )
     report["staged_output_paths"] = {key: value.as_posix() for key, value in staging_paths.items()}
+    if session_input_report is not None:
+        report["session_input_materialization"] = session_input_report
     report["promoted_output_paths"] = (
         {key: value.as_posix() for key, value in publish_paths.items()}
         if publish_mode == "promote"
@@ -1911,6 +1975,9 @@ def execute_moex_data_rebuild_job(
     *,
     raw_table_path: Path | None = None,
     raw_ingest_report_path: Path | None = None,
+    raw_session_schedule_path: Path | None = None,
+    raw_session_schedule_version: int | None = None,
+    mapping_registry_path: Path | None = None,
     canonical_output_dir: Path,
     canonical_target_output_dir: Path | None = None,
     canonical_run_id: str,
@@ -1952,6 +2019,9 @@ def execute_moex_data_rebuild_job(
         profile_name=profile_name,
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_ingest_report_path,
+        raw_session_schedule_path=raw_session_schedule_path,
+        raw_session_schedule_version=raw_session_schedule_version,
+        mapping_registry_path=mapping_registry_path,
         canonical_output_dir=canonical_output_dir,
         canonical_target_output_dir=canonical_target_output_dir,
         canonical_run_id=resolved_canonical_run_id,
@@ -2133,6 +2203,7 @@ def materialize_moex_historical_assets(
     canonical_bars_path: Path | None = None,
     canonical_provenance_path: Path | None = None,
     canonical_session_intervals_path: Path | None = None,
+    canonical_closed_session_dates_path: Path | None = None,
     canonical_session_calendar_path: Path | None = None,
     canonical_roll_map_path: Path | None = None,
     selection: Sequence[str] | None = None,
@@ -2157,6 +2228,10 @@ def materialize_moex_historical_assets(
     if canonical_session_intervals_path is not None:
         op_config["canonical_session_intervals_path"] = (
             canonical_session_intervals_path.resolve().as_posix()
+        )
+    if canonical_closed_session_dates_path is not None:
+        op_config["canonical_closed_session_dates_path"] = (
+            canonical_closed_session_dates_path.resolve().as_posix()
         )
     if canonical_bars_path is not None:
         op_config["canonical_bars_path"] = canonical_bars_path.resolve().as_posix()

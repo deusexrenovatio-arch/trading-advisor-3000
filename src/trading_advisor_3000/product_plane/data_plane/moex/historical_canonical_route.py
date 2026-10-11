@@ -1219,6 +1219,7 @@ def _run_spark_canonicalization(
     changed_windows: list[ChangedWindowScope],
     selected_source_intervals: dict[tuple[str, str, str], int],
     session_intervals_path: Path | None,
+    closed_session_dates_path: Path | None = None,
     output_dir: Path,
     run_id: str,
     built_at_utc: str,
@@ -1270,6 +1271,8 @@ def _run_spark_canonicalization(
     ]
     if session_intervals_path is not None:
         command.extend(["--session-intervals-path", session_intervals_path.as_posix()])
+    if closed_session_dates_path is not None:
+        command.extend(["--closed-session-dates-path", closed_session_dates_path.as_posix()])
     try:
         completed = subprocess.run(
             command,
@@ -1307,6 +1310,7 @@ def _run_spark_canonical_publish(
     output_dir: Path,
     run_id: str,
     repo_root: Path,
+    closed_session_dates_path: Path | None = None,
 ) -> dict[str, object]:
     spark_dir = output_dir / ".spark-canonical-publish"
     spark_report_path = spark_dir / "spark-publish-report.json"
@@ -1320,6 +1324,7 @@ def _run_spark_canonical_publish(
             target_provenance_path=target_provenance_path,
             session_calendar_path=session_calendar_path,
             session_intervals_path=session_intervals_path,
+            closed_session_dates_path=closed_session_dates_path,
             roll_map_path=roll_map_path,
             output_dir=spark_dir,
             run_id=run_id,
@@ -1358,6 +1363,8 @@ def _run_spark_canonical_publish(
     ]
     if session_intervals_path is not None:
         command.extend(["--session-intervals-path", session_intervals_path.as_posix()])
+    if closed_session_dates_path is not None:
+        command.extend(["--closed-session-dates-path", closed_session_dates_path.as_posix()])
     try:
         completed = subprocess.run(
             command,
@@ -1854,6 +1861,7 @@ def _run_scoped_spark_delta_publish_route(
     provenance_path: Path,
     session_calendar_path: Path,
     session_intervals_path: Path | None,
+    closed_session_dates_path: Path | None = None,
     roll_map_path: Path,
     changed_window_scope: list[ChangedWindowScope],
     changed_window_set_manifest: dict[str, object],
@@ -1890,6 +1898,7 @@ def _run_scoped_spark_delta_publish_route(
             changed_windows=changed_window_scope,
             selected_source_intervals=selected_source_intervals,
             session_intervals_path=session_intervals_path,
+            closed_session_dates_path=closed_session_dates_path,
             output_dir=output_dir,
             run_id=run_id,
             built_at_utc=built_at_utc,
@@ -1962,6 +1971,7 @@ def _run_scoped_spark_delta_publish_route(
             target_provenance_path=provenance_path,
             session_calendar_path=session_calendar_path,
             session_intervals_path=session_intervals_path,
+            closed_session_dates_path=closed_session_dates_path,
             roll_map_path=roll_map_path,
             output_dir=output_dir,
             run_id=run_id,
@@ -2179,6 +2189,7 @@ def run_historical_canonical_route(
     canonical_bars_path: Path | None = None,
     canonical_provenance_path: Path | None = None,
     canonical_session_intervals_path: Path | None = None,
+    canonical_closed_session_dates_path: Path | None = None,
     canonical_session_calendar_path: Path | None = None,
     canonical_roll_map_path: Path | None = None,
     canonical_merge_strategy: str = CANONICAL_MERGE_SCOPED_DELETE_INSERT,
@@ -2642,6 +2653,7 @@ def run_historical_canonical_route(
         provenance_path=provenance_path,
         session_calendar_path=session_calendar_path,
         session_intervals_path=official_session_intervals_path,
+        closed_session_dates_path=canonical_closed_session_dates_path,
         roll_map_path=roll_map_path,
         changed_window_scope=changed_window_scope,
         changed_window_set_manifest=changed_window_set_manifest,

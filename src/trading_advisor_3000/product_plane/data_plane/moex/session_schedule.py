@@ -7,6 +7,8 @@ from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from deltalake import DeltaTable
+
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     has_delta_log,
     iter_delta_table_row_batches,
@@ -775,6 +777,121 @@ def normalize_raw_session_schedule_rows(
                 }
             )
     return intervals
+
+
+def normalize_raw_closed_session_dates(
+    raw_rows: list[dict[str, object]],
+    *,
+    instrument_by_moex_secid: dict[str, str],
+) -> list[dict[str, object]]:
+    """Keep explicit closed-date evidence separate from trading intervals."""
+    closed: dict[tuple[str, str], dict[str, object]] = {}
+    for row in raw_rows:
+        payload = json.loads(str(row["raw_payload_json"]))
+        if payload.get("trading_status") != "closed":
+            continue
+        if payload.get("time_from") or payload.get("time_till"):
+            raise ValueError("closed session date must not contain trading intervals")
+        secid = str(row.get("moex_secid", "")).strip()
+        if secid not in instrument_by_moex_secid:
+            raise ValueError(f"closed session date has unmapped SECID: {secid}")
+        normalized = {
+            "instrument_id": instrument_by_moex_secid[secid],
+            "session_date": _parse_date(row.get("trade_date"), field_name="trade_date").isoformat(),
+            "policy_id": payload.get("policy_id"),
+            "source_id": row.get("source_id"),
+            "source_document_hash": row.get("source_document_hash"),
+        }
+        if any(not str(normalized.get(field) or "").strip() for field in normalized):
+            raise ValueError("closed session date requires instrument, date and source provenance")
+        key = (str(normalized["instrument_id"]), str(normalized["session_date"]))
+        if key in closed and closed[key] != normalized:
+            raise ValueError(f"conflicting closed session date evidence: {key}")
+        closed[key] = normalized
+    return [closed[key] for key in sorted(closed)]
+
+
+def materialize_session_intervals_from_frozen_raw(
+    *,
+    raw_schedule_path: Path,
+    raw_delta_version: int,
+    canonical_session_intervals_path: Path,
+    mappings: Iterable[MappingRecord],
+) -> dict[str, object]:
+    """Adapt pinned schedule metadata with the existing session normalizer."""
+    source = raw_schedule_path.resolve()
+    target = canonical_session_intervals_path.resolve()
+    closed_target = target.parent / "canonical_closed_session_dates.delta"
+    if (
+        isinstance(raw_delta_version, bool)
+        or not isinstance(raw_delta_version, int)
+        or raw_delta_version < 0
+    ):
+        raise ValueError("raw session schedule requires a non-negative pinned Delta version")
+    if source == target or source.is_relative_to(target) or target.is_relative_to(source):
+        raise ValueError("raw session schedule and canonical output paths must not overlap")
+    if closed_target == target:
+        raise ValueError("interval and closed-date output paths must differ")
+    if (
+        closed_target == source
+        or closed_target.is_relative_to(source)
+        or source.is_relative_to(closed_target)
+    ):
+        raise ValueError("raw session schedule and closed-date output paths must not overlap")
+    if closed_target.exists():
+        raise FileExistsError(
+            f"refusing to overwrite existing closed session dates: {closed_target}"
+        )
+    if target.exists():
+        raise FileExistsError(f"refusing to overwrite existing session intervals: {target}")
+    columns = ["moex_secid", "trade_date", "raw_payload_json", "source_id", "source_document_hash"]
+    table = DeltaTable(str(source), version=raw_delta_version)
+    # Session metadata only; candles remain on the existing Spark/Delta route.
+    raw_rows = table.to_pyarrow_table(columns=columns).to_pylist()
+    instrument_by_moex_secid = {mapping.moex_secid: mapping.internal_id for mapping in mappings}
+    unmapped = sorted(
+        {str(row["moex_secid"]) for row in raw_rows} - instrument_by_moex_secid.keys()
+    )
+    if unmapped:
+        raise ValueError(f"raw session schedule has unmapped SECIDs: {unmapped}")
+    closed_rows = normalize_raw_closed_session_dates(
+        raw_rows, instrument_by_moex_secid=instrument_by_moex_secid
+    )
+    interval_rows = normalize_raw_session_schedule_rows(
+        raw_rows, instrument_by_moex_secid=instrument_by_moex_secid
+    )
+    if not interval_rows:
+        raise ValueError("frozen raw session schedule produced no canonical intervals")
+    open_dates = {(row["instrument_id"], row["session_date"]) for row in interval_rows}
+    if any((row["instrument_id"], row["session_date"]) in open_dates for row in closed_rows):
+        raise ValueError("conflicting open and closed session dates")
+    write_delta_table_rows(
+        table_path=closed_target,
+        rows=closed_rows,
+        columns=historical_data_delta_schema_manifest()["canonical_closed_session_dates"][
+            "columns"
+        ],
+        mode="error",
+    )
+    write_delta_table_rows(
+        table_path=target,
+        rows=interval_rows,
+        columns=historical_data_delta_schema_manifest()["canonical_session_intervals"]["columns"],
+        mode="error",
+    )
+    return {
+        "status": "PASS",
+        "raw_schedule_path": source.as_posix(),
+        "raw_delta_version": table.version(),
+        "raw_schedule_rows": len(raw_rows),
+        "canonical_session_intervals_path": target.as_posix(),
+        "canonical_session_interval_rows": len(interval_rows),
+        "canonical_closed_session_dates_path": closed_target.as_posix(),
+        "canonical_closed_session_date_rows": len(closed_rows),
+        "policy_ids": sorted({str(row["policy_id"]) for row in interval_rows}),
+        "source_ids": sorted({str(row["source_id"]) for row in interval_rows}),
+        "calendar_certification": "not_asserted_by_normalization",
+    }
 
 
 def _write_session_schedule_tables(

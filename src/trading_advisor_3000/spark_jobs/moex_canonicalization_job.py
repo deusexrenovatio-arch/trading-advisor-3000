@@ -478,12 +478,67 @@ def _aggregate_joined_source_outputs(
     return bars_df, provenance_df
 
 
+def _prepare_closed_session_dates(
+    *, spark: Any, closed_session_dates_path: Path | None, intervals_df: Any, functions: Any
+) -> Any:
+    if closed_session_dates_path is None:
+        return spark.createDataFrame([], "instrument_id STRING, session_date DATE")
+    if not has_delta_log(closed_session_dates_path):
+        raise FileNotFoundError(
+            f"closed session dates input missing Delta log: {closed_session_dates_path}"
+        )
+    closed = (
+        spark.read.format("delta")
+        .load(str(closed_session_dates_path))
+        .select(
+            functions.col("instrument_id").cast("string").alias("instrument_id"),
+            functions.to_date("session_date").alias("session_date"),
+            "source_id",
+            "source_document_hash",
+            "policy_id",
+        )
+    )
+    invalid = functions.col("session_date").isNull()
+    for field in ("instrument_id", "source_id", "source_document_hash", "policy_id"):
+        invalid = (
+            invalid | functions.col(field).isNull() | (functions.trim(functions.col(field)) == "")
+        )
+    invalid_rows = closed.where(invalid).count()
+    duplicates = closed.groupBy("instrument_id", "session_date").count().where("count > 1").count()
+    conflicts = closed.join(
+        intervals_df.select("instrument_id", "session_date").distinct(),
+        ["instrument_id", "session_date"],
+        "inner",
+    ).count()
+    if invalid_rows or duplicates or conflicts:
+        raise ValueError(
+            f"closed session dates failed QC: invalid_closed_date_rows={invalid_rows}; "
+            f"duplicate_closed_dates={duplicates}; conflicting_open_closed_dates={conflicts}"
+        )
+    return closed.select("instrument_id", "session_date")
+
+
+def _source_session_end_date(functions: Any) -> Any:
+    # ISS W1 `end` labels the last included trading date, including at midnight.
+    # Keep the original timestamp for source provenance; interpret only its date here.
+    moex_weekly = (
+        (functions.col("source_provider") == functions.lit("moex_iss"))
+        & (functions.col("source_timeframe") == functions.lit("1w"))
+        & (functions.col("source_interval") == functions.lit(10080))
+    )
+    end_timestamp = functions.when(moex_weekly, functions.col("ts_close")).otherwise(
+        functions.col("ts_close") - functions.expr("INTERVAL 1 SECOND")
+    )
+    return functions.to_date(functions.from_utc_timestamp(end_timestamp, MOEX_SESSION_TIMEZONE))
+
+
 def _build_session_bounded_outputs(
     *,
     spark: Any,
     source_df: Any,
     selected_df: Any,
     session_intervals_path: Path,
+    closed_session_dates_path: Path | None = None,
     build_run_id: str,
     built_at_utc: str,
     functions: Any,
@@ -494,6 +549,12 @@ def _build_session_bounded_outputs(
         session_intervals_path=session_intervals_path,
         functions=functions,
         window=window,
+    )
+    closed_dates_df = _prepare_closed_session_dates(
+        spark=spark,
+        closed_session_dates_path=closed_session_dates_path,
+        intervals_df=intervals_df,
+        functions=functions,
     )
     selected_interval_rows = int(selected_df.count())
     source_row_count = int(source_df.count())
@@ -539,12 +600,7 @@ def _build_session_bounded_outputs(
         )
         .withColumn(
             "_session_end_date",
-            functions.to_date(
-                functions.from_utc_timestamp(
-                    functions.col("ts_close") - functions.expr("INTERVAL 1 SECONDS"),
-                    MOEX_SESSION_TIMEZONE,
-                )
-            ),
+            _source_session_end_date(functions),
         )
         .cache()
     )
@@ -569,6 +625,28 @@ def _build_session_bounded_outputs(
             )
         ).alias("session_date"),
     )
+    closed_session_dates_used = int(
+        multi_day_required_dates_df.select("instrument_id", "session_date")
+        .distinct()
+        .join(closed_dates_df, ["instrument_id", "session_date"], "inner")
+        .count()
+    )
+    multi_day_open_dates_df = multi_day_required_dates_df.join(
+        closed_dates_df, ["instrument_id", "session_date"], "left_anti"
+    )
+    closed_only_source_spans = int(
+        multi_day_required_dates_df.select("_source_row_id")
+        .distinct()
+        .join(
+            multi_day_open_dates_df.select("_source_row_id").distinct(),
+            "_source_row_id",
+            "left_anti",
+        )
+        .count()
+    )
+    if closed_only_source_spans:
+        raise ValueError(f"closed_only_source_spans={closed_only_source_spans}")
+    multi_day_required_dates_df = multi_day_open_dates_df
     affected_scope_df = (
         affected_single_session_scope_df.unionByName(
             multi_day_required_dates_df.select("instrument_id", "session_date")
@@ -917,6 +995,7 @@ def _build_session_bounded_outputs(
             "official_session_interval_rows": int(intervals_df.count()),
             "admission_open_tolerance_seconds": SESSION_ADMISSION_OPEN_TOLERANCE_SECONDS,
             "missing_official_coverage_rows": missing_official_coverage_rows,
+            "closed_session_dates_used": closed_session_dates_used,
             "admitted_source_rows": admitted_source_rows,
             "out_of_schedule_rows": out_of_schedule_rows,
             "ignored_out_of_schedule_rows": ignored_out_of_schedule_rows,
@@ -1019,6 +1098,7 @@ def run_moex_canonicalization_spark_job(
     normalized_source_path: Path,
     selected_source_intervals_path: Path,
     session_intervals_path: Path | None,
+    closed_session_dates_path: Path | None = None,
     output_dir: Path,
     build_run_id: str,
     built_at_utc: str,
@@ -1099,6 +1179,7 @@ def run_moex_canonicalization_spark_job(
                     source_df=source_df,
                     selected_df=selected_df,
                     session_intervals_path=session_intervals_path,
+                    closed_session_dates_path=closed_session_dates_path,
                     build_run_id=build_run_id,
                     built_at_utc=built_at_utc,
                     functions=F,
@@ -1148,6 +1229,7 @@ def run_moex_canonicalization_spark_delta_job(
     changed_windows_path: Path,
     selected_source_intervals_path: Path,
     session_intervals_path: Path | None,
+    closed_session_dates_path: Path | None = None,
     output_dir: Path,
     build_run_id: str,
     built_at_utc: str,
@@ -1410,6 +1492,7 @@ def run_moex_canonicalization_spark_delta_job(
                     source_df=source_for_canonicalization_df,
                     selected_df=selected_for_canonicalization_df,
                     session_intervals_path=session_intervals_path,
+                    closed_session_dates_path=closed_session_dates_path,
                     build_run_id=build_run_id,
                     built_at_utc=built_at_utc,
                     functions=F,
