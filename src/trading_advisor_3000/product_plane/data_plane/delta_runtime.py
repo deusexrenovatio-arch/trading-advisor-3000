@@ -12,6 +12,7 @@ import pyarrow as pa
 import pyarrow.dataset as ds
 from deltalake import DeltaTable
 
+from trading_advisor_3000.product_plane.common.data_snapshots import open_read_table
 from trading_advisor_3000.product_plane.common.table_layout import (
     assert_default_table_layout,
     assert_fresh_arrow_candidate,
@@ -411,7 +412,7 @@ def has_delta_log(path: Path) -> bool:
 def delta_table_version(table_path: Path) -> int:
     if not has_delta_log(table_path):
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
-    return int(DeltaTable(str(table_path)).version())
+    return int(open_read_table(table_path, unscoped_open=DeltaTable).version())
 
 
 def write_delta_table_rows(
@@ -583,7 +584,7 @@ def replace_delta_table_rows(
 def count_delta_table_rows(table_path: Path, *, filters: DeltaReadFilters = None) -> int:
     if not has_delta_log(table_path):
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
-    table = DeltaTable(str(table_path))
+    table = open_read_table(table_path, unscoped_open=DeltaTable)
     if filters is None:
         return int(table.to_pyarrow_dataset().count_rows())
     normalized_filters = _normalize_filters_for_schema(filters, table.to_pyarrow_dataset().schema)
@@ -594,14 +595,14 @@ def count_delta_table_rows(table_path: Path, *, filters: DeltaReadFilters = None
 def delta_table_columns(table_path: Path) -> tuple[str, ...]:
     if not has_delta_log(table_path):
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
-    table = DeltaTable(str(table_path))
+    table = open_read_table(table_path, unscoped_open=DeltaTable)
     return tuple(str(field.name) for field in table.to_pyarrow_dataset().schema)
 
 
 def delta_table_column_value_counts(table_path: Path, *, column: str) -> dict[str, int]:
     if not has_delta_log(table_path):
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
-    table = DeltaTable(str(table_path))
+    table = open_read_table(table_path, unscoped_open=DeltaTable)
     dataset = table.to_pyarrow_dataset()
     if column not in dataset.schema.names:
         return {}
@@ -635,7 +636,7 @@ def iter_delta_table_row_batches(
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
     if batch_size <= 0:
         raise ValueError("batch_size must be > 0")
-    table = DeltaTable(str(table_path))
+    table = open_read_table(table_path, unscoped_open=DeltaTable)
     dataset = table.to_pyarrow_dataset()
     normalized_filters = _normalize_filters_for_schema(filters, dataset.schema)
     _enforce_hot_delta_batch_bound(table_path, filters=normalized_filters)
@@ -657,7 +658,7 @@ def read_delta_table_arrow(
 ) -> pa.Table:
     if not has_delta_log(table_path):
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
-    table = DeltaTable(str(table_path))
+    table = open_read_table(table_path, unscoped_open=DeltaTable)
     dataset = table.to_pyarrow_dataset()
     normalized_filters = _normalize_filters_for_schema(filters, dataset.schema)
     _enforce_hot_delta_read_bound(table_path, filters=normalized_filters)
@@ -682,7 +683,7 @@ def read_delta_table_rows(
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
     if limit is not None and limit < 0:
         raise ValueError("limit must be >= 0")
-    table = DeltaTable(str(table_path))
+    table = open_read_table(table_path, unscoped_open=DeltaTable)
     dataset = table.to_pyarrow_dataset()
     normalized_filters = _normalize_filters_for_schema(filters, dataset.schema)
     _enforce_hot_delta_read_bound(table_path, filters=normalized_filters, limit=limit)
@@ -715,7 +716,7 @@ def read_delta_table_frame(
 ) -> pd.DataFrame:
     if not has_delta_log(table_path):
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
-    table = DeltaTable(str(table_path))
+    table = open_read_table(table_path, unscoped_open=DeltaTable)
     dataset = table.to_pyarrow_dataset()
     normalized_filters = _normalize_filters_for_schema(filters, dataset.schema)
     _enforce_hot_delta_read_bound(table_path, filters=normalized_filters)

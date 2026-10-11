@@ -37,6 +37,8 @@ DERIVED_INDICATOR_PARTITION_METADATA_COLUMNS = (
     "source_indicators_hash",
     "source_indicator_profile_version",
     "source_indicator_output_columns_hash",
+    "source_indicator_columns_hash",
+    "mtf_source_family_hash",
     "row_count",
     "output_columns_hash",
 )
@@ -57,6 +59,8 @@ DERIVED_INDICATOR_RESERVED_COLUMNS = {
     "source_indicators_hash",
     "source_indicator_profile_version",
     "source_indicator_output_columns_hash",
+    "source_indicator_columns_hash",
+    "mtf_source_family_hash",
     "row_count",
     "warmup_span",
     "null_warmup_span",
@@ -116,6 +120,8 @@ def _derived_indicator_frame_columns(
         "source_indicators_hash": "string",
         "source_indicator_profile_version": "string",
         "source_indicator_output_columns_hash": "string",
+        "source_indicator_columns_hash": "string",
+        "mtf_source_family_hash": "string",
         "row_count": "int",
         "warmup_span": "int",
         "null_warmup_span": "int",
@@ -193,6 +199,8 @@ class DerivedIndicatorFrameRow:
     source_dataset_bars_hash: str = ""
     source_indicator_profile_version: str = ""
     source_indicator_output_columns_hash: str = ""
+    source_indicator_columns_hash: str = ""
+    mtf_source_family_hash: str = ""
     contour_id: str = "native_tradable"
     series_mode: str = "contract"
     series_id: str = ""
@@ -229,6 +237,8 @@ class DerivedIndicatorFrameRow:
             "source_indicators_hash": self.source_indicators_hash,
             "source_indicator_profile_version": self.source_indicator_profile_version,
             "source_indicator_output_columns_hash": self.source_indicator_output_columns_hash,
+            "source_indicator_columns_hash": self.source_indicator_columns_hash,
+            "mtf_source_family_hash": self.mtf_source_family_hash,
             "row_count": self.row_count,
             "warmup_span": self.warmup_span,
             "null_warmup_span": self.null_warmup_span,
@@ -255,6 +265,8 @@ class DerivedIndicatorFrameRow:
             "source_indicators_hash",
             "source_indicator_profile_version",
             "source_indicator_output_columns_hash",
+            "source_indicator_columns_hash",
+            "mtf_source_family_hash",
             "row_count",
             "warmup_span",
             "null_warmup_span",
@@ -296,6 +308,8 @@ class DerivedIndicatorFrameRow:
             source_indicator_output_columns_hash=str(
                 payload.get("source_indicator_output_columns_hash") or ""
             ),
+            source_indicator_columns_hash=str(payload.get("source_indicator_columns_hash") or ""),
+            mtf_source_family_hash=str(payload.get("mtf_source_family_hash") or ""),
             row_count=int(payload["row_count"]),
             warmup_span=int(payload["warmup_span"]),
             null_warmup_span=int(payload["null_warmup_span"]),
@@ -555,6 +569,8 @@ def load_derived_indicator_partition_rows(
                 "source_indicators_hash",
                 "source_indicator_profile_version",
                 "source_indicator_output_columns_hash",
+                "source_indicator_columns_hash",
+                "mtf_source_family_hash",
                 "row_count",
                 "warmup_span",
                 "null_warmup_span",
@@ -611,6 +627,8 @@ def load_derived_indicator_frames(
                     "source_indicators_hash",
                     "source_indicator_profile_version",
                     "source_indicator_output_columns_hash",
+                    "source_indicator_columns_hash",
+                    "mtf_source_family_hash",
                     "row_count",
                     "warmup_span",
                     "null_warmup_span",
