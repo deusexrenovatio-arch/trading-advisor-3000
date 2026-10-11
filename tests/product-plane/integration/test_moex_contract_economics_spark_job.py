@@ -2011,3 +2011,77 @@ def test_research_execution_economics_propagates_across_session_timeframes(
     assert {row["timeframe"] for row in rows} == {"1m", "5m", "15m", "1h", "4h", "1d"}
     assert all(row["execution_step_price_rub"] == pytest.approx(7.19) for row in rows)
     assert all(row["execution_margin_required_estimate"] == pytest.approx(18_585.0) for row in rows)
+
+
+def test_contract_economics_explicit_calibration_without_later_official_snapshot(
+    tmp_path, monkeypatch
+):
+    from datetime import date
+
+    from deltalake import DeltaTable
+
+    pytest.importorskip("pyspark.sql")
+    _configure_windows_spark_runtime(tmp_path, monkeypatch)
+    paths = _write_single_day_raw_economics_fixture(
+        raw_root=tmp_path / "raw",
+        trade_date="2026-08-14",
+        contract_id="BRZ6",
+        expiration_date="2026-12-15",
+        settle_price=100.0,
+        official_margin=200.0,
+    )
+    _write_single_day_raw_economics_fixture(
+        raw_root=tmp_path / "raw",
+        trade_date="2026-10-05",
+        contract_id="BRZ6",
+        expiration_date="2026-12-15",
+        settle_price=120.0,
+        official_margin=None,
+        mode="append",
+    )
+    raw_versions = {name: DeltaTable(str(path)).version() for name, path in paths.items()}
+    output = tmp_path / "canonical"
+    kwargs = {
+        "raw_contract_specs_path": paths["contracts"],
+        "raw_fx_rates_path": paths["fx"],
+        "raw_rms_limits_path": paths["limits"],
+        "raw_rms_staticparams_path": paths["staticparams"],
+        "output_dir": output,
+    }
+    with pytest.raises(RuntimeError, match="INITIALMARGIN=1"):
+        run_moex_contract_economics_spark_job(**kwargs)
+    assert not output.exists()
+    report = run_moex_contract_economics_spark_job(
+        **kwargs,
+        allow_calibrated_latest_margin=True,
+        margin_calibration_as_of_date=date(2026, 8, 14),
+        report_path=tmp_path / "explicit-calibration.json",
+    )
+    assert report["status"] == "PASS"
+    assert report["allow_calibrated_latest_margin"] is True
+    assert report["requested_margin_calibration_as_of_date"] == "2026-08-14"
+    assert report["missing_required_input_counts"]["INITIALMARGIN"] == 1
+    rows = read_delta_table_rows(
+        table_path=output / "canonical_contract_economics.delta",
+        columns=[
+            "economics_session_date",
+            "official_initial_margin",
+            "margin_required_estimate",
+            "margin_calibration_as_of_date",
+            "model_quality",
+            "margin_buffer_pct",
+        ],
+        limit=10,
+    )
+    assert len(rows) == 2
+    by_date = {str(row["economics_session_date"]): row for row in rows}
+    assert by_date["2026-08-14"]["official_initial_margin"] == 200.0
+    assert by_date["2026-08-14"]["margin_required_estimate"] == 200.0
+    tail = by_date["2026-10-05"]
+    assert tail["official_initial_margin"] is None
+    assert tail["margin_required_estimate"] == pytest.approx(240.0)
+    assert str(tail["margin_calibration_as_of_date"]) == "2026-08-14"
+    assert tail["model_quality"] == "calibrated_asset_rank"
+    assert tail["margin_buffer_pct"] == 0.0
+    assert raw_versions == {name: DeltaTable(str(path)).version() for name, path in paths.items()}
+    assert all((Path(path) / "_delta_log").is_dir() for path in report["output_paths"].values())
