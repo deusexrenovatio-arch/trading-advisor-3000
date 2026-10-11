@@ -349,14 +349,19 @@ def _aggregate_joined_source_outputs(
             ),
         )
     )
-    if enforce_session_bounds:
-        joined = joined.where(
-            (functions.col("target_minutes") >= functions.lit(1440))
-            | (
-                (functions.col("bucket_ts") >= functions.col("expected_open_ts"))
-                & (functions.col("bucket_end_ts") <= functions.col("expected_close_ts"))
+    # Session admission validates source coverage. Partial clock buckets at the
+    # session edges are retained; no source candle may cross its target bucket.
+    invalid_bucket_rows = int(
+        joined.where(
+            (functions.col("target_minutes") < functions.lit(1440))
+            & (
+                (functions.col("ts_open") < functions.col("bucket_ts"))
+                | (functions.col("ts_close") > functions.col("bucket_end_ts"))
             )
-        )
+        ).count()
+    )
+    if invalid_bucket_rows:
+        raise ValueError(f"source_outside_target_bucket_rows={invalid_bucket_rows}")
 
     partition_columns = ["contract_id", "instrument_id", "timeframe", "bucket_ts"]
     first_window = window.partitionBy(*partition_columns).orderBy(
@@ -431,7 +436,8 @@ def _aggregate_joined_source_outputs(
             ).alias("bar_end_ts"),
             functions.max(
                 functions.when(
-                    functions.col("target_minutes") < functions.lit(1440),
+                    (functions.col("target_minutes") < functions.lit(1440))
+                    & (functions.col("rn_last") == 1),
                     functions.col("interval_id").cast("string"),
                 )
             ).alias("session_interval_id"),
@@ -530,6 +536,17 @@ def _source_session_end_date(functions: Any) -> Any:
         functions.col("ts_close") - functions.expr("INTERVAL 1 SECOND")
     )
     return functions.to_date(functions.from_utc_timestamp(end_timestamp, MOEX_SESSION_TIMEZONE))
+
+
+def _intraday_clock_bucket_seconds(functions: Any) -> Any:
+    local_open = functions.from_utc_timestamp(functions.col("ts_open"), MOEX_SESSION_TIMEZONE)
+    width = functions.col("target_minutes") * functions.lit(60)
+    local_bucket = functions.to_timestamp(
+        functions.from_unixtime(
+            functions.floor(functions.unix_timestamp(local_open) / width) * width
+        )
+    )
+    return functions.unix_timestamp(functions.to_utc_timestamp(local_bucket, MOEX_SESSION_TIMEZONE))
 
 
 def _build_session_bounded_outputs(
@@ -707,15 +724,41 @@ def _build_session_bounded_outputs(
     intraday_source_alias = source_for_admission_df.where(
         functions.col("source_interval") < functions.lit(1440)
     ).alias("source")
-    admitted_intraday = intraday_source_alias.join(
-        intervals_alias,
-        (functions.col("source.instrument_id") == functions.col("intervals.instrument_id"))
-        & (functions.col("source._session_date") == functions.col("intervals.session_date"))
-        & (functions.col("source.ts_open") >= admission_open_ts)
-        & (functions.col("source.ts_close") <= functions.col("intervals.expected_close_ts"))
-        & (functions.col("source.ts_close") != functions.col("intervals.expected_open_ts")),
-        "inner",
-    ).select(*_admitted_columns("source", "intervals"))
+    # MOEX coarse begin values label clock buckets, including partial opening
+    # buckets. Their actual end must still be inside the admitted session.
+    source_seconds = functions.col("source.source_interval") * functions.lit(60)
+    coarse_open = functions.to_timestamp(
+        functions.from_unixtime(
+            functions.floor(functions.unix_timestamp(admission_open_ts) / source_seconds)
+            * source_seconds
+        )
+    )
+    labelled_coarse = (
+        (functions.col("source.source_provider") == functions.lit("moex_iss"))
+        & (functions.col("source.source_interval") > functions.lit(1))
+        & (functions.unix_timestamp(functions.col("source.ts_open")) % source_seconds == 0)
+    )
+    earliest_open = functions.when(labelled_coarse, coarse_open).otherwise(admission_open_ts)
+    admission_order = window.partitionBy(functions.col("source._source_row_id")).orderBy(
+        (functions.col("source.ts_open") >= functions.col("intervals.expected_open_ts")).desc(),
+        functions.col("intervals.expected_open_ts").asc(),
+        functions.col("intervals.interval_id").asc(),
+    )
+    admitted_intraday = (
+        intraday_source_alias.join(
+            intervals_alias,
+            (functions.col("source.instrument_id") == functions.col("intervals.instrument_id"))
+            & (functions.col("source._session_date") == functions.col("intervals.session_date"))
+            & (functions.col("source.ts_open") >= earliest_open)
+            & (functions.col("source.ts_close") >= admission_open_ts)
+            & (functions.col("source.ts_close") <= functions.col("intervals.expected_close_ts"))
+            & (functions.col("source.ts_close") != functions.col("intervals.expected_open_ts")),
+            "inner",
+        )
+        .withColumn("_admission_rank", functions.row_number().over(admission_order))
+        .where(functions.col("_admission_rank") == 1)
+        .select(*_admitted_columns("source", "intervals"))
+    )
     session_coverage_df = (
         intervals_df.groupBy("instrument_id", "session_date")
         .agg(
@@ -965,19 +1008,7 @@ def _build_session_bounded_outputs(
                 )
             ),
         )
-        .otherwise(
-            functions.unix_timestamp(functions.col("expected_open_ts"))
-            + (
-                functions.floor(
-                    (
-                        functions.unix_timestamp(functions.col("ts_open"))
-                        - functions.unix_timestamp(functions.col("expected_open_ts"))
-                    )
-                    / (functions.col("target_minutes") * functions.lit(60))
-                )
-                * (functions.col("target_minutes") * functions.lit(60))
-            )
-        )
+        .otherwise(_intraday_clock_bucket_seconds(functions))
     )
     bars_df, provenance_df = _aggregate_joined_source_outputs(
         joined=joined,
@@ -1058,10 +1089,16 @@ def _build_unbounded_outputs(
         )
     )
     admitted_source_rows = int(joined.count())
-    bucket_seconds = functions.floor(
-        functions.unix_timestamp(functions.col("ts_open"))
-        / (functions.col("target_minutes") * functions.lit(60))
-    ) * (functions.col("target_minutes") * functions.lit(60))
+    bucket_seconds = functions.when(
+        functions.col("target_minutes") < functions.lit(1440),
+        _intraday_clock_bucket_seconds(functions),
+    ).otherwise(
+        functions.floor(
+            functions.unix_timestamp(functions.col("ts_open"))
+            / (functions.col("target_minutes") * functions.lit(60))
+        )
+        * (functions.col("target_minutes") * functions.lit(60))
+    )
     bars_df, provenance_df = _aggregate_joined_source_outputs(
         joined=joined,
         bucket_seconds=bucket_seconds,
