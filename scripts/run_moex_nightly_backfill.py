@@ -13,13 +13,19 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from deltalake import write_deltalake
+from deltalake import DeltaTable
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from trading_advisor_3000.product_plane.common.table_layout import (
+    RAW_HISTORY_FAMILY,
+    assert_fresh_arrow_candidate,
+    compact_default_table,
+    write_layout_arrow_table,
+)
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     has_delta_log,
     write_delta_table_rows,
@@ -394,6 +400,7 @@ def _append_delta_table(
     shard_id: str,
     batch_size: int,
     has_written_target: bool,
+    candidate_owner: dict[str, str],
 ) -> bool:
     wrote_any = has_written_target
     for table in iter_deduplicated_raw_shard_tables(
@@ -402,7 +409,16 @@ def _append_delta_table(
         batch_size=batch_size,
     ):
         mode = "append" if wrote_any else "overwrite"
-        write_deltalake(str(target_path), table, mode=mode)
+        write_layout_arrow_table(
+            table_path=target_path,
+            table=table,
+            mode=mode,
+            family=RAW_HISTORY_FAMILY,
+            compact=False,
+            candidate_id=candidate_owner.get("id"),
+        )
+        if not wrote_any:
+            candidate_owner["id"] = DeltaTable(str(target_path)).metadata().id
         wrote_any = True
     return wrote_any
 
@@ -426,13 +442,11 @@ def _merge_raw_tables(
     validate_disjoint_raw_shard_scopes(raw_shards, batch_size=batch_size)
     validate_raw_shard_rows_deduplicable(raw_shards, batch_size=batch_size)
 
-    if target_raw_path.exists():
-        import shutil
-
-        shutil.rmtree(target_raw_path)
+    assert_fresh_arrow_candidate(target_raw_path, family=RAW_HISTORY_FAMILY)
     target_raw_path.parent.mkdir(parents=True, exist_ok=True)
 
     wrote_any = False
+    candidate_owner: dict[str, str] = {}
     written_shards = 0
     for shard_id, source_raw in raw_shards:
         wrote_any = _append_delta_table(
@@ -441,11 +455,22 @@ def _merge_raw_tables(
             shard_id=shard_id,
             batch_size=batch_size,
             has_written_target=wrote_any,
+            candidate_owner=candidate_owner,
         )
         written_shards += 1
 
     if not wrote_any:
-        write_delta_table_rows(table_path=target_raw_path, rows=[], columns=RAW_COLUMNS)
+        write_delta_table_rows(
+            table_path=target_raw_path,
+            rows=[],
+            columns=RAW_COLUMNS,
+            family=RAW_HISTORY_FAMILY,
+            compact=False,
+        )
+        candidate_owner["id"] = DeltaTable(str(target_raw_path)).metadata().id
+    compact_default_table(
+        target_raw_path, family=RAW_HISTORY_FAMILY, candidate_id=candidate_owner["id"]
+    )
     return written_shards
 
 

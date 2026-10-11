@@ -7,6 +7,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from trading_advisor_3000.product_plane.common.table_layout import (
+    RAW_HISTORY_FAMILY,
+    assert_default_table_layout,
+    compact_spark_table,
+    validate_default_table_files,
+    with_spark_close_year,
+)
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log
 from trading_advisor_3000.product_plane.data_plane.moex.foundation import RAW_COLUMNS
 from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contracts import (
@@ -172,15 +179,13 @@ def _normalize_raw_row(row: Mapping[str, Any], source_order: int) -> dict[str, o
 def _raw_target_uses_layout(spark: Any, table_path: Path) -> bool:
     if not has_delta_log(table_path):
         return True
-    existing_columns = set(spark.read.format("delta").load(str(table_path)).columns)
-    return set(RAW_LAYOUT_COLUMNS).issubset(existing_columns)
+    assert_default_table_layout(table_path, family=RAW_HISTORY_FAMILY)
+    return True
 
 
 def _with_raw_layout_columns(dataframe: Any, functions: Any) -> Any:
-    return dataframe.select(
-        *[functions.col(column).alias(column) for column in RAW_COLUMNS],
-        functions.year(functions.col("ts_close")).alias("ts_close_year"),
-    )
+    source = dataframe.select(*[functions.col(column).alias(column) for column in RAW_COLUMNS])
+    return with_spark_close_year(source, functions=functions)
 
 
 def _storage_frame(dataframe: Any, functions: Any, *, include_layout: bool) -> Any:
@@ -528,6 +533,7 @@ def run_moex_raw_ingest_spark_delta_job(
             target_uses_layout = True
 
         if source_rows_count == 0 and not scope_payload:
+            validate_default_table_files(table_path)
             report = build_raw_ingest_run_report_v2(
                 run_id=run_id,
                 ingest_till_utc=ingest_till_utc,
@@ -702,6 +708,7 @@ def run_moex_raw_ingest_spark_delta_job(
         if not table_exists:
             (
                 _storage_frame(replacement_source_df, functions, include_layout=True)
+                .repartition(*RAW_LAYOUT_PARTITION_COLUMNS)
                 .write.format("delta")
                 .mode("overwrite")
                 .option("overwriteSchema", "true")
@@ -756,6 +763,10 @@ def run_moex_raw_ingest_spark_delta_job(
                 )
                 .execute()
             )
+
+        if incremental_rows > 0:
+            compact_spark_table(spark, table_path)
+        validate_default_table_files(table_path)
 
         if tail_append_only:
             watermark_by_key = _collect_tail_append_watermarks(

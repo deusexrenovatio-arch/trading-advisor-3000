@@ -349,3 +349,43 @@ def test_run_shard_job_reuses_cached_success(monkeypatch, tmp_path: Path) -> Non
         (Path(str(job["output_dir"])) / "shard-success.json").read_text(encoding="utf-8")
     )
     assert success_payload["status"] == "PASS"
+
+
+@pytest.mark.parametrize("route", [nightly, route_refresh])
+def test_raw_consolidation_fresh_stream_compacts_and_rejects_target_reuse(
+    tmp_path: Path, route
+) -> None:
+    from deltalake import DeltaTable
+
+    from trading_advisor_3000.product_plane.common.table_layout import MAX_COMPRESSED_FILE_BYTES
+
+    source = tmp_path / "shard" / "raw.delta"
+    target = tmp_path / "candidate" / "raw_moex_history.delta"
+    rows = [_raw_row(internal_id="FUT_BR", secid="BRQ6", minute=index) for index in range(3)]
+    write_delta_table_rows(table_path=source, rows=rows, columns=route.RAW_COLUMNS)
+    source_id, source_version = (
+        DeltaTable(str(source)).metadata().id,
+        DeltaTable(str(source)).version(),
+    )
+    reports = [{"shard_id": "one", "report": {"raw_table_path": source.as_posix()}}]
+    assert route._merge_raw_tables(shard_reports=reports, target_raw_path=target, batch_size=1) == 1
+    table = DeltaTable(str(target))
+    pinned = DeltaTable(str(target), version=0)
+    assert table.metadata().id == pinned.metadata().id
+    assert table.metadata().partition_columns == ["ts_close_year"]
+    assert table.to_pyarrow_table().num_rows == 3
+    assert pinned.to_pyarrow_table().num_rows == 1
+    actions = table.get_add_actions(flatten=True).to_pylist()
+    assert len(actions) == 1
+    assert 0 < actions[0]["size_bytes"] <= MAX_COMPRESSED_FILE_BYTES
+    assert actions[0]["num_records"] == 3
+    assert len(list(target.rglob("*.parquet"))) > 1
+    identity, version, files = table.metadata().id, table.version(), table.files()
+    with pytest.raises(ValueError, match="existing raw Arrow target"):
+        route._merge_raw_tables(shard_reports=reports, target_raw_path=target, batch_size=1)
+    after = DeltaTable(str(target))
+    assert (after.metadata().id, after.version(), after.files()) == (identity, version, files)
+    assert (DeltaTable(str(source)).metadata().id, DeltaTable(str(source)).version()) == (
+        source_id,
+        source_version,
+    )

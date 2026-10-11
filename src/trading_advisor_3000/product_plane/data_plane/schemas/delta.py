@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from trading_advisor_3000.product_plane.common.table_layout import default_file_policy
+
 
 def historical_data_delta_schema_manifest() -> dict[str, dict[str, object]]:
     return {
@@ -45,6 +47,7 @@ def historical_data_delta_schema_manifest() -> dict[str, dict[str, object]]:
         "raw_moex_history": {
             "format": "delta",
             "partition_by": ["ts_close_year"],
+            "file_policy": default_file_policy(),
             "constraints": [
                 "unique(internal_id, timeframe, moex_secid, ts_open, ts_close)",
                 "non_empty(internal_id)",

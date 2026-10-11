@@ -10,7 +10,15 @@ from typing import Any
 import pandas as pd
 import pyarrow as pa
 import pyarrow.dataset as ds
-from deltalake import DeltaTable, write_deltalake
+from deltalake import DeltaTable
+
+from trading_advisor_3000.product_plane.common.table_layout import (
+    assert_default_table_layout,
+    assert_fresh_arrow_candidate,
+    compact_default_table,
+    default_partition_columns,
+    write_layout_arrow_table,
+)
 
 from trading_advisor_3000.product_plane.common.data_snapshots import open_read_table
 
@@ -414,6 +422,9 @@ def write_delta_table_rows(
     rows: list[dict[str, object]],
     columns: dict[str, str],
     mode: str = "overwrite",
+    compact: bool = True,
+    family: str | None = None,
+    candidate_id: str | None = None,
 ) -> None:
     table_path.parent.mkdir(parents=True, exist_ok=True)
     schema = _build_schema(columns)
@@ -425,8 +436,14 @@ def write_delta_table_rows(
         arrays = [pa.array([], type=field.type) for field in schema]
         arrow_table = pa.Table.from_arrays(arrays=arrays, schema=schema)
 
-    schema_mode = "overwrite" if mode == "overwrite" else "merge"
-    write_deltalake(str(table_path), arrow_table, mode=mode, schema_mode=schema_mode)
+    write_layout_arrow_table(
+        table_path=table_path,
+        table=arrow_table,
+        mode=mode,
+        compact=compact,
+        family=family,
+        candidate_id=candidate_id,
+    )
 
 
 def append_delta_table_rows(
@@ -434,11 +451,20 @@ def append_delta_table_rows(
     table_path: Path,
     rows: list[dict[str, object]],
     columns: dict[str, str],
+    compact: bool = True,
+    candidate_id: str | None = None,
 ) -> None:
     if not rows:
         return
     mode = "append" if has_delta_log(table_path) else "overwrite"
-    write_delta_table_rows(table_path=table_path, rows=rows, columns=columns, mode=mode)
+    write_delta_table_rows(
+        table_path=table_path,
+        rows=rows,
+        columns=columns,
+        mode=mode,
+        compact=compact,
+        candidate_id=candidate_id,
+    )
 
 
 def write_delta_table_row_batches(
@@ -453,6 +479,7 @@ def write_delta_table_row_batches(
     if max_rows_per_delta_write <= 0:
         raise ValueError("max_rows_per_delta_write must be > 0")
 
+    assert_fresh_arrow_candidate(table_path)
     table_exists = has_delta_log(table_path)
     if table_exists and replace_predicate:
         delete_delta_table_rows(table_path=table_path, predicate=replace_predicate)
@@ -461,16 +488,27 @@ def write_delta_table_row_batches(
     batch_count = 0
     wrote_table = table_exists and preserve_existing_table
     buffered_rows: list[dict[str, object]] = []
+    candidate_id: str | None = None
 
     def flush_buffer() -> None:
-        nonlocal batch_count, buffered_rows, wrote_table
+        nonlocal batch_count, buffered_rows, wrote_table, candidate_id
         if not buffered_rows:
             return
         if wrote_table:
-            append_delta_table_rows(table_path=table_path, rows=buffered_rows, columns=columns)
+            append_delta_table_rows(
+                table_path=table_path,
+                rows=buffered_rows,
+                columns=columns,
+                compact=False,
+                candidate_id=candidate_id,
+            )
         else:
-            write_delta_table_rows(table_path=table_path, rows=buffered_rows, columns=columns)
+            write_delta_table_rows(
+                table_path=table_path, rows=buffered_rows, columns=columns, compact=False
+            )
             wrote_table = True
+            if default_partition_columns(table_path) is not None:
+                candidate_id = DeltaTable(str(table_path)).metadata().id
         batch_count += 1
         buffered_rows = []
 
@@ -485,8 +523,11 @@ def write_delta_table_row_batches(
     flush_buffer()
 
     if not wrote_table and not table_exists:
-        write_delta_table_rows(table_path=table_path, rows=[], columns=columns)
+        write_delta_table_rows(table_path=table_path, rows=[], columns=columns, compact=False)
+        if default_partition_columns(table_path) is not None:
+            candidate_id = DeltaTable(str(table_path)).metadata().id
 
+    compact_default_table(table_path, candidate_id=candidate_id)
     return row_count, batch_count
 
 
@@ -500,6 +541,7 @@ def delete_delta_table_rows(
     normalized_predicate = str(predicate).strip()
     if not normalized_predicate:
         raise ValueError("delta delete predicate must be non-empty")
+    assert_fresh_arrow_candidate(table_path)
     table = DeltaTable(str(table_path))
     table.delete(normalized_predicate)
 
@@ -530,6 +572,7 @@ def replace_delta_table_rows(
     normalized_predicate = str(predicate).strip()
     if not normalized_predicate:
         raise ValueError("delta replace predicate must be non-empty")
+    assert_fresh_arrow_candidate(table_path)
     if has_delta_log(table_path):
         delete_delta_table_rows(table_path=table_path, predicate=normalized_predicate)
     if rows:
@@ -574,6 +617,7 @@ def delta_table_column_value_counts(table_path: Path, *, column: str) -> dict[st
 
 
 def ensure_delta_table_columns(*, table_path: Path, columns: dict[str, str]) -> bool:
+    assert_default_table_layout(table_path)
     existing_columns = set(delta_table_columns(table_path))
     missing_columns = [column for column in columns if column not in existing_columns]
     if not missing_columns:
