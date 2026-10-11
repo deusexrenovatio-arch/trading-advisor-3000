@@ -55,7 +55,7 @@ Historical timing runs and counts are not current delivery evidence.
 ## Solution Intent
 
 - Solution Class: staged
-- Critical Contour: data-integration-closure
+- Critical Contour: runtime-publication-closure
 - Forbidden Shortcuts: synthetic upstream closure; telemetry replacing work exceptions; extra Spark actions for timing
 - Closure Evidence: focused pure timing regressions, unchanged legacy report assertions and scoped delivery gates; not full data-integration or runtime-ready closure
 - Shortcut Waiver: none
