@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from trading_advisor_3000.product_plane.common.data_snapshots import save_snapshot_scope
 from trading_advisor_3000.product_plane.contracts import CanonicalBar, Timeframe
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
@@ -1311,6 +1312,14 @@ def _run_spark_canonicalization(
                 str(daily_open_interest_version),
             ]
         )
+    manifest_path = save_snapshot_scope(
+        spark_dir / "input-snapshots",
+        inputs=[raw_table_path, session_intervals_path]
+        + ([closed_session_dates_path] if closed_session_dates_path else [])
+        + ([daily_open_interest_path] if daily_open_interest_path else []),
+    )
+    if manifest_path is not None:
+        command.extend(["--snapshot-manifest-path", manifest_path.as_posix()])
     try:
         completed = subprocess.run(
             command,
@@ -1403,6 +1412,14 @@ def _run_spark_canonical_publish(
         command.extend(["--session-intervals-path", session_intervals_path.as_posix()])
     if closed_session_dates_path is not None:
         command.extend(["--closed-session-dates-path", closed_session_dates_path.as_posix()])
+    manifest_path = save_snapshot_scope(
+        spark_dir / "input-snapshots",
+        inputs=[staged_bars_path, staged_provenance_path]
+        + ([session_intervals_path] if session_intervals_path else [])
+        + ([closed_session_dates_path] if closed_session_dates_path else []),
+    )
+    if manifest_path is not None:
+        command.extend(["--snapshot-manifest-path", manifest_path.as_posix()])
     try:
         completed = subprocess.run(
             command,

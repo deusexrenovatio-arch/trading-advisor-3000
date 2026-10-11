@@ -1252,6 +1252,7 @@ def test_research_data_prep_after_moex_cf_catch_up_sensor_starts_scoped_job(
         "research_indicator_frames",
         "research_derived_indicator_frames",
         "continuous_front_indicator_acceptance_report",
+        "research_data_snapshot",
     }
     op_config = request.run_config["ops"]["research_datasets"]["config"]
     assert request.run_config["ops"]["continuous_front_bars"]["config"] == op_config

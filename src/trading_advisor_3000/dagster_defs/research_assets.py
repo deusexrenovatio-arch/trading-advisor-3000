@@ -67,6 +67,10 @@ from trading_advisor_3000.product_plane.research.continuous_front_indicators imp
     continuous_front_indicator_store_contract,
     run_continuous_front_indicator_pandas_job,
 )
+from trading_advisor_3000.product_plane.research.data_snapshots import (
+    publish_research_snapshot,
+    snapshot_materialization,
+)
 from trading_advisor_3000.product_plane.research.datasets import (
     CALENDAR_EXPIRY_CONTINUOUS_FRONT_POLICY,
     ContinuousFrontPolicy,
@@ -215,6 +219,7 @@ MOEX_RESEARCH_INDICATOR_SIDECAR_ASSETS = tuple(CF_INDICATOR_TABLES)
 RESEARCH_DATA_PREP_JOB_ASSETS = (
     *RESEARCH_DATA_PREP_ASSETS,
     *MOEX_RESEARCH_INDICATOR_SIDECAR_ASSETS,
+    "research_data_snapshot",
 )
 MOEX_CF_REBUILD_ASSETS = (
     "continuous_front_bars",
@@ -267,6 +272,7 @@ RESEARCH_ASSET_KEYS = (
     RESEARCH_CAMPAIGN_CONTEXT_ASSET,
     *RESEARCH_DATA_PREP_ASSETS,
     *MOEX_RESEARCH_INDICATOR_SIDECAR_ASSETS,
+    "research_data_snapshot",
     *STRATEGY_REGISTRY_REFRESH_ASSETS,
     *RESEARCH_BACKTEST_ASSETS,
     *RESEARCH_PROJECTION_ASSETS,
@@ -300,6 +306,14 @@ RESEARCH_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     "continuous_front_derived_indicator_frames": ("continuous_front_indicator_acceptance_report",),
     "continuous_front_indicator_qc_observations": ("continuous_front_indicator_acceptance_report",),
     "continuous_front_indicator_run_manifest": ("continuous_front_indicator_acceptance_report",),
+    "research_data_snapshot": (
+        "research_datasets",
+        "research_instrument_tree",
+        "research_bar_views",
+        "research_indicator_frames",
+        "research_derived_indicator_frames",
+        "continuous_front_indicator_acceptance_report",
+    ),
     "research_strategy_families": ("research_datasets",),
     "research_strategy_templates": ("research_strategy_families",),
     "research_strategy_template_modules": ("research_strategy_templates",),
@@ -484,6 +498,17 @@ def research_asset_specs() -> list[AssetSpec]:
             ),
             inputs=("research_derived_indicator_frames_delta",),
             outputs=("continuous_front_indicator_acceptance_report_delta",),
+        ),
+        AssetSpec(
+            key="research_data_snapshot",
+            description="Publish the accepted raw/canonical/research snapshot.",
+            inputs=(
+                "research_datasets_delta",
+                "research_bar_views_delta",
+                "research_indicator_frames_delta",
+                "research_derived_indicator_frames_delta",
+            ),
+            outputs=("data_snapshot_manifest",),
         ),
         AssetSpec(
             key="research_strategy_families",
@@ -708,6 +733,9 @@ def _research_config_schema() -> dict[str, object]:
         "dataset_instrument_ids": [str],
         "changed_windows": Field([dict], default_value=[], is_required=False),
         "canonical_contract_economics_path": Field(str, default_value="", is_required=False),
+        "data_snapshot_enabled": Field(bool, default_value=False, is_required=False),
+        "data_snapshot_raw_output_dir": Field(str, default_value="", is_required=False),
+        "data_snapshot_manifest_path": Field(str, default_value="", is_required=False),
         "spark_master": Field(str, default_value="", is_required=False),
         "indicator_set_version": str,
         "indicator_profile_version": str,
@@ -2435,6 +2463,14 @@ def research_campaign_context(context) -> dict[str, object]:
 
 
 @asset(group_name="research", config_schema=_research_config_schema())
+@snapshot_materialization(
+    (
+        "continuous_front_bars",
+        "continuous_front_roll_events",
+        "continuous_front_adjustment_ladder",
+        "continuous_front_qc_report",
+    )
+)
 def continuous_front_bars(context) -> dict[str, object]:
     config = dict(context.op_execution_context.op_config)
     materialized_output_dir = _materialized_output_dir(config)
@@ -2530,6 +2566,7 @@ def continuous_front_qc_report(
     config_schema=_research_config_schema(),
     deps=[continuous_front_qc_report],
 )
+@snapshot_materialization(("research_datasets", "research_instrument_tree", "research_bar_views"))
 def research_datasets(context) -> dict[str, object]:
     config = dict(context.op_execution_context.op_config)
     if bool(_config_value(config, "prepare_strategy_space", False)):
@@ -2813,6 +2850,7 @@ def research_bar_views(research_datasets: dict[str, object]) -> dict[str, object
     config_schema=_research_config_schema(),
     deps=[research_datasets, research_bar_views],
 )
+@snapshot_materialization(("research_indicator_frames",))
 def research_indicator_frames(context) -> dict[str, object]:
     config = dict(context.op_execution_context.op_config)
     research_datasets = _existing_research_dataset_context(config)
@@ -2855,6 +2893,7 @@ def research_indicator_frames(context) -> dict[str, object]:
     config_schema=_research_config_schema(),
     deps=[research_datasets, research_bar_views, research_indicator_frames],
 )
+@snapshot_materialization(("research_derived_source_frames", "research_derived_indicator_frames"))
 def research_derived_indicator_frames(context) -> dict[str, object]:
     config = dict(context.op_execution_context.op_config)
     research_datasets = _existing_research_dataset_context(config)
@@ -2979,6 +3018,7 @@ def _continuous_front_indicator_sidecar_manifest(
     config_schema=_research_config_schema(),
     deps=[research_datasets, research_indicator_frames, research_derived_indicator_frames],
 )
+@snapshot_materialization(MOEX_RESEARCH_INDICATOR_SIDECAR_ASSETS)
 def continuous_front_indicator_acceptance_report(context) -> dict[str, object]:
     config = dict(context.op_execution_context.op_config)
     research_datasets = _existing_research_dataset_context(config)
@@ -2999,6 +3039,26 @@ def continuous_front_indicator_acceptance_report(context) -> dict[str, object]:
         "sidecar_result": sidecar_result,
         **manifest,
     }
+
+
+@asset(
+    group_name="research",
+    config_schema=_research_config_schema(),
+    deps=[
+        research_datasets,
+        research_instrument_tree,
+        research_bar_views,
+        research_indicator_frames,
+        research_derived_indicator_frames,
+        continuous_front_indicator_acceptance_report,
+    ],
+)
+def research_data_snapshot(
+    context, continuous_front_indicator_acceptance_report: dict[str, object]
+) -> dict[str, object]:
+    return publish_research_snapshot(
+        context, acceptance=continuous_front_indicator_acceptance_report
+    )
 
 
 @asset(group_name="research")
@@ -3910,7 +3970,7 @@ def _write_failed_research_campaign_summary(
     return True
 
 
-@asset(group_name="research")
+@asset(group_name="research", deps=[research_data_snapshot])
 def research_campaign_data_prep_summary(
     research_campaign_context: dict[str, object],
     continuous_front_indicator_acceptance_report: dict[str, object],
@@ -3953,6 +4013,7 @@ def research_campaign_projection_summary(
 
 
 RESEARCH_ASSETS = (
+    research_data_snapshot,
     research_campaign_context,
     continuous_front_bars,
     continuous_front_roll_events,
@@ -4015,6 +4076,7 @@ research_data_prep_job = define_asset_job(
         continuous_front_indicator_qc_observations,
         continuous_front_indicator_run_manifest,
         continuous_front_indicator_acceptance_report,
+        research_data_snapshot,
         research_campaign_data_prep_summary,
     ),
     config=_research_campaign_job_config_mapping(RESEARCH_DATA_PREP_JOB_NAME),
@@ -4342,6 +4404,7 @@ _RESEARCH_DATA_PREP_CONFIG_OPS = (
     "research_indicator_frames",
     "research_derived_indicator_frames",
     "continuous_front_indicator_acceptance_report",
+    "research_data_snapshot",
 )
 
 
@@ -4493,6 +4556,8 @@ def build_research_data_prep_run_config(
     volume_profile_tick_size_by_instrument: Mapping[str, float] | None = None,
     continuous_front_indicator_qc_mode: str = "hot_path",
     continuous_front_indicator_sidecar_materialization_mode: str = "auto",
+    data_snapshot_raw_output_dir: Path | None = None,
+    data_snapshot_manifest_path: Path | None = None,
     code_version: str = "research-data-prep-after-moex",
     start_strategy_cascade: bool = False,
 ) -> dict[str, object]:
@@ -4581,6 +4646,13 @@ def build_research_data_prep_run_config(
         strategy_space_id="",
         combination_count=0,
     )
+    research_config["data_snapshot_enabled"] = True
+    research_config["data_snapshot_raw_output_dir"] = (
+        data_snapshot_raw_output_dir.resolve().as_posix() if data_snapshot_raw_output_dir else ""
+    )
+    research_config["data_snapshot_manifest_path"] = (
+        data_snapshot_manifest_path.resolve().as_posix() if data_snapshot_manifest_path else ""
+    )
     return _research_data_prep_run_config_from_research_config(research_config)
 
 
@@ -4633,6 +4705,8 @@ def _build_moex_cf_catch_up_run_config(
     canonical_output_dir: Path,
     dataset_version: str,
     campaign_run_id: str,
+    data_snapshot_manifest_path: str = "",
+    data_snapshot_raw_output_dir: str = "",
     window: Mapping[str, object] | None = None,
     windows: Sequence[Mapping[str, object]] | None = None,
 ) -> dict[str, object]:
@@ -4680,6 +4754,9 @@ def _build_moex_cf_catch_up_run_config(
         strategy_space_id="",
         combination_count=0,
     )
+    research_config["data_snapshot_enabled"] = bool(data_snapshot_manifest_path)
+    research_config["data_snapshot_manifest_path"] = data_snapshot_manifest_path
+    research_config["data_snapshot_raw_output_dir"] = data_snapshot_raw_output_dir
     return {"ops": {"continuous_front_bars": {"config": research_config}}}
 
 
@@ -4736,6 +4813,14 @@ def moex_cf_catch_up_after_moex_baseline_sensor(context):
                 dataset_version=dataset_version,
                 campaign_run_id=f"cf_catch_up_after_{upstream_run_id}_{windows_hash[:12]}",
                 windows=windows,
+                data_snapshot_manifest_path=str(
+                    dict(payload.get("data_snapshot") or {}).get("snapshot_manifest_path") or ""
+                ),
+                data_snapshot_raw_output_dir=str(
+                    Path(str(payload["raw_table_path"])).parent
+                    if payload.get("raw_table_path")
+                    else ""
+                ),
             ),
             tags={
                 "ta3000/upstream_job": MOEX_BASELINE_UPDATE_JOB_NAME,
@@ -4856,6 +4941,16 @@ def research_data_prep_after_moex_cf_catch_up_sensor(context):
                     "continuous_front_indicator_sidecar_materialization_mode",
                     "auto",
                 )
+            ),
+            data_snapshot_manifest_path=(
+                Path(str(cf_config["data_snapshot_manifest_path"]))
+                if cf_config.get("data_snapshot_manifest_path")
+                else None
+            ),
+            data_snapshot_raw_output_dir=(
+                Path(str(cf_config["data_snapshot_raw_output_dir"]))
+                if cf_config.get("data_snapshot_raw_output_dir")
+                else None
             ),
             code_version="research-data-prep-after-moex-cf-catch-up",
             campaign_run_id=(f"research_data_prep_after_cf_{upstream_run_id}_{windows_hash[:12]}"),
@@ -5576,10 +5671,15 @@ def _materialize_research_assets(
         report["total_rows_by_table"] = {}
         return report
 
+    if "research_data_snapshot" in expected_materialized_assets:
+        report["data_snapshot"] = result.output_for_node("research_data_snapshot")
+
     rows_by_table: dict[str, int] = {}
     total_rows_by_table: dict[str, int] = {}
     contour_id = "pit_active_front" if series_mode == "continuous_front" else "native_tradable"
     for asset_name in expected_materialized_assets:
+        if asset_name == "research_data_snapshot":
+            continue
         table_path = Path(output_paths[asset_name])
         if not has_delta_log(table_path):
             raise RuntimeError(

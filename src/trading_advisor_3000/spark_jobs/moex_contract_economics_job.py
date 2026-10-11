@@ -7,6 +7,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 
+from trading_advisor_3000.product_plane.common.data_snapshots import read_spark_delta
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
     has_delta_log,
@@ -292,10 +293,7 @@ def _contract_specs_frame(spark: object, table_path: Path, *, source_version: in
     from pyspark.sql import Window  # type: ignore[import-not-found]
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
-    reader = spark.read.format("delta")
-    if source_version is not None:
-        reader = reader.option("versionAsOf", source_version)
-    raw = reader.load(str(table_path))
+    raw = read_spark_delta(spark, table_path, version=source_version)
     assetcode = F.upper(_column_or_json(raw, "assetcode", "asset_code", "ASSETCODE"))
     base = (
         raw.withColumn("contract_id", _column_or_json(raw, "moex_secid", "SECID", "secid"))
@@ -425,7 +423,7 @@ def _contract_parameter_regimes_frame(
 def _fx_rates_frame(spark: object, table_path: Path):
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
-    raw = spark.read.format("delta").load(str(table_path))
+    raw = read_spark_delta(spark, str(table_path))
     parsed_source = (
         raw.withColumn("fx_pair", F.upper(_column_or_json(raw, "fx_pair", "secid", "SECID")))
         .withColumn(
@@ -524,8 +522,8 @@ def _asset_risk_parameters_frame(spark: object, limits_path: Path, staticparams_
             .drop("__source_update_text", "__source_update_ts", "__source_row_rank")
         )
 
-    limits_raw = spark.read.format("delta").load(str(limits_path))
-    static_raw = spark.read.format("delta").load(str(staticparams_path))
+    limits_raw = read_spark_delta(spark, str(limits_path))
+    static_raw = read_spark_delta(spark, str(staticparams_path))
     limits = _latest_snapshot(
         limits_raw.withColumn(
             "assetcode",
@@ -645,8 +643,7 @@ def _with_effective_sessions(contract_specs, *, canonical_session_calendar_path:
 
     spark = contract_specs.sparkSession
     calendar = (
-        spark.read.format("delta")
-        .load(str(canonical_session_calendar_path))
+        read_spark_delta(spark, str(canonical_session_calendar_path))
         .select(
             F.col("instrument_id").alias("calendar_instrument_id"),
             F.col("session_date").alias("calendar_session_date"),
@@ -914,8 +911,7 @@ def _filter_non_session_contract_specs(
     if canonical_session_calendar_path is not None:
         spark = contract_specs.sparkSession
         session_dates = (
-            spark.read.format("delta")
-            .load(str(canonical_session_calendar_path))
+            read_spark_delta(spark, str(canonical_session_calendar_path))
             .select(F.col("session_date").alias("__calendar_session_date"))
             .where(F.col("__calendar_session_date").isNotNull())
             .distinct()

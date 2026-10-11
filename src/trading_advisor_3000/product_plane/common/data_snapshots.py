@@ -5,12 +5,15 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
+import subprocess
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
@@ -20,6 +23,60 @@ from uuid import uuid4
 from deltalake import DeltaTable
 
 SCHEMA_VERSION = "data_snapshot.v1"
+
+
+def runtime_provenance() -> dict[str, Any]:
+    """Fingerprint deployed source as well as declared labels, including dirty edits."""
+    package = Path(__file__).resolve().parents[2]
+    digest = hashlib.sha256()
+    for path in sorted(package.rglob("*.py")):
+        digest.update(path.relative_to(package).as_posix().encode())
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+    commit = "unavailable"
+    repository = package.parents[1]
+    contracts = repository / "product-plane" / "contracts"
+    contract_digest = hashlib.sha256()
+    for path in sorted(contracts.rglob("*.yaml")):
+        contract_digest.update(path.relative_to(contracts).as_posix().encode())
+        contract_digest.update(b"\0")
+        contract_digest.update(path.read_bytes())
+    if (repository / ".git").exists():
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repository,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            pass  # Deployed images need not contain Git; source fingerprint stays mandatory.
+        else:
+            if result.returncode == 0:
+                commit = result.stdout.strip()
+    dependencies = {"python": platform.python_version()}
+    for name in (
+        "deltalake",
+        "pyspark",
+        "delta-spark",
+        "dagster",
+        "pandas-ta-classic",
+        "pyarrow",
+        "pandas",
+        "numpy",
+    ):
+        try:
+            dependencies[name] = version(name)
+        except PackageNotFoundError:
+            dependencies[name] = "unavailable"
+    return {
+        "git_commit": commit,
+        "source_sha256": digest.hexdigest(),
+        "contracts_sha256": contract_digest.hexdigest() if contracts.exists() else "unavailable",
+        "dependencies": dependencies,
+    }
 
 
 class SnapshotUnavailableError(RuntimeError):
@@ -455,10 +512,143 @@ def open_read_table(
     return open_pinned_table(reference) if reference is not None else unscoped_open(str(path))
 
 
-def read_spark_delta(spark: Any, path: str | Path) -> Any:
+def read_spark_delta(spark: Any, path: str | Path, *, version: int | None = None) -> Any:
+    if version is not None and (type(version) is not int or version < 0):
+        raise ValueError("snapshot Delta version must be a nonnegative integer")
     reference = snapshot_table_reference(Path(path))
+    if reference is not None and version is not None and version != reference["delta_version"]:
+        raise SnapshotUnavailableError("explicit Delta version differs from the input snapshot pin")
     reader = spark.read.format("delta")
     if reference is not None:
         open_pinned_table(reference)
         reader = reader.option("versionAsOf", reference["delta_version"])
+    elif version is not None:
+        reader = reader.option("versionAsOf", version)
     return reader.load(reference["table_path"] if reference is not None else str(path))
+
+
+@dataclass(frozen=True)
+class MaterializationSnapshotReads(SnapshotReads):
+    """R5 owner scope; accepted consumer scopes remain strict and immutable."""
+
+    writable_paths: frozenset[str]
+    _captured_tables: dict[str, Mapping[str, Any]]
+    capture_new_inputs: bool = True
+
+    def plain_tables(self) -> dict[str, dict[str, Any]]:
+        return {name: _thaw(ref) for name, ref in self.tables.items()}
+
+    def reference(self, path: Path) -> dict[str, Any] | None:
+        if _path(path) in self.writable_paths:
+            return None
+        try:
+            return super().reference(path)
+        except SnapshotUnavailableError:
+            if not self.capture_new_inputs:
+                raise
+        name = path.stem
+        if name in self.tables:
+            raise ValueError(f"snapshot table name collides: {name}")
+        # Capture is an owner operation. Public capture_table remains forbidden
+        # to code running within either scope.
+        token = _READS.set(None)
+        try:
+            reference = capture_table(path)
+        finally:
+            _READS.reset(token)
+        self._captured_tables[name] = _freeze(deepcopy(reference))
+        return deepcopy(reference)
+
+
+@contextmanager
+def materialization_snapshot_scope(
+    manifest: Mapping[str, Any] | None,
+    *,
+    writable_paths: Sequence[Path] = (),
+    capture_new_inputs: bool = True,
+) -> Iterator[MaterializationSnapshotReads]:
+    """Bind native input versions while an explicit owner writes its outputs."""
+    if _READS.get() is not None:
+        raise ValueError("a materialization scope cannot replace an active snapshot scope")
+    if manifest is not None:
+        _validate(manifest)
+    tables = {
+        name: _freeze(deepcopy(dict(ref)))
+        for name, ref in (manifest or {}).get("tables", {}).items()
+    }
+    scope = MaterializationSnapshotReads(
+        tables=MappingProxyType(tables),
+        writable_paths=frozenset(_path(path) for path in writable_paths),
+        _captured_tables=tables,
+        capture_new_inputs=capture_new_inputs,
+    )
+    token = _READS.set(scope)
+    try:
+        yield scope
+    finally:
+        _READS.reset(token)
+
+
+def save_snapshot_scope(root: Path, *, inputs: Sequence[Path] = ()) -> Path | None:
+    """Transport the current input pins into an existing child-process route."""
+    scope = _READS.get()
+    if scope is None:
+        return None
+    for path in inputs:
+        scope.reference(path)
+    manifest = create_snapshot(
+        tables={name: _thaw(ref) for name, ref in scope.tables.items()},
+        required_tables=tuple(scope.tables),
+        dataset_version="calculation-inputs",
+        run_id="snapshot-process-inputs",
+        code_version="snapshot-owner-binding",
+        quality_checks={"input_binding": "PASS"},
+    )
+    return save_snapshot(root, manifest)
+
+
+def snapshot_process_path_mapping(
+    manifest_path: Path, output_path: Path, mapper: Callable[[Path], str]
+) -> Path:
+    """Map only physical mounts; keep native identity/version/fingerprints."""
+    manifest = load_snapshot(manifest_path)
+    atomic_json(
+        output_path,
+        {
+            "source_manifest_sha256": manifest["manifest_sha256"],
+            "paths": {
+                ref["table_path"]: mapper(Path(ref["table_path"]))
+                for ref in manifest["tables"].values()
+            },
+        },
+    )
+    return output_path
+
+
+def load_process_snapshot(path: Path, path_mapping: Path | None = None) -> dict[str, Any]:
+    """Validate the source digest before translating host/container mounts."""
+    if path_mapping is None:
+        return load_snapshot(path)
+    source = json.loads(path.read_text(encoding="utf-8"))
+    if source.get("schema_version") != SCHEMA_VERSION:
+        raise ValueError("unsupported data snapshot schema")
+    _validate_hex(source.get("snapshot_id"), 32, "snapshot ID")
+    mapping = json.loads(path_mapping.read_text(encoding="utf-8"))
+    digest = source.pop("manifest_sha256")
+    if digest != _hash(source) or digest != mapping["source_manifest_sha256"]:
+        raise ValueError("process snapshot source manifest digest mismatch")
+    tables = {
+        name: {**ref, "table_path": mapping["paths"][ref["table_path"]]}
+        for name, ref in source["tables"].items()
+    }
+    return create_snapshot(
+        tables=tables,
+        required_tables=source["required_tables"],
+        dataset_version=source["dataset_version"],
+        run_id=source["run_id"],
+        code_version=source["code_version"],
+        quality_checks=source["quality_checks"],
+        parameters={**source["parameters"], "process_source_manifest_sha256": digest},
+        window=source["window"],
+        parents=source["parents"],
+    )

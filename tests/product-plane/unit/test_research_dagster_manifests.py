@@ -362,6 +362,7 @@ def test_research_dagster_asset_specs_declared() -> None:
         "research_indicator_frames",
         "research_derived_indicator_frames",
         "continuous_front_indicator_acceptance_report",
+        "research_data_snapshot",
         "cf_indicator_input_frame",
         "indicator_roll_rules",
         "continuous_front_indicator_frames",

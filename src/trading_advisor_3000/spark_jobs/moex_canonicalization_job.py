@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
+from trading_advisor_3000.product_plane.common.data_snapshots import read_spark_delta
 from trading_advisor_3000.product_plane.contracts import Timeframe
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log
 
@@ -205,7 +206,7 @@ def _count_jsonl_rows(path: Path) -> int:
 
 def _read_official_session_intervals(spark: Any, session_intervals_path: Path) -> Any:
     if has_delta_log(session_intervals_path):
-        return spark.read.format("delta").load(str(session_intervals_path))
+        return read_spark_delta(spark, str(session_intervals_path))
     if session_intervals_path.exists():
         return spark.read.json(str(session_intervals_path))
     raise FileNotFoundError(
@@ -640,16 +641,12 @@ def _prepare_closed_session_dates(
         raise FileNotFoundError(
             f"closed session dates input missing Delta log: {closed_session_dates_path}"
         )
-    closed = (
-        spark.read.format("delta")
-        .load(str(closed_session_dates_path))
-        .select(
-            functions.col("instrument_id").cast("string").alias("instrument_id"),
-            functions.to_date("session_date").alias("session_date"),
-            "source_id",
-            "source_document_hash",
-            "policy_id",
-        )
+    closed = read_spark_delta(spark, str(closed_session_dates_path)).select(
+        functions.col("instrument_id").cast("string").alias("instrument_id"),
+        functions.to_date("session_date").alias("session_date"),
+        "source_id",
+        "source_document_hash",
+        "policy_id",
     )
     invalid = functions.col("session_date").isNull()
     for field in ("instrument_id", "source_id", "source_document_hash", "policy_id"):
@@ -1502,7 +1499,7 @@ def run_moex_canonicalization_spark_delta_job(
             bars_df = spark.createDataFrame([], CANONICAL_BAR_SCHEMA)
             provenance_df = spark.createDataFrame([], CANONICAL_PROVENANCE_SCHEMA)
         else:
-            raw_df = spark.read.format("delta").load(str(raw_table_path))
+            raw_df = read_spark_delta(spark, str(raw_table_path))
             windows_df = spark.read.json(str(changed_windows_path)).select(
                 F.col("internal_id").cast("string").alias("internal_id"),
                 F.col("source_timeframe").cast("string").alias("timeframe"),
@@ -1726,10 +1723,9 @@ def run_moex_canonicalization_spark_delta_job(
                     session_intervals_path=session_intervals_path,
                     closed_session_dates_path=closed_session_dates_path,
                     daily_open_interest_df=(
-                        spark.read.format("delta")
-                        .option("versionAsOf", daily_open_interest_version)
-                        .load(str(daily_open_interest_path))
-                        .select(
+                        read_spark_delta(
+                            spark, daily_open_interest_path, version=daily_open_interest_version
+                        ).select(
                             F.col("internal_id").alias("instrument_id"),
                             "moex_secid",
                             F.col("trade_date").cast("date").alias("trade_date"),

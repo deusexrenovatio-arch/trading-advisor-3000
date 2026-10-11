@@ -8,6 +8,7 @@ from time import perf_counter
 from typing import Any, Callable
 from uuid import uuid4
 
+from trading_advisor_3000.product_plane.common.data_snapshots import read_spark_delta
 from trading_advisor_3000.product_plane.common.table_layout import with_spark_close_year
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log
 from trading_advisor_3000.product_plane.data_plane.schemas import (
@@ -82,14 +83,14 @@ def _ensure_spark_delta_runtime_available() -> None:
 
 def _table_or_empty(spark: Any, *, table_path: Path, schema: str) -> Any:
     if has_delta_log(table_path):
-        return spark.read.format("delta").load(str(table_path))
+        return read_spark_delta(spark, str(table_path))
     return spark.createDataFrame([], schema)
 
 
 def _delta_table_has_columns(spark: Any, *, table_path: Path, columns: tuple[str, ...]) -> bool:
     if not has_delta_log(table_path):
         return False
-    existing_columns = set(spark.read.format("delta").load(str(table_path)).columns)
+    existing_columns = set(read_spark_delta(spark, str(table_path)).columns)
     return set(columns).issubset(existing_columns)
 
 
@@ -98,7 +99,7 @@ def _delta_table_matches_schema(spark: Any, *, table_path: Path, columns: dict[s
         return False
     existing_types = {
         str(column_name): str(data_type)
-        for column_name, data_type in spark.read.format("delta").load(str(table_path)).dtypes
+        for column_name, data_type in read_spark_delta(spark, str(table_path)).dtypes
     }
     return all(
         existing_types.get(column_name) == data_type for column_name, data_type in columns.items()
@@ -338,7 +339,7 @@ def _merge_replace_delta_dataframe(
 
     from delta.tables import DeltaTable  # type: ignore[import-not-found]
 
-    delete_source_df = spark.read.format("delta").load(str(stale_keys_path))
+    delete_source_df = read_spark_delta(spark, str(stale_keys_path))
     condition = " AND ".join(f"target.{column} <=> source.{column}" for column in key_columns)
     (
         DeltaTable.forPath(spark, str(table_path))
@@ -1356,7 +1357,7 @@ def run_moex_canonical_publish_spark_delta_job(
         )
 
         if affected_session_rows > 0:
-            affected_sessions_df = spark.read.format("delta").load(str(affected_sessions_path))
+            affected_sessions_df = read_spark_delta(spark, str(affected_sessions_path))
         else:
             affected_sessions_df = spark.createDataFrame(
                 [],
