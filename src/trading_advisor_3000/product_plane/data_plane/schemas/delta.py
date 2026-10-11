@@ -204,6 +204,24 @@ def historical_data_delta_schema_manifest() -> dict[str, dict[str, object]]:
                 "source_document_hash": "string",
             },
         },
+        "canonical_closed_session_dates": {
+            "format": "delta",
+            "partition_by": [],
+            "target_file_count": 1,
+            "constraints": [
+                "unique(instrument_id, session_date)",
+                "non_empty(source_id)",
+                "non_empty(source_document_hash)",
+                "non_empty(policy_id)",
+            ],
+            "columns": {
+                "instrument_id": "string",
+                "session_date": "date",
+                "policy_id": "string",
+                "source_id": "string",
+                "source_document_hash": "string",
+            },
+        },
         "canonical_bars": {
             "format": "delta",
             "partition_by": [],
