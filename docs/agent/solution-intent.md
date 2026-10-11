@@ -2,8 +2,8 @@
 
 - Solution Class: staged
 - Critical Contour: runtime-publication-closure
-- Forbidden Shortcuts: fixture path, tests/product-plane/fixtures/, sample artifact, synthetic upstream, scaffold-only
-- Closure Evidence: focused pure timing regressions, unchanged legacy report assertions, loop gate and PR gate; not full data-integration or runtime-ready closure.
+- Forbidden Shortcuts: synthetic publication, sample artifact, smoke only, manifest only, scaffold-only
+- Closure Evidence: focused timing regressions preserve runtime output/result and original exception identity; unchanged report assertions, loop gate and PR gate. Staged prerequisite, not full target closure of the publication contour or runtime-ready surface.
 - Shortcut Waiver: none
 
 Change surface: mixed. Product-plane shared timing helper and compatibility

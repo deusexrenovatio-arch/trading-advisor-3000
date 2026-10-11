@@ -56,8 +56,8 @@ Historical timing runs and counts are not current delivery evidence.
 
 - Solution Class: staged
 - Critical Contour: runtime-publication-closure
-- Forbidden Shortcuts: synthetic upstream closure; telemetry replacing work exceptions; extra Spark actions for timing
-- Closure Evidence: focused pure timing regressions, unchanged legacy report assertions and scoped delivery gates; not full data-integration or runtime-ready closure
+- Forbidden Shortcuts: synthetic publication, sample artifact, smoke only, manifest only, scaffold-only
+- Closure Evidence: focused timing regressions preserve runtime output/result and original exception identity; unchanged report assertions, loop gate and PR gate. Staged prerequisite, not full target closure of the publication contour or runtime-ready surface.
 - Shortcut Waiver: none
 
 ## Self-review
