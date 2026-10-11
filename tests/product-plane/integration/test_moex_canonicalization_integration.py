@@ -581,7 +581,7 @@ def test_canonicalization_admits_moex_opening_minute_begin_end_label(
     assert report["publish_decision"] == "publish"
 
 
-def test_canonicalization_ignores_corroborated_opening_boundary_hour_bucket(
+def test_canonicalization_retains_opening_boundary_hour_bucket(
     tmp_path: Path,
 ) -> None:
     opening_minute_open = datetime(2026, 4, 2, 9, 59, tzinfo=UTC)
@@ -696,13 +696,13 @@ def test_canonicalization_ignores_corroborated_opening_boundary_hour_bucket(
     )
 
     admission = report["session_admission_report"]
-    assert admission["admitted_source_rows"] == 2
-    assert admission["out_of_schedule_rows"] == 1
-    assert admission["ignored_out_of_schedule_rows"] == 1
-    assert admission["ignored_out_of_schedule_reason_counts"] == {"finer_covered_coarse_bucket": 1}
-    assert admission["ignored_opening_boundary_rows"] == 1
+    assert admission["admitted_source_rows"] == 3
+    assert admission["out_of_schedule_rows"] == 0
+    assert admission["ignored_out_of_schedule_rows"] == 0
+    assert admission["ignored_out_of_schedule_reason_counts"] == {}
+    assert admission["ignored_opening_boundary_rows"] == 0
     assert admission["rejected_out_of_session_rows"] == 0
-    assert report["canonical_rows"] == 1
+    assert report["canonical_rows"] == 3
 
 
 def test_canonicalization_classifies_finer_covered_and_uncorroborated_coarse_buckets(
