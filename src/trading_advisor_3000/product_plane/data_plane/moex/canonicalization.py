@@ -8,6 +8,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from trading_advisor_3000.product_plane.contracts import CanonicalBar, Timeframe
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
@@ -469,6 +470,12 @@ def _deduplicate_raw_rows(rows: list[RawCandle]) -> list[RawCandle]:
 
 def _floor_to_bucket(ts_open: str, *, bucket_minutes: int) -> str:
     value = _parse_iso_utc(ts_open)
+    if bucket_minutes < 1440:
+        local = value.astimezone(ZoneInfo("Europe/Moscow"))
+        midnight = local.replace(hour=0, minute=0, second=0, microsecond=0)
+        offset = int((local - midnight).total_seconds())
+        width = bucket_minutes * 60
+        return _to_iso_utc(midnight + timedelta(seconds=(offset // width) * width))
     epoch_seconds = int(value.timestamp())
     bucket_seconds = bucket_minutes * 60
     floored = (epoch_seconds // bucket_seconds) * bucket_seconds
@@ -534,7 +541,19 @@ def _session_bounded_bucket_ts(
         admission_open_ts = interval.expected_open_ts - timedelta(
             seconds=SESSION_ADMISSION_OPEN_TOLERANCE_SECONDS
         )
-        if ts_open < admission_open_ts or ts_close > interval.expected_close_ts:
+        earliest_open = admission_open_ts
+        if row.source_provider == "moex_iss" and 1 < row.source_interval < 1440:
+            width = row.source_interval * 60
+            if int(ts_open.timestamp()) % width == 0:
+                earliest_open = datetime.fromtimestamp(
+                    (int(admission_open_ts.timestamp()) // width) * width, tz=UTC
+                )
+        if (
+            ts_open < earliest_open
+            or ts_close < admission_open_ts
+            or ts_close > interval.expected_close_ts
+            or ts_close == interval.expected_open_ts
+        ):
             continue
         if target_minutes == 1440:
             return _to_iso_utc(_session_date_midnight_utc(interval.session_date))
@@ -543,15 +562,11 @@ def _session_bounded_bucket_ts(
             week_start = session_midnight - timedelta(days=session_midnight.weekday())
             return _to_iso_utc(week_start)
 
-        bucket_seconds = target_minutes * 60
-        offset_seconds = max(0, int((ts_open - interval.expected_open_ts).total_seconds()))
-        bucket_start = interval.expected_open_ts + timedelta(
-            seconds=(offset_seconds // bucket_seconds) * bucket_seconds
-        )
-        bucket_end = bucket_start + timedelta(seconds=bucket_seconds)
-        if bucket_start < interval.expected_open_ts or bucket_end > interval.expected_close_ts:
-            return None
-        return _to_iso_utc(bucket_start)
+        bucket = _floor_to_bucket(row.ts_open, bucket_minutes=target_minutes)
+        bucket_start = _parse_iso_utc(bucket)
+        if ts_close > bucket_start + timedelta(minutes=target_minutes):
+            raise ValueError("source_outside_target_bucket_rows=1")
+        return bucket
     return None
 
 

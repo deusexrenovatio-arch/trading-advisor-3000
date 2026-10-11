@@ -32,6 +32,7 @@ from trading_advisor_3000.product_plane.runtime.stage_timings import (
 )
 
 from .canonical_bars_job import DEFAULT_SPARK_MASTER, _create_spark_session
+from .moex_canonicalization_job import MOEX_SESSION_TIMEZONE
 
 RESEARCH_L0_CONTOURS = ("native_tradable", "pit_active_front")
 DAILY_TIMEFRAMES = ("1d", "d", "daily")
@@ -573,11 +574,28 @@ def _with_bar_usage_contract(
         .otherwise(F.col("interval_session_class")),
     )
 
+    intraday_seconds = F.create_map(
+        F.lit("1m"),
+        F.lit(60),
+        F.lit("5m"),
+        F.lit(300),
+        F.lit("15m"),
+        F.lit(900),
+        F.lit("1h"),
+        F.lit(3600),
+        F.lit("4h"),
+        F.lit(14400),
+    )[F.col("_timeframe_lc")]
     boundary_bar = F.coalesce(F.col("provenance_boundary_bar"), F.lit(False)) | (
         F.col("_is_intraday")
         & (
-            (F.col("bar_start_ts") == F.col("interval_open_ts"))
-            | (F.col("bar_end_ts") == F.col("interval_close_ts"))
+            (F.col("bar_start_ts") <= F.col("interval_open_ts"))
+            | (F.col("ts") < F.col("interval_open_ts"))
+            | (
+                F.unix_timestamp(F.col("ts")) + intraday_seconds
+                > F.unix_timestamp(F.col("interval_close_ts"))
+            )
+            | (F.col("bar_end_ts") >= F.col("interval_close_ts"))
             | (
                 F.unix_timestamp(F.col("bar_end_ts")) + F.lit(1)
                 == F.unix_timestamp(F.col("interval_open_ts"))
@@ -795,6 +813,18 @@ def _with_execution_economics(
     )
 
 
+def _bar_session_date():
+    from pyspark.sql import functions as F  # type: ignore[import-not-found]
+
+    bar_start = F.coalesce(F.col("bar_start_ts"), F.col("ts"))
+    aggregate_bar = F.lower(F.col("timeframe")).isin([*DAILY_TIMEFRAMES, *WEEKLY_TIMEFRAMES])
+    return F.to_date(
+        F.when(aggregate_bar, F.from_utc_timestamp(bar_start, MOEX_SESSION_TIMEZONE)).otherwise(
+            bar_start
+        )
+    )
+
+
 def _native_bar_views(
     *,
     spark: object,
@@ -881,7 +911,7 @@ def _native_bar_views(
             & (F.col("ts") == F.col("prov_ts")),
             "left",
         )
-        .withColumn("session_date", F.to_date(F.coalesce(F.col("bar_start_ts"), F.col("ts"))))
+        .withColumn("session_date", _bar_session_date())
         .join(
             F.broadcast(calendar),
             (F.col("instrument_id") == F.col("cal_instrument_id"))
@@ -1036,7 +1066,7 @@ def _pit_active_front_bar_views(
             & (F.col("ts") == F.col("prov_ts")),
             "left",
         )
-        .withColumn("session_date", F.to_date(F.coalesce(F.col("bar_start_ts"), F.col("ts"))))
+        .withColumn("session_date", _bar_session_date())
         .join(
             F.broadcast(calendar),
             (F.col("instrument_id") == F.col("cal_instrument_id"))
