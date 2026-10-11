@@ -1583,6 +1583,157 @@ def test_research_data_prep_uses_spark_l0_materialization(tmp_path: Path) -> Non
 
 
 @requires_spark_delta_runtime
+def test_research_daily_session_date_uses_moscow_provenance_in_both_contours(
+    tmp_path: Path,
+) -> None:
+    canonical_dir = tmp_path / "canonical-daily-timezone"
+    canonical_dir.mkdir()
+    schemas = historical_data_delta_schema_manifest()
+    bars = []
+    provenance = []
+    intervals = []
+    calendar = []
+    roll_map = []
+    for session_date, session_class in (("2026-02-06", "short"), ("2026-02-09", "regular")):
+        stamp = datetime.fromisoformat(session_date).replace(tzinfo=UTC)
+        start = stamp - timedelta(hours=3)
+        end = start + timedelta(days=1, seconds=-1)
+        bars.append(
+            dict(
+                contract_id="BR-6.26",
+                instrument_id="BR",
+                timeframe="1d",
+                ts=stamp,
+                open=80.0,
+                high=82.0,
+                low=79.0,
+                close=81.0,
+                volume=100,
+                open_interest=1000,
+            )
+        )
+        provenance.append(
+            dict(
+                contract_id="BR-6.26",
+                instrument_id="BR",
+                timeframe="1d",
+                ts=stamp,
+                bar_start_ts=start,
+                bar_end_ts=end,
+                session_interval_id=None,
+                source_provider="test",
+                source_timeframe="1d",
+                source_interval=1440,
+                source_run_id="daily-timezone",
+                source_ingest_run_id="daily-timezone",
+                source_row_count=1,
+                source_ts_open_first=start,
+                source_ts_close_last=end,
+                open_interest_imputed=False,
+                build_run_id="daily-timezone",
+                built_at_utc=stamp,
+            )
+        )
+        intervals.append(
+            dict(
+                instrument_id="BR",
+                session_date=session_date,
+                interval_id=f"BR-{session_date}",
+                interval_seq=1,
+                expected_open_ts=stamp + timedelta(hours=7),
+                expected_close_ts=stamp + timedelta(hours=15),
+                session_class=session_class,
+                interval_type="regular_trading",
+                policy_id="test-session-v1",
+                source_id="test",
+                source_document_hash="sha256:test",
+            )
+        )
+        calendar.append(
+            dict(
+                instrument_id="BR",
+                timeframe="1d",
+                session_date=session_date,
+                session_open_ts=stamp + timedelta(hours=7),
+                session_close_ts=stamp + timedelta(hours=15),
+                session_class=session_class,
+            )
+        )
+        roll_map.append(
+            dict(
+                instrument_id="BR",
+                session_date=session_date,
+                active_contract_id="BR-6.26",
+                reason="test",
+            )
+        )
+    # The prior weekday exists with a different class: a UTC-date join can be silently wrong.
+    calendar.append(
+        dict(
+            instrument_id="BR",
+            timeframe="1d",
+            session_date="2026-02-05",
+            session_open_ts="2026-02-05T07:00:00Z",
+            session_close_ts="2026-02-05T15:00:00Z",
+            session_class="regular",
+        )
+    )
+    for name, rows in (
+        ("canonical_bars", bars),
+        ("canonical_bar_provenance", provenance),
+        ("canonical_session_intervals", intervals),
+        ("canonical_session_calendar", calendar),
+        ("canonical_roll_map", roll_map),
+    ):
+        write_delta_table_rows(
+            table_path=canonical_dir / f"{name}.delta",
+            rows=rows,
+            columns=schemas[name]["columns"],
+        )
+    output_dir = tmp_path / "research-daily-timezone"
+    _write_spark_front_outputs_from_canonical(
+        canonical_dir=canonical_dir,
+        output_dir=output_dir,
+        dataset_version="daily-timezone-v1",
+        run_id="daily-timezone",
+        policy=ContinuousFrontPolicy(),
+        timeframes=("1d",),
+    )
+    report = run_research_bar_views_spark_job(
+        canonical_bars_path=canonical_dir / "canonical_bars.delta",
+        canonical_bar_provenance_path=canonical_dir / "canonical_bar_provenance.delta",
+        canonical_session_intervals_path=canonical_dir / "canonical_session_intervals.delta",
+        canonical_session_calendar_path=canonical_dir / "canonical_session_calendar.delta",
+        canonical_roll_map_path=canonical_dir / "canonical_roll_map.delta",
+        continuous_front_bars_path=output_dir / "continuous_front_bars.delta",
+        output_dir=output_dir,
+        dataset_version="daily-timezone-v1",
+        timeframes=("1d",),
+    )
+    assert report["success"] is True
+    rows = [
+        row
+        for batch in iter_delta_table_row_batches(
+            output_dir / "research_bar_views.delta",
+            filters=[("dataset_version", "=", "daily-timezone-v1")],
+        )
+        for row in batch
+    ]
+    assert len(rows) == 4
+    assert {row["contour_id"] for row in rows} == {"native_tradable", "pit_active_front"}
+    for row in rows:
+        session_date = str(row["session_date"])[:10]
+        assert session_date == str(row["ts"])[:10]
+        expected_class = "short" if session_date == "2026-02-06" else "regular"
+        assert row["session_class"] == expected_class
+        assert row["bar_usage_profile"] == (
+            "risk_only" if expected_class == "short" else "regular_trading"
+        )
+        assert row["close"] == row["execution_close"] == 81.0
+        assert row["execution_step_price_rub"] is None
+
+
+@requires_spark_delta_runtime
 def test_weekly_bar_usage_counts_daily_sessions_by_contract(tmp_path: Path) -> None:
     canonical_dir = tmp_path / "canonical-weekly-contract-gap"
     canonical_dir.mkdir(parents=True, exist_ok=True)

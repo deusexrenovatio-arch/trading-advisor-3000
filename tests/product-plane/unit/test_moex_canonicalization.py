@@ -38,7 +38,7 @@ def _provenance(**overrides: object) -> CanonicalProvenance:
     return CanonicalProvenance(**payload)
 
 
-def test_affected_canonical_keys_follow_session_bounded_spark_buckets(monkeypatch) -> None:
+def test_affected_canonical_keys_follow_moscow_clock_spark_buckets(monkeypatch) -> None:
     row = canonical_module.RawCandle(
         contract_id="BRM6@MOEX",
         instrument_id="FUT_BR",
@@ -87,7 +87,7 @@ def test_affected_canonical_keys_follow_session_bounded_spark_buckets(monkeypatc
     )
 
     assert ("BRM6@MOEX", "FUT_BR", "1m", "2026-04-02T10:01:00Z") in keys
-    assert ("BRM6@MOEX", "FUT_BR", "4h", "2026-04-02T10:00:00Z") in keys
+    assert ("BRM6@MOEX", "FUT_BR", "4h", "2026-04-02T09:00:00Z") in keys
     assert ("BRM6@MOEX", "FUT_BR", "1d", "2026-04-02T00:00:00Z") in keys
     assert ("BRM6@MOEX", "FUT_BR", "1w", "2026-03-30T00:00:00Z") in keys
     assert ("BRM6@MOEX", "FUT_BR", "4h", "2026-04-02T08:00:00Z") not in keys
