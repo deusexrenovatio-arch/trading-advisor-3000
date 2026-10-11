@@ -3,7 +3,7 @@
 - Solution Class: staged
 - Critical Contour: data-integration-closure
 - Forbidden Shortcuts: fixture path, tests/product-plane/fixtures/, sample artifact, synthetic upstream, scaffold-only
-- Closure Evidence: 12 distinct integration cases, including native Spark/Delta raw-owner regressions, +59 unit PASS; loop and actual PR gates PASS; not full target closure of canonical dataset/downstream research or runtime-ready surface.
+- Closure Evidence: inherited RAW validation at6205a62f/base134ffce1: 12 distinct integration cases including native Spark/Delta raw-owner regressions, +59 unit and actual PR gate PASS; RAW runtime/tests unchanged; not full target closure of canonical dataset/downstream research or runtime-ready surface.
 - Shortcut Waiver: none
 
 Change surface: mixed. Product-plane raw UTC close-year writer behavior plus
