@@ -56,6 +56,9 @@ from trading_advisor_3000.product_plane.data_plane.moex.historical_canonical_rou
     CANONICAL_MERGE_SCOPED_DELETE_INSERT,
     run_historical_canonical_route,
 )
+from trading_advisor_3000.product_plane.data_plane.moex.native_history_refresh import (
+    registered_history_refresh_kwargs,
+)
 from trading_advisor_3000.product_plane.data_plane.moex.runtime_instances import (
     validate_moex_runtime_run_id,
 )
@@ -197,6 +200,7 @@ MOEX_BASELINE_UPDATE_OP_CONFIG_SCHEMA = {
     "canonical_session_calendar_path": DagsterField(str, is_required=False),
     "canonical_roll_map_path": DagsterField(str, is_required=False),
     "economics_mode": DagsterField(str, is_required=False),
+    "economics_history_refresh": DagsterField(bool, is_required=False),
     "raw_economics_root": DagsterField(str, is_required=False),
     "canonical_economics_root": DagsterField(str, is_required=False),
     "economics_source_paths": DagsterField(dict, is_required=False),
@@ -431,6 +435,7 @@ def build_moex_baseline_update_run_config(
     expand_contract_chain: bool = True,
     coverage_mode: str = "local_tail",
     economics_mode: str = ECONOMICS_REFRESH_MODE_REFRESH,
+    economics_history_refresh: bool = False,
     economics_source_paths: Mapping[str, Path] | None = None,
     economics_parameter_evidence: Mapping[str, str] | None = None,
     allow_calibrated_latest_margin: bool = False,
@@ -439,6 +444,8 @@ def build_moex_baseline_update_run_config(
     daily_open_interest_version: int | None = None,
     canonical_closed_session_dates_path: Path | None = None,
 ) -> dict[str, object]:
+    if type(economics_history_refresh) is not bool:
+        raise TypeError("economics_history_refresh must be bool")
     resolved_run_id = validate_moex_runtime_run_id(
         run_id, name="build_moex_baseline_update_run_config.run_id"
     )
@@ -468,6 +475,7 @@ def build_moex_baseline_update_run_config(
     ):
         raise TypeError("margin_calibration_as_of_date must be date, excluding datetime")
     binding = {
+        "economics_history_refresh": economics_history_refresh,
         "economics_source_paths": {
             key: path.as_posix() for key, path in (economics_source_paths or {}).items()
         },
@@ -550,10 +558,12 @@ def _build_baseline_daily_schedule_run_config(context) -> dict[str, object]:
     ingest_till_utc = _default_closed_daily_ingest_till_utc(
         scheduled_execution_time=scheduled_execution_time
     )
+    baseline_root = _route_artifact_root()
     return build_moex_baseline_update_run_config(
-        baseline_root=_route_artifact_root(),
+        baseline_root=baseline_root,
         run_id=run_id,
         ingest_till_utc=ingest_till_utc,
+        **registered_history_refresh_kwargs(baseline_root),
     )
 
 
@@ -1218,6 +1228,7 @@ def moex_baseline_update(context) -> dict[str, object]:
         expand_contract_chain=_bool_value(op_config, "expand_contract_chain", default=True),
         coverage_mode=_text_value(op_config, "coverage_mode") or "local_tail",
         economics_mode=_text_value(op_config, "economics_mode") or ECONOMICS_REFRESH_MODE_REFRESH,
+        economics_history_refresh=_bool_value(op_config, "economics_history_refresh", default=False),
         raw_economics_root=raw_economics_root,
         canonical_economics_root=canonical_economics_root,
         economics_source_paths={
