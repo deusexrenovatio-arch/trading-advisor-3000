@@ -570,6 +570,7 @@ def _write_spark_front_outputs_from_canonical(
 def _write_research_bar_outputs_from_front(
     *,
     continuous_front_bars_path: Path,
+    canonical_bar_provenance_path: Path,
     output_dir: Path,
     dataset_version: str,
     dataset_name: str,
@@ -578,6 +579,10 @@ def _write_research_bar_outputs_from_front(
     timeframes: tuple[str, ...],
 ) -> dict[str, object]:
     contract = research_dataset_store_contract()
+    close_by_source_key = {
+        (str(row["contract_id"]), str(row["timeframe"]), str(row["ts"])): row["bar_end_ts"]
+        for row in read_delta_table_rows(canonical_bar_provenance_path)
+    }
     front_rows = read_delta_table_rows(
         continuous_front_bars_path,
         filters=[("dataset_version", "=", dataset_version)],
@@ -655,6 +660,9 @@ def _write_research_bar_outputs_from_front(
                 "instrument_id": str(row["instrument_id"]),
                 "timeframe": str(row["timeframe"]),
                 "ts": ts,
+                "bar_end_ts": close_by_source_key[
+                    (str(row["active_contract_id"]), str(row["timeframe"]), ts)
+                ],
                 "open": float(row["continuous_open"]),
                 "high": float(row["continuous_high"]),
                 "low": float(row["continuous_low"]),
@@ -888,6 +896,7 @@ def test_isolated_moex_data_layer_rebuild_jobs_update_only_their_layer(
     def _bar_views_entrypoint(**kwargs: object) -> dict[str, object]:
         return _write_research_bar_outputs_from_front(
             continuous_front_bars_path=Path(str(kwargs["continuous_front_bars_path"])),
+            canonical_bar_provenance_path=canonical_dir / "canonical_bar_provenance.delta",
             output_dir=Path(str(kwargs["output_dir"])),
             dataset_version=str(kwargs["dataset_version"]),
             dataset_name=str(kwargs["dataset_name"]),
