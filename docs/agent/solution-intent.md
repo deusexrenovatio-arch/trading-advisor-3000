@@ -3,13 +3,17 @@
 - Solution Class: staged
 - Critical Contour: data-integration-closure
 - Forbidden Shortcuts: fixture path, tests/product-plane/fixtures/, sample artifact, synthetic upstream, scaffold-only
-- Closure Evidence: fresh research failed at L0 empty append because its physical year carrier was omitted. Focused regressions cover the carrier schema and pre-mutation layout rejection; native writer proof covers UTC year boundaries, stable Delta identity, old pins and 512 MiB files. Actual research completion remains pending; no publication closure is claimed.
+- Closure Evidence: fresh research reached R2 source write, where the physical year carrier was omitted after scoped DELETE. Its following native L2 writer has the same carrier defect. Focused regression and native physical proof cover both owners, UTC close year, pre-delete layout rejection, stable Delta identity, old pins and 512 MiB file policy. Actual corrected research completion remains pending.
 - Shortcut Waiver: none
 
-Change surface: mixed. Product-plane research L0 storage carrier and physical
-contracts; required shell delivery metadata. The existing authoritative
-bar_end_ts supplies UTC close year for native and CF views. Business schemas,
-timestamps and numerical builders are preserved. Bar views use yearly layout
-and native Spark compaction at 512 MiB; small metadata tables retain flat layout.
-Existing unsupported layouts reject before empty append or deletion. Out-of-place
-replacement is removed so current Delta IDs, history and pinned files survive.
+Change surface: mixed. Product-plane R2 source/L2 storage carriers and required
+shell delivery metadata. SourceFrame.bar_end_ts supplies UTC close year; no
+bar-open/duration inference. L2 carries close metadata outside its existing
+business serialization and hashes. Both owners retain integer year partitions,
+Delta IDs/history/pins and compact at 512 MiB. Unsupported existing layout or
+carrier rejects before schema append/DELETE. The native Arrow writer adds an
+optional explicit partition argument; default calls and RAW guards remain.
+
+Self-review: old carrier-dropping writes and legacy-layout mutation are forbidden.
+Physical fixture covers source Spark and L2 Arrow without numerical recomputation.
+No global family registry expansion or production/publication closure is claimed.

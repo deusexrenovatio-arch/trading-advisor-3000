@@ -441,6 +441,7 @@ def write_delta_table_rows(
     family: str | None = None,
     candidate_id: str | None = None,
     replace_predicate: str | None = None,
+    partition_by: tuple[str, ...] | None = None,
 ) -> None:
     table_path.parent.mkdir(parents=True, exist_ok=True)
     schema = _build_schema(columns)
@@ -460,6 +461,7 @@ def write_delta_table_rows(
         family=family,
         candidate_id=candidate_id,
         replace_predicate=replace_predicate,
+        partition_by=partition_by,
     )
 
 
@@ -470,6 +472,7 @@ def append_delta_table_rows(
     columns: dict[str, str],
     compact: bool = True,
     candidate_id: str | None = None,
+    partition_by: tuple[str, ...] | None = None,
 ) -> None:
     if not rows:
         return
@@ -481,6 +484,7 @@ def append_delta_table_rows(
         mode=mode,
         compact=compact,
         candidate_id=candidate_id,
+        partition_by=partition_by,
     )
 
 
@@ -492,12 +496,16 @@ def write_delta_table_row_batches(
     max_rows_per_delta_write: int,
     replace_predicate: str | None = None,
     preserve_existing_table: bool = False,
+    partition_by: tuple[str, ...] | None = None,
 ) -> tuple[int, int]:
     if max_rows_per_delta_write <= 0:
         raise ValueError("max_rows_per_delta_write must be > 0")
 
     assert_fresh_arrow_candidate(table_path)
     table_exists = has_delta_log(table_path)
+    if table_exists and partition_by is not None:
+        if tuple(DeltaTable(str(table_path)).metadata().partition_columns) != partition_by:
+            raise ValueError("explicit partitions require an isolated layout migration")
     if table_exists and replace_predicate:
         delete_delta_table_rows(table_path=table_path, predicate=replace_predicate)
 
@@ -518,10 +526,15 @@ def write_delta_table_row_batches(
                 columns=columns,
                 compact=False,
                 candidate_id=candidate_id,
+                partition_by=partition_by,
             )
         else:
             write_delta_table_rows(
-                table_path=table_path, rows=buffered_rows, columns=columns, compact=False
+                table_path=table_path,
+                rows=buffered_rows,
+                columns=columns,
+                compact=False,
+                partition_by=partition_by,
             )
             wrote_table = True
             if default_partition_columns(table_path) is not None:
@@ -540,7 +553,13 @@ def write_delta_table_row_batches(
     flush_buffer()
 
     if not wrote_table and not table_exists:
-        write_delta_table_rows(table_path=table_path, rows=[], columns=columns, compact=False)
+        write_delta_table_rows(
+            table_path=table_path,
+            rows=[],
+            columns=columns,
+            compact=False,
+            partition_by=partition_by,
+        )
         if default_partition_columns(table_path) is not None:
             candidate_id = DeltaTable(str(table_path)).metadata().id
 
