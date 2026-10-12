@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import sys
+import types
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -15,6 +17,9 @@ from trading_advisor_3000.product_plane.research.continuous_front import (
 )
 from trading_advisor_3000.product_plane.research.continuous_front_indicators import (
     continuous_front_indicator_store_contract,
+)
+from trading_advisor_3000.product_plane.research.continuous_front_indicators import (
+    input_projection as cf_input_projection,
 )
 from trading_advisor_3000.product_plane.research.datasets import research_dataset_store_contract
 from trading_advisor_3000.product_plane.research.derived_indicators import (
@@ -134,6 +139,7 @@ def _bar_row(*, ts: str, close: float, contract_id: str, roll_epoch: int) -> dic
         "instrument_id": "FUT_BR",
         "timeframe": "15m",
         "ts": ts,
+        "bar_end_ts": cf_input_projection._bar_close_ts(ts, "15m"),
         "open": close - 0.5,
         "high": close + 1.0,
         "low": close - 1.0,
@@ -161,6 +167,230 @@ def _bar_row(*, ts: str, close: float, contract_id: str, roll_epoch: int) -> dic
         "bar_index": roll_epoch,
         "slice_role": "analysis",
     }
+
+
+def test_existing_annual_sidecar_writer_keeps_close_year_before_delete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from trading_advisor_3000.spark_jobs import continuous_front_indicator_sidecar_job as owner
+
+    calls: list[str] = []
+    compacted: list[str] = []
+    storage_close = "__storage_close_ts"
+    business = {
+        "dataset_version": "sidecar-year-fixture",
+        "ts": datetime(2025, 12, 31, 22, 45, tzinfo=UTC),
+        "ts_close": datetime(2025, 12, 31, 23, tzinfo=UTC),
+        "close0": 1.25,
+    }
+    source = {
+        **business,
+        storage_close: datetime(2026, 1, 1, tzinfo=UTC),
+        "ts_close_year": 2030,
+    }
+
+    class FakeType:
+        def __init__(self, name):
+            self.name = name
+
+        def simpleString(self):
+            return self.name
+
+    class Expr:
+        def __init__(self, getter, name=None, type_name="string"):
+            self.getter, self.name, self.type_name = getter, name, type_name
+
+        def cast(self, type_name):
+            self.type_name = (
+                type_name.simpleString() if hasattr(type_name, "simpleString") else type_name
+            )
+            return self
+
+        def alias(self, name):
+            self.name = name
+            return self
+
+    functions = types.ModuleType("pyspark.sql.functions")
+    functions.col = lambda name: Expr(lambda row: row[name], name)
+    functions.lit = lambda value: Expr(lambda row: value)
+    sql_module = types.ModuleType("pyspark.sql")
+    sql_module.functions = functions
+    monkeypatch.setitem(sys.modules, "pyspark.sql", sql_module)
+    monkeypatch.setitem(sys.modules, "pyspark.sql.functions", functions)
+
+    class Schema:
+        def __init__(self, field_types):
+            self.field_types = field_types
+
+        def fieldNames(self):
+            return list(self.field_types)
+
+        def __getitem__(self, name):
+            return types.SimpleNamespace(dataType=FakeType(self.field_types[name]))
+
+    class Frame:
+        sparkSession = types.SimpleNamespace(
+            conf=types.SimpleNamespace(get=lambda key: "Europe/Moscow")
+        )
+
+        def __init__(self, rows, field_types=None):
+            self.rows = rows
+            self.field_types = field_types or {
+                name: (
+                    "timestamp"
+                    if isinstance(value, datetime)
+                    else "int"
+                    if isinstance(value, int)
+                    else "double"
+                    if isinstance(value, float)
+                    else "string"
+                )
+                for name, value in rows[0].items()
+            }
+
+        @property
+        def columns(self):
+            return list(self.field_types)
+
+        @property
+        def schema(self):
+            return Schema(self.field_types)
+
+        def select(self, *expressions):
+            selected = [
+                functions.col(item) if isinstance(item, str) else item for item in expressions
+            ]
+            return Frame(
+                [{item.name: item.getter(row) for item in selected} for row in self.rows],
+                {item.name: item.type_name for item in selected},
+            )
+
+        def withColumn(self, name, expression):
+            return Frame(
+                [{**row, name: expression.getter(row)} for row in self.rows],
+                {**self.field_types, name: expression.type_name},
+            )
+
+        def drop(self, *names):
+            return Frame(
+                [
+                    {key: value for key, value in row.items() if key not in names}
+                    for row in self.rows
+                ],
+                {key: value for key, value in self.field_types.items() if key not in names},
+            )
+
+        def limit(self, count):
+            return Frame(self.rows[:count], self.field_types)
+
+        @property
+        def write(self):
+            return Writer(self)
+
+    class Writer:
+        def __init__(self, frame):
+            self.frame = frame
+
+        def format(self, value):
+            assert value == "delta"
+            return self
+
+        def mode(self, value):
+            assert value == "append"
+            return self
+
+        def option(self, key, value):
+            assert (key, value) == ("mergeSchema", "true")
+            return self
+
+        def save(self, path):
+            if Path(path).stem == "cf_indicator_input_frame":
+                assert set(self.frame.columns) == set(business)
+            else:
+                assert "ts_close_year" in self.frame.columns, (
+                    "empty append lost physical close-year"
+                )
+                assert self.frame.schema["ts_close_year"].dataType.simpleString() == "int"
+            calls.append("append" if self.frame.rows else "empty_append")
+
+    class Table:
+        def __init__(self, path):
+            self.partitions = (
+                [] if Path(path).stem == "cf_indicator_input_frame" else ["ts_close_year"]
+            )
+
+        def detail(self):
+            return types.SimpleNamespace(
+                select=lambda name: types.SimpleNamespace(first=lambda: [self.partitions])
+            )
+
+        def delete(self, condition):
+            assert calls[-1] == "empty_append"
+            assert condition == "dataset_version = 'sidecar-year-fixture'"
+            calls.append("delete")
+
+    delta_tables = types.ModuleType("delta.tables")
+    delta_tables.DeltaTable = types.SimpleNamespace(forPath=lambda spark, path: Table(path))
+    delta_module = types.ModuleType("delta")
+    delta_module.tables = delta_tables
+    monkeypatch.setitem(sys.modules, "delta", delta_module)
+    monkeypatch.setitem(sys.modules, "delta.tables", delta_tables)
+    monkeypatch.setattr(owner, "has_delta_log", lambda path: True)
+    monkeypatch.setattr(owner, "_assert_unique_by_key", lambda *args, **kwargs: None)
+    monkeypatch.setattr(owner, "read_spark_delta", lambda *args: Frame([source]), raising=False)
+    monkeypatch.setattr(
+        owner,
+        "compact_spark_table",
+        lambda *args, **kwargs: compacted.append(kwargs["family"]),
+        raising=False,
+    )
+
+    def derive_close_year(frame, *, functions):
+        year = frame.rows[0]["ts_close"].astimezone(UTC).year
+        return frame.withColumn("ts_close_year", functions.lit(year).cast("int"))
+
+    monkeypatch.setattr(owner, "with_spark_close_year", derive_close_year, raising=False)
+    for table_name in (
+        "cf_indicator_input_frame",
+        "continuous_front_indicator_frames",
+        "continuous_front_derived_indicator_frames",
+    ):
+        contract = {
+            table_name: {
+                "columns": {
+                    "dataset_version": "string",
+                    "ts": "timestamp",
+                    "ts_close": "timestamp",
+                    "close0": "double",
+                },
+                "partition_by": ["ts_close_year"],
+            }
+        }
+        calls.clear()
+        frame = Frame([source])
+        owner._write_sidecar_delta_table(
+            dataframe=frame,
+            output_dir=tmp_path,
+            table_name=table_name,
+            contract=contract,
+            replace_scope=[("dataset_version", "=", "sidecar-year-fixture")],
+        )
+        assert calls == ["empty_append", "delete", "append"]
+        casted = owner._cast_to_sidecar_contract(frame, table_name=table_name, contract=contract)
+        expected = (
+            business
+            if table_name == "cf_indicator_input_frame"
+            else {**business, "ts_close_year": 2026}
+        )
+        assert casted.rows == [expected]
+        assert set(casted.columns) == set(expected)
+    assert compacted == [
+        "continuous_front_indicator_frames",
+        "continuous_front_derived_indicator_frames",
+    ]
+    assert owner._input_row_hash_from_payload(
+        {**business, storage_close: source[storage_close]}
+    ) == (owner._input_row_hash_from_payload(business))
 
 
 def _indicator_row(ts: str, value: float, contract_id: str) -> dict[str, object]:

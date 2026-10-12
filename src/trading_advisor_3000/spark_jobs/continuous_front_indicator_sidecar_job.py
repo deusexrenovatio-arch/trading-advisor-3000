@@ -6,6 +6,13 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterable
 
+from trading_advisor_3000.product_plane.common.data_snapshots import read_spark_delta
+from trading_advisor_3000.product_plane.common.table_layout import (
+    YEAR_PARTITION_COLUMN,
+    compact_spark_table,
+    default_file_policy,
+    with_spark_close_year,
+)
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
     delta_table_columns,
@@ -32,6 +39,10 @@ from .research_bar_views_job import _scoped_delete_condition
 
 ROW_HASH_VERSION = "continuous-front-indicator-row-hash-v2"
 CONTINUOUS_FRONT_SIDECAR_CONTOUR_ID = "pit_active_front"
+STORAGE_CLOSE_COLUMN = "__storage_close_ts"
+YEARLY_SIDECAR_TABLES = frozenset(
+    {"continuous_front_indicator_frames", "continuous_front_derived_indicator_frames"}
+)
 
 BAR_VIEW_INPUT_COLUMNS = (
     "dataset_version",
@@ -40,6 +51,7 @@ BAR_VIEW_INPUT_COLUMNS = (
     "instrument_id",
     "timeframe",
     "ts",
+    "bar_end_ts",
     "open",
     "high",
     "low",
@@ -111,6 +123,7 @@ INPUT_JOIN_COLUMNS = (
     "bars_since_roll",
     "cumulative_additive_offset",
     "input_front_row_hash",
+    STORAGE_CLOSE_COLUMN,
 )
 
 SIDECAR_JOIN_KEY_COLUMNS = ("instrument_id", "timeframe", "ts")
@@ -313,7 +326,7 @@ def _input_row_hash_from_payload(payload: object) -> str:
     hashed = {
         str(key): _normalize_hash_value(value)
         for key, value in row.items()
-        if key not in {"created_at_utc", "input_front_row_hash"}
+        if key not in {"created_at_utc", "input_front_row_hash", STORAGE_CLOSE_COLUMN}
     }
     return stable_hash(hashed)
 
@@ -343,16 +356,51 @@ def _cast_to_sidecar_contract(
 
     columns = dict(contract[table_name]["columns"])
     existing = set(dataframe.columns)
-    return dataframe.select(
-        *[
-            (
-                F.col(column).cast(_spark_cast_type(str(type_name))).alias(column)
-                if column in existing
-                else F.lit(None).cast(_spark_cast_type(str(type_name))).alias(column)
-            )
-            for column, type_name in columns.items()
-        ]
+    expressions = [
+        (
+            F.col(column).cast(_spark_cast_type(str(type_name))).alias(column)
+            if column in existing
+            else F.lit(None).cast(_spark_cast_type(str(type_name))).alias(column)
+        )
+        for column, type_name in columns.items()
+    ]
+    if table_name not in YEARLY_SIDECAR_TABLES:
+        return dataframe.select(*expressions)
+    if STORAGE_CLOSE_COLUMN not in existing:
+        raise ValueError("sidecar physical layout requires authoritative bar_end_ts")
+    if dataframe.schema[STORAGE_CLOSE_COLUMN].dataType.simpleString() == "timestamp_ntz":
+        raise ValueError("sidecar physical close timestamps require LTZ instants")
+    casted = dataframe.select(
+        *expressions, F.col(STORAGE_CLOSE_COLUMN).cast("timestamp").alias(STORAGE_CLOSE_COLUMN)
     )
+    # Preserve legacy business ts_close/hash semantics. Physical year follows
+    # the existing L0 provenance close, including daily and CF boundaries.
+    casted = casted.withColumn("__business_ts_close", F.col("ts_close"))
+    return (
+        with_spark_close_year(
+            casted.withColumn("ts_close", F.col(STORAGE_CLOSE_COLUMN)), functions=F
+        )
+        .withColumn("ts_close", F.col("__business_ts_close").cast("timestamp"))
+        .drop(STORAGE_CLOSE_COLUMN, "__business_ts_close")
+    )
+
+
+def _sidecar_storage_contract(contract: dict[str, dict[str, object]]):
+    # Only this Spark owner is activated. Shared Arrow/business contracts retain
+    # their current policy until their own producer is ready.
+    return {
+        name: {
+            **table,
+            "partition_by": [YEAR_PARTITION_COLUMN],
+            "physical_columns": {YEAR_PARTITION_COLUMN: "int"},
+            "file_policy": default_file_policy(),
+        }
+        if name in YEARLY_SIDECAR_TABLES
+        else {**table, "partition_by": []}
+        if name == "cf_indicator_input_frame"
+        else table
+        for name, table in contract.items()
+    }
 
 
 def _write_sidecar_delta_table(
@@ -364,20 +412,44 @@ def _write_sidecar_delta_table(
     replace_scope: list[tuple[str, str, object]],
 ) -> None:
     table_path = output_dir / f"{table_name}.delta"
+    contract = _sidecar_storage_contract(contract)
+    partition_by = list(contract[table_name]["partition_by"])
+    exists = has_delta_log(table_path)
+    carrier_type = None
+    if exists:
+        from delta.tables import DeltaTable  # type: ignore[import-not-found]
+
+        target = DeltaTable.forPath(dataframe.sparkSession, str(table_path))
+        if target.detail().select("partitionColumns").first()[0] != partition_by:
+            raise ValueError("sidecar requires an isolated layout migration before mutation")
+        if table_name in YEARLY_SIDECAR_TABLES:
+            schema = read_spark_delta(dataframe.sparkSession, str(table_path)).schema
+            if YEAR_PARTITION_COLUMN not in schema.fieldNames():
+                raise ValueError("sidecar requires its physical close-year carrier before mutation")
+            carrier_type = schema[YEAR_PARTITION_COLUMN].dataType
+            if carrier_type.simpleString() not in {"int", "bigint"}:
+                raise ValueError("sidecar requires an integer physical close-year carrier")
     casted = _cast_to_sidecar_contract(dataframe, table_name=table_name, contract=contract)
+    if carrier_type is not None:
+        from pyspark.sql import functions as F  # type: ignore[import-not-found]
+
+        casted = casted.withColumn(
+            YEAR_PARTITION_COLUMN, F.col(YEAR_PARTITION_COLUMN).cast(carrier_type)
+        )
     _assert_unique_by_key(
         casted,
         table_name=table_name,
         key_columns=SIDECAR_UNIQUE_KEYS_BY_TABLE[table_name],
         frame_role="write source",
     )
-    partition_by = list(contract[table_name].get("partition_by") or [])
     table_path.parent.mkdir(parents=True, exist_ok=True)
-    if not has_delta_log(table_path):
+    if not exists:
         writer = casted.write.format("delta").mode("overwrite").option("overwriteSchema", "true")
         if partition_by:
             writer = writer.partitionBy(*partition_by)
         writer.save(str(table_path))
+        if table_name in YEARLY_SIDECAR_TABLES:
+            compact_spark_table(dataframe.sparkSession, table_path, family=table_name)
         return
 
     casted.limit(0).write.format("delta").mode("append").option("mergeSchema", "true").save(
@@ -390,6 +462,8 @@ def _write_sidecar_delta_table(
         _scoped_delete_condition(replace_scope)
     )
     casted.write.format("delta").mode("append").option("mergeSchema", "true").save(str(table_path))
+    if table_name in YEARLY_SIDECAR_TABLES:
+        compact_spark_table(dataframe.sparkSession, table_path, family=table_name)
 
 
 def _scope_filters(
@@ -576,6 +650,7 @@ def _build_input_frame(
         F.col("timeframe"),
         F.col("ts"),
         F.col("__ts_close").alias("ts_close"),
+        F.col("bar_end_ts").alias(STORAGE_CLOSE_COLUMN),
         F.col("session_date"),
         F.coalesce(F.col("session_open_ts"), F.col("ts")).alias("session_open_ts"),
         F.coalesce(F.col("session_close_ts"), F.col("__ts_close")).alias("session_close_ts"),
@@ -742,6 +817,7 @@ def _build_base_sidecar_frame(
         F.col("base.timeframe").alias("timeframe"),
         F.col("base.ts").alias("ts"),
         F.col("input.ts_close").alias("ts_close"),
+        F.col(f"input.{STORAGE_CLOSE_COLUMN}").alias(STORAGE_CLOSE_COLUMN),
         F.col("input.session_date").alias("session_date"),
         F.col("input.active_contract_id").alias("active_contract_id"),
         F.col("input.roll_epoch_id").alias("roll_epoch_id"),
@@ -874,6 +950,7 @@ def _build_derived_sidecar_frame(
             F.col("derived.timeframe").alias("timeframe"),
             F.col("derived.ts").alias("ts"),
             F.col("input.ts_close").alias("ts_close"),
+            F.col(f"input.{STORAGE_CLOSE_COLUMN}").alias(STORAGE_CLOSE_COLUMN),
             F.col("input.session_date").alias("session_date"),
             F.col("input.active_contract_id").alias("active_contract_id"),
             F.col("input.roll_epoch_id").alias("roll_epoch_id"),
@@ -904,6 +981,7 @@ def _build_derived_sidecar_frame(
         F.col("joined.timeframe").alias("timeframe"),
         F.col("joined.ts").alias("ts"),
         F.col("joined.ts_close").alias("ts_close"),
+        F.col(f"joined.{STORAGE_CLOSE_COLUMN}").alias(STORAGE_CLOSE_COLUMN),
         F.col("joined.session_date").alias("session_date"),
         F.col("joined.active_contract_id").alias("active_contract_id"),
         F.col("joined.roll_epoch_id").alias("roll_epoch_id"),
@@ -989,7 +1067,9 @@ def run_continuous_front_indicator_sidecar_spark_job(
         derived_value_columns=derived_value_columns,
         include_derived=include_derived,
     )
-    resolved_contract = contract or continuous_front_indicator_store_contract()
+    resolved_contract = _sidecar_storage_contract(
+        contract or continuous_front_indicator_store_contract()
+    )
     record_stage_timing(stage_timings, "validate_sources", stage_started)
     spec = ContinuousFrontIndicatorSidecarSparkJobSpec()
     spark_factory = spark_session_factory or _create_spark_session
