@@ -2,14 +2,20 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 
+from trading_advisor_3000.product_plane.common.data_snapshots import read_spark_delta
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
     has_delta_log,
+)
+from trading_advisor_3000.product_plane.data_plane.moex.contract_parameter_continuation import (
+    MoexContractParameterEvidence,
+    bind_contract_parameter_input,
+    validate_contract_parameter_evidence,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.economics import (
     MOEX_CONTRACT_ECONOMICS_MODEL_VERSION,
@@ -17,7 +23,9 @@ from trading_advisor_3000.product_plane.data_plane.moex.economics import (
     MOEX_FX_OR_USD_LINKED_ASSETS,
     MOEX_HISTORICAL_CONTRACT_PARAMETER_REGIMES,
     MOEX_MARGIN_BUFFER_POLICY_VERSION,
+    MoexContractParameterRegime,
     moex_economics_store_contract,
+    validate_contract_parameter_regimes,
 )
 
 from .canonical_bars_job import DEFAULT_SPARK_MASTER, _create_spark_session
@@ -281,11 +289,11 @@ def _json_safe_value(value: object) -> object:
     return value
 
 
-def _contract_specs_frame(spark: object, table_path: Path):
+def _contract_specs_frame(spark: object, table_path: Path, *, source_version: int | None = None):
     from pyspark.sql import Window  # type: ignore[import-not-found]
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
-    raw = spark.read.format("delta").load(str(table_path))
+    raw = read_spark_delta(spark, table_path, version=source_version)
     assetcode = F.upper(_column_or_json(raw, "assetcode", "asset_code", "ASSETCODE"))
     base = (
         raw.withColumn("contract_id", _column_or_json(raw, "moex_secid", "SECID", "secid"))
@@ -311,15 +319,24 @@ def _contract_specs_frame(spark: object, table_path: Path):
         )
         .withColumn(
             "history_value_rub",
-            F.get_json_object(F.col("raw_payload_json"), "$.history.VALUE").cast("double"),
+            F.coalesce(
+                F.get_json_object(F.col("raw_payload_json"), "$.history.VALUE"),
+                F.get_json_object(F.col("raw_payload_json"), "$.VALUE"),
+            ).cast("double"),
         )
         .withColumn(
             "history_volume",
-            F.get_json_object(F.col("raw_payload_json"), "$.history.VOLUME").cast("double"),
+            F.coalesce(
+                F.get_json_object(F.col("raw_payload_json"), "$.history.VOLUME"),
+                F.get_json_object(F.col("raw_payload_json"), "$.VOLUME"),
+            ).cast("double"),
         )
         .withColumn(
             "history_waprice",
-            F.get_json_object(F.col("raw_payload_json"), "$.history.WAPRICE").cast("double"),
+            F.coalesce(
+                F.get_json_object(F.col("raw_payload_json"), "$.history.WAPRICE"),
+                F.get_json_object(F.col("raw_payload_json"), "$.WAPRICE"),
+            ).cast("double"),
         )
         .withColumn(
             "official_step_price",
@@ -372,49 +389,41 @@ def _contract_specs_frame(spark: object, table_path: Path):
     return base.withColumn("maturity_rank", F.dense_rank().over(rank_window))
 
 
-def _contract_parameter_regimes_frame(spark: object):
-    values_sql = ",\n".join(
-        "("
-        + ", ".join(
-            (
-                f"'{rule.rule_id}'",
-                f"'{rule.assetcode}'",
-                f"DATE '{rule.effective_from}'",
-                f"DATE '{rule.effective_to}'",
-                str(rule.min_step),
-                str(rule.lot_volume),
-                f"'{rule.quote_currency}'",
-                str(rule.tick_value_quote),
-                f"'{rule.source_document_id}'",
-            )
-        )
-        + ")"
-        for rule in MOEX_HISTORICAL_CONTRACT_PARAMETER_REGIMES
+def _contract_parameter_regimes_frame(
+    spark: object, additional_regimes: tuple[MoexContractParameterRegime, ...] = ()
+):
+    regimes = validate_contract_parameter_regimes(
+        additional_regimes, registered=MOEX_HISTORICAL_CONTRACT_PARAMETER_REGIMES
     )
-    return spark.sql(
-        f"""
-        SELECT *
-        FROM VALUES
-        {values_sql}
-        AS regimes(
-            rule_id,
-            rule_assetcode,
-            rule_effective_from,
-            rule_effective_to,
-            rule_min_step,
-            rule_lot_volume,
-            rule_quote_currency,
-            rule_tick_value_quote,
-            rule_source_document_id
-        )
-        """
+    return spark.createDataFrame(
+        [
+            (
+                rule.rule_id,
+                rule.assetcode,
+                date.fromisoformat(rule.effective_from),
+                date.fromisoformat(rule.effective_to),
+                float(rule.min_step),
+                float(rule.lot_volume),
+                rule.quote_currency,
+                float(rule.tick_value_quote),
+                rule.source_document_id,
+                rule.validation_method,
+            )
+            for rule in regimes
+        ],
+        schema=(
+            "rule_id STRING, rule_assetcode STRING, rule_effective_from DATE, "
+            "rule_effective_to DATE, rule_min_step DOUBLE, rule_lot_volume DOUBLE, "
+            "rule_quote_currency STRING, rule_tick_value_quote DOUBLE, "
+            "rule_source_document_id STRING, rule_validation_method STRING"
+        ),
     )
 
 
 def _fx_rates_frame(spark: object, table_path: Path):
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
-    raw = spark.read.format("delta").load(str(table_path))
+    raw = read_spark_delta(spark, str(table_path))
     parsed_source = (
         raw.withColumn("fx_pair", F.upper(_column_or_json(raw, "fx_pair", "secid", "SECID")))
         .withColumn(
@@ -432,7 +441,7 @@ def _fx_rates_frame(spark: object, table_path: Path):
         )
         .withColumn("rate_to_rub", _column_or_json(raw, "rate", "RATE").cast("double"))
         .withColumn("base_currency", F.split(F.col("fx_pair"), "/").getItem(0))
-        .withColumn("quote_currency", F.lit("RUB"))
+        .withColumn("quote_currency", F.split(F.col("fx_pair"), "/").getItem(1))
         .withColumn("source_id", F.col("source_id"))
         .withColumn("source_document_id", F.col("source_document_id"))
         .withColumn("source_document_hash", F.col("source_document_hash"))
@@ -442,7 +451,7 @@ def _fx_rates_frame(spark: object, table_path: Path):
             & F.col("rate_date").isNotNull()
             & F.col("rate_to_rub").isNotNull()
         )
-        .where(F.col("fx_pair") != F.lit("RUB/RUB"))
+        .where(F.col("fx_pair").rlike("^[A-Z]{3}/RUB$") & (F.col("fx_pair") != "RUB/RUB"))
     )
     parsed = _latest_snapshot_by_key(
         parsed_source,
@@ -485,20 +494,36 @@ def _asset_risk_parameters_frame(spark: object, limits_path: Path, staticparams_
             _column_or_json(dataframe, "updatetime", "UPDATETIME", "update_time", "UPDATE_TIME"),
         )
 
-    def _latest_snapshot(frame, source_hash_column: str):
+    def _source_available_ts(dataframe):
+        # Normalized timestamps are UTC; native ISS updatetime is Moscow local.
+        return F.coalesce(
+            F.to_timestamp(_optional_column(dataframe, "update_time")),
+            F.to_utc_timestamp(
+                F.to_timestamp(_column_or_json(dataframe, "updatetime", "UPDATETIME")),
+                "Europe/Moscow",
+            ),
+        )
+
+    def _latest_snapshot(frame, source_hash_column: str, history_column: str, history_fields):
         snapshot_window = Window.partitionBy("assetcode", "risk_session_date").orderBy(
             F.col("__source_update_ts").desc_nulls_last(),
             F.col("__source_update_text").desc_nulls_last(),
             F.col(source_hash_column).desc_nulls_last(),
         )
         return (
-            frame.withColumn("__source_row_rank", F.row_number().over(snapshot_window))
+            frame.withColumn(
+                history_column,
+                F.collect_list(F.struct(*history_fields)).over(
+                    Window.partitionBy("assetcode", "risk_session_date")
+                ),
+            )
+            .withColumn("__source_row_rank", F.row_number().over(snapshot_window))
             .where(F.col("__source_row_rank") == F.lit(1))
             .drop("__source_update_text", "__source_update_ts", "__source_row_rank")
         )
 
-    limits_raw = spark.read.format("delta").load(str(limits_path))
-    static_raw = spark.read.format("delta").load(str(staticparams_path))
+    limits_raw = read_spark_delta(spark, str(limits_path))
+    static_raw = read_spark_delta(spark, str(staticparams_path))
     limits = _latest_snapshot(
         limits_raw.withColumn(
             "assetcode",
@@ -517,10 +542,19 @@ def _asset_risk_parameters_frame(spark: object, limits_path: Path, staticparams_
         .withColumn("mr2", _column_or_json(limits_raw, "mr2", "MR2").cast("double"))
         .withColumn("mr3", _column_or_json(limits_raw, "mr3", "MR3").cast("double"))
         .withColumn("source_limits_hash", F.col("source_document_hash"))
+        .withColumn("__limits_available_ts", _source_available_ts(limits_raw))
         .withColumn("__source_update_text", _source_update_text(limits_raw))
         .withColumn("__source_update_ts", F.to_timestamp(F.col("__source_update_text")))
         .where(F.col("assetcode").isNotNull() & F.col("risk_session_date").isNotNull()),
         "source_limits_hash",
+        "__limits_history",
+        [
+            F.col("__limits_available_ts").alias("available_from_ts"),
+            F.col("source_limits_hash").alias("source_hash"),
+            F.col("mr1"),
+            F.col("mr2"),
+            F.col("mr3"),
+        ],
     )
     static = _latest_snapshot(
         static_raw.withColumn(
@@ -541,10 +575,17 @@ def _asset_risk_parameters_frame(spark: object, limits_path: Path, staticparams_
             _column_or_json(static_raw, "radius_pct", "radius", "RADIUS").cast("double"),
         )
         .withColumn("source_staticparams_hash", F.col("source_document_hash"))
+        .withColumn("__static_available_ts", _source_available_ts(static_raw))
         .withColumn("__source_update_text", _source_update_text(static_raw))
         .withColumn("__source_update_ts", F.to_timestamp(F.col("__source_update_text")))
         .where(F.col("assetcode").isNotNull() & F.col("risk_session_date").isNotNull()),
         "source_staticparams_hash",
+        "__static_history",
+        [
+            F.col("__static_available_ts").alias("available_from_ts"),
+            F.col("source_staticparams_hash").alias("source_hash"),
+            F.col("source_radius_pct").alias("radius_pct"),
+        ],
     )
     joined = limits.alias("limits").join(
         static.alias("static"),
@@ -568,6 +609,16 @@ def _asset_risk_parameters_frame(spark: object, limits_path: Path, staticparams_
         .alias("radius_source"),
         F.col("limits.source_limits_hash").alias("source_limits_hash"),
         F.col("static.source_staticparams_hash").alias("source_staticparams_hash"),
+        F.when(
+            F.col("limits.__limits_available_ts").isNotNull()
+            & (
+                F.col("static.source_staticparams_hash").isNull()
+                | F.col("static.__static_available_ts").isNotNull()
+            ),
+            F.greatest("limits.__limits_available_ts", "static.__static_available_ts"),
+        ).alias("__risk_available_from_ts"),
+        F.col("limits.__limits_history").alias("__limits_history"),
+        F.col("static.__static_history").alias("__static_history"),
         F.lit(MOEX_CONTRACT_ECONOMICS_MODEL_VERSION).alias("model_version"),
         F.current_timestamp().alias("created_at"),
     )
@@ -592,8 +643,7 @@ def _with_effective_sessions(contract_specs, *, canonical_session_calendar_path:
 
     spark = contract_specs.sparkSession
     calendar = (
-        spark.read.format("delta")
-        .load(str(canonical_session_calendar_path))
+        read_spark_delta(spark, str(canonical_session_calendar_path))
         .select(
             F.col("instrument_id").alias("calendar_instrument_id"),
             F.col("session_date").alias("calendar_session_date"),
@@ -685,7 +735,9 @@ def _with_effective_sessions(contract_specs, *, canonical_session_calendar_path:
     )
 
 
-def _with_latest_margin_calibration(economics):
+def _with_latest_margin_calibration(
+    economics, *, margin_calibration_as_of_date: date | None = None
+):
     from pyspark.sql import Window  # type: ignore[import-not-found]
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
@@ -695,7 +747,12 @@ def _with_latest_margin_calibration(economics):
         & F.col("assetcode").isNotNull()
         & F.col("maturity_rank").isNotNull()
     )
-    calibration_as_of = economics.where(valid_calibration).agg(
+    calibration_inputs = economics.where(valid_calibration)
+    if margin_calibration_as_of_date is not None:
+        calibration_inputs = calibration_inputs.where(
+            F.col("economics_session_date") == F.lit(margin_calibration_as_of_date)
+        )
+    calibration_as_of = calibration_inputs.agg(
         F.max("economics_session_date").alias("__calibration_as_of_date")
     )
     calibration_lookup = (
@@ -775,7 +832,8 @@ def _with_latest_margin_calibration(economics):
         .otherwise(F.lit(None).cast("double"))
     )
     model_quality = (
-        F.when(
+        F.when(margin_required.isNull(), F.lit("unavailable"))
+        .when(
             F.col("official_initial_margin") > F.lit(0.0),
             F.lit("official_initial_margin"),
         )
@@ -853,8 +911,7 @@ def _filter_non_session_contract_specs(
     if canonical_session_calendar_path is not None:
         spark = contract_specs.sparkSession
         session_dates = (
-            spark.read.format("delta")
-            .load(str(canonical_session_calendar_path))
+            read_spark_delta(spark, str(canonical_session_calendar_path))
             .select(F.col("session_date").alias("__calendar_session_date"))
             .where(F.col("__calendar_session_date").isNotNull())
             .distinct()
@@ -901,6 +958,8 @@ def _economics_frame(
     risk_parameters,
     *,
     canonical_session_calendar_path: Path | None = None,
+    margin_calibration_as_of_date: date | None = None,
+    additional_contract_parameter_regimes: tuple[MoexContractParameterRegime, ...] = (),
 ):
     from pyspark.sql import Window  # type: ignore[import-not-found]
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
@@ -933,16 +992,108 @@ def _economics_frame(
         .where(F.col("__fx_rank") == F.lit(1))
         .drop("__fx_priority", "__fx_rank")
     )
-    risk_for_economics = (
-        contract_specs.select("contract_id", "trade_date", "assetcode")
+    risk_parameters = risk_parameters.withColumn(
+        "__risk_available_from_ts",
+        _optional_column(risk_parameters, "__risk_available_from_ts").cast("timestamp"),
+    )
+    prior_risk = F.col("risk.risk_session_date") <= F.col("spec_risk.trade_date")
+    risk_candidates = (
+        contract_specs.select(
+            "contract_id", "trade_date", "assetcode", "effective_session_date", "effective_from_ts"
+        )
         .distinct()
         .alias("spec_risk")
         .join(
             risk_parameters.alias("risk"),
             (F.col("spec_risk.assetcode") == F.col("risk.assetcode"))
-            & (F.col("risk.risk_session_date") <= F.col("spec_risk.trade_date")),
+            & (
+                prior_risk
+                | (F.col("risk.risk_session_date") <= F.col("spec_risk.effective_session_date"))
+            ),
             "left",
         )
+    )
+    future_available_ts = F.col("risk.__risk_available_from_ts")
+    future_values = {
+        name: F.col(f"risk.{name}")
+        for name in (
+            "mr1",
+            "mr2",
+            "mr3",
+            "radius_pct",
+            "radius_source",
+            "source_limits_hash",
+            "source_staticparams_hash",
+        )
+    }
+    future_eligible = (future_available_ts <= F.col("spec_risk.effective_from_ts")) & (
+        F.col("risk.mr1") > F.lit(0.0)
+    )
+    if {"__limits_history", "__static_history"}.issubset(risk_parameters.columns):
+        # Daily rows remain latest/day. Only launch fallback consults compact
+        # source history before its publication cutoff; never a raw cross join.
+        cutoff = F.col("spec_risk.effective_from_ts")
+        risk_candidates = risk_candidates.withColumn(
+            "__published_limits_snapshot",
+            F.when(
+                ~prior_risk,
+                F.element_at(
+                    F.sort_array(
+                        F.filter(
+                            F.col("risk.__limits_history"),
+                            lambda snapshot: (
+                                (snapshot.available_from_ts <= cutoff) & (snapshot.mr1 > F.lit(0.0))
+                            ),
+                        )
+                    ),
+                    -1,
+                ),
+            ),
+        ).withColumn(
+            "__published_static_snapshot",
+            F.when(
+                ~prior_risk,
+                F.element_at(
+                    F.sort_array(
+                        F.filter(
+                            F.col("risk.__static_history"),
+                            lambda snapshot: snapshot.available_from_ts <= cutoff,
+                        )
+                    ),
+                    -1,
+                ),
+            ),
+        )
+        limits_snapshot = F.col("__published_limits_snapshot")
+        static_snapshot = F.col("__published_static_snapshot")
+        future_available_ts = F.greatest(
+            limits_snapshot.available_from_ts, static_snapshot.available_from_ts
+        )
+        future_eligible = limits_snapshot.isNotNull() & (
+            ~F.coalesce(F.size(F.col("risk.__static_history")) > F.lit(0), F.lit(False))
+            | static_snapshot.isNotNull()
+        )
+        future_values = {
+            "mr1": limits_snapshot.mr1,
+            "mr2": limits_snapshot.mr2,
+            "mr3": limits_snapshot.mr3,
+            "radius_pct": F.coalesce(static_snapshot.radius_pct, F.lit(MOEX_DEFAULT_RADIUS_PCT)),
+            "radius_source": F.when(
+                static_snapshot.radius_pct.isNull(), F.lit("policy_default")
+            ).otherwise(F.lit("source")),
+            "source_limits_hash": limits_snapshot.source_hash,
+            "source_staticparams_hash": static_snapshot.source_hash,
+        }
+    for name, future_value in future_values.items():
+        risk_candidates = risk_candidates.withColumn(
+            f"__selected_{name}", F.when(prior_risk, F.col(f"risk.{name}")).otherwise(future_value)
+        )
+    risk_candidates = risk_candidates.withColumn(
+        "__selected_available_from_ts",
+        F.when(prior_risk, F.col("risk.__risk_available_from_ts")).otherwise(future_available_ts),
+    )
+    risk_for_economics = (
+        risk_candidates.where(F.col("risk.assetcode").isNull() | prior_risk | future_eligible)
         .withColumn(
             "__risk_rank",
             F.row_number().over(
@@ -950,7 +1101,13 @@ def _economics_frame(
                     F.col("spec_risk.contract_id"),
                     F.col("spec_risk.trade_date"),
                     F.col("spec_risk.assetcode"),
-                ).orderBy(F.col("risk.risk_session_date").desc_nulls_last())
+                ).orderBy(
+                    F.when(prior_risk, 0).otherwise(1),
+                    F.col("risk.risk_session_date").desc_nulls_last(),
+                    F.col("__selected_available_from_ts").desc_nulls_last(),
+                    F.col("__selected_source_limits_hash").desc_nulls_last(),
+                    F.col("__selected_source_staticparams_hash").desc_nulls_last(),
+                )
             ),
         )
         .where(F.col("__risk_rank") == F.lit(1))
@@ -960,17 +1117,22 @@ def _economics_frame(
             F.col("spec_risk.assetcode").alias("__risk_contract_assetcode"),
             F.col("risk.assetcode").alias("assetcode"),
             F.col("risk.risk_session_date").alias("risk_session_date"),
-            F.col("risk.mr1").alias("mr1"),
-            F.col("risk.mr2").alias("mr2"),
-            F.col("risk.mr3").alias("mr3"),
-            F.col("risk.radius_pct").alias("radius_pct"),
-            F.col("risk.radius_source").alias("radius_source"),
-            F.col("risk.source_limits_hash").alias("source_limits_hash"),
-            F.col("risk.source_staticparams_hash").alias("source_staticparams_hash"),
+            *[F.col(f"__selected_{name}").alias(name) for name in future_values],
+            F.col("__selected_available_from_ts").alias("__risk_available_from_ts"),
+            F.when(
+                F.col("risk.risk_session_date") > F.col("spec_risk.trade_date"),
+                F.lit("first_published_before_effective_session"),
+            )
+            .when(F.col("risk.risk_session_date").isNotNull(), F.lit("latest_prior_source_date"))
+            .otherwise(F.lit("unavailable"))
+            .alias("__risk_selection"),
         )
     )
-    contract_parameter_regimes = _contract_parameter_regimes_frame(contract_specs.sparkSession)
+    contract_parameter_regimes = _contract_parameter_regimes_frame(
+        contract_specs.sparkSession, additional_contract_parameter_regimes
+    )
     main_clearing_fx = fx_rates.where(F.col("clearing_type") == F.lit("mc"))
+    dated_tc_fx = fx_rates.where(F.col("clearing_type") == F.lit("tc"))
     joined = (
         contract_specs.alias("spec")
         .join(
@@ -997,6 +1159,12 @@ def _economics_frame(
             main_clearing_fx.alias("step_fx"),
             (F.col("rule.rule_quote_currency") == F.col("step_fx.base_currency"))
             & (F.col("spec.trade_date") == F.col("step_fx.rate_date")),
+            "left",
+        )
+        .join(
+            dated_tc_fx.alias("validation_fx"),
+            (F.col("rule.rule_quote_currency") == F.col("validation_fx.base_currency"))
+            & (F.col("spec.trade_date") == F.col("validation_fx.rate_date")),
             "left",
         )
     )
@@ -1036,10 +1204,34 @@ def _economics_frame(
             * F.col("spec.min_step")
         ),
     ).otherwise(F.lit(None).cast("double"))
-    rule_validation_relative_error = F.when(
-        (rule_step_price_rub > F.lit(0.0)) & turnover_implied_step_price_rub.isNotNull(),
-        F.abs(turnover_implied_step_price_rub / rule_step_price_rub - F.lit(1.0)),
-    ).otherwise(F.lit(None).cast("double"))
+    dated_validation_rate = F.when(
+        F.col("rule.rule_quote_currency") == F.lit("RUB"), F.lit(1.0)
+    ).otherwise(F.col("validation_fx.rate_to_rub"))
+    rule_validation_relative_error = (
+        F.when(
+            F.col("rule.rule_validation_method") == F.lit("dated_official_tc"),
+            F.when(
+                (F.col("spec.official_step_price") > F.lit(0.0))
+                & (F.col("spec.official_step_price") < F.lit(float("inf")))
+                & (
+                    (F.col("validation_fx.clearing_type") == F.lit("tc"))
+                    | (F.col("rule.rule_quote_currency") == F.lit("RUB"))
+                )
+                & (dated_validation_rate > F.lit(0.0))
+                & (dated_validation_rate < F.lit(float("inf"))),
+                F.abs(
+                    F.col("spec.official_step_price")
+                    / (F.col("rule.rule_tick_value_quote") * dated_validation_rate)
+                    - F.lit(1.0)
+                ),
+            ),
+        )
+        .when(
+            (rule_step_price_rub > F.lit(0.0)) & turnover_implied_step_price_rub.isNotNull(),
+            F.abs(turnover_implied_step_price_rub / rule_step_price_rub - F.lit(1.0)),
+        )
+        .otherwise(F.lit(None).cast("double"))
+    )
     tick_value_currency = F.when(
         F.upper(resolved_quote_currency) == F.lit("RUB"),
         step_price_rub,
@@ -1078,9 +1270,14 @@ def _economics_frame(
                 F.struct(
                     applied_radius_source.alias("radius_source"),
                     F.col("risk.risk_session_date").cast("string").alias("risk_session_date"),
+                    F.col("risk.__risk_available_from_ts").alias("risk_available_from_ts"),
+                    F.coalesce(F.col("risk.__risk_selection"), F.lit("unavailable")).alias(
+                        "risk_selection"
+                    ),
                     F.coalesce(F.col("step_fx.fx_pair"), F.col("fx.fx_pair")).alias("fx_pair"),
                     step_price_source.alias("step_price_source"),
                     F.col("rule.rule_id").alias("step_price_rule_id"),
+                    F.col("rule.rule_validation_method").alias("step_price_rule_validation_method"),
                     F.col("rule.rule_source_document_id").alias(
                         "step_price_rule_source_document_id"
                     ),
@@ -1152,6 +1349,7 @@ def _economics_frame(
         "source_document_hashes_json",
         step_price_source.alias("__step_price_source"),
         F.col("rule.rule_id").alias("__step_price_rule_id"),
+        F.col("rule.rule_validation_method").alias("__step_price_rule_validation_method"),
         F.col("rule.rule_assetcode").alias("__step_price_rule_assetcode"),
         F.col("rule.rule_quote_currency").alias("__step_price_rule_quote_currency"),
         F.col("rule.rule_min_step").alias("__step_price_rule_min_step"),
@@ -1162,7 +1360,9 @@ def _economics_frame(
         rule_validation_relative_error.alias("__step_price_rule_validation_relative_error"),
         F.current_timestamp().alias("created_at"),
     )
-    return _with_latest_margin_calibration(uncalibrated)
+    return _with_latest_margin_calibration(
+        uncalibrated, margin_calibration_as_of_date=margin_calibration_as_of_date
+    )
 
 
 def _missing_input_counts(economics) -> dict[str, int]:
@@ -1194,6 +1394,9 @@ def _missing_input_counts(economics) -> dict[str, int]:
 
 def _fail_closed_on_missing_inputs(
     economics,
+    *,
+    allow_calibrated_latest_margin: bool = False,
+    margin_calibration_as_of_date: date | None = None,
 ) -> tuple[dict[str, int], dict[str, int]]:
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
@@ -1209,8 +1412,32 @@ def _fail_closed_on_missing_inputs(
     offenders = [
         f"{key}={value}"
         for key, value in latest_missing_counts.items()
-        if value and key != "OFFICIAL_STEPPRICE"
+        if value
+        and key != "OFFICIAL_STEPPRICE"
+        and not (allow_calibrated_latest_margin and key == "INITIALMARGIN")
     ]
+    if allow_calibrated_latest_margin:
+        if margin_calibration_as_of_date is None:
+            raise ValueError("historical margin mode requires an explicit calibration date")
+        modeled_latest = economics.where(
+            (F.col("economics_session_date") == F.lit(latest_session_date))
+            & ~F.coalesce(F.col("official_initial_margin") > F.lit(0.0), F.lit(False))
+        )
+        valid_model = (
+            F.col("model_quality").isin("calibrated_asset_rank", "calibrated_nearest_rank")
+            & (F.col("margin_calibration_as_of_date") == F.lit(margin_calibration_as_of_date))
+            & (F.col("margin_calibration_as_of_date") <= F.col("economics_session_date"))
+            & (F.col("margin_calibration_factor") > F.lit(0.0))
+            & (F.col("margin_calibration_factor") < F.lit(float("inf")))
+            & (F.col("margin_required_estimate") > F.lit(0.0))
+            & (F.col("margin_required_estimate") < F.lit(float("inf")))
+            & F.col("margin_calibration_source").isin(
+                "latest_official_asset_rank", "latest_official_nearest_rank"
+            )
+        )
+        invalid_model_rows = modeled_latest.where(~F.coalesce(valid_model, F.lit(False))).count()
+        if invalid_model_rows:
+            offenders.append(f"CALIBRATED_INITIALMARGIN={invalid_model_rows}")
     if offenders:
         raise RuntimeError(
             "MOEX contract economics latest session missing required inputs: "
@@ -1269,17 +1496,23 @@ def _fail_closed_on_contract_parameter_regime_mismatches(economics) -> int:
     )
 
 
-def _fail_closed_on_step_price_rule_validation(economics) -> list[dict[str, object]]:
+def _fail_closed_on_step_price_rule_validation(
+    economics, *, additional_regimes: tuple[MoexContractParameterRegime, ...] = ()
+) -> list[dict[str, object]]:
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
     raw_profiles = [
         row.asDict()
         for row in economics.where(
             F.col("__step_price_rule_id").isNotNull()
-            & (F.col("__step_price_source") == F.lit("contract_parameter_regime"))
+            & (
+                (F.col("__step_price_source") == F.lit("contract_parameter_regime"))
+                | (F.col("__step_price_rule_validation_method") == F.lit("dated_official_tc"))
+            )
         )
         .groupBy(
             "__step_price_rule_id",
+            "__step_price_rule_validation_method",
             "__step_price_rule_assetcode",
             "__step_price_rule_quote_currency",
             "__step_price_rule_min_step",
@@ -1304,6 +1537,11 @@ def _fail_closed_on_step_price_rule_validation(economics) -> list[dict[str, obje
     profiles = [
         {
             "rule_id": raw["__step_price_rule_id"],
+            **(
+                {"validation_method": "dated_official_tc"}
+                if raw["__step_price_rule_validation_method"] == "dated_official_tc"
+                else {}
+            ),
             "assetcode": raw["__step_price_rule_assetcode"],
             "quote_currency": raw["__step_price_rule_quote_currency"],
             "min_step": _json_safe_value(raw["__step_price_rule_min_step"]),
@@ -1323,6 +1561,12 @@ def _fail_closed_on_step_price_rule_validation(economics) -> list[dict[str, obje
         or float(profile["validation_p95_relative_error"] or 0.0)
         > MOEX_STEP_PRICE_RULE_VALIDATION_P95_LIMIT
     ]
+    observed_ids = {profile["rule_id"] for profile in profiles}
+    offenders.extend(
+        rule.rule_id
+        for rule in additional_regimes
+        if rule.validation_method == "dated_official_tc" and rule.rule_id not in observed_ids
+    )
     if offenders:
         raise RuntimeError("MOEX step-price rule validation failed: " + ", ".join(offenders))
     return profiles
@@ -1442,11 +1686,35 @@ def run_moex_contract_economics_spark_job(
     raw_asset_risk_parameters_path: Path | None = None,
     output_dir: Path,
     canonical_session_calendar_path: Path | None = None,
+    allow_calibrated_latest_margin: bool = False,
+    margin_calibration_as_of_date: date | None = None,
+    additional_contract_parameter_regimes: tuple[MoexContractParameterRegime, ...] = (),
+    contract_parameter_evidence: MoexContractParameterEvidence | None = None,
     run_id: str = "contract-economics",
     report_path: Path | None = None,
     spark_master: str = DEFAULT_SPARK_MASTER,
     spark_session_factory: Callable[[str, str], object] | None = None,
 ) -> dict[str, object]:
+    if type(allow_calibrated_latest_margin) is not bool:
+        raise TypeError("allow_calibrated_latest_margin must be bool")
+    if (
+        margin_calibration_as_of_date is not None
+        and type(margin_calibration_as_of_date) is not date
+    ):
+        raise TypeError("margin_calibration_as_of_date must be date, excluding datetime")
+    if allow_calibrated_latest_margin != (margin_calibration_as_of_date is not None):
+        raise ValueError(
+            "allow_calibrated_latest_margin and margin_calibration_as_of_date "
+            "must be supplied together"
+        )
+    verified_parameter_evidence = validate_contract_parameter_evidence(
+        additional_contract_parameter_regimes, contract_parameter_evidence
+    )
+    prepared_source_version = (
+        bind_contract_parameter_input(raw_contract_specs_path, verified_parameter_evidence)
+        if verified_parameter_evidence is not None
+        else None
+    )
     if raw_asset_risk_parameters_path is not None and (
         raw_rms_limits_path is None or raw_rms_staticparams_path is None
     ):
@@ -1477,7 +1745,9 @@ def run_moex_contract_economics_spark_job(
     spark_factory = spark_session_factory or _create_spark_session
     spark = spark_factory(spec.app_name, spark_master)
     try:
-        contract_specs = _contract_specs_frame(spark, raw_contract_specs_path)
+        contract_specs = _contract_specs_frame(
+            spark, raw_contract_specs_path, source_version=prepared_source_version
+        )
         fx_rates = _fx_rates_frame(spark, raw_fx_rates_path)
         risk_parameters = _asset_risk_parameters_frame(
             spark,
@@ -1489,12 +1759,20 @@ def run_moex_contract_economics_spark_job(
             fx_rates,
             risk_parameters,
             canonical_session_calendar_path=canonical_session_calendar_path,
-        )
+            margin_calibration_as_of_date=margin_calibration_as_of_date,
+            additional_contract_parameter_regimes=additional_contract_parameter_regimes,
+        ).cache()
         contract_parameter_regime_mismatch_rows = (
             _fail_closed_on_contract_parameter_regime_mismatches(economics)
         )
-        missing_counts, historical_missing_counts = _fail_closed_on_missing_inputs(economics)
-        step_price_rule_profiles = _fail_closed_on_step_price_rule_validation(economics)
+        missing_counts, historical_missing_counts = _fail_closed_on_missing_inputs(
+            economics,
+            allow_calibrated_latest_margin=allow_calibrated_latest_margin,
+            margin_calibration_as_of_date=margin_calibration_as_of_date,
+        )
+        step_price_rule_profiles = _fail_closed_on_step_price_rule_validation(
+            economics, additional_regimes=additional_contract_parameter_regimes
+        )
         interval_counts = _fail_closed_on_invalid_intervals(economics)
         margin_calibration_report = _margin_calibration_report(economics)
 
@@ -1546,6 +1824,16 @@ def run_moex_contract_economics_spark_job(
             "status": "PASS",
             "mode": "moex_contract_economics_spark_job",
             "run_id": run_id,
+            "allow_calibrated_latest_margin": allow_calibrated_latest_margin,
+            "additional_contract_parameter_regimes": [
+                asdict(rule) for rule in additional_contract_parameter_regimes
+            ],
+            "contract_parameter_evidence": verified_parameter_evidence,
+            "requested_margin_calibration_as_of_date": (
+                margin_calibration_as_of_date.isoformat()
+                if margin_calibration_as_of_date is not None
+                else None
+            ),
             "row_counts": row_counts,
             "obsolete_model_rows_replaced": obsolete_model_rows_replaced,
             "missing_economics_rows": unavailable_economics_rows,

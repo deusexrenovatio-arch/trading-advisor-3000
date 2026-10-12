@@ -132,6 +132,9 @@ def _view(*, ts_index: int, close: float, volume: int = 1000) -> ResearchBarView
         instrument_id="BR",
         timeframe="15m",
         ts=ts,
+        bar_end_ts=(datetime.fromisoformat(ts.replace("Z", "+00:00")) + timedelta(minutes=15))
+        .isoformat()
+        .replace("+00:00", "Z"),
         open=close - 0.2,
         high=close + 0.5,
         low=close - 0.6,
@@ -265,6 +268,7 @@ def _sma2_indicator_row() -> IndicatorFrameRow:
         instrument_id="BR",
         timeframe="15m",
         ts="2026-03-16T09:00:00Z",
+        bar_end_ts="2026-03-16T09:15:00Z",
         values={"sma_2": 80.0},
         source_bars_hash="SRC-BARS",
         row_count=2,

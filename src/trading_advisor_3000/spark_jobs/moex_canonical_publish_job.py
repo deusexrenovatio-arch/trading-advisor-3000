@@ -8,6 +8,8 @@ from time import perf_counter
 from typing import Any, Callable
 from uuid import uuid4
 
+from trading_advisor_3000.product_plane.common.data_snapshots import read_spark_delta
+from trading_advisor_3000.product_plane.common.table_layout import with_spark_close_year
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log
 from trading_advisor_3000.product_plane.data_plane.schemas import (
     historical_data_delta_schema_manifest,
@@ -21,7 +23,9 @@ from .canonical_bars_job import (
 )
 from .moex_canonicalization_job import (
     MOEX_SESSION_TIMEZONE,
+    _prepare_closed_session_dates,
     _prepare_official_session_intervals,
+    _source_session_end_date,
 )
 
 CANONICAL_KEY_COLUMNS = ("contract_id", "instrument_id", "timeframe", "ts")
@@ -59,6 +63,9 @@ CANONICAL_PROVENANCE_COLUMNS: dict[str, str] = {
     "open_interest_imputed": "int",
     "build_run_id": "string",
     "built_at_utc": "timestamp",
+    "open_interest_trade_date": "date",
+    "open_interest_source_trade_date": "date",
+    "open_interest_availability_status": "string",
 }
 
 
@@ -76,14 +83,14 @@ def _ensure_spark_delta_runtime_available() -> None:
 
 def _table_or_empty(spark: Any, *, table_path: Path, schema: str) -> Any:
     if has_delta_log(table_path):
-        return spark.read.format("delta").load(str(table_path))
+        return read_spark_delta(spark, str(table_path))
     return spark.createDataFrame([], schema)
 
 
 def _delta_table_has_columns(spark: Any, *, table_path: Path, columns: tuple[str, ...]) -> bool:
     if not has_delta_log(table_path):
         return False
-    existing_columns = set(spark.read.format("delta").load(str(table_path)).columns)
+    existing_columns = set(read_spark_delta(spark, str(table_path)).columns)
     return set(columns).issubset(existing_columns)
 
 
@@ -92,7 +99,7 @@ def _delta_table_matches_schema(spark: Any, *, table_path: Path, columns: dict[s
         return False
     existing_types = {
         str(column_name): str(data_type)
-        for column_name, data_type in spark.read.format("delta").load(str(table_path)).dtypes
+        for column_name, data_type in read_spark_delta(spark, str(table_path)).dtypes
     }
     return all(
         existing_types.get(column_name) == data_type for column_name, data_type in columns.items()
@@ -285,6 +292,30 @@ def _merge_upsert_delta_dataframe(
     )
 
 
+def _with_existing_target_close_year(
+    *,
+    spark: Any,
+    table_path: Path,
+    dataframe: Any,
+    close_provenance: Any,
+    functions: Any,
+) -> Any:
+    if _delta_table_partition_columns(spark, table_path) != ("ts_close_year",):
+        return dataframe
+    close_keys = close_provenance.select(
+        *CANONICAL_KEY_COLUMNS, functions.col("bar_end_ts").alias("ts_close")
+    )
+    years = with_spark_close_year(close_keys, functions=functions).select(
+        *CANONICAL_KEY_COLUMNS, "ts_close_year"
+    )
+    if years.groupBy(*CANONICAL_KEY_COLUMNS).count().where("count != 1").limit(1).count():
+        raise ValueError("canonical UTC close-year join has duplicate provenance keys")
+    prepared = dataframe.join(years, list(CANONICAL_KEY_COLUMNS), "left")
+    if prepared.where(functions.col("ts_close_year").isNull()).limit(1).count():
+        raise ValueError("canonical UTC close-year join is missing authoritative provenance")
+    return prepared
+
+
 def _merge_replace_delta_dataframe(
     *,
     spark: Any,
@@ -308,7 +339,7 @@ def _merge_replace_delta_dataframe(
 
     from delta.tables import DeltaTable  # type: ignore[import-not-found]
 
-    delete_source_df = spark.read.format("delta").load(str(stale_keys_path))
+    delete_source_df = read_spark_delta(spark, str(stale_keys_path))
     condition = " AND ".join(f"target.{column} <=> source.{column}" for column in key_columns)
     (
         DeltaTable.forPath(spark, str(table_path))
@@ -656,7 +687,7 @@ def _build_contract_compatibility_report(
         / "product_plane"
         / "contracts"
         / "schemas"
-        / "canonical_bar.v1.json"
+        / "canonical_bar.v2.json"
     )
     schema_payload = json.loads(schema_path.read_text(encoding="utf-8"))
     required_fields = {str(item) for item in schema_payload.get("required", [])}
@@ -696,7 +727,6 @@ def _build_contract_compatibility_report(
         | functions.col("low").isNull()
         | functions.col("close").isNull()
         | functions.col("volume").isNull()
-        | functions.col("open_interest").isNull()
     )
     unsupported_timeframes = bars_df.where(
         ~functions.col("timeframe").isin(sorted(allowed_timeframes))
@@ -739,6 +769,7 @@ def _sidecar_frames(
     provenance_df: Any,
     affected_sessions_df: Any,
     session_intervals_path: Path,
+    closed_session_dates_path: Path | None = None,
     sidecars_exist: bool,
     window: Any,
     functions: Any,
@@ -775,8 +806,60 @@ def _sidecar_frames(
         functions=functions,
         window=window,
     )
+    closed_dates_df = _prepare_closed_session_dates(
+        spark=spark,
+        closed_session_dates_path=closed_session_dates_path,
+        intervals_df=official_intervals_df,
+        functions=functions,
+    )
+    # A W1 key retains the source period anchor, even when that date is closed.
+    # Its bounds cover the actual trading sessions across the included period.
+    period_scope_df = (
+        with_session.withColumn("ts_close", functions.col("source_ts_close_last"))
+        .withColumn(
+            "_period_end_date",
+            functions.when(
+                functions.col("timeframe") == "1w", _source_session_end_date(functions)
+            ).otherwise(functions.col("session_date")),
+        )
+        .groupBy("instrument_id", "timeframe", "session_date")
+        .agg(functions.max("_period_end_date").alias("_period_end_date"))
+    )
+    invalid_periods = period_scope_df.where(
+        functions.col("_period_end_date").isNull()
+        | (functions.col("_period_end_date") < functions.col("session_date"))
+    ).count()
+    if invalid_periods:
+        raise ValueError(f"invalid canonical sidecar periods: rows={invalid_periods}")
+    required_dates_df = period_scope_df.select(
+        "instrument_id",
+        "timeframe",
+        "session_date",
+        functions.explode(functions.sequence("session_date", "_period_end_date")).alias(
+            "_required_date"
+        ),
+    )
+    known_dates_df = (
+        official_intervals_df.select("instrument_id", "session_date")
+        .unionByName(closed_dates_df)
+        .distinct()
+        .withColumnRenamed("session_date", "_required_date")
+    )
+    missing_dates = required_dates_df.join(
+        known_dates_df, ["instrument_id", "_required_date"], "left_anti"
+    ).count()
+    if missing_dates:
+        raise ValueError(
+            "official session interval coverage is incomplete for canonical sidecars: "
+            f"unknown_period_dates={missing_dates}"
+        )
+    period_intervals_df = required_dates_df.join(
+        official_intervals_df.withColumnRenamed("session_date", "_required_date"),
+        ["instrument_id", "_required_date"],
+        "inner",
+    )
     official_session_bounds_df = (
-        official_intervals_df.groupBy("instrument_id", "session_date")
+        period_intervals_df.groupBy("instrument_id", "timeframe", "session_date")
         .agg(
             functions.min("expected_open_ts").alias("session_open_ts"),
             functions.max("expected_close_ts").alias("session_close_ts"),
@@ -797,6 +880,7 @@ def _sidecar_frames(
         )
         .select(
             "instrument_id",
+            "timeframe",
             "session_date",
             "session_open_ts",
             "session_close_ts",
@@ -815,7 +899,7 @@ def _sidecar_frames(
     session_scope_df = with_session.select("instrument_id", "timeframe", "session_date").distinct()
     session_calendar_df = session_scope_df.join(
         official_session_bounds_df,
-        on=["instrument_id", "session_date"],
+        on=["instrument_id", "timeframe", "session_date"],
         how="inner",
     )
     expected_session_rows = int(session_scope_df.count())
@@ -917,6 +1001,7 @@ def run_moex_canonical_publish_spark_delta_job(
     output_dir: Path,
     run_id: str,
     publish_scope_path: Path | None = None,
+    closed_session_dates_path: Path | None = None,
     spark_master: str = DEFAULT_SPARK_MASTER,
     spark_session_factory: Callable[[str, str], object] | None = None,
 ) -> dict[str, object]:
@@ -1162,7 +1247,13 @@ def run_moex_canonical_publish_spark_delta_job(
                     _merge_replace_delta_dataframe(
                         spark=spark,
                         table_path=target_bars_path,
-                        staged_dataframe=staged_bars_df,
+                        staged_dataframe=_with_existing_target_close_year(
+                            spark=spark,
+                            table_path=target_bars_path,
+                            dataframe=staged_bars_df,
+                            close_provenance=staged_provenance_df,
+                            functions=functions,
+                        ),
                         stale_keys_path=stale_bar_keys_path,
                         stale_key_count=stale_bar_rows,
                         key_columns=CANONICAL_KEY_COLUMNS,
@@ -1194,7 +1285,13 @@ def run_moex_canonical_publish_spark_delta_job(
                     _merge_replace_delta_dataframe(
                         spark=spark,
                         table_path=target_provenance_path,
-                        staged_dataframe=staged_provenance_df,
+                        staged_dataframe=_with_existing_target_close_year(
+                            spark=spark,
+                            table_path=target_provenance_path,
+                            dataframe=staged_provenance_df,
+                            close_provenance=staged_provenance_df,
+                            functions=functions,
+                        ),
                         stale_keys_path=stale_provenance_keys_path,
                         stale_key_count=stale_provenance_rows,
                         key_columns=CANONICAL_KEY_COLUMNS,
@@ -1260,7 +1357,7 @@ def run_moex_canonical_publish_spark_delta_job(
         )
 
         if affected_session_rows > 0:
-            affected_sessions_df = spark.read.format("delta").load(str(affected_sessions_path))
+            affected_sessions_df = read_spark_delta(spark, str(affected_sessions_path))
         else:
             affected_sessions_df = spark.createDataFrame(
                 [],
@@ -1318,6 +1415,7 @@ def run_moex_canonical_publish_spark_delta_job(
                 provenance_df=final_provenance_df,
                 affected_sessions_df=sidecar_scope_sessions_df,
                 session_intervals_path=session_intervals_path,
+                closed_session_dates_path=closed_session_dates_path,
                 sidecars_exist=sidecars_exist and not sidecar_layout_rewrite_required,
                 window=window,
                 functions=functions,

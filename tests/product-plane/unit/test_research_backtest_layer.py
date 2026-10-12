@@ -586,3 +586,90 @@ def test_backtest_loader_uses_native_delta_projection_without_python_row_reload(
         "ema_10",
         "rolling_high_20",
     }.isdisjoint(frame.columns)
+
+
+def test_backtest_loader_fails_closed_on_duplicate_pit_active_front_keys(
+    tmp_path: Path,
+) -> None:
+    materialized = tmp_path / "materialized"
+    dataset_contract = research_dataset_store_contract()
+    write_delta_table_rows(
+        table_path=materialized / "research_datasets.delta",
+        columns=dataset_contract["research_datasets"]["columns"],
+        rows=[
+            {
+                "dataset_version": "dataset-cf-v1",
+                "contour_id": "pit_active_front",
+                "dataset_name": "dataset",
+                "source_table": "continuous_front_bars",
+                "series_mode": "continuous_front",
+                "universe_id": "universe-v1",
+                "timeframes_json": ["15m"],
+                "base_timeframe": "15m",
+                "start_ts": "2026-06-08T20:00:00Z",
+                "end_ts": "2026-06-17T07:30:00Z",
+                "warmup_bars": 0,
+                "split_method": "holdout",
+                "split_params_json": {},
+                "bars_hash": "BARS",
+                "created_at": "2026-06-17T08:00:00Z",
+                "code_version": "test",
+                "notes_json": {},
+                "source_tables": ["continuous_front_bars"],
+                "continuous_front_policy": {
+                    "roll_policy_version": "front_calendar_expiry_t2_session_0900_2350_v1",
+                    "adjustment_policy_version": "backward_current_anchor_additive_v1",
+                },
+                "lineage_key": "dataset-cf-v1",
+            }
+        ],
+    )
+    base_bar = {
+        "dataset_version": "dataset-cf-v1",
+        "contour_id": "pit_active_front",
+        "instrument_id": "FUT_BR",
+        "timeframe": "15m",
+        "ts": "2026-06-17T07:30:00Z",
+        "open": 100.0,
+        "high": 101.0,
+        "low": 99.0,
+        "close": 100.5,
+        "volume": 1000,
+        "open_interest": 2000,
+        "series_mode": "continuous_front",
+        "series_id": "FUT_BR",
+        "slice_role": "analysis",
+        "bar_index": 0,
+    }
+    write_delta_table_rows(
+        table_path=materialized / "research_bar_views.delta",
+        columns=dataset_contract["research_bar_views"]["columns"],
+        rows=[
+            {
+                **base_bar,
+                "contract_id": "BR-6.26",
+                "active_contract_id": "BR-6.26",
+                "roll_epoch": 50,
+            },
+            {
+                **base_bar,
+                "contract_id": "BR-7.26",
+                "active_contract_id": "BR-7.26",
+                "roll_epoch": 0,
+            },
+        ],
+    )
+
+    with pytest.raises(ValueError, match="research_bar_views.*duplicate_key_count=1"):
+        loaders.load_backtest_frames(
+            dataset_output_dir=materialized,
+            indicator_output_dir=materialized,
+            derived_indicator_output_dir=materialized,
+            request=ResearchSliceRequest(
+                dataset_version="dataset-cf-v1",
+                indicator_set_version="indicators-v1",
+                contour_id="pit_active_front",
+                timeframe="15m",
+                price_columns=("close",),
+            ),
+        )

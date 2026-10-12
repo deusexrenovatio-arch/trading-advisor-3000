@@ -21,5 +21,3 @@ If an output contradicts an ADR or hot doc, surface the conflict explicitly inst
 ## Vocabulary
 
 Use the vocabulary from the selected context's source docs. Do not collapse TA3000 shell, product-plane, data/research, and runtime terms into one generic glossary.
-
-If a term is missing or ambiguous, note it for `domain-modeling` or `grill-with-docs` instead of inventing a project term silently.

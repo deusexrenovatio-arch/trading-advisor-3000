@@ -13,8 +13,8 @@
 - Keeps canonical item-per-file plus generated compatibility outputs.
 
 ## Skills Module
-- Owns local generic skills and routing policy.
-- Baseline excludes domain-specialized skills.
+- Owns repo-local TA3000 skill descriptors and catalog metadata.
+- Ordinary engineering process is outside this module.
 
 ## App Plane Module
 - Owns isolated application/product-plane code and app-specific tests.

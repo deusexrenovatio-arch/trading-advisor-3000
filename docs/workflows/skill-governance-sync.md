@@ -10,7 +10,6 @@ Keep repo-local skills, generated catalog, routing policy, and governance valida
 4. Process workflow: `docs/workflows/skill-governance-sync.md`.
 
 Generated catalog must not be edited manually.
-Generic engineering skills are sourced from `D:/CodexHome/skills`, not from this repository.
 
 ## Cold-Context Rule
 - `.cursorignore` must keep `.codex/skills/**` and legacy `.cursor/skills/**`.

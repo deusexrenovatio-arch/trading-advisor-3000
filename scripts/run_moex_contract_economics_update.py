@@ -421,7 +421,14 @@ def main() -> None:
     parser.add_argument("--rms-source", choices=["iss", "jsonl"], default="iss")
     parser.add_argument("--rms-limits-jsonl", default="")
     parser.add_argument("--rms-staticparams-jsonl", default="")
+    parser.add_argument("--allow-calibrated-latest-margin", action="store_true")
+    parser.add_argument("--margin-calibration-as-of-date", type=date.fromisoformat)
     args = parser.parse_args()
+    if args.allow_calibrated_latest_margin != (args.margin_calibration_as_of_date is not None):
+        parser.error(
+            "--allow-calibrated-latest-margin and --margin-calibration-as-of-date "
+            "must be supplied together"
+        )
 
     trade_dates = _date_window(
         trade_date=str(args.trade_date),
@@ -621,6 +628,8 @@ def main() -> None:
         raw_rms_limits_path=raw_paths["raw_moex_rms_limits"],
         raw_rms_staticparams_path=raw_paths["raw_moex_rms_staticparams"],
         output_dir=canonical_root,
+        allow_calibrated_latest_margin=args.allow_calibrated_latest_margin,
+        margin_calibration_as_of_date=args.margin_calibration_as_of_date,
         canonical_session_calendar_path=session_calendar_path,
         run_id=run_id,
         report_path=evidence_root / "contract-economics-report.json",

@@ -4,15 +4,22 @@ import hashlib
 import json
 import math
 import os
+from bisect import bisect_right
 from collections.abc import Iterator, Mapping, Sequence
+from dataclasses import asdict
+from importlib.metadata import version as distribution_version
 from pathlib import Path
 from typing import AbstractSet
 
+import numpy as np
 import pandas as pd
 import pandas_ta_classic as ta
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    count_delta_table_rows,
     delta_table_columns,
+    delta_table_identity,
+    iter_delta_table_row_batches,
     read_delta_table_arrow,
     read_delta_table_rows,
 )
@@ -56,7 +63,6 @@ from .store import (
     load_indicator_frames,
     load_indicator_partition_metadata,
     load_indicator_partition_rows,
-    write_indicator_frame_batches,
     write_indicator_frame_partition_batches,
 )
 from .volume_profile import (
@@ -79,12 +85,17 @@ def _resolved_series_mode(row_series_mode: object, *, requested_series_mode: str
 def _bars_hash(
     rows: list[ResearchBarView], *, adjustment_ladder_rows: tuple[dict[str, object], ...] = ()
 ) -> str:
-    payload = {
-        "bars": [row.to_dict() for row in rows],
-        "adjustment_ladder": _normalize_ladder_rows(adjustment_ladder_rows),
-    }
-    normalized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16].upper()
+    # Preserve the existing canonical JSON hash without duplicating a full series.
+    digest = hashlib.sha256()
+    digest.update(b'{"adjustment_ladder":')
+    digest.update(_canonical_json_bytes(_normalize_ladder_rows(adjustment_ladder_rows)))
+    digest.update(b',"bars":[')
+    for index, row in enumerate(rows):
+        if index:
+            digest.update(b",")
+        digest.update(_canonical_json_bytes(row.to_dict()))
+    digest.update(b"]}")
+    return digest.hexdigest()[:16].upper()
 
 
 def _normalize_ladder_rows(rows: tuple[dict[str, object], ...]) -> list[dict[str, object]]:
@@ -249,39 +260,58 @@ def _load_volume_profile_source_rows(
         _volume_profile_key(row.instrument_id, _volume_profile_contract_id(row))
         for row in local_series
     }
-    instrument_ids = sorted({instrument_id for instrument_id, _ in source_keys})
-    contract_ids = sorted({contract_id for _, contract_id in source_keys})
-    start_ts = min(_utc_timestamp(row.ts) for row in local_series)
-    end_ts = max(_target_bar_close_ts(row) for row in local_series)
-    rows = read_delta_table_rows(
-        raw_1m_table_path,
-        columns=[
-            contract_column,
-            instrument_column,
-            "timeframe",
-            timestamp_column,
-            "low",
-            "high",
-            "volume",
-        ],
-        filters=[
+    intervals: dict[tuple[str, str], list[tuple[pd.Timestamp, pd.Timestamp]]] = {}
+    for bar in sorted(local_series, key=lambda row: _utc_timestamp(row.ts)):
+        key = _volume_profile_key(bar.instrument_id, _volume_profile_contract_id(bar))
+        start, end = _utc_timestamp(bar.ts), _target_bar_close_ts(bar)
+        merged = intervals.setdefault(key, [])
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    # A sparse full-history series can have one interval per bar. Sending that
+    # DNF to Arrow makes the native expression tree deep enough to crash.
+    # Read contract envelopes, then apply the exact half-open interval union.
+    filter_groups = [
+        [
             ("timeframe", "=", "1m"),
-            (instrument_column, "in", instrument_ids),
-            (contract_column, "in", contract_ids),
-            (timestamp_column, ">=", start_ts.isoformat().replace("+00:00", "Z")),
-            (timestamp_column, "<", end_ts.isoformat().replace("+00:00", "Z")),
-        ],
-    )
+            (instrument_column, "=", key[0]),
+            (contract_column, "=", key[1]),
+            (timestamp_column, ">=", ranges[0][0].isoformat().replace("+00:00", "Z")),
+            (timestamp_column, "<", ranges[-1][1].isoformat().replace("+00:00", "Z")),
+        ]
+        for key, ranges in sorted(intervals.items())
+    ]
+    starts = {key: [start.value for start, _ in ranges] for key, ranges in intervals.items()}
+    ends = {key: [end.value for _, end in ranges] for key, ranges in intervals.items()}
+    selected_columns = [
+        contract_column,
+        instrument_column,
+        "timeframe",
+        timestamp_column,
+        "low",
+        "high",
+        "volume",
+    ]
     grouped: dict[tuple[str, str], list[dict[str, object]]] = {key: [] for key in source_keys}
-    for row in sorted(rows, key=_volume_profile_source_row_sort_key):
-        key = _volume_profile_key(
-            str(row.get(instrument_column, "")), str(row.get(contract_column, ""))
-        )
-        if key in grouped:
-            normalized = dict(row)
-            normalized["instrument_id"] = key[0]
-            normalized["contract_id"] = key[1]
-            grouped[key].append(normalized)
+    for offset in range(0, len(filter_groups), 32):
+        for batch in iter_delta_table_row_batches(
+            raw_1m_table_path, columns=selected_columns, filters=filter_groups[offset : offset + 32]
+        ):
+            for row in batch:
+                key = _volume_profile_key(
+                    str(row.get(instrument_column, "")), str(row.get(contract_column, ""))
+                )
+                if key not in grouped:
+                    continue
+                timestamp = _utc_timestamp(row[timestamp_column]).value
+                index = bisect_right(starts[key], timestamp) - 1
+                if index < 0 or timestamp >= ends[key][index]:
+                    continue
+                normalized = dict(row)
+                normalized["instrument_id"] = key[0]
+                normalized["contract_id"] = key[1]
+                grouped[key].append(normalized)
     for key, key_rows in grouped.items():
         grouped[key] = sorted(key_rows, key=_volume_profile_source_row_sort_key)
     return grouped
@@ -300,34 +330,47 @@ def _volume_profile_source_hash(
             for row in local_series
         }
     )
-    payload = {
-        "target_bars_hash": target_bars_hash,
-        "tick_size_by_instrument": {
-            instrument_id: (
-                float(tick_size_by_instrument[instrument_id])
-                if tick_size_by_instrument is not None and instrument_id in tick_size_by_instrument
-                else None
+    digest = hashlib.sha256()
+    digest.update(b'{"raw_1m":[')
+    first = True
+    for instrument_id, contract_id in source_keys:
+        for row in sorted(
+            source_rows_by_series.get((instrument_id, contract_id), ()),
+            key=_volume_profile_source_row_sort_key,
+        ):
+            if not first:
+                digest.update(b",")
+            first = False
+            digest.update(
+                _canonical_json_bytes(
+                    {
+                        "instrument_id": instrument_id,
+                        "contract_id": contract_id,
+                        "ts_open": str(row.get("ts_open") or row.get("ts") or ""),
+                        "low": row.get("low"),
+                        "high": row.get("high"),
+                        "volume": row.get("volume"),
+                    }
+                )
             )
-            for instrument_id in sorted({instrument_id for instrument_id, _ in source_keys})
-        },
-        "raw_1m": [
+    digest.update(b'],"target_bars_hash":')
+    digest.update(_canonical_json_bytes(target_bars_hash))
+    digest.update(b',"tick_size_by_instrument":')
+    digest.update(
+        _canonical_json_bytes(
             {
-                "instrument_id": instrument_id,
-                "contract_id": contract_id,
-                "ts_open": str(row.get("ts_open") or row.get("ts") or ""),
-                "low": row.get("low"),
-                "high": row.get("high"),
-                "volume": row.get("volume"),
+                instrument_id: (
+                    float(tick_size_by_instrument[instrument_id])
+                    if tick_size_by_instrument is not None
+                    and instrument_id in tick_size_by_instrument
+                    else None
+                )
+                for instrument_id in sorted({instrument_id for instrument_id, _ in source_keys})
             }
-            for instrument_id, contract_id in source_keys
-            for row in sorted(
-                source_rows_by_series.get((instrument_id, contract_id), ()),
-                key=_volume_profile_source_row_sort_key,
-            )
-        ],
-    }
-    normalized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16].upper()
+        )
+    )
+    digest.update(b"}")
+    return digest.hexdigest()[:16].upper()
 
 
 def _empty_volume_profile_features() -> dict[str, float | int | None]:
@@ -732,7 +775,10 @@ def _compute_spec(frame: pd.DataFrame, spec: IndicatorSpec) -> dict[str, pd.Seri
         return _none_outputs() if series is None else {spec.output_columns[0]: series}
     if spec.operation_key == "chop":
         series = ta.chop(high, low, close, length=int(params["length"]))
-        return _none_outputs() if series is None else {spec.output_columns[0]: series}
+        if series is None:
+            return _none_outputs()
+        # A zero price range makes CHOP undefined; preserve finite native values.
+        return {spec.output_columns[0]: series.replace([math.inf, -math.inf], float("nan"))}
     if spec.operation_key == "supertrend":
         length = int(params["length"])
         multiplier = float(params["multiplier"])
@@ -971,7 +1017,9 @@ def _compute_spec(frame: pd.DataFrame, spec: IndicatorSpec) -> dict[str, pd.Seri
         return {spec.output_columns[0]: _numeric(open_interest).diff(int(params["length"]))}
     if spec.operation_key == "oi_roc":
         return {
-            spec.output_columns[0]: _numeric(open_interest).pct_change(int(params["length"]))
+            spec.output_columns[0]: _numeric(open_interest)
+            .pct_change(int(params["length"]), fill_method=None)
+            .replace([math.inf, -math.inf], float("nan"))
             * 100.0
         }
     if spec.operation_key == "oi_z":
@@ -1066,23 +1114,24 @@ def _fill_bar_usage_noncomputed_rows(
     scope_key: pd.Series | None = None,
 ) -> pd.DataFrame:
     filled = projected.copy()
-    computed_indices = set(computed_index)
-    scope_values = scope_key.reindex(filled.index) if scope_key is not None else None
-    scope_marker = object()
-    last_values = {column: pd.NA for column in filled.columns}
-    for position, index in enumerate(filled.index):
-        if scope_values is not None:
-            scope_value = scope_values.iloc[position]
-            scope_token = None if pd.isna(scope_value) else scope_value
-            if scope_token != scope_marker:
-                last_values = {column: pd.NA for column in filled.columns}
-                scope_marker = scope_token
-        if index in computed_indices:
-            for column_index, column in enumerate(filled.columns):
-                last_values[column] = filled.iat[position, column_index]
-        else:
-            for column_index, column in enumerate(filled.columns):
-                filled.iat[position, column_index] = last_values[column]
+    eligible = filled.index.isin(computed_index)
+    if eligible.all():
+        return filled
+    # Carry positions, not values: an explicitly computed NULL must reset state.
+    positions = pd.Series(range(len(filled)), index=filled.index, dtype="float64").where(eligible)
+    if scope_key is None:
+        positions = positions.ffill()
+    else:
+        scopes = scope_key.reindex(filled.index)
+        previous_scopes = scopes.shift()
+        same_scope = scopes.eq(previous_scopes).fillna(False) | (
+            scopes.isna() & previous_scopes.isna()
+        )
+        positions = positions.groupby((~same_scope).cumsum(), sort=False).ffill()
+    targets = (~eligible) & positions.notna().to_numpy()
+    carried = filled.iloc[positions.loc[targets].astype(int).to_numpy()].to_numpy()
+    filled.loc[~eligible, :] = pd.NA
+    filled.loc[targets, :] = carried
     return filled
 
 
@@ -1292,16 +1341,26 @@ def _compute_continuous_front_profile_frame(
 
     rules_by_output = {rule.output_column: rule for rule in rules}
     target_offset_by_epoch = _offset_by_epoch(max_epoch=max_epoch, gap_by_sequence=gap_by_sequence)
+    invariant_group_ids = {
+        "price_level_post_transform",
+        "price_range_on_p0",
+        "oscillator_on_p0",
+        "native_volume_oi_roll_aware",
+        "grid_locked_native",
+    }
+    full_zero_anchor_frame = _zero_anchor_price_frame(frame, gap_by_sequence=gap_by_sequence)
+    full_native_frame = _native_price_frame(frame)
+    invariant_compute_cache: dict[tuple[str, str], dict[str, pd.Series]] = {}
     computed_segments: list[pd.DataFrame] = []
     for target_epoch in sorted(frame["roll_epoch"].unique()):
         epoch = int(target_epoch)
         target_index = frame.index[frame["roll_epoch"] == epoch]
         source_frame = frame[frame["roll_epoch"] <= epoch].copy()
-        zero_anchor_frame = _zero_anchor_price_frame(source_frame, gap_by_sequence=gap_by_sequence)
+        zero_anchor_frame = full_zero_anchor_frame.loc[source_frame.index]
         target_anchor_frame = _asof_adjusted_price_frame(
             frame, target_epoch=epoch, gap_by_sequence=gap_by_sequence
         )
-        native_frame = _native_price_frame(source_frame)
+        native_frame = full_native_frame.loc[source_frame.index]
         segment = target_anchor_frame.loc[target_index].copy()
         target_offset = float(target_offset_by_epoch[epoch])
         compute_cache: dict[tuple[str, str], dict[str, pd.Series]] = {}
@@ -1317,7 +1376,23 @@ def _compute_continuous_front_profile_frame(
                         target_anchor_frame=target_anchor_frame,
                         native_frame=native_frame,
                     )
-                    compute_cache[cache_key] = _compute_spec(group_frame, spec)
+                    if (
+                        group_id in invariant_group_ids
+                        and len(source_frame) >= profile.max_warmup_bars()
+                    ):
+                        if cache_key not in invariant_compute_cache:
+                            invariant_frame = _frame_for_calculation_group(
+                                group_id,
+                                zero_anchor_frame=full_zero_anchor_frame,
+                                target_anchor_frame=target_anchor_frame,
+                                native_frame=full_native_frame,
+                            )
+                            invariant_compute_cache[cache_key] = _compute_spec(
+                                invariant_frame, spec
+                            )
+                        compute_cache[cache_key] = invariant_compute_cache[cache_key]
+                    else:
+                        compute_cache[cache_key] = _compute_spec(group_frame, spec)
                 computed_outputs = compute_cache[cache_key]
                 for output_column in output_columns:
                     series = computed_outputs[output_column].reindex(target_anchor_frame.index)
@@ -1468,6 +1543,8 @@ def _existing_partition_matches(
     row_count: int,
     output_columns_hash: str,
     legacy_output_columns_match: bool = False,
+    compute_contract_hash: str = "",
+    refresh_context_hash: str = "",
 ) -> bool:
     if not existing_metadata:
         return False
@@ -1480,6 +1557,10 @@ def _existing_partition_matches(
         and existing_metadata.get("profile_version") == profile_version
         and int(existing_metadata.get("row_count", -1) or -1) == row_count
         and output_hash_matches
+        and bool(refresh_context_hash)
+        and existing_metadata.get("refresh_context_hash") == refresh_context_hash
+        and bool(compute_contract_hash)
+        and existing_metadata.get("compute_contract_hash") == compute_contract_hash
     )
 
 
@@ -1493,12 +1574,15 @@ def _metadata_fast_reuse_report(
     existing_output_columns: set[str],
     output_paths: dict[str, str],
     resolved_profile: IndicatorProfile,
+    adjustment_ladder_rows: tuple[dict[str, object], ...],
 ) -> dict[str, object] | None:
+    if _profile_has_volume_profile_spec(resolved_profile):
+        return None
     if not current_dataset_bars_hash or not existing_by_partition:
         return None
     legacy_output_columns_match = set(target_output_columns).issubset(existing_output_columns)
     indicator_row_count = 0
-    for metadata in existing_by_partition.values():
+    for partition, metadata in existing_by_partition.items():
         row_count = int(metadata.get("row_count", -1) or -1)
         source_hash = str(metadata.get("source_bars_hash") or "")
         if (
@@ -1512,6 +1596,21 @@ def _metadata_fast_reuse_report(
                 row_count=row_count,
                 output_columns_hash=target_output_columns_hash,
                 legacy_output_columns_match=legacy_output_columns_match,
+                compute_contract_hash=_indicator_compute_contract_hash(resolved_profile),
+                refresh_context_hash=_refresh_context_hash(
+                    resolved_profile,
+                    instrument_id=partition.instrument_id,
+                    ladder_rows=_ladder_rows_for_series(
+                        adjustment_ladder_rows,
+                        instrument_id=partition.instrument_id,
+                        timeframe=partition.timeframe,
+                    )
+                    if partition.series_mode == "continuous_front"
+                    else (),
+                    raw_1m_path=None,
+                    source_rows=None,
+                    tick_sizes=None,
+                ),
             )
         ):
             return None
@@ -1566,6 +1665,10 @@ def _build_partition_rows(
     | None = None,
     volume_profile_raw_1m_table_path: Path | None = None,
     volume_profile_tick_size_by_instrument: Mapping[str, float] | None = None,
+    compute_diagnostics: dict[str, object] | None = None,
+    precomputed_source_hash: str | None = None,
+    native_full_compute: bool = False,
+    volume_profile_refresh_ts: set[str] | None = None,
 ) -> list[IndicatorFrameRow]:
     frame = pd.DataFrame([row.to_dict() for row in series])
     compute_profile = compute_profile or profile
@@ -1577,6 +1680,12 @@ def _build_partition_rows(
             timeframe=series[0].timeframe,
         )
     resolved_volume_profile_source_rows = volume_profile_source_rows
+    existing_by_ts = {row.ts: row for row in existing_rows or []}
+    volume_profile_series = [
+        row
+        for row in series
+        if volume_profile_refresh_ts is None or row.ts in volume_profile_refresh_ts
+    ]
     if (
         _profile_has_volume_profile_spec(compute_profile)
         and resolved_volume_profile_source_rows is None
@@ -1584,22 +1693,94 @@ def _build_partition_rows(
     ):
         resolved_volume_profile_source_rows = _load_volume_profile_source_rows(
             raw_1m_table_path=volume_profile_raw_1m_table_path,
-            local_series=series,
+            local_series=volume_profile_series,
         )
-    computed = _compute_profile_frame_for_series(
-        frame,
-        compute_profile,
-        series_mode=series_mode,
-        adjustment_ladder_rows=series_ladder_rows,
+    cached_volume_profile_hashes = {
+        ts: row.volume_profile_input_hash
+        for ts, row in existing_by_ts.items()
+        if volume_profile_refresh_ts is not None
+        and ts not in volume_profile_refresh_ts
+        and row.volume_profile_input_hash
+    }
+    volume_profile_hashes: dict[str, str] = {}
+    compute_contract_hash = _indicator_compute_contract_hash(profile)
+    input_row_hashes = _indicator_input_row_hashes(
+        series,
+        compute_contract_hash=compute_contract_hash,
+        volume_profile_source_rows=resolved_volume_profile_source_rows,
+        tick_size_by_instrument=volume_profile_tick_size_by_instrument,
+        has_volume_profile=_profile_has_volume_profile_spec(profile),
+        required_columns=profile.required_input_columns(),
+        cached_volume_profile_hashes=cached_volume_profile_hashes,
+        volume_profile_hashes=volume_profile_hashes,
     )
+    cached_rows = sorted(existing_rows or [], key=lambda row: row.ts)
+    prefix_length = 0
+    if not native_full_compute and series_mode != "continuous_front" and compute_profile == profile:
+        for original, cached, row_hash in zip(series, cached_rows, input_row_hashes):
+            if (
+                cached.ts != original.ts
+                or cached.input_row_hash != row_hash
+                or cached.compute_contract_hash != compute_contract_hash
+                or not set(profile.expected_output_columns()).issubset(cached.values)
+            ):
+                break
+            prefix_length += 1
+    diagnostics = compute_diagnostics if compute_diagnostics is not None else {}
+    diagnostics["reused_prefix_row_count"] = (
+        int(diagnostics.get("reused_prefix_row_count", 0)) + prefix_length
+    )
+    if prefix_length:
+        existing_frame = pd.DataFrame([row.values for row in cached_rows[:prefix_length]])
+        computed = _compute_cached_profile_frame(
+            frame,
+            compute_profile,
+            existing=existing_frame,
+            prefix_length=prefix_length,
+            diagnostics=diagnostics,
+        )
+    else:
+        diagnostics["full_history_spec_count"] = int(
+            diagnostics.get("full_history_spec_count", 0)
+        ) + len(compute_profile.indicators)
+        computed = _compute_profile_frame_for_series(
+            frame,
+            compute_profile,
+            series_mode=series_mode,
+            adjustment_ladder_rows=series_ladder_rows,
+        )
     if _profile_has_volume_profile_spec(compute_profile):
+        if volume_profile_refresh_ts is not None:
+            cached_indices = [
+                index for index, bar in enumerate(series) if bar.ts not in volume_profile_refresh_ts
+            ]
+            for column in VOLUME_PROFILE_INDICATOR_COLUMNS:
+                computed[column] = computed[column].astype(object)
+                computed.loc[cached_indices, column] = pd.Series(
+                    [
+                        existing_by_ts[series[index].ts].values.get(column)
+                        for index in cached_indices
+                    ],
+                    index=cached_indices,
+                    dtype="object",
+                )
+        volume_indices = [
+            index
+            for index, bar in enumerate(series)
+            if index >= prefix_length
+            and (volume_profile_refresh_ts is None or bar.ts in volume_profile_refresh_ts)
+        ]
         for column, series_values in _compute_volume_profile_columns(
-            local_series=series,
-            index=computed.index,
+            local_series=[series[index] for index in volume_indices],
+            index=computed.index[volume_indices],
             source_rows_by_series=resolved_volume_profile_source_rows,
             tick_size_by_instrument=volume_profile_tick_size_by_instrument,
         ).items():
-            computed[column] = series_values
+            if prefix_length or volume_profile_refresh_ts is not None:
+                computed[column] = computed[column].astype(object)
+                computed.loc[series_values.index, column] = series_values
+            else:
+                computed[column] = series_values
         volume_profile_columns = tuple(
             column for column in VOLUME_PROFILE_INDICATOR_COLUMNS if column in computed.columns
         )
@@ -1616,11 +1797,14 @@ def _build_partition_rows(
     payload_rows = computed.to_dict("records")
     output_columns = profile.expected_output_columns()
     computed_columns = set(compute_profile.expected_output_columns())
-    existing_by_ts = {row.ts: row for row in existing_rows or []}
-    source_hash = _bars_hash(series, adjustment_ladder_rows=series_ladder_rows)
+    source_hash = precomputed_source_hash or _bars_hash(
+        series, adjustment_ladder_rows=series_ladder_rows
+    )
     if (
         _profile_requires_volume_profile(profile)
         and resolved_volume_profile_source_rows is not None
+        and precomputed_source_hash is None
+        and not native_full_compute
     ):
         source_hash = _volume_profile_source_hash(
             target_bars_hash=source_hash,
@@ -1628,6 +1812,24 @@ def _build_partition_rows(
             source_rows_by_series=resolved_volume_profile_source_rows,
             tick_size_by_instrument=volume_profile_tick_size_by_instrument,
         )
+    if native_full_compute:
+        source_hash = hashlib.sha256(
+            _canonical_json_bytes(
+                {
+                    "bars": _bars_hash(series, adjustment_ladder_rows=series_ladder_rows),
+                    "inputs": input_row_hashes,
+                    "ladder": _normalize_ladder_rows(series_ladder_rows),
+                }
+            )
+        ).hexdigest()
+    refresh_context_hash = _refresh_context_hash(
+        profile,
+        instrument_id=series[0].instrument_id,
+        ladder_rows=series_ladder_rows,
+        raw_1m_path=volume_profile_raw_1m_table_path,
+        source_rows=volume_profile_source_rows,
+        tick_sizes=volume_profile_tick_size_by_instrument,
+    )
     output_columns_hash = output_columns_hash or indicator_output_columns_hash(output_columns)
     prepared_values: list[
         tuple[ResearchBarView, dict[str, float | int | None], IndicatorFrameRow | None]
@@ -1657,7 +1859,7 @@ def _build_partition_rows(
     materialized_at = pd.Timestamp.utcnow().isoformat().replace("+00:00", "Z")
 
     rows: list[IndicatorFrameRow] = []
-    for original, values, existing in prepared_values:
+    for index, (original, values, existing) in enumerate(prepared_values):
         series_key = _series_group_key(
             original,
             dataset_version=dataset_version,
@@ -1676,14 +1878,21 @@ def _build_partition_rows(
                 instrument_id=original.instrument_id,
                 timeframe=original.timeframe,
                 ts=original.ts,
+                bar_end_ts=original.bar_end_ts,
                 values=values,
                 source_bars_hash=source_hash,
                 row_count=len(series),
                 warmup_span=profile.max_warmup_bars(),
                 null_warmup_span=null_warmup_span,
-                created_at=existing.created_at if existing is not None else materialized_at,
+                created_at=existing.created_at
+                if existing is not None and (index < prefix_length or compute_profile != profile)
+                else materialized_at,
                 output_columns_hash=output_columns_hash,
                 source_dataset_bars_hash=source_dataset_bars_hash,
+                compute_contract_hash=compute_contract_hash,
+                input_row_hash=input_row_hashes[index],
+                refresh_context_hash=refresh_context_hash,
+                volume_profile_input_hash=volume_profile_hashes.get(original.ts, ""),
             )
         )
     return rows
@@ -1738,6 +1947,7 @@ def materialize_indicator_frames(
     profile_version: str | None = None,
     timeframes: Sequence[str] = (),
     dataset_instrument_ids: Sequence[str] = (),
+    changed_windows: Sequence[Mapping[str, object]] | None = None,
     volume_profile_source_rows: Mapping[tuple[str, str], Sequence[Mapping[str, object]]]
     | None = None,
     volume_profile_raw_1m_table_path: Path | None = None,
@@ -1760,6 +1970,7 @@ def materialize_indicator_frames(
             profile_version=profile_version,
             timeframes=timeframes,
             dataset_instrument_ids=dataset_instrument_ids,
+            changed_windows=changed_windows,
             volume_profile_source_rows=volume_profile_source_rows,
             volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
             volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
@@ -1812,13 +2023,18 @@ def _materialize_indicator_frames_unlocked(
     profile_version: str | None = None,
     timeframes: Sequence[str] = (),
     dataset_instrument_ids: Sequence[str] = (),
+    changed_windows: Sequence[Mapping[str, object]] | None = None,
     volume_profile_source_rows: Mapping[tuple[str, str], Sequence[Mapping[str, object]]]
     | None = None,
     volume_profile_raw_1m_table_path: Path | None = None,
     volume_profile_tick_size_by_instrument: Mapping[str, float] | None = None,
 ) -> dict[str, object]:
+    refresh_windows = (
+        _normalize_indicator_windows(changed_windows) if changed_windows is not None else None
+    )
     stage_timings: StageTimings = {}
-    stage_started = stage_timer()
+    compute_diagnostics: dict[str, object] = {}
+    stage_started = stage_timer("load_dataset_manifest")
     dataset_manifest = _load_dataset_manifest(
         output_dir=dataset_output_dir,
         dataset_version=dataset_version,
@@ -1850,7 +2066,7 @@ def _materialize_indicator_frames_unlocked(
     table_exists = (
         indicator_output_dir / "research_indicator_frames.delta" / "_delta_log"
     ).exists()
-    stage_started = stage_timer()
+    stage_started = stage_timer("load_existing_metadata")
     existing_metadata = (
         load_indicator_partition_metadata(
             output_dir=indicator_output_dir,
@@ -1894,17 +2110,57 @@ def _materialize_indicator_frames_unlocked(
         reusable_existing_column_count=len(reusable_existing_columns),
     )
 
-    stage_started = stage_timer()
-    fast_reuse_report = _metadata_fast_reuse_report(
-        existing_by_partition=existing_by_partition,
-        current_dataset_bars_hash=current_dataset_bars_hash,
-        profile_version=resolved_profile.version,
-        target_output_columns=target_output_columns,
-        target_output_columns_hash=target_output_columns_hash,
-        existing_output_columns=existing_output_columns,
-        output_paths=output_paths,
-        resolved_profile=resolved_profile,
+    adjustment_ladder_rows = (
+        _load_adjustment_ladder_rows(
+            dataset_output_dir=dataset_output_dir, dataset_version=dataset_version
+        )
+        if series_mode == "continuous_front"
+        else ()
     )
+
+    stage_started = stage_timer("reuse_decision")
+    fast_reuse_report = (
+        _metadata_fast_reuse_report(
+            existing_by_partition=existing_by_partition,
+            current_dataset_bars_hash=current_dataset_bars_hash,
+            profile_version=resolved_profile.version,
+            target_output_columns=target_output_columns,
+            target_output_columns_hash=target_output_columns_hash,
+            existing_output_columns=existing_output_columns,
+            output_paths=output_paths,
+            resolved_profile=resolved_profile,
+            adjustment_ladder_rows=adjustment_ladder_rows,
+        )
+        if refresh_windows is None
+        and not (
+            _profile_requires_volume_profile(resolved_profile)
+            and (
+                volume_profile_source_rows is not None
+                or volume_profile_raw_1m_table_path is not None
+            )
+        )
+        else None
+    )
+    if fast_reuse_report is not None:
+        # A matching fingerprint on retained partitions does not prove full coverage.
+        coverage_filters = [
+            ("dataset_version", "=", dataset_version),
+            ("contour_id", "=", contour_id),
+        ]
+        if active_timeframes:
+            coverage_filters.append(("timeframe", "in", tuple(sorted(active_timeframes))))
+        expected_row_count = count_delta_table_rows(
+            dataset_output_dir / "research_bar_views.delta", filters=coverage_filters
+        )
+        stored_row_count = count_delta_table_rows(
+            indicator_output_dir / "research_indicator_frames.delta",
+            filters=[*coverage_filters, ("indicator_set_version", "=", indicator_set_version)],
+        )
+        if (
+            stored_row_count != expected_row_count
+            or fast_reuse_report["indicator_row_count"] != expected_row_count
+        ):
+            fast_reuse_report = None
     if fast_reuse_report is not None:
         record_stage_timing(
             stage_timings,
@@ -1916,14 +2172,7 @@ def _materialize_indicator_frames_unlocked(
         return {**fast_reuse_report, "stage_timings": stage_timings}
     record_stage_timing(stage_timings, "reuse_decision", stage_started, reused=False)
 
-    stage_started = stage_timer()
-    adjustment_ladder_rows = (
-        _load_adjustment_ladder_rows(
-            dataset_output_dir=dataset_output_dir, dataset_version=dataset_version
-        )
-        if series_mode == "continuous_front"
-        else ()
-    )
+    stage_started = stage_timer("load_source_partitions")
     partition_counts = _load_bar_partition_counts(
         dataset_output_dir=dataset_output_dir,
         dataset_version=dataset_version,
@@ -1955,17 +2204,6 @@ def _materialize_indicator_frames_unlocked(
         adjustment_ladder_row_count=len(adjustment_ladder_rows),
     )
 
-    current_partitions: set[IndicatorFramePartitionKey] = set()
-    replace_partitions: list[IndicatorFramePartitionKey] = []
-    refresh_plan: list[
-        tuple[
-            IndicatorFramePartitionKey,
-            IndicatorProfile,
-            tuple[str, ...] | None,
-            list[ResearchBarView],
-            Mapping[tuple[str, str], Sequence[Mapping[str, object]]] | None,
-        ]
-    ] = []
     reused_partitions = 0
     refreshed_partitions = 0
     extended_partitions = 0
@@ -2000,9 +2238,12 @@ def _materialize_indicator_frames_unlocked(
 
     if not table_exists:
 
-        def _fresh_row_batches() -> Iterator[list[IndicatorFrameRow]]:
+        def _fresh_row_batches() -> Iterator[
+            tuple[IndicatorFramePartitionKey, list[IndicatorFrameRow]]
+        ]:
             nonlocal volume_profile_missing_source_partitions
             for partition_key, _ in sorted_partition_items:
+                partition_started = stage_timer("partition.read_source")
                 series = _load_bar_partition_rows(
                     dataset_output_dir=dataset_output_dir,
                     dataset_version=dataset_version,
@@ -2016,7 +2257,16 @@ def _materialize_indicator_frames_unlocked(
                     )
                     if local_volume_profile_source_rows is None:
                         volume_profile_missing_source_partitions += 1
-                yield _build_partition_rows(
+                record_stage_timing(
+                    {},
+                    "partition.read_source",
+                    partition_started,
+                    instrument_id=partition_key.instrument_id,
+                    timeframe=partition_key.timeframe,
+                    row_count=len(series),
+                )
+                partition_started = stage_timer("partition.compute")
+                partition_rows = _build_partition_rows(
                     dataset_version=dataset_version,
                     indicator_set_version=indicator_set_version,
                     profile=resolved_profile,
@@ -2030,18 +2280,28 @@ def _materialize_indicator_frames_unlocked(
                     volume_profile_source_rows=local_volume_profile_source_rows,
                     volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
                     volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
+                    compute_diagnostics=compute_diagnostics,
                 )
+                record_stage_timing(
+                    {},
+                    "partition.compute",
+                    partition_started,
+                    instrument_id=partition_key.instrument_id,
+                    timeframe=partition_key.timeframe,
+                    row_count=len(partition_rows),
+                )
+                yield partition_key, partition_rows
+                del series, local_volume_profile_source_rows, partition_rows
 
         record_skipped_stage(
             stage_timings,
             "build_refresh_plan",
             reason="table does not exist; all source partitions are fresh",
         )
-        stage_started = stage_timer()
-        output_paths, refreshed_row_count, batch_count = write_indicator_frame_batches(
+        stage_started = stage_timer("write_indicator_frames")
+        output_paths, refreshed_row_count, batch_count = write_indicator_frame_partition_batches(
             output_dir=indicator_output_dir,
-            row_batches=_fresh_row_batches(),
-            replace_partitions=None,
+            partition_row_batches=_fresh_row_batches(),
             profile=resolved_profile,
         )
         record_stage_timing(
@@ -2079,63 +2339,175 @@ def _materialize_indicator_frames_unlocked(
             "output_paths": output_paths,
             "stage_timings": stage_timings,
             "delta_manifest": indicator_store_contract(profile=resolved_profile),
+            "compute_diagnostics": compute_diagnostics,
         }
 
-    stage_started = stage_timer()
-    for partition_key, row_count in sorted_partition_items:
-        current_partitions.add(partition_key)
-        existing_partition_metadata = existing_by_partition.get(partition_key)
-        source_hash = (
-            str(existing_partition_metadata.get("source_bars_hash") or "")
-            if existing_partition_metadata
-            else ""
+    current_partitions = set(partition_counts)
+    deleted_partitions = tuple(
+        partition
+        for partition in existing_by_partition
+        if partition not in current_partitions and _partition_in_requested_scope(partition)
+    )
+    if refresh_windows is not None:
+        return _materialize_indicator_window_tails(
+            dataset_output_dir=dataset_output_dir,
+            indicator_output_dir=indicator_output_dir,
+            profile=resolved_profile,
+            partition_counts=partition_counts,
+            existing_by_partition=existing_by_partition,
+            windows=refresh_windows,
+            adjustment_ladder_rows=adjustment_ladder_rows,
+            source_dataset_bars_hash=current_dataset_bars_hash,
+            volume_profile_source_rows=volume_profile_source_rows,
+            volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
+            volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
+            deleted_partitions=deleted_partitions,
+            stage_timings=stage_timings,
         )
-        source_row_count = (
-            int(existing_partition_metadata.get("row_count", -1) or -1)
-            if existing_partition_metadata
-            else -1
-        )
-        existing_dataset_bars_hash = (
-            str(existing_partition_metadata.get("source_dataset_bars_hash") or "")
-            if existing_partition_metadata
-            else ""
-        )
-        existing_materialized_at = (
-            str(existing_partition_metadata.get("created_at") or "")
-            if existing_partition_metadata
-            else ""
-        )
-        series: list[ResearchBarView] | None = None
-        dataset_may_have_changed = bool(
-            current_dataset_bars_hash
-            and existing_dataset_bars_hash
-            and current_dataset_bars_hash != existing_dataset_bars_hash
-        ) or bool(
-            current_dataset_bars_hash
-            and not existing_dataset_bars_hash
-            and not legacy_table_covers_source_commit
-            and _timestamp_after(current_dataset_created_at, existing_materialized_at)
-        )
-        source_changed = (
-            source_row_count != row_count or not source_hash or dataset_may_have_changed
-        )
-        if source_changed:
-            series = _load_bar_partition_rows(
-                dataset_output_dir=dataset_output_dir,
-                dataset_version=dataset_version,
-                contour_id=contour_id,
-                partition=partition_key,
+
+    def _partition_row_batches() -> Iterator[
+        tuple[IndicatorFramePartitionKey, list[IndicatorFrameRow]]
+    ]:
+        nonlocal reused_partitions, refreshed_partitions, extended_partitions
+        nonlocal recomputed_partitions, volume_profile_missing_source_partitions
+        for partition_key, row_count in sorted_partition_items:
+            existing_partition_metadata = existing_by_partition.get(partition_key)
+            source_hash = (
+                str(existing_partition_metadata.get("source_bars_hash") or "")
+                if existing_partition_metadata
+                else ""
             )
-            series_ladder_rows = _ladder_rows_for_series(
-                adjustment_ladder_rows,
+            source_row_count = (
+                int(existing_partition_metadata.get("row_count", -1) or -1)
+                if existing_partition_metadata
+                else -1
+            )
+            existing_dataset_bars_hash = (
+                str(existing_partition_metadata.get("source_dataset_bars_hash") or "")
+                if existing_partition_metadata
+                else ""
+            )
+            existing_materialized_at = (
+                str(existing_partition_metadata.get("created_at") or "")
+                if existing_partition_metadata
+                else ""
+            )
+            series: list[ResearchBarView] | None = None
+            dataset_may_have_changed = bool(
+                current_dataset_bars_hash
+                and existing_dataset_bars_hash
+                and current_dataset_bars_hash != existing_dataset_bars_hash
+            ) or bool(
+                current_dataset_bars_hash
+                and not existing_dataset_bars_hash
+                and not legacy_table_covers_source_commit
+                and _timestamp_after(current_dataset_created_at, existing_materialized_at)
+            )
+            source_changed = (
+                source_row_count != row_count or not source_hash or dataset_may_have_changed
+            )
+            if source_changed:
+                series = _load_bar_partition_rows(
+                    dataset_output_dir=dataset_output_dir,
+                    dataset_version=dataset_version,
+                    contour_id=contour_id,
+                    partition=partition_key,
+                )
+                series_ladder_rows = _ladder_rows_for_series(
+                    adjustment_ladder_rows,
+                    instrument_id=partition_key.instrument_id,
+                    timeframe=partition_key.timeframe,
+                )
+                source_hash = _bars_hash(series, adjustment_ladder_rows=series_ladder_rows)
+            local_volume_profile_source_rows: (
+                Mapping[tuple[str, str], Sequence[Mapping[str, object]]] | None
+            ) = None
+            if _profile_requires_volume_profile(resolved_profile):
+                if series is None:
+                    series = _load_bar_partition_rows(
+                        dataset_output_dir=dataset_output_dir,
+                        dataset_version=dataset_version,
+                        contour_id=contour_id,
+                        partition=partition_key,
+                    )
+                series_ladder_rows = _ladder_rows_for_series(
+                    adjustment_ladder_rows,
+                    instrument_id=partition_key.instrument_id,
+                    timeframe=partition_key.timeframe,
+                )
+                target_bars_hash = _bars_hash(series, adjustment_ladder_rows=series_ladder_rows)
+                local_volume_profile_source_rows = _load_volume_profile_rows(partition_key, series)
+                if local_volume_profile_source_rows is None:
+                    volume_profile_missing_source_partitions += 1
+                source_hash = (
+                    _volume_profile_source_hash(
+                        target_bars_hash=target_bars_hash,
+                        local_series=series,
+                        source_rows_by_series=local_volume_profile_source_rows,
+                        tick_size_by_instrument=volume_profile_tick_size_by_instrument,
+                    )
+                    if local_volume_profile_source_rows is not None
+                    else target_bars_hash
+                )
+            context_ladder = (
+                _ladder_rows_for_series(
+                    adjustment_ladder_rows,
+                    instrument_id=partition_key.instrument_id,
+                    timeframe=partition_key.timeframe,
+                )
+                if series_mode == "continuous_front"
+                else ()
+            )
+            current_refresh_context = _refresh_context_hash(
+                resolved_profile,
                 instrument_id=partition_key.instrument_id,
-                timeframe=partition_key.timeframe,
+                ladder_rows=context_ladder,
+                raw_1m_path=volume_profile_raw_1m_table_path,
+                source_rows=volume_profile_source_rows,
+                tick_sizes=volume_profile_tick_size_by_instrument,
             )
-            source_hash = _bars_hash(series, adjustment_ladder_rows=series_ladder_rows)
-        local_volume_profile_source_rows: (
-            Mapping[tuple[str, str], Sequence[Mapping[str, object]]] | None
-        ) = None
-        if _profile_requires_volume_profile(resolved_profile):
+            if _existing_partition_matches(
+                existing_partition_metadata,
+                source_hash=source_hash,
+                profile_version=resolved_profile.version,
+                row_count=row_count,
+                output_columns_hash=target_output_columns_hash,
+                legacy_output_columns_match=set(target_output_columns).issubset(
+                    existing_output_columns
+                ),
+                compute_contract_hash=_indicator_compute_contract_hash(resolved_profile),
+                refresh_context_hash=current_refresh_context,
+            ):
+                reused_partitions += 1
+                continue
+
+            source_unchanged = bool(existing_partition_metadata) and (
+                existing_partition_metadata.get("source_bars_hash") == source_hash
+                and int(existing_partition_metadata.get("row_count", -1) or -1) == row_count
+                and (
+                    bool(set(target_output_columns) - existing_output_columns)
+                    or not existing_partition_metadata.get("compute_contract_hash")
+                    or existing_partition_metadata["compute_contract_hash"]
+                    == _indicator_compute_contract_hash(resolved_profile)
+                )
+            )
+            missing_columns = set(target_output_columns) - existing_output_columns
+            can_extend_from_existing = bool(
+                source_unchanged
+                and series_mode != "continuous_front"
+                and missing_columns
+                and reusable_existing_columns
+                and _profile_extension_preserves_existing_contract(
+                    resolved_profile,
+                    existing_partition_metadata,
+                    reusable_existing_columns,
+                    instrument_id=partition_key.instrument_id,
+                    ladder_rows=context_ladder,
+                    raw_1m_path=volume_profile_raw_1m_table_path,
+                    source_rows=volume_profile_source_rows,
+                    tick_sizes=volume_profile_tick_size_by_instrument,
+                )
+            )
             if series is None:
                 series = _load_bar_partition_rows(
                     dataset_output_dir=dataset_output_dir,
@@ -2143,159 +2515,87 @@ def _materialize_indicator_frames_unlocked(
                     contour_id=contour_id,
                     partition=partition_key,
                 )
-            series_ladder_rows = _ladder_rows_for_series(
-                adjustment_ladder_rows,
+            if can_extend_from_existing:
+                missing_specs = _specs_for_columns(resolved_profile, missing_columns)
+                compute_profile = _profile_for_specs(resolved_profile, missing_specs)
+                existing_value_columns: tuple[str, ...] | None = reusable_existing_columns
+                extended_partitions += 1
+            else:
+                compute_profile = resolved_profile
+                existing_value_columns = None
+                recomputed_partitions += 1
+            refreshed_partitions += 1
+            partition_started = stage_timer("partition.load_existing")
+            existing_rows = (
+                load_indicator_partition_rows(
+                    output_dir=indicator_output_dir,
+                    partition=partition_key,
+                    value_columns=existing_value_columns or reusable_existing_columns,
+                )
+                if existing_partition_metadata is not None
+                and reusable_existing_columns
+                and (
+                    can_extend_from_existing
+                    or existing_partition_metadata.get("refresh_context_hash")
+                    == current_refresh_context
+                )
+                and (series_mode != "continuous_front" or existing_value_columns is not None)
+                else None
+            )
+            record_stage_timing(
+                {},
+                "partition.load_existing",
+                partition_started,
                 instrument_id=partition_key.instrument_id,
                 timeframe=partition_key.timeframe,
             )
-            target_bars_hash = _bars_hash(series, adjustment_ladder_rows=series_ladder_rows)
-            local_volume_profile_source_rows = _load_volume_profile_rows(partition_key, series)
-            if local_volume_profile_source_rows is None:
-                volume_profile_missing_source_partitions += 1
-            source_hash = (
-                _volume_profile_source_hash(
-                    target_bars_hash=target_bars_hash,
-                    local_series=series,
-                    source_rows_by_series=local_volume_profile_source_rows,
-                    tick_size_by_instrument=volume_profile_tick_size_by_instrument,
-                )
-                if local_volume_profile_source_rows is not None
-                else target_bars_hash
-            )
-        if _existing_partition_matches(
-            existing_partition_metadata,
-            source_hash=source_hash,
-            profile_version=resolved_profile.version,
-            row_count=row_count,
-            output_columns_hash=target_output_columns_hash,
-            legacy_output_columns_match=set(target_output_columns).issubset(
-                existing_output_columns
-            ),
-        ):
-            reused_partitions += 1
-            continue
-
-        source_unchanged = bool(existing_partition_metadata) and (
-            existing_partition_metadata.get("source_bars_hash") == source_hash
-            and int(existing_partition_metadata.get("row_count", -1) or -1) == row_count
-        )
-        missing_columns = set(target_output_columns) - existing_output_columns
-        can_extend_from_existing = bool(
-            source_unchanged
-            and series_mode != "continuous_front"
-            and missing_columns
-            and reusable_existing_columns
-        )
-        if series is None:
-            series = _load_bar_partition_rows(
-                dataset_output_dir=dataset_output_dir,
+            partition_started = stage_timer("partition.compute")
+            partition_rows = _build_partition_rows(
                 dataset_version=dataset_version,
-                contour_id=contour_id,
-                partition=partition_key,
+                indicator_set_version=indicator_set_version,
+                profile=resolved_profile,
+                series=series,
+                series_mode=series_mode,
+                source_dataset_bars_hash=current_dataset_bars_hash,
+                output_columns_hash=target_output_columns_hash,
+                compute_profile=compute_profile,
+                existing_rows=existing_rows,
+                adjustment_ladder_rows=adjustment_ladder_rows,
+                volume_profile_source_rows=local_volume_profile_source_rows,
+                volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
+                volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
+                compute_diagnostics=compute_diagnostics,
+                precomputed_source_hash=source_hash,
             )
-        if can_extend_from_existing:
-            missing_specs = _specs_for_columns(resolved_profile, missing_columns)
-            compute_profile = _profile_for_specs(resolved_profile, missing_specs)
-            existing_value_columns: tuple[str, ...] | None = reusable_existing_columns
-            extended_partitions += 1
-        else:
-            compute_profile = resolved_profile
-            existing_value_columns = None
-            recomputed_partitions += 1
-
-        refresh_plan.append(
-            (
+            record_stage_timing(
+                {},
+                "partition.compute",
+                partition_started,
+                instrument_id=partition_key.instrument_id,
+                timeframe=partition_key.timeframe,
+                row_count=len(partition_rows),
+            )
+            yield (
                 partition_key,
-                compute_profile,
-                existing_value_columns,
-                series,
-                local_volume_profile_source_rows,
+                partition_rows,
             )
-        )
-        replace_partitions.append(partition_key)
-        refreshed_partitions += 1
+            # The plan never retains a completed series or its minute inputs.
+            del series, local_volume_profile_source_rows, existing_rows, partition_rows
 
-    deleted_partitions = tuple(
-        partition
-        for partition in existing_by_partition
-        if partition not in current_partitions and _partition_in_requested_scope(partition)
+    stage_started = stage_timer("write_indicator_frames")
+    output_paths, refreshed_row_count, batch_count = write_indicator_frame_partition_batches(
+        output_dir=indicator_output_dir,
+        partition_row_batches=_partition_row_batches(),
+        delete_partitions=deleted_partitions,
+        profile=resolved_profile,
     )
-    replace_partitions.extend(deleted_partitions)
     record_stage_timing(
         stage_timings,
-        "build_refresh_plan",
+        "write_indicator_frames",
         stage_started,
-        partition_count=len(sorted_partition_items),
-        refreshed_partition_count=refreshed_partitions,
-        reused_partition_count=reused_partitions,
-        extended_partition_count=extended_partitions,
-        recomputed_partition_count=recomputed_partitions,
-        deleted_partition_count=len(deleted_partitions),
+        refreshed_row_count=refreshed_row_count,
+        write_batch_count=batch_count,
     )
-
-    refreshed_row_count = 0
-    batch_count = 0
-    if replace_partitions or not table_exists:
-
-        def _partition_row_batches() -> Iterator[
-            tuple[IndicatorFramePartitionKey, list[IndicatorFrameRow]]
-        ]:
-            for (
-                partition_key,
-                compute_profile,
-                existing_value_columns,
-                series,
-                local_volume_profile_source_rows,
-            ) in refresh_plan:
-                existing_rows = (
-                    load_indicator_partition_rows(
-                        output_dir=indicator_output_dir,
-                        partition=partition_key,
-                        value_columns=existing_value_columns,
-                    )
-                    if existing_value_columns is not None
-                    else None
-                )
-                yield (
-                    partition_key,
-                    _build_partition_rows(
-                        dataset_version=dataset_version,
-                        indicator_set_version=indicator_set_version,
-                        profile=resolved_profile,
-                        series=series,
-                        series_mode=series_mode,
-                        source_dataset_bars_hash=current_dataset_bars_hash,
-                        output_columns_hash=target_output_columns_hash,
-                        compute_profile=compute_profile,
-                        existing_rows=existing_rows,
-                        adjustment_ladder_rows=adjustment_ladder_rows,
-                        volume_profile_source_rows=local_volume_profile_source_rows,
-                        volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
-                        volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
-                    ),
-                )
-
-        stage_started = stage_timer()
-        output_paths, refreshed_row_count, batch_count = write_indicator_frame_partition_batches(
-            output_dir=indicator_output_dir,
-            partition_row_batches=_partition_row_batches(),
-            delete_partitions=deleted_partitions,
-            profile=resolved_profile,
-        )
-        record_stage_timing(
-            stage_timings,
-            "write_indicator_frames",
-            stage_started,
-            refreshed_partition_count=refreshed_partitions,
-            refreshed_row_count=refreshed_row_count,
-            write_batch_count=batch_count,
-        )
-    else:
-        record_skipped_stage(
-            stage_timings,
-            "write_indicator_frames",
-            reason="all partitions reusable",
-        )
 
     current_total_rows = sum(partition_counts.values())
     volume_profile_source_status = "not_required"
@@ -2321,6 +2621,7 @@ def _materialize_indicator_frames_unlocked(
         "output_paths": output_paths,
         "stage_timings": stage_timings,
         "delta_manifest": indicator_store_contract(profile=resolved_profile),
+        "compute_diagnostics": compute_diagnostics,
     }
 
 
@@ -2337,3 +2638,534 @@ def reload_indicator_frames(
         indicator_set_version=indicator_set_version,
         contour_id=contour_id,
     )
+
+
+def _canonical_json_bytes(value: object) -> bytes:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
+
+
+def _indicator_compute_contract_hash(profile: IndicatorProfile) -> str:
+    definition = asdict(profile)
+    definition.pop("description")
+    payload = {
+        "profile": definition,
+        "library": ta.__version__,
+        "pandas": pd.__version__,
+        "numpy": np.__version__,
+        "talib_available": bool(ta.Imports.get("talib")),
+        "talib_version": distribution_version("TA-Lib") if ta.Imports.get("talib") else None,
+        "policy": INDICATOR_USAGE_POLICY_ID,
+        "cache_version": 1,
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _profile_extension_preserves_existing_contract(
+    profile: IndicatorProfile,
+    metadata: Mapping[str, object],
+    existing_columns: tuple[str, ...],
+    *,
+    instrument_id: str,
+    ladder_rows: tuple[dict[str, object], ...],
+    raw_1m_path: Path | None,
+    source_rows: Mapping[tuple[str, str], Sequence[Mapping[str, object]]] | None,
+    tick_sizes: Mapping[str, float] | None,
+) -> bool:
+    if not metadata.get("compute_contract_hash"):
+        return False
+    prior_definition = IndicatorProfile(
+        version=str(metadata.get("profile_version") or ""),
+        description="",
+        indicators=_specs_for_columns(profile, set(existing_columns)),
+    )
+    return _indicator_compute_contract_hash(prior_definition) == metadata[
+        "compute_contract_hash"
+    ] and metadata.get("refresh_context_hash") == _refresh_context_hash(
+        prior_definition,
+        instrument_id=instrument_id,
+        ladder_rows=ladder_rows,
+        raw_1m_path=raw_1m_path,
+        source_rows=source_rows,
+        tick_sizes=tick_sizes,
+    )
+
+
+def _indicator_input_row_hashes(
+    series: list[ResearchBarView],
+    *,
+    compute_contract_hash: str,
+    volume_profile_source_rows: Mapping[tuple[str, str], Sequence[Mapping[str, object]]] | None,
+    tick_size_by_instrument: Mapping[str, float] | None,
+    has_volume_profile: bool,
+    required_columns: tuple[str, ...],
+    cached_volume_profile_hashes: Mapping[str, str] | None = None,
+    volume_profile_hashes: dict[str, str] | None = None,
+) -> list[str]:
+    minute_frames: dict[tuple[str, str], pd.DataFrame] = {}
+    input_columns = set(required_columns) | {
+        "dataset_version",
+        "contract_id",
+        "instrument_id",
+        "timeframe",
+        "ts",
+        "session_date",
+        "bar_usage_flags",
+        "contour_id",
+        "series_mode",
+        "series_id",
+    }
+    hashes = []
+    for row in series:
+        payload: dict[str, object] = {
+            "bar": {key: value for key, value in row.to_dict().items() if key in input_columns},
+            "compute": compute_contract_hash,
+        }
+        if has_volume_profile and (cached_volume_profile_hashes or {}).get(row.ts):
+            payload["volume_profile"] = cached_volume_profile_hashes[row.ts]
+        elif has_volume_profile:
+            key = _volume_profile_key(row.instrument_id, _volume_profile_contract_id(row))
+            if key not in minute_frames:
+                minute_frames[key] = _source_rows_frame(
+                    (volume_profile_source_rows or {}).get(key, ())
+                )
+            minute_frame = minute_frames[key]
+            minute_rows = []
+            bar_end = None
+            if not minute_frame.empty:
+                timestamps = minute_frame["_ts_open"]
+                left = int(timestamps.searchsorted(_utc_timestamp(row.ts)))
+                bar_end = _target_bar_close_ts(row)
+                right = int(timestamps.searchsorted(bar_end))
+                minute_rows = minute_frame.iloc[left:right][["low", "high", "volume"]].to_dict(
+                    "records"
+                )
+            elif (tick_size_by_instrument or {}).get(row.instrument_id) is not None:
+                bar_end = _target_bar_close_ts(row)
+            volume_payload = {
+                "configured": volume_profile_source_rows is not None,
+                "tick_size": (tick_size_by_instrument or {}).get(row.instrument_id),
+                "contract": key,
+                "bar_end": bar_end.isoformat() if bar_end is not None else None,
+                "minutes": minute_rows,
+            }
+            payload["volume_profile"] = hashlib.sha256(
+                json.dumps(volume_payload, sort_keys=True, default=str).encode()
+            ).hexdigest()
+        if has_volume_profile and volume_profile_hashes is not None:
+            volume_profile_hashes[row.ts] = str(payload["volume_profile"])
+        hashes.append(
+            hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
+        )
+    return hashes
+
+
+def _finite_indicator_history(spec: IndicatorSpec) -> int | None:
+    params = spec.params_dict()
+    if any(
+        int(params[name]) <= 0
+        for name in ("length", "k", "d", "smooth_k", "lower_length", "upper_length")
+        if name in params
+    ):
+        return None
+    length = int(params.get("length", spec.warmup_bars))
+    operation = spec.operation_key
+    if operation in {
+        "sma",
+        "slope",
+        "cmf",
+        "vwma",
+        "cci",
+        "willr",
+        "bbands",
+        "volume_norm",
+        "oi_z",
+        "oi_relative_activity",
+        "realized_volatility",
+    }:
+        return max(1, length + 1)
+    if operation in {"roc", "mom", "mfi", "oi_change", "oi_roc", "aroon"}:
+        return max(1, length + 2)
+    if operation == "hma":
+        return max(1, length + int(math.sqrt(length)) + 1)
+    if operation == "stoch":
+        return sum(int(params[name]) for name in ("k", "d", "smooth_k")) + 1
+    if operation == "donchian":
+        return (
+            max(int(params.get("lower_length", length)), int(params.get("upper_length", length)))
+            + 1
+        )
+    if operation == "ulcer_index":
+        return length * 2 + 1
+    if operation == "true_range":
+        return 2
+    if operation == "volume_oi_ratio":
+        return 1
+    # A warmup declaration is not a bound on recursive/cumulative dependencies.
+    return None
+
+
+def _compute_cached_profile_frame(
+    frame: pd.DataFrame,
+    profile: IndicatorProfile,
+    *,
+    existing: pd.DataFrame,
+    prefix_length: int,
+    diagnostics: dict[str, object],
+) -> pd.DataFrame:
+    assert_indicator_bar_usage_policy_coverage(profile)
+    result = frame.copy()
+    for rule, output_columns in indicator_bar_usage_groups_for_outputs(
+        profile.expected_output_columns()
+    ):
+        specs = _specs_for_columns(profile, set(output_columns))
+        eligible_frame = frame.loc[_bar_usage_eligible_mask(frame, rule.required_flags)].copy()
+        prefix_index = eligible_frame.index[eligible_frame.index < prefix_length]
+        tail_index = eligible_frame.index[eligible_frame.index >= prefix_length]
+        computed = pd.DataFrame(index=eligible_frame.index)
+        for spec in specs:
+            history = None if ta.Imports.get("talib") else _finite_indicator_history(spec)
+            if spec.operation_key == "oi_roc" and eligible_frame["open_interest"].isna().any():
+                # pandas pct_change's forward-fill can reach before a finite window.
+                history = None
+            dependencies = set(spec.required_input_columns) & set(computed.columns)
+            if dependencies:
+                eligible_frame = _append_computed_columns(
+                    eligible_frame, {column: computed[column] for column in dependencies}
+                )
+            if not len(tail_index):
+                outputs = {
+                    column: existing.loc[eligible_frame.index, column]
+                    for column in spec.output_columns
+                }
+            elif spec.operation_key == "ema" and len(prefix_index) and not ta.Imports.get("talib"):
+                seed = existing.loc[prefix_index[-1], spec.output_columns[0]]
+                close = eligible_frame.loc[tail_index, "close"]
+                previous_close = eligible_frame.loc[prefix_index[-1], "close"]
+                length = int(spec.params_dict()["length"])
+                if (
+                    length > 0
+                    and pd.notna(seed)
+                    and math.isfinite(float(seed))
+                    and pd.notna(previous_close)
+                    and math.isfinite(float(previous_close))
+                    and np.isfinite(close.to_numpy(dtype=float)).all()
+                ):
+                    # pandas-ta's EMA is adjust=False EWM. A constant seed prefix
+                    # supplies the checkpoint and satisfies its minimum input length.
+                    seeded = pd.Series([float(seed)] * length + close.tolist(), dtype=float)
+                    values = ta.ema(seeded, length=length, sma=False, talib=False).iloc[length:]
+                    outputs = {
+                        spec.output_columns[0]: pd.Series(values.to_numpy(), index=tail_index)
+                    }
+                    diagnostics["continued_ema_count"] = (
+                        int(diagnostics.get("continued_ema_count", 0)) + 1
+                    )
+                else:
+                    outputs = _compute_spec(eligible_frame, spec)
+                    diagnostics["full_history_spec_count"] = (
+                        int(diagnostics.get("full_history_spec_count", 0)) + 1
+                    )
+            elif history is not None or spec.operation_key == "volume_profile":
+                start = max(0, len(prefix_index) - (history or 0))
+                outputs = _compute_spec(eligible_frame.iloc[start:], spec)
+                diagnostics["tail_spec_count"] = int(diagnostics.get("tail_spec_count", 0)) + 1
+            else:
+                outputs = _compute_spec(eligible_frame, spec)
+                diagnostics["full_history_spec_count"] = (
+                    int(diagnostics.get("full_history_spec_count", 0)) + 1
+                )
+                operations = diagnostics.setdefault("full_history_operations", [])
+                if spec.operation_key not in operations:
+                    operations.append(spec.operation_key)
+            for column, values in outputs.items():
+                projected = values.reindex(eligible_frame.index).astype(object)
+                if len(prefix_index):
+                    projected.loc[prefix_index] = existing.loc[prefix_index, column]
+                computed[column] = projected
+        result = _append_computed_columns(
+            result,
+            _project_bar_usage_computed_columns(
+                frame=frame,
+                computed=computed,
+                output_columns=output_columns,
+                rule=rule,
+            ),
+        )
+    return result
+
+
+def _volume_profile_delta_identity(table_path: Path) -> dict[str, str]:
+    available = set(delta_table_columns(table_path))
+    instrument = "instrument_id" if "instrument_id" in available else "internal_id"
+    contract = (
+        "contract_id"
+        if "contract_id" in available
+        else "finam_symbol"
+        if "finam_symbol" in available
+        else "moex_secid"
+    )
+    timestamp = "ts_open" if "ts_open" in available else "ts" if "ts" in available else ""
+    projection = [contract, instrument, "timeframe", timestamp, "low", "high", "volume"]
+    missing = sorted(set(projection) - available)
+    if missing:
+        raise ValueError(
+            "volume profile 1m identity is missing required columns: " + ", ".join(missing)
+        )
+    read_contract = {
+        "version": 1,
+        "projection": projection,
+        "timeframe": "1m",
+        "key_mapping": {"instrument_id": instrument, "contract_id": contract},
+        "timestamp": timestamp,
+        "target_contract": "active_contract_id_or_contract_id",
+        "interval": "[target_open,target_close)",
+        "target_close": "bar_end_or_timeframe;daily_session_close;cap_session_close",
+        "selection": "contract_envelopes_then_exact_interval_union",
+    }
+    return {
+        "identity_contract": "delta_source_identity.v1",
+        "role": "volume_profile_1m",
+        **delta_table_identity(table_path),
+        "read_contract_hash": hashlib.sha256(_canonical_json_bytes(read_contract)).hexdigest(),
+    }
+
+
+def _refresh_context_hash(
+    profile: IndicatorProfile,
+    *,
+    instrument_id: str,
+    ladder_rows: tuple[dict[str, object], ...],
+    raw_1m_path: Path | None,
+    source_rows: Mapping[tuple[str, str], Sequence[Mapping[str, object]]] | None,
+    tick_sizes: Mapping[str, float] | None,
+) -> str:
+    return hashlib.sha256(
+        _canonical_json_bytes(
+            {
+                "refresh_context_version": 2,
+                "compute": _indicator_compute_contract_hash(profile),
+                "ladder": _normalize_ladder_rows(ladder_rows),
+                "volume_profile": {
+                    "source": _volume_profile_delta_identity(raw_1m_path)
+                    if raw_1m_path is not None
+                    else source_rows is not None,
+                    "tick_size": (tick_sizes or {}).get(instrument_id),
+                }
+                if _profile_has_volume_profile_spec(profile)
+                else None,
+            }
+        )
+    ).hexdigest()
+
+
+def _normalize_indicator_windows(
+    windows: Sequence[Mapping[str, object]],
+) -> tuple[dict[str, object], ...]:
+    normalized = []
+    for window in windows:
+        instrument = str(window.get("instrument_id") or window.get("internal_id") or "").strip()
+        timeframe = str(window.get("timeframe") or "").strip()
+        start = window.get("start_ts") or window.get("window_start_utc")
+        end = window.get("end_ts") or window.get("window_end_utc")
+        if not instrument or not timeframe or not start or not end:
+            raise ValueError(
+                "indicator changed_windows requires instrument, timeframe, start and end"
+            )
+        start_ts, end_ts = _utc_timestamp(start), _utc_timestamp(end)
+        if pd.isna(start_ts) or pd.isna(end_ts) or start_ts > end_ts:
+            raise ValueError("indicator changed_windows has an invalid interval")
+        normalized.append(
+            {
+                "instrument_id": instrument,
+                "timeframe": timeframe,
+                "contract_id": str(window.get("contract_id") or ""),
+                "start_ts": start_ts,
+                "end_ts": end_ts,
+            }
+        )
+    return tuple(normalized)
+
+
+def _materialize_indicator_window_tails(
+    *,
+    dataset_output_dir: Path,
+    indicator_output_dir: Path,
+    profile: IndicatorProfile,
+    partition_counts: Mapping[IndicatorFramePartitionKey, int],
+    existing_by_partition: Mapping[IndicatorFramePartitionKey, Mapping[str, object]],
+    windows: tuple[dict[str, object], ...],
+    adjustment_ladder_rows: tuple[dict[str, object], ...],
+    source_dataset_bars_hash: str,
+    volume_profile_source_rows: Mapping[tuple[str, str], Sequence[Mapping[str, object]]] | None,
+    volume_profile_raw_1m_table_path: Path | None,
+    volume_profile_tick_size_by_instrument: Mapping[str, float] | None,
+    deleted_partitions: tuple[IndicatorFramePartitionKey, ...],
+    stage_timings: StageTimings,
+) -> dict[str, object]:
+    starts: dict[IndicatorFramePartitionKey, str] = {}
+    diagnostics: dict[str, object] = {}
+    refreshed = reused = missing_source = 0
+    columns = profile.expected_output_columns()
+
+    def batches() -> Iterator[tuple[IndicatorFramePartitionKey, list[IndicatorFrameRow]]]:
+        nonlocal refreshed, reused, missing_source
+        for partition, count in sorted(
+            partition_counts.items(),
+            key=lambda item: (
+                item[0].instrument_id,
+                item[0].contract_id or "",
+                item[0].timeframe,
+            ),
+        ):
+            metadata = existing_by_partition.get(partition)
+            ladder = (
+                _ladder_rows_for_series(
+                    adjustment_ladder_rows,
+                    instrument_id=partition.instrument_id,
+                    timeframe=partition.timeframe,
+                )
+                if partition.series_mode == "continuous_front"
+                else ()
+            )
+            context_hash = _refresh_context_hash(
+                profile,
+                instrument_id=partition.instrument_id,
+                ladder_rows=ladder,
+                raw_1m_path=volume_profile_raw_1m_table_path,
+                source_rows=volume_profile_source_rows,
+                tick_sizes=volume_profile_tick_size_by_instrument,
+            )
+            compatible = (
+                bool(metadata)
+                and metadata.get("refresh_context_hash") == context_hash
+                and metadata.get("compute_contract_hash")
+                == _indicator_compute_contract_hash(profile)
+            )
+            selected_windows = [
+                window
+                for window in windows
+                if (
+                    window["instrument_id"] == partition.instrument_id
+                    and window["timeframe"] == partition.timeframe
+                    and (
+                        not window["contract_id"]
+                        or partition.contract_id is None
+                        or window["contract_id"] == partition.contract_id
+                    )
+                )
+            ]
+            if compatible and not selected_windows and int(metadata.get("row_count", -1)) == count:
+                reused += 1
+                continue
+            series = _load_bar_partition_rows(
+                dataset_output_dir=dataset_output_dir,
+                dataset_version=partition.dataset_version,
+                contour_id=partition.contour_id,
+                partition=partition,
+            )
+            existing = (
+                load_indicator_partition_rows(
+                    output_dir=indicator_output_dir,
+                    partition=partition,
+                    value_columns=columns,
+                )
+                if compatible
+                else []
+            )
+            existing_by_ts = {row.ts: row for row in existing}
+            source_ts = {bar.ts for bar in series}
+            changed_ts = {
+                row.ts
+                for row in series
+                if row.ts not in existing_by_ts
+                or any(
+                    _utc_timestamp(row.ts) <= window["end_ts"]
+                    and _target_bar_close_ts(row) > window["start_ts"]
+                    and (
+                        not window["contract_id"]
+                        or _volume_profile_contract_id(row) == window["contract_id"]
+                    )
+                    for window in selected_windows
+                )
+            }
+            if not compatible:
+                start = series[0].ts
+                changed_ts = {row.ts for row in series}
+            else:
+                candidates = [*changed_ts, *[row.ts for row in existing if row.ts not in source_ts]]
+                if not candidates:
+                    reused += 1
+                    continue
+                # When the old last bar was deleted, rewrite the last surviving
+                # bar as the metadata carrier for the smaller current series.
+                start = min(min(candidates), series[-1].ts)
+            starts[partition] = start
+            rows = _build_partition_rows(
+                dataset_version=partition.dataset_version,
+                indicator_set_version=partition.indicator_set_version,
+                profile=profile,
+                series=series,
+                series_mode=partition.series_mode,
+                source_dataset_bars_hash=source_dataset_bars_hash,
+                existing_rows=existing,
+                adjustment_ladder_rows=adjustment_ladder_rows,
+                volume_profile_source_rows=volume_profile_source_rows,
+                volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
+                volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
+                compute_diagnostics=diagnostics,
+                native_full_compute=True,
+                volume_profile_refresh_ts=changed_ts,
+            )
+            if _profile_has_volume_profile_spec(profile) and (
+                volume_profile_source_rows is None and volume_profile_raw_1m_table_path is None
+            ):
+                missing_source += 1
+            refreshed += 1
+            yield (
+                partition,
+                [row for row in rows if _utc_timestamp(row.ts) >= _utc_timestamp(start)],
+            )
+            del series, existing, existing_by_ts, rows, changed_ts, source_ts
+
+    started = stage_timer("write_indicator_frames")
+    paths, row_count, batch_count = write_indicator_frame_partition_batches(
+        output_dir=indicator_output_dir,
+        partition_row_batches=batches(),
+        delete_partitions=deleted_partitions,
+        profile=profile,
+        partition_start_ts=starts,
+    )
+    record_stage_timing(
+        stage_timings,
+        "write_indicator_frames",
+        started,
+        refreshed_row_count=row_count,
+        write_batch_count=batch_count,
+    )
+    return {
+        "indicator_row_count": sum(partition_counts.values()),
+        "bar_usage_policy_id": BAR_USAGE_POLICY_ID,
+        "indicator_usage_policy_id": INDICATOR_USAGE_POLICY_ID,
+        "refreshed_row_count": row_count,
+        "refreshed_partition_count": refreshed,
+        "reused_partition_count": reused,
+        "extended_partition_count": 0,
+        "recomputed_partition_count": refreshed,
+        "deleted_partition_count": len(deleted_partitions),
+        "write_batch_count": batch_count,
+        "profile_version": profile.version,
+        "output_columns_hash": indicator_output_columns_hash(columns),
+        "volume_profile_missing_source_partition_count": missing_source,
+        "volume_profile_source_status": "not_required"
+        if not _profile_has_volume_profile_spec(profile)
+        else "missing_source"
+        if missing_source
+        else "configured",
+        "output_paths": paths,
+        "stage_timings": stage_timings,
+        "delta_manifest": indicator_store_contract(profile=profile),
+        "compute_diagnostics": diagnostics,
+        "refresh_mode": "changed_window_tail",
+    }

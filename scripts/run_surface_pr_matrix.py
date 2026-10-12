@@ -34,6 +34,15 @@ DATA_CHECKS = (
     "python -m pytest tests/product-plane/integration/test_historical_data_plane.py -q",
     "python -m pytest tests/product-plane/integration/test_historical_data_dagster_execution.py -q",
     "python -m pytest tests/product-plane/integration/test_historical_data_spark_execution.py -q",
+    (
+        "python -m pytest "
+        "tests/product-plane/unit/test_moex_raw_ingest_spark_delta_contract.py "
+        "tests/product-plane/integration/test_moex_raw_ingest.py -q -rs"
+    ),
+    (
+        "python -m pytest "
+        "tests/product-plane/integration/test_moex_canonical_publish_spark_delta_job.py -q -rs"
+    ),
     "python -m pytest tests/product-plane/integration/test_materialized_research_plane.py -q",
     "python -m pytest tests/product-plane/integration/test_research_dagster_jobs.py -q",
 )
@@ -46,7 +55,7 @@ def _utc_now() -> str:
 def _resolve_python_command(raw: str) -> str:
     python_exec = sys.executable
     if " " in python_exec:
-        python_exec = f"\"{python_exec}\""
+        python_exec = f'"{python_exec}"'
     return raw.replace("python", python_exec, 1)
 
 
@@ -185,7 +194,9 @@ def _payload_from_plan(
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run profile-aware PR matrix checks for app/runtime/data contours.")
+    parser = argparse.ArgumentParser(
+        description="Run profile-aware PR matrix checks for app/runtime/data contours."
+    )
     parser.add_argument("--mapping", default="configs/change_surface_mapping.yaml")
     parser.add_argument("--from-git", action="store_true")
     parser.add_argument("--git-ref", default="HEAD")
@@ -212,12 +223,16 @@ def main() -> int:
     )
     surface_result = compute_surface(changed_files, mapping_path=Path(args.mapping))
     plan = build_pr_surface_matrix_plan(surface_result)
-    payload = _payload_from_plan(plan=plan, surface_result=surface_result, changed_files=changed_files)
+    payload = _payload_from_plan(
+        plan=plan, surface_result=surface_result, changed_files=changed_files
+    )
 
     if args.output_json:
         output_json_path = Path(args.output_json)
         output_json_path.parent.mkdir(parents=True, exist_ok=True)
-        output_json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        output_json_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
     _write_summary(summary_file=args.summary_file, payload=payload)
     _emit_github_output(output_path=args.emit_github_output, payload=payload)
 
@@ -237,10 +252,7 @@ def main() -> int:
 
     code, failed_command = run_commands(list(plan.checks))
     if code != 0:
-        print(
-            "surface pr matrix: FAILED "
-            f"(contour={plan.contour} command={failed_command})"
-        )
+        print(f"surface pr matrix: FAILED (contour={plan.contour} command={failed_command})")
         return code
     print(f"surface pr matrix: OK (contour={plan.contour})")
     return 0

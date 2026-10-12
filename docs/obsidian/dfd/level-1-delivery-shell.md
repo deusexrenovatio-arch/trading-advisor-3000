@@ -12,7 +12,6 @@ canonical_sources:
   - DEV_WORKFLOW.md
   - entrypoint.md
   - checks.md
-  - skills-routing.md
   - repository-surfaces.md
 ---
 
@@ -31,25 +30,25 @@ flowchart TB
     GitHub["External Entity: GitHub / PR Review"]
 
     P11(["P1.1 Request and Surface Intake"])
-    P12(["P1.2 Context and Skill Routing"])
+    P12(["P1.2 Context Routing"])
     P13(["P1.3 Explicit Risk Note Control"])
     P14(["P1.4 Gate Runtime Orchestration"])
     P15(["P1.5 PR and Evidence Packaging"])
     P16(["P1.6 Closeout"])
 
     D11[("D1.1 AGENTS.md / hot agent docs")]
-    D12[("D1.2 context cards / skills-routing.md")]
+    D12[("D1.2 context cards")]
     D13[("D1.3 optional task-note proof")]
     D14[("D1.4 git working tree diff and change markers")]
     D15[("D1.5 checks.md / validate_*.py")]
     D16[("D1.6 gate summaries / validation output")]
 
     User -->|"request, constraints, acceptance signal"| P11
-    Agent -->|"candidate action, selected skills"| P11
+    Agent -->|"candidate action"| P11
     D11 -->|"surface policy and non-negotiable rules"| P11
     P11 -->|"declared surface and task intent"| P12
-    D12 -->|"context route, navigation order, skill placement"| P12
-    P12 -->|"minimal context, optional relevant skill"| P13
+    D12 -->|"context route and navigation order"| P12
+    P12 -->|"minimal context"| P13
     P12 -->|"ordinary route without durable task state"| P14
     P13 -->|"explicit note only when required"| D13
     D13 -->|"risk intent or acceptance evidence"| P14
@@ -70,7 +69,7 @@ Delivery Shell is not a single linear script. It is a control plane made of:
 
 | Control-plane area | Main responsibility |
 | --- | --- |
-| Policy and routing | Decide surface, context, skills, and source-of-truth path |
+| Policy and routing | Decide surface, context, and source-of-truth path |
 | Explicit risk notes | Persist durable intent only when a validator or user explicitly requires it |
 | Gate runtime | Convert diff and task state into scoped validation commands |
 | PR/evidence packaging | Turn checks and artifacts into reviewable closeout evidence |
@@ -82,7 +81,7 @@ short. Full paths belong in the linked source docs.
 
 ## Decomposed Shell Maps
 
-- [Level 2 - Shell Context And Skill Routing](docs/obsidian/dfd/level-2-shell-context-and-skill-routing.md)
+- [Level 2 - Shell Context Routing](docs/obsidian/dfd/level-2-shell-context-routing.md)
 - [Level 2 - Shell Gate Runtime](docs/obsidian/dfd/level-2-shell-gate-runtime.md)
 - [Level 2 - Shell PR And Evidence](docs/obsidian/dfd/level-2-shell-pr-and-evidence.md)
 

@@ -28,6 +28,7 @@ from trading_advisor_3000.dagster_defs import (
     MOEX_RESEARCH_INDICATOR_SIDECAR_JOB_NAME,
     RESEARCH_BACKTEST_AFTER_STRATEGY_REGISTRY_SENSOR_NAME,
     RESEARCH_BACKTEST_JOB_NAME,
+    RESEARCH_CAMPAIGN_FAILURE_SUMMARY_SENSOR_NAME,
     RESEARCH_DATA_PREP_AFTER_MOEX_CF_CATCH_UP_SENSOR_NAME,
     RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME,
     RESEARCH_DATA_PREP_ASSETS,
@@ -102,6 +103,126 @@ requires_spark_delta_runtime = pytest.mark.skipif(
         "Docker/Linux staging proof runs this route"
     ),
 )
+
+
+@requires_spark_delta_runtime
+def test_research_l0_year_writer_retains_identity_history_and_values(tmp_path: Path) -> None:
+    from deltalake import DeltaTable
+    from pyspark.sql import functions as F
+
+    from trading_advisor_3000.spark_jobs import research_bar_views_job as owner
+
+    spark = owner._create_spark_session("research-close-year-proof", "local[2]")
+    proof = {"scope": "isolated native writer fixture", "tables": []}
+    try:
+        spark.conf.set("spark.sql.session.timeZone", "Europe/Moscow")
+        proof["actual_jvm_max_heap_bytes"] = int(
+            spark.sparkContext._jvm.java.lang.Runtime.getRuntime().maxMemory()
+        )
+        columns = list(research_dataset_store_contract()["research_bar_views"]["columns"])
+        rows = []
+        for timeframe, opened, closed in (
+            ("1m", datetime(2026, 12, 31, 23, 59, tzinfo=UTC), datetime(2027, 1, 1, tzinfo=UTC)),
+            ("1d", datetime(2026, 12, 31, tzinfo=UTC), datetime(2026, 12, 31, 22, 1, tzinfo=UTC)),
+        ):
+            row = dict.fromkeys([*columns, "ts_close_year"])
+            row.update(
+                dataset_version="year-proof",
+                contour_id="native_tradable",
+                contract_id="BR-3.27",
+                instrument_id="FUT_BR",
+                series_mode="contract",
+                series_id="BR-3.27",
+                timeframe=timeframe,
+                ts=opened,
+                bar_end_ts=closed,
+                close=1.0,
+                ts_close_year=1999,
+            )
+            rows.append(row)
+        frame = spark.createDataFrame(rows, owner._schema_from_contract("research_bar_views"))
+        for physical_type in ("int", "long"):
+            path = tmp_path / physical_type / "research_bar_views.delta"
+            scope = [("dataset_version", "=", "year-proof")]
+            if physical_type == "int":
+                owner._write_spark_delta_table(
+                    dataframe=frame,
+                    table_path=path,
+                    table_name="research_bar_views",
+                    replace_scope=scope,
+                )
+            else:
+                owner._cast_to_contract(frame, "research_bar_views").withColumn(
+                    "ts_close_year", F.col("ts_close_year").cast("long")
+                ).write.format("delta").partitionBy("ts_close_year").save(str(path))
+            old = DeltaTable(str(path))
+            identity, version = old.metadata().id, old.version()
+            old_rows = sorted(
+                old.to_pyarrow_table(columns=["timeframe", "close"]).to_pylist(),
+                key=lambda row: row["timeframe"],
+            )
+            owner._write_spark_delta_table(
+                dataframe=frame.withColumn("close", F.lit(3.0)),
+                table_path=path,
+                table_name="research_bar_views",
+                replace_scope=scope,
+            )
+            current = DeltaTable(str(path))
+            assert current.metadata().id == identity
+            assert current.metadata().partition_columns == ["ts_close_year"]
+            assert (
+                sorted(
+                    DeltaTable(str(path), version=version)
+                    .to_pyarrow_table(columns=["timeframe", "close"])
+                    .to_pylist(),
+                    key=lambda row: row["timeframe"],
+                )
+                == old_rows
+            )
+            actual = current.to_pyarrow_table(
+                columns=["timeframe", "ts", "bar_end_ts", "close", "ts_close_year"]
+            ).to_pylist()
+            assert {r["timeframe"]: r["ts_close_year"] for r in actual} == {"1m": 2027, "1d": 2026}
+            for row in actual:
+                original = next(r for r in rows if r["timeframe"] == row["timeframe"])
+                assert row["ts"].timestamp() == original["ts"].timestamp()
+                assert row["bar_end_ts"].timestamp() == original["bar_end_ts"].timestamp()
+                assert row["close"] == 3.0
+            assert owner._validate_tables({"research_bar_views": str(path)}) == []
+            actions = current.get_add_actions(flatten=True).to_pylist()
+            assert len(actions) == 2
+            assert all(0 < item["size_bytes"] <= 512 * 1024 * 1024 for item in actions)
+            assert spark.read.format("delta").load(str(path)).schema[
+                "ts_close_year"
+            ].dataType.simpleString() == ("int" if physical_type == "int" else "bigint")
+            proof["tables"].append(
+                dict(
+                    table_id=identity,
+                    old_version=version,
+                    new_version=current.version(),
+                    physical_type=physical_type,
+                    active_files=[
+                        {
+                            key: item[key]
+                            for key in (
+                                "path",
+                                "size_bytes",
+                                "num_records",
+                                "partition.ts_close_year",
+                            )
+                        }
+                        for item in actions
+                    ],
+                    rows=2,
+                )
+            )
+        assert spark.conf.get("spark.sql.session.timeZone") == "Europe/Moscow"
+        if os.environ.get("TA3000_RESEARCH_CARRIER_PROOF"):
+            Path(os.environ["TA3000_RESEARCH_CARRIER_PROOF"]).write_text(
+                json.dumps(proof, indent=2)
+            )
+    finally:
+        spark.stop()
 
 
 def _read_batched_delta_rows(table_path: Path) -> list[dict[str, object]]:
@@ -449,6 +570,7 @@ def _write_spark_front_outputs_from_canonical(
 def _write_research_bar_outputs_from_front(
     *,
     continuous_front_bars_path: Path,
+    canonical_bar_provenance_path: Path,
     output_dir: Path,
     dataset_version: str,
     dataset_name: str,
@@ -467,6 +589,17 @@ def _write_research_bar_outputs_from_front(
     created_at = "2026-04-29T00:00:00Z"
     contour_id = "pit_active_front"
     instruments = sorted({str(row["instrument_id"]) for row in front_rows})
+    close_by_source_key = {
+        (str(row["contract_id"]), str(row["timeframe"]), str(row["ts"])): row["bar_end_ts"]
+        for row in read_delta_table_rows(
+            canonical_bar_provenance_path,
+            columns=["contract_id", "timeframe", "ts", "bar_end_ts"],
+            filters=[
+                ("instrument_id", "in", instruments),
+                ("timeframe", "in", sorted({str(row["timeframe"]) for row in front_rows})),
+            ],
+        )
+    }
     dataset_row = {
         "dataset_version": dataset_version,
         "contour_id": contour_id,
@@ -534,6 +667,9 @@ def _write_research_bar_outputs_from_front(
                 "instrument_id": str(row["instrument_id"]),
                 "timeframe": str(row["timeframe"]),
                 "ts": ts,
+                "bar_end_ts": close_by_source_key[
+                    (str(row["active_contract_id"]), str(row["timeframe"]), ts)
+                ],
                 "open": float(row["continuous_open"]),
                 "high": float(row["continuous_high"]),
                 "low": float(row["continuous_low"]),
@@ -767,6 +903,7 @@ def test_isolated_moex_data_layer_rebuild_jobs_update_only_their_layer(
     def _bar_views_entrypoint(**kwargs: object) -> dict[str, object]:
         return _write_research_bar_outputs_from_front(
             continuous_front_bars_path=Path(str(kwargs["continuous_front_bars_path"])),
+            canonical_bar_provenance_path=canonical_dir / "canonical_bar_provenance.delta",
             output_dir=Path(str(kwargs["output_dir"])),
             dataset_version=str(kwargs["dataset_version"]),
             dataset_name=str(kwargs["dataset_name"]),
@@ -982,6 +1119,7 @@ def test_research_definitions_expose_isolated_data_layer_jobs_without_moex_succe
     assert set(derived_job.graph.node_dict) == set(MOEX_DERIVED_INDICATOR_REBUILD_ASSETS)
     assert set(sidecar_job.graph.node_dict) == set(MOEX_RESEARCH_INDICATOR_SIDECAR_ASSETS)
     assert set(strategy_job.graph.node_dict) == {
+        "research_campaign_context",
         "research_datasets",
         *STRATEGY_REGISTRY_REFRESH_ASSETS,
     }
@@ -992,6 +1130,7 @@ def test_research_definitions_expose_isolated_data_layer_jobs_without_moex_succe
     assert RESEARCH_STRATEGY_REGISTRY_AFTER_DATA_PREP_SENSOR_NAME not in isolated_sensor_names
     assert RESEARCH_BACKTEST_AFTER_STRATEGY_REGISTRY_SENSOR_NAME not in isolated_sensor_names
     assert RESEARCH_PROJECTION_AFTER_BACKTEST_SENSOR_NAME not in isolated_sensor_names
+    assert RESEARCH_CAMPAIGN_FAILURE_SUMMARY_SENSOR_NAME in isolated_sensor_names
 
     run_config = build_research_data_prep_run_config(
         canonical_output_dir=tmp_path / "canonical",
@@ -1249,6 +1388,7 @@ def test_research_data_prep_after_moex_cf_catch_up_sensor_starts_scoped_job(
         "research_indicator_frames",
         "research_derived_indicator_frames",
         "continuous_front_indicator_acceptance_report",
+        "research_data_snapshot",
     }
     op_config = request.run_config["ops"]["research_datasets"]["config"]
     assert request.run_config["ops"]["continuous_front_bars"]["config"] == op_config
@@ -1348,7 +1488,10 @@ def test_research_downstream_cascade_sensors_forward_dataset_context(tmp_path: P
     )
 
     assert backtest_request.run_key == f"{RESEARCH_BACKTEST_JOB_NAME}:registry-run-1"
-    assert backtest_request.run_config == {}
+    assert set(backtest_request.run_config["ops"]) == {"research_backtest_batches"}
+    backtest_config = backtest_request.run_config["ops"]["research_backtest_batches"]["config"]
+    assert backtest_config["dataset_version"] == "cascade-data-v1"
+    assert backtest_config["reuse_existing_materialization"] is True
     assert backtest_request.tags["ta3000/upstream_job"] == STRATEGY_REGISTRY_REFRESH_JOB_NAME
     assert backtest_request.tags["ta3000/dataset_version"] == "cascade-data-v1"
     assert backtest_request.tags["ta3000/series_mode"] == "continuous_front"
@@ -1366,7 +1509,10 @@ def test_research_downstream_cascade_sensors_forward_dataset_context(tmp_path: P
     )
 
     assert projection_request.run_key == f"{RESEARCH_PROJECTION_JOB_NAME}:backtest-run-1"
-    assert projection_request.run_config == {}
+    assert set(projection_request.run_config["ops"]) == {"research_signal_candidates"}
+    projection_config = projection_request.run_config["ops"]["research_signal_candidates"]["config"]
+    assert projection_config["dataset_version"] == "cascade-data-v1"
+    assert projection_config["reuse_existing_materialization"] is True
     assert projection_request.tags["ta3000/upstream_job"] == RESEARCH_BACKTEST_JOB_NAME
     assert projection_request.tags["ta3000/dataset_version"] == "cascade-data-v1"
 
@@ -1571,6 +1717,157 @@ def test_research_data_prep_uses_spark_l0_materialization(tmp_path: Path) -> Non
     assert len(dagster_derived_rows) == 2
     assert {row["contour_id"] for row in dagster_indicator_rows} == {"native_tradable"}
     assert {row["contour_id"] for row in dagster_derived_rows} == {"native_tradable"}
+
+
+@requires_spark_delta_runtime
+def test_research_daily_session_date_uses_moscow_provenance_in_both_contours(
+    tmp_path: Path,
+) -> None:
+    canonical_dir = tmp_path / "canonical-daily-timezone"
+    canonical_dir.mkdir()
+    schemas = historical_data_delta_schema_manifest()
+    bars = []
+    provenance = []
+    intervals = []
+    calendar = []
+    roll_map = []
+    for session_date, session_class in (("2026-02-06", "short"), ("2026-02-09", "regular")):
+        stamp = datetime.fromisoformat(session_date).replace(tzinfo=UTC)
+        start = stamp - timedelta(hours=3)
+        end = start + timedelta(days=1, seconds=-1)
+        bars.append(
+            dict(
+                contract_id="BR-6.26",
+                instrument_id="BR",
+                timeframe="1d",
+                ts=stamp,
+                open=80.0,
+                high=82.0,
+                low=79.0,
+                close=81.0,
+                volume=100,
+                open_interest=1000,
+            )
+        )
+        provenance.append(
+            dict(
+                contract_id="BR-6.26",
+                instrument_id="BR",
+                timeframe="1d",
+                ts=stamp,
+                bar_start_ts=start,
+                bar_end_ts=end,
+                session_interval_id=None,
+                source_provider="test",
+                source_timeframe="1d",
+                source_interval=1440,
+                source_run_id="daily-timezone",
+                source_ingest_run_id="daily-timezone",
+                source_row_count=1,
+                source_ts_open_first=start,
+                source_ts_close_last=end,
+                open_interest_imputed=False,
+                build_run_id="daily-timezone",
+                built_at_utc=stamp,
+            )
+        )
+        intervals.append(
+            dict(
+                instrument_id="BR",
+                session_date=session_date,
+                interval_id=f"BR-{session_date}",
+                interval_seq=1,
+                expected_open_ts=stamp + timedelta(hours=7),
+                expected_close_ts=stamp + timedelta(hours=15),
+                session_class=session_class,
+                interval_type="regular_trading",
+                policy_id="test-session-v1",
+                source_id="test",
+                source_document_hash="sha256:test",
+            )
+        )
+        calendar.append(
+            dict(
+                instrument_id="BR",
+                timeframe="1d",
+                session_date=session_date,
+                session_open_ts=stamp + timedelta(hours=7),
+                session_close_ts=stamp + timedelta(hours=15),
+                session_class=session_class,
+            )
+        )
+        roll_map.append(
+            dict(
+                instrument_id="BR",
+                session_date=session_date,
+                active_contract_id="BR-6.26",
+                reason="test",
+            )
+        )
+    # The prior weekday exists with a different class: a UTC-date join can be silently wrong.
+    calendar.append(
+        dict(
+            instrument_id="BR",
+            timeframe="1d",
+            session_date="2026-02-05",
+            session_open_ts="2026-02-05T07:00:00Z",
+            session_close_ts="2026-02-05T15:00:00Z",
+            session_class="regular",
+        )
+    )
+    for name, rows in (
+        ("canonical_bars", bars),
+        ("canonical_bar_provenance", provenance),
+        ("canonical_session_intervals", intervals),
+        ("canonical_session_calendar", calendar),
+        ("canonical_roll_map", roll_map),
+    ):
+        write_delta_table_rows(
+            table_path=canonical_dir / f"{name}.delta",
+            rows=rows,
+            columns=schemas[name]["columns"],
+        )
+    output_dir = tmp_path / "research-daily-timezone"
+    _write_spark_front_outputs_from_canonical(
+        canonical_dir=canonical_dir,
+        output_dir=output_dir,
+        dataset_version="daily-timezone-v1",
+        run_id="daily-timezone",
+        policy=ContinuousFrontPolicy(),
+        timeframes=("1d",),
+    )
+    report = run_research_bar_views_spark_job(
+        canonical_bars_path=canonical_dir / "canonical_bars.delta",
+        canonical_bar_provenance_path=canonical_dir / "canonical_bar_provenance.delta",
+        canonical_session_intervals_path=canonical_dir / "canonical_session_intervals.delta",
+        canonical_session_calendar_path=canonical_dir / "canonical_session_calendar.delta",
+        canonical_roll_map_path=canonical_dir / "canonical_roll_map.delta",
+        continuous_front_bars_path=output_dir / "continuous_front_bars.delta",
+        output_dir=output_dir,
+        dataset_version="daily-timezone-v1",
+        timeframes=("1d",),
+    )
+    assert report["success"] is True
+    rows = [
+        row
+        for batch in iter_delta_table_row_batches(
+            output_dir / "research_bar_views.delta",
+            filters=[("dataset_version", "=", "daily-timezone-v1")],
+        )
+        for row in batch
+    ]
+    assert len(rows) == 4
+    assert {row["contour_id"] for row in rows} == {"native_tradable", "pit_active_front"}
+    for row in rows:
+        session_date = str(row["session_date"])[:10]
+        assert session_date == str(row["ts"])[:10]
+        expected_class = "short" if session_date == "2026-02-06" else "regular"
+        assert row["session_class"] == expected_class
+        assert row["bar_usage_profile"] == (
+            "risk_only" if expected_class == "short" else "regular_trading"
+        )
+        assert row["close"] == row["execution_close"] == 81.0
+        assert row["execution_step_price_rub"] is None
 
 
 @requires_spark_delta_runtime

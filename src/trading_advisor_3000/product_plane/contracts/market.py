@@ -43,12 +43,12 @@ class CanonicalBar:
     low: float
     close: float
     volume: int
-    open_interest: int
+    open_interest: int | None
 
     def __post_init__(self) -> None:
         if self.volume < 0:
             raise ValueError("volume must be non-negative")
-        if self.open_interest < 0:
+        if self.open_interest is not None and self.open_interest < 0:
             raise ValueError("open_interest must be non-negative")
         if self.high < max(self.open, self.close):
             raise ValueError("high must be >= max(open, close)")
@@ -96,5 +96,7 @@ class CanonicalBar:
             low=_require_number("low", payload.get("low")),
             close=_require_number("close", payload.get("close")),
             volume=_require_int("volume", payload.get("volume")),
-            open_interest=_require_int("open_interest", payload.get("open_interest")),
+            open_interest=None
+            if payload["open_interest"] is None
+            else _require_int("open_interest", payload["open_interest"]),
         )

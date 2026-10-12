@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
+from trading_advisor_3000.product_plane.common.data_snapshots import read_spark_delta
 from trading_advisor_3000.product_plane.contracts import Timeframe
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log
 
@@ -115,7 +116,10 @@ CANONICAL_PROVENANCE_SCHEMA = (
     "source_ts_close_last timestamp, "
     "open_interest_imputed int, "
     "build_run_id string, "
-    "built_at_utc timestamp"
+    "built_at_utc timestamp, "
+    "open_interest_trade_date date, "
+    "open_interest_source_trade_date date, "
+    "open_interest_availability_status string"
 )
 
 CANONICAL_BAR_MANIFEST = {
@@ -153,6 +157,9 @@ CANONICAL_PROVENANCE_MANIFEST = {
         "open_interest_imputed": "int",
         "build_run_id": "string",
         "built_at_utc": "timestamp",
+        "open_interest_trade_date": "date",
+        "open_interest_source_trade_date": "date",
+        "open_interest_availability_status": "string",
     }
 }
 
@@ -199,7 +206,7 @@ def _count_jsonl_rows(path: Path) -> int:
 
 def _read_official_session_intervals(spark: Any, session_intervals_path: Path) -> Any:
     if has_delta_log(session_intervals_path):
-        return spark.read.format("delta").load(str(session_intervals_path))
+        return read_spark_delta(spark, str(session_intervals_path))
     if session_intervals_path.exists():
         return spark.read.json(str(session_intervals_path))
     raise FileNotFoundError(
@@ -325,6 +332,122 @@ def _prepare_official_session_intervals(
     return intervals_df
 
 
+def _daily_open_interest_effective_dates(
+    *, daily: Any, intervals: Any, closed_dates: Any, functions: Any, window: Any
+) -> tuple[Any, dict[str, object]]:
+    """Model D -> next verified open date, without crossing unknown calendar days."""
+    F = functions
+    keys = ["instrument_id", "moex_secid", "trade_date"]
+    invalid = daily.where(
+        F.col("instrument_id").isNull()
+        | F.col("moex_secid").isNull()
+        | F.col("trade_date").isNull()
+        | (F.col("open_interest") < 0)
+    ).count()
+    duplicates = daily.groupBy(*keys).count().where(F.col("count") > 1).count()
+    if invalid or duplicates:
+        raise ValueError(f"daily OI invalid_rows={invalid}, duplicate_keys={duplicates}")
+    known = (
+        intervals.select("instrument_id", "session_date")
+        .distinct()
+        .withColumn("is_open", F.lit(True))
+        .unionByName(
+            closed_dates.select("instrument_id", "session_date").withColumn("is_open", F.lit(False))
+        )
+        .groupBy("instrument_id", "session_date")
+        .agg(F.max("is_open").alias("is_open"))
+    )
+    order = window.partitionBy("instrument_id").orderBy("session_date")
+    known = known.withColumn("_seq", F.row_number().over(order))
+    known = known.withColumn(
+        "_next",
+        F.first(F.when(F.col("is_open"), F.struct("session_date", "_seq")), ignorenulls=True).over(
+            order.rowsBetween(1, window.unboundedFollowing)
+        ),
+    )
+    calendar = known.select(
+        "instrument_id",
+        F.col("session_date").alias("trade_date"),
+        F.when(
+            F.col("_next._seq") - F.col("_seq")
+            == F.datediff(F.col("_next.session_date"), F.col("session_date")),
+            F.col("_next.session_date"),
+        ).alias("effective_trade_date"),
+    )
+    aligned = daily.join(calendar, ["instrument_id", "trade_date"], "left").persist()
+    counts = (
+        aligned.agg(
+            F.count("*").alias("source_rows"),
+            F.sum(F.col("effective_trade_date").isNull().cast("long")).alias(
+                "unresolved_calendar_rows"
+            ),
+            F.sum(F.col("open_interest").isNull().cast("long")).alias("source_null_rows"),
+            F.sum((F.col("open_interest") == 0).cast("long")).alias("observed_zero_rows"),
+        )
+        .first()
+        .asDict()
+    )
+    # A closed source date can collide with another observation's next open day.
+    # Do not invent a ranking/tie-break policy for such observations.
+    collision_keys = ["instrument_id", "moex_secid", "effective_trade_date"]
+    collisions = (
+        aligned.where(F.col("effective_trade_date").isNotNull())
+        .groupBy(*collision_keys)
+        .count()
+        .where(F.col("count") > 1)
+        .count()
+    )
+    if collisions:
+        raise ValueError(f"daily OI effective-date collisions={collisions}")
+    return aligned, {
+        **counts,
+        "availability_status": "ASSUMED_NEXT_TRADING_DATE",
+        "carry_forward": False,
+        "same_trade_date_use": False,
+    }
+
+
+def _with_daily_open_interest(*, source: Any, daily: Any, contract_map: Any, functions: Any) -> Any:
+    """Fill only absent native OI; exact effective-date joins preserve missingness."""
+    F = functions
+    observations = (
+        daily.where(F.col("effective_trade_date").isNotNull())
+        .join(
+            contract_map.select("instrument_id", "moex_secid", "contract_id").distinct(),
+            ["instrument_id", "moex_secid"],
+            "inner",
+        )
+        .select(
+            "instrument_id",
+            "contract_id",
+            F.col("effective_trade_date").alias("open_interest_trade_date"),
+            F.col("trade_date").alias("_oi_source_date"),
+            F.col("open_interest").alias("_daily_oi"),
+        )
+    )
+    keys = ["instrument_id", "contract_id", "open_interest_trade_date"]
+    duplicates = observations.groupBy(*keys).count().where(F.col("count") > 1).count()
+    if duplicates:
+        raise ValueError(f"daily OI ambiguous canonical contract keys={duplicates}")
+    joined = source.join(observations, keys, "left")
+    native = F.col("open_interest").isNotNull()
+    return (
+        joined.withColumn(
+            "open_interest_source_trade_date", F.when(~native, F.col("_oi_source_date"))
+        )
+        .withColumn(
+            "open_interest_availability_status",
+            F.when(native, F.lit("NATIVE_OBSERVED"))
+            .when(F.col("_daily_oi").isNotNull(), F.lit("ASSUMED_NEXT_TRADING_DATE"))
+            .when(F.col("_oi_source_date").isNotNull(), F.lit("SOURCE_NULL"))
+            .otherwise(F.lit("MISSING_OBSERVATION")),
+        )
+        .withColumn("open_interest_imputed", (~native & F.col("_daily_oi").isNotNull()).cast("int"))
+        .withColumn("open_interest", F.coalesce("open_interest", "_daily_oi"))
+        .drop("_oi_source_date", "_daily_oi")
+    )
+
+
 def _aggregate_joined_source_outputs(
     *,
     joined: Any,
@@ -336,6 +459,13 @@ def _aggregate_joined_source_outputs(
     enforce_session_bounds: bool,
 ) -> tuple[Any, Any]:
     joined = joined.dropDuplicates(list(JOINED_SOURCE_DEDUP_COLUMNS))
+    for name, dtype in [
+        ("open_interest_trade_date", "date"),
+        ("open_interest_source_trade_date", "date"),
+        ("open_interest_availability_status", "string"),
+    ]:
+        if name not in joined.columns:
+            joined = joined.withColumn(name, functions.lit(None).cast(dtype))
     joined = (
         joined.withColumn("bucket_seconds", bucket_seconds.cast("long"))
         .withColumn("bucket_ts", functions.to_timestamp(functions.from_unixtime("bucket_seconds")))
@@ -349,14 +479,19 @@ def _aggregate_joined_source_outputs(
             ),
         )
     )
-    if enforce_session_bounds:
-        joined = joined.where(
-            (functions.col("target_minutes") >= functions.lit(1440))
-            | (
-                (functions.col("bucket_ts") >= functions.col("expected_open_ts"))
-                & (functions.col("bucket_end_ts") <= functions.col("expected_close_ts"))
+    # Session admission validates source coverage. Partial clock buckets at the
+    # session edges are retained; no source candle may cross its target bucket.
+    invalid_bucket_rows = int(
+        joined.where(
+            (functions.col("target_minutes") < functions.lit(1440))
+            & (
+                (functions.col("ts_open") < functions.col("bucket_ts"))
+                | (functions.col("ts_close") > functions.col("bucket_end_ts"))
             )
-        )
+        ).count()
+    )
+    if invalid_bucket_rows:
+        raise ValueError(f"source_outside_target_bucket_rows={invalid_bucket_rows}")
 
     partition_columns = ["contract_id", "instrument_id", "timeframe", "bucket_ts"]
     first_window = window.partitionBy(*partition_columns).orderBy(
@@ -431,11 +566,27 @@ def _aggregate_joined_source_outputs(
             ).alias("bar_end_ts"),
             functions.max(
                 functions.when(
-                    functions.col("target_minutes") < functions.lit(1440),
+                    (functions.col("target_minutes") < functions.lit(1440))
+                    & (functions.col("rn_last") == 1),
                     functions.col("interval_id").cast("string"),
                 )
             ).alias("session_interval_id"),
-            functions.max(functions.col("open_interest_imputed").cast("int"))
+            *[
+                functions.max(
+                    functions.when(functions.col("rn_last") == 1, functions.col(name))
+                ).alias(name)
+                for name in [
+                    "open_interest_trade_date",
+                    "open_interest_source_trade_date",
+                    "open_interest_availability_status",
+                ]
+            ],
+            functions.max(
+                functions.when(
+                    functions.col("rn_last") == 1,
+                    functions.col("open_interest_imputed").cast("int"),
+                )
+            )
             .cast("int")
             .alias("open_interest_imputed"),
         )
@@ -472,10 +623,74 @@ def _aggregate_joined_source_outputs(
         "source_ts_open_first",
         "source_ts_close_last",
         "open_interest_imputed",
+        "open_interest_trade_date",
+        "open_interest_source_trade_date",
+        "open_interest_availability_status",
         functions.lit(str(build_run_id).strip()).alias("build_run_id"),
         functions.to_timestamp(functions.lit(str(built_at_utc).strip())).alias("built_at_utc"),
     )
     return bars_df, provenance_df
+
+
+def _prepare_closed_session_dates(
+    *, spark: Any, closed_session_dates_path: Path | None, intervals_df: Any, functions: Any
+) -> Any:
+    if closed_session_dates_path is None:
+        return spark.createDataFrame([], "instrument_id STRING, session_date DATE")
+    if not has_delta_log(closed_session_dates_path):
+        raise FileNotFoundError(
+            f"closed session dates input missing Delta log: {closed_session_dates_path}"
+        )
+    closed = read_spark_delta(spark, str(closed_session_dates_path)).select(
+        functions.col("instrument_id").cast("string").alias("instrument_id"),
+        functions.to_date("session_date").alias("session_date"),
+        "source_id",
+        "source_document_hash",
+        "policy_id",
+    )
+    invalid = functions.col("session_date").isNull()
+    for field in ("instrument_id", "source_id", "source_document_hash", "policy_id"):
+        invalid = (
+            invalid | functions.col(field).isNull() | (functions.trim(functions.col(field)) == "")
+        )
+    invalid_rows = closed.where(invalid).count()
+    duplicates = closed.groupBy("instrument_id", "session_date").count().where("count > 1").count()
+    conflicts = closed.join(
+        intervals_df.select("instrument_id", "session_date").distinct(),
+        ["instrument_id", "session_date"],
+        "inner",
+    ).count()
+    if invalid_rows or duplicates or conflicts:
+        raise ValueError(
+            f"closed session dates failed QC: invalid_closed_date_rows={invalid_rows}; "
+            f"duplicate_closed_dates={duplicates}; conflicting_open_closed_dates={conflicts}"
+        )
+    return closed.select("instrument_id", "session_date")
+
+
+def _source_session_end_date(functions: Any) -> Any:
+    # ISS W1 `end` labels the last included trading date, including at midnight.
+    # Keep the original timestamp for source provenance; interpret only its date here.
+    moex_weekly = (
+        (functions.col("source_provider") == functions.lit("moex_iss"))
+        & (functions.col("source_timeframe") == functions.lit("1w"))
+        & (functions.col("source_interval") == functions.lit(10080))
+    )
+    end_timestamp = functions.when(moex_weekly, functions.col("ts_close")).otherwise(
+        functions.col("ts_close") - functions.expr("INTERVAL 1 SECOND")
+    )
+    return functions.to_date(functions.from_utc_timestamp(end_timestamp, MOEX_SESSION_TIMEZONE))
+
+
+def _intraday_clock_bucket_seconds(functions: Any) -> Any:
+    local_open = functions.from_utc_timestamp(functions.col("ts_open"), MOEX_SESSION_TIMEZONE)
+    width = functions.col("target_minutes") * functions.lit(60)
+    local_bucket = functions.to_timestamp(
+        functions.from_unixtime(
+            functions.floor(functions.unix_timestamp(local_open) / width) * width
+        )
+    )
+    return functions.unix_timestamp(functions.to_utc_timestamp(local_bucket, MOEX_SESSION_TIMEZONE))
 
 
 def _build_session_bounded_outputs(
@@ -484,6 +699,9 @@ def _build_session_bounded_outputs(
     source_df: Any,
     selected_df: Any,
     session_intervals_path: Path,
+    closed_session_dates_path: Path | None = None,
+    daily_open_interest_df: Any | None = None,
+    contract_map_df: Any | None = None,
     build_run_id: str,
     built_at_utc: str,
     functions: Any,
@@ -495,6 +713,12 @@ def _build_session_bounded_outputs(
         functions=functions,
         window=window,
     )
+    closed_dates_df = _prepare_closed_session_dates(
+        spark=spark,
+        closed_session_dates_path=closed_session_dates_path,
+        intervals_df=intervals_df,
+        functions=functions,
+    )
     selected_interval_rows = int(selected_df.count())
     source_row_count = int(source_df.count())
     if selected_interval_rows == 0:
@@ -502,6 +726,7 @@ def _build_session_bounded_outputs(
             spark.createDataFrame([], CANONICAL_BAR_SCHEMA),
             spark.createDataFrame([], CANONICAL_PROVENANCE_SCHEMA),
             {
+                "daily_open_interest": {"mode": "no_selected_sources"},
                 "official_session_interval_rows": int(intervals_df.count()),
                 "admission_open_tolerance_seconds": SESSION_ADMISSION_OPEN_TOLERANCE_SECONDS,
                 "admitted_source_rows": 0,
@@ -539,12 +764,7 @@ def _build_session_bounded_outputs(
         )
         .withColumn(
             "_session_end_date",
-            functions.to_date(
-                functions.from_utc_timestamp(
-                    functions.col("ts_close") - functions.expr("INTERVAL 1 SECONDS"),
-                    MOEX_SESSION_TIMEZONE,
-                )
-            ),
+            _source_session_end_date(functions),
         )
         .cache()
     )
@@ -569,6 +789,28 @@ def _build_session_bounded_outputs(
             )
         ).alias("session_date"),
     )
+    closed_session_dates_used = int(
+        multi_day_required_dates_df.select("instrument_id", "session_date")
+        .distinct()
+        .join(closed_dates_df, ["instrument_id", "session_date"], "inner")
+        .count()
+    )
+    multi_day_open_dates_df = multi_day_required_dates_df.join(
+        closed_dates_df, ["instrument_id", "session_date"], "left_anti"
+    )
+    closed_only_source_spans = int(
+        multi_day_required_dates_df.select("_source_row_id")
+        .distinct()
+        .join(
+            multi_day_open_dates_df.select("_source_row_id").distinct(),
+            "_source_row_id",
+            "left_anti",
+        )
+        .count()
+    )
+    if closed_only_source_spans:
+        raise ValueError(f"closed_only_source_spans={closed_only_source_spans}")
+    multi_day_required_dates_df = multi_day_open_dates_df
     affected_scope_df = (
         affected_single_session_scope_df.unionByName(
             multi_day_required_dates_df.select("instrument_id", "session_date")
@@ -590,7 +832,9 @@ def _build_session_bounded_outputs(
             f"missing_official_coverage_rows={missing_official_coverage_rows}"
         )
 
-    def _admitted_columns(source_alias_name: str, intervals_alias_name: str) -> list[Any]:
+    def _admitted_columns(
+        source_alias_name: str, intervals_alias_name: str, *, multi_day: bool = False
+    ) -> list[Any]:
         return [
             functions.col(f"{source_alias_name}._source_row_id").alias("_source_row_id"),
             functions.col(f"{source_alias_name}.contract_id").alias("contract_id"),
@@ -614,6 +858,11 @@ def _build_session_bounded_outputs(
                 "source_ingest_run_id"
             ),
             functions.col(f"{intervals_alias_name}.session_date").alias("session_date"),
+            functions.col(
+                f"{intervals_alias_name}.open_interest_trade_date"
+                if multi_day
+                else f"{intervals_alias_name}.session_date"
+            ).alias("open_interest_trade_date"),
             functions.col(f"{intervals_alias_name}.interval_id").alias("interval_id"),
             functions.col(f"{intervals_alias_name}.expected_open_ts").alias("expected_open_ts"),
             functions.col(f"{intervals_alias_name}.expected_close_ts").alias("expected_close_ts"),
@@ -629,15 +878,41 @@ def _build_session_bounded_outputs(
     intraday_source_alias = source_for_admission_df.where(
         functions.col("source_interval") < functions.lit(1440)
     ).alias("source")
-    admitted_intraday = intraday_source_alias.join(
-        intervals_alias,
-        (functions.col("source.instrument_id") == functions.col("intervals.instrument_id"))
-        & (functions.col("source._session_date") == functions.col("intervals.session_date"))
-        & (functions.col("source.ts_open") >= admission_open_ts)
-        & (functions.col("source.ts_close") <= functions.col("intervals.expected_close_ts"))
-        & (functions.col("source.ts_close") != functions.col("intervals.expected_open_ts")),
-        "inner",
-    ).select(*_admitted_columns("source", "intervals"))
+    # MOEX coarse begin values label clock buckets, including partial opening
+    # buckets. Their actual end must still be inside the admitted session.
+    source_seconds = functions.col("source.source_interval") * functions.lit(60)
+    coarse_open = functions.to_timestamp(
+        functions.from_unixtime(
+            functions.floor(functions.unix_timestamp(admission_open_ts) / source_seconds)
+            * source_seconds
+        )
+    )
+    labelled_coarse = (
+        (functions.col("source.source_provider") == functions.lit("moex_iss"))
+        & (functions.col("source.source_interval") > functions.lit(1))
+        & (functions.unix_timestamp(functions.col("source.ts_open")) % source_seconds == 0)
+    )
+    earliest_open = functions.when(labelled_coarse, coarse_open).otherwise(admission_open_ts)
+    admission_order = window.partitionBy(functions.col("source._source_row_id")).orderBy(
+        (functions.col("source.ts_open") >= functions.col("intervals.expected_open_ts")).desc(),
+        functions.col("intervals.expected_open_ts").asc(),
+        functions.col("intervals.interval_id").asc(),
+    )
+    admitted_intraday = (
+        intraday_source_alias.join(
+            intervals_alias,
+            (functions.col("source.instrument_id") == functions.col("intervals.instrument_id"))
+            & (functions.col("source._session_date") == functions.col("intervals.session_date"))
+            & (functions.col("source.ts_open") >= earliest_open)
+            & (functions.col("source.ts_close") >= admission_open_ts)
+            & (functions.col("source.ts_close") <= functions.col("intervals.expected_close_ts"))
+            & (functions.col("source.ts_close") != functions.col("intervals.expected_open_ts")),
+            "inner",
+        )
+        .withColumn("_admission_rank", functions.row_number().over(admission_order))
+        .where(functions.col("_admission_rank") == 1)
+        .select(*_admitted_columns("source", "intervals"))
+    )
     session_coverage_df = (
         intervals_df.groupBy("instrument_id", "session_date")
         .agg(
@@ -671,6 +946,7 @@ def _build_session_bounded_outputs(
             ),
             functions.count(functions.col("coverage.session_date")).alias("_covered_session_dates"),
             functions.min(functions.col("coverage.session_date")).alias("session_date"),
+            functions.max(functions.col("coverage.session_date")).alias("open_interest_trade_date"),
             functions.min(functions.col("coverage.interval_id")).alias("interval_id"),
             functions.min(functions.col("coverage.expected_open_ts")).alias("expected_open_ts"),
             functions.max(functions.col("coverage.expected_close_ts")).alias("expected_close_ts"),
@@ -685,7 +961,7 @@ def _build_session_bounded_outputs(
         multi_day_span_coverage_df,
         on="_source_row_id",
         how="inner",
-    ).select(*_admitted_columns("source", "coverage"))
+    ).select(*_admitted_columns("source", "coverage", multi_day=True))
     admitted = admitted_intraday.unionByName(admitted_daily).unionByName(admitted_multi_day).cache()
     admitted_source_rows = int(admitted.count())
     admitted = _cut_lineage(admitted)
@@ -865,6 +1141,34 @@ def _build_session_bounded_outputs(
         .collect()
     ]
 
+    oi_report: dict[str, object] = {"mode": "native_only"}
+    if daily_open_interest_df is not None:
+        if contract_map_df is None:
+            raise ValueError("daily OI requires a verified raw contract mapping")
+        aligned_oi, oi_report = _daily_open_interest_effective_dates(
+            daily=daily_open_interest_df,
+            intervals=intervals_df,
+            closed_dates=closed_dates_df,
+            functions=functions,
+            window=window,
+        )
+        admitted = _with_daily_open_interest(
+            source=admitted,
+            daily=aligned_oi,
+            contract_map=contract_map_df,
+            functions=functions,
+        )
+    else:
+        admitted = (
+            admitted.withColumn("open_interest_source_trade_date", functions.lit(None).cast("date"))
+            .withColumn(
+                "open_interest_availability_status",
+                functions.when(
+                    functions.col("open_interest").isNotNull(), "NATIVE_OBSERVED"
+                ).otherwise("MISSING_OBSERVATION"),
+            )
+            .withColumn("open_interest_imputed", functions.lit(0))
+        )
     selected_alias = selected_df.alias("selected")
     joined = admitted.alias("source").join(
         selected_alias,
@@ -887,19 +1191,7 @@ def _build_session_bounded_outputs(
                 )
             ),
         )
-        .otherwise(
-            functions.unix_timestamp(functions.col("expected_open_ts"))
-            + (
-                functions.floor(
-                    (
-                        functions.unix_timestamp(functions.col("ts_open"))
-                        - functions.unix_timestamp(functions.col("expected_open_ts"))
-                    )
-                    / (functions.col("target_minutes") * functions.lit(60))
-                )
-                * (functions.col("target_minutes") * functions.lit(60))
-            )
-        )
+        .otherwise(_intraday_clock_bucket_seconds(functions))
     )
     bars_df, provenance_df = _aggregate_joined_source_outputs(
         joined=joined,
@@ -914,9 +1206,11 @@ def _build_session_bounded_outputs(
         bars_df,
         provenance_df,
         {
+            "daily_open_interest": oi_report,
             "official_session_interval_rows": int(intervals_df.count()),
             "admission_open_tolerance_seconds": SESSION_ADMISSION_OPEN_TOLERANCE_SECONDS,
             "missing_official_coverage_rows": missing_official_coverage_rows,
+            "closed_session_dates_used": closed_session_dates_used,
             "admitted_source_rows": admitted_source_rows,
             "out_of_schedule_rows": out_of_schedule_rows,
             "ignored_out_of_schedule_rows": ignored_out_of_schedule_rows,
@@ -979,10 +1273,16 @@ def _build_unbounded_outputs(
         )
     )
     admitted_source_rows = int(joined.count())
-    bucket_seconds = functions.floor(
-        functions.unix_timestamp(functions.col("ts_open"))
-        / (functions.col("target_minutes") * functions.lit(60))
-    ) * (functions.col("target_minutes") * functions.lit(60))
+    bucket_seconds = functions.when(
+        functions.col("target_minutes") < functions.lit(1440),
+        _intraday_clock_bucket_seconds(functions),
+    ).otherwise(
+        functions.floor(
+            functions.unix_timestamp(functions.col("ts_open"))
+            / (functions.col("target_minutes") * functions.lit(60))
+        )
+        * (functions.col("target_minutes") * functions.lit(60))
+    )
     bars_df, provenance_df = _aggregate_joined_source_outputs(
         joined=joined,
         bucket_seconds=bucket_seconds,
@@ -1019,6 +1319,7 @@ def run_moex_canonicalization_spark_job(
     normalized_source_path: Path,
     selected_source_intervals_path: Path,
     session_intervals_path: Path | None,
+    closed_session_dates_path: Path | None = None,
     output_dir: Path,
     build_run_id: str,
     built_at_utc: str,
@@ -1099,6 +1400,7 @@ def run_moex_canonicalization_spark_job(
                     source_df=source_df,
                     selected_df=selected_df,
                     session_intervals_path=session_intervals_path,
+                    closed_session_dates_path=closed_session_dates_path,
                     build_run_id=build_run_id,
                     built_at_utc=built_at_utc,
                     functions=F,
@@ -1148,12 +1450,21 @@ def run_moex_canonicalization_spark_delta_job(
     changed_windows_path: Path,
     selected_source_intervals_path: Path,
     session_intervals_path: Path | None,
+    closed_session_dates_path: Path | None = None,
+    daily_open_interest_path: Path | None = None,
+    daily_open_interest_version: int | None = None,
     output_dir: Path,
     build_run_id: str,
     built_at_utc: str,
     spark_master: str = DEFAULT_SPARK_MASTER,
     spark_session_factory: Callable[[str, str], object] | None = None,
 ) -> dict[str, object]:
+    if daily_open_interest_path is not None and (
+        isinstance(daily_open_interest_version, bool)
+        or not isinstance(daily_open_interest_version, int)
+        or daily_open_interest_version < 0
+    ):
+        raise ValueError("daily OI requires a pinned non-negative Delta version")
     output_dir.mkdir(parents=True, exist_ok=True)
     bars_path = output_dir / "delta" / "canonical_bars.delta"
     provenance_path = output_dir / "delta" / "canonical_bar_provenance.delta"
@@ -1188,7 +1499,7 @@ def run_moex_canonicalization_spark_delta_job(
             bars_df = spark.createDataFrame([], CANONICAL_BAR_SCHEMA)
             provenance_df = spark.createDataFrame([], CANONICAL_PROVENANCE_SCHEMA)
         else:
-            raw_df = spark.read.format("delta").load(str(raw_table_path))
+            raw_df = read_spark_delta(spark, str(raw_table_path))
             windows_df = spark.read.json(str(changed_windows_path)).select(
                 F.col("internal_id").cast("string").alias("internal_id"),
                 F.col("source_timeframe").cast("string").alias("timeframe"),
@@ -1257,7 +1568,7 @@ def run_moex_canonicalization_spark_delta_job(
                 F.col("low").cast("double").alias("low"),
                 F.col("close").cast("double").alias("close"),
                 F.col("volume").cast("long").alias("volume"),
-                F.coalesce(F.col("open_interest").cast("long"), F.lit(0)).alias("open_interest"),
+                F.col("open_interest").cast("long").alias("open_interest"),
                 F.col("open_interest").isNull().alias("open_interest_imputed"),
                 F.coalesce(
                     F.get_json_object(provenance_text, "$.source_provider"), F.lit("")
@@ -1410,6 +1721,22 @@ def run_moex_canonicalization_spark_delta_job(
                     source_df=source_for_canonicalization_df,
                     selected_df=selected_for_canonicalization_df,
                     session_intervals_path=session_intervals_path,
+                    closed_session_dates_path=closed_session_dates_path,
+                    daily_open_interest_df=(
+                        read_spark_delta(
+                            spark, daily_open_interest_path, version=daily_open_interest_version
+                        ).select(
+                            F.col("internal_id").alias("instrument_id"),
+                            "moex_secid",
+                            F.col("trade_date").cast("date").alias("trade_date"),
+                            F.col("open_interest").cast("long").alias("open_interest"),
+                        )
+                        if daily_open_interest_path is not None
+                        else None
+                    ),
+                    contract_map_df=source_df.select(
+                        "instrument_id", "moex_secid", "contract_id"
+                    ).distinct(),
                     build_run_id=build_run_id,
                     built_at_utc=built_at_utc,
                     functions=F,
@@ -1430,6 +1757,10 @@ def run_moex_canonicalization_spark_delta_job(
         return {
             "engine": "spark",
             "input_mode": "raw_delta",
+            "daily_open_interest_path": str(daily_open_interest_path)
+            if daily_open_interest_path
+            else None,
+            "daily_open_interest_version": daily_open_interest_version,
             "build_run_id": str(build_run_id).strip(),
             "built_at_utc": str(built_at_utc).strip(),
             "source_rows": source_row_count,

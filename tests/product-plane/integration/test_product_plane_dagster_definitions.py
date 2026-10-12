@@ -19,6 +19,7 @@ from trading_advisor_3000.dagster_defs import (
     PRODUCT_PLANE_NIGHTLY_JOB_NAMES,
     RESEARCH_BACKTEST_AFTER_STRATEGY_REGISTRY_SENSOR_NAME,
     RESEARCH_BACKTEST_JOB_NAME,
+    RESEARCH_CAMPAIGN_FAILURE_SUMMARY_SENSOR_NAME,
     RESEARCH_DATA_PREP_AFTER_MOEX_SENSOR_NAME,
     RESEARCH_DATA_PREP_JOB_NAME,
     RESEARCH_PROJECTION_AFTER_BACKTEST_SENSOR_NAME,
@@ -60,6 +61,7 @@ def test_product_plane_definitions_expose_regular_data_rebuild_jobs_and_cascade_
     assert RESEARCH_STRATEGY_REGISTRY_AFTER_DATA_PREP_SENSOR_NAME in sensor_names
     assert RESEARCH_BACKTEST_AFTER_STRATEGY_REGISTRY_SENSOR_NAME in sensor_names
     assert RESEARCH_PROJECTION_AFTER_BACKTEST_SENSOR_NAME in sensor_names
+    assert RESEARCH_CAMPAIGN_FAILURE_SUMMARY_SENSOR_NAME in sensor_names
 
 
 def test_dagster_staging_runtime_loads_product_plane_definitions() -> None:

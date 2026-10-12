@@ -6,7 +6,7 @@ import subprocess
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, time
+from datetime import UTC, date, datetime, time
 from pathlib import Path
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -35,6 +35,10 @@ from trading_advisor_3000.product_plane.data_plane.moex.baseline_update import (
     ECONOMICS_REFRESH_MODE_REFRESH,
     run_moex_baseline_update,
 )
+from trading_advisor_3000.product_plane.data_plane.moex.contract_parameter_continuation import (
+    MoexContractParameterEvidence,
+    validate_contract_parameter_evidence,
+)
 from trading_advisor_3000.product_plane.data_plane.moex.data_rebuild_profiles import (
     MOEX_REBUILD_DOWNSTREAM_MODES,
     MOEX_REBUILD_PUBLISH_MODES,
@@ -43,12 +47,23 @@ from trading_advisor_3000.product_plane.data_plane.moex.data_rebuild_profiles im
     resolve_moex_data_rebuild_profile,
     write_moex_data_rebuild_manifest,
 )
+from trading_advisor_3000.product_plane.data_plane.moex.economics import MoexContractParameterRegime
+from trading_advisor_3000.product_plane.data_plane.moex.foundation import (
+    load_mapping_registry,
+    validate_mapping_registry,
+)
 from trading_advisor_3000.product_plane.data_plane.moex.historical_canonical_route import (
     CANONICAL_MERGE_SCOPED_DELETE_INSERT,
     run_historical_canonical_route,
 )
+from trading_advisor_3000.product_plane.data_plane.moex.native_history_refresh import (
+    registered_history_refresh_kwargs,
+)
 from trading_advisor_3000.product_plane.data_plane.moex.runtime_instances import (
     validate_moex_runtime_run_id,
+)
+from trading_advisor_3000.product_plane.data_plane.moex.session_schedule import (
+    materialize_session_intervals_from_frozen_raw,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     BASELINE_UPDATE_STORAGE_DIRNAME,
@@ -111,11 +126,16 @@ MOEX_HISTORICAL_DEPENDENCIES: dict[str, tuple[str, ...]] = {
 MOEX_HISTORICAL_OP_CONFIG_SCHEMA = {
     "raw_table_path": DagsterField(str, is_required=False),
     "raw_ingest_report_path": DagsterField(str, is_required=False),
+    "raw_session_schedule_path": DagsterField(str, is_required=False),
+    "raw_session_schedule_version": DagsterField(int, is_required=False),
+    "daily_open_interest_path": DagsterField(str, is_required=False),
+    "daily_open_interest_version": DagsterField(int, is_required=False),
     "canonical_output_dir": DagsterField(str, is_required=False),
     "canonical_target_output_dir": DagsterField(str, is_required=False),
     "canonical_bars_path": DagsterField(str, is_required=False),
     "canonical_provenance_path": DagsterField(str, is_required=False),
     "canonical_session_intervals_path": DagsterField(str, is_required=False),
+    "canonical_closed_session_dates_path": DagsterField(str, is_required=False),
     "canonical_session_calendar_path": DagsterField(str, is_required=False),
     "canonical_roll_map_path": DagsterField(str, is_required=False),
     "canonical_run_id": DagsterField(str, is_required=False),
@@ -180,8 +200,16 @@ MOEX_BASELINE_UPDATE_OP_CONFIG_SCHEMA = {
     "canonical_session_calendar_path": DagsterField(str, is_required=False),
     "canonical_roll_map_path": DagsterField(str, is_required=False),
     "economics_mode": DagsterField(str, is_required=False),
+    "economics_history_refresh": DagsterField(bool, is_required=False),
     "raw_economics_root": DagsterField(str, is_required=False),
     "canonical_economics_root": DagsterField(str, is_required=False),
+    "economics_source_paths": DagsterField(dict, is_required=False),
+    "economics_parameter_evidence": DagsterField(dict, is_required=False),
+    "allow_calibrated_latest_margin": DagsterField(bool, is_required=False),
+    "margin_calibration_as_of_date": DagsterField(str, is_required=False),
+    "daily_open_interest_path": DagsterField(str, is_required=False),
+    "daily_open_interest_version": DagsterField(int, is_required=False),
+    "canonical_closed_session_dates_path": DagsterField(str, is_required=False),
     "evidence_root": DagsterField(str, is_required=False),
     "timeframes": DagsterField(str, is_required=False),
     "refresh_window_days": DagsterField(int, is_required=False),
@@ -357,6 +385,37 @@ def _baseline_paths_from_root(root: Path) -> dict[str, Path]:
     }
 
 
+def _baseline_economics_options(config: Mapping[str, object]) -> dict[str, object]:
+    enabled = config.get("allow_calibrated_latest_margin", False)
+    as_of = config.get("margin_calibration_as_of_date") or None
+    if type(enabled) is not bool:
+        raise TypeError("allow_calibrated_latest_margin must be bool")
+    if enabled != (as_of is not None):
+        raise ValueError("margin calibration switch and exact date must be supplied together")
+    result: dict[str, object] = {}
+    if as_of is not None:
+        result.update(
+            allow_calibrated_latest_margin=enabled,
+            margin_calibration_as_of_date=date.fromisoformat(str(as_of)),
+        )
+    evidence_config = dict(config.get("economics_parameter_evidence") or {})
+    if evidence_config:
+        evidence = MoexContractParameterEvidence(
+            **{
+                **evidence_config,
+                "regimes_path": Path(str(evidence_config["regimes_path"])),
+                "dated_official_tc_path": Path(str(evidence_config["dated_official_tc_path"])),
+            }
+        )
+        rules = json.loads(evidence.regimes_path.read_text(encoding="utf-8"))
+        regimes = tuple(MoexContractParameterRegime(**row) for row in rules)
+        validate_contract_parameter_evidence(regimes, evidence)
+        result.update(
+            additional_contract_parameter_regimes=regimes, contract_parameter_evidence=evidence
+        )
+    return result
+
+
 def build_moex_baseline_update_run_config(
     *,
     baseline_root: Path,
@@ -376,7 +435,17 @@ def build_moex_baseline_update_run_config(
     expand_contract_chain: bool = True,
     coverage_mode: str = "local_tail",
     economics_mode: str = ECONOMICS_REFRESH_MODE_REFRESH,
+    economics_history_refresh: bool = False,
+    economics_source_paths: Mapping[str, Path] | None = None,
+    economics_parameter_evidence: Mapping[str, str] | None = None,
+    allow_calibrated_latest_margin: bool = False,
+    margin_calibration_as_of_date: date | None = None,
+    daily_open_interest_path: Path | None = None,
+    daily_open_interest_version: int | None = None,
+    canonical_closed_session_dates_path: Path | None = None,
 ) -> dict[str, object]:
+    if type(economics_history_refresh) is not bool:
+        raise TypeError("economics_history_refresh must be bool")
     resolved_run_id = validate_moex_runtime_run_id(
         run_id, name="build_moex_baseline_update_run_config.run_id"
     )
@@ -400,6 +469,40 @@ def build_moex_baseline_update_run_config(
             else ",".join(str(item).strip() for item in cf_catch_up_timeframes if str(item).strip())
         )
     )
+    if (
+        margin_calibration_as_of_date is not None
+        and type(margin_calibration_as_of_date) is not date
+    ):
+        raise TypeError("margin_calibration_as_of_date must be date, excluding datetime")
+    binding = {
+        "economics_history_refresh": economics_history_refresh,
+        "economics_source_paths": {
+            key: path.as_posix() for key, path in (economics_source_paths or {}).items()
+        },
+        "economics_parameter_evidence": dict(economics_parameter_evidence or {}),
+        "allow_calibrated_latest_margin": allow_calibrated_latest_margin,
+        **(
+            {"margin_calibration_as_of_date": margin_calibration_as_of_date.isoformat()}
+            if margin_calibration_as_of_date
+            else {}
+        ),
+        **(
+            {
+                "daily_open_interest_path": daily_open_interest_path.as_posix(),
+                "daily_open_interest_version": daily_open_interest_version,
+            }
+            if daily_open_interest_path is not None
+            else {}
+        ),
+        **(
+            {"canonical_closed_session_dates_path": canonical_closed_session_dates_path.as_posix()}
+            if canonical_closed_session_dates_path
+            else {}
+        ),
+    }
+    _baseline_economics_options(binding)
+    if (daily_open_interest_path is None) != (daily_open_interest_version is None):
+        raise ValueError("daily OI path/version must be supplied together")
     paths = _baseline_paths_from_root(resolved_root)
     return {
         "ops": {
@@ -417,6 +520,7 @@ def build_moex_baseline_update_run_config(
                         "canonical_session_calendar_path"
                     ].as_posix(),
                     "canonical_roll_map_path": paths["canonical_roll_map_path"].as_posix(),
+                    **binding,
                     "economics_mode": str(economics_mode),
                     "raw_economics_root": paths["raw_economics_root"].as_posix(),
                     "canonical_economics_root": paths["canonical_economics_root"].as_posix(),
@@ -454,10 +558,12 @@ def _build_baseline_daily_schedule_run_config(context) -> dict[str, object]:
     ingest_till_utc = _default_closed_daily_ingest_till_utc(
         scheduled_execution_time=scheduled_execution_time
     )
+    baseline_root = _route_artifact_root()
     return build_moex_baseline_update_run_config(
-        baseline_root=_route_artifact_root(),
+        baseline_root=baseline_root,
         run_id=run_id,
         ingest_till_utc=ingest_till_utc,
+        **registered_history_refresh_kwargs(baseline_root),
     )
 
 
@@ -543,6 +649,11 @@ def build_moex_data_rebuild_op_config(
     canonical_target_output_dir: Path | None = None,
     raw_table_path: Path | None = None,
     raw_ingest_report_path: Path | None = None,
+    raw_session_schedule_path: Path | None = None,
+    raw_session_schedule_version: int | None = None,
+    daily_open_interest_path: Path | None = None,
+    daily_open_interest_version: int | None = None,
+    mapping_registry_path: Path | None = None,
     canonical_bars_path: Path | None = None,
     canonical_provenance_path: Path | None = None,
     canonical_session_intervals_path: Path | None = None,
@@ -623,7 +734,18 @@ def build_moex_data_rebuild_op_config(
             "canonical rebuild publish_mode=promote requires canonical_target_output_dir "
             "or explicit target paths for canonical bars, provenance, session calendar, and roll map"
         )
-    config: dict[str, str] = {
+    if raw_session_schedule_path is not None:
+        if resolved_publish_mode != "staging_only":
+            raise ValueError("frozen session preparation requires publish_mode=staging_only")
+        if (
+            isinstance(raw_session_schedule_version, bool)
+            or not isinstance(raw_session_schedule_version, int)
+            or raw_session_schedule_version < 0
+        ):
+            raise ValueError(
+                "raw_session_schedule_path requires a pinned raw_session_schedule_version"
+            )
+    config: dict[str, object] = {
         "profile_name": profile.name,
         "source_mode": resolved_source_mode,
         "publish_mode": resolved_publish_mode,
@@ -635,6 +757,20 @@ def build_moex_data_rebuild_op_config(
         config["raw_table_path"] = raw_table_path.resolve().as_posix()
     if raw_ingest_report_path is not None:
         config["raw_ingest_report_path"] = raw_ingest_report_path.resolve().as_posix()
+    if raw_session_schedule_path is not None:
+        config["raw_session_schedule_path"] = raw_session_schedule_path.resolve().as_posix()
+        config["raw_session_schedule_version"] = raw_session_schedule_version
+    if daily_open_interest_path is not None:
+        if (
+            isinstance(daily_open_interest_version, bool)
+            or not isinstance(daily_open_interest_version, int)
+            or daily_open_interest_version < 0
+        ):
+            raise ValueError("daily OI requires a pinned non-negative Delta version")
+        config["daily_open_interest_path"] = daily_open_interest_path.resolve().as_posix()
+        config["daily_open_interest_version"] = daily_open_interest_version
+    if mapping_registry_path is not None:
+        config["mapping_registry_path"] = mapping_registry_path.resolve().as_posix()
     if canonical_target_output_dir is not None:
         config["canonical_target_output_dir"] = canonical_target_output_dir.resolve().as_posix()
     for key, value in explicit_target_paths.items():
@@ -690,6 +826,11 @@ def build_moex_data_rebuild_run_config(
     canonical_target_output_dir: Path | None = None,
     raw_table_path: Path | None = None,
     raw_ingest_report_path: Path | None = None,
+    raw_session_schedule_path: Path | None = None,
+    raw_session_schedule_version: int | None = None,
+    daily_open_interest_path: Path | None = None,
+    daily_open_interest_version: int | None = None,
+    mapping_registry_path: Path | None = None,
     canonical_bars_path: Path | None = None,
     canonical_provenance_path: Path | None = None,
     canonical_session_intervals_path: Path | None = None,
@@ -716,6 +857,11 @@ def build_moex_data_rebuild_run_config(
         profile_name=profile_name,
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_ingest_report_path,
+        raw_session_schedule_path=raw_session_schedule_path,
+        raw_session_schedule_version=raw_session_schedule_version,
+        daily_open_interest_path=daily_open_interest_path,
+        daily_open_interest_version=daily_open_interest_version,
+        mapping_registry_path=mapping_registry_path,
         canonical_output_dir=canonical_output_dir,
         canonical_target_output_dir=canonical_target_output_dir,
         canonical_run_id=canonical_run_id,
@@ -1022,6 +1168,7 @@ def moex_baseline_update(context) -> dict[str, object]:
         _text_value(op_config, "ingest_till_utc") or _default_closed_daily_ingest_till_utc()
     )
 
+    economics_options = _baseline_economics_options(op_config)
     report = run_moex_baseline_update(
         mapping_registry_path=mapping_registry_path,
         universe_path=universe_path,
@@ -1081,8 +1228,27 @@ def moex_baseline_update(context) -> dict[str, object]:
         expand_contract_chain=_bool_value(op_config, "expand_contract_chain", default=True),
         coverage_mode=_text_value(op_config, "coverage_mode") or "local_tail",
         economics_mode=_text_value(op_config, "economics_mode") or ECONOMICS_REFRESH_MODE_REFRESH,
+        economics_history_refresh=_bool_value(
+            op_config, "economics_history_refresh", default=False
+        ),
         raw_economics_root=raw_economics_root,
         canonical_economics_root=canonical_economics_root,
+        economics_source_paths={
+            key: Path(str(value))
+            for key, value in dict(op_config.get("economics_source_paths") or {}).items()
+        },
+        economics_calculation_options=economics_options,
+        daily_open_interest_path=(
+            Path(str(op_config["daily_open_interest_path"]))
+            if op_config.get("daily_open_interest_path")
+            else None
+        ),
+        daily_open_interest_version=op_config.get("daily_open_interest_version"),
+        canonical_closed_session_dates_path=(
+            Path(str(op_config["canonical_closed_session_dates_path"]))
+            if op_config.get("canonical_closed_session_dates_path")
+            else None
+        ),
         repo_root=REPO_ROOT,
     )
     if str(report.get("publish_decision", "")).strip() != "publish":
@@ -1205,12 +1371,17 @@ def moex_canonical_refresh(context, moex_raw_ingest: dict[str, object]) -> dict[
         if canonical_provenance_text
         else None,
         canonical_session_intervals_path=session_intervals_path,
+        canonical_closed_session_dates_path=_optional_path_value(
+            op_config, "canonical_closed_session_dates_path"
+        ),
         canonical_session_calendar_path=Path(canonical_session_calendar_text).resolve()
         if canonical_session_calendar_text
         else None,
         canonical_roll_map_path=Path(canonical_roll_map_text).resolve()
         if canonical_roll_map_text
         else None,
+        daily_open_interest_path=_optional_path_value(op_config, "daily_open_interest_path"),
+        daily_open_interest_version=op_config.get("daily_open_interest_version"),
         canonical_merge_strategy=CANONICAL_MERGE_SCOPED_DELETE_INSERT,
     )
     publish_decision = str(report.get("publish_decision", "")).strip().lower()
@@ -1268,6 +1439,7 @@ def _data_rebuild_input_roots(op_config: dict[str, object]) -> dict[str, Path]:
         "session_root",
         "research_root",
         "raw_table_path",
+        "raw_session_schedule_path",
         "canonical_output_dir",
         "canonical_target_output_dir",
         "canonical_bars_path",
@@ -1413,6 +1585,24 @@ def _run_existing_raw_canonical_rebuild(
         publish_mode=publish_mode,
         staging_output_dir=staging_output_dir,
     )
+    session_input_report = None
+    raw_schedule_path = _optional_path_value(op_config, "raw_session_schedule_path")
+    if raw_schedule_path is not None:
+        if publish_mode != "staging_only":
+            raise ValueError("frozen session preparation requires publish_mode=staging_only")
+        mappings = load_mapping_registry(
+            _optional_path_value(op_config, "mapping_registry_path") or DEFAULT_MAPPING_REGISTRY
+        )
+        validate_mapping_registry(mappings)
+        session_input_report = materialize_session_intervals_from_frozen_raw(
+            raw_schedule_path=raw_schedule_path,
+            raw_delta_version=op_config.get("raw_session_schedule_version"),
+            canonical_session_intervals_path=staging_paths["canonical_session_intervals"],
+            mappings=mappings,
+        )
+        (staging_output_dir / "session-input-report.json").write_text(
+            json.dumps(session_input_report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
     report = materialize_moex_historical_assets(
         raw_table_path=_required_path_value(
             op_config,
@@ -1429,12 +1619,21 @@ def _run_existing_raw_canonical_rebuild(
         canonical_bars_path=publish_paths["canonical_bars"],
         canonical_provenance_path=publish_paths["canonical_bar_provenance"],
         canonical_session_intervals_path=publish_paths["canonical_session_intervals"],
+        canonical_closed_session_dates_path=(
+            Path(str(session_input_report["canonical_closed_session_dates_path"]))
+            if session_input_report is not None
+            else _optional_path_value(op_config, "canonical_closed_session_dates_path")
+        ),
         canonical_session_calendar_path=publish_paths["canonical_session_calendar"],
         canonical_roll_map_path=publish_paths["canonical_roll_map"],
+        daily_open_interest_path=_optional_path_value(op_config, "daily_open_interest_path"),
+        daily_open_interest_version=op_config.get("daily_open_interest_version"),
         selection=MOEX_HISTORICAL_ASSET_KEYS,
         raise_on_error=True,
     )
     report["staged_output_paths"] = {key: value.as_posix() for key, value in staging_paths.items()}
+    if session_input_report is not None:
+        report["session_input_materialization"] = session_input_report
     report["promoted_output_paths"] = (
         {key: value.as_posix() for key, value in publish_paths.items()}
         if publish_mode == "promote"
@@ -1911,6 +2110,11 @@ def execute_moex_data_rebuild_job(
     *,
     raw_table_path: Path | None = None,
     raw_ingest_report_path: Path | None = None,
+    raw_session_schedule_path: Path | None = None,
+    raw_session_schedule_version: int | None = None,
+    daily_open_interest_path: Path | None = None,
+    daily_open_interest_version: int | None = None,
+    mapping_registry_path: Path | None = None,
     canonical_output_dir: Path,
     canonical_target_output_dir: Path | None = None,
     canonical_run_id: str,
@@ -1952,6 +2156,11 @@ def execute_moex_data_rebuild_job(
         profile_name=profile_name,
         raw_table_path=raw_table_path,
         raw_ingest_report_path=raw_ingest_report_path,
+        raw_session_schedule_path=raw_session_schedule_path,
+        raw_session_schedule_version=raw_session_schedule_version,
+        daily_open_interest_path=daily_open_interest_path,
+        daily_open_interest_version=daily_open_interest_version,
+        mapping_registry_path=mapping_registry_path,
         canonical_output_dir=canonical_output_dir,
         canonical_target_output_dir=canonical_target_output_dir,
         canonical_run_id=resolved_canonical_run_id,
@@ -2133,6 +2342,9 @@ def materialize_moex_historical_assets(
     canonical_bars_path: Path | None = None,
     canonical_provenance_path: Path | None = None,
     canonical_session_intervals_path: Path | None = None,
+    canonical_closed_session_dates_path: Path | None = None,
+    daily_open_interest_path: Path | None = None,
+    daily_open_interest_version: int | None = None,
     canonical_session_calendar_path: Path | None = None,
     canonical_roll_map_path: Path | None = None,
     selection: Sequence[str] | None = None,
@@ -2154,9 +2366,22 @@ def materialize_moex_historical_assets(
         "canonical_output_dir": canonical_output_dir.resolve().as_posix(),
         "canonical_run_id": resolved_canonical_run_id,
     }
+    if daily_open_interest_path is not None:
+        if (
+            isinstance(daily_open_interest_version, bool)
+            or not isinstance(daily_open_interest_version, int)
+            or daily_open_interest_version < 0
+        ):
+            raise ValueError("daily OI requires a pinned non-negative Delta version")
+        op_config["daily_open_interest_path"] = daily_open_interest_path.resolve().as_posix()
+        op_config["daily_open_interest_version"] = daily_open_interest_version
     if canonical_session_intervals_path is not None:
         op_config["canonical_session_intervals_path"] = (
             canonical_session_intervals_path.resolve().as_posix()
+        )
+    if canonical_closed_session_dates_path is not None:
+        op_config["canonical_closed_session_dates_path"] = (
+            canonical_closed_session_dates_path.resolve().as_posix()
         )
     if canonical_bars_path is not None:
         op_config["canonical_bars_path"] = canonical_bars_path.resolve().as_posix()

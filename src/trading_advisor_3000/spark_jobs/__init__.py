@@ -25,6 +25,10 @@ from .moex_raw_layout_migration_job import (
     promote_moex_raw_layout_migration,
     run_moex_raw_layout_migration_spark_job,
 )
+from .rebuild_storage_layout_job import (
+    finalize_rebuild_storage_layout,
+    run_rebuild_storage_layout_spark_job,
+)
 from .research_bar_views_job import run_research_bar_views_spark_job
 from .research_candidates_job import (
     ResearchSparkJobSpec,
@@ -49,6 +53,7 @@ __all__ = [
     "build_sql_plan",
     "default_spec",
     "default_research_spec",
+    "finalize_rebuild_storage_layout",
     "run_canonical_bars_spark_job",
     "run_continuous_front_spark_job",
     "run_moex_canonicalization_spark_job",
@@ -56,6 +61,7 @@ __all__ = [
     "run_moex_contract_economics_spark_job",
     "run_research_bar_views_spark_job",
     "run_research_derived_source_frames_spark_job",
+    "run_rebuild_storage_layout_spark_job",
     "compute_raw_watermarks_spark_delta",
     "run_moex_raw_ingest_spark_delta_job",
     "run_moex_raw_layout_migration_spark_job",

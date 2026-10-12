@@ -17,11 +17,16 @@ from trading_advisor_3000.product_plane.research.backtests.engine import (
     search_spec_id,
     strategy_spec_to_search_spec,
 )
-from trading_advisor_3000.product_plane.research.backtests.input_requirements import loader_columns_for_search_specs
+from trading_advisor_3000.product_plane.research.backtests.input_requirements import (
+    loader_columns_for_search_specs,
+)
 from trading_advisor_3000.product_plane.research.backtests.results import write_backtest_artifacts
-from trading_advisor_3000.product_plane.research.io.loaders import ResearchSeriesFrame, ResearchSliceRequest, load_backtest_frames
+from trading_advisor_3000.product_plane.research.io.loaders import (
+    ResearchSeriesFrame,
+    ResearchSliceRequest,
+    load_backtest_frames,
+)
 from trading_advisor_3000.product_plane.research.strategies.registry import build_strategy_registry
-
 
 BATTLE_SPACES: dict[str, dict[str, tuple[object, ...]]] = {
     "mean-reversion-v1": {
@@ -53,10 +58,7 @@ BENCHMARK_BACKTEST_BATCH_ID = "BTBATCH-BENCH-DELTA-HOTPATH"
 BENCHMARK_CAMPAIGN_RUN_ID = "bench_delta_hotpath"
 BENCHMARK_STRATEGY_SPACE_ID = "bench_space_delta_hotpath"
 BENCHMARK_ARTIFACT_ROLE = "benchmark_noncanonical"
-CANONICAL_CAMPAIGN_ROUTE = (
-    "py -3.11 -m trading_advisor_3000.product_plane.research.jobs.run_campaign "
-    "--config <campaign.yaml>"
-)
+CANONICAL_CAMPAIGN_ROUTE = "Dagster research job with campaign_config_path=<campaign.yaml>"
 
 
 def _created_at() -> str:
@@ -93,7 +95,9 @@ def _validate_benchmark_output_dir(output_dir: Path) -> None:
         )
 
 
-def _load_split_windows(materialized_root: Path, *, dataset_version: str) -> tuple[dict[str, object], ...]:
+def _load_split_windows(
+    materialized_root: Path, *, dataset_version: str
+) -> tuple[dict[str, object], ...]:
     frame = read_delta_table_frame(
         materialized_root / "research_datasets.delta",
         columns=["dataset_version", "split_params_json"],
@@ -149,7 +153,10 @@ def _required_timeframes(search_spec: object, *, fallback: str) -> tuple[str, ..
     for payload in getattr(search_spec, "required_inputs_by_clock", {}).values():
         if not isinstance(payload, dict):
             continue
-        has_inputs = any(payload.get(key) for key in ("price_inputs", "materialized_indicators", "materialized_derived"))
+        has_inputs = any(
+            payload.get(key)
+            for key in ("price_inputs", "materialized_indicators", "materialized_derived")
+        )
         timeframe = str(payload.get("timeframe", "")).strip()
         if has_inputs and timeframe and timeframe not in values:
             values.append(timeframe)
@@ -208,7 +215,8 @@ def _group_series_frames(
         loaded_timeframes = sorted({frame.timeframe for frame in frames})
         raise ValueError(
             "no complete contract groups found for "
-            f"{search_spec.family_key}; required={list(required_timeframes)} loaded={loaded_timeframes}"
+            f"{search_spec.family_key}; required={list(required_timeframes)} "
+            f"loaded={loaded_timeframes}"
         )
     return result
 
@@ -285,7 +293,9 @@ def _search_spec_row(search_spec: object) -> dict[str, object]:
         "required_price_inputs_json": list(search_spec.required_price_inputs),
         "required_materialized_indicators_json": list(search_spec.required_materialized_indicators),
         "required_materialized_derived_json": list(search_spec.required_materialized_derived),
-        "optional_indicator_plan_json": [item.to_dict() for item in search_spec.optional_indicator_plan],
+        "optional_indicator_plan_json": [
+            item.to_dict() for item in search_spec.optional_indicator_plan
+        ],
         "signal_surface_key": search_spec.signal_surface_key,
         "signal_surface_mode": search_spec.signal_surface_mode,
         "parameter_mode": search_spec.parameter_mode,
@@ -349,7 +359,8 @@ def _optimizer_selection_summary(
     accepted_rows = [
         row
         for row in trial_rows
-        if str(row.get("status", "")) in {"completed", "duplicate"} and bool(row.get("constraints_passed", False))
+        if str(row.get("status", "")) in {"completed", "duplicate"}
+        and bool(row.get("constraints_passed", False))
     ]
     top_rows = sorted(
         trial_rows,
@@ -365,7 +376,9 @@ def _optimizer_selection_summary(
         "optimizer_trial_count": len(trial_rows),
         "accepted_candidate_count": len(accepted_rows),
         "rejected_candidate_count": len(trial_rows) - len(accepted_rows),
-        "study_status_counts": dict(Counter(str(row.get("status", "")) for row in optimizer_study_rows)),
+        "study_status_counts": dict(
+            Counter(str(row.get("status", "")) for row in optimizer_study_rows)
+        ),
         "trial_status_counts": dict(Counter(str(row.get("status", "")) for row in trial_rows)),
         "detail_source": "delta_tables",
         "best_studies": [_slim_optimizer_study(row) for row in optimizer_study_rows[:top_k]],
@@ -374,8 +387,13 @@ def _optimizer_selection_summary(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Benchmark one TA3000 vectorbt family from Delta/Arrow inputs.")
-    parser.add_argument("--materialized-root", default="D:/TA3000-data/trading-advisor-3000-nightly/research/gold/verification/optuna-signal-smoke-br")
+    parser = argparse.ArgumentParser(
+        description="Benchmark one TA3000 vectorbt family from Delta/Arrow inputs."
+    )
+    parser.add_argument(
+        "--materialized-root",
+        default="D:/TA3000-data/trading-advisor-3000-nightly/research/gold/verification/optuna-signal-smoke-br",
+    )
     parser.add_argument("--dataset-version", default="moex_approved_subset_optuna_15m_br_smoke_v1")
     parser.add_argument("--indicator-set-version", default="indicators-v1")
     parser.add_argument("--derived-indicator-set-version", default="derived-v1")
@@ -542,11 +560,21 @@ def main() -> int:
         all_param_result_rows.extend(
             dict(row) for row in report.get("param_result_rows", []) if isinstance(row, dict)
         )
-        all_gate_rows.extend(dict(row) for row in report.get("gate_rows", []) if isinstance(row, dict))
-        all_run_rows.extend(dict(row) for row in report.get("run_rows", []) if isinstance(row, dict))
-        all_stat_rows.extend(dict(row) for row in report.get("stat_rows", []) if isinstance(row, dict))
-        all_trade_rows.extend(dict(row) for row in report.get("trade_rows", []) if isinstance(row, dict))
-        all_order_rows.extend(dict(row) for row in report.get("order_rows", []) if isinstance(row, dict))
+        all_gate_rows.extend(
+            dict(row) for row in report.get("gate_rows", []) if isinstance(row, dict)
+        )
+        all_run_rows.extend(
+            dict(row) for row in report.get("run_rows", []) if isinstance(row, dict)
+        )
+        all_stat_rows.extend(
+            dict(row) for row in report.get("stat_rows", []) if isinstance(row, dict)
+        )
+        all_trade_rows.extend(
+            dict(row) for row in report.get("trade_rows", []) if isinstance(row, dict)
+        )
+        all_order_rows.extend(
+            dict(row) for row in report.get("order_rows", []) if isinstance(row, dict)
+        )
         all_drawdown_rows.extend(
             dict(row) for row in report.get("drawdown_rows", []) if isinstance(row, dict)
         )
@@ -590,7 +618,9 @@ def main() -> int:
         "series_count": len(frames),
         "cache_id": "",
         "cache_hit": 0,
-        "created_at": all_stat_rows[0].get("created_at", _created_at()) if all_stat_rows else _created_at(),
+        "created_at": all_stat_rows[0].get("created_at", _created_at())
+        if all_stat_rows
+        else _created_at(),
     }
     output_paths = write_backtest_artifacts(
         output_dir=output_dir,
@@ -629,8 +659,13 @@ def main() -> int:
         "delta_load_seconds": load_total,
         "vectorbt_seconds": vectorbt_seconds,
         "wall_clock_seconds": load_total + vectorbt_seconds,
-        "trials_per_second_vectorbt": (len(contract_groups) * args.trials) / vectorbt_seconds if vectorbt_seconds > 0 else 0.0,
-        "trials_per_second_wall": (len(contract_groups) * args.trials) / (load_total + vectorbt_seconds) if load_total + vectorbt_seconds > 0 else 0.0,
+        "trials_per_second_vectorbt": (len(contract_groups) * args.trials) / vectorbt_seconds
+        if vectorbt_seconds > 0
+        else 0.0,
+        "trials_per_second_wall": (len(contract_groups) * args.trials)
+        / (load_total + vectorbt_seconds)
+        if load_total + vectorbt_seconds > 0
+        else 0.0,
         "aggregate_counts": dict(aggregate_counts),
         "aggregate_trial_status_counts": dict(aggregate_trial_statuses),
         "output_dir": output_dir.as_posix(),
@@ -642,7 +677,9 @@ def main() -> int:
     if args.output_json:
         output_path = Path(args.output_json)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+        output_path.write_text(
+            json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
+        )
     return 0
 
 

@@ -134,7 +134,7 @@ QC covers the instruments and strategy families actually intended for research.
 
 What exists:
 
-- Campaign runner exists: `run_campaign`.
+- Dagster campaign context exists for operator research jobs.
 - Campaign config exists: `fut_br_base_15m.explore.yaml`.
 - Data prep, strategy registry refresh, backtest, ranking, projection stages are represented in code.
 - Strategy family modules exist:
@@ -180,7 +180,7 @@ What exists:
   - minimum slippage score;
   - projection selection policy.
 - Code includes walk-forward / out-of-sample concepts in campaign and dataset surfaces.
-- Tests cover ranking/projection and campaign runner behavior.
+- Tests cover ranking/projection and Dagster campaign route behavior.
 
 Gaps:
 

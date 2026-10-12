@@ -20,8 +20,6 @@ Before non-trivial product-plane runtime work:
    - Python boundary;
    - proof surface;
    - fallback reason, if custom Python owns logic in a documented native zone.
-4. Use repo-local `ta3000-quant-compute-methodology` for vectorbt, pandas-ta-classic, Optuna, indicator, signal-matrix, and backtest work.
-5. Use global `data-engineer` for Spark, Delta Lake, Dagster, DuckDB, durable materialization, and data-pipeline ownership.
 
 ## Routing Bias
 - Spark/Delta/Dagster own durable dataflow and storage routes.

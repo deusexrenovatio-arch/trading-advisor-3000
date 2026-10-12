@@ -71,8 +71,8 @@ def compute_volume_profile_features(
     settings: VolumeProfileSettings | None = None,
 ) -> dict[str, float | int | None]:
     settings = settings or VolumeProfileSettings()
-    if tick_size <= 0:
-        raise ValueError("tick_size must be positive")
+    if not math.isfinite(tick_size) or tick_size <= 0:
+        raise ValueError("tick_size must be finite and positive")
     if not 0 < settings.value_area_ratio <= 1:
         raise ValueError("value_area_ratio must be in (0, 1]")
     if not 0 <= settings.min_coverage_ratio <= 1:

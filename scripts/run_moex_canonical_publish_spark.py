@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 
 try:
@@ -39,6 +40,11 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from trading_advisor_3000.product_plane.common.data_snapshots import (
+    load_process_snapshot,
+    materialization_snapshot_scope,
+    snapshot_process_path_mapping,
+)
 from trading_advisor_3000.spark_jobs import DEFAULT_SPARK_MASTER
 from trading_advisor_3000.spark_jobs.moex_canonical_publish_job import (
     run_moex_canonical_publish_spark_delta_job,
@@ -154,23 +160,46 @@ def _write_report(path: Path | None, report: dict[str, object]) -> None:
 
 
 def _run_local(args: argparse.Namespace) -> dict[str, object]:
-    report = run_moex_canonical_publish_spark_delta_job(
-        staged_bars_path=Path(args.staged_bars_path).resolve(),
-        staged_provenance_path=Path(args.staged_provenance_path).resolve(),
-        publish_scope_path=Path(args.publish_scope_path).resolve()
-        if args.publish_scope_path
-        else None,
-        target_bars_path=Path(args.target_bars_path).resolve(),
-        target_provenance_path=Path(args.target_provenance_path).resolve(),
-        session_calendar_path=Path(args.session_calendar_path).resolve(),
-        session_intervals_path=Path(args.session_intervals_path).resolve()
-        if str(args.session_intervals_path).strip()
-        else None,
-        roll_map_path=Path(args.roll_map_path).resolve(),
-        output_dir=Path(args.output_dir).resolve(),
-        run_id=args.run_id,
-        spark_master=args.spark_master,
+    manifest_path = getattr(args, "snapshot_manifest_path", "")
+    scope = (
+        materialization_snapshot_scope(
+            load_process_snapshot(
+                Path(manifest_path),
+                Path(args.snapshot_path_map_json)
+                if getattr(args, "snapshot_path_map_json", "")
+                else None,
+            ),
+            writable_paths=[
+                Path(args.target_bars_path),
+                Path(args.target_provenance_path),
+                Path(args.session_calendar_path),
+                Path(args.roll_map_path),
+            ],
+        )
+        if manifest_path
+        else nullcontext()
     )
+    with scope:
+        report = run_moex_canonical_publish_spark_delta_job(
+            staged_bars_path=Path(args.staged_bars_path).resolve(),
+            staged_provenance_path=Path(args.staged_provenance_path).resolve(),
+            publish_scope_path=Path(args.publish_scope_path).resolve()
+            if args.publish_scope_path
+            else None,
+            target_bars_path=Path(args.target_bars_path).resolve(),
+            target_provenance_path=Path(args.target_provenance_path).resolve(),
+            session_calendar_path=Path(args.session_calendar_path).resolve(),
+            session_intervals_path=Path(args.session_intervals_path).resolve()
+            if str(args.session_intervals_path).strip()
+            else None,
+            roll_map_path=Path(args.roll_map_path).resolve(),
+            closed_session_dates_path=Path(args.closed_session_dates_path).resolve()
+            if args.closed_session_dates_path
+            else None,
+            output_dir=Path(args.output_dir).resolve(),
+            run_id=args.run_id,
+            spark_master=args.spark_master,
+        )
     output_json = Path(args.output_json).resolve() if args.output_json else None
     _write_report(output_json, report)
     return report
@@ -212,6 +241,21 @@ def _docker_exec_args(args: argparse.Namespace) -> list[str]:
         )
     if args.output_json:
         python_command.extend(["--output-json", _container_path(Path(args.output_json).resolve())])
+    if args.closed_session_dates_path:
+        python_command.extend(
+            [
+                "--closed-session-dates-path",
+                _container_path(Path(args.closed_session_dates_path).resolve()),
+            ]
+        )
+    if getattr(args, "snapshot_manifest_path", ""):
+        python_command.extend(
+            ["--snapshot-manifest-path", _container_path(Path(args.snapshot_manifest_path))]
+        )
+    if getattr(args, "snapshot_path_map_json", ""):
+        python_command.extend(
+            ["--snapshot-path-map-json", _container_path(Path(args.snapshot_path_map_json))]
+        )
     owner = docker_host_owner()
     chown_targets = [_container_path(Path(args.output_dir).resolve())]
     if args.output_json:
@@ -236,6 +280,14 @@ def _run_docker(args: argparse.Namespace) -> dict[str, object]:
     ensure_output_directory_writable(output_dir)
     ensure_output_file_writable(output_json)
 
+    if getattr(args, "snapshot_manifest_path", ""):
+        args.snapshot_path_map_json = str(
+            snapshot_process_path_mapping(
+                Path(args.snapshot_manifest_path),
+                output_dir / "snapshot-input-paths.json",
+                _container_path,
+            )
+        )
     repo_root = _repo_root().resolve()
     command = [
         "docker",
@@ -297,7 +349,10 @@ def main() -> None:
     parser.add_argument("--target-provenance-path", required=True)
     parser.add_argument("--session-calendar-path", required=True)
     parser.add_argument("--session-intervals-path", default="")
+    parser.add_argument("--closed-session-dates-path", default="")
     parser.add_argument("--roll-map-path", required=True)
+    parser.add_argument("--snapshot-manifest-path", default="")
+    parser.add_argument("--snapshot-path-map-json", default="")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--spark-master", default=DEFAULT_SPARK_MASTER)

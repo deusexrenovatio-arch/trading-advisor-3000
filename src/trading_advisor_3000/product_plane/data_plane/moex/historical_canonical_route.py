@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from trading_advisor_3000.product_plane.common.data_snapshots import save_snapshot_scope
 from trading_advisor_3000.product_plane.contracts import CanonicalBar, Timeframe
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
@@ -124,6 +125,9 @@ PROVENANCE_COLUMNS: dict[str, str] = {
     "open_interest_imputed": "boolean",
     "build_run_id": "string",
     "built_at_utc": "timestamp",
+    "open_interest_trade_date": "date",
+    "open_interest_source_trade_date": "date",
+    "open_interest_availability_status": "string",
 }
 
 SIDECAR_ROLL_REASON = "max_open_interest_then_latest_ts_close"
@@ -273,7 +277,7 @@ class RawCandle:
     low: float
     close: float
     volume: int
-    open_interest: int
+    open_interest: int | None
     open_interest_imputed: bool
     source_provider: str
     source_run_id: str
@@ -297,6 +301,9 @@ class CanonicalProvenance:
     open_interest_imputed: bool
     build_run_id: str
     built_at_utc: str
+    open_interest_trade_date: str | None = None
+    open_interest_source_trade_date: str | None = None
+    open_interest_availability_status: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -315,6 +322,9 @@ class CanonicalProvenance:
             "open_interest_imputed": self.open_interest_imputed,
             "build_run_id": self.build_run_id,
             "built_at_utc": self.built_at_utc,
+            "open_interest_trade_date": self.open_interest_trade_date,
+            "open_interest_source_trade_date": self.open_interest_source_trade_date,
+            "open_interest_availability_status": self.open_interest_availability_status,
         }
 
 
@@ -382,7 +392,7 @@ def _normalize_raw_rows(rows: list[dict[str, object]]) -> list[RawCandle]:
         open_interest_raw = payload.get("open_interest")
         open_interest_imputed = open_interest_raw is None
         if open_interest_imputed:
-            open_interest = 0
+            open_interest = None
         else:
             if isinstance(open_interest_raw, bool) or not isinstance(open_interest_raw, int):
                 raise ValueError(f"raw row[{row_index}] `open_interest` must be integer or null")
@@ -408,7 +418,7 @@ def _normalize_raw_rows(rows: list[dict[str, object]]) -> list[RawCandle]:
                 close=_require_number(payload, "close", row_index=row_index),
                 volume=_require_int(payload, "volume", row_index=row_index),
                 open_interest=open_interest,
-                open_interest_imputed=open_interest_imputed,
+                open_interest_imputed=False,
                 source_provider=source_provider,
                 source_run_id=source_run_id,
                 source_ingest_run_id=_require_string(payload, "ingest_run_id", row_index=row_index),
@@ -552,7 +562,7 @@ def run_qc_gates(
             ohlcv_errors.append(
                 f"negative volume: {bar.contract_id}/{bar.timeframe.value}/{bar.ts}"
             )
-        if bar.open_interest < 0:
+        if bar.open_interest is not None and bar.open_interest < 0:
             ohlcv_errors.append(
                 f"negative open_interest: {bar.contract_id}/{bar.timeframe.value}/{bar.ts}"
             )
@@ -636,7 +646,7 @@ def run_contract_compatibility_check(
         / "product_plane"
         / "contracts"
         / "schemas"
-        / "canonical_bar.v1.json"
+        / "canonical_bar.v2.json"
     )
     payload = json.loads(schema_path.read_text(encoding="utf-8"))
     required = payload.get("required")
@@ -645,7 +655,7 @@ def run_contract_compatibility_check(
 
     if not isinstance(required, list) or not isinstance(properties, dict):
         raise ValueError(
-            "canonical_bar.v1 schema must define `required` list and `properties` object"
+            "canonical_bar.v2 schema must define `required` list and `properties` object"
         )
 
     required_fields = {str(item) for item in required}
@@ -852,6 +862,15 @@ def _canonical_provenance_from_dict(
         open_interest_imputed=_require_bool_value("open_interest_imputed"),
         build_run_id=_require_text("build_run_id"),
         built_at_utc=_require_text("built_at_utc"),
+        open_interest_trade_date=None
+        if payload.get("open_interest_trade_date") is None
+        else str(payload["open_interest_trade_date"]),
+        open_interest_source_trade_date=None
+        if payload.get("open_interest_source_trade_date") is None
+        else str(payload["open_interest_source_trade_date"]),
+        open_interest_availability_status=None
+        if payload.get("open_interest_availability_status") is None
+        else str(payload["open_interest_availability_status"]),
     )
 
 
@@ -903,6 +922,15 @@ def _canonical_provenance_from_dict_lenient(
         open_interest_imputed=_bool_value("open_interest_imputed"),
         build_run_id=_text("build_run_id"),
         built_at_utc=_text("built_at_utc"),
+        open_interest_trade_date=None
+        if payload.get("open_interest_trade_date") is None
+        else str(payload["open_interest_trade_date"]),
+        open_interest_source_trade_date=None
+        if payload.get("open_interest_source_trade_date") is None
+        else str(payload["open_interest_source_trade_date"]),
+        open_interest_availability_status=None
+        if payload.get("open_interest_availability_status") is None
+        else str(payload["open_interest_availability_status"]),
     )
 
 
@@ -1219,6 +1247,9 @@ def _run_spark_canonicalization(
     changed_windows: list[ChangedWindowScope],
     selected_source_intervals: dict[tuple[str, str, str], int],
     session_intervals_path: Path | None,
+    closed_session_dates_path: Path | None = None,
+    daily_open_interest_path: Path | None = None,
+    daily_open_interest_version: int | None = None,
     output_dir: Path,
     run_id: str,
     built_at_utc: str,
@@ -1270,6 +1301,25 @@ def _run_spark_canonicalization(
     ]
     if session_intervals_path is not None:
         command.extend(["--session-intervals-path", session_intervals_path.as_posix()])
+    if closed_session_dates_path is not None:
+        command.extend(["--closed-session-dates-path", closed_session_dates_path.as_posix()])
+    if daily_open_interest_path is not None:
+        command.extend(
+            [
+                "--daily-open-interest-path",
+                daily_open_interest_path.as_posix(),
+                "--daily-open-interest-version",
+                str(daily_open_interest_version),
+            ]
+        )
+    manifest_path = save_snapshot_scope(
+        spark_dir / "input-snapshots",
+        inputs=[raw_table_path, session_intervals_path]
+        + ([closed_session_dates_path] if closed_session_dates_path else [])
+        + ([daily_open_interest_path] if daily_open_interest_path else []),
+    )
+    if manifest_path is not None:
+        command.extend(["--snapshot-manifest-path", manifest_path.as_posix()])
     try:
         completed = subprocess.run(
             command,
@@ -1307,6 +1357,7 @@ def _run_spark_canonical_publish(
     output_dir: Path,
     run_id: str,
     repo_root: Path,
+    closed_session_dates_path: Path | None = None,
 ) -> dict[str, object]:
     spark_dir = output_dir / ".spark-canonical-publish"
     spark_report_path = spark_dir / "spark-publish-report.json"
@@ -1320,6 +1371,7 @@ def _run_spark_canonical_publish(
             target_provenance_path=target_provenance_path,
             session_calendar_path=session_calendar_path,
             session_intervals_path=session_intervals_path,
+            closed_session_dates_path=closed_session_dates_path,
             roll_map_path=roll_map_path,
             output_dir=spark_dir,
             run_id=run_id,
@@ -1358,6 +1410,16 @@ def _run_spark_canonical_publish(
     ]
     if session_intervals_path is not None:
         command.extend(["--session-intervals-path", session_intervals_path.as_posix()])
+    if closed_session_dates_path is not None:
+        command.extend(["--closed-session-dates-path", closed_session_dates_path.as_posix()])
+    manifest_path = save_snapshot_scope(
+        spark_dir / "input-snapshots",
+        inputs=[staged_bars_path, staged_provenance_path]
+        + ([session_intervals_path] if session_intervals_path else [])
+        + ([closed_session_dates_path] if closed_session_dates_path else []),
+    )
+    if manifest_path is not None:
+        command.extend(["--snapshot-manifest-path", manifest_path.as_posix()])
     try:
         completed = subprocess.run(
             command,
@@ -1854,6 +1916,9 @@ def _run_scoped_spark_delta_publish_route(
     provenance_path: Path,
     session_calendar_path: Path,
     session_intervals_path: Path | None,
+    closed_session_dates_path: Path | None = None,
+    daily_open_interest_path: Path | None = None,
+    daily_open_interest_version: int | None = None,
     roll_map_path: Path,
     changed_window_scope: list[ChangedWindowScope],
     changed_window_set_manifest: dict[str, object],
@@ -1890,6 +1955,9 @@ def _run_scoped_spark_delta_publish_route(
             changed_windows=changed_window_scope,
             selected_source_intervals=selected_source_intervals,
             session_intervals_path=session_intervals_path,
+            closed_session_dates_path=closed_session_dates_path,
+            daily_open_interest_path=daily_open_interest_path,
+            daily_open_interest_version=daily_open_interest_version,
             output_dir=output_dir,
             run_id=run_id,
             built_at_utc=built_at_utc,
@@ -1962,6 +2030,7 @@ def _run_scoped_spark_delta_publish_route(
             target_provenance_path=provenance_path,
             session_calendar_path=session_calendar_path,
             session_intervals_path=session_intervals_path,
+            closed_session_dates_path=closed_session_dates_path,
             roll_map_path=roll_map_path,
             output_dir=output_dir,
             run_id=run_id,
@@ -2179,12 +2248,21 @@ def run_historical_canonical_route(
     canonical_bars_path: Path | None = None,
     canonical_provenance_path: Path | None = None,
     canonical_session_intervals_path: Path | None = None,
+    canonical_closed_session_dates_path: Path | None = None,
+    daily_open_interest_path: Path | None = None,
+    daily_open_interest_version: int | None = None,
     canonical_session_calendar_path: Path | None = None,
     canonical_roll_map_path: Path | None = None,
     canonical_merge_strategy: str = CANONICAL_MERGE_SCOPED_DELETE_INSERT,
     max_changed_window_days: int | None = None,
     target_timeframes: Iterable[str | Timeframe] | None = None,
 ) -> dict[str, object]:
+    if daily_open_interest_path is not None and (
+        isinstance(daily_open_interest_version, bool)
+        or not isinstance(daily_open_interest_version, int)
+        or daily_open_interest_version < 0
+    ):
+        raise ValueError("daily OI requires a pinned non-negative Delta version")
     if not isinstance(raw_ingest_run_report, dict):
         raise ValueError("`raw_ingest_run_report` must be object")
     repo_root = repo_root.resolve() if repo_root else Path(__file__).resolve().parents[5]
@@ -2642,6 +2720,9 @@ def run_historical_canonical_route(
         provenance_path=provenance_path,
         session_calendar_path=session_calendar_path,
         session_intervals_path=official_session_intervals_path,
+        closed_session_dates_path=canonical_closed_session_dates_path,
+        daily_open_interest_path=daily_open_interest_path,
+        daily_open_interest_version=daily_open_interest_version,
         roll_map_path=roll_map_path,
         changed_window_scope=changed_window_scope,
         changed_window_set_manifest=changed_window_set_manifest,

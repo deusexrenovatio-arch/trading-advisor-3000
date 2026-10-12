@@ -32,6 +32,9 @@ from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contrac
     changed_windows_hash_sha256,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.iss_client import MoexCandle
+from trading_advisor_3000.product_plane.data_plane.schemas import (
+    historical_data_delta_schema_manifest,
+)
 
 
 def test_baseline_update_timeframes_accepts_comma_delimited_string() -> None:
@@ -53,6 +56,14 @@ def _write_empty_baseline(tmp_path: Path) -> tuple[Path, Path, Path]:
     write_delta_table_rows(
         table_path=canonical_provenance_path, rows=[], columns=PROVENANCE_COLUMNS
     )
+    # Existing mocked canonical jobs still need physical output references for CAS.
+    manifest = historical_data_delta_schema_manifest()
+    for name in ("canonical_session_intervals", "canonical_session_calendar", "canonical_roll_map"):
+        write_delta_table_rows(
+            table_path=canonical_bars_path.parent / f"{name}.delta",
+            rows=[],
+            columns=dict(manifest[name]["columns"]),
+        )
     return raw_table_path, canonical_bars_path, canonical_provenance_path
 
 
@@ -2967,3 +2978,38 @@ def test_bootstrap_raw_window_uses_spark_delta_hot_table_runtime(
             "watermark_utc": "2026-04-01T07:19:59Z",
         }
     ]
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"allow_calibrated_latest_margin": True},
+        {"margin_calibration_as_of_date": "2026-08-14"},
+        {"allow_calibrated_latest_margin": 1},
+    ],
+)
+def test_baseline_calibration_guard_precedes_source_and_output_writes(
+    tmp_path, monkeypatch, options
+):
+    def unexpected(*args, **kwargs):
+        raise AssertionError("source acquisition must not run for invalid calibration config")
+
+    monkeypatch.setattr(baseline_module, "MoexISSClient", unexpected)
+    evidence = tmp_path / "evidence"
+    with pytest.raises((TypeError, ValueError), match="margin|calibrat"):
+        baseline_module.run_moex_baseline_update(
+            mapping_registry_path=tmp_path / "mapping.yaml",
+            universe_path=tmp_path / "universe.yaml",
+            raw_table_path=tmp_path / "raw.delta",
+            canonical_bars_path=tmp_path / "bars.delta",
+            canonical_provenance_path=tmp_path / "provenance.delta",
+            evidence_dir=evidence,
+            run_id="bad-calibration",
+            timeframes="1d",
+            ingest_till_utc="2026-10-10T00:00:00Z",
+            refresh_window_days=7,
+            contract_discovery_lookback_days=45,
+            max_changed_window_days=10,
+            economics_calculation_options=options,
+        )
+    assert not evidence.exists()

@@ -3,15 +3,20 @@
 ## Purpose
 This runbook defines the only supported user-facing route for Product Plane research runs.
 
-Official command:
+Official operator surface:
 
-```powershell
-python -m trading_advisor_3000.product_plane.research.jobs.run_campaign --config <campaign.yaml>
+```yaml
+campaign_config_path: product-plane/campaigns/<campaign>.yaml
+repo_root: D:/CodexHome/worktrees/<worktree>/trading advisor 3000
 ```
 
-The runner is a thin Product Plane front door.
-It does not compute indicators, features, or backtests by itself.
-It validates a machine-readable campaign config, writes immutable run artifacts, and dispatches only into the Dagster research contour.
+Launch one existing Dagster job with that config:
+- `research_data_prep_job` for `target_stage=data_prep`
+- `research_backtest_job` for `target_stage=backtest` when the reusable gold layer already exists
+- `research_projection_job` for `target_stage=projection` when persisted ranking/backtest tables already exist
+- `strategy_registry_refresh_job` only when refreshing strategy registry rows from an existing persisted dataset context
+
+The job config is mapped through `research_campaign_context`. That asset validates `research_campaign.v1`, allocates the run folder, writes the start lock/status artifacts, and expands the internal stage asset config. Operators should not launch `run_campaign`; that Python route has been removed from the active product surface.
 
 ## Contracts
 
@@ -35,10 +40,11 @@ Each execution still gets a fresh `run_id` and a fresh immutable run folder.
 
 ## Stage Selection
 
-The route is selected strictly by `target_stage` in the campaign config:
-- `data_prep` -> materialize reusable research data prep only: continuous front, dataset, instrument tree, bar view, base indicator, and derived indicator layers
-- `backtest` -> reuse or rebuild research data prep, refresh family/template registry rows, resolve campaign `strategy_space` into `StrategyFamilySearchSpec`, then run vectorbt family-search surfaces and rankings
-- `projection` -> run the full route through candidate projection
+The route is selected by the Dagster job and checked against `target_stage`:
+- `research_data_prep_job` materializes reusable research data prep only: continuous front, dataset, instrument tree, bar view, base indicator, and derived indicator layers.
+- `strategy_registry_refresh_job` reads the persisted dataset context and refreshes family/template registry rows.
+- `research_backtest_job` reads the existing reusable gold layer, resolves campaign `strategy_space` into `StrategyFamilySearchSpec`, then runs vectorbt family-search surfaces and rankings. It must not include data-prep materialization nodes.
+- `research_projection_job` reads persisted ranking/backtest result tables and writes candidate projection. It must not launch backtest or data-prep upstream.
 
 The scheduled freshness contour is `research_data_prep_job`.
 It is triggered after `moex_baseline_update_job` succeeds so `continuous_front_refresh` and materialized research data stay current with the canonical MOEX baseline.
@@ -51,11 +57,7 @@ Research data-prep writes follow the same rule. Dataset-version and indicator/de
 
 Dagster asset handoff in the research route must also stay small. Assets may pass table manifests, paths, row counts, and run metadata between steps; they must not pass large backtest result row lists such as strategy stats or trade records through the Dagster IO manager. Ranking and projection steps read their required inputs back from the persisted Delta result tables.
 
-Before integration or promotion of a changed data-prep contour, run a forced data-prep proof into a separate verification root, not into `research/gold/current`. The committed proof config is:
-
-```powershell
-python -m trading_advisor_3000.product_plane.research.jobs.run_campaign --config product-plane/campaigns/moex_approved_subset_optuna_15m.trend_mtf_pullback_research.data_prep_proof.yaml
-```
+Before integration or promotion of a changed data-prep contour, run a forced `research_data_prep_job` proof into a separate verification root, not into `research/gold/current`. Use a campaign config with `target_stage=data_prep` and `execution.force_rematerialize=true`.
 
 The resulting `run-summary.json` must include `result_digest.data_prep_proof.mode=forced_refresh` and `_delta_log` proof for the dataset, bar, indicator, and derived-indicator tables.
 
@@ -77,8 +79,7 @@ Optuna may see only `fold_role=optimization_validation` rows where `optimizer_vi
 Confirmation rows must never create Optuna trial rows and must not change the selected params.
 Legacy campaigns without the `validation` block keep the old `split_method/window_count` behavior and cannot claim a strict blind-confirmation verdict.
 
-Full or battle research results are canonical only when launched through `run_campaign` and
-registered in `research_campaign_runs.delta`. Benchmark scripts are allowed only as
+Full or battle research results are canonical only when launched through the matching Dagster research job and registered in `research_campaign_runs.delta`. Benchmark scripts are allowed only as
 noncanonical speed/proof tooling; they must write under:
 
 `D:/TA3000-data/trading-advisor-3000-nightly/research/runs/_benchmarks/<benchmark_id>/`
@@ -128,6 +129,6 @@ Status transitions are:
 
 ## Route Boundary
 
-Operator-facing research execution starts and ends at `run_campaign`.
+Operator-facing research execution starts and ends at the existing Dagster jobs listed above. `run_campaign` is removed from the active product surface and must not be used as an operator entrypoint.
 Scheduled freshness remains Dagster-owned through `research_data_prep_job` after `moex_baseline_update_job`.
 Implementation modules and benchmark tooling may exist inside the repo, but they are not part of the committed operator path for research campaigns.

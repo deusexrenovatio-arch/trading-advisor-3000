@@ -5,14 +5,19 @@ This runbook describes how to operate the current research plane without relying
 
 ## Official Route
 
-Use the campaign runner for every supported research execution:
+Use existing Dagster jobs for every supported research execution:
 
-```powershell
-python -m trading_advisor_3000.product_plane.research.jobs.run_campaign --config product-plane/campaigns/fut_br_base_15m.explore.yaml
+```yaml
+campaign_config_path: product-plane/campaigns/fut_br_base_15m.explore.yaml
 ```
 
-This is the canonical Product Plane route.
-It validates `research_campaign.v1.json`, writes immutable run artifacts, and dispatches only into the Dagster research contour.
+Launch the matching job in Dagster UI/daemon/CLI:
+- `research_data_prep_job`
+- `strategy_registry_refresh_job`
+- `research_backtest_job`
+- `research_projection_job`
+
+The config is mapped through `research_campaign_context`. It validates `research_campaign.v1.json`, writes immutable start artifacts, and expands the internal stage asset config. `run_campaign` is removed from the active product surface and must not be used as an operator route.
 
 ## How To Choose `target_stage`
 
@@ -20,6 +25,7 @@ Use `data_prep` when canonical data changed or indicator / derived-indicator def
 This means research data prep only: datasets, instrument tree, bar views, base indicators, and derived indicators.
 
 Use `backtest` when the reusable materialized layer is ready and you want strategy registry refresh, vectorbt family-search execution, and ranking outputs.
+For reused materialization, the Dagster backtest surface is `research_backtest_job` with campaign config on `research_campaign_context`; it must validate the existing gold layer and must not materialize data-prep assets.
 
 Use `projection` when ranked research results should become runtime candidates.
 
@@ -96,6 +102,7 @@ For `backtest`:
 - `dagster_materialized_assets`
 - `result_digest.ranking_top_rows`
 Backtest is expected to run from `StrategyFamilySearchSpec`, MTF-resolved inputs, vectorbt `SignalFactory.from_choice_func`, and vectorbt `Portfolio.from_signals`. A run that requires pre-materialized `StrategyInstance` rows before vectorbt is using the wrong route.
+When `reuse_existing_materialization=true`, `dagster_materialized_assets` should contain only backtest/ranking assets, not `research_datasets`, `research_indicator_frames`, or `research_derived_indicator_frames`.
 Backtest input reads must be Delta-native: dataset/version/instrument/timeframe/slice predicates and strategy-column projection happen in the Delta/Arrow layer before Python builds vectorbt matrices. If a run loads `research_bar_views`, `research_indicator_frames`, or `research_derived_indicator_frames` through Python row-object reloaders, treat it as the wrong route even if the run finishes.
 If `strategy_space.optimizer.engine=optuna`, inspect `research_optimizer_studies.delta` and `research_optimizer_trials.delta` as ask/tell search provenance; the trading result truth remains in the vectorbt param/result/ranking tables.
 For full or battle results, require a `research_campaign_runs.delta` row that points to the run folder. Delta-shaped benchmark folders under `research/runs/_benchmarks/` are useful for timing and proof, but they are not canonical campaign results and must not be used as ranking/projection truth.
@@ -146,6 +153,6 @@ If projection fails:
 
 ## Operational Boundary
 
-Use `run_campaign` for operator-driven research runs.
+Use the matching Dagster research job for operator-driven research runs.
 Use `research_data_prep_job` plus `research_data_prep_after_moex_sensor` for scheduled freshness after MOEX canonical refresh.
 Do not treat implementation modules or benchmark tooling as separate supported run paths.

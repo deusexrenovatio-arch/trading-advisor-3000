@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 
 import pandas as pd
+import pytest
 
 from trading_advisor_3000.product_plane.research.backtests.engine import (
     BacktestEngineConfig,
@@ -14,6 +15,7 @@ from trading_advisor_3000.product_plane.research.backtests.engine import (
     _windowed_series,
     build_input_bundle,
     build_signal_surface,
+    collect_surface_rows,
     run_surface_portfolio,
     run_vectorbt_family_search,
     strategy_spec_to_search_spec,
@@ -30,6 +32,18 @@ from trading_advisor_3000.product_plane.research.strategies.spec import (
 
 def _frame(rows: list[dict[str, object]]) -> pd.DataFrame:
     frame = pd.DataFrame(rows)
+    money_defaults: dict[str, object] = {
+        "execution_step_price_rub": 10.0,
+        "execution_lot_volume": 10.0,
+        "execution_tick_value_currency": 1.0,
+        "execution_margin_required_estimate": 10_000.0,
+        "execution_margin_buffer_pct": 0.01,
+        "economics_effective_from_ts": "2026-03-16T00:00:00Z",
+        "economics_model_version": "unit-economics-v1",
+    }
+    for column, value in money_defaults.items():
+        if column not in frame.columns:
+            frame[column] = value
     frame.index = pd.to_datetime(frame["ts"], utc=True)
     return frame
 
@@ -522,6 +536,81 @@ def test_trend_surface_runs_1000_param_rows_as_one_vectorbt_surface() -> None:
     assert portfolio.wrapper.shape == (48, 3_000)
     assert surface.entries.iloc[0].sum() == 0
     assert len(surface.parameter_index) == 1_000
+
+
+def test_money_ledger_sizes_before_vectorbt_and_collects_ledger_pnl() -> None:
+    series_frames = (_trend_surface_series("BR", 0.0),)
+    bundle = build_input_bundle(
+        series_frames,
+        dataset_version="dataset-v5",
+        indicator_set_version="indicators-v1",
+        derived_indicator_set_version="derived-v1",
+        clock_profile="short_swing_1h_v1",
+    )
+    param_rows = [
+        {
+            "adx_min": 10,
+            "close_slope_min": 0.0,
+            "ema_slope_min": 0.0,
+            "roc_change_min": 0.0,
+            "mom_change_min": 0.0,
+            "rsi_min_long": 50,
+            "rsi_max_short": 50,
+            "require_cross_code": False,
+            "stop_atr_mult": 1.5,
+            "trail_atr_mult": 2.0,
+            "max_holding_bars": 24,
+        }
+    ]
+    config = BacktestEngineConfig(
+        initial_cash=100_000.0,
+        fees_bps=50.0,
+        slippage_bps=50.0,
+        commission_per_contract=2.0,
+        slippage_ticks=1.0,
+        max_contracts=2,
+    )
+    spec = _trend_search_spec(max_parameter_combinations=1)
+    surface = build_signal_surface(
+        bundle=bundle,
+        spec=spec,
+        param_rows=param_rows,
+        search_run_id="VBTSEARCH-MONEY-UNIT",
+        config=config,
+    )
+    portfolio = run_surface_portfolio(bundle=bundle, surface=surface, config=config)
+    param_lookup = {
+        str(key): dict(value) for key, value in surface.parameter_index.to_dict("index").items()
+    }
+    collected = collect_surface_rows(
+        portfolio=portfolio,
+        bundle=bundle,
+        surface=surface,
+        spec=spec,
+        config=config,
+        param_lookup=param_lookup,
+        backtest_batch_id="BTBATCH-MONEY",
+        campaign_run_id="CRUN-MONEY",
+        strategy_space_id="SSPACE-MONEY",
+        dataset_version="dataset-v5",
+        indicator_set_version="indicators-v1",
+        derived_indicator_set_version="derived-v1",
+        window_id="full",
+    )
+
+    assert surface.long_intent.any().any()
+    assert surface.money_size is not None
+    assert surface.money_size.max().max() == 2.0
+    assert not surface.money_rejection_events
+    assert float(portfolio.orders.records["fees"].sum()) == 0.0
+    assert collected["trade_rows"]
+    assert collected["trade_rows"][0]["money_source"].endswith("canonical_contract_economics.delta")
+    assert collected["trade_rows"][0]["commission"] > 0.0
+    assert collected["trade_rows"][0]["slippage"] > 0.0
+    assert collected["param_result_rows"][0]["net_pnl"] == pytest.approx(
+        sum(float(row["net_pnl"]) for row in collected["trade_rows"])
+    )
+    assert collected["param_result_rows"][0]["money_model_version"] == "futures_trade_ledger.v1"
 
 
 def test_trend_search_spec_declares_mtf_input_contract_without_mtf_indicator_inputs() -> None:

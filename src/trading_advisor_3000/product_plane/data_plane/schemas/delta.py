@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from trading_advisor_3000.product_plane.common.table_layout import default_file_policy
+
 
 def historical_data_delta_schema_manifest() -> dict[str, dict[str, object]]:
     return {
@@ -45,6 +47,7 @@ def historical_data_delta_schema_manifest() -> dict[str, dict[str, object]]:
         "raw_moex_history": {
             "format": "delta",
             "partition_by": ["ts_close_year"],
+            "file_policy": default_file_policy(),
             "constraints": [
                 "unique(internal_id, timeframe, moex_secid, ts_open, ts_close)",
                 "non_empty(internal_id)",
@@ -199,6 +202,24 @@ def historical_data_delta_schema_manifest() -> dict[str, dict[str, object]]:
                 "expected_close_ts": "timestamp",
                 "session_class": "string",
                 "interval_type": "string",
+                "policy_id": "string",
+                "source_id": "string",
+                "source_document_hash": "string",
+            },
+        },
+        "canonical_closed_session_dates": {
+            "format": "delta",
+            "partition_by": [],
+            "target_file_count": 1,
+            "constraints": [
+                "unique(instrument_id, session_date)",
+                "non_empty(source_id)",
+                "non_empty(source_document_hash)",
+                "non_empty(policy_id)",
+            ],
+            "columns": {
+                "instrument_id": "string",
+                "session_date": "date",
                 "policy_id": "string",
                 "source_id": "string",
                 "source_document_hash": "string",

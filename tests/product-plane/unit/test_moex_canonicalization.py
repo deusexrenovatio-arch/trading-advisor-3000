@@ -38,7 +38,7 @@ def _provenance(**overrides: object) -> CanonicalProvenance:
     return CanonicalProvenance(**payload)
 
 
-def test_affected_canonical_keys_follow_session_bounded_spark_buckets(monkeypatch) -> None:
+def test_affected_canonical_keys_follow_moscow_clock_spark_buckets(monkeypatch) -> None:
     row = canonical_module.RawCandle(
         contract_id="BRM6@MOEX",
         instrument_id="FUT_BR",
@@ -87,7 +87,7 @@ def test_affected_canonical_keys_follow_session_bounded_spark_buckets(monkeypatc
     )
 
     assert ("BRM6@MOEX", "FUT_BR", "1m", "2026-04-02T10:01:00Z") in keys
-    assert ("BRM6@MOEX", "FUT_BR", "4h", "2026-04-02T10:00:00Z") in keys
+    assert ("BRM6@MOEX", "FUT_BR", "4h", "2026-04-02T09:00:00Z") in keys
     assert ("BRM6@MOEX", "FUT_BR", "1d", "2026-04-02T00:00:00Z") in keys
     assert ("BRM6@MOEX", "FUT_BR", "1w", "2026-03-30T00:00:00Z") in keys
     assert ("BRM6@MOEX", "FUT_BR", "4h", "2026-04-02T08:00:00Z") not in keys
@@ -171,14 +171,14 @@ def test_canonicalization_contract_compatibility_detects_schema_drift(tmp_path: 
         / "product_plane"
         / "contracts"
         / "schemas"
-        / "canonical_bar.v1.json"
+        / "canonical_bar.v2.json"
     )
     schema_path.parent.mkdir(parents=True, exist_ok=True)
     schema_path.write_text(
         json.dumps(
             {
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
-                "$id": "contracts/canonical_bar.v1.json",
+                "$id": "contracts/canonical_bar.v2.json",
                 "type": "object",
                 "required": [
                     "contract_id",

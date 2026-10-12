@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from collections import Counter
 from collections.abc import Iterable, Iterator
@@ -10,7 +11,16 @@ from typing import Any
 import pandas as pd
 import pyarrow as pa
 import pyarrow.dataset as ds
-from deltalake import DeltaTable, write_deltalake
+from deltalake import DeltaTable
+
+from trading_advisor_3000.product_plane.common.data_snapshots import open_read_table
+from trading_advisor_3000.product_plane.common.table_layout import (
+    assert_default_table_layout,
+    assert_fresh_arrow_candidate,
+    compact_default_table,
+    default_partition_columns,
+    write_layout_arrow_table,
+)
 
 from .hot_delta_tables import is_hot_delta_table_path
 
@@ -224,7 +234,7 @@ def _filter_clause_expression(clause: tuple[str, str, object]) -> ds.Expression:
     column_name, operator, value = clause
     field = ds.field(str(column_name))
     normalized_operator = str(operator).strip().lower()
-    if normalized_operator == "=":
+    if normalized_operator in {"=", "=="}:
         return field == value
     if normalized_operator in {"!=", "<>"}:
         return field != value
@@ -279,6 +289,47 @@ def _filters_to_dataset_expression(filters: DeltaReadFilters) -> ds.Expression |
     for item in group_expressions[1:]:
         expression = expression | item
     return expression
+
+
+def _filtered_delta_dataset(table: DeltaTable, filters: DeltaReadFilters) -> ds.Dataset:
+    dataset = table.to_pyarrow_dataset()
+    if not filters:
+        return dataset
+    groups = [filters] if isinstance(filters[0], tuple) else filters
+    predicate_columns = {clause[0] for group in groups for clause in group}
+    partition_columns = set(table.metadata().partition_columns)
+    data_columns = predicate_columns - partition_columns
+    if not data_columns:
+        return dataset
+    actions = table.get_add_actions().to_pylist()
+    if not any(
+        (action.get(bound) or {}).get(column) is None
+        for action in actions
+        for column in data_columns
+        for bound in ("min", "max")
+    ):
+        return dataset
+
+    # delta-rs 0.25 fills absent bounds with NULL, then treats them as constraints.
+    # Keep the pinned active file set and actual partition values; Parquet still
+    # supplies row-group statistics and applies the original predicate exactly.
+    fragments = []
+    for action in actions:
+        partition_expression = ds.scalar(True)
+        for column in partition_columns:
+            value = (action.get("partition_values") or {}).get(column)
+            expression = (
+                ds.field(column).is_null()
+                if value is None
+                else (ds.field(column) == pa.scalar(value).cast(dataset.schema.field(column).type))
+            )
+            partition_expression = partition_expression & expression
+        fragments.append(
+            dataset.format.make_fragment(
+                action["path"], dataset.filesystem, partition_expression=partition_expression
+            )
+        )
+    return ds.FileSystemDataset(fragments, dataset.schema, dataset.format, dataset.filesystem)
 
 
 def _normalize_loaded_rows(rows: list[object]) -> list[dict[str, object]]:
@@ -362,7 +413,22 @@ def has_delta_log(path: Path) -> bool:
 def delta_table_version(table_path: Path) -> int:
     if not has_delta_log(table_path):
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
-    return int(DeltaTable(str(table_path)).version())
+    return int(open_read_table(table_path, unscoped_open=DeltaTable).version())
+
+
+def delta_table_identity(table_path: Path) -> dict[str, str]:
+    """Stable native metadata identity; the selected read pin owns this lookup."""
+    if not has_delta_log(table_path):
+        raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
+    table = open_read_table(table_path)
+    schema = json.loads(table.schema().to_json())
+    schema_bytes = json.dumps(
+        schema, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return {
+        "table_id": str(table.metadata().id),
+        "schema_hash": hashlib.sha256(schema_bytes).hexdigest(),
+    }
 
 
 def write_delta_table_rows(
@@ -371,6 +437,11 @@ def write_delta_table_rows(
     rows: list[dict[str, object]],
     columns: dict[str, str],
     mode: str = "overwrite",
+    compact: bool = True,
+    family: str | None = None,
+    candidate_id: str | None = None,
+    replace_predicate: str | None = None,
+    partition_by: tuple[str, ...] | None = None,
 ) -> None:
     table_path.parent.mkdir(parents=True, exist_ok=True)
     schema = _build_schema(columns)
@@ -382,8 +453,16 @@ def write_delta_table_rows(
         arrays = [pa.array([], type=field.type) for field in schema]
         arrow_table = pa.Table.from_arrays(arrays=arrays, schema=schema)
 
-    schema_mode = "overwrite" if mode == "overwrite" else "merge"
-    write_deltalake(str(table_path), arrow_table, mode=mode, schema_mode=schema_mode)
+    write_layout_arrow_table(
+        table_path=table_path,
+        table=arrow_table,
+        mode=mode,
+        compact=compact,
+        family=family,
+        candidate_id=candidate_id,
+        replace_predicate=replace_predicate,
+        partition_by=partition_by,
+    )
 
 
 def append_delta_table_rows(
@@ -391,11 +470,22 @@ def append_delta_table_rows(
     table_path: Path,
     rows: list[dict[str, object]],
     columns: dict[str, str],
+    compact: bool = True,
+    candidate_id: str | None = None,
+    partition_by: tuple[str, ...] | None = None,
 ) -> None:
     if not rows:
         return
     mode = "append" if has_delta_log(table_path) else "overwrite"
-    write_delta_table_rows(table_path=table_path, rows=rows, columns=columns, mode=mode)
+    write_delta_table_rows(
+        table_path=table_path,
+        rows=rows,
+        columns=columns,
+        mode=mode,
+        compact=compact,
+        candidate_id=candidate_id,
+        partition_by=partition_by,
+    )
 
 
 def write_delta_table_row_batches(
@@ -406,11 +496,16 @@ def write_delta_table_row_batches(
     max_rows_per_delta_write: int,
     replace_predicate: str | None = None,
     preserve_existing_table: bool = False,
+    partition_by: tuple[str, ...] | None = None,
 ) -> tuple[int, int]:
     if max_rows_per_delta_write <= 0:
         raise ValueError("max_rows_per_delta_write must be > 0")
 
+    assert_fresh_arrow_candidate(table_path)
     table_exists = has_delta_log(table_path)
+    if table_exists and partition_by is not None:
+        if tuple(DeltaTable(str(table_path)).metadata().partition_columns) != partition_by:
+            raise ValueError("explicit partitions require an isolated layout migration")
     if table_exists and replace_predicate:
         delete_delta_table_rows(table_path=table_path, predicate=replace_predicate)
 
@@ -418,16 +513,32 @@ def write_delta_table_row_batches(
     batch_count = 0
     wrote_table = table_exists and preserve_existing_table
     buffered_rows: list[dict[str, object]] = []
+    candidate_id: str | None = None
 
     def flush_buffer() -> None:
-        nonlocal batch_count, buffered_rows, wrote_table
+        nonlocal batch_count, buffered_rows, wrote_table, candidate_id
         if not buffered_rows:
             return
         if wrote_table:
-            append_delta_table_rows(table_path=table_path, rows=buffered_rows, columns=columns)
+            append_delta_table_rows(
+                table_path=table_path,
+                rows=buffered_rows,
+                columns=columns,
+                compact=False,
+                candidate_id=candidate_id,
+                partition_by=partition_by,
+            )
         else:
-            write_delta_table_rows(table_path=table_path, rows=buffered_rows, columns=columns)
+            write_delta_table_rows(
+                table_path=table_path,
+                rows=buffered_rows,
+                columns=columns,
+                compact=False,
+                partition_by=partition_by,
+            )
             wrote_table = True
+            if default_partition_columns(table_path) is not None:
+                candidate_id = DeltaTable(str(table_path)).metadata().id
         batch_count += 1
         buffered_rows = []
 
@@ -442,8 +553,17 @@ def write_delta_table_row_batches(
     flush_buffer()
 
     if not wrote_table and not table_exists:
-        write_delta_table_rows(table_path=table_path, rows=[], columns=columns)
+        write_delta_table_rows(
+            table_path=table_path,
+            rows=[],
+            columns=columns,
+            compact=False,
+            partition_by=partition_by,
+        )
+        if default_partition_columns(table_path) is not None:
+            candidate_id = DeltaTable(str(table_path)).metadata().id
 
+    compact_default_table(table_path, candidate_id=candidate_id)
     return row_count, batch_count
 
 
@@ -457,6 +577,7 @@ def delete_delta_table_rows(
     normalized_predicate = str(predicate).strip()
     if not normalized_predicate:
         raise ValueError("delta delete predicate must be non-empty")
+    assert_fresh_arrow_candidate(table_path)
     table = DeltaTable(str(table_path))
     table.delete(normalized_predicate)
 
@@ -487,6 +608,7 @@ def replace_delta_table_rows(
     normalized_predicate = str(predicate).strip()
     if not normalized_predicate:
         raise ValueError("delta replace predicate must be non-empty")
+    assert_fresh_arrow_candidate(table_path)
     if has_delta_log(table_path):
         delete_delta_table_rows(table_path=table_path, predicate=normalized_predicate)
     if rows:
@@ -499,24 +621,25 @@ def replace_delta_table_rows(
 def count_delta_table_rows(table_path: Path, *, filters: DeltaReadFilters = None) -> int:
     if not has_delta_log(table_path):
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
-    table = DeltaTable(str(table_path))
+    table = open_read_table(table_path, unscoped_open=DeltaTable)
     if filters is None:
         return int(table.to_pyarrow_dataset().count_rows())
     normalized_filters = _normalize_filters_for_schema(filters, table.to_pyarrow_dataset().schema)
-    return int(table.to_pyarrow_table(columns=[], filters=normalized_filters).num_rows)
+    dataset = _filtered_delta_dataset(table, normalized_filters)
+    return int(dataset.count_rows(filter=_filters_to_dataset_expression(normalized_filters)))
 
 
 def delta_table_columns(table_path: Path) -> tuple[str, ...]:
     if not has_delta_log(table_path):
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
-    table = DeltaTable(str(table_path))
+    table = open_read_table(table_path, unscoped_open=DeltaTable)
     return tuple(str(field.name) for field in table.to_pyarrow_dataset().schema)
 
 
 def delta_table_column_value_counts(table_path: Path, *, column: str) -> dict[str, int]:
     if not has_delta_log(table_path):
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
-    table = DeltaTable(str(table_path))
+    table = open_read_table(table_path, unscoped_open=DeltaTable)
     dataset = table.to_pyarrow_dataset()
     if column not in dataset.schema.names:
         return {}
@@ -530,6 +653,7 @@ def delta_table_column_value_counts(table_path: Path, *, column: str) -> dict[st
 
 
 def ensure_delta_table_columns(*, table_path: Path, columns: dict[str, str]) -> bool:
+    assert_default_table_layout(table_path)
     existing_columns = set(delta_table_columns(table_path))
     missing_columns = [column for column in columns if column not in existing_columns]
     if not missing_columns:
@@ -549,10 +673,11 @@ def iter_delta_table_row_batches(
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
     if batch_size <= 0:
         raise ValueError("batch_size must be > 0")
-    table = DeltaTable(str(table_path))
+    table = open_read_table(table_path, unscoped_open=DeltaTable)
     dataset = table.to_pyarrow_dataset()
     normalized_filters = _normalize_filters_for_schema(filters, dataset.schema)
     _enforce_hot_delta_batch_bound(table_path, filters=normalized_filters)
+    dataset = _filtered_delta_dataset(table, normalized_filters)
     scanner = dataset.scanner(
         columns=columns,
         filter=_filters_to_dataset_expression(normalized_filters),
@@ -570,15 +695,18 @@ def read_delta_table_arrow(
 ) -> pa.Table:
     if not has_delta_log(table_path):
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
-    table = DeltaTable(str(table_path))
+    table = open_read_table(table_path, unscoped_open=DeltaTable)
     dataset = table.to_pyarrow_dataset()
     normalized_filters = _normalize_filters_for_schema(filters, dataset.schema)
     _enforce_hot_delta_read_bound(table_path, filters=normalized_filters)
+    dataset = _filtered_delta_dataset(table, normalized_filters)
     selected_columns = columns
     if selected_columns is not None:
         available = set(dataset.schema.names)
         selected_columns = [column for column in selected_columns if column in available]
-    return table.to_pyarrow_table(columns=selected_columns, filters=normalized_filters)
+    return dataset.to_table(
+        columns=selected_columns, filter=_filters_to_dataset_expression(normalized_filters)
+    )
 
 
 def read_delta_table_rows(
@@ -592,12 +720,13 @@ def read_delta_table_rows(
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
     if limit is not None and limit < 0:
         raise ValueError("limit must be >= 0")
-    table = DeltaTable(str(table_path))
+    table = open_read_table(table_path, unscoped_open=DeltaTable)
     dataset = table.to_pyarrow_dataset()
     normalized_filters = _normalize_filters_for_schema(filters, dataset.schema)
     _enforce_hot_delta_read_bound(table_path, filters=normalized_filters, limit=limit)
     if limit == 0:
         return []
+    dataset = _filtered_delta_dataset(table, normalized_filters)
     if limit is not None:
         scanner = dataset.scanner(
             columns=columns,
@@ -610,7 +739,9 @@ def read_delta_table_rows(
                 break
             rows.extend(_normalize_loaded_rows(batch.to_pylist())[:remaining])
         return rows
-    arrow_table = table.to_pyarrow_table(columns=columns, filters=normalized_filters)
+    arrow_table = dataset.to_table(
+        columns=columns, filter=_filters_to_dataset_expression(normalized_filters)
+    )
     return _normalize_loaded_rows(arrow_table.to_pylist())
 
 
@@ -622,15 +753,18 @@ def read_delta_table_frame(
 ) -> pd.DataFrame:
     if not has_delta_log(table_path):
         raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
-    table = DeltaTable(str(table_path))
+    table = open_read_table(table_path, unscoped_open=DeltaTable)
     dataset = table.to_pyarrow_dataset()
     normalized_filters = _normalize_filters_for_schema(filters, dataset.schema)
     _enforce_hot_delta_read_bound(table_path, filters=normalized_filters)
+    dataset = _filtered_delta_dataset(table, normalized_filters)
     selected_columns = columns
     if selected_columns is not None:
         available = set(dataset.schema.names)
         selected_columns = [column for column in selected_columns if column in available]
-    arrow_table = table.to_pyarrow_table(columns=selected_columns, filters=normalized_filters)
+    arrow_table = dataset.to_table(
+        columns=selected_columns, filter=_filters_to_dataset_expression(normalized_filters)
+    )
     return arrow_table.to_pandas()
 
 

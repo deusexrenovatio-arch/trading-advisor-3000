@@ -40,6 +40,13 @@ BAR_METADATA_COLUMNS = (
     "execution_high",
     "execution_low",
     "execution_close",
+    "execution_step_price_rub",
+    "execution_lot_volume",
+    "execution_tick_value_currency",
+    "execution_margin_required_estimate",
+    "execution_margin_buffer_pct",
+    "economics_effective_from_ts",
+    "economics_model_version",
     "bar_index",
 )
 INDICATOR_METADATA_COLUMNS = (
@@ -248,6 +255,74 @@ def _merge_keys(*, series_mode: str) -> list[str]:
     return ["contract_id", "instrument_id", "timeframe", "ts"]
 
 
+def _frame_unique_key_columns(*, table_name: str, series_mode: str) -> tuple[str, ...]:
+    if table_name == "research_bar_views":
+        if series_mode == "continuous_front":
+            return ("dataset_version", "contour_id", "series_mode", "series_id", "timeframe", "ts")
+        return (
+            "dataset_version",
+            "contour_id",
+            "contract_id",
+            "instrument_id",
+            "timeframe",
+            "ts",
+        )
+    if table_name == "research_indicator_frames":
+        return (
+            "dataset_version",
+            "contour_id",
+            "series_mode",
+            "series_id",
+            "indicator_set_version",
+            "timeframe",
+            "ts",
+        )
+    if table_name == "research_derived_indicator_frames":
+        return (
+            "dataset_version",
+            "contour_id",
+            "series_mode",
+            "series_id",
+            "indicator_set_version",
+            "derived_indicator_set_version",
+            "timeframe",
+            "ts",
+        )
+    raise ValueError(f"unsupported research frame table for uniqueness QC: {table_name}")
+
+
+def _assert_unique_frame_key(
+    frame: pd.DataFrame,
+    *,
+    table_name: str,
+    key_columns: tuple[str, ...],
+) -> None:
+    if frame.empty:
+        return
+    missing = [column for column in key_columns if column not in frame.columns]
+    if missing:
+        raise ValueError(
+            f"missing key columns for `{table_name}` uniqueness QC: {', '.join(missing)}"
+        )
+    counts = (
+        frame.groupby(list(key_columns), dropna=False)
+        .size()
+        .reset_index(name="duplicate_row_count")
+    )
+    duplicates = counts[counts["duplicate_row_count"] > 1]
+    if duplicates.empty:
+        return
+    duplicate_key_count = int(len(duplicates))
+    duplicate_row_count = int(duplicates["duplicate_row_count"].sum())
+    sample = duplicates.head(5).to_dict("records")
+    raise ValueError(
+        f"{table_name} violates unique({', '.join(key_columns)}): "
+        f"duplicate_key_count={duplicate_key_count}; "
+        f"duplicate_row_count={duplicate_row_count}; "
+        f"sample={sample}"
+    )
+
+
 def _build_execution_frame(signal_frame: pd.DataFrame, *, series_mode: str) -> pd.DataFrame:
     execution = signal_frame.copy()
     if series_mode != "continuous_front":
@@ -347,6 +422,30 @@ def load_backtest_frames(
     )
     if bar_frame.empty:
         return tuple(), cache_id, False
+
+    _assert_unique_frame_key(
+        bar_frame,
+        table_name="research_bar_views",
+        key_columns=_frame_unique_key_columns(
+            table_name="research_bar_views", series_mode=series_mode
+        ),
+    )
+    if not indicator_frame.empty:
+        _assert_unique_frame_key(
+            indicator_frame,
+            table_name="research_indicator_frames",
+            key_columns=_frame_unique_key_columns(
+                table_name="research_indicator_frames", series_mode=series_mode
+            ),
+        )
+    if not derived_frame.empty:
+        _assert_unique_frame_key(
+            derived_frame,
+            table_name="research_derived_indicator_frames",
+            key_columns=_frame_unique_key_columns(
+                table_name="research_derived_indicator_frames", series_mode=series_mode
+            ),
+        )
 
     slices: list[ResearchSeriesFrame] = []
     group_columns = _series_group_columns(bar_frame, series_mode=series_mode)

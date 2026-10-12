@@ -26,7 +26,7 @@ Backtest input reads are Delta-native: the campaign route filters Delta tables a
 
 Official operational route:
 
-`python -m trading_advisor_3000.product_plane.research.jobs.run_campaign --config <campaign.yaml>`
+Launch the matching Dagster research job with `campaign_config_path: <campaign.yaml>`.
 
 Use these documents when the task touches research:
 - `docs/architecture/product-plane/research-plane-platform.md`
@@ -36,7 +36,7 @@ Use these documents when the task touches research:
 
 Historical note:
 - The old inline `run_research_from_bars(...)` route is removed.
-- Operator-facing execution stays on `run_campaign`, while scheduled freshness remains Dagster-owned through `research_data_prep_job`.
+- Operator-facing execution stays on the existing Dagster research jobs, while scheduled freshness remains Dagster-owned through `research_data_prep_job`.
 
 ## Boundary reminder
 Product-plane changes must not weaken shell governance contracts.

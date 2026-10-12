@@ -4,7 +4,9 @@ import json
 import os
 from pathlib import Path
 
+import pyarrow as pa
 import pytest
+from deltalake import DeltaTable, write_deltalake
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
@@ -55,6 +57,25 @@ def _read_rows(path: Path) -> list[dict[str, object]]:
         )
         for row in batch
     ]
+
+
+def _delta_partition_columns(path: Path) -> list[str]:
+    return [str(item) for item in DeltaTable(str(path)).metadata().partition_columns]
+
+
+def _write_partitioned_delta_rows(
+    *,
+    table_path: Path,
+    rows: list[dict[str, object]],
+    partition_by: list[str],
+) -> None:
+    table_path.parent.mkdir(parents=True, exist_ok=True)
+    write_deltalake(
+        str(table_path),
+        pa.Table.from_pylist(rows),
+        mode="overwrite",
+        partition_by=partition_by,
+    )
 
 
 def _bar(**overrides: object) -> dict[str, object]:
@@ -489,6 +510,102 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
         str(row["session_date"]).startswith("2026-04-05") for row in _read_rows(roll_map_path)
     )
     assert {row["active_contract_id"] for row in _read_rows(roll_map_path)} == {"BRM6@MOEX"}
+
+
+def test_spark_publish_rewrites_drifted_sidecar_delta_layout(
+    tmp_path: Path,
+) -> None:
+    if _windows_hadoop_nativeio_unavailable():
+        pytest.skip(
+            "local Windows Spark/Delta requires Hadoop NativeIO; "
+            "Docker/Linux proof profile runs this path"
+        )
+
+    manifest = historical_data_delta_schema_manifest()
+    canonical_columns = manifest["canonical_bars"]["columns"]
+
+    staged_bars_path = tmp_path / "staged" / "canonical_bars.delta"
+    staged_provenance_path = tmp_path / "staged" / "canonical_bar_provenance.delta"
+    target_bars_path = tmp_path / "target" / "canonical_bars.delta"
+    target_provenance_path = tmp_path / "target" / "canonical_bar_provenance.delta"
+    session_calendar_path = tmp_path / "target" / "canonical_session_calendar.delta"
+    roll_map_path = tmp_path / "target" / "canonical_roll_map.delta"
+    session_intervals_path = _write_session_intervals(
+        tmp_path / "official" / "canonical_session_intervals.delta",
+        ["2026-04-02"],
+    )
+
+    write_delta_table_rows(
+        table_path=staged_bars_path,
+        rows=[_bar(high=112.0, close=111.0, volume=55, open_interest=150)],
+        columns=canonical_columns,
+    )
+    write_delta_table_rows(
+        table_path=staged_provenance_path,
+        rows=[_provenance(source_row_count=5, source_ts_close_last="2026-04-02T10:10:00Z")],
+        columns=CANONICAL_PROVENANCE_COLUMNS,
+    )
+    _write_partitioned_delta_rows(
+        table_path=session_calendar_path,
+        rows=[
+            {
+                "instrument_id": "FUT_BR",
+                "timeframe": "5m",
+                "session_date": "2026-04-01",
+                "session_open_ts": "2026-04-01T00:00:00Z",
+                "session_close_ts": "2026-04-01T00:00:00Z",
+                "session_class": "regular",
+            }
+        ],
+        partition_by=["instrument_id"],
+    )
+    _write_partitioned_delta_rows(
+        table_path=roll_map_path,
+        rows=[
+            {
+                "instrument_id": "FUT_BR",
+                "session_date": "2026-04-01",
+                "active_contract_id": "STALE",
+                "reason": "stale",
+            }
+        ],
+        partition_by=["instrument_id"],
+    )
+
+    assert _delta_partition_columns(session_calendar_path) == ["instrument_id"]
+    assert _delta_partition_columns(roll_map_path) == ["instrument_id"]
+
+    report = run_moex_canonical_publish_spark_delta_job(
+        staged_bars_path=staged_bars_path,
+        staged_provenance_path=staged_provenance_path,
+        target_bars_path=target_bars_path,
+        target_provenance_path=target_provenance_path,
+        session_calendar_path=session_calendar_path,
+        session_intervals_path=session_intervals_path,
+        roll_map_path=roll_map_path,
+        output_dir=tmp_path / "publish-proof",
+        run_id="spark-publish-layout-rewrite-proof",
+    )
+
+    assert report["status"] == "PASS", report
+    assert report["mutation_applied"] is True
+    assert report["sidecar_refresh"]["mode"] == "layout_rewrite"
+    assert report["sidecar_refresh"]["mutation_applied"] is True
+    assert report["sidecar_refresh"]["layout_rewrite_required"] is True
+    assert report["sidecar_refresh"]["partition_columns"] == {
+        "canonical_session_calendar": {"actual": ["instrument_id"], "expected": []},
+        "canonical_roll_map": {"actual": ["instrument_id"], "expected": []},
+    }
+    assert report["delta_log"]["canonical_session_calendar"]["delta_log"] is True
+    assert report["delta_log"]["canonical_roll_map"]["delta_log"] is True
+    assert has_delta_log(session_calendar_path)
+    assert has_delta_log(roll_map_path)
+    assert _delta_partition_columns(session_calendar_path) == []
+    assert _delta_partition_columns(roll_map_path) == []
+    assert count_delta_table_rows(session_calendar_path) == 1
+    assert count_delta_table_rows(roll_map_path) == 1
+    assert _read_rows(session_calendar_path)[0]["session_date"] == "2026-04-02"
+    assert _read_rows(roll_map_path)[0]["active_contract_id"] == "BRM6@MOEX"
 
 
 def test_spark_publish_uses_moscow_date_for_sidecar_session_scope(

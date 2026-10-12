@@ -5,7 +5,6 @@ Track deferred and optional repo-local skill classes outside the active catalog.
 
 Repo-local source of truth is `.codex/skills/*`.
 `docs/agent/skills-catalog.md` is the generated mirror and must not contain deferred items.
-Generic engineering skills belong in `D:/CodexHome/skills`, not in this roadmap.
 
 ## Class Policy
 

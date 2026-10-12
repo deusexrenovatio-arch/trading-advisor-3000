@@ -2,6 +2,52 @@
 
 Дата проверки: 2026-07-10. Интервал TA3000: 2022-06-17 — 2026-07-09.
 
+## Дополнение 2026-09-29: расширенный raw
+
+В изолированном staging `a7f622c5-c33d-46b3-bea9-507944613889` проверены
+511 контрактов: все 30 780 287 канонических свечей укладываются в прежнюю
+ценовую сетку. До 17.06.2022 доступны 24 892 ликвидные строки оборота по
+11 семействам. Максимальный p95 ошибки стоимости шага по семейству —
+0.023784% (SILV), ниже прежнего порога 0.1%. Это отдельная проверка реального
+оборота, а не сравнение заполненных параметров с тем же справочником.
+
+Добавлены ограниченные режимы `*-pre2022-v1`: с 27.01.2020 для BR, GOLD,
+SILV, PLD, PLT, RTS, MIX, MXI; с 03.02.2020 для NG, с 25.05.2021 для SPYF,
+с 28.02.2022 для RGBI — с [официальной даты запуска](https://www.moex.com/n41302),
+включая settlement-строки до первых ликвидных торгов 23.03.2022.
+Конец каждого — 16.06.2022. Старые режимы сохранены.
+На даты до этих границ перенос параметров не разрешён этой проверкой.
+
+У 20 архивных карточек ISS SILV/PLD `LOTSIZE` противоречит фактическому
+обороту и спецификации: указан старый лот 100/10 вместо 10/1. Официальное
+[уведомление MOEX от 01.09.2016](https://www.moex.com/n13664) вводит меньшие
+лоты с 19.09.2016; [спецификация 2018 года](https://www.moex.com/ru/documents/9430)
+и независимый оборот всех 20 контрактов подтверждают 10/1. В подготовленной
+таблице исходные карточки и исключения сохранены; их ошибочный лот не принят.
+
+Исходные 112 205 строк истории не меняются. Подготовленная Delta содержит
+заполненные шаг, лот и экспирацию, исходный payload и settlement, а также
+`enrichment_provenance_json`. 2 271 строка получает официальные STEPPRICE и
+INITIALMARGIN из прежнего raw v134 только по точному ключу SECID/assetcode/дата,
+не позднее 28.07.2026. Эти наблюдения не переносятся на прошлые даты.
+
+У свежего raw есть пары USD/JPY, USD/CNY и другие кросс-курсы. Для расчёта
+в RUB допускаются только пары `*/RUB`. Первичная проверка, смешавшая пары,
+признана недействительной и сохранена отдельно. На периоде после 16.06.2026
+проверка восстановленной стоимости шага по обороту превышает порог для части
+семейств; режимы на этот интервал не расширялись. Используются датированные
+официальные наблюдения, когда они есть; пропуски остаются ограничением.
+
+Доказательства в `D:/TA-3000-rebuild/staging/ta3000-5y-20260729/specification-enrichment/a7f622c5-c33d-46b3-bea9-507944613889`:
+
+- `audit/enrichment-report.json`, SHA256 `2a968ae6ca4c97536b4ba6581c983d76a87b0bb8dfcbd14ed614a74b78609c89`;
+- `audit/price-grid-report.json`, SHA256 `e1e0868a657726126c04eafe8ea0379a448a2ed8d564a42093b40cbd1c41166c`;
+- `sources/precious-metals-2018.docx`, SHA256 `00906740b4d022538a5bd3467565dadc8202073165945806d39a1ad9125f6a8a`.
+
+Это завершение обогащения спецификаций в staging. Экономика ценовой истории
+2018–2019 всё ещё требует более ранних settlement/FX/RMS входов; готовность
+всего периода и публикация current из этой проверки не следуют.
+
 ## Вывод
 
 В authoritative history нет признаков изменения `MINSTEP` или `LOTVOLUME` внутри одного `contract_id`: 13 семейств, 370 контрактов, один наблюдаемый режим `(MINSTEP, LOTVOLUME)` на `assetcode`. Для текущего backfill эти два поля можно считать постоянными внутри контракта.
@@ -116,3 +162,39 @@ historical_margin = margin_radius_adjusted × factor
 В canonical Delta явно сохраняются `margin_calibration_factor`, `margin_calibration_as_of_date`, `margin_calibration_rank`, `margin_calibration_source`. Строки различаются по качеству: `official_initial_margin`, `calibrated_asset_rank`, `calibrated_nearest_rank`, `unavailable`.
 
 Обратная проверка коэффициентов среза 2026-07-09 на официальных данных 2026-06-17 — 2026-07-08 для 13 исторических семейств: медианная абсолютная ошибка 1.06%, `p95=6.16%`, 98.04% строк в пределах 10%. На 78 115 более ранних строках точный rank покрывает 84.39%, ближайший rank — 15.61%, неподдержанных `assetcode` нет. Полные четыре года проверить невозможно: бесплатное официальное ГО в локальном источнике начинается 2026-06-17.
+## Early input extension, 29 September 2026
+
+Staging evidence: `early-economics/17ab91c2-f13b-48cc-9be2-330312fa4a9a`.
+The native acquisition added 6,844 settlement records for 43 existing contracts,
+15,954 FX records and 32,555 RMS records. Original source payloads are preserved.
+Prepared specifications now contain 119,049 rows. This is staged evidence;
+full historical margin coverage is a separate check.
+
+The eight `pre2020-v1` regimes stop on 26 January 2020 and do not change the
+existing 2020+ intervals or their rule IDs:
+
+| Asset | First source date | Turnover p95 relative error |
+|---|---|---:|
+| BR | 2018-06-26 | 0.00008267 |
+| GOLD | 2019-03-07 | 0.00003310 |
+| SILV | 2019-03-07 | 0.00027815 |
+| PLD | 2019-06-07 | 0.00000904 |
+| PLT | 2019-06-07 | 0.00005195 |
+| RTS | 2018-01-10 | 0.00000599 |
+| MIX | 2019-03-07 | 0.00000171 |
+| MXI | 2019-03-07 | 0.00000165 |
+
+All eight profiles satisfy the unchanged 0.001 validation limit. Bounds begin at
+the acquired settlement history, which can precede the first liquid trade.
+Evidence combines the 2018 metals parameter list, the RTS specification effective
+2 August 2017, MIX/MXI specifications effective 20 February 2018, and the
+[MOEX Brent presentation, April 2018 parameters, page 4](https://www.moex.com/files/4bb5dvk3zd59p0nnca9zskcex8).
+The independent turnover audit and prior full price-grid proof agree with them.
+
+ISS RMS returns no rows for 12 January or 21 May 2018; its first available
+snapshot in this acquisition is 22 May 2018. Earlier MR1 is not backfilled.
+Launch-day RMS observations dated the following day may be used only when their
+explicit publication timestamp precedes or equals the economics interval start.
+The prior dated observation retains priority. UTC-normalized `update_time` and
+Moscow-local native `updatetime` are distinguished; missing/late timestamps fail
+closed. Selection and publication time are recorded in economics provenance.

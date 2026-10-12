@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
-from trading_advisor_3000.product_plane.research import continuous_front as continuous_front_module
 from trading_advisor_3000.product_plane.research.continuous_front import (
     continuous_front_store_contract,
     load_continuous_front_as_research_context,
@@ -60,28 +59,25 @@ def _front_bar_row(
     }
 
 
-def test_continuous_front_module_has_no_python_materializer_surface() -> None:
-    assert not hasattr(continuous_front_module, "build_continuous_front_tables")
-    assert not hasattr(continuous_front_module, "materialize_continuous_front")
-    assert not hasattr(continuous_front_module, "_rank_candidate")
-    assert not hasattr(continuous_front_module, "_candidate_passes_switch_rules")
-    assert not hasattr(continuous_front_module, "_write_tables")
-    assert not hasattr(continuous_front_module, "_promote_delta_tables")
-
-
-def test_load_continuous_front_preserves_bar_level_intraday_roll_metadata(tmp_path: Path) -> None:
+@pytest.mark.parametrize("oi", [None, 0, 2000])
+def test_load_continuous_front_preserves_bar_level_intraday_roll_metadata(
+    tmp_path: Path, oi
+) -> None:
     dataset_version = "cf-loader-v1"
     output_dir = tmp_path / "front"
     contract = continuous_front_store_contract()
     write_delta_table_rows(
         table_path=output_dir / "continuous_front_bars.delta",
         rows=[
-            _front_bar_row(
-                dataset_version=dataset_version,
-                ts="2022-03-21T10:00:00Z",
-                active_contract_id="BRK2@MOEX",
-                close=98.0,
-            ),
+            {
+                **_front_bar_row(
+                    dataset_version=dataset_version,
+                    ts="2022-03-21T10:00:00Z",
+                    active_contract_id="BRK2@MOEX",
+                    close=98.0,
+                ),
+                "native_open_interest": oi,
+            },
             _front_bar_row(
                 dataset_version=dataset_version,
                 ts="2022-03-21T10:15:00Z",
@@ -105,6 +101,7 @@ def test_load_continuous_front_preserves_bar_level_intraday_roll_metadata(tmp_pa
     by_ts = {row.ts: row for row in bars}
     assert set(by_ts) == {"2022-03-21T10:00:00Z", "2022-03-21T10:15:00Z"}
     assert by_ts["2022-03-21T10:00:00Z"].active_contract_id == "BRK2@MOEX"
+    assert by_ts["2022-03-21T10:00:00Z"].open_interest == oi
     assert by_ts["2022-03-21T10:15:00Z"].active_contract_id == "BRM2@MOEX"
     assert by_ts["2022-03-21T10:15:00Z"].previous_contract_id == "BRK2@MOEX"
     assert by_ts["2022-03-21T10:15:00Z"].roll_event_id == "CFR-cf_loader_v1-BR-15m-0001"

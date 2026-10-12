@@ -542,7 +542,7 @@ The implementation is accepted only when all of the following are true:
 - Do not delete canonical contract bars.
 - Do not make adjusted prices the execution price.
 - Do not move trading logic into shell surfaces.
-- Do not make a second operator route outside `run_campaign` and Dagster research assets.
+- Do not make an operator route outside the existing Dagster research jobs.
 - Do not reintroduce the retired feature layer as the strategy input.
 
 ## Open Decisions

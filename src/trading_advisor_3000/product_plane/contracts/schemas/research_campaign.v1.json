@@ -265,7 +265,13 @@
         "fees_bps": {"type": "number", "minimum": 0},
         "slippage_bps": {"type": "number", "minimum": 0},
         "allow_short": {"type": "boolean"},
-        "window_count": {"type": "integer", "exclusiveMinimum": 0}
+        "window_count": {"type": "integer", "exclusiveMinimum": 0},
+        "sizing_mode": {"type": "string", "enum": ["risk_per_trade"]},
+        "risk_per_trade_pct": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "max_contracts": {"type": ["integer", "null"], "exclusiveMinimum": 0},
+        "max_margin_fraction": {"type": ["number", "null"], "exclusiveMinimum": 0, "maximum": 1},
+        "commission_per_contract": {"type": "number", "minimum": 0},
+        "slippage_ticks": {"type": "number", "minimum": 0}
       },
       "additionalProperties": false
     },

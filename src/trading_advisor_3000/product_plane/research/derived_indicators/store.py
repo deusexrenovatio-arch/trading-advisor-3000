@@ -4,8 +4,20 @@ import hashlib
 import json
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import datetime
+from itertools import chain
 from pathlib import Path
 
+import pyarrow as pa
+from deltalake import DeltaTable
+
+from trading_advisor_3000.product_plane.common.table_layout import (
+    MAX_COMPRESSED_FILE_BYTES,
+    YEAR_PARTITION_COLUMN,
+    default_file_policy,
+    validate_file_actions,
+    with_arrow_close_year,
+)
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     delta_table_columns,
     ensure_delta_table_columns,
@@ -37,10 +49,13 @@ DERIVED_INDICATOR_PARTITION_METADATA_COLUMNS = (
     "source_indicators_hash",
     "source_indicator_profile_version",
     "source_indicator_output_columns_hash",
+    "source_indicator_columns_hash",
+    "mtf_source_family_hash",
     "row_count",
     "output_columns_hash",
 )
 DERIVED_INDICATOR_RESERVED_COLUMNS = {
+    "ts_close_year",
     "dataset_version",
     "contour_id",
     "series_mode",
@@ -57,6 +72,8 @@ DERIVED_INDICATOR_RESERVED_COLUMNS = {
     "source_indicators_hash",
     "source_indicator_profile_version",
     "source_indicator_output_columns_hash",
+    "source_indicator_columns_hash",
+    "mtf_source_family_hash",
     "row_count",
     "warmup_span",
     "null_warmup_span",
@@ -116,6 +133,8 @@ def _derived_indicator_frame_columns(
         "source_indicators_hash": "string",
         "source_indicator_profile_version": "string",
         "source_indicator_output_columns_hash": "string",
+        "source_indicator_columns_hash": "string",
+        "mtf_source_family_hash": "string",
         "row_count": "int",
         "warmup_span": "int",
         "null_warmup_span": "int",
@@ -193,9 +212,13 @@ class DerivedIndicatorFrameRow:
     source_dataset_bars_hash: str = ""
     source_indicator_profile_version: str = ""
     source_indicator_output_columns_hash: str = ""
+    source_indicator_columns_hash: str = ""
+    mtf_source_family_hash: str = ""
     contour_id: str = "native_tradable"
     series_mode: str = "contract"
     series_id: str = ""
+    # Physical layout input only: excluded from business payloads and hashes.
+    bar_end_ts: str | None = None
 
     def partition_key(self, *, series_mode: str) -> DerivedIndicatorFramePartitionKey:
         return DerivedIndicatorFramePartitionKey(
@@ -229,6 +252,8 @@ class DerivedIndicatorFrameRow:
             "source_indicators_hash": self.source_indicators_hash,
             "source_indicator_profile_version": self.source_indicator_profile_version,
             "source_indicator_output_columns_hash": self.source_indicator_output_columns_hash,
+            "source_indicator_columns_hash": self.source_indicator_columns_hash,
+            "mtf_source_family_hash": self.mtf_source_family_hash,
             "row_count": self.row_count,
             "warmup_span": self.warmup_span,
             "null_warmup_span": self.null_warmup_span,
@@ -239,6 +264,7 @@ class DerivedIndicatorFrameRow:
     @classmethod
     def from_dict(cls, payload: dict[str, object]) -> "DerivedIndicatorFrameRow":
         reserved = {
+            "ts_close_year",
             "dataset_version",
             "contour_id",
             "series_mode",
@@ -255,6 +281,8 @@ class DerivedIndicatorFrameRow:
             "source_indicators_hash",
             "source_indicator_profile_version",
             "source_indicator_output_columns_hash",
+            "source_indicator_columns_hash",
+            "mtf_source_family_hash",
             "row_count",
             "warmup_span",
             "null_warmup_span",
@@ -296,6 +324,8 @@ class DerivedIndicatorFrameRow:
             source_indicator_output_columns_hash=str(
                 payload.get("source_indicator_output_columns_hash") or ""
             ),
+            source_indicator_columns_hash=str(payload.get("source_indicator_columns_hash") or ""),
+            mtf_source_family_hash=str(payload.get("mtf_source_family_hash") or ""),
             row_count=int(payload["row_count"]),
             warmup_span=int(payload["warmup_span"]),
             null_warmup_span=int(payload["null_warmup_span"]),
@@ -315,14 +345,10 @@ def research_derived_indicator_store_contract(
     return {
         "research_derived_indicator_frames": {
             "format": "delta",
-            "partition_by": [
-                "dataset_version",
-                "contour_id",
-                "indicator_set_version",
-                "derived_indicator_set_version",
-                "instrument_id",
-                "timeframe",
-            ],
+            "partition_by": [YEAR_PARTITION_COLUMN],
+            "physical_columns": {YEAR_PARTITION_COLUMN: "int"},
+            "partition_close_column": "bar_end_ts",
+            "file_policy": default_file_policy(),
             "constraints": [
                 "unique(dataset_version, contour_id, series_mode, series_id, "
                 "indicator_set_version, derived_indicator_set_version, timeframe, ts)"
@@ -409,9 +435,24 @@ def write_derived_indicator_frame_batches(
 ) -> tuple[dict[str, str], int, int]:
     contract = research_derived_indicator_store_contract(profile=profile)
     path = output_dir / "research_derived_indicator_frames.delta"
-    columns = contract["research_derived_indicator_frames"]["columns"]
+    table_contract = contract["research_derived_indicator_frames"]
+    columns = {**table_contract["columns"], **table_contract["physical_columns"]}
+    original_id = None
     if has_delta_log(path):
-        ensure_delta_table_columns(table_path=path, columns=dict(columns))
+        table = DeltaTable(str(path))
+        original_id = table.metadata().id
+        if table.metadata().partition_columns != table_contract["partition_by"]:
+            raise ValueError("derived frames require an isolated layout migration before mutation")
+        fields = {
+            field["name"]: field["type"] for field in json.loads(table.schema().to_json())["fields"]
+        }
+        if fields.get(YEAR_PARTITION_COLUMN) not in {"integer", "long"}:
+            raise ValueError(
+                "derived frames require an integer physical close-year carrier before mutation"
+            )
+        columns[YEAR_PARTITION_COLUMN] = (
+            "bigint" if fields[YEAR_PARTITION_COLUMN] == "long" else "int"
+        )
     replace_predicate = (
         _replace_partitions_predicate(replace_partitions)
         if replace_partitions is not None
@@ -422,6 +463,23 @@ def write_derived_indicator_frame_batches(
     def _validated_row_batches() -> Iterable[list[dict[str, object]]]:
         for batch in row_batches:
             rows = [row.to_dict() for row in batch]
+            closes = []
+            for row in batch:
+                if row.bar_end_ts is None:
+                    raise ValueError(
+                        "derived frames require authoritative bar_end_ts for physical layout"
+                    )
+                close = datetime.fromisoformat(row.bar_end_ts.replace("Z", "+00:00"))
+                if close.tzinfo is None or close.utcoffset() is None:
+                    raise ValueError(
+                        "derived physical close timestamps require timezone-aware instants"
+                    )
+                closes.append(close)
+            physical = with_arrow_close_year(
+                pa.table({"ts_close": pa.array(closes, type=pa.timestamp("us", tz="UTC"))})
+            )
+            for row, year in zip(rows, physical.column(YEAR_PARTITION_COLUMN).to_pylist()):
+                row[YEAR_PARTITION_COLUMN] = year
             _assert_unique_write_rows(
                 rows,
                 table_name="research_derived_indicator_frames",
@@ -430,13 +488,28 @@ def write_derived_indicator_frame_batches(
             )
             yield rows
 
+    # Keep streaming bounded; validate the first payload before any schema/delete write.
+    validated = iter(_validated_row_batches())
+    first = next(validated, [])
+    if has_delta_log(path):
+        ensure_delta_table_columns(table_path=path, columns=dict(columns))
     row_count, batch_count = write_delta_table_row_batches(
         table_path=path,
-        row_batches=_validated_row_batches(),
+        row_batches=chain((first,), validated),
         columns=columns,
         max_rows_per_delta_write=max_rows_per_delta_write,
         replace_predicate=replace_predicate,
         preserve_existing_table=replace_partitions is not None,
+        partition_by=(YEAR_PARTITION_COLUMN,),
+    )
+
+    table = DeltaTable(str(path))
+    if original_id is not None and table.metadata().id != original_id:
+        raise ValueError("derived frame Delta identity changed during update")
+    table.optimize.compact(target_size=MAX_COMPRESSED_FILE_BYTES, max_concurrent_tasks=1)
+    table.update_incremental()
+    validate_file_actions(
+        table.get_add_actions(flatten=True).to_pylist(), max_file_bytes=MAX_COMPRESSED_FILE_BYTES
     )
 
     return {"research_derived_indicator_frames": path.as_posix()}, row_count, batch_count
@@ -555,6 +628,8 @@ def load_derived_indicator_partition_rows(
                 "source_indicators_hash",
                 "source_indicator_profile_version",
                 "source_indicator_output_columns_hash",
+                "source_indicator_columns_hash",
+                "mtf_source_family_hash",
                 "row_count",
                 "warmup_span",
                 "null_warmup_span",
@@ -611,6 +686,8 @@ def load_derived_indicator_frames(
                     "source_indicators_hash",
                     "source_indicator_profile_version",
                     "source_indicator_output_columns_hash",
+                    "source_indicator_columns_hash",
+                    "mtf_source_family_hash",
                     "row_count",
                     "warmup_span",
                     "null_warmup_span",
