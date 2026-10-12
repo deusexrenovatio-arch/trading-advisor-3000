@@ -182,6 +182,7 @@ def write_layout_arrow_table(
     compact: bool = True,
     candidate_id: str | None = None,
     replace_predicate: str | None = None,
+    partition_by: tuple[str, ...] | None = None,
 ) -> None:
     if replace_predicate is not None:
         if mode != "overwrite" or not replace_predicate.strip():
@@ -194,6 +195,14 @@ def write_layout_arrow_table(
         )
         table = with_arrow_close_year(table)
         options = {"partition_by": list(partitions), "target_file_size": MAX_COMPRESSED_FILE_BYTES}
+    if partition_by is not None:
+        if partitions is not None and partition_by != partitions:
+            raise ValueError("explicit partitions cannot override the default raw layout")
+        if (table_path / "_delta_log").exists():
+            actual = tuple(DeltaTable(str(table_path)).metadata().partition_columns)
+            if actual != partition_by:
+                raise ValueError("explicit partitions require an isolated layout migration")
+        options.update(partition_by=list(partition_by), target_file_size=MAX_COMPRESSED_FILE_BYTES)
     if replace_predicate is not None:
         options["predicate"] = replace_predicate
     schema_mode = "overwrite" if mode == "overwrite" and replace_predicate is None else "merge"

@@ -4,6 +4,10 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
+from trading_advisor_3000.product_plane.common.table_layout import (
+    YEAR_PARTITION_COLUMN,
+    default_file_policy,
+)
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     delta_table_columns,
     read_delta_table_arrow,
@@ -104,13 +108,10 @@ def research_derived_source_frame_store_contract(
     return {
         DERIVED_SOURCE_FRAME_TABLE: {
             "format": "delta",
-            "partition_by": [
-                "dataset_version",
-                "contour_id",
-                "indicator_set_version",
-                "instrument_id",
-                "timeframe",
-            ],
+            "partition_by": [YEAR_PARTITION_COLUMN],
+            "physical_columns": {YEAR_PARTITION_COLUMN: "int"},
+            "partition_close_column": "bar_end_ts",
+            "file_policy": default_file_policy(),
             "constraints": [
                 "unique(dataset_version, contour_id, series_mode, series_id, "
                 "indicator_set_version, timeframe, ts)"

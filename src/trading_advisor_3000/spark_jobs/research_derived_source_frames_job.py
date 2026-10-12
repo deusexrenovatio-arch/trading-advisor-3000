@@ -4,6 +4,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
+from trading_advisor_3000.product_plane.common.data_snapshots import read_spark_delta
+from trading_advisor_3000.product_plane.common.table_layout import (
+    YEAR_PARTITION_COLUMN,
+    compact_spark_table,
+    with_spark_close_year,
+)
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     delta_table_columns,
     has_delta_log,
@@ -84,7 +90,10 @@ def _cast_to_source_contract(dataframe, *, source_indicator_columns: tuple[str, 
         source_indicator_columns=source_indicator_columns
     )[DERIVED_SOURCE_FRAME_TABLE]["columns"]
     existing = set(dataframe.columns)
-    return dataframe.select(
+    if "bar_end_ts" in existing:
+        if dataframe.schema["bar_end_ts"].dataType.simpleString() == "timestamp_ntz":
+            raise ValueError("research physical close timestamps require LTZ instants")
+    casted = dataframe.select(
         *[
             (
                 F.col(column).cast(_spark_cast_type(str(type_name))).alias(column)
@@ -94,6 +103,10 @@ def _cast_to_source_contract(dataframe, *, source_indicator_columns: tuple[str, 
             for column, type_name in columns.items()
         ]
     )
+    # The provenance close is authoritative, including daily and CF bars.
+    return with_spark_close_year(
+        casted.withColumn("ts_close", F.col("bar_end_ts")), functions=F
+    ).drop("ts_close")
 
 
 def _write_source_frame_table(
@@ -107,14 +120,37 @@ def _write_source_frame_table(
     contract = research_derived_source_frame_store_contract(
         source_indicator_columns=source_indicator_columns
     )[DERIVED_SOURCE_FRAME_TABLE]
-    casted = _cast_to_source_contract(dataframe, source_indicator_columns=source_indicator_columns)
     partition_by = list(contract.get("partition_by") or [])
+    exists = has_delta_log(table_path)
+    carrier_type = None
+    if exists:
+        from delta.tables import DeltaTable  # type: ignore[import-not-found]
+
+        actual = DeltaTable.forPath(dataframe.sparkSession, str(table_path))
+        if actual.detail().select("partitionColumns").first()[0] != partition_by:
+            raise ValueError("source frames require an isolated layout migration before mutation")
+        schema = read_spark_delta(dataframe.sparkSession, str(table_path)).schema
+        if YEAR_PARTITION_COLUMN not in schema.fieldNames():
+            raise ValueError(
+                "source frames require the physical close-year carrier before mutation"
+            )
+        carrier_type = schema[YEAR_PARTITION_COLUMN].dataType
+        if carrier_type.simpleString() not in {"int", "bigint"}:
+            raise ValueError("source frames require an integer physical close-year carrier")
+    casted = _cast_to_source_contract(dataframe, source_indicator_columns=source_indicator_columns)
+    if carrier_type is not None:
+        from pyspark.sql import functions as F  # type: ignore[import-not-found]
+
+        casted = casted.withColumn(
+            YEAR_PARTITION_COLUMN, F.col(YEAR_PARTITION_COLUMN).cast(carrier_type)
+        )
     table_path.parent.mkdir(parents=True, exist_ok=True)
-    if not has_delta_log(table_path):
+    if not exists:
         writer = casted.write.format("delta").mode("overwrite").option("overwriteSchema", "true")
         if partition_by:
             writer = writer.partitionBy(*partition_by)
         writer.save(str(table_path))
+        compact_spark_table(dataframe.sparkSession, table_path, family=DERIVED_SOURCE_FRAME_TABLE)
         return
 
     from delta.tables import DeltaTable  # type: ignore[import-not-found]
@@ -127,8 +163,13 @@ def _write_source_frame_table(
         raise ValueError("source-frame scoped replace requires a delete scope")
 
     delta_table = DeltaTable.forPath(dataframe.sparkSession, str(table_path))
+    # Check schema compatibility with the complete physical schema before DELETE.
+    casted.limit(0).write.format("delta").mode("append").option("mergeSchema", "true").save(
+        str(table_path)
+    )
     delta_table.delete(scoped_delete_condition)
     casted.write.format("delta").mode("append").option("mergeSchema", "true").save(str(table_path))
+    compact_spark_table(dataframe.sparkSession, table_path, family=DERIVED_SOURCE_FRAME_TABLE)
 
 
 def _window_text(window: Mapping[str, object], field_name: str, *, required: bool) -> str | None:
