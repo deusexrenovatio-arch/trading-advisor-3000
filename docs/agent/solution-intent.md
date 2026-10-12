@@ -3,20 +3,21 @@
 - Solution Class: staged
 - Critical Contour: data-integration-closure
 - Forbidden Shortcuts: fixture path, tests/product-plane/fixtures/, sample artifact, synthetic upstream, scaffold-only
-- Closure Evidence: core, acceptance and typed Research snapshot succeeded; the final public campaign summary failed because its validator was not exported. One public-summary regression invokes the real validator with CF sidecars, declared physical carriers, snapshot publication and scoped counts distinct from whole-table counts; the same case retains rejection of unknown business columns. Actual summary-only Dagster reexecution remains pending.
+- Closure Evidence: the accepted L1 table has nonempty NULL-year files because its native writer omits the physical close-year payload. One focused native Arrow/Delta regression distinguishes authoritative UTC close from business open timestamps through both L1 writer entrypoints and the context constructor; it preserves existing carrier types, identity/history and business payload, and rejects missing close before deletion. Existing bad rows require a separate storage-only repair; no indicator calculation is repeated.
 - Shortcut Waiver: none
 
-Change surface: mixed. Product-plane summary/validator binding and required
-shell delivery metadata. Campaigns reexports the existing jobs validator. Its
-manifest includes actual CF sidecar business contracts and explicit physical
-metadata for L1/two CF annual frames; existing L0/L2 declarations are retained.
-Business fields remain required; only declared physical fields are accepted
-as extras. CF bars/input stay flat. The summary excludes only the already typed
-research_data_snapshot publication asset from physical-table validation, keeps
-it in the report, and passes whole-table totals while preserving scoped counts.
+Change surface: mixed. Product-plane L1 physical-storage payload/default and
+required shell delivery metadata. Indicator DTOs carry authoritative bar_end_ts
+outside their business serialization, equality and hashes. The existing source
+constructor transfers that close; both L1 batch writers derive UTC close year
+with the shared native Arrow helper and explicitly use the annual layout.
+Existing Delta INT/BIGINT carrier types and table identity/history remain.
+Legacy layout or missing authoritative close fails before schema/delete writes.
 
-Self-review: missing manifests/paths/logs/business fields, unknown extras and
-row-count mismatches still fail. Native metadata boundaries and artifact writes
-are mocked in the one regression; the validator itself is real. No formulas,
-writers, core jobs, QC provenance or publication are changed. Recovery selects
-only the summary using persisted parent-run IO; no core replay or QC copying.
+Self-review: the former business-only native append that produced NULL-year
+partitions is forbidden. The single physical writer/context regression uses
+real Arrow/Delta while indicator computation is mocked. Only existing synthetic
+fixture close fields are populated for the stricter writer contract. Indicator
+values, cache/hash rules, logical keys, timestamps, raw writers and other table
+families are unchanged. The accepted L1@446 needs copy-only storage repair from
+the already validated source close-year mapping, separately from this code fix.
