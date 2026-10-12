@@ -6,6 +6,7 @@ import math
 from datetime import UTC, datetime
 from pathlib import Path
 
+from trading_advisor_3000.product_plane.common.table_layout import default_file_policy
 from trading_advisor_3000.product_plane.contracts import CanonicalBar
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     delta_equals_predicate,
@@ -32,7 +33,7 @@ def research_dataset_store_contract() -> dict[str, dict[str, object]]:
     return {
         "research_datasets": {
             "format": "delta",
-            "partition_by": ["dataset_version", "contour_id"],
+            "partition_by": [],
             "constraints": ["unique(dataset_version, contour_id)"],
             "columns": {
                 "dataset_version": "string",
@@ -63,7 +64,7 @@ def research_dataset_store_contract() -> dict[str, dict[str, object]]:
         },
         "research_instrument_tree": {
             "format": "delta",
-            "partition_by": ["dataset_version", "contour_id", "asset_group"],
+            "partition_by": [],
             "constraints": ["unique(dataset_version, contour_id, instrument_id, internal_id)"],
             "columns": {
                 "dataset_version": "string",
@@ -87,7 +88,10 @@ def research_dataset_store_contract() -> dict[str, dict[str, object]]:
         },
         "research_bar_views": {
             "format": "delta",
-            "partition_by": ["dataset_version", "contour_id", "instrument_id", "timeframe"],
+            "partition_by": ["ts_close_year"],
+            "physical_columns": {"ts_close_year": "int"},
+            "partition_close_column": "bar_end_ts",
+            "file_policy": default_file_policy(),
             "constraints": [
                 "unique(dataset_version, contour_id, series_mode, series_id, timeframe, ts)"
             ],
