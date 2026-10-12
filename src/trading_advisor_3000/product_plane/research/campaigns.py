@@ -24,6 +24,9 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
 from trading_advisor_3000.product_plane.research.backtests import SIZING_MODE_RISK_PER_TRADE
 from trading_advisor_3000.product_plane.research.datasets import ContinuousFrontPolicy
 from trading_advisor_3000.product_plane.research.jobs._common import (
+    validate_research_contracts as validate_research_contracts,
+)
+from trading_advisor_3000.product_plane.research.jobs._common import (
     write_json,
 )
 from trading_advisor_3000.product_plane.research.registry_store import (

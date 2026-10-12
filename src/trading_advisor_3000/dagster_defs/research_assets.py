@@ -3691,8 +3691,12 @@ def _finalize_research_campaign_stage(
     )
     contract_validation = _research_campaigns().validate_research_contracts(
         output_paths=dict(report["output_paths"]),
-        materialized_assets=list(report["materialized_assets"]),
-        rows_by_table=dict(report.get("rows_by_table", {})),
+        # The typed publication asset already completed; it is not a Delta table.
+        materialized_assets=[
+            name for name in report["materialized_assets"] if name != "research_data_snapshot"
+        ],
+        # This validator counts whole tables; preserve scoped counts in the report.
+        rows_by_table=dict(report.get("total_rows_by_table", report.get("rows_by_table", {}))),
     )
     warnings = list(campaign_context.get("warnings", []))
     warnings.extend(list(contract_validation.get("warnings", [])))
