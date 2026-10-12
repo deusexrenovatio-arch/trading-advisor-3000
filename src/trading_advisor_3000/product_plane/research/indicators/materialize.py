@@ -1878,6 +1878,7 @@ def _build_partition_rows(
                 instrument_id=original.instrument_id,
                 timeframe=original.timeframe,
                 ts=original.ts,
+                bar_end_ts=original.bar_end_ts,
                 values=values,
                 source_bars_hash=source_hash,
                 row_count=len(series),

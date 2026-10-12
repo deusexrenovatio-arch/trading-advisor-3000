@@ -4,12 +4,19 @@ import hashlib
 import json
 import math
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
+from itertools import chain
 from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.compute as pc
+from deltalake import DeltaTable
 
+from trading_advisor_3000.product_plane.common.table_layout import (
+    YEAR_PARTITION_COLUMN,
+    with_arrow_close_year,
+)
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     append_delta_table_rows,
     delete_delta_table_rows,
@@ -151,6 +158,7 @@ class IndicatorFrameRow:
     input_row_hash: str = ""
     refresh_context_hash: str = ""
     volume_profile_input_hash: str = ""
+    bar_end_ts: str | None = field(default=None, compare=False, repr=False)
 
     def partition_key(self, *, series_mode: str) -> IndicatorFramePartitionKey:
         return IndicatorFramePartitionKey(
@@ -271,13 +279,9 @@ def indicator_store_contract(
     contracts = {
         "research_indicator_frames": {
             "format": "delta",
-            "partition_by": [
-                "dataset_version",
-                "contour_id",
-                "indicator_set_version",
-                "instrument_id",
-                "timeframe",
-            ],
+            "partition_by": [YEAR_PARTITION_COLUMN],
+            "physical_columns": {YEAR_PARTITION_COLUMN: "int"},
+            "partition_close_column": "bar_end_ts",
             "constraints": [
                 "unique(dataset_version, contour_id, series_mode, series_id, "
                 "indicator_set_version, timeframe, ts)"
@@ -351,6 +355,49 @@ def _assert_unique_write_rows(
         )
 
 
+def _indicator_write_columns(*, path: Path, profile: IndicatorProfile | None) -> dict[str, str]:
+    contract = indicator_store_contract(profile=profile)["research_indicator_frames"]
+    columns = {**contract["columns"], **contract["physical_columns"]}
+    if has_delta_log(path):
+        table = DeltaTable(str(path))
+        if table.metadata().partition_columns != contract["partition_by"]:
+            raise ValueError(
+                "indicator frames require an isolated layout migration before mutation"
+            )
+        fields = {
+            field["name"]: field["type"] for field in json.loads(table.schema().to_json())["fields"]
+        }
+        if fields.get(YEAR_PARTITION_COLUMN) not in {"integer", "long"}:
+            raise ValueError(
+                "indicator frames require an integer physical close-year carrier before mutation"
+            )
+        columns[YEAR_PARTITION_COLUMN] = (
+            "bigint" if fields[YEAR_PARTITION_COLUMN] == "long" else "int"
+        )
+    return columns
+
+
+def _indicator_physical_rows(
+    batch: list[IndicatorFrameRow], rows: list[dict[str, object]]
+) -> list[dict[str, object]]:
+    closes = []
+    for row in batch:
+        if row.bar_end_ts is None:
+            raise ValueError(
+                "indicator frames require authoritative bar_end_ts for physical layout"
+            )
+        close = datetime.fromisoformat(row.bar_end_ts.replace("Z", "+00:00"))
+        if close.tzinfo is None or close.utcoffset() is None:
+            raise ValueError("indicator physical close timestamps require timezone-aware instants")
+        closes.append(close)
+    physical = with_arrow_close_year(
+        pa.table({"ts_close": pa.array(closes, type=pa.timestamp("us", tz="UTC"))})
+    )
+    for row, year in zip(rows, physical.column(YEAR_PARTITION_COLUMN).to_pylist(), strict=True):
+        row[YEAR_PARTITION_COLUMN] = year
+    return rows
+
+
 def write_indicator_frame_batches(
     *,
     output_dir: Path,
@@ -359,11 +406,8 @@ def write_indicator_frame_batches(
     replace_partitions: tuple[IndicatorFramePartitionKey, ...] | None = None,
     profile: IndicatorProfile | None = None,
 ) -> tuple[dict[str, str], int, int]:
-    contract = indicator_store_contract(profile=profile)
     path = output_dir / "research_indicator_frames.delta"
-    columns = contract["research_indicator_frames"]["columns"]
-    if has_delta_log(path):
-        ensure_delta_table_columns(table_path=path, columns=dict(columns))
+    columns = _indicator_write_columns(path=path, profile=profile)
     replace_predicate = (
         _replace_partitions_predicate(replace_partitions)
         if replace_partitions is not None
@@ -380,15 +424,20 @@ def write_indicator_frame_batches(
                 key_columns=INDICATOR_FRAME_LOGICAL_KEY,
                 seen_keys=seen_keys,
             )
-            yield rows
+            yield _indicator_physical_rows(batch, rows)
 
+    validated = iter(_validated_row_batches())
+    first = next(validated, [])
+    if has_delta_log(path):
+        ensure_delta_table_columns(table_path=path, columns=dict(columns))
     row_count, batch_count = write_delta_table_row_batches(
         table_path=path,
-        row_batches=_validated_row_batches(),
+        row_batches=chain((first,), validated),
         columns=columns,
         max_rows_per_delta_write=max_rows_per_delta_write,
         replace_predicate=replace_predicate,
         preserve_existing_table=replace_partitions is not None,
+        partition_by=(YEAR_PARTITION_COLUMN,),
     )
     return {"research_indicator_frames": path.as_posix()}, row_count, batch_count
 
@@ -406,7 +455,8 @@ def write_indicator_frame_partition_batches(
         raise ValueError("max_rows_per_delta_write must be > 0")
     contract = indicator_store_contract(profile=profile)
     path = output_dir / "research_indicator_frames.delta"
-    columns = contract["research_indicator_frames"]["columns"]
+    table_contract = contract["research_indicator_frames"]
+    columns = {**table_contract["columns"], **table_contract["physical_columns"]}
     columns_prepared = False
 
     row_count = 0
@@ -455,7 +505,9 @@ def write_indicator_frame_partition_batches(
             key_columns=INDICATOR_FRAME_LOGICAL_KEY,
             seen_keys=set(),
         )
+        rows = _indicator_physical_rows(batch, rows)
         if not columns_prepared:
+            columns = _indicator_write_columns(path=path, profile=profile)
             if has_delta_log(path):
                 ensure_delta_table_columns(table_path=path, columns=dict(columns))
             columns_prepared = True
@@ -470,6 +522,7 @@ def write_indicator_frame_partition_batches(
                 rows=rows,
                 columns=columns,
                 replace_predicate=predicate,
+                partition_by=(YEAR_PARTITION_COLUMN,),
             )
             wrote_table = True
             row_count += len(rows)
@@ -485,12 +538,16 @@ def write_indicator_frame_partition_batches(
             chunk = rows[offset : offset + max_rows_per_delta_write]
             if not chunk:
                 continue
-            append_delta_table_rows(table_path=path, rows=chunk, columns=columns)
+            append_delta_table_rows(
+                table_path=path, rows=chunk, columns=columns, partition_by=(YEAR_PARTITION_COLUMN,)
+            )
             wrote_table = True
             row_count += len(chunk)
             batch_count += 1
         del batch, rows
 
+    if not columns_prepared:
+        columns = _indicator_write_columns(path=path, profile=profile)
     for partition in delete_partitions:
         if has_delta_log(path):
             delete_delta_table_rows(
@@ -504,6 +561,7 @@ def write_indicator_frame_partition_batches(
             row_batches=(),
             columns=columns,
             max_rows_per_delta_write=max_rows_per_delta_write,
+            partition_by=(YEAR_PARTITION_COLUMN,),
         )
 
     return {"research_indicator_frames": path.as_posix()}, row_count, batch_count
