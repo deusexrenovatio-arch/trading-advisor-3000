@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1500,7 +1501,6 @@ def test_indicator_store_replaces_partition_with_delta_delete_append_without_row
     tmp_path, monkeypatch
 ) -> None:
     path = tmp_path / "research_indicator_frames.delta"
-    columns = indicator_store_contract()["research_indicator_frames"]["columns"]
     partition = IndicatorFramePartitionKey(
         dataset_version="dataset-v1",
         indicator_set_version="indicators-v1",
@@ -1538,7 +1538,9 @@ def test_indicator_store_replaces_partition_with_delta_delete_append_without_row
         null_warmup_span=0,
         created_at="2026-04-30T10:01:00Z",
     )
-    write_delta_table_rows(table_path=path, columns=columns, rows=[existing.to_dict()])
+    existing = replace(existing, bar_end_ts="2026-04-30T10:15:00Z")
+    replacement = replace(replacement, bar_end_ts="2026-04-30T10:15:00Z")
+    write_indicator_frames(output_dir=tmp_path, rows=[existing], replace_partitions=())
 
     def _forbidden_row_reload(*_: object, **__: object) -> None:
         raise AssertionError("indicator partition replacement must not reload existing rows")
@@ -1556,9 +1558,6 @@ def test_derived_store_replaces_partition_with_delta_delete_append_without_row_r
     tmp_path, monkeypatch
 ) -> None:
     path = tmp_path / "research_derived_indicator_frames.delta"
-    columns = research_derived_indicator_store_contract()["research_derived_indicator_frames"][
-        "columns"
-    ]
     partition = DerivedIndicatorFramePartitionKey(
         dataset_version="dataset-v1",
         indicator_set_version="indicators-v1",
@@ -1601,7 +1600,9 @@ def test_derived_store_replaces_partition_with_delta_delete_append_without_row_r
         null_warmup_span=0,
         created_at="2026-04-30T10:01:00Z",
     )
-    write_delta_table_rows(table_path=path, columns=columns, rows=[existing.to_dict()])
+    existing = replace(existing, bar_end_ts="2026-04-30T10:15:00Z")
+    replacement = replace(replacement, bar_end_ts="2026-04-30T10:15:00Z")
+    write_derived_indicator_frames(output_dir=tmp_path, rows=[existing], replace_partitions=())
 
     def _forbidden_row_reload(*_: object, **__: object) -> None:
         raise AssertionError("derived partition replacement must not reload existing rows")
