@@ -316,6 +316,10 @@ def _with_existing_target_close_year(
     return prepared
 
 
+def _stale_keys_path(output_dir: Path, table_name: str) -> Path:
+    return output_dir / "stale-keys" / f"__stale_keys_{table_name}.delta"
+
+
 def _merge_replace_delta_dataframe(
     *,
     spark: Any,
@@ -1156,8 +1160,8 @@ def run_moex_canonical_publish_spark_delta_job(
             empty_scope_allowed=allow_empty_contract_scope,
         )
         publish_allowed = qc_report["status"] == "PASS" and contract_report["status"] == "PASS"
-        stale_bar_keys_path = output_dir / "stale-keys" / "canonical_bars.delta"
-        stale_provenance_keys_path = output_dir / "stale-keys" / "canonical_bar_provenance.delta"
+        stale_bar_keys_path = _stale_keys_path(output_dir, "canonical_bars")
+        stale_provenance_keys_path = _stale_keys_path(output_dir, "canonical_bar_provenance")
         if stale_bar_rows > 0:
             _materialize_stale_keys(
                 dataframe=stale_bars_df,
@@ -1447,10 +1451,10 @@ def run_moex_canonical_publish_spark_delta_job(
                 ).cache()
                 stale_session_calendar_rows = int(stale_session_calendar_df.count())
                 stale_roll_map_rows = int(stale_roll_map_df.count())
-                stale_session_calendar_path = (
-                    output_dir / "stale-keys" / "canonical_session_calendar.delta"
+                stale_session_calendar_path = _stale_keys_path(
+                    output_dir, "canonical_session_calendar"
                 )
-                stale_roll_map_path = output_dir / "stale-keys" / "canonical_roll_map.delta"
+                stale_roll_map_path = _stale_keys_path(output_dir, "canonical_roll_map")
                 if stale_session_calendar_rows > 0:
                     _materialize_stale_keys(
                         dataframe=stale_session_calendar_df,
