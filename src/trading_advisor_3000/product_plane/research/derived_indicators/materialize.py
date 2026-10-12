@@ -2077,6 +2077,7 @@ def materialize_derived_indicator_frames(
         tuple[DerivedSeriesKey, str],
         tuple[list[ResearchBarView], list[IndicatorFrameRow], pd.DataFrame],
     ] = {}
+    loaded_cf_source_keys: set[tuple[DerivedSeriesKey, str]] = set()
 
     def _load_source_inputs(
         series_key: DerivedSeriesKey, timeframe: str
@@ -2109,6 +2110,8 @@ def materialize_derived_indicator_frames(
                 else (),
             )
             source_rows_cache[cache_key] = (local_series, local_indicator_rows, base_frame)
+            if series_mode == "continuous_front":
+                loaded_cf_source_keys.add(cache_key)
         return source_rows_cache[cache_key]
 
     table_exists = (
@@ -2173,6 +2176,9 @@ def materialize_derived_indicator_frames(
             ],
         ]
     ] = []
+    # CF never extends from existing L2 rows. Keep only instructions here;
+    # retaining source payloads for every instrument defeats the streaming writer.
+    cf_refresh_plan: list[tuple[DerivedSeriesKey, list[tuple[str, DerivedIndicatorProfile]]]] = []
     reused_partitions = 0
     refreshed_partitions = 0
     extended_partitions = 0
@@ -2204,6 +2210,8 @@ def materialize_derived_indicator_frames(
         partition_counts.items(),
         key=lambda item: (item[0].instrument_id, item[0].contract_id or ""),
     ):
+        cf_refreshed_timeframes: list[tuple[str, DerivedIndicatorProfile]] = []
+        cf_loaded_inputs = False
         refreshed_timeframes: list[
             tuple[
                 str,
@@ -2243,6 +2251,7 @@ def materialize_derived_indicator_frames(
             local_series, local_indicator_rows, source_base_frame = _load_source_inputs(
                 series_key, timeframe
             )
+            cf_loaded_inputs = series_mode == "continuous_front"
             source_bars_hash = _bars_hash(local_series)
             source_indicators_hash = _indicator_hash(
                 local_indicator_rows,
@@ -2324,18 +2333,28 @@ def materialize_derived_indicator_frames(
                 recomputed_partitions += 1
 
             replace_partitions.append(partition_key)
-            refreshed_timeframes.append(
-                (
-                    timeframe,
-                    local_series,
-                    local_indicator_rows,
-                    source_base_frame,
-                    compute_profile,
-                    existing_rows,
+            if series_mode == "continuous_front":
+                cf_refreshed_timeframes.append((timeframe, compute_profile))
+            else:
+                refreshed_timeframes.append(
+                    (
+                        timeframe,
+                        local_series,
+                        local_indicator_rows,
+                        source_base_frame,
+                        compute_profile,
+                        existing_rows,
+                    )
                 )
-            )
             refreshed_partitions += 1
-        if refreshed_timeframes:
+        if series_mode == "continuous_front":
+            if cf_refreshed_timeframes:
+                cf_refresh_plan.append((series_key, cf_refreshed_timeframes))
+            source_rows_cache.clear()
+            source_frames_by_family.clear()
+            if cf_loaded_inputs:
+                del local_series, local_indicator_rows, source_base_frame
+        elif refreshed_timeframes:
             refresh_plan.append(
                 (series_key, _source_frames_for_family(series_key), refreshed_timeframes)
             )
@@ -2356,7 +2375,11 @@ def materialize_derived_indicator_frames(
         extended_partition_count=extended_partitions,
         recomputed_partition_count=recomputed_partitions,
         deleted_partition_count=len(deleted_partitions),
-        loaded_source_frame_partition_count=len(source_rows_cache),
+        loaded_source_frame_partition_count=(
+            len(loaded_cf_source_keys)
+            if series_mode == "continuous_front"
+            else len(source_rows_cache)
+        ),
     )
 
     current_total_rows = sum(
@@ -2378,7 +2401,21 @@ def materialize_derived_indicator_frames(
     if replace_partitions or not table_exists:
 
         def _row_batches() -> Iterator[list[DerivedIndicatorFrameRow]]:
-            for series_key, source_frames, refreshed_timeframes in refresh_plan:
+            if series_mode == "continuous_front":
+                plans = (
+                    (
+                        key,
+                        _source_frames_for_family(key),
+                        (
+                            (timeframe, *_load_source_inputs(key, timeframe), compute_profile, None)
+                            for timeframe, compute_profile in instructions
+                        ),
+                    )
+                    for key, instructions in cf_refresh_plan
+                )
+            else:
+                plans = iter(refresh_plan)
+            for series_key, source_frames, refreshed_timeframes in plans:
                 del series_key
                 for (
                     timeframe,
@@ -2406,6 +2443,10 @@ def materialize_derived_indicator_frames(
                         if series_mode == "continuous_front"
                         else (),
                     )
+                if series_mode == "continuous_front":
+                    source_rows_cache.clear()
+                    source_frames_by_family.clear()
+                    del source_frames, local_series, local_indicator_rows, source_base_frame
 
         stage_started = stage_timer()
         derived_output_paths, refreshed_row_count, batch_count = (
@@ -2457,7 +2498,11 @@ def materialize_derived_indicator_frames(
         "refresh_window_count": len(tuple(refresh_windows)),
         "output_columns_hash": target_output_columns_hash,
         "loaded_indicator_partition_count": 0,
-        "loaded_source_frame_partition_count": len(source_rows_cache),
+        "loaded_source_frame_partition_count": (
+            len(loaded_cf_source_keys)
+            if series_mode == "continuous_front"
+            else len(source_rows_cache)
+        ),
         "output_paths": output_paths,
         "stage_timings": stage_timings,
         "delta_manifest": {
