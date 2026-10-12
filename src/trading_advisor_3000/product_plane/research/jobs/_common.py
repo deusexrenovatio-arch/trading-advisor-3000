@@ -6,17 +6,30 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from trading_advisor_3000.product_plane.common.table_layout import YEAR_PARTITION_COLUMN
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
     delta_table_columns,
     has_delta_log,
 )
-from trading_advisor_3000.product_plane.research.backtests import backtest_store_contract, results_store_contract
-from trading_advisor_3000.product_plane.research.continuous_front import continuous_front_store_contract
+from trading_advisor_3000.product_plane.research.backtests import (
+    backtest_store_contract,
+    results_store_contract,
+)
+from trading_advisor_3000.product_plane.research.continuous_front import (
+    continuous_front_store_contract,
+)
+from trading_advisor_3000.product_plane.research.continuous_front_indicators.contracts import (
+    continuous_front_indicator_store_contract,
+)
 from trading_advisor_3000.product_plane.research.datasets import research_dataset_store_contract
-from trading_advisor_3000.product_plane.research.derived_indicators import research_derived_indicator_store_contract
+from trading_advisor_3000.product_plane.research.derived_indicators import (
+    research_derived_indicator_store_contract,
+)
 from trading_advisor_3000.product_plane.research.indicators import indicator_store_contract
-from trading_advisor_3000.product_plane.research.registry_store import research_registry_store_contract
+from trading_advisor_3000.product_plane.research.registry_store import (
+    research_registry_store_contract,
+)
 
 
 def jsonable(value: Any) -> Any:
@@ -33,7 +46,9 @@ def jsonable(value: Any) -> Any:
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(jsonable(payload), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(jsonable(payload), ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
 
 
 def write_text(path: Path, text: str) -> None:
@@ -65,7 +80,7 @@ def print_summary(report: dict[str, Any]) -> None:
 
 
 def research_contract_manifest() -> dict[str, dict[str, object]]:
-    return {
+    manifest = {
         **{
             table_name: research_registry_store_contract()[table_name]
             for table_name in (
@@ -75,12 +90,25 @@ def research_contract_manifest() -> dict[str, dict[str, object]]:
             )
         },
         **continuous_front_store_contract(),
+        **continuous_front_indicator_store_contract(),
         **research_dataset_store_contract(),
         **indicator_store_contract(),
         **research_derived_indicator_store_contract(),
         **backtest_store_contract(),
         **results_store_contract(),
     }
+    # Manifest-only storage metadata for the accepted published families.
+    # CF bars/input are flat; their business contracts remain unchanged.
+    for table_name in (
+        "research_indicator_frames",
+        "continuous_front_indicator_frames",
+        "continuous_front_derived_indicator_frames",
+    ):
+        manifest[table_name] = {
+            **manifest[table_name],
+            "physical_columns": {YEAR_PARTITION_COLUMN: "int"},
+        }
+    return manifest
 
 
 def validate_research_contracts(
@@ -111,8 +139,13 @@ def validate_research_contracts(
 
         actual_columns = delta_table_columns(table_path)
         expected_columns = list(dict(expected["columns"]).keys())
+        physical_columns = set(dict(expected.get("physical_columns") or {}))
         missing_columns = [column for column in expected_columns if column not in actual_columns]
-        extra_columns = [column for column in actual_columns if column not in expected_columns]
+        extra_columns = [
+            column
+            for column in actual_columns
+            if column not in expected_columns and column not in physical_columns
+        ]
         if missing_columns or extra_columns:
             details: list[str] = []
             if missing_columns:
@@ -126,7 +159,8 @@ def validate_research_contracts(
         reported_row_count = rows_by_table.get(table_name)
         if reported_row_count is not None and int(reported_row_count) != actual_row_count:
             errors.append(
-                f"row count mismatch for `{table_name}`: report={int(reported_row_count)} actual={actual_row_count}"
+                f"row count mismatch for `{table_name}`: "
+                f"report={int(reported_row_count)} actual={actual_row_count}"
             )
         if actual_row_count == 0:
             warnings.append(f"`{table_name}` materialized with 0 rows")

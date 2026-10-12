@@ -462,6 +462,123 @@ def _passed_contract_validation() -> dict[str, object]:
     }
 
 
+def test_public_data_prep_summary_validates_actual_physical_tables_and_total_counts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from trading_advisor_3000.product_plane.research.continuous_front import (
+        continuous_front_store_contract,
+    )
+    from trading_advisor_3000.product_plane.research.continuous_front_indicators import (
+        continuous_front_indicator_store_contract,
+    )
+    from trading_advisor_3000.product_plane.research.datasets import research_dataset_store_contract
+    from trading_advisor_3000.product_plane.research.derived_indicators import (
+        research_derived_indicator_store_contract,
+    )
+    from trading_advisor_3000.product_plane.research.indicators import indicator_store_contract
+    from trading_advisor_3000.product_plane.research.jobs import _common
+
+    assets = list(research_assets.RESEARCH_DATA_PREP_JOB_ASSETS)
+    assert len(assets) == 17 and "research_data_snapshot" in assets
+    contracts = {
+        **continuous_front_store_contract(),
+        **research_dataset_store_contract(),
+        **indicator_store_contract(),
+        **research_derived_indicator_store_contract(),
+        **continuous_front_indicator_store_contract(),
+    }
+    physical_assets = set(assets) - {"research_data_snapshot"}
+    annual_tables = {
+        "research_bar_views",
+        "research_indicator_frames",
+        "research_derived_indicator_frames",
+        "continuous_front_indicator_frames",
+        "continuous_front_derived_indicator_frames",
+    }
+    actual_columns = {
+        name: list(dict(contracts[name]["columns"]))
+        + (["ts_close_year"] if name in annual_tables else [])
+        for name in physical_assets
+    }
+    # CF bars and input-frame are physically flat in the consumed candidate.
+    assert "ts_close_year" not in actual_columns["continuous_front_bars"]
+    assert "ts_close_year" not in actual_columns["cf_indicator_input_frame"]
+    report = {
+        "selected_assets": assets,
+        "materialized_assets": assets,
+        "output_paths": {name: str(tmp_path / f"{name}.delta") for name in assets},
+        "rows_by_table": {name: 3 for name in assets},
+        "total_rows_by_table": {name: 10 for name in assets},
+    }
+    touched: set[str] = set()
+
+    def has_log(path):
+        assert path.stem != "research_data_snapshot", "snapshot publication is not a Delta table"
+        touched.add(path.stem)
+        return True
+
+    monkeypatch.setattr(_common, "has_delta_log", has_log)
+    monkeypatch.setattr(_common, "delta_table_columns", lambda path: actual_columns[path.stem])
+    monkeypatch.setattr(_common, "count_delta_table_rows", lambda path: 10)
+    monkeypatch.setattr(
+        research_assets, "_campaign_report_from_materialized_assets", lambda **kwargs: report
+    )
+    for helper in (
+        "_write_materialization_lock",
+        "_write_publish_commit",
+        "write_json",
+        "_write_logs",
+        "_write_terminal_artifacts",
+        "_write_status",
+    ):
+        monkeypatch.setattr(campaigns, helper, lambda *args, **kwargs: None)
+    for helper in (
+        "_campaign_registry_output_paths",
+        "_publish_global_indices",
+        "_build_duration_metrics",
+        "_build_result_digest",
+        "_build_artifacts_index",
+    ):
+        monkeypatch.setattr(campaigns, helper, lambda *args, **kwargs: {})
+    monkeypatch.setattr(campaigns, "_build_terminal_summary", lambda **kwargs: kwargs)
+    monkeypatch.setattr(research_assets, "write_campaign_run", lambda **kwargs: None)
+    monkeypatch.setattr(research_assets, "write_strategy_note", lambda **kwargs: None)
+    context = {
+        "target_stage": "data_prep",
+        "repo_root": str(ROOT),
+        "run_root": str(tmp_path / "run"),
+        "results_output_dir": str(tmp_path / "results"),
+        "registry_root": str(tmp_path / "registry"),
+        "materialized_root": str(tmp_path / "materialized"),
+        "normalized_config": _campaign_payload(tmp_path, target_stage="data_prep"),
+        "warnings": [],
+        "executed_steps": ["research_data_prep"],
+        "reused_steps": [],
+        "materialization_key": "summary-fixture",
+        "campaign_id": "campaign-fixture",
+        "campaign_run_id": "campaign-run-fixture",
+        "campaign_name": "summary-fixture",
+        "config_fingerprint": "fingerprint-fixture",
+        "reuse_existing_materialization": False,
+        "started_at": "2026-10-12T00:00:00Z",
+        "run_id": "summary-run-fixture",
+    }
+    public_summary = research_assets.research_campaign_data_prep_summary.op.compute_fn.decorated_fn
+    summary = public_summary(context, {})
+    assert campaigns.validate_research_contracts is _common.validate_research_contracts
+    assert summary["status"] == "success"
+    assert summary["dagster_materialized_assets"] == assets
+    assert "research_data_snapshot" in summary["dagster_materialized_assets"]
+    assert summary["rows_by_table"] == report["rows_by_table"]
+    assert touched == physical_assets
+
+    actual_columns["continuous_front_derived_indicator_frames"].append(
+        "unregistered_business_value"
+    )
+    with pytest.raises(RuntimeError, match="schema mismatch.*unregistered_business_value"):
+        public_summary(context, {})
+
+
 def test_normalize_campaign_config_sorts_timeframes_and_filters(tmp_path: Path) -> None:
     raw = _campaign_payload(tmp_path)
     raw["dataset"]["timeframes"] = ["1h", "15m", "15m"]  # type: ignore[index]
