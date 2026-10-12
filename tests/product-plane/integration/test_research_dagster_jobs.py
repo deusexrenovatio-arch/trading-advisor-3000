@@ -579,10 +579,6 @@ def _write_research_bar_outputs_from_front(
     timeframes: tuple[str, ...],
 ) -> dict[str, object]:
     contract = research_dataset_store_contract()
-    close_by_source_key = {
-        (str(row["contract_id"]), str(row["timeframe"]), str(row["ts"])): row["bar_end_ts"]
-        for row in read_delta_table_rows(canonical_bar_provenance_path)
-    }
     front_rows = read_delta_table_rows(
         continuous_front_bars_path,
         filters=[("dataset_version", "=", dataset_version)],
@@ -593,6 +589,17 @@ def _write_research_bar_outputs_from_front(
     created_at = "2026-04-29T00:00:00Z"
     contour_id = "pit_active_front"
     instruments = sorted({str(row["instrument_id"]) for row in front_rows})
+    close_by_source_key = {
+        (str(row["contract_id"]), str(row["timeframe"]), str(row["ts"])): row["bar_end_ts"]
+        for row in read_delta_table_rows(
+            canonical_bar_provenance_path,
+            columns=["contract_id", "timeframe", "ts", "bar_end_ts"],
+            filters=[
+                ("instrument_id", "in", instruments),
+                ("timeframe", "in", sorted({str(row["timeframe"]) for row in front_rows})),
+            ],
+        )
+    }
     dataset_row = {
         "dataset_version": dataset_version,
         "contour_id": contour_id,
