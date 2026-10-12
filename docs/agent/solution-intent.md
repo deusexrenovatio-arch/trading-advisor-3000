@@ -3,21 +3,19 @@
 - Solution Class: staged
 - Critical Contour: data-integration-closure
 - Forbidden Shortcuts: fixture path, tests/product-plane/fixtures/, sample artifact, synthetic upstream, scaffold-only
-- Closure Evidence: the accepted L1 table has nonempty NULL-year files because its native writer omits the physical close-year payload. One focused native Arrow/Delta regression distinguishes authoritative UTC close from business open timestamps through both L1 writer entrypoints and the context constructor; it preserves existing carrier types, identity/history and business payload, and rejects missing close before deletion. Existing bad rows require a separate storage-only repair; no indicator calculation is repeated.
+- Closure Evidence: the persistent baseline canonical publisher failed when its private stale-key Delta basename collided with a governed snapshot input. One native Delta/materialization-scope regression drives the actual merge caller with mock Spark only, verifies private scratch reads and preserved pins, and retains rejection of foreign paths with governed names. Actual baseline retry remains a separate operator step after delivery; no core calculation is repeated here.
 - Shortcut Waiver: none
 
-Change surface: mixed. Product-plane L1 physical-storage payload/default and
-required shell delivery metadata. Indicator DTOs carry authoritative bar_end_ts
-outside their business serialization, equality and hashes. The existing source
-constructor transfers that close; both L1 batch writers derive UTC close year
-with the shared native Arrow helper and explicitly use the annual layout.
-Existing Delta INT/BIGINT carrier types and table identity/history remain.
-Legacy layout or missing authoritative close fails before schema/delete writes.
+Change surface: mixed. Product-plane canonical-publish private scratch naming
+and required shell delivery metadata. The four existing stale-key paths share
+a helper using __stale_keys_<table>.delta under the same private run directory.
+The actual reader remains read_spark_delta with unchanged snapshot pinning and
+governed-name collision rejection; no unscoped read or global guard waiver.
 
-Self-review: the former business-only native append that produced NULL-year
-partitions is forbidden. The single physical writer/context regression uses
-real Arrow/Delta while indicator computation is mocked. Only existing synthetic
-fixture close fields are populated for the stricter writer contract. Indicator
-values, cache/hash rules, logical keys, timestamps, raw writers and other table
-families are unchanged. The accepted L1@446 needs copy-only storage repair from
-the already validated source close-year mapping, separately from this code fix.
+Self-review: private intermediates cannot reuse governed canonical basenames.
+The one regression uses real Delta metadata and the native snapshot scope,
+with only the Spark read/merge boundary mocked. The helper is consumed by all
+four existing callsites. Canonical key/delete/upsert algorithms, values, table
+IDs, provenance, published pins, pending changed windows and recovery reports
+remain unchanged. No data jobs, storage migrations, numerical parity runs or
+production changes are performed in this patch; persistent retry is pending.

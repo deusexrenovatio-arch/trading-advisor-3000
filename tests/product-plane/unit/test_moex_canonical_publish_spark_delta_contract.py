@@ -911,3 +911,126 @@ def test_spark_publish_subprocess_timeout_is_reported(
             run_id="phase02-publish-timeout",
             repo_root=Path.cwd(),
         )
+
+
+def test_private_stale_keys_read_reaches_merge_without_colliding_with_governed_pins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sys
+    import types
+
+    import pyarrow as pa
+    from deltalake import DeltaTable, write_deltalake
+
+    from trading_advisor_3000.product_plane.common import data_snapshots as snapshots
+    from trading_advisor_3000.spark_jobs import moex_canonical_publish_job as owner
+
+    deletes: list[tuple[str, str, dict[str, int], str]] = []
+
+    class LoadedFrame:
+        def __init__(self, path, options):
+            self.path, self.options = path, options
+
+        def alias(self, name):
+            assert name == "source"
+            return self
+
+    class Reader:
+        def __init__(self):
+            self.options = {}
+
+        def format(self, name):
+            assert name == "delta"
+            self.options = {}
+            return self
+
+        def option(self, name, value):
+            self.options[name] = value
+            return self
+
+        def load(self, path):
+            return LoadedFrame(path, dict(self.options))
+
+    class Merge:
+        def __init__(self, target):
+            self.target = target
+
+        def alias(self, name):
+            assert name == "target"
+            return self
+
+        def merge(self, source, condition):
+            self.source, self.condition = source, condition
+            return self
+
+        def whenMatchedDelete(self):
+            return self
+
+        def execute(self):
+            deletes.append((self.target, self.source.path, self.source.options, self.condition))
+
+    delta_tables = types.ModuleType("delta.tables")
+    delta_tables.DeltaTable = SimpleNamespace(forPath=lambda spark, path: Merge(path))
+    delta_module = types.ModuleType("delta")
+    delta_module.tables = delta_tables
+    monkeypatch.setitem(sys.modules, "delta", delta_module)
+    monkeypatch.setitem(sys.modules, "delta.tables", delta_tables)
+    payload = pa.table(
+        {
+            "id": pa.array([1], type=pa.int64()),
+            "business_value": pa.array([1.25], type=pa.float64()),
+        }
+    )
+    for table_name in (
+        "canonical_bars",
+        "canonical_bar_provenance",
+        "canonical_session_calendar",
+        "canonical_roll_map",
+    ):
+        pinned_path = tmp_path / "inputs" / f"{table_name}.delta"
+        target_path = tmp_path / "targets" / f"{table_name}.delta"
+        foreign_path = tmp_path / "foreign" / f"{table_name}.delta"
+        scratch_path = owner._stale_keys_path(tmp_path / "publish", table_name)
+        for path in (pinned_path, target_path, foreign_path, scratch_path):
+            write_deltalake(str(path), payload)
+        pinned = snapshots.capture_table(pinned_path)
+        target_before = snapshots.capture_table(target_path)
+        scratch_before = snapshots.capture_table(scratch_path)
+        manifest = snapshots.create_snapshot(
+            tables={table_name: pinned},
+            required_tables=[table_name],
+            dataset_version="scratch-fixture",
+            run_id="private-scratch-fixture",
+            code_version="private-scratch-fixture",
+            quality_checks={"fixture": "PASS"},
+        )
+        spark = SimpleNamespace(read=Reader())
+        with snapshots.materialization_snapshot_scope(
+            manifest, writable_paths=[target_path]
+        ) as reads:
+            owner._merge_replace_delta_dataframe(
+                spark=spark,
+                table_path=target_path,
+                staged_dataframe=SimpleNamespace(count=lambda: 0),
+                stale_keys_path=scratch_path,
+                stale_key_count=1,
+                key_columns=("id",),
+                functions=None,
+            )
+            assert reads.plain_tables()[table_name] == pinned
+            assert reads.plain_tables()[scratch_path.stem] == scratch_before
+            with pytest.raises(ValueError, match="snapshot table name collides"):
+                snapshots.read_spark_delta(spark, foreign_path)
+        assert deletes[-1] == (
+            str(target_path),
+            scratch_before["table_path"],
+            {"versionAsOf": scratch_before["delta_version"]},
+            "target.id <=> source.id",
+        )
+        assert snapshots.capture_table(pinned_path) == pinned
+        assert snapshots.capture_table(target_path) == target_before
+        for path in (pinned_path, target_path, scratch_path):
+            assert DeltaTable(str(path), version=0).to_pyarrow_table().to_pylist() == (
+                payload.to_pylist()
+            )
+    assert len(deletes) == 4
