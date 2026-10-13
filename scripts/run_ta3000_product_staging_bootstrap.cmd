@@ -54,8 +54,14 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [%DATE% %TIME%] Starting product staging containers via Docker Compose >> "%LOGFILE%"
-docker compose -p dagster-product-staging -f "%COMPOSE_BASE%" -f "%COMPOSE_PRODUCT%" up -d --build >> "%LOGFILE%" 2>&1 || goto :fail
+rem Bootstrap starts missing/stopped services; it never replaces running workers.
+rem Image delivery/recreation is a separate drained operation, not a nightly tick.
+docker image inspect ta3000-dagster-staging:latest >nul 2>nul
+if errorlevel 1 (
+  docker compose -p dagster-product-staging -f "%COMPOSE_BASE%" -f "%COMPOSE_PRODUCT%" build >> "%LOGFILE%" 2>&1 || goto :fail
+)
+echo [%DATE% %TIME%] Starting product staging without replacing running containers >> "%LOGFILE%"
+docker compose -p dagster-product-staging -f "%COMPOSE_BASE%" -f "%COMPOSE_PRODUCT%" up -d --no-recreate --no-build >> "%LOGFILE%" 2>&1 || goto :fail
 
 set "WEB_HEALTH="
 for /L %%I in (1,1,60) do (

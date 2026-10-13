@@ -22,6 +22,9 @@ from trading_advisor_3000.product_plane.common.data_snapshots import (
     runtime_provenance,
     save_snapshot,
 )
+from trading_advisor_3000.product_plane.research.operations import preflight, worker_lease
+
+_STAGE_OUTPUTS: dict[str, tuple[str, ...]] = {}
 
 
 def snapshot_registry(output_dir: Path, dataset_version: str, contour_id: str) -> Path:
@@ -43,9 +46,9 @@ def _registry(config: Mapping[str, Any]) -> Path:
     )
 
 
-def _pending_path(context: Any, config: Mapping[str, Any]) -> Path:
+def _pending_path(context: Any, config: Mapping[str, Any], run_id: str | None = None) -> Path:
     # Dagster run IDs identify attempts; campaign_run_id is often reused nightly.
-    run_id = str(context.run_id)
+    run_id = run_id or str(context.run_id)
     token = hashlib.sha256(run_id.encode()).hexdigest()
     return _registry(config) / "pending" / f"{token}.json"
 
@@ -88,6 +91,9 @@ def _input_tables(
 
 def _parameters(config: Mapping[str, Any]) -> dict[str, Any]:
     keys = (
+        "universe_id",
+        "dataset_name",
+        "validation_plan",
         "series_mode",
         "timeframes",
         "base_timeframe",
@@ -139,6 +145,61 @@ def _initial(context: Any, config: Mapping[str, Any]) -> dict[str, Any]:
             raise ValueError("snapshot resume requires the same parameters and code")
         _assert_current_data_parent(config, pending)
         return pending
+    op_context = getattr(context, "op_execution_context", context)
+    parent_run_id = getattr(getattr(op_context, "dagster_run", None), "parent_run_id", None)
+    if parent_run_id:
+        source = _pending_path(context, config, parent_run_id)
+        if not source.exists():
+            raise ValueError("Research resume requires the parent attempt checkpoint")
+        pending = json.loads(source.read_text(encoding="utf-8"))
+        if (
+            pending["parameters"] != parameters
+            or pending["code_version"] != str(config["code_version"])
+            or pending["runtime_provenance"] != provenance
+        ):
+            raise ValueError("snapshot resume requires the same parameters and code")
+        source_run = op_context.instance.get_run_by_id(parent_run_id)
+        if source_run is None or source_run.status.value not in {"FAILURE", "CANCELED"}:
+            raise ValueError("Research resume requires a terminal failed/canceled parent")
+        successful = {
+            step.step_key
+            for step in op_context.instance.get_run_step_stats(parent_run_id)
+            if step.status.value == "SUCCESS"
+        }
+        owners = pending.get("quality_owners", {})
+        reusable = {
+            stage
+            for stage, status in pending["quality_checks"].items()
+            if status == "PASS"
+            and (stage in successful or owners.get(stage) != parent_run_id and stage in owners)
+        }
+        # Outputs of failed/unexecuted stages may contain partial new commits.
+        # They are rewritten by the native failed stage, never reused as inputs.
+        reusable_outputs = {name for stage in reusable for name in _STAGE_OUTPUTS.get(stage, ())}
+        for stage, outputs in _STAGE_OUTPUTS.items():
+            if stage not in reusable:
+                for name in outputs:
+                    if name not in reusable_outputs:
+                        pending["tables"].pop(name, None)
+        pending["quality_checks"] = {stage: "PASS" for stage in reusable}
+        pending["quality_evidence"] = {
+            stage: value
+            for stage, value in pending["quality_evidence"].items()
+            if stage in reusable
+        }
+        pending["quality_owners"] = {stage: owners.get(stage, parent_run_id) for stage in reusable}
+        _assert_quality_owners(op_context.instance, pending, current_run_id=str(context.run_id))
+        _assert_current_data_parent(config, pending)
+        assert_tables_unchanged(pending["tables"])
+        current = current_snapshot(_registry(config))
+        if (current["snapshot_id"] if current else None) != pending["expected_current_id"]:
+            raise ValueError("accepted Research changed before resume")
+        pending["recovery_lineage"] = [*pending.get("recovery_lineage", ()), parent_run_id]
+        pending["run_id"] = str(context.run_id)
+        preflight(config)
+        atomic_json(path, pending)
+        return pending
+    preflight(config)
     current = current_snapshot(_registry(config))
     parent_path = str(config.get("data_snapshot_manifest_path") or "")
     parent = (
@@ -181,8 +242,22 @@ def _initial(context: Any, config: Mapping[str, Any]) -> dict[str, Any]:
         "parents": [parent["snapshot_id"]] if parent else [],
         "parent_manifest_sha256": parent["manifest_sha256"] if parent else None,
         "quality_evidence": {},
+        "quality_owners": {},
         "expected_current_id": current["snapshot_id"] if current else None,
     }
+
+
+def _assert_quality_owners(
+    instance: Any, pending: Mapping[str, Any], *, current_run_id: str
+) -> None:
+    for stage, owner in pending.get("quality_owners", {}).items():
+        if owner == current_run_id:
+            continue
+        if not any(
+            step.step_key == stage and step.status.value == "SUCCESS"
+            for step in instance.get_run_step_stats(owner)
+        ):
+            raise ValueError(f"Research resume lacks native successful step evidence: {stage}")
 
 
 def _assert_current_data_parent(config: Mapping[str, Any], pending: Mapping[str, Any]) -> None:
@@ -198,11 +273,22 @@ def snapshot_materialization(output_tables: Sequence[str]) -> Callable:
     """Pin upstream inputs and checkpoint completed outputs after each owning asset."""
 
     def decorate(function: Callable) -> Callable:
+        _STAGE_OUTPUTS[function.__name__] = tuple(output_tables)
+
         @functools.wraps(function)
         def wrapped(context: Any, *args: Any, **kwargs: Any) -> Any:
             config = _configuration(context)
             if not config.get("data_snapshot_enabled", False):
-                return function(context, *args, **kwargs)
+                op_context = getattr(context, "op_execution_context", context)
+                instance = getattr(op_context, "instance", None)
+                run = instance.get_run_by_id(str(context.run_id)) if instance else None
+                if run is not None and run.parent_run_id:
+                    raise ValueError("verified Research resume requires an enabled snapshot owner")
+                preflight(config)
+                with worker_lease(
+                    Path(config["materialized_output_dir"]), str(context.run_id), function.__name__
+                ):
+                    return function(context, *args, **kwargs)
             pending = _initial(context, config)
             root = Path(config["materialized_output_dir"])
             writable = [root / f"{name}.delta" for name in output_tables]
@@ -222,8 +308,9 @@ def snapshot_materialization(output_tables: Sequence[str]) -> Callable:
                 if inputs
                 else None
             )
-            with materialization_snapshot_scope(view, writable_paths=writable) as reads:
-                result = function(context, *args, **kwargs)
+            with worker_lease(root, str(context.run_id), function.__name__):
+                with materialization_snapshot_scope(view, writable_paths=writable) as reads:
+                    result = function(context, *args, **kwargs)
             inputs = reads.plain_tables()
             assert_tables_unchanged(inputs)
             if not isinstance(result, Mapping):
@@ -261,6 +348,7 @@ def snapshot_materialization(output_tables: Sequence[str]) -> Callable:
                 if (path / "_delta_log").exists():
                     pending["tables"][name] = capture_table(path)
             pending["quality_checks"][function.__name__] = "PASS"
+            pending.setdefault("quality_owners", {})[function.__name__] = str(context.run_id)
             if isinstance(result, Mapping):
                 pending["quality_evidence"][function.__name__] = {
                     key: result[key]
@@ -297,6 +385,8 @@ def publish_research_snapshot(context: Any, *, acceptance: Mapping[str, Any]) ->
     if not config.get("data_snapshot_enabled", False):
         return {"status": "SKIPPED", "reason": "snapshot_owner_not_enabled"}
     pending = _initial(context, config)
+    op_context = getattr(context, "op_execution_context", context)
+    _assert_quality_owners(op_context.instance, pending, current_run_id=str(context.run_id))
     _assert_current_data_parent(config, pending)
     if not pending["parents"]:
         raise ValueError("Research publication requires an accepted Data parent snapshot")
@@ -326,7 +416,7 @@ def publish_research_snapshot(context: Any, *, acceptance: Mapping[str, Any]) ->
         "continuous_front_indicator_acceptance_report",
     }
     if stages - set(checks) or any(checks[name] != "PASS" for name in stages):
-        raise ValueError("snapshot requires all data-prep stages from this Dagster run")
+        raise ValueError("snapshot requires all data-prep stages from the verified attempt lineage")
     if config.get("series_mode") == "continuous_front":
         status = str(acceptance.get("sidecar_result", {}).get("status", ""))
         checks["continuous_front_acceptance"] = status
@@ -358,6 +448,8 @@ def publish_research_snapshot(context: Any, *, acceptance: Mapping[str, Any]) ->
             **pending["parameters"],
             "runtime_provenance": pending["runtime_provenance"],
             "quality_evidence": pending["quality_evidence"],
+            "quality_owners": pending.get("quality_owners", {}),
+            "recovery_lineage": pending.get("recovery_lineage", []),
         },
         quality_checks=checks,
         window=pending["window"],
