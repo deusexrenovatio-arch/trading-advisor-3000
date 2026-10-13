@@ -14,6 +14,7 @@ from trading_advisor_3000.product_plane.common.data_snapshots import (
     materialization_snapshot_scope,
     runtime_provenance,
 )
+from trading_advisor_3000.product_plane.contracts import Timeframe
 from trading_advisor_3000.product_plane.data_plane.data_snapshots import (
     accepted_data_snapshot_id,
     capture_data_inputs,
@@ -57,6 +58,7 @@ from .foundation import (
 )
 from .historical_canonical_route import (
     CANONICAL_MERGE_SCOPED_DELETE_INSERT,
+    TARGET_MINUTES_BY_TIMEFRAME,
     run_historical_canonical_route,
 )
 from .historical_route_contracts import (
@@ -331,16 +333,20 @@ def _build_cf_catch_up_report(
             source_window["window_end_utc"],
             field_name="changed_window.window_end_utc",
         )
-        start_ts = _utc_iso(source_start - timedelta(minutes=overlap_minutes))
         end_ts = _utc_iso(source_end)
         for timeframe in target_timeframes:
+            # Canonical publication deletes target keys as far back as one
+            # target bar before the source window. CF must replace that scope
+            # too, including old bars that no longer exist in canonical.
+            target_overlap = max(overlap_minutes, TARGET_MINUTES_BY_TIMEFRAME[Timeframe(timeframe)])
+            start_ts = _utc_iso(source_start - timedelta(minutes=target_overlap))
             candidates.append(
                 {
                     "instrument_id": str(source_window["internal_id"]),
                     "timeframe": timeframe,
                     "start_ts": start_ts,
                     "end_ts": end_ts,
-                    "overlap_minutes": overlap_minutes,
+                    "overlap_minutes": target_overlap,
                     "source_window_start_utc": source_window["window_start_utc"],
                     "source_window_end_utc": source_window["window_end_utc"],
                     "source_changed_windows": [dict(source_window)],
