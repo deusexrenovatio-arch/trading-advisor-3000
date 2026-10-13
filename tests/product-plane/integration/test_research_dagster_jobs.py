@@ -732,8 +732,22 @@ def _write_research_bar_outputs_from_front(
     )
     write_delta_table_rows(
         table_path=Path(output_paths["research_bar_views"]),
-        rows=bar_rows,
-        columns=contract["research_bar_views"]["columns"],
+        rows=[
+            {
+                **row,
+                "ts_close_year": datetime.fromisoformat(
+                    str(row["bar_end_ts"]).replace("Z", "+00:00")
+                )
+                .astimezone(UTC)
+                .year,
+            }
+            for row in bar_rows
+        ],
+        columns={
+            **contract["research_bar_views"]["columns"],
+            **contract["research_bar_views"]["physical_columns"],
+        },
+        partition_by=tuple(contract["research_bar_views"]["partition_by"]),
     )
     return {
         "success": True,

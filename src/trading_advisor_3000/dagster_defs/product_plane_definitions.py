@@ -48,6 +48,7 @@ from .research_assets import (
     research_data_prep_job,
     research_projection_after_backtest_sensor,
     research_projection_job,
+    research_worker_health_sensor,
     strategy_registry_refresh_after_research_data_prep_sensor,
     strategy_registry_refresh_job,
 )
@@ -97,6 +98,7 @@ product_plane_definitions = Definitions(
         research_backtest_after_strategy_registry_sensor,
         research_projection_after_backtest_sensor,
         research_campaign_failure_summary_sensor,
+        research_worker_health_sensor,
     ],
 )
 

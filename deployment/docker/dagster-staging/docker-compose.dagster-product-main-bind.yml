@@ -21,6 +21,7 @@ services:
       - -d
       - /workspace
     environment:
+      TA3000_RESEARCH_WORKER_OWNER: dagster-webserver
       DAGSTER_HOME: /opt/dagster/dagster_home
       PYTHONPATH: /workspace/src
       TA3000_MOEX_HISTORICAL_DATA_ROOT: /ta3000-data/moex-historical
@@ -78,6 +79,7 @@ services:
       - -d
       - /workspace
     environment:
+      TA3000_RESEARCH_WORKER_OWNER: dagster-daemon
       DAGSTER_HOME: /opt/dagster/dagster_home
       PYTHONPATH: /workspace/src
       TA3000_MOEX_HISTORICAL_DATA_ROOT: /ta3000-data/moex-historical
