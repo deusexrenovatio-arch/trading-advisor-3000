@@ -75,6 +75,8 @@ existing Delta writer layouts before loading price history. Single-bar closed
 windows remain valid. Layout mismatch requires an isolated migration; preflight
 does not mutate tables. Run a small complete native data-prep route when changing
 writer projections or contracts; metadata checks do not prove computed schemas.
+Physical checks use the activated Spark sidecar storage contract. Legacy CF and
+report writers retain supported unpartitioned targets; yearly layouts remain strict.
 
 Resume a failed attempt through native Dagster **Re-execute from failure**, or
 inside the webserver container:

@@ -27,6 +27,26 @@ def test_preflight_checks_every_existing_writer_layout(tmp_path, monkeypatch):
         operations.preflight({"materialized_output_dir": str(tmp_path)})
 
 
+def test_preflight_accepts_native_legacy_cf_layout_but_requires_yearly_sidecar(tmp_path):
+    from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
+
+    contracts = operations._store_contracts()
+    assert contracts["continuous_front_indicator_frames"]["partition_by"] == ["ts_close_year"]
+    for name in ("continuous_front_bars", "continuous_front_qc_report"):
+        write_delta_table_rows(
+            table_path=tmp_path / f"{name}.delta", rows=[], columns=contracts[name]["columns"]
+        )
+    config = {"materialized_output_dir": str(tmp_path)}
+    operations.preflight(config)
+    write_delta_table_rows(
+        table_path=tmp_path / "continuous_front_indicator_frames.delta",
+        rows=[],
+        columns=contracts["continuous_front_indicator_frames"]["columns"],
+    )
+    with pytest.raises(ValueError, match="continuous_front_indicator_frames.*layout migration"):
+        operations.preflight(config)
+
+
 def test_dead_worker_requires_same_namespace_and_process_identity():
     identity = {"owner": "daemon", "generation": "100", "pid": 10, "process_start": "20"}
     assert (

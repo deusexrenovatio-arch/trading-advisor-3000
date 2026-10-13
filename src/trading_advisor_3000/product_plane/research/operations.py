@@ -19,6 +19,10 @@ from trading_advisor_3000.product_plane.common.data_snapshots import atomic_json
 
 
 def _store_contracts():
+    from trading_advisor_3000.spark_jobs.continuous_front_indicator_sidecar_job import (
+        _sidecar_storage_contract,
+    )
+
     from .continuous_front import continuous_front_store_contract
     from .continuous_front_indicators.contracts import continuous_front_indicator_store_contract
     from .datasets import research_dataset_store_contract
@@ -36,6 +40,9 @@ def _store_contracts():
         indicator_store_contract,
     ):
         contracts.update(factory())
+    # The Spark sidecar activates yearly storage separately from its shared
+    # business contract. Validate the owning writer's physical layout.
+    contracts.update(_sidecar_storage_contract(continuous_front_indicator_store_contract()))
     return contracts
 
 
@@ -73,7 +80,14 @@ def preflight(config: Mapping) -> None:
         if not (path / "_delta_log").exists():
             continue
         actual, columns = _table_layout(path)
-        if actual != partitions:
+        # Legacy CF/report writers support existing unpartitioned targets.
+        # Activated physical layouts (including every yearly writer) are strict.
+        legacy_unpartitioned = (
+            not actual
+            and not contract.get("physical_columns")
+            and "partition_columns" not in contract
+        )
+        if actual != partitions and not legacy_unpartitioned:
             raise ValueError(f"{name}: use an isolated layout migration before calculation")
         if set(partitions) - columns:
             raise ValueError(f"{name}: stored schema omits partition columns")
