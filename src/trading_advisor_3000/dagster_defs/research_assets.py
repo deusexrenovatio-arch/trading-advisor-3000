@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from dagster import (
+    AssetKey,
     AssetSelection,
     ConfigMapping,
     DagsterRunStatus,
@@ -4896,6 +4897,7 @@ def research_data_prep_after_moex_cf_catch_up_sensor(context):
             f"{RESEARCH_DATA_PREP_JOB_NAME}:{MOEX_CF_CATCH_UP_JOB_NAME}:"
             f"{upstream_run_id}:{windows_hash}"
         ),
+        asset_selection=[AssetKey(name) for name in RESEARCH_DATA_PREP_JOB_ASSETS],
         run_config=build_research_data_prep_run_config(
             canonical_output_dir=Path(str(_config_value(cf_config, "canonical_output_dir"))),
             materialized_output_dir=Path(str(_config_value(cf_config, "materialized_output_dir"))),
