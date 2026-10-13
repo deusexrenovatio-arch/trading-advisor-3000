@@ -76,3 +76,10 @@ Hosted CI note:
 1. Fast checks must stay deterministic.
 2. If a check fails twice, stop feature expansion and remediate process first.
 3. No silent bypass for failing policy checks.
+
+## Successful fast-check reuse
+
+Local loop/PR gates reuse only an unchanged successful quick changed-scope boring
+check for ten minutes; CI and all remaining checks execute afresh. The cache binds
+source, command/scope/profile, interpreter/packages and environment. `--no-reuse`
+forces fresh execution. See [execution rules](../DEV_WORKFLOW.md#efficient-task-execution).

@@ -38,6 +38,7 @@ def _build_loop_gate_command(
     explicit_changed_files: list[str] | None,
     snapshot_mode: str,
     profile: str,
+    no_reuse: bool = False,
 ) -> str | CommandSpec:
     parts = [
         sys.executable,
@@ -50,6 +51,8 @@ def _build_loop_gate_command(
         profile,
         "--enforce-explicit-markers",
     ]
+    if no_reuse:
+        parts.append("--no-reuse")
     if explicit_changed_files is not None:
         parts.append("--stdin")
         stdin_text = "\n".join(explicit_changed_files)
@@ -78,6 +81,7 @@ def main() -> int:
     parser.add_argument("--profile", default=None)
     parser.add_argument("--enforce-explicit-markers", action="store_true")
     parser.add_argument("--summary-file", default=None)
+    parser.add_argument("--no-reuse", action="store_true", help="Force fresh local fast checks.")
     args = parser.parse_args()
 
     changed_files = collect_changed_files(
@@ -123,6 +127,7 @@ def main() -> int:
         explicit_changed_files=list(changed_files) if (args.stdin or args.changed_files) else None,
         snapshot_mode=snapshot_mode,
         profile=profile,
+        no_reuse=args.no_reuse,
     )
     loop_code = run_command(loop_command)
     if loop_code != 0:

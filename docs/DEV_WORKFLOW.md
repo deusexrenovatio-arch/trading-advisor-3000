@@ -39,6 +39,61 @@ Main merge requirement:
 - PR size is enforced inside `pr-lane` by `python scripts/validate_pr_size.py`.
 - `nightly-lane` and `dashboard-refresh` are non-merge lanes and remain post-PR hygiene/report lanes.
 
+## Efficient task execution
+
+Change surface: `shell` for these execution rules and gate/CI plumbing.
+
+1. One owner fixes the scope, required checks, done evidence and next action. This
+   brief lives with the task; do not create a separate ceremony for each substep.
+2. Default to one executor. When delegation is explicitly authorized, send one
+   bounded work packet: inputs, owned files, acceptance checks, and result artifact.
+   Continue independent work while waiting; ask again only for a new blocking fact.
+3. Plan focused regression and mandatory gates before the patch. An unchanged
+   result is not a reason to broaden validation. After two failures on the same
+   path, diagnose/remediate that path before extending scope.
+4. Observe CI/long jobs with the status watcher below. It polls without model
+   calls and emits only selected-field changes, failure, completion or timeout.
+5. Integrate and verify the code, freeze its SHA and accepted input references,
+   then run promotion and its control cycle. New improvements are separate work;
+   actual correctness blockers remain part of the current task.
+
+### Local fast-check reuse
+
+`run_pr_gate.py` still invokes canonical `run_loop_gate.py`. The latter reuses
+only a successful `run_boring_checks.py --profile quick --scope changed` result
+for up to ten minutes in `.tmp/gate-reuse/`. Its key binds the checkout and HEAD,
+tracked and non-ignored untracked file contents, command/stdin, changed-file scope,
+mapping, snapshot/profile markers, Python/platform, package versions and environment.
+An input changed during the check is not cached. Failed, malformed, expired or
+mismatched receipts cause fresh execution. Environment values are never stored.
+
+All other validators, PR-only tests, native proofs and live checks execute afresh.
+`CI`/`GITHUB_ACTIONS` disable reuse; required `pr-lane` remains fresh for each HEAD.
+Use `--no-reuse` on either gate to force a local fresh run. These receipts are local
+performance hints, not transferable publication or production-acceptance evidence.
+
+### Status-change watcher
+
+Watch one existing CI run with a shell-free command, options before `--command`:
+
+```powershell
+python scripts/watch_task_status.py --max-wait-seconds 1800 --command gh run view RUN_ID --json status,conclusion
+```
+
+Or watch an existing JSON status producer:
+
+```powershell
+python scripts/watch_task_status.py --status-file .tmp/task-status.json --fields status,conclusion,active_step
+```
+
+The producer remains responsible for writing status. The watcher does not launch,
+restart or cancel the observed job. Missing files wait; invalid JSON/command failure
+returns 2; observed failure returns 1; timeout returns 3; success returns 0.
+Unchanged fields and heartbeat-only changes produce no additional messages.
+
+PR CI uses workflow/PR concurrency to cancel superseded runs of that same PR.
+Production deployment and data jobs are outside that cancellation group.
+
 ## Hosted CI fallback
 If hosted runners are unavailable, replay lanes locally for acceptance evidence:
 1. `python scripts/run_surface_pr_matrix.py --plan-only --from-git --git-ref HEAD --output-json artifacts/ci/pr-surface-plan.json --summary-file artifacts/ci/pr-surface-plan.md`
