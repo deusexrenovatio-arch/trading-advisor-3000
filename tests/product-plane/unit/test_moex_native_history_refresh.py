@@ -134,3 +134,123 @@ def test_registered_nightly_uses_native_history_and_actual_next_day(tmp_path, mo
     monkeypatch.setattr(assets, "registered_history_refresh_kwargs", rejected_bindings)
     with pytest.raises(ValueError, match="accepted history admission missing"):
         assets._build_baseline_daily_schedule_run_config(context)
+
+
+def _current_br_specification(*, imtime="2026-10-12 07:00:04", step_price=8.49048):
+    return {
+        "SECID": "BRX6",
+        "ASSETCODE": "BR",
+        "MINSTEP": 0.01,
+        "LOTVOLUME": 10,
+        "STEPPRICE": step_price,
+        "IMTIME": imtime,
+    }
+
+
+def _br_rule():
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        assetcode="BR", min_step=0.01, lot_volume=10, tick_value_quote=0.1, quote_currency="USD"
+    )
+
+
+def _actual_mc_rows():
+    return [
+        {
+            "secid": "USD/RUB",
+            "tradedate": "2026-10-09",
+            "tradetime": "19:00:00",
+            "clearing": "mc",
+            "rate": 84.9048,
+        },
+        {
+            "secid": "USD/RUB",
+            "tradedate": "2026-10-12",
+            "tradetime": "19:00:00",
+            "clearing": "mc",
+            "rate": 83.9153,
+        },
+    ]
+
+
+def test_current_crosscheck_uses_mc_available_at_specification_time():
+    from trading_advisor_3000.product_plane.data_plane.moex import native_history_refresh as refresh
+
+    rows = _actual_mc_rows()
+    descriptions, report = refresh._check_current(
+        [_current_br_specification()], [_br_rule()], refresh._fx_records(rows), dated_fx_rows=rows
+    )
+    assert set(descriptions) == {"BRX6"}
+    assert report["status"] == "PASS"
+    assert report["dated_mc_date"] == "2026-10-09"
+    assert report["dated_mc_rate"] == 84.9048
+
+
+def test_current_crosscheck_uses_same_day_mc_after_its_fixing():
+    from trading_advisor_3000.product_plane.data_plane.moex import native_history_refresh as refresh
+
+    rows = _actual_mc_rows()
+    _, report = refresh._check_current(
+        [_current_br_specification(imtime="2026-10-12 20:00:00", step_price=8.39153)],
+        [_br_rule()],
+        refresh._fx_records(rows),
+        dated_fx_rows=rows,
+    )
+    assert report["dated_mc_date"] == "2026-10-12"
+    assert report["dated_mc_rate"] == 83.9153
+
+
+@pytest.mark.parametrize("step_price", [8.39153, 8.51])
+def test_current_crosscheck_does_not_pick_a_rate_to_fit_step_price(step_price):
+    from trading_advisor_3000.product_plane.data_plane.moex import native_history_refresh as refresh
+
+    rows = _actual_mc_rows()
+    with pytest.raises(ValueError, match="current datedMC crosscheck failed: BR"):
+        refresh._check_current(
+            [_current_br_specification(step_price=step_price)],
+            [_br_rule()],
+            refresh._fx_records(rows),
+            dated_fx_rows=rows,
+        )
+
+
+@pytest.mark.parametrize("imtime", [None, "", "2026-10-12", "invalid"])
+def test_current_crosscheck_rejects_missing_or_invalid_specification_time(imtime):
+    from trading_advisor_3000.product_plane.data_plane.moex import native_history_refresh as refresh
+
+    rows = _actual_mc_rows()
+    with pytest.raises(ValueError, match="IMTIME"):
+        refresh._check_current(
+            [_current_br_specification(imtime=imtime)],
+            [_br_rule()],
+            refresh._fx_records(rows),
+            dated_fx_rows=rows,
+        )
+
+
+def test_current_crosscheck_rejects_missing_preceding_mc():
+    from trading_advisor_3000.product_plane.data_plane.moex import native_history_refresh as refresh
+
+    rows = _actual_mc_rows()[1:]
+    with pytest.raises(ValueError, match="dated MC.*IMTIME"):
+        refresh._check_current(
+            [_current_br_specification()],
+            [_br_rule()],
+            refresh._fx_records(rows),
+            dated_fx_rows=rows,
+        )
+
+
+def test_current_crosscheck_rejects_missing_fixing_time():
+    from trading_advisor_3000.product_plane.data_plane.moex import native_history_refresh as refresh
+
+    rows = _actual_mc_rows()
+    rows[0].pop("tradetime")
+    with pytest.raises(ValueError, match="dated MC.*time"):
+        refresh._check_current(
+            [_current_br_specification()],
+            [_br_rule()],
+            refresh._fx_records(rows),
+            dated_fx_rows=rows,
+        )
