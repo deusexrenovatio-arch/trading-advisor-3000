@@ -3013,3 +3013,40 @@ def test_baseline_calibration_guard_precedes_source_and_output_writes(
             economics_calculation_options=options,
         )
     assert not evidence.exists()
+
+
+@pytest.mark.parametrize(
+    ("timeframe", "expected_overlap", "expected_start"),
+    [
+        ("15m", 180, "2026-10-11T09:59:59Z"),
+        ("1h", 180, "2026-10-11T09:59:59Z"),
+        ("4h", 240, "2026-10-11T08:59:59Z"),
+        ("1d", 1440, "2026-10-10T12:59:59Z"),
+        ("1w", 10080, "2026-10-04T12:59:59Z"),
+    ],
+)
+def test_cf_catch_up_covers_canonical_target_bar_deletion_scope(
+    timeframe: str, expected_overlap: int, expected_start: str
+) -> None:
+    report = baseline_module._build_cf_catch_up_report(
+        changed_windows=[
+            {
+                "internal_id": "FUT_GOLD",
+                "source_timeframe": "1m",
+                "source_interval": 1,
+                "moex_secid": "GDZ6",
+                "window_start_utc": "2026-10-11T12:59:59Z",
+                "window_end_utc": "2026-10-12T20:40:00Z",
+                "incremental_rows": 992,
+            }
+        ],
+        refresh_overlap_minutes=180,
+        cf_catch_up_overlap_minutes=180,
+        cf_catch_up_timeframes=(timeframe,),
+    )
+    window = report["windows"][0]
+    assert window["start_ts"] == expected_start
+    assert window["end_ts"] == "2026-10-12T20:40:00Z"
+    assert window["overlap_minutes"] == expected_overlap
+    assert report["overlap_minutes"] == 180
+    assert window["window_hash_sha256"] == baseline_module._cf_catch_up_window_hash(window)
