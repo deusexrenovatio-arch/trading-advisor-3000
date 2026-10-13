@@ -107,6 +107,9 @@ def test_real_key_changes_with_source_scope_command_env_and_dependencies(tmp_pat
         check=True,
     )
     original = reuse._fingerprint(tmp_path, {}, FAST)
+    monkeypatch.setenv("PROMPT", "display-only")
+    assert reuse._fingerprint(tmp_path, {}, FAST) == original
+    monkeypatch.delenv("PROMPT")
     subprocess.run(["git", "-C", str(tmp_path), "branch", "proof-base"], check=True)
     selected = reuse._fingerprint(tmp_path, {"base_ref": "proof-base"}, FAST)
     subprocess.run(

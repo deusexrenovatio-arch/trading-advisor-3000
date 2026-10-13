@@ -62,7 +62,7 @@ def _fingerprint(root: Path, scope: dict, command: str | CommandSpec) -> str:
         "packages": sorted(
             (d.metadata.get("Name", ""), d.version) for d in importlib.metadata.distributions()
         ),
-        "environment": sorted(os.environ.items()),
+        "environment": sorted((k, v) for k, v in os.environ.items() if k.upper() != "PROMPT"),
     }
     # Store only the digest, never environment values or credentials.
     digest.update(json.dumps(inputs, sort_keys=True).encode())

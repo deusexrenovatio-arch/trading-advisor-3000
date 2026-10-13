@@ -63,7 +63,7 @@ Change surface: `shell` for these execution rules and gate/CI plumbing.
 only a successful `run_boring_checks.py --profile quick --scope changed` result
 for up to ten minutes in `.tmp/gate-reuse/`. Its key binds the checkout and HEAD,
 tracked and non-ignored untracked file contents, command/stdin, changed-file scope,
-mapping, snapshot/profile markers, Python/platform, package versions and environment.
+mapping, snapshot/profile markers, Python/platform, package versions and environment (excluding shell-only `PROMPT`).
 An input changed during the check is not cached. Failed, malformed, expired or
 mismatched receipts cause fresh execution. Environment values are never stored.
 
