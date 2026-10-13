@@ -3,19 +3,23 @@
 - Solution Class: staged
 - Critical Contour: data-integration-closure
 - Forbidden Shortcuts: fixture path, tests/product-plane/fixtures/, sample artifact, synthetic upstream, scaffold-only
-- Closure Evidence: the persistent baseline canonical publisher failed when its private stale-key Delta basename collided with a governed snapshot input. One native Delta/materialization-scope regression drives the actual merge caller with mock Spark only, verifies private scratch reads and preserved pins, and retains rejection of foreign paths with governed names. Actual baseline retry remains a separate operator step after delivery; no core calculation is repeated here.
+- Closure Evidence: focused native metadata regression for a morning specification followed by an evening MC observation, genuine mismatch and missing-source rejection; ordinary Dagster baseline -> CF -> research retry on the primary root after delivery. Test proof alone is not production closure.
 - Shortcut Waiver: none
 
-Change surface: mixed. Product-plane canonical-publish private scratch naming
-and required shell delivery metadata. The four existing stale-key paths share
-a helper using __stale_keys_<table>.delta under the same private run directory.
-The actual reader remains read_spark_delta with unchanged snapshot pinning and
-governed-name collision rejection; no unscoped read or global guard waiver.
+Change surface: mixed. Product-plane economics source-time alignment plus this
+required delivery metadata. The native history adapter compares each USD-linked
+current STEPPRICE against the latest actual dated MC observed at or before its
+MOEX IMTIME, rather than the latest MC anywhere in the historical refresh window.
+The 0.1 percent fail-closed tolerance, reviewed native units, historical dated TC
+projection, official-margin calibration and governed Delta identities stay fixed.
 
-Self-review: private intermediates cannot reuse governed canonical basenames.
-The one regression uses real Delta metadata and the native snapshot scope,
-with only the Spark read/merge boundary mocked. The helper is consumed by all
-four existing callsites. Canonical key/delete/upsert algorithms, values, table
-IDs, provenance, published pins, pending changed windows and recovery reports
-remain unchanged. No data jobs, storage migrations, numerical parity runs or
-production changes are performed in this patch; persistent retry is pending.
+Native Runtime Choice: metadata validation belongs to the existing Python
+adapter; Spark/Delta own durable transforms and writes; Dagster owns baseline,
+CF and research execution and publication. No custom data/indicator runtime.
+
+Self-review: a later clearing observation cannot validate an earlier current
+specification. Missing specification/fixing timestamps or no preceding actual MC
+must reject before support writes; genuine money-math mismatches still reject.
+Source-time regressions prove the boundary; actual incremental publication is a
+separate required delivery step and will be reported from persistent run/storage
+proof. No claim of universal host-memory or worker-recovery closure.
