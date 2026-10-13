@@ -13,6 +13,7 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from deltalake import DeltaTable
 
@@ -172,15 +173,47 @@ def _fx_records(rows):
     return result
 
 
-def _check_current(current_securities, rules, fx):
-    """Current datedMC sanity is separate from historic datedTC validation."""
+def _source_timestamp(value, name):
+    text = str(value or "")
+    if "T" not in text and " " not in text:
+        raise ValueError(f"current crosscheck requires actual {name} timestamp")
+    try:
+        stamp = datetime.fromisoformat(text)
+    except ValueError as exc:
+        raise ValueError(f"current crosscheck requires valid {name} timestamp") from exc
+    market_tz = ZoneInfo("Europe/Moscow")
+    return stamp.replace(tzinfo=market_tz) if stamp.tzinfo is None else stamp.astimezone(market_tz)
+
+
+def _check_current(current_securities, rules, fx, *, dated_fx_rows):
+    """Match the actual MC available at each specification's MOEX IMTIME."""
     by_asset = {rule.assetcode: rule for rule in rules}
     mc_dates = [day for day, kind in fx if kind == "MC"]
     if not mc_dates:
         raise ValueError("current snapshot requires an actual dated MC observation")
-    mc_date = max(mc_dates)
-    mc = fx[mc_date, "MC"]
-    profiles, descriptions = {}, {}
+    observations = {}
+    for row in dated_fx_rows:
+        pair = str(
+            row.get("fx_pair")
+            or row.get("currency_pair")
+            or row.get("secid")
+            or row.get("SECID")
+            or ""
+        ).upper()
+        kind = str(
+            row.get("clearing_type") or row.get("clearing") or row.get("CLEARING") or ""
+        ).upper()
+        if pair != "USD/RUB" or kind != "MC":
+            continue
+        day = str(row.get("trade_date") or row.get("tradedate") or row.get("TRADEDATE") or "")[:10]
+        clock = row.get("tradetime") or row.get("TRADETIME")
+        stamp = _source_timestamp(f"{day}T{clock or ''}", "dated MC time")
+        if day in observations and observations[day] != stamp:
+            raise ValueError("conflicting native dated MC observation time")
+        observations[day] = stamp
+    if set(observations) != set(mc_dates):
+        raise ValueError("current snapshot requires actual dated MC observation times")
+    profiles, descriptions, matches = {}, {}, []
     for payload in current_securities:
         asset = str(payload.get("ASSETCODE") or "")
         if asset not in by_asset:
@@ -192,7 +225,26 @@ def _check_current(current_securities, rules, fx):
         )
         if step != rule.min_step or lot != rule.lot_volume:
             raise ValueError(f"current native units changed: {asset}")
-        expected = rule.tick_value_quote * (mc if rule.quote_currency == "USD" else 1.0)
+        mc = 1.0
+        if rule.quote_currency == "USD":
+            imtime = _source_timestamp(payload.get("IMTIME") or payload.get("imtime"), "IMTIME")
+            available = [day for day, stamp in observations.items() if stamp <= imtime]
+            if not available:
+                raise ValueError(
+                    f"current snapshot has no actual dated MC at or before IMTIME: {asset}"
+                )
+            mc_date = max(available, key=observations.__getitem__)
+            mc = fx[mc_date, "MC"]
+            matches.append(
+                {
+                    "secid": str(payload.get("SECID") or ""),
+                    "specification_imtime": imtime.isoformat(),
+                    "dated_mc_date": mc_date,
+                    "dated_mc_time": observations[mc_date].isoformat(),
+                    "dated_mc_rate": mc,
+                }
+            )
+        expected = rule.tick_value_quote * mc
         error = abs(_positive(payload.get("STEPPRICE"), "STEPPRICE") / expected - 1.0)
         if error >= 0.001:
             raise ValueError(f"current datedMC crosscheck failed: {asset}")
@@ -205,12 +257,14 @@ def _check_current(current_securities, rules, fx):
         profile["maximum"] = max(profile["maximum"], error)
     if set(profiles) != set(by_asset):
         raise ValueError("current snapshot does not cover all reviewed thirteen assets")
+    mc_date = max((match["dated_mc_date"] for match in matches), default=max(mc_dates))
     return descriptions, {
         "status": "PASS",
         "method": "current_snapshot_dated_mc_crosscheck",
         "dated_mc_date": mc_date,
-        "dated_mc_rate": mc,
+        "dated_mc_rate": fx[mc_date, "MC"],
         "profiles": list(profiles.values()),
+        "contracts": matches,
         "not_daily_official": True,
     }
 
@@ -266,7 +320,9 @@ def refresh_native_history_support(
     if (dates[-1] - dates[0]).days + 1 != len(dates):
         raise ValueError("native history renewal requires a contiguous bounded date window")
     fx = _fx_records(dated_fx_rows)
-    descriptions, crosscheck = _check_current(current_securities, base_rules, fx)
+    descriptions, crosscheck = _check_current(
+        current_securities, base_rules, fx, dated_fx_rows=dated_fx_rows
+    )
     rules = {rule.assetcode: rule for rule in base_rules}
     columns = {
         "raw": _columns(raw_contract_specs_path),
