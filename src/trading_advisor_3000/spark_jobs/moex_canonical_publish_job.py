@@ -523,12 +523,15 @@ def _impacted_scope_keys(
         target_bars_df=target_bars_df,
         functions=functions,
     )
-    staged_scope_keys_df = _staged_provenance_scope_keys(
+    # Explicit windows are the replacement boundary. Collapsing separated
+    # provenance windows to contract min/max would delete their untouched gaps.
+    if publish_scope_path is not None and publish_scope_path.exists():
+        return explicit_keys_df
+    return _staged_provenance_scope_keys(
         target_bars_df=target_bars_df,
         staged_provenance_df=staged_provenance_df,
         functions=functions,
     )
-    return explicit_keys_df.unionByName(staged_scope_keys_df).distinct()
 
 
 def _build_qc_report(
