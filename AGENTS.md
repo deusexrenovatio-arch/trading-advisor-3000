@@ -74,6 +74,18 @@ Business and trading logic remain out of scope for shell control-plane surfaces.
 - Before substantial work, state the selected direct route and why it applies.
 - Before closeout, include an explicit self-review for behavior/contract changes: what changed, which contract moved, which old behavior is now forbidden, which test catches it, and what residual risk remains.
 
+## Efficient execution
+- One accountable owner per task. Delegate only explicitly authorized, independent
+  work with a bounded input and one complete result; avoid recurring reconfirmation.
+- Plan scope, required checks, and done evidence before implementation. Add a check
+  only for a changed contract, observed failure, or a named unresolved risk.
+- Observe long jobs/CI through status-change events using `scripts/watch_task_status.py`.
+  Repeated unchanged status must not trigger a fresh model-led investigation.
+- Complete integration and required CI, then freeze the release SHA before promotion.
+  Keep promotion and new feature work separate; repair correctness blockers in scope.
+- Successful local fast checks may be reused only through the source/environment-bound
+  gate mechanism. CI, PR-only checks, native proofs and live validators remain fresh.
+
 ## Agent support
 ### Issue tracker
 GitHub Issues are the issue tracker for this repo; external PRs are not a triage surface. See `docs/agents/issue-tracker.md`.

@@ -6,7 +6,6 @@ from pathlib import Path
 from compute_change_surface import compute_surface
 from gate_common import (
     collect_changed_files,
-    run_commands,
     scope_validate_command,
     write_summary,
 )
@@ -15,6 +14,7 @@ from gate_marker_contract import (
     includes_policy_critical_command,
     resolve_gate_markers,
 )
+from gate_reuse import run_loop_commands
 
 REMEDIATION_DOC = "docs/runbooks/governance-remediation.md"
 POLICY_CRITICAL_LOOP_VALIDATION_SCRIPTS = (
@@ -36,6 +36,7 @@ def main() -> int:
     parser.add_argument("--profile", default=None)
     parser.add_argument("--enforce-explicit-markers", action="store_true")
     parser.add_argument("--summary-file", default=None)
+    parser.add_argument("--no-reuse", action="store_true", help="Force fresh local fast checks.")
     args = parser.parse_args()
 
     changed_files = collect_changed_files(
@@ -84,7 +85,19 @@ def main() -> int:
         )
         for command in loop_commands
     ]
-    code, failed_command = run_commands(commands)
+    code, failed_command = run_loop_commands(
+        commands,
+        reuse=not args.no_reuse,
+        scope={
+            "files": sorted(changed_files),
+            "mapping": args.mapping,
+            "snapshot_mode": snapshot_mode,
+            "profile": profile,
+            "base_ref": args.base_ref,
+            "head_ref": args.head_ref,
+            "git_ref": args.git_ref,
+        },
+    )
     write_summary(
         summary_file=args.summary_file,
         gate_name="loop gate",

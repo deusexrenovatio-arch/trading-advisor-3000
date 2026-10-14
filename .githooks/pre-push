@@ -62,7 +62,19 @@ def run_scoped_loop_gate(repo_root: Path) -> int:
         "none",
     ]
     print("[pre-push] Running scoped loop gate...")
-    result = subprocess.run(cmd, cwd=str(repo_root), check=False)
+    # Hooks export repository-local Git context; nested test repositories must
+    # discover their own context instead of inheriting the pushing worktree.
+    local_git_vars = subprocess.run(
+        ["git", "rev-parse", "--local-env-vars"],
+        cwd=str(repo_root),
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    env = os.environ.copy()
+    for name in local_git_vars:
+        env.pop(name, None)
+    result = subprocess.run(cmd, cwd=str(repo_root), check=False, env=env)
     return result.returncode
 
 
