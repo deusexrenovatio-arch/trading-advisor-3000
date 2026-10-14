@@ -31,7 +31,7 @@ services:
       - dagster-test-home:/opt/dagster/dagster_home
       - "../../..:/workspace:ro"
       - "${TA3000_MOEX_TEST_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-verification}:/ta3000-data/staging/test/moex-verification"
-      - "${TA3000_MOEX_PRODUCT_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-nightly}:/ta3000-data/staging/product/moex-historical:ro"
+      - "${TA3000_MOEX_PRODUCT_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-primary-20261011}:/ta3000-data/staging/product/moex-historical:ro"
     healthcheck:
       test:
         - CMD
@@ -71,7 +71,7 @@ services:
       - dagster-test-home:/opt/dagster/dagster_home
       - "../../..:/workspace:ro"
       - "${TA3000_MOEX_TEST_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-verification}:/ta3000-data/staging/test/moex-verification"
-      - "${TA3000_MOEX_PRODUCT_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-nightly}:/ta3000-data/staging/product/moex-historical:ro"
+      - "${TA3000_MOEX_PRODUCT_STAGING_ROOT_HOST:-D:/TA3000-data/trading-advisor-3000-primary-20261011}:/ta3000-data/staging/product/moex-historical:ro"
     depends_on:
       dagster-test-webserver:
         condition: service_healthy

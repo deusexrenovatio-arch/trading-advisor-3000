@@ -106,7 +106,7 @@ The production nightly contour is a runtime contour, not a development contour.
 
 - Runtime branch: `ta3000-production`.
 - Runtime checkout: `D:/TA3000-production`.
-- Runtime data root: `D:/TA3000-data/trading-advisor-3000-nightly`.
+- Runtime data root: `D:/TA3000-data/trading-advisor-3000-primary-20261011`.
 - Production launcher: `C:/Users/Admin/run_ta3000_production_nightly.cmd`.
 - Product staging bootstrap: `scripts/run_ta3000_product_staging_bootstrap.cmd`.
 - Production log: `D:/TA3000-data/logs/ta3000-production-nightly.log`.
@@ -115,7 +115,7 @@ Runtime surfaces:
 
 - Production staging is `moex_product_staging`. It is the long-lived product
   runtime surface backed by `D:/TA3000-production` for code and
-  `D:/TA3000-data/trading-advisor-3000-nightly` for data. Its containers expose
+  `D:/TA3000-data/trading-advisor-3000-primary-20261011` for data. Its containers expose
   the production checkout as `/workspace` and the product data root as
   `/ta3000-data/moex-historical`.
 - Production staging runs the supported MOEX updater through Dagster:

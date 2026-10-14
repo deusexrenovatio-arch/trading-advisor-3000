@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 
 if "%PROD_REPO%"=="" set "PROD_REPO=D:\TA3000-production"
-if "%DATA_ROOT%"=="" set "DATA_ROOT=D:\TA3000-data\trading-advisor-3000-nightly"
+if "%DATA_ROOT%"=="" set "DATA_ROOT=D:\TA3000-data\trading-advisor-3000-primary-20261011"
 if "%TEST_STAGING_ROOT%"=="" set "TEST_STAGING_ROOT=D:\TA3000-data\trading-advisor-3000-verification"
 if "%LOGDIR%"=="" set "LOGDIR=D:\TA3000-data\logs"
 if "%LOGFILE%"=="" set "LOGFILE=%LOGDIR%\ta3000-production-nightly.log"

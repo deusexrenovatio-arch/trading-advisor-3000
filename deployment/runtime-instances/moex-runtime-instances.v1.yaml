@@ -11,7 +11,7 @@ instances:
       current_container_data_root: /ta3000-data/moex-historical
       preferred_container_data_root: /ta3000-data/staging/product/moex-historical
       host_root_env: TA3000_MOEX_PRODUCT_STAGING_ROOT_HOST
-      host_root_default: D:/TA3000-data/trading-advisor-3000-nightly
+      host_root_default: D:/TA3000-data/trading-advisor-3000-primary-20261011
       workspace_host_root_env: TA3000_PRODUCT_MAIN_WORKTREE
       workspace_host_root_default: D:/TA3000-production
     dagster:
