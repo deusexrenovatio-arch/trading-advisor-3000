@@ -1986,9 +1986,12 @@ def _acquire_indicator_frame_materialization_lock(
     indicator_set_version: str,
     contour_id: str,
 ) -> Path:
+    from trading_advisor_3000.product_plane.research.operations import worker_identity
+
     indicator_output_dir.mkdir(parents=True, exist_ok=True)
     lock_path = indicator_output_dir / INDICATOR_FRAME_MATERIALIZATION_LOCK_FILENAME
     payload = {
+        **worker_identity(),
         "table_name": "research_indicator_frames",
         "dataset_version": dataset_version,
         "indicator_set_version": indicator_set_version,

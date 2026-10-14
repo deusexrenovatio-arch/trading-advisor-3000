@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from dagster import (
+    AssetKey,
     AssetSelection,
     ConfigMapping,
     DagsterRunStatus,
@@ -16,10 +17,12 @@ from dagster import (
     Definitions,
     Field,
     RunRequest,
+    RunsFilter,
     asset,
     define_asset_job,
     materialize,
     run_status_sensor,
+    sensor,
 )
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
@@ -4894,6 +4897,7 @@ def research_data_prep_after_moex_cf_catch_up_sensor(context):
             f"{RESEARCH_DATA_PREP_JOB_NAME}:{MOEX_CF_CATCH_UP_JOB_NAME}:"
             f"{upstream_run_id}:{windows_hash}"
         ),
+        asset_selection=[AssetKey(name) for name in RESEARCH_DATA_PREP_JOB_ASSETS],
         run_config=build_research_data_prep_run_config(
             canonical_output_dir=Path(str(_config_value(cf_config, "canonical_output_dir"))),
             materialized_output_dir=Path(str(_config_value(cf_config, "materialized_output_dir"))),
@@ -5177,6 +5181,22 @@ def research_campaign_failure_summary_sensor(context):
     return None
 
 
+@sensor(minimum_interval_seconds=30, default_status=DefaultSensorStatus.RUNNING)
+def research_worker_health_sensor(context):
+    from trading_advisor_3000.product_plane.research.operations import reconcile_workers
+
+    roots = {_default_research_materialized_output_dir()}
+    for run in context.instance.get_runs(
+        filters=RunsFilter(statuses=[DagsterRunStatus.STARTED, DagsterRunStatus.STARTING])
+    ):
+        config = _research_config_from_run_config(run.run_config)
+        if config and config.get("materialized_output_dir"):
+            roots.add(Path(str(config["materialized_output_dir"])))
+    for root in roots:
+        for run_id in reconcile_workers(context.instance, root):
+            context.log.warning("Closed proven lost Research worker: %s", run_id)
+
+
 research_definitions = Definitions(
     assets=list(RESEARCH_ASSETS),
     jobs=[
@@ -5190,7 +5210,7 @@ research_definitions = Definitions(
         research_backtest_job,
         research_projection_job,
     ],
-    sensors=[research_campaign_failure_summary_sensor],
+    sensors=[research_campaign_failure_summary_sensor, research_worker_health_sensor],
 )
 
 

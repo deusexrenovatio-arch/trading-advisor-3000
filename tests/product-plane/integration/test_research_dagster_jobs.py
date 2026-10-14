@@ -44,6 +44,7 @@ from trading_advisor_3000.dagster_defs import (
     materialize_research_data_prep_assets,
     materialize_research_projection_assets,
     materialize_strategy_registry_refresh_assets,
+    product_plane_definitions,
     research_assets,
 )
 from trading_advisor_3000.product_plane.data_plane import run_sample_backfill
@@ -732,8 +733,22 @@ def _write_research_bar_outputs_from_front(
     )
     write_delta_table_rows(
         table_path=Path(output_paths["research_bar_views"]),
-        rows=bar_rows,
-        columns=contract["research_bar_views"]["columns"],
+        rows=[
+            {
+                **row,
+                "ts_close_year": datetime.fromisoformat(
+                    str(row["bar_end_ts"]).replace("Z", "+00:00")
+                )
+                .astimezone(UTC)
+                .year,
+            }
+            for row in bar_rows
+        ],
+        columns={
+            **contract["research_bar_views"]["columns"],
+            **contract["research_bar_views"]["physical_columns"],
+        },
+        partition_by=tuple(contract["research_bar_views"]["partition_by"]),
     )
     return {
         "success": True,
@@ -1381,6 +1396,20 @@ def test_research_data_prep_after_moex_cf_catch_up_sensor_starts_scoped_job(
     assert request.tags["ta3000/dataset_version"] == "partial-data-v1"
     assert request.tags["ta3000/series_mode"] == "continuous_front"
     assert request.tags["ta3000/cf_catch_up_windows_hash"] == "d" * 64
+    assert request.asset_selection is not None
+    assert {key.to_user_string() for key in request.asset_selection} == set(
+        research_assets.RESEARCH_DATA_PREP_JOB_ASSETS
+    )
+    job = product_plane_definitions.get_repository_def().get_job(RESEARCH_DATA_PREP_JOB_NAME)
+    data_only_job = job.get_subset(asset_selection=set(request.asset_selection))
+    from dagster._core.execution.api import create_execution_plan
+
+    plan = create_execution_plan(data_only_job, run_config=request.run_config)
+    selected_steps = set(plan.step_keys_to_execute)
+    assert "research_campaign_context" not in selected_steps
+    assert "research_campaign_data_prep_summary" not in selected_steps
+    assert "research_data_snapshot" in selected_steps
+    assert "continuous_front_indicator_acceptance_report" in selected_steps
     assert request.tags["ta3000/cf_catch_up_window_count"] == "2"
     assert set(request.run_config["ops"]) == {
         "continuous_front_bars",

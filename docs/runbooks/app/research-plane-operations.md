@@ -66,6 +66,61 @@ They are not the production-current serving location and can be cleaned up after
 `materialization_key` is an identity/fingerprint recorded in `materialization.lock.json` and run artifacts.
 It is not used as a physical folder segment.
 
+## Research preflight and recovery
+
+Change surface: product-plane.
+
+Owning assets validate refresh windows, native profiles, report entry points and
+existing Delta writer layouts before loading price history. Single-bar closed
+windows remain valid. Layout mismatch requires an isolated migration; preflight
+does not mutate tables. Run a small complete native data-prep route when changing
+writer projections or contracts; metadata checks do not prove computed schemas.
+Physical checks use the activated Spark sidecar storage contract. Legacy CF and
+report writers retain supported unpartitioned targets; yearly layouts remain strict.
+
+Resume a failed attempt through native Dagster **Re-execute from failure**, or
+inside the webserver container:
+
+```text
+python -m trading_advisor_3000.product_plane.research.operations resume --run-id <failed-run-id>
+```
+
+The new attempt adopts the parent's checkpoint only with identical calculation
+parameters, code/dependencies and accepted Data/Research parents. Each reused QC
+stage must have a native successful Dagster step and unchanged Delta pins.
+Incomplete stage outputs are rewritten by that stage. The publication manifest
+records `quality_owners` and `recovery_lineage`; publication still requires every
+mandatory QC stage. Source attempts retain their terminal failure status.
+Legacy attempts without an enabled snapshot owner require a fresh full attempt;
+their successful steps cannot be reused without verified input pins.
+
+`research_worker_health_sensor` checks every 30 seconds. The existing multiprocess
+executor records the run worker plus its current child, process start identities,
+container generation and a 15-second heartbeat. A missing/stale heartbeat alone
+never marks failure. Another container namespace or a legacy lock remains unknown.
+Live children prevent recovery even if their run owner has disappeared. Recovery
+of an indicator lock requires a proven dead owner and a kernel recovery lock.
+
+Nightly bootstrap uses `--no-recreate --no-build`, building only a missing image.
+It cannot replace an existing running worker. Explicit image/config delivery is
+a separate maintenance operation: pause launching schedules/sensors, drain active
+and queued runs, then run `operations check-restart` before container recreation.
+Re-enable the prior controls after health checks. Direct Docker restarts outside
+this route remain an operator responsibility. Worker monitoring requires the
+stable `TA3000_RESEARCH_WORKER_OWNER` role configured in the product compose file.
+
+## Solution Intent
+
+- Solution Class: staged
+- Critical Contour: multi-contour
+- Forbidden Shortcuts: none
+- Closure Evidence: native Dagster failure/re-execution with real Delta pins;
+  changed input/code rejection; owner/child/lock tests; nightly syntax contract.
+- Shortcut Waiver: none
+
+Spark/Delta/Dagster and existing indicator algorithms keep ownership. This patch
+does not claim production activation or close full-history memory limits.
+
 ## What To Inspect
 
 For `data_prep`:
