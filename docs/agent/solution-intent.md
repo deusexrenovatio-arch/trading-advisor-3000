@@ -3,15 +3,13 @@
 - Solution Class: staged
 - Critical Contour: data-integration-closure
 - Forbidden Shortcuts: none
-- Closure Evidence: failing-then-passing bootstrap and baseline regressions for terminal minute/hour/day/week candles, unchanged stability cutoff, native Spark/Delta repair and pinned downstream readback recorded separately from code acceptance.
+- Closure Evidence: native Spark regression for separated explicit windows and unchanged provenance-only fallback; existing Delta publisher overlap/sidecar regression; physical restoration and pinned Data/research publication recorded separately.
 - Shortcut Waiver: none
 
-Change surface: mixed. Product-plane source boundary fix plus this required delivery metadata; domain logic remains in the product plane.
+Change surface: mixed. Product-plane replacement-boundary correction plus required delivery metadata. No domain logic moves into shell.
 
-Native Runtime Choice: MOEX client owns source acquisition; Spark DataFrames and the existing Delta raw writer own reconciliation; Dagster owns Data/research continuation. Arrow owns bounded inspection. Python coordinates metadata and evidence only.
+Native Runtime Choice: Spark owns scoped key selection and Delta mutations; Dagster owns replay and downstream continuation. Python coordinates metadata only.
 
-The ISS candleborders end identifies the last candle opening. The acquisition envelope includes that candle's possible close, capped by the existing stability cutoff. Exact source closes remain unchanged. Known terminal candles cannot be skipped using low-liquidity watermark grace. Local-tail cutoff semantics remain unchanged.
+An existing explicit publish-scope file defines the authoritative replacement windows, including an empty declared scope. Contract min/max provenance inference remains the compatibility path when no explicit file exists. Disjoint explicit windows must preserve the intervening history.
 
-Self-review: old behavior forbidding a closed terminal candle solely because its close follows the last opening is removed. No table schema, business key, table UUID or yearly layout changes. Regression coverage includes both acquisition paths and the stable cutoff. Historical repair/publication and old-root retirement require separate physical evidence.
-
-Retirement compatibility: active runtime defaults, Compose binds, local readers and bootstrap now select the accepted primary-20261011 root. Historical fixtures and benchmark inputs retain their provenance. Economics preservation uses a separately labelled source archive inside primary; it does not silently replace the accepted economics model.
+Self-review: replacement scope no longer unions explicit windows with a broad contract min/max envelope. Tables, business keys, UUIDs and partition layout stay unchanged. The native separated-window regression catches intermediate-bar deletion; provenance-only fallback and the existing delete-only sidecar behavior remain covered. Historical sparse replay requires complete source context and a separate physical publication receipt.
