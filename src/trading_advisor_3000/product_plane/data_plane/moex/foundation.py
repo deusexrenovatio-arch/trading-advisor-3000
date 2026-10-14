@@ -139,12 +139,28 @@ def _source_interval_delta(interval: int) -> timedelta:
     return timedelta(minutes=normalized)
 
 
+def _uses_candle_open_border(item: DiscoveryRecord) -> bool:
+    return item.discovery_url.split("?", 1)[0].endswith("/candleborders.json")
+
+
+def _coverage_window_end(item: DiscoveryRecord, stable_till: datetime) -> datetime:
+    end = _parse_iso_utc(item.coverage_end_utc)
+    if _uses_candle_open_border(item):
+        # ISS borders identify the BEGIN of the last candle. Extend only the
+        # acquisition/reconciliation envelope; retain the source candle's END.
+        end += _source_interval_delta(item.source_interval) - timedelta(seconds=1)
+    return min(end, stable_till)
+
+
 def _tail_watermark_covers_window(
     *,
     watermark_dt: datetime,
     window_end: datetime,
     source_interval: int,
+    last_candle_open: datetime | None = None,
 ) -> bool:
+    if last_candle_open is not None:
+        return watermark_dt >= last_candle_open
     missing_candle_grace = max(
         _source_interval_delta(source_interval),
         timedelta(minutes=DEFAULT_TAIL_MISSING_CANDLE_GRACE_MINUTES),
@@ -824,7 +840,7 @@ def ingest_moex_baseline_window(
     for item in coverage:
         coverage_begin = _parse_iso_utc(item.coverage_begin_utc)
         coverage_end = _parse_iso_utc(item.coverage_end_utc)
-        window_end = min(coverage_end, stable_till)
+        window_end = _coverage_window_end(item, stable_till)
         window_start = max(coverage_begin, window_end - timedelta(days=refresh_window_days))
         watermark_key = _watermark_key_for_discovery(item)
         watermark_raw = watermarks.get(watermark_key)
@@ -834,6 +850,7 @@ def ingest_moex_baseline_window(
                 watermark_dt=watermark_dt,
                 window_end=window_end,
                 source_interval=item.source_interval,
+                last_candle_open=coverage_end if _uses_candle_open_border(item) else None,
             ):
                 continue
             if refresh_overlap_minutes > 0:
@@ -881,7 +898,11 @@ def ingest_moex_baseline_window(
                 for candle in candles:
                     ts_open_dt = _parse_moex_datetime(candle.begin)
                     ts_close_dt = _parse_moex_datetime(candle.end)
-                    if ts_close_dt < window_start or ts_close_dt > window_end:
+                    if (
+                        ts_close_dt < window_start
+                        or ts_close_dt > window_end
+                        or (_uses_candle_open_border(item) and ts_open_dt > coverage_end)
+                    ):
                         continue
                     item_source_rows += 1
                     source_order += 1
@@ -1041,7 +1062,7 @@ def ingest_moex_bootstrap_window(
     for item in coverage:
         coverage_begin = _parse_iso_utc(item.coverage_begin_utc)
         coverage_end = _parse_iso_utc(item.coverage_end_utc)
-        window_end = min(coverage_end, stable_till)
+        window_end = _coverage_window_end(item, stable_till)
         window_start = max(coverage_begin, window_end - timedelta(days=bootstrap_window_days))
         watermark_key = _watermark_key_for_discovery(item)
         watermark_raw = watermarks.get(watermark_key)
@@ -1102,7 +1123,11 @@ def ingest_moex_bootstrap_window(
                 for candle in candles:
                     ts_open_dt = _parse_moex_datetime(candle.begin)
                     ts_close_dt = _parse_moex_datetime(candle.end)
-                    if ts_close_dt < window_start or ts_close_dt > window_end:
+                    if (
+                        ts_close_dt < window_start
+                        or ts_close_dt > window_end
+                        or (_uses_candle_open_border(item) and ts_open_dt > coverage_end)
+                    ):
                         continue
                     item_source_rows += 1
 

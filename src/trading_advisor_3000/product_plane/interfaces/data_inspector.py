@@ -23,7 +23,7 @@ from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
 )
 
 DATA_INSPECTOR_ROOT_ENV = "TA3000_DATA_INSPECTOR_ROOT"
-DEFAULT_DATA_ROOT = Path("D:/TA3000-data/trading-advisor-3000-nightly")
+DEFAULT_DATA_ROOT = Path("D:/TA3000-data/trading-advisor-3000-primary-20261011")
 DATA_INSPECTOR_HTML = Path(__file__).with_name("static") / "data_inspector.html"
 RESEARCH_INSTRUMENT_TREE_RELATIVE_PATH = (
     Path("research") / "gold" / "current" / "research_instrument_tree.delta"

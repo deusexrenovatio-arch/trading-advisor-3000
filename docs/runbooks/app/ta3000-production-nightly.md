@@ -11,7 +11,7 @@ from historical or batch MOEX data.
 ## Runtime Layout
 - Production checkout: `D:/TA3000-production`
 - Production branch: `ta3000-production`
-- Data root: `D:/TA3000-data/trading-advisor-3000-nightly`
+- Data root: `D:/TA3000-data/trading-advisor-3000-primary-20261011`
 - Launcher: `C:/Users/Admin/run_ta3000_production_nightly.cmd`
 - Product staging bootstrap: `scripts/run_ta3000_product_staging_bootstrap.cmd`
 - Log file: `D:/TA3000-data/logs/ta3000-production-nightly.log`
@@ -40,7 +40,7 @@ SCHTASKS /Change /TN "TA3000-MOEX-Nightly-Backfill" /TR "C:\Users\Admin\run_ta30
 
 ## Data-Root Separation
 `D:/TA3000-production` and
-`D:/TA3000-data/trading-advisor-3000-nightly` must stay separate.
+`D:/TA3000-data/trading-advisor-3000-primary-20261011` must stay separate.
 
 The scheduler must not turn the data root into a git checkout. It must not clean
 or recreate these data-root folders as part of launcher startup:
@@ -84,7 +84,7 @@ scripts\run_ta3000_product_staging_bootstrap.cmd
 The bootstrap script starts or refreshes the `dagster-product-staging` compose
 project, binds `/workspace` to `D:/TA3000-production`, binds
 `/ta3000-data/moex-historical` to
-`D:/TA3000-data/trading-advisor-3000-nightly`, waits for
+`D:/TA3000-data/trading-advisor-3000-primary-20261011`, waits for
 `ta3000-dagster-webserver` health, verifies `ta3000-dagster-daemon`, and checks
 that `moex_baseline_daily_update_schedule` and `moex_baseline_update_job` are
 available.
@@ -109,7 +109,7 @@ stores run evidence under `moex-baseline-update/<run_id>/` inside the data root.
 
 Keep it on disk temporarily for forensic reference, but detach it from the
 active Windows scheduled task. It must not use
-`D:/TA3000-data/trading-advisor-3000-nightly` as a git checkout and must not be
+`D:/TA3000-data/trading-advisor-3000-primary-20261011` as a git checkout and must not be
 the normal nightly entrypoint.
 
 If an elevated scheduler update is unavailable, preserve the retired command in
@@ -125,14 +125,14 @@ Before treating the contour as active:
 
 ```powershell
 Test-Path D:/TA3000-production/.git
-Test-Path D:/TA3000-data/trading-advisor-3000-nightly/.git
+Test-Path D:/TA3000-data/trading-advisor-3000-primary-20261011/.git
 git -C D:/TA3000-production branch --show-current
 ```
 
 Expected state:
 
 - `D:/TA3000-production/.git` exists.
-- `D:/TA3000-data/trading-advisor-3000-nightly/.git` does not exist.
+- `D:/TA3000-data/trading-advisor-3000-primary-20261011/.git` does not exist.
 - `git -C D:/TA3000-production branch --show-current` returns
   `ta3000-production`.
 - The scheduled-task action points to
@@ -147,7 +147,7 @@ After a manual smoke run, check:
 - the product staging container reports `moex_baseline_daily_update_schedule`
   and `moex_baseline_update_job`;
 - after the Dagster nightly tick, a fresh evidence folder exists under
-  `D:/TA3000-data/trading-advisor-3000-nightly/moex-baseline-update/<run_id>`;
+  `D:/TA3000-data/trading-advisor-3000-primary-20261011/moex-baseline-update/<run_id>`;
 - if MOEX is unavailable, record it as an external connectivity failure, not as
   a cleanup or data-root failure.
 
