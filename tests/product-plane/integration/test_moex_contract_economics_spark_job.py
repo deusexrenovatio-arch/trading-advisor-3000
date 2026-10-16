@@ -37,6 +37,211 @@ def _columns(table_name: str) -> dict[str, str]:
     return dict(moex_economics_store_contract()[table_name]["columns"])
 
 
+def test_economics_writer_skips_equal_rows_and_preserves_unchanged_lineage(tmp_path, monkeypatch):
+    from deltalake import DeltaTable
+    from pyspark.sql import functions as F
+
+    _configure_windows_spark_runtime(tmp_path, monkeypatch)
+    paths = _write_single_day_raw_economics_fixture(
+        raw_root=tmp_path / "raw", trade_date="2026-06-26"
+    )
+    spark = _create_spark_session("economics-change-only-writer", "local[2]")
+    output = tmp_path / "canonical_fx_rates.delta"
+    try:
+        original = _fx_rates_frame(spark, paths["fx"]).withColumn(
+            "created_at", F.lit("2026-06-26T20:00:00Z").cast("timestamp")
+        )
+        _write_spark_delta_table(original, table_path=output, table_name="canonical_fx_rates")
+        version = DeltaTable(str(output)).version()
+        repeat = original.withColumn("created_at", F.lit("2026-06-27T20:00:00Z").cast("timestamp"))
+        _write_spark_delta_table(repeat, table_path=output, table_name="canonical_fx_rates")
+        assert DeltaTable(str(output)).version() == version
+        changed = repeat.withColumn(
+            "rate_to_rub",
+            F.when(F.col("fx_pair") == "USD/RUB", F.col("rate_to_rub") + 1).otherwise(
+                F.col("rate_to_rub")
+            ),
+        )
+        _write_spark_delta_table(changed, table_path=output, table_name="canonical_fx_rates")
+        rows = {row["fx_pair"]: row for row in read_delta_table_rows(output, limit=10)}
+        assert rows["USD/RUB"]["rate_to_rub"] == pytest.approx(72.9077)
+        assert rows["RUB/RUB"]["created_at"] == "2026-06-26T20:00:00Z"
+        assert rows["USD/RUB"]["created_at"] == "2026-06-27T20:00:00Z"
+        lineage = changed.withColumn(
+            "source_document_hash",
+            F.when(F.col("fx_pair") == "USD/RUB", F.lit("new-evidence")).otherwise(
+                F.col("source_document_hash")
+            ),
+        )
+        _write_spark_delta_table(lineage, table_path=output, table_name="canonical_fx_rates")
+        assert (
+            next(
+                row
+                for row in read_delta_table_rows(output, limit=10)
+                if row["fx_pair"] == "USD/RUB"
+            )["source_document_hash"]
+            == "new-evidence"
+        )
+    finally:
+        spark.stop()
+
+
+def test_economics_scope_uses_accepted_intervals_and_survives_retry(tmp_path, monkeypatch):
+    from deltalake import DeltaTable
+    from pyspark.sql import functions as F
+
+    from trading_advisor_3000.product_plane.common.data_snapshots import capture_table
+    from trading_advisor_3000.product_plane.data_plane.moex.economics import (
+        MOEX_CONTRACT_ECONOMICS_MODEL_VERSION,
+    )
+    from trading_advisor_3000.spark_jobs.moex_contract_economics_job import (
+        _economics_downstream_scope,
+    )
+
+    _configure_windows_spark_runtime(tmp_path, monkeypatch)
+    spark = _create_spark_session("economics-accepted-change-scope", "local[2]")
+    bars_path = tmp_path / "canonical_bars.delta"
+    try:
+        bars = spark.createDataFrame(
+            [
+                ("BRN6@MOEX", "BR", "15m", stamp)
+                for stamp in (
+                    "2026-06-01T09:00:00Z",
+                    "2026-06-02T10:15:00Z",
+                    "2026-06-02T13:00:00Z",
+                    "2026-06-03T09:00:00Z",
+                )
+            ],
+            "contract_id string, instrument_id string, timeframe string, ts string",
+        ).withColumn("ts", F.col("ts").cast("timestamp"))
+        bars.write.format("delta").save(str(bars_path))
+        bars_version = DeltaTable(str(bars_path)).version()
+        source = spark.createDataFrame(
+            [
+                (
+                    "BRN6",
+                    "FUT_BR",
+                    "2026-06-02",
+                    "tc",
+                    "2026-06-02T10:00:00Z",
+                    "2026-06-02T11:00:00Z",
+                    1.0,
+                )
+            ],
+            "contract_id string, instrument_id string, economics_session_date string, "
+            "clearing_type string, effective_from_ts string, effective_to_ts string, "
+            "step_price_rub double",
+        )
+        source = source.withColumn(
+            "model_version", F.lit(MOEX_CONTRACT_ECONOMICS_MODEL_VERSION)
+        ).withColumn("created_at", F.current_timestamp())
+        for case in ("unchanged", "shift", "delete", "partial", "uncovered", "historical"):
+            output = tmp_path / case / "canonical_contract_economics.delta"
+            case_source = source
+            if case == "uncovered":
+                case_source = source.withColumn("contract_id", F.lit("ABSENT"))
+            elif case == "historical":
+                case_source = source.withColumn(
+                    "effective_from_ts", F.lit("2025-06-02T10:00:00Z")
+                ).withColumn("effective_to_ts", F.lit("2025-06-02T11:00:00Z"))
+            _write_spark_delta_table(
+                case_source, table_path=output, table_name="canonical_contract_economics"
+            )
+            accepted = capture_table(output)
+            if case == "shift":
+                shifted = source.withColumn(
+                    "effective_from_ts", F.lit("2026-06-02T12:00:00Z")
+                ).withColumn("effective_to_ts", F.lit(None).cast("string"))
+                _write_spark_delta_table(
+                    shifted, table_path=output, table_name="canonical_contract_economics"
+                )
+            elif case in {"delete", "uncovered", "historical"}:
+                # Explicit authoritative deletion, never inferred from a partial response.
+                DeltaTable(str(output)).delete()
+            elif case == "partial":
+                _write_spark_delta_table(
+                    source.limit(0), table_path=output, table_name="canonical_contract_economics"
+                )
+            scope = _economics_downstream_scope(
+                spark=spark,
+                table_path=output,
+                previous_reference=accepted,
+                canonical_bars_path=bars_path,
+            )
+            assert scope["full_refresh"] is False
+            if case in {"unchanged", "partial"}:
+                assert scope["windows"] == []
+            elif case in {"uncovered", "historical"}:
+                assert scope["windows"] == []
+                assert len(scope["effective_intervals"]) == 1
+                interval = scope["effective_intervals"][0]
+                assert interval["contract_id"] == ("ABSENT" if case == "uncovered" else "BRN6")
+                assert interval["effective_from_ts"].startswith(
+                    "2025-" if case == "historical" else "2026-"
+                )
+            else:
+                assert scope["windows"] == [
+                    {
+                        "contract_id": "BRN6",
+                        "instrument_id": "BR",
+                        "timeframe": "15m",
+                        "start_ts": "2026-06-02T09:45:00.000000Z",
+                        "end_ts": "2026-06-03T09:00:00.000000Z",
+                    }
+                ]
+                # A failed Data publication keeps the accepted old pin. A retry
+                # must report the same dirty scope even after outputs committed.
+                assert (
+                    _economics_downstream_scope(
+                        spark=spark,
+                        table_path=output,
+                        previous_reference=accepted,
+                        canonical_bars_path=bars_path,
+                    )
+                    == scope
+                )
+        assert DeltaTable(str(bars_path)).version() == bars_version
+        # The mutable output path must use its captured version, even inside a
+        # materializer's writable scope. Reject an already advanced owner pin.
+        from trading_advisor_3000.spark_jobs import moex_contract_economics_job as job
+
+        reads = []
+        original_read = job.read_spark_delta
+
+        def bound_read(session, path, *, version=None):
+            if Path(path) == output:
+                reads.append(version)
+            return original_read(session, path, version=version)
+
+        monkeypatch.setattr(job, "read_spark_delta", bound_read)
+        _economics_downstream_scope(
+            spark=spark,
+            table_path=output,
+            previous_reference=accepted,
+            canonical_bars_path=bars_path,
+        )
+        assert reads == [accepted["delta_version"], DeltaTable(str(output)).version()]
+        with pytest.raises(ValueError, match="output changed"):
+            _economics_downstream_scope(
+                spark=spark,
+                table_path=output,
+                previous_reference=accepted,
+                canonical_bars_path=bars_path,
+                output_reference=accepted,
+            )
+        assert (
+            _economics_downstream_scope(
+                spark=spark,
+                table_path=output,
+                previous_reference=None,
+                canonical_bars_path=bars_path,
+            )["full_refresh"]
+            is True
+        )
+    finally:
+        spark.stop()
+
+
 def test_launch_risk_requires_publication_before_effective_interval(tmp_path, monkeypatch):
     pytest.importorskip("pyspark.sql")
     from pyspark.sql import functions as F

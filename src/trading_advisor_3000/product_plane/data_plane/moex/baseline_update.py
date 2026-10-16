@@ -11,6 +11,7 @@ from pathlib import Path
 from trading_advisor_3000.product_plane.common.data_snapshots import (
     assert_tables_unchanged,
     capture_table,
+    current_snapshot,
     materialization_snapshot_scope,
     runtime_provenance,
 )
@@ -856,6 +857,8 @@ def refresh_moex_contract_economics(
     economics_calculation_options: Mapping[str, object] | None = None,
     economics_history_refresh: bool = False,
     daily_open_interest_path: Path | None = None,
+    previous_economics_reference: Mapping[str, object] | None = None,
+    canonical_bars_path: Path | None = None,
 ) -> dict[str, object]:
     del universe, mappings, changed_windows
 
@@ -956,6 +959,8 @@ def refresh_moex_contract_economics(
         inputs[canonical_session_calendar_path.stem] = capture_table(
             canonical_session_calendar_path
         )
+    if canonical_bars_path is not None and has_delta_log(canonical_bars_path):
+        inputs[canonical_bars_path.stem] = capture_table(canonical_bars_path)
     with materialization_snapshot_scope(
         data_input_snapshot(tables=inputs, run_id=run_id),
         writable_paths=[
@@ -974,9 +979,21 @@ def refresh_moex_contract_economics(
             else None,
             run_id=run_id,
             report_path=evidence_dir / "contract-economics-report.json",
+            previous_economics_reference=previous_economics_reference,
+            canonical_bars_path=canonical_bars_path,
             **options,
         )
     assert_tables_unchanged(inputs)
+    output_references = {}
+    for name, reference in report.get("output_delta_versions", {}).items():
+        output = capture_table(
+            canonical_economics_root / f"{name}.delta", version=reference["delta_version"]
+        )
+        if output["table_id"] != reference["table_id"]:
+            raise ValueError(f"Economics output identity changed: {name}")
+        output_references[name] = output
+    assert_tables_unchanged(output_references)
+    report["output_references"] = output_references
     report["snapshot_inputs"] = inputs
     report["raw_refresh"] = raw_refresh_report
     if renewal is not None:
@@ -1263,6 +1280,9 @@ def run_moex_baseline_update(
     raw_economics_root = (raw_economics_root or raw_table_path.parent).resolve()
     canonical_economics_root = (canonical_economics_root or canonical_bars_path.parent).resolve()
     expected_snapshot_id = accepted_data_snapshot_id(canonical_bars_path.parent)
+    previous_data = current_snapshot(canonical_bars_path.parent / ".data_snapshots")
+    if (previous_data["snapshot_id"] if previous_data else None) != expected_snapshot_id:
+        raise ValueError("accepted Data changed before nightly economics refresh")
     snapshot_provenance = runtime_provenance()
     if not has_delta_log(raw_table_path):
         raise FileNotFoundError(
@@ -1515,6 +1535,10 @@ def run_moex_baseline_update(
                     economics_calculation_options=economics_calculation_options,
                     economics_history_refresh=economics_history_refresh,
                     daily_open_interest_path=daily_open_interest_path,
+                    previous_economics_reference=(previous_data or {})
+                    .get("tables", {})
+                    .get("canonical_contract_economics"),
+                    canonical_bars_path=canonical_bars_path,
                 )
             except EconomicsSourceUnavailable as exc:
                 economics_report = reuse_published_economics_after_source_unavailable(

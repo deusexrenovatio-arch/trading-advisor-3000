@@ -75,6 +75,30 @@ def _append(path):
     )
 
 
+def test_data_publication_rejects_advanced_economics_output(source, monkeypatch):
+    from trading_advisor_3000.product_plane.data_plane import data_snapshots as owner
+
+    reference = snapshots.capture_table(source)
+    report = {
+        "status": "PASS",
+        "publish_decision": "publish",
+        "economics_refresh": {"output_references": {"snapshot_stats": reference}},
+    }
+    provenance = {"fixture": "stable"}
+    monkeypatch.setattr(owner, "runtime_provenance", lambda: provenance)
+    _append(source)
+    with pytest.raises(ValueError, match="Economics publication output changed"):
+        owner.publish_data_snapshot(
+            inputs={},
+            canonical_paths=[source],
+            canonical_roots=[],
+            report=report,
+            expected_current_id=None,
+            provenance=provenance,
+        )
+    assert snapshots.current_snapshot(source.parent / ".data_snapshots") is None
+
+
 def _read(reader, path, filters):
     if reader == "count":
         return delta_runtime.count_delta_table_rows(path, filters=filters)
