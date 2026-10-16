@@ -1251,6 +1251,63 @@ def test_research_data_prep_sensor_skips_moex_baseline_noop(tmp_path: Path) -> N
     )
 
 
+@pytest.mark.parametrize("force_full", [False, True])
+def test_modern_backlog_is_resolved_before_noop_and_handed_off_unchanged(
+    tmp_path, monkeypatch, force_full
+):
+    frozen = {
+        "refresh_scope_version": 1,
+        "force_full_refresh": force_full,
+        "windows": []
+        if force_full
+        else [
+            {
+                "instrument_id": "BR",
+                "timeframe": "15m",
+                "start_ts": "2026-01-01T00:00:00Z",
+                "end_ts": "2026-01-20T00:00:00Z",
+            }
+        ],
+    }
+    monkeypatch.setattr(research_assets, "resolve_refresh_scope", lambda **kwargs: frozen)
+    context = _baseline_update_sensor_context(
+        tmp_path=tmp_path,
+        run_id="raw-noop-backlog",
+        report={
+            "status": "PASS",
+            "publish_decision": "publish",
+            "cf_catch_up": {"status": "NOOP", "windows": []},
+            "data_snapshot": {"snapshot_manifest_path": str(tmp_path / "frozen-data.json")},
+        },
+    )
+    request = _single_sensor_run_request(
+        research_assets.moex_cf_catch_up_after_moex_baseline_sensor, context
+    )
+    config = request.run_config["ops"]["continuous_front_bars"]["config"]
+    assert config["start_ts"] == config["end_ts"] == ""
+    assert config["dataset_instrument_ids"] == []
+    handoff = _single_sensor_run_request(
+        research_assets.research_data_prep_after_moex_cf_catch_up_sensor,
+        SimpleNamespace(
+            dagster_run=SimpleNamespace(
+                run_id="cf-frozen", run_config=request.run_config, tags=request.tags
+            )
+        ),
+    )
+    for op in handoff.run_config["ops"].values():
+        downstream = op["config"]
+        for key in (
+            "changed_windows",
+            "refresh_scope_version",
+            "force_full_refresh",
+            "data_snapshot_manifest_path",
+            "timeframes",
+            "start_ts",
+            "end_ts",
+        ):
+            assert downstream[key] == config[key]
+
+
 def test_moex_cf_catch_up_sensor_starts_windowed_job_after_moex_baseline_change(
     tmp_path: Path,
 ) -> None:
