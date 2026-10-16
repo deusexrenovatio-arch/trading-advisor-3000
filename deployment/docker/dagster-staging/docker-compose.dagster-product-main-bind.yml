@@ -5,8 +5,8 @@ services:
     image: ta3000-dagster-staging:latest
     container_name: ta3000-dagster-webserver
     working_dir: /workspace
-    mem_limit: "${TA3000_DAGSTER_MEMORY_LIMIT:-12g}"
-    memswap_limit: "${TA3000_DAGSTER_MEMORY_LIMIT:-12g}"
+    mem_limit: "${TA3000_DAGSTER_MEMORY_LIMIT:-14g}"
+    memswap_limit: "${TA3000_DAGSTER_MEMORY_SWAP_LIMIT:-18g}"
     cpus: "${TA3000_DAGSTER_CPUS:-2}"
     command:
       - dagster-webserver
@@ -58,7 +58,7 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
-    restart: unless-stopped
+    restart: always
     networks:
       - ta3000-dagster-product
 
@@ -66,8 +66,8 @@ services:
     image: ta3000-dagster-staging:latest
     container_name: ta3000-dagster-daemon
     working_dir: /workspace
-    mem_limit: "${TA3000_DAGSTER_MEMORY_LIMIT:-12g}"
-    memswap_limit: "${TA3000_DAGSTER_MEMORY_LIMIT:-12g}"
+    mem_limit: "${TA3000_DAGSTER_MEMORY_LIMIT:-14g}"
+    memswap_limit: "${TA3000_DAGSTER_MEMORY_SWAP_LIMIT:-18g}"
     cpus: "${TA3000_DAGSTER_CPUS:-2}"
     command:
       - dagster-daemon
@@ -107,7 +107,7 @@ services:
     depends_on:
       dagster-webserver:
         condition: service_healthy
-    restart: unless-stopped
+    restart: always
     networks:
       - ta3000-dagster-product
 

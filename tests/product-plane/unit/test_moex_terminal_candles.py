@@ -179,3 +179,81 @@ def test_terminal_extension_keeps_stability_cutoff(
     assert len(captured["rows"]) == 1
     assert captured["rows"][0]["ts_close"] == "2026-05-04T15:58:59Z"
     assert captured["scopes"][0]["window_end_utc"] == "2026-05-04T15:59:30Z"
+
+
+@pytest.mark.parametrize("offset_hours", [0, 3])
+def test_nightly_closed_day_reaches_native_daily_filter(tmp_path, monkeypatch, offset_hours):
+    from datetime import UTC, datetime, timezone
+
+    from dagster import build_schedule_context
+
+    from trading_advisor_3000.dagster_defs import moex_historical_assets as assets
+
+    monkeypatch.setattr(assets, "_route_artifact_root", lambda: tmp_path)
+    monkeypatch.setattr(assets, "registered_history_refresh_kwargs", lambda root: {})
+    monkeypatch.setattr(assets, "_baseline_economics_options", lambda config: {})
+    scheduled = datetime(2026, 10, 15, 23, tzinfo=UTC).astimezone(
+        timezone(timedelta(hours=offset_hours))
+    )
+    tick = assets.moex_baseline_daily_update_schedule.evaluate_tick(
+        build_schedule_context(scheduled_execution_time=scheduled)
+    )
+    config = tick.run_requests[0].run_config["ops"]["moex_baseline_update"]["config"]
+    assert config["ingest_till_utc"] == "2026-10-15T21:00:00Z"
+    # Live/raw callers still retain their stability delay.
+    generic = assets.build_moex_baseline_update_run_config(baseline_root=tmp_path, run_id="generic")
+    assert generic["ops"]["moex_baseline_update"]["config"]["stability_lag_minutes"] == 20
+    record = foundation.DiscoveryRecord(
+        internal_id="FUT_BR",
+        finam_symbol="BRX6@MOEX",
+        moex_engine="futures",
+        moex_market="forts",
+        moex_board="RFUD",
+        moex_secid="BRX6",
+        asset_group="commodity",
+        requested_target_timeframes="1d",
+        source_interval=24,
+        source_timeframe="1d",
+        coverage_begin_utc="2026-10-13T21:00:00Z",
+        coverage_end_utc="2026-10-15T21:00:00Z",
+        discovered_at_utc="2026-10-15T23:00:00Z",
+        discovery_url="https://iss.moex.com/BRX6/candleborders.json",
+    )
+
+    class Client:
+        def iter_candles(self, **kwargs):
+            # The source may return both the last closed and the ongoing day.
+            for day in (15, 16):
+                yield MoexCandle(
+                    open=1,
+                    high=1,
+                    low=1,
+                    close=1,
+                    volume=1,
+                    begin=f"2026-10-{day} 00:00:00",
+                    end=f"2026-10-{day} 23:59:59",
+                )
+
+    captured = {}
+
+    def writer(**kwargs):
+        captured["rows"] = [
+            json.loads(line) for line in kwargs["source_rows_path"].read_text().splitlines()
+        ]
+        return {"source_rows": len(captured["rows"])}
+
+    # Execute the actual timestamp conversion, coverage and candle filtering;
+    # only the subsequent Spark/Delta write is isolated in this unit regression.
+    monkeypatch.setattr(foundation, "compute_raw_watermarks_spark_delta", lambda **kwargs: {})
+    monkeypatch.setattr(foundation, "run_moex_raw_ingest_spark_delta_job", writer)
+    foundation.ingest_moex_baseline_window(
+        client=Client(),
+        coverage=[record],
+        table_path=tmp_path / "raw" / "bars.delta",
+        run_id="closed-day",
+        ingest_till_utc=config["ingest_till_utc"],
+        stability_lag_minutes=config["stability_lag_minutes"],
+        refresh_window_days=7,
+        refresh_overlap_minutes=180,
+    )
+    assert [row["ts_close"] for row in captured["rows"]] == ["2026-10-15T20:59:59Z"]
