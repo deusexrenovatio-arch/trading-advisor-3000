@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -77,6 +77,7 @@ from .source_frames import (
 )
 from .store import (
     DEFAULT_DERIVED_INDICATOR_SET_VERSION,
+    DEFAULT_DERIVED_INDICATOR_WRITE_BATCH_ROWS,
     DerivedIndicatorFramePartitionKey,
     DerivedIndicatorFrameRow,
     derived_indicator_output_columns_hash,
@@ -1533,6 +1534,30 @@ def _derived_projection_contract_changed(
     available = set(delta_table_columns(table_path))
     if not set(columns) <= available:
         return True
+    if {"source_snapshot_hash", "compute_contract_hash", "created_at"} <= available:
+        owner_metadata = load_derived_indicator_partition_metadata(
+            output_dir=table_path.parent,
+            dataset_version=dataset_version,
+            contour_id=contour_id,
+            indicator_set_version=indicator_set_version,
+            derived_indicator_set_version=derived_indicator_set_version,
+        )
+        owner_metadata = [
+            row
+            for row in owner_metadata
+            if (series_mode is None or row.get("series_mode") == series_mode)
+            and (not dataset_instrument_ids or row["instrument_id"] in dataset_instrument_ids)
+        ]
+        if owner_metadata and all(
+            row.get("source_snapshot_hash") and row.get("compute_contract_hash")
+            for row in owner_metadata
+        ):
+            # A successful suffix carries complete partition metadata in its
+            # latest row; retained prefix hashes remain historical provenance.
+            return any(
+                row.get(columns[0]) != expected_hash or not row.get(columns[1])
+                for row in owner_metadata
+            )
     import pyarrow.compute as pc
 
     filters: list[tuple[str, str, object]] = [
@@ -1906,6 +1931,62 @@ def build_derived_indicator_frames(
                 )
             )
     return rows
+
+
+def _changed_partition_tail(
+    rows: list[DerivedIndicatorFrameRow],
+    existing: list[DerivedIndicatorFrameRow],
+) -> tuple[str | None, list[DerivedIndicatorFrameRow]]:
+    """Compare fully computed semantics; never truncate recursive computation."""
+    if not rows or not existing:
+        return None, rows
+    if len({row.ts for row in existing}) != len(existing) or len({row.ts for row in rows}) != len(
+        rows
+    ):
+        return None, rows
+    if any(row.stored_close_year is None for row in existing) or any(
+        not row.bar_end_ts for row in rows
+    ):
+        return None, rows
+    fields = (
+        "dataset_version",
+        "contour_id",
+        "series_mode",
+        "series_id",
+        "contract_id",
+        "instrument_id",
+        "timeframe",
+        "indicator_set_version",
+        "derived_indicator_set_version",
+        "profile_version",
+        "output_columns_hash",
+        "warmup_span",
+        "null_warmup_span",
+    )
+    previous = {row.ts: row for row in existing}
+    current = {row.ts: row for row in rows}
+    changed = set(previous) ^ set(current)
+    for row in rows:
+        old = previous.get(row.ts)
+        year = pd.Timestamp(row.bar_end_ts).tz_convert("UTC").year
+        if (
+            old is None
+            or row.values != old.values
+            or year != old.stored_close_year
+            or any(getattr(row, field) != getattr(old, field) for field in fields)
+        ):
+            changed.add(row.ts)
+    start = min(min(changed), rows[-1].ts) if changed else rows[-1].ts
+    tail = [row for row in rows if row.ts >= start]
+    if len(tail) > DEFAULT_DERIVED_INDICATOR_WRITE_BATCH_ROWS:
+        return None, rows
+    latest = max(pd.Timestamp(row.created_at) for row in existing)
+    stamp = (
+        max(pd.Timestamp.now(tz="UTC"), latest + pd.Timedelta(1, unit="us"))
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+    return start, [replace(row, created_at=stamp) for row in tail]
 
 
 def _delta_source_refs(paths: Sequence[Path]) -> list[dict[str, object]]:
@@ -2405,6 +2486,9 @@ def materialize_derived_indicator_frames(
     # CF never extends from existing L2 rows. Keep only instructions here;
     # retaining source payloads for every instrument defeats the streaming writer.
     cf_refresh_plan: list[tuple[DerivedSeriesKey, list[tuple[str, DerivedIndicatorProfile]]]] = []
+    metadata_rebase_plan: list[
+        tuple[DerivedIndicatorFramePartitionKey, ResearchBarView, dict[str, object]]
+    ] = []
     reused_partitions = 0
     refreshed_partitions = 0
     extended_partitions = 0
@@ -2528,6 +2612,18 @@ def materialize_derived_indicator_frames(
                 warmup_span=resolved_profile.warmup_bars,
             ):
                 reused_partitions += 1
+                if head.get("source_snapshot_hash") != source_snapshot_hash:
+                    # Full current source/MTF content was just verified. Retain
+                    # existing values, advance only the complete metadata carrier.
+                    source_columns_hash = source_indicator_output_columns_hash
+                    rebase_metadata = {
+                        "source_snapshot_hash": source_snapshot_hash,
+                        "source_dataset_bars_hash": current_dataset_bars_hash,
+                        "source_indicator_profile_version": source_indicator_profile_version,
+                        "source_indicator_output_columns_hash": source_columns_hash,
+                    }
+                    metadata_rebase_plan.append((partition_key, local_series[-1], rebase_metadata))
+                    replace_partitions.append(partition_key)
                 continue
 
             source_unchanged = (
@@ -2627,6 +2723,7 @@ def materialize_derived_indicator_frames(
     }
     refreshed_row_count = 0
     batch_count = 0
+    tail_starts: dict[DerivedIndicatorFramePartitionKey, str] = {}
     if replace_partitions or not table_exists:
 
         def _row_batches() -> Iterator[list[DerivedIndicatorFrameRow]]:
@@ -2645,7 +2742,6 @@ def materialize_derived_indicator_frames(
             else:
                 plans = iter(refresh_plan)
             for series_key, source_frames, refreshed_timeframes in plans:
-                del series_key
                 for (
                     timeframe,
                     local_series,
@@ -2654,7 +2750,7 @@ def materialize_derived_indicator_frames(
                     compute_profile,
                     existing_rows,
                 ) in refreshed_timeframes:
-                    yield _build_partition_rows(
+                    rows = _build_partition_rows(
                         dataset_version=dataset_version,
                         indicator_set_version=indicator_set_version,
                         derived_indicator_set_version=derived_indicator_set_version,
@@ -2674,10 +2770,59 @@ def materialize_derived_indicator_frames(
                         if series_mode == "continuous_front"
                         else (),
                     )
+                    partition = _derived_partition_key(
+                        dataset_version=dataset_version,
+                        indicator_set_version=indicator_set_version,
+                        derived_indicator_set_version=derived_indicator_set_version,
+                        series_key=series_key,
+                        timeframe=timeframe,
+                    )
+                    metadata = existing_by_partition.get(partition, [])
+                    head = metadata[0] if metadata else {}
+                    if (
+                        compute_profile == resolved_profile
+                        and head.get("compute_contract_hash") == compute_contract_hash
+                        and head.get("profile_version") == resolved_profile.version
+                        and head.get("output_columns_hash") == target_output_columns_hash
+                    ):
+                        old = load_derived_indicator_partition_rows(
+                            output_dir=derived_indicator_output_dir,
+                            partition=partition,
+                            value_columns=target_output_columns,
+                        )
+                        start, rows = _changed_partition_tail(rows, old)
+                        if start is not None:
+                            tail_starts[partition] = start
+                        del old
+                    yield rows
+                    del rows
                 if series_mode == "continuous_front":
                     source_rows_cache.clear()
                     source_frames_by_family.clear()
                     del source_frames, local_series, local_indicator_rows, source_base_frame
+            for partition, last_bar, metadata in metadata_rebase_plan:
+                old = load_derived_indicator_partition_rows(
+                    output_dir=derived_indicator_output_dir,
+                    partition=partition,
+                    value_columns=target_output_columns,
+                    ts=last_bar.ts,
+                )
+                if len(old) != 1:
+                    raise ValueError("derived metadata carrier is missing or duplicated")
+                head = existing_by_partition[partition][0]
+                stamp = max(
+                    pd.Timestamp.now(tz="UTC"),
+                    pd.Timestamp(head["created_at"]) + pd.Timedelta(1, unit="us"),
+                )
+                tail_starts[partition] = last_bar.ts
+                yield [
+                    replace(
+                        old[0],
+                        **metadata,
+                        bar_end_ts=last_bar.bar_end_ts,
+                        created_at=stamp.isoformat().replace("+00:00", "Z"),
+                    )
+                ]
 
         stage_started = stage_timer()
         derived_output_paths, refreshed_row_count, batch_count = (
@@ -2686,6 +2831,7 @@ def materialize_derived_indicator_frames(
                 row_batches=_row_batches(),
                 replace_partitions=tuple(replace_partitions),
                 profile=resolved_profile,
+                partition_start_ts=tail_starts if table_exists else None,
             )
         )
         output_paths.update(derived_output_paths)
@@ -2726,6 +2872,7 @@ def materialize_derived_indicator_frames(
         "recomputed_partition_count": recomputed_partitions,
         "deleted_partition_count": len(deleted_partitions),
         "write_batch_count": batch_count,
+        "metadata_rebased_partition_count": len(metadata_rebase_plan),
         "refresh_window_count": len(tuple(refresh_windows)),
         "output_columns_hash": target_output_columns_hash,
         "loaded_indicator_partition_count": 0,
