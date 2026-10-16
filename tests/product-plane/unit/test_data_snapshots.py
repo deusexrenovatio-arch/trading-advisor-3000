@@ -704,10 +704,10 @@ def test_materialization_process_mapping_preserves_pins_and_checks_digest(source
         snapshots.load_process_snapshot(path, mapping_path)
 
 
-def test_materialization_research_direct_context_keeps_legacy_contract():
+def test_materialization_research_direct_context_keeps_legacy_contract(tmp_path):
     from trading_advisor_3000.product_plane.research.data_snapshots import snapshot_materialization
 
-    context = SimpleNamespace(op_config={})
+    context = SimpleNamespace(run_id="legacy", op_config={"materialized_output_dir": str(tmp_path)})
 
     @snapshot_materialization(("research_datasets",))
     def existing_owner(actual):
@@ -774,7 +774,8 @@ def test_materialization_failed_status_never_captures_or_stamps_old_outputs(
         owner, "capture_table", lambda *_: pytest.fail("failed stage captured old output")
     )
     context = SimpleNamespace(
-        op_config={"data_snapshot_enabled": True, "materialized_output_dir": str(tmp_path)}
+        run_id="test",
+        op_config={"data_snapshot_enabled": True, "materialized_output_dir": str(tmp_path)},
     )
 
     @owner.snapshot_materialization(("old_output",))

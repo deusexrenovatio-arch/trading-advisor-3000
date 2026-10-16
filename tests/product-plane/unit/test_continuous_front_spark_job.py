@@ -20,6 +20,18 @@ from trading_advisor_3000.spark_jobs import continuous_front_job as job
 class _FakeDataFrame:
     def __init__(self, rows: list[dict[str, object]] | None = None) -> None:
         self.rows = rows or []
+        self.persisted = False
+        self.released = False
+
+    def persist(self, storage_level):
+        assert storage_level.useDisk is True
+        assert storage_level.useMemory is False
+        self.persisted = True
+        return self
+
+    def unpersist(self):
+        self.released = True
+        return self
 
     def select(self, *_columns: object) -> "_FakeDataFrame":
         return self
@@ -184,6 +196,33 @@ def test_continuous_front_spark_job_reports_native_spark_wiring_contract(
     assert str(calendar_path) in fake_spark.read.loaded_paths
     assert str(roll_map_path) in fake_spark.read.loaded_paths
     assert fake_spark.stopped is True
+    assert all(frame.persisted and frame.released for frame in fake_tables.values())
+
+
+def test_continuous_front_releases_cached_plans_after_write_failure(tmp_path, monkeypatch):
+    paths = [tmp_path / f"{name}.delta" for name in ("bars", "calendar", "roll_map")]
+    for path in paths:
+        (path / "_delta_log").mkdir(parents=True)
+    spark = _FakeSpark()
+    tables = {name: _FakeDataFrame() for name in CONTINUOUS_FRONT_TABLES}
+    monkeypatch.setattr(job, "_build_spark_native_tables", lambda **_: tables)
+
+    def fail_write(**_):
+        assert all(frame.persisted for frame in tables.values())
+        raise RuntimeError("injected staging failure")
+
+    monkeypatch.setattr(job, "_write_spark_dataframe_tables", fail_write)
+    with pytest.raises(RuntimeError, match="injected staging failure"):
+        job.run_continuous_front_spark_job(
+            canonical_bars_path=paths[0],
+            canonical_session_calendar_path=paths[1],
+            canonical_roll_map_path=paths[2],
+            output_dir=tmp_path / "output",
+            dataset_version="failed-cache",
+            spark_session_factory=lambda *_: spark,
+        )
+    assert all(frame.released for frame in tables.values())
+    assert spark.stopped
 
 
 def test_continuous_front_bars_contract_carries_active_contract_economics() -> None:
@@ -446,6 +485,77 @@ def test_spark_native_adjustment_uses_backward_current_anchor(
         assert event["additive_gap"] == pytest.approx(10.0)
         assert ladder["cumulative_offset_before"] == pytest.approx(10.0)
         assert ladder["cumulative_offset_after"] == pytest.approx(0.0)
+
+        # A narrow correction window must retain the causal prefix and also
+        # refresh later rows whose roll state depends on that correction.
+        from pyspark.sql import functions as F
+
+        mixed_bars = bars.unionByName(
+            bars.withColumn("instrument_id", F.lit("RI")).withColumn("timeframe", F.lit("1h"))
+        ).unionByName(
+            bars.withColumn("timeframe", F.lit("1h")).withColumn("volume", F.lit(-1).cast("long"))
+        )
+        monkeypatch.setattr(
+            job,
+            "_load_filtered_bars",
+            lambda **kwargs: job._filter_to_refresh_windows(
+                mixed_bars, kwargs.get("refresh_windows", ())
+            ),
+        )
+        scoped = job._build_spark_native_tables(
+            spark=spark,
+            canonical_bars_path=tmp_path / "canonical_bars.delta",
+            canonical_contract_economics_path=economics_path,
+            dataset_version="spark-current-anchor-v1",
+            policy=ContinuousFrontPolicy(
+                roll_policy_version="front_liquidity_oi_v1",
+                roll_policy_mode="liquidity_oi_v1",
+                primary_metric="open_interest",
+                secondary_metric="volume",
+                confirmation_bars=1,
+                switch_timing="next_tradable_bar_after_decision_watermark",
+                tie_breaker="higher_open_interest_then_volume_then_contract_id",
+                reference_price_policy="decision_bar_close",
+            ),
+            run_id="spark-current-anchor",
+            instrument_ids=(),
+            timeframes=("15m",),
+            start_ts=None,
+            end_ts=None,
+            refresh_windows=(
+                job.ContinuousFrontRefreshWindow(
+                    "BR",
+                    "15m",
+                    "2022-03-21T10:30:00Z",
+                    "2022-03-21T10:30:00Z",
+                ),
+                job.ContinuousFrontRefreshWindow(
+                    "RI", "1h", "2022-03-21T10:30:00Z", "2022-03-21T10:30:00Z"
+                ),
+            ),
+        )
+        actual = [
+            row.asDict()
+            for row in scoped["continuous_front_bars"]
+            .where("instrument_id = 'BR'")
+            .orderBy("ts")
+            .collect()
+        ]
+        state_columns = (
+            "ts",
+            "active_contract_id",
+            "previous_contract_id",
+            "roll_epoch",
+            "roll_event_id",
+            "bars_since_roll",
+            "native_close",
+        )
+        assert [{key: row[key] for key in state_columns} for row in actual] == [
+            {key: row[key] for key in state_columns} for row in front[2:]
+        ]
+        qc = scoped["continuous_front_qc_report"].collect()
+        assert {(row.instrument_id, row.timeframe) for row in qc} == {("BR", "15m"), ("RI", "1h")}
+        assert all(row.status == "PASS" for row in qc)
     finally:
         spark.stop()
 
