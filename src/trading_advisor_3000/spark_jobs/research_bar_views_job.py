@@ -853,11 +853,14 @@ def _native_bar_views(
     warmup_bars: int,
     canonical_contract_economics_path: Path | None = None,
     usage_context: BarUsageContextFrames | None = None,
+    refresh_windows: tuple[Mapping[str, object], ...] = (),
 ):
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
     bars = read_spark_delta(spark, str(canonical_bars_path))
     bars = _apply_filters(bars, instrument_ids=instrument_ids, timeframes=timeframes)
+    if refresh_windows:
+        bars = bars.where(_l0_window_condition(refresh_windows, mode="pair"))
     if contract_ids:
         bars = bars.where(F.col("contract_id").isin([*contract_ids]))
     if end_ts:
@@ -1034,12 +1037,15 @@ def _pit_active_front_bar_views(
     end_ts: str | None,
     warmup_bars: int,
     usage_context: BarUsageContextFrames | None = None,
+    refresh_windows: tuple[Mapping[str, object], ...] = (),
 ):
     from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
     bars = read_spark_delta(spark, str(continuous_front_bars_path))
     bars = bars.where(F.col("dataset_version") == F.lit(dataset_version))
     bars = _apply_filters(bars, instrument_ids=instrument_ids, timeframes=timeframes)
+    if refresh_windows:
+        bars = bars.where(_l0_window_condition(refresh_windows, mode="pair"))
     if end_ts:
         bars = bars.where(F.col("ts") <= F.lit(end_ts))
 
@@ -1290,6 +1296,113 @@ def _scoped_delete_condition(
     return f"({base_condition}) OR ({legacy_condition} AND contour_id IS NULL)"
 
 
+def _normalize_l0_refresh_windows(
+    windows: tuple[Mapping[str, object], ...],
+    *,
+    instrument_ids: tuple[str, ...],
+    timeframes: tuple[str, ...],
+) -> tuple[dict[str, object], ...]:
+    grouped = {}
+    for window in windows:
+        instrument, timeframe = str(window["instrument_id"]), str(window["timeframe"])
+        if (instrument_ids and instrument not in instrument_ids) or (
+            timeframes and timeframe not in timeframes
+        ):
+            raise ValueError("L0 refresh window escapes requested dataset domain")
+        start = datetime.fromisoformat(str(window["start_ts"]).replace("Z", "+00:00"))
+        end = datetime.fromisoformat(str(window["end_ts"]).replace("Z", "+00:00"))
+        start = start.replace(tzinfo=UTC) if start.tzinfo is None else start.astimezone(UTC)
+        end = end.replace(tzinfo=UTC) if end.tzinfo is None else end.astimezone(UTC)
+        if not instrument or not timeframe or start > end:
+            raise ValueError("Invalid L0 refresh window")
+        key = instrument, timeframe
+        grouped[key] = min(grouped.get(key, start), start)
+    return tuple(
+        {
+            "instrument_id": instrument,
+            "timeframe": timeframe,
+            "start_ts": start.isoformat().replace("+00:00", "Z"),
+        }
+        for (instrument, timeframe), start in sorted(grouped.items())
+    )
+
+
+def _l0_window_condition(windows: tuple[Mapping[str, object], ...], *, mode: str = "tail") -> str:
+    clauses = []
+    for window in windows:
+        pair = " AND ".join(
+            f"{column} = {_spark_sql_literal(window[column])}"
+            for column in ("instrument_id", "timeframe")
+        )
+        if mode != "pair" and window.get("start_ts") is not None:
+            operator = "<" if mode == "prefix" else ">="
+            pair += f" AND ts {operator} {_spark_sql_literal(window['start_ts'])}"
+        clauses.append(f"({pair})")
+    return " OR ".join(clauses) or "false"
+
+
+def _l0_persistence_windows(
+    *,
+    dataframe,
+    table_path: Path,
+    dataset_version: str,
+    contours: tuple[str, ...],
+    windows: tuple[Mapping[str, object], ...],
+    start_ts: str | None,
+    end_ts: str | None,
+    contract_ids: tuple[str, ...] = (),
+) -> tuple[dict[str, object], ...]:
+    """Compare complete native values; retain only proven unchanged prefixes.
+
+    EXCEPT ALL includes values, logical series, NULLs, warmup roles and physical
+    close year. New contracts/contours and deleted warmup members cannot hide
+    behind an existing instrument/timeframe key.
+    """
+    from pyspark.sql import functions as F
+
+    full = _cast_to_contract(dataframe, "research_bar_views")
+    stored = read_spark_delta(dataframe.sparkSession, str(table_path)).where(
+        (F.col("dataset_version") == dataset_version) & F.col("contour_id").isin(list(contours))
+    )
+    if contract_ids:
+        stored = stored.where(F.col("contract_id").isin(list(contract_ids)))
+    for field in full.schema.fields:
+        if field.name not in stored.columns:
+            stored = stored.withColumn(field.name, F.lit(None).cast(field.dataType))
+    pairs = _l0_window_condition(windows, mode="pair")
+    old = stored.where(pairs).select(*full.columns)
+    new = full.where(pairs).select(*full.columns)
+    changed_pairs = {
+        (row["instrument_id"], row["timeframe"]): row["first_second"]
+        for row in old.exceptAll(new)
+        .unionByName(new.exceptAll(old))
+        .groupBy("instrument_id", "timeframe")
+        .agg(F.min(F.col("ts").cast("long")).alias("first_second"))
+        .collect()
+    }
+    result = []
+    for window in windows:
+        key = window["instrument_id"], window["timeframe"]
+        if key not in changed_pairs:
+            continue
+        first = changed_pairs[key]
+        first_ts = datetime.fromtimestamp(first, UTC) if first is not None else None
+        declared_start = datetime.fromisoformat(str(window["start_ts"]).replace("Z", "+00:00"))
+        result.append(
+            {
+                **window,
+                "start_ts": (
+                    first_ts.isoformat().replace("+00:00", "Z")
+                    if first_ts is not None
+                    and not (start_ts or end_ts)
+                    and first_ts >= declared_start
+                    else None
+                ),
+            }
+        )
+    return tuple(result)
+
+
 def _research_l0_replace_filters(
     *,
     dataset_version: str,
@@ -1335,7 +1448,12 @@ def _research_instrument_tree_replace_filters(
 
 
 def _write_spark_delta_table(
-    *, dataframe, table_path: Path, table_name: str, replace_scope: list[tuple[str, str, object]]
+    *,
+    dataframe,
+    table_path: Path,
+    table_name: str,
+    replace_scope: list[tuple[str, str, object]],
+    refresh_windows: tuple[Mapping[str, object], ...] = (),
 ) -> None:
     contract = research_dataset_store_contract()[table_name]
     exists = has_delta_log(table_path)
@@ -1398,7 +1516,15 @@ def _write_spark_delta_table(
         empty = empty.withColumn(
             YEAR_PARTITION_COLUMN, F.col(YEAR_PARTITION_COLUMN).cast(carrier_type)
         )
-    empty.write.format("delta").mode("append").option("mergeSchema", "true").save(str(table_path))
+    target_schema = read_spark_delta(dataframe.sparkSession, str(table_path)).schema
+    if any(
+        field.name not in target_schema.names
+        or field.dataType != target_schema[field.name].dataType
+        for field in casted.schema.fields
+    ):
+        empty.write.format("delta").mode("append").option("mergeSchema", "true").save(
+            str(table_path)
+        )
 
     from delta.tables import DeltaTable  # type: ignore[import-not-found]
 
@@ -1407,12 +1533,27 @@ def _write_spark_delta_table(
         include_legacy_null_contour=table_name
         in {"research_bar_views", "research_instrument_tree"},
     )
+    if refresh_windows:
+        delete_condition = f"({delete_condition}) AND ({_l0_window_condition(refresh_windows)})"
+    existing_target = read_spark_delta(dataframe.sparkSession, str(table_path))
     _assert_unique_by_key(
-        read_spark_delta(dataframe.sparkSession, str(table_path)),
+        existing_target,
         table_name=table_name,
         key_columns=key_columns,
         frame_role="write target",
     )
+    if table_name == "research_instrument_tree":
+        semantic_columns = [column for column in casted.columns if column != "created_at"]
+        scoped = existing_target.where(delete_condition).select(*semantic_columns)
+        replacement = casted.select(*semantic_columns)
+        if (
+            scoped.exceptAll(replacement)
+            .unionByName(replacement.exceptAll(scoped))
+            .limit(1)
+            .count()
+            == 0
+        ):
+            return
     delta_table = DeltaTable.forPath(dataframe.sparkSession, str(table_path))
     delta_table.delete(delete_condition)
 
@@ -1478,6 +1619,7 @@ def run_research_bar_views_spark_job(
     execution_economics_required: bool = False,
     spark_master: str = DEFAULT_SPARK_MASTER,
     spark_session_factory: Callable[[str, str], object] | None = None,
+    refresh_windows: tuple[Mapping[str, object], ...] = (),
 ) -> dict[str, object]:
     stage_timings: StageTimings = {}
     stage_started = stage_timer()
@@ -1517,18 +1659,47 @@ def run_research_bar_views_spark_job(
         contour_count=len(contours),
     )
 
+    scoped_windows = _normalize_l0_refresh_windows(
+        tuple(refresh_windows), instrument_ids=instrument_ids, timeframes=timeframes
+    )
+    if not all(
+        has_delta_log(output_dir / f"{name}.delta")
+        for name in ("research_bar_views", "research_instrument_tree", "research_datasets")
+    ):
+        scoped_windows = ()
+    compute_instrument_ids = (
+        tuple(sorted({str(window["instrument_id"]) for window in scoped_windows}))
+        if scoped_windows
+        else instrument_ids
+    )
     spec = ResearchBarViewsSparkJobSpec()
     spark_factory = spark_session_factory or _create_spark_session
     stage_started = stage_timer()
     spark = spark_factory(spec.app_name, spark_master)
     record_stage_timing(stage_timings, "start_spark", stage_started, master=spark_master)
     try:
+        # Equality reuse cannot bypass the same layout admission as a write.
+        for name in ("research_bar_views", "research_instrument_tree"):
+            path = output_dir / f"{name}.delta"
+            if has_delta_log(path) and not _delta_table_layout_matches_contract(
+                spark=spark, table_path=path, table_name=name
+            ):
+                raise ValueError(
+                    f"{name} requires an isolated layout migration; "
+                    "existing Delta identity retained"
+                )
+            if has_delta_log(path) and name == "research_bar_views":
+                carrier = read_spark_delta(spark, str(path)).schema[YEAR_PARTITION_COLUMN].dataType
+                if carrier.simpleString() not in {"int", "bigint"}:
+                    raise ValueError(
+                        "research physical year carrier requires an integer storage type"
+                    )
         stage_started = stage_timer()
         usage_context = _bar_usage_context_frames(
             spark=spark,
             canonical_bars_path=canonical_bars_path,
             canonical_session_intervals_path=canonical_session_intervals_path,
-            instrument_ids=instrument_ids,
+            instrument_ids=compute_instrument_ids,
             start_ts=start_ts,
             end_ts=end_ts,
             warmup_bars=warmup_bars,
@@ -1555,6 +1726,7 @@ def run_research_bar_views_spark_job(
                     warmup_bars=warmup_bars,
                     canonical_contract_economics_path=canonical_contract_economics_path,
                     usage_context=usage_context,
+                    refresh_windows=scoped_windows,
                 )
             )
             record_stage_timing(stage_timings, "build_native_bar_views", stage_started)
@@ -1581,6 +1753,7 @@ def run_research_bar_views_spark_job(
                     end_ts=end_ts,
                     warmup_bars=warmup_bars,
                     usage_context=usage_context,
+                    refresh_windows=scoped_windows,
                 )
             )
             record_stage_timing(stage_timings, "build_pit_active_front_bar_views", stage_started)
@@ -1610,21 +1783,60 @@ def run_research_bar_views_spark_job(
             "research_datasets": (output_dir / "research_datasets.delta").as_posix(),
         }
         stage_started = stage_timer()
-        _write_spark_delta_table(
-            dataframe=bar_views,
-            table_path=Path(output_paths["research_bar_views"]),
-            table_name="research_bar_views",
-            replace_scope=_research_l0_replace_filters(
+        persistence_windows = (
+            _l0_persistence_windows(
+                dataframe=bar_views,
+                table_path=Path(output_paths["research_bar_views"]),
                 dataset_version=dataset_version,
                 contours=contours,
-                instrument_ids=instrument_ids,
-                contract_ids=contract_ids,
-                timeframes=timeframes,
+                windows=scoped_windows,
                 start_ts=start_ts,
                 end_ts=end_ts,
-            ),
+                contract_ids=contract_ids,
+            )
+            if scoped_windows
+            else ()
         )
-        record_stage_timing(stage_timings, "write_research_bar_views", stage_started)
+        write_required = not scoped_windows or bool(persistence_windows)
+        if write_required:
+            _write_spark_delta_table(
+                dataframe=bar_views.where(_l0_window_condition(persistence_windows))
+                if persistence_windows
+                else bar_views,
+                table_path=Path(output_paths["research_bar_views"]),
+                table_name="research_bar_views",
+                replace_scope=_research_l0_replace_filters(
+                    dataset_version=dataset_version,
+                    contours=contours,
+                    instrument_ids=instrument_ids,
+                    contract_ids=contract_ids,
+                    timeframes=timeframes,
+                    start_ts=None if scoped_windows else start_ts,
+                    end_ts=None if scoped_windows else end_ts,
+                ),
+                refresh_windows=persistence_windows,
+            )
+        else:
+            _assert_unique_by_key(
+                read_spark_delta(spark, output_paths["research_bar_views"]),
+                table_name="research_bar_views",
+                frame_role="write target",
+                key_columns=(
+                    "dataset_version",
+                    "contour_id",
+                    "series_mode",
+                    "series_id",
+                    "timeframe",
+                    "ts",
+                ),
+            )
+        record_stage_timing(
+            stage_timings,
+            "write_research_bar_views",
+            stage_started,
+            refresh_window_count=len(persistence_windows),
+            reused_equal_rows=not write_required,
+        )
         for frame in contour_frames:
             frame.unpersist()
         usage_context.unpersist()
@@ -1635,8 +1847,8 @@ def run_research_bar_views_spark_job(
             (F.col("dataset_version") == F.lit(dataset_version))
             & (F.col("contour_id").isin([*contours]))
         )
-        if instrument_ids:
-            tree_source = tree_source.where(F.col("instrument_id").isin([*instrument_ids]))
+        if compute_instrument_ids:
+            tree_source = tree_source.where(F.col("instrument_id").isin([*compute_instrument_ids]))
         instrument_tree = _instrument_tree_from_bar_views(tree_source, universe_id=universe_id)
         record_stage_timing(stage_timings, "build_instrument_tree", stage_started)
 
@@ -1648,7 +1860,7 @@ def run_research_bar_views_spark_job(
             replace_scope=_research_instrument_tree_replace_filters(
                 dataset_version=dataset_version,
                 contours=contours,
-                instrument_ids=instrument_ids,
+                instrument_ids=compute_instrument_ids,
             ),
         )
         record_stage_timing(stage_timings, "write_instrument_tree", stage_started)

@@ -435,7 +435,7 @@ def test_benchmark_python_l0_bootstrap_route_is_removed(tmp_path) -> None:
     )
 
 
-def test_spark_l0_writer_preserves_existing_delta_tables_or_rewrites_layout_once() -> None:
+def test_spark_l0_writer_preserves_identity_and_rejects_layout_rewrite() -> None:
     source = Path("src/trading_advisor_3000/spark_jobs/research_bar_views_job.py").read_text(
         encoding="utf-8"
     )
@@ -443,7 +443,8 @@ def test_spark_l0_writer_preserves_existing_delta_tables_or_rewrites_layout_once
     assert "_scoped_delete_condition(" in source
     assert "include_legacy_null_contour=table_name" in source
     assert "_delta_table_layout_matches_contract(" in source
-    assert "_replace_spark_delta_table(" in source
+    assert "_replace_spark_delta_table(" not in source
+    assert "requires an isolated layout migration; existing Delta identity retained" in source
     assert "_research_l0_replace_filters(" in source
     assert ".merge(" in source
     assert ".whenMatchedUpdateAll()" in source
@@ -494,6 +495,41 @@ def test_spark_l0_instrument_tree_preserves_business_identity_rules() -> None:
     assert '"lineage_key"' in source
     assert '.withColumn("universe_id"' in source
     assert 'F.first("series_id").alias("internal_id")' not in source
+
+
+def test_spark_l0_windowed_noop_rejects_layout_before_computation(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(spark_l0_job, "has_delta_log", lambda _: True)
+    monkeypatch.setattr(spark_l0_job, "_delta_table_layout_matches_contract", lambda **_: False)
+
+    def unexpected(**kwargs):
+        raise AssertionError("layout admission was bypassed")
+
+    monkeypatch.setattr(spark_l0_job, "_bar_usage_context_frames", unexpected)
+    monkeypatch.setattr(spark_l0_job, "_l0_persistence_windows", unexpected)
+    with pytest.raises(ValueError, match="isolated layout migration"):
+        spark_l0_job.run_research_bar_views_spark_job(
+            canonical_bars_path=tmp_path / "bars.delta",
+            canonical_bar_provenance_path=tmp_path / "provenance.delta",
+            canonical_session_intervals_path=tmp_path / "intervals.delta",
+            canonical_session_calendar_path=tmp_path / "calendar.delta",
+            canonical_roll_map_path=tmp_path / "roll.delta",
+            continuous_front_bars_path=tmp_path / "cf.delta",
+            output_dir=tmp_path / "output",
+            dataset_version="layout-guard",
+            contours=("native_tradable",),
+            spark_session_factory=lambda *_: SimpleNamespace(stop=lambda: None),
+            refresh_windows=(
+                {
+                    "instrument_id": "BR",
+                    "timeframe": "15m",
+                    "start_ts": "2026-01-01T00:00:00Z",
+                    "end_ts": "2026-01-02T00:00:00Z",
+                },
+            ),
+        )
+    assert not list(tmp_path.iterdir())
 
 
 def test_spark_l0_partial_replace_scope_tracks_request_filters() -> None:

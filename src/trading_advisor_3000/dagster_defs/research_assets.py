@@ -2691,6 +2691,12 @@ def research_datasets(context) -> dict[str, object]:
             contours=research_l0_contours,
             canonical_contract_economics_path=_canonical_contract_economics_path(config),
             execution_economics_required=True,
+            refresh_windows=(
+                tuple(_changed_windows_from_research_config(config))
+                if int(_config_value(config, "refresh_scope_version", 0)) == 1
+                and not bool(_config_value(config, "force_full_refresh", False))
+                else ()
+            ),
             spark_master=str(_config_value(config, "spark_master", "")) or DEFAULT_SPARK_MASTER,
         )
     optimizer_policy = _optimizer_policy_from_research_config(config)
